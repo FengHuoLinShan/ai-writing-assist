@@ -210,6 +210,8 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     assert task.meta["novel_id"] == novel_id
     assert task.meta["chapter_index"] == 2
     assert task.meta["context_confirmation_id"] == confirmation_id
+    assert task.meta["generation_mode"] == "draft"
+    assert task.meta["base_draft_id"] is None
     snapshot = task.meta["llm_execution_snapshot"]
     assert snapshot["novel_id"] == novel_id
     assert snapshot["profile"]["model"] == "frozen-writing-model"
@@ -226,6 +228,24 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     confirmation = confirmation_result.scalar_one()
     assert confirmation.result_status == "running"
     assert {"type": "task", "id": data["task_id"]} in confirmation.result_refs
+
+
+@pytest.mark.asyncio
+async def test_generate_continue_requires_base_draft_id(
+    async_client: AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/api/writing/generate",
+        json={
+            "novel_id": str(uuid.uuid4()),
+            "chapter_index": 2,
+            "context_confirmation_id": str(uuid.uuid4()),
+            "generation_mode": "continue",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "base_draft_id is required for continue mode" in response.text
 
 
 @pytest.mark.asyncio

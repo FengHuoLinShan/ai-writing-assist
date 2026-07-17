@@ -19,10 +19,10 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
   `replace_existing` 意图，不在任务执行前修改 Scene 或实体
 - 深度导入 Scene 阶段执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Phase1c scene fusion → Scene commit`；Phase 1c 仅在 `high_quality=true` 时运行
 - Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 上限。默认目标输入约 `72000` 字符，窗口最多 20 章。DeepSeek v4 Flash 实测 `0.36`、`0.4`、`0.6` 都出现过截断；`0.75` 一次四窗首轮通过，但同一 1–60 章末窗的复跑仍在 `19898/19898` 处 `finish_reason=length`，因此不将偶然通过视为稳定。`max_tokens` 只是上限而不会强制模型用完，默认系数提升为 `1.0`，即 `max_tokens=clamp(round(input_chars * 1.0), 13000, 32768)`。这套阶段预算不继承项目通用 `max_tokens`；Phase 1b/2/3 从首次请求就使用各自冻结的 32768 上限，不实验更小预算。
-- Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。Scene 按独立主要叙事目标、冲突或关键状态转变切分，不使用字数或每章数量阈值。锚点修复与缺章恢复同样使用统一 reasoning 策略。
-- Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；不得改写 Phase 1a 已确定的 `scene_chunks`。章节级 fallback 的语义状态仍为 fallback，但其整章 offset 和 source hash 是可确定的精确来源，两者分开记录。Phase 1b enrichment 的默认 `max_tokens` 已与其他结构化阶段统一为 32768，不再由旧的 4096 上限导致补充字段截断；实际 payload 从 effective `deep_import.phase1b.enrich_max_tokens` 生成，不再用 env/default 覆盖项目值，且该值在任务提交时进入冻结 deep-import settings。
-- Phase 1c 审核 `intra_chapter` / `cross_chapter` / `duplicate_window` 相邻候选；高置信且来源精确的结果自动融合，其余写入 outline 融合建议队列。来源指纹仍有效的 pending、dismissed、adopted 决定由该队列独占处理，项目级 Scene 去重不会重复提出来源对，或 adopted 融合结果与其来源的组合；来源变化后才恢复全局扫描资格。旧独立跨章检测链已删除。
-- Phase 1c 未显式配置 `decision_max_tokens` 时继承有效项目/全局/系统 LLM `max_tokens`，并在任务提交时冻结；单对结构化决策默认超时为 360 秒。
+- Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。Scene 按独立主要叙事目标、冲突或关键状态转变切分，不使用字数或每章数量阈值。每个窗口还会冻结前一章最多 2000 字尾部，以及通过 outline/world facade 取得的活跃剧情结构与 `author_safe` canonical 世界对象；相关人物最多 6 个、非人物对象最多 16 个，按正文提及、已有 Scene 关联、篇章/剧情线关联排序。锚点修复与连续覆盖缺口恢复同样使用统一 reasoning 策略。精确 span 重叠会先携带本地诊断要求模型纠正；若纠正后仍重叠，则隔离整个受影响章节范围并进入恢复或章节级 fallback，不允许重叠候选进入后续阶段。
+- Phase 1b 每个 Scene 一个并发 enrichment 请求，不得改写 Phase 1a 已确定的语义和 `scene_chunks`。调用前按全部 chunks 校验 draft/hash/offset 并物化完整 Scene 正文，不发送混有相邻 Scene 的整章正文，也不做应用层输入截断、摘要或采样；同时合并冻结 Phase 1a 窗口中的相邻 Scene、活跃结构、人物 Top-6 和非人物对象 Top-16。模型可明确返回不适用的空 `emotional_beat` / `must_happen` / `must_not_happen`，本地按 `uncertain_fields` 与来源状态计算复核，不生成占位语义。输出 `max_tokens` 默认 32768，并从冻结的 effective `deep_import.phase1b.enrich_max_tokens` 传入 payload。
+- Phase 1c 先按 Phase 1a 窗口成组审阅完整相邻候选序列，区分 `same_scene / duplicate / overlap / separate / uncertain`，再只对高置信、无不确定性且来源精确的连通组调用独立 synthesis。最终 Scene 语义由 synthesis 重新综合，不拼接成员字段；真实不适用的字段保持空值。其余结果写入 outline 融合建议队列；高置信 `separate` 以隐藏的 `dismissed` 决策保存，不增加作者待办，但会阻止智能去重重复询问。来源变化后才恢复全局扫描资格。旧独立跨章检测链已删除。
+- Phase 1c 未显式配置 `decision_max_tokens / synthesis_max_tokens` 时继承有效项目/全局/系统 LLM `max_tokens`，并在任务提交时冻结；结构化调用默认超时为 360 秒。
 - Phase 2 的逐 Scene 与窗口式输出都可返回四类显式
   `map_observation_proposals`：人物地点、事件地点、线路状态、势力范围。imports 以
   Scene/章节、输入指纹、context snapshot、逐字证据和稳定 `source_item_key` 构造
@@ -32,17 +32,23 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
   窗口路径都必须沿用 task 提交时冻结的 `authorization_snapshot`；不得在映射时
   临时伪造授权。旧通用 `delta_event` 地图入口仅保留兼容，不能承载这四类
   proposal。
+- Phase 2a 的逐 Scene LLM 默认并发为 25，provider/LLM 超时为 240/270 秒。运行时降载只把 429、连接失败与超时视为 provider 压力信号：单波出现任一 429，或至少两个传输/超时失败时并发减半；schema、partial-list 等格式诊断只进入质量统计和 Prompt 修复，不触发降载。历史真实验收表明 64 并发会放大后半段尾延迟与批量超时，因此不恢复到 64。
+- Phase 2a 的阶段内自动修复使用首轮失败 Scene 的稳定 ID 作为显式白名单，并显式关闭 Phase 2b；首轮持久化导致 working 世界上下文指纹变化时，不得把已完成 Scene 扩大为修复重跑范围，也不得因一个 P13 失败重放已完成的别名/关系阶段。修复结果按 Scene ID 覆盖失败 checkpoint，并保留其他已完成或来源不完整的 checkpoint。
 - 深度导入保持自动流水线，不对每个 LLM step 重复弹出“AI 参考资料”确认；但首次提交必须显式传 `authorization_confirmed=true`，一次授权 `user_authorized_pipeline` 采用策略。Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
-- Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求只消费当前 Scene 的版本绑定精确 span 和前序 brief，写入仍按 `scene_index` 串行归并
-- Phase 2a 已收敛为 `ImportContextActivation -> concurrent LLM -> scene_index ordered persistence`：当前 Scene 在可见截止章/offset 以前的精确 span 正文和最多两个前序 brief 是唯一 Scene-local 证据。Phase 2a/2b 的 DeepSeek 请求普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。
-- Phase 2a/2b checkpoint 追加确定性 `input_fingerprint`，覆盖 Scene 语义、`scene_chunks` 的 draft/hash/offset 来源信息与实际消费正文。只有 `done` / `skipped` checkpoint 的指纹与当前输入一致时才允许跳过；旧 checkpoint、缺失指纹或输入漂移均按 fail-safe 重新执行。Scene 正文选择优先使用 end-exclusive `start_offset:end_offset`，仅在 offset 无效时回退到显式 paragraph 边界，不会把缺失边界默认为首段。
-- Phase 2a 不接收后续 Scene 或右侧边界补充证据；需要全局信息的别名、关系和连续性对账仅在 Phase 2b 执行
+- Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求消费当前 Scene 的版本绑定完整精确 span、锁定 Scene 卡、相关 active working 大纲、身份候选和前序证据，写入仍按 `scene_index` 串行归并
+- Phase 2a 已收敛为 `ImportContextActivation v2 -> concurrent LLM -> deterministic materializer -> scene_index ordered persistence`。当前 Scene 在可见截止章/offset 以前的完整精确正文是唯一新事实证据；Top-6 人物 / Top-16 非人物对象只控制相关资产范围，不裁剪模型输入。provider 上下文超限按 Scene 显式失败，不静默缩短正文。Phase 2a/2b 的 DeepSeek 请求普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。
+- Phase 2a/2b checkpoint 使用确定性 `input_fingerprint`；Phase 2a v2 额外纳入 context fingerprint 和 Prompt contract version，覆盖 Scene 语义、`scene_chunks` 的 draft/hash/offset 来源、实际消费正文、Scene 卡、相关大纲、身份候选和前序证据。只有 `done` / `skipped` checkpoint 的指纹与当前输入一致时才允许跳过；旧 checkpoint、缺失指纹、Prompt 升级或输入漂移均按 fail-safe 重新执行。Scene 正文选择优先使用 end-exclusive `start_offset:end_offset`；任一可见 SceneSpan 不精确或覆盖不完整时整 Scene 跳过，不会静默发送部分正文。
+- Phase 2a 只输出长期世界对象、持久 Delta、四类地图观察和不确定项；关系与新别名完全由 Phase 2b 负责。Phase 2a 不接收后续 Scene 或右侧边界补充证据，模型不决定持久化动作、审核状态或 `needs_review`；服务端只接受已知 `entity-xxx` 身份引用和当前 Scene 中可逐字定位的证据
+- Phase 2b 复用同一份完整精确 Scene activation，加入相关既有关系的 `relation-xxx` 引用；不使用旧 Scene/对象索引字符上限裁剪输入。v3 把输出视为当前 Scene 带来的关系增量，而非仍成立关系的摘要；模型同时区分 established / reaffirmed / changed / ended 与 `enduring / stateful / episodic / uncertain`，只有 Scene 结束后仍成立的持久联系或持续状态可以进入候选；一次性动作和证据不足判断只保留诊断。关系类型优先复用既有类型和稳定语义族，但不以固定数量限制真实关系。服务端重验对象、关系、逐字证据、持续性和快照来源，只写候选或补证据，不自动融合对象、覆盖或废弃已采用关系。
 - Phase 2a 的 `ExtractedEntity` 与窗口级 `Phase2WorldObject` 在进入 world 的作者宽松 `CoreEntityCreate` 前仍执行固定系统 `entity_type` 校验；深度导入不会创建或复用项目自定义类型
-- Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；`link_to_existing` 的目标名称必须重新解析为同项目、同类型的已采用对象 ID，未解析到已采用对象时只保留名称提示，不视为有效别名目标。高置信重复实体只记录建议目标并进入待处理，不自动融合到已有对象。重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
-- Phase 2a/2b 在写入 world 候选别名前会拒绝模型字段占位词（当前包括 `变量`、
+- Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；任何非 `ignore` 观察只要与同项目、同类型 working 对象规范名完全一致，就确定性复用 canonical/draft/candidate，不受模型返回 `create_new` 或 `link_to_existing` 影响，避免重跑制造影子候选。非同名别名建议仍必须解析为已采用对象 ID；未解析时只保留名称提示，不把歧义建议自动融合。重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
+- Phase 2b 在写入 world 候选别名前会拒绝模型字段占位词（当前包括 `变量`、
   `variable`、`placeholder`）；这类输出不进入待处理别名，也不参与实体别名去重。
-- Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
+- Phase 3 只基于已提交 Scene 证据生成结构化结论，每条结果必须引用输入 Scene；没有 Scene
+  证据时返回空结果和复核诊断，不调用 provider，也不回退到 P20 创作 Prompt。完成后会通过
+  outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，
+  跨已有资产的建议仅写入任务结果
 - Phase 3 结构化请求同样使用冻结的 `deep_import.phase3.structure_max_tokens`（默认 32768），不再按 prompt 长度进行 token 阶梯扩容；该字段会出现在项目设置与任务冻结快照中。格式/transport 故障可保留一次同预算修复/重试，业务质量 replacement rerun 继续是独立门禁，两者都不扩大 `max_tokens`。
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
 - 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
@@ -109,7 +115,7 @@ world entities。任务在 commit 前失败时旧资产保持不变。
 
 ## 上下文快照边界
 
-- Phase 2 保持当前 handcrafted prompt/context 构造，不重接 context compiler；Phase 2a 快照记录实体抽取上下文，Phase 2b 快照记录别名/关系提取的对象索引与 Scene 摘要，二者都回写 result refs。
+- Phase 2 保持由确定性工作流装配专用上下文，不重接通用 context compiler；Phase 2a 快照记录 `import-context-v2` 的完整紧凑上下文、来源与 fingerprint，Phase 2b 快照保留实际发送给 provider 的完整 fenced user payload、相关对象/关系引用、来源与 fingerprint，二者都回写 result refs。上下文和快照准备完成后先提交事务，再发起 provider 调用。
 - Phase 3 结构分析由深度导入调用时传入 `workflow_id` / `task_id` 并开启 `audit_context_snapshot=True`；手动 AI 操作默认不创建 snapshot。
 - Phase 3 继续复用 outline 的全书 Scene 摘要链路，不默认加载全书正文；追加 derived world background，并对空结构、无引用或无有效篇章范围执行至多一次 workflow-owned replacement rerun。
 - Phase 3 快照使用 `context_mode="working"` 和 `include_pending_objects=true`，记录结构上下文的 section/token metadata。若当前编译结果未暴露完整 asset ids，只记录可见资产并在 metadata 中说明。
@@ -131,10 +137,13 @@ execution snapshot。API Key、Base URL 或 model 不可用时直接返回 400�
 `phase="failed"` 必须收敛为 task `failed`；失败保留当前进度，只有成功终态写入 100%。
 
 独立 `scene_auto_extraction` stage task 在任何 health/provider 调用前先以
-worker lease fence 持久化一次 prepare：冻结项目 title/genre/tone、项目 LLM
+worker lease fence 持久化一次 v2 prepare：冻结项目 title/genre/tone、项目 LLM
 execution snapshot 指纹、授权范围与每章
 `chapter_index + source_draft_id + content_hash` 来源向量，以及
-`high_quality/replace_existing` 提交语义。旧任务只在第一次
+`high_quality/replace_existing` 提交语义，并保存完整紧凑 Phase 1a context bundle、
+选择 trace、contract version 和 fingerprint。正式提交前会在章节锁内重编译该上下文；
+任一剧情结构、世界对象或左侧边界漂移都拒绝 provider 结果。未完成的 v1 prepare
+必须重新提交，不能由 v2 Prompt 继续消费。旧任务只在第一次
 prepare 时补冻结 snapshot，重试不把动态 lease/attempt 纳入语义指纹。
 LLM health、Phase 1a/1b 与高质量 Phase 1c 等待期间不持有数据库事务；
 provider 结果提交前按 project 优先锁序重验项目、snapshot、来源向量和
@@ -156,7 +165,14 @@ worker 启动时会检测 stale 的 deep-import/stage task，清空旧 lease 并
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
 Phase 0 只做确定性窗口规划，不执行 LLM 健康或 422 门禁；Phase 1a 使用
 Phase 0 计算出的 `max_tokens`，在 length / invalid JSON 等截断类失败时按
-`24576 → 32768` 对失败窗口重试，仍失败则为缺失章节生成 `needs_review` fallback。
+`24576 → 32768` 对失败窗口重试，仍失败则为缺失章节生成 `needs_review` fallback。窗口内精确
+span 重叠另有一次带诊断的语义纠正机会；仍未消除或在跨窗口协调后才出现的重叠会按连续章节
+范围隔离并恢复。精确 span 之间若仍有包含文字或数字的正文空洞，也会得到一次带原文 offset
+的语义纠正；纯空白、分隔符和标点由本地确定性收口，纠正后仍未归属的实质正文保存为
+`needs_review` 的精确 gap fallback，不再用“该章已被某个 Scene 提及”冒充全文覆盖。
+Scene commit 会再次拒绝残留的精确重叠，并在带冻结 draft/hash 的正式阶段按实际源草稿验证
+所选章节从 offset 0 到正文结尾无空洞；覆盖替换时以提交后的 active Scene（含受保护 Scene）
+联合验证，失败随最终事务整体回滚。
 Phase 1b 每个 Scene 失败只 retry 1 次，仍失败时仅 fallback 当前 Scene 并进入人工复核清单。
 
 `async_tasks.progress` 使用基于近期 1–60 章实测的阶段估算。完整深度导入中，Phase 1b 推进到 `30%`，高质量 Phase 1c 占 `30–35%`，Scene commit 与建议写入占 `35–40%`。独立 Scene stage 在 Phase 1c/commit 收敛到 100%。阶段内按当前
@@ -183,9 +199,6 @@ single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码�
 - `scene_enrichment.py` — Phase 1b 逐 Scene 补字段、锁定字段保护、确定性 `scene_chunks`
 - `scene_fusion_phase1c.py` — 高质量导入的相邻 Scene 边界审核、高置信融合与建议生成
 - `scene_fusion.py` — 内部兼容/修复路径使用的候选融合组件；旧 `scene_prefetch.py` / `scene_reinforcement.py` 已删除
-- `scene_segmentation.py` — legacy 兼容/测试工具，无生产入口调用方；
-  其 LLM batch/single-chapter 方法已使用 project runtime context manager，
-  不再是 direct-client 静态例外
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
 - `agent_step_harness.py` — 旧 imports 路径兼容导出；权威实现已迁至 `infrastructure/llm/agent_step_harness.py`
 
@@ -222,9 +235,9 @@ Phase2b 稳定性相关环境变量：
 
 - `PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS`
 - `PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS`
-- `PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT`
-- `PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT`
-- `PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT`
+
+旧 `SCENE_CHAR_LIMIT / ENTITY_INDEX_CHAR_LIMIT / ENTITY_INDEX_FALLBACK_LIMIT` 设置仅为
+配置兼容保留，P14 v2 生产路径不再消费这些输入裁剪值。
 
 Phase 2 的 Scene 实体抽取实现位于 `entity_extraction/` 子包；
 `modules.imports.entity_extraction` 是稳定公共导出入口。旧顶层
@@ -283,7 +296,7 @@ POST /api/imports/upload      — 上传文件（multipart multipart）
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；重复导入时先返回 requires_confirmation
-POST /api/imports/stages/scenes — 提交场景（scene）自动提取任务，只执行 Phase 0/1a/1b + Scene commit
+POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b + Scene commit
 POST /api/imports/stages/world-objects — 提交世界对象与别名/关系自动提取任务，只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure — 提交剧情线自动提取任务，只执行 Phase 3
 POST /api/imports/deep/sync   — 同步执行深度导入（测试/无 worker 场景）

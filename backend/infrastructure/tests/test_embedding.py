@@ -178,6 +178,7 @@ async def bge_client_context(
         bge_onnx_quantization="int8",
         inference_worker_max_batch=64,
         inference_worker_timeout=30.0,
+        inference_worker_startup_timeout=300.0,
         inference_worker_queue_maxsize=200,
         embedding_batch_queue_delay_ms=delay_ms,
         embedding_batch_queue_max_items=max_items,

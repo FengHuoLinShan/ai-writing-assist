@@ -168,8 +168,9 @@ LLM execution snapshot，worker 恢复冻结配置后调用各模块 facade。�
 
 LLM 只生成建议；`smart-dedup/apply` 必须 `confirmed=true`。新 group 路径还必须
 携带同项目、已完成的 `scan_task_id`，服务端从任务结果重新校验成员、主对象、
-动作白名单和 execution fingerprint。每组在独立 savepoint 中原子执行，一组
-失败不会阻断其他组。`keep_separate` 只对相同 pair 和 semantic fingerprints
+动作白名单和 execution fingerprint。批量应用会在任何写入前预校验并锁定全部组的
+execution fingerprint，再逐组使用独立 savepoint 原子执行；因此前一组迁移关系不会
+把后一组误判为外部并发漂移，一组真实失败也不会阻断其他组。`keep_separate` 只对相同 pair 和 semantic fingerprints
 生效；所属模块会在整组任何写入前校验所有当前 execution fingerprints，并在组内
 融合完成后重新生成最终 semantic fingerprints，再由 project 保存 disposition。
 同一组的 disposition 以一次项目锁和一次涉及 pair 的批量查询持久化，避免随历史裁决

@@ -548,6 +548,29 @@ describe("Smart Dedup Manager", () => {
     expect(closeModal).not.toHaveBeenCalled()
   })
 
+  it("keeps the submitted primary and actions in the locked success receipt", async () => {
+    api.projects.applySmartDedup.mockResolvedValue({
+      applied: 2,
+      skipped: 0,
+      group_results: [{ group_id: "group-world", status: "success", applied: 2 }],
+    })
+    const result = groupResult()
+    const manager = await runScanToDone(result)
+    const group = manager._groups(result)[0]
+    manager._groupDraftFor(group).operations.a.action = "keep_separate"
+
+    await latestModal().buttons.find((button) => button.text === "执行已就绪组 (1)").handler()
+
+    expect(manager._groupDraftFor(group).operations.a.action).toBe("keep_separate")
+    const submittedSelectHtml = latestModal().body.html.match(/<select[^>]*data-smart-dedup-operation="a"[\s\S]*?<\/select>/)?.[0]
+    expect(submittedSelectHtml).toContain('value="keep_separate" selected')
+    const rendered = document.createElement("div")
+    rendered.innerHTML = latestModal().body.html
+    expect(rendered.querySelector('[data-smart-dedup-group-primary="b"]').checked).toBe(true)
+    expect(rendered.querySelector('[data-smart-dedup-operation="a"] option[value="keep_separate"]').hasAttribute("selected")).toBe(true)
+    expect(rendered.querySelector('[data-smart-dedup-operation="c"] option[value="alias_only"]').hasAttribute("selected")).toBe(true)
+  })
+
   it("does not submit a completed group draft after the active project changes", async () => {
     let currentProjectId = "p1"
     api.projects.startSmartDedupScan.mockResolvedValue({ task_id: "scan-switch-done" })
@@ -599,6 +622,19 @@ describe("Smart Dedup Manager", () => {
 
     manager._groupDraftFor(groups[0]).operations.s1.scenePreviewConfirmed = true
     expect(manager._groupReadiness(groups[0]).ready).toBe(true)
+  })
+
+  it("routes recommended Scene AI fusion without requiring mechanical preview", async () => {
+    const result = sceneGroupResult()
+    result.groups[0].edges[0].recommended_action = "ai_fusion"
+    result.groups[0].edges[0].allowed_actions = ["ai_fusion", "merge", "keep_separate"]
+    const manager = await runScanToDone(result)
+    const groups = manager._groups(result)
+
+    expect(latestModal().body.html).toContain("转入 AI 融合工作台")
+    expect(manager._groupDraftFor(groups[0]).operations.s1.action).toBe("ai_fusion")
+    expect(manager._groupReadiness(groups[0]).ready).toBe(true)
+    expect(latestModal().body.html).not.toContain("生成 Scene 影响预览")
   })
 
   it("keeps stale group results visible and offers a rescan instead of retrying them", async () => {

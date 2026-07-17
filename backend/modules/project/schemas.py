@@ -272,7 +272,8 @@ class SmartDedupApplyItem(BaseModel):
 class SmartDedupGroupOperation(BaseModel):
     source_asset_id: str
     action: str = Field(
-        ..., pattern="^(merge|alias_only|deprecate_duplicate|keep_separate)$"
+        ...,
+        pattern="^(merge|ai_fusion|alias_only|deprecate_duplicate|keep_separate)$",
     )
     alias: str | None = Field(None, max_length=255)
     expected_source_execution_fingerprint: str = Field(..., min_length=64, max_length=64)

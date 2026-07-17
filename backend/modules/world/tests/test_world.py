@@ -1275,7 +1275,7 @@ async def test_merge_entity_api_service_marks_candidate_merged(
 
 
 @pytest.mark.asyncio
-async def test_merge_entity_rejects_candidate_target(
+async def test_merge_entity_into_candidate_target_preserves_review_state(
     db_session: AsyncSession,
     sample_novel_id: str,
 ) -> None:
@@ -1301,16 +1301,27 @@ async def test_merge_entity_rejects_candidate_target(
         ),
     )
 
-    with pytest.raises(DomainValidationError) as exc:
-        await EntityDedupService().merge_candidate_into_entity(
-            db_session,
-            sample_novel_id,
-            source.id,
-            target.id,
-        )
+    result = await EntityDedupService().merge_candidate_into_entity(
+        db_session,
+        sample_novel_id,
+        source.id,
+        target.id,
+    )
 
-    assert exc.value.status_code == 422
-    assert "Merge target must be draft or canonical" in str(exc.value)
+    merged_source = await entity_service.get(
+        db_session,
+        source.id,
+        novel_id=sample_novel_id,
+    )
+    surviving_target = await entity_service.get(
+        db_session,
+        target.id,
+        novel_id=sample_novel_id,
+    )
+    assert result.candidate_entity_id == source.id
+    assert result.target_entity_id == target.id
+    assert merged_source is not None and merged_source.status == "merged"
+    assert surviving_target is not None and surviving_target.status == "candidate"
 
 
 @pytest.mark.asyncio

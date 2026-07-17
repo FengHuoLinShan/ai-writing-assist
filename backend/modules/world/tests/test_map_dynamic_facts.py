@@ -272,6 +272,8 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
     assert body["dynamic_queue"][0]["display_state"] == "review"
     assert body["dynamic_queue"][0]["attention_reasons"] == ["low_confidence"]
     assert body["dynamic_queue"][0]["risk_level"] == "danger"
+    assert body["dynamic_queue"][0]["evidence_text"] == "城门忽然封闭。"
+    assert body["dynamic_queue"][0]["source_ref"]["source"] == "deep_import_delta_event"
     assert body["first_visual_layer"]["main_crisis"] == "洛阳外城"
     assert body["inspector"]["ai_candidates"][0]["title"] == "洛阳外城"
     assert body["batch_groups"][0]["group_label"] == "地点"

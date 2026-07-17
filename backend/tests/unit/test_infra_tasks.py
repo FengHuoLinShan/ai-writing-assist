@@ -1352,6 +1352,34 @@ class TestTaskWorkerHeartbeat:
         hb_session.commit.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_heartbeat_persists_detached_handler_progress(self) -> None:
+        """Long handlers expose their latest progress without a domain commit."""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_id = uuid.uuid4()
+        task = MagicMock()
+        task.progress = 0.42
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=AsyncMock()
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager, heartbeat_interval=0.01)
+        worker._running_tasks[task_id] = task
+        worker._lifecycle.heartbeat = AsyncMock(return_value=True)
+
+        heartbeat_task = asyncio.create_task(worker._heartbeat_loop(task_id, "lease-1"))
+        await asyncio.sleep(0.03)
+        heartbeat_task.cancel()
+        await heartbeat_task
+
+        assert worker._lifecycle.heartbeat.await_count >= 1
+        assert worker._lifecycle.heartbeat.await_args.kwargs["progress"] == 0.42
+
+    @pytest.mark.asyncio
     async def test_heartbeat_logs_error_on_failure(self) -> None:
         """GREEN: 心跳更新失败时记录 warning 不崩溃"""
         from infrastructure.tasks.worker import TaskWorker
@@ -1408,6 +1436,7 @@ class TestTaskWorkerHeartbeat:
             hb_session,
             task_id=task_id,
             lease_id="stale-lease",
+            progress=None,
         )
         runner.cancel.assert_called_once_with()
 

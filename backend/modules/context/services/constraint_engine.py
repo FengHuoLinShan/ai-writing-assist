@@ -89,6 +89,7 @@ class ConstraintEngine:
         if not scene_id:
             return []
 
+        from modules.outline.contracts import scene_semantic_field_status
         from modules.outline.facade import get_scene_contract
 
         scene_contract = await get_scene_contract(db, novel_id, scene_id)
@@ -101,6 +102,9 @@ class ConstraintEngine:
         )
 
         if not scene or not scene.get("must_not_happen"):
+            return []
+        status = scene_semantic_field_status(scene, "must_not_happen")
+        if status in {"not_applicable", "uncertain"}:
             return []
 
         content = f"## 当前 Scene 禁止事件\n\n- {scene['must_not_happen']}"

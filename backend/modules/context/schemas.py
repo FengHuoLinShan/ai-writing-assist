@@ -93,9 +93,9 @@ class ContextSelectionRequest(BaseModel):
     )
     budget_tokens: int = Field(
         default=4000,
-        ge=500,
+        ge=0,
         le=32000,
-        description="总 token 预算",
+        description="总 token 预算；0 表示确认编译不驱逐任何 section",
     )
     context_mode: Literal["canonical", "working"] = Field(
         default="canonical",
@@ -135,6 +135,13 @@ class ContextSelectionRequest(BaseModel):
         None,
         description="用户本次 AI 操作的额外注意事项",
     )
+
+    @field_validator("budget_tokens")
+    @classmethod
+    def validate_budget_tokens(cls, value: int) -> int:
+        if 0 < value < 500:
+            raise ValueError("budget_tokens must be 0 or at least 500")
+        return value
 
 
 class ContextCompileRequest(ContextSelectionRequest):
@@ -208,6 +215,7 @@ class ContextSectionItem(BaseModel):
         "working",
         "candidate",
         "mixed",
+        "director_only",
         "unknown",
     ] = Field(default="unknown", description="段内容状态")
     activation_reason: str = Field(default="", description="段被选入的原因")

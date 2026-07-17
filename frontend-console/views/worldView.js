@@ -920,30 +920,10 @@ const worldView = {
     }
   },
 
-  _normalizeLegacyAutoExtractStorage() {
-    try {
-      const saved = localStorage.getItem("novel_world_extract_task")
-      if (!saved) return
-      const parsed = JSON.parse(saved)
-      if (parsed?.taskId) {
-        this._autoExtractMeta = {
-          start_chapter: parsed.start_chapter,
-          end_chapter: parsed.end_chapter,
-        }
-        localStorage.setItem("novel_world_extract_task", parsed.taskId)
-      }
-    } catch {
-      // Plain task-id legacy values are handled by recoverActiveWorkflows.
-    }
-  },
-
   _recoverAutoExtractWorkflow() {
-    this._normalizeLegacyAutoExtractStorage()
     const workflows = recoverActiveWorkflows(state.currentProjectId)
     const workflow = workflows.find((item) => item.workflowType === "world_object_auto_extraction" && item.view === "world")
       || workflows.find((item) => item.workflowType === "world_object_auto_extraction")
-      || workflows.find((item) => item.workflowType === "world_entity_extraction" && item.view === "world")
-      || workflows.find((item) => item.workflowType === "world_entity_extraction")
     if (!workflow?.taskId) return
     const workflowType = workflow.workflowType || "world_object_auto_extraction"
     this._autoExtractTaskId = workflow.taskId
@@ -1098,7 +1078,6 @@ const worldView = {
     }
     this._stopAutoExtractPolling()
     clearActiveWorkflow(progress.taskId || this._autoExtractTaskId)
-    try { localStorage.removeItem("novel_world_extract_task") } catch {}
 
     if (progress.done) {
       toast("世界对象与别名/关系自动提取已完成", "success")
@@ -1717,11 +1696,15 @@ const worldView = {
       || ""
   },
 
-  _isTargetedAliasCandidate(candidate) {
+  _hasResolvedCandidateTarget(candidate) {
     const targetId = this._candidateTargetId(candidate)
+    return Boolean(targetId) && targetId !== this._entityId(candidate)
+  },
+
+  _isTargetedAliasCandidate(candidate) {
     return ["link_to_existing", "alias_of_existing"].includes(
       this._candidateAction(candidate),
-    ) && Boolean(targetId) && targetId !== this._entityId(candidate)
+    ) && this._hasResolvedCandidateTarget(candidate)
   },
 
   _candidateActionsHtml(candidate, { allowAlias = false, allowMerge = false } = {}) {
@@ -1730,13 +1713,16 @@ const worldView = {
     const targetName = this._candidateTargetName(candidate)
     const isTemporary = action === "temporary_only"
     const isSuggestionShadow = this._isSuggestionShadow(candidate)
+    const unresolvedAliasTarget = ["link_to_existing", "alias_of_existing"].includes(
+      action,
+    ) && !this._hasResolvedCandidateTarget(candidate)
     const canAccept = isSuggestionShadow || ![
       "temporary_only",
       "ignore",
       "link_to_existing",
       "alias_of_existing",
       "merge_with_existing",
-    ].includes(action)
+    ].includes(action) || unresolvedAliasTarget
     const canAlias = allowAlias || isSuggestionShadow
       || ["link_to_existing", "alias_of_existing"].includes(action)
     const canMerge = allowMerge || isSuggestionShadow || action === "merge_with_existing"
@@ -1964,7 +1950,9 @@ const worldView = {
       const targetName = this._candidateTargetName(c)
       let actionLabel = WORLD_SUGGESTED_ACTION_LABELS[action] || action
       if (targetName && ["link_to_existing", "alias_of_existing"].includes(action)) {
-        actionLabel = `作为${targetName}别名`
+        actionLabel = this._hasResolvedCandidateTarget(c)
+          ? `作为${targetName}别名`
+          : `疑似关联${targetName}（目标未解析）`
       } else if (targetName && action === "merge_with_existing") {
         actionLabel = `合并到${targetName}`
       }
@@ -1977,7 +1965,10 @@ const worldView = {
           <td data-label="重要度">${esc(c.importance ?? c.importance_score ?? "-")}</td>
           <td data-label="建议动作"><span class="candidate-action-badge candidate-action-badge--${esc(action)}">${esc(actionLabel)}</span></td>
           <td data-label="证据" style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineEvidenceHtml(meta)}</td>
-          <td data-label="操作"><div class="row-actions">${this._candidateActionsHtml(c)}</div></td>
+          <td data-label="操作"><div class="row-actions">${this._candidateActionsHtml(c, {
+            allowAlias: true,
+            allowMerge: true,
+          })}</div></td>
         </tr>
       `
     }
@@ -3192,6 +3183,7 @@ const worldView = {
       selectedId: selectedTargetId,
       selectedName: alias.entity_name || "当前对象",
     })
+    globalThis.refreshModalFormBaseline?.()
     const suggestionButton = document.getElementById("alias-use-type-suggestion")
     if (suggestionButton) {
       suggestionButton.onclick = () => {
@@ -3254,6 +3246,7 @@ const worldView = {
       selectedId: entityId,
       selectedName: alias.entity_name || "当前对象",
     })
+    globalThis.refreshModalFormBaseline?.()
   },
 
   showResolveAliasForm(candidateId) {
@@ -3327,6 +3320,7 @@ const worldView = {
       selectedId: targetId,
       selectedName: targetName,
     })
+    globalThis.refreshModalFormBaseline?.()
   },
 
   async _markEntityReviewed(id) {
@@ -4142,7 +4136,7 @@ const worldView = {
     return `${prefix}：${item?.message || item?.error_code || "请刷新后重试"}`
   },
 
-  async _advanceRelationReview(anchorIndex = 0) {
+  async _advanceRelationReview(anchorIndex = 0, openNext = true) {
     if (!this._relationGroups.length && this._relationGroupTotal > 0 && this._relationFilters.skip > 0) {
       const content = document.getElementById("workspace-content")
       const scrollTop = content?.scrollTop || 0
@@ -4152,10 +4146,10 @@ const worldView = {
       if (liveContent) liveContent.scrollTop = scrollTop
     }
     const next = this._relationGroups[Math.min(anchorIndex, Math.max(0, this._relationGroups.length - 1))]
-    if (next) this.showRelationGroupReviewForm(next.group_id)
+    if (openNext && next) this.showRelationGroupReviewForm(next.group_id)
   },
 
-  async _advanceAliasReview(anchorIndex = 0) {
+  async _advanceAliasReview(anchorIndex = 0, openNext = true) {
     if (!this._aliases.length && this._aliasGroupTotal > 0 && this._aliasFilters.skip > 0) {
       const content = document.getElementById("workspace-content")
       const scrollTop = content?.scrollTop || 0
@@ -4165,7 +4159,7 @@ const worldView = {
       if (liveContent) liveContent.scrollTop = scrollTop
     }
     const next = this._aliases[Math.min(anchorIndex, Math.max(0, this._aliases.length - 1))]
-    if (next) this.showAliasReviewDecisionForm(next.entity_id, next.alias)
+    if (openNext && next) this.showAliasReviewDecisionForm(next.entity_id, next.alias)
   },
 
   _applyRelationReviewBatch(groups, ignoreAll = false) {
@@ -4212,7 +4206,7 @@ const worldView = {
           }
           this._reviewBatchToast(result, "关系组")
           await this._refreshCurrentSubViewInPlace()
-          await this._advanceRelationReview(anchorIndex)
+          await this._advanceRelationReview(anchorIndex, groups.length === 1)
         } catch (err) {
           for (const group of groups) this._relationReviewErrors[group.group_id] = err.message || "网络异常，请重试"
           toast(err.message || "关系批量复核失败，已保留当前决策草稿", "error")
@@ -4264,7 +4258,7 @@ const worldView = {
           }
           this._reviewBatchToast(result, "别名")
           await this._refreshCurrentSubViewInPlace()
-          await this._advanceAliasReview(anchorIndex)
+          await this._advanceAliasReview(anchorIndex, items.length === 1)
         } catch (err) {
           for (const item of items) this._aliasReviewErrors[this._aliasKey(item)] = err.message || "网络异常，请重试"
           toast(err.message || "别名批量复核失败，已保留当前编辑草稿", "error")
@@ -4376,7 +4370,11 @@ const worldView = {
     } else if (action === "accept-candidates") {
       actionable = items.filter((item) => {
         const candidateAction = this._candidateAction(item)
+        const unresolvedAliasTarget = ["link_to_existing", "alias_of_existing"].includes(
+          candidateAction,
+        ) && !this._hasResolvedCandidateTarget(item)
         return this._isSuggestionShadow(item)
+          || unresolvedAliasTarget
           || !["temporary_only", "ignore", "link_to_existing", "alias_of_existing", "merge_with_existing"].includes(candidateAction)
       })
     } else if (action === "review-entities") {
@@ -4687,6 +4685,7 @@ const worldView = {
       selectedName: targetName,
       canonicalOnly: true,
     })
+    globalThis.refreshModalFormBaseline?.()
   },
 
   _isMergeTargetEntity(entity) {

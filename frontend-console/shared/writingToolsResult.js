@@ -4,6 +4,15 @@
  * 返回的 action 由 orchestrator 负责触发后续视图更新。
  */
 export function applyToolsResult(result, view) {
+  if (result?.draft_id && result?.chapter_index != null) {
+    return {
+      selectChapter: Number(result.chapter_index),
+      selectOptions: {
+        draftId: result.draft_id,
+        isReadonly: true,
+      },
+    }
+  }
   if (result?.new_chapter_index != null) {
     if (result.scenes) {
       view._scenes = result.scenes

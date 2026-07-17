@@ -59,7 +59,7 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "task_type",
-    ["world_entity_extraction", "world_bible_synopsis_refresh"],
+    ["world_alias_relation_extraction", "world_bible_synopsis_refresh"],
 )
 async def test_submit_task_rejects_dangerous_domain_task(
     async_client: AsyncClient,

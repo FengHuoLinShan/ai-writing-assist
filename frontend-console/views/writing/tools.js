@@ -39,7 +39,7 @@ export function createWritingTools({
           </div>
           ${currentProjectId() ? `<div class="writing-tools-menu__group">
             <strong>提取</strong>
-            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">场景（scene）自动提取</button>
+            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">从正文提取 Scene</button>
             <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="world_objects">世界对象与别名/关系自动提取</button>
             <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="plot_structure">剧情线自动提取</button>
           </div>` : ""}
@@ -69,6 +69,9 @@ export function createWritingTools({
   }
 
   function bindEvents(container) {
+    container.querySelectorAll('[data-action="ai-continue"]').forEach((btn) => {
+      btn.onclick = () => generateContinuation()
+    })
     container.querySelectorAll('[data-action="export-chapter"]').forEach((btn) => {
       btn.onclick = () => exportChapter()
     })
@@ -194,9 +197,72 @@ export function createWritingTools({
         context_confirmation_id: confirmation.id,
       })
       toast(`AI 正文建议任务已提交：${result.task_id || result.id || ""}`, "success")
+      const completed = await waitForGeneratedDraft(result, projectId)
+      await onRefresh?.({
+        chapter_index: currentChapter,
+        draft_id: completed.draft_id,
+      })
+      toast("AI 正文建议已生成，已打开待审阅版本", "success")
     } catch (err) {
       if (err.message && err.message.includes("取消")) return
       toast(err.message || "AI 正文建议生成失败", "error")
+    }
+  }
+
+  async function generateContinuation() {
+    const projectId = currentProjectId()
+    const currentChapter = projectState._currentChapter
+    if (!projectId || !currentChapter) {
+      toast("请先选择章节", "warning")
+      return
+    }
+    if (projectState._isReadonly) {
+      toast("当前内容只读；待处理建议不会作为工作稿参考", "warning")
+      return
+    }
+
+    const baseDraftId = editor?.getDraftId?.()
+    const currentContent = editor?.getContent?.() ?? ""
+    const loadedContent = editor?.getLoadedContent?.() ?? currentContent
+    if (!baseDraftId) {
+      toast("当前章节尚无可锁定的正文版本，请先暂存", "warning")
+      return
+    }
+    if (currentContent !== loadedContent) {
+      toast("正文有未保存修改，请先暂存后再续写", "warning")
+      return
+    }
+
+    try {
+      const currentScene = findCurrentScene()
+      const confirmation = await confirmAiReference({
+        novel_id: projectId,
+        action: "writing.generate",
+        task: "从当前锁定正文末尾续写，生成可审阅的完整章节候选",
+        scope: "chapter",
+        chapter_index: currentChapter,
+        scene_id: currentScene?.id,
+        include_pending_objects: false,
+      })
+      const result = await api.writing.generate({
+        novel_id: projectId,
+        chapter_index: currentChapter,
+        title: projectState._currentTitle || `第 ${currentChapter} 章`,
+        instruction: confirmation.user_note || "",
+        context_confirmation_id: confirmation.id,
+        generation_mode: "continue",
+        base_draft_id: baseDraftId,
+      })
+      toast(`AI 续写任务已提交：${result.task_id || result.id || ""}`, "success")
+      const completed = await waitForGeneratedDraft(result, projectId)
+      await onRefresh?.({
+        chapter_index: currentChapter,
+        draft_id: completed.draft_id,
+      })
+      toast("AI 续写已生成，已打开待审阅版本", "success")
+    } catch (err) {
+      if (err.message && err.message.includes("取消")) return
+      toast(err.message || "AI 续写生成失败", "error")
     }
   }
 
@@ -252,6 +318,12 @@ export function createWritingTools({
         context_confirmation_id: confirmation.id,
       })
       toast(`AI 角色视角建议任务已提交：${result.task_id || result.id || ""}`, "success")
+      const completed = await waitForGeneratedDraft(result, projectId)
+      await onRefresh?.({
+        chapter_index: currentChapter,
+        draft_id: completed.draft_id,
+      })
+      toast("AI 角色视角建议已生成，已打开待审阅版本", "success")
     } catch (err) {
       if (err.message && err.message.includes("取消")) return
       toast(err.message || "AI 角色视角建议生成失败", "error")
@@ -262,12 +334,42 @@ export function createWritingTools({
     // 无持久化资源
   }
 
+  async function waitForGeneratedDraft(submitted, projectId) {
+    if (submitted?.draft_id) return submitted
+    if (!submitted?.task_id) throw new Error("生成任务未返回任务 ID")
+
+    // 生成可能很慢；只跟随后台终态，不设置前端总截止时间。
+    while (true) {
+      if (currentProjectId() !== projectId) {
+        throw new Error("项目已切换；原生成任务仍在后台运行")
+      }
+      let task = null
+      try {
+        task = await api.tasks.get(submitted.task_id, projectId)
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+        continue
+      }
+      if (task?.status === "done") {
+        const draftId = task.result?.draft_id
+        if (!draftId) throw new Error("任务已完成，但未返回正文建议 ID")
+        return { ...submitted, ...task.result, task_status: task.status }
+      }
+      if (task?.status === "failed") {
+        throw new Error(task.error_message || task.result?.error_message || "正文生成失败")
+      }
+      if (task?.status === "cancelled") throw new Error("正文生成已取消")
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+  }
+
   return {
     renderToolsMenu,
     bindEvents,
     exportChapter,
     splitScene,
     generateDraft,
+    generateContinuation,
     generatePovDraft,
     dispose,
   }

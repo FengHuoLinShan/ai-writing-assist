@@ -92,6 +92,8 @@ class OutlineAIWorkflowService:
         db: AsyncSession,
         novel_id: str,
         llm_execution_snapshot: dict[str, Any],
+        *,
+        timeout_override: float | None = None,
     ) -> AsyncIterator[LLMClient]:
         """Restore one frozen task profile before the transaction checkpoint."""
         if self._llm_client is not None:
@@ -110,10 +112,10 @@ class OutlineAIWorkflowService:
             novel_id,
             llm_execution_snapshot,
         )
-        client = create_project_snapshot_llm_client(
-            project_settings,
-            novel_id=novel_id,
-        )
+        client_kwargs: dict[str, Any] = {"novel_id": novel_id}
+        if timeout_override is not None:
+            client_kwargs["timeout_override"] = timeout_override
+        client = create_project_snapshot_llm_client(project_settings, **client_kwargs)
         try:
             yield client
         finally:
@@ -227,6 +229,89 @@ class OutlineAIWorkflowService:
             db,
             confirmation_id=confirmation_id,
             result_type="outline_structure_preview",
+            result_id=task_id,
+            status="done",
+        )
+        if progress_callback is not None:
+            progress_callback(1.0)
+        await db.flush()
+        return result
+
+    async def generate_layer_for_task(
+        self,
+        db: AsyncSession,
+        *,
+        data,
+        task_id: str,
+        submission_fingerprint: str,
+        llm_execution_snapshot: dict[str, Any],
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> dict[str, Any]:
+        """Generate one strict P20 v2 preview without a provider transaction."""
+        from modules.outline.p20_service import (
+            P20_TIMEOUT_SECONDS,
+            P20GenerationService,
+        )
+
+        self._require_task_session(db)
+        await self._require_active_project(db, data.novel_id)
+        generation = P20GenerationService()
+        plan = await generation.prepare(db, data)
+        if plan.source_fingerprint != submission_fingerprint:
+            raise ValueError(
+                "P20 context changed after submission; review references and resubmit"
+            )
+        if progress_callback is not None:
+            progress_callback(0.2)
+        async with self._open_task_llm_client(
+            db,
+            data.novel_id,
+            llm_execution_snapshot,
+            timeout_override=P20_TIMEOUT_SECONDS,
+        ) as client:
+            await self._checkpoint_before_external_call(db)
+            output = await generation.execute(
+                client,
+                plan,
+                progress_callback=progress_callback,
+            )
+        if progress_callback is not None:
+            progress_callback(0.85)
+
+        fresh = await generation.prepare(db, data)
+        if fresh.source_fingerprint != plan.source_fingerprint:
+            raise ValueError(
+                "P20 context changed while the model was running; discarded stale preview"
+            )
+        if fresh.confirmed_context is None:
+            raise RuntimeError("P20 freshness plan is missing confirmed context")
+        # Compile the confirmed context before taking the project-wide exclusive
+        # finalization lock.  RAG trace persistence uses an independent session;
+        # compiling while holding FOR UPDATE on projects would make that trace
+        # insert wait on our own transaction through its project foreign key.
+        await self._require_active_project_exclusive(db, data.novel_id)
+        await context_facade.require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action="outline.generate",
+            confirmation_id=data.context_confirmation_id,
+            for_update=True,
+        )
+        locked_fresh = await generation.prepare(
+            db,
+            data,
+            confirmed_context=fresh.confirmed_context,
+        )
+        if locked_fresh.source_fingerprint != plan.source_fingerprint:
+            raise ValueError(
+                "P20 context changed while finalizing the preview; "
+                "discarded stale preview"
+            )
+        result = generation.task_result(plan, output, task_id=task_id)
+        await context_facade.attach_result_ref(
+            db,
+            confirmation_id=data.context_confirmation_id,
+            result_type="outline_layer_preview",
             result_id=task_id,
             status="done",
         )
@@ -685,6 +770,16 @@ class OutlineAIWorkflowService:
             "requires_apply"
         ):
             raise ValueError("source task has no applicable outline preview")
+        if task_result.get("contract_version") == "outline_layer_v2":
+            from modules.outline.p20_service import P20ApplyService
+
+            return await P20ApplyService().apply(
+                db,
+                task=task,
+                novel_id=novel_id,
+                confirmation_id=confirmation_id,
+                draft_structure=draft_structure,
+            )
         self._validate_structure_preview_shape(
             preview_structure,
             draft_structure,

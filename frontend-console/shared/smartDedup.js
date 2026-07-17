@@ -627,7 +627,12 @@ export function createSmartDedupManager({
     _renderGroupOperation(group, member, draft, locked) {
       const edge = this._edgeFor(group, member.asset_id, draft.primaryId)
       const operation = draft.operations[member.asset_id] || { action: "later" }
-      const options = [{ value: "later", label: "稍后处理" }, ...(edge?.allowed_actions || []).map((action) => ({ value: action, label: this._actionLabel(action) }))]
+      const options = [{ value: "later", label: "稍后处理" }, ...(edge?.allowed_actions || []).map((action) => ({
+        value: action,
+        label: group.asset_type === "scene" && action === "merge"
+          ? "机械融合并迁移映射"
+          : this._actionLabel(action),
+      }))]
       const evidence = (edge?.evidence_anchors || []).map((item) => item?.snippet || item?.reason || item?.source_type).filter(Boolean)
       const canonicalMerge = member.status === "canonical" && operation.action === "merge"
       const canonicalAlias = member.status === "canonical" && operation.action === "alias_only"
@@ -749,9 +754,6 @@ export function createSmartDedupManager({
         })
         ;(response.group_results || []).forEach((item) => {
           this._groupResults[item.group_id] = item
-          if (item.status === "success") {
-            delete this._groupDraft[this._draftKey(item.group_id)]
-          }
         })
         const succeeded = (response.group_results || []).filter((item) => item.status === "success").length
         if (succeeded) {
@@ -773,7 +775,7 @@ export function createSmartDedupManager({
     },
 
     _actionLabel(action) {
-      return { merge: "融合内容并迁移引用", alias_only: "仅登记别名并迁移关系", deprecate_duplicate: "废弃重复项", keep_separate: "保持独立" }[action] || action
+      return { ai_fusion: "转入 AI 融合工作台", merge: "融合内容并迁移引用", alias_only: "仅登记别名并迁移关系", deprecate_duplicate: "废弃重复项", keep_separate: "保持独立" }[action] || action
     },
 
     _impactText(action, source, target) {
@@ -781,7 +783,8 @@ export function createSmartDedupManager({
       if (action === "keep_separate") return "保存本资产对的当前指纹裁决，语义变化后会重新扫描"
       const references = Number(source?.relation_count || source?.reference_count || 0)
       if (action === "alias_only") return `来源进入历史态，迁移/去重 ${references} 条当前关系，不融合正文字段`
-      if (action === "merge") return `保留「${target?.title || "主对象"}」，来源进入历史态，迁移相关引用`
+      if (action === "ai_fusion") return "创建待处理的 AI 融合建议；当前 Scene 不会立即修改或废弃"
+      if (action === "merge") return `机械保留「${target?.title || "主对象"}」的优先字段并合并映射，来源进入历史态；语义冲突会标记复核`
       return "来源标记为重复历史项，主对象保留"
     },
 

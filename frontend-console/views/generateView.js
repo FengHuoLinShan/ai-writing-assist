@@ -149,7 +149,7 @@ const generateView = {
     task: "",
     scope: "arc",
     reveal_mode: "author_safe",
-    budget_tokens: 4000,
+    budget_tokens: 0,
     entity_ids: undefined,
     character_ids: undefined,
     viewpoint_character_id: undefined,
@@ -635,8 +635,19 @@ const generateView = {
         const view = target.getAttribute("data-target-view")
         const subview = target.getAttribute("data-target-subview") || null
         const chapterIndex = Number(target.getAttribute("data-chapter-index") || 0)
-        if (view === "writing" && chapterIndex) state._currentChapter = chapterIndex
-        if (view) router.navigate(view, subview)
+        const draftId = target.getAttribute("data-draft-id") || null
+        let query = null
+        if (view === "writing" && chapterIndex) {
+          state.viewStates.writing = {
+            projectId: state.currentProjectId,
+            currentChapter: chapterIndex,
+            currentDraftId: draftId,
+            isReadonly: Boolean(draftId),
+          }
+          query = new URLSearchParams({ chapter_index: String(chapterIndex) })
+          if (draftId) query.set("draft_id", draftId)
+        }
+        if (view) router.navigate(view, subview, true, query)
       },
       "continue-chat": () => this._focusChatInput(),
       "generate-another": () => this._clearResult(),
@@ -827,10 +838,10 @@ const generateView = {
         api.world.listBibleDrafts(state.currentProjectId),
         api.world.listBibleCategories(state.currentProjectId),
         api.world.listBiblePageTemplates(state.currentProjectId),
-        api.outline.listScenes(state.currentProjectId, 0, 50),
+        api.outline.listScenesOrdered(state.currentProjectId),
         api.outline.listThreads(state.currentProjectId, { limit: 50 }),
-        api.world.listCharacters({ novel_id: state.currentProjectId, limit: 50 }),
-        api.world.listEntities({ novel_id: state.currentProjectId, display_state: "active", limit: 50 }),
+        this._loadAllPovCharacters(state.currentProjectId),
+        this._loadAllWorldEntities(state.currentProjectId),
       ])
       const pageItems = this._listItems(pages)
       const draftItems = this._listItems(drafts)
@@ -1294,7 +1305,7 @@ const generateView = {
         return
       }
       const previewChapters = await this._runInBatches(
-        summaries.slice(0, AI_SELECTED_CHAPTER_LIMIT),
+        summaries,
         5,
         async (item) => {
           try {
@@ -1926,7 +1937,7 @@ const generateView = {
       task: "",
       scope: "arc",
       reveal_mode: "author_safe",
-      budget_tokens: 4000,
+      budget_tokens: 0,
       entity_ids: undefined,
       character_ids: undefined,
       viewpoint_character_id: undefined,
@@ -2223,6 +2234,28 @@ const generateView = {
     }
   },
 
+  async _loadAllWorldEntities(novelId) {
+    const entities = []
+    let skip = 0
+
+    while (true) {
+      const data = await api.world.listEntities({
+        novel_id: novelId,
+        display_state: "active",
+        skip,
+        limit: POV_CHARACTER_PAGE_SIZE,
+      })
+      const page = Array.isArray(data?.items) ? data.items : []
+      entities.push(...page)
+
+      const total = Number(data?.total)
+      if (page.length < POV_CHARACTER_PAGE_SIZE || (Number.isFinite(total) && entities.length >= total)) {
+        return entities
+      }
+      skip += page.length
+    }
+  },
+
   async _loadPovScenesForChapter(chapterIndex) {
     if (!state.currentProjectId || !chapterIndex) {
       this._povScenes = []
@@ -2322,16 +2355,34 @@ const generateView = {
         viewpoint_character_id: viewpointCharacterId,
         character_ids: [viewpointCharacterId],
         include_pending_objects: false,
+        budget_tokens: 0,
       })
       const userNote = confirmation.user_note ? `${confirmation.user_note}\n\n` : ""
       if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成正文建议...</div>'
-      const result = await api.writing.generate({
+      const submitted = await api.writing.generate({
         novel_id: state.currentProjectId,
         chapter_index: chapterIndex,
         title: this._povChapters.find((item) => Number(item.chapter_index) === Number(chapterIndex))?.title || `第 ${chapterIndex} 章`,
         instruction: `${userNote}${povInstruction}`,
         context_confirmation_id: confirmation.id,
       })
+      let result = submitted
+      if (submitted?.task_id && !submitted?.draft_id) {
+        const completedTask = await this._waitForPovTask(
+          submitted.task_id,
+          state.currentProjectId,
+          (task) => {
+            if (!resultEl) return
+            const progress = Math.max(0, Math.min(100, Math.round(Number(task?.progress || 0) * 100)))
+            resultEl.innerHTML = `<div class="loading">正在生成正文建议... ${progress}%</div>`
+          },
+        )
+        result = {
+          ...submitted,
+          ...(completedTask.result || {}),
+          task_status: completedTask.status,
+        }
+      }
       this._lastPovSubmission = {
         result,
         chapterIndex,
@@ -2340,7 +2391,7 @@ const generateView = {
       }
       if (resultEl) resultEl.innerHTML = this._renderPovSubmission(this._lastPovSubmission)
       this._persistState()
-      toast(`角色视角正文建议已提交：${result.task_id || result.id || result.draft_id || ""}`, "success")
+      toast(`角色视角正文建议已生成：${result.draft_id || result.id || result.task_id || ""}`, "success")
     } catch (err) {
       if (err?.message?.includes("取消")) {
         if (resultEl) resultEl.innerHTML = this._lastPovSubmission
@@ -2357,20 +2408,47 @@ const generateView = {
     }
   },
 
+  async _waitForPovTask(taskId, projectId, onUpdate = null) {
+    // Provider 端可能需要较长时间；轮询只跟随任务终态，不设置应用层总截止。
+    while (true) {
+      if (state.currentProjectId !== projectId) {
+        throw new Error("项目已切换；原角色视角任务仍在后台运行")
+      }
+      let task = null
+      try {
+        task = await api.tasks.get(taskId, projectId)
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+        continue
+      }
+      onUpdate?.(task)
+      if (task?.status === "done") {
+        if (!task.result?.draft_id) throw new Error("任务已完成，但未返回正文建议 ID")
+        return task
+      }
+      if (task?.status === "failed") {
+        throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败")
+      }
+      if (task?.status === "cancelled") throw new Error("角色视角正文生成已取消")
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+  },
+
   _renderPovSubmission(submission) {
     const result = submission?.result || {}
     const scene = this._povScenes.find((item) => item.id === submission.sceneId)
     const role = this._povCharacters.find((item) => this._characterId(item) === submission.viewpointCharacterId)
-    const id = result.task_id || result.draft_id || result.id || result.draft?.id || ""
+    const id = result.draft_id || result.draft?.id || result.id || result.task_id || ""
+    const draftId = result.draft_id || result.draft?.id || ""
     return `
       <div class="generate-result-card">
-        <div class="generate-result-title">角色视角正文建议已提交</div>
+        <div class="generate-result-title">角色视角正文建议已生成</div>
         <div class="generate-result-meta">
           第 ${esc(submission.chapterIndex)} 章 · ${esc(scene?.title || scene?.name || submission.sceneId)} · ${esc(role?.name || role?.display_name || submission.viewpointCharacterId)}
         </div>
         <p class="generate-result-summary">${id ? `任务 / 建议：${esc(id)}` : "正文建议已生成，可到写作页采用到工作稿。"}</p>
         <div class="generate-result-actions">
-          <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="writing" data-chapter-index="${esc(submission.chapterIndex)}">打开写作页</button>
+          <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="writing" data-chapter-index="${esc(submission.chapterIndex)}" data-draft-id="${esc(draftId)}">打开并审阅建议</button>
         </div>
       </div>
     `
@@ -2414,7 +2492,7 @@ const generateView = {
     const scene = document.getElementById("gen-scene")
     if (scene) scene.value = this._taskForm.scene_id || ""
     const budget = document.getElementById("gen-budget")
-    if (budget) budget.value = this._taskForm.budget_tokens || 4000
+    if (budget) budget.value = this._taskForm.budget_tokens ?? 0
     const reveal = document.getElementById("gen-reveal")
     if (reveal) reveal.value = this._taskForm.reveal_mode || "author_safe"
     const viewpointGroup = document.getElementById("gen-viewpoint-character-group")
@@ -2612,7 +2690,7 @@ const generateView = {
     const characterIds = charactersInput ? charactersInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
     const chapterIndex = chapterInput ? parseInt(chapterInput, 10) : undefined
     const sceneId = sceneInput ? sceneInput.trim() : undefined
-    const budgetTokens = budgetInput ? parseInt(budgetInput, 10) : 4000
+    const budgetTokens = budgetInput ? parseInt(budgetInput, 10) : 0
     const viewpointCharacterId = reveal === "character" ? (viewpointCharacterInput.trim() || undefined) : undefined
     const finalCharacterIds = reveal === "character" && viewpointCharacterId
       ? [...new Set([...(characterIds || []), viewpointCharacterId])]
@@ -2665,6 +2743,7 @@ const generateView = {
     }
     this._lastContextSource = "task"
     this._lastContextRequestParams = params
+    this._lastContextMarkdown = null
     const output = document.getElementById("gen-task-output")
     if (output) output.innerHTML = '<div class="loading">编译中...</div>'
     let controller = null
@@ -2711,12 +2790,22 @@ const generateView = {
       if (data?.markdown) {
         this._lastContextMarkdown = data.markdown
         output.innerHTML = `<pre class="generate-markdown-pre">${esc(data.markdown)}</pre>`
+        this._setTaskMarkdownActionsEnabled(true)
       }
     } catch (err) {
       output.innerHTML = `<p class="generate-error-text">渲染失败：${esc(err.message || "未知错误")}</p>`
     } finally {
       this._releaseRequestController(controller)
       this._setBusy(false)
+    }
+  },
+
+  _setTaskMarkdownActionsEnabled(enabled) {
+    for (const action of ["copy-task-md", "export-task-md"]) {
+      document.querySelectorAll(`[data-action="${action}"]`).forEach((button) => {
+        button.disabled = !enabled
+        if (enabled) button.removeAttribute("title")
+      })
     }
   },
 
@@ -2844,8 +2933,9 @@ const generateView = {
                 <input id="gen-scene" type="hidden" value="${esc(form.scene_id || "")}" />
               </div>
               <div class="form-group">
-                <label>预算 (tokens)</label>
-                <input class="form-input" id="gen-budget" type="number" min="500" max="32000" value="${esc(form.budget_tokens || 4000)}" />
+                <label>上下文预算 (tokens)</label>
+                <input class="form-input" id="gen-budget" type="number" min="0" max="1000000" value="${esc(form.budget_tokens ?? 0)}" />
+                <p class="generate-form-hint">0 表示不做应用层裁剪；由实际模型上下文窗口决定上限。</p>
               </div>
               <div class="form-group">
                 <label>揭示模式</label>
@@ -2919,7 +3009,10 @@ const generateView = {
     html += `<span class="generate-context-stat">已加载 ${data.sections?.length || 0} 段上下文</span>`
     html += `<span class="generate-context-meta">范围：${esc(data.scope)}</span>`
     html += `<span class="generate-context-meta">揭示模式：${esc(data.reveal_mode)}</span>`
-    html += `<span class="generate-context-meta">Tokens：${data.total_tokens || 0} / ${data.budget_tokens || 0}</span>`
+    const budgetLabel = data.budget_tokens > 0
+      ? ` / ${data.budget_tokens}`
+      : "（无应用层裁剪）"
+    html += `<span class="generate-context-meta">Tokens：${data.total_tokens || 0}${budgetLabel}</span>`
     html += '</div>'
 
     if (data.sections && data.sections.length > 0) {

@@ -413,11 +413,12 @@ class EntityDedupService:
         *,
         allow_canonical_source: bool = False,
     ) -> Any:  # MergeResult
-        """合并候选实体到目标正史实体（事务性跨表深度合并）。
+        """合并候选实体到目标工作实体（事务性跨表深度合并）。
 
         9 步事务：排他锁 → 别名继承 → 关系迁移 → 自环清理 → Character 同步
-        → 文本合并 → 标记 candidate → 确保 target canonical → 返回统计。
-        调用方负责事务的 commit/rollback。
+        → 文本合并 → 标记 candidate → 维护 target 审查态 → 返回统计。
+        candidate 目标继续留在待处理队列；draft 目标沿用既有采用语义提升为
+        canonical。调用方负责事务的 commit/rollback。
         """
         from modules.world.contracts import MergeResult
 
@@ -448,9 +449,12 @@ class EntityDedupService:
         if candidate.novel_id != nid or target.novel_id != nid:
             raise DomainValidationError("Cannot merge entities outside requested novel")
 
-        if target.status not in {"draft", "canonical"}:
+        if target.status not in {"candidate", "draft", "canonical"}:
             raise DomainValidationError(
-                f"Merge target must be draft or canonical, got {target.status}",
+                (
+                    "Merge target must be candidate, draft, or canonical, "
+                    f"got {target.status}"
+                ),
                 status_code=422,
             )
 
@@ -529,8 +533,8 @@ class EntityDedupService:
             ),
         )
 
-        # 8. 确保 target 为 canonical
-        if target.status != "canonical":
+        # 8. draft 目标沿用既有采用语义；candidate 去重后仍等待作者采用。
+        if target.status == "draft":
             await self._entity_repo.update(
                 db,
                 target,

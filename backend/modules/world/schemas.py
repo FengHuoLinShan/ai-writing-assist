@@ -124,27 +124,6 @@ class ExtractionOutput(BaseModel):
     )
 
 
-class WorldEntityExtractRequest(BaseModel):
-    """手动世界对象补抽请求。"""
-
-    novel_id: str
-    context_confirmation_id: str | None = None
-    start_chapter: int = Field(..., ge=1)
-    end_chapter: int = Field(..., ge=1)
-    batch_size: int = Field(default=5, ge=1, le=50)
-    instruction: str | None = Field(
-        default=None,
-        description="本次补抽额外注意事项；确认记录仍是权威参考资料来源",
-    )
-
-
-class WorldEntityExtractResponse(BaseModel):
-    """手动世界对象补抽入队响应。"""
-
-    task_id: str
-    status: str = "pending"
-
-
 class WorldAliasRelationExtractRequest(BaseModel):
     """手动别名/关系补抽请求。"""
 
@@ -2480,11 +2459,19 @@ class WorldBibleSynopsisClaim(BaseModel):
 
 class WorldBibleSynopsisSection(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
-    claims: list[WorldBibleSynopsisClaim] = Field(default_factory=list, max_length=40)
+    claims: list[WorldBibleSynopsisClaim] = Field(
+        ...,
+        min_length=1,
+        max_length=40,
+    )
 
 
 class WorldBibleSynopsisStructuredOutput(BaseModel):
-    sections: list[WorldBibleSynopsisSection] = Field(default_factory=list, max_length=20)
+    sections: list[WorldBibleSynopsisSection] = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+    )
     omitted_reasons: list[str] = Field(default_factory=list, max_length=40)
 
 

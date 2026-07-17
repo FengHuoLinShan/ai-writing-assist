@@ -7,10 +7,26 @@
  */
 (function () {
   const DEFAULT_TIMEOUT = 15000
-  const RAG_SEARCH_TIMEOUT = 60000
-  const RAG_PREWARM_TIMEOUT = 75000
-  const CONTEXT_CONFIRM_TIMEOUT = 90000
-  const LLM_GENERATE_TIMEOUT = 90000
+  // Optional P21 evidence reranking may use the full 30-minute managed LLM
+  // budget, including schema repair. Keep delivery headroom in the browser so
+  // a valid backend result is not discarded at the old five-minute boundary.
+  const RAG_SEARCH_TIMEOUT = 2100000
+  const RAG_PREWARM_TIMEOUT = 600000
+  const CONTEXT_COMPILE_TIMEOUT = 600000
+  const CONTEXT_CONFIRM_TIMEOUT = 600000
+  // The backend may use its full 30-minute generation budget. Keep client-side
+  // headroom for prompt preparation, persistence, and response delivery.
+  const LLM_GENERATE_TIMEOUT = 2100000
+  // Async AI endpoints normally return after durable enqueue, but preparing a
+  // confirmed full-project snapshot can still be expensive. Submission gets
+  // its own generous window; the subsequent poll loop follows task terminal
+  // state and deliberately has no frontend total deadline.
+  const AI_TASK_SUBMIT_TIMEOUT = 600000
+  // Adopting an AI preview recompiles the confirmed context and verifies every
+  // source fingerprint before the transactional write. Large projects can
+  // legitimately spend tens of seconds here, so this must not inherit CRUD's
+  // short timeout.
+  const AI_PREVIEW_APPLY_TIMEOUT = 600000
 
   function queryString(query = {}) {
     const parts = []
@@ -119,6 +135,16 @@
       timeout: CONTEXT_CONFIRM_TIMEOUT,
       timeoutKind: "contextConfirm",
     }),
+    "context.compile": define("POST", () => "/context/compile", {
+      hasBody: true,
+      timeout: CONTEXT_COMPILE_TIMEOUT,
+      timeoutKind: "contextCompile",
+    }),
+    "context.render": define("POST", () => "/context/render", {
+      hasBody: true,
+      timeout: CONTEXT_COMPILE_TIMEOUT,
+      timeoutKind: "contextCompile",
+    }),
     "context.listSnapshots": define("GET", () => "/context/snapshots"),
     "context.getSnapshot": define("GET", ({ snapshotId }) => `/context/snapshots/${required(snapshotId, "snapshotId", "context.getSnapshot")}`, {
       requiredParams: ["snapshotId"],
@@ -134,6 +160,23 @@
     "generate.listPromptTemplateRevisions": define("GET", ({ templateId }) => `/world/generation-prompt-templates/${required(templateId, "templateId", "generate.listPromptTemplateRevisions")}/revisions`, {
       requiredParams: ["templateId"],
       requiredQuery: ["novel_id"],
+    }),
+    "generate.worldChat": define("POST", () => "/world/generation-center/chat", {
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
+    }),
+    "generate.generateWorldSuggestion": define("POST", () => "/world/generation-center/suggestions", {
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
+    }),
+    "generate.applyWorldPageDraft": define("POST", ({ suggestionId }) => `/world/generation-center/suggestions/${required(suggestionId, "suggestionId", "generate.applyWorldPageDraft")}/apply-page-draft`, {
+      requiredParams: ["suggestionId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      timeout: AI_PREVIEW_APPLY_TIMEOUT,
+      timeoutKind: "aiPreviewApply",
     }),
 
     "tasks.cancel": define("POST", ({ taskId }) => `/tasks/${required(taskId, "taskId", "tasks.cancel")}/cancel`, {
@@ -329,15 +372,42 @@
     "writing.runConflictAiReview": define("POST", ({ checkId }) => `/writing/conflict-checks/${required(checkId, "checkId", "writing.runConflictAiReview")}/ai-review`, {
       requiredParams: ["checkId"],
       hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
     }),
     "writing.enqueueConflictAiReview": define("POST", ({ checkId }) => `/writing/conflict-checks/${required(checkId, "checkId", "writing.enqueueConflictAiReview")}/ai-review-task`, {
       requiredParams: ["checkId"],
       hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
+    }),
+    "writing.requestConflictAiSuggestion": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.requestConflictAiSuggestion")}/ai-suggestion`, {
+      requiredParams: ["itemId"],
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
+    }),
+    "writing.generate": define("POST", () => "/writing/generate", {
+      hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
     }),
 
+    "outline.analyze": define("POST", () => "/outline/analyze", {
+      hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
+    }),
+    "outline.generate": define("POST", () => "/outline/generate", {
+      hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
+    }),
     "outline.applyStructurePreview": define("POST", () => "/outline/generate/apply", {
       hasBody: true,
       requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"],
+      timeout: AI_PREVIEW_APPLY_TIMEOUT,
+      timeoutKind: "aiPreviewApply",
     }),
     "outline.getStoryOutline": define("GET", () => "/outline/story-outline", {
       requiredQuery: ["novel_id"],
@@ -363,16 +433,36 @@
     "outline.generateStoryOutline": define("POST", () => "/outline/story-outline/generate", {
       hasBody: true,
       requiredBody: ["novel_id", "author_intent", "planned_scale", "coverage", "selected_character_ids", "selected_entity_ids", "include_current_outline"],
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
     }),
     "outline.applyStoryOutlinePreview": define("POST", () => "/outline/story-outline/generate/apply", {
       hasBody: true,
       requiredBody: ["novel_id", "source_task_id", "title", "creative_core", "outline_markdown", "major_storylines", "macro_movements", "open_decisions", "base_revision_id", "idempotency_key", "confirmed"],
+      timeout: AI_PREVIEW_APPLY_TIMEOUT,
+      timeoutKind: "aiPreviewApply",
     }),
     "outline.previewSceneFusion": define("POST", () => "/outline/scene-workbench/fusion/preview", {
       requiredQuery: ["novel_id"],
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
       timeoutKind: "llmGenerate",
+    }),
+
+    "context.searchEvidence": define("POST", () => "/context/evidence/search", {
+      hasBody: true,
+      timeout: RAG_SEARCH_TIMEOUT,
+      timeoutKind: "ragSearch",
+    }),
+    "context.grepEvidence": define("POST", () => "/context/evidence/grep", {
+      hasBody: true,
+      timeout: RAG_SEARCH_TIMEOUT,
+      timeoutKind: "ragSearch",
+    }),
+    "context.readEvidence": define("POST", () => "/context/evidence/read", {
+      hasBody: true,
+      timeout: RAG_SEARCH_TIMEOUT,
+      timeoutKind: "ragSearch",
     }),
 
     "rag.search": define("POST", () => "/rag/retrieve", {

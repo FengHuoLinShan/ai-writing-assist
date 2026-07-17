@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,7 +20,34 @@ from modules.imports.llm_schemas import (
 
 logger = logging.getLogger(__name__)
 
-_EXTRACTION_ALIAS_PLACEHOLDERS = frozenset({"变量", "variable", "placeholder"})
+_EXTRACTION_ALIAS_PLACEHOLDERS = frozenset(
+    {
+        "变量",
+        "variable",
+        "placeholder",
+        "未知",
+        "unknown",
+        "某人",
+        "某物",
+        "n/a",
+        "none",
+    }
+)
+
+_MAP_INTENT_META_KEYS = (
+    "map_id",
+    "map_dynamic_type",
+    "dynamic_type",
+    "map_value",
+    "normalized_value",
+)
+
+
+def _delta_event_has_map_intent(meta: dict[str, Any]) -> bool:
+    """Return whether a generic memory delta explicitly carries map semantics."""
+    if any(meta.get(key) not in (None, "", {}, []) for key in _MAP_INTENT_META_KEYS):
+        return True
+    return bool(meta.get("spatial_anchor"))
 
 
 def entity_key(entity_type: str, name: str) -> tuple[str, str]:
@@ -57,8 +85,103 @@ def _high_confidence_duplicate_id(similar_items: list[Any]) -> str | None:
 
 
 def _is_extraction_alias_placeholder(alias: object) -> bool:
-    normalized = " ".join(str(alias or "").strip().split()).casefold()
+    normalized = _normalize_phase2b_alias(alias).casefold()
     return normalized in _EXTRACTION_ALIAS_PLACEHOLDERS
+
+
+def _normalize_phase2b_alias(alias: object) -> str:
+    return " ".join(unicodedata.normalize("NFKC", str(alias or "")).strip().split())
+
+
+def _alias_matches_known_identity(
+    alias: str,
+    candidates: Any,
+) -> bool:
+    normalized = _normalize_phase2b_alias(alias).casefold()
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        for term in [candidate.get("name"), *(candidate.get("aliases") or [])]:
+            if _normalize_phase2b_alias(term).casefold() == normalized:
+                return True
+    return False
+
+
+def _phase2b_exact_evidence_quotes(quotes: list[str], scene_text: str) -> list[str]:
+    normalized = list(
+        dict.fromkeys(str(quote).strip() for quote in quotes if str(quote).strip())
+    )
+    if not normalized or any(quote not in scene_text for quote in normalized):
+        return []
+    return normalized
+
+
+def _previous_relation_matches(
+    previous: dict[str, Any],
+    *,
+    novel_id: str,
+    source_id: str,
+    target_id: str,
+    directionality: str,
+) -> bool:
+    if str(previous.get("novel_id") or "") != str(novel_id):
+        return False
+    previous_source = str(previous.get("source_id") or "")
+    previous_target = str(previous.get("target_id") or "")
+    if directionality == "symmetric":
+        return {previous_source, previous_target} == {source_id, target_id}
+    return previous_source == source_id and previous_target == target_id
+
+
+def _live_relation_matches_frozen(live: Any, frozen: dict[str, Any]) -> bool:
+    """Reject stale prompt refs instead of applying observations to changed rows."""
+
+    def _value(name: str) -> str:
+        raw = live.get(name) if isinstance(live, dict) else getattr(live, name, "")
+        return str(raw or "")
+
+    if _value("status") not in {"canonical", "draft", "candidate"}:
+        return False
+    for key in ("id", "source_id", "target_id", "relation_type", "status"):
+        expected = str(frozen.get(key) or "")
+        if expected and _value(key) != expected:
+            return False
+    return True
+
+
+def _frozen_relation_matches_claim(
+    frozen: dict[str, Any],
+    *,
+    source_id: str,
+    target_id: str,
+    relation_type: str,
+    directionality: str,
+) -> bool:
+    if str(frozen.get("relation_type") or "") != relation_type:
+        return False
+    frozen_source = str(frozen.get("source_id") or "")
+    frozen_target = str(frozen.get("target_id") or "")
+    if directionality == "symmetric":
+        return {frozen_source, frozen_target} == {source_id, target_id}
+    return frozen_source == source_id and frozen_target == target_id
+
+
+def _phase2b_diagnostic(
+    *,
+    kind: str,
+    refs: list[str],
+    claim: str,
+    reason: str,
+    evidence_quotes: list[str],
+) -> dict[str, Any]:
+    return {
+        "source": "deterministic_materializer",
+        "kind": kind,
+        "related_refs": [ref for ref in refs if ref],
+        "mention_or_claim": claim,
+        "reason": reason,
+        "evidence_quotes": evidence_quotes,
+    }
 
 
 def normalize_candidate_alias_item(
@@ -197,43 +320,145 @@ class SceneEntityPersistenceMixin:
         scene_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
         strict: bool = False,
-    ) -> dict[str, int]:
+        context_bundle: dict[str, Any] | None = None,
+        current_scene_text: str | None = None,
+        context_snapshot_id: str | None = None,
+    ) -> dict[str, Any]:
         from modules.world.facade import (
             append_candidate_alias,
             create_or_merge_relation,
-            find_working_entity_ids_by_names,
+            get_entity_relations,
+            list_entities,
         )
 
-        names_to_resolve = {alias.entity_name for alias in output.aliases}
-        for rel in output.relations:
-            names_to_resolve.add(rel.source_name)
-            names_to_resolve.add(rel.target_name)
-        entity_ids = await find_working_entity_ids_by_names(
+        bundle = dict(context_bundle or {})
+        scene_text = str(
+            current_scene_text
+            if current_scene_text is not None
+            else bundle.get("_current_scene_text") or ""
+        )
+        entity_ref_map = {
+            str(key): str(value)
+            for key, value in (bundle.get("_entity_ref_map") or {}).items()
+            if str(key) and str(value)
+        }
+        relation_ref_map = {
+            str(key): dict(value)
+            for key, value in (bundle.get("_relation_ref_map") or {}).items()
+            if str(key) and isinstance(value, dict)
+        }
+        candidate_by_ref = {
+            str(item.get("prompt_ref")): item
+            for item in (bundle.get("identity_candidates") or [])
+            if isinstance(item, dict) and item.get("prompt_ref")
+        }
+        current_entities = await list_entities(
             db,
             novel_id,
-            names_to_resolve,
+            statuses=("canonical", "draft", "candidate"),
+            limit=10_000,
         )
+        current_entity_ids = {
+            str(item.get("id"))
+            for item in current_entities
+            if isinstance(item, dict) and item.get("id")
+        }
+        referenced_previous_ids = {
+            str(relation_ref_map[ref]["id"])
+            for item in output.relations
+            for ref in [str(item.previous_relation_ref or "")]
+            if ref in relation_ref_map and relation_ref_map[ref].get("id")
+        }
+        live_relation_by_id: dict[str, Any] = {}
+        if referenced_previous_ids:
+            relation_skip = 0
+            while referenced_previous_ids - set(live_relation_by_id):
+                live_relations, live_relation_total = await get_entity_relations(
+                    db,
+                    novel_id,
+                    skip=relation_skip,
+                    limit=10_000,
+                )
+                for item in live_relations:
+                    relation_id = str(
+                        item.get("id")
+                        if isinstance(item, dict)
+                        else getattr(item, "id", "")
+                    )
+                    if relation_id in referenced_previous_ids:
+                        live_relation_by_id[relation_id] = item
+                relation_skip += len(live_relations)
+                if not live_relations or relation_skip >= live_relation_total:
+                    break
+        diagnostics = [
+            {
+                "source": "model_uncertain_item",
+                **item.model_dump(mode="json"),
+            }
+            for item in output.uncertain_items
+        ]
 
         aliases_created = 0
         relations_created = 0
         for alias in output.aliases:
-            if _is_extraction_alias_placeholder(alias.alias):
+            evidence_quotes = _phase2b_exact_evidence_quotes(
+                alias.evidence_quotes,
+                scene_text,
+            )
+            entity_id = entity_ref_map.get(alias.entity_ref)
+            candidate = candidate_by_ref.get(alias.entity_ref)
+            reason: str | None = None
+            normalized_alias = _normalize_phase2b_alias(alias.alias)
+            if not entity_id or candidate is None:
+                reason = "unknown_entity_ref"
+            elif entity_id not in current_entity_ids:
+                reason = "entity_ref_outside_novel_or_inactive"
+            elif alias.identity_scope == "uncertain":
+                reason = "alias_identity_uncertain"
+            elif not evidence_quotes:
+                reason = "evidence_not_found_in_current_scene"
+            elif not normalized_alias or _is_extraction_alias_placeholder(
+                normalized_alias
+            ):
+                reason = "blank_or_placeholder_alias"
+            elif _alias_matches_known_identity(
+                normalized_alias,
+                candidate_by_ref.values(),
+            ):
+                reason = "alias_matches_existing_name_or_alias"
+            if reason:
+                diagnostics.append(
+                    _phase2b_diagnostic(
+                        kind="alias_identity",
+                        refs=[alias.entity_ref],
+                        claim=alias.alias,
+                        reason=reason,
+                        evidence_quotes=evidence_quotes,
+                    )
+                )
                 continue
-            entity_id = entity_ids.get(alias.entity_name)
-            if not entity_id:
-                continue
+
             async with db.begin_nested():
                 added = await append_candidate_alias(
                     db,
                     novel_id,
                     entity_id,
-                    alias=alias.alias,
+                    alias=normalized_alias,
                     alias_type=alias.alias_type,
                     workflow_id=workflow_id,
                     scene_id=scene_id,
                     scene_index=scene_index,
                     confidence=alias.confidence,
-                    quote=alias.quote,
+                    quote=evidence_quotes[0],
+                    review_meta={
+                        "identity_scope": alias.identity_scope,
+                        "identity_basis": alias.identity_basis,
+                        "confidence": alias.confidence,
+                        "evidence_quotes": evidence_quotes,
+                        "prompt_entity_ref": alias.entity_ref,
+                        "context_fingerprint": bundle.get("context_fingerprint"),
+                        "context_snapshot_id": context_snapshot_id,
+                    },
                 )
                 if added:
                     await self._record_quote_evidence(
@@ -244,7 +469,7 @@ class SceneEntityPersistenceMixin:
                             "target_id": entity_id,
                             "target_path": "aliases",
                         },
-                        quote=alias.quote,
+                        quote=evidence_quotes[0],
                         scene_id=scene_id,
                         workflow_id=workflow_id,
                     )
@@ -254,40 +479,183 @@ class SceneEntityPersistenceMixin:
                     result_refs.append(
                         {
                             "type": "entity_alias",
-                            "id": f"{entity_id}:{alias.alias.strip()}",
+                            "id": f"{entity_id}:{normalized_alias}",
                         }
                     )
 
         for rel in output.relations:
-            source_id = entity_ids.get(rel.source_name)
-            target_id = entity_ids.get(rel.target_name)
+            evidence_quotes = _phase2b_exact_evidence_quotes(
+                rel.evidence_quotes,
+                scene_text,
+            )
+            source_ref = rel.source_ref
+            target_ref = rel.target_ref
+            source_id = entity_ref_map.get(source_ref)
+            target_id = entity_ref_map.get(target_ref)
+            reason: str | None = None
+            previous = (
+                relation_ref_map.get(str(rel.previous_relation_ref))
+                if rel.previous_relation_ref
+                else None
+            )
+            live_previous = (
+                live_relation_by_id.get(str(previous.get("id") or ""))
+                if previous is not None
+                else None
+            )
+            established_collision = bool(
+                rel.claim_status == "established"
+                and source_id
+                and target_id
+                and any(
+                    _frozen_relation_matches_claim(
+                        frozen,
+                        source_id=source_id,
+                        target_id=target_id,
+                        relation_type=rel.relation_type,
+                        directionality=rel.directionality,
+                    )
+                    for frozen in relation_ref_map.values()
+                )
+            )
             if not source_id or not target_id:
+                reason = "unknown_relation_endpoint_ref"
+            elif (
+                source_id not in current_entity_ids or target_id not in current_entity_ids
+            ):
+                reason = "relation_endpoint_outside_novel_or_inactive"
+            elif source_id == target_id:
+                reason = "self_relation"
+            elif not evidence_quotes:
+                reason = "evidence_not_found_in_current_scene"
+            elif rel.persistence_scope in {"episodic", "uncertain"}:
+                reason = f"relation_not_persistable_{rel.persistence_scope}"
+            elif established_collision:
+                reason = "established_relation_already_exists"
+            elif rel.claim_status != "established" and previous is None:
+                reason = "unknown_previous_relation_ref"
+            elif previous is not None and live_previous is None:
+                reason = "previous_relation_outside_novel_or_inactive"
+            elif previous is not None and not _live_relation_matches_frozen(
+                live_previous,
+                previous,
+            ):
+                reason = "previous_relation_changed_since_context"
+            elif previous is not None and not _previous_relation_matches(
+                previous,
+                novel_id=novel_id,
+                source_id=source_id,
+                target_id=target_id,
+                directionality=rel.directionality,
+            ):
+                reason = "previous_relation_endpoint_or_novel_mismatch"
+            elif (
+                rel.claim_status == "reaffirmed"
+                and previous is not None
+                and str(previous.get("relation_type") or "") != rel.relation_type
+            ):
+                reason = "reaffirmed_relation_type_contradiction"
+            if reason:
+                diagnostics.append(
+                    _phase2b_diagnostic(
+                        kind=(
+                            "relation_endpoint"
+                            if "endpoint" in reason or "self" in reason
+                            else "relation_change"
+                        ),
+                        refs=[
+                            rel.source_ref,
+                            rel.target_ref,
+                            *(
+                                [str(rel.previous_relation_ref)]
+                                if rel.previous_relation_ref
+                                else []
+                            ),
+                        ],
+                        claim=rel.description,
+                        reason=reason,
+                        evidence_quotes=evidence_quotes,
+                    )
+                )
                 continue
+
+            if rel.directionality == "symmetric" and source_id > target_id:
+                source_id, target_id = target_id, source_id
+                source_ref, target_ref = target_ref, source_ref
+            review_meta = _relation_review_meta(
+                workflow_id=workflow_id,
+                scene_id=scene_id,
+                scene_index=scene_index,
+                source_chapter_index=None,
+                quote=evidence_quotes[0],
+                context_snapshot_id=context_snapshot_id,
+            )
+            review_meta.update(
+                {
+                    "claim_status": rel.claim_status,
+                    "previous_relation_ref": rel.previous_relation_ref,
+                    "previous_relation_id": (
+                        previous.get("id") if previous is not None else None
+                    ),
+                    "basis": rel.basis,
+                    "persistence_scope": rel.persistence_scope,
+                    "directionality": rel.directionality,
+                    "confidence": rel.confidence,
+                    "evidence_quotes": evidence_quotes,
+                    "source_prompt_ref": source_ref,
+                    "target_prompt_ref": target_ref,
+                    "context_fingerprint": bundle.get("context_fingerprint"),
+                    "needs_review": True,
+                }
+            )
+            if rel.claim_status in {"changed", "ended"}:
+                diagnostics.append(
+                    {
+                        **_phase2b_diagnostic(
+                            kind="relation_change",
+                            refs=[
+                                source_ref,
+                                target_ref,
+                                str(rel.previous_relation_ref),
+                            ],
+                            claim=rel.description,
+                            reason="relation_change_requires_author_review",
+                            evidence_quotes=evidence_quotes,
+                        ),
+                        "review_meta": review_meta,
+                        "candidate_payload": {
+                            "source_ref": source_ref,
+                            "target_ref": target_ref,
+                            "relation_type": rel.relation_type,
+                            "description": rel.description,
+                            "strength": rel.strength,
+                        },
+                    }
+                )
             try:
                 async with db.begin_nested():
+                    relation_payload: dict[str, Any] = {
+                        "source_id": source_id,
+                        "target_id": target_id,
+                        "relation_type": rel.relation_type,
+                        "description": rel.description,
+                        "quote": evidence_quotes[0],
+                        "status": "candidate",
+                        "review_meta": review_meta,
+                    }
+                    if rel.strength is not None:
+                        relation_payload["strength"] = rel.strength
                     relation_result = await create_or_merge_relation(
                         db,
                         novel_id,
-                        {
-                            "source_id": source_id,
-                            "target_id": target_id,
-                            "relation_type": rel.relation_type,
-                            "description": rel.description,
-                            "quote": rel.quote,
-                            "strength": rel.strength,
-                            "status": "candidate",
-                            "review_meta": _relation_review_meta(
-                                workflow_id=workflow_id,
-                                scene_id=scene_id,
-                                scene_index=scene_index,
-                                source_chapter_index=None,
-                                quote=rel.quote,
-                            ),
-                        },
+                        relation_payload,
                     )
                     relation = relation_result.get("relation")
                     relation_id = getattr(relation, "id", None)
-                    if relation_id and relation_result.get("action") != "deduplicated":
+                    if relation_id and (
+                        relation_result.get("action") != "deduplicated"
+                        or rel.claim_status == "reaffirmed"
+                    ):
                         await self._record_quote_evidence(
                             db,
                             novel_id=novel_id,
@@ -296,15 +664,15 @@ class SceneEntityPersistenceMixin:
                                 "target_id": str(relation_id),
                                 "target_path": "description",
                             },
-                            quote=rel.quote,
+                            quote=evidence_quotes[0],
                             scene_id=scene_id,
                             workflow_id=workflow_id,
                         )
             except Exception as exc:
                 logger.warning(
                     "Failed to create phase2b relation %s -> %s: %s",
-                    rel.source_name,
-                    rel.target_name,
+                    rel.source_ref,
+                    rel.target_ref,
                     exc,
                 )
                 if strict:
@@ -319,7 +687,12 @@ class SceneEntityPersistenceMixin:
             ):
                 result_refs.append(build_result_ref("entity_relation", relation_id))
 
-        return {"aliases": aliases_created, "relations": relations_created}
+        return {
+            "aliases": aliases_created,
+            "relations": relations_created,
+            "uncertain_count": len(diagnostics),
+            "diagnostics": diagnostics,
+        }
 
     async def _persist_entities(
         self,
@@ -341,6 +714,7 @@ class SceneEntityPersistenceMixin:
             create_entity,
             find_entity_id_by_name,
             find_similar_entities,
+            find_working_entity_id_by_name,
         )
 
         created = 0
@@ -379,6 +753,36 @@ class SceneEntityPersistenceMixin:
 
             high_confidence_target_id: str | None = None
             resolved_existing_entity_id: str | None = None
+            exact_working_entity_id = await find_working_entity_id_by_name(
+                db,
+                str(nid),
+                ent.name,
+                entity_type=ent.entity_type,
+            )
+            if exact_working_entity_id:
+                evidence_quotes = list(dict.fromkeys(ent.evidence_quotes or [ent.quote]))
+                for quote in evidence_quotes:
+                    await self._record_quote_evidence(
+                        db,
+                        novel_id=str(nid),
+                        target_ref={
+                            "target_type": "core_entity",
+                            "target_id": exact_working_entity_id,
+                            "target_path": "summary",
+                        },
+                        quote=quote,
+                        scene_id=scene_id,
+                        workflow_id=workflow_id,
+                        visible_until_chapter=source_chapter_index,
+                    )
+                seen_entity_keys.add(entity_key)
+                if persistence_stats is not None:
+                    persistence_stats["dedup_counts"]["skipped"] += 1
+                if result_refs is not None:
+                    result_refs.append(
+                        build_result_ref("core_entity", exact_working_entity_id)
+                    )
+                continue
             if action == "link_to_existing" and ent.suggested_existing_entity_name:
                 resolved_existing_entity_id = await find_entity_id_by_name(
                     db,
@@ -472,19 +876,23 @@ class SceneEntityPersistenceMixin:
                     created_entity = await create_entity(db, str(nid), entity_payload)
                     evidence_target_id = created_entity.get("id")
                     if evidence_target_id:
-                        await self._record_quote_evidence(
-                            db,
-                            novel_id=str(nid),
-                            target_ref={
-                                "target_type": "core_entity",
-                                "target_id": str(evidence_target_id),
-                                "target_path": "summary",
-                            },
-                            quote=ent.quote,
-                            scene_id=scene_id,
-                            workflow_id=workflow_id,
-                            visible_until_chapter=source_chapter_index,
+                        evidence_quotes = list(
+                            dict.fromkeys(ent.evidence_quotes or [ent.quote])
                         )
+                        for quote in evidence_quotes:
+                            await self._record_quote_evidence(
+                                db,
+                                novel_id=str(nid),
+                                target_ref={
+                                    "target_type": "core_entity",
+                                    "target_id": str(evidence_target_id),
+                                    "target_path": "summary",
+                                },
+                                quote=quote,
+                                scene_id=scene_id,
+                                workflow_id=workflow_id,
+                                visible_until_chapter=source_chapter_index,
+                            )
                 created += 1
                 seen_entity_keys.add(entity_key)
                 if persistence_stats is not None:
@@ -625,7 +1033,7 @@ class SceneEntityPersistenceMixin:
         from modules.world.facade import create_map_observation_from_delta_event
 
         ingest_events: list[MemoryDeltaEventIngest] = []
-        map_payloads: list[dict] = []
+        map_payloads: list[tuple[int, dict[str, Any]]] = []
         for event in delta_events or []:
             event_meta = event.meta or {}
             scene_key = (
@@ -663,10 +1071,11 @@ class SceneEntityPersistenceMixin:
                     **source_ref,
                 },
             }
-            map_payload = event.model_dump()
-            observation_meta.pop("scene_id", None)
-            map_payload["meta"] = observation_meta
-            map_payloads.append(map_payload)
+            if _delta_event_has_map_intent(event_meta):
+                map_payload = event.model_dump()
+                observation_meta.pop("scene_id", None)
+                map_payload["meta"] = observation_meta
+                map_payloads.append((len(ingest_events) - 1, map_payload))
 
         result = await ingest_delta_events(
             db,
@@ -674,7 +1083,8 @@ class SceneEntityPersistenceMixin:
             ingest_events,
             result_refs=result_refs,
         )
-        for event_payload, delta in zip(map_payloads, result.delta_logs):
+        for delta_index, event_payload in map_payloads:
+            delta = result.delta_logs[delta_index]
             delta_log_id = delta.get("id")
             try:
                 observation = await create_map_observation_from_delta_event(

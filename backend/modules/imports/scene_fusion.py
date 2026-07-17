@@ -24,7 +24,7 @@ PHASE1B_WINDOW_OVERLAP = 2
 PHASE1B_CONCURRENCY = 4
 PHASE1B_CHAPTER_FALLBACK_MAX_RANGE = 12
 PHASE1B_REDUCER_RETRY_COUNT = 0
-PHASE1B_TOTAL_TIMEOUT_SECONDS = 240.0
+PHASE1B_TOTAL_TIMEOUT_SECONDS = 1800.0
 DEEP_IMPORT_422_DEGRADE_THRESHOLD = 0.40
 LOTM_1_TO_7_EVENT_ANCHORS: dict[int, list[dict[str, str]]] = {
     1: [
@@ -139,10 +139,23 @@ class FinalSceneCandidate(BaseModel):
     title: str = ""
     goal: str = ""
     core_conflict: str = ""
-    emotional_beat: str = ""
-    must_happen: str = ""
-    must_not_happen: str = ""
-    narrative_tag: str = "imported"
+    core_conflict_status: Literal["present", "not_applicable", "uncertain"] = "uncertain"
+    phase1a_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    boundary_basis: str = ""
+    emotional_beat: str | None = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+    narrative_tag: str = "draft"
+    narrative_function: str = ""
+    phase1b_basis: str = ""
+    phase1b_field_statuses: dict[
+        str,
+        Literal["present", "not_applicable", "uncertain"],
+    ] = Field(default_factory=dict)
+    phase1b_uncertain_fields: list[str] = Field(default_factory=list)
+    phase1b_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    phase1b_context_fingerprint: str = ""
+    phase1b_source_fingerprint: str = ""
     scene_chunks: list[SceneChunk] = Field(default_factory=list)
     source_candidate_ids: list[str] = Field(..., min_length=1)
     source_rounds: list[str] = Field(default_factory=list)
@@ -160,10 +173,12 @@ class FinalSceneCandidate(BaseModel):
         "title",
         "goal",
         "core_conflict",
-        "emotional_beat",
-        "must_happen",
-        "must_not_happen",
+        "boundary_basis",
         "narrative_tag",
+        "narrative_function",
+        "phase1b_basis",
+        "phase1b_context_fingerprint",
+        "phase1b_source_fingerprint",
         "boundary_status",
         "boundary_reason",
         "review_reason",
@@ -175,7 +190,25 @@ class FinalSceneCandidate(BaseModel):
             return ""
         return str(value)
 
-    @field_validator("source_candidate_ids", "source_rounds", mode="before")
+    @field_validator(
+        "emotional_beat",
+        "must_happen",
+        "must_not_happen",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator(
+        "source_candidate_ids",
+        "source_rounds",
+        "phase1b_uncertain_fields",
+        mode="before",
+    )
     @classmethod
     def _normalize_string_list(cls, value: Any) -> list[str]:
         if value is None or value == "":
@@ -253,6 +286,21 @@ class FinalSceneCandidate(BaseModel):
                 normalized[str(key)] = mapped
         return normalized
 
+    @field_validator("phase1b_field_statuses", mode="before")
+    @classmethod
+    def _normalize_phase1b_field_statuses(
+        cls,
+        value: Any,
+    ) -> dict[str, Literal["present", "not_applicable", "uncertain"]]:
+        if not isinstance(value, dict):
+            return {}
+        allowed = {"present", "not_applicable", "uncertain"}
+        return {
+            str(key): str(status)  # type: ignore[dict-item]
+            for key, status in value.items()
+            if str(status) in allowed
+        }
+
     @model_validator(mode="after")
     def _fill_scene_chunks_and_candidate_id(self) -> FinalSceneCandidate:
         self.source_chapter_indices = _unique_sorted(self.source_chapter_indices)
@@ -270,12 +318,25 @@ class FinalSceneCandidate(BaseModel):
             self.boundary_reason = "Phase 1b reducer normalized this Scene."
         if self.needs_review and not self.review_reason:
             self.review_reason = "Phase 1b reducer output should be reviewed."
-        if not self.core_conflict.strip():
-            self.core_conflict = _derive_core_conflict(self)
-        if not self.must_happen.strip():
-            self.must_happen = _derive_must_happen(self)
-        if not self.must_not_happen.strip():
-            self.must_not_happen = _derive_must_not_happen(self)
+        uncertain = set(self.phase1b_uncertain_fields)
+        field_values = {
+            "emotional_beat": self.emotional_beat,
+            "must_happen": self.must_happen,
+            "must_not_happen": self.must_not_happen,
+            "narrative_tag": self.narrative_tag,
+            "narrative_function": self.narrative_function,
+        }
+        for field, value in field_values.items():
+            if field in self.phase1b_field_statuses:
+                continue
+            self.phase1b_field_statuses[field] = (
+                "uncertain"
+                if field in uncertain
+                else "not_applicable"
+                if value in (None, "")
+                or (field == "narrative_tag" and value == "draft")
+                else "present"
+            )
         if not self.candidate_id:
             source_key = "-".join(self.source_candidate_ids)
             chapter_key = "-".join(str(index) for index in self.source_chapter_indices)
@@ -891,6 +952,13 @@ def _scene_summary(scene: dict[str, Any]) -> dict[str, Any]:
         "title": scene.get("title", ""),
         "goal": scene.get("goal", ""),
         "core_conflict": scene.get("core_conflict", ""),
+        "core_conflict_status": scene.get("core_conflict_status", "uncertain"),
+        "phase1a_confidence": scene.get("phase1a_confidence", 0.0),
+        "boundary_basis": scene.get("boundary_basis", ""),
+        "phase1b_source_fingerprint": scene.get(
+            "phase1b_source_fingerprint",
+            "",
+        ),
         "emotional_beat": scene.get("emotional_beat", ""),
         "must_happen": scene.get("must_happen", ""),
         "must_not_happen": scene.get("must_not_happen", ""),
@@ -940,10 +1008,20 @@ def _fallback_candidates_for(
                     title=scene_data.get("title", ""),
                     goal=scene_data.get("goal", ""),
                     core_conflict=scene_data.get("core_conflict", ""),
+                    core_conflict_status=scene_data.get(
+                        "core_conflict_status",
+                        "uncertain",
+                    ),
+                    phase1a_confidence=scene_data.get("phase1a_confidence", 0.0),
+                    boundary_basis=scene_data.get("boundary_basis", ""),
+                    phase1b_source_fingerprint=scene_data.get(
+                        "phase1b_source_fingerprint",
+                        "",
+                    ),
                     emotional_beat=scene_data.get("emotional_beat", ""),
                     must_happen=scene_data.get("must_happen", ""),
                     must_not_happen=scene_data.get("must_not_happen", ""),
-                    narrative_tag=scene_data.get("narrative_tag", "imported"),
+                    narrative_tag=scene_data.get("narrative_tag", "draft"),
                     scene_chunks=scene_chunks,
                     source_candidate_ids=[candidate.candidate_id],
                     source_rounds=[candidate.source_round],
@@ -1380,35 +1458,6 @@ def _confidence_for(candidate: SceneCandidate) -> float:
     if isinstance(confidence, int | float):
         return max(0.0, min(float(confidence), 1.0))
     return 0.5
-
-
-def _derive_must_happen(candidate: FinalSceneCandidate) -> str:
-    return (
-        _compact_setup_text(candidate.goal)
-        or _compact_setup_text(candidate.title)
-        or "保留本 Scene 的已识别叙事事件"
-    )
-
-
-def _derive_core_conflict(candidate: FinalSceneCandidate) -> str:
-    goal = _compact_setup_text(candidate.goal, limit=70)
-    if goal:
-        return f"围绕目标推进的阻碍待复核：{goal}"
-    return "源章节事件的阻力与风险待复核"
-
-
-def _derive_must_not_happen(candidate: FinalSceneCandidate) -> str:
-    conflict = _compact_setup_text(candidate.core_conflict)
-    if conflict and conflict != "待校验":
-        return f"不得绕过既有冲突：{conflict}"
-    return "不得与已导入章节正文冲突"
-
-
-def _compact_setup_text(value: Any, *, limit: int = 90) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip()
 
 
 def _recommended_scene_count(chapter_indices: Sequence[int]) -> int:

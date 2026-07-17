@@ -967,6 +967,7 @@ describe("mapView 地图设置", () => {
 
   it("_showSettingsModal 保存成功调用 updateMap 并重载", async () => {
     globalThis.state.currentProjectId = "p1"
+    mapState.sceneList = [{ id: "s1", index: 1, title: "开端" }]
     mapView._state = { map: { id: "m1", name: "九州", description: "古都" } }
     api.world.updateMap.mockResolvedValue({})
     api.world.getMapState.mockResolvedValue({
@@ -987,6 +988,8 @@ describe("mapView 地图设置", () => {
     expect(api.world.updateMap).toHaveBeenCalledWith("m1", { name: "新九州", description: "新描述" }, "p1")
     expect(closeModal).toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("地图信息已更新", "success")
+    expect(mapView._state?.map?.name).toBe("新九州")
+    expect(mapState.sceneList).toEqual([{ id: "s1", index: 1, title: "开端" }])
   })
 
   it("_showSettingsModal 保存失败 toast 错误", async () => {

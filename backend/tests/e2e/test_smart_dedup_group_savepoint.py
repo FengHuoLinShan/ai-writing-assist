@@ -26,7 +26,18 @@ async def test_smart_dedup_groups_use_independent_postgresql_savepoints(
         _server_group("successful-group", "source-b", "primary-b"),
     ]
 
-    async def fake_apply(db, novel_id, *, primary_entity_id, operations):
+    async def fake_apply(
+        db,
+        novel_id,
+        *,
+        primary_entity_id,
+        operations,
+        validate_only=False,
+        execution_fingerprints_prevalidated=False,
+    ):
+        if validate_only:
+            return []
+        assert execution_fingerprints_prevalidated is True
         project = (
             await db.execute(select(Project).where(Project.id == project_id))
         ).scalar_one()

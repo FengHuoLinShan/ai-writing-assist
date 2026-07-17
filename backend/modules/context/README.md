@@ -315,11 +315,19 @@ GET/POST /api/context/activation-preview
 ## Deep Import Activation
 
 `prepare_import_context_activation()` 是 Phase 2a 的唯一跨模块预检入口。它通过
-outline facade 获取当前 Scene 与最多两个前序 brief，通过 world facade 获取派生世界
-背景，并读取当前 Scene 在可见截止章/offset 以前的精确正文范围。后续
-Scene 和跨章 Scene 中越过截止的 span 永不进入该 activation；Phase 2b
-别名/关系对账保留全局证据语义。activation、预算事件和来源摘要写入 context snapshot
-metadata，不产生正史事实。
+outline facade 获取锁定 Scene 卡、当前章节范围内的 active working Scene / 篇章纲 / 剧情线
+以及前序 brief，通过 world facade 装配身份候选，并读取当前 Scene 在可见截止章/offset
+以前的完整精确正文范围。直接被正文名称或别名命中的候选全部保留，其余候选按 Scene / 大纲
+关联和重要度选择人物 Top-6、非人物 Top-16；Top-K 是资产相关性边界，不是输入 token
+预算。模型只看到服务端生成的 `entity-xxx` 引用，不看到可自由回传的数据库 ID。
+
+`import-context-v2` 不裁剪当前 Scene，也不对 Phase 2a 输入实施应用层字符/token 预算；
+provider 上下文超限时该 Scene 显式失败并进入复核。后续 Scene 和跨章 Scene 中越过截止的
+span 永不进入 activation；可见范围内只要存在 `chapter_only / unresolved`、非法 offset 或
+缺失 span，就不发送部分 Scene。context fingerprint 覆盖正文来源、Scene 卡、相关大纲、
+身份候选、前序证据和相关既有关系，并进入 checkpoint/snapshot；provider 调用前关闭数据库事务。
+Phase 2b 复用完整正文与同一相关性边界，以 `entity-xxx / relation-xxx` 完成别名和关系
+连续性对账，同样不做应用层输入裁剪。activation 和来源摘要只用于审计，不产生正史事实。
 
 ## 快照生命周期维护
 

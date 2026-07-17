@@ -94,10 +94,33 @@ def _try_load_onnx(model_path: str, wlog) -> tuple | None:
 
 def _load_st_model(model_id: str, wlog):
     """加载 sentence-transformers 模型。"""
+    from huggingface_hub import snapshot_download
     from sentence_transformers import SentenceTransformer
 
     wlog.info("Loading SentenceTransformer: %s", model_id)
-    st_model = SentenceTransformer(model_id, device="cpu", trust_remote_code=True)
+    try:
+        local_model_path = (
+            model_id
+            if os.path.isdir(model_id)
+            else snapshot_download(model_id, local_files_only=True)
+        )
+        st_model = SentenceTransformer(
+            local_model_path,
+            device="cpu",
+            trust_remote_code=True,
+            local_files_only=True,
+        )
+        wlog.info("SentenceTransformer loaded from local cache")
+    except Exception as local_error:
+        wlog.info(
+            "SentenceTransformer unavailable in local cache (%s); retrying remote",
+            type(local_error).__name__,
+        )
+        st_model = SentenceTransformer(
+            model_id,
+            device="cpu",
+            trust_remote_code=True,
+        )
     wlog.info(
         "SentenceTransformer loaded, dim=%s",
         st_model.get_embedding_dimension(),
@@ -243,6 +266,7 @@ class BgeOnnxWorker:
         quantization: str = "int8",
         max_batch: int = 64,
         timeout: float = 5.0,
+        startup_timeout: float = 300.0,
         queue_maxsize: int = 200,
     ) -> None:
         self._model_path = model_path
@@ -250,6 +274,7 @@ class BgeOnnxWorker:
         self._quantization = quantization
         self._max_batch = max_batch
         self._timeout = timeout
+        self._startup_timeout = max(1.0, startup_timeout)
         self._queue_maxsize = max(1, queue_maxsize)
 
         # Queues own OS-level semaphores. Create them only when the worker starts
@@ -324,8 +349,8 @@ class BgeOnnxWorker:
             )
             self._process.start()
 
-            # 等待 worker 就绪信号（最多等 60 秒，首次需下载/验证 HF 缓存）
-            ready_id, backend = result_queue.get(timeout=60.0)
+            # Cold starts may need to verify or download the configured model.
+            ready_id, backend = result_queue.get(timeout=self._startup_timeout)
             if ready_id == "__ready__":
                 self._healthy = True
                 logger.info(
@@ -348,7 +373,9 @@ class BgeOnnxWorker:
         except Exception as exc:
             self._healthy = False
             self._stop_locked()
-            raise RuntimeError("BGE worker failed to start within 60s") from exc
+            raise RuntimeError(
+                f"BGE worker failed to start within {self._startup_timeout:g}s"
+            ) from exc
 
     def _open_queues(self) -> None:
         """Allocate one queue pair for a single worker process lifecycle."""

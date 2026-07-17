@@ -1,7 +1,7 @@
 # 场景覆盖矩阵
 
 > 本文档基于 `docs/核心业务场景与预期行为.md` 中的场景覆盖矩阵，结合当前 E2E 测试实际状态维护。
-> 更新日期：2026-07-16（测试 profile 与 fail-closed E2E 门禁整理后）
+> 更新日期：2026-07-17（P20 大纲分层创作与信息推进归并后）
 
 ## 图例
 
@@ -38,8 +38,9 @@
 | `writing-conflict.spec.js` | 场景 4 | 409 冲突 — 其他会话已更新草稿版本；1/1 通过 |
 | `world.spec.js` | 场景 5 | 对象库空态、创建/编辑/删除世界对象、关系子标签、别名子标签、实体合并、实体回滚、人物知识边界；9/9 通过 |
 | `world-relations-aliases.spec.js` | 场景 5 | 创建关系、创建别名；2/2 通过 |
-| `outline-scenes.spec.js` | 场景 6 | Scene 卡默认标签、创建/编辑/删除 Scene 卡、上移/下移重排、AI 生成结构弹窗、伏笔创建/状态更新、揭示创建；8/8 通过 |
+| `outline-scenes.spec.js` | 场景 6 | Scene 卡创建/编辑/移入历史、重排、工作台与正文 Scene 提取入口；P20 Planned Scene 由单元与后端契约测试覆盖 |
 | `outline-threads-arcs.spec.js` | 场景 6 | 创建/编辑/删除剧情线、创建/编辑/删除篇章纲；6/6 通过 |
+| `outline-foreshadowing-reveal.spec.js` | 场景 6 | 旧路由归并、同一 movement 的伏笔/揭示时间线、未归类计划分配 |
 | `rag.spec.js` | A1 | 索引状态页面、搜索子标签、搜索空结果、真实 RAG chunk UI 召回、embedding 降级元数据与 warning、重建索引按钮；5/5 通过 |
 | `generate.spec.js` | A2 | 生成中心页面、自由聊天/草稿/模板，以及上下文编译、预览与人物视角提交契约 |
 
@@ -59,7 +60,9 @@
 - **深度导入流水线**：当前覆盖受支持的场景自动提取入口、异步任务提交、active workflow 刷新/路由恢复、后端 action 驱动的手动恢复提示，以及 guarded worker 浏览器关闭场景；阶段质量细节由前端单测和 imports 后端测试覆盖。
 - **深度导入 chaos 待实现项**：成功导入后立即刷新恢复章节树、关闭浏览器后恢复异步深度导入、部分结果降级 warning。仅作为待实现矩阵记录，不再用数组长度伪装成 Playwright 产品覆盖。
 - **真实异步深度导入质量验收**：旧真实 LLM 验收 harness 已废弃；当前以 staged async task 结果、后端 imports 单元/集成测试和必要的手动 provider probe 作为质量回归依据。
-- **伏笔/揭示高级管理**：基础创建、删除与伏笔状态更新已有覆盖；回收率统计、积压高亮、手动标记回收仍待实现/验收。
+- **P20 当前层创作**：后端 strict schema、上下文、原子 apply 与前端表单/恢复由单元测试覆盖；
+  真实 provider 质量验收按 Prompt 全量优化计划统一执行。浏览器 E2E 当前覆盖信息推进归并与
+  未归类分配，尚未在 worker profile 中跑完三类生成/apply。
 - **RAG 父子检索**：真实 chunk UI 召回与 embedding 降级 warning 已覆盖；父子检索补齐父 Scene 元数据和 Delta 摘要仍待实现/验收。
 - **上下文人物视角隐藏真相转换**：前端已覆盖 `reveal_mode=character` 与 `viewpoint_character_id` 提交契约；真实数据下不同 `reveal_mode` 的内容差异主要由后端 context 测试覆盖，浏览器端仍未完整断言预算裁剪和 hidden_truth 差异。
 - **RAG/Context chaos 待实现项**：降级检索 warning、揭示模式切换不泄露隐藏真相、激进预算裁剪可观察且不崩溃。仅保留在矩阵中，未实现前不进入 Playwright 收集。

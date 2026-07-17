@@ -1,167 +1,376 @@
-"""
-RAG 重排序器（可选模块）
-
-将混合检索的 top_k*2 候选送入 DeepSeek API 做相关性精排，
-提升 long-context 和 extraction 场景下的检索精度。
-
-配置:
-    RERANKER_ENABLED=true   # 启用
-    RERANKER_MAX_CANDIDATES=24  # 最多重排候选数
-
-默认关闭（search 模式不走重排，extraction 模式可选开启）。
-"""
+"""Mode-aware, evidence-oriented LLM reranking for RAG candidates."""
 
 from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from infrastructure.llm.agent_step_harness import run_managed_generate
+from infrastructure.llm.agent_step_harness import (
+    AgentPermissionLevel,
+    ContextBudget,
+    run_managed_structured,
+)
 from infrastructure.llm.client import LLMClient
-from infrastructure.llm.schemas import LLMCallRequest
+from infrastructure.llm.prompt_loader import load_prompt
+from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
-_RERANK_PROMPT = """你是一个小说创作助手的检索质量评估器。
+RERANKER_STEP_NAME = "rag.reranker.generate"
+RERANKER_PROMPT_NAME = "rag_reranker"
+RERANKER_TOTAL_TIMEOUT_SECONDS = 1800
+RERANKER_UNSUPPORTED_CONFIDENCE = 0.8
+# Search mode may keep genuinely useful thematic context, but very low-value
+# topical mentions are retrieval noise rather than evidence. Direct,
+# supporting, and counterevidence decisions are never removed by this floor.
+RERANKER_TOPICAL_MIN_SCORE = 0.2
+RERANKER_CONTEXT_BUDGET = ContextBudget(
+    max_input_chars=4_000_000,
+    max_output_chars=1_000_000,
+    context_limit_tokens=1_000_000,
+    trigger_ratio=0.95,
+)
 
-请评估以下文本片段与查询的相关性，给出 0.0 到 1.0 的相关性评分。
 
-评分标准:
-- 1.0: 完全匹配，文本直接回答了查询
-- 0.7-0.9: 高度相关，包含查询涉及的实体或事件
-- 0.4-0.6: 部分相关，涉及类似主题
-- 0.1-0.3: 微弱相关
-- 0.0: 完全不相关
-
-只输出 JSON，格式: {"scores": [0.85, 0.32, ...]}"""
+class RerankerSupportStatus(StrEnum):
+    supported = "supported"
+    partially_supported = "partially_supported"
+    unsupported = "unsupported"
+    uncertain = "uncertain"
 
 
-class _RerankerResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class RerankerEvidenceRole(StrEnum):
+    direct = "direct"
+    supporting = "supporting"
+    counterevidence = "counterevidence"
+    topical_only = "topical_only"
+    irrelevant = "irrelevant"
 
-    scores: list[float]
 
-    @field_validator("scores", mode="before")
+RERANKER_ROLE_PRIORITY = {
+    RerankerEvidenceRole.direct: 0,
+    RerankerEvidenceRole.counterevidence: 0,
+    RerankerEvidenceRole.supporting: 1,
+    RerankerEvidenceRole.topical_only: 2,
+}
+
+
+class RerankerCandidateDecision(BaseModel):
+    """One evidence-value judgment, referenced only by a server short key."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    candidate_ref: str = Field(
+        min_length=1,
+        pattern=r"^candidate-[0-9]{3}$",
+    )
+    evidence_role: RerankerEvidenceRole
+    relevance_score: float = Field(strict=True, ge=0.0, le=1.0)
+    basis: str = Field(min_length=1)
+    uncertain: bool = False
+
+    @field_validator("relevance_score", mode="before")
     @classmethod
-    def _validate_scores(cls, value: object) -> list[float]:
-        if not isinstance(value, list):
-            raise ValueError("scores must be a list")
+    def _reject_bool_score(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("relevance_score must be a JSON number")
+        if isinstance(value, int | float) and not math.isfinite(float(value)):
+            raise ValueError("relevance_score must be finite")
+        return value
 
-        scores: list[float] = []
-        for item in value:
-            if isinstance(item, bool) or not isinstance(item, int | float):
-                raise ValueError("scores entries must be JSON numbers")
-            score = float(item)
-            if not math.isfinite(score):
-                raise ValueError("scores entries must be finite")
-            scores.append(score)
-        return scores
+
+class RerankerOutput(BaseModel):
+    """Strict P21 output for support, ranking, and abstention decisions."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    support_status: RerankerSupportStatus
+    confidence: float = Field(strict=True, ge=0.0, le=1.0)
+    basis: str = Field(min_length=1)
+    ranked_candidates: list[RerankerCandidateDecision]
+    uncertainties: list[str] = Field(default_factory=list)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _reject_bool_confidence(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("confidence must be a JSON number")
+        if isinstance(value, int | float) and not math.isfinite(float(value)):
+            raise ValueError("confidence must be finite")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_semantics(self) -> RerankerOutput:
+        refs = [item.candidate_ref for item in self.ranked_candidates]
+        if len(refs) != len(set(refs)):
+            raise ValueError("ranked_candidates must not repeat candidate_ref")
+
+        useful_roles = {
+            RerankerEvidenceRole.direct,
+            RerankerEvidenceRole.supporting,
+            RerankerEvidenceRole.counterevidence,
+            RerankerEvidenceRole.topical_only,
+        }
+        if self.support_status in {
+            RerankerSupportStatus.supported,
+            RerankerSupportStatus.partially_supported,
+        } and not any(
+            item.evidence_role in useful_roles for item in self.ranked_candidates
+        ):
+            raise ValueError("supported output requires at least one useful candidate")
+        if self.support_status == RerankerSupportStatus.unsupported and any(
+            item.evidence_role
+            in {
+                RerankerEvidenceRole.direct,
+                RerankerEvidenceRole.supporting,
+                RerankerEvidenceRole.counterevidence,
+            }
+            for item in self.ranked_candidates
+        ):
+            raise ValueError("unsupported output contradicts evidence roles")
+        return self
+
+
+@dataclass(frozen=True)
+class RerankOutcome:
+    """Internal reranker result without changing the public RAG bundle shape."""
+
+    chunks: list[tuple[Any, float]]
+    support_status: RerankerSupportStatus
+    degraded: bool = False
+    warning: str | None = None
+
+
+def _safe_json_data(value: dict[str, Any]) -> str:
+    """Serialize untrusted data without allowing it to close the data fence."""
+
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
+
+
+def _candidate_payload(candidate: dict[str, Any], *, index: int) -> dict[str, Any]:
+    return {
+        "candidate_ref": f"candidate-{index + 1:03d}",
+        "full_text": str(candidate.get("text") or ""),
+        "chapter_index": candidate.get("chapter_index"),
+        "chunk_index": candidate.get("chunk_index"),
+        "source_type": candidate.get("source_type"),
+        "scene_mapped": bool(candidate.get("scene_id")),
+        "original_rank": index + 1,
+        "original_score": candidate.get("original_score"),
+    }
+
+
+def _build_user_prompt(
+    query: str,
+    candidates: list[dict[str, Any]],
+    *,
+    retrieval_mode: str,
+    retrieval_purpose: str | None,
+) -> tuple[str, list[str]]:
+    candidate_payloads = [
+        _candidate_payload(candidate, index=index)
+        for index, candidate in enumerate(candidates)
+    ]
+    refs = [item["candidate_ref"] for item in candidate_payloads]
+    payload = {
+        "query": query,
+        "retrieval_mode": retrieval_mode,
+        "retrieval_purpose": retrieval_purpose or "unspecified",
+        "candidates": candidate_payloads,
+    }
+    return (
+        "<RAG_RERANK_INPUT_JSON>\n"
+        f"{_safe_json_data(payload)}\n"
+        "</RAG_RERANK_INPUT_JSON>\n\n"
+        "比较完整候选集合，输出整体支持状态，并按证据价值列出所有值得保留的 "
+        "candidate_ref；无实际价值的候选可以省略。",
+        refs,
+    )
+
+
+def _validate_candidate_references(output: RerankerOutput, refs: list[str]) -> None:
+    actual = [item.candidate_ref for item in output.ranked_candidates]
+    unknown = sorted(set(actual) - set(refs))
+    if unknown:
+        raise ValueError(
+            "reranker returned unknown candidate_ref values: "
+            f"unknown={unknown}"
+        )
 
 
 async def rerank(
     query: str,
-    candidates: list[dict],
+    candidates: list[dict[str, Any]],
     *,
+    retrieval_mode: str = "search",
+    retrieval_purpose: str | None = None,
     llm_client: LLMClient | None = None,
     model: str | None = None,
-    max_candidates: int = 24,
-) -> list[float]:
-    """对候选片段进行 LLM 精排。
+) -> RerankerOutput:
+    """Judge evidence value for the complete deterministic candidate pool."""
 
-    Args:
-        query: 原始查询文本
-        candidates: 候选片段列表，每个含 "text" 字段
-        model: LLM 模型名称（默认使用配置中的 llm_model）
-        max_candidates: 最多重排候选数（超出截断）
-
-    Returns:
-        list[float] — 每个候选的相关性评分 (0.0-1.0)，与输入顺序对应
-    """
     if not candidates:
-        return []
-
-    # 截断到最大候选数
-    trimmed = candidates[:max_candidates]
-
-    # 构建 prompt
-    passages = "\n\n".join(f"[{i}] {c['text'][:300]}" for i, c in enumerate(trimmed))
-    user_prompt = f"查询: {query}\n\n候选片段:\n{passages}"
-
-    from infrastructure.llm.schemas import LLMMessage
-
+        return RerankerOutput(
+            support_status=RerankerSupportStatus.unsupported,
+            confidence=1.0,
+            basis="没有候选片段可供判断。",
+            ranked_candidates=[],
+            uncertainties=[],
+        )
     if llm_client is None:
         raise ValueError("rerank requires a project-scoped llm_client")
 
-    request = LLMCallRequest(
-        model=model or llm_client.model_name,
-        messages=[
-            LLMMessage(role="system", content=_RERANK_PROMPT),
-            LLMMessage(role="user", content=user_prompt),
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"},
+    user_prompt, refs = _build_user_prompt(
+        query,
+        candidates,
+        retrieval_mode=retrieval_mode,
+        retrieval_purpose=retrieval_purpose,
     )
-
-    response = await run_managed_generate(
+    output = await run_managed_structured(
         llm_client,
-        request,
-        step_name="rag.reranker.generate",
+        LLMCallRequest(
+            model=model or llm_client.model_name,
+            messages=[
+                LLMMessage(role="system", content=load_prompt(RERANKER_PROMPT_NAME)),
+                LLMMessage(role="user", content=user_prompt),
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        ),
+        RerankerOutput,
+        step_name=RERANKER_STEP_NAME,
+        max_fix_attempts=2,
+        format_repair_attempts=1,
+        permission_level=AgentPermissionLevel.read,
+        read_only=True,
+        timeout=RERANKER_TOTAL_TIMEOUT_SECONDS,
+        context_budget=RERANKER_CONTEXT_BUDGET,
     )
-    data = json.loads(response.content)
-    parsed = _RerankerResponse.model_validate(data)
+    _validate_candidate_references(output, refs)
+    return output
 
-    # 补齐到原始长度
-    padded = parsed.scores[: len(trimmed)]
-    padded.extend([0.0] * (len(trimmed) - len(padded)))
-    padded = [max(0.0, min(1.0, s)) for s in padded]
 
-    # 对于被截断的候选，给默认评分 0.3
-    if len(trimmed) < len(candidates):
-        padded.extend([0.3] * (len(candidates) - len(trimmed)))
-
-    return padded
+def _retained_roles(retrieval_mode: str) -> set[RerankerEvidenceRole]:
+    roles = {
+        RerankerEvidenceRole.direct,
+        RerankerEvidenceRole.supporting,
+        RerankerEvidenceRole.counterevidence,
+    }
+    if retrieval_mode in {"search", "context"}:
+        roles.add(RerankerEvidenceRole.topical_only)
+    return roles
 
 
 async def rerank_results(
     query: str,
-    scored_chunks: list[tuple],
+    scored_chunks: list[tuple[Any, float]],
     *,
     top_k: int = 12,
+    retrieval_mode: str = "search",
+    retrieval_purpose: str | None = None,
     llm_client: LLMClient | None = None,
     model: str | None = None,
-) -> list[tuple]:
-    """对混合检索结果进行 LLM 精排，返回重排后的 top_k。
+) -> RerankOutcome:
+    """Rerank candidates, filter non-evidence, and support explicit abstention."""
 
-    Args:
-        query: 原始查询
-        scored_chunks: 混合检索结果，每项为 (RagChunk, score)
-        top_k: 最终返回数量
-        model: LLM 模型名称
-
-    Returns:
-        list[(RagChunk, final_score)] — 重排后的 top_k 结果
-    """
     if len(scored_chunks) <= top_k:
-        return scored_chunks
+        return RerankOutcome(
+            chunks=scored_chunks,
+            support_status=RerankerSupportStatus.uncertain,
+        )
 
     candidates = [
-        {"text": chunk.text, "original_score": score} for chunk, score in scored_chunks
+        {
+            "text": chunk.text,
+            "chapter_index": getattr(chunk, "chapter_index", None),
+            "chunk_index": getattr(chunk, "chunk_index", None),
+            "source_type": getattr(chunk, "source_type", None),
+            "scene_id": getattr(chunk, "scene_id", None),
+            "original_score": score,
+        }
+        for chunk, score in scored_chunks
     ]
-
-    rerank_scores = await rerank(
+    output = await rerank(
         query,
         candidates,
+        retrieval_mode=retrieval_mode,
+        retrieval_purpose=retrieval_purpose,
         llm_client=llm_client,
         model=model,
     )
 
-    # 融合原始评分与 LLM 精排评分
-    reranked: list[tuple] = []
-    for i, (chunk, orig_score) in enumerate(scored_chunks):
-        llm_score = rerank_scores[i] if i < len(rerank_scores) else 0.5
-        # 原始评分 30% + LLM 评分 70%
-        final = 0.3 * orig_score + 0.7 * llm_score
-        reranked.append((chunk, final))
+    if output.support_status == RerankerSupportStatus.uncertain:
+        return RerankOutcome(
+            chunks=scored_chunks[:top_k],
+            support_status=output.support_status,
+            degraded=True,
+            warning="LLM 重排序无法可靠判断，已保留原始排序",
+        )
+    if output.support_status == RerankerSupportStatus.unsupported:
+        if output.confidence >= RERANKER_UNSUPPORTED_CONFIDENCE:
+            return RerankOutcome(
+                chunks=[],
+                support_status=output.support_status,
+                warning="当前候选不足以支持检索意图",
+            )
+        return RerankOutcome(
+            chunks=scored_chunks[:top_k],
+            support_status=output.support_status,
+            degraded=True,
+            warning="LLM 对无证据判断置信不足，已保留原始排序",
+        )
 
-    reranked.sort(key=lambda x: x[1], reverse=True)
-    return reranked[:top_k]
+    by_ref = {
+        f"candidate-{index + 1:03d}": (chunk, original_score, index)
+        for index, (chunk, original_score) in enumerate(scored_chunks)
+    }
+    retained: list[tuple[Any, float, float, int, int, RerankerEvidenceRole]] = []
+    allowed_roles = _retained_roles(retrieval_mode)
+    for decision_rank, decision in enumerate(output.ranked_candidates):
+        if decision.evidence_role not in allowed_roles:
+            continue
+        if (
+            decision.evidence_role == RerankerEvidenceRole.topical_only
+            and decision.relevance_score < RERANKER_TOPICAL_MIN_SCORE
+        ):
+            continue
+        chunk, original_score, original_index = by_ref[decision.candidate_ref]
+        retained.append(
+            (
+                chunk,
+                decision.relevance_score,
+                original_score,
+                original_index,
+                decision_rank,
+                decision.evidence_role,
+            )
+        )
+
+    if not retained:
+        raise ValueError("supported reranker output retained no usable evidence")
+
+    # Evidence role is the primary tier: a high-scoring topical mention must
+    # never displace direct evidence merely because both received similar
+    # confidence. Within a role, preserve the model score and its explicit
+    # ranking before falling back to deterministic retrieval signals.
+    retained.sort(
+        key=lambda item: (
+            RERANKER_ROLE_PRIORITY[item[5]],
+            -item[1],
+            item[4],
+            -item[2],
+            item[3],
+        )
+    )
+    return RerankOutcome(
+        chunks=[(chunk, score) for chunk, score, *_ in retained[:top_k]],
+        support_status=output.support_status,
+    )

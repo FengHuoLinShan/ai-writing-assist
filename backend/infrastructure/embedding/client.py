@@ -78,6 +78,7 @@ class BgeEmbeddingClient(EmbeddingProvider):
             quantization=settings.bge_onnx_quantization,
             max_batch=settings.inference_worker_max_batch,
             timeout=settings.inference_worker_timeout,
+            startup_timeout=settings.inference_worker_startup_timeout,
             queue_maxsize=settings.inference_worker_queue_maxsize,
         )
         self._cache = EmbeddingCache()

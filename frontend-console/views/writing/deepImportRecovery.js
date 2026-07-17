@@ -9,7 +9,7 @@ import { renderFixedProgress } from "../../shared/progressRenderer.js"
 const AUTO_EXTRACTION_STAGES = {
   scenes: {
     taskType: "scene_auto_extraction",
-    label: "场景（scene）自动提取",
+    label: "从正文提取 Scene",
     initialStep: "scene_segmentation",
     initialMessage: "正在提取场景...",
   },

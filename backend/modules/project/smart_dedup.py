@@ -137,7 +137,8 @@ class SmartDedupService:
             [
                 item
                 for item in suggestions
-                if item.get("action") in {"merge", "alias_only", "deprecate_duplicate"}
+                if item.get("action")
+                in {"merge", "ai_fusion", "alias_only", "deprecate_duplicate"}
             ]
         )
         duplicate_rate = duplicate_count / total_assets if total_assets else 0.0
@@ -226,30 +227,102 @@ class SmartDedupService:
         warnings: list[str] = []
         repo = SmartDedupWorkbenchDecisionRepository()
         nid = parse_uuid(novel_id, "novel_id")
+
+        async def invoke_domain_group(
+            request_group: dict[str, Any],
+            server_group: dict[str, Any],
+            prepared: list[dict[str, Any]],
+            *,
+            validate_only: bool,
+            execution_fingerprints_prevalidated: bool,
+        ) -> list[dict[str, Any]]:
+            if server_group["asset_type"] == WORLD_ASSET_TYPE:
+                return await world_facade.apply_entity_fusion_group(
+                    db,
+                    novel_id,
+                    primary_entity_id=str(request_group["primary_asset_id"]),
+                    operations=[
+                        {**item, "source_entity_id": item["source_asset_id"]}
+                        for item in prepared
+                    ],
+                    validate_only=validate_only,
+                    execution_fingerprints_prevalidated=(
+                        execution_fingerprints_prevalidated
+                    ),
+                )
+            return await outline_facade.apply_structure_dedup_group(
+                db,
+                novel_id,
+                asset_type=str(server_group["asset_type"]),
+                primary_asset_id=str(request_group["primary_asset_id"]),
+                operations=prepared,
+                validate_only=validate_only,
+                execution_fingerprints_prevalidated=(
+                    execution_fingerprints_prevalidated
+                ),
+            )
+
+        prepared_by_group: dict[str, list[dict[str, Any]]] = {}
+        preflight_failures: dict[str, tuple[str, str]] = {}
+        # Validate every group against the same pre-write snapshot. World/outline
+        # keep the relevant rows locked until this request completes, so relation
+        # migrations from an earlier successful group cannot make a later group
+        # appear externally stale.
         for request_group in groups:
             group_id = str(request_group["group_id"])
             server_group = server_groups[group_id]
             try:
+                prepared = _validate_group_request(server_group, request_group)
                 async with db.begin_nested():
-                    prepared = _validate_group_request(server_group, request_group)
-                    if server_group["asset_type"] == WORLD_ASSET_TYPE:
-                        domain_results = await world_facade.apply_entity_fusion_group(
-                            db,
-                            novel_id,
-                            primary_entity_id=str(request_group["primary_asset_id"]),
-                            operations=[
-                                {**item, "source_entity_id": item["source_asset_id"]}
-                                for item in prepared
-                            ],
-                        )
-                    else:
-                        domain_results = await outline_facade.apply_structure_dedup_group(
-                            db,
-                            novel_id,
-                            asset_type=str(server_group["asset_type"]),
-                            primary_asset_id=str(request_group["primary_asset_id"]),
-                            operations=prepared,
-                        )
+                    await invoke_domain_group(
+                        request_group,
+                        server_group,
+                        prepared,
+                        validate_only=True,
+                        execution_fingerprints_prevalidated=False,
+                    )
+                prepared_by_group[group_id] = prepared
+            except Exception as exc:
+                code = _group_error_code(exc)
+                logger.warning(
+                    "Smart dedup group preflight failed group_id=%s "
+                    "error_code=%s diagnostic=%s",
+                    group_id,
+                    code,
+                    redact_diagnostic(f"{type(exc).__name__}: {exc}", limit=500),
+                )
+                preflight_failures[group_id] = (
+                    code,
+                    _public_group_error_message(code),
+                )
+
+        for request_group in groups:
+            group_id = str(request_group["group_id"])
+            server_group = server_groups[group_id]
+            if group_id in preflight_failures:
+                code, message = preflight_failures[group_id]
+                skipped += len(request_group.get("operations") or [])
+                warnings.append(f"{group_id}: {code}")
+                group_results.append(
+                    {
+                        "group_id": group_id,
+                        "status": "failed",
+                        "applied": 0,
+                        "error_code": code,
+                        "message": message,
+                    }
+                )
+                continue
+            try:
+                async with db.begin_nested():
+                    prepared = prepared_by_group[group_id]
+                    domain_results = await invoke_domain_group(
+                        request_group,
+                        server_group,
+                        prepared,
+                        validate_only=False,
+                        execution_fingerprints_prevalidated=True,
+                    )
                     keep_results = [
                         item
                         for item in domain_results
@@ -639,7 +712,7 @@ def _group_edge(item: dict[str, Any]) -> dict[str, Any]:
         ["merge", "alias_only", "keep_separate"]
         if asset_type == WORLD_ASSET_TYPE
         else (
-            ["merge", "keep_separate"]
+            ["ai_fusion", "merge", "keep_separate"]
             if asset_type == "scene"
             else ["deprecate_duplicate", "keep_separate"]
         )
@@ -648,6 +721,7 @@ def _group_edge(item: dict[str, Any]) -> dict[str, Any]:
         "source_asset_id": item.get("source_asset_id"),
         "target_asset_id": item.get("target_asset_id"),
         "recommended_action": item.get("action"),
+        "resolution_mode": item.get("resolution_mode"),
         "allowed_actions": allowed,
         "confidence": item.get("confidence"),
         "reason": item.get("reason"),

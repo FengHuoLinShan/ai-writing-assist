@@ -221,6 +221,7 @@ async def test_deep_import_structure_generator_uses_and_closes_snapshot_client(
             {"novel_id": "00000000-0000-0000-0000-000000000001"},
         )
     ]
-    assert llm.requests[0].model == "snapshot-default"
-    assert llm.requests[0].max_tokens == 30_000
+    # No adopted Scene evidence means Phase 3 returns an empty review result
+    # without falling back to a creative prompt/provider call.
+    assert llm.requests == []
     llm.close.assert_awaited_once_with()

@@ -107,6 +107,12 @@ class WorldEntityService(
 
         obj = await self.repo.create(db, nid, data)
         if obj.status == "canonical":
+            if obj.entity_type == "character":
+                from modules.world.services.core.character_service import (
+                    CharacterService,
+                )
+
+                await CharacterService().ensure_for_core_entity(db, obj)
             from modules.world.services.worldbuilding.synopsis_invalidation import (
                 mark_synopsis_source_changed,
             )
@@ -483,6 +489,10 @@ class WorldEntityService(
 
         updated = await self.repo.update(db, existing, data)
         self._assert_found_in_novel(updated, id, nid)
+        if updated.status == "canonical" and updated.entity_type == "character":
+            from modules.world.services.core.character_service import CharacterService
+
+            await CharacterService().ensure_for_core_entity(db, updated)
         result = self._to_response(updated)
         stale_reasons: list[str] = []
         if "name" in changed:
@@ -735,6 +745,10 @@ class WorldEntityService(
         updated = await self.repo.update(db, entity, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)
         assert updated is not None
+        if updated.entity_type == "character":
+            from modules.world.services.core.character_service import CharacterService
+
+            await CharacterService().ensure_for_core_entity(db, updated)
         try:
             from modules.context.facade import mark_asset_context_changed
 

@@ -50,7 +50,7 @@ STAGE_TASK_TYPES = {
 SCENE_STAGE_PHASE1A_WEIGHT = 0.59
 SCENE_STAGE_PHASE1B_WEIGHT = 0.40
 SCENE_STAGE_COMMIT_START = 0.99
-SCENE_STAGE_TASK_PREPARE_VERSION = "scene-stage-prepare-v1"
+SCENE_STAGE_TASK_PREPARE_VERSION = "scene-stage-prepare-v2"
 SCENE_STAGE_TASK_PREPARE_KEY = "scene_stage_prepare"
 
 
@@ -72,11 +72,13 @@ class DeepImportOrchestrator:
         progress_observer: ProgressObserver | None = None,
         snapshot_builder: SnapshotBuilder | None = None,
         snapshot_restorer: SnapshotRestorer | None = None,
+        phase1a_context_builder: Any | None = None,
     ) -> None:
         self.workflow = workflow or DeepImportWorkflow()
         self.progress_observer = progress_observer
         self._snapshot_builder = snapshot_builder
         self._snapshot_restorer = snapshot_restorer
+        self._phase1a_context_builder = phase1a_context_builder
 
     async def start(
         self,
@@ -407,6 +409,14 @@ class DeepImportOrchestrator:
         existing_prepare = meta.get(SCENE_STAGE_TASK_PREPARE_KEY)
         if isinstance(existing_prepare, dict) and progress.phase == "done":
             return self._result_from_progress(progress)
+        if (
+            isinstance(existing_prepare, dict)
+            and existing_prepare.get("version") != SCENE_STAGE_TASK_PREPARE_VERSION
+        ):
+            raise SceneStageInputDriftError(
+                "Legacy Scene-stage v1 prepare cannot use the Phase 1a v2 "
+                "context contract; submit a new Scene extraction task"
+            )
 
         (
             project_settings,
@@ -485,6 +495,14 @@ class DeepImportOrchestrator:
                 raise RuntimeError(
                     "scene_auto_extraction progress opened a provider transaction"
                 )
+            elif getattr(db, "task_progress_checkpoint_enabled", False) is True:
+                # Provider work intentionally runs without the domain transaction.
+                # Persist user-visible progress through the worker's independent,
+                # lease-fenced task session without making partial Scene assets
+                # durable.
+                accepted = await db.checkpoint_task_progress()
+                if not accepted:
+                    raise asyncio.CancelledError
             if self.progress_observer is not None:
                 await self.progress_observer(updated, persisted_value, task)
             if db.in_transaction():
@@ -546,6 +564,10 @@ class DeepImportOrchestrator:
         replace_existing: bool,
     ) -> tuple[dict[str, Any] | None, Any, dict[str, Any], dict[str, Any]]:
         from modules.imports.chapter_loader import load_chapter_range
+        from modules.imports.phase1a_context import (
+            Phase1aContextBuilder,
+            apply_frozen_phase1a_context,
+        )
         from modules.imports.scene_planning import build_scene_import_plan
         from modules.project.facade import get_project_context, require_active_project
 
@@ -564,14 +586,32 @@ class DeepImportOrchestrator:
         snapshot = current_meta.get("llm_execution_snapshot")
         if not isinstance(snapshot, dict) or not snapshot:
             raise ValueError("llm_execution_snapshot is required")
-        chapters = await load_chapter_range(
+        loaded_chapters = await load_chapter_range(
             db,
             novel_id,
-            start_chapter,
+            max(1, start_chapter - 1),
             end_chapter,
             include_missing=False,
         )
+        chapters = [
+            chapter
+            for chapter in loaded_chapters
+            if int(chapter["chapter_index"]) >= start_chapter
+        ]
         project_profile = self._scene_project_profile(context)
+        phase0_result = build_scene_import_plan(
+            chapters,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            project_settings=project_settings,
+        )
+        context_builder = self._phase1a_context_builder or Phase1aContextBuilder()
+        phase0_result = await context_builder.compile(
+            db,
+            novel_id=novel_id,
+            plan=phase0_result,
+            boundary_chapters=loaded_chapters,
+        )
         preparation = self._build_scene_stage_preparation(
             task=task,
             meta=current_meta,
@@ -583,23 +623,24 @@ class DeepImportOrchestrator:
             chapters=chapters,
             project_profile=project_profile,
             llm_execution_snapshot=snapshot,
+            phase1a_context=phase0_result.phase1a_context,
         )
         existing = meta.get(SCENE_STAGE_TASK_PREPARE_KEY)
         if isinstance(existing, dict):
-            if (
-                existing.get("version") != SCENE_STAGE_TASK_PREPARE_VERSION
-                or existing.get("input_fingerprint") != preparation["input_fingerprint"]
-            ):
+            if existing.get("version") != SCENE_STAGE_TASK_PREPARE_VERSION:
+                raise SceneStageInputDriftError(
+                    "Legacy Scene-stage v1 prepare cannot use the Phase 1a v2 "
+                    "context contract; submit a new Scene extraction task"
+                )
+            if existing.get("input_fingerprint") != preparation["input_fingerprint"]:
                 raise SceneStageInputDriftError(
                     "Scene-stage inputs changed after the prepare checkpoint"
                 )
             preparation = dict(existing)
-        phase0_result = build_scene_import_plan(
-            chapters,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            project_settings=project_settings,
-        )
+            phase0_result = apply_frozen_phase1a_context(
+                phase0_result,
+                dict(preparation.get("phase1a_context") or {}),
+            )
         progress.llm_execution_snapshot = dict(snapshot)
         return project_settings, phase0_result, project_profile, preparation
 
@@ -614,6 +655,8 @@ class DeepImportOrchestrator:
         end_chapter: int,
     ) -> None:
         from modules.imports.chapter_loader import load_chapter_range
+        from modules.imports.phase1a_context import Phase1aContextBuilder
+        from modules.imports.scene_planning import build_scene_import_plan
         from modules.project.facade import get_project_context, require_active_project
         from modules.writing.facade import lock_chapter_versions_for_revalidation
 
@@ -641,23 +684,47 @@ class DeepImportOrchestrator:
             raise SceneStageInputDriftError("Scene-stage LLM snapshot changed")
         # Re-resolve current secrets/endpoint-specific values.  The frozen model
         # and generation settings remain intentionally stable across retries.
-        await self._restore_snapshot(db, novel_id, snapshot)
+        project_settings = await self._restore_snapshot(db, novel_id, snapshot)
 
         await lock_chapter_versions_for_revalidation(
             db,
             novel_id,
-            list(range(start_chapter, end_chapter + 1)),
+            list(range(max(1, start_chapter - 1), end_chapter + 1)),
         )
-        chapters = await load_chapter_range(
+        loaded_chapters = await load_chapter_range(
             db,
             novel_id,
-            start_chapter,
+            max(1, start_chapter - 1),
             end_chapter,
             include_missing=False,
         )
+        chapters = [
+            chapter
+            for chapter in loaded_chapters
+            if int(chapter["chapter_index"]) >= start_chapter
+        ]
         if self._chapter_source_vector(chapters) != preparation.get("source_vector"):
             raise SceneStageInputDriftError(
                 "Scene-stage chapter sources changed during generation"
+            )
+        fresh_plan = build_scene_import_plan(
+            chapters,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            project_settings=project_settings,
+        )
+        context_builder = self._phase1a_context_builder or Phase1aContextBuilder()
+        fresh_plan = await context_builder.compile(
+            db,
+            novel_id=novel_id,
+            plan=fresh_plan,
+            boundary_chapters=loaded_chapters,
+        )
+        if fresh_plan.phase1a_context.get("fingerprint") != preparation.get(
+            "phase1a_context_fingerprint"
+        ):
+            raise SceneStageInputDriftError(
+                "Scene-stage Phase 1a reference context changed during generation"
             )
 
         current_task = await db.scalar(
@@ -690,6 +757,7 @@ class DeepImportOrchestrator:
             and self._stable_hash(current_snapshot)
             == preparation.get("llm_execution_snapshot_fingerprint")
             and isinstance(current_prepare, dict)
+            and current_prepare.get("version") == SCENE_STAGE_TASK_PREPARE_VERSION
             and current_prepare.get("input_fingerprint")
             == preparation.get("input_fingerprint")
         )
@@ -723,8 +791,10 @@ class DeepImportOrchestrator:
         chapters: list[dict[str, Any]],
         project_profile: dict[str, Any],
         llm_execution_snapshot: dict[str, Any],
+        phase1a_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         authorization = meta.get("authorization_snapshot")
+        frozen_phase1a_context = dict(phase1a_context or {})
         semantic_inputs = {
             "task_id": str(task.id),
             "task_type": "scene_auto_extraction",
@@ -740,6 +810,11 @@ class DeepImportOrchestrator:
             "llm_execution_snapshot_fingerprint": cls._stable_hash(
                 llm_execution_snapshot
             ),
+            "phase1a_context": frozen_phase1a_context,
+            "phase1a_context_contract_version": frozen_phase1a_context.get(
+                "contract_version"
+            ),
+            "phase1a_context_fingerprint": frozen_phase1a_context.get("fingerprint"),
         }
         return {
             "version": SCENE_STAGE_TASK_PREPARE_VERSION,
@@ -798,6 +873,8 @@ class DeepImportOrchestrator:
                 "project_profile_fingerprint",
                 "llm_execution_snapshot_fingerprint",
                 "authorization_fingerprint",
+                "phase1a_context_contract_version",
+                "phase1a_context_fingerprint",
                 "start_chapter",
                 "end_chapter",
                 "high_quality",
@@ -1343,7 +1420,7 @@ class DeepImportOrchestrator:
     @staticmethod
     def _stage_pending_message(stage: str, start_chapter: int, end_chapter: int) -> str:
         labels = {
-            "scenes": "场景（scene）自动提取",
+            "scenes": "从正文提取 Scene",
             "world_objects": "世界对象与别名/关系自动提取",
             "plot_structure": "剧情线自动提取",
         }

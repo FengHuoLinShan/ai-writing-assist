@@ -30,6 +30,7 @@ from modules.outline.story_outline_generation import (
 )
 from modules.outline.story_outline_schemas import (
     StoryOutlineContent,
+    StoryOutlineEvidenceAudit,
     StoryOutlineGenerateRequest,
     StoryOutlineRevisionResponse,
 )
@@ -122,6 +123,11 @@ def test_story_outline_output_schema_rejects_ids_status_and_chapter_fields() -> 
     nested["major_storylines"][0]["chapter_ids"] = ["chapter-1"]
     with pytest.raises(ValidationError):
         StoryOutlineContent.model_validate(nested)
+
+    with pytest.raises(ValidationError):
+        StoryOutlineEvidenceAudit(verdict="pass", violations=["不应存在"])
+    with pytest.raises(ValidationError):
+        StoryOutlineEvidenceAudit(verdict="revise", violations=[])
 
 
 def test_story_outline_prompt_keeps_json_injection_inside_data_block() -> None:
@@ -542,6 +548,8 @@ async def test_task_restores_project_snapshot_and_waits_without_transaction() ->
         async def generate_structured(self, request, schema, **_kwargs):
             assert db.in_transaction() is False
             captured_requests.append(request)
+            if schema is StoryOutlineEvidenceAudit:
+                return StoryOutlineEvidenceAudit(verdict="pass", violations=[])
             return schema.model_validate(_preview().model_dump(mode="json"))
 
     client = _Client()
@@ -581,7 +589,7 @@ async def test_task_restores_project_snapshot_and_waits_without_transaction() ->
     )
     create.assert_called_once_with(
         {"llm": {"model": "frozen-model"}},
-        timeout_override=180,
+        timeout_override=1800,
         novel_id=data.novel_id,
     )
     exclusive.assert_awaited_once_with(db, data.novel_id)
@@ -590,8 +598,159 @@ async def test_task_restores_project_snapshot_and_waits_without_transaction() ->
     assert (
         captured_requests[0].messages[1].content.startswith("<STORY_OUTLINE_INPUT_JSON>")
     )
+    assert "<OUTPUT_CONTRACT>" in captured_requests[0].messages[2].content
+    assert '"outline_markdown"' in captured_requests[0].messages[2].content
+    assert "模型记忆" in captured_requests[1].messages[0].content
+    assert "外部正史污染检测器" in captured_requests[2].messages[0].content
+    assert "世界规则与人物边界审计器" in captured_requests[3].messages[0].content
     assert captured_requests[0].max_tokens is None
     assert STORY_OUTLINE_STEP_NAME == "outline.story_outline.generate.structured"
+
+
+async def test_generation_revises_candidate_that_turns_external_memory_into_facts() -> (
+    None
+):
+    bad_preview = _preview().model_copy(
+        update={
+            "outline_markdown": (
+                "# 既定后续\n\n主角必然假死并使用未出现在项目中的新名字。"
+            )
+        }
+    )
+    good_preview = _preview().model_copy(
+        update={
+            "outline_markdown": (
+                "# 未来创作方向\n\n这版总纲提议主角在首个舞台收束后"
+                "面临是否更换身份的选择，具体答案仍由作者决定。"
+            )
+        }
+    )
+    requests: list[tuple[object, type[object]]] = []
+    candidates = [bad_preview, good_preview]
+    audits = [
+        StoryOutlineEvidenceAudit(
+            verdict="revise",
+            violations=["候选总纲把未提供的后续身份写成必然事实"],
+        ),
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+    ]
+
+    class _Client:
+        model_name = "test-model"
+        provider = "fake"
+        profile_summary: dict = {}
+        runtime_scope: dict = {}
+
+        async def generate_structured(self, request, schema, **_kwargs):
+            requests.append((request, schema))
+            if schema is StoryOutlineEvidenceAudit:
+                return audits.pop(0)
+            return candidates.pop(0)
+
+    result = await StoryOutlineGenerationService._generate_preview(
+        _Client(),
+        _plan(),
+    )
+
+    assert result == good_preview
+    assert [schema for _request_item, schema in requests] == [
+        StoryOutlineContent,
+        StoryOutlineEvidenceAudit,
+        StoryOutlineEvidenceAudit,
+        StoryOutlineEvidenceAudit,
+        StoryOutlineContent,
+        StoryOutlineEvidenceAudit,
+        StoryOutlineEvidenceAudit,
+        StoryOutlineEvidenceAudit,
+    ]
+    revision_request = requests[4][0]
+    assert "未提供的后续身份" in revision_request.messages[-1].content
+    assert "保留其创作力" in revision_request.messages[-1].content
+
+
+def test_local_audit_rejects_chapter_schedules_but_not_long_range_movements() -> None:
+    scheduled = _preview().model_copy(
+        update={
+            "outline_markdown": (
+                "# 宏观阶段\n\n第一阶段（前 30 章）、第二阶段（中段 20-30 章）。"
+            )
+        }
+    )
+    long_range = _preview().model_copy(
+        update={
+            "outline_markdown": (
+                "# 宏观阶段\n\n早期舞台收束后，主角的身份、关系网和"
+                "生存条件会发生不可逆变化。"
+            )
+        }
+    )
+
+    assert StoryOutlineGenerationService._local_audit_violations(scheduled)
+    assert not StoryOutlineGenerationService._local_audit_violations(long_range)
+
+
+async def test_external_canon_audit_is_independent_from_general_evidence_audit() -> (
+    None
+):
+    queued = [
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+        StoryOutlineEvidenceAudit(
+            verdict="revise",
+            violations=["‘后续正史专名’未出现在项目上下文"],
+        ),
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+    ]
+
+    class _Client:
+        model_name = "test-model"
+        profile_summary: dict = {}
+        runtime_scope: dict = {}
+
+        async def generate_structured(self, _request, schema, **_kwargs):
+            assert schema is StoryOutlineEvidenceAudit
+            return queued.pop(0)
+
+    result = await StoryOutlineGenerationService._audit_preview(
+        _Client(),
+        _plan(),
+        _preview(),
+    )
+
+    assert result.verdict == "revise"
+    assert result.violations == ["‘后续正史专名’未出现在项目上下文"]
+
+
+async def test_world_rule_audit_rejects_invalid_open_decision_option() -> None:
+    queued = [
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+        StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
+        StoryOutlineEvidenceAudit(
+            verdict="revise",
+            violations=["相邻途径混合服药违反已采用的失控规则"],
+        ),
+    ]
+
+    class _Client:
+        model_name = "test-model"
+        profile_summary: dict = {}
+        runtime_scope: dict = {}
+
+        async def generate_structured(self, _request, schema, **_kwargs):
+            assert schema is StoryOutlineEvidenceAudit
+            return queued.pop(0)
+
+    result = await StoryOutlineGenerationService._audit_preview(
+        _Client(),
+        _plan(),
+        _preview(),
+    )
+
+    assert result.verdict == "revise"
+    assert "失控规则" in result.violations[0]
 
 
 async def test_task_discards_preview_when_context_changes_during_provider_wait() -> None:
@@ -606,6 +765,8 @@ async def test_task_discards_preview_when_context_changes_during_provider_wait()
         runtime_scope: dict = {}
 
         async def generate_structured(self, _request, schema, **_kwargs):
+            if schema is StoryOutlineEvidenceAudit:
+                return StoryOutlineEvidenceAudit(verdict="pass", violations=[])
             return schema.model_validate(_preview().model_dump(mode="json"))
 
     service = StoryOutlineGenerationService(llm_client=_Client())

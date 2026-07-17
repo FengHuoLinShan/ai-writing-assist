@@ -21,6 +21,7 @@ from modules.outline.services import (
     OutlineStructureCleanupService,
     PlotThreadService,
     SceneService,
+    scene_has_missing_setup,
 )
 
 
@@ -492,6 +493,69 @@ class TestPlotThreadService:
 
 
 class TestSceneService:
+    @pytest.mark.parametrize(
+        ("source", "conflict_status", "expected"),
+        [
+            ("deep_import", "not_applicable", False),
+            ("deep_import", "uncertain", True),
+            ("deep_import", None, True),
+            ("manual", "not_applicable", True),
+            ("ai_generated", "not_applicable", True),
+        ],
+    )
+    def test_scene_missing_setup_core_conflict_semantics(
+        self,
+        source: str,
+        conflict_status: str | None,
+        expected: bool,
+    ) -> None:
+        structure_meta = (
+            {"core_conflict_status": conflict_status}
+            if conflict_status is not None
+            else {}
+        )
+        scene = _make_scene(
+            source=source,
+            goal="推进叙事",
+            core_conflict=None,
+            must_happen="关键信息出现",
+            must_not_happen="人物提前知晓真相",
+            structure_meta=structure_meta,
+        )
+
+        assert scene_has_missing_setup(scene) is expected
+
+    def test_p20_planned_scene_trusts_validated_semantic_statuses(self) -> None:
+        scene = _make_scene(
+            source="ai_generated",
+            goal="推进叙事",
+            core_conflict=None,
+            must_happen="选择下一步行动",
+            must_not_happen="越过现有证据",
+            structure_meta={
+                "semantic_origin": "p20_planned_scene",
+                "semantic_field_statuses": {
+                    "core_conflict": "not_applicable",
+                    "must_happen": "present",
+                    "must_not_happen": "present",
+                },
+            },
+        )
+
+        assert scene_has_missing_setup(scene) is False
+
+    def test_scene_missing_setup_still_requires_other_setup_fields(self) -> None:
+        scene = _make_scene(
+            source="deep_import",
+            goal=None,
+            core_conflict=None,
+            must_happen="关键信息出现",
+            must_not_happen="人物提前知晓真相",
+            structure_meta={"core_conflict_status": "not_applicable"},
+        )
+
+        assert scene_has_missing_setup(scene) is True
+
     @pytest.mark.asyncio
     async def test_update_marks_auto_ingested_scene_user_edited(
         self,

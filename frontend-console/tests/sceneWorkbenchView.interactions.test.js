@@ -135,6 +135,23 @@ beforeEach(() => {
   sceneWorkbenchView._mergePreviewRequestGeneration = 0
 })
 
+describe("Scene 融合来源标签", () => {
+  it("区分 AI 融合与机械融合，并保留机械融合前的来源", () => {
+    expect(sceneWorkbenchView._sourceLabel({
+      source: "manual_fusion",
+      structure_meta: { fusion_kind: "llm_scene_workbench" },
+    })).toBe("AI 融合")
+    expect(sceneWorkbenchView._sourceLabel({
+      source: "deep_import",
+      structure_meta: { semantic_origin: "mechanical_fusion" },
+    })).toBe("深度导入 · 机械融合")
+  })
+
+  it("为缺少细分 provenance 的历史融合结果提供可读标签", () => {
+    expect(sceneWorkbenchView._sourceLabel("manual_fusion")).toBe("融合结果")
+  })
+})
+
 describe("Scene 工作台普通/热点模式", () => {
   it("无 URL 和历史偏好时默认热点并锚定最新剧情", async () => {
     state.currentView = "outline"
@@ -236,7 +253,7 @@ describe("sceneWorkbenchView — rendering filtering and interactions", () => {
     expect(html).toContain('role="status"')
   })
 
-  it("renders scene auto extraction action", async () => {
+  it("renders the deep-import Scene extraction action", async () => {
     sceneWorkbenchView._workbench = workbenchPayload
 
     const html = await sceneWorkbenchView.render()
@@ -244,7 +261,7 @@ describe("sceneWorkbenchView — rendering filtering and interactions", () => {
     expect(html).toContain("scene-workbench-shell")
     expect(html).not.toContain("scene-workbench-actions")
     const headerActions = sceneWorkbenchView.renderHeaderActions()
-    expect(headerActions).toContain("场景（scene）自动提取")
+    expect(headerActions).toContain("从正文提取 Scene")
     expect(headerActions).toContain('data-action="scene-auto-extract"')
     expect(headerActions).toContain('data-role="smart-dedup-action"')
     expect(html).toContain("再选 2 个即可融合")

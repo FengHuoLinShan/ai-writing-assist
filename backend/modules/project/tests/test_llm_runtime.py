@@ -114,7 +114,7 @@ async def test_open_project_llm_client_inherits_global_defaults_before_system(
     )
     assert snapshot["profile"]["max_tokens"] == 6789
     assert snapshot["deep_import"]["phase1c"]["decision_max_tokens"] == 6789
-    assert snapshot["deep_import"]["phase1c"]["timeout_seconds"] == 360
+    assert snapshot["deep_import"]["phase1c"]["timeout_seconds"] == 1200
 
 
 @pytest.mark.asyncio
@@ -520,7 +520,7 @@ async def test_execution_snapshot_freezes_effective_deep_import_env_settings(
     assert snapshot["deep_import"]["phase0"]["target_input_chars"] == 72_000
     assert snapshot["deep_import"]["phase1b"]["enrich_max_tokens"] == 32_768
     assert snapshot["deep_import"]["phase1c"]["decision_max_tokens"] == 12_000
-    assert snapshot["deep_import"]["phase1c"]["timeout_seconds"] == 360
+    assert snapshot["deep_import"]["phase1c"]["timeout_seconds"] == 1200
     assert snapshot["deep_import"]["phase2"]["world_min_max_tokens"] == 32_768
     assert snapshot["deep_import"]["phase3"]["structure_max_tokens"] == 32_768
 

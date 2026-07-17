@@ -13,6 +13,8 @@ vi.mock("../../shared/aiReferenceModal.js", () => ({
 function createMockEditor(overrides = {}) {
   return {
     getContent: vi.fn(() => "正文内容"),
+    getLoadedContent: vi.fn(() => "正文内容"),
+    getDraftId: vi.fn(() => "draft-1"),
     getCursorOffset: vi.fn(() => 10),
     insertTextAtCursor: vi.fn(),
     ...overrides,
@@ -49,6 +51,11 @@ beforeEach(() => {
   state._isReadonly = false
   state._scenes = []
   api.writing.generate.mockReset()
+  api.tasks.get.mockReset()
+  api.tasks.get.mockResolvedValue({
+    status: "done",
+    result: { draft_id: "candidate-1" },
+  })
 })
 
 afterEach(() => {
@@ -63,6 +70,7 @@ describe("createWritingTools", () => {
     expect(tools.exportChapter).toBeTypeOf("function")
     expect(tools.splitScene).toBeTypeOf("function")
     expect(tools.generateDraft).toBeTypeOf("function")
+    expect(tools.generateContinuation).toBeTypeOf("function")
     expect(tools.generatePovDraft).toBeTypeOf("function")
     expect(tools.dispose).toBeTypeOf("function")
   })
@@ -156,6 +164,53 @@ describe("createWritingTools", () => {
     tools.bindEvents(document.body)
     document.querySelector('[data-action="ai-generate-draft"]').click()
     await vi.waitFor(() => expect(api.writing.generate).toHaveBeenCalledTimes(1))
+  })
+
+  it("routes the editor AI continue button through real draft generation", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    confirmAiReference.mockResolvedValue({ id: "confirmation-continue" })
+    api.writing.generate.mockResolvedValue({ task_id: "task-continue" })
+    const onRefresh = vi.fn()
+    const tools = createTestTools({ onRefresh })
+    document.body.innerHTML = '<button data-action="ai-continue">AI 续写</button>'
+
+    tools.bindEvents(document.body)
+    document.querySelector('[data-action="ai-continue"]').click()
+
+    await vi.waitFor(() => expect(api.writing.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        novel_id: "p1",
+        chapter_index: 1,
+        context_confirmation_id: "confirmation-continue",
+        generation_mode: "continue",
+        base_draft_id: "draft-1",
+      }),
+    ))
+    await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledWith({
+      chapter_index: 1,
+      draft_id: "candidate-1",
+    }))
+  })
+
+  it("does not continue from unsaved editor content", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    const tools = createTestTools({
+      editor: createMockEditor({
+        getContent: vi.fn(() => "本地修改"),
+        getLoadedContent: vi.fn(() => "已保存正文"),
+      }),
+    })
+
+    await tools.generateContinuation()
+
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "正文有未保存修改，请先暂存后再续写",
+      "warning",
+    )
   })
 
   it("generates AI draft", async () => {

@@ -14,17 +14,16 @@ from typing import Any, cast
 from core.container import get as _container_get
 from infrastructure.tasks.registry import task_handler
 from modules.context import facade as context_facade
-from modules.world.services.core.extraction_service import EntityExtractionService
 
 logger = logging.getLogger(__name__)
 
-_ALIAS_RELATION_TASK_STATE_KEY = "_alias_relation_task_v1"
+_ALIAS_RELATION_TASK_STATE_KEY = "_alias_relation_task_v2"
+_LEGACY_ALIAS_RELATION_TASK_STATE_KEY = "_alias_relation_task_v1"
 _ALIAS_RELATION_TASK_TYPE = "world_alias_relation_extraction"
 _ALIAS_RELATION_SOURCE_WRITER_TASK_TYPES = {
     "deep_import",
     "scene_auto_extraction",
     "world_object_auto_extraction",
-    "world_entity_extraction",
 }
 
 
@@ -110,94 +109,6 @@ async def _commit_alias_relation_checkpoint(
     db.expire_all()
 
 
-@task_handler("world_entity_extraction", recovery_policy="restart_origin")
-async def handle_world_entity_extraction(db, task):
-    """处理世界对象抽取任务
-
-    从指定章节范围抽取待处理世界对象建议。
-
-    Task meta 参数：
-    - novel_id: 项目 ID
-    - start_chapter: 起始章节
-    - end_chapter: 结束章节
-    - batch_size: 每批章节数（可选，默认 5）
-    """
-    meta = task.meta or {}
-    novel_id = meta.get("novel_id", "")
-    start_chapter = int(meta.get("start_chapter", 1))
-    end_chapter = int(meta.get("end_chapter", 10))
-    batch_size = int(meta.get("batch_size", 5))
-    context_confirmation_id = str(meta.get("context_confirmation_id") or "")
-
-    if not novel_id:
-        raise ValueError("novel_id is required for world_entity_extraction")
-    if context_confirmation_id:
-        await context_facade.compile_from_confirmation(
-            db,
-            novel_id=novel_id,
-            action="world.entities.extract",
-            confirmation_id=context_confirmation_id,
-        )
-
-    task.update_progress(0.1)
-
-    service = EntityExtractionService()
-    result = await service.extract_entities_from_chapters(
-        db,
-        novel_id=novel_id,
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        batch_size=batch_size,
-    )
-    task.update_progress(0.85)
-
-    logger.info(
-        "Entity extraction complete: %d created, %d skipped",
-        result.total_created,
-        result.total_skipped,
-    )
-    task.update_progress(0.95)
-
-    if context_confirmation_id:
-        result_refs = []
-        for item in result.items:
-            entity_id = str(item.get("id") or "")
-            suggestion_id = str(item.get("suggestion_id") or "")
-            if entity_id:
-                result_refs.append({"type": "world_entity", "id": entity_id})
-            if suggestion_id:
-                result_refs.append({"type": "creation_suggestion", "id": suggestion_id})
-        if result_refs:
-            await context_facade.attach_result_refs(
-                db,
-                confirmation_id=context_confirmation_id,
-                result_refs=result_refs,
-                status="done",
-            )
-        else:
-            await context_facade.attach_result_ref(
-                db,
-                confirmation_id=context_confirmation_id,
-                result_type="world_entity_extraction",
-                result_id=str(task.id),
-                status="done",
-            )
-
-    task.update_progress(1.0)
-    flush = getattr(db, "flush", None)
-    if flush is not None:
-        result_flush = flush()
-        if inspect.isawaitable(result_flush):
-            await result_flush
-    return {
-        "total_chapters": result.total_chapters,
-        "total_created": result.total_created,
-        "total_skipped": result.total_skipped,
-        "failed_chapters": result.failed_chapters,
-        "items": result.items,
-    }
-
-
 @task_handler(
     "world_alias_relation_extraction",
     recovery_policy="auto_requeue",
@@ -236,8 +147,14 @@ async def handle_world_alias_relation_extraction(db, task):
     scene_ids = _alias_relation_scene_ids(meta.get("scene_ids"))
     task_id = str(task.id)
 
-    state = dict((task.result or {}).get(_ALIAS_RELATION_TASK_STATE_KEY) or {})
-    if state and state.get("version") != 1:
+    result_checkpoint = dict(task.result or {})
+    if result_checkpoint.get(_LEGACY_ALIAS_RELATION_TASK_STATE_KEY):
+        raise ValueError(
+            "unfinished alias/relation v1 task cannot resume with the v2 prompt; "
+            "submit the task again"
+        )
+    state = dict(result_checkpoint.get(_ALIAS_RELATION_TASK_STATE_KEY) or {})
+    if state and state.get("version") != 2:
         raise ValueError("unsupported alias/relation task checkpoint version")
     if state and state.get("stage") not in {"prepared", "llm_complete", "done"}:
         raise ValueError("alias/relation task checkpoint stage is invalid")
@@ -326,7 +243,7 @@ async def handle_world_alias_relation_extraction(db, task):
             result={
                 **dict(task.result or {}),
                 _ALIAS_RELATION_TASK_STATE_KEY: {
-                    "version": 1,
+                    "version": 2,
                     "stage": "prepared",
                     "manifest": manifest,
                 },
@@ -349,7 +266,7 @@ async def handle_world_alias_relation_extraction(db, task):
             result={
                 **dict(task.result or {}),
                 _ALIAS_RELATION_TASK_STATE_KEY: {
-                    "version": 1,
+                    "version": 2,
                     "stage": "llm_complete",
                     "manifest": manifest,
                     "receipt": receipt,
@@ -446,7 +363,7 @@ async def handle_world_alias_relation_extraction(db, task):
         result={
             **dict(task.result or {}),
             _ALIAS_RELATION_TASK_STATE_KEY: {
-                "version": 1,
+                "version": 2,
                 "stage": "done",
                 "plan_fingerprint": manifest.get("plan_fingerprint"),
                 "final_result": public_result,

@@ -80,7 +80,7 @@ def success_output(payloads: list[dict]) -> dict:
                 "goal": "choose official output",
                 "core_conflict": "same event observed twice",
                 "emotional_beat": "resolved",
-                "narrative_tag": "imported",
+                "narrative_tag": "draft",
                 "scene_chunks": [
                     {
                         "chapter_index": source_chapters[0],
@@ -171,8 +171,8 @@ async def test_phase1b_success_outputs_final_candidates_with_required_fields() -
     assert candidate.fallback_required is False
     assert candidate.boundary_status == "complete"
     assert candidate.needs_review is False
-    assert candidate.must_happen == "choose official output"
-    assert candidate.must_not_happen == ("不得绕过既有冲突：same event observed twice")
+    assert candidate.must_happen is None
+    assert candidate.must_not_happen is None
 
     assert payloads[0]["phase"] == "phase1b_fusion"
     assert payloads[0]["recommended_scene_count"] == 3
@@ -257,13 +257,10 @@ async def test_phase1b_normalizes_loose_real_llm_output() -> None:
     assert candidate.operation == "merged"
     assert candidate.confidence == 0.9
     assert candidate.fallback_required is False
-    assert candidate.core_conflict == (
-        "围绕目标推进的阻碍待复核：克莱恩完成召唤并接触两名参与者"
-    )
-    assert candidate.must_happen == "克莱恩完成召唤并接触两名参与者"
-    assert candidate.must_not_happen == (
-        "不得绕过既有冲突：围绕目标推进的阻碍待复核：克莱恩完成召唤并接触两名参与者"
-    )
+    assert candidate.core_conflict == ""
+    assert candidate.core_conflict_status == "uncertain"
+    assert candidate.must_happen is None
+    assert candidate.must_not_happen is None
     assert candidate.needs_review is True
     assert candidate.review_reason
 
@@ -471,8 +468,8 @@ async def test_phase1b_no_valid_candidates_creates_chapter_fallbacks() -> None:
     ]
     assert result.candidates[0].title == "绯红醒来与自杀谜团"
     assert result.candidates[0].core_conflict != "待校验"
-    assert result.candidates[0].must_happen
-    assert result.candidates[0].must_not_happen
+    assert result.candidates[0].must_happen is None
+    assert result.candidates[0].must_not_happen is None
     assert all(candidate.needs_review for candidate in result.candidates)
 
 

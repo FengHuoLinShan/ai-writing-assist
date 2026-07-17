@@ -37,13 +37,30 @@ export function createWritingSubModules(orchestrator, deps) {
     toast,
     onWordcountUpdate: (stats) => orchestrator._onWordcountUpdate(stats),
     onSaveStatusChange: (text) => orchestrator._onSaveStatusChange(text),
-    onDraftAdopted: async () => {
+    onDraftAdopted: async (draft) => {
+      if (draft?.id && orchestrator._currentChapter) {
+        const query = new URLSearchParams({
+          chapter_index: String(orchestrator._currentChapter),
+          draft_id: draft.id,
+        })
+        await router.replace("writing", null, query)
+      }
       await orchestrator._versions?.load?.(orchestrator._currentChapter)
       orchestrator._syncChapterMetaToTree?.(orchestrator._currentChapter)
       orchestrator._syncSharedStateToSubModules?.()
       await orchestrator._rerender?.()
     },
-    onVersionChanged: async () => {
+    onCandidateRejected: async ({ chapterIndex } = {}) => {
+      if (chapterIndex) await orchestrator._selectChapter?.(chapterIndex)
+    },
+    onVersionChanged: async (draft) => {
+      if (draft?.id && orchestrator._currentChapter) {
+        const query = new URLSearchParams({
+          chapter_index: String(orchestrator._currentChapter),
+          draft_id: draft.id,
+        })
+        await router.replace("writing", null, query)
+      }
       await orchestrator._versions?.load?.(orchestrator._currentChapter)
       orchestrator._syncChapterMetaToTree?.(orchestrator._currentChapter)
       orchestrator._syncSharedStateToSubModules?.()

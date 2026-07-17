@@ -142,6 +142,57 @@ def test_provider_allows_non_reserved_extra_fields() -> None:
     assert kwargs["reasoning_effort"] == "low"
 
 
+def test_provider_adds_json_keyword_for_json_object_mode() -> None:
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
+    ):
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://api.deepseek.com/v1",
+            default_model="deepseek-v4-flash",
+        )
+
+    request = LLMCallRequest(
+        model="deepseek-v4-flash",
+        messages=[
+            LLMMessage(role="system", content="Only return the requested schema."),
+            LLMMessage(role="user", content="Generate the proposal."),
+        ],
+        response_format={"type": "json_object"},
+    )
+
+    kwargs = provider._build_kwargs(request, "deepseek-v4-flash")
+
+    assert "JSON" in kwargs["messages"][0]["content"]
+    assert request.messages[0].content == "Only return the requested schema."
+
+
+def test_provider_does_not_duplicate_existing_json_object_instruction() -> None:
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
+    ):
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://api.deepseek.com/v1",
+            default_model="deepseek-v4-flash",
+        )
+
+    kwargs = provider._build_kwargs(
+        LLMCallRequest(
+            model="deepseek-v4-flash",
+            messages=[LLMMessage(role="user", content="Return a JSON object.")],
+            response_format={"type": "json_object"},
+        ),
+        "deepseek-v4-flash",
+    )
+
+    assert kwargs["messages"] == [
+        {"role": "user", "content": "Return a JSON object."}
+    ]
+
+
 def test_provider_sends_thinking_through_extra_body() -> None:
     with (
         patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),

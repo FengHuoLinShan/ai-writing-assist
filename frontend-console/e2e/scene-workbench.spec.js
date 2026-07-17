@@ -209,10 +209,12 @@ test.describe("Scene 工作台", () => {
     })
 
     await openWorkbench(page, project, "scene", scene.id)
-    page.once("dialog", (dialog) => dialog.accept("2"))
     await page.locator('.scene-workbench__detail [data-action="start-split-scene"]').click()
+    await expect(page.locator("#modal-title")).toHaveText("拆分 Scene")
+    await expect(page.locator("#scene-split-partition")).toContainText("进入新 Scene：第 2 章")
+    await page.getByRole("button", { name: "生成拆分预览" }).click()
 
-    await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
+    await expect(page.locator("#modal-title")).toHaveText("Scene 拆分预览")
     await expect(page.locator(".scene-draft-review-grid")).toBeVisible()
     await expect(page.locator(".scene-split-impact-summary")).toContainText("影响摘要")
     await expect(page.locator("#modal-content")).toHaveAttribute("data-modal-size", "large")

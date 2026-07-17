@@ -30,6 +30,7 @@ from modules.world.schemas import (
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftUpdate,
     WorldBiblePageProposalContent,
+    WorldBibleSynopsisStructuredOutput,
     WorldGenerationApplyPageDraftRequest,
 )
 from modules.world.services.worldbuilding.suggestion_queue_service import (
@@ -107,6 +108,14 @@ class _TaskSynopsisClient(_FakeSynopsisClient):
 
 class _UnsupportedSynopsisClient(_FakeSynopsisClient):
     source_keys = ["K-missing"]
+
+
+class _PromptCaptureSynopsisClient(_FakeSynopsisClient):
+    request = None
+
+    async def generate_structured(self, request, schema, **kwargs):
+        self.request = request
+        return await super().generate_structured(request, schema, **kwargs)
 
 
 async def _prepare_synopsis_task(
@@ -219,6 +228,38 @@ def test_synopsis_untrusted_json_cannot_close_prompt_boundary() -> None:
     assert "\\u003c/WORLD_BIBLE_DATA_JSON\\u003e" in payload
 
 
+def test_synopsis_schema_rejects_empty_success_payload() -> None:
+    with pytest.raises(ValueError):
+        WorldBibleSynopsisStructuredOutput.model_validate({})
+
+
+@pytest.mark.asyncio
+async def test_synopsis_prompt_explains_shape_and_editorial_purpose() -> None:
+    client = _PromptCaptureSynopsisClient()
+    client.source_keys = ["K1"]
+
+    await WorldBibleSynopsisService()._generate_synopsis(
+        [
+            {
+                "type": "world_bible_page",
+                "id": "page-1",
+                "title": "世界规则",
+                "summary": "魔药遵循序列途径。",
+                "source_key": "K1",
+            }
+        ],
+        client,
+    )
+
+    assert client.request is not None
+    prompt = "\n".join(message.content for message in client.request.messages)
+    assert '"sections"' in prompt
+    assert '"source_keys"' in prompt
+    assert "上位资料" in prompt
+    assert "不要把它们逐条抄成资产清单" in prompt
+    assert "不要输出 member_of" in prompt
+
+
 @pytest.mark.asyncio
 async def test_synopsis_task_only_refresh_rejects_an_ordinary_session(
     db_session: AsyncSession,
@@ -318,6 +359,7 @@ async def test_synopsis_task_checkpoints_before_llm_and_persists_public_snapshot
     )
     create_client.assert_called_once_with(
         restored_settings,
+        timeout_override=1800,
         novel_id=project_novel_id,
     )
 
@@ -1252,7 +1294,7 @@ async def test_synopsis_discards_unattributed_claim_and_persists_provenance(
     assert promoted is True
     assert len(revision.claims_json) == 1
     assert "没有合法来源" not in revision.rendered_text
-    assert revision.token_estimate <= 1200
+    assert revision.token_estimate <= 4000
     assert revision.generation_meta_json["model"] == "fake-synopsis-model"
     assert revision.generation_meta_json["editable"] is False
 
@@ -1334,6 +1376,44 @@ async def test_synopsis_manifest_includes_canonical_hidden_truth_for_author(
     )
 
     assert "古代监狱" in source["summary"]
+
+
+@pytest.mark.asyncio
+async def test_synopsis_manifest_prioritizes_published_world_bible_pages(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    db_session.add(
+        CoreEntity(
+            novel_id=uuid.UUID(project_novel_id),
+            entity_type="character",
+            name="高优先级人物",
+            summary="人物摘要。",
+            importance=1.0,
+            status="canonical",
+        )
+    )
+    lifecycle = WorldBibleLifecycleService()
+    draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=project_novel_id,
+            title="作者整理的世界规则",
+            page_type="rule",
+            free_text="这是作者已经整理并发布的上位世界资料。",
+        ),
+    )
+    await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
+
+    manifest, _source_hash, _omitted = (
+        await WorldBibleSynopsisService().build_source_manifest(
+            db_session,
+            project_novel_id,
+        )
+    )
+
+    assert manifest[0]["type"] == "world_bible_page"
+    assert manifest[0]["title"] == "作者整理的世界规则"
 
 
 @pytest.mark.asyncio

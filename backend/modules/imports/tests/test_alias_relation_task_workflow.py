@@ -19,7 +19,7 @@ from modules.imports.entity_extraction.scene_entity_extraction import (
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     ExtractedAlias,
-    ExtractedRelation,
+    Phase2bRelationObservation,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -67,7 +67,13 @@ class _Service:
             "status": "canonical",
         }
         self.snapshot_calls = 0
+        self.snapshot_payloads: list[dict] = []
         self.persist_calls: list[dict] = []
+        self.entities = [
+            ("entity-1", "林舟", "character", ["舟哥"]),
+            ("entity-2", "禁止出现", "secret", []),
+            ("entity-3", "朱延", "character", []),
+        ]
 
     async def _get_scenes(self, _db, _nid):
         return [copy.deepcopy(self.scene)]
@@ -83,8 +89,67 @@ class _Service:
     async def _load_scene_chapters(self, _db, _scene):
         return self.text
 
-    async def _create_phase2b_snapshot(self, *_args, **_kwargs):
+    async def _prepare_import_context_activation(
+        self,
+        _db,
+        *,
+        novel_id,
+        scene_id,
+        **_kwargs,
+    ):
+        identity_candidates = []
+        sources = [
+            {
+                "type": "source_range",
+                "id": "draft-1:0:20",
+                "content_hash": task_module._stable_hash(self.text),
+            }
+        ]
+        for index, (entity_id, name, entity_type, aliases) in enumerate(
+            self.entities,
+            start=1,
+        ):
+            prompt_ref = f"entity-{index:03d}"
+            identity_candidates.append(
+                {
+                    "prompt_ref": prompt_ref,
+                    "entity_type": entity_type,
+                    "name": name,
+                    "aliases": aliases,
+                    "selection_reason": "direct_mention",
+                }
+            )
+            sources.append(
+                {
+                    "type": "world_entity",
+                    "id": entity_id,
+                    "prompt_ref": prompt_ref,
+                }
+            )
+        fingerprint = task_module._stable_hash(
+            {"text": self.text, "entities": identity_candidates}
+        )
+        return SimpleNamespace(
+            novel_id=novel_id,
+            scene_id=scene_id,
+            activation_version="import-context-v2",
+            current_scene_text=self.text,
+            current_scene_sources=[sources[0]],
+            previous_briefs=[],
+            previous_evidence=[],
+            sources=sources,
+            warnings=[],
+            scene_card={"title": self.scene["title"]},
+            outline_context={"scenes": [], "arcs": [], "plot_threads": []},
+            identity_candidates=identity_candidates,
+            relation_candidates=[],
+            omitted_sources=[],
+            context_fingerprint=fingerprint,
+        )
+
+    async def _create_phase2b_snapshot(self, *_args, **kwargs):
         self.snapshot_calls += 1
+        self.snapshot_payloads.append(kwargs)
         return SimpleNamespace(id="snapshot-1")
 
     @staticmethod
@@ -95,24 +160,35 @@ class _Service:
         return AliasRelationExtractionOutput(
             aliases=[
                 ExtractedAlias(
-                    entity_name="林舟",
+                    entity_ref="entity-001",
                     alias="舟哥",
-                    quote="林舟又被称为舟哥",
+                    alias_type="nickname",
+                    identity_scope="durable",
+                    identity_basis="叙述明确称呼",
+                    evidence_quotes=["林舟又被称为舟哥"],
+                    confidence=0.9,
                 )
             ],
             relations=[
-                ExtractedRelation(
-                    source_name="林舟",
-                    target_name="朱延",
+                Phase2bRelationObservation(
+                    source_ref="entity-001",
+                    target_ref="entity-003",
                     relation_type="师徒",
-                    quote="拜见朱延",
+                    persistence_scope="enduring",
+                    directionality="directed",
+                    claim_status="established",
+                    description="林舟拜见朱延",
+                    basis="拜见动作",
+                    evidence_quotes=["拜见朱延"],
+                    confidence=0.8,
                 )
             ],
+            uncertain_items=[],
         )
 
     async def _persist_alias_relation_output(self, _db, _novel_id, _output, **kwargs):
         self.persist_calls.append(kwargs)
-        return {"aliases": 1, "relations": 1}
+        return {"aliases": 1, "relations": 1, "uncertain_count": 0}
 
 
 async def _prepare(
@@ -163,16 +239,65 @@ async def test_prepare_snapshots_exact_sources_and_consumes_confirmation(
     assert scene_manifest["context_snapshot_id"] == "snapshot-1"
     assert scene_manifest["semantic_fingerprint"]
     assert scene_manifest["source_text_hash"]
-    assert scene_manifest["entity_index_hash"] == manifest["entity_index_hash"]
+    assert scene_manifest["context_fingerprint"]
+    assert scene_manifest["prompt_contract_version"].endswith("v3")
     assert manifest["confirmation_fingerprint"]
     assert manifest["llm_profile_hash"] == "profile-1"
     assert service.text not in repr(manifest)
-    assert "不要引入未选中设定" in runtime_scene["entity_index"]
-    assert "禁止出现" not in runtime_scene["entity_index"]
+    assert runtime_scene["chapters_text"] == service.text
+    assert runtime_scene["entity_index"] == ""
+    assert (
+        runtime_scene["context_bundle"]["authorization_scope"]["user_note"]
+        == "不要引入未选中设定"
+    )
+    assert [
+        item["name"] for item in runtime_scene["context_bundle"]["identity_candidates"]
+    ] == ["林舟"]
+    assert "entity-1" not in repr(
+        {
+            key: value
+            for key, value in runtime_scene["context_bundle"].items()
+            if not key.startswith("_")
+        }
+    )
+    assert NOVEL_ID not in repr(
+        {
+            key: value
+            for key, value in runtime_scene["context_bundle"].items()
+            if not key.startswith("_")
+        }
+    )
+    assert service.snapshot_payloads[0]["context_bundle"]["context_fingerprint"]
 
     replay = await _prepare(workflow, existing_manifest=manifest)
     assert replay["manifest"] == manifest
     assert service.snapshot_calls == 1
+
+
+async def test_prepare_uses_full_scene_text_without_phase2b_trimming() -> None:
+    service = _Service()
+    service.text = "开" + ("中段叙事" * 2_000) + "结"
+    workflow = AliasRelationTaskWorkflow(service)
+
+    prepared = await _prepare(workflow)
+
+    runtime_scene = prepared["runtime_plan"]["scenes"][0]
+    assert runtime_scene["chapters_text"] == service.text
+    assert "Scene 中段已压缩" not in runtime_scene["chapters_text"]
+    assert service.snapshot_payloads[0]["context_bundle"]["_current_scene_text"] == (
+        service.text
+    )
+
+
+async def test_prepare_rejects_unfinished_v1_manifest_fail_closed() -> None:
+    service = _Service()
+    workflow = AliasRelationTaskWorkflow(service)
+
+    with pytest.raises(ValueError, match="v1 task.*submit the task again"):
+        await _prepare(
+            workflow,
+            existing_manifest={"version": 1, "scenes": []},
+        )
 
 
 @pytest.mark.parametrize("drift", ["text", "entity", "confirmation", "profile"])
@@ -196,10 +321,7 @@ async def test_prepare_rejects_every_external_source_drift(
     if drift == "text":
         service.text += "后来又增加了一句。"
     elif drift == "entity":
-        listed.return_value = [
-            *entities,
-            {"id": "entity-4", "name": "黑塔", "entity_type": "location"},
-        ]
+        service.entities.append(("entity-4", "黑塔", "location", []))
     elif drift == "confirmation":
         confirmation["user_note"] = "已更改的用户边界"
     else:
@@ -329,6 +451,7 @@ async def test_finalize_revalidates_then_uses_strict_atomic_persistence(
     assert finalized["summary"]["total_aliases"] == 1
     assert finalized["summary"]["total_relations"] == 1
     assert service.persist_calls[0]["strict"] is True
+    assert service.persist_calls[0]["context_snapshot_id"] == "snapshot-1"
     succeeded.assert_awaited_once()
 
 
@@ -484,21 +607,37 @@ async def test_task_strict_persistence_does_not_swallow_relation_failure() -> No
 
     db = SimpleNamespace(begin_nested=_savepoint)
     output = AliasRelationExtractionOutput(
-        aliases=[ExtractedAlias(entity_name="林舟", alias="舟哥")],
+        aliases=[
+            ExtractedAlias(
+                entity_ref="entity-001",
+                alias="舟哥",
+                identity_scope="durable",
+                identity_basis="明确称呼",
+                evidence_quotes=["林舟又被称为舟哥"],
+                confidence=0.9,
+            )
+        ],
         relations=[
-            ExtractedRelation(
-                source_name="林舟",
-                target_name="朱延",
+            Phase2bRelationObservation(
+                source_ref="entity-001",
+                target_ref="entity-002",
                 relation_type="师徒",
+                persistence_scope="enduring",
+                directionality="directed",
+                claim_status="established",
+                description="林舟拜见朱延",
+                basis="拜见动作",
+                evidence_quotes=["拜见朱延"],
+                confidence=0.8,
             )
         ],
     )
     with (
         mock.patch.object(
             world_facade,
-            "find_working_entity_ids_by_names",
+            "list_entities",
             autospec=True,
-            return_value={"林舟": "entity-1", "朱延": "entity-2"},
+            return_value=[{"id": "entity-1"}, {"id": "entity-2"}],
         ),
         mock.patch.object(
             world_facade,
@@ -527,4 +666,24 @@ async def test_task_strict_persistence_does_not_swallow_relation_failure() -> No
                 workflow_id="task-1",
                 scene_id="scene-1",
                 strict=True,
+                current_scene_text="林舟又被称为舟哥，他在铁塔前拜见朱延。",
+                context_bundle={
+                    "identity_candidates": [
+                        {
+                            "prompt_ref": "entity-001",
+                            "name": "林舟",
+                            "aliases": [],
+                        },
+                        {
+                            "prompt_ref": "entity-002",
+                            "name": "朱延",
+                            "aliases": [],
+                        },
+                    ],
+                    "_entity_ref_map": {
+                        "entity-001": "entity-1",
+                        "entity-002": "entity-2",
+                    },
+                    "_relation_ref_map": {},
+                },
             )

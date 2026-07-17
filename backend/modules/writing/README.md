@@ -162,7 +162,11 @@ POST /api/writing/generate                        → 从已确认 context 生�
 ```
 
 默认正文生成把模型定位为共同创作者，不使用固定字数、段落或节奏
-模板。当前编辑章关联 Scene 时，确认上下文会纳入该 Scene；同时包含
+模板，并始终生成可替换目标章的完整正文；当前编辑章关联 Scene 时，
+Scene 只作为结构上下文，不把跨章 Scene 错当成输出范围。`generation_mode=continue`
+则锁定同章 active working/published/canonical base draft，将模型输出确定性追加到
+原文末尾，原文逐字不变；base 内容或确认上下文漂移时失败关闭，不静默续写旧版本。
+确认上下文同时包含
 当前活跃剧情线及与 Scene、篇章、剧情线或 RAG 证据关联的人物和物品。
 人物超出预算时取 Top 6，相关世界对象超出预算时取 Top 16。输出仍只是
 `candidate`，不会自动采用、覆盖或发布。
@@ -174,14 +178,17 @@ POV 人物时，生成使用单角色有限视角。这不强制第一人称，
 解读、当前意图和已知但隐矒的信息，`uncertainties` 仅记录
 实质影响写作的资料不确定性。Scene 和剧情线导演信息可以引导
 情节，但不得变成 POV 角色已知事实；输出还会经过确定性
-hidden guard 检查，但仍只保存为待审阅 candidate。
+hidden guard 检查，但仍只保存为待审阅 candidate。目标章已有工作稿、
+已发布稿或 canonical 正文时，生成会冻结最新 active base 的完整正文并
+纳入任务指纹；`draft_prose` 必须是可替换目标章的完整候选，跨章 Scene
+不能把其它章节内容带入本章，作者本次明确边界优先于宽泛 Scene 导演目标。
 
 `writing_generate` 入队时同时保存 secret-free 项目 LLM execution snapshot；兼容旧任务
 会先在 worker lease fence 下冻结并持久化一次，重试继续复用同一 snapshot。task-only
 generation seam 在 prepare 阶段冻结 rendered context、完整 confirmation/evidence 指纹、
 prompt/request、生成 profile 和 POV hidden guard terms，随后提交并清空 identity map；真实
 LLM、POV 解析、正文/标题清洗、hidden guard 与 provenance 组装均在无数据库事务阶段完成。
-finalize 按 project-first 锁序重新验证项目和完整 confirmed context/hidden evidence 指纹，
+finalize 按 project-first 锁序重新验证项目、锁定 base 正文和完整 confirmed context/hidden evidence 指纹，
 profile 与当前最新 running task owner；只有 fresh 结果才在同一最终 worker
 transaction 中创建 candidate 并绑定 confirmation。同一 confirmation 重复入队时，
 最后绑定的 task 取代旧 task，旧结果不会写入。
@@ -197,8 +204,9 @@ archived 全部记录，`total` 与返回集合一致。列表项的 `display_st
 candidate 和 deprecated 均返回 409，无论请求是否提供乐观并发快照。
 `expected_version / expected_updated_at` 仍用于校验多 Tab 看到的最新
 working 快照；编辑最新 published 仍使用 copy-on-write。candidate 和
-deprecated 仅可在历史视图预览，不允许普通编辑、删除或恢复；
-candidate 采用仍只能经过专用 adopt 状态迁移。
+deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candidate
+采用只能经过专用 adopt 状态迁移，也可由作者显式“拒绝建议”软废弃。
+拒绝保留完整版本、原状态和 `rejected_at/rejected_by` 审计，不硬删除正文。
 
 `POST /api/writing/chapters/{chapter_index}/split` 仅允许未发布的 working 章节拓扑变更；
 从切分位置起存在 published 版本时拒绝，避免修改已发布源的章号。通过注入的
@@ -270,6 +278,8 @@ ENABLE_REAL_LLM=1 npx playwright test e2e/writing-conflict-real-llm.spec.js --re
 
 正文 candidate、冲突 AI review 和修复建议均通过 project runtime seam 消费
 effective 项目 profile；确认校验仍在 LLM 调用前，candidate/adopt/publish 状态语义不变。
+生成中心提交的正文 candidate 是可恢复异步任务；provider 前先做无事务 checkpoint，
+受管生成步骤与冻结 client 都使用 1800 秒上限，前端任务轮询不设置整体截止时间。
 candidate provenance 额外保留 secret-free `managed_llm_steps`，记录
 `novel_id`、step name、实际 request model 和 profile summary/hash，不保存
 API Key、完整 Base URL/query、prompt 或正文。

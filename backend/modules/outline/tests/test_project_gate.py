@@ -42,10 +42,17 @@ async def test_outline_routes_hide_recycled_and_missing_projects(
         )
         enqueue = await async_client.post(
             "/api/outline/generate",
-            json={
-                "novel_id": blocked_id,
-                "context_confirmation_id": str(uuid.uuid4()),
-                "start_chapter": 1,
+                json={
+                    "contract_version": "outline_layer_v2",
+                    "novel_id": blocked_id,
+                    "context_confirmation_id": str(uuid.uuid4()),
+                    "target": "plot_thread",
+                    "mode": "create",
+                    "instruction": "创建剧情线",
+                    "selected_thread_ids": [],
+                    "selected_arc_ids": [],
+                    "selected_scene_ids": [],
+                    "start_chapter": 1,
                 "end_chapter": 2,
             },
         )

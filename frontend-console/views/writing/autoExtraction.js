@@ -14,7 +14,7 @@ import {
 const AUTO_EXTRACTION_STAGES = {
   scenes: {
     taskType: "scene_auto_extraction",
-    label: "场景（scene）自动提取",
+    label: "从正文提取 Scene",
     initialStep: "scene_segmentation",
     initialMessage: "正在提取场景...",
   },
@@ -34,6 +34,11 @@ const AUTO_EXTRACTION_STAGES = {
 
 function stageConfig(stage) {
   return AUTO_EXTRACTION_STAGES[stage] || AUTO_EXTRACTION_STAGES.scenes
+}
+
+function stageLabelMessage(config, suffix) {
+  const separator = /[A-Za-z0-9]$/.test(config.label) ? " " : ""
+  return `${config.label}${separator}${suffix}`
 }
 
 export function createAutoExtraction({
@@ -75,7 +80,7 @@ export function createAutoExtraction({
         </label>
       ` : ""}
       <p class="writing-form-hint">
-        ${escapeHtml(config.label)}会在所选章节范围内创建或补充对应结构资产。
+        ${escapeHtml(stageLabelMessage(config, "会在所选章节范围内创建或补充对应结构资产。"))}
       </p>
       <p class="writing-form-hint" role="note">
         ${escapeHtml(importAuthorizationNotice())}
@@ -114,7 +119,7 @@ export function createAutoExtraction({
       }
 
       if (!result.task_id) {
-        toast?.(result.message || `${config.label}未启动`, "warning")
+        toast?.(result.message || stageLabelMessage(config, "未启动"), "warning")
         return
       }
 
@@ -127,7 +132,7 @@ export function createAutoExtraction({
         endChapter,
         highQuality,
       })
-      toast?.(`${config.label}已启动`, "success")
+      toast?.(stageLabelMessage(config, "已启动"), "success")
     } catch (err) {
       toast?.(err.message || "提交失败", "error")
     }

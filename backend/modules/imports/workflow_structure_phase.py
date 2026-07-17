@@ -18,7 +18,7 @@ from modules.imports.workflow_phase_runner import (
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
-PHASE3_STRUCTURE_TIMEOUT_SECONDS = 300
+PHASE3_STRUCTURE_TIMEOUT_SECONDS = 1200
 SMALL_SAMPLE_STRUCTURE_TARGET_COUNT = 4
 
 
@@ -392,7 +392,7 @@ class StructureAnalysisPhaseRunner:
             )
             missing = scene_coverage["missing_chapters"]
             progress.message = (
-                "请先执行场景（scene）自动提取"
+                "请先执行从正文提取 Scene"
                 if not scene_coverage["covered_chapters"]
                 else f"场景（scene）覆盖不完整，缺少章节：{missing}"
             )

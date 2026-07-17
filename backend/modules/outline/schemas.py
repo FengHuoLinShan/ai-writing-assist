@@ -447,6 +447,7 @@ class SceneFusionDraft(BaseModel):
     must_happen: str | None = None
     must_not_happen: str | None = None
     narrative_tag: Annotated[str | None, Field(None, max_length=32)]
+    narrative_function: str | None = None
     source: Annotated[str | None, Field(None, max_length=32)]
     scene_chunks: list[dict] | None = None
     chapter_ids: list[str] | None = None
@@ -638,6 +639,11 @@ class OutlineStructurePreviewApplyRequest(BaseModel):
 
 class OutlineStructurePreviewApplyResponse(PlotStructureGenerateResponse):
     status: Literal["applied"] = "applied"
+    contract_version: str | None = None
+    target: Literal["plot_thread", "outline_arc", "planned_scene"] | None = None
+    mode: Literal["create", "revise"] | None = None
+    result: Literal["proposed", "no_change", "needs_author_decision"] | None = None
+    applied_ids: list[str] = []
 
 
 # ============================================================
@@ -732,6 +738,7 @@ class RevealPlanCreate(BaseModel):
     target_id: uuid.UUID = Field(...)
     secret_summary: str = Field(...)
     reveal_stages: list[RevealStage] = []
+    related_thread_ids: list[str] = []
     provenance_meta: dict[str, Any] = {}
     status: str = "draft"
 
@@ -741,6 +748,7 @@ class RevealPlanUpdate(BaseModel):
     target_id: Annotated[str | None, Field(None)]
     secret_summary: Annotated[str | None, Field(None)]
     reveal_stages: Annotated[list[RevealStage] | None, Field(None)]
+    related_thread_ids: Annotated[list[str] | None, Field(None)]
     provenance_meta: Annotated[dict[str, Any] | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
@@ -754,6 +762,7 @@ class RevealPlanResponse(BaseModel):
     target_id: str
     secret_summary: str
     reveal_stages: list = []
+    related_thread_ids: list[str] = []
     provenance_meta: dict[str, Any] = {}
     status: str = "draft"
     created_at: datetime | None = None

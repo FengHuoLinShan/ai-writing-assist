@@ -101,7 +101,7 @@ describe("createConflictCheck", () => {
     const html = checker.renderStrip()
 
     expect(html).toContain("writing-conflict-strip")
-    expect(html).toContain("发现 3 个冲突")
+    expect(html).toContain("发现 3 个问题")
     expect(html).toContain('data-check-id="c1"')
     expect(html).toContain("历史")
     expect(html).toContain('data-check-id="c2"')

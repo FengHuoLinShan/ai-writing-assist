@@ -92,8 +92,9 @@ class EntityAliasService:
         scene_index: int | None,
         confidence: float,
         quote: str | None,
+        review_meta: dict | None = None,
     ) -> dict:
-        return {
+        payload = {
             "alias": alias,
             "type": alias_type or "alias",
             "status": "candidate",
@@ -105,6 +106,9 @@ class EntityAliasService:
             "quote": quote,
             "needs_review": True,
         }
+        if review_meta:
+            payload["review_meta"] = dict(review_meta)
+        return payload
 
     def _alias_needs_candidate_metadata(self, alias_item: str | dict) -> bool:
         if not isinstance(alias_item, dict):
@@ -1089,6 +1093,7 @@ class EntityAliasService:
         scene_index: int | None = None,
         confidence: float = 0.5,
         quote: str | None = None,
+        review_meta: dict | None = None,
     ) -> bool:
         """追加深度导入产生的待复核别名，已存在时返回 False。"""
         nid = parse_uuid(novel_id, "novel_id")
@@ -1131,6 +1136,7 @@ class EntityAliasService:
                     scene_index=scene_index,
                     confidence=confidence,
                     quote=quote,
+                    review_meta=review_meta,
                 )
                 if isinstance(alias_item, dict):
                     enriched = {**alias_item, **enriched}
@@ -1151,6 +1157,7 @@ class EntityAliasService:
                 scene_index=scene_index,
                 confidence=confidence,
                 quote=quote,
+                review_meta=review_meta,
             )
         )
         content["aliases"] = aliases

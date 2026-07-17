@@ -233,14 +233,15 @@ ok
 /goal 实现并验收“大纲与结构管理”用户路径。
 
 背景：
-网络小说作者需要把素材组织成可执行剧情结构：Scene 卡、剧情线、篇章纲、伏笔和揭示计划，并能从已有正文用 AI 生成结构草案。
+网络小说作者需要在小说总纲之后，分别设计可执行的剧情线、篇章纲和 Planned Scene；伏笔与
+揭示作为剧情线的信息推进统一管理，正文 Scene 提取走深度导入。
 
 目标：
-让作者在 outlineView 中浏览和维护 Scene 卡、剧情线、篇章纲、伏笔、揭示计划，并完成 AI 生成剧情结构。
+让作者在 outlineView 的当前页面完成对应层级的 AI 创作或修订，并在剧情线详情查看统一的
+信息推进时间线。
 
 真实 LLM 验收数据：
-- “AI 生成结构”路径必须使用数据库中《诡秘之主 第一部》项目的第 1-3 章真实内容。
-- 不允许用 mock LLM 代替该路径的最终验收。
+- 三类 P20 与其他 Prompt 优化完成后统一执行，不在单个 Prompt 迭代中提前验收。
 
 范围：
 - 后端主模块：backend/modules/outline、backend/modules/context
@@ -248,16 +249,19 @@ ok
 - 相关测试：outline scene 单测、foreshadowing/reveal 单测、outline-scenes E2E、outline-threads-arcs E2E
 
 必须满足：
-- outlineView 至少提供场景卡、剧情线、篇章纲、伏笔、揭示相关子标签或入口。
+- outlineView 提供小说总纲、篇章纲、剧情线、场景工作台四层导航；后三页分别提供当前层
+  AI 创作入口，伏笔/揭示不再作为顶层子标签。
 - Scene 卡列表按 scene_index 展示 title、narrative_tag、goal 摘要、状态、来源。
 - Scene 可手动创建/编辑字段：scene_index、title、goal、core_conflict、emotional_beat、must_happen、must_not_happen、narrative_tag。
 - 手动 Scene 默认 narrative_tag=draft，source=manual。
 - Scene 上移/下移调用 reorder，只调整 scene_index，不改物理 chapter/scene_chunks 映射。
 - 删除 Scene 标记 deprecated，不删除正文 Chapter。
 - 剧情线和篇章纲支持创建、编辑、删除，并按类型/arc_index/start_chapter 展示。
-- 伏笔和揭示计划支持列表、创建、状态更新、删除；删除必须二次确认并限定 novel_id。
-- AI 生成结构调用 POST /api/outline/generate：编译上下文 -> LLM 调用 structure_plot.md -> schema 校验 -> 去重 -> 持久化 plot_threads + outline_arcs；extra_sections 只展示不持久化。
-- 章节范围已有结构数据时必须警告并由用户确认。
+- PlotThread 详情将伏笔与揭示按 information movement 统一展示，底层 API/表继续保留；所有
+  related_thread_ids 必须同一 novel_id，旧计划进入未归类区。
+- `POST /api/outline/generate` v2 只生成 target 当前层 strict preview；apply 前重新校验总纲、
+  所选资产和确认上下文，原子写入。P20 不进入生成中心。
+- Planned Scene 不伪造正文 chunks/anchors；从正文提取 Scene 继续使用 imports 深度导入。
 
 实现约束：
 - 不在 outline API 层写复杂业务逻辑。
@@ -266,9 +270,11 @@ ok
 - 执行计划时并行派出子代理。
 
 验收：
-- 后端测试覆盖 Scene CRUD/reorder/delete、剧情线 CRUD、篇章纲 CRUD、伏笔/揭示 CRUD、AI generate schema 和重复范围警告。
-- 前端 E2E 覆盖 Scene 默认标签、创建/编辑/删除、上移/下移、AI 生成弹窗、伏笔创建/状态更新、揭示创建、剧情线/篇章纲 CRUD。
-- 真实 LLM 验收记录《诡秘之主 第一部》第 1-3 章生成的 plot_threads 和 outline_arcs 数量，以及是否刷新到 UI。
+- 后端测试覆盖三类 P20 schema/context/apply、指纹漂移、信息 movement 投影、Reveal 线程关联、
+  Planned Scene 映射保护和既有 CRUD。
+- 前端测试覆盖三个页面入口、模式/选择、任务恢复、可编辑 preview、旧路由重定向、信息推进
+  时间线和未归类分配。
+- 真实 LLM 结果在全部 Prompt 优化完成后的统一验收中记录。
 ```
 
 ## 7. RAG 混合检索

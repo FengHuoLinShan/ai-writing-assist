@@ -1124,7 +1124,6 @@ const ragView = {
           </div>
           <div class="rag-result-actions">
             <button class="btn btn-sm" data-action="open-hit" data-hit-index="${index}">${hit.source_ref ? "阅读原文" : "查看对象"}</button>
-            ${(hit.object_refs || []).length ? `<button class="btn btn-sm" data-action="trace-hit" data-hit-index="${index}">追踪证据</button>` : ""}
           </div>
         </article>
       `
@@ -1296,10 +1295,13 @@ const ragView = {
     if (!refs.length) return ""
     return `<div class="novel-evidence-links">${refs.map((ref, index) => {
       const isScene = ref.target_type === "outline_scene"
-      const trace = isScene ? "" : `<button class="btn btn-sm" data-action="trace-drawer-ref" data-ref-index="${index}">查看对象证据</button>`
+      const ordinal = index + 1
+      const fallbackLabel = isScene ? `Scene ${ordinal}` : `关联对象 ${ordinal}`
+      const label = ref.target_name || ref.name || fallbackLabel
+      const trace = isScene ? "" : `<button class="btn btn-sm" data-action="trace-drawer-ref" data-ref-index="${index}">查看${esc(label)}的证据</button>`
       const navigate = isScene
-        ? `<button class="btn btn-sm" data-action="navigate-scene-ref" data-ref-index="${index}">跳转 Scene</button>`
-        : (this._isWorldObjectRef(ref) ? `<button class="btn btn-sm" data-action="navigate-object-ref" data-ref-index="${index}">跳转世界对象</button>` : "")
+        ? `<button class="btn btn-sm" data-action="navigate-scene-ref" data-ref-index="${index}">跳转 ${esc(label)}</button>`
+        : (this._isWorldObjectRef(ref) ? `<button class="btn btn-sm" data-action="navigate-object-ref" data-ref-index="${index}">跳转${esc(label)}</button>` : "")
       return trace + navigate
     }).join("")}</div>`
   },
@@ -1335,12 +1337,23 @@ const ragView = {
     if (this._drawerAbortController === request.controller) this._drawerAbortController = null
   },
 
-  async _traceHit(index) {
-    const hit = this._searchHits[Number(index)]
-    const ref = hit?.object_refs?.[0] || hit?.target_ref
-    if (!ref) return
-    this._drawerRefs = [ref]
-    await this._traceDrawerRef(0)
+  _navigateChapterRef(value) {
+    const chapterIndex = Number(value)
+    if (!Number.isInteger(chapterIndex) || chapterIndex < 1) return
+    state.viewStates.writing = {
+      ...(state.viewStates.writing || {}),
+      projectId: state.currentProjectId,
+      currentChapter: chapterIndex,
+      currentDraftId: null,
+      currentVersionNumber: null,
+      isReadonly: false,
+    }
+    router.navigate(
+      "writing",
+      null,
+      true,
+      new URLSearchParams({ chapter_index: String(chapterIndex) }),
+    )
   },
 
   async _traceDrawerRef(index) {
@@ -1359,9 +1372,10 @@ const ragView = {
         claim_path: ref.target_path || "",
       }, { signal: request.controller.signal })
       if (!this._isDrawerRequestCurrent(request)) return
+      const label = ref.target_name || ref.name || `关联对象 ${Number(index) + 1}`
       drawer.innerHTML = `
-        <div class="novel-evidence-drawer__header"><strong>证据链</strong><button class="btn btn-sm" data-action="close-drawer">关闭</button></div>
-        ${(result.links || []).map((link) => `<article class="novel-evidence-trace"><p>${esc(link.read?.text || (link.status === "needs_review" ? "待人工定位原文" : ""))}</p><small>第 ${esc(String(link.source_ref?.chapter_index || "-"))} 章 · ${esc(link.precision || "range")}</small></article>`).join("") || '<p class="rag-search-empty">暂无当前视角可见的原文证据</p>'}
+        <div class="novel-evidence-drawer__header"><strong>${esc(label)}的对象证据</strong><button class="btn btn-sm" data-action="close-drawer">关闭</button></div>
+        ${(result.links || []).map((link) => `<article class="novel-evidence-trace"><p>${esc(link.read?.text || (link.status === "needs_review" ? "待人工定位原文" : ""))}</p><small>第 ${esc(String(link.source_ref?.chapter_index || "-"))} 章 · ${esc(link.precision || "range")}</small></article>`).join("") || '<p class="rag-search-empty">该对象暂未建立当前视角可见的原文证据；本次检索命中的原文仍可从结果卡“阅读原文”查看。</p>'}
         ${(result.warnings || []).map((item) => `<p class="rag-diagnostics-warning">${esc(item)}</p>`).join("")}
       `
     } catch (err) {
@@ -1500,26 +1514,13 @@ const ragView = {
       "retry-literal-search": () => this._retrySearch({ literal: true }),
       "load-more-results": () => this._loadMoreSearchResults(),
       "open-hit": (_event, element) => this._openHit(element.dataset.hitIndex),
-      "trace-hit": (_event, element) => this._traceHit(element.dataset.hitIndex),
       "trace-drawer-ref": (_event, element) => this._traceDrawerRef(element.dataset.refIndex),
       "navigate-scene-ref": (_event, element) => {
         const ref = this._drawerRefs[Number(element.dataset.refIndex)]
         if (ref?.target_id) router.navigate("scene", ref.target_id)
       },
       "navigate-object-ref": (_event, element) => this._navigateObjectRef(element.dataset.refIndex),
-      "navigate-chapter-ref": (_event, element) => {
-        const chapterIndex = Number(element.dataset.chapterIndex)
-        if (!Number.isInteger(chapterIndex) || chapterIndex < 1) return
-        state.viewStates.writing = {
-          ...(state.viewStates.writing || {}),
-          projectId: state.currentProjectId,
-          currentChapter: chapterIndex,
-          currentDraftId: null,
-          currentVersionNumber: null,
-          isReadonly: false,
-        }
-        router.navigate("writing")
-      },
+      "navigate-chapter-ref": (_event, element) => this._navigateChapterRef(element.dataset.chapterIndex),
       "close-drawer": () => {
         this._cancelActiveDrawer()
         const drawer = document.getElementById("rag-evidence-drawer")

@@ -216,6 +216,7 @@ class RagChunksLoader(Loader):
                     top_k=clause.top_k,
                     reference_chapter_index=options.chapter_index,
                     visible_until_chapter=plan.visible_until_chapter,
+                    retrieval_purpose=plan.purpose,
                 )
             except Exception:
                 degraded = True

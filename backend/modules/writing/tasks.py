@@ -204,6 +204,8 @@ async def handle_writing_generate(db, task):
         context_confirmation_id=context_confirmation_id,
         source_task_id=task_id,
         llm_execution_snapshot=llm_execution_snapshot,
+        generation_mode=str(meta.get("generation_mode") or "draft"),
+        base_draft_id=meta.get("base_draft_id"),
     )
     task.update_progress(1.0)
     await db.flush()

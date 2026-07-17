@@ -44,12 +44,12 @@ README、ORM 模型与 Alembic migration。
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
 | 小说总纲 | `story_outline_heads` / `story_outline_revisions` | outline 拥有的小说级上位结构资产；按 `World → StoryOutline → OutlineArc → Scene` 约束粒度。revision 不可变，head 以 base/current CAS 指向当前版；手工采用总纲不会创建剧情线、篇章纲、Scene、伏笔或揭示。 |
-| 剧情线 / 篇章纲 | `plot_threads` / `outline_arcs` | 组织可执行的剧情结构。 |
+| 剧情线 / 篇章纲 | `plot_threads` / `outline_arcs` | 组织可执行的剧情结构；PlotThread 是作者侧信息推进聚合根，篇章纲只引用既有剧情线。 |
 | Scene | `scenes` | 最小叙事单元，包含逻辑顺序、结构字段、来源和结构整理 metadata。 |
 | Scene 章节映射 | `scene_chapter_links` | Scene 与章节的轻量关联。 |
 | Scene 物理片段 | `scene_spans` | 从 `scenes.scene_chunks` 派生的只读索引，保存章节和 offset/paragraph 边界。 |
 | Scene 建议决定 | `scene_fusion_suggestions` | 承载 Phase 1c 融合决定和重复提取的 replacement 审查；未采用的替换候选只保存在 suggestion payload，不是 active Scene，不进入下游事实链。 |
-| 伏笔 / 揭示 | `foreshadowing_plans` / `reveal_plans` | 结构资产，带来源与状态。 |
+| 伏笔 / 揭示 | `foreshadowing_plans` / `reveal_plans` | PlotThread 信息推进的底层投影与兼容读模型；作者侧不再作为独立顶层模块。 |
 | 正文版本 | `writing_drafts` | 章节正文的多版本承载；普通正文只有工作稿/已发布成熟度，未采用 AI 文本以兼容 `candidate` 保存为待处理建议，并保存 conflict snapshot 与生成 provenance。 |
 | 写作冲突检查 | `writing_conflict_checks` / `writing_conflict_items` | 规则检查、证据、AI 软判断和建议的记录；不自动修改正文或已采用资产。 |
 | 导入记录 | `import_records` | 文件导入元信息；不保存上传原文。 |

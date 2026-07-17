@@ -164,7 +164,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
       },
     )
     expect(toast).toHaveBeenCalledWith(
-      "场景（scene）自动提取任务已提交：scene-task",
+      "从正文提取 Scene 任务已提交：scene-task",
       "success",
     )
   })
@@ -240,7 +240,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
       },
     )
     expect(toast).toHaveBeenCalledWith(
-      "场景（scene）自动提取任务已提交：scene-task",
+      "从正文提取 Scene 任务已提交：scene-task",
       "success",
     )
   })
@@ -350,7 +350,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
     sceneWorkbenchView._autoExtractProgress = {
       failed: true,
       cancelled: false,
-      label: "场景（scene）自动提取",
+      label: "从正文提取 Scene",
       statusLabel: "失败",
       message: "API Key 未配置",
       warnings: [],
@@ -391,7 +391,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
       failed: false,
       cancelled: false,
       percent: 20,
-      label: "场景（scene）自动提取",
+      label: "从正文提取 Scene",
       statusLabel: "进行中",
       message: "正在提取",
       warnings: [],
@@ -416,7 +416,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
     await sceneWorkbenchView._cancelAutoExtractTask()
 
     expect(confirmAction).toHaveBeenCalledWith(
-      expect.stringContaining("确认取消当前场景自动提取任务"),
+      expect.stringContaining("确认取消当前正文 Scene 提取任务"),
       expect.any(Function),
       "确认取消",
     )
@@ -597,6 +597,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
         emotional_beat: null,
         must_happen: null,
         must_not_happen: null,
+        narrative_function: null,
         narrative_tag: "draft",
         pov_character_id: null,
         chapter_ids: ["1", "2", "3"],
@@ -898,6 +899,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
     document.getElementById("scene-fusion-emotion").value = "用户改情绪"
     document.getElementById("scene-fusion-must").value = "用户改必须"
     document.getElementById("scene-fusion-must-not").value = "用户改禁止"
+    document.getElementById("scene-fusion-function").value = "用户改叙事功能"
     document.getElementById("scene-fusion-narrative-tag").value = "climax"
     document.getElementById("scene-fusion-pov").value = "char-new"
     document.getElementById("scene-fusion-chapters").value = "5, 6"
@@ -917,6 +919,7 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
         emotional_beat: "用户改情绪",
         must_happen: "用户改必须",
         must_not_happen: "用户改禁止",
+        narrative_function: "用户改叙事功能",
         narrative_tag: "climax",
         pov_character_id: "char-new",
         chapter_ids: ["5", "6"],
@@ -1063,6 +1066,68 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
     expect(api.outline.previewSceneFusion).not.toHaveBeenCalled()
   })
 
+  it("opens an in-app split boundary form with a complete non-overlapping partition", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    const result = await sceneWorkbenchView._startSplit("s1")
+    const call = showModal.mock.calls[0]
+    const body = modalHtmlFromCall(call)
+
+    expect(result).toBe(true)
+    expect(call[0]).toBe("拆分 Scene")
+    expect(body).toContain("当前关联章节：第 1 章、第 2 章")
+    expect(body).toContain('id="scene-split-chapter-index"')
+    expect(body).toContain('value="2" selected')
+    expect(body).toContain("保留在原 Scene：</strong>第 1 章")
+    expect(body).toContain("进入新 Scene：</strong>第 2 章")
+    expect(globalThis.prompt).not.toHaveBeenCalled()
+    expect(api.outline.previewSceneSplit).not.toHaveBeenCalled()
+  })
+
+  it("rejects a split boundary that would leave either side empty", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    await sceneWorkbenchView._startSplit("s1")
+    const call = showModal.mock.calls[0]
+    document.body.innerHTML = modalHtmlFromCall(call)
+    document.getElementById("scene-split-chapter-index").value = "1"
+
+    const result = await call[2].find((button) => button.text === "生成拆分预览").handler()
+
+    expect(result).toBe(false)
+    expect(document.getElementById("scene-split-setup-error").textContent).toContain("都保留章节")
+    expect(api.outline.previewSceneSplit).not.toHaveBeenCalled()
+  })
+
+  it("submits the selected real chapter boundary to the split preview", async () => {
+    api.outline.previewSceneSplit.mockResolvedValue({
+      operation: "split",
+      chapter_mapping_change: { after: { s1: ["1"] } },
+      field_changes: {},
+      warnings: [],
+      draft_scenes: [
+        { title: "前半", chapter_ids: ["1"] },
+        { title: "后半", chapter_ids: ["2"] },
+      ],
+      field_references: {},
+    })
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    await sceneWorkbenchView._startSplit("s1")
+    const setupCall = showModal.mock.calls[0]
+    document.body.innerHTML = modalHtmlFromCall(setupCall)
+    const result = await setupCall[2]
+      .find((button) => button.text === "生成拆分预览")
+      .handler()
+
+    expect(result).toBe(true)
+    expect(api.outline.previewSceneSplit).toHaveBeenCalledWith("p1", {
+      source_scene_id: "s1",
+      split_chapter_index: 2,
+    })
+    expect(showModal.mock.calls[1][0]).toBe("Scene 拆分预览")
+  })
+
   it("uses unified draft review for split preview and submits edited drafts", async () => {
     api.outline.previewSceneSplit.mockResolvedValue({
       operation: "split",
@@ -1084,8 +1149,8 @@ describe("sceneWorkbenchView — async lifecycle and error recovery", () => {
     const call = showModal.mock.calls[0]
     const [title, , buttons] = call
     const body = modalHtmlFromCall(call)
-    expect(title).toBe("Scene AI 建议预览")
-    expect(body).toContain("AI 拆分建议")
+    expect(title).toBe("Scene 拆分预览")
+    expect(body).toContain("拆分草稿")
     expect(body).toContain("scene-split-0-title")
     expect(body).toContain("scene-split-0-narrative_tag")
     expect(body).toContain("scene-split-0-pov_character_id")

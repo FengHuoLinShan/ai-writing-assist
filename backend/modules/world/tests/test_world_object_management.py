@@ -881,15 +881,6 @@ class TestKnowledgeBoundary:
             novel_id,
             WorldEntityCreate(entity_type="character", name="主角"),
         )
-        from modules.world.models import Character
-
-        character = Character(
-            entity_id=uuid.UUID(hex=char_entity.id),
-            novel_id=uuid.UUID(hex=novel_id),
-            name=char_entity.name,
-        )
-        db_session.add(character)
-        await db_session.flush()
 
         target = await entity_service.create(
             db_session,
@@ -1204,15 +1195,6 @@ class TestWorldObjectManagementAPI:
             novel_id,
             WorldEntityCreate(entity_type="character", name="主角"),
         )
-        from modules.world.models import Character
-
-        character = Character(
-            entity_id=uuid.UUID(hex=char_entity.id),
-            novel_id=uuid.UUID(hex=novel_id),
-            name=char_entity.name,
-        )
-        db_session.add(character)
-        await db_session.flush()
 
         target = await service.create(
             db_session,

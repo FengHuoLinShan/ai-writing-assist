@@ -508,6 +508,12 @@ class RevealPlan(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "揭示阶段 [{stage_index, chapter_index, reveal_content, trigger, effect}]"
         ),
     )
+    related_thread_ids: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        comment="关联剧情线 ID；允许多条，空数组表示尚未归类",
+    )
     provenance_meta: Mapped[dict] = mapped_column(
         JSON,
         nullable=True,

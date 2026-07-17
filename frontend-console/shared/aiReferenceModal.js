@@ -31,7 +31,7 @@ export function confirmAiReference(options) {
       renderSummary(currentConfirmation, async (sectionKey) => {
         excludedSectionKeys.add(sectionKey)
         try {
-          setBusy(refreshBtn, true)
+          setBusy(refreshBtn, true, "正在重新整理…")
           currentConfirmation = await createConfirmation(options, excludedSectionKeys)
           renderCurrentSummary()
           toast("AI 参考资料已重新整理", "success")
@@ -45,7 +45,7 @@ export function confirmAiReference(options) {
 
     refreshBtn.addEventListener("click", async () => {
       try {
-        setBusy(refreshBtn, true)
+        setBusy(refreshBtn, true, "正在整理…")
         currentConfirmation = await createConfirmation(options, excludedSectionKeys)
         renderCurrentSummary()
         toast("AI 参考资料已整理", "success")
@@ -58,7 +58,7 @@ export function confirmAiReference(options) {
 
     confirmBtn.addEventListener("click", async () => {
       try {
-        setBusy(confirmBtn, true)
+        setBusy(confirmBtn, true, "正在确认…")
         if (!currentConfirmation) {
           currentConfirmation = await createConfirmation(options, excludedSectionKeys)
           renderCurrentSummary()
@@ -160,7 +160,7 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
   }
   if (chapter) payload.chapter_index = chapter
   if (options.visible_until_chapter) payload.visible_until_chapter = options.visible_until_chapter
-  if (options.budget_tokens) payload.budget_tokens = options.budget_tokens
+  if (options.budget_tokens != null) payload.budget_tokens = options.budget_tokens
   if (options.scene_id) payload.scene_id = options.scene_id
   if (options.arc_id) payload.arc_id = options.arc_id
   if (options.entity_ids) payload.entity_ids = options.entity_ids
@@ -229,6 +229,13 @@ function createButton(text, className) {
   return btn
 }
 
-function setBusy(btn, busy) {
+function setBusy(btn, busy, busyLabel) {
+  if (busy) {
+    btn.dataset.idleLabel = btn.textContent
+    if (busyLabel) btn.textContent = busyLabel
+  } else if (btn.dataset.idleLabel) {
+    btn.textContent = btn.dataset.idleLabel
+    delete btn.dataset.idleLabel
+  }
   btn.disabled = busy
 }

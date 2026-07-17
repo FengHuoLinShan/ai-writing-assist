@@ -250,6 +250,7 @@ async def retrieve(
     mode: str = "search",
     top_k: int = 12,
     reference_chapter_index: int | None = None,
+    retrieval_purpose: str | None = None,
 ) -> RagResultBundle:
     """混合检索 RAG 片段 — 委托给 RetrievalOrchestrator
 
@@ -286,6 +287,7 @@ async def retrieve(
         mode=mode,
         top_k=top_k,
         reference_chapter_index=reference_chapter_index,
+        retrieval_purpose=retrieval_purpose,
     )
 
 

@@ -6,12 +6,17 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 from itertools import combinations
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.enqueuer import enqueue_task
+from modules.outline.contracts import (
+    SCENE_SEMANTIC_FIELDS,
+    scene_semantic_field_status,
+)
 from modules.outline.models import Scene, SceneFusionSuggestion, SceneSpan
 from modules.outline.repositories import (
     SceneFusionSuggestionRepository,
@@ -20,7 +25,10 @@ from modules.outline.repositories import (
     SceneSuggestionSourceProjection,
     SceneWorkbenchHealthProjection,
 )
-from modules.outline.scene_draft_review import SceneDraftReviewService
+from modules.outline.scene_draft_review import (
+    SceneDraftReviewService,
+    mapping_scope_warnings,
+)
 from modules.outline.scene_fusion_draft import SceneFusionDraftGenerator
 from modules.outline.schemas import (
     SceneCreate,
@@ -54,7 +62,7 @@ from modules.outline.schemas import (
     SceneWorkbenchItem,
     SceneWorkbenchResponse,
 )
-from modules.outline.services import SceneService
+from modules.outline.services import SceneService, scene_has_missing_setup
 from modules.writing.facade import (
     get_draft,
     list_chapter_indices,
@@ -277,9 +285,7 @@ class SceneWorkbenchService:
         )
         overlap_pairs = self._overlapping_span_pairs(coverage_spans)
         overlap_chapters_by_scene = self._overlap_chapters(overlap_pairs)
-        overlap_scene_ids = {
-            span.scene_id for pair in overlap_pairs for span in pair[:2]
-        }
+        overlap_scene_ids = {span.scene_id for pair in overlap_pairs for span in pair[:2]}
         overlap_identities = await self.repo.get_scene_identity_projections(
             db,
             nid,
@@ -341,21 +347,25 @@ class SceneWorkbenchService:
             ]
 
         effective_skip = skip
-        has_explicit_navigation = skip > 0 or segment is not None or any(
-            value is not None
-            for value in (
-                status,
-                source,
-                workflow_id,
-                needs_review,
-                boundary_status,
-                phase,
-                phase1a_fallback,
-                health,
-                q,
-                chapter_from,
-                chapter_to,
-                confidence_band,
+        has_explicit_navigation = (
+            skip > 0
+            or segment is not None
+            or any(
+                value is not None
+                for value in (
+                    status,
+                    source,
+                    workflow_id,
+                    needs_review,
+                    boundary_status,
+                    phase,
+                    phase1a_fallback,
+                    health,
+                    q,
+                    chapter_from,
+                    chapter_to,
+                    confidence_band,
+                )
             )
         )
         normalized_selected_scene_id: str | None = None
@@ -417,7 +427,7 @@ class SceneWorkbenchService:
                     scene=SceneResponse.model_validate(scene),
                     health=health_by_scene[scene.id],
                     health_details=details_by_scene[scene.id],
-                    chapter_range=self._chapter_range(scene.chapter_ids or []),
+                    chapter_range=self._display_chapter_range(scene),
                     summary=scene.goal or scene.core_conflict or scene.emotional_beat,
                     span_summaries=self._span_summaries(
                         visible_spans_by_scene.get(scene.id, [])
@@ -464,8 +474,7 @@ class SceneWorkbenchService:
             skip=effective_skip,
             unassigned_chapters=(
                 unassigned_chapters
-                if health in {None, "unassigned"}
-                and segment in {None, "unassigned"}
+                if health in {None, "unassigned"} and segment in {None, "unassigned"}
                 else []
             ),
             selected_scene_id=normalized_selected_scene_id,
@@ -492,6 +501,15 @@ class SceneWorkbenchService:
                 continue
             if chapter >= 1:
                 result.append(chapter)
+        if result:
+            return sorted(set(result))
+        meta = dict(scene.structure_meta or {})
+        if meta.get("planning_state") != "planned":
+            return []
+        planned = meta.get("planned_chapter_range") or {}
+        for value in (planned.get("start"), planned.get("end")):
+            if isinstance(value, int) and value >= 1:
+                result.append(value)
         return sorted(set(result))
 
     @classmethod
@@ -578,6 +596,11 @@ class SceneWorkbenchService:
                         ),
                     }
                 )
+                meta = self._manually_reviewed_semantic_meta(
+                    scene,
+                    meta,
+                    reviewed_at=reviewed_at,
+                )
                 update_data = SceneUpdate(status="canonical", structure_meta=meta)
             else:
                 meta["needs_review"] = True
@@ -594,6 +617,40 @@ class SceneWorkbenchService:
                 raise LookupError("Scene not found")
             updated_items.append(SceneResponse.model_validate(updated))
         return SceneReviewResponse(items=updated_items)
+
+    @staticmethod
+    def _manually_reviewed_semantic_meta(
+        scene: Scene,
+        meta: dict[str, Any],
+        *,
+        reviewed_at: str,
+    ) -> dict[str, Any]:
+        has_trusted_semantics = scene.source in {"deep_import", "manual_fusion"} or any(
+            scene_semantic_field_status(scene, field) is not None
+            for field in SCENE_SEMANTIC_FIELDS
+        )
+        if not has_trusted_semantics:
+            return meta
+
+        statuses: dict[str, str] = {}
+        for field in SCENE_SEMANTIC_FIELDS:
+            if field == "narrative_function":
+                value = meta.get(field)
+            else:
+                value = getattr(scene, field, None)
+            if field == "narrative_tag" and value == "draft":
+                value = None
+            statuses[field] = "present" if value not in (None, "") else "not_applicable"
+        meta.update(
+            {
+                "semantic_field_statuses": statuses,
+                "semantic_uncertain_fields": [],
+                "core_conflict_status": statuses["core_conflict"],
+                "semantic_reviewed_at": reviewed_at,
+                "semantic_reviewed_by": "manual",
+            }
+        )
+        return meta
 
     async def review_source_mappings(
         self,
@@ -653,14 +710,27 @@ class SceneWorkbenchService:
         nid = parse_uuid(novel_id, "novel_id")
         stored_ids: list[str] = []
         for suggestion in suggestions:
+            suggestion_payload = dict(suggestion)
             source_ids = [
-                str(value) for value in suggestion.get("source_scene_ids") or []
+                str(value) for value in suggestion_payload.get("source_scene_ids") or []
             ]
             if len(source_ids) < 2 or len(set(source_ids)) != len(source_ids):
                 continue
             scenes = await self._get_scenes_in_novel(db, novel_id, source_ids)
             source_fingerprint = self._suggestion_source_fingerprint(scenes)
-            suggestion_kind = str(suggestion.get("suggestion_kind") or "cross_chapter")
+            suggestion_kind = str(
+                suggestion_payload.get("suggestion_kind") or "cross_chapter"
+            )
+            decision_origin = suggestion_payload.get("decision_origin")
+            if decision_origin:
+                scan_trace = list(suggestion_payload.get("scan_trace") or [])
+                scan_trace.append(
+                    {
+                        "decision_origin": str(decision_origin),
+                        "contract_version": "phase1c-v2",
+                    }
+                )
+                suggestion_payload["scan_trace"] = scan_trace
             suggestion_key = hashlib.sha256(
                 (
                     f"{suggestion_kind}:{','.join(source_ids)}:{source_fingerprint}"
@@ -672,7 +742,7 @@ class SceneWorkbenchService:
                 source_workflow_id=source_workflow_id,
                 suggestion_key=suggestion_key,
                 source_fingerprint=source_fingerprint,
-                payload=suggestion,
+                payload=suggestion_payload,
             )
             stored_ids.append(str(stored.id))
         return stored_ids
@@ -1017,6 +1087,18 @@ class SceneWorkbenchService:
         meta = dict(scene.structure_meta or {})
         if data.structure_meta is not None:
             meta.update(data.structure_meta)
+        resulting_chapter_ids = (
+            data.chapter_ids
+            if data.chapter_ids is not None
+            else scene.chapter_ids or []
+        )
+        resulting_chunks = (
+            data.scene_chunks
+            if data.scene_chunks is not None
+            else scene.scene_chunks or []
+        )
+        if resulting_chapter_ids or resulting_chunks:
+            meta["planning_state"] = "materialized"
         update_payload: dict[str, Any] = {"structure_meta": meta}
         if data.chapter_ids is not None:
             update_payload["chapter_ids"] = data.chapter_ids
@@ -1068,7 +1150,14 @@ class SceneWorkbenchService:
                     "目标 Scene 将承接来源 Scene 的章节映射；地图摘要将在写作页重新读取。"
                 )
             },
-            warnings=["关联资产仅提示，不会自动阻断合并。"],
+            warnings=[
+                *mapping_scope_warnings([target, *sources]),
+                *self._merge_chunk_precision_warnings(
+                    target.scene_chunks or [],
+                    *[source.scene_chunks or [] for source in sources],
+                ),
+                "关联资产仅提示，不会自动阻断合并。",
+            ],
             scene=SceneResponse.model_validate(target),
         )
 
@@ -1101,7 +1190,26 @@ class SceneWorkbenchService:
             )
         }
         target_meta = dict(target.structure_meta or {})
+        if not target_meta.get("narrative_function"):
+            inherited_function = next(
+                (
+                    str(
+                        (scene.structure_meta or {}).get("narrative_function") or ""
+                    ).strip()
+                    for scene in sources
+                    if (scene.structure_meta or {}).get("narrative_function")
+                ),
+                None,
+            )
+            if inherited_function:
+                target_meta["narrative_function"] = inherited_function
         target_meta["merged_from_scene_ids"] = [str(source.id) for source in sources]
+        target_meta.update(
+            self._mechanical_fusion_semantic_meta(
+                [target, *sources],
+                resulting_values=field_payload,
+            )
+        )
         updated_target = await self.repo.update(
             db,
             target.id,
@@ -1311,6 +1419,30 @@ class SceneWorkbenchService:
         if not data.primary_scene_id:
             raise ValueError("primary_scene_id is required for AI Scene fusion preview")
         sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
+        review_sources = [
+            SimpleNamespace(
+                **{
+                    field: getattr(scene, field)
+                    for field in (
+                        "id",
+                        "title",
+                        "goal",
+                        "core_conflict",
+                        "emotional_beat",
+                        "must_happen",
+                        "must_not_happen",
+                        "narrative_tag",
+                        "pov_character_id",
+                        "chapter_ids",
+                        "scene_chunks",
+                        "source",
+                        "status",
+                        "structure_meta",
+                    )
+                }
+            )
+            for scene in sources
+        ]
         deterministic_draft = await self._fusion_scene_payload(
             db,
             novel_id,
@@ -1328,16 +1460,30 @@ class SceneWorkbenchService:
             **deterministic_draft,
             **generated.semantic_fields,
         }
+        fused_scene["narrative_function"] = generated.semantic_meta.get(
+            "narrative_function"
+        )
         fused_scene["structure_meta"] = {
             **dict(deterministic_draft.get("structure_meta") or {}),
+            **generated.semantic_meta,
             "fusion_strategy": (
                 "local_deterministic_fallback"
                 if generated.degraded
                 else "project_llm_structured"
             ),
+            "semantic_preview_values": {
+                **{
+                    field: fused_scene.get(field)
+                    for field in SCENE_SEMANTIC_FIELDS
+                    if field != "narrative_function"
+                },
+                "narrative_function": generated.semantic_meta.get(
+                    "narrative_function"
+                ),
+            },
         }
         review = self._draft_review_service.build_fusion_review(
-            sources=sources,
+            sources=review_sources,  # type: ignore[arg-type]
             primary_scene_id=data.primary_scene_id,
             draft_scene=fused_scene,
             mode="fusion",
@@ -1406,6 +1552,10 @@ class SceneWorkbenchService:
         payload["structure_meta"] = self._adopted_structure_meta(
             payload.get("structure_meta"),
             source=str(payload.get("source") or "manual_fusion"),
+        )
+        payload["structure_meta"] = self._author_reviewed_fusion_semantic_meta(
+            payload,
+            payload["structure_meta"],
         )
         await self._validate_fusion_override_chapters(db, novel_id, overrides)
         created = await self.repo.create(
@@ -1565,8 +1715,23 @@ class SceneWorkbenchService:
         if overrides is not None:
             override_values = overrides.model_dump(exclude_unset=True)
             override_meta = override_values.pop("structure_meta", None)
+            has_narrative_function = "narrative_function" in override_values
+            narrative_function = override_values.pop("narrative_function", None)
+            if has_narrative_function:
+                override_meta = {
+                    **dict(override_meta or {}),
+                    "narrative_function": narrative_function,
+                }
             for field, value in override_values.items():
-                if value is not None:
+                if field in {
+                    "title",
+                    "goal",
+                    "core_conflict",
+                    "emotional_beat",
+                    "must_happen",
+                    "must_not_happen",
+                    "narrative_tag",
+                } or value is not None:
                     payload[field] = value
             if override_meta is not None:
                 meta = dict(payload["structure_meta"])
@@ -1730,20 +1895,9 @@ class SceneWorkbenchService:
         ):
             health.append("unreviewed")
         chapter_ids = scene.chapter_ids or []
-        if not chapter_ids:
+        if not chapter_ids and meta.get("planning_state") != "planned":
             health.append("unassigned")
-        missing_setup = getattr(scene, "missing_setup", None)
-        if missing_setup is None:
-            missing_setup = any(
-                not getattr(scene, field)
-                for field in (
-                    "goal",
-                    "core_conflict",
-                    "must_happen",
-                    "must_not_happen",
-                )
-            )
-        if missing_setup:
+        if scene_has_missing_setup(scene):
             health.append("missing_setup")
         if details.get("needs_organize"):
             health.append("needs_organize")
@@ -1950,9 +2104,7 @@ class SceneWorkbenchService:
             if span.end_paragraph is None:
                 range_parts.append(f"第 {paragraph_start} 段起")
             else:
-                range_parts.append(
-                    f"第 {paragraph_start}–{span.end_paragraph + 1} 段"
-                )
+                range_parts.append(f"第 {paragraph_start}–{span.end_paragraph + 1} 段")
         else:
             range_parts.append("整章范围待确认")
         range_parts.append(status_label)
@@ -2152,8 +2304,23 @@ class SceneWorkbenchService:
                 "emotional_beat": scene.emotional_beat,
                 "must_happen": scene.must_happen,
                 "must_not_happen": scene.must_not_happen,
+                "narrative_tag": scene.narrative_tag,
+                "pov_character_id": scene.pov_character_id,
                 "chapter_ids": scene.chapter_ids or [],
                 "scene_chunks": scene.scene_chunks or [],
+                "semantic_meta": {
+                    key: value
+                    for key, value in (scene.structure_meta or {}).items()
+                    if key
+                    in {
+                        "semantic_contract_version",
+                        "semantic_origin",
+                        "semantic_field_statuses",
+                        "semantic_uncertain_fields",
+                        "narrative_function",
+                        "core_conflict_status",
+                    }
+                },
             }
             for scene in scenes
         ]
@@ -2174,6 +2341,24 @@ class SceneWorkbenchService:
             return f"第 {nums[0]} 章"
         return f"第 {nums[0]}-{nums[-1]} 章"
 
+    def _display_chapter_range(self, scene: Scene) -> str:
+        mapped = self._chapter_range(scene.chapter_ids or [])
+        if mapped != "未关联章节":
+            return mapped
+        meta = dict(scene.structure_meta or {})
+        if meta.get("planning_state") != "planned":
+            return mapped
+        planned = meta.get("planned_chapter_range") or {}
+        start = planned.get("start")
+        end = planned.get("end")
+        if isinstance(start, int) and isinstance(end, int):
+            return f"计划中 · 第 {start}-{end} 章"
+        if isinstance(start, int):
+            return f"计划中 · 第 {start} 章起"
+        if isinstance(end, int):
+            return f"计划中 · 截至第 {end} 章"
+        return "计划中"
+
     def _merge_chapter_ids(self, *chapter_groups: list[str]) -> list[str]:
         seen: set[str] = set()
         result: list[str] = []
@@ -2187,11 +2372,117 @@ class SceneWorkbenchService:
 
     def _merge_chunks(self, *chunk_groups: list[dict]) -> list[dict]:
         chunks = [dict(chunk) for group in chunk_groups for chunk in group]
+        precise_chapters = {
+            self._chunk_chapter_key(chunk)
+            for chunk in chunks
+            if self._chunk_has_precise_range(chunk)
+        }
+        normalized: list[dict] = []
+        seen: set[str] = set()
+        for chunk in chunks:
+            chapter_key = self._chunk_chapter_key(chunk)
+            if (
+                chapter_key in precise_chapters
+                and self._chunk_is_chapter_placeholder(chunk)
+            ):
+                continue
+            fingerprint = json.dumps(
+                chunk,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            normalized.append(chunk)
         return sorted(
-            chunks,
-            key=lambda chunk: self._chapter_sort_key(
-                str(chunk.get("chapter_index") or chunk.get("chapter_id") or "0")
-            ),
+            normalized,
+            key=self._chunk_sort_key,
+        )
+
+    def _merge_chunk_precision_warnings(
+        self,
+        *chunk_groups: list[dict],
+    ) -> list[str]:
+        chunks = [dict(chunk) for group in chunk_groups for chunk in group]
+        precise_chapters = {
+            self._chunk_chapter_key(chunk)
+            for chunk in chunks
+            if self._chunk_has_precise_range(chunk)
+        }
+        replaced = sorted(
+            {
+                chapter
+                for chunk in chunks
+                if (chapter := self._chunk_chapter_key(chunk)) in precise_chapters
+                and self._chunk_is_chapter_placeholder(chunk)
+            },
+            key=self._chapter_sort_key,
+        )
+        if not replaced:
+            return []
+        labels = "、".join(f"第 {chapter} 章" for chapter in replaced)
+        return [
+            f"{labels}同时存在精确正文定位和章节级占位；确认合并后将保留精确定位，移除同章占位。"
+        ]
+
+    @staticmethod
+    def _chunk_chapter_key(chunk: dict) -> str:
+        return str(chunk.get("chapter_index") or chunk.get("chapter_id") or "0")
+
+    @staticmethod
+    def _chunk_has_precise_range(chunk: dict) -> bool:
+        for start_field, end_field in (
+            ("start_offset", "end_offset"),
+            ("start_pos", "end_pos"),
+        ):
+            start = chunk.get(start_field)
+            end = chunk.get(end_field)
+            if (
+                isinstance(start, int)
+                and not isinstance(start, bool)
+                and isinstance(end, int)
+                and not isinstance(end, bool)
+                and end > start
+            ):
+                return True
+        return False
+
+    def _chunk_sort_key(self, chunk: dict) -> tuple[int, str, int, int]:
+        chapter_key = self._chapter_sort_key(self._chunk_chapter_key(chunk))
+        for start_field, end_field in (
+            ("start_offset", "end_offset"),
+            ("start_pos", "end_pos"),
+        ):
+            start = chunk.get(start_field)
+            end = chunk.get(end_field)
+            if (
+                isinstance(start, int)
+                and not isinstance(start, bool)
+                and isinstance(end, int)
+                and not isinstance(end, bool)
+            ):
+                return (*chapter_key, start, end)
+        return (*chapter_key, -1, -1)
+
+    @classmethod
+    def _chunk_is_chapter_placeholder(cls, chunk: dict) -> bool:
+        if cls._chunk_has_precise_range(chunk):
+            return False
+        if chunk.get("end_paragraph") is not None:
+            return False
+        if chunk.get("start_paragraph") not in (None, 0):
+            return False
+        return not any(
+            chunk.get(field)
+            for field in (
+                "source_draft_id",
+                "source_content_hash",
+                "anchor_hash",
+                "anchor_excerpt",
+            )
         )
 
     def _chapter_sort_key(self, value: str) -> tuple[int, str]:
@@ -2223,6 +2514,106 @@ class SceneWorkbenchService:
             if value:
                 return value
         return None
+
+    def _mechanical_fusion_semantic_meta(
+        self,
+        scenes: list[Scene],
+        *,
+        resulting_values: dict[str, Any],
+    ) -> dict[str, Any]:
+        statuses: dict[str, str] = {}
+        uncertain_fields: list[str] = []
+        conflicts: dict[str, list[str]] = {}
+        for field in sorted(SCENE_SEMANTIC_FIELDS):
+            if field == "narrative_function":
+                values = [
+                    str((scene.structure_meta or {}).get(field) or "").strip()
+                    for scene in scenes
+                ]
+                final_value = next((value for value in values if value), None)
+            else:
+                values = [
+                    str(getattr(scene, field, None) or "").strip()
+                    for scene in scenes
+                ]
+                final_value = resulting_values.get(field)
+                if field == "narrative_tag":
+                    final_value = scenes[0].narrative_tag
+            distinct = list(dict.fromkeys(value for value in values if value))
+            source_statuses = [
+                status
+                for scene in scenes
+                if (status := scene_semantic_field_status(scene, field)) is not None
+            ]
+            if len(distinct) > 1:
+                status = "uncertain"
+                conflicts[field] = distinct
+            elif "uncertain" in source_statuses:
+                status = "uncertain"
+            elif final_value:
+                status = "present"
+            elif source_statuses and all(
+                value == "not_applicable" for value in source_statuses
+            ) and len(source_statuses) == len(scenes):
+                status = "not_applicable"
+            else:
+                status = "uncertain"
+            statuses[field] = status
+            if status == "uncertain":
+                uncertain_fields.append(field)
+        return {
+            "semantic_contract_version": "scene-semantic-state-v2",
+            "semantic_origin": "mechanical_fusion",
+            "semantic_field_statuses": statuses,
+            "semantic_uncertain_fields": uncertain_fields,
+            "semantic_basis": "机械融合仅合并映射并按既定优先级选取字段，未做语义综合。",
+            "mechanical_fusion_conflicts": conflicts,
+            "needs_review": bool(uncertain_fields),
+            "core_conflict_status": statuses["core_conflict"],
+        }
+
+    @staticmethod
+    def _author_reviewed_fusion_semantic_meta(
+        payload: dict[str, Any],
+        structure_meta: dict[str, Any],
+    ) -> dict[str, Any]:
+        meta = dict(structure_meta)
+        previous_statuses = meta.get("semantic_field_statuses")
+        if not isinstance(previous_statuses, dict):
+            previous_statuses = {}
+        preview_values = meta.get("semantic_preview_values")
+        if not isinstance(preview_values, dict):
+            preview_values = {}
+        statuses: dict[str, str] = {}
+        for field in sorted(SCENE_SEMANTIC_FIELDS):
+            value = (
+                meta.get("narrative_function")
+                if field == "narrative_function"
+                else payload.get(field)
+            )
+            changed = field in preview_values and value != preview_values.get(field)
+            previous = str(previous_statuses.get(field) or "")
+            if changed:
+                status = "present" if value not in (None, "") else "not_applicable"
+            elif previous in {"present", "not_applicable", "uncertain"}:
+                status = previous
+            else:
+                status = "present" if value not in (None, "") else "uncertain"
+            statuses[field] = status
+        uncertain_fields = [
+            field for field, status in statuses.items() if status == "uncertain"
+        ]
+        meta.update(
+            {
+                "semantic_contract_version": "scene-fusion-synthesis-v2",
+                "semantic_origin": "author_reviewed_fusion",
+                "semantic_field_statuses": statuses,
+                "semantic_uncertain_fields": uncertain_fields,
+                "core_conflict_status": statuses["core_conflict"],
+                "needs_review": bool(uncertain_fields),
+            }
+        )
+        return meta
 
     def _split_chapter_ids(
         self,

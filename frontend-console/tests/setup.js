@@ -252,7 +252,6 @@ globalThis.api = {
     createEntity: vi.fn(),
     updateEntity: vi.fn(),
     promoteEntity: vi.fn(),
-    extractEntities: vi.fn(),
     extractAliasRelations: vi.fn(),
     deleteEntity: vi.fn(),
     createRelationship: vi.fn(),

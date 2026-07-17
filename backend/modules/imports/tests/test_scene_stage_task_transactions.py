@@ -17,9 +17,14 @@ from modules.imports.adoption_policy import build_authorization_snapshot
 from modules.imports.llm_schemas import SceneChunk
 from modules.imports.orchestrator import (
     SCENE_STAGE_TASK_PREPARE_KEY,
+    SCENE_STAGE_TASK_PREPARE_VERSION,
     DeepImportOrchestrator,
     DeepImportWorkflowFailedError,
     SceneStageInputDriftError,
+)
+from modules.imports.phase1a_context import (
+    PHASE1A_CONTEXT_CONTRACT_VERSION,
+    stable_context_hash,
 )
 from modules.imports.scene_commit import SceneCommitResult
 from modules.imports.scene_enrichment import Phase1bEnrichmentResult
@@ -329,6 +334,7 @@ def _state() -> SimpleNamespace:
     return SimpleNamespace(
         active=True,
         snapshot_valid=True,
+        phase1a_context_marker="context-v1",
         context=SimpleNamespace(
             title="Frozen title",
             genre="mystery",
@@ -344,6 +350,45 @@ def _state() -> SimpleNamespace:
             }
         ],
     )
+
+
+class _FrozenContextBuilder:
+    def __init__(self, state: SimpleNamespace) -> None:
+        self.state = state
+
+    async def compile(self, db, *, novel_id, plan, boundary_chapters=None):
+        del db, boundary_chapters
+        assert novel_id == NOVEL_ID
+        frozen = plan.model_copy(deep=True)
+        windows = []
+        for window in frozen.windows:
+            reference = {
+                "contract_version": PHASE1A_CONTEXT_CONTRACT_VERSION,
+                "window_id": window.window_id,
+                "marker": self.state.phase1a_context_marker,
+            }
+            reference["content_hash"] = stable_context_hash(reference)
+            window.left_boundary_context = ""
+            window.reference_context = reference
+            windows.append(
+                {
+                    "window_id": window.window_id,
+                    "left_boundary_context": "",
+                    "reference_context": reference,
+                }
+            )
+        manifest = {
+            "contract_version": PHASE1A_CONTEXT_CONTRACT_VERSION,
+            "limits": {
+                "left_boundary_chars": 2000,
+                "characters": 6,
+                "world_objects": 16,
+            },
+            "windows": windows,
+        }
+        manifest["fingerprint"] = stable_context_hash(manifest)
+        frozen.phase1a_context = manifest
+        return frozen
 
 
 def _patch_inputs(
@@ -420,6 +465,7 @@ def _orchestrator(
             workflow=workflow,
             snapshot_builder=build,
             snapshot_restorer=restore,
+            phase1a_context_builder=_FrozenContextBuilder(state),
         ),
         build,
         restore,
@@ -454,6 +500,14 @@ async def test_scene_task_checkpoints_prepare_then_commits_assets_atomically(
     assert db.pending_assets == []
     assert db.current_task.result["phase"] == "done"
     preparation = task.meta[SCENE_STAGE_TASK_PREPARE_KEY]
+    assert preparation["version"] == SCENE_STAGE_TASK_PREPARE_VERSION
+    assert preparation["phase1a_context_contract_version"] == (
+        PHASE1A_CONTEXT_CONTRACT_VERSION
+    )
+    assert (
+        preparation["phase1a_context_fingerprint"]
+        == (preparation["phase1a_context"]["fingerprint"])
+    )
     assert preparation["source_vector"] == [
         {
             "chapter_index": 1,
@@ -556,6 +610,48 @@ async def test_scene_task_retry_reuses_legacy_snapshot_and_prepare(
     assert replay_db.commit_count == 0
 
 
+async def test_unfinished_v1_scene_prepare_fails_closed_with_resubmit_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    state = _state()
+    task = _Task()
+    task.meta[SCENE_STAGE_TASK_PREPARE_KEY] = {
+        "version": "scene-stage-prepare-v1",
+        "input_fingerprint": "legacy",
+    }
+    db = _CheckpointSession(task, events=events)
+    _patch_inputs(monkeypatch, db, state, events)
+    workflow = _RecordingWorkflow(db, events=events)
+    orchestrator, _, _ = _orchestrator(workflow, state, events)
+
+    with pytest.raises(SceneStageInputDriftError, match="submit a new"):
+        await orchestrator.run_stage_task(db, task, stage="scenes")
+
+    assert workflow.provider_calls == 0
+    assert db.commit_count == 0
+
+
+async def test_completed_v1_scene_prepare_remains_readable() -> None:
+    events: list[str] = []
+    state = _state()
+    task = _Task()
+    task.meta[SCENE_STAGE_TASK_PREPARE_KEY] = {
+        "version": "scene-stage-prepare-v1",
+        "input_fingerprint": "legacy",
+    }
+    task.result = {"phase": "done", "message": "legacy result"}
+    db = _CheckpointSession(task, events=events)
+    workflow = _RecordingWorkflow(db, events=events)
+    orchestrator, _, _ = _orchestrator(workflow, state, events)
+
+    result = await orchestrator.run_stage_task(db, task, stage="scenes")
+
+    assert result["phase"] == "done"
+    assert workflow.provider_calls == 0
+    assert db.commit_count == 0
+
+
 @pytest.mark.parametrize(
     ("drift", "expected_error"),
     [
@@ -563,6 +659,7 @@ async def test_scene_task_retry_reuses_legacy_snapshot_and_prepare(
         ("project_profile", SceneStageInputDriftError),
         ("project_deleted", NotFoundError),
         ("llm_profile", ProjectLLMConfigurationError),
+        ("phase1a_context", SceneStageInputDriftError),
     ],
 )
 async def test_scene_task_discards_provider_result_on_business_input_drift(
@@ -584,6 +681,8 @@ async def test_scene_task_discards_provider_result_on_business_input_drift(
             state.context.title = "Concurrent title edit"
         elif drift == "project_deleted":
             state.active = False
+        elif drift == "phase1a_context":
+            state.phase1a_context_marker = "context-v2"
         else:
             state.snapshot_valid = False
 

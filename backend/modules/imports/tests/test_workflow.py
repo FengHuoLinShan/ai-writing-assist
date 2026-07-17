@@ -26,7 +26,6 @@ from modules.imports.llm_schemas import (
     SceneCandidateOutput,
     SceneChunk,
     SceneEntityExtractionOutput,
-    SceneSegmentationOutput,
 )
 from modules.imports.orchestrator import (
     DeepImportOrchestrator,
@@ -41,7 +40,6 @@ from modules.imports.scene_commit import SceneCommitResult
 from modules.imports.scene_enrichment import Phase1bEnrichmentResult
 from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.imports.scene_planning import ScenePlanResult, SceneWindowPlan
-from modules.imports.scene_segmentation import SceneSegmentationService
 from modules.imports.scene_slicing import SceneSliceCandidate, SceneSlicingResult
 from modules.imports.service_phase_artifacts import add_phase_artifact, coverage_summary
 from modules.imports.service_progress_logs import (
@@ -53,7 +51,10 @@ from modules.imports.workflow import (
     DeepImportWorkflow,
     _compact_phase1b_payload,
 )
-from modules.imports.workflow_entity_phase import phase2_quality_stats
+from modules.imports.workflow_entity_phase import (
+    _merge_phase2_repair_result,
+    phase2_quality_stats,
+)
 from modules.imports.workflow_llm_adapters import (
     _materialize_phase1b_decision_output,
     _Phase1bDecisionOutput,
@@ -66,7 +67,6 @@ from modules.imports.workflow_structure_phase import (
     ensure_minimum_structure_outputs,
     phase3_quality_stats,
 )
-from modules.writing.contracts import WritingDraftContract
 from shared.deep_import_settings import DEEP_IMPORT_DEFAULT_SETTINGS
 
 
@@ -115,25 +115,6 @@ def _unit_orchestrator(
         snapshot_builder=_empty_llm_execution_snapshot,
         snapshot_restorer=_restore_empty_llm_execution_snapshot,
     )
-
-
-def test_scene_item_accepts_constraint_lists_from_llm() -> None:
-    output = SceneSegmentationOutput.model_validate(
-        {
-            "scenes": [
-                {
-                    "title": "旧钟楼",
-                    "must_happen": ["林澈拿到铜钥匙", "发现北境航道"],
-                    "must_not_happen": ["钥匙丢失", "航线图被毁"],
-                    "scene_chunks": [{"chapter_index": 1}],
-                }
-            ]
-        }
-    )
-
-    scene = output.scenes[0]
-    assert scene.must_happen == "林澈拿到铜钥匙；发现北境航道"
-    assert scene.must_not_happen == "钥匙丢失；航线图被毁"
 
 
 def test_phase3_quality_stats_counts_unique_review_assets_from_provenance() -> None:
@@ -513,23 +494,32 @@ def test_alias_relation_output_accepts_single_alias_and_relation() -> None:
     output = AliasRelationExtractionOutput.model_validate(
         {
             "aliases": {
-                "entity_name": "周明瑞",
+                "entity_ref": "entity-001",
                 "alias": "克莱恩",
-                "alias_type": None,
-                "quote": ["自称", "新身份"],
+                "alias_type": "name",
+                "identity_scope": "durable",
+                "identity_basis": "明确的新身份",
+                "evidence_quotes": ["自称克莱恩", "获得新身份"],
                 "confidence": "90%",
             },
             "relations": {
-                "source_name": "克莱恩",
-                "target_name": "灰雾",
+                "source_ref": "entity-001",
+                "target_ref": "entity-002",
                 "relation_type": "进入",
+                "persistence_scope": "episodic",
+                "directionality": "directed",
+                "claim_status": "established",
+                "description": "克莱恩进入灰雾",
+                "basis": "正文动作",
+                "evidence_quotes": ["克莱恩进入灰雾"],
+                "confidence": "90%",
             },
         }
     )
 
     assert len(output.aliases) == 1
-    assert output.aliases[0].alias_type == "alias"
-    assert output.aliases[0].quote == "自称；新身份"
+    assert output.aliases[0].alias_type == "name"
+    assert output.aliases[0].evidence_quotes == ["自称克莱恩", "获得新身份"]
     assert output.aliases[0].confidence == 0.9
     assert len(output.relations) == 1
 
@@ -1080,7 +1070,7 @@ async def test_phase1b_llm_prompt_requires_compact_scene_contract(monkeypatch):
     assert "不要拆散同一目标/冲突/行动链延续的跨章 Scene" in user_content
     assert '"scene_chunks":[{"chapter_index":1}]' in user_content
     assert request.max_tokens == 6144
-    assert kwargs["timeout_seconds"] == 90
+    assert kwargs["timeout_seconds"] == 420
 
 
 @pytest.mark.asyncio
@@ -1093,7 +1083,6 @@ async def test_phase1b_llm_uses_compact_budget_for_regular_window(monkeypatch):
         captured["kwargs"] = kwargs
         return {"scenes": []}
 
-    monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
     monkeypatch.delenv("PHASE1B_REDUCER_MAX_TOKENS", raising=False)
     monkeypatch.delenv("PHASE1B_REDUCER_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(
@@ -1141,11 +1130,11 @@ async def test_phase1b_llm_uses_compact_budget_for_regular_window(monkeypatch):
     assert "use_primary_round" in request.messages[0].content
     assert "candidates=" in request.messages[1].content
     assert "payload=" not in request.messages[1].content
-    assert kwargs["timeout_seconds"] == 45
+    assert kwargs["timeout_seconds"] == 420
 
 
 @pytest.mark.asyncio
-async def test_phase1c_llm_inherits_effective_token_budget_and_uses_360_timeout(
+async def test_phase1c_llm_inherits_effective_token_budget_and_uses_long_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -1155,9 +1144,8 @@ async def test_phase1c_llm_inherits_effective_token_budget_and_uses_360_timeout(
         captured["request"] = request
         captured["kwargs"] = kwargs
         return {
-            "decision": "keep_separate",
-            "confidence": 0.9,
-            "reason": "independent scenes",
+            "boundaries": [],
+            "candidate_concerns": [],
         }
 
     monkeypatch.delenv("PHASE1C_DECISION_MAX_TOKENS", raising=False)
@@ -1176,12 +1164,24 @@ async def test_phase1c_llm_inherits_effective_token_budget_and_uses_360_timeout(
                 "max_tokens": 12_000,
             }
         }
-    )({"left": {}, "right": {}, "suggestion_kind": "cross_chapter"})
+    )(
+        {
+            "task": "phase1c_boundary_review_v2",
+            "owned_boundaries": [],
+            "candidate_sequence": [],
+        }
+    )
 
     request = captured["request"]
     kwargs = captured["kwargs"]
     assert request.max_tokens == 12_000
-    assert kwargs["timeout_seconds"] == 360
+    assert kwargs["timeout_seconds"] == 1200
+    boundary_prompt = request.messages[1].content
+    assert "left_candidate_id" in boundary_prompt
+    assert "right_candidate_id" in boundary_prompt
+    assert "integrate_both" in boundary_prompt
+    assert "candidate_concerns" in boundary_prompt
+    assert "uncertainties 必须是 JSON 字符串数组" in boundary_prompt
 
     captured.clear()
     await _Phase1cSceneFusionLLM(
@@ -1199,12 +1199,70 @@ async def test_phase1c_llm_inherits_effective_token_budget_and_uses_360_timeout(
                 }
             },
         }
-    )({"left": {}, "right": {}, "suggestion_kind": "cross_chapter"})
+    )(
+        {
+            "task": "phase1c_boundary_review_v2",
+            "owned_boundaries": [],
+            "candidate_sequence": [],
+        }
+    )
 
     request = captured["request"]
     kwargs = captured["kwargs"]
     assert request.max_tokens == 4096
     assert kwargs["timeout_seconds"] == 444
+
+
+@pytest.mark.asyncio
+async def test_phase1c_synthesis_prompt_names_exact_output_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_structured_call(client, request, schema, **kwargs):
+        del client, schema, kwargs
+        captured["request"] = request
+        return {
+            "title": "统一 Scene",
+            "goal": "完成连续因果行动",
+            "core_conflict": None,
+            "core_conflict_status": "not_applicable",
+            "emotional_beat": None,
+            "must_happen": None,
+            "must_not_happen": None,
+            "narrative_tag": "transition",
+            "narrative_function": "承接状态变化",
+            "basis": "连续正文证据",
+            "uncertain_fields": [],
+            "confidence": 0.9,
+        }
+
+    monkeypatch.setattr(
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
+        fake_structured_call,
+    )
+
+    await _Phase1cSceneFusionLLM(
+        {
+            "llm": {
+                "api_key": "sk-test-only",
+                "base_url": "https://llm.test/v1",
+                "model": "test-model",
+            }
+        }
+    )({"task": "phase1c_scene_synthesis_v2", "members": []})
+
+    prompt = captured["request"].messages[1].content
+    for field in (
+        "core_conflict_status",
+        "must_not_happen",
+        "narrative_function",
+        "uncertain_fields",
+    ):
+        assert field in prompt
+    assert "not_applicable" in prompt
+    assert "payoff" in prompt
+    assert "uncertain_fields 必须是 JSON 字符串数组" in prompt
 
 
 def test_phase1b_decision_materializer_distributes_missing_chunks() -> None:
@@ -1403,7 +1461,17 @@ def _stub_resilient_scene_pipeline(monkeypatch):
     ):
         return _phase1b_enrichment_result(list(range(start_chapter, end_chapter + 1)))
 
-    async def _commit(_db, _novel_id, _candidates, *, workflow_id):
+    async def _commit(
+        _db,
+        _novel_id,
+        _candidates,
+        *,
+        workflow_id,
+        fusion_suggestions=None,
+        start_chapter=None,
+        end_chapter=None,
+        replace_existing=False,
+    ):
         return _scene_commit_result()
 
     monkeypatch.setattr(DeepImportWorkflow, "_run_phase0_plan", _plan)
@@ -1623,6 +1691,53 @@ class TestDeepImportSchema:
 
 class TestDeepImportWorkflowAutoRun:
     """测试全自动三步流程"""
+
+    def test_targeted_phase2_repair_preserves_unresolved_and_all_checkpoints(self):
+        source = {
+            "total_scenes": 4,
+            "completed_scenes": 2,
+            "skipped_scenes": 1,
+            "failed_scene_indices": [3],
+            "failed_scene_ids": ["s3"],
+            "unresolved_scene_indices": [4],
+            "unresolved_scene_ids": ["s4"],
+            "degraded": True,
+            "error_kind": "schema_validation",
+            "checkpoints": {
+                "phase2": {
+                    "scenes": [
+                        {"scene_id": "s1", "status": "done"},
+                        {"scene_id": "s2", "status": "done"},
+                        {"scene_id": "s3", "status": "failed"},
+                        {"scene_id": "s4", "status": "skipped"},
+                    ]
+                }
+            },
+        }
+        repair = {
+            "total_scenes": 1,
+            "completed_scenes": 1,
+            "failed_scene_indices": [],
+            "failed_scene_ids": [],
+            "degraded": False,
+            "checkpoints": {"phase2": {"scenes": [{"scene_id": "s3", "status": "done"}]}},
+        }
+
+        merged = _merge_phase2_repair_result(source, repair)
+
+        assert merged["total_scenes"] == 4
+        assert merged["completed_scenes"] == 3
+        assert merged["skipped_scenes"] == 1
+        assert merged["failed_scene_ids"] == []
+        assert merged["unresolved_scene_ids"] == ["s4"]
+        assert merged["degraded"] is True
+        assert merged["error_kind"] == "schema_validation"
+        assert merged["checkpoints"]["phase2"]["scenes"] == [
+            {"scene_id": "s1", "status": "done"},
+            {"scene_id": "s2", "status": "done"},
+            {"scene_id": "s3", "status": "done"},
+            {"scene_id": "s4", "status": "skipped"},
+        ]
 
     def test_phase2_stats_include_batch_boundary_and_action_counts(self):
         stats = phase2_quality_stats(
@@ -2035,6 +2150,7 @@ class TestDeepImportWorkflowAutoRun:
                 workflow_id="wf-activation",
                 start_chapter=78,
                 end_chapter=80,
+                include_alias_relations=False,
             )
 
         assert result is expected
@@ -2042,6 +2158,7 @@ class TestDeepImportWorkflowAutoRun:
         assert handler.await_args.kwargs["novel_id"].endswith("b202")
         assert handler.await_args.kwargs["start_chapter"] == 78
         assert handler.await_args.kwargs["end_chapter"] == 80
+        assert handler.await_args.kwargs["include_alias_relations"] is False
 
     @pytest.mark.asyncio
     async def test_pending_to_done(self):
@@ -2141,7 +2258,7 @@ class TestDeepImportWorkflowAutoRun:
         assert result.workflow_type == "scene_auto_extraction"
         assert result.stage == "scenes"
         assert result.completed_steps == [DeepImportStep.scene_segmentation.value]
-        assert "场景（scene）自动提取完成" in result.message
+        assert "从正文提取 Scene 完成" in result.message
         assert result.phase_artifacts["phase0_plan"]["counts"]["window_count"] == 1
         assert result.phase_artifacts["phase0_plan"]["counts"]["chapter_count"] == 5
         assert (
@@ -2226,7 +2343,7 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase == "failed"
         assert result.quality_status == "failed"
         assert result.degraded_reason == "missing_scene_prerequisite"
-        assert "请先执行场景" in result.message
+        assert "请先执行从正文提取 Scene" in result.message
         assert result.phase_artifacts["entity_extraction"]["status"] == "failed"
         assert result.phase_artifacts["entity_extraction"]["coverage"][
             "missing_chapters"
@@ -2304,6 +2421,46 @@ class TestDeepImportWorkflowAutoRun:
         workflow._extract_entities_by_scene.assert_awaited_once()
         assert workflow._extract_entities_by_scene.await_args.kwargs["start_chapter"] == 2
         assert workflow._extract_entities_by_scene.await_args.kwargs["end_chapter"] == 7
+
+    @pytest.mark.asyncio
+    async def test_world_object_stage_treats_exact_identity_reuse_as_complete(self):
+        workflow = DeepImportWorkflow()
+        workflow._scene_chapter_coverage = AsyncMock(
+            return_value=_scene_coverage({1, 2, 3}, 1, 3)
+        )
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={
+                "total_created": 0,
+                "total_aliases": 0,
+                "total_relations": 0,
+                "total_deltas": 0,
+                "total_scenes": 3,
+                "completed_scenes": 3,
+                "failed_scene_indices": [],
+                "phase2_dedup_counts": {"skipped": 4},
+                "phase2_linked_to_existing": 4,
+                "degraded": False,
+                "checkpoints": {"phase2": {"scenes": []}},
+            }
+        )
+        progress = DeepImportProgress(
+            workflow_type="world_object_auto_extraction",
+            stage="world_objects",
+        )
+
+        result = await workflow.run_entity_extraction_only(
+            db=AsyncMock(),
+            novel_id="novel-1",
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+            workflow_id="wf-idempotent-world",
+        )
+
+        assert result.phase == "done"
+        assert result.quality_status == "complete"
+        assert result.degraded is False
+        assert result.quality_stats["phase2"]["phase2_dedup_counts"]["skipped"] == 4
 
     @pytest.mark.asyncio
     async def test_plot_structure_stage_allows_missing_world_objects_as_partial(self):
@@ -2392,9 +2549,13 @@ class TestDeepImportWorkflowAutoRun:
                     "total_scenes": 10,
                     "completed_scenes": 9,
                     "failed_scene_indices": [3],
+                    "failed_scene_ids": ["s3"],
                     "phase2_failed_batches": [1],
                     "degraded": True,
                     "error_kind": "timeout",
+                    "phase2_action_counts": {"create_new": 1},
+                    "phase2_dedup_counts": {"checked": 1},
+                    "phase2_linked_to_existing": 0,
                     "checkpoints": {
                         "phase2": {
                             "scenes": [
@@ -2410,16 +2571,17 @@ class TestDeepImportWorkflowAutoRun:
                     "total_aliases": 0,
                     "total_relations": 0,
                     "total_deltas": 1,
-                    "total_scenes": 10,
-                    "completed_scenes": 10,
+                    "total_scenes": 1,
+                    "completed_scenes": 1,
                     "failed_scene_indices": [],
                     "phase2_failed_batches": [],
                     "degraded": False,
+                    "phase2_action_counts": {"link_to_existing": 1},
+                    "phase2_dedup_counts": {"skipped": 1},
+                    "phase2_linked_to_existing": 1,
                     "checkpoints": {
                         "phase2": {
                             "scenes": [
-                                {"scene_id": "s1", "status": "done"},
-                                {"scene_id": "s2", "status": "done"},
                                 {"scene_id": "s3", "status": "done"},
                             ]
                         }
@@ -2443,6 +2605,15 @@ class TestDeepImportWorkflowAutoRun:
 
         assert result.phase == "done"
         assert workflow._extract_entities_by_scene.await_count == 2
+        assert workflow._extract_entities_by_scene.await_args_list[1].kwargs[
+            "scene_ids"
+        ] == ["s3"]
+        assert (
+            workflow._extract_entities_by_scene.await_args_list[1].kwargs[
+                "include_alias_relations"
+            ]
+            is False
+        )
         assert result.phase_artifacts["entity_extraction"]["repair"]["attempted"] is True
         assert any(
             event["event"] == "artifact_produced"
@@ -2450,6 +2621,18 @@ class TestDeepImportWorkflowAutoRun:
             for event in result.progress_events
         )
         assert result.quality_stats["phase2"]["failed_scene_count"] == 0
+        assert result.quality_stats["phase2"]["total_scenes"] == 10
+        assert result.quality_stats["phase2"]["completed_scenes"] == 10
+        assert result.quality_stats["phase2"]["checkpoint_status_counts"] == {"done": 3}
+        assert result.quality_stats["phase2"]["phase2_action_counts"] == {
+            "create_new": 1,
+            "link_to_existing": 1,
+        }
+        assert result.quality_stats["phase2"]["phase2_dedup_counts"] == {
+            "checked": 1,
+            "skipped": 1,
+        }
+        assert result.quality_stats["phase2"]["phase2_linked_to_existing"] == 1
 
     @pytest.mark.asyncio
     async def test_count_world_objects_includes_candidate_context(self):
@@ -2788,7 +2971,13 @@ class TestDeepImportWorkflowAutoRun:
 
         async def phase0(_db, _novel_id, _start_chapter, _end_chapter):
             calls.append("phase0")
-            return _phase0_plan_result(start_chapter=1, end_chapter=3)
+            plan = _phase0_plan_result(start_chapter=1, end_chapter=3)
+            plan.phase1a_context = {
+                "contract_version": "phase1a-context-v2",
+                "fingerprint": "f" * 64,
+                "windows": [],
+            }
+            return plan
 
         async def phase1a(
             _db,
@@ -2808,13 +2997,23 @@ class TestDeepImportWorkflowAutoRun:
             assert phase1a_candidates
             assert (kwargs["start_chapter"], kwargs["end_chapter"]) == (1, 3)
             assert kwargs["chapters"]
+            assert kwargs["phase1a_context"]["fingerprint"] == "f" * 64
             assert "on_batch_progress" in kwargs
             return _phase1b_enrichment_result([1, 2, 3])
 
-        async def commit(_db, _novel_id, candidates, *, workflow_id):
+        async def commit(
+            _db,
+            _novel_id,
+            candidates,
+            *,
+            workflow_id,
+            start_chapter,
+            end_chapter,
+        ):
             calls.append("commit")
             assert candidates
             assert workflow_id == "wf-happy"
+            assert (start_chapter, end_chapter) == (1, 3)
             return _scene_commit_result(created_count=2)
 
         async def phase2(_db, _novel_id, **_kwargs):
@@ -2872,7 +3071,17 @@ class TestDeepImportWorkflowAutoRun:
         async def phase0(_db, _novel_id, _s, _e):
             return _phase0_plan_result(start_chapter=1, end_chapter=3)
 
-        async def commit(_db, _novel_id, _candidates, *, workflow_id):
+        async def commit(
+            _db,
+            _novel_id,
+            _candidates,
+            *,
+            workflow_id,
+            start_chapter,
+            end_chapter,
+        ):
+            assert workflow_id == "wf-progress"
+            assert (start_chapter, end_chapter) == (1, 3)
             return _scene_commit_result(created_count=2)
 
         async def phase2(_db, _novel_id, **_kwargs):
@@ -3328,6 +3537,7 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase == "done"
         assert result.quality_status == "partial"
         assert result.degraded is True
+        assert result.degraded_reason == "empty_output"
         assert [e["phase"] for e in result.phase_errors] == [
             "entity_extraction",
             "structure_analysis",
@@ -3541,6 +3751,7 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase == "done"
         assert result.quality_status == "partial"
         assert result.degraded is True
+        assert result.degraded_reason == "transport_failure"
         assert result.phase_errors[0]["phase"] == "entity_extraction"
         assert result.phase_errors[0]["error_kind"] == "transport_failure"
         assert "跳过 2 个 Scene" in result.phase_errors[0]["message"]
@@ -3673,166 +3884,6 @@ class TestDeepImportWorkflowAutoRun:
                 end_chapter=3,
                 progress=progress,
             )
-
-
-
-
-class TestSceneSegmentationProgress:
-    """测试 Scene 切分服务的细粒度进度回调"""
-
-    @pytest.mark.asyncio
-    async def test_load_chapters_batches_draft_lookup(self, monkeypatch):
-        """加载章节正文时应一次批量查草稿，不能逐章查询。"""
-        calls: list[tuple[str, list[int]]] = []
-
-        async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices):
-            calls.append((novel_id, list(chapter_indices)))
-            return [
-                WritingDraftContract(
-                    novel_id=novel_id,
-                    chapter_index=3,
-                    title="第三章",
-                    content="第三章正文",
-                ),
-                WritingDraftContract(
-                    novel_id=novel_id,
-                    chapter_index=1,
-                    title="第一章",
-                    content="第一章正文",
-                ),
-            ]
-
-        async def get_latest_draft_for_chapter(*args, **kwargs):
-            raise AssertionError("scene segmentation should batch draft lookup")
-
-        import modules.writing.facade as writing_facade
-
-        monkeypatch.setattr(
-            writing_facade,
-            "list_latest_drafts_for_chapters",
-            list_latest_drafts_for_chapters,
-        )
-        monkeypatch.setattr(
-            writing_facade,
-            "get_latest_draft_for_chapter",
-            get_latest_draft_for_chapter,
-        )
-
-        chapters = await SceneSegmentationService()._load_chapters(
-            Mock(),
-            "novel-1",
-            1,
-            3,
-        )
-
-        assert calls == [("novel-1", [1, 2, 3])]
-        assert [chapter["chapter_index"] for chapter in chapters] == [1, 3]
-        assert [chapter["title"] for chapter in chapters] == ["第一章", "第三章"]
-
-    def test_split_batches_respects_char_budget_with_overlap(self, monkeypatch):
-        """长章节应按字符预算缩小批次，并保留 1 章 overlap。"""
-        from modules.imports import scene_segmentation
-
-        monkeypatch.setattr(scene_segmentation, "MAX_BATCH_CHARS", 10)
-        service = SceneSegmentationService()
-        chapters = [
-            {"chapter_index": i, "title": f"第{i}章", "content": "x" * 4}
-            for i in range(1, 5)
-        ]
-
-        batches = service._split_into_batches(chapters)
-
-        assert [[ch["chapter_index"] for ch in batch] for batch in batches] == [
-            [1, 2],
-            [2, 3],
-            [3, 4],
-        ]
-        assert all(sum(len(ch["content"]) for ch in batch) <= 10 for batch in batches)
-
-    def test_split_batches_allows_single_chapter_over_budget(self, monkeypatch):
-        """单章超过预算时仍应独立成批，不能卡住。"""
-        from modules.imports import scene_segmentation
-
-        monkeypatch.setattr(scene_segmentation, "MAX_BATCH_CHARS", 10)
-        service = SceneSegmentationService()
-        chapters = [
-            {"chapter_index": 1, "title": "第1章", "content": "x" * 20},
-            {"chapter_index": 2, "title": "第2章", "content": "x" * 4},
-            {"chapter_index": 3, "title": "第3章", "content": "x" * 4},
-        ]
-
-        batches = service._split_into_batches(chapters)
-
-        assert [[ch["chapter_index"] for ch in batch] for batch in batches] == [
-            [1],
-            [2, 3],
-        ]
-
-    @pytest.mark.asyncio
-    async def test_generate_with_timeout_raises_llm_timeout(self):
-        """HTTP 客户端未及时超时时，上层应主动中断 LLM 调用。"""
-        from infrastructure.llm.errors import LLMTimeoutError
-
-        class SlowLLMClient:
-            provider = "openai"
-
-            async def generate(self, _request):
-                import asyncio
-
-                await asyncio.Event().wait()
-
-        request = Mock(model="deepseek-v4-flash")
-
-        with pytest.raises(LLMTimeoutError) as exc_info:
-            await SceneSegmentationService._generate_with_timeout(
-                SlowLLMClient(),
-                request,
-                timeout_seconds=0.01,
-            )
-
-        assert exc_info.value.provider == "openai"
-        assert exc_info.value.model == "deepseek-v4-flash"
-
-    @pytest.mark.asyncio
-    @patch("modules.outline.facade.create_scene", autospec=True)
-    @patch("modules.outline.facade.get_next_scene_index", return_value=0, autospec=True)
-    async def test_segment_chapters_reports_batch_progress(
-        self,
-        mock_get_next,
-        mock_create_scene,
-    ):
-        service = SceneSegmentationService()
-        service._load_chapters = AsyncMock(
-            return_value=[
-                {"chapter_index": i, "title": f"第{i}章", "content": "..."}
-                for i in range(1, 7)
-            ]
-        )
-        service._process_batch = AsyncMock(
-            return_value=[
-                {"title": "Scene", "scene_chunks": [{"chapter_index": 1}]},
-            ]
-        )
-
-        progress_calls = []
-
-        async def on_progress(completed, total):
-            progress_calls.append((completed, total))
-
-        db = AsyncMock()
-        result = await service.segment_chapters(
-            db=db,
-            novel_id=str(uuid.uuid4()),
-            start_chapter=1,
-            end_chapter=6,
-            on_batch_progress=on_progress,
-        )
-
-        assert progress_calls[0] == (0, 2)
-        assert progress_calls[1] == (1, 2)
-        assert progress_calls[2] == (2, 2)
-        assert result["total_scenes"] == 2
-        assert mock_create_scene.await_count == 2
 
 
 class TestSceneEntityExtractionProgress:
@@ -4326,6 +4377,7 @@ class TestSceneEntityExtractionProgress:
         service._run_alias_relation_phase.assert_not_awaited()
 
     @pytest.mark.asyncio
+    @patch("modules.world.facade.find_working_entity_id_by_name", autospec=True)
     @patch("modules.world.facade.find_similar_entities", autospec=True)
     @patch("modules.world.facade.create_entity", autospec=True)
     @patch("modules.world.facade.find_entity_id_by_name", autospec=True)
@@ -4334,11 +4386,13 @@ class TestSceneEntityExtractionProgress:
         mock_find_entity_id,
         mock_create,
         mock_find_similar,
+        mock_find_working_entity_id,
     ):
         service = SceneEntityExtractionService()
         target_id = str(uuid.uuid4())
         existing_id = str(uuid.uuid4())
         mock_find_entity_id.return_value = existing_id
+        mock_find_working_entity_id.return_value = None
         mock_find_similar.return_value = [
             Mock(
                 similarity_score=0.96,

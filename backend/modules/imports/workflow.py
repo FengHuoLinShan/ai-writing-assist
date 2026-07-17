@@ -111,9 +111,11 @@ class DeepImportWorkflow:
         self,
         *,
         phase_runners: DeepImportPhaseRunners | None = None,
+        phase1a_context_builder: Any | None = None,
     ) -> None:
         self._phase_runners_override = phase_runners
         self._phase_runners_cache: DeepImportPhaseRunners | None = None
+        self._phase1a_context_builder = phase1a_context_builder
 
     def _phase_runners(self) -> DeepImportPhaseRunners:
         if self._phase_runners_override is not None:
@@ -308,23 +310,36 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ):
+        from modules.imports.phase1a_context import Phase1aContextBuilder
         from modules.imports.scene_planning import build_scene_import_plan
 
-        chapters = await load_chapter_range(
+        loaded_chapters = await load_chapter_range(
             db,
             novel_id,
-            start_chapter,
+            max(1, start_chapter - 1),
             end_chapter,
             include_missing=False,
         )
+        chapters = [
+            chapter
+            for chapter in loaded_chapters
+            if int(chapter["chapter_index"]) >= start_chapter
+        ]
         project_settings = getattr(self, "_agent_project_settings", None)
         if project_settings is None:
             project_settings = await _project_settings_for_novel(db, novel_id)
-        return build_scene_import_plan(
+        plan = build_scene_import_plan(
             chapters,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
             project_settings=project_settings,
+        )
+        builder = self._phase1a_context_builder or Phase1aContextBuilder()
+        return await builder.compile(
+            db,
+            novel_id=novel_id,
+            plan=plan,
+            boundary_chapters=loaded_chapters,
         )
 
     async def _run_phase1a_scene_slicing(
@@ -363,6 +378,7 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
         chapters,
+        phase1a_context: dict[str, Any] | None = None,
         on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ):
         del start_chapter, end_chapter
@@ -388,6 +404,7 @@ class DeepImportWorkflow:
         ).run(
             scenes=phase1a_candidates,
             chapters=chapters,
+            phase1a_context=phase1a_context,
             on_batch_progress=on_batch_progress,
         )
         result.quality_stats["high_quality"] = high_quality
@@ -401,6 +418,7 @@ class DeepImportWorkflow:
         *,
         chapters,
         project_profile: dict[str, Any] | None = None,
+        phase1a_context: dict[str, Any] | None = None,
         on_pair_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ):
         from modules.imports.scene_fusion_phase1c import Phase1cSceneFusionService
@@ -452,6 +470,7 @@ class DeepImportWorkflow:
             candidates,
             chapters,
             project_profile=project_profile,
+            phase1a_context=phase1a_context,
             on_pair_progress=on_pair_progress,
         )
 
@@ -743,7 +762,6 @@ class DeepImportWorkflow:
             db,
             novel_id,
             status_filter=["draft", "canonical"],
-            exclude_narrative_tags=["valley", "transition"],
         )
         covered = {
             chapter
@@ -802,6 +820,8 @@ class DeepImportWorkflow:
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,
+        scene_ids: list[str] | None = None,
+        include_alias_relations: bool = True,
     ) -> dict[str, Any]:
         handler = _container_get("world.run_scene_entity_extraction")
         from modules.imports.entity_extraction.scene_entity_config import (
@@ -821,16 +841,20 @@ class DeepImportWorkflow:
             request_model=request_model,
             high_quality=high_quality,
         ):
-            result = await handler(
-                db,
-                novel_id=novel_id,
-                workflow_id=workflow_id,
-                authorization_snapshot=authorization_snapshot,
-                on_scene_progress=on_scene_progress,
-                existing_checkpoints=existing_checkpoints,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-            )
+            handler_kwargs = {
+                "novel_id": novel_id,
+                "workflow_id": workflow_id,
+                "authorization_snapshot": authorization_snapshot,
+                "on_scene_progress": on_scene_progress,
+                "existing_checkpoints": existing_checkpoints,
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+            }
+            if scene_ids is not None:
+                handler_kwargs["scene_ids"] = scene_ids
+            if not include_alias_relations:
+                handler_kwargs["include_alias_relations"] = False
+            result = await handler(db, **handler_kwargs)
         result["high_quality"] = high_quality
         return result
 

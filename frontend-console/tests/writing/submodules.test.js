@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createWritingSubModules } from "../../views/writing/submodules.js"
-import { resetState, clearDocument } from "../helpers.js"
+import { resetState, clearDocument, autoConfirm } from "../helpers.js"
 
 function createMockOrchestrator(overrides = {}) {
   return {
@@ -175,6 +175,7 @@ describe("createWritingSubModules", () => {
   })
 
   it("refreshes version navigation and shared state after adopting a writing suggestion", async () => {
+    autoConfirm()
     state.currentProjectId = "p1"
     api.writing.adoptDraftCandidate.mockResolvedValue({
       id: "working-2",
@@ -198,6 +199,14 @@ describe("createWritingSubModules", () => {
     await modules._editor.adoptDraftCandidate()
 
     expect(api.writing.adoptDraftCandidate).toHaveBeenCalledWith("candidate-1", "p1")
+    expect(router.replace).toHaveBeenCalledWith(
+      "writing",
+      null,
+      expect.objectContaining({}),
+    )
+    const routeQuery = router.replace.mock.calls.at(-1)[2]
+    expect(routeQuery.get("chapter_index")).toBe("1")
+    expect(routeQuery.get("draft_id")).toBe("working-2")
     expect(api.writing.getVersionHistory).toHaveBeenCalledWith(1, "p1")
     expect(orchestrator._syncChapterMetaToTree).toHaveBeenCalledWith(1)
     expect(orchestrator._syncSharedStateToSubModules).toHaveBeenCalled()

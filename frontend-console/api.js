@@ -7,14 +7,11 @@
 
 const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api"
 const API_TIMEOUT = 15000
-const RAG_SEARCH_TIMEOUT = 60000
-const RAG_PREWARM_TIMEOUT = 75000
-const CONTEXT_CONFIRM_TIMEOUT = 90000
-const LLM_GENERATE_TIMEOUT = 90000
 const API_CACHE_TTL = 30000
 // 封闭测试服令牌只保存在当前页面的 module scope 中。刷新后重新输入，避免
 // bearer credential 暴露在可枚举、可跨页面生命周期读取的 Web Storage 中。
 let _accessToken = ""
+let _accessTokenRequestPromise = null
 
 function _setAccessToken(token) {
   _accessToken = typeof token === "string" ? token.trim() : ""
@@ -23,6 +20,54 @@ function _setAccessToken(token) {
 
 function _clearAccessToken() {
   _accessToken = ""
+}
+
+function _requestAccessToken() {
+  if (_accessTokenRequestPromise) return _accessTokenRequestPromise
+  if (typeof window === "undefined" || typeof window.showModalHtml !== "function") {
+    return Promise.resolve("")
+  }
+  _accessTokenRequestPromise = new Promise((resolve) => {
+    let settled = false
+    let observer = null
+    const settle = (value = "") => {
+      if (settled) return
+      settled = true
+      observer?.disconnect()
+      resolve(typeof value === "string" ? value.trim() : "")
+    }
+    window.showModalHtml(
+      "访问令牌",
+      `<div class="form-group"><label for="closed-test-access-token">封闭测试访问令牌</label><input class="form-input" id="closed-test-access-token" type="password" autocomplete="off" /></div>`,
+      [
+        {
+          text: "继续",
+          class: "btn-primary",
+          handler: () => {
+            const value = document.getElementById("closed-test-access-token")?.value?.trim() || ""
+            if (!value) {
+              if (typeof window.toast === "function") window.toast("请输入访问令牌", "warning")
+              return false
+            }
+            settle(value)
+            return true
+          },
+        },
+        { text: "取消", class: "btn-ghost", handler: () => settle("") },
+      ],
+      { protectUnsaved: false },
+    )
+    const overlay = document.getElementById("modal-overlay")
+    if (overlay && typeof MutationObserver !== "undefined") {
+      observer = new MutationObserver(() => {
+        if (overlay.classList.contains("hidden")) settle("")
+      })
+      observer.observe(overlay, { attributes: true, attributeFilter: ["class"] })
+    }
+  }).finally(() => {
+    _accessTokenRequestPromise = null
+  })
+  return _accessTokenRequestPromise
 }
 
 function _authorizationHeaders(headers = {}) {
@@ -222,8 +267,8 @@ async function request(path, options = {}) {
 
       if (!resp.ok) {
         if (resp.status === 401) _clearAccessToken()
-        if (resp.status === 401 && !_retriedAuth && typeof window !== "undefined" && typeof window.prompt === "function") {
-          const token = window.prompt("请输入封闭测试访问令牌")
+        if (resp.status === 401 && !_retriedAuth) {
+          const token = await _requestAccessToken()
           if (_setAccessToken(token)) {
             // 首次 GET 仍登记在 pending map 中；认证重试必须绕过该条目，
             // 否则递归请求会等待尚未结束的自己。
@@ -740,10 +785,6 @@ const api = {
       return post(withQuery(`/world/entities/${id}/promote`, { novel_id: novelId }), payload)
     },
 
-    async extractEntities(payload) {
-      return post("/world/entities/extract", payload)
-    },
-
     async extractAliasRelations(payload) {
       return post("/world/alias-relations/extract", payload)
     },
@@ -1145,15 +1186,15 @@ const api = {
   // ============================================================
   context: {
     async grepEvidence(payload, options = {}) {
-      return post("/context/evidence/grep", payload, options)
+      return contractJson("context.grepEvidence", {}, {}, payload, options)
     },
 
     async searchEvidence(payload, options = {}) {
-      return post("/context/evidence/search", payload, options)
+      return contractJson("context.searchEvidence", {}, {}, payload, options)
     },
 
     async readEvidence(payload, options = {}) {
-      return post("/context/evidence/read", payload, options)
+      return contractJson("context.readEvidence", {}, {}, payload, options)
     },
 
     async inspectEvidence(payload, options = {}) {
@@ -1165,11 +1206,11 @@ const api = {
     },
 
     async compile(payload, options = {}) {
-      return post("/context/compile", payload, options)
+      return contractJson("context.compile", {}, {}, payload, options)
     },
 
     async render(payload, options = {}) {
-      return post("/context/render", payload, options)
+      return contractJson("context.render", {}, {}, payload, options)
     },
 
     async confirm(payload) {
@@ -1305,7 +1346,7 @@ const api = {
     },
 
     async generate(payload) {
-      return post("/writing/generate", payload)
+      return contractJson("writing.generate", {}, {}, payload)
     },
 
     async createConflictCheck(payload) {
@@ -1333,7 +1374,12 @@ const api = {
     },
 
     async requestConflictAiSuggestion(itemId, payload) {
-      return post(`/writing/conflict-check-items/${itemId}/ai-suggestion`, payload)
+      return contractJson(
+        "writing.requestConflictAiSuggestion",
+        { itemId },
+        {},
+        payload,
+      )
     },
   },
 
@@ -1377,25 +1423,18 @@ const api = {
     },
 
     async worldChat(payload, options = {}) {
-      return post("/world/generation-center/chat", payload, {
-        timeout: LLM_GENERATE_TIMEOUT,
-        ...options,
-      })
+      return contractJson("generate.worldChat", {}, {}, payload, options)
     },
 
     async generateWorldSuggestion(payload, options = {}) {
-      return post("/world/generation-center/suggestions", payload, {
-        timeout: LLM_GENERATE_TIMEOUT,
-        ...options,
-      })
+      return contractJson("generate.generateWorldSuggestion", {}, {}, payload, options)
     },
 
     async applyWorldPageDraft(suggestionId, payload, novelId, options = {}) {
-      return post(
-        withQuery(
-          `/world/generation-center/suggestions/${suggestionId}/apply-page-draft`,
-          { novel_id: novelId },
-        ),
+      return contractJson(
+        "generate.applyWorldPageDraft",
+        { suggestionId },
+        { novel_id: novelId },
         payload,
         options,
       )
@@ -1561,11 +1600,11 @@ const api = {
     },
 
     async analyze(payload) {
-      return post("/outline/analyze", payload)
+      return contractJson("outline.analyze", {}, {}, payload)
     },
 
     async generate(payload) {
-      return post("/outline/generate", payload)
+      return contractJson("outline.generate", {}, {}, payload)
     },
 
     async applyStructurePreview(payload) {

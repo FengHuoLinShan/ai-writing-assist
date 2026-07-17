@@ -18,7 +18,7 @@ describe("deepImportFields schema", () => {
     expect(p1c.fields.find((f) => f.key === "boundary_context_chars").value).toBe(2000)
     expect(p1c.fields.find((f) => f.key === "concurrency").value).toBe(20)
     expect(p1c.fields.find((f) => f.key === "decision_max_tokens").value).toBe(null)
-    expect(p1c.fields.find((f) => f.key === "timeout_seconds").value).toBe(360)
+    expect(p1c.fields.find((f) => f.key === "timeout_seconds").value).toBe(1200)
   })
   it("phase2 contains boundary_supplement_enabled bool", () => {
     const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
@@ -30,10 +30,10 @@ describe("deepImportFields schema", () => {
   })
   it("phase2 complex scene extraction uses bounded concurrency", () => {
     const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
-    expect(p2.fields.find((f) => f.key === "parallel_scene_concurrency").value).toBe(20)
+    expect(p2.fields.find((f) => f.key === "parallel_scene_concurrency").value).toBe(25)
     expect(p2.fields.find((f) => f.key === "parallel_scene_max_tokens").value).toBe(32768)
-    expect(p2.fields.find((f) => f.key === "parallel_provider_timeout_seconds").value).toBe(240)
-    expect(p2.fields.find((f) => f.key === "parallel_llm_timeout_seconds").value).toBe(270)
+    expect(p2.fields.find((f) => f.key === "parallel_provider_timeout_seconds").value).toBe(360)
+    expect(p2.fields.find((f) => f.key === "parallel_llm_timeout_seconds").value).toBe(900)
   })
   it("DeepSeek token ratios use the calibrated 1.0 upper-bound default", () => {
     const p0 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase0")
@@ -57,7 +57,7 @@ describe("deepImportFields schema", () => {
     document.body.innerHTML = renderDeepImportFields({})
 
     expect(document.getElementById(deepImportFieldId("phase0", "target_input_chars")).value).toBe("72000")
-    expect(document.getElementById(deepImportFieldId("phase1c", "timeout_seconds")).value).toBe("360")
+    expect(document.getElementById(deepImportFieldId("phase1c", "timeout_seconds")).value).toBe("1200")
     expect(document.getElementById(deepImportFieldId("phase1c", "decision_max_tokens")).value).toBe("")
   })
   it("preserves explicit project values instead of replacing them with defaults", () => {

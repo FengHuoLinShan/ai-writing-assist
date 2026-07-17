@@ -10,6 +10,7 @@ memory 模块维护小说世界的“变化历史”，不是再存一份正史�
 - `memory_snapshots` 记录阶段性全景快照，用于快速查询
 - `delta_log` 记录结构化字段的 before/after 差分，服务于导入分析、调试和回滚
 - `memory_events` 的章内幂等键是 `(novel_id, chapter_index, sequence)`；单章重建事件流走 upsert，不再依赖全量删除后插入。
+- 快照 `stale` 同时保留被同章新 `current` 取代的历史版本；状态接口只把“没有同章 current 替代”的 stale 视为待重建，避免历史审计记录造成持续脏状态误报。
 
 ## 职责
 

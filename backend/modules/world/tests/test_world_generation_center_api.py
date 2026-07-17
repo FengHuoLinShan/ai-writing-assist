@@ -9,11 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
 from modules.context.models import ContextSnapshot
+from modules.outline.models import Scene
 from modules.world.llm_schemas import (
     GeneratedObjectDraftOutput,
     GeneratedWorldBibleNewPageProposal,
     GeneratedWorldBiblePageProposal,
     GeneratedWorldGenerationChatOutput,
+    GeneratedWorldGenerationDecisionAudit,
+    GeneratedWorldGenerationDecisionState,
 )
 from modules.world.models import CoreEntity, CreationSuggestion, WorldBiblePage
 
@@ -25,27 +28,59 @@ class _FakeWorldGenerationClient:
     def __init__(self) -> None:
         self.requests = []
         self.error: Exception | None = None
+        self.before_generate = None
+        self.profile = None
+        self.chat_contents = ["这个设定可以更大胆，但需要补足因果连接。"]
         self.existing_page_type = "background"
         self.existing_page_asset_keys: list[str] = []
         self.existing_page_source_section_keys: list[str | None] = ["S1"]
+        self.core_entity_name = "沈无咎"
+        self.core_entity_names: list[str] = []
+        self.decision_audits: list[GeneratedWorldGenerationDecisionAudit] = []
+        self.decision_state = GeneratedWorldGenerationDecisionState(
+            current_author_goal="收束作者当前选择的世界对象",
+            confirmed_requirements=["保留作者最后确认的方向"],
+            supported_developments=[],
+            rejected_elements=[],
+            forbidden_exact_terms=[],
+            unresolved_choices=[],
+            naming_policy="allowed",
+            confidence=1.0,
+        )
 
     async def generate(self, request):
+        if self.before_generate is not None:
+            self.before_generate()
         self.requests.append(request)
+        if self.error is not None:
+            raise self.error
         return LLMCallResponse(
-            content="这个设定可以更大胆，但需要补足因果连接。",
+            content=self.chat_contents.pop(0),
             model=request.model,
             provider=self.provider,
         )
 
     async def generate_structured(self, request, schema, **_kwargs):
+        if self.before_generate is not None:
+            self.before_generate()
         self.requests.append(request)
         if self.error is not None:
             raise self.error
         if schema is GeneratedWorldGenerationChatOutput:
             return schema(reply="这个设定可以更大胆，但需要补足因果连接。")
+        if schema is GeneratedWorldGenerationDecisionState:
+            return self.decision_state
+        if schema is GeneratedWorldGenerationDecisionAudit:
+            if self.decision_audits:
+                return self.decision_audits.pop(0)
+            return schema(verdict="pass", violations=[])
         if schema is GeneratedObjectDraftOutput:
             return schema(
-                name="沈无咎",
+                name=(
+                    self.core_entity_names.pop(0)
+                    if self.core_entity_names
+                    else self.core_entity_name
+                ),
                 summary="曾经救过主角、后来成为敌人的旧友型反派。",
                 public_info="掌管地下情报组织。",
                 hidden_truth="目标是逼主角摧毁失控的旧秩序。",
@@ -116,9 +151,14 @@ async def _create_llm_project(async_client: AsyncClient, title: str) -> str:
 
 def _install_fake_llm(monkeypatch: pytest.MonkeyPatch) -> _FakeWorldGenerationClient:
     fake = _FakeWorldGenerationClient()
+
+    def create_fake(profile):
+        fake.profile = profile
+        return fake
+
     monkeypatch.setattr(
         "modules.project.llm_runtime.LLMClient.from_resolved_profile",
-        lambda _profile: fake,
+        create_fake,
     )
     return fake
 
@@ -176,6 +216,11 @@ async def test_generation_center_chat_is_read_only_and_records_snapshot(
     fake = _install_fake_llm(monkeypatch)
     novel_id = await _create_llm_project(async_client, "世界共创聊天")
 
+    def assert_provider_checkpoint() -> None:
+        assert db_session.in_transaction() is False
+
+    fake.before_generate = assert_provider_checkpoint
+
     response = await async_client.post(
         "/api/world/generation-center/chat",
         json=_project_source_payload(novel_id),
@@ -197,6 +242,61 @@ async def test_generation_center_chat_is_read_only_and_records_snapshot(
     assert "创意与逻辑严密性" in prompt
     assert "自主决定最有帮助的回应方式" in prompt
     assert "未出现的人物或设定不表示不存在" in prompt
+    assert "不要复用其中的名称、例子、设定或结论" in prompt
+    assert "不要输出 JSON" in prompt
+    assert fake.requests[0].response_format is None
+    assert fake.profile is not None
+    assert fake.profile.timeout == 1800
+
+
+@pytest.mark.asyncio
+async def test_generation_center_chat_retries_blank_text_without_json_mode(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    fake.chat_contents = ["   ", "第二次返回了可见的讨论内容。"]
+    novel_id = await _create_llm_project(async_client, "聊天空响应重试")
+
+    response = await async_client.post(
+        "/api/world/generation-center/chat",
+        json=_project_source_payload(novel_id),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["reply"] == "第二次返回了可见的讨论内容。"
+    assert len(fake.requests) == 2
+    assert all(request.response_format is None for request in fake.requests)
+    assert "不要输出 JSON、空白或协议包装" in fake.requests[1].messages[-1].content
+
+
+@pytest.mark.asyncio
+async def test_generation_center_rejects_deprecated_scene_before_llm(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "拒绝历史 Scene")
+    scene = Scene(
+        novel_id=uuid.UUID(novel_id),
+        scene_index=0,
+        title="已经废弃的 Scene",
+        status="deprecated",
+    )
+    db_session.add(scene)
+    await db_session.flush()
+    payload = _project_source_payload(novel_id)
+    payload["scene_id"] = str(scene.id)
+
+    response = await async_client.post(
+        "/api/world/generation-center/chat",
+        json=payload,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "Selected Scene is not available in this project"
+    assert fake.requests == []
 
 
 @pytest.mark.asyncio
@@ -274,12 +374,21 @@ async def test_core_entity_generation_creates_only_pending_suggestion(
     assert body["result"]["kind"] == "core_entity"
     assert body["result"]["proposal"]["name"] == "沈无咎"
     assert body["result"]["suggestion"]["status"] == "pending"
-    assert body["result"]["suggestion"]["result_ref_json"] == {}
+    compatibility_ref = body["result"]["suggestion"]["result_ref_json"]
+    assert compatibility_ref["type"] == "core_entity_compatibility"
+    assert compatibility_ref["status"] == "pending"
     assert fake.requests[0].model == "deepseek-v4-pro"
     core_prompt = "\n".join(message.content for message in fake.requests[0].messages)
     assert "对象模板只提供观察角度" in core_prompt
     assert "也不能覆盖作者后续" in core_prompt
-    assert await db_session.scalar(select(func.count(CoreEntity.id))) == 0
+    assert "<OUTPUT_CONTRACT>" in core_prompt
+    assert '"summary"' in core_prompt
+    assert await db_session.scalar(select(func.count(CoreEntity.id))) == 1
+    shadow = await db_session.get(CoreEntity, uuid.UUID(compatibility_ref["id"]))
+    assert shadow is not None
+    assert shadow.status == "candidate"
+    assert shadow.content_json["_meta"]["compatibility_shadow"] is True
+    assert shadow.content_json["_meta"]["source"] == "ai_generated"
     assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 1
 
     suggestion_id = body["result"]["suggestion"]["id"]
@@ -291,8 +400,146 @@ async def test_core_entity_generation_creates_only_pending_suggestion(
     assert accepted.status_code == 200, accepted.text
     entity = await db_session.scalar(select(CoreEntity))
     assert entity is not None
+    assert str(entity.id) == compatibility_ref["id"]
     assert entity.name == "沈无忧"
     assert entity.status == "canonical"
+
+
+@pytest.mark.asyncio
+async def test_multiturn_generation_compiles_author_decisions_and_keeps_name_unset(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    fake.core_entity_name = "未命名的廷根民俗资料掮客"
+    fake.decision_state = GeneratedWorldGenerationDecisionState(
+        current_author_goal="收束一个长期主动收集民俗资料的低频信息源",
+        confirmed_requirements=["知识来自长期主动收集", "只间接影响塔罗会"],
+        supported_developments=["与克莱恩建立谨慎的信息交换关系"],
+        rejected_elements=["祖传秘密", "灵性极低解释", "先前作废的姓名"],
+        forbidden_exact_terms=["老伊森", "灵性极低"],
+        unresolved_choices=["倒吊人是否能够回应民俗词句"],
+        naming_policy="unnamed_placeholder",
+        confidence=0.98,
+    )
+    novel_id = await _create_llm_project(async_client, "多轮决策收束")
+    payload = _project_source_payload(novel_id)
+    payload["messages"] = [
+        {"role": "user", "content": "先讨论一个廷根民俗资料掮客，不要命名。"},
+        {
+            "role": "assistant",
+            "content": "可以叫老伊森，并用灵性极低解释他的安全。",
+        },
+        {
+            "role": "user",
+            "content": "作废刚才的名字和灵性解释；资料必须来自长期主动收集。",
+        },
+        {
+            "role": "assistant",
+            "content": "他会与克莱恩建立谨慎的信息交换关系。",
+        },
+        {
+            "role": "user",
+            "content": "采用这个关系，但仍不要命名，倒吊人是否回应保持开放。",
+        },
+    ]
+
+    response = await async_client.post(
+        "/api/world/generation-center/suggestions",
+        json=payload,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["result"]["proposal"]["name"].startswith("未命名")
+    assert len(fake.requests) == 3
+    decision_prompt = "\n".join(
+        message.content for message in fake.requests[0].messages
+    )
+    assert "作者决策状态编译器" in decision_prompt
+    assert "<OUTPUT_CONTRACT>" in decision_prompt
+    assert '"current_author_goal"' in decision_prompt
+    proposal_request = fake.requests[1]
+    assert all(message.role != "assistant" for message in proposal_request.messages)
+    proposal_prompt = "\n".join(
+        message.content for message in proposal_request.messages
+    )
+    assert "<AUTHOR_DECISION_STATE>" in proposal_prompt
+    assert "naming_policy" in proposal_prompt
+    assert "生成建议”只表示" not in proposal_prompt
+    audit_prompt = "\n".join(message.content for message in fake.requests[2].messages)
+    assert '"verdict"' in audit_prompt
+
+
+@pytest.mark.asyncio
+async def test_multiturn_generation_retries_proposal_that_reuses_rejected_term(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    fake.core_entity_names = ["伊森", "未命名的民俗资料掮客"]
+    fake.decision_state = GeneratedWorldGenerationDecisionState(
+        current_author_goal="收束未命名的民俗资料掮客",
+        rejected_elements=["先前人物姓名"],
+        forbidden_exact_terms=["伊森"],
+        naming_policy="unnamed_placeholder",
+        confidence=1.0,
+    )
+    novel_id = await _create_llm_project(async_client, "作废内容守卫")
+    payload = _project_source_payload(novel_id)
+    payload["messages"] = [
+        {"role": "user", "content": "讨论民俗资料掮客，不要命名。"},
+        {"role": "assistant", "content": "可以叫伊森。"},
+        {"role": "user", "content": "伊森这个名字作废，仍然不要命名。"},
+    ]
+
+    response = await async_client.post(
+        "/api/world/generation-center/suggestions",
+        json=payload,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["result"]["proposal"]["name"] == "未命名的民俗资料掮客"
+    assert len(fake.requests) == 4
+    assert "不能进入待处理队列" in fake.requests[2].messages[-1].content
+
+
+@pytest.mark.asyncio
+async def test_multiturn_generation_retries_semantic_unresolved_choice_violation(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    fake.core_entity_name = "未命名的民俗资料掮客"
+    fake.decision_state = GeneratedWorldGenerationDecisionState(
+        current_author_goal="收束低频民俗信息源",
+        unresolved_choices=["收集民俗的个人动机仍待作者选择"],
+        naming_policy="unnamed_placeholder",
+        confidence=1.0,
+    )
+    fake.decision_audits = [
+        GeneratedWorldGenerationDecisionAudit(
+            verdict="revise",
+            violations=["提案把尚未确认的个人动机写成确定事实"],
+        ),
+        GeneratedWorldGenerationDecisionAudit(verdict="pass", violations=[]),
+    ]
+    novel_id = await _create_llm_project(async_client, "未决项语义守卫")
+    payload = _project_source_payload(novel_id)
+    payload["messages"] = [
+        {"role": "user", "content": "讨论一个民俗资料掮客，不要命名。"},
+        {"role": "assistant", "content": "他的动机也许是保存消失的故事。"},
+        {"role": "user", "content": "动机先不决定，生成其他已确认部分。"},
+    ]
+
+    response = await async_client.post(
+        "/api/world/generation-center/suggestions",
+        json=payload,
+    )
+
+    assert response.status_code == 201, response.text
+    assert len(fake.requests) == 5
+    correction_request = fake.requests[3]
+    assert "尚未确认的个人动机" in correction_request.messages[-1].content
 
 
 @pytest.mark.asyncio

@@ -309,6 +309,8 @@ async def generate_writing_candidate(
             "title": data.title,
             "instruction": data.instruction,
             "context_confirmation_id": data.context_confirmation_id,
+            "generation_mode": data.generation_mode,
+            "base_draft_id": data.base_draft_id,
             "llm_execution_snapshot": llm_execution_snapshot,
         },
     )

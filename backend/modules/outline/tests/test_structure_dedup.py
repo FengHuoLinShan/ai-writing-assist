@@ -220,6 +220,65 @@ async def test_scene_group_requires_confirmed_current_preview(
     assert source is not None and source.status == "deprecated"
 
 
+async def test_scene_group_ai_fusion_creates_review_queue_without_mutation(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    source_id = await _create_scene(
+        db_session,
+        test_project_id,
+        scene_index=0,
+        title="追击上",
+    )
+    target_id = await _create_scene(
+        db_session,
+        test_project_id,
+        scene_index=1,
+        title="追击下",
+    )
+    service = OutlineStructureDedupService()
+    scenes = await service._load_assets(
+        db_session,
+        novel_id=test_project_id,
+        limit=10,
+    )
+    by_id = {item.asset_id: item for item in scenes["scene"]}
+    source_fp = _asset_fingerprints(by_id[source_id])
+    target_fp = _asset_fingerprints(by_id[target_id])
+
+    result = await service.apply_group(
+        db_session,
+        novel_id=test_project_id,
+        primary_asset_id=target_id,
+        asset_type="scene",
+        operations=[
+            {
+                "source_asset_id": source_id,
+                "action": "ai_fusion",
+                "expected_source_execution_fingerprint": source_fp[
+                    "execution_fingerprint"
+                ],
+                "expected_target_execution_fingerprint": target_fp[
+                    "execution_fingerprint"
+                ],
+            }
+        ],
+    )
+
+    source = await SceneRepository().get(db_session, uuid.UUID(source_id))
+    target = await SceneRepository().get(db_session, uuid.UUID(target_id))
+    pending = await SceneFusionSuggestionRepository().list_by_status(
+        db_session,
+        uuid.UUID(test_project_id),
+    )
+    assert result[0]["action"] == "ai_fusion_suggestion"
+    assert source is not None and source.status == "draft"
+    assert target is not None and target.status == "draft"
+    assert len(pending) == 1
+    assert pending[0].source_scene_ids == [target_id, source_id]
+    assert pending[0].proposed_scene["resolution_mode"] == "ai_fusion_review"
+
+
 async def test_structure_dedup_group_validates_keep_separate_current_fingerprint(
     db_session: AsyncSession,
     test_project_id: str,

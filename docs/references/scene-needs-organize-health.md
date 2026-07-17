@@ -20,7 +20,9 @@ Scene Workbench 的 `needs_organize` 同时包含 Scene 结构问题和正文定
 
 - `unreviewed`：待处理、未复核或 `needs_review`。
 - `unassigned`：未关联章节。
-- `missing_setup`：缺少目标、冲突、必须发生或禁止发生等关键设定。
+- `missing_setup`：缺少目标、冲突、必须发生或禁止发生等关键设定。深度导入 Scene 若以
+  `structure_meta.core_conflict_status=not_applicable` 明确表示正文没有真实核心冲突，则空
+  `core_conflict` 不算缺设定；缺标记、`uncertain` 或手工 Scene 的空冲突仍按缺设定处理。
 - `needs_organize`：需要结构整理、正文定位确认或处理 Scene 融合建议。
 
 `needs_organize` 的子原因固定为：
@@ -84,7 +86,7 @@ Scene Workbench 的 `needs_organize` 同时包含 Scene 结构问题和正文定
 - 建议内容、理由、置信度和 scan trace。
 - `pending / adopted / dismissed / stale` 状态以及处理后 Scene。
 
-Phase 1c 只持久化未自动融合的 `pending` 建议。相同 source fingerprint 使用幂等 key 复用；任一来源 Scene 的语义或映射字段变化后，旧建议变为 `stale`。
+Phase 1c 将需要作者处理的结果持久化为 `pending`；高置信、精确的“保持分开”结果持久化为隐藏的 `dismissed` 决策，用于阻止智能去重重复询问，但不会增加 Workbench 待办。相同 source fingerprint 使用幂等 key 复用；任一来源 Scene 的语义、语义状态或映射字段变化后，旧建议变为 `stale`。
 
 Workbench 返回 pending 数量，并通过专用查询接口在刷新后恢复横幅和行内按钮。`fusion/save` 接收可选 `suggestion_id`，保存成功后在同一事务中标记 `adopted`。用户可逐条处理或批量忽略；不提供“全部接受”，以免绕过主 Scene 选择、编辑和合并确认。
 

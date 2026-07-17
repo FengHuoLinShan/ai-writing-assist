@@ -5,6 +5,18 @@ import { describe, it, expect } from "vitest"
 import { applyToolsResult } from "../../shared/writingToolsResult.js"
 
 describe("applyToolsResult", () => {
+  it("opens a generated candidate as a readonly chapter version", () => {
+    const action = applyToolsResult(
+      { chapter_index: 7, draft_id: "candidate-7" },
+      { _scenes: [], _chapters: {}, _chapterList: [7] },
+    )
+
+    expect(action).toEqual({
+      selectChapter: 7,
+      selectOptions: { draftId: "candidate-7", isReadonly: true },
+    })
+  })
+
   it("selects new chapter when split result contains new_chapter_index", () => {
     const view = {
       _scenes: [],

@@ -150,7 +150,7 @@ class _CaptureLLM:
 
 class TestPlotStructureParserDeepImportMode:
     @pytest.mark.asyncio
-    async def test_deep_import_mode_uses_compact_structure_request(self) -> None:
+    async def test_deep_import_without_scene_evidence_returns_review_empty(self) -> None:
         context = PlotStructureContext(
             markdown="## 已生成 Scene 摘要\n- S0 第1章《穿越苏醒》：克莱恩醒来\n"
         )
@@ -163,22 +163,19 @@ class TestPlotStructureParserDeepImportMode:
         ).parse(llm, "codex-5.3", 1, 7)
 
         assert result is not None
-        assert len(result.threads) == 1
-        assert llm.kwargs["transport_retries"] is True
-        assert llm.kwargs["max_fix_attempts"] == 1
-        assert llm.request.max_tokens == 32_768
-        system_content = llm.request.messages[0].content
-        user_content = llm.request.messages[1].content
-        assert "深度导入结构模式" in system_content
-        assert "plot_threads 恰好 3 项" in system_content
-        assert "总 JSON 控制在 1800 个中文字符以内" in system_content
-        assert "已生成 Scene 摘要" in system_content
-        assert "scenes 必须返回空数组" in system_content
-        assert "已生成 Scene 摘要" not in user_content
-        assert "outline_arcs 恰好 3 项" in user_content
-        assert "scenes 都返回空数组" in user_content
+        assert result.threads == []
+        assert result.arcs == []
+        assert result.diagnostics == {
+            "parameter_version": "phase3_structure_simple_v1",
+            "input_mode": "no_scene_evidence",
+            "prompt_level": "none",
+            "provider_called": False,
+            "needs_review": True,
+        }
+        assert llm.request is None
 
 
+@pytest.mark.skip(reason="legacy monolithic structure generation retired by P20 v2")
 class TestPlotStructureGenerator:
     """T6: AI 生成管线"""
 

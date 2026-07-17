@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import math
 import os
@@ -13,9 +14,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMInvalidResponseError
-from modules.imports.entity_extraction.scene_entity_checkpoint import (
-    scene_input_fingerprint,
-)
 from modules.imports.entity_extraction.scene_entity_config import (
     phase2_alias_relation_concurrency,
     phase2_alias_relation_entity_index_char_limit,
@@ -45,6 +43,8 @@ class AliasRelationExtractionMixin:
         service = self
         total_aliases = 0
         total_relations = 0
+        total_uncertain = 0
+        uncertain_diagnostics: list[dict[str, Any]] = []
         completed_scenes = 0
         skipped_scenes = 0
         rerun_scenes = 0
@@ -62,13 +62,16 @@ class AliasRelationExtractionMixin:
         )
         llm_timeout_seconds = phase2_alias_relation_llm_timeout_seconds()
         prepared: list[dict[str, Any]] = []
-        entity_index: str | None = None
         checkpoint_by_scene = _phase2b_checkpoint_by_scene(existing_checkpoints)
         progress_completed = 0
         total_scenes = len(scenes)
 
         if on_scene_progress is not None:
-            await on_scene_progress(0, total_scenes)
+            await _notify_alias_relation_progress(
+                on_scene_progress,
+                0,
+                total_scenes,
+            )
 
         for scene_position, scene in enumerate(scenes):
             scene_index = _scene_index_for_failure(
@@ -83,10 +86,29 @@ class AliasRelationExtractionMixin:
             retry_count = _checkpoint_retry_count(existing_checkpoint)
             input_fingerprint: str | None = None
             try:
-                chapters_text = await service._load_scene_chapters(db, scene)
-                if chapters_text:
-                    chapters_text = _trim_phase2b_scene_text(chapters_text)
-                input_fingerprint = scene_input_fingerprint(scene, chapters_text)
+                from modules.imports.entity_extraction import (
+                    scene_entity_phase2b_context as phase2b_context,
+                )
+
+                activation = await _run_phase2b_preparation_step(
+                    "context_activation",
+                    service._prepare_import_context_activation(
+                        db,
+                        novel_id=str(nid),
+                        scene_id=scene_id,
+                    ),
+                )
+                context_bundle = phase2b_context.build_phase2b_context_bundle(
+                    activation,
+                    novel_id=str(nid),
+                    scene_id=scene_id,
+                )
+                chapters_text = str(context_bundle["_current_scene_text"])
+                input_fingerprint = phase2b_context.phase2b_scene_input_fingerprint(
+                    scene,
+                    chapters_text,
+                    str(context_bundle["context_fingerprint"]),
+                )
                 fingerprint_matches = bool(
                     existing_checkpoint
                     and existing_checkpoint.get("input_fingerprint") == input_fingerprint
@@ -103,34 +125,23 @@ class AliasRelationExtractionMixin:
                             retry_count=retry_count,
                             aliases=existing_checkpoint.get("aliases", 0),
                             relations=existing_checkpoint.get("relations", 0),
+                            uncertain_items=existing_checkpoint.get(
+                                "uncertain_items", 0
+                            ),
                             input_fingerprint=input_fingerprint,
                         )
                     )
                     if on_scene_progress is not None:
-                        await on_scene_progress(progress_completed, total_scenes)
+                        await _notify_alias_relation_progress(
+                            on_scene_progress,
+                            progress_completed,
+                            total_scenes,
+                        )
                     continue
                 if existing_status is not None:
                     rerun_scenes += 1
                     if existing_status == "failed" and fingerprint_matches:
                         retry_count += 1
-                if not chapters_text:
-                    progress_completed += 1
-                    scene_checkpoints.append(
-                        _build_phase2b_checkpoint(
-                            scene,
-                            scene_id=scene_id,
-                            scene_index=scene_index,
-                            status="skipped",
-                            retry_count=retry_count,
-                            error="empty_scene_text",
-                            error_kind="empty_scene_text",
-                            input_fingerprint=input_fingerprint,
-                        )
-                    )
-                    if on_scene_progress is not None:
-                        await on_scene_progress(progress_completed, total_scenes)
-                    continue
-
                 elapsed_s = time.monotonic() - started_at
                 remaining_s = total_timeout_seconds - elapsed_s
                 if remaining_s <= 0:
@@ -154,21 +165,20 @@ class AliasRelationExtractionMixin:
                         )
                     )
                     if on_scene_progress is not None:
-                        await on_scene_progress(progress_completed, total_scenes)
+                        await _notify_alias_relation_progress(
+                            on_scene_progress,
+                            progress_completed,
+                            total_scenes,
+                        )
                     continue
 
-                if entity_index is None:
-                    entity_index = await _run_phase2b_preparation_step(
-                        "entity_index",
-                        service._build_alias_relation_entity_index(
-                            db,
-                            str(nid),
-                        ),
-                    )
-                compact_entity_index = _compact_entity_index_for_scene(
-                    entity_index,
-                    chapters_text,
-                )
+                compact_entity_index = ""
+                snapshot_kwargs: dict[str, Any] = {"workflow_id": workflow_id}
+                if _accepts_keyword(
+                    service._create_phase2b_snapshot,
+                    "context_bundle",
+                ):
+                    snapshot_kwargs["context_bundle"] = context_bundle
                 snapshot = await _run_phase2b_preparation_step(
                     "snapshot",
                     service._create_phase2b_snapshot(
@@ -177,7 +187,7 @@ class AliasRelationExtractionMixin:
                         scene,
                         chapters_text,
                         compact_entity_index,
-                        workflow_id=workflow_id,
+                        **snapshot_kwargs,
                     ),
                 )
                 prepared.append(
@@ -189,6 +199,7 @@ class AliasRelationExtractionMixin:
                         "retry_count": retry_count,
                         "chapters_text": chapters_text,
                         "entity_index": compact_entity_index,
+                        "context_bundle": context_bundle,
                         "snapshot_id": getattr(snapshot, "id", None),
                         "input_fingerprint": input_fingerprint,
                     }
@@ -216,13 +227,30 @@ class AliasRelationExtractionMixin:
                     exc,
                 )
                 if on_scene_progress is not None:
-                    await on_scene_progress(progress_completed, total_scenes)
+                    await _notify_alias_relation_progress(
+                        on_scene_progress,
+                        progress_completed,
+                        total_scenes,
+                    )
+
+        if prepared:
+            commit_result = db.commit()
+            if inspect.isawaitable(commit_result):
+                await commit_result
+            if isinstance(db, AsyncSession) and db.in_transaction():
+                raise RuntimeError(
+                    "Phase 2b provider calls require a closed database transaction"
+                )
 
         async def _on_llm_result(_item: dict[str, Any]) -> None:
             nonlocal progress_completed
             progress_completed += 1
             if on_scene_progress is not None:
-                await on_scene_progress(progress_completed, total_scenes)
+                await _notify_alias_relation_progress(
+                    on_scene_progress,
+                    progress_completed,
+                    total_scenes,
+                )
 
         llm_results = await _run_alias_relation_llm_calls(
             service,
@@ -305,17 +333,29 @@ class AliasRelationExtractionMixin:
                 continue
 
             try:
+                persist_kwargs: dict[str, Any] = {
+                    "scene_index": scene_index,
+                    "workflow_id": workflow_id,
+                    "scene_id": item["scene_id"],
+                    "result_refs": result_refs,
+                    "context_bundle": item.get("context_bundle"),
+                    "current_scene_text": item["chapters_text"],
+                }
+                if _accepts_keyword(
+                    service._persist_alias_relation_output,
+                    "context_snapshot_id",
+                ):
+                    persist_kwargs["context_snapshot_id"] = str(snapshot_id or "") or None
                 persisted = await service._persist_alias_relation_output(
                     db,
                     str(nid),
                     output,
-                    scene_index=scene_index,
-                    workflow_id=workflow_id,
-                    scene_id=item["scene_id"],
-                    result_refs=result_refs,
+                    **persist_kwargs,
                 )
                 total_aliases += persisted["aliases"]
                 total_relations += persisted["relations"]
+                total_uncertain += int(persisted.get("uncertain_count", 0) or 0)
+                uncertain_diagnostics.extend(persisted.get("diagnostics") or [])
                 completed_scenes += 1
                 scene_checkpoints.append(
                     _build_phase2b_checkpoint(
@@ -326,6 +366,9 @@ class AliasRelationExtractionMixin:
                         retry_count=int(item.get("retry_count", 0) or 0),
                         aliases=persisted["aliases"],
                         relations=persisted["relations"],
+                        uncertain_items=int(
+                            persisted.get("uncertain_count", 0) or 0
+                        ),
                         input_fingerprint=item["input_fingerprint"],
                     )
                 )
@@ -368,6 +411,7 @@ class AliasRelationExtractionMixin:
         return {
             "total_aliases": total_aliases,
             "total_relations": total_relations,
+            "total_uncertain_items": total_uncertain,
             "alias_relation_scenes": completed_scenes,
             "alias_relation_failed_scenes": failed_scenes,
             "alias_relation_skipped_scenes": skipped_scenes,
@@ -381,6 +425,7 @@ class AliasRelationExtractionMixin:
             "alias_relation_concurrency": concurrency,
             "alias_relation_llm_timeout_s": llm_timeout_seconds,
             "alias_relation_format_diagnostics": structured_format_diagnostics[:20],
+            "alias_relation_uncertain_diagnostics": uncertain_diagnostics,
             "alias_relation_checkpoints": {
                 "phase2b": {
                     "scenes": sorted(
@@ -567,6 +612,14 @@ async def _run_alias_relation_llm_calls(
                         item["entity_index"],
                         client_timeout=llm_timeout_seconds,
                         diagnostics=format_diagnostics,
+                        **(
+                            {"context_bundle": item.get("context_bundle")}
+                            if _accepts_keyword(
+                                service._call_alias_relation_extraction,
+                                "context_bundle",
+                            )
+                            else {}
+                        ),
                     ),
                     timeout=llm_timeout_seconds,
                 )
@@ -652,6 +705,7 @@ def _build_phase2b_checkpoint(
     retry_count: int,
     aliases: int = 0,
     relations: int = 0,
+    uncertain_items: int = 0,
     fallback: bool = False,
     error: str | None = None,
     error_kind: str | None = None,
@@ -664,6 +718,7 @@ def _build_phase2b_checkpoint(
         "status": status,
         "aliases": aliases,
         "relations": relations,
+        "uncertain_items": uncertain_items,
         "retry_count": retry_count,
         "fallback": fallback,
         "source": "deep_import",
@@ -676,6 +731,32 @@ def _build_phase2b_checkpoint(
     if input_fingerprint is not None:
         checkpoint["input_fingerprint"] = input_fingerprint
     return checkpoint
+
+
+def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return False
+    return keyword in signature.parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+
+
+async def _notify_alias_relation_progress(
+    callback: Callable[..., Awaitable[None]],
+    completed: int,
+    total: int,
+) -> None:
+    if _accepts_keyword(callback, "operation"):
+        await callback(
+            completed,
+            total,
+            operation="alias_relation_extraction",
+        )
+        return
+    await callback(completed, total)
 
 
 async def _mark_phase2b_snapshot_failed(

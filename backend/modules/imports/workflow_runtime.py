@@ -95,6 +95,7 @@ class DeepImportWorkflowRuntime(Protocol):
         start_chapter: int,
         end_chapter: int,
         chapters: Any,
+        phase1a_context: dict[str, Any] | None = None,
         on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None,
     ) -> Awaitable[Any]: ...
 
@@ -106,6 +107,7 @@ class DeepImportWorkflowRuntime(Protocol):
         *,
         chapters: Any,
         project_profile: dict[str, Any] | None = None,
+        phase1a_context: dict[str, Any] | None = None,
         on_pair_progress: Callable[[int, int, str], Awaitable[None]] | None,
     ) -> Awaitable[Any]: ...
 
@@ -117,6 +119,9 @@ class DeepImportWorkflowRuntime(Protocol):
         *,
         workflow_id: str,
         fusion_suggestions: Any = None,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+        replace_existing: bool = False,
     ) -> Awaitable[Any]: ...
 
     def _extract_entities_by_scene(
@@ -130,6 +135,8 @@ class DeepImportWorkflowRuntime(Protocol):
         existing_checkpoints: dict[str, Any] | None,
         start_chapter: int | None,
         end_chapter: int | None,
+        scene_ids: list[str] | None = None,
+        include_alias_relations: bool = True,
     ) -> Awaitable[dict[str, Any]]: ...
 
     def _merge_checkpoints(

@@ -366,7 +366,11 @@ class TaskLifecycleService:
         *,
         task_id: Any,
         lease_id: str,
+        progress: float | None = None,
     ) -> bool:
+        values: dict[str, Any] = {"heartbeat_at": datetime.now(UTC)}
+        if progress is not None:
+            values["progress"] = max(0.0, min(1.0, float(progress)))
         result = await db.execute(
             update(AsyncTask)
             .where(
@@ -374,7 +378,7 @@ class TaskLifecycleService:
                 AsyncTask.status == "running",
                 AsyncTask.lease_id == lease_id,
             )
-            .values(heartbeat_at=datetime.now(UTC))
+            .values(**values)
         )
         await db.commit()
         return bool(result.rowcount)

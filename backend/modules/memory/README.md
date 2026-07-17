@@ -33,6 +33,9 @@ rolled_back` 过滤；回滚再按 ID keyset 分批加锁更新，不扫描其�
 `MAX(chapter_index)` 聚合 seam 获取，不全量加载事件。普通 capture 和重建共用同章
 supersede 语义：写入新 `current` 前先把同项目、同章节旧 `current` 转为 `stale`；
 PostgreSQL 以事务级 advisory lock 串行化该章节的并发 capture。
+`GET .../status` 中的 `has_stale` 只表示存在需要重建的章节：该章有 `stale`
+且没有同章 `current` 替代。已被新快照正常取代的历史 `stale` 仍保留用于审计，
+但不再把整个项目误报为待重建。
 
 ## API
 

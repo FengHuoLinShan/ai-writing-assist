@@ -168,6 +168,79 @@ async def test_get_active_foreshadowing_facade_filters_and_returns_shape(
     assert [item["name"] for item in draft_items] == ["草稿伏笔"]
 
 
+async def test_information_plan_filters_and_cross_novel_thread_guard(
+    async_client: AsyncClient,
+    sample_novel_id: str,
+    other_novel_id: str,
+) -> None:
+    thread_response = await async_client.post(
+        "/api/outline/threads",
+        params={"novel_id": sample_novel_id},
+        json={"name": "遗迹真相", "thread_type": "main", "status": "draft"},
+    )
+    assert thread_response.status_code == 201
+    thread_id = thread_response.json()["id"]
+    other_thread_response = await async_client.post(
+        "/api/outline/threads",
+        params={"novel_id": other_novel_id},
+        json={"name": "别书主线", "thread_type": "main", "status": "draft"},
+    )
+    assert other_thread_response.status_code == 201
+    other_thread_id = other_thread_response.json()["id"]
+
+    assigned = await async_client.post(
+        "/api/outline/foreshadowing",
+        params={"novel_id": sample_novel_id},
+        json={"name": "潮门纹路", "related_thread_ids": [thread_id]},
+    )
+    unassigned = await async_client.post(
+        "/api/outline/foreshadowing",
+        params={"novel_id": sample_novel_id},
+        json={"name": "旧资产未归类"},
+    )
+    assert assigned.status_code == unassigned.status_code == 201
+
+    by_thread = await async_client.get(
+        "/api/outline/foreshadowing",
+        params={"novel_id": sample_novel_id, "related_thread_id": thread_id},
+    )
+    assert [item["name"] for item in by_thread.json()["items"]] == ["潮门纹路"]
+    unassigned_list = await async_client.get(
+        "/api/outline/foreshadowing",
+        params={"novel_id": sample_novel_id, "unassigned": True},
+    )
+    assert [item["name"] for item in unassigned_list.json()["items"]] == [
+        "旧资产未归类"
+    ]
+
+    cross_novel = await async_client.post(
+        "/api/outline/reveals",
+        params={"novel_id": sample_novel_id},
+        json={
+            "target_type": "world_entity",
+            "target_id": str(uuid.uuid4()),
+            "secret_summary": "不能跨书关联",
+            "related_thread_ids": [other_thread_id],
+        },
+    )
+    assert cross_novel.status_code == 400
+    assert "same novel" in cross_novel.text
+
+    deleted = await async_client.delete(
+        f"/api/outline/threads/{thread_id}",
+        params={"novel_id": sample_novel_id},
+    )
+    assert deleted.status_code == 204
+    after_history = await async_client.get(
+        "/api/outline/foreshadowing",
+        params={"novel_id": sample_novel_id, "unassigned": True},
+    )
+    assert {item["name"] for item in after_history.json()["items"]} == {
+        "潮门纹路",
+        "旧资产未归类",
+    }
+
+
 def _mock_llm_return_value() -> BaseModel:
     """构造 PlotStructureGenerator 需要的 LLM 输出模型。"""
 
@@ -720,6 +793,7 @@ class TestApiRevealPlans:
         assert resp.status_code == 204
 
 
+@pytest.mark.skip(reason="legacy monolithic structure generation retired by P20 v2")
 class TestPlotStructureGenerateDuplicateRange:
     """AI 生成重复区间告警测试"""
 

@@ -38,7 +38,10 @@ class SceneWorkbenchHealthProjection:
     structure_meta: dict[str, Any]
     chapter_ids: list[Any]
     scene_chunks: list[dict[str, Any]]
-    missing_setup: bool
+    goal: str | None
+    core_conflict: str | None
+    must_happen: str | None
+    must_not_happen: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +57,10 @@ class SceneSuggestionSourceProjection:
     must_happen: str | None
     must_not_happen: str | None
     narrative_tag: str
+    pov_character_id: str | None
     chapter_ids: list[Any]
     scene_chunks: list[Any]
+    structure_meta: dict[str, Any]
     updated_at: datetime | None
 
 
@@ -518,8 +523,10 @@ class OutlineArcRepository:
             "next_hook",
             "status",
         ):
+            if field not in data.model_fields_set:
+                continue
             value = getattr(data, field, None)
-            if value is not None:
+            if value is not None or field not in {"title", "status"}:
                 update_values[field] = value
 
         for json_field in (
@@ -1099,8 +1106,10 @@ class SceneRepository:
                 Scene.must_happen,
                 Scene.must_not_happen,
                 Scene.narrative_tag,
+                Scene.pov_character_id,
                 Scene.chapter_ids,
                 Scene.scene_chunks,
+                Scene.structure_meta,
                 Scene.updated_at,
             ).where(
                 Scene.novel_id == novel_id,
@@ -1118,8 +1127,10 @@ class SceneRepository:
                 must_happen=row.must_happen,
                 must_not_happen=row.must_not_happen,
                 narrative_tag=row.narrative_tag,
+                pov_character_id=row.pov_character_id,
                 chapter_ids=row.chapter_ids or [],
                 scene_chunks=row.scene_chunks or [],
+                structure_meta=row.structure_meta or {},
                 updated_at=row.updated_at,
             )
             for row in result
@@ -1299,16 +1310,6 @@ class SceneRepository:
             chapter_to=chapter_to,
             confidence_band=confidence_band,
         )
-        missing_setup = or_(
-            Scene.goal.is_(None),
-            Scene.goal == "",
-            Scene.core_conflict.is_(None),
-            Scene.core_conflict == "",
-            Scene.must_happen.is_(None),
-            Scene.must_happen == "",
-            Scene.must_not_happen.is_(None),
-            Scene.must_not_happen == "",
-        ).label("missing_setup")
         result = await db.execute(
             select(
                 Scene.id,
@@ -1317,7 +1318,10 @@ class SceneRepository:
                 Scene.structure_meta,
                 Scene.chapter_ids,
                 Scene.scene_chunks,
-                missing_setup,
+                Scene.goal,
+                Scene.core_conflict,
+                Scene.must_happen,
+                Scene.must_not_happen,
             )
             .where(*conditions)
             .order_by(Scene.scene_index, Scene.id)
@@ -1330,7 +1334,10 @@ class SceneRepository:
                 structure_meta=row.structure_meta or {},
                 chapter_ids=row.chapter_ids or [],
                 scene_chunks=row.scene_chunks or [],
-                missing_setup=bool(row.missing_setup),
+                goal=row.goal,
+                core_conflict=row.core_conflict,
+                must_happen=row.must_happen,
+                must_not_happen=row.must_not_happen,
             )
             for row in result
         ]
@@ -1642,6 +1649,9 @@ class SceneFusionSuggestionRepository:
         source_fingerprint: str,
         payload: dict[str, Any],
     ) -> SceneFusionSuggestion:
+        requested_status = str(payload.get("initial_status") or "pending")
+        if requested_status not in {"pending", "dismissed"}:
+            requested_status = "pending"
         result = await db.execute(
             select(SceneFusionSuggestion).where(
                 SceneFusionSuggestion.novel_id == novel_id,
@@ -1663,7 +1673,7 @@ class SceneFusionSuggestionRepository:
                 scan_trace=list(payload.get("scan_trace") or []),
                 confidence=payload.get("confidence"),
                 reason=payload.get("reason"),
-                status="pending",
+                status=requested_status,
             )
             db.add(item)
         elif item.status == "pending":
@@ -1680,6 +1690,7 @@ class SceneFusionSuggestionRepository:
             item.scan_trace = list(payload.get("scan_trace") or [])
             item.confidence = payload.get("confidence")
             item.reason = payload.get("reason")
+            item.status = requested_status
             db.add(item)
         await db.flush()
         return item

@@ -5,7 +5,7 @@
 
     from infrastructure.llm.prompt_loader import load_prompt
 
-    prompt = load_prompt("shared_rules")
+    prompt = load_prompt("story_outline")
 """
 
 from pathlib import Path

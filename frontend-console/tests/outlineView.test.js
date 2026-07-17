@@ -22,6 +22,8 @@ beforeEach(() => {
   outlineView._scenes = []
   outlineView._foreshadowing = []
   outlineView._reveals = []
+  outlineView._unassignedForeshadowing = []
+  outlineView._unassignedReveals = []
   outlineView._loading = false
   outlineView._structureFilters = {}
   outlineView._structureTotals = {
@@ -54,6 +56,12 @@ beforeEach(() => {
   sceneWorkbenchView._total = 0
   sceneWorkbenchView._selectedSceneIdValue = null
   vi.clearAllMocks()
+  api.outline.listForeshadowing.mockReset().mockResolvedValue({ items: [], total: 0 })
+  api.outline.listReveals.mockReset().mockResolvedValue({ items: [], total: 0 })
+  api.outline.getStoryOutline.mockReset().mockResolvedValue({
+    current_revision_id: "so-1",
+    revision: { id: "so-1" },
+  })
 })
 
 afterEach(() => {
@@ -79,28 +87,6 @@ describe("outlineView onEnter", () => {
         expect(items[0].name).toBe("剧情线A")
       },
     },
-    {
-      name: "foreshadowing",
-      subView: "foreshadowing",
-      apiName: "listForeshadowing",
-      mockResolved: { items: [{ id: "f1", name: "隐藏神器" }] },
-      store: "_foreshadowing",
-      assertion: (items) => {
-        expect(items.length).toBe(1)
-        expect(items[0].name).toBe("隐藏神器")
-      },
-    },
-    {
-      name: "reveals",
-      subView: "reveals",
-      apiName: "listReveals",
-      mockResolved: { items: [{ id: "r1", target_type: "entity" }] },
-      store: "_reveals",
-      assertion: (items) => {
-        expect(items.length).toBe(1)
-        expect(items[0].target_type).toBe("entity")
-      },
-    },
   ])("加载 $name 子标签数据", async ({ subView, apiName, mockResolved, store, assertion }) => {
     state.currentProjectId = "p1"
     state.currentSubView = subView
@@ -114,8 +100,6 @@ describe("outlineView onEnter", () => {
   it.each([
     { name: "threads", subView: "threads", apiName: "listThreads", store: "_threads" },
     { name: "arcs", subView: "arcs", apiName: "listArcs", store: "_arcs" },
-    { name: "foreshadowing", subView: "foreshadowing", apiName: "listForeshadowing", store: "_foreshadowing" },
-    { name: "reveals", subView: "reveals", apiName: "listReveals", store: "_reveals" },
   ])("$name API 失败时保留可见错误状态", async ({ subView, apiName, store }) => {
     state.currentProjectId = "p1"
     state.currentSubView = subView
@@ -192,11 +176,41 @@ describe("outlineView onEnter", () => {
     })
   })
 
+  it("剧情线页按后端上限分页加载全部伏笔与揭示", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: `f-${index}` }))
+    api.outline.listForeshadowing.mockImplementation((_projectId, params) => {
+      if (params.unassigned) return Promise.resolve({ items: [{ id: "f-u" }], total: 1 })
+      if (params.skip === 0) return Promise.resolve({ items: firstPage, total: 51 })
+      return Promise.resolve({ items: [{ id: "f-50" }], total: 51 })
+    })
+    api.outline.listReveals.mockImplementation((_projectId, params) => {
+      if (params.unassigned) return Promise.resolve({ items: [{ id: "r-u" }], total: 1 })
+      return Promise.resolve({ items: [{ id: "r-0" }], total: 1 })
+    })
+
+    await outlineView.onEnter()
+
+    expect(outlineView._foreshadowing).toHaveLength(51)
+    expect(outlineView._unassignedForeshadowing).toEqual([{ id: "f-u" }])
+    expect(outlineView._reveals).toEqual([{ id: "r-0" }])
+    expect(outlineView._unassignedReveals).toEqual([{ id: "r-u" }])
+    expect(api.outline.listForeshadowing).toHaveBeenCalledWith("p1", {
+      skip: 50,
+      limit: 50,
+    })
+    for (const [, params] of [
+      ...api.outline.listForeshadowing.mock.calls,
+      ...api.outline.listReveals.mock.calls,
+    ]) {
+      expect(params.limit).toBeLessThanOrEqual(50)
+    }
+  })
+
   it.each([
     { subView: "threads", apiName: "listThreads", store: "_threads", totalKey: "threads" },
     { subView: "arcs", apiName: "listArcs", store: "_arcs", totalKey: "arcs" },
-    { subView: "foreshadowing", apiName: "listForeshadowing", store: "_foreshadowing", totalKey: "foreshadowing" },
-    { subView: "reveals", apiName: "listReveals", store: "_reveals", totalKey: "reveals" },
   ])("直接采用 $subView 服务端分页 items 和 total", async ({ subView, apiName, store, totalKey }) => {
     state.currentProjectId = "p1"
     state.currentSubView = subView
@@ -255,6 +269,29 @@ describe("outlineView 批量操作", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 1 / 1"), "success")
   })
 
+  it("批量采用篇章纲写入 canonical 与人工复核来源", async () => {
+    outlineView._arcs = [
+      { id: "a1", title: "第一篇章", status: "draft", provenance_meta: { source: "ai_generated" } },
+    ]
+    outlineView._bulkSelections["outline-arcs"] = new Set(["a1"])
+    api.outline.updateArc.mockResolvedValue({})
+    api.outline.listArcs.mockResolvedValue({ items: outlineView._arcs, total: 1 })
+
+    await outlineView._executeBulkAction("outline-arcs", "review-arcs", outlineView._itemsForBulkScope("outline-arcs"))
+
+    expect(api.outline.updateArc).toHaveBeenCalledWith("a1", "p1", {
+      status: "canonical",
+      provenance_meta: expect.objectContaining({
+        source: "ai_generated",
+        needs_review: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "outline_arcs_bulk",
+        review_previous_status: "draft",
+      }),
+    })
+  })
+
   it("批量采用剧情线确认按钮不使用删除文案", () => {
     outlineView._threads = [{ id: "t1", name: "主线" }]
     outlineView._bulkSelections["outline-threads"] = new Set(["t1"])
@@ -293,7 +330,7 @@ describe("outlineView 批量操作", () => {
 })
 
 describe("outlineView render", () => {
-  it("子导航从小说总纲到篇章纲/剧情线再到 Scene，保留旧入口", async () => {
+  it("子导航只保留小说总纲、篇章纲、剧情线和 Scene", async () => {
     state.currentProjectId = "p1"
     state.currentSubView = "threads"
     outlineView._loading = false
@@ -304,14 +341,12 @@ describe("outlineView render", () => {
     const arcIndex = html.indexOf('data-action="nav-arcs"')
     const threadIndex = html.indexOf('data-action="nav-threads"')
     const sceneIndex = html.indexOf('data-action="nav-scenes"')
-    const foreshadowingIndex = html.indexOf('data-action="nav-foreshadowing"')
-    const revealIndex = html.indexOf('data-action="nav-reveals"')
     expect(storyIndex).toBeGreaterThanOrEqual(0)
     expect(storyIndex).toBeLessThan(arcIndex)
     expect(arcIndex).toBeLessThan(threadIndex)
     expect(threadIndex).toBeLessThan(sceneIndex)
-    expect(sceneIndex).toBeLessThan(foreshadowingIndex)
-    expect(foreshadowingIndex).toBeLessThan(revealIndex)
+    expect(html).not.toContain('data-action="nav-foreshadowing"')
+    expect(html).not.toContain('data-action="nav-reveals"')
   })
 
   it("加载中显示加载提示", async () => {
@@ -326,8 +361,6 @@ describe("outlineView render", () => {
   it.each([
     { subView: "threads", apiName: "listThreads", store: "_threads", item: { id: "t1", name: "剧情线" } },
     { subView: "arcs", apiName: "listArcs", store: "_arcs", item: { id: "a1", title: "篇章纲" } },
-    { subView: "foreshadowing", apiName: "listForeshadowing", store: "_foreshadowing", item: { id: "f1", name: "伏笔" } },
-    { subView: "reveals", apiName: "listReveals", store: "_reveals", item: { id: "r1", secret_summary: "揭示" } },
   ])("$subView 加载失败后可通过按钮真实重新请求并恢复", async ({ subView, apiName, store, item }) => {
     state.currentProjectId = "p1"
     state.currentSubView = subView
@@ -390,8 +423,6 @@ describe("outlineView render", () => {
 
   it.each([
     { name: "Threads", subView: "threads", store: "_threads", data: [{ id: "t1", name: "主线A", thread_type: "main", summary: "desc" }], expected: "主线A" },
-    { name: "Foreshadowing", subView: "foreshadowing", store: "_foreshadowing", data: [{ id: "f1", name: "伏笔A", summary: "摘要", status: "planted", planned_seed_chapter: 3 }], expected: "伏笔" },
-    { name: "Reveals", subView: "reveals", store: "_reveals", data: [{ id: "r1", target_type: "world_entity", secret_summary: "秘密", status: "planned", reveal_stages: [{ stage_index: 0, chapter_index: 1, reveal_content: "揭示" }] }], expected: "揭示" },
   ])("$name 子标签渲染对应内容", async ({ subView, store, data, expected }) => {
     outlineView._loading = false
     state.currentSubView = subView
@@ -402,11 +433,9 @@ describe("outlineView render", () => {
   })
 
   it.each([
-    { subView: "threads", title: "剧情线", createAction: "create-thread", extractLabel: "剧情线自动提取" },
-    { subView: "arcs", title: "篇章纲", createAction: "create-arc", extractLabel: "篇章纲自动提取" },
-    { subView: "foreshadowing", title: "伏笔", createAction: "create-foreshadowing", extractLabel: "剧情线自动提取" },
-    { subView: "reveals", title: "揭示", createAction: "create-reveal", extractLabel: "剧情线自动提取" },
-  ])("$subView 子标签渲染顶部工具栏、新建按钮和匹配的自动提取文案", async ({ subView, title, createAction, extractLabel }) => {
+    { subView: "threads", title: "剧情线", createAction: "create-thread", aiAction: "ai-create-plot-thread", extractLabel: "从正文提取剧情线" },
+    { subView: "arcs", title: "篇章纲", createAction: "create-arc", aiAction: "ai-create-outline-arc", extractLabel: "从正文提取篇章纲" },
+  ])("$subView 子标签渲染就地 AI 入口和正文提取入口", async ({ subView, title, createAction, aiAction, extractLabel }) => {
     outlineView._loading = false
     state.currentSubView = subView
     state.currentProjectId = "p1"
@@ -418,12 +447,13 @@ describe("outlineView render", () => {
     expect(html).toContain("outline-toolbar")
     expect(html).toContain(title)
     expect(html).toContain(`data-action="${createAction}"`)
+    expect(html).toContain(`data-action="${aiAction}"`)
     expect(html).toContain('data-action="plot-structure-auto-extract"')
     expect(html).toContain(extractLabel)
     const rendered = document.createElement("div")
     rendered.innerHTML = html
     expect(rendered.querySelectorAll('[data-role="smart-dedup-action"]')).toHaveLength(1)
-    if (subView === "arcs") expect(html).not.toContain('data-action="plot-structure-auto-extract">剧情线自动提取')
+    if (subView === "arcs") expect(html).not.toContain("从正文提取剧情线")
   })
 
   it("进度卡片出现在工具栏状态区，不再独占一行", async () => {
@@ -445,21 +475,17 @@ describe("outlineView render", () => {
     expect(html).not.toMatch(/^\s*<div class="outline-progress-card-wrap"/)
   })
 
-  it("深度导入工作稿伏笔和揭示显示中文状态", async () => {
+  it("剧情线详情按同一信息 movement 展示伏笔和揭示", async () => {
     outlineView._loading = false
     state.currentProjectId = "p1"
-
-    state.currentSubView = "foreshadowing"
-    outlineView._foreshadowing = [{ id: "f1", summary: "线索", status: "draft", planned_seed_chapter: 3 }]
-    let html = await outlineView.render()
-    expect(html).toContain("工作稿")
-    expect(html).not.toContain(">draft<")
-
-    state.currentSubView = "reveals"
-    outlineView._reveals = [{ id: "r1", secret_summary: "秘密", status: "draft", reveal_stages: [{ stage_index: 0, chapter_index: 5 }] }]
-    html = await outlineView.render()
-    expect(html).toContain("工作稿")
-    expect(html).not.toContain(">draft<")
+    state.currentSubView = "threads"
+    outlineView._threads = [{ id: "t1", name: "遗迹真相", status: "canonical" }]
+    outlineView._foreshadowing = [{ id: "f1", summary: "潮门发光", related_thread_ids: ["t1"], planned_seed_chapter: 3, provenance_meta: { information_movement_id: "m1" } }]
+    outlineView._reveals = [{ id: "r1", secret_summary: "潮门在评分", related_thread_ids: ["t1"], reveal_stages: [{ chapter_index: 5 }], provenance_meta: { information_movement_id: "m1" } }]
+    const html = await outlineView.render()
+    expect(html).toContain("信息推进 1")
+    expect(html).toContain("潮门发光")
+    expect(html).toContain("潮门在评分")
   })
 
   it("结构资产列表显示深度导入和注意原因", async () => {
@@ -651,6 +677,62 @@ describe("outlineView render", () => {
     }]
     html = await outlineView.render()
     expect(html).toContain("三章内完成潮雾、镜局、归潮转折。")
+    expect(html).toContain('data-action="mark-arc-reviewed"')
+    expect(html).toContain("采用")
+  })
+
+  it("编辑篇章纲保留模型明确未定的章节边界", async () => {
+    state.currentProjectId = "p1"
+    outlineView._arcs = [{
+      id: "a1",
+      title: "开放篇章",
+      start_chapter: 1,
+      end_chapter: null,
+      arc_goal: "保持终点未定。",
+      status: "draft",
+    }]
+    api.outline.updateArc.mockResolvedValue({})
+
+    outlineView._editArc("a1")
+    document.body.innerHTML = showModal.mock.calls.at(-1)[1].html
+
+    expect(document.getElementById("edit-arc-start").value).toBe("1")
+    expect(document.getElementById("edit-arc-end").value).toBe("")
+    await captureModalHandler({ callIndex: showModal.mock.calls.length - 1 })()
+
+    expect(api.outline.updateArc).toHaveBeenCalledWith("a1", "p1", {
+      title: "开放篇章",
+      start_chapter: 1,
+      end_chapter: null,
+      arc_goal: "保持终点未定。",
+    })
+  })
+
+  it("采用单条篇章纲", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "arcs"
+    outlineView._arcs = [{
+      id: "a1",
+      title: "开放篇章",
+      status: "draft",
+      provenance_meta: { source: "ai_generated" },
+    }]
+    api.outline.updateArc.mockResolvedValue({})
+    api.outline.listArcs.mockResolvedValue({
+      items: [{ id: "a1", title: "开放篇章", status: "canonical" }],
+      total: 1,
+    })
+
+    await outlineView._markArcReviewed("a1")
+
+    expect(api.outline.updateArc).toHaveBeenCalledWith("a1", "p1", {
+      status: "canonical",
+      provenance_meta: expect.objectContaining({
+        source: "ai_generated",
+        reviewed_from: "outline_arcs",
+      }),
+    })
+    expect(toast).toHaveBeenCalledWith("篇章纲已采用", "success")
   })
 
   it("深度导入筛选为空时显示结构分析不完整提示", async () => {
@@ -674,8 +756,6 @@ describe("outlineView render", () => {
   it.each([
     ["threads", "剧情线"],
     ["arcs", "篇章纲"],
-    ["foreshadowing", "伏笔"],
-    ["reveals", "揭示"],
   ])("%s 空状态可返回已采用 Scene 整理", async (subView, kind) => {
     outlineView._loading = false
     state.currentSubView = subView
@@ -804,7 +884,7 @@ describe("helpers", () => {
     expect(router.refresh).toHaveBeenCalled()
   })
 
-  it("generates structure from outline view", async () => {
+  it("generates one current-layer PlotThread preview", async () => {
     state.currentProjectId = "p1"
     document.body.innerHTML = `
       <div id="modal-overlay" class="hidden">
@@ -816,22 +896,37 @@ describe("helpers", () => {
     api.context.confirm.mockResolvedValue({ id: "confirm-1", selected_asset_ids: {}, warnings: [] })
     api.outline.generate.mockResolvedValue({ task_id: "task-1", status: "pending" })
 
-    const promise = outlineView._generateStructure(1, 5)
+    const promise = outlineView._generateOutlineLayer({
+      target: "plot_thread",
+      mode: "create",
+      instruction: "设计联盟主线",
+      selectedIds: [],
+      startChapter: 1,
+      endChapter: 5,
+    })
     await Promise.resolve()
     document.querySelectorAll("#modal-footer button")[1].click()
     const result = await promise
 
     expect(api.outline.generate).toHaveBeenCalledWith({
+      contract_version: "outline_layer_v2",
       novel_id: "p1",
       context_confirmation_id: "confirm-1",
+      target: "plot_thread",
+      mode: "create",
+      instruction: "设计联盟主线",
+      selected_thread_ids: [],
+      selected_arc_ids: [],
+      selected_scene_ids: [],
       start_chapter: 1,
       end_chapter: 5,
     })
     expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
       action: "outline.generate",
+      budget_tokens: 0,
       include_pending_objects: false,
     }))
-    expect(toast).toHaveBeenCalledWith("剧情结构建议生成任务已提交", "success")
+    expect(toast).toHaveBeenCalledWith("剧情线建议生成任务已提交", "success")
     expect(result).toEqual({ task_id: "task-1", status: "pending" })
   })
 
@@ -1093,19 +1188,23 @@ describe("helpers", () => {
   it("keeps a completed outline generation as an editable preview until explicit adoption", async () => {
     state.currentProjectId = "p1"
     const draftStructure = {
-      threads: [{ name: "AI 主线", summary: "原摘要", start_chapter: 1, display_state: "review" }],
-      arcs: [],
-      scenes: [],
-      foreshadowing_plans: [],
-      reveal_plans: [],
-      offscreen_progress: [],
-      risks: [],
-      questions_for_user: [],
-      turning_points: [],
-      uncertain_items: [{ description: "章节跨度可能过大" }],
-      diagnostics: {},
+      result: "proposed",
+      reuse_judgments: [],
+      threads: [{
+        proposal_ref: "P1",
+        target_thread_ref: null,
+        name: "AI 主线",
+        thread_type: "main",
+        summary: "原摘要",
+        information_movements: [],
+        basis: "总纲方向尚未物化",
+        uncertain_fields: [],
+        confidence: 0.9,
+      }],
+      story_outline_conflict: null,
+      author_decisions: [],
     }
-    outlineView._outlineGenerateMeta = { context_confirmation_id: "confirm-1", start_chapter: 1, end_chapter: 5 }
+    outlineView._outlineGenerateMeta = { context_confirmation_id: "confirm-1", start_chapter: 1, end_chapter: 5, target: "plot_thread", mode: "create", label: "剧情线" }
     outlineView._outlineGenerateProgress = {
       taskId: "task-1",
       status: "done",
@@ -1123,6 +1222,10 @@ describe("helpers", () => {
         source_task_id: "task-1",
         context_confirmation_id: "confirm-1",
         draft_structure: draftStructure,
+        contract_version: "outline_layer_v2",
+        target: "plot_thread",
+        mode: "create",
+        overlap: { plot_threads: [{ ref: "T1", name: "已有主线" }] },
         warnings: ["一项需要作者判断"],
         requires_apply: true,
       },
@@ -1130,17 +1233,39 @@ describe("helpers", () => {
 
     expect(preview).toBeTruthy()
     expect(outlineView._renderOutlineGenerateProgress()).toContain('data-action="view-outline-generate-preview"')
+    expect(outlineView._renderOutlineProgressStatus()).toContain('data-action="view-outline-generate-preview"')
     const html = outlineView._renderOutlineGeneratePreview()
     expect(html).toContain("待处理建议")
     expect(html).toContain("一项需要作者判断")
-    expect(html).toContain("章节跨度可能过大")
+    expect(html).toContain("已有主线")
     document.body.innerHTML = html
-    document.querySelector('[data-outline-preview-field="name"]').value = "作者修订主线"
+    const edited = JSON.parse(document.getElementById("outline-layer-preview-json").value)
+    edited.threads[0].name = "作者修订主线"
+    document.getElementById("outline-layer-preview-json").value = JSON.stringify(edited)
     api.outline.applyStructurePreview.mockResolvedValue({
       status: "applied",
+      target: "plot_thread",
       total_threads: 1,
       total_arcs: 0,
       total_scenes: 0,
+    })
+    persistActiveWorkflow({
+      taskId: "task-1",
+      workflowType: "outline_generate",
+      projectId: "p1",
+      meta: { target: "plot_thread" },
+    })
+    persistActiveWorkflow({
+      taskId: "stale-thread-task",
+      workflowType: "outline_generate",
+      projectId: "p1",
+      meta: { target: "plot_thread" },
+    })
+    persistActiveWorkflow({
+      taskId: "arc-task",
+      workflowType: "outline_generate",
+      projectId: "p1",
+      meta: { target: "outline_arc" },
     })
 
     const result = await outlineView._applyOutlineGeneratePreview()
@@ -1151,12 +1276,148 @@ describe("helpers", () => {
       source_task_id: "task-1",
       confirmed: true,
       draft_structure: expect.objectContaining({
-        threads: [expect.objectContaining({ name: "作者修订主线", display_state: "review" })],
+        threads: [expect.objectContaining({ name: "作者修订主线" })],
       }),
     }))
     expect(result.status).toBe("applied")
     expect(outlineView._outlineGeneratePreview).toBeNull()
-    expect(toast).toHaveBeenCalledWith("剧情结构已采用：剧情线 1 · 篇章纲 0 · Scene 0", "success")
+    expect(recoverActiveWorkflows("p1").map((item) => item.taskId)).toEqual(["arc-task"])
+    expect(toast).toHaveBeenCalledWith("剧情线已采用：剧情线 1 · 篇章纲 0 · Scene 0", "success")
+  })
+
+  it("renders a completed P20 task only after capturing its adoptable preview", async () => {
+    state.currentProjectId = "p1"
+    outlineView._outlineGenerateMeta = {
+      context_confirmation_id: "confirm-1",
+      target: "plot_thread",
+      mode: "create",
+      label: "剧情线",
+    }
+    api.tasks.get.mockResolvedValue({
+      id: "task-1",
+      task_type: "outline_generate",
+      status: "done",
+      progress: 1,
+      result: {
+        source_task_id: "task-1",
+        context_confirmation_id: "confirm-1",
+        draft_structure: {
+          result: "no_change",
+          reuse_judgments: [],
+          threads: [],
+          story_outline_conflict: null,
+          author_decisions: [],
+        },
+        target: "plot_thread",
+        mode: "create",
+        overlap: {},
+        requires_apply: true,
+      },
+    })
+    const render = vi.spyOn(router, "renderCurrentView").mockImplementation(() => {})
+
+    outlineView._startOutlineGeneratePolling("task-1")
+    await vi.waitFor(() => expect(outlineView._outlineGeneratePreview).toBeTruthy())
+
+    expect(render).toHaveBeenCalledTimes(1)
+    expect(outlineView._renderOutlineGenerateProgress()).toContain("查看并采用")
+    render.mockRestore()
+  })
+
+  it("recovers the newest P20 task when an older unapplied preview is still stored", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([
+      {
+        id: "p1:outline_generate:task-old",
+        taskId: "task-old",
+        workflowType: "outline_generate",
+        projectId: "p1",
+        meta: { label: "剧情线", target: "plot_thread", context_confirmation_id: "confirm-old" },
+        createdAt: "2026-07-17T08:00:00Z",
+        updatedAt: "2026-07-17T08:05:00Z",
+      },
+      {
+        id: "p1:outline_generate:task-new",
+        taskId: "task-new",
+        workflowType: "outline_generate",
+        projectId: "p1",
+        meta: { label: "剧情线", target: "plot_thread", context_confirmation_id: "confirm-new" },
+        createdAt: "2026-07-17T09:00:00Z",
+        updatedAt: "2026-07-17T09:01:00Z",
+      },
+    ]))
+    api.tasks.get.mockResolvedValue({
+      id: "task-new",
+      task_type: "outline_generate",
+      status: "running",
+      progress: 0.2,
+      result: {},
+    })
+
+    outlineView._recoverOutlineGenerateWorkflow()
+    await vi.waitFor(() => {
+      expect(api.tasks.get).toHaveBeenCalledWith("task-new")
+    })
+
+    expect(outlineView._outlineGenerateTaskId).toBe("task-new")
+    outlineView._stopOutlineGeneratePolling()
+  })
+
+  it("recovers only the P20 task that belongs to the current outline layer", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "arcs"
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([
+      {
+        id: "p1:outline_generate:thread-newer",
+        taskId: "thread-newer",
+        workflowType: "outline_generate",
+        projectId: "p1",
+        meta: { label: "剧情线", target: "plot_thread", context_confirmation_id: "confirm-thread" },
+        updatedAt: "2026-07-17T10:00:00Z",
+      },
+      {
+        id: "p1:outline_generate:arc-older",
+        taskId: "arc-older",
+        workflowType: "outline_generate",
+        projectId: "p1",
+        meta: { label: "篇章纲", target: "outline_arc", context_confirmation_id: "confirm-arc" },
+        updatedAt: "2026-07-17T09:00:00Z",
+      },
+    ]))
+    api.tasks.get.mockResolvedValue({
+      id: "arc-older",
+      task_type: "outline_generate",
+      status: "running",
+      progress: 0.2,
+      result: {},
+    })
+
+    outlineView._recoverOutlineGenerateWorkflow()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("arc-older"))
+
+    expect(api.tasks.get).not.toHaveBeenCalledWith("thread-newer")
+    expect(outlineView._outlineGenerateTaskId).toBe("arc-older")
+    outlineView._stopOutlineGeneratePolling()
+  })
+
+  it("drops mismatched in-memory P20 state without deleting its persisted workflow", () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "arcs"
+    persistActiveWorkflow({
+      taskId: "thread-task",
+      workflowType: "outline_generate",
+      projectId: "p1",
+      meta: { target: "plot_thread" },
+    })
+    outlineView._outlineGenerateTaskId = "thread-task"
+    outlineView._outlineGenerateMeta = { target: "plot_thread" }
+    outlineView._outlineGenerateProgress = { terminal: false }
+
+    outlineView._syncOutlineGenerateTarget()
+
+    expect(outlineView._outlineGenerateTaskId).toBeNull()
+    expect(recoverActiveWorkflows("p1").map((item) => item.taskId)).toContain("thread-task")
   })
 
   it("does not present a legacy plot_structure_generate task as adoptable", () => {
@@ -1204,7 +1465,7 @@ describe("helpers", () => {
     )
     expect(api.outline.generate).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith(
-      "剧情线自动提取任务已提交：plot-task",
+      "从正文提取剧情线任务已提交：plot-task",
       "success",
     )
   })
@@ -1246,7 +1507,7 @@ describe("helpers", () => {
       expectedError: "network error",
     },
     {
-      name: "generate structure",
+      name: "generate current layer",
       setup: () => {
         document.body.innerHTML = `
           <div id="modal-overlay" class="hidden">
@@ -1259,7 +1520,14 @@ describe("helpers", () => {
       },
       mockApi: () => api.outline.generate.mockRejectedValue(new Error("llm fail")),
       call: async () => {
-        const promise = outlineView._generateStructure(1, 5)
+        const promise = outlineView._generateOutlineLayer({
+          target: "plot_thread",
+          mode: "create",
+          instruction: "设计主线",
+          selectedIds: [],
+          startChapter: 1,
+          endChapter: 5,
+        })
         await Promise.resolve()
         document.querySelectorAll("#modal-footer button")[1].click()
         return promise
@@ -1288,7 +1556,7 @@ describe("render buttons", () => {
 
     const html = await outlineView.render()
 
-    expect(html).toContain("剧情线自动提取")
+    expect(html).toContain("从正文提取剧情线")
     expect(html).toContain('data-action="plot-structure-auto-extract"')
     expect(html).toContain('data-action="analyze-outline"')
     expect(html).toContain("AI 分析大纲")
@@ -1307,144 +1575,102 @@ describe("render buttons", () => {
     expect(html).not.toContain('data-action="move-scene-down"')
   })
 
-  it("renders foreshadowing and reveal create buttons and delete actions", async () => {
+  it("renders information progression inside threads without top-level create actions", async () => {
     outlineView._loading = false
     state.currentProjectId = "p1"
-
-    state.currentSubView = "foreshadowing"
+    state.currentSubView = "threads"
+    outlineView._threads = [{ id: "t1", name: "主线", status: "canonical" }]
     outlineView._foreshadowing = [{
       id: "f1",
       name: "伏笔A",
       summary: "摘要",
       status: "planted",
       planned_seed_chapter: 3,
+      related_thread_ids: ["t1"],
     }]
-    let html = await outlineView.render()
-    expect(html).toContain('data-action="create-foreshadowing"')
-    expect(html).toContain('data-action="edit-foreshadowing"')
-    expect(html).toContain('data-action="delete-foreshadowing"')
-    expect(html).toContain("新建伏笔")
-
-    state.currentSubView = "reveals"
     outlineView._reveals = [{
       id: "r1",
       target_type: "world_entity",
       secret_summary: "秘密",
       status: "planned",
+      related_thread_ids: ["t1"],
       reveal_stages: [{ stage_index: 0, chapter_index: 1, reveal_content: "揭示" }],
     }]
-    html = await outlineView.render()
-    expect(html).toContain('data-action="create-reveal"')
-    expect(html).toContain('data-action="edit-reveal"')
-    expect(html).toContain('data-action="delete-reveal"')
-    expect(html).toContain("新建揭示")
+    const html = await outlineView.render()
+    expect(html).toContain("信息推进")
+    expect(html).toContain("摘要")
+    expect(html).toContain("秘密")
+    expect(html).not.toContain('data-action="create-foreshadowing"')
+    expect(html).not.toContain('data-action="create-reveal"')
+  })
+
+  it("positions legacy information links at the merged thread section", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    outlineView._threads = [{ id: "t1", name: "主线", status: "canonical" }]
+    router.getCurrentQuery.mockReturnValueOnce(
+      new URLSearchParams("information=foreshadowing"),
+    )
+    document.body.innerHTML = await outlineView.render()
+    const section = document.getElementById("outline-thread-information")
+    section.scrollIntoView = vi.fn()
+
+    outlineView.onRendered()
+
+    expect(section.scrollIntoView).toHaveBeenCalledWith({ block: "start" })
   })
 })
 
-describe("_showGenerateStructureForm", () => {
-  it("validates end chapter >= start chapter", async () => {
-    outlineView._showGenerateStructureForm()
-    const handler = captureModalHandler()
-    expect(handler).toBeTruthy()
+describe("P20 current-layer form", () => {
+  const originalGenerate = outlineView._generateOutlineLayer
 
-    document.getElementById = vi.fn((id) => {
-      if (id === "generate-structure-start") return { value: "5", addEventListener: vi.fn() }
-      if (id === "generate-structure-end") return { value: "3", addEventListener: vi.fn() }
-      if (id === "generate-structure-warning") return { style: {}, innerHTML: "", addEventListener: vi.fn() }
-      if (id === "generate-structure-confirm-row") return { style: {}, addEventListener: vi.fn() }
-      return { addEventListener: vi.fn() }
-    })
-    outlineView._generateStructure = vi.fn()
+  afterEach(() => {
+    outlineView._generateOutlineLayer = originalGenerate
+  })
+
+  it("requires a current StoryOutline before opening", async () => {
+    state.currentProjectId = "p1"
+    api.outline.getStoryOutline.mockResolvedValue({ current_revision_id: null, revision: null })
+
+    await outlineView._showOutlineLayerAiForm("plot_thread")
+
+    expect(toast).toHaveBeenCalledWith("请先在“小说总纲”页创建并采用当前总纲", "warning")
+    expect(router.navigate).toHaveBeenCalledWith("outline", "story-outline")
+  })
+
+  it("submits only the selected current layer in revise mode", async () => {
+    state.currentProjectId = "p1"
+    outlineView._bulkSelections = { "outline-threads": new Set(["t1"]) }
+    await outlineView._showOutlineLayerAiForm("plot_thread")
+    const handler = captureModalHandler()
+    outlineView._generateOutlineLayer = vi.fn().mockResolvedValue({ task_id: "task-1" })
+    document.getElementById = vi.fn((id) => ({
+      value: {
+        "outline-layer-mode": "revise",
+        "outline-layer-instruction": "深化所选主线",
+        "outline-layer-start": "1",
+        "outline-layer-end": "5",
+      }[id] || "",
+    }))
 
     await handler()
-    await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(toast).toHaveBeenCalledWith("结束章节不能小于起始章节", "warning")
-    expect(outlineView._generateStructure).not.toHaveBeenCalled()
-  })
-
-  it("calls generate with valid range", async () => {
-    outlineView._showGenerateStructureForm()
-    const handler = captureModalHandler()
-    expect(handler).toBeTruthy()
-
-    document.getElementById = vi.fn((id) => {
-      if (id === "generate-structure-start") return { value: "1", addEventListener: vi.fn() }
-      if (id === "generate-structure-end") return { value: "5", addEventListener: vi.fn() }
-      if (id === "generate-structure-confirm") return { checked: false, addEventListener: vi.fn() }
-      if (id === "generate-structure-warning") return { style: {}, innerHTML: "", addEventListener: vi.fn() }
-      if (id === "generate-structure-confirm-row") return { style: {}, addEventListener: vi.fn() }
-      return { addEventListener: vi.fn() }
+    expect(outlineView._generateOutlineLayer).toHaveBeenCalledWith({
+      target: "plot_thread",
+      mode: "revise",
+      instruction: "深化所选主线",
+      selectedIds: ["t1"],
+      startChapter: 1,
+      endChapter: 5,
     })
-    outlineView._generateStructure = vi.fn()
-
-    await handler()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(outlineView._generateStructure).toHaveBeenCalledWith(1, 5)
   })
 
-  it("swallows generate rejection after _generateStructure has already handled feedback", async () => {
-    outlineView._showGenerateStructureForm()
-    const handler = captureModalHandler()
-    expect(handler).toBeTruthy()
+  it("allows create mode beside existing assets without a hard overlap block", async () => {
+    state.currentProjectId = "p1"
+    outlineView._threads = [{ id: "t1", name: "已有主线" }]
+    await outlineView._showOutlineLayerAiForm("plot_thread")
 
-    document.getElementById = vi.fn((id) => {
-      if (id === "generate-structure-start") return { value: "1", addEventListener: vi.fn() }
-      if (id === "generate-structure-end") return { value: "5", addEventListener: vi.fn() }
-      if (id === "generate-structure-confirm") return { checked: false, addEventListener: vi.fn() }
-      if (id === "generate-structure-warning") return { style: {}, innerHTML: "", addEventListener: vi.fn() }
-      if (id === "generate-structure-confirm-row") return { style: {}, addEventListener: vi.fn() }
-      return { addEventListener: vi.fn() }
-    })
-    outlineView._generateStructure = vi.fn().mockRejectedValue(new Error("already toasted"))
-
-    const result = await handler()
-
-    expect(result).toBe(false)
-    expect(outlineView._generateStructure).toHaveBeenCalledWith(1, 5)
-    expect(toast).not.toHaveBeenCalledWith("already toasted", "error")
-  })
-
-  it("counts overlapping threads and arcs for a range", () => {
-    const threads = [
-      { id: "t1", start_chapter: 1, planned_payoff_chapter: 3 },
-      { id: "t2", start_chapter: 6, planned_payoff_chapter: 10 },
-      { id: "t3", start_chapter: null, planned_payoff_chapter: 2 },
-      { id: "t4", status: "deprecated", start_chapter: 2, planned_payoff_chapter: 5 },
-    ]
-    const arcs = [
-      { id: "a1", start_chapter: 4, end_chapter: 8 },
-      { id: "a2", start_chapter: 20, end_chapter: 30 },
-      { id: "a3", status: "deprecated", start_chapter: 2, end_chapter: 5 },
-    ]
-
-    const threadCount = outlineView._countRangeOverlap(threads, 2, 5, "start_chapter", "planned_payoff_chapter")
-    const arcCount = outlineView._countRangeOverlap(arcs, 2, 5, "start_chapter", "end_chapter")
-
-    expect(threadCount).toBe(2)
-    expect(arcCount).toBe(1)
-  })
-
-  it("blocks generate when overlap exists and not confirmed", async () => {
-    outlineView._showGenerateStructureForm()
-    outlineView._generateOverlap = { threadCount: 1, arcCount: 1, rangeKey: "1-5" }
-
-    document.getElementById = vi.fn((id) => {
-      if (id === "generate-structure-start") return { value: "1", addEventListener: vi.fn() }
-      if (id === "generate-structure-end") return { value: "5", addEventListener: vi.fn() }
-      if (id === "generate-structure-confirm") return { checked: false, addEventListener: vi.fn() }
-      if (id === "generate-structure-warning") return { style: {}, innerHTML: "", addEventListener: vi.fn() }
-      if (id === "generate-structure-confirm-row") return { style: {}, addEventListener: vi.fn() }
-      return { addEventListener: vi.fn() }
-    })
-    outlineView._generateStructure = vi.fn()
-
-    await captureModalHandler()()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(outlineView._generateStructure).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("目标范围已存在结构，请勾选确认后继续", "warning")
+    expect(showModal.mock.calls.at(-1)[1].html).toContain("新增设计允许与已有资产并行")
   })
 })
 

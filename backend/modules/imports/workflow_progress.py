@@ -166,6 +166,11 @@ class DeepImportProgressTracker:
                 progress.phase2_completed_scenes,
                 int(phase2.get("completed_scenes", 0) or 0),
             ),
+            "phase2b_total_scenes": progress.phase2b_total_scenes,
+            "phase2b_completed_scenes": max(
+                progress.phase2b_completed_scenes,
+                int(phase2.get("alias_relation_scenes", 0) or 0),
+            ),
             "entity_count": int(phase2.get("total_created", 0) or 0),
             "relation_count": int(phase2.get("total_relations", 0) or 0),
             "alias_count": int(phase2.get("total_aliases", 0) or 0),

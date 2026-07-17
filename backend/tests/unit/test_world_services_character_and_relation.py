@@ -879,6 +879,7 @@ class TestCharacterServiceFacadeLeaks:
         svc._entity_repo = AsyncMock()
         svc._entity_repo.get.return_value = _canonical_core_entity(nid, "character")
         svc.repo = AsyncMock()
+        svc.repo.get.return_value = None
         svc.repo.create.side_effect = IntegrityError("stmt", "params", Exception("boom"))
 
         with pytest.raises(DomainValidationError) as exc_info:
@@ -1021,6 +1022,7 @@ class TestCharacterServiceInheritedVerbs:
         entity_id = uuid.uuid4()
         char = _make_character(entity_id=entity_id, novel_id=uuid.UUID(nid))
         svc.repo = AsyncMock()
+        svc.repo.get.return_value = None
         svc.repo.create.return_value = char
         data = CharacterCreate(entity_id=str(entity_id), name="New")
 

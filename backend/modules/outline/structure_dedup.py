@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.agent_step_harness import run_managed_structured
@@ -149,10 +150,21 @@ class OutlineStructureDedupService:
                 primary = (
                     source if decision.recommended_primary_side == "source" else target
                 )
+                suggested_action = decision.action
+                if asset_type == "scene" and suggested_action in {
+                    "merge",
+                    "deprecate_duplicate",
+                }:
+                    suggested_action = "ai_fusion"
                 suggestions.append(
                     {
                         "asset_type": asset_type,
-                        "action": decision.action,
+                        "action": suggested_action,
+                        "resolution_mode": (
+                            "ai_fusion_review"
+                            if asset_type == "scene" and suggested_action == "ai_fusion"
+                            else "direct_dedup"
+                        ),
                         "source_asset_id": source.asset_id,
                         "source_title": source.title,
                         "source_status": source.status,
@@ -205,9 +217,29 @@ class OutlineStructureDedupService:
         primary_asset_id: str,
         asset_type: str,
         operations: list[dict[str, Any]],
+        validate_only: bool = False,
+        execution_fingerprints_prevalidated: bool = False,
     ) -> list[dict[str, Any]]:
         """Strict outline group apply; failures propagate to caller savepoint."""
+        if validate_only and execution_fingerprints_prevalidated:
+            raise ValueError("invalid_group")
         nid = parse_uuid(novel_id, "novel_id")
+        if validate_only:
+            model = _ASSET_MODEL_BY_TYPE.get(asset_type)
+            if model is None:
+                raise ValueError("invalid_group")
+            asset_ids = {
+                parse_uuid(primary_asset_id, "primary_asset_id"),
+                *(
+                    parse_uuid(str(item.get("source_asset_id")), "source_asset_id")
+                    for item in operations
+                ),
+            }
+            await db.execute(
+                select(model)
+                .where(model.novel_id == nid, model.id.in_(asset_ids))
+                .with_for_update(read=True)
+            )
         assets = await self._load_assets(db, novel_id=novel_id, limit=5000)
         by_id = {item.asset_id: item for item in assets.get(asset_type, [])}
         target = by_id.get(primary_asset_id)
@@ -222,8 +254,12 @@ class OutlineStructureDedupService:
             source = by_id.get(str(operation.get("source_asset_id")))
             if source is None or source.asset_id == target.asset_id:
                 raise ValueError("invalid_group")
-            expected_action = {"scene": "merge"}.get(asset_type, "deprecate_duplicate")
-            if operation.get("action") not in {expected_action, "keep_separate"}:
+            expected_actions = (
+                {"ai_fusion", "merge", "keep_separate"}
+                if asset_type == "scene"
+                else {"deprecate_duplicate", "keep_separate"}
+            )
+            if operation.get("action") not in expected_actions:
                 raise ValueError("invalid_group")
             if (
                 asset_type == "scene"
@@ -233,16 +269,65 @@ class OutlineStructureDedupService:
                 raise ValueError("confirmation_required")
             source_fp = _asset_fingerprints(source)
             target_fp = _asset_fingerprints(target)
-            if source_fp["execution_fingerprint"] != operation.get(
-                "expected_source_execution_fingerprint"
-            ) or target_fp["execution_fingerprint"] != operation.get(
-                "expected_target_execution_fingerprint"
+            if not execution_fingerprints_prevalidated and (
+                source_fp["execution_fingerprint"]
+                != operation.get("expected_source_execution_fingerprint")
+                or target_fp["execution_fingerprint"]
+                != operation.get("expected_target_execution_fingerprint")
             ):
                 raise ValueError("stale_suggestion")
             prepared.append((operation, source))
+        if validate_only:
+            return []
         results: list[dict[str, Any]] = []
         for operation, source in prepared:
             if operation["action"] == "keep_separate":
+                continue
+            if asset_type == "scene" and operation["action"] == "ai_fusion":
+                suggestion_ids = await SceneWorkbenchService().persist_fusion_suggestions(
+                    db,
+                    novel_id=novel_id,
+                    source_workflow_id="smart-dedup",
+                    suggestions=[
+                        {
+                            "suggestion_kind": "smart_dedup",
+                            "proposed_action": "merge",
+                            "source_scene_ids": [target.asset_id, source.asset_id],
+                            "chapter_span": sorted(
+                                {
+                                    value
+                                    for value in (
+                                        target.chapter_start,
+                                        target.chapter_end,
+                                        source.chapter_start,
+                                        source.chapter_end,
+                                    )
+                                    if value is not None
+                                }
+                            ),
+                            "confidence": operation.get("confidence"),
+                            "reason": operation.get("reason")
+                            or (
+                                "智能去重发现潜在同一叙事单元，转入作者可编辑的 "
+                                "AI 融合流程。"
+                            ),
+                            "proposed_scene": {
+                                "primary_scene_id": target.asset_id,
+                                "resolution_mode": "ai_fusion_review",
+                            },
+                            "decision_origin": "smart_dedup",
+                        }
+                    ],
+                )
+                results.append(
+                    {
+                        "asset_type": "scene",
+                        "action": "ai_fusion_suggestion",
+                        "source_asset_id": source.asset_id,
+                        "target_asset_id": target.asset_id,
+                        "suggestion_id": suggestion_ids[0] if suggestion_ids else None,
+                    }
+                )
                 continue
             results.append(
                 await self._apply_one(
@@ -479,7 +564,11 @@ class OutlineStructureDedupService:
         evidence: list[dict[str, Any]],
     ) -> StructureDedupDecision:
         deterministic = _deterministic_decision(source, target, match)
-        if deterministic.action == "merge" and deterministic.confidence >= 0.96:
+        if (
+            source.asset_type != "scene"
+            and deterministic.action == "merge"
+            and deterministic.confidence >= 0.96
+        ):
             return deterministic
 
         client = self._llm_client
@@ -500,7 +589,11 @@ class OutlineStructureDedupService:
                         LLMMessage(
                             role="system",
                             content=(
-                                "你判断两个长篇小说结构资产是否重复。只输出 JSON。"
+                                "你判断两个长篇小说结构资产是否重复。Scene 必须按叙事与"
+                                "因果身份判断：标题相同、人物相同或主题相似都不足以证明"
+                                "是同一 Scene；只有它们实际描述同一可独立规划、修订、续写"
+                                "和检查的因果叙事单元时才选择 merge。部分重叠、相邻延续或"
+                                "证据冲突时选择 needs_review。只输出 JSON。"
                                 "action 为 merge、deprecate_duplicate、keep_separate "
                                 "或 needs_review。recommended_primary_side 必须是 source "
                                 "或 target，表示建议保留/关联到哪个主体；不确定时选 "
@@ -656,6 +749,13 @@ _SUPPORTED_ASSET_TYPES = [
     "foreshadowing_plan",
     "reveal_plan",
 ]
+_ASSET_MODEL_BY_TYPE = {
+    "plot_thread": PlotThread,
+    "outline_arc": OutlineArc,
+    "scene": Scene,
+    "foreshadowing_plan": ForeshadowingPlan,
+    "reveal_plan": RevealPlan,
+}
 _ACTIVE_STRUCTURE_STATUSES = {"candidate", "draft", "canonical"}
 _STATUS_RANK = {"canonical": 0, "draft": 1, "candidate": 2}
 _PUNCT_RE = re.compile(r"[\s　，。！？、；：,.!?;:《》“”\"'（）()【】\[\]—_-]+")
@@ -824,6 +924,15 @@ def _deterministic_decision(
 ) -> StructureDedupDecision:
     score = float(match.get("similarity_score") or 0.0)
     method = str(match.get("match_method") or "")
+    if source.asset_type == "scene" and score >= 0.74:
+        return StructureDedupDecision(
+            action="needs_review",
+            confidence=min(score, 0.95),
+            reason=(
+                "Scene 文本存在相似线索，但需按因果叙事身份判断，"
+                "不能仅凭标题自动融合。"
+            ),
+        )
     if method == "normalized_exact_title" or score >= 0.96:
         return StructureDedupDecision(
             action="merge",

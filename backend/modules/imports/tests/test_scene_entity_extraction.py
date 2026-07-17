@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -14,13 +15,18 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMConnectionError
+from modules.imports.context_snapshot_helpers import build_phase2_snapshot_payload
 from modules.imports.entity_extraction.scene_entity_alias_relation import (
     _compact_entity_index_for_scene,
     _effective_alias_relation_total_timeout_seconds,
     _trim_phase2b_scene_text,
 )
 from modules.imports.entity_extraction.scene_entity_checkpoint import (
+    phase2a_input_fingerprint,
     scene_input_fingerprint,
+)
+from modules.imports.entity_extraction.scene_entity_config import (
+    PHASE2A_PROMPT_CONTRACT_VERSION,
 )
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService,
@@ -33,6 +39,7 @@ from modules.imports.llm_schemas import (
     ExtractedAlias,
     ExtractedEntity,
     ExtractedRelation,
+    Phase2bRelationObservation,
     SceneCandidateOutput,
     SceneEntityExtractionOutput,
 )
@@ -45,6 +52,51 @@ def test_phase2_runtime_protocol_remains_import_compatible() -> None:
     )
 
     assert SceneEntityExtractionRuntime is RuntimeFromModule
+
+
+def test_phase2a_snapshot_replays_prompt_context_but_keeps_source_ids_audit_only() -> (
+    None
+):
+    payload = build_phase2_snapshot_payload(
+        scene={"id": "scene-1", "scene_index": 1, "chapter_ids": ["1"]},
+        source_chapter_index=1,
+        existing_context="legacy existing",
+        memory_context="legacy memory",
+        chapters_text="完整 Scene 正文",
+        accumulated_memory=[],
+        model="fixture-model",
+        max_tokens=1024,
+        temperature=0.3,
+        activation={
+            "activation_version": "import-context-v2",
+            "prompt_contract_version": PHASE2A_PROMPT_CONTRACT_VERSION,
+            "context_fingerprint": "context-fingerprint",
+            "scene_card": {"title": "锁定 Scene"},
+            "outline_context": {"plot_threads": [{"name": "主线"}]},
+            "identity_candidates": [{"prompt_ref": "entity-001", "name": "沈砚"}],
+            "previous_scene_briefs": [{"title": "前序摘要"}],
+            "previous_scene_evidence": [{"text": "前序证据"}],
+            "current_scene_sources": [{"draft_id": "private-draft-id"}],
+            "sources": [
+                {
+                    "type": "world_entity",
+                    "id": "private-entity-id",
+                    "prompt_ref": "entity-001",
+                }
+            ],
+        },
+    )
+
+    rendered = json.loads(payload["rendered_context"])
+    assert rendered["current_scene_text"] == "完整 Scene 正文"
+    assert rendered["previous_scene_briefs"] == [{"title": "前序摘要"}]
+    assert rendered["previous_scene_evidence"] == [{"text": "前序证据"}]
+    assert "private-draft-id" not in payload["rendered_context"]
+    assert "private-entity-id" not in payload["rendered_context"]
+    assert payload["included_asset_ids"]["existing_entities"] == ["private-entity-id"]
+    assert payload["section_metadata"]["activation"]["current_scene_sources"] == [
+        {"draft_id": "private-draft-id"}
+    ]
 
 
 class _FakeSavepoint:
@@ -159,12 +211,13 @@ def test_phase2_result_merges_phase2b_checkpoints_into_common_checkpoint_tree() 
         "phase2b": {"scenes": [phase2b_checkpoint]},
     }
 
+
 @pytest.mark.asyncio
 async def test_parallel_phase2_skips_only_matching_completed_checkpoint() -> None:
     svc = SceneEntityExtractionService()
     scene = {"novel_id": "novel-1", "scene_index": 1, "chapter_ids": ["1"]}
     scene_text = "Scene 正文"
-    fingerprint = scene_input_fingerprint(scene, scene_text)
+    fingerprint = phase2a_input_fingerprint(scene, scene_text)
     db = Mock()
     db.flush = AsyncMock()
 
@@ -243,7 +296,7 @@ async def test_parallel_phase2_reruns_untrusted_completed_checkpoint(
 
     assert result["rerun_scenes"] == 1
     checkpoint = result["checkpoints"]["phase2"]["scenes"][0]
-    assert checkpoint["input_fingerprint"] == scene_input_fingerprint(scene, "")
+    assert checkpoint["input_fingerprint"] == phase2a_input_fingerprint(scene, "")
 
 
 def test_llm_schema_normalizes_common_score_strings() -> None:
@@ -331,40 +384,54 @@ def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
         {
             "aliases": [
                 {
-                    "entity_name": "克莱恩",
+                    "entity_ref": "entity-001",
                     "alias": "周明瑞",
-                    "alias_type": "",
+                    "alias_type": "name",
+                    "identity_scope": "durable",
+                    "identity_basis": "明确自称",
+                    "evidence_quotes": ["我叫周明瑞"],
                     "confidence": "85%",
                 },
                 {
-                    "entity_name": "梅丽莎",
+                    "entity_ref": "entity-002",
                     "alias": "妹妹",
-                    "alias_type": None,
+                    "alias_type": "nickname",
+                    "identity_scope": "context_bound",
+                    "identity_basis": "亲属称呼",
+                    "evidence_quotes": ["妹妹梅丽莎"],
                     "confidence": "高",
                 },
             ],
             "relations": [
                 {
-                    "source_name": "克莱恩",
-                    "target_name": "梅丽莎",
+                    "source_ref": "entity-001",
+                    "target_ref": "entity-002",
                     "relation_type": "sibling",
+                    "persistence_scope": "enduring",
+                    "directionality": "symmetric",
+                    "claim_status": "established",
+                    "description": "兄妹",
                     "strength": "较高",
+                    "basis": "亲属称呼",
+                    "evidence_quotes": ["妹妹梅丽莎"],
+                    "confidence": "85%",
                 }
             ],
         }
     )
 
-    assert output.aliases[0].alias_type == "alias"
+    assert output.aliases[0].alias_type == "name"
     assert output.aliases[0].confidence == 0.85
-    assert output.aliases[1].alias_type == "alias"
+    assert output.aliases[1].alias_type == "nickname"
     assert output.aliases[1].confidence == 0.9
     assert output.relations[0].strength == 0.8
 
     tolerant_output = AliasRelationExtractionOutput.model_validate(
-        {"aliases": None, "relations": None}
+        {"aliases": None, "relations": None, "uncertain_items": None}
     )
     assert tolerant_output.aliases == []
     assert tolerant_output.relations == []
+    assert tolerant_output.uncertain_items == []
 
 
 def test_alias_relation_total_timeout_scales_for_large_scene_sets(
@@ -774,7 +841,79 @@ async def test_phase2b_snapshot_helper_creates_alias_relation_snapshot(
             "source_warning": "Invalid scene_id: scene-phase2b",
         },
     ]
-    assert raw_snapshot.context_summary["source_ref_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_phase2b_v2_snapshot_stores_full_prompt_payload_and_audit_sources(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    from modules.imports.entity_extraction.scene_entity_phase2b_context import (
+        render_phase2b_user_payload,
+    )
+    from modules.imports.entity_extraction.scene_entity_snapshots import (
+        create_phase2b_snapshot,
+    )
+
+    class _SnapshotServiceStub:
+        @staticmethod
+        def _scene_context_header(_scene: dict) -> str:
+            return "unused"
+
+        @staticmethod
+        def _scene_id(scene: dict) -> str:
+            return str(scene["id"])
+
+        @staticmethod
+        def _scene_source_chapter_index(_scene: dict) -> int:
+            return 1
+
+    scene = {
+        "id": "scene-phase2b-v2",
+        "novel_id": novel_with_drafts,
+        "scene_index": 13,
+    }
+    full_text = "全文起点" + ("正文" * 3_000) + "全文终点"
+    bundle = {
+        "prompt_contract_version": "alias-relation-extraction-v3",
+        "context_fingerprint": "context-fingerprint",
+        "identity_candidates": [
+            {"prompt_ref": "entity-001", "name": "克莱恩", "aliases": []}
+        ],
+        "relation_candidates": [],
+        "_current_scene_sources": [
+            {"type": "source_range", "id": "draft-range-1", "content_hash": "h1"}
+        ],
+        "_included_sources": [{"type": "world_entity", "id": "private-entity-id"}],
+        "_omitted_sources": [{"type": "world_entity", "id": "omitted-entity-id"}],
+        "_entity_ref_map": {"entity-001": "private-entity-id"},
+    }
+
+    await create_phase2b_snapshot(
+        _SnapshotServiceStub(),
+        db_session,
+        novel_with_drafts,
+        scene,
+        full_text,
+        "",
+        workflow_id="wf-phase2b-v2",
+        context_bundle=bundle,
+    )
+
+    from modules.context.models import ContextSnapshot
+
+    raw_result = await db_session.execute(select(ContextSnapshot))
+    raw_snapshot = raw_result.scalar_one()
+    assert "全文终点" in raw_snapshot.rendered_context
+    assert "entity-001" in raw_snapshot.rendered_context
+    assert "private-entity-id" not in raw_snapshot.rendered_context
+    assert raw_snapshot.rendered_context == render_phase2b_user_payload(
+        bundle,
+        full_text,
+    )
+    assert raw_snapshot.included_asset_ids == {"world_entity": ["private-entity-id"]}
+    assert raw_snapshot.excluded_asset_ids == {"world_entity": ["omitted-entity-id"]}
+    assert raw_snapshot.context_summary["source_ref_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -1009,6 +1148,131 @@ async def test_persist_entities_does_not_target_pending_entity_as_existing(
 
 
 @pytest.mark.asyncio
+async def test_persist_entities_reuses_exact_working_identity_across_workflows(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    from sqlalchemy import func, select
+
+    from modules.world.facade import create_entity
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    existing = await create_entity(
+        db_session,
+        novel_with_drafts,
+        {
+            "name": "塔罗占卜",
+            "entity_type": "rule",
+            "status": "candidate",
+            "created_by": "ai_import",
+            "content_json": {
+                "_meta": {
+                    "source": "deep_import",
+                    "workflow_id": "wf-cancelled",
+                    "auto_ingested": True,
+                }
+            },
+        },
+    )
+    extracted = ExtractedEntity(
+        name="塔罗占卜",
+        entity_type="rule",
+        suggested_action="link_to_existing",
+        suggested_existing_entity_name="塔罗占卜",
+        evidence_quotes=["她摆出了塔罗牌。"],
+    )
+    stats = svc._empty_phase2_persistence_stats()
+    result_refs: list[dict[str, str]] = []
+
+    with patch.object(svc, "_record_quote_evidence", autospec=True) as evidence:
+        created = await svc._persist_entities(
+            db_session,
+            novel_with_drafts,
+            [extracted],
+            scene_index=2,
+            source_chapter_index=4,
+            workflow_id="wf-rerun",
+            scene_id="scene-2",
+            persistence_stats=stats,
+            result_refs=result_refs,
+        )
+
+    count = await db_session.scalar(
+        select(func.count(CoreEntity.id)).where(
+            CoreEntity.novel_id == parse_uuid(novel_with_drafts, "novel_id"),
+            CoreEntity.name == "塔罗占卜",
+            CoreEntity.entity_type == "rule",
+        )
+    )
+    assert created == 0
+    assert count == 1
+    assert result_refs == [{"type": "core_entity", "id": existing["id"]}]
+    assert stats["dedup_counts"]["skipped"] == 1
+    evidence.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persist_entities_reuses_exact_working_identity_even_when_model_says_new(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    from sqlalchemy import func, select
+
+    from modules.world.facade import create_entity
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    existing = await create_entity(
+        db_session,
+        novel_with_drafts,
+        {
+            "name": "黑色郁金香号",
+            "entity_type": "item",
+            "status": "candidate",
+            "created_by": "ai_import",
+        },
+    )
+    extracted = ExtractedEntity(
+        name="黑色郁金香号",
+        entity_type="item",
+        suggested_action="create_new",
+        evidence_quotes=["黑色郁金香号驶入港口。"],
+    )
+    stats = svc._empty_phase2_persistence_stats()
+    result_refs: list[dict[str, str]] = []
+
+    with patch.object(svc, "_record_quote_evidence", autospec=True) as evidence:
+        created = await svc._persist_entities(
+            db_session,
+            novel_with_drafts,
+            [extracted],
+            scene_index=3,
+            source_chapter_index=5,
+            workflow_id="wf-rerun-new-action",
+            scene_id="scene-3",
+            persistence_stats=stats,
+            result_refs=result_refs,
+        )
+
+    count = await db_session.scalar(
+        select(func.count(CoreEntity.id)).where(
+            CoreEntity.novel_id == parse_uuid(novel_with_drafts, "novel_id"),
+            CoreEntity.name == "黑色郁金香号",
+            CoreEntity.entity_type == "item",
+        )
+    )
+    assert created == 0
+    assert count == 1
+    assert result_refs == [{"type": "core_entity", "id": existing["id"]}]
+    assert stats["action_counts"]["create_new"] == 1
+    assert stats["dedup_counts"]["skipped"] == 1
+    evidence.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_persist_entities_skips_duplicate_names_in_phase() -> None:
     svc = SceneEntityExtractionService()
     entities = [
@@ -1025,6 +1289,11 @@ async def test_persist_entities_skips_duplicate_names_in_phase() -> None:
     ]
 
     with (
+        patch(
+            "modules.world.facade.find_working_entity_id_by_name",
+            autospec=True,
+            return_value=None,
+        ),
         patch(
             "modules.world.facade.find_similar_entities",
             autospec=True,
@@ -1372,30 +1641,57 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
     output = AliasRelationExtractionOutput(
         aliases=[
             ExtractedAlias(
-                entity_name="克莱恩",
+                entity_ref="entity-001",
                 alias="变量",
                 alias_type="name",
+                identity_scope="durable",
+                identity_basis="模型误判",
+                evidence_quotes=["模型误把字段占位词当成别名。"],
                 confidence=0.99,
-                quote="模型误把字段占位词当成别名。",
             ),
             ExtractedAlias(
-                entity_name="克莱恩",
+                entity_ref="entity-001",
                 alias="周明瑞",
                 alias_type="name",
+                identity_scope="durable",
+                identity_basis="正文明确说明身份",
+                evidence_quotes=["周明瑞醒来时发现自己成了克莱恩。"],
                 confidence=0.91,
-                quote="周明瑞醒来时发现自己成了克莱恩。",
             ),
         ],
         relations=[
-            ExtractedRelation(
-                source_name="克莱恩",
-                target_name="梅丽莎",
+            Phase2bRelationObservation(
+                source_ref="entity-001",
+                target_ref="entity-002",
                 relation_type="sibling",
+                persistence_scope="enduring",
+                directionality="symmetric",
+                claim_status="established",
                 description="兄妹",
                 strength=0.8,
+                basis="正文称二人为兄妹",
+                evidence_quotes=["克莱恩与梅丽莎是兄妹。"],
+                confidence=0.9,
             )
         ],
     )
+    scene_text = (
+        "模型误把字段占位词当成别名。"
+        "周明瑞醒来时发现自己成了克莱恩。"
+        "克莱恩与梅丽莎是兄妹。"
+    )
+    context_bundle = {
+        "identity_candidates": [
+            {"prompt_ref": "entity-001", "name": "克莱恩", "aliases": []},
+            {"prompt_ref": "entity-002", "name": "梅丽莎", "aliases": []},
+        ],
+        "_entity_ref_map": {
+            "entity-001": source["id"],
+            "entity-002": target["id"],
+        },
+        "_relation_ref_map": {},
+        "context_fingerprint": "fingerprint",
+    }
 
     result = await svc._persist_alias_relation_output(
         db_session,
@@ -1404,13 +1700,16 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
         scene_index=3,
         workflow_id="wf-phase2b",
         scene_id="scene-3",
+        context_bundle=context_bundle,
+        current_scene_text=scene_text,
     )
 
-    assert result == {"aliases": 1, "relations": 1}
+    assert result["aliases"] == 1
+    assert result["relations"] == 1
+    assert result["uncertain_count"] == 1
     rels, total = await get_entity_relations(db_session, novel_with_drafts)
     assert total == 1
-    assert rels[0].source_id == source["id"]
-    assert rels[0].target_id == target["id"]
+    assert [rels[0].source_id, rels[0].target_id] == sorted([source["id"], target["id"]])
     assert rels[0].status == "candidate"
 
     from sqlalchemy import select
@@ -1423,20 +1722,11 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
     )
     entity = (await db_session.execute(stmt)).scalar_one()
     aliases = (entity.content_json or {}).get("aliases", [])
-    assert aliases == [
-        {
-            "alias": "周明瑞",
-            "type": "name",
-            "status": "candidate",
-            "source": "deep_import",
-            "workflow_id": "wf-phase2b",
-            "scene_id": "scene-3",
-            "scene_index": 3,
-            "confidence": 0.91,
-            "quote": "周明瑞醒来时发现自己成了克莱恩。",
-            "needs_review": True,
-        }
-    ]
+    assert len(aliases) == 1
+    assert aliases[0]["alias"] == "周明瑞"
+    assert aliases[0]["status"] == "candidate"
+    assert aliases[0]["review_meta"]["identity_scope"] == "durable"
+    assert aliases[0]["review_meta"]["identity_basis"] == "正文明确说明身份"
 
     from modules.context.models import EvidenceLink
 
@@ -1458,25 +1748,35 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
     assert len(evidence) == 2
     assert {item.status for item in evidence} == {"needs_review"}
     assert {item.precision for item in evidence} == {"unresolved"}
-    assert {item.provenance["review_reason"] for item in evidence} == {
-        "invalid_scene_id",
-        "missing_quote",
-    }
+    assert {item.provenance["review_reason"] for item in evidence} == {"invalid_scene_id"}
 
 
 @pytest.mark.asyncio
-async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> None:
+async def test_phase2b_persistence_uses_frozen_refs_and_validates_novel_scope() -> None:
     svc = SceneEntityExtractionService()
     output = AliasRelationExtractionOutput(
         aliases=[
-            ExtractedAlias(entity_name="克莱恩", alias="周明瑞", confidence=0.91),
+            ExtractedAlias(
+                entity_ref="entity-001",
+                alias="周明瑞",
+                identity_scope="durable",
+                identity_basis="正文明确说明身份",
+                evidence_quotes=["周明瑞就是克莱恩"],
+                confidence=0.91,
+            ),
         ],
         relations=[
-            ExtractedRelation(
-                source_name="克莱恩",
-                target_name="梅丽莎",
+            Phase2bRelationObservation(
+                source_ref="entity-001",
+                target_ref="entity-002",
                 relation_type="sibling",
+                persistence_scope="enduring",
+                directionality="directed",
+                claim_status="established",
                 description="兄妹",
+                basis="正文关系说明",
+                evidence_quotes=["克莱恩照顾妹妹梅丽莎"],
+                confidence=0.9,
             )
         ],
     )
@@ -1484,15 +1784,10 @@ async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> N
 
     with (
         patch(
-            "modules.world.facade.find_working_entity_ids_by_names",
+            "modules.world.facade.list_entities",
             autospec=True,
-            return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
-        ) as mock_batch_resolve,
-        patch(
-            "modules.world.facade.find_working_entity_id_by_name",
-            autospec=True,
-            side_effect=AssertionError("phase2b should batch entity name resolution"),
-        ) as mock_single_resolve,
+            return_value=[{"id": "entity-1"}, {"id": "entity-2"}],
+        ) as mock_scope_entities,
         patch(
             "modules.world.facade.append_candidate_alias",
             autospec=True,
@@ -1516,12 +1811,24 @@ async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> N
             scene_index=3,
             workflow_id="wf-phase2b",
             scene_id="scene-3",
+            current_scene_text=("周明瑞就是克莱恩。克莱恩照顾妹妹梅丽莎。"),
+            context_bundle={
+                "identity_candidates": [
+                    {"prompt_ref": "entity-001", "name": "克莱恩", "aliases": []},
+                    {"prompt_ref": "entity-002", "name": "梅丽莎", "aliases": []},
+                ],
+                "_entity_ref_map": {
+                    "entity-001": "entity-1",
+                    "entity-002": "entity-2",
+                },
+                "_relation_ref_map": {},
+            },
         )
 
-    assert result == {"aliases": 1, "relations": 1}
-    mock_batch_resolve.assert_awaited_once()
-    assert set(mock_batch_resolve.await_args.args[2]) == {"克莱恩", "梅丽莎"}
-    mock_single_resolve.assert_not_awaited()
+    assert result["aliases"] == 1
+    assert result["relations"] == 1
+    assert result["uncertain_count"] == 0
+    mock_scope_entities.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1543,19 +1850,52 @@ async def test_phase2b_alias_append_is_idempotent_and_novel_scoped(
         db_session,
         ProjectCreate(title="Other Novel", language="zh"),
     )
-    await create_entity(
+    other_entity = await create_entity(
         db_session,
         str(other_project.id),
         {"name": "跨项目对象", "entity_type": "character", "status": "candidate"},
     )
     output = AliasRelationExtractionOutput(
         aliases=[
-            ExtractedAlias(entity_name="克莱恩", alias="周明瑞", confidence=0.8),
-            ExtractedAlias(entity_name="克莱恩", alias=" 周明瑞 ", confidence=0.7),
-            ExtractedAlias(entity_name="跨项目对象", alias="不应写入", confidence=0.9),
+            ExtractedAlias(
+                entity_ref="entity-001",
+                alias="周明瑞",
+                identity_scope="durable",
+                identity_basis="正文明确说明身份",
+                evidence_quotes=["周明瑞就是克莱恩"],
+                confidence=0.8,
+            ),
+            ExtractedAlias(
+                entity_ref="entity-001",
+                alias=" 周明瑞 ",
+                identity_scope="durable",
+                identity_basis="正文重复说明身份",
+                evidence_quotes=["周明瑞就是克莱恩"],
+                confidence=0.7,
+            ),
+            ExtractedAlias(
+                entity_ref="entity-002",
+                alias="不应写入",
+                identity_scope="durable",
+                identity_basis="恶意跨项目引用",
+                evidence_quotes=["跨项目对象又叫不应写入"],
+                confidence=0.9,
+            ),
         ],
         relations=[],
     )
+    context_bundle = {
+        "identity_candidates": [
+            {"prompt_ref": "entity-001", "name": "克莱恩", "aliases": []},
+            {"prompt_ref": "entity-002", "name": "跨项目对象", "aliases": []},
+        ],
+        "_entity_ref_map": {
+            "entity-001": entity["id"],
+            "entity-002": other_entity["id"],
+        },
+        "_relation_ref_map": {},
+    }
+    scene_text = "周明瑞就是克莱恩。跨项目对象又叫不应写入。"
 
     first = await svc._persist_alias_relation_output(
         db_session,
@@ -1564,6 +1904,8 @@ async def test_phase2b_alias_append_is_idempotent_and_novel_scoped(
         scene_index=3,
         workflow_id="wf-phase2b",
         scene_id="scene-3",
+        context_bundle=context_bundle,
+        current_scene_text=scene_text,
     )
     second = await svc._persist_alias_relation_output(
         db_session,
@@ -1572,10 +1914,16 @@ async def test_phase2b_alias_append_is_idempotent_and_novel_scoped(
         scene_index=3,
         workflow_id="wf-phase2b",
         scene_id="scene-3",
+        context_bundle=context_bundle,
+        current_scene_text=scene_text,
     )
 
-    assert first == {"aliases": 1, "relations": 0}
-    assert second == {"aliases": 0, "relations": 0}
+    assert first["aliases"] == 1
+    assert first["relations"] == 0
+    assert first["uncertain_count"] == 1
+    assert second["aliases"] == 0
+    assert second["relations"] == 0
+    assert second["uncertain_count"] == 1
 
     from sqlalchemy import select
 

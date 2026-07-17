@@ -1,7 +1,8 @@
 /**
  * 大纲视图
  *
- * 子标签：小说总纲 | 篇章纲 | 剧情线 | 场景卡 | 伏笔 | 揭示
+ * 子标签：小说总纲 | 篇章纲 | 剧情线 | 场景工作台
+ * 伏笔与揭示作为剧情线的信息推进子计划展示。
  */
 import {
   bulkResultMessage,
@@ -50,92 +51,21 @@ const REVEAL_STATUSES = ["draft", "planned", "revealed", "resolved", "abandoned"
 
 const FORESHADOWING_STATUS_LABELS = { draft: "工作稿", planted: "已埋下", triggered: "已触发", resolved: "已兑现", abandoned: "历史" }
 const REVEAL_STATUS_LABELS = { draft: "工作稿", planned: "计划中", revealed: "已揭示", resolved: "已解决", abandoned: "历史" }
+const P20_TARGET_LABELS = {
+  plot_thread: "剧情线",
+  outline_arc: "篇章纲",
+  planned_scene: "细纲",
+}
+const P20_TARGET_BY_SUBVIEW = {
+  threads: "plot_thread",
+  arcs: "outline_arc",
+  scenes: "planned_scene",
+}
 const STRUCTURE_FILTER_DEFAULTS = { status: "", source: "", workflow_id: "", needs_review: "", skip: 0, limit: 50 }
 const STRUCTURE_SOURCE_OPTIONS = [
   ["deep_import", "深度导入"],
   ["manual", "手动"],
   ["ai_generated", "AI 生成"],
-]
-
-const OUTLINE_PREVIEW_SECTIONS = [
-  {
-    key: "threads",
-    label: "剧情线",
-    fields: [
-      ["name", "名称", "text"],
-      ["summary", "摘要", "textarea"],
-      ["visible_goal", "表层目标", "textarea"],
-      ["hidden_truth", "隐藏真相", "textarea"],
-      ["start_chapter", "起始章节", "number"],
-      ["planned_payoff_chapter", "计划收束章节", "number"],
-    ],
-  },
-  {
-    key: "arcs",
-    label: "篇章纲",
-    fields: [
-      ["title", "标题", "text"],
-      ["arc_goal", "篇章目标", "textarea"],
-      ["core_conflict", "核心冲突", "textarea"],
-      ["start_chapter", "起始章节", "number"],
-      ["end_chapter", "结束章节", "number"],
-    ],
-  },
-  {
-    key: "scenes",
-    label: "Scene",
-    fields: [
-      ["title", "标题", "text"],
-      ["goal", "目标", "textarea"],
-      ["core_conflict", "核心冲突", "textarea"],
-      ["must_happen", "必须发生", "textarea"],
-      ["must_not_happen", "禁止发生", "textarea"],
-      ["chapter_start", "起始章节", "number"],
-      ["chapter_end", "结束章节", "number"],
-    ],
-  },
-  {
-    key: "foreshadowing_plans",
-    label: "伏笔",
-    fields: [
-      ["name", "名称", "text"],
-      ["summary", "摘要", "textarea"],
-      ["planned_seed_chapter", "计划埋下章节", "number"],
-      ["planned_payoff_chapter", "计划兑现章节", "number"],
-    ],
-  },
-  {
-    key: "reveal_plans",
-    label: "揭示",
-    fields: [
-      ["target_name", "揭示对象", "text"],
-      ["secret_summary", "秘密摘要", "textarea"],
-    ],
-  },
-  {
-    key: "offscreen_progress",
-    label: "幕后进展",
-    fields: [
-      ["thread_name", "关联剧情线", "text"],
-      ["offscreen_description", "幕后进展", "textarea"],
-    ],
-  },
-  {
-    key: "risks",
-    label: "风险",
-    fields: [
-      ["risk_type", "风险类型", "text"],
-      ["description", "说明", "textarea"],
-    ],
-  },
-  {
-    key: "questions_for_user",
-    label: "待作者决定",
-    fields: [
-      ["question", "问题", "textarea"],
-      ["context", "背景", "textarea"],
-    ],
-  },
 ]
 
 const outlineView = {
@@ -144,8 +74,9 @@ const outlineView = {
   _scenes: [],
   _foreshadowing: [],
   _reveals: [],
+  _unassignedForeshadowing: [],
+  _unassignedReveals: [],
   _loading: true,
-  _generateOverlap: { threadCount: 0, arcCount: 0, rangeKey: "" },
   _structureFilters: {},
   _structureTotals: {
     threads: 0,
@@ -184,6 +115,8 @@ const outlineView = {
     this._arcs = []
     this._foreshadowing = []
     this._reveals = []
+    this._unassignedForeshadowing = []
+    this._unassignedReveals = []
     this._structureTotals = {
       threads: 0,
       arcs: 0,
@@ -193,6 +126,7 @@ const outlineView = {
     clearAllBulkSelections(this)
 
     const subView = state.currentSubView || "story-outline"
+    this._syncOutlineGenerateTarget()
     delete this._structureLoadErrors[subView]
     if (subView === "scenes") {
       if (this._storyOutlineActive) {
@@ -202,6 +136,7 @@ const outlineView = {
       this._sceneWorkbenchActive = true
       this._loading = false
       await sceneWorkbenchView.onEnter()
+      this._recoverOutlineGenerateWorkflow()
       return
     }
     if (this._sceneWorkbenchActive) {
@@ -226,8 +161,8 @@ const outlineView = {
 
     const fetchThreads = subView === "threads"
     const fetchArcs = subView === "arcs"
-    const fetchForeshadowing = subView === "foreshadowing"
-    const fetchReveals = subView === "reveals"
+    const fetchForeshadowing = subView === "threads"
+    const fetchReveals = subView === "threads"
     const filterParams = this._structureFilterParams(subView)
 
     const promises = []
@@ -267,35 +202,51 @@ const outlineView = {
     }
     if (fetchForeshadowing) {
       promises.push(
-        api.outline.listForeshadowing(state.currentProjectId, filterParams)
-          .then((data) => {
+        Promise.all([
+          this._loadAllOutlineItems((params) => (
+            api.outline.listForeshadowing(state.currentProjectId, params)
+          )),
+          this._loadAllOutlineItems((params) => (
+            api.outline.listForeshadowing(state.currentProjectId, params)
+          ), { unassigned: true }),
+        ])
+          .then(([data, unassigned]) => {
             if (!isCurrentLoad()) return
             const items = data.items || data || []
             this._foreshadowing = items
+            this._unassignedForeshadowing = unassigned.items || unassigned || []
             this._structureTotals.foreshadowing = Number(data.total ?? this._foreshadowing.length) || 0
           })
           .catch((err) => {
             if (!isCurrentLoad()) return
             this._foreshadowing = []
             this._structureTotals.foreshadowing = 0
-            this._setStructureLoadError("foreshadowing", err)
+            this._setStructureLoadError("threads", err)
           })
       )
     }
     if (fetchReveals) {
       promises.push(
-        api.outline.listReveals(state.currentProjectId, filterParams)
-          .then((data) => {
+        Promise.all([
+          this._loadAllOutlineItems((params) => (
+            api.outline.listReveals(state.currentProjectId, params)
+          )),
+          this._loadAllOutlineItems((params) => (
+            api.outline.listReveals(state.currentProjectId, params)
+          ), { unassigned: true }),
+        ])
+          .then(([data, unassigned]) => {
             if (!isCurrentLoad()) return
             const items = data.items || data || []
             this._reveals = items
+            this._unassignedReveals = unassigned.items || unassigned || []
             this._structureTotals.reveals = Number(data.total ?? this._reveals.length) || 0
           })
           .catch((err) => {
             if (!isCurrentLoad()) return
             this._reveals = []
             this._structureTotals.reveals = 0
-            this._setStructureLoadError("reveals", err)
+            this._setStructureLoadError("threads", err)
           })
       )
     }
@@ -328,13 +279,16 @@ const outlineView = {
   onActivate() {
     // KeepAlive 恢复后重新绑定事件（DOM 来自缓存，事件监听器可能丢失）
     this._syncOutlineAnalysisProject()
+    this._syncOutlineGenerateTarget()
     if (state.currentSubView === "scenes") {
       this._sceneWorkbenchActive = true
       sceneWorkbenchView.onActivate()
+      this._recoverOutlineGenerateWorkflow()
     } else if (state.currentSubView === "story-outline") {
       this._storyOutlineActive = true
       storyOutlineView.onActivate()
     } else {
+      this._recoverOutlineGenerateWorkflow()
       this._recoverOutlineAnalysisWorkflow()
       this._bindEvents()
     }
@@ -380,8 +334,6 @@ const outlineView = {
     if (subView === "story-outline") return `小说总纲${this._renderProjectChip()}`
     if (subView === "threads") return `剧情线 <span class="view-header__count">共 ${esc(this._structureTotals.threads)} 个</span>${this._renderProjectChip()}`
     if (subView === "arcs") return `篇章纲 <span class="view-header__count">共 ${esc(this._structureTotals.arcs)} 个</span>${this._renderProjectChip()}`
-    if (subView === "foreshadowing") return `伏笔 <span class="view-header__count">共 ${esc(this._structureTotals.foreshadowing)} 个</span>${this._renderProjectChip()}`
-    if (subView === "reveals") return `揭示 <span class="view-header__count">共 ${esc(this._structureTotals.reveals)} 个</span>${this._renderProjectChip()}`
     return ""
   },
 
@@ -395,6 +347,7 @@ const outlineView = {
     if (subView === "threads") {
       return `
         <button class="btn btn-sm btn-primary" data-action="create-thread">新建剧情线</button>
+        <button class="btn btn-sm" data-action="ai-create-plot-thread">AI 创作剧情线</button>
         ${analyzeOutline}
         ${plotAutoExtract}
       `
@@ -402,20 +355,7 @@ const outlineView = {
     if (subView === "arcs") {
       return `
         <button class="btn btn-sm btn-primary" data-action="create-arc">新建篇章纲</button>
-        ${analyzeOutline}
-        ${plotAutoExtract}
-      `
-    }
-    if (subView === "foreshadowing") {
-      return `
-        <button class="btn btn-sm btn-primary" data-action="create-foreshadowing">新建伏笔</button>
-        ${analyzeOutline}
-        ${plotAutoExtract}
-      `
-    }
-    if (subView === "reveals") {
-      return `
-        <button class="btn btn-sm btn-primary" data-action="create-reveal">新建揭示</button>
+        <button class="btn btn-sm" data-action="ai-create-outline-arc">AI 创作篇章纲</button>
         ${analyzeOutline}
         ${plotAutoExtract}
       `
@@ -431,8 +371,6 @@ const outlineView = {
           <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
           <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
           <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
-          <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
-          <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
           ${sceneWorkbenchView.renderHeaderActions()}
         </div>
       `
@@ -444,8 +382,6 @@ const outlineView = {
           <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
           <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
           <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
-          <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
-          <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
         </div>
         <div class="view-header__tail">
           <span class="view-header__title">${this._renderOutlineHeaderTitle(subView)}</span>
@@ -466,6 +402,7 @@ const outlineView = {
     html += this._renderOutlineHeader(subView)
 
     if (subView === "scenes") {
+      html += this._renderOutlineGenerateProgress()
       html += await sceneWorkbenchView.render()
     } else if (subView === "story-outline") {
       html += await storyOutlineView.render()
@@ -477,10 +414,6 @@ const outlineView = {
       html += this._renderThreads()
     } else if (subView === "arcs") {
       html += this._renderArcs()
-    } else if (subView === "foreshadowing") {
-      html += this._renderForeshadowing()
-    } else if (subView === "reveals") {
-      html += this._renderReveals()
     }
 
     if (subView === "scenes") return `<div class="outline-scene-layout">${html}</div>`
@@ -494,14 +427,20 @@ const outlineView = {
       storyOutlineView.onRendered()
     } else {
       this._bindEvents()
+      if (
+        state.currentSubView === "threads"
+        && router.getCurrentQuery?.().get("information")
+      ) {
+        document.getElementById("outline-thread-information")?.scrollIntoView?.({ block: "start" })
+      }
     }
   },
 
   _renderOutlineGenerateProgress() {
     if (!this._outlineGenerateProgress) return ""
     const rangeText = this._outlineGenerateMeta
-      ? `范围: 章节 ${this._outlineGenerateMeta.start_chapter || 1}-${this._outlineGenerateMeta.end_chapter || 10}`
-      : "范围: 所选章节"
+      ? `${this._outlineGenerateMeta.mode === "revise" ? "修订所选" : "新增设计"}${this._outlineGenerateMeta.start_chapter ? ` · 第 ${this._outlineGenerateMeta.start_chapter}-${this._outlineGenerateMeta.end_chapter || this._outlineGenerateMeta.start_chapter} 章` : ""}`
+      : "当前层创作"
     const reviewAction = this._outlineGeneratePreview
       ? `<div class="outline-preview-ready" role="status">
           <span>建议尚未写入工作结构。请先检查和编辑，再明确采用。</span>
@@ -509,7 +448,7 @@ const outlineView = {
         </div>`
       : ""
     return `<div class="outline-progress-card-wrap">${renderWorkflowCard(this._outlineGenerateProgress, {
-      title: "剧情结构建议",
+      title: `${this._outlineGenerateMeta?.label || "当前层"}建议`,
       destinationLabel: rangeText,
     })}${reviewAction}</div>`
   },
@@ -519,10 +458,40 @@ const outlineView = {
     this._outlineGeneratePoller = null
   },
 
+  _renderOutlineGenerateTerminalInPlace() {
+    const current = typeof document !== "undefined"
+      ? document.querySelector(".outline-progress-card-wrap")
+      : null
+    if (current) {
+      current.outerHTML = this._renderOutlineGenerateProgress()
+      this._bindEvents()
+      return
+    }
+    // Recovery polling may finish while the route is still performing its
+    // initial render. Defer the fallback so it is not coalesced into that pass.
+    setTimeout(() => router.renderCurrentView(), 0)
+  },
+
   _recoverOutlineGenerateWorkflow() {
     if (!state.currentProjectId || this._outlineGeneratePreview || this._outlineGeneratePoller) return
+    const currentTarget = this._currentP20Target()
+    if (!currentTarget) return
     const workflow = recoverActiveWorkflows(state.currentProjectId)
-      .find((item) => item.workflowType === "outline_generate")
+      .filter((item) => {
+        if (item.workflowType !== "outline_generate") return false
+        const target = item.meta?.target
+        // v1 and early v2 entries had no target and represented plot-structure
+        // work. Preserve their recovery path only on the PlotThread page.
+        return target ? target === currentTarget : currentTarget === "plot_thread"
+      })
+      .reduce((latest, item) => {
+        if (!latest) return item
+        const latestTime = Date.parse(latest.updatedAt || latest.createdAt || "") || 0
+        const itemTime = Date.parse(item.updatedAt || item.createdAt || "") || 0
+        // Later persisted entries win ties so a newly submitted task cannot be
+        // hidden behind an older, still-unapplied preview after page refresh.
+        return itemTime >= latestTime ? item : latest
+      }, null)
     if (!workflow?.taskId) return
     this._outlineGenerateTaskId = workflow.taskId
     this._outlineGenerateMeta = { ...(workflow.meta || {}) }
@@ -544,28 +513,31 @@ const outlineView = {
       apiClient: api,
       onUpdate: (progress) => {
         this._outlineGenerateProgress = progress
-        router.renderCurrentView()
+        // Terminal rendering belongs to onDone/onFailed after they capture the
+        // preview or error state. Rendering here first can make the router
+        // coalesce the second render and leave the adopt button invisible.
+        if (!progress.terminal) router.renderCurrentView()
       },
       onDone: (progress, task) => {
         this._outlineGeneratePoller = null
         this._outlineGenerateProgress = progress
         const preview = this._captureOutlineGeneratePreview(task, progress)
         if (preview) {
-          toast("剧情结构建议已生成，请检查后再采用", "info")
+          toast(`${P20_TARGET_LABELS[preview.target] || "结构"}建议已生成，请检查后再采用`, "info")
         } else {
           clearActiveWorkflow(progress.taskId || taskId)
           this._outlineGenerateTaskId = null
-          toast("剧情结构生成完成，但没有可采用的建议", "info")
+          toast("当前层创作完成，但没有可采用的建议", "info")
         }
-        router.renderCurrentView()
+        this._renderOutlineGenerateTerminalInPlace()
       },
       onFailed: (progress) => {
         this._outlineGeneratePoller = null
         this._outlineGenerateProgress = progress
         clearActiveWorkflow(progress.taskId || taskId)
         this._outlineGenerateTaskId = null
-        toast(`剧情结构建议生成失败: ${progress.errorMessage || "未知错误"}`, "error")
-        router.renderCurrentView()
+        toast(`${this._outlineGenerateMeta?.label || "当前层"}建议生成失败: ${progress.errorMessage || "未知错误"}`, "error")
+        this._renderOutlineGenerateTerminalInPlace()
       },
     })
   },
@@ -592,6 +564,9 @@ const outlineView = {
       contextConfirmationId,
       draftStructure: JSON.parse(JSON.stringify(result.draft_structure)),
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      target: result.target || this._outlineGenerateMeta?.target,
+      mode: result.mode || this._outlineGenerateMeta?.mode,
+      overlap: result.overlap || {},
     }
     return this._outlineGeneratePreview
   },
@@ -602,6 +577,32 @@ const outlineView = {
     this._outlineGenerateProgress = null
     this._outlineGenerateMeta = null
     this._outlineGeneratePreview = null
+  },
+
+  _currentP20Target() {
+    return P20_TARGET_BY_SUBVIEW[state.currentSubView || "story-outline"] || null
+  },
+
+  _syncOutlineGenerateTarget() {
+    const currentTarget = this._currentP20Target()
+    const activeTarget = this._outlineGeneratePreview?.target
+      || this._outlineGenerateMeta?.target
+      // Target-less persisted workflows predate the layered P20 UI and belong
+      // to the former plot-structure/PlotThread surface.
+      || (this._outlineGenerateTaskId || this._outlineGenerateProgress ? "plot_thread" : null)
+    if (activeTarget && activeTarget !== currentTarget) {
+      // Keep the persisted workflow so returning to its own page resumes it.
+      this._resetOutlineGenerateState()
+    }
+  },
+
+  _clearOutlineGenerateWorkflowsForTarget(target) {
+    if (!target) return
+    for (const workflow of recoverActiveWorkflows(state.currentProjectId)) {
+      if (workflow.workflowType !== "outline_generate") continue
+      const workflowTarget = workflow.meta?.target || "plot_thread"
+      if (workflowTarget === target) clearActiveWorkflow(workflow.taskId || workflow.id)
+    }
   },
 
   _stopOutlineAnalysisPolling() {
@@ -846,6 +847,31 @@ const outlineView = {
     return params
   },
 
+  async _loadAllOutlineItems(fetchPage, baseParams = {}) {
+    const items = []
+    const pageSize = 50
+    let skip = 0
+    let total = Number.POSITIVE_INFINITY
+    while (skip < total) {
+      const result = await fetchPage({ ...baseParams, skip, limit: pageSize })
+      const pageItems = Array.isArray(result?.items)
+        ? result.items
+        : (Array.isArray(result) ? result : [])
+      items.push(...pageItems)
+      const serverTotal = Number(result?.total)
+      total = Number.isFinite(serverTotal) && serverTotal >= 0
+        ? serverTotal
+        : items.length
+      if (!pageItems.length) break
+      skip += pageItems.length
+      if (!Number.isFinite(serverTotal) && pageItems.length < pageSize) break
+    }
+    return {
+      items,
+      total: Number.isFinite(total) ? total : items.length,
+    }
+  },
+
   _structureStatusOptions(subView) {
     if (subView === "foreshadowing") {
       return FORESHADOWING_STATUSES.map((status) => [status, FORESHADOWING_STATUS_LABELS[status] || status])
@@ -955,6 +981,18 @@ const outlineView = {
     return `<button class="btn btn-sm ${primary}" data-action="mark-thread-reviewed" data-id="${esc(id)}">${label}</button>`
   },
 
+  _renderArcReviewAction(arc) {
+    const id = arc?.id || arc?.arc_id
+    if (!id) return ""
+    const review = this._structureReviewState(arc)
+    if (review.reviewed) return ""
+    const display = structureAssetDisplay(arc)
+    if (display.displayState === "active" && !review.needsReview) return ""
+    const primary = review.needsReview ? "btn-primary" : ""
+    const label = display.displayState === "active" ? "标记已检查" : "采用"
+    return `<button class="btn btn-sm ${primary}" data-action="mark-arc-reviewed" data-id="${esc(id)}">${label}</button>`
+  },
+
   _reviewThreadPayload(thread, reviewedFrom) {
     const meta = {
       ...this._assetProvenance(thread),
@@ -1030,7 +1068,7 @@ const outlineView = {
   },
 
   _plotAutoExtractLabel(subView = state.currentSubView || "threads") {
-    return subView === "arcs" ? "篇章纲自动提取" : "剧情线自动提取"
+    return subView === "arcs" ? "从正文提取篇章纲" : "从正文提取剧情线"
   },
 
   _renderPlotAutoExtractAction(subView = state.currentSubView || "threads") {
@@ -1063,13 +1101,19 @@ const outlineView = {
     }
     if (this._outlineGenerateProgress) {
       const rangeText = this._outlineGenerateMeta
-        ? `范围: 章节 ${this._outlineGenerateMeta.start_chapter || 1}-${this._outlineGenerateMeta.end_chapter || 10}`
-        : "范围: 所选章节"
-      parts.push(renderWorkflowCard(this._outlineGenerateProgress, {
-        title: "剧情结构建议",
+        ? `${this._outlineGenerateMeta.mode === "revise" ? "修订所选" : "新增设计"}${this._outlineGenerateMeta.start_chapter ? ` · 第 ${this._outlineGenerateMeta.start_chapter}-${this._outlineGenerateMeta.end_chapter || this._outlineGenerateMeta.start_chapter} 章` : ""}`
+        : "当前层创作"
+      const reviewAction = this._outlineGeneratePreview
+        ? `<div class="outline-preview-ready" role="status">
+            <span>建议尚未写入工作结构。请先检查和编辑，再明确采用。</span>
+            <button class="btn btn-sm btn-primary" data-action="view-outline-generate-preview">查看并采用</button>
+          </div>`
+        : ""
+      parts.push(`<div class="outline-progress-card-wrap">${renderWorkflowCard(this._outlineGenerateProgress, {
+        title: `${this._outlineGenerateMeta?.label || "当前层"}建议`,
         destinationLabel: rangeText,
         className: "outline-progress-mini",
-      }))
+      })}${reviewAction}</div>`)
     }
     if (this._plotAutoExtractProgress) {
       const rangeText = this._plotAutoExtractMeta
@@ -1106,7 +1150,7 @@ const outlineView = {
     let html = this._renderOutlineToolbar() + this._renderStructureFilters("threads")
 
     if (this._threads.length === 0) {
-      return html + this._renderStructureEmptyState("剧情线", "threads")
+      return html + this._renderStructureEmptyState("剧情线", "threads") + this._renderThreadInformationProgression()
     }
     const scope = "outline-threads"
     const ids = this._threads.map((item) => item.id || item.thread_id).filter(Boolean)
@@ -1158,7 +1202,89 @@ const outlineView = {
 
     html += "</tbody></table>"
     html += this._renderStructurePagination("threads")
+    html += this._renderThreadInformationProgression()
     return html
+  },
+
+  _informationMovementId(plan) {
+    return plan?.provenance_meta?.information_movement_id || `legacy:${plan?.id || "unknown"}`
+  },
+
+  _informationPlanChapter(plan, kind) {
+    if (kind === "foreshadowing") {
+      return plan.planned_seed_chapter || plan.planned_payoff_chapter || null
+    }
+    const chapters = (plan.reveal_stages || []).map((stage) => stage.chapter_index).filter(Boolean)
+    return chapters.length ? Math.min(...chapters) : null
+  },
+
+  _renderInformationPlan(plan, kind) {
+    const chapter = this._informationPlanChapter(plan, kind)
+    const label = kind === "foreshadowing" ? "暗示 / 兑现" : "局部 / 完整揭示"
+    const content = kind === "foreshadowing"
+      ? (plan.summary || plan.hidden_meaning || plan.name)
+      : plan.secret_summary
+    return `<li class="outline-information-node">
+      <span class="badge">${esc(label)}</span>
+      ${chapter ? `<span class="outline-asset-mono">第 ${esc(chapter)} 章</span>` : ""}
+      <span>${esc(content || "未填写内容")}</span>
+    </li>`
+  },
+
+  _threadInformationPlans(threadId) {
+    const belongs = (plan) => (plan.related_thread_ids || []).includes(threadId)
+    return [
+      ...this._foreshadowing.filter(belongs).map((plan) => ({ kind: "foreshadowing", plan })),
+      ...this._reveals.filter(belongs).map((plan) => ({ kind: "reveal", plan })),
+    ].sort((left, right) => (
+      (this._informationPlanChapter(left.plan, left.kind) || Number.MAX_SAFE_INTEGER)
+      - (this._informationPlanChapter(right.plan, right.kind) || Number.MAX_SAFE_INTEGER)
+    ))
+  },
+
+  _renderInformationAssignment(plan, kind) {
+    const options = this._threads.map((thread) => {
+      const id = thread.id || thread.thread_id
+      return `<option value="${esc(id)}">${esc(thread.name || thread.title || id)}</option>`
+    }).join("")
+    return `<li class="outline-information-unassigned">
+      <span>${esc(kind === "foreshadowing" ? (plan.name || plan.summary) : plan.secret_summary)}</span>
+      <select class="form-select" data-role="information-thread-assignment" data-kind="${esc(kind)}" data-id="${esc(plan.id)}">
+        <option value="">选择剧情线…</option>${options}
+      </select>
+    </li>`
+  },
+
+  _renderThreadInformationProgression() {
+    const timelines = this._threads.map((thread) => {
+      const threadId = thread.id || thread.thread_id
+      const plans = this._threadInformationPlans(threadId)
+      const movements = new Map()
+      plans.forEach(({ kind, plan }) => {
+        const movementId = this._informationMovementId(plan)
+        if (!movements.has(movementId)) movements.set(movementId, [])
+        movements.get(movementId).push({ kind, plan })
+      })
+      return `<details class="outline-preview-section" ${plans.length ? "" : "open"}>
+        <summary>${esc(thread.name || thread.title || "剧情线")} · 信息推进 ${esc(movements.size)}</summary>
+        ${movements.size
+    ? Array.from(movements.values()).map((items) => `<ol class="outline-information-timeline">${items.map(({ kind, plan }) => this._renderInformationPlan(plan, kind)).join("")}</ol>`).join("")
+    : '<p class="writing-form-hint">尚未设计隐藏、暗示、局部揭示或兑现。</p>'}
+      </details>`
+    }).join("")
+    const unassigned = [
+      ...this._unassignedForeshadowing.map((plan) => ({ kind: "foreshadowing", plan })),
+      ...this._unassignedReveals.map((plan) => ({ kind: "reveal", plan })),
+    ]
+    return `<section class="outline-information-progress" id="outline-thread-information">
+      <h3>信息推进</h3>
+      <p class="writing-form-hint">伏笔与揭示在这里按同一条信息运动统一查看；底层计划仍供写作与上下文流程使用。</p>
+      ${timelines || '<p class="writing-form-hint">创建剧情线后可设计信息推进。</p>'}
+      <details class="outline-preview-section" ${unassigned.length ? "open" : ""}>
+        <summary>未归入剧情线（${esc(unassigned.length)}）</summary>
+        ${unassigned.length ? `<ul>${unassigned.map(({ kind, plan }) => this._renderInformationAssignment(plan, kind)).join("")}</ul>` : '<p class="writing-form-hint">没有未归类计划。</p>'}
+      </details>
+    </section>`
   },
 
   _renderArcs() {
@@ -1176,6 +1302,7 @@ const outlineView = {
     reconcileBulkSelection(this, scope, ids)
 
     html += renderBulkToolbar(this, scope, [
+      { action: "review-arcs", label: "批量采用 / 标记已检查", className: "btn-primary" },
       { action: "delete-arcs", label: "批量删除", className: "btn-danger" },
     ], { noun: "篇章纲" }) + `
       <table class="data-table table-card-list">
@@ -1211,6 +1338,7 @@ const outlineView = {
           <td data-label="标记">${this._renderStructureAssetBadges(a) || "-"}</td>
           <td data-label="描述" class="outline-asset-description">${esc(this._arcDescription(a))}</td>
           <td data-label="操作">
+            ${this._renderArcReviewAction(a)}
             <button class="btn btn-sm btn-primary" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
             ${renderActionMenu(`arc-actions-${esc(a.id || a.arc_id)}`, [
               { action: "delete-arc", label: "删除", class: "danger", data: { id: a.id || a.arc_id } },
@@ -1730,11 +1858,11 @@ const outlineView = {
       </div>
       <div class="form-group">
         <label>起始章节</label>
-        <input class="form-input" id="edit-arc-start" type="number" min="1" value="${arc.start_chapter || 1}" />
+        <input class="form-input" id="edit-arc-start" type="number" min="1" value="${arc.start_chapter ?? ""}" placeholder="未定" />
       </div>
       <div class="form-group">
         <label>结束章节</label>
-        <input class="form-input" id="edit-arc-end" type="number" min="1" value="${arc.end_chapter || 10}" />
+        <input class="form-input" id="edit-arc-end" type="number" min="1" value="${arc.end_chapter ?? ""}" placeholder="未定" />
       </div>
       <div class="form-group">
         <label>描述</label>
@@ -1746,8 +1874,8 @@ const outlineView = {
         try {
           await api.outline.updateArc(id, state.currentProjectId, {
             title: document.getElementById("edit-arc-name")?.value?.trim(),
-            start_chapter: parseInt(document.getElementById("edit-arc-start")?.value || "1", 10),
-            end_chapter: parseInt(document.getElementById("edit-arc-end")?.value || "10", 10),
+            start_chapter: this._optionalPositiveInteger("edit-arc-start", "起始章节"),
+            end_chapter: this._optionalPositiveInteger("edit-arc-end", "结束章节"),
             arc_goal: document.getElementById("edit-arc-desc")?.value?.trim(),
           })
           toast("已保存", "success")
@@ -1755,6 +1883,33 @@ const outlineView = {
         } catch (err) { toast(err.message || "保存失败", "error") }
       },
     }])
+  },
+
+  _optionalPositiveInteger(inputId, label) {
+    const raw = document.getElementById(inputId)?.value?.trim() || ""
+    if (!raw) return null
+    const value = Number(raw)
+    if (!Number.isInteger(value) || value < 1) throw new Error(`${label}必须是正整数或留空`)
+    return value
+  },
+
+  _findArc(id) {
+    return this._arcs.find((arc) => (arc.id || arc.arc_id) === id) || null
+  },
+
+  async _markArcReviewed(id) {
+    const arc = this._findArc(id)
+    if (!arc) {
+      toast("未找到目标篇章纲", "error")
+      return
+    }
+    await api.outline.updateArc(
+      id,
+      state.currentProjectId,
+      this._reviewThreadPayload(arc, "outline_arcs"),
+    )
+    toast(structureAssetDisplay(arc).displayState === "active" ? "篇章纲已标记为已检查" : "篇章纲已采用", "success")
+    await this._refreshCurrentSubViewInPlace()
   },
 
   _deleteArc(id) {
@@ -1928,74 +2083,34 @@ const outlineView = {
     }
   },
 
-  _renderOutlineGeneratePreviewField(sectionKey, index, field) {
-    const [fieldKey, label, type] = field
-    const item = this._outlineGeneratePreview?.draftStructure?.[sectionKey]?.[index] || {}
-    const value = item[fieldKey] ?? ""
-    const attrs = `data-outline-preview-key="${esc(sectionKey)}" data-outline-preview-index="${esc(index)}" data-outline-preview-field="${esc(fieldKey)}" data-outline-preview-type="${esc(type)}"`
-    if (type === "textarea") {
-      return `<label>${esc(label)}<textarea class="form-textarea" rows="2" ${attrs}>${esc(value)}</textarea></label>`
-    }
-    return `<label>${esc(label)}<input class="form-input" type="${type === "number" ? "number" : "text"}" value="${esc(value)}" ${attrs} /></label>`
-  },
-
-  _renderOutlineGeneratePreviewSection(section, sectionIndex) {
-    const items = this._outlineGeneratePreview?.draftStructure?.[section.key] || []
-    if (!items.length) return ""
-    return `
-      <details class="outline-preview-section" ${sectionIndex < 3 ? "open" : ""}>
-        <summary>${esc(section.label)}（${esc(items.length)}）</summary>
-        <div class="outline-preview-items">
-          ${items.map((item, index) => {
-            const title = item.name || item.title || item.target_name || item.thread_name || item.risk_type || item.question || `${section.label} ${index + 1}`
-            return `<section class="outline-preview-item">
-              <h4>${esc(title)}</h4>
-              <div class="outline-preview-fields">
-                ${section.fields.map((field) => this._renderOutlineGeneratePreviewField(section.key, index, field)).join("")}
-              </div>
-            </section>`
-          }).join("")}
-        </div>
-      </details>
-    `
-  },
-
-  _outlinePreviewAttentionText(item) {
-    if (typeof item === "string") return item
-    if (!item || typeof item !== "object") return String(item ?? "")
-    return item.summary || item.description || item.question || item.title || item.name || "有一项需要作者判断"
-  },
-
   _renderOutlineGeneratePreview() {
     const preview = this._outlineGeneratePreview
     if (!preview) return ""
     const draft = preview.draftStructure || {}
-    const counts = OUTLINE_PREVIEW_SECTIONS
-      .map((section) => [section.label, Array.isArray(draft[section.key]) ? draft[section.key].length : 0])
-      .filter(([, count]) => count > 0)
-    const attentionItems = [
-      ...(preview.warnings || []),
-      ...(Array.isArray(draft.uncertain_items) ? draft.uncertain_items.map((item) => this._outlinePreviewAttentionText(item)) : []),
-    ].filter(Boolean)
+    const targetLabel = P20_TARGET_LABELS[preview.target] || "结构"
+    const overlaps = preview.overlap?.[preview.target === "plot_thread" ? "plot_threads" : preview.target === "outline_arc" ? "outline_arcs" : "scenes"] || []
     return `
       <div class="outline-generate-preview">
         <div class="outline-preview-notice">
-          <strong>待处理建议</strong>
-          <p>这里的内容尚未写入工作结构。你可以先修改，再点击“采用到工作结构”。</p>
-          <p>${counts.length ? counts.map(([label, count]) => `${esc(label)} ${esc(count)}`).join(" · ") : "没有结构条目"}</p>
+          <strong>${esc(targetLabel)}待处理建议</strong>
+          <p>这里只包含当前层资产。JSON 可完整编辑；采用时会再次按严格契约、所选资产和上下文指纹校验。</p>
+          <p>模式：${preview.mode === "revise" ? "修订所选" : "新增设计"} · 当前层已有 ${esc(overlaps.length)} 项可能重叠资产</p>
         </div>
-        ${attentionItems.length ? `<section class="outline-preview-attention"><h4>需要注意</h4><ul>${attentionItems.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></section>` : ""}
-        ${OUTLINE_PREVIEW_SECTIONS.map((section, index) => this._renderOutlineGeneratePreviewSection(section, index)).join("")}
+        ${(preview.warnings || []).length ? `<section class="outline-preview-attention"><h4>需要注意</h4><ul>${preview.warnings.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></section>` : ""}
+        ${overlaps.length ? `<details class="outline-preview-section"><summary>重叠范围</summary><ul>${overlaps.map((item) => `<li>${esc(item.name || item.title || item.ref)}</li>`).join("")}</ul></details>` : ""}
+        <label class="form-group">完整结构化预览
+          <textarea class="form-textarea outline-preview-json" id="outline-layer-preview-json" rows="28" spellcheck="false">${esc(JSON.stringify(draft, null, 2))}</textarea>
+        </label>
       </div>
     `
   },
 
   _showOutlineGeneratePreview() {
     if (!this._outlineGeneratePreview) {
-      toast("当前没有可采用的剧情结构建议", "warning")
+      toast("当前没有可采用的当前层建议", "warning")
       return
     }
-    showModalHtml("剧情结构建议预览", this._renderOutlineGeneratePreview(), [
+    showModalHtml(`${P20_TARGET_LABELS[this._outlineGeneratePreview.target] || "结构"}建议预览`, this._renderOutlineGeneratePreview(), [
       {
         text: "采用到工作结构",
         class: "btn-primary",
@@ -2006,24 +2121,15 @@ const outlineView = {
   },
 
   _collectEditedOutlineGeneratePreview() {
-    const draft = JSON.parse(JSON.stringify(this._outlineGeneratePreview?.draftStructure || {}))
-    document.querySelectorAll("[data-outline-preview-key]").forEach((field) => {
-      const key = field.dataset.outlinePreviewKey
-      const index = Number(field.dataset.outlinePreviewIndex)
-      const fieldKey = field.dataset.outlinePreviewField
-      if (!Array.isArray(draft[key]) || !draft[key][index] || !fieldKey) return
-      if (field.dataset.outlinePreviewType === "number") {
-        const raw = field.value.trim()
-        const number = raw === "" ? null : Number(raw)
-        if (number !== null && (!Number.isInteger(number) || number < 1)) {
-          throw new Error("章节编号必须是正整数")
-        }
-        draft[key][index][fieldKey] = number
-      } else {
-        draft[key][index][fieldKey] = field.value.trim()
-      }
-    })
-    return draft
+    const raw = document.getElementById("outline-layer-preview-json")?.value
+    if (!raw) return JSON.parse(JSON.stringify(this._outlineGeneratePreview?.draftStructure || {}))
+    try {
+      const parsed = JSON.parse(raw)
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error()
+      return parsed
+    } catch {
+      throw new Error("预览必须是有效的 JSON 对象")
+    }
   },
 
   async _applyOutlineGeneratePreview() {
@@ -2037,6 +2143,14 @@ const outlineView = {
         draft_structure: this._collectEditedOutlineGeneratePreview(),
         confirmed: true,
       })
+      const appliedTarget = response?.target
+        || preview.target
+        || this._outlineGenerateMeta?.target
+        || "plot_thread"
+      // Applying one preview changes the current layer's source fingerprints;
+      // every older unapplied preview for that same layer is now stale. Do not
+      // let it resurface after the current workflow is cleared.
+      this._clearOutlineGenerateWorkflowsForTarget(appliedTarget)
       clearActiveWorkflow(preview.sourceTaskId)
       this._resetOutlineGenerateState()
       const counts = [
@@ -2044,7 +2158,7 @@ const outlineView = {
         response?.total_arcs != null ? `篇章纲 ${response.total_arcs}` : "",
         response?.total_scenes != null ? `Scene ${response.total_scenes}` : "",
       ].filter(Boolean).join(" · ")
-      toast(`剧情结构已采用${counts ? `：${counts}` : ""}`, "success")
+      toast(`${P20_TARGET_LABELS[response?.target] || "结构"}已采用${counts ? `：${counts}` : ""}`, "success")
       await this.onEnter()
       router.refresh()
       return response
@@ -2054,19 +2168,34 @@ const outlineView = {
     }
   },
 
-  async _generateStructure(startChapter, endChapter) {
+  async _generateOutlineLayer({ target, mode, instruction, selectedIds, startChapter, endChapter }) {
     try {
+      const label = P20_TARGET_LABELS[target]
+      const selectionContext = target === "plot_thread"
+        ? { thread_ids: selectedIds }
+        : target === "outline_arc"
+          ? { arc_id: selectedIds[0] || null }
+          : { scene_id: selectedIds[0] || null }
       const confirmation = await confirmAiReference({
         novel_id: state.currentProjectId,
         action: "outline.generate",
-        task: "剧情结构生成",
+        task: `AI 创作${label}`,
         scope: "full",
         chapter_index: startChapter,
+        budget_tokens: 0,
         include_pending_objects: false,
+        ...selectionContext,
       })
       const result = await api.outline.generate({
+        contract_version: "outline_layer_v2",
         novel_id: state.currentProjectId,
         context_confirmation_id: confirmation.id,
+        target,
+        mode,
+        instruction,
+        selected_thread_ids: target === "plot_thread" ? selectedIds : [],
+        selected_arc_ids: target === "outline_arc" ? selectedIds : [],
+        selected_scene_ids: target === "planned_scene" ? selectedIds : [],
         start_chapter: startChapter,
         end_chapter: endChapter,
       })
@@ -2076,6 +2205,9 @@ const outlineView = {
         start_chapter: startChapter,
         end_chapter: endChapter,
         context_confirmation_id: confirmation.id,
+        target,
+        mode,
+        label,
       }
       this._outlineGeneratePreview = null
       this._outlineGenerateProgress = normalizeTaskProgress({
@@ -2086,12 +2218,12 @@ const outlineView = {
       persistActiveWorkflow({
         taskId: result.task_id,
         workflowType: "outline_generate",
-        label: "剧情结构建议",
+        label: `${label}建议`,
         projectId: state.currentProjectId,
         view: "outline",
         meta: this._outlineGenerateMeta,
       })
-      toast("剧情结构建议生成任务已提交", "success")
+      toast(`${label}建议生成任务已提交`, "success")
       this._startOutlineGeneratePolling(result.task_id)
       router.renderCurrentView()
       return result
@@ -2369,133 +2501,72 @@ const outlineView = {
     }])
   },
 
-  _showGenerateStructureForm() {
-    this._generateOverlap = { threadCount: 0, arcCount: 0, rangeKey: "" }
+  _selectedIdsForP20(target, selectedSceneId = null) {
+    if (target === "plot_thread") return Array.from(getBulkSelection(this, "outline-threads"))
+    if (target === "outline_arc") return Array.from(getBulkSelection(this, "outline-arcs"))
+    return selectedSceneId ? [selectedSceneId] : []
+  },
+
+  async _showOutlineLayerAiForm(target, selectedSceneId = null) {
+    const label = P20_TARGET_LABELS[target]
+    if (!label) return
+    let currentOutline
+    try {
+      currentOutline = await api.outline.getStoryOutline(state.currentProjectId)
+    } catch (err) {
+      toast(err.message || "无法检查小说总纲", "error")
+      return
+    }
+    if (!currentOutline?.current_revision_id || !currentOutline?.revision) {
+      toast("请先在“小说总纲”页创建并采用当前总纲", "warning")
+      router.navigate("outline", "story-outline")
+      return
+    }
+    const selectedIds = this._selectedIdsForP20(target, selectedSceneId)
+    const defaultMode = selectedIds.length ? "revise" : "create"
+    const selectionHint = selectedIds.length
+      ? `当前已明确选择 ${selectedIds.length} 个${label}；“修订所选”只会原位更新这些资产。`
+      : `当前未选择${label}；如需修订，请先在页面明确选择目标。`
     const formHtml = `
       <div class="form-group">
-        <label>起始章节</label>
-        <input class="form-input" id="generate-structure-start" type="number" min="1" value="1" />
+        <label>创作方式</label>
+        <select class="form-select" id="outline-layer-mode">
+          <option value="create" ${defaultMode === "create" ? "selected" : ""}>新增设计</option>
+          <option value="revise" ${defaultMode === "revise" ? "selected" : ""}>修订所选</option>
+        </select>
+        <p class="writing-form-hint">${esc(selectionHint)}</p>
       </div>
       <div class="form-group">
-        <label>结束章节</label>
-        <input class="form-input" id="generate-structure-end" type="number" min="1" value="10" />
+        <label>作者指令</label>
+        <textarea class="form-textarea" id="outline-layer-instruction" rows="7" placeholder="说明这次希望创作或修订什么，以及你在意的方向。"></textarea>
       </div>
-      <div id="generate-structure-warning" class="form-group outline-generate-warning" style="display:none;"></div>
-      <p class="writing-form-hint" role="note">生成结果先作为待处理建议预览，不会直接写入剧情线、篇章纲或 Scene；检查并明确采用后才进入工作结构。</p>
-      <div id="generate-structure-confirm-row" class="form-group outline-generate-confirm-row" style="display:none;">
-        <label class="outline-generate-confirm-label">
-          <input type="checkbox" id="generate-structure-confirm" />
-          <span>我已确认，继续生成</span>
-        </label>
+      <div class="outline-preview-fields">
+        <label>计划起始章节（可选）<input class="form-input" id="outline-layer-start" type="number" min="1" /></label>
+        <label>计划结束章节（可选）<input class="form-input" id="outline-layer-end" type="number" min="1" /></label>
       </div>
+      <div class="outline-generate-warning"><strong>范围提示</strong><p>新增设计允许与已有资产并行，生成后的预览会明确列出重叠；修订采用前会重新校验总纲、所选资产和全部上下文。</p></div>
+      <p class="writing-form-hint" role="note">模型只创作当前层；其他层、人物、物品和信息推进仅作为已确认上下文。结果不会自动写入。</p>
     `
-    showModalHtml("AI 生成剧情结构", formHtml, [{
+    showModalHtml(`AI 创作${label}`, formHtml, [{
       text: "生成建议", class: "btn-primary", handler: async () => {
-        const start = parseInt(document.getElementById("generate-structure-start")?.value || "1", 10)
-        const end = parseInt(document.getElementById("generate-structure-end")?.value || "10", 10)
-        if (end < start) { toast("结束章节不能小于起始章节", "warning"); return false }
-
-        const overlap = this._generateOverlap || { threadCount: 0, arcCount: 0 }
-        if (overlap.threadCount > 0 || overlap.arcCount > 0) {
-          const confirmed = document.getElementById("generate-structure-confirm")?.checked
-          if (!confirmed) {
-            toast("目标范围已存在结构，请勾选确认后继续", "warning")
-            return false
-          }
-        }
-
+        const mode = document.getElementById("outline-layer-mode")?.value || "create"
+        const instruction = document.getElementById("outline-layer-instruction")?.value?.trim() || ""
+        const startRaw = document.getElementById("outline-layer-start")?.value || ""
+        const endRaw = document.getElementById("outline-layer-end")?.value || ""
+        const start = startRaw ? Number(startRaw) : null
+        const end = endRaw ? Number(endRaw) : null
+        if (!instruction) { toast("请填写作者指令", "warning"); return false }
+        if (mode === "revise" && !selectedIds.length) { toast(`请先明确选择要修订的${label}`, "warning"); return false }
+        if ((start != null && !Number.isInteger(start)) || (end != null && !Number.isInteger(end))) { toast("章节范围必须是正整数", "warning"); return false }
+        if (start != null && end != null && end < start) { toast("结束章节不能小于起始章节", "warning"); return false }
         try {
-          await this._generateStructure(start, end)
+          await this._generateOutlineLayer({ target, mode, instruction, selectedIds, startChapter: start, endChapter: end })
           return true
         } catch {
           return false
         }
       },
     }])
-
-    this._bindGenerateOverlapCheck()
-    const startEl = document.getElementById("generate-structure-start")
-    const endEl = document.getElementById("generate-structure-end")
-    const start = parseInt(startEl?.value || "1", 10)
-    const end = parseInt(endEl?.value || "10", 10)
-    if (Number.isInteger(start) && Number.isInteger(end)) {
-      this._updateGenerateOverlapWarning(start, end)
-    }
-  },
-
-  _bindGenerateOverlapCheck() {
-    const startEl = document.getElementById("generate-structure-start")
-    const endEl = document.getElementById("generate-structure-end")
-    if (!startEl || !endEl) return
-
-    const update = () => {
-      const start = parseInt(startEl.value || "1", 10)
-      const end = parseInt(endEl.value || "10", 10)
-      if (Number.isInteger(start) && Number.isInteger(end)) {
-        this._updateGenerateOverlapWarning(start, end)
-      }
-    }
-
-    startEl.addEventListener("input", update)
-    endEl.addEventListener("input", update)
-  },
-
-  async _updateGenerateOverlapWarning(start, end) {
-    const rangeKey = `${start}-${end}`
-    if (this._generateOverlap && this._generateOverlap.rangeKey === rangeKey) {
-      this._renderGenerateOverlapWarning()
-      return
-    }
-
-    let threadCount = 0
-    let arcCount = 0
-    try {
-      const [threads, arcs] = await Promise.all([
-        api.outline.listThreads(state.currentProjectId),
-        api.outline.listArcs(state.currentProjectId),
-      ])
-      const threadList = (threads && (threads.items || threads)) || []
-      const arcList = (arcs && (arcs.items || arcs)) || []
-      threadCount = this._countRangeOverlap(threadList, start, end, "start_chapter", "planned_payoff_chapter")
-      arcCount = this._countRangeOverlap(arcList, start, end, "start_chapter", "end_chapter")
-    } catch (err) {
-      // 无法获取重叠数据时静默降级，不阻塞用户操作
-      console.warn("检查生成范围重叠失败", err)
-    }
-
-    this._generateOverlap = { threadCount, arcCount, rangeKey }
-    this._renderGenerateOverlapWarning()
-  },
-
-  _countRangeOverlap(items, start, end, startKey, endKey) {
-    return items.filter((item) => {
-      if (item.status === "deprecated") return false
-      const s = item[startKey]
-      const e = item[endKey]
-      if (s == null && e == null) return false
-      const itemStart = s != null ? s : e
-      const itemEnd = e != null ? e : s
-      return itemStart <= end && itemEnd >= start
-    }).length
-  },
-
-  _renderGenerateOverlapWarning() {
-    const warningEl = document.getElementById("generate-structure-warning")
-    const confirmRow = document.getElementById("generate-structure-confirm-row")
-    if (!warningEl || !confirmRow) return
-
-    const { threadCount = 0, arcCount = 0 } = this._generateOverlap || {}
-    if (threadCount > 0 || arcCount > 0) {
-      warningEl.innerHTML = esc(`第 ${this._generateOverlap.rangeKey} 章已存在 ${threadCount} 条剧情线、${arcCount} 条篇章纲。继续生成将追加新结构，是否继续？`)
-      warningEl.style.display = "block"
-      confirmRow.style.display = "block"
-    } else {
-      warningEl.style.display = "none"
-      warningEl.innerHTML = ""
-      confirmRow.style.display = "none"
-      const cb = document.getElementById("generate-structure-confirm")
-      if (cb) cb.checked = false
-    }
   },
 
   _applyStructureFilters() {
@@ -2545,8 +2616,6 @@ const outlineView = {
       "nav-scenes": () => router.navigate("outline", "scenes"),
       "nav-threads": () => router.navigate("outline", "threads"),
       "nav-arcs": () => router.navigate("outline", "arcs"),
-      "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
-      "nav-reveals": () => router.navigate("outline", "reveals"),
       "retry-outline-load": async (_e, target) => {
         target.disabled = true
         target.textContent = "重新加载中..."
@@ -2572,15 +2641,17 @@ const outlineView = {
       },
       "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-scope"), t.getAttribute("data-bulk-action")),
       "create-thread": () => this._showCreateThreadForm(),
+      "ai-create-plot-thread": () => this._showOutlineLayerAiForm("plot_thread"),
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
       "mark-thread-reviewed": (_e, _t, ctx) => ctx.id && this._markThreadReviewed(ctx.id),
       "mark-thread-unreviewed": (_e, _t, ctx) => ctx.id && this._markThreadUnreviewed(ctx.id),
       "delete-thread": (_e, _t, ctx) => ctx.id && this._deleteThread(ctx.id),
       "create-arc": () => this._showCreateArcForm(),
+      "ai-create-outline-arc": () => this._showOutlineLayerAiForm("outline_arc"),
       "edit-arc": (_e, _t, ctx) => ctx.id && this._editArc(ctx.id),
+      "mark-arc-reviewed": (_e, _t, ctx) => ctx.id && this._markArcReviewed(ctx.id),
       "delete-arc": (_e, _t, ctx) => ctx.id && this._deleteArc(ctx.id),
       "create-scene": () => this._showCreateSceneForm(),
-      "generate-structure": () => this._showGenerateStructureForm(),
       "analyze-outline": () => this._showOutlineAnalysisForm(),
       "cancel-outline-analysis": () => this._cancelOutlineAnalysisTask(),
       "dismiss-outline-analysis": () => {
@@ -2631,6 +2702,32 @@ const outlineView = {
         } catch (err) { toast(err.message || "更新失败", "error") }
       }
     })
+    document.querySelectorAll('[data-role="information-thread-assignment"]').forEach((select) => {
+      select.onchange = async () => {
+        const threadId = select.value
+        const planId = select.dataset.id
+        if (!threadId || !planId) return
+        select.disabled = true
+        try {
+          if (select.dataset.kind === "foreshadowing") {
+            const plan = this._unassignedForeshadowing.find((item) => item.id === planId)
+            await api.outline.updateForeshadowing(planId, state.currentProjectId, {
+              related_thread_ids: Array.from(new Set([...(plan?.related_thread_ids || []), threadId])),
+            })
+          } else {
+            const plan = this._unassignedReveals.find((item) => item.id === planId)
+            await api.outline.updateReveal(planId, state.currentProjectId, {
+              related_thread_ids: Array.from(new Set([...(plan?.related_thread_ids || []), threadId])),
+            })
+          }
+          toast("信息推进计划已归入剧情线", "success")
+          await this._refreshCurrentSubViewInPlace()
+        } catch (err) {
+          select.disabled = false
+          toast(err.message || "分配失败", "error")
+        }
+      }
+    })
   },
 
   _visibleIdsForBulkScope(scope) {
@@ -2679,11 +2776,12 @@ const outlineView = {
     const labels = {
       "delete-threads": "批量删除剧情线",
       "review-threads": "批量采用 / 标记已检查",
+      "review-arcs": "批量采用 / 标记已检查",
       "delete-arcs": "批量删除篇章纲",
       "delete-foreshadowing": "批量删除伏笔",
       "delete-reveals": "批量删除揭示",
     }
-    const confirmText = action === "review-threads" ? "确认处理" : "确认删除"
+    const confirmText = action === "review-threads" || action === "review-arcs" ? "确认处理" : "确认删除"
     confirmAction(`确定对选中的 ${items.length} 项执行「${labels[action] || "批量删除"}」吗？`, async () => {
       await this._executeBulkAction(scope, action, items)
     }, confirmText)
@@ -2693,6 +2791,7 @@ const outlineView = {
     const labels = {
       "delete-threads": "批量删除剧情线",
       "review-threads": "批量采用 / 标记已检查",
+      "review-arcs": "批量采用 / 标记已检查",
       "delete-arcs": "批量删除篇章纲",
       "delete-foreshadowing": "批量删除伏笔",
       "delete-reveals": "批量删除揭示",
@@ -2704,6 +2803,13 @@ const outlineView = {
           item.id || item.thread_id,
           state.currentProjectId,
           this._reviewThreadPayload(item, "outline_threads_bulk"),
+        )
+      }
+      else if (action === "review-arcs") {
+        await api.outline.updateArc(
+          item.id || item.arc_id,
+          state.currentProjectId,
+          this._reviewThreadPayload(item, "outline_arcs_bulk"),
         )
       }
       else if (action === "delete-arcs") await api.outline.deleteArc(item.id || item.arc_id, state.currentProjectId)

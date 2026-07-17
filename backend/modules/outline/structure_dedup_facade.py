@@ -57,6 +57,8 @@ async def apply_structure_dedup_group(
     asset_type: str,
     primary_asset_id: str,
     operations: list[dict[str, Any]],
+    validate_only: bool = False,
+    execution_fingerprints_prevalidated: bool = False,
 ) -> list[dict[str, Any]]:
     """Strict, caller-transactional outline dedup group apply."""
     from modules.outline.structure_dedup import OutlineStructureDedupService
@@ -67,6 +69,8 @@ async def apply_structure_dedup_group(
         asset_type=asset_type,
         primary_asset_id=primary_asset_id,
         operations=operations,
+        validate_only=validate_only,
+        execution_fingerprints_prevalidated=execution_fingerprints_prevalidated,
     )
 
 

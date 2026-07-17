@@ -274,6 +274,12 @@ class ImportContextActivationContract:
     sources: list[dict]
     budget_events: list[dict]
     warnings: list[str] = field(default_factory=list)
+    scene_card: dict = field(default_factory=dict)
+    outline_context: dict = field(default_factory=dict)
+    identity_candidates: list[dict] = field(default_factory=list)
+    relation_candidates: list[dict] = field(default_factory=list)
+    omitted_sources: list[dict] = field(default_factory=list)
+    context_fingerprint: str = ""
 
 
 @dataclass(frozen=True)

@@ -23,7 +23,8 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 
 - HTTP 入口在 `api.py`
 - 业务逻辑在 `services.py`
-- AI 结构生成拆在 `generation/`
+- P20 当前层创作由 `p20_context.py` / `p20_service.py` 编排；`generation/` 只保留深度导入
+  Scene 证据结构化与 v1 完成预览兼容
 - 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 rag、world/map 等模块跨 seam 调用
 
 ## 职责
@@ -31,7 +32,7 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 - 剧情线、篇章纲、Scene、伏笔、揭示计划的 CRUD
 - Scene 顺序重排
 - 按章节查询相关 Scene
-- 根据 AI 参考资料确认记录，发起结构生成任务
+- 根据 AI 参考资料确认记录，在当前页面发起剧情线、篇章纲或 Planned Scene 创作任务
 - 为其他模块提供 Scene 查询能力
 
 ## 关键服务
@@ -43,13 +44,15 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 - `ForeshadowingPlanService`
 - `RevealPlanService`
 - `PlotStructureGenerator`
+- `P20GenerationService`
+- `P20ApplyService`
 
 ## `generation/` 子模块
 
-`PlotStructureGenerator` 不是神类，当前职责被拆为：
+`PlotStructureGenerator` 只服务深度导入 Phase 3，当前职责被拆为：
 
 - `context_builder`：组装结构生成所需上下文
-- `parser`：调用 LLM、解析 JSON、处理重试/降级
+- `parser`：只根据已采用 Scene 证据调用 Phase 3 strict schema；无 Scene 时返回空/复核
 - `persister`：把结果写入 thread / arc / scene / foreshadowing / reveal
 - `models`：生成流程专用 Pydantic 模型
 
@@ -104,7 +107,31 @@ PATCH  /api/outline/reveals/{plan_id}
 DELETE /api/outline/reveals/{plan_id}
 
 POST   /api/outline/generate
+POST   /api/outline/generate/apply
 ```
+
+## 当前层 AI 创作与信息推进
+
+剧情线页、篇章纲页、Scene 工作台分别提供“AI 创作剧情线”“AI 创作篇章纲”“AI 创作细纲”。
+三者都要求当前 StoryOutline，每次只生成或修订当前层，其他层仅作为上下文；不在生成中心
+建立 P20 入口。create 允许并行方案并在 preview 展示重叠，revise 只能更新显式选择资产。
+总纲、选择资产或确认 context 漂移时 apply 返回 409。
+
+PlotThread 聚合作者侧信息推进。模型输出一条 movement 中的隐藏、暗示、局部揭示和兑现节点，
+服务确定性投影到伏笔/揭示两张底层表，共享 `information_movement_id`。RevealPlan 和
+ForeshadowingPlan 都用 `related_thread_ids` 关联一到多条同项目线程；旧计划保持空关联，在线程
+页未归类区域人工分配。线程进入历史不级联计划，最后一个 active 关联消失后计划重新归类为
+unassigned。底层 CRUD 和 reader reveal decision 保持。
+
+OutlineArc 只能引用已有 PlotThread；Planned Scene 新建时没有正文 chunks/anchors，工作台显示
+“计划中”，建立真实映射后转为 materialized。P20 修订不能更改已有正文映射。正文 Scene
+提取继续进入 imports 深度导入。
+
+P20 confirmation 使用 `budget_tokens=0`，完整总纲、作者确认 context、相关结构、信息推进、
+人物 Top-6 和非人物对象 Top-16 进入 provider；人物候选经 world facade 全分页加载后再按作者
+指令、总纲、Scene 与结构相关性选择，不受单页 50 条限制。不做应用层输入裁剪。结果是 strict 可编辑
+preview，采用时在单一 savepoint 中原子写入，并记录总纲 revision、context fingerprint、task、
+采用时间和修订前值。
 
 ## 对外 facade
 
@@ -219,6 +246,8 @@ Scene 信息，并在采用时写入 `adopted_at`、来源并清除 `needs_revie
 剧情线、篇章纲、伏笔和揭示列表支持按 `status`、`source`、`workflow_id`、
 `needs_review`、分页参数筛选；`source` / `workflow_id` / `needs_review` 来自
 `provenance_meta`，用于整理深度导入 Phase 3 结构资产。
+伏笔/揭示列表另支持 `related_thread_id` 与 `unassigned`，供剧情线页统一时间线和未归类区
+消费；作者界面不再提供两者的顶层子标签。
 
 ## 测试
 

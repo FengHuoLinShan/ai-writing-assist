@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -269,7 +270,7 @@ async def test_phase1a_slicer_filters_to_owned_range_and_fallbacks_missing_chapt
 
 
 @pytest.mark.asyncio
-async def test_phase1a_recovers_missing_chapter_with_bounded_single_chapter_retry():
+async def test_phase1a_recovers_one_continuous_missing_chapter_gap():
     chapters = [
         {
             "chapter_index": 1,
@@ -292,11 +293,14 @@ async def test_phase1a_recovers_missing_chapter_with_bounded_single_chapter_retr
                         "title": "已覆盖 Scene",
                         "goal": "覆盖第一章",
                         "core_conflict": "事件推进",
+                        "core_conflict_status": "present",
                         "start_chapter": 1,
                         "end_chapter": 1,
                         "start_anchor": "第一章唯一开始",
                         "end_anchor": "第一章唯一结束",
                         "boundary_status": "complete",
+                        "boundary_basis": "事件推进在本章收束。",
+                        "confidence": 0.9,
                     }
                 ]
             }
@@ -304,18 +308,25 @@ async def test_phase1a_recovers_missing_chapter_with_bounded_single_chapter_retr
         async def recover_chapter(self, payload):
             assert payload["chapter"]["chapter_index"] == 2
             return {
-                "scenes": [
+                "status": "resolved",
+                "left_right_relation": "separate",
+                "reason": "缺口包含一个独立 Scene。",
+                "segments": [
                     {
+                        "disposition": "new_scene",
                         "title": "恢复 Scene",
                         "goal": "覆盖第二章",
                         "core_conflict": "冲突持续",
+                        "core_conflict_status": "present",
                         "start_chapter": 2,
                         "end_chapter": 2,
                         "start_anchor": "第二章唯一开始",
-                        "end_anchor": "第二章唯一结束",
+                        "end_anchor": "第二章唯一结束。",
                         "boundary_status": "complete",
+                        "boundary_basis": "冲突在本章持续并收束。",
+                        "confidence": 0.88,
                     }
-                ]
+                ],
             }
 
     result = await Phase1aSceneSlicer(LLM(), concurrency=1).run(plan)
@@ -365,11 +376,14 @@ async def test_phase1a_materializes_unique_same_chapter_anchors_to_exact_offsets
                     "title": "精确 Scene",
                     "goal": "验证锚点",
                     "core_conflict": "不能依赖 LLM offset",
+                    "core_conflict_status": "present",
                     "start_chapter": 1,
                     "end_chapter": 1,
                     "start_anchor": "唯一开始锚点这里起步",
                     "end_anchor": "唯一结束锚点在此收束",
                     "boundary_status": "complete",
+                    "boundary_basis": "唯一 anchors 确定完整 Scene。",
+                    "confidence": 0.95,
                 }
             ]
         }
@@ -418,11 +432,14 @@ async def test_phase1a_repairs_unresolved_anchors_with_small_context_retry() -> 
                         "title": "待修复 Scene",
                         "goal": "锁定语义",
                         "core_conflict": "首轮锚点无效",
+                        "core_conflict_status": "present",
                         "start_chapter": 1,
                         "end_chapter": 1,
                         "start_anchor": "不存在的开始锚点",
                         "end_anchor": "不存在的结束锚点",
                         "boundary_status": "complete",
+                        "boundary_basis": "语义锁定但 anchors 需要修复。",
+                        "confidence": 0.7,
                     }
                 ]
             }
@@ -430,8 +447,10 @@ async def test_phase1a_repairs_unresolved_anchors_with_small_context_retry() -> 
         async def repair_anchors(self, payload):
             assert [chapter["chapter_index"] for chapter in payload["chapters"]] == [1]
             return {
+                "status": "resolved",
                 "start_anchor": "场景开始唯一锚点",
                 "end_anchor": "场景结束唯一锚点",
+                "reason": "两个 anchors 均唯一命中。",
             }
 
     result = await Phase1aSceneSlicer(LLM(), concurrency=1).run(plan)
@@ -439,13 +458,15 @@ async def test_phase1a_repairs_unresolved_anchors_with_small_context_retry() -> 
     candidate = result.candidates[0]
     chunk = candidate.scene_chunks[0]
     assert chunk.start_offset == content.index("场景开始唯一锚点")
-    assert chunk.end_offset == content.index("场景结束唯一锚点") + len("场景结束唯一锚点")
+    assert chunk.end_offset == len(content)
     assert chunk.source_draft_id == "00000000-0000-0000-0000-000000000002"
     assert chunk.source_content_hash == "b" * 64
-    assert candidate.diagnostics["anchor_repair"] == {
-        "status": "succeeded",
-        "unresolved_chapters": [],
-    }
+    assert candidate.diagnostics["anchor_repair"]["status"] == "resolved"
+    assert candidate.diagnostics["anchor_repair"]["unresolved_chapters"] == []
+    assert (
+        candidate.diagnostics["anchor_repair"]["final_status"]
+        == "resolved_after_neighbor_inference"
+    )
     assert result.quality_stats["anchor_repair_attempted_count"] == 1
     assert result.quality_stats["anchor_repair_succeeded_count"] == 1
     assert result.quality_stats["anchor_repair_failed_count"] == 0
@@ -490,7 +511,7 @@ async def test_phase1a_uses_unique_anchors_to_correct_declared_chapter_range() -
     assert corrected.diagnostics["declared_chapter_range"] == [1, 1]
     assert corrected.diagnostics["anchored_chapter_range"] == [2, 2]
     assert corrected.scene_chunks[0].start_offset == 0
-    assert corrected.scene_chunks[0].end_offset == len(chapters[1]["content"]) - 1
+    assert corrected.scene_chunks[0].end_offset == len(chapters[1]["content"])
     assert corrected.needs_review is True
 
 
@@ -683,6 +704,13 @@ async def test_phase1a_closes_one_sided_boundary_from_adjacent_exact_scene() -> 
 @pytest.mark.asyncio
 async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
     calls = 0
+    chapters = _chapters(3, chars_per_chapter=100)
+    for chapter in chapters:
+        content = str(chapter["content"])
+        chapter["source_draft_id"] = f"draft-{chapter['chapter_index']}"
+        chapter["source_content_hash"] = hashlib.sha256(
+            content.encode("utf-8")
+        ).hexdigest()
     scene = SceneSliceCandidate(
         candidate_id="phase1a-1",
         source_window_id="B0001",
@@ -690,6 +718,9 @@ async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
         title="锁定标题",
         goal="锁定目标",
         core_conflict="锁定冲突",
+        core_conflict_status="present",
+        phase1a_confidence=0.93,
+        boundary_basis="正文显示目标与阻碍构成一个连续 Scene。",
         start_chapter=2,
         end_chapter=3,
         boundary_status="complete",
@@ -699,6 +730,8 @@ async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
                 chapter_index=2,
                 start_offset=5,
                 end_offset=50,
+                source_draft_id="draft-2",
+                source_content_hash=str(chapters[1]["source_content_hash"]),
                 anchor_hash="a" * 64,
                 anchor_excerpt="精确起点",
             ),
@@ -706,6 +739,8 @@ async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
                 chapter_index=3,
                 start_offset=0,
                 end_offset=40,
+                source_draft_id="draft-3",
+                source_content_hash=str(chapters[2]["source_content_hash"]),
                 anchor_hash="b" * 64,
                 anchor_excerpt="精确续章",
             ),
@@ -716,12 +751,7 @@ async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
         nonlocal calls
         calls += 1
         if calls == 1:
-            return {
-                "emotional_beat": "",
-                "must_happen": "",
-                "must_not_happen": "",
-                "narrative_tag": "",
-            }
+            raise TimeoutError("temporary timeout")
         return {
             "title": "LLM 不应覆盖标题",
             "goal": "LLM 不应覆盖目标",
@@ -731,15 +761,15 @@ async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
             "emotional_beat": "从困惑转向决断。",
             "must_happen": "必须保留关键行动。",
             "must_not_happen": "不得改写为胜利结局。",
-            "narrative_tag": "turning_point",
+            "narrative_tag": "rising_action",
+            "narrative_function": "推动关键行动",
+            "basis": "正文支持。",
             "confidence": 0.86,
-            "needs_review": False,
-            "review_reason": "",
         }
 
     result = await Phase1bSceneEnricher(llm, concurrency=20).run(
         scenes=[scene],
-        chapters=_chapters(3, chars_per_chapter=100),
+        chapters=chapters,
     )
 
     assert calls == 2
@@ -747,6 +777,9 @@ async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
     assert candidate.title == "锁定标题"
     assert candidate.goal == "锁定目标"
     assert candidate.core_conflict == "锁定冲突"
+    assert candidate.core_conflict_status == "present"
+    assert candidate.phase1a_confidence == 0.93
+    assert candidate.boundary_basis == "正文显示目标与阻碍构成一个连续 Scene。"
     assert [chunk.chapter_index for chunk in candidate.scene_chunks] == [2, 3]
     assert [
         (chunk.start_offset, chunk.end_offset) for chunk in candidate.scene_chunks
@@ -754,7 +787,7 @@ async def test_phase1b_enrichment_retries_and_ignores_locked_fields() -> None:
         (5, 50),
         (0, 40),
     ]
-    assert candidate.narrative_tag == "turning_point"
+    assert candidate.narrative_tag == "rising_action"
     assert result.quality_stats["concurrency"] == 200
     assert result.quality_stats["max_retries"] == 1
 
@@ -821,7 +854,7 @@ async def test_high_quality_adapters_keep_model_and_use_max_deepseek_reasoning(
                 "emotional_beat": "稳定",
                 "must_happen": "保留",
                 "must_not_happen": "不偏离",
-                "narrative_tag": "imported",
+                "narrative_tag": "rising_action",
             }
         )
 
@@ -891,8 +924,9 @@ async def test_high_quality_adapters_keep_model_and_use_max_deepseek_reasoning(
     assert all(request.extra["thinking"] == {"type": "enabled"} for request in captured)
     assert all(request.extra["reasoning_effort"] == "max" for request in captured)
     phase1a_prompt = captured[0].messages[1].content
-    assert phase1a_prompt.startswith("## 第1章 第一章")
-    assert "正文" in phase1a_prompt.split("【输入范围】")[0]
+    assert "【任务范围】" in phase1a_prompt
+    assert "<CHAPTER_TEXT_JSON>" in phase1a_prompt
+    assert '"chapter_index":1' in phase1a_prompt
     assert "start_anchor" in phase1a_prompt
     assert "end_anchor" in phase1a_prompt
     assert "逐字复制" in phase1a_prompt
@@ -906,8 +940,8 @@ async def test_high_quality_adapters_keep_model_and_use_max_deepseek_reasoning(
     assert "不要输出旁枝路人" in phase2_prompt
     assert captured[2].max_tokens == 24_576
     assert captured_kwargs[0]["timeout_seconds"] == 900
-    assert captured_kwargs[1]["timeout_seconds"] == 300
-    assert captured_kwargs[2]["timeout_seconds"] == 900
+    assert captured_kwargs[1]["timeout_seconds"] == 1200
+    assert captured_kwargs[2]["timeout_seconds"] == 1200
 
 
 @pytest.mark.asyncio
@@ -964,7 +998,8 @@ async def test_phase1a_anchor_repair_adapter_uses_locked_small_context(
     assert request.extra["reasoning_effort"] == "high"
     assert "锁定标题" in request.messages[1].content
     assert "唯一正文" in request.messages[1].content
-    assert "不得改变 Scene 语义或章节范围" in request.messages[1].content
+    assert "不得重新切分、改变 Scene 含义" in request.messages[0].content
+    assert "无法唯一定位时返回" in request.messages[1].content
 
 
 @pytest.mark.asyncio
@@ -982,18 +1017,25 @@ async def test_phase1a_missing_chapter_adapter_uses_high_reasoning(
         captured.append((request, kwargs))
         return schema.model_validate(
             {
-                "scenes": [
+                "status": "resolved",
+                "left_right_relation": "separate",
+                "reason": "独立 Scene。",
+                "segments": [
                     {
+                        "disposition": "new_scene",
                         "title": "恢复 Scene",
                         "goal": "恢复覆盖",
                         "core_conflict": "避免章节缺口",
+                        "core_conflict_status": "present",
                         "start_chapter": 2,
                         "end_chapter": 2,
                         "start_anchor": "唯一开始锚点",
                         "end_anchor": "唯一结束锚点",
                         "boundary_status": "complete",
+                        "boundary_basis": "形成独立推进。",
+                        "confidence": 0.9,
                     }
-                ]
+                ],
             }
         )
 
@@ -1020,14 +1062,15 @@ async def test_phase1a_missing_chapter_adapter_uses_high_reasoning(
         }
     )
 
-    assert result.scenes[0].start_chapter == 2
+    assert result.segments[0].start_chapter == 2
     request, kwargs = captured[0]
     assert request.model == "deepseek-v4-flash"
     assert request.max_tokens == 8192
     assert request.extra["thinking"] == {"type": "enabled"}
     assert request.extra["reasoning_effort"] == "high"
-    assert "仅切分第2章" in request.messages[1].content
-    assert "普通动作和过渡应吸收" in request.messages[1].content
+    assert "连续正文缺口" in request.messages[0].content
+    assert "不设置固定产出规模" in request.messages[1].content
+    assert "extend_left" in request.messages[1].content
     assert "1-3" not in request.messages[1].content
     assert kwargs["step_name"] == "phase1a_missing_chapter_recovery"
 

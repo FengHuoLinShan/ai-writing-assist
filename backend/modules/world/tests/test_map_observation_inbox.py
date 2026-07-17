@@ -8,6 +8,7 @@ import pytest
 from httpx import AsyncClient
 from pydantic import TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.map_models import MapObservation
@@ -64,6 +65,49 @@ def test_map_proposal_rejects_freeform_fields() -> None:
                 "value_json": {"anything": True},
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_project_inbox_excludes_unmapped_generic_import_deltas(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    from modules.world.services.map_service import MapDynamicFactService
+
+    await MapDynamicFactService().create_observation_from_delta_event(
+        db_session,
+        novel_id,
+        event={
+            "category": "ability_acquisition",
+            "field": "ability",
+            "old": None,
+            "new": "占卜",
+            "meta": {"workflow_id": "wf-memory-only", "auto_ingested": True},
+        },
+        scene_index=1,
+        delta_log_id="delta-memory-only",
+    )
+
+    response = await async_client.get(
+        "/api/world/maps/project-observations/inbox",
+        params={"novel_id": novel_id, "limit": 20},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 0
+    stored = list(
+        (
+            await db_session.execute(
+                select(MapObservation).where(
+                    MapObservation.novel_id == uuid.UUID(novel_id)
+                )
+            )
+        ).scalars()
+    )
+    assert len(stored) == 1
+    assert stored[0].source_ref["source"] == "deep_import_delta_event"
 
 
 @pytest.mark.asyncio

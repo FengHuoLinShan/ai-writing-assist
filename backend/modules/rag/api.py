@@ -106,6 +106,7 @@ async def retrieve_chunks(
         visibility=query.visibility,
         mode=query.mode,
         top_k=query.top_k,
+        retrieval_purpose="manual_search",
     )
 
     # 转为 API 响应格式

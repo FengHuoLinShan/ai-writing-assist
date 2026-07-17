@@ -74,6 +74,12 @@ describe("createFocusModeManager", () => {
     expect(manager.isFocusMode()).toBe(true)
   })
 
+  it("prefers effective backend author preferences", () => {
+    state._authorPreferences = { defaultFocusMode: true }
+    const manager = createTestManager()
+    expect(manager.isFocusMode()).toBe(true)
+  })
+
   it("switches to desktop mode", () => {
     const onChange = vi.fn()
     const manager = createTestManager({ onChange })

@@ -31,8 +31,23 @@ def make_final_scene_candidate(
         title="Fused opening",
         goal="Commit the fused scene",
         core_conflict="Two observations describe one scene",
+        core_conflict_status="present",
+        phase1a_confidence=0.91,
+        boundary_basis="The imported spans share one causal progression.",
         emotional_beat="uncertain",
-        narrative_tag="imported",
+        narrative_tag="draft",
+        narrative_function="Preserve the imported causal progression.",
+        phase1b_basis="The exact source spans support this reading.",
+        phase1b_field_statuses={
+            "emotional_beat": "present",
+            "must_happen": "not_applicable",
+            "must_not_happen": "not_applicable",
+            "narrative_tag": "not_applicable",
+            "narrative_function": "present",
+        },
+        phase1b_confidence=0.77,
+        phase1b_context_fingerprint="c" * 64,
+        phase1b_source_fingerprint="d" * 64,
         scene_chunks=[SceneChunk(chapter_index=chapters[0], start_paragraph=0)],
         source_candidate_ids=source_candidate_ids or ["a", "b"],
         source_rounds=source_rounds or ["A", "B"],
@@ -84,6 +99,95 @@ async def test_scene_commit_writes_provenance_and_skips_existing_key(
     assert second.skipped_count == 1
     assert second.skipped_provenance_keys
     assert await count_scenes_by_novel(db_session, sample_novel_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_scene_commit_rejects_overlapping_exact_spans_before_writes(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+
+    first = make_final_scene_candidate(
+        candidate_id="left",
+        source_candidate_ids=["left"],
+        source_chapter_indices=[1],
+    )
+    first.scene_chunks = [SceneChunk(chapter_index=1, start_offset=0, end_offset=20)]
+    second = make_final_scene_candidate(
+        candidate_id="right",
+        source_candidate_ids=["right"],
+        source_chapter_indices=[1],
+    )
+    second.scene_chunks = [SceneChunk(chapter_index=1, start_offset=12, end_offset=30)]
+
+    with pytest.raises(ValueError, match="overlapping exact source spans"):
+        await SceneCommitter().commit(
+            db_session,
+            sample_novel_id,
+            [first, second],
+            workflow_id="wf-overlap",
+        )
+
+    assert await count_scenes_by_novel(db_session, sample_novel_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_scene_commit_rejects_gap_in_frozen_source_before_writes(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.writing.facade import create_published_draft_only
+
+    content = "甲" * 30
+    draft = await create_published_draft_only(
+        db_session,
+        sample_novel_id,
+        1,
+        title="第一章",
+        content=content,
+    )
+    first = make_final_scene_candidate(
+        candidate_id="left",
+        source_candidate_ids=["left"],
+        source_chapter_indices=[1],
+    )
+    first.scene_chunks = [
+        SceneChunk(
+            chapter_index=1,
+            start_offset=0,
+            end_offset=10,
+            source_draft_id=draft.id,
+            source_content_hash=draft.content_hash,
+        )
+    ]
+    second = make_final_scene_candidate(
+        candidate_id="right",
+        source_candidate_ids=["right"],
+        source_chapter_indices=[1],
+    )
+    second.scene_chunks = [
+        SceneChunk(
+            chapter_index=1,
+            start_offset=12,
+            end_offset=len(content),
+            source_draft_id=draft.id,
+            source_content_hash=draft.content_hash,
+        )
+    ]
+
+    with pytest.raises(ValueError, match="coverage_hole=10-12"):
+        await SceneCommitter().commit(
+            db_session,
+            sample_novel_id,
+            [first, second],
+            workflow_id="wf-gap",
+            start_chapter=1,
+            end_chapter=1,
+        )
+
+    assert await count_scenes_by_novel(db_session, sample_novel_id) == 0
 
 
 def test_provenance_key_normalizes_source_order() -> None:
@@ -207,10 +311,8 @@ async def test_scene_commit_writes_complete_structure_meta(
     assert scene["source"] == "deep_import"
     assert scene["status"] == "draft"
     assert scene["scene_index"] == 0
-    assert scene["must_happen"] == "Commit the fused scene"
-    assert scene["must_not_happen"] == (
-        "不得绕过既有冲突：Two observations describe one scene"
-    )
+    assert scene["must_happen"] is None
+    assert scene["must_not_happen"] is None
 
     provenance_key = build_scene_provenance_key(
         "wf-meta",
@@ -228,14 +330,60 @@ async def test_scene_commit_writes_complete_structure_meta(
         "source_chapter_indices": [1, 2],
         "fusion_operation": "merged",
         "confidence": 0.86,
+        "core_conflict_status": "present",
+        "phase1a_confidence": 0.91,
+        "boundary_basis": "The imported spans share one causal progression.",
+        "phase1b_field_statuses": {
+            "emotional_beat": "present",
+            "must_happen": "not_applicable",
+            "must_not_happen": "not_applicable",
+            "narrative_tag": "not_applicable",
+            "narrative_function": "present",
+        },
+        "phase1b_basis": "The exact source spans support this reading.",
+        "narrative_function": "Preserve the imported causal progression.",
+        "phase1b_uncertain_fields": [],
+        "phase1b_confidence": 0.77,
+        "phase1b_context_fingerprint": "c" * 64,
+        "phase1b_source_fingerprint": "d" * 64,
+        "semantic_field_statuses": {
+            "emotional_beat": "present",
+            "must_happen": "not_applicable",
+            "must_not_happen": "not_applicable",
+            "narrative_tag": "not_applicable",
+            "narrative_function": "present",
+            "core_conflict": "present",
+        },
+        "semantic_uncertain_fields": [],
+        "semantic_basis": "The exact source spans support this reading.",
+        "semantic_confidence": 0.77,
+        "semantic_contract_version": "scene-semantic-state-v2",
+        "semantic_origin": "phase1b_enrichment",
         "degraded_reason": None,
         "boundary_status": "uncertain",
-        "boundary_reason": "Phase 1b kept a soft boundary.",
+        "boundary_reason": "The imported spans share one causal progression.",
+        "boundary_workflow_reason": "Phase 1b kept a soft boundary.",
         "needs_review": True,
         "review_reason": "Boundary should be checked.",
         "provenance_key": provenance_key,
         "phase1a_fallback": True,
     }
+
+
+def test_scene_commit_normalizes_legacy_imported_tag_to_draft() -> None:
+    from modules.imports.scene_commit import _build_scene_data
+
+    candidate = make_final_scene_candidate(source_chapter_indices=[1])
+    candidate.narrative_tag = "imported"
+
+    scene = _build_scene_data(
+        candidate,
+        workflow_id="wf-legacy-tag",
+        provenance_key="legacy-tag-key",
+        scene_index=0,
+    )
+
+    assert scene["narrative_tag"] == "draft"
 
 
 @pytest.mark.asyncio
@@ -323,10 +471,15 @@ async def test_scene_commit_creates_workbench_complete_setup(
     from modules.imports.scene_commit import SceneCommitter
     from modules.outline.scene_workbench import SceneWorkbenchService
 
+    candidate = make_final_scene_candidate(source_chapter_indices=[1])
+    candidate.must_happen = "Commit the fused Scene."
+    candidate.must_not_happen = "Do not contradict the imported source."
+    candidate.phase1b_field_statuses["must_happen"] = "present"
+    candidate.phase1b_field_statuses["must_not_happen"] = "present"
     result = await SceneCommitter().commit(
         db_session,
         sample_novel_id,
-        [make_final_scene_candidate(source_chapter_indices=[1])],
+        [candidate],
         workflow_id="wf-workbench-health",
     )
 
@@ -576,25 +729,29 @@ async def test_reextract_allows_same_chapter_non_overlapping_exact_spans(
             "scene_index": 0,
             "title": "Protected first half",
             "source": "manual",
-            "scene_chunks": [{
-                "chapter_index": 1,
-                "start_offset": 0,
-                "end_offset": 40,
-                "source_draft_id": draft.id,
-                "source_content_hash": draft.content_hash,
-            }],
+            "scene_chunks": [
+                {
+                    "chapter_index": 1,
+                    "start_offset": 0,
+                    "end_offset": 40,
+                    "source_draft_id": draft.id,
+                    "source_content_hash": draft.content_hash,
+                }
+            ],
             "chapter_ids": ["1"],
             "status": "canonical",
         },
     )
     candidate = make_final_scene_candidate(source_chapter_indices=[1])
-    candidate.scene_chunks = [SceneChunk(
-        chapter_index=1,
-        start_offset=40,
-        end_offset=100,
-        source_draft_id=draft.id,
-        source_content_hash=draft.content_hash,
-    )]
+    candidate.scene_chunks = [
+        SceneChunk(
+            chapter_index=1,
+            start_offset=40,
+            end_offset=100,
+            source_draft_id=draft.id,
+            source_content_hash=draft.content_hash,
+        )
+    ]
 
     result = await SceneCommitter().commit(
         db_session,

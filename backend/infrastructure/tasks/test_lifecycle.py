@@ -344,6 +344,7 @@ async def test_heartbeat_is_fenced_by_lease(db_session: AsyncSession) -> None:
             db_session,
             task_id=task.id,
             lease_id=str(uuid.uuid4()),
+            progress=0.25,
         )
         is False
     )
@@ -352,9 +353,12 @@ async def test_heartbeat_is_fenced_by_lease(db_session: AsyncSession) -> None:
             db_session,
             task_id=task.id,
             lease_id=str(task.lease_id),
+            progress=0.42,
         )
         is True
     )
+    await db_session.refresh(task)
+    assert task.progress == 0.42
 
 
 @pytest.mark.asyncio

@@ -17,19 +17,21 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.llm.errors import LLMConnectionError, LLMInvalidResponseError
+from infrastructure.llm.errors import (
+    LLMConnectionError,
+    LLMInvalidResponseError,
+    LLMRateLimitError,
+)
 from modules.imports.entity_extraction import (
     scene_entity_extraction as scene_entity_extraction_module,
 )
-from modules.imports.entity_extraction.scene_entity_alias_relation import (
-    _trim_phase2b_scene_text,
-)
 from modules.imports.entity_extraction.scene_entity_bulk import BulkSceneEntityExtractor
-from modules.imports.entity_extraction.scene_entity_checkpoint import (
-    scene_input_fingerprint,
-)
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService,
+)
+from modules.imports.entity_extraction.scene_entity_phase2b_context import (
+    build_phase2b_context_bundle,
+    phase2b_scene_input_fingerprint,
 )
 from modules.imports.entity_extraction.scene_entity_text import (
     scene_chapter_ids,
@@ -58,6 +60,54 @@ class _FakeSavepoint:
 class _FakeNestedDb:
     def begin_nested(self):
         return _FakeSavepoint()
+
+
+def _phase2b_activation(novel_id: str, scene_id: str, text: str = "Scene 正文"):
+    return SimpleNamespace(
+        novel_id=novel_id,
+        scene_id=scene_id,
+        activation_version="import-context-v2",
+        current_scene_text=text,
+        current_scene_sources=[
+            {"type": "source_range", "id": f"draft:{scene_id}", "content_hash": "h"}
+        ],
+        previous_briefs=[],
+        previous_evidence=[],
+        sources=[
+            {"type": "source_range", "id": f"draft:{scene_id}", "content_hash": "h"}
+        ],
+        warnings=[],
+        scene_card={},
+        outline_context={"scenes": [], "arcs": [], "plot_threads": []},
+        identity_candidates=[],
+        relation_candidates=[],
+        omitted_sources=[],
+        context_fingerprint=f"context:{scene_id}:{text}",
+    )
+
+
+async def _phase2b_prepare_activation(
+    _db,
+    *,
+    novel_id: str,
+    scene_id: str,
+    **_kwargs,
+):
+    return _phase2b_activation(novel_id, scene_id)
+
+
+def _phase2b_test_fingerprint(novel_id: str, scene: dict, text: str) -> str:
+    activation = _phase2b_activation(novel_id, str(scene["id"]), text)
+    bundle = build_phase2b_context_bundle(
+        activation,
+        novel_id=novel_id,
+        scene_id=str(scene["id"]),
+    )
+    return phase2b_scene_input_fingerprint(
+        scene,
+        text,
+        bundle["context_fingerprint"],
+    )
 
 
 async def _snapshot_rows(db_session: AsyncSession, novel_id: str):
@@ -161,6 +211,12 @@ async def test_phase2b_scene_failure_degrades_without_raising(
     with (
         patch.object(
             svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
+        patch.object(
+            svc,
             "_load_scene_chapters",
             autospec=True,
             return_value="Scene 正文",
@@ -221,6 +277,12 @@ async def test_phase2b_total_timeout_budget_degrades_remaining_scenes(
     with (
         patch.object(
             svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
+        patch.object(
+            svc,
             "_load_scene_chapters",
             autospec=True,
             return_value="Scene 正文",
@@ -271,7 +333,7 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     svc = SceneEntityExtractionService()
-    snapshot = Mock(id=None)
+    snapshot = Mock(id="snapshot-shared")
     both_started = asyncio.Event()
     started_calls = 0
 
@@ -294,6 +356,12 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
         lambda: 1,
     )
     with (
+        patch.object(
+            svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
         patch.object(
             svc,
             "_load_scene_chapters",
@@ -324,6 +392,14 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
             autospec=True,
             return_value={"aliases": 0, "relations": 0},
         ) as persist_output,
+        patch(
+            "modules.context.facade.succeed_context_snapshot",
+            autospec=True,
+        ),
+        patch(
+            "modules.context.facade.fail_context_snapshot",
+            autospec=True,
+        ),
     ):
         result = await svc._run_alias_relation_phase(
             db_session,
@@ -339,8 +415,60 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
     assert result["alias_relation_scenes"] == 2
     assert result["alias_relation_failed_scenes"] == []
     assert result["alias_relation_concurrency"] == 2
-    assert build_entity_index.await_count == 1
+    assert build_entity_index.await_count == 0
     assert persist_output.await_count == 2
+    assert {
+        call.kwargs["context_snapshot_id"]
+        for call in persist_output.await_args_list
+    } == {"snapshot-shared"}
+
+
+@pytest.mark.asyncio
+async def test_phase2b_provider_call_has_no_open_database_transaction(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+
+    async def assert_no_transaction(*_args, **_kwargs):
+        assert db_session.in_transaction() is False
+        return AliasRelationExtractionOutput()
+
+    with (
+        patch.object(
+            svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
+        patch.object(
+            svc,
+            "_create_phase2b_snapshot",
+            autospec=True,
+            return_value=Mock(id=None),
+        ),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            autospec=True,
+            side_effect=assert_no_transaction,
+        ),
+        patch.object(
+            svc,
+            "_persist_alias_relation_output",
+            autospec=True,
+            return_value={"aliases": 0, "relations": 0, "uncertain_count": 0},
+        ),
+    ):
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [{"scene_index": 7, "id": "scene-7"}],
+            workflow_id="wf-phase2b-no-provider-transaction",
+        )
+
+    assert result["alias_relation_scenes"] == 1
+    assert result["alias_relation_failed_scenes"] == []
 
 
 @pytest.mark.asyncio
@@ -351,10 +479,15 @@ async def test_phase2b_records_checkpoints_and_progress(
 ) -> None:
     svc = SceneEntityExtractionService()
     snapshot = Mock(id=None)
-    progress_events: list[tuple[int, int]] = []
+    progress_events: list[tuple[int, int, str | None]] = []
 
-    async def on_progress(completed: int, total: int) -> None:
-        progress_events.append((completed, total))
+    async def on_progress(
+        completed: int,
+        total: int,
+        *,
+        operation: str | None = None,
+    ) -> None:
+        progress_events.append((completed, total, operation))
 
     monkeypatch.setattr(
         "modules.imports.entity_extraction.scene_entity_alias_relation."
@@ -367,6 +500,12 @@ async def test_phase2b_records_checkpoints_and_progress(
         lambda: 5,
     )
     with (
+        patch.object(
+            svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
         patch.object(
             svc,
             "_load_scene_chapters",
@@ -417,8 +556,8 @@ async def test_phase2b_records_checkpoints_and_progress(
             },
         )
 
-    assert progress_events[0] == (0, 1)
-    assert progress_events[-1] == (1, 1)
+    assert progress_events[0] == (0, 1, "alias_relation_extraction")
+    assert progress_events[-1] == (1, 1, "alias_relation_extraction")
     checkpoints = result["alias_relation_checkpoints"]["phase2b"]["scenes"]
     assert len(checkpoints) == 1
     assert checkpoints[0] | {"input_fingerprint": None} == {
@@ -428,6 +567,7 @@ async def test_phase2b_records_checkpoints_and_progress(
         "status": "done",
         "aliases": 1,
         "relations": 2,
+        "uncertain_items": 0,
         "retry_count": 0,
         "fallback": False,
         "source": "deep_import",
@@ -435,9 +575,10 @@ async def test_phase2b_records_checkpoints_and_progress(
         "input_fingerprint": None,
     }
     assert len(checkpoints[0]["input_fingerprint"]) == 64
-    assert checkpoints[0]["input_fingerprint"] == scene_input_fingerprint(
+    assert checkpoints[0]["input_fingerprint"] == _phase2b_test_fingerprint(
+        novel_with_drafts,
         {"scene_index": 7, "id": "scene-7"},
-        _trim_phase2b_scene_text("Scene 正文"),
+        "Scene 正文",
     )
     assert result["alias_relation_rerun_scenes"] == 1
 
@@ -458,6 +599,12 @@ async def test_phase2b_existing_checkpoint_skips_scene(
     scene = {"scene_index": 7, "id": "new-scene-7"}
     scene_text = "Scene 正文"
     with (
+        patch.object(
+            svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
         patch.object(
             svc,
             "_load_scene_chapters",
@@ -485,7 +632,8 @@ async def test_phase2b_existing_checkpoint_skips_scene(
                             "aliases": 3,
                             "relations": 4,
                             "retry_count": 0,
-                            "input_fingerprint": scene_input_fingerprint(
+                            "input_fingerprint": _phase2b_test_fingerprint(
+                                novel_with_drafts,
                                 scene,
                                 scene_text,
                             ),
@@ -518,6 +666,12 @@ async def test_phase2b_invalid_json_falls_back_to_empty_result(
     snapshot = Mock(id=None)
 
     with (
+        patch.object(
+            svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
         patch.object(
             svc,
             "_load_scene_chapters",
@@ -755,6 +909,12 @@ async def test_phase2b_snapshot_preparation_timeout_degrades_scene(
     with (
         patch.object(
             svc,
+            "_prepare_import_context_activation",
+            autospec=True,
+            side_effect=_phase2b_prepare_activation,
+        ),
+        patch.object(
+            svc,
             "_load_scene_chapters",
             autospec=True,
             return_value="Scene 正文",
@@ -851,7 +1011,7 @@ async def test_phase2_flush_timeout_returns_degraded(
 
 
 @pytest.mark.asyncio
-async def test_record_deltas_creates_delta_log(
+async def test_record_deltas_creates_memory_log_without_generic_map_noise(
     db_session: AsyncSession,
     novel_with_drafts: str,
 ) -> None:
@@ -897,14 +1057,55 @@ async def test_record_deltas_creates_delta_log(
     obs_stmt = select(MapObservation).where(MapObservation.novel_id == nid)
     obs_result = await db_session.execute(obs_stmt)
     observations = obs_result.scalars().all()
+    assert observations == []
+
+
+@pytest.mark.asyncio
+async def test_record_deltas_bridges_explicit_map_intent(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    count = await svc._record_deltas(
+        db_session,
+        novel_with_drafts,
+        [
+            DeltaEvent(
+                category="POSITION_CHANGED",
+                field="position",
+                old="街口",
+                new="教堂",
+                meta={
+                    "dynamic_type": "location",
+                    "spatial_anchor": {"hex_q": 1, "hex_r": 2},
+                    "evidence_text": "他从街口走进教堂。",
+                },
+            )
+        ],
+        scene_index=3,
+        workflow_id="wf-map-delta",
+        scene_id="00000000-0000-0000-0000-000000000003",
+        scene_provenance_key="wf-map-delta:scene:3",
+    )
+
+    assert count == 1
+    from modules.world.map_models import MapObservation
+    from shared.utils import parse_uuid
+
+    observations = list(
+        (
+            await db_session.execute(
+                select(MapObservation).where(
+                    MapObservation.novel_id
+                    == parse_uuid(novel_with_drafts, "novel_id")
+                )
+            )
+        ).scalars()
+    )
     assert len(observations) == 1
-    assert observations[0].review_state == "candidate"
-    assert observations[0].dynamic_type == "entity_created"
-    assert observations[0].scene_index == 2
+    assert observations[0].dynamic_type == "location"
+    assert observations[0].spatial_anchor == {"hex_q": 1, "hex_r": 2}
     assert observations[0].source_ref["source"] == "deep_import_delta_event"
-    assert observations[0].source_ref["delta_log_id"] == str(items[0].id)
-    assert observations[0].source_ref["workflow_id"] == "wf-delta"
-    assert observations[0].source_ref["scene_provenance_key"] == "wf-delta:scene:2"
 
 
 @pytest.mark.asyncio
@@ -982,6 +1183,53 @@ async def test_extract_by_scenes_empty_route_skips_world_context() -> None:
     world_context.assert_not_awaited()
     assert result["total_scenes"] == 0
     assert result["checkpoints"] == {"phase2": {"scenes": []}}
+
+
+@pytest.mark.asyncio
+async def test_extract_by_scenes_filters_explicit_repair_scene_ids() -> None:
+    svc = SceneEntityExtractionService()
+    target_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    scenes = [
+        {
+            "id": target_id,
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "scene_index": 1,
+            "chapter_ids": ["1"],
+        },
+        {
+            "id": other_id,
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "scene_index": 2,
+            "chapter_ids": ["2"],
+        },
+    ]
+    expected = {
+        "total_scenes": 1,
+        "total_created": 0,
+        "failed_scene_indices": [],
+        "checkpoints": {"phase2": {"scenes": []}},
+    }
+
+    with (
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
+        patch.object(
+            svc,
+            "_process_scenes_parallel_llm",
+            autospec=True,
+            return_value=expected,
+        ) as process,
+    ):
+        result = await svc.extract_by_scenes(
+            Mock(),
+            "00000000-0000-0000-0000-000000000001",
+            scene_ids=[target_id],
+            existing_checkpoints={},
+        )
+
+    assert result is expected
+    selected_scenes = process.await_args.args[2]
+    assert [scene["id"] for scene in selected_scenes] == [target_id]
 
 
 @pytest.mark.asyncio
@@ -1558,7 +1806,7 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
             "_persist_relations",
             autospec=True,
             return_value=0,
-        ),
+        ) as persist_relations,
         patch.object(
             svc,
             "_record_deltas",
@@ -1598,6 +1846,7 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
     assert result["parallel_llm_fallback"] is True
     assert result["bulk_error_kind"] == "schema_error"
     assert result["total_created"] == 2
+    persist_relations.assert_not_awaited()
     checkpoints = result["checkpoints"]["phase2"]["scenes"]
     assert [checkpoint["created_entity_ids"] for checkpoint in checkpoints] == [
         ["entity-1"],
@@ -1646,6 +1895,296 @@ async def test_parallel_phase2_skips_unresolved_scene_without_failing_stage() ->
     checkpoint = result["checkpoints"]["phase2"]["scenes"][0]
     assert checkpoint["status"] == "skipped"
     assert checkpoint["error_kind"] == "current_scene_span_coverage_missing"
+
+
+@pytest.mark.asyncio
+async def test_parallel_phase2_closes_db_transaction_before_provider_call(
+    db_session: AsyncSession,
+) -> None:
+    svc = SceneEntityExtractionService()
+    scene = {
+        "id": "transient-scene",
+        "novel_id": "00000000-0000-0000-0000-000000000001",
+        "scene_index": 3,
+        "chapter_ids": ["3"],
+        "title": "事务边界",
+    }
+
+    async def load_scene(db: AsyncSession, _scene: dict) -> str:
+        await db.execute(select(1))
+        assert db.in_transaction()
+        return "沈砚走进青石镇。"
+
+    async def call_llm(*_args, **_kwargs) -> SceneEntityExtractionOutput:
+        assert not db_session.in_transaction()
+        return SceneEntityExtractionOutput()
+
+    progress_events: list[tuple[int, int]] = []
+
+    async def on_scene_progress(completed: int, total: int) -> None:
+        progress_events.append((completed, total))
+
+    async def persist_entities(*_args, **kwargs) -> int:
+        assert progress_events == [(1, 1)]
+        stats = kwargs["persistence_stats"]
+        stats["action_counts"]["link_to_existing"] += 1
+        stats["dedup_counts"]["skipped"] += 1
+        stats["linked_to_existing"] += 1
+        return 0
+
+    with (
+        patch.object(svc, "_load_scene_chapters", autospec=True, side_effect=load_scene),
+        patch.object(
+            svc,
+            "_create_phase2_snapshot",
+            autospec=True,
+            return_value=Mock(id=None),
+        ),
+        patch.object(svc, "_call_llm_extraction", autospec=True, side_effect=call_llm),
+        patch.object(
+            svc,
+            "_persist_entities",
+            autospec=True,
+            side_effect=persist_entities,
+        ),
+        patch.object(svc, "_record_deltas", autospec=True, return_value=0),
+        _patched_phase2_summaries(svc),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db_session,
+            scene["novel_id"],
+            [scene],
+            "无已有对象",
+            workflow_id="wf-no-provider-transaction",
+            on_scene_progress=on_scene_progress,
+            bulk_error_kind="unified_activation:fresh",
+            include_alias_relations=False,
+        )
+
+    assert result["completed_scenes"] == 1
+    assert progress_events == [(1, 1)]
+    assert result["phase2_action_counts"]["link_to_existing"] == 1
+    assert result["phase2_dedup_counts"]["skipped"] == 1
+    assert result["phase2_linked_to_existing"] == 1
+
+
+@pytest.mark.asyncio
+async def test_parallel_phase2_format_diagnostics_do_not_throttle_or_skip_scenes(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"transient-scene-{index}",
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+            "title": f"Scene {index}",
+        }
+        for index in range(1, 8)
+    ]
+    llm_calls = 0
+    progress_events: list[tuple[int, int]] = []
+
+    async def load_scene(_db: AsyncSession, scene: dict) -> str:
+        return f"{scene['title']} 正文"
+
+    async def call_llm(*_args, **kwargs) -> SceneEntityExtractionOutput:
+        nonlocal llm_calls
+        llm_calls += 1
+        if llm_calls <= 3:
+            kwargs["diagnostics"].append({"kind": "partial_list_validation"})
+        return SceneEntityExtractionOutput()
+
+    async def on_scene_progress(completed: int, total: int) -> None:
+        progress_events.append((completed, total))
+
+    monkeypatch.setattr(
+        "modules.imports.entity_extraction.scene_entity_parallel."
+        "phase2_parallel_scene_concurrency",
+        lambda: 4,
+    )
+    with (
+        patch.object(svc, "_load_scene_chapters", autospec=True, side_effect=load_scene),
+        patch.object(
+            svc,
+            "_create_phase2_snapshot",
+            autospec=True,
+            return_value=Mock(id=None),
+        ),
+        patch.object(svc, "_call_llm_extraction", autospec=True, side_effect=call_llm),
+        patch.object(svc, "_persist_entities", autospec=True, return_value=0),
+        patch.object(svc, "_record_deltas", autospec=True, return_value=0),
+        _patched_phase2_summaries(svc),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db_session,
+            scenes[0]["novel_id"],
+            scenes,
+            "无已有对象",
+            workflow_id="wf-adaptive-throttle",
+            on_scene_progress=on_scene_progress,
+            bulk_error_kind="unified_activation:batched",
+            include_alias_relations=False,
+        )
+
+    assert llm_calls == len(scenes)
+    assert result["completed_scenes"] == len(scenes)
+    assert len(result["checkpoints"]["phase2"]["scenes"]) == len(scenes)
+    assert progress_events[-1] == (len(scenes), len(scenes))
+    assert [completed for completed, _total in progress_events] == list(
+        range(1, len(scenes) + 1)
+    )
+    assert result["phase2_throttle_reasons"] == []
+
+
+@pytest.mark.asyncio
+async def test_parallel_phase2_transport_throttle_does_not_skip_scenes(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"transient-scene-{index}",
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+            "title": f"Scene {index}",
+        }
+        for index in range(1, 8)
+    ]
+    llm_calls = 0
+    progress_events: list[tuple[int, int]] = []
+
+    async def load_scene(_db: AsyncSession, scene: dict) -> str:
+        return f"{scene['title']} 正文"
+
+    async def call_llm(*_args, **_kwargs) -> SceneEntityExtractionOutput:
+        nonlocal llm_calls
+        llm_calls += 1
+        if llm_calls <= 2:
+            raise TimeoutError("provider timed out")
+        return SceneEntityExtractionOutput()
+
+    async def on_scene_progress(completed: int, total: int) -> None:
+        progress_events.append((completed, total))
+
+    monkeypatch.setattr(
+        "modules.imports.entity_extraction.scene_entity_parallel."
+        "phase2_parallel_scene_concurrency",
+        lambda: 4,
+    )
+    with (
+        patch.object(svc, "_load_scene_chapters", autospec=True, side_effect=load_scene),
+        patch.object(
+            svc,
+            "_create_phase2_snapshot",
+            autospec=True,
+            return_value=Mock(id=None),
+        ),
+        patch.object(svc, "_call_llm_extraction", autospec=True, side_effect=call_llm),
+        patch.object(svc, "_persist_entities", autospec=True, return_value=0),
+        patch.object(svc, "_record_deltas", autospec=True, return_value=0),
+        _patched_phase2_summaries(svc),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db_session,
+            scenes[0]["novel_id"],
+            scenes,
+            "无已有对象",
+            workflow_id="wf-transport-throttle",
+            on_scene_progress=on_scene_progress,
+            bulk_error_kind="unified_activation:batched",
+            include_alias_relations=False,
+        )
+
+    assert llm_calls == len(scenes)
+    assert result["completed_scenes"] == len(scenes) - 2
+    assert len(result["checkpoints"]["phase2"]["scenes"]) == len(scenes)
+    assert len(result["failed_scene_indices"]) == 2
+    assert progress_events[-1] == (len(scenes), len(scenes))
+    assert [completed for completed, _total in progress_events] == list(
+        range(1, len(scenes) + 1)
+    )
+    assert result["phase2_throttle_reasons"] == ["transport_failure_window"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_phase2_single_rate_limit_throttles_without_skipping_scenes(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"rate-limited-scene-{index}",
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+            "title": f"Scene {index}",
+        }
+        for index in range(1, 8)
+    ]
+    llm_calls = 0
+    progress_events: list[tuple[int, int]] = []
+
+    async def load_scene(_db: AsyncSession, scene: dict) -> str:
+        return f"{scene['title']} 正文"
+
+    async def call_llm(*_args, **_kwargs) -> SceneEntityExtractionOutput:
+        nonlocal llm_calls
+        llm_calls += 1
+        if llm_calls == 1:
+            raise LLMRateLimitError(retry_after=1.0)
+        return SceneEntityExtractionOutput()
+
+    async def on_scene_progress(completed: int, total: int) -> None:
+        progress_events.append((completed, total))
+
+    monkeypatch.setattr(
+        "modules.imports.entity_extraction.scene_entity_parallel."
+        "phase2_parallel_scene_concurrency",
+        lambda: 4,
+    )
+    with (
+        patch.object(svc, "_load_scene_chapters", autospec=True, side_effect=load_scene),
+        patch.object(
+            svc,
+            "_create_phase2_snapshot",
+            autospec=True,
+            return_value=Mock(id=None),
+        ),
+        patch.object(svc, "_call_llm_extraction", autospec=True, side_effect=call_llm),
+        patch.object(svc, "_persist_entities", autospec=True, return_value=0),
+        patch.object(svc, "_record_deltas", autospec=True, return_value=0),
+        _patched_phase2_summaries(svc),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db_session,
+            scenes[0]["novel_id"],
+            scenes,
+            "无已有对象",
+            workflow_id="wf-rate-limit-throttle",
+            on_scene_progress=on_scene_progress,
+            bulk_error_kind="unified_activation:batched",
+            include_alias_relations=False,
+        )
+
+    assert llm_calls == len(scenes)
+    assert result["completed_scenes"] == len(scenes) - 1
+    assert len(result["checkpoints"]["phase2"]["scenes"]) == len(scenes)
+    assert len(result["failed_scene_indices"]) == 1
+    assert progress_events[-1] == (len(scenes), len(scenes))
+    assert [completed for completed, _total in progress_events] == list(
+        range(1, len(scenes) + 1)
+    )
+    assert result["phase2_throttle_reasons"] == ["rate_limit_window"]
 
 
 @pytest.mark.asyncio

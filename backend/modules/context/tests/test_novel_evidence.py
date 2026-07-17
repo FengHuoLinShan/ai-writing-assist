@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,10 +16,37 @@ from modules.context.facade import (
     search_novel_evidence,
     trace_novel_evidence,
 )
-from modules.context.novel_evidence import NovelEvidenceService
+from modules.context.novel_evidence import (
+    NovelEvidenceService,
+    _query_focused_snippet,
+)
 from modules.rag.contracts import RagChunkContract
 from modules.writing.contracts import SourceRangeRefContract
 from modules.writing.facade import create_published_draft_only, grep_manuscript
+
+
+def test_query_focused_snippet_shows_evidence_instead_of_chunk_prefix() -> None:
+    text = (
+        "观众魔药配方与材料说明。" * 45
+        + "克莱恩由灵视实践想到：不是掌握，是消化；不是挖掘，是扮演。"
+        + "他仍需继续理解占卜家的力量边界。"
+    )
+
+    snippet = _query_focused_snippet(
+        text,
+        "克莱恩服食占卜家魔药后，如何通过灵视、占卜实践和扮演逐步理解自己的力量边界？",
+    )
+
+    assert len(snippet) <= 500
+    assert snippet.startswith("…")
+    assert "不是挖掘，是扮演" in snippet
+    assert "力量边界" in snippet
+    assert not snippet.startswith("观众魔药配方")
+
+
+def test_query_focused_snippet_keeps_short_text_and_falls_back_to_prefix() -> None:
+    assert _query_focused_snippet("短证据", "无关查询") == "短证据"
+    assert _query_focused_snippet("甲" * 600, "无关查询") == "甲" * 500
 
 
 @pytest.mark.asyncio
@@ -881,6 +909,68 @@ async def test_smart_search_aggregates_exact_matches_by_chapter(
     assert [item["chapter_index"] for item in result["hits"]] == [21, 22]
     assert [item["match_count"] for item in result["hits"]] == [2, 1]
     assert all(item["match_basis"] == "occurrence" for item in result["hits"])
+
+
+@pytest.mark.asyncio
+async def test_smart_search_preserves_reranker_order_across_chapter_grouping(
+    db_session,
+    test_project_id,
+    monkeypatch,
+) -> None:
+    drafts = []
+    for chapter, text in (
+        (57, "直接证据：克莱恩总结扮演和消化。"),
+        (21, "辅助背景：罗塞尔日记提到扮演。"),
+        (33, "直接证据：克莱恩练习灵视。"),
+    ):
+        drafts.append(
+            await create_published_draft_only(
+                db_session,
+                test_project_id,
+                chapter,
+                f"第{chapter}章",
+                text,
+            )
+        )
+
+    chunks = [
+        RagChunkContract(
+            id=str(uuid.uuid4()),
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            source_id=draft.id,
+            source_content_hash=draft.content_hash,
+            content_mode="canonical",
+            chapter_index=draft.chapter_index,
+            start_offset=0,
+            end_offset=len(draft.content or ""),
+            text=draft.content or "",
+            score=score,
+        )
+        for draft, score in zip(drafts, (0.8, 0.95, 0.7), strict=True)
+    ]
+
+    async def fake_retrieve(*_args, **_kwargs):
+        return SimpleNamespace(chunks=chunks, warnings=[], degraded=False)
+
+    async def fresh_index(*_args, **_kwargs):
+        return {"stale": False}
+
+    monkeypatch.setattr("modules.rag.facade.retrieve", fake_retrieve)
+    monkeypatch.setattr("modules.rag.facade.get_index_freshness", fresh_index)
+
+    result = await search_novel_evidence(
+        db_session,
+        novel_id=test_project_id,
+        query="如何理解能力边界",
+        content_mode="canonical",
+        visibility=VisibilityContextContract(mode="author"),
+        scopes=["manuscript"],
+        top_k=20,
+    )
+
+    assert [item["chapter_index"] for item in result["hits"]] == [57, 21, 33]
+    assert [item["score"] for item in result["hits"]] == [0.8, 0.95, 0.7]
 
 
 @pytest.mark.asyncio

@@ -146,6 +146,18 @@ function _confirmDiscardUnsavedChanges() {
   return window.confirm("有未保存的更改，确定放弃并关闭吗？")
 }
 
+/**
+ * 在调用方完成同步挂载的动态表单控件后，重新记录未保存基线。
+ *
+ * showModal 只能记录它直接渲染的控件；引用选择器等组件会在弹窗显示后
+ * 再挂载输入框。如果不刷新基线，未修改的动态控件也会被误判为用户编辑。
+ */
+function refreshModalFormBaseline() {
+  if (!_isModalOpen()) return false
+  _unsavedFormBaseline = _formSnapshot()
+  return true
+}
+
 function _isDomEvent(value) {
   return Boolean(
     value
@@ -403,3 +415,4 @@ window.showModal = showModal
 window.closeModal = closeModal
 window.showModalHtml = showModalHtml
 window.confirmAction = confirmAction
+window.refreshModalFormBaseline = refreshModalFormBaseline

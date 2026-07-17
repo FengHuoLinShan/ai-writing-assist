@@ -10,6 +10,7 @@ from modules.imports.entity_extraction.scene_entity_persistence import (
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     ExtractedRelation,
+    Phase2bRelationObservation,
 )
 
 
@@ -87,20 +88,26 @@ async def test_phase2b_relation_payload_keeps_workflow_and_scene_evidence() -> N
     gateway = SceneEntityPersistenceGateway(Mock())
     output = AliasRelationExtractionOutput(
         relations=[
-            ExtractedRelation(
-                source_name="克莱恩",
-                target_name="梅丽莎",
+            Phase2bRelationObservation(
+                source_ref="entity-001",
+                target_ref="entity-002",
                 relation_type="sibling",
-                quote="克莱恩是梅丽莎的哥哥。",
+                persistence_scope="enduring",
+                directionality="directed",
+                claim_status="established",
+                description="克莱恩是梅丽莎的哥哥",
+                basis="正文明确亲属关系",
+                evidence_quotes=["克莱恩是梅丽莎的哥哥。"],
+                confidence=0.92,
             )
         ]
     )
 
     with (
         patch(
-            "modules.world.facade.find_working_entity_ids_by_names",
+            "modules.world.facade.list_entities",
             autospec=True,
-            return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
+            return_value=[{"id": "entity-1"}, {"id": "entity-2"}],
         ),
         patch(
             "modules.world.facade.create_or_merge_relation",
@@ -116,22 +123,30 @@ async def test_phase2b_relation_payload_keeps_workflow_and_scene_evidence() -> N
             scene_index=9,
             workflow_id="workflow-2",
             scene_id="scene-9",
+            current_scene_text="克莱恩是梅丽莎的哥哥。",
+            context_bundle={
+                "context_fingerprint": "context-fingerprint",
+                "identity_candidates": [
+                    {"prompt_ref": "entity-001", "name": "克莱恩", "aliases": []},
+                    {"prompt_ref": "entity-002", "name": "梅丽莎", "aliases": []},
+                ],
+                "_entity_ref_map": {
+                    "entity-001": "entity-1",
+                    "entity-002": "entity-2",
+                },
+                "_relation_ref_map": {},
+            },
         )
 
-    assert result == {"aliases": 0, "relations": 1}
+    assert result["aliases"] == 0
+    assert result["relations"] == 1
+    assert result["uncertain_count"] == 0
     payload = create_or_merge.await_args.args[2]
-    assert payload["review_meta"] == {
-        "source": "deep_import",
-        "workflow_id": "workflow-2",
-        "scene_id": "scene-9",
-        "scene_index": 9,
-        "quote": "克莱恩是梅丽莎的哥哥。",
-        "evidence_refs": [
-            {
-                "source_type": "scene",
-                "scene_id": "scene-9",
-                "scene_index": 9,
-                "quote": "克莱恩是梅丽莎的哥哥。",
-            }
-        ],
-    }
+    review_meta = payload["review_meta"]
+    assert review_meta["source"] == "deep_import"
+    assert review_meta["workflow_id"] == "workflow-2"
+    assert review_meta["scene_id"] == "scene-9"
+    assert review_meta["claim_status"] == "established"
+    assert review_meta["basis"] == "正文明确亲属关系"
+    assert review_meta["confidence"] == 0.92
+    assert review_meta["evidence_quotes"] == ["克莱恩是梅丽莎的哥哥。"]

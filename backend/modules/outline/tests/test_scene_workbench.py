@@ -54,9 +54,7 @@ async def _create_draft(
             "novel_id": novel_id,
             "chapter_index": chapter_index,
             "title": title or f"第{chapter_index}章",
-            "content": (
-                content if content is not None else f"第{chapter_index}章正文"
-            ),
+            "content": (content if content is not None else f"第{chapter_index}章正文"),
         },
     )
     assert resp.status_code == 201, resp.text
@@ -816,6 +814,65 @@ class TestSceneWorkbenchApi:
         assert len(data["items"]) == 1
         assert data["items"][0]["scene"]["title"] == "缺设定 1"
 
+    async def test_workbench_missing_setup_respects_imported_no_conflict_status(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        shared_setup = {
+            "goal": "观察海面异象",
+            "core_conflict": None,
+            "must_happen": "确认潮汐异常",
+            "must_not_happen": "虚构人物对抗",
+            "status": "draft",
+        }
+        complete = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 10,
+                "title": "无冲突但设定完整",
+                "source": "deep_import",
+                "structure_meta": {"core_conflict_status": "not_applicable"},
+                **shared_setup,
+            },
+        )
+        uncertain = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 11,
+                "title": "冲突待判断",
+                "source": "deep_import",
+                "structure_meta": {"core_conflict_status": "uncertain"},
+                **shared_setup,
+            },
+        )
+        manual = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 12,
+                "title": "手工 Scene 保持旧规则",
+                "source": "manual",
+                "structure_meta": {"core_conflict_status": "not_applicable"},
+                **shared_setup,
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id, "health": "missing_setup"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        item_ids = {item["scene"]["id"] for item in data["items"]}
+        assert complete["id"] not in item_ids
+        assert uncertain["id"] in item_ids
+        assert manual["id"] in item_ids
+        assert data["health"]["missing_setup"]["count"] == 2
+
     async def test_workbench_rejects_invalid_filter_ranges(
         self,
         async_client: AsyncClient,
@@ -1071,6 +1128,79 @@ class TestSceneWorkbenchApi:
         assert spans[0].source_content_hash == "a" * 64
         assert spans[1].source_content_hash == "c" * 64
 
+    async def test_review_resolves_trusted_semantics_without_changing_manual_rules(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        imported = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "导入后人工确认",
+                "source": "deep_import",
+                "goal": "完成交接",
+                "core_conflict": "追兵逼近",
+                "must_happen": "交出密信",
+                "must_not_happen": None,
+                "structure_meta": {
+                    "semantic_origin": "mechanical_fusion",
+                    "semantic_field_statuses": {
+                        "core_conflict": "present",
+                        "must_happen": "uncertain",
+                        "must_not_happen": "uncertain",
+                    },
+                    "semantic_uncertain_fields": [
+                        "must_happen",
+                        "must_not_happen",
+                    ],
+                    "needs_review": True,
+                },
+            },
+        )
+        manual = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "手工 Scene",
+                "source": "manual",
+                "goal": "完成交接",
+                "core_conflict": "追兵逼近",
+                "must_happen": "交出密信",
+                "must_not_happen": None,
+            },
+        )
+
+        reviewed = await async_client.post(
+            "/api/outline/scene-workbench/review",
+            params={"novel_id": test_project_id},
+            json={"scene_ids": [imported["id"], manual["id"]], "decision": "review"},
+        )
+
+        assert reviewed.status_code == 200, reviewed.text
+        reviewed_by_id = {item["id"]: item for item in reviewed.json()["items"]}
+        imported_meta = reviewed_by_id[imported["id"]]["structure_meta"]
+        assert imported_meta["semantic_field_statuses"]["must_happen"] == "present"
+        assert (
+            imported_meta["semantic_field_statuses"]["must_not_happen"]
+            == "not_applicable"
+        )
+        assert imported_meta["semantic_uncertain_fields"] == []
+        assert "semantic_field_statuses" not in reviewed_by_id[manual["id"]][
+            "structure_meta"
+        ]
+
+        workbench = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+        assert workbench.status_code == 200, workbench.text
+        items = {item["scene"]["id"]: item for item in workbench.json()["items"]}
+        assert "missing_setup" not in items[imported["id"]]["health"]
+        assert "missing_setup" in items[manual["id"]]["health"]
+
     async def test_source_mapping_review_uses_fingerprint_without_promoting_span(
         self,
         async_client: AsyncClient,
@@ -1231,6 +1361,7 @@ class TestSceneWorkbenchApi:
             params={"novel_id": test_project_id},
         )
         assert workbench.json()["fusion_suggestions"]["pending_count"] == 1
+
         first_item = next(
             item
             for item in workbench.json()["items"]
@@ -1294,6 +1425,51 @@ class TestSceneWorkbenchApi:
         )
         assert dismissed.status_code == 200, dismissed.text
         assert dismissed.json() == {"dismissed": 1}
+
+    async def test_hidden_separate_decision_protects_pair_without_queue_item(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "会谈", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "伏击", "chapter_ids": ["1"]},
+        )
+        await SceneWorkbenchService().persist_fusion_suggestions(
+            db_session,
+            novel_id=test_project_id,
+            source_workflow_id="phase1c-v2",
+            suggestions=[
+                {
+                    "suggestion_kind": "intra_chapter",
+                    "proposed_action": "keep_separate",
+                    "source_scene_ids": [first["id"], second["id"]],
+                    "chapter_span": [1],
+                    "confidence": 0.98,
+                    "reason": "两个独立因果单元",
+                    "initial_status": "dismissed",
+                    "decision_origin": "phase1c_boundary_review_v2",
+                }
+            ],
+        )
+
+        listed = await async_client.get(
+            "/api/outline/scene-workbench/fusion-suggestions",
+            params={"novel_id": test_project_id},
+        )
+        protected = await SceneWorkbenchService().get_current_fusion_decision_pairs(
+            db_session,
+            test_project_id,
+        )
+        assert listed.json()["total"] == 0
+        assert frozenset((first["id"], second["id"])) in protected
 
     async def test_fusion_suggestion_becomes_stale_after_source_change(
         self,
@@ -1619,6 +1795,10 @@ class TestSceneWorkbenchApi:
                 "chapter_ids": ["2"],
                 "goal": "来源目标",
                 "must_happen": "钥匙出现",
+                "structure_meta": {
+                    "narrative_function": "把钥匙从线索升级为后续追逐的因果承诺",
+                    "semantic_field_statuses": {"narrative_function": "present"},
+                },
             },
         )
 
@@ -1669,6 +1849,14 @@ class TestSceneWorkbenchApi:
         assert merged["scene"]["structure_meta"]["merged_from_scene_ids"] == [
             source["id"]
         ]
+        assert (
+            merged["scene"]["structure_meta"]["narrative_function"]
+            == "把钥匙从线索升级为后续追逐的因果承诺"
+        )
+        assert (
+            merged["scene"]["structure_meta"]["semantic_origin"]
+            == "mechanical_fusion"
+        )
 
         source_after_merge = await async_client.get(
             f"/api/outline/scenes/{source['id']}",
@@ -1680,6 +1868,75 @@ class TestSceneWorkbenchApi:
             source_after_merge.json()["structure_meta"]["merged_into_scene_id"]
             == target["id"]
         )
+
+    async def test_merge_deduplicates_chunks_and_prefers_exact_over_placeholder(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        shared_exact = {
+            "chapter_index": 1,
+            "start_pos": 0,
+            "end_pos": 100,
+        }
+        target = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "完整叙事单元",
+                "chapter_ids": ["1", "2"],
+                "scene_chunks": [
+                    shared_exact,
+                    {"chapter_index": 2, "start_paragraph": 0},
+                ],
+            },
+        )
+        source = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "重复子范围",
+                "chapter_ids": ["1", "2"],
+                "scene_chunks": [
+                    shared_exact,
+                    {"chapter_index": 2, "start_pos": 0, "end_pos": 80},
+                ],
+            },
+        )
+
+        preview_resp = await async_client.post(
+            "/api/outline/scene-workbench/merge/preview",
+            params={"novel_id": test_project_id},
+            json={
+                "target_scene_id": target["id"],
+                "source_scene_ids": [source["id"]],
+            },
+        )
+
+        assert preview_resp.status_code == 200, preview_resp.text
+        assert any(
+            "第 2 章同时存在精确正文定位和章节级占位" in warning
+            for warning in preview_resp.json()["warnings"]
+        )
+
+        merged_resp = await async_client.post(
+            "/api/outline/scene-workbench/merge",
+            params={"novel_id": test_project_id},
+            json={
+                "target_scene_id": target["id"],
+                "source_scene_ids": [source["id"]],
+                "confirmed": True,
+            },
+        )
+
+        assert merged_resp.status_code == 200, merged_resp.text
+        chunks = merged_resp.json()["scene"]["scene_chunks"]
+        assert chunks == [
+            shared_exact,
+            {"chapter_index": 2, "start_pos": 0, "end_pos": 80},
+        ]
 
     async def test_split_preview_is_side_effect_free_and_split_requires_confirmation(
         self,
@@ -2061,7 +2318,10 @@ class TestSceneWorkbenchApi:
             first["id"],
             second["id"],
         ]
-        assert data["fused_scene"]["structure_meta"]["needs_review"] is False
+        assert data["fused_scene"]["structure_meta"]["needs_review"] is True
+        assert "core_conflict" in data["fused_scene"]["structure_meta"][
+            "semantic_uncertain_fields"
+        ]
         assert data["fused_scene"]["structure_meta"]["adopted_at"]
         assert data["fused_scene"]["structure_meta"]["source"] == "manual_fusion"
         assert data["fused_scene"]["chapter_ids"] == ["1", "2"]
@@ -2195,7 +2455,7 @@ class TestSceneWorkbenchApi:
         assert fused_scene["chapter_ids"] == ["2"]
         assert fused_scene["status"] == "draft"
         assert fused_scene["structure_meta"]["reviewed_at"] == "manual"
-        assert fused_scene["structure_meta"]["needs_review"] is False
+        assert fused_scene["structure_meta"]["needs_review"] is True
         assert fused_scene["structure_meta"]["adopted_at"]
         assert fused_scene["structure_meta"]["source"] == "manual_fusion"
         assert fused_scene["structure_meta"]["fused_from_scene_ids"] == [
@@ -2472,9 +2732,10 @@ class TestSceneWorkbenchApi:
                 "range_label": "第 1 章 · 字符 40–50 与「追逐转折」重叠",
             }
         ]
-        assert items[second["id"]]["overlap_details"][0][
-            "counterpart_scene_id"
-        ] == first["id"]
+        assert (
+            items[second["id"]]["overlap_details"][0]["counterpart_scene_id"]
+            == first["id"]
+        )
         assert other_novel_scene["id"] not in {
             detail["counterpart_scene_id"]
             for item in items.values()
@@ -2482,9 +2743,7 @@ class TestSceneWorkbenchApi:
         }
         chapter_only_summary = items[chapter_only["id"]]["span_summaries"][0]
         assert chapter_only_summary["mapping_status"] == "chapter_only"
-        assert chapter_only_summary["range_label"] == (
-            "第 3 章 · 第 1–3 段 · 仅关联章节"
-        )
+        assert chapter_only_summary["range_label"] == ("第 3 章 · 第 1–3 段 · 仅关联章节")
         assert items[chapter_only["id"]]["overlap_details"] == []
 
     async def test_apply_replacement_adopts_new_and_archives_source(

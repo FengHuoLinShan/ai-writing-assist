@@ -748,6 +748,55 @@ describe("ragView", () => {
     expect(html).toContain("&quot;boom&quot;")
   })
 
+  it("正文结果只提供阅读原文，避免把首个关联对象误称为结果证据", () => {
+    document.body.innerHTML = '<div id="rag-results"></div>'
+    ragView._searchHits = [{
+      kind: "manuscript",
+      title: "第六十章",
+      snippet: "阿尔杰说明第二块亵渎石板",
+      source_ref: { content_mode: "canonical", chapter_index: 60 },
+      object_refs: [{ target_type: "world_entity", target_id: "entity-1" }],
+    }]
+    ragView._searchTotal = 1
+    ragView._searchVisibleCount = 1
+
+    ragView._renderSearchResults()
+
+    expect(document.querySelector('[data-action="open-hit"]')?.textContent).toBe("阅读原文")
+    expect(document.querySelector('[data-action="trace-hit"]')).toBeNull()
+    expect(document.getElementById("rag-results")?.textContent).not.toContain("追踪证据")
+  })
+
+  it("原文抽屉为多个关联对象提供可区分的证据入口", () => {
+    const html = ragView._renderDrawerRefs([
+      { target_type: "outline_scene", target_id: "scene-1", target_name: "塔罗聚会" },
+      { target_type: "world_entity", target_id: "entity-1", target_name: "安提哥努斯家族" },
+      { target_type: "world_entity", target_id: "entity-2" },
+    ])
+
+    expect(html).toContain("跳转 塔罗聚会")
+    expect(html).toContain("查看安提哥努斯家族的证据")
+    expect(html).toContain("查看关联对象 3的证据")
+    expect(html).not.toContain("查看对象证据</button><button")
+  })
+
+  it("对象没有证据链时明确保留正文阅读路径", async () => {
+    state.currentProjectId = "p1"
+    ragView._drawerRefs = [{
+      target_type: "world_entity",
+      target_id: "entity-1",
+      target_name: "安提哥努斯家族",
+    }]
+    ragView._lastSearchPayload = { content_mode: "canonical", visibility: { mode: "author" } }
+    document.body.innerHTML = '<aside id="rag-evidence-drawer"></aside>'
+    api.context.traceEvidence.mockResolvedValue({ links: [], warnings: [] })
+
+    await ragView._traceDrawerRef(0)
+
+    expect(document.getElementById("rag-evidence-drawer")?.textContent).toContain("安提哥努斯家族的对象证据")
+    expect(document.getElementById("rag-evidence-drawer")?.textContent).toContain("仍可从结果卡“阅读原文”查看")
+  })
+
   it("索引状态会转义 API 返回的动态计数", async () => {
     state.currentSubView = "status"
     ragView._totalChunks = '<img src=x onerror="boom">'
@@ -779,6 +828,25 @@ describe("ragView", () => {
     )
     const query = router.navigate.mock.calls.at(-1)[3]
     expect(query.get("q")).toBe("旧塔密钥")
+  })
+
+  it("原文跳转把章节写入可刷新恢复的写作深链", () => {
+    state.currentProjectId = "p1"
+
+    ragView._navigateChapterRef("60")
+
+    expect(state.viewStates.writing).toMatchObject({
+      projectId: "p1",
+      currentChapter: 60,
+      currentDraftId: null,
+    })
+    expect(router.navigate).toHaveBeenCalledWith(
+      "writing",
+      null,
+      true,
+      expect.any(URLSearchParams),
+    )
+    expect(router.navigate.mock.calls.at(-1)[3].get("chapter_index")).toBe("60")
   })
 
 

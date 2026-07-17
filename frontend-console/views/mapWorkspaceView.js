@@ -1165,13 +1165,16 @@ const mapWorkspaceView = {
 
   _renderQueueItem(item) {
     const display = mapAssetDisplay(item)
+    const statusLabel = display.isHistory && item.status_label
+      ? item.status_label
+      : display.label
     const canReview = item.item_kind === "observation" && display.displayState === "review"
     const riskClass = item.risk_level === "danger" ? " is-danger" : item.risk_level === "warning" ? " is-warning" : ""
     return `
       <article class="map-dynamic-item${riskClass}" data-action="map-open-dynamic-item" data-id="${esc(item.item_id)}">
         <div class="map-dynamic-title">${esc(item.title || "地图事实")}</div>
         <div class="map-dynamic-meta">
-          ${esc(item.time_label || "时间未确定")} · ${esc(display.label)}
+          ${esc(item.time_label || "时间未确定")} · ${esc(statusLabel)}
           ${item.confidence !== null && item.confidence !== undefined ? ` · 置信度 ${Math.round(item.confidence * 100)}%` : ""}
           ${item.normalization_state ? ` · ${esc(mapDynamicNormalizationLabel(item.normalization_state))}` : ""}
         </div>
@@ -1201,7 +1204,9 @@ const mapWorkspaceView = {
         || (chapterIndex != null ? `第 ${chapterIndex} 章` : "")
         || "时间未确定",
       source_summary: item.source_summary || item.evidence_text || "来源已保留",
-      status_label: "历史",
+      status_label: itemKind === "fact"
+        ? this._factStatusLabel(item.fact_status)
+        : this._reviewStateLabel(item.review_state),
     }
   },
 
@@ -2457,7 +2462,10 @@ const mapWorkspaceView = {
     const item = this._findDynamicItem(id)
     if (!item) return
     const title = item.title || "地图对象"
-    const status = mapAssetDisplay(item).label
+    const display = mapAssetDisplay(item)
+    const status = display.isHistory && item.status_label
+      ? item.status_label
+      : display.label
     const time = item.time_label || "时间未确定"
     const summary = item.change_summary || item.source_summary || "暂无来源摘要"
     const evidence = item.evidence_text || "未提供正文证据"

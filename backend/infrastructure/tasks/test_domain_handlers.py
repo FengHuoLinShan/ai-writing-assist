@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -12,36 +12,6 @@ class _TaskStub:
 
     def update_progress(self, progress: float) -> None:
         self.progress_updates.append(progress)
-
-
-@pytest.mark.asyncio
-async def test_world_entity_extraction_reports_coarse_progress() -> None:
-    from modules.world.tasks import handle_world_entity_extraction
-
-    task = _TaskStub(
-        {
-            "novel_id": "11111111-1111-1111-1111-111111111111",
-            "start_chapter": 1,
-            "end_chapter": 3,
-        }
-    )
-    result = MagicMock(
-        total_chapters=3,
-        total_created=2,
-        total_skipped=1,
-        failed_chapters=[],
-        items=[],
-    )
-
-    with patch(
-        "modules.world.tasks.EntityExtractionService", autospec=True
-    ) as service_cls:
-        service = service_cls.return_value
-        service.extract_entities_from_chapters = AsyncMock(return_value=result)
-
-        await handle_world_entity_extraction(AsyncMock(), task)
-
-    assert task.progress_updates == [0.1, 0.85, 0.95, 1.0]
 
 
 def test_world_bible_projection_refresh_handler_is_registered() -> None:
@@ -73,8 +43,17 @@ def test_removed_outline_chapter_scene_extract_handler_is_not_registered() -> No
     assert handler is None
 
 
+def test_removed_world_entity_extraction_handler_is_not_registered() -> None:
+    import modules.world.tasks  # noqa: F401
+    from infrastructure.tasks.registry import get_registry
+
+    handler = get_registry().get_handler("world_entity_extraction")
+
+    assert handler is None
+
+
 @pytest.mark.asyncio
-async def test_plot_structure_generate_reports_coarse_progress() -> None:
+async def test_plot_structure_generate_fails_closed_as_retired() -> None:
     from modules.outline.tasks import handle_plot_structure_generate
 
     task = _TaskStub(
@@ -88,29 +67,12 @@ async def test_plot_structure_generate_reports_coarse_progress() -> None:
     db = AsyncMock()
     db.task_checkpoint_enabled = True
 
-    with patch(
-        "modules.outline.ai_workflow_service.OutlineAIWorkflowService",
-        autospec=True,
-    ) as service_cls:
-        service = service_cls.return_value
-        service.generate_legacy_preview_for_task = AsyncMock(
-            return_value={
-                "total_threads": 1,
-                "total_arcs": 1,
-                "total_scenes": 0,
-            }
-        )
+    result = await handle_plot_structure_generate(db, task)
 
-        await handle_plot_structure_generate(db, task)
-
-    assert task.progress_updates == [0.1, 0.85, 0.95]
-    service.generate_legacy_preview_for_task.assert_awaited_once_with(
-        db,
-        novel_id="11111111-1111-1111-1111-111111111111",
-        start_chapter=1,
-        end_chapter=3,
-        llm_execution_snapshot={"profile_hash": "frozen"},
-    )
+    assert task.progress_updates == [1.0]
+    assert result["status"] == "unsupported"
+    assert result["task_type"] == "plot_structure_generate"
+    assert "已停用" in result["message"]
 
 
 @pytest.mark.asyncio
@@ -136,7 +98,7 @@ async def test_chapter_card_extraction_returns_unsupported_result() -> None:
     assert result["novel_id"] == "11111111-1111-1111-1111-111111111111"
     assert result["start_chapter"] == 1
     assert result["end_chapter"] == 3
-    assert "not implemented" in result["message"]
+    assert "已停用" in result["message"]
     assert task.progress_updates == [0.1, 1.0]
 
 
@@ -162,7 +124,7 @@ async def test_chapter_scene_generate_returns_unsupported_result() -> None:
     assert result["task_type"] == "chapter_scene_generate"
     assert result["start_chapter"] == 2
     assert result["end_chapter"] == 4
-    assert "not implemented" in result["message"]
+    assert "已停用" in result["message"]
     assert task.progress_updates == [0.1, 1.0]
 
 

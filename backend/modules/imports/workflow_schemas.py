@@ -113,6 +113,14 @@ class DeepImportProgress(BaseModel):
     phase1_completed_batches: int = Field(default=0, description="Phase 1 已完成批次数")
     phase2_total_scenes: int = Field(default=0, description="Phase 2 总 Scene 数")
     phase2_completed_scenes: int = Field(default=0, description="Phase 2 已完成 Scene 数")
+    phase2b_total_scenes: int = Field(
+        default=0,
+        description="Phase 2b 别名/关系提取总 Scene 数",
+    )
+    phase2b_completed_scenes: int = Field(
+        default=0,
+        description="Phase 2b 别名/关系提取已完成 Scene 数",
+    )
     phase_timeline: list[dict[str, Any]] = Field(
         default_factory=list,
         description="阶段开始/结束/耗时/状态诊断时间线",

@@ -1,7 +1,34 @@
 {
-  "entities": [],
-  "relations": [],
-  "delta_events": [],
+  "entities": [
+    {
+      "name": "沈砚",
+      "entity_type": "character",
+      "summary": "负责追查北境商道封锁原因的巡查使。",
+      "public_info": "现身青石镇。",
+      "hidden_truth": null,
+      "importance": 0.88,
+      "identity_disposition": "existing",
+      "matched_existing_ref": "entity-001",
+      "basis": "姓名、职责与既有候选一致。",
+      "uncertainties": [],
+      "evidence_quotes": ["沈砚走进青石镇。"],
+      "confidence": 0.94
+    }
+  ],
+  "delta_events": [
+    {
+      "subject_name": "北境商道",
+      "category": "ENTITY_UPDATED",
+      "field": "route_state",
+      "old": "open",
+      "new": "blocked",
+      "description": "暴雪使商道无法通行。",
+      "basis": "正文明确陈述封路结果。",
+      "uncertainties": [],
+      "evidence_quotes": ["北境商道已被暴雪封死。"],
+      "confidence": 0.92
+    }
+  ],
   "map_observation_proposals": [
     {
       "proposal_type": "route_state",
@@ -9,35 +36,14 @@
       "state": "blocked",
       "reason": "暴雪封路",
       "quote": "北境商道已被暴雪封死。",
-      "confidence": 0.92,
-      "supporting_scene_ids": []
-    },
+      "confidence": 0.92
+    }
+  ],
+  "uncertain_items": [
     {
-      "proposal_type": "character_location",
-      "character_name": "沈砚",
-      "location_name": "青石镇",
-      "movement_mode": "walk",
-      "state": "present",
-      "quote": "沈砚走进青石镇。",
-      "confidence": 0.91,
-      "supporting_scene_ids": []
-    },
-    {
-      "proposal_type": "event_location",
-      "event_name": "旧信之约",
-      "location_name": "石桥",
-      "state": "occurred",
-      "quote": "旧信之约发生在石桥。",
-      "confidence": 0.88,
-      "supporting_scene_ids": []
-    },
-    {
-      "proposal_type": "boundary",
-      "controller_name": "玄甲军",
-      "area_description": "控制北岸三镇",
-      "quote": "玄甲军控制了北岸三镇。",
-      "confidence": 0.86,
-      "supporting_scene_ids": []
+      "description": "石桥下的黑影可能是持续性威胁。",
+      "reason": "当前 Scene 无法确认其身份与后续作用。",
+      "evidence_quotes": ["石桥下掠过一道黑影。"]
     }
   ]
 }

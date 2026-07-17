@@ -21,7 +21,7 @@ infrastructure/tasks/
 任务处理器由各业务模块在应用和 worker 启动时注册。当前注册项为：
 
 - project：`smart_dedup_scan`
-- world：`world_entity_extraction`、`world_alias_relation_extraction`、
+- world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
   `world_bible_synopsis_refresh`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
@@ -81,6 +81,8 @@ await worker.run_once()      # 单次执行
 
 每次 claim 都会物化新的 `lease_id` 并递增 `attempt`。心跳和最终状态更新都必须同时匹配
 `task_id + running + lease_id`；stale scanner 清空旧 lease 后，旧 worker 不能覆盖新 attempt。
+独立心跳在同一 lease fence 下同步 handler 内存中的最新 `progress`，使没有领域 checkpoint
+的长任务也能持续向状态 API 暴露百分比；它不写业务 `result/meta`，也不提交 handler 的领域事务。
 项目软删除同样会取消未完成任务并清空 lease。已领取任务的下一次心跳因
 lease 不匹配而失败，worker 取消 runner，handler session 回滚，旧 runner 的 finalize 不能
 覆盖已持久化的 `cancelled` 状态。
@@ -155,6 +157,12 @@ LLM execution snapshot 和 StoryOutline context provenance；worker 首次 prepa
 checkpoint；provider 等待期间不持有数据库事务，结束后重验 context hash。返回值是 strict
 preview，不自动写已采用资产。之后的窄 apply seam 只暴露 completed task 的
 `action / context_provenance` 白名单投影，并在同一事务内标记采用结果。
+
+`outline_generate` v2 同样是 outline 专属 `restart_origin` 任务，只能从剧情线、篇章纲或
+Scene 工作台的当前层 AI 入口提交。task meta 冻结 `target/mode`、StoryOutline、所选资产、
+作者确认的实际 context、短引用表和整体 fingerprint；确认必须采用无驱逐编译。worker 在
+provider 前 checkpoint，等待期间不持有数据库事务，finalize/apply 重新编译校验漂移。
+未完成 v1 task fail closed；完成的 v1 preview 只保留旧 apply 兼容。
 
 本轮已收敛或新增的跨模块 lifecycle 操作只通过 `contracts.py` 和 `facade.py`
 读取投影，不新增对 `models.py` 或 `lifecycle.py` 的依赖。deep-import orchestrator

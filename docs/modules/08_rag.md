@@ -13,6 +13,7 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 - ChunkingService：文本分块（按段落/按长度/中文小说分块）
 - RetrievalService：混合检索（向量+关键词+项目词典+关系+重要性）
+- 可选 LLM reranker：对完整候选池判断证据价值、相对排序和是否应 abstain
 - IndexingService：章节索引编排、embedding 重试与索引质量诊断（读取草稿 → 分块 → 入库）
 
 ## 检索类型
@@ -23,6 +24,13 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 - 向量检索：语义相似
 - metadata 过滤：visibility / importance / source_type
 - 抽取模式：`mode="extraction"` 时允许明确 entity/character/thread/chapter 关系命中作为有效召回
+
+`RERANKER_ENABLED` 默认关闭。开启后，三个检索模式都会在去重后候选数大于
+`top_k` 时对现有 `2 * top_k` 候选池做一次 project-scoped LLM 证据重排序。
+模型读取每个 chunk 全文和可选 `retrieval_purpose`，区分直接证据、辅助证据、反证、
+仅主题相关与无关内容。`extraction` 不采用仅主题相关内容；高置信无证据判断返回空结果，
+不确定、低置信或调用失败则保留原排序并告警。该内部判断不回答查询、不生成事实，也不改变
+visibility、`novel_id` 或 source hash 的确定性门禁。
 
 `chapter_index` 是 exact chapter 过滤；`reference_chapter_index` 只影响时序衰减评分；
 `visible_until_chapter` 是读者进度上界硬过滤，召回 `chapter_index <= 上界` 的 chunk，
@@ -56,7 +64,7 @@ autosave/publish 调用 `request_chapter_index()` 幂等标脏状态；对同一
 
 ```python
 async def create_chunk(db, novel_id, data) -> RagChunkResponse
-async def retrieve(db, novel_id, query, *, entity_ids=None, character_ids=None, thread_ids=None, chapter_index=None, visible_until_chapter=None, visibility=None, mode="search", top_k=12, reference_chapter_index=None) -> RagResultBundle
+async def retrieve(db, novel_id, query, *, entity_ids=None, character_ids=None, thread_ids=None, chapter_index=None, visible_until_chapter=None, visibility=None, mode="search", top_k=12, reference_chapter_index=None, retrieval_purpose=None) -> RagResultBundle
 async def index_chapter(db, novel_id, chapter_index) -> int
 async def index_chapter_with_report(db, novel_id, chapter_index, *, content_mode="canonical") -> RagIndexReport
 async def request_chapter_index(db, novel_id, chapter_index, *, content_mode) -> dict
@@ -97,4 +105,4 @@ POST /api/rag/retry-embeddings # 提交 embedding 重试任务
 
 - 复杂 GraphRAG 社区摘要 / Neo4j
 - 实时全量 Mention embedding
-- 复杂 reranker
+- 训练型 cross-encoder 或需要新增检索基础设施的复杂 reranker

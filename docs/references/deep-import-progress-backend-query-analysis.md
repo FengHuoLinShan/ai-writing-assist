@@ -8,7 +8,7 @@
 ## 1. 整体数据流
 
 ```
-用户点击"场景（scene）自动提取"
+用户点击“从正文提取 Scene”
   ↓ autoExtraction.js: POST /api/imports/stages/scenes { novel_id, start_chapter, end_chapter, ... }
   ↓ Backend orchestrator 创建 scene_auto_extraction AsyncTask (progress=0.0)
   ↓ deepImportRecovery.js: startPolling()

@@ -6,12 +6,17 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import OutlineArc, PlotThread
-from modules.outline.repositories import OutlineArcRepository, PlotThreadRepository
+from modules.outline.repositories import (
+    OutlineArcRepository,
+    PlotThreadRepository,
+    SceneRepository,
+)
 from modules.outline.schemas import (
     OutlineArcCreate,
     OutlineArcUpdate,
     PlotThreadCreate,
     PlotThreadUpdate,
+    SceneCreate,
 )
 
 
@@ -385,6 +390,26 @@ class TestOutlineArcRepository:
         assert updated.arc_goal == "原目标"
 
     @pytest.mark.asyncio
+    async def test_update_arc_can_clear_nullable_chapter_boundary(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=sample_novel_id)
+        repo = OutlineArcRepository()
+        created = await self._make(db_session, nid, start_chapter=1, end_chapter=10)
+
+        updated = await repo.update(
+            db_session,
+            created.id,
+            OutlineArcUpdate(end_chapter=None),
+        )
+
+        assert updated is not None
+        assert updated.start_chapter == 1
+        assert updated.end_chapter is None
+
+    @pytest.mark.asyncio
     async def test_update_reuses_loaded_arc(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -452,3 +477,40 @@ class TestOutlineArcRepository:
         created = await self._make(db_session, nid, title="待删除")
         assert await repo.delete(db_session, created.id) is True
         assert await repo.get(db_session, created.id) is None
+
+
+class TestSceneWorkbenchHealthProjectionRepository:
+    @pytest.mark.asyncio
+    async def test_projects_setup_fields_without_sql_derived_health(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        novel_id = uuid.UUID(hex=sample_novel_id)
+        repo = SceneRepository()
+        created = await repo.create(
+            db_session,
+            novel_id,
+            SceneCreate(
+                scene_index=0,
+                title="无冲突 Scene",
+                goal="完成观察",
+                core_conflict=None,
+                must_happen="看见潮水变化",
+                must_not_happen="引入正文不存在的对抗",
+                source="deep_import",
+                structure_meta={"core_conflict_status": "not_applicable"},
+            ),
+        )
+
+        projections = await repo.get_workbench_health_projections(
+            db_session,
+            novel_id,
+        )
+
+        projection = next(item for item in projections if item.id == created.id)
+        assert projection.goal == "完成观察"
+        assert projection.core_conflict is None
+        assert projection.must_happen == "看见潮水变化"
+        assert projection.must_not_happen == "引入正文不存在的对抗"
+        assert projection.structure_meta["core_conflict_status"] == "not_applicable"

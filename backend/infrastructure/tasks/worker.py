@@ -59,6 +59,9 @@ class _TaskHandlerSession(AsyncSession):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._task_commit_hook: Callable[[], Awaitable[bool]] | None = None
+        self._task_progress_checkpoint_hook: Callable[[], Awaitable[bool]] | None = (
+            None
+        )
         self._task_preflight_active = False
 
     def set_task_commit_hook(
@@ -69,6 +72,28 @@ class _TaskHandlerSession(AsyncSession):
 
     def disable_task_commit_hook(self) -> None:
         self._task_commit_hook = None
+
+    def set_task_progress_checkpoint_hook(
+        self,
+        hook: Callable[[], Awaitable[bool]],
+    ) -> None:
+        """Install the worker-owned, independent progress checkpoint hook."""
+        self._task_progress_checkpoint_hook = hook
+
+    @property
+    def task_progress_checkpoint_enabled(self) -> bool:
+        """Whether progress can be persisted without committing domain writes."""
+        return self._task_progress_checkpoint_hook is not None
+
+    async def checkpoint_task_progress(self) -> bool:
+        """Persist detached task progress through an independent fenced session."""
+        if self._task_progress_checkpoint_hook is None:
+            raise RuntimeError("task progress checkpoint hook is not configured")
+        if self.in_transaction():
+            raise RuntimeError(
+                "task progress checkpoint requires the handler session to be idle"
+            )
+        return await self._task_progress_checkpoint_hook()
 
     def begin_task_preflight(self) -> None:
         self._task_preflight_active = True
@@ -180,6 +205,7 @@ class TaskWorker:
         )
         self._running = False
         self._running_task_ids: set[Any] = set()
+        self._running_tasks: dict[Any, AsyncTask] = {}
         self._heartbeat_tasks: dict[Any, asyncio.Task[None]] = {}
         self._runner_tasks: dict[Any, asyncio.Task[Any]] = {}
         self._last_stale_scan_at: float | None = None
@@ -298,6 +324,9 @@ class TaskWorker:
         session.set_task_commit_hook(
             lambda: self._checkpoint_handler_commit(session, task, lease_id)
         )
+        session.set_task_progress_checkpoint_hook(
+            lambda: self._checkpoint_handler_progress(task, lease_id)
+        )
         try:
             await self._execute_task(task, session)
         finally:
@@ -323,6 +352,24 @@ class TaskWorker:
             task=task,
             lease_id=lease_id,
         )
+
+    async def _checkpoint_handler_progress(
+        self,
+        task: AsyncTask,
+        lease_id: str,
+    ) -> bool:
+        """Persist progress without sharing the handler's domain transaction."""
+        async with self._db_manager.session_factory() as progress_session:
+            accepted = await self._lifecycle.checkpoint_running_attempt(
+                progress_session,
+                task=task,
+                lease_id=lease_id,
+            )
+            if accepted:
+                await progress_session.commit()
+            else:
+                await progress_session.rollback()
+            return accepted
 
     def _log_finished_task_runners(self, done: set[asyncio.Task[None]]) -> None:
         for runner in done:
@@ -376,6 +423,7 @@ class TaskWorker:
 
         # 启动心跳协程（使用独立 session，避免与主执行共享连接）
         self._running_task_ids.add(task.id)
+        self._running_tasks[task.id] = task
         heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.id, lease_id))
         self._heartbeat_tasks[task.id] = heartbeat_task
 
@@ -511,6 +559,7 @@ class TaskWorker:
 
             finally:
                 self._running_task_ids.discard(task.id)
+                self._running_tasks.pop(task.id, None)
                 self._runner_tasks.pop(task.id, None)
                 heartbeat_task = self._heartbeat_tasks.pop(task.id, None)
                 if heartbeat_task is not None:
@@ -558,6 +607,11 @@ class TaskWorker:
                             hb_session,
                             task_id=task_id,
                             lease_id=lease_id,
+                            progress=(
+                                self._running_tasks[task_id].progress
+                                if task_id in self._running_tasks
+                                else None
+                            ),
                         )
                         if not accepted:
                             runner = self._runner_tasks.get(task_id)

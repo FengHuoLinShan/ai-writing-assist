@@ -52,6 +52,8 @@ class MapDynamicHelperMixin:
             time_label=self._time_label(item),
             status_label=status_label,
             source_summary=self._source_summary(item),
+            source_ref=dict(item.source_ref or {}),
+            evidence_text=item.evidence_text,
             location_label=self._location_label(item),
             spatial_anchor_label=self._spatial_anchor_label(item),
             debug_ref={
@@ -94,6 +96,8 @@ class MapDynamicHelperMixin:
             time_label=self._time_label(item),
             status_label=self._status_label(item.fact_status),
             source_summary=self._source_summary(item),
+            source_ref=dict(item.source_ref or {}),
+            evidence_text=item.evidence_text,
             location_label=self._location_label(item),
             spatial_anchor_label=self._spatial_anchor_label(item),
             debug_ref={

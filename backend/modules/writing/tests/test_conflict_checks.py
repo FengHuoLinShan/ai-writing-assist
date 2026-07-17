@@ -582,6 +582,56 @@ async def test_confirmed_map_evidence_is_not_marked_for_review(
     assert map_item["location_json"]["needs_review_reason"] is None
 
 
+@pytest.mark.parametrize(
+    "warning_code,warning_message",
+    [
+        ("scene_without_map_context", "当前 Scene 暂无地图上下文"),
+        ("scene_without_location", "当前 Scene 暂无主地点"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_missing_optional_map_context_is_not_a_conflict_item(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    warning_code: str,
+    warning_message: str,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(
+        async_client,
+        novel_id,
+        must_happen="",
+        must_not_happen="",
+    )
+
+    async def fake_map_summary(_db, _novel_id, _scene_id, *, include_candidates=False):
+        return {
+            "primary_location": None,
+            "risks": [],
+            "warnings": [
+                {
+                    "level": "info",
+                    "code": warning_code,
+                    "message": warning_message,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "modules.world.map_facade.summarize_scene_map_for_writing",
+        fake_map_summary,
+    )
+
+    body = await _create_check(
+        async_client,
+        novel_id,
+        scene["id"],
+        content="正文保持现状。",
+    )
+
+    assert [item for item in body["items"] if item["kind"] == "map_risk"] == []
+
+
 @pytest.mark.asyncio
 async def test_candidate_support_degradation_preserves_confirmed_map_evidence(
     async_client: AsyncClient,

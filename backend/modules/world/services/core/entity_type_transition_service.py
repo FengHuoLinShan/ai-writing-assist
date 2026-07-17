@@ -106,12 +106,18 @@ class EntityTypeTransitionService:
 
         nid, eid = entity.novel_id, entity.id
         if old_type == "character":
-            await count(
-                "character_extension",
-                Character,
-                Character.novel_id == nid,
-                Character.entity_id == eid,
-            )
+            character = (
+                await db.execute(
+                    select(Character).where(
+                        Character.novel_id == nid,
+                        Character.entity_id == eid,
+                    )
+                )
+            ).scalar_one_or_none()
+            if character is not None and (character.meta or {}).get(
+                "auto_materialized"
+            ) is not True:
+                counts["character_extension"] = 1
             await count(
                 "character_knowledge",
                 CharacterKnowledge,

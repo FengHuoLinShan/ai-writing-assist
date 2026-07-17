@@ -21,6 +21,7 @@ beforeEach(() => {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 })
   document.body.className = ""
   api.world.getMapSceneSummary = vi.fn()
+  api.settings.getEffectiveAuthorPrefs.mockResolvedValue(null)
   vi.clearAllMocks()
   confirmAction.mockReset()
 
@@ -35,6 +36,9 @@ beforeEach(() => {
   writingView._forceDesktopMode = false
   writingView._bulkSelections = {}
   writingView._showBulkActions = false
+  writingView._authorPreferences = null
+  writingView._loadedProjectId = null
+  writingView._removeBeforeUnloadHandler?.()
   writingView._chapterTree = null
   writingView._editor = null
   writingView._versions = null
@@ -93,6 +97,25 @@ describe("writingView onEnter", () => {
     expect(writingView._chapterList).toEqual([1, 3])
     expect(writingView._chapters[1]).toMatchObject({ title: "第一章", wordcount: 120 })
     expect(writingView._chapters[3]).toMatchObject({ title: "第三章 归潮尽头", wordcount: 1095 })
+  })
+
+  it("loads effective author preferences for the writing workspace", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    api.settings.getEffectiveAuthorPrefs.mockResolvedValue({
+      daily_goal: { value: 3200, source: "project" },
+      editor_font: { value: "serif", source: "project" },
+      default_focus_mode: { value: true, source: "project" },
+    })
+
+    await writingView.onEnter()
+
+    expect(state._authorPreferences).toEqual({
+      dailyGoal: 3200,
+      editorFont: "serif",
+      defaultFocusMode: true,
+    })
+    expect(writingView._focusModeManager.isFocusMode()).toBe(true)
   })
 
   it("章节列表 API 失败时显示错误", async () => {
@@ -186,6 +209,32 @@ describe("writingView suggestion isolation", () => {
     expect(state._currentDraftId).toBe("working-2")
     expect(state._currentSuggestionDraftId).toBeNull()
   })
+
+  it("does not replace canonical chapter tree metadata with a candidate preview", () => {
+    writingView._initSubModules()
+    writingView._chapters = {
+      60: {
+        title: "第六十章 第二块亵渎石板",
+        wordcount: 1565,
+        word_count: 1565,
+        status: "published",
+      },
+    }
+    writingView._editor.setState({
+      chapter: 60,
+      title: "AI 建议标题",
+      content: "AI 建议正文",
+      draftStatus: "candidate",
+    })
+
+    writingView._syncChapterMetaToTree(60)
+
+    expect(writingView._chapters[60]).toEqual(expect.objectContaining({
+      title: "第六十章 第二块亵渎石板",
+      wordcount: 1565,
+      status: "published",
+    }))
+  })
 })
 
 describe("writingView render", () => {
@@ -231,7 +280,7 @@ describe("writingView render", () => {
 
     const html = await writingView.render()
     expect(html).toContain("AI 正文建议")
-    expect(html).toContain("场景（scene）自动提取")
+    expect(html).toContain("从正文提取 Scene")
     expect(html).toContain("世界对象与别名/关系自动提取")
     expect(html).toContain("剧情线自动提取")
   })
@@ -819,6 +868,82 @@ describe("writingView onLeave / onActivate / onDeactivate", () => {
     expect(bindSpy).toHaveBeenCalled()
     bindSpy.mockRestore()
   })
+
+  it("onActivate 切回旧项目时重新加载该项目的章节状态", async () => {
+    state.currentProjectId = "project-a"
+    api.writing.listChapters.mockResolvedValueOnce({
+      chapter_indices: [1, 2],
+      chapters: [
+        { chapter_index: 1, title: "甲一", word_count: 100, version_number: 1, status: "published" },
+        { chapter_index: 2, title: "甲二", word_count: 200, version_number: 1, status: "published" },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+    await writingView.onEnter()
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+
+    state.currentProjectId = "project-b"
+    api.writing.listChapters.mockResolvedValueOnce({ chapter_indices: [], chapters: [] })
+    await writingView.onEnter()
+    expect(writingView._chapterList).toEqual([])
+
+    state.currentProjectId = "project-a"
+    api.writing.listChapters.mockResolvedValueOnce({
+      chapter_indices: [1, 2],
+      chapters: [
+        { chapter_index: 1, title: "甲一", word_count: 100, version_number: 1, status: "published" },
+        { chapter_index: 2, title: "甲二", word_count: 200, version_number: 1, status: "published" },
+      ],
+    })
+    await writingView.onActivate()
+
+    expect(api.writing.listChapters).toHaveBeenLastCalledWith("project-a")
+    expect(writingView._loadedProjectId).toBe("project-a")
+    expect(writingView._chapterList).toEqual([1, 2])
+    expect(document.getElementById("writing-tree-container")?.textContent).toContain("甲二")
+  })
+
+  it("onActivate 消费 KeepAlive 期间写入的章节与候选稿目标", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    state.viewStates.writing = {
+      projectId: "p1",
+      currentChapter: 3,
+      currentDraftId: "candidate-3",
+      isReadonly: true,
+    }
+
+    const selectSpy = vi.spyOn(writingView, "_selectChapter").mockResolvedValue()
+    await writingView.onActivate()
+
+    expect(selectSpy).toHaveBeenCalledWith(3, expect.objectContaining({
+      draftId: "candidate-3",
+      isReadonly: true,
+    }))
+  })
+
+  it("onActivate 优先消费可刷新恢复的 URL 候选稿目标", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    const query = new URLSearchParams({
+      chapter_index: "3",
+      draft_id: "candidate-url-3",
+    })
+    router.getCurrentQuery.mockReturnValueOnce(query)
+
+    const selectSpy = vi.spyOn(writingView, "_selectChapter").mockResolvedValue()
+    await writingView.onActivate()
+
+    expect(selectSpy).toHaveBeenCalledWith(3, expect.objectContaining({
+      draftId: "candidate-url-3",
+      isReadonly: undefined,
+    }))
+  })
 })
 
 describe("writingView bulk actions", () => {
@@ -1230,7 +1355,7 @@ describe("writingView conflict check strip", () => {
 
     const html = await writingView.render()
     expect(html).toContain("writing-conflict-strip")
-    expect(html).toContain("发现 3 个冲突")
+    expect(html).toContain("发现 3 个问题")
     expect(html).toContain('data-action="open-conflict-check"')
   })
 
@@ -1365,7 +1490,7 @@ describe("writingView Scene auto extraction", () => {
     expect(focusButton?.closest(".writing-editor-buttons")).toBe(
       toolsMenu?.closest(".writing-editor-buttons"),
     )
-    expect(toolsMenu?.textContent).toContain("场景（scene）自动提取")
+    expect(toolsMenu?.textContent).toContain("从正文提取 Scene")
     expect(toolsMenu?.querySelectorAll(
       '[data-action="auto-extract-stage"][data-stage="scenes"]',
     )).toHaveLength(1)

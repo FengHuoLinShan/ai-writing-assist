@@ -182,6 +182,7 @@ describe("writingConflictModal", () => {
       context_mode: "canonical",
       scene_id: "scene-1",
       include_pending_objects: true,
+      budget_tokens: 0,
     }))
     expect(api.writing.runConflictAiReview).toHaveBeenCalledWith("c1", {
       novel_id: "p1",
@@ -311,6 +312,7 @@ describe("writingConflictModal", () => {
       action: "writing.conflict_check.ai_suggestion",
       context_mode: "canonical",
       scene_id: "scene-1",
+      budget_tokens: 0,
     }))
     expect(api.writing.requestConflictAiSuggestion).toHaveBeenCalledWith("i1", {
       novel_id: "p1",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
@@ -16,6 +17,86 @@ from modules.writing.contracts import SourceRangeRefContract
 from shared.target_ref import TargetRef, normalize_target_ref
 
 _PRELOADED_SOURCE_UNSET = object()
+_SEARCH_SNIPPET_CHARS = 500
+_QUERY_NGRAM_MAX_CHARS = 8
+_QUERY_SNIPPET_STOP_TERMS = {
+    "之后",
+    "此前",
+    "如何",
+    "通过",
+    "逐步",
+    "自己",
+    "什么",
+    "这个",
+    "那个",
+    "可以",
+    "进行",
+    "以及",
+    "相关",
+}
+
+
+def _query_focused_snippet(
+    text: str,
+    query: str,
+    *,
+    max_chars: int = _SEARCH_SNIPPET_CHARS,
+) -> str:
+    """Choose a deterministic query-focused preview from a complete RAG chunk."""
+
+    if max_chars <= 0 or not text:
+        return ""
+    if len(text) <= max_chars:
+        return text
+
+    query_runs = re.findall(r"[a-z0-9_]{2,}|[\u3400-\u9fff]+", query.lower())
+    terms: set[str] = set()
+    for run in query_runs:
+        if re.fullmatch(r"[a-z0-9_]+", run):
+            terms.add(run)
+            continue
+        max_size = min(len(run), _QUERY_NGRAM_MAX_CHARS)
+        for size in range(2, max_size + 1):
+            for start in range(0, len(run) - size + 1):
+                term = run[start : start + size]
+                if term not in _QUERY_SNIPPET_STOP_TERMS:
+                    terms.add(term)
+
+    matches: list[tuple[int, str]] = []
+    lowered = text.lower()
+    for term in terms:
+        cursor = 0
+        while True:
+            position = lowered.find(term, cursor)
+            if position < 0:
+                break
+            matches.append((position, term))
+            cursor = position + max(len(term), 1)
+    if not matches:
+        return text[:max_chars]
+
+    candidate_starts = {0, max(0, len(text) - max(max_chars - 1, 1))}
+    for position, term in matches:
+        candidate_starts.add(max(0, position - max_chars // 2))
+        candidate_starts.add(
+            max(0, position + len(term) - max(max_chars - 1, 1))
+        )
+
+    def _window_score(start: int) -> tuple[int, int]:
+        prefix_chars = 1 if start > 0 else 0
+        remaining = max_chars - prefix_chars
+        suffix_chars = 1 if start + remaining < len(text) else 0
+        content_budget = max(remaining - suffix_chars, 0)
+        window = lowered[start : start + content_budget]
+        score = sum(len(term) ** 2 for term in terms if term in window)
+        return score, -start
+
+    best_start = max(candidate_starts, key=_window_score)
+    prefix = "…" if best_start > 0 else ""
+    remaining = max_chars - len(prefix)
+    suffix = "…" if best_start + remaining < len(text) else ""
+    content_budget = max(remaining - len(suffix), 0)
+    return f"{prefix}{text[best_start : best_start + content_budget]}{suffix}"
 
 
 @dataclass(frozen=True)
@@ -170,7 +251,8 @@ class NovelEvidenceService:
             hits.extend(outline)
             warnings.extend(outline_warnings)
             degraded = degraded or outline_degraded
-        hits.sort(key=lambda item: item.score or 0.0, reverse=True)
+        if len(set(scopes)) > 1:
+            hits.sort(key=lambda item: item.score or 0.0, reverse=True)
         hits = hits[:top_k]
         return {
             "hits": [asdict(item) for item in hits],
@@ -867,7 +949,10 @@ class NovelEvidenceService:
                 EvidenceHitContract(
                     kind="manuscript",
                     title=read["title"] or f"第 {source_ref.chapter_index} 章",
-                    snippet=read["text"][:500],
+                    snippet=_query_focused_snippet(
+                        read["text"],
+                        kwargs["query"],
+                    ),
                     source_ref=asdict(source_ref),
                     chapter_index=source_ref.chapter_index,
                     score=chunk.score,
@@ -881,12 +966,13 @@ class NovelEvidenceService:
         # same chapter should not consume the whole result budget.
         grouped: dict[int, EvidenceHitContract] = {}
         chunk_counts: dict[int, int] = {}
+        chapter_rank: dict[int, int] = {}
         for hit in hits:
             chapter_index = hit.chapter_index or 0
             chunk_counts[chapter_index] = chunk_counts.get(chapter_index, 0) + 1
-            current = grouped.get(chapter_index)
-            if current is None or (hit.score or 0.0) > (current.score or 0.0):
+            if chapter_index not in grouped:
                 grouped[chapter_index] = hit
+                chapter_rank[chapter_index] = len(chapter_rank)
         hits = [
             replace(hit, match_count=chunk_counts[chapter_index], match_basis="chunk")
             for chapter_index, hit in grouped.items()
@@ -917,6 +1003,8 @@ class NovelEvidenceService:
         for literal in literal_hits:
             chapter_index = literal.source_ref.chapter_index
             existing = grouped.get(chapter_index)
+            if chapter_index not in chapter_rank:
+                chapter_rank[chapter_index] = len(chapter_rank)
             literal_hit = EvidenceHitContract(
                 kind="manuscript",
                 title=literal.title or f"第 {chapter_index} 章",
@@ -934,7 +1022,10 @@ class NovelEvidenceService:
 
         hits = sorted(
             grouped.values(),
-            key=lambda item: (-(item.score or 0.0), item.chapter_index or 0),
+            key=lambda item: (
+                0 if item.match_basis == "occurrence" else 1,
+                chapter_rank.get(item.chapter_index or 0, len(chapter_rank)),
+            ),
         )[:requested_top_k]
         return hits, warnings, bool(result.degraded or warnings)
 

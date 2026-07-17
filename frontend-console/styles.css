@@ -2072,6 +2072,18 @@ html, body {
   outline: none;
 }
 
+.novel-editor--font-serif {
+  font-family: Georgia, "Times New Roman", "Noto Serif SC", serif;
+}
+
+.novel-editor--font-sans {
+  font-family: var(--font-ui);
+}
+
+.novel-editor--font-mono {
+  font-family: var(--font-mono);
+}
+
 .writing-wordcount-bar {
   padding: 8px 0;
   margin-top: 8px;

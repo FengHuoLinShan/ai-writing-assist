@@ -212,6 +212,31 @@ describe("shared modal accessibility", () => {
     expect(confirmSpy).not.toHaveBeenCalled()
   })
 
+  it("can refresh the unsaved baseline after mounting dynamic controls", () => {
+    const confirmSpy = stubConfirm(false)
+    const body = document.createElement("div")
+    body.innerHTML = '<input id="static-field" value="原值">'
+    showModal("动态表单", body)
+
+    const dynamic = document.createElement("input")
+    dynamic.value = "初始化值"
+    document.getElementById("modal-body").appendChild(dynamic)
+    expect(refreshModalFormBaseline()).toBe(true)
+
+    expect(closeModal()).toBe(true)
+    expect(confirmSpy).not.toHaveBeenCalled()
+
+    showModal("动态表单", body)
+    const edited = document.createElement("input")
+    edited.value = "初始化值"
+    document.getElementById("modal-body").appendChild(edited)
+    refreshModalFormBaseline()
+    edited.value = "用户修改"
+
+    expect(closeModal()).toBe(false)
+    expect(confirmSpy).toHaveBeenCalledOnce()
+  })
+
   it("discards changed checkbox and select values only after confirmation", () => {
     const confirmSpy = stubConfirm(true)
     const body = document.createElement("div")

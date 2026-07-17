@@ -42,7 +42,7 @@
 | `worldView` | 对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
-| `outlineView` | 大纲子导航与结构生成；默认组合 `storyOutlineView` 管理项目级小说总纲的 current / revision history / AI preview，在 `scenes` 子标签组合 Scene 工作台，其余子标签管理篇章纲、剧情线、伏笔和揭示 |
+| `outlineView` | 大纲分层创作；默认组合 `storyOutlineView` 管理小说总纲，在篇章纲、剧情线和 Scene 工作台分别提供当前层 AI 创作。伏笔/揭示作为剧情线的信息推进时间线与未归类区展示，不再是顶层子标签 |
 | `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
 | `ragView` | 智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
 | `generateView` | 生成中心：world 工作区承载对象/完善当前页/新建页面的共创对话、来源与上下文选择、结构化预览和工作稿应用；同时保留上下文任务预览/编译、POV 与其他既有领域流程 |
@@ -52,8 +52,8 @@
 ## 路由与状态特性
 
 - `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
-- `outline` 的规范默认子视图是 `story-outline`，导航层级为“小说总纲 → 篇章纲 → 剧情线 → Scene → 伏笔/揭示”；旧 `outline/scenes` 和 `scene` 兼容跳转仍保留。
-- `writing` 与 `outline` 被标记为 KeepAlive 视图；`outline/scenes` 为避免复用过期工作台 DOM，不进入 KeepAlive 缓存
+- `outline` 的规范默认子视图是 `story-outline`，导航层级为“小说总纲 → 篇章纲 → 剧情线 → 场景工作台”。旧 `scene` 路由重定向到 `outline/scenes`；旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
+- `writing` 与 `outline` 被标记为 KeepAlive 视图；DOM 缓存按项目分桶，renderer 单例的项目级内存状态必须在 `onActivate()` 校验归属，不匹配时重新装配。`outline/scenes` 为避免复用过期工作台 DOM，不进入 KeepAlive 缓存
 - 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
 - Scene 工作台的筛选、详情和复核状态由 `sceneWorkbenchView` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
@@ -134,6 +134,7 @@
 - Scene 树导航
 - 自动保存与未保存提醒
 - 版本历史/恢复
+- 读取项目生效作者偏好并驱动日目标、编辑器字体和默认专注模式；优先使用设置服务的项目/全局继承结果，旧本地值只作为接口失败时的兼容回退
 - 深度导入进度展示：恢复 localStorage 中的 task_id，展示当前章节 / Scene / batch、质量统计、降级状态和中断恢复提示
 - 深度导入完成后只展示一个地图下一步：已有地图进入项目收件箱；有 canonical 地点但无地图时
   打开 quick-create；只有 candidate 地点时按地点类型、deep-import 来源和 workflow 精确进入审核。
@@ -150,7 +151,8 @@
 - `attention_reasons`、低置信、冲突和 `needs_review` 显示为注意标签，不替代主状态。
 - 主列表默认隐藏历史；只有显式选择历史/raw status 筛选时加载或展示。
 - API 保留原始 `status/review_state/fact_status` 兼容字段，前端优先消费领域 `display_state`，必要时才由共享 helper 回退映射。
-- AI 正文建议在编辑器中以只读预览打开；“采用到工作稿”成功后加载服务端新 draft 并恢复编辑/自动保存。
+- AI 正文建议在编辑器中以只读预览打开；“采用到工作稿”成功后加载服务端新 draft 并恢复编辑/自动保存，“拒绝建议”经确认后软废弃候选并回到当前工作稿/已发布稿。顶部“AI 续写”只对服务端已保存的可写或已发布 base draft 开放，不拿未保存本地文本或跨章 Scene 作为替换范围；异步任务轮询没有前端总截止时间，完成后自动打开候选审核面板。普通生成的 `pov_validation=not_applicable` 不显示角色视角失败提示。
+- 生成中心的角色视角正文按“章节 + Scene + POV 角色”确认上下文；已有目标章时锁定完整 active 正文，候选仍是该章完整替换稿，Scene 即使跨章也不扩大范围。结果入口跳转写作台统一审核，POV 面板只描述知识边界诊断，不把“未发现明显越权”显示成整体质量通过。
 - deep import/stage 启动入口必须先展示自动采用范围并取得明确授权，完成卡展示 `asset_summary` 的已采用/待处理/未采用三类汇总。
 
 ## 世界对象分组复核
@@ -177,7 +179,13 @@
 - Scene 每行只展示当前最高优先级主操作：复核、查看跨章建议、确认章节定位、整理映射、关联章节、补全设定、编辑。完成一项后刷新为下一项；健康标签可直接执行对应操作。桌面端显示“上下文主按钮 + 编辑 + 更多”，窄屏只显示“主按钮 + 更多”，“更多”固定包含打开写作、合并和拆分。
 - 同类 Scene 批量选择显示具体操作；混合选择显示“批量处理”并按问题类型分组，不提供含义不明的一键清除。复核调用后端统一 review 命令，正文定位确认单独提示只接受章节精度。
 - 跨章建议来自后端持久队列，刷新后恢复横幅和行内按钮。支持逐条融合与批量忽略，不提供“全部接受”。
-- `outlineView` 的剧情线、篇章纲、伏笔、揭示列表支持按 status / deep_import source / workflow_id / needs_review 筛选，用于整理 Phase 3 结构资产。
+- 剧情线、篇章纲与 Scene 工作台的 P20 表单都先验证当前 StoryOutline，支持新增设计或修订
+  所选，恢复 `outline_generate` 任务，并展示完整可编辑 JSON preview、重叠资产、作者决策与
+  总纲冲突。采用时保留 409 错误和编辑内容。P20 不进入生成中心。
+- 剧情线详情把同一 `information_movement_id` 的伏笔/揭示按章节合成时间线；无 active 线程
+  关联的计划进入“未归入剧情线”，作者通过现有 API 分配。旧入口打开后滚动到该区域。
+- `outlineView` 的剧情线、篇章纲与底层伏笔/揭示数据继续支持 status / deep_import source /
+  workflow_id / needs_review 筛选；后两者只在剧情线页内部消费，不再占顶层导航。
 - 筛选只改变视图，不自动 promote、deprecated 或删除资产；状态变更必须来自明确按钮、选择器或二次确认操作。
 
 ## 地图工作台补充
@@ -223,13 +231,14 @@
   势力 hex、线路创建/节点精修等复杂空间编辑显示只读摘要和桌面端转交。
 - 地图编辑的当前图层、图层结构和保存全部共用同一 apply 会话；从冻结 revision/命令到服务端
   状态、图层树和线路重载完成期间，整个地图工作区保持 busy/inert 并拒绝二次提交或离开。
-  409 只刷新 CAS 基线并保留本地草稿；退出编辑前必须再次确认没有残留草稿。
+  “待应用变更”覆盖当前内容图层的全部草稿类型；409 只刷新 CAS 基线并保留本地草稿；
+  地图设置保存后保持当前 Scene、聚焦对象、视图模式和编辑会话，退出编辑前必须再次确认没有残留草稿。
 - 支持从写作流打开最近相关地图
 
 ## API 封装风格
 
-- 统一 `request()` 处理超时、错误映射、FormData
-- 高风险 wrapper 的 method、path、必需参数和长耗时 timeout 由 `apiContracts.js` 注册，`api.js` 通过 helper 生成实际请求；这只校验请求契约，不覆盖响应字段级 schema drift
+- 统一 `request()` 处理超时、错误映射、FormData；封闭测试令牌遭遇 401 时使用应用内密码模态框收集一次性内存令牌，不调用浏览器原生 `prompt()`
+- 高风险 wrapper 的 method、path、必需参数和长耗时 timeout 由 `apiContracts.js` 注册，`api.js` 通过 helper 生成实际请求；同步 LLM 生成等待 35 分钟，为后端 30 分钟生成窗口留出收尾余量，异步任务提交和后续无总截止轮询分开处理。这只校验请求契约，不覆盖响应字段级 schema drift
 - 按模块分组：`api.projects.*` / `api.world.*` / `api.outline.*` / `api.context.*`
 - 地图接口统一挂在 `api.world.*` 下，后端前缀仍是 `/api/world/maps`
 

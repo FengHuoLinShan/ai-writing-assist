@@ -22,6 +22,7 @@ REVIEW_FIELDS = (
     "must_happen",
     "must_not_happen",
     "narrative_tag",
+    "narrative_function",
     "pov_character_id",
     "chapter_ids",
     "scene_chunks",
@@ -35,8 +36,78 @@ SEMANTIC_FIELDS = (
     "must_happen",
     "must_not_happen",
     "narrative_tag",
+    "narrative_function",
     "pov_character_id",
 )
+
+
+def mapping_scope_warnings(sources: list[Scene]) -> list[str]:
+    warnings: list[str] = []
+    for index, left in enumerate(sources):
+        for right in sources[index + 1 :]:
+            if _scene_mapping_strictly_contains(left, right):
+                outer, inner = left, right
+            elif _scene_mapping_strictly_contains(right, left):
+                outer, inner = right, left
+            else:
+                continue
+            warnings.append(
+                f"「{outer.title or outer.id}」的章节范围严格包含"
+                f"「{inner.title or inner.id}」；保存融合会保留外层 Scene 的全部正文"
+                "映射。请确认超出部分也属于同一因果叙事单元，否则应先拆分或"
+                "替换，不要直接融合。"
+            )
+    return warnings
+
+
+def _scene_mapping_strictly_contains(outer: Scene, inner: Scene) -> bool:
+    outer_ranges = _precise_scene_ranges(outer)
+    inner_ranges = _precise_scene_ranges(inner)
+    if outer_ranges and inner_ranges:
+        outer_covers_inner = all(
+            any(_range_contains(outer_range, inner_range) for outer_range in outer_ranges)
+            for inner_range in inner_ranges
+        )
+        inner_covers_outer = all(
+            any(_range_contains(inner_range, outer_range) for inner_range in inner_ranges)
+            for outer_range in outer_ranges
+        )
+        return outer_covers_inner and not inner_covers_outer
+
+    outer_chapters = {str(value) for value in (outer.chapter_ids or [])}
+    inner_chapters = {str(value) for value in (inner.chapter_ids or [])}
+    return bool(outer_chapters and inner_chapters and outer_chapters > inner_chapters)
+
+
+def _precise_scene_ranges(scene: Scene) -> list[tuple[str, int, int]]:
+    ranges: list[tuple[str, int, int]] = []
+    for chunk in scene.scene_chunks or []:
+        chapter = chunk.get("chapter_index") or chunk.get("chapter_id")
+        if chapter is None:
+            continue
+        for start_key, end_key in (
+            ("start_offset", "end_offset"),
+            ("start_pos", "end_pos"),
+        ):
+            start = chunk.get(start_key)
+            end = chunk.get(end_key)
+            if (
+                isinstance(start, int)
+                and not isinstance(start, bool)
+                and isinstance(end, int)
+                and not isinstance(end, bool)
+                and end > start
+            ):
+                ranges.append((str(chapter), start, end))
+                break
+    return ranges
+
+
+def _range_contains(
+    outer: tuple[str, int, int],
+    inner: tuple[str, int, int],
+) -> bool:
+    return outer[0] == inner[0] and outer[1] <= inner[1] and outer[2] >= inner[2]
 
 
 class SceneDraftReviewService:
@@ -69,7 +140,10 @@ class SceneDraftReviewService:
         conflicts = self._detect_conflicts(sources)
         field_references = self._field_references(sources, primary_scene_id)
         field_sources = self._field_sources(normalized_draft, field_references)
-        review_warnings = list(warnings or [])
+        review_warnings = [
+            *(warnings or []),
+            *mapping_scope_warnings(sources),
+        ]
         return SceneDraftReviewResponse(
             mode=mode,
             source_scene_ids=source_ids,
@@ -82,7 +156,10 @@ class SceneDraftReviewService:
             conflicts=conflicts,
             warnings=review_warnings,
             confidence=confidence,
-            reason=reason or "以主 Scene 为骨架，合并其他 Scene 的非空字段作为审稿草稿。",
+            reason=(
+                reason
+                or "综合全部 Scene 的证据形成审稿草稿；主 Scene 只提供同等方案偏好。"
+            ),
         )
 
     def build_split_review(
@@ -132,33 +209,26 @@ class SceneDraftReviewService:
         source_ids = [str(scene.id) for scene in sources]
         result = dict(draft)
         result["title"] = result.get("title") or self._fusion_title(sources)
-        result["goal"] = (
-            result.get("goal")
-            or primary.goal
-            or self._join_unique(getattr(scene, "goal", None) for scene in sources)
-        )
-        result["core_conflict"] = (
-            result.get("core_conflict")
-            or primary.core_conflict
-            or self._join_unique(
+        if "goal" not in result:
+            result["goal"] = primary.goal or self._join_unique(
+                getattr(scene, "goal", None) for scene in sources
+            )
+        if "core_conflict" not in result:
+            result["core_conflict"] = primary.core_conflict or self._join_unique(
                 getattr(scene, "core_conflict", None) for scene in sources
             )
-        )
-        result["emotional_beat"] = (
-            result.get("emotional_beat")
-            or primary.emotional_beat
-            or self._join_unique(
+        if "emotional_beat" not in result:
+            result["emotional_beat"] = primary.emotional_beat or self._join_unique(
                 getattr(scene, "emotional_beat", None) for scene in sources
             )
-        )
-        result["must_happen"] = self._join_unique(
-            [primary.must_happen, result.get("must_happen")]
-            + [scene.must_happen for scene in sources if scene.id != primary.id]
-        )
-        result["must_not_happen"] = self._join_unique(
-            [primary.must_not_happen, result.get("must_not_happen")]
-            + [scene.must_not_happen for scene in sources if scene.id != primary.id]
-        )
+        if "must_happen" not in result:
+            result["must_happen"] = self._join_unique(
+                scene.must_happen for scene in sources
+            )
+        if "must_not_happen" not in result:
+            result["must_not_happen"] = self._join_unique(
+                scene.must_not_happen for scene in sources
+            )
         result["narrative_tag"] = result.get("narrative_tag") or primary.narrative_tag
         result["pov_character_id"] = (
             result.get("pov_character_id") or primary.pov_character_id
@@ -283,6 +353,8 @@ class SceneDraftReviewService:
             return scene.chapter_ids or []
         if field == "scene_chunks":
             return scene.scene_chunks or []
+        if field == "narrative_function":
+            return (scene.structure_meta or {}).get("narrative_function")
         return getattr(scene, field, None)
 
     def _fusion_title(self, sources: list[Scene]) -> str:

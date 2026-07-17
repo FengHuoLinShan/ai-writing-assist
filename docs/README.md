@@ -51,7 +51,7 @@
 2. `modules/02_world.md` — 世界对象模块
 3. `modules/05_memory.md` — 长期记忆模块
 4. `modules/07_outline.md` — 结构化剧情模块
-5. `modules/08_rag.md` — canonical/working 派生索引与候选召回
+5. `modules/08_rag.md` — canonical/working 派生索引、候选召回与可选证据重排序
 6. `modules/09_context.md` — 上下文编译模块
 7. `modules/11_writing.md` — 正文草稿承载模块
 8. `modules/13_imports.md` — 小说导入模块
@@ -74,6 +74,7 @@
 - [`adr/0005-core-entity-type-transition.md`](adr/0005-core-entity-type-transition.md) — CoreEntity 自定义类型、可逆 Profile snapshot 迁移与硬依赖门禁
 - [`adr/0006-world-bible-context-activation-ownership.md`](adr/0006-world-bible-context-activation-ownership.md) — 世界书资料、页面模板与 Context Activation Profile 的所有权边界
 - [`adr/0007-world-generation-center-consolidation.md`](adr/0007-world-generation-center-consolidation.md) — 世界设定 AI 全量进入生成中心、整页建议与工作稿应用边界
+- [`adr/0008-plot-thread-information-progression.md`](adr/0008-plot-thread-information-progression.md) — P20 三个大纲页的当前层 AI 创作、PlotThread 信息推进聚合及伏笔/揭示投影边界
 
 ## 参考与历史资料
 
@@ -133,7 +134,7 @@
 8. [`audit/2026-07-12-P1运行盲区收敛完成审计.md`](audit/2026-07-12-P1运行盲区收敛完成审计.md) — P1 工程闭环、context-planner 正式对比结果、放宽验收与仍未达的严格质量目标
 9. [`superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md`](superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md) — P2 文档同步、world contract 解耦、facade 公共面冻结和 legacy 删除计划
 10. [`audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md`](audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md) — P2 删除清单、稳定接口影响与仓库级验证结果
-11. [`audit/2026-07-14-全量代码扫描修复收敛报告.md`](audit/2026-07-14-全量代码扫描修复收敛报告.md) — 全量 bug / 低效路径分批修复、独立复核、全仓库验证，以及 9 项 P1 结构债务与 1 项 P2 性能优化暂留清单
+11. [`audit/2026-07-14-全量代码扫描修复收敛报告.md`](audit/2026-07-14-全量代码扫描修复收敛报告.md) — 全量 bug / 低效路径分批修复、独立复核、全仓库验证，以及 8 项未关闭 P1 结构债务、1 项已关闭重复路径与 1 项 P2 性能优化
 
 ## 当前状态
 

@@ -169,6 +169,8 @@ function kindLabel(kind) {
     implicit_lore_conflict: "隐含设定风险",
     voice_or_pov_drift: "声音/视角漂移",
     scene_goal_drift: "Scene 目标漂移",
+    scene_commitment_missing: "Scene 必要承诺缺失",
+    scene_forbidden_deviation: "Scene 禁止偏离",
     continuity_soft_risk: "软连续性风险",
   }[kind] || kind || "问题"
 }
@@ -262,6 +264,7 @@ function bindConflictModalEvents({
           scene_id: check?.scene_id,
           context_mode: "canonical",
           include_pending_objects: Boolean(check?.include_candidates),
+          budget_tokens: 0,
         })
         const payload = {
           novel_id: novelId,
@@ -333,6 +336,7 @@ function bindConflictModalEvents({
           scene_id: check?.scene_id,
           context_mode: "canonical",
           include_pending_objects: Boolean(check?.include_candidates),
+          budget_tokens: 0,
         })
         const updated = await api.writing.requestConflictAiSuggestion(suggestionItemId, {
           novel_id: novelId,

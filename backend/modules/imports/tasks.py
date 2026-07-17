@@ -36,7 +36,7 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
 
 @task_handler("scene_auto_extraction", recovery_policy="manual_resume")
 async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
-    """处理场景（scene）自动提取任务 — Phase0/1a/1b + Scene commit。"""
+    """处理从正文提取 Scene 任务 — Phase0/1a/1b + Scene commit。"""
     result = await DeepImportOrchestrator().run_stage_task(db, task, stage="scenes")
     logger.info(
         "Scene auto extraction complete — phase=%s, completed=%s",

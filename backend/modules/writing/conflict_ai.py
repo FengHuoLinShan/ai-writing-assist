@@ -1065,7 +1065,9 @@ def _build_ai_review_prompt(
     scope = getattr(check, "scope", None) or {}
     content_excerpt = scope.get("content_excerpt") or ""
     return (
-        "请基于当前 Scene 写作目标和 AI 参考资料，补充判断叙事软冲突。\n\n"
+        "请基于当前 Scene 写作目标和 AI 参考资料，补充判断叙事软冲突。"
+        "Scene 的 must_happen / must_not_happen 是语义承诺，不要求正文逐字复现；"
+        "仅在完整语义上确实遗漏必要承诺或发生被禁止的偏离时报告。\n\n"
         f"检查范围：第 {getattr(check, 'chapter_index', '-')} 章，"
         f"Scene={getattr(check, 'scene_id', None) or '未指定'}。\n\n"
         "当前正文摘录：\n"
@@ -1093,7 +1095,8 @@ def _build_ai_review_prompt(
         "字段取值必须严格使用英文枚举：\n"
         "- kind: motivation_gap, emotion_jump, foreshadowing_misfire, "
         "premature_reveal, implicit_lore_conflict, voice_or_pov_drift, "
-        "scene_goal_drift, continuity_soft_risk\n"
+        "scene_goal_drift, scene_commitment_missing, "
+        "scene_forbidden_deviation, continuity_soft_risk\n"
         "- severity: high, medium, low\n"
         "- confidence: 0 到 1 之间的数字\n"
         "- depends_on_pending_objects: true 或 false\n"
@@ -1135,7 +1138,8 @@ def _build_ai_suggestion_prompt(
 
 _AI_REVIEW_SYSTEM_PROMPT = (
     "你是小说写作软冲突审阅器。只报告与当前 Scene 写作目标相关的动机、"
-    "情绪、伏笔、揭示、隐含设定、POV 或 Scene 目标漂移问题。不要重复规则层"
+    "情绪、伏笔、揭示、隐含设定、POV、Scene 目标漂移或 Scene 语义承诺问题。"
+    "must_happen 和 must_not_happen 应按完整语义判断，不得要求字面复现。不要重复规则层"
     "已经明确列出的问题，除非提供新的叙事角度。不要把缺少信息当作事实错误。"
     "不要输出正史修改指令或一键应用补丁。每条问题必须给出依据、理由、置信度，"
     "依赖待确认对象时 depends_on_pending_objects=true。"

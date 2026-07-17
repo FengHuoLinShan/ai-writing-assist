@@ -1564,6 +1564,8 @@ class ContextCompiler:
 
     @staticmethod
     def _format_scene_director_constraints(scene: dict) -> str:
+        from modules.outline.contracts import scene_semantic_field_status
+
         lines = [
             "DIRECTOR_ONLY: 以下是作者创作约束，不是角色知识；"
             "不得把这些内容写成角色已经知道、已经判断或会主动说出的事实。"
@@ -1576,6 +1578,13 @@ class ContextCompiler:
             ("不得发生", "must_not_happen"),
         ):
             value = scene.get(key)
+            status = scene_semantic_field_status(scene, key)
+            if status == "not_applicable":
+                continue
+            if status == "uncertain":
+                if value:
+                    lines.append(f"- 待复核{label}: {value}（不得作为硬约束）")
+                continue
             if value:
                 lines.append(f"- {label}: {value}")
         return "\n".join(lines)

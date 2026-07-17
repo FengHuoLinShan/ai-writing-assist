@@ -645,6 +645,22 @@ describe("候选清洗", () => {
       expect(html).toContain('data-label="重要度">0</td>')
     })
 
+    it("普通待处理对象也提供手工别名和合并入口", () => {
+      worldView._candidates = [{
+        id: "c-manual-dedup",
+        name: "倒吊人",
+        entity_type: "character",
+        status: "candidate",
+        content_json: { _meta: { suggested_action: "create_new" } },
+      }]
+
+      const html = worldView._renderCandidatesList()
+
+      expect(html).toContain('<tr data-id="c-manual-dedup"')
+      expect(html).toContain('data-action="resolve-candidate-alias"')
+      expect(html).toContain('data-action="merge-entity"')
+    })
+
     it("别名建议显示目标对象名称并提供设为别名入口", () => {
       worldView._candidates = [{
         id: "c1",
@@ -741,6 +757,9 @@ describe("候选清洗", () => {
       expect(html).not.toContain('class="world-candidate-alias-group"')
       expect(html).toContain('<tr data-id="c1"')
       expect(html).toContain('<tr data-id="c2"')
+      expect(html).toContain("疑似关联黑荆棘安保公司（目标未解析）")
+      expect(html).toContain("疑似关联廷根值夜者小队（目标未解析）")
+      expect(html.match(/data-action="accept-candidate"/g)).toHaveLength(2)
       expect(html).toContain('data-action="resolve-candidate-alias"')
     })
 
@@ -2104,6 +2123,7 @@ describe("关系", () => {
         { group_id: "g1", members: [{ id: "r1" }], execution_fingerprint: "1".repeat(64) },
         { group_id: "g2", members: [{ id: "r2" }], execution_fingerprint: "2".repeat(64) },
       ]
+      worldView._relationGroups = groups
       worldView._relationReviewDrafts = {
         g1: { client_decision_id: "g1", action: "accept" },
         g2: { client_decision_id: "g2", action: "accept" },
@@ -2130,6 +2150,34 @@ describe("关系", () => {
       expect(worldView._relationReviewDrafts.g2).toBeDefined()
       expect(worldView._relationReviewErrors.g2).toBe("处理失败：冲突")
       expect(toast).toHaveBeenCalledWith("已处理 1 个关系组，1 个失败", "warning")
+    })
+
+    it("关系批处理多项后保留列表，单项时才自动进入下一项", async () => {
+      state.currentProjectId = "p1"
+      autoConfirm()
+      const advance = vi.spyOn(worldView, "_advanceRelationReview").mockResolvedValue()
+      const groups = [
+        { group_id: "g1", members: [{ id: "r1" }], execution_fingerprint: "1".repeat(64) },
+        { group_id: "g2", members: [{ id: "r2" }], execution_fingerprint: "2".repeat(64) },
+      ]
+      worldView._relationGroups = groups
+      worldView._relationReviewDrafts = {
+        g1: { client_decision_id: "g1", action: "accept", member_relation_ids: ["r1"] },
+        g2: { client_decision_id: "g2", action: "accept", member_relation_ids: ["r2"] },
+      }
+      api.world.reviewRelationsBatch.mockResolvedValue({
+        succeeded_count: 2, stale_count: 0, failed_count: 0,
+        results: groups.map((group) => ({ client_decision_id: group.group_id, status: "success" })),
+      })
+
+      worldView._applyRelationReviewBatch(groups)
+      await vi.waitFor(() => expect(advance).toHaveBeenCalledWith(0, false))
+
+      advance.mockClear()
+      worldView._relationReviewDrafts.g1 = { client_decision_id: "g1", action: "accept", member_relation_ids: ["r1"] }
+      worldView._applyRelationReviewBatch([groups[0]])
+      await vi.waitFor(() => expect(advance).toHaveBeenCalledWith(0, true))
+      advance.mockRestore()
     })
 
     it("关系批处理超过 20 个决策时不发请求", () => {
@@ -2488,6 +2536,36 @@ describe("别名", () => {
       expect(worldView._aliasReviewDrafts["e1::成功项"]).toBeUndefined()
       expect(worldView._aliasReviewDrafts["e2::冲突项"]).toBeDefined()
       expect(worldView._aliasReviewErrors["e2::冲突项"]).toBe("已过期：已被其他复核修改")
+    })
+
+    it("别名批处理多项后保留列表，单项时才自动进入下一项", async () => {
+      state.currentProjectId = "p1"
+      autoConfirm()
+      const advance = vi.spyOn(worldView, "_advanceAliasReview").mockResolvedValue()
+      const items = [
+        { entity_id: "e1", alias: "别名一", execution_fingerprint: "a".repeat(64) },
+        { entity_id: "e2", alias: "别名二", execution_fingerprint: "b".repeat(64) },
+      ]
+      worldView._aliases = items
+      api.world.reviewAliasesBatch.mockResolvedValue({
+        succeeded_count: 2, stale_count: 0, failed_count: 0,
+        results: [
+          { client_decision_id: "alias-0-e1", status: "success" },
+          { client_decision_id: "alias-1-e2", status: "success" },
+        ],
+      })
+
+      worldView._applyAliasReviewBatch(items, "accept")
+      await vi.waitFor(() => expect(advance).toHaveBeenCalledWith(0, false))
+
+      advance.mockClear()
+      api.world.reviewAliasesBatch.mockResolvedValue({
+        succeeded_count: 1, stale_count: 0, failed_count: 0,
+        results: [{ client_decision_id: "alias-0-e1", status: "success" }],
+      })
+      worldView._applyAliasReviewBatch([items[0]], "accept")
+      await vi.waitFor(() => expect(advance).toHaveBeenCalledWith(0, true))
+      advance.mockRestore()
     })
 
     it("同一对象的多个别名聚合显示", async () => {

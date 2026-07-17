@@ -11,6 +11,9 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from modules.imports.entity_extraction.scene_entity_config import (
+    PHASE2A_PROMPT_CONTRACT_VERSION,
+)
 
 
 def is_transport_failure(exc: Exception) -> bool:
@@ -136,10 +139,11 @@ _SCENE_FINGERPRINT_FIELDS = (
 def scene_input_fingerprint(
     scene: dict[str, Any],
     scene_text: str,
+    context_fingerprint: str | None = None,
 ) -> str:
     """Hash the semantic Scene input and exact text consumed by Phase 2."""
     payload = {
-        "version": 1,
+        "version": 2 if context_fingerprint else 1,
         "scene": {
             field: scene.get(field)
             for field in _SCENE_FINGERPRINT_FIELDS
@@ -147,6 +151,8 @@ def scene_input_fingerprint(
         },
         "scene_text": scene_text,
     }
+    if context_fingerprint:
+        payload["context_fingerprint"] = context_fingerprint
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -154,6 +160,22 @@ def scene_input_fingerprint(
         separators=(",", ":"),
         default=str,
     ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def phase2a_input_fingerprint(
+    scene: dict[str, Any],
+    scene_text: str,
+    *,
+    context_fingerprint: str = "",
+    base_fingerprint: str | None = None,
+) -> str:
+    """Hash every semantic input that can change a P13 model decision."""
+    base_fingerprint = base_fingerprint or scene_input_fingerprint(scene, scene_text)
+    encoded = (
+        f"{base_fingerprint}:{context_fingerprint}:"
+        f"{PHASE2A_PROMPT_CONTRACT_VERSION}"
+    ).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 

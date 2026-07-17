@@ -275,7 +275,7 @@ export function renderEditPanel(ctx) {
       <div class="map-edit-section">
         <button class="btn btn-sm" data-action="map-undo">↶ 撤销 (Ctrl+Z)</button>
         <button class="btn btn-sm" data-action="map-redo">↷ 重做</button>
-        <span class="map-pending-count" id="map-pending-count">0 个待应用变更</span>
+        <span class="map-pending-count" id="map-pending-count">${Number(ctx.pendingCount || 0)} 个待应用变更</span>
       </div>
 
       <div class="map-edit-actions">

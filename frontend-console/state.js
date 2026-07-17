@@ -239,7 +239,7 @@ const topbarHelpTexts = {
   project: "项目是其他所有模块的根。点击项目卡片即可进入创作流程。",
   world: "管理小说中的人物、地点、物品等长期创作资产。",
   writing: "按章节撰写正文。支持暂存、发布、版本管理。",
-  rag: "测试向量检索，验证知识库召回效果。",
+  rag: "检索小说正文与结构资料，追溯可靠证据来源。",
 }
 
 function updateTopbarHelpForView(viewName) {

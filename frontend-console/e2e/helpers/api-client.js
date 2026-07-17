@@ -199,6 +199,16 @@ export async function createArc(novelId, data) {
   })
 }
 
+export async function createStoryOutlineRevision(novelId, data) {
+  return request(
+    `/outline/story-outline/revisions?novel_id=${encodeURIComponent(novelId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  )
+}
+
 export async function createForeshadowing(novelId, data) {
   return request(`/outline/foreshadowing?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",

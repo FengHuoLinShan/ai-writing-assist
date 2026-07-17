@@ -27,7 +27,7 @@ export function substantiveWritingText(text) {
  * @param {Function} [deps.onSceneChange] - (sceneId) => void
  * @param {Function} [deps.onDraftAdopted] - (draft) => void
  */
-export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatusChange, onSceneChange, onDraftAdopted, onVersionChanged }) {
+export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatusChange, onSceneChange, onDraftAdopted, onCandidateRejected, onVersionChanged }) {
   const editor = {
     // 当前编辑器状态
     _currentChapter: null,
@@ -151,21 +151,57 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
         }
       }
     })
+    container.querySelectorAll('[data-action="reject-draft-candidate"]').forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true
+        try {
+          await rejectDraftCandidate()
+        } finally {
+          if (editor._draftStatus === "candidate") btn.disabled = false
+        }
+      }
+    })
   }
 
   async function adoptDraftCandidate() {
     if (!editor._currentDraftId || editor._draftStatus !== "candidate") return null
+    const confirmed = await confirmAsync(
+      `采用后，这份 AI 建议会成为第 ${editor._currentChapter} 章新的未发布工作稿，不会自动与当前正文合并。已发布版本仍会保留，可通过“放弃未发布更改”恢复。是否继续？`,
+      "采用为工作稿",
+    )
+    if (!confirmed) return null
     try {
       const response = await api.writing.adoptDraftCandidate(editor._currentDraftId, state.currentProjectId)
       const draft = response?.draft || response
       _applyDraft(draft, { isReadonly: false })
       toast("已采用到工作稿", "success")
       _notifyWordcountUpdate()
+      updateMeta(Boolean(state._focusMode))
       if (onDraftAdopted) await onDraftAdopted(draft)
       return draft
     } catch (err) {
       toast(err.message || "采用到工作稿失败", "error")
       return null
+    }
+  }
+
+  async function rejectDraftCandidate() {
+    if (!editor._currentDraftId || editor._draftStatus !== "candidate") return false
+    const confirmed = await confirmAsync(
+      "拒绝后，这份 AI 建议会保留在版本历史中，但不再占用待审核列表。是否继续？",
+      "拒绝建议",
+    )
+    if (!confirmed) return false
+    try {
+      await api.writing.deleteDraft(editor._currentDraftId, state.currentProjectId)
+      toast("已拒绝 AI 建议", "success")
+      if (onCandidateRejected) {
+        await onCandidateRejected({ chapterIndex: editor._currentChapter })
+      }
+      return true
+    } catch (err) {
+      toast(err.message || "拒绝 AI 建议失败", "error")
+      return false
     }
   }
 
@@ -462,6 +498,13 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       versionInfo.textContent = [versionLabel, draftLabel, readOnlyLabel].filter(Boolean).join(" · ") || "未选择版本"
     }
 
+    const saveStatus = saveStatusText()
+    const saveStatusEl = document.getElementById("writing-save-status")
+    if (saveStatusEl) {
+      saveStatusEl.textContent = saveStatus
+      saveStatusEl.className = `writing-save-badge ${_saveBadgeClass(saveStatus)}`
+    }
+
     const chapterTitle = document.getElementById("writing-chapter-title")
     if (chapterTitle && editor._currentChapter !== null) {
       chapterTitle.textContent = `第 ${editor._currentChapter} 章`
@@ -494,6 +537,16 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       btnPublish.disabled = !(editor._currentChapter !== null && !editor._isReadonly)
     }
 
+    const btnCheckpoint = document.getElementById("btn-checkpoint-version")
+    if (btnCheckpoint) {
+      btnCheckpoint.disabled = !(editor._currentChapter !== null && !editor._isReadonly)
+    }
+
+    const btnConflictCheck = document.getElementById("btn-conflict-check")
+    if (btnConflictCheck) {
+      btnConflictCheck.disabled = !(editor._currentChapter !== null && !editor._isReadonly)
+    }
+
     const buttonsContainer = document.getElementById("writing-editor-buttons")
     if (buttonsContainer) {
       const existingRestore = buttonsContainer.querySelector('[data-action="restore-from-version"]')
@@ -524,6 +577,36 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const focusBtn = document.querySelector('[data-action="toggle-focus-mode"]')
     if (focusBtn) focusBtn.textContent = focusMode ? "退出专注" : "专注模式"
 
+    const currentReviewPanel = document.querySelector(".writing-candidate-review-panel")
+    const nextReviewPanelHtml = _renderCandidateReviewPanel()
+    if (currentReviewPanel && nextReviewPanelHtml) {
+      const template = document.createElement("template")
+      template.innerHTML = nextReviewPanelHtml.trim()
+      currentReviewPanel.replaceWith(template.content.firstElementChild)
+    } else if (currentReviewPanel) {
+      currentReviewPanel.remove()
+    } else if (nextReviewPanelHtml) {
+      const wordcountBar = document.getElementById("writing-wordcount-bar")
+      const template = document.createElement("template")
+      template.innerHTML = nextReviewPanelHtml.trim()
+      wordcountBar?.after(template.content.firstElementChild)
+    }
+
+    const currentPovPanel = document.querySelector(".writing-pov-panel")
+    const nextPovPanelHtml = _renderPovCandidatePanel()
+    if (currentPovPanel && nextPovPanelHtml) {
+      const template = document.createElement("template")
+      template.innerHTML = nextPovPanelHtml.trim()
+      currentPovPanel.replaceWith(template.content.firstElementChild)
+    } else if (currentPovPanel) {
+      currentPovPanel.remove()
+    } else if (nextPovPanelHtml) {
+      const wordcountBar = document.getElementById("writing-wordcount-bar")
+      const template = document.createElement("template")
+      template.innerHTML = nextPovPanelHtml.trim()
+      wordcountBar?.after(template.content.firstElementChild)
+    }
+
     editorEl?.classList.toggle("novel-editor--focus", focusMode)
   }
 
@@ -544,22 +627,6 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (status === "未保存" || status === "仅本地修改") return "writing-save-badge--unsaved"
     if (status === "已保存" || status === "发布成功" || status === "已发布") return "writing-save-badge--saved"
     return ""
-  }
-
-  function aiContinue() {
-    const panel = document.getElementById("ai-suggestion-panel")
-    if (!panel) return
-    panel.classList.remove("hidden")
-    panel.innerHTML = `
-      <div class="writing-ai-loading">
-        <span class="writing-spinner"></span>
-        AI 正在分析上下文...
-      </div>
-    `
-    setTimeout(() => {
-      panel.classList.add("hidden")
-      toast("AI 续写功能即将上线，敬请期待 🚀", "info")
-    }, 2000)
   }
 
   function dispose() {
@@ -607,7 +674,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
             ${editor._draftStatus === "draft" && editor._currentVersionNumber > 1 ? '<button class="btn btn-ghost" data-action="discard-writing-changes">放弃未发布更改</button>' : ""}
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "发布当前章节版本" : esc(disabledReason)}">发布</button>
             <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !editor._isReadonly ? "" : "disabled"}>剧情设定冲突检查</button>
-            <button class="btn btn-sm btn-ghost" data-action="ai-continue" ${hasSelection ? "" : "disabled"} title="${hasSelection ? "AI 续写：基于当前上下文生成后续内容" : "请先选择章节"}">AI 续写</button>
+            <button class="btn btn-sm btn-ghost" data-action="ai-continue" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "AI 续写：基于当前上下文生成后续内容" : esc(disabledReason)}">AI 续写</button>
             <button class="btn btn-sm btn-ghost" data-action="export-chapter" ${hasSelection ? "" : "disabled"} title="${hasSelection ? "导出当前章节为 .txt" : "请先选择章节"}">导出</button>
             <button class="btn btn-sm btn-ghost" data-action="toggle-outline-float" ${hasSelection ? "" : "disabled"} title="大纲浮窗 (Ctrl+Shift+O)">大纲</button>
             ${toolbarActionsHtml}
@@ -620,9 +687,10 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       html += `
         <input id="writing-title-input" class="writing-title-input" type="text" value="${esc(editor._currentTitle || "")}" placeholder="章节标题" ${editor._isReadonly ? "readonly" : ""} />
 
-        <textarea id="writing-editor" class="novel-editor ${focusMode ? "novel-editor--focus" : ""}"
+        <textarea id="writing-editor" class="novel-editor novel-editor--font-${esc(_getEditorFont())} ${focusMode ? "novel-editor--focus" : ""}"
           placeholder="在此书写正文..." ${editor._isReadonly ? "readonly" : ""}>${editor._currentContent ? esc(editor._currentContent) : ""}</textarea>
         ${_renderWordcountBar()}
+        ${_renderCandidateReviewPanel()}
         ${_renderPovCandidatePanel()}
         <div id="ai-suggestion-panel" class="ai-suggestion-panel hidden" aria-live="polite"></div>
       `
@@ -673,17 +741,38 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     `
   }
 
+  function _renderCandidateReviewPanel() {
+    if (editor._draftStatus !== "candidate") return ""
+    const validationStatus = editor._currentProvenanceJson?.pov_validation?.status
+    const highRisk = validationStatus === "failed"
+    return `
+      <section class="pov-candidate-panel writing-candidate-review-panel">
+        <div class="writing-pov-header">
+          <div>
+            <div class="writing-pov-title">AI 正文建议待审核</div>
+            <div class="writing-pov-subtitle">这份内容尚未进入工作稿。请审阅后采用，或拒绝并移入版本历史。</div>
+          </div>
+          <div class="writing-candidate-review-actions">
+            <button class="btn btn-sm ${highRisk ? "btn-danger" : "btn-primary"}" data-action="adopt-draft-candidate" type="button">${highRisk ? "确认风险并采用到工作稿" : "采用到工作稿"}</button>
+            <button class="btn btn-sm btn-ghost" data-action="reject-draft-candidate" type="button">拒绝建议</button>
+          </div>
+        </div>
+      </section>
+    `
+  }
+
   function _renderPovCandidatePanel() {
     const provenance = editor._currentProvenanceJson || {}
     const validation = provenance.pov_validation || null
     const povView = provenance.pov_view || null
-    const isPov = provenance.generation_profile === "pov_character" || povView || validation
+    const hasPovValidation = validation && validation.status !== "not_applicable"
+    const isPov = provenance.generation_profile === "pov_character" || povView || hasPovValidation
     if (!isPov) return ""
 
     const status = validation?.status || "not_applicable"
     const statusMeta = _povValidationStatusMeta(status)
     const isPending = editor._draftStatus === "candidate"
-    const fields = [
+    const legacyFields = [
       ["perception", "感知"],
       ["interpretation", "判断 / 误解"],
       ["inner_monologue", "内心"],
@@ -693,13 +782,23 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       ["subtext", "潜台词"],
       ["unsaid", "未说出口"],
     ]
+    const povState = povView?.pov_state
+    const fields = povState
+      ? [
+          ["perceived_facts", "已感知 / 已知事实", povState.perceived_facts],
+          ["interpretation", "当前判断 / 可能误解", povState.interpretation],
+          ["current_intention", "当前意图", povState.current_intention],
+          ["withheld_known_information", "已知但未表达", povState.withheld_known_information],
+          ["uncertainties", "实质性不确定项", povView.uncertainties],
+        ]
+      : legacyFields.map(([key, label]) => [key, label, povView?.[key]])
     const fieldHtml = povView
       ? fields
-        .filter(([key]) => povView[key])
-        .map(([key, label]) => `
+        .filter(([, , value]) => Array.isArray(value) ? value.length > 0 : Boolean(value))
+        .map(([, label, value]) => `
           <div class="writing-pov-field">
             <div class="writing-pov-field-label">${esc(label)}</div>
-            <div class="writing-pov-field-value">${esc(povView[key])}</div>
+            <div class="writing-pov-field-value">${esc(Array.isArray(value) ? value.join("；") : value)}</div>
           </div>
         `)
         .join("")
@@ -719,12 +818,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
         </ul>`
       : ""
     const warningsHtml = warnings.length
-      ? `<div class="writing-pov-warnings">${warnings.map((item) => esc(item)).join(" · ")}</div>`
+      ? `<div class="writing-pov-warnings">${warnings.map((item) => esc(_povWarningLabel(item))).join(" · ")}</div>`
       : ""
-    const adoptButton = isPending
-      ? `<button class="btn btn-sm ${status === "failed" ? "btn-danger" : "btn-primary"}" data-action="adopt-draft-candidate" type="button">${status === "failed" ? "确认风险并采用到工作稿" : "采用到工作稿"}</button>`
-      : ""
-
     return `
       <section class="pov-candidate-panel writing-pov-panel">
         <div class="writing-pov-header">
@@ -736,7 +831,6 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
         </div>
         <div class="writing-pov-alert" style="border-color:${esc(statusMeta.color)};">
           ${esc(statusMeta.message)}
-          ${adoptButton}
           ${findingsHtml}
           ${warningsHtml}
         </div>
@@ -784,7 +878,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       return {
         color: "var(--success, #22c55e)",
         label: "未发现明显越权",
-        message: "deterministic 检查未发现明显越权；这不代表绝对无泄漏。",
+        message: "确定性检查未发现明显越权；这不代表绝对无泄漏。",
       }
     }
     return {
@@ -792,6 +886,15 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       label: "未检查",
       message: "该建议没有可用的角色视角诊断结果。",
     }
+  }
+
+  function _povWarningLabel(code) {
+    const labels = {
+      json_repaired: "模型返回的 JSON 已自动修复，请复核结构化信息",
+      missing_pov_state: "模型未返回完整角色状态，请人工复核",
+      pov_parse_failed: "结构化角色视角解析失败，请勿直接采用原始内容",
+    }
+    return labels[code] || String(code || "未知诊断")
   }
 
   // ============================================================
@@ -1009,6 +1112,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
   function _getDailyGoal() {
     try {
+      const effective = Number(state._authorPreferences?.dailyGoal)
+      if (Number.isFinite(effective) && effective >= 0) return effective
       const projectPrefs = _loadAuthorPreferences()
       return Number(projectPrefs.dailyGoal || localStorage.getItem("novel_daily_goal") || 4000) || 4000
     } catch {
@@ -1023,6 +1128,13 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     } catch {
       return 3000
     }
+  }
+
+  function _getEditorFont() {
+    const font = state._authorPreferences?.editorFont
+      || _loadAuthorPreferences().editorFont
+      || "system"
+    return ["system", "serif", "sans", "mono"].includes(font) ? font : "system"
   }
 
   function _loadAuthorPreferences() {
@@ -1062,6 +1174,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   return {
     loadChapter,
     adoptDraftCandidate,
+    rejectDraftCandidate,
     render,
     bindEvents,
     autosave,
@@ -1089,7 +1202,6 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     updateWordcount,
     updateMeta,
     saveStatusText,
-    aiContinue,
     dispose,
   }
 }

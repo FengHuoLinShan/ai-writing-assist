@@ -36,6 +36,7 @@ const SOURCE_OPTIONS = [
   ["manual", "手动"],
   ["deep_import", "深度导入"],
   ["ai_generated", "AI 生成"],
+  ["manual_fusion", "融合结果"],
 ]
 
 const BOUNDARY_STATUS_OPTIONS = [
@@ -93,6 +94,11 @@ const DRAFT_REVIEW_FIELDS = [
   ["narrative_tag", "叙事标签"],
   ["pov_character_id", "POV"],
   ["chapter_ids", "章节映射"],
+]
+const FUSION_DRAFT_REVIEW_FIELDS = [
+  ...DRAFT_REVIEW_FIELDS.slice(0, 6),
+  ["narrative_function", "叙事功能"],
+  ...DRAFT_REVIEW_FIELDS.slice(6),
 ]
 
 const sceneWorkbenchView = {
@@ -211,10 +217,15 @@ const sceneWorkbenchView = {
     return `
       <div class="scene-workbench-actions" aria-label="Scene 工作台操作">
         ${this._renderViewModeToggle()}
-        <button class="btn btn-sm btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
+        <button class="btn btn-sm btn-primary" data-action="ai-create-planned-scene">AI 创作细纲</button>
+        <button class="btn btn-sm" data-action="scene-auto-extract">从正文提取 Scene</button>
         <span data-role="smart-dedup-action"></span>
       </div>
     `
+  },
+
+  selectedSceneIdForAi() {
+    return this._selectedSceneId()
   },
 
   async _loadWorkbench() {
@@ -714,7 +725,7 @@ const sceneWorkbenchView = {
             <div class="scene-workbench-row__meta">
               <span>#${esc(Number.isFinite(Number(scene.scene_index)) ? Number(scene.scene_index) + 1 : "-")}</span>
               <span>${esc(this._sceneStatusLabel(scene))}</span>
-              <span>${esc(this._sourceLabel(scene.source))}</span>
+              <span>${esc(this._sourceLabel(scene))}</span>
               <span>${esc(item.chapter_range || "未关联章节")}</span>
               ${segmentLabel ? `<span class="scene-progress-chip scene-progress-chip--${esc(item.segment)}">${esc(segmentLabel)}</span>` : ""}
             </div>
@@ -845,7 +856,7 @@ const sceneWorkbenchView = {
         <section class="scene-detail-summary">
           <div><strong>章节映射</strong><span>${esc(item.chapter_range || "未关联章节")}</span></div>
           <div><strong>关联资产预览</strong><span>剧情线 / 伏笔 / 揭示 / 地图摘要将在整理预览中展示</span></div>
-          <div><strong>来源与注意</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._sceneStatusLabel(scene))} · ${esc(reviewLabel)}</span></div>
+          <div><strong>来源与注意</strong><span>${esc(this._sourceLabel(scene))} · ${esc(this._sceneStatusLabel(scene))} · ${esc(reviewLabel)}</span></div>
           ${replacementLinks ? `<div><strong>替代结果</strong><span>${replacementLinks}</span></div>` : ""}
           ${attentionLabels.length ? `<div><strong>待处理</strong><span>${esc(attentionLabels.join(" · "))}</span></div>` : ""}
         </section>
@@ -1691,7 +1702,7 @@ const sceneWorkbenchView = {
       <label class="scene-primary-card scene-picker-card">
         <input type="radio" name="merge-target-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
         <strong>${esc(scene.title || "未命名 Scene")}</strong>
-        <div class="scene-picker-card__meta">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
+        <div class="scene-picker-card__meta">${esc(this._sourceLabel(scene))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
         <p class="scene-picker-card__summary">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
       </label>
     `).join("")
@@ -1741,7 +1752,7 @@ const sceneWorkbenchView = {
         <label class="scene-primary-card scene-picker-card">
           <input type="radio" name="primary-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
           <strong>${esc(scene.title || "未命名 Scene")}</strong>
-          <div class="scene-picker-card__meta">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
+          <div class="scene-picker-card__meta">${esc(this._sourceLabel(scene))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
           <p class="scene-picker-card__summary">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
           ${flags.length ? `<div class="scene-picker-card__flags">${esc(flags.join(" · "))}</div>` : ""}
         </label>
@@ -1852,9 +1863,10 @@ const sceneWorkbenchView = {
   _renderDraftReview(preview) {
     const fused = preview?.draft_scene || preview?.fused_scene || preview?.preview_scene || {}
     const refs = preview?.field_references || {}
+    const semanticStatuses = fused?.structure_meta?.semantic_field_statuses || {}
     const conflicts = new Set((preview?.conflicts || []).map((item) => item.field).filter(Boolean))
     let differenceCount = 0
-    const rows = DRAFT_REVIEW_FIELDS.map(([field, label]) => {
+    const rows = FUSION_DRAFT_REVIEW_FIELDS.map(([field, label]) => {
       const fieldRefs = refs[field] || []
       const primaryRefs = fieldRefs.filter((item) => item.role === "primary")
       const otherRefs = fieldRefs.filter((item) => item.role !== "primary")
@@ -1864,6 +1876,12 @@ const sceneWorkbenchView = {
         conflicts.has(field),
         field,
       )
+      const semanticStatus = semanticStatuses[field] || ""
+      const semanticStatusBadge = semanticStatus === "not_applicable"
+        ? '<span class="scene-draft-review-badge">不适用</span>'
+        : semanticStatus === "uncertain"
+          ? '<span class="scene-draft-review-badge scene-draft-review-badge--warning">待复核</span>'
+          : ""
       if (state.different) differenceCount += 1
       return `
         <tr class="scene-draft-review-row" data-difference="${state.different}" data-no-evidence="${state.noEvidence}">
@@ -1871,6 +1889,7 @@ const sceneWorkbenchView = {
             <span>${esc(label)}</span>
             ${state.noEvidence ? '<span class="scene-draft-review-badge">无来源证据</span>' : ""}
             ${conflicts.has(field) ? '<span class="scene-draft-review-badge scene-draft-review-badge--warning">有冲突</span>' : ""}
+            ${semanticStatusBadge}
           </th>
           <td data-label="AI 建议">${this._renderFusionDraftEditor(field, label, fused[field])}</td>
           <td data-label="主 Scene 原值">${this._renderDraftReviewReferences(primaryRefs)}</td>
@@ -1885,6 +1904,7 @@ const sceneWorkbenchView = {
           ["字段", "AI 建议", "主 Scene 原值", "其他 Scene 原值"],
           rows,
           differenceCount,
+          FUSION_DRAFT_REVIEW_FIELDS.length,
         )}
         ${this._renderFusionDeprecationConfirmation(preview)}
       </div>
@@ -1899,6 +1919,7 @@ const sceneWorkbenchView = {
       emotional_beat: "scene-fusion-emotion",
       must_happen: "scene-fusion-must",
       must_not_happen: "scene-fusion-must-not",
+      narrative_function: "scene-fusion-function",
       narrative_tag: "scene-fusion-narrative-tag",
       pov_character_id: "scene-fusion-pov",
       chapter_ids: "scene-fusion-chapters",
@@ -1923,7 +1944,7 @@ const sceneWorkbenchView = {
     return `${labelHtml}<textarea class="form-textarea" id="${esc(id)}" rows="4">${esc(value || "")}</textarea>`
   },
 
-  _renderDraftReviewTable(headers, rows, differenceCount) {
+  _renderDraftReviewTable(headers, rows, differenceCount, totalFields = DRAFT_REVIEW_FIELDS.length) {
     return `
       <section class="scene-draft-review-shell" aria-label="Scene 字段对比">
         <div class="scene-draft-review-toolbar">
@@ -1932,7 +1953,7 @@ const sceneWorkbenchView = {
             <span>仅看差异</span>
           </label>
           <span class="scene-draft-review-count" data-role="draft-review-count" data-difference-count="${differenceCount}">
-            有变化 ${differenceCount} / 全部 ${DRAFT_REVIEW_FIELDS.length}
+            有变化 ${differenceCount} / 全部 ${totalFields}
           </span>
         </div>
         <p class="scene-draft-review-filter-note" data-role="draft-review-filter-note" hidden></p>
@@ -1957,11 +1978,15 @@ const sceneWorkbenchView = {
     }).join("")
     const warnings = (preview?.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")
     const conflicts = (preview?.conflicts || []).map((item) => `<li>${esc(item.message || item.field || "")}</li>`).join("")
+    const basis = preview?.draft_scene?.structure_meta?.semantic_basis
+      || preview?.fused_scene?.structure_meta?.semantic_basis
+      || ""
     return `
       <section class="scene-fusion-preview__meta">
         <div><strong>操作</strong><span>${esc(operationLabel)}</span></div>
         ${sourceHtml ? `<div class="scene-draft-review-sources">${sourceHtml}</div>` : ""}
         ${preview?.reason ? `<p>${esc(preview.reason)}</p>` : ""}
+        ${basis && basis !== preview?.reason ? `<p><strong>判断依据</strong> ${esc(basis)}</p>` : ""}
         ${warnings ? `<div class="scene-draft-review-notice"><strong>注意</strong><ul>${warnings}</ul></div>` : ""}
         ${conflicts ? `<div class="scene-draft-review-notice"><strong>字段冲突</strong><ul>${conflicts}</ul></div>` : ""}
       </section>
@@ -2093,6 +2118,22 @@ const sceneWorkbenchView = {
 
   _readFusionDraftFields() {
     const draft = this._activeDraftReview?.draft_scene || this._activeDraftReview?.fused_scene || {}
+    const semanticMetaKeys = [
+      "semantic_contract_version",
+      "semantic_origin",
+      "semantic_field_statuses",
+      "semantic_basis",
+      "semantic_uncertain_fields",
+      "semantic_confidence",
+      "semantic_preview_values",
+      "narrative_function",
+      "core_conflict_status",
+    ]
+    const inheritedSemanticMeta = Object.fromEntries(
+      semanticMetaKeys
+        .filter((key) => Object.prototype.hasOwnProperty.call(draft.structure_meta || {}, key))
+        .map((key) => [key, draft.structure_meta[key]]),
+    )
     const value = (id, fallback = null) => {
       const el = document.getElementById(id)
       if (!el) return fallback
@@ -2110,10 +2151,12 @@ const sceneWorkbenchView = {
       emotional_beat: value("scene-fusion-emotion", draft.emotional_beat || null),
       must_happen: value("scene-fusion-must", draft.must_happen || null),
       must_not_happen: value("scene-fusion-must-not", draft.must_not_happen || null),
+      narrative_function: value("scene-fusion-function", draft.narrative_function || null),
       narrative_tag: value("scene-fusion-narrative-tag", draft.narrative_tag || "draft") || "draft",
       pov_character_id: value("scene-fusion-pov", draft.pov_character_id || null),
       chapter_ids: chapters,
       structure_meta: {
+        ...inheritedSemanticMeta,
         draft_review_mode: this._activeDraftReview?.mode || "fusion",
         primary_scene_id: this._activeDraftReview?.primary_scene_id || null,
         confidence: this._activeDraftReview?.confidence ?? null,
@@ -2161,10 +2204,93 @@ const sceneWorkbenchView = {
   },
 
   async _startSplit(sourceSceneId) {
-    const raw = prompt("输入拆分起始章节：")
-    const chapter = parseInt(raw || "", 10)
-    if (!Number.isFinite(chapter)) return
-    await this._previewAndSplit(sourceSceneId, chapter)
+    const scene = this._findScene(sourceSceneId)
+    if (!scene) {
+      toast("Scene 不存在或已变化，请刷新后重试", "warning")
+      return false
+    }
+    const chapterIndices = [...new Set(
+      (scene.chapter_ids || [])
+        .map((chapterId) => Number(chapterId))
+        .filter((chapterIndex) => Number.isInteger(chapterIndex) && chapterIndex > 0),
+    )].sort((left, right) => left - right)
+    if (chapterIndices.length < 2) {
+      toast("该 Scene 至少需要关联两个章节才能按章节拆分", "info")
+      return false
+    }
+
+    const partitionFor = (splitChapterIndex) => {
+      const splitPosition = chapterIndices.indexOf(splitChapterIndex)
+      if (splitPosition <= 0) return null
+      return {
+        retained: chapterIndices.slice(0, splitPosition),
+        created: chapterIndices.slice(splitPosition),
+      }
+    }
+    const chapterLabel = (indices) => indices.map((index) => `第 ${index} 章`).join("、")
+    const defaultSplitChapter = chapterIndices[1]
+    const options = chapterIndices.slice(1).map((chapterIndex) => {
+      const partition = partitionFor(chapterIndex)
+      return `
+        <option value="${chapterIndex}" ${chapterIndex === defaultSplitChapter ? "selected" : ""}>
+          从第 ${chapterIndex} 章起创建新 Scene（原 Scene 保留 ${esc(chapterLabel(partition.retained))}）
+        </option>
+      `
+    }).join("")
+    const defaultPartition = partitionFor(defaultSplitChapter)
+    const html = `
+      <div class="scene-split-setup">
+        <p>当前 Scene：<strong>${esc(scene.title || "未命名 Scene")}</strong></p>
+        <p class="writing-form-hint">当前关联章节：${esc(chapterLabel(chapterIndices))}</p>
+        <label class="writing-form-field" for="scene-split-chapter-index">
+          <span>新 Scene 的起始章节</span>
+          <select id="scene-split-chapter-index" autofocus>${options}</select>
+        </label>
+        <div id="scene-split-partition" class="scene-split-impact-summary" aria-live="polite">
+          <p><strong>保留在原 Scene：</strong>${esc(chapterLabel(defaultPartition.retained))}</p>
+          <p><strong>进入新 Scene：</strong>${esc(chapterLabel(defaultPartition.created))}</p>
+        </div>
+        <p class="writing-form-hint">两侧章节互不重叠，并完整覆盖当前 Scene；下一步可编辑 AI 生成的两张 Scene 卡。</p>
+        <p id="scene-split-setup-error" class="form-error" role="alert"></p>
+      </div>
+    `
+    showModalHtml("拆分 Scene", html, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "生成拆分预览",
+        class: "btn-primary",
+        handler: async () => {
+          const select = document.getElementById("scene-split-chapter-index")
+          const error = document.getElementById("scene-split-setup-error")
+          const splitChapterIndex = Number(select?.value)
+          const partition = partitionFor(splitChapterIndex)
+          if (!partition?.retained.length || !partition?.created.length) {
+            if (error) error.textContent = "请选择能让原 Scene 和新 Scene 都保留章节的拆分边界。"
+            return false
+          }
+          if (error) error.textContent = ""
+          try {
+            await this._previewAndSplit(sourceSceneId, splitChapterIndex)
+            return true
+          } catch (err) {
+            if (error) error.textContent = err.message || "拆分预览生成失败，请稍后重试。"
+            return false
+          }
+        },
+      },
+    ])
+
+    const select = document.getElementById("scene-split-chapter-index")
+    const partitionElement = document.getElementById("scene-split-partition")
+    select?.addEventListener("change", () => {
+      const partition = partitionFor(Number(select.value))
+      if (!partitionElement || !partition) return
+      partitionElement.innerHTML = `
+        <p><strong>保留在原 Scene：</strong>${esc(chapterLabel(partition.retained))}</p>
+        <p><strong>进入新 Scene：</strong>${esc(chapterLabel(partition.created))}</p>
+      `
+    })
+    return true
   },
 
   async _previewAndSplit(sourceSceneId, splitChapterIndex) {
@@ -2173,7 +2299,7 @@ const sceneWorkbenchView = {
       split_chapter_index: splitChapterIndex,
     }
     const preview = await api.outline.previewSceneSplit(state.currentProjectId, request)
-    showModalHtml("Scene AI 建议预览", this._renderSplitDraftReview(preview), [
+    showModalHtml("Scene 拆分预览", this._renderSplitDraftReview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认拆分",
@@ -2226,7 +2352,7 @@ const sceneWorkbenchView = {
     }).join("")
     return `
       <div class="scene-fusion-preview">
-        ${this._renderDraftReviewMeta(preview, "AI 拆分建议")}
+        ${this._renderDraftReviewMeta(preview, "拆分草稿")}
         ${this._renderDraftReviewTable(
           ["字段", "原 Scene", "建议 A", "建议 B"],
           rows,
@@ -2366,7 +2492,15 @@ const sceneWorkbenchView = {
     return `${previous} · 重复提取替换`
   },
 
-  _sourceLabel(source) {
+  _sourceLabel(sceneOrSource) {
+    const scene = sceneOrSource && typeof sceneOrSource === "object" ? sceneOrSource : null
+    const source = scene ? scene.source : sceneOrSource
+    const meta = scene?.structure_meta || {}
+    if (meta.semantic_origin === "mechanical_fusion") {
+      const original = Object.fromEntries(SOURCE_OPTIONS)[source] || source || "手动"
+      return `${original} · 机械融合`
+    }
+    if (meta.fusion_kind === "llm_scene_workbench") return "AI 融合"
     return Object.fromEntries(SOURCE_OPTIONS)[source] || source || "手动"
   },
 
@@ -2479,7 +2613,7 @@ const sceneWorkbenchView = {
       <button class="btn btn-sm" data-action="dismiss-scene-auto-extract">关闭</button>
     ` : `<button class="btn btn-sm" data-action="cancel-scene-auto-extract" ${this._autoExtractCancelPending ? "disabled" : ""}>${this._autoExtractCancelPending ? "取消中..." : "取消任务"}</button>`
     return `<div class="scene-progress-card-wrap">${renderWorkflowCard(this._autoExtractProgress, {
-      title: "场景（scene）自动提取",
+      title: "从正文提取 Scene",
       destinationLabel: rangeText,
     })}${dismissHtml}</div>`
   },
@@ -2541,12 +2675,12 @@ const sceneWorkbenchView = {
         this._autoExtractTaskId = null
         this._autoExtractProgress = progress
         this._updateAutoExtractProgressDOM()
-        toast("场景（scene）自动提取完成", "success")
+        toast("从正文提取 Scene 完成", "success")
         await this._refreshWorkbenchInPlace({ preserveScroll: true })
       },
       onFailed: async (progress) => {
         this._autoExtractProgress = progress
-        toast(`场景（scene）自动提取失败: ${progress.errorMessage || "未知错误"}`, "error")
+        toast(`从正文提取 Scene 失败: ${progress.errorMessage || "未知错误"}`, "error")
         this._updateAutoExtractProgressDOM()
       },
     })
@@ -2586,7 +2720,7 @@ const sceneWorkbenchView = {
     const novelId = state.currentProjectId
     if (!taskId || !novelId || this._autoExtractCancelPending) return false
     const confirmed = await confirmAsync(
-      "确认取消当前场景自动提取任务？已完成的阶段结果不会自动删除。",
+      "确认取消当前正文 Scene 提取任务？已完成的阶段结果不会自动删除。",
       "确认取消",
     )
     if (!confirmed) return false
@@ -2605,7 +2739,7 @@ const sceneWorkbenchView = {
         result: { message: "任务已取消" },
         meta: this._autoExtractMeta,
       }, "scene_auto_extraction")
-      toast("当前场景自动提取任务已取消", "warning")
+      toast("当前正文 Scene 提取任务已取消", "warning")
       this._updateAutoExtractProgressDOM()
       return true
     } catch (err) {
@@ -2632,7 +2766,7 @@ const sceneWorkbenchView = {
       </label>
       <p class="writing-form-hint" role="note">${esc(importAuthorizationNotice())}</p>
     `
-    showModalHtml("场景（scene）自动提取", formHtml, [{
+    showModalHtml("从正文提取 Scene", formHtml, [{
       text: "确认并开始提取",
       class: "btn-primary",
       handler: async () => {
@@ -2665,7 +2799,7 @@ const sceneWorkbenchView = {
 
       if (!result.task_id) {
         closeModal()
-        toast(result.message || "场景（scene）自动提取未启动", "warning")
+        toast(result.message || "从正文提取 Scene 未启动", "warning")
         return
       }
 
@@ -2680,13 +2814,13 @@ const sceneWorkbenchView = {
       persistActiveWorkflow({
         taskId: result.task_id,
         workflowType: "scene_auto_extraction",
-        label: "场景（scene）自动提取",
+        label: "从正文提取 Scene",
         projectId: state.currentProjectId,
         view: "scene",
         meta: { ...this._autoExtractMeta, highQuality },
       })
       closeModal()
-      toast(`场景（scene）自动提取任务已提交：${result.task_id}`, "success")
+      toast(`从正文提取 Scene 任务已提交：${result.task_id}`, "success")
       this._startAutoExtractPolling(result.task_id)
       this._updateAutoExtractProgressDOM()
     } catch (err) {
@@ -3100,8 +3234,8 @@ const sceneWorkbenchView = {
       "nav-scenes": () => router.navigate("outline", "scenes"),
       "nav-threads": () => router.navigate("outline", "threads"),
       "nav-arcs": () => router.navigate("outline", "arcs"),
-      "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
-      "nav-reveals": () => router.navigate("outline", "reveals"),
+      "ai-create-planned-scene": () => window.outlineView?._showOutlineLayerAiForm("planned_scene", this.selectedSceneIdForAi()),
+      "view-outline-generate-preview": () => window.outlineView?._showOutlineGeneratePreview(),
       "scene-auto-extract": () => this._showSceneAutoExtractForm(),
       "cancel-scene-auto-extract": () => this._cancelAutoExtractTask(),
       "dismiss-scene-auto-extract": () => this._dismissAutoExtractProgress(),

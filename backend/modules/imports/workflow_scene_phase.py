@@ -28,6 +28,17 @@ PHASE0_422_RECOMMENDATION = (
 PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING = 12
 
 
+def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return True
+    return keyword in signature.parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+
+
 def _enqueue_rag_reindex_after_scene_commit(
     db: AsyncSession | None,
     novel_id: str,
@@ -379,14 +390,22 @@ class ScenePhaseRunner:
             _assert_provider_window("phase1b progress")
 
         _assert_provider_window("phase1b")
+        phase1b_kwargs: dict[str, Any] = {
+            "start_chapter": start_chapter,
+            "end_chapter": end_chapter,
+            "chapters": phase0_result.chapters,
+            "on_batch_progress": _on_phase1b_batch,
+        }
+        if _accepts_keyword(
+            workflow._run_phase1b_enrichment,
+            "phase1a_context",
+        ):
+            phase1b_kwargs["phase1a_context"] = phase0_result.phase1a_context
         phase1b_result = await workflow._run_phase1b_enrichment(
             db,
             novel_id,
             phase1a_result.candidates,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            chapters=phase0_result.chapters,
-            on_batch_progress=_on_phase1b_batch,
+            **phase1b_kwargs,
         )
         _assert_provider_window("phase1b")
         progress.quality_stats["phase1b"] = phase1b_result.quality_stats
@@ -524,13 +543,21 @@ class ScenePhaseRunner:
                 _assert_provider_window("phase1c progress")
 
             _assert_provider_window("phase1c")
+            phase1c_kwargs: dict[str, Any] = {
+                "chapters": phase0_result.chapters,
+                "project_profile": request.project_profile,
+                "on_pair_progress": _on_phase1c_pair,
+            }
+            if _accepts_keyword(
+                workflow._run_phase1c_scene_fusion,
+                "phase1a_context",
+            ):
+                phase1c_kwargs["phase1a_context"] = phase0_result.phase1a_context
             phase1c_result = await workflow._run_phase1c_scene_fusion(
                 db,
                 novel_id,
                 final_candidates,
-                chapters=phase0_result.chapters,
-                project_profile=request.project_profile,
-                on_pair_progress=_on_phase1c_pair,
+                **phase1c_kwargs,
             )
             _assert_provider_window("phase1c")
             final_candidates = phase1c_result.candidates
@@ -563,6 +590,19 @@ class ScenePhaseRunner:
             )
             if phase1c_result.degraded:
                 progress.degraded = True
+                progress.degraded_reason = (
+                    phase1c_result.block_reason or "phase1c_review_or_synthesis_failures"
+                )
+                progress.phase_errors.append(
+                    {
+                        "phase": "phase1c_scene_fusion",
+                        "error_kind": progress.degraded_reason,
+                        "message": (
+                            "部分相邻 Scene 边界复核或融合综合未完成；"
+                            "已保留原 Scene，未生成技术失败对应的待处理建议。"
+                        ),
+                    }
+                )
         else:
             progress.quality_stats["phase1c"] = {
                 "status": "skipped",
@@ -610,13 +650,11 @@ class ScenePhaseRunner:
 
         commit_kwargs: dict[str, Any] = {
             "workflow_id": workflow_id or progress.workflow_id or "manual",
+            "start_chapter": start_chapter,
+            "end_chapter": end_chapter,
         }
         if replace_existing:
-            commit_kwargs.update(
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-                replace_existing=True,
-            )
+            commit_kwargs["replace_existing"] = True
         if fusion_suggestions:
             commit_kwargs["fusion_suggestions"] = fusion_suggestions
         if request.before_scene_commit is not None:
@@ -742,7 +780,7 @@ class ScenePhaseRunner:
             progress.phase = "done"
             progress.quality_status = "partial" if progress.degraded else "complete"
             progress.message = (
-                "场景（scene）自动提取完成，"
+                "从正文提取 Scene 完成，"
                 f"新增 {commit_result.created_count} 个，"
                 f"复用 {commit_result.skipped_count} 个。"
             )

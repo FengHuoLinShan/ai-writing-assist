@@ -142,3 +142,19 @@ class TestLoadPrompt:
         result = load_prompt("cwd_safe", prompt_dir=prompts_dir, value="显式目录")
 
         assert result == "路径：显式目录"
+
+    def test_retired_prompt_files_are_absent_and_unreferenced(self) -> None:
+        for prompt_name in (
+            "shared_rules",
+            "structure_world_character",
+            "structure_plot",
+            "structure_chapter_scene",
+        ):
+            assert not resolve_prompt_path(prompt_name).exists()
+        for prompt_name in (
+            "p20_plot_thread",
+            "p20_outline_arc",
+            "p20_planned_scene",
+        ):
+            assert "P20" in load_prompt(prompt_name)
+        assert "P21" in load_prompt("rag_reranker")

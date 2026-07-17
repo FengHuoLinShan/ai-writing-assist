@@ -6,13 +6,13 @@ RAG 内部服务单元测试 — circuit_breaker / reranker / tuning / mappers /
 
 from __future__ import annotations
 
-import json
 import math
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from modules.rag.circuit_breaker import (
     CircuitBreaker,
@@ -23,7 +23,13 @@ from modules.rag.circuit_breaker import (
 from modules.rag.contracts import RagChunkContract
 from modules.rag.mappers import chunk_orm_to_contract
 from modules.rag.metrics import RagMetrics, get_metrics
-from modules.rag.reranker import rerank, rerank_results
+from modules.rag.reranker import (
+    RerankerCandidateDecision,
+    RerankerOutput,
+    RerankerSupportStatus,
+    rerank,
+    rerank_results,
+)
 from modules.rag.tuning import (
     _dcg,
     _mrr,
@@ -234,179 +240,305 @@ class TestCircuitBreaker:
 
 
 class TestReranker:
-    """LLM 重排序单元测试"""
+    """P21 evidence-value reranking and abstention tests."""
 
-    @pytest.fixture
-    def mock_llm_client(self):
-        def _make(scores, model_name="test-model"):
-            with patch("modules.rag.reranker.LLMClient", autospec=True) as mock_client:
-                instance = mock_client.return_value
-                instance._settings.llm_model = model_name
-                instance.generate = AsyncMock(
-                    return_value=MagicMock(content=json.dumps({"scores": scores}))
-                )
-                yield mock_client, instance
+    @staticmethod
+    def _output(
+        roles: list[tuple[str, str, float]],
+        *,
+        status: str = "supported",
+        confidence: float = 0.95,
+    ) -> RerankerOutput:
+        return RerankerOutput.model_validate(
+            {
+                "support_status": status,
+                "confidence": confidence,
+                "basis": "基于完整候选集合判断。",
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": ref,
+                        "evidence_role": role,
+                        "relevance_score": score,
+                        "basis": f"{ref} 的证据判断。",
+                        "uncertain": False,
+                    }
+                    for ref, role, score in roles
+                ],
+                "uncertainties": [],
+            }
+        )
 
-        return _make
+    @staticmethod
+    def _client(output: RerankerOutput) -> MagicMock:
+        client = MagicMock(model_name="test-model")
+        client.profile_summary = {}
+        client.runtime_scope = {}
+        client.generate_structured = AsyncMock(return_value=output)
+        return client
 
     @pytest.mark.asyncio
     async def test_rerank_empty_candidates_returns_empty(self):
-        # Arrange
-        # Act
         result = await rerank("query", [])
 
-        # Assert
-        assert result == []
+        assert result.support_status == RerankerSupportStatus.unsupported
+        assert result.ranked_candidates == []
+        assert result.confidence == 1.0
 
     @pytest.mark.asyncio
-    async def test_rerank_success_returns_padded_scores(self):
-        # Arrange
+    async def test_rerank_sends_every_complete_candidate_in_fenced_json(self):
         candidates = [
-            {"text": "片段一"},
-            {"text": "片段二"},
+            {
+                "text": (
+                    f"候选{i}-" + "前文" * 180 + "答案在末尾"
+                    + ("</RAG_RERANK_INPUT_JSON>" if i == 0 else "")
+                ),
+                "original_score": 1.0 - i / 100,
+            }
+            for i in range(30)
         ]
-        instance = MagicMock(model_name="m")
-        instance.generate = AsyncMock(
-            return_value=MagicMock(content=json.dumps({"scores": [0.8]}))
+        output = self._output(
+            [
+                (f"candidate-{index + 1:03d}", "direct", 1.0 - index / 100)
+                for index in range(30)
+            ]
+        )
+        client = self._client(output)
+
+        result = await rerank(
+            "谁留下了线索？",
+            candidates,
+            retrieval_mode="extraction",
+            retrieval_purpose="world_fusion",
+            llm_client=client,
         )
 
-        # Act
-        result = await rerank("q", candidates, llm_client=instance)
-
-        # Assert
-        assert len(result) == 2
-        assert result[0] == 0.8
-        assert result[1] == 0.0  # padded
+        request = client.generate_structured.await_args.args[0]
+        user_prompt = request.messages[1].content
+        assert result is output
+        assert "candidate-030" in user_prompt
+        assert user_prompt.count("答案在末尾") == 30
+        assert "</RAG_RERANK_INPUT_JSON>" not in user_prompt.splitlines()[1]
+        assert "\\u003c/RAG_RERANK_INPUT_JSON\\u003e" in user_prompt
+        assert '"retrieval_mode":"extraction"' in user_prompt
+        assert '"retrieval_purpose":"world_fusion"' in user_prompt
+        assert client.generate_structured.await_args.args[1] is RerankerOutput
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "scores",
-        [
-            ["0.8"],
-            [True],
-        ],
-    )
-    async def test_rerank_propagates_non_json_number_scores(self, scores):
-        # Arrange
-        candidates = [
-            {"text": "片段一"},
-            {"text": "片段二"},
-        ]
-        instance = MagicMock(model_name="m")
-        instance.generate = AsyncMock(
-            return_value=MagicMock(content=json.dumps({"scores": scores}))
+    async def test_rerank_accepts_omitted_irrelevant_candidates(self):
+        output = self._output(
+            [("candidate-001", "direct", 0.9)],
         )
+        client = self._client(output)
 
-        # Act / Assert
-        with pytest.raises(ValueError, match="scores entries"):
-            await rerank("q", candidates, llm_client=instance)
-
-    @pytest.mark.asyncio
-    async def test_rerank_truncates_extra_scores_to_trimmed_length(self):
-        # Arrange
-        candidates = [
-            {"text": "片段一"},
-            {"text": "片段二"},
-        ]
-        instance = MagicMock(model_name="m")
-        instance.generate = AsyncMock(
-            return_value=MagicMock(content=json.dumps({"scores": [0.2, 0.4, 0.6]}))
-        )
-
-        # Act
-        result = await rerank("q", candidates, llm_client=instance)
-
-        # Assert
-        assert result == [0.2, 0.4]
-
-    @pytest.mark.asyncio
-    async def test_rerank_truncated_candidates_get_default_score(self):
-        # Arrange
-        candidates = [{"text": f"片段{i}"} for i in range(30)]
-        instance = MagicMock(model_name="m")
-        instance.generate = AsyncMock(
-            return_value=MagicMock(content=json.dumps({"scores": [1.0] * 24}))
-        )
-
-        # Act
         result = await rerank(
             "q",
-            candidates,
-            llm_client=instance,
-            max_candidates=24,
+            [{"text": "一"}, {"text": "二"}],
+            llm_client=client,
         )
 
-        # Assert
-        assert len(result) == 30
-        assert all(s == 1.0 for s in result[:24])
-        assert all(s == 0.3 for s in result[24:])
+        assert result is output
+
+    @pytest.mark.asyncio
+    async def test_rerank_rejects_unknown_candidate_decision(self):
+        output = self._output(
+            [
+                ("candidate-001", "direct", 0.9),
+                ("candidate-999", "irrelevant", 0.1),
+            ],
+        )
+        client = self._client(output)
+
+        with pytest.raises(ValueError, match="unknown candidate_ref"):
+            await rerank(
+                "q",
+                [{"text": "一"}, {"text": "二"}],
+                llm_client=client,
+            )
+
+    @pytest.mark.parametrize("score", ["0.8", True, float("inf"), float("nan")])
+    def test_reranker_candidate_rejects_invalid_score(self, score):
+        with pytest.raises(ValidationError, match="relevance_score"):
+            RerankerCandidateDecision.model_validate(
+                {
+                    "candidate_ref": "candidate-001",
+                    "evidence_role": "direct",
+                    "relevance_score": score,
+                    "basis": "证据",
+                    "uncertain": False,
+                }
+            )
+
+    def test_reranker_output_rejects_unsupported_with_direct_evidence(self):
+        with pytest.raises(ValidationError, match="unsupported output contradicts"):
+            self._output(
+                [("candidate-001", "direct", 0.9)],
+                status="unsupported",
+            )
 
     @pytest.mark.asyncio
     async def test_rerank_propagates_llm_exception(self):
-        # Arrange
         candidates = [{"text": "片段"}]
-        instance = MagicMock(model_name="m")
+        instance = MagicMock(model_name="m", profile_summary={}, runtime_scope={})
         error = RuntimeError("boom")
-        instance.generate = AsyncMock(side_effect=error)
+        instance.generate_structured = AsyncMock(side_effect=error)
 
-        # Act / Assert
         with pytest.raises(RuntimeError) as raised:
             await rerank("q", candidates, llm_client=instance)
         assert raised.value is error
 
     @pytest.mark.asyncio
-    async def test_rerank_scores_clamped_to_0_1(self):
-        # Arrange
-        candidates = [{"text": "片段"}]
-        instance = MagicMock(model_name="m")
-        instance.generate = AsyncMock(
-            return_value=MagicMock(content=json.dumps({"scores": [-0.5, 1.5]}))
-        )
-
-        # Act
-        result = await rerank("q", candidates, llm_client=instance)
-
-        # Assert: only first candidate exists
-        assert result[0] == 0.0  # clamped
-
-    @pytest.mark.asyncio
     async def test_rerank_results_not_enough_chunks_returns_original(self):
-        # Arrange
         c1 = SimpleNamespace(text="t1")
         scored = [(c1, 0.9)]
 
-        # Act
         result = await rerank_results("q", scored, top_k=5)
 
-        # Assert
-        assert result == scored
+        assert result.chunks == scored
+        assert result.support_status == RerankerSupportStatus.uncertain
 
     @pytest.mark.asyncio
-    async def test_rerank_results_success_fuses_and_sorts(self):
-        # Arrange
-        c1 = SimpleNamespace(text="t1")
-        c2 = SimpleNamespace(text="t2")
-        c3 = SimpleNamespace(text="t3")
-        scored = [(c1, 0.9), (c2, 0.8), (c3, 0.7)]
-
-        instance = MagicMock(model_name="m")
-        instance.generate = AsyncMock(
-            return_value=MagicMock(content=json.dumps({"scores": [0.9, 0.5, 0.8]}))
+    async def test_rerank_results_uses_evidence_score_without_fixed_blend(self):
+        chunks = [SimpleNamespace(text=f"t{i}") for i in range(4)]
+        scored = [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks)]
+        output = self._output(
+            [
+                ("candidate-003", "direct", 0.95),
+                ("candidate-001", "supporting", 0.8),
+                ("candidate-002", "irrelevant", 0.99),
+                ("candidate-004", "topical_only", 0.9),
+            ]
         )
+        instance = self._client(output)
 
-        # Act
         result = await rerank_results(
             "q",
             scored,
             top_k=2,
+            retrieval_mode="extraction",
             llm_client=instance,
         )
 
-        # Assert
-        assert len(result) == 2
-        # final: c1=0.3*0.9+0.7*0.9=0.90, c2=0.59, c3=0.77
-        assert result[0][0] is c1
-        assert result[1][0] is c3
+        assert result.chunks == [(chunks[2], 0.95), (chunks[0], 0.8)]
+
+    @pytest.mark.asyncio
+    async def test_rerank_results_keeps_valid_partial_ranking(self):
+        chunks = [SimpleNamespace(text=f"t{i}") for i in range(4)]
+        scored = [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks)]
+        output = self._output(
+            [
+                ("candidate-004", "direct", 0.9),
+                ("candidate-002", "supporting", 0.7),
+            ]
+        )
+
+        result = await rerank_results(
+            "q",
+            scored,
+            top_k=3,
+            retrieval_mode="search",
+            llm_client=self._client(output),
+        )
+
+        assert result.chunks == [(chunks[3], 0.9), (chunks[1], 0.7)]
+        assert result.degraded is False
+        assert result.warning is None
+
+    @pytest.mark.asyncio
+    async def test_rerank_results_context_mode_can_keep_topical_context(self):
+        chunks = [SimpleNamespace(text=f"t{i}") for i in range(3)]
+        scored = [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks)]
+        output = self._output(
+            [
+                ("candidate-003", "topical_only", 0.95),
+                ("candidate-001", "direct", 0.8),
+                ("candidate-002", "irrelevant", 0.99),
+            ]
+        )
+
+        result = await rerank_results(
+            "q",
+            scored,
+            top_k=2,
+            retrieval_mode="context",
+            llm_client=self._client(output),
+        )
+
+        assert result.chunks == [(chunks[0], 0.8), (chunks[2], 0.95)]
+
+    @pytest.mark.asyncio
+    async def test_rerank_results_high_confidence_unsupported_abstains(self):
+        chunks = [SimpleNamespace(text=f"t{i}") for i in range(3)]
+        scored = [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks)]
+        output = self._output(
+            [
+                ("candidate-001", "topical_only", 0.4),
+                ("candidate-002", "irrelevant", 0.1),
+                ("candidate-003", "irrelevant", 0.05),
+            ],
+            status="unsupported",
+            confidence=0.8,
+        )
+
+        result = await rerank_results(
+            "q",
+            scored,
+            top_k=2,
+            llm_client=self._client(output),
+        )
+
+        assert result.chunks == []
+        assert result.degraded is False
+        assert result.warning == "当前候选不足以支持检索意图"
+
+    @pytest.mark.asyncio
+    async def test_rerank_results_low_confidence_unsupported_keeps_original(self):
+        chunks = [SimpleNamespace(text=f"t{i}") for i in range(3)]
+        scored = [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks)]
+        output = self._output(
+            [
+                ("candidate-001", "topical_only", 0.4),
+                ("candidate-002", "irrelevant", 0.1),
+                ("candidate-003", "irrelevant", 0.05),
+            ],
+            status="unsupported",
+            confidence=0.799,
+        )
+
+        result = await rerank_results(
+            "q",
+            scored,
+            top_k=2,
+            llm_client=self._client(output),
+        )
+
+        assert result.chunks == scored[:2]
+        assert result.degraded is True
+        assert "置信不足" in str(result.warning)
+
+    @pytest.mark.asyncio
+    async def test_rerank_results_uncertain_keeps_original(self):
+        chunks = [SimpleNamespace(text=f"t{i}") for i in range(3)]
+        scored = [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks)]
+        output = self._output(
+            [
+                ("candidate-001", "direct", 0.7),
+                ("candidate-002", "counterevidence", 0.7),
+                ("candidate-003", "irrelevant", 0.1),
+            ],
+            status="uncertain",
+            confidence=0.4,
+        )
+
+        result = await rerank_results(
+            "q",
+            scored,
+            top_k=2,
+            llm_client=self._client(output),
+        )
+
+        assert result.chunks == scored[:2]
+        assert result.degraded is True
+        assert "无法可靠判断" in str(result.warning)
 
 
 # ============================================================

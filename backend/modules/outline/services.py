@@ -16,6 +16,7 @@ from modules.outline.contracts import (
     PlotThreadContract,
     SceneContract,
     SceneSpanContract,
+    scene_semantic_field_status,
 )
 from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
 from modules.outline.models import (
@@ -59,6 +60,59 @@ from shared.utils import parse_uuid
 logger = logging.getLogger(__name__)
 
 
+async def _require_related_threads_in_novel(
+    db: AsyncSession,
+    novel_id: uuid.UUID,
+    thread_ids: list[str] | None,
+) -> list[str]:
+    normalized = list(
+        dict.fromkeys(
+            str(parse_uuid(value, "related_thread_id")) for value in thread_ids or []
+        )
+    )
+    if not normalized:
+        return []
+    found = {
+        str(value)
+        for value in (
+            await db.scalars(
+                select(PlotThread.id).where(
+                    PlotThread.novel_id == novel_id,
+                    PlotThread.id.in_([uuid.UUID(value) for value in normalized]),
+                )
+            )
+        ).all()
+    }
+    if found != set(normalized):
+        raise ValidationError("related_thread_ids must belong to the same novel")
+    return normalized
+
+
+def scene_has_missing_setup(scene: Any) -> bool:
+    """Return whether an author-facing Scene card is missing required setup.
+
+    Phase 1a may determine that a deep-imported Scene has no meaningful core
+    conflict.  That explicit semantic result is complete setup, while absent or
+    uncertain conflict metadata remains incomplete.  Manual Scenes deliberately
+    keep the historical requirement even if caller-supplied metadata contains the
+    same marker.
+    """
+    if not getattr(scene, "goal", None):
+        return True
+    for field in ("core_conflict", "must_happen", "must_not_happen"):
+        value = getattr(scene, field, None)
+        status = scene_semantic_field_status(scene, field)
+        if status == "present" and not value:
+            return True
+        if status == "not_applicable" and value:
+            return True
+        if status == "uncertain":
+            return True
+        if status is None and not value:
+            return True
+    return False
+
+
 class StructureAssetFilterMixin:
     async def update(
         self,
@@ -95,9 +149,19 @@ class StructureAssetFilterMixin:
         source: str | None = None,
         workflow_id: str | None = None,
         needs_review: bool | None = None,
+        related_thread_id: str | None = None,
+        unassigned: bool | None = None,
     ):
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
+        relation_filters: dict[str, Any] = {}
+        if related_thread_id is not None:
+            relation_filters["related_thread_id"] = parse_uuid(
+                related_thread_id,
+                "related_thread_id",
+            )
+        if unassigned is not None:
+            relation_filters["unassigned"] = unassigned
         objs, total = await self.repo.get_by_novel(
             db,
             nid,
@@ -107,6 +171,7 @@ class StructureAssetFilterMixin:
             source=source,
             workflow_id=workflow_id,
             needs_review=needs_review,
+            **relation_filters,
         )
         return [self._to_response(o) for o in objs], total
 
@@ -121,6 +186,8 @@ class StructureAssetFilterMixin:
         source: str | None = None,
         workflow_id: str | None = None,
         needs_review: bool | None = None,
+        related_thread_id: str | None = None,
+        unassigned: bool | None = None,
     ) -> BaseModel:
         items, total = await self.list(
             db,
@@ -131,6 +198,8 @@ class StructureAssetFilterMixin:
             source=source,
             workflow_id=workflow_id,
             needs_review=needs_review,
+            related_thread_id=related_thread_id,
+            unassigned=unassigned,
         )
         if self.list_response is None:
             raise TypeError(
@@ -418,6 +487,7 @@ class ForeshadowingPlanService(
         data: ForeshadowingPlanCreate,
     ) -> ForeshadowingPlanResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        await _require_related_threads_in_novel(db, nid, data.related_thread_ids)
         plan = await self.repo.create(db, nid, data.model_dump())
         return self.response.model_validate(plan)
 
@@ -428,6 +498,11 @@ class ForeshadowingPlanService(
         items: list[ForeshadowingPlanCreate],
     ) -> list[ForeshadowingPlanResponse]:
         nid = parse_uuid(novel_id, "novel_id")
+        await _require_related_threads_in_novel(
+            db,
+            nid,
+            [thread_id for item in items for thread_id in item.related_thread_ids],
+        )
         plans = await self.repo.create_batch(
             db,
             nid,
@@ -443,6 +518,12 @@ class ForeshadowingPlanService(
         *,
         novel_id: str,
     ) -> ForeshadowingPlanResponse:
+        if data.related_thread_ids is not None:
+            await _require_related_threads_in_novel(
+                db,
+                parse_uuid(novel_id, "novel_id"),
+                data.related_thread_ids,
+            )
         return await super().update(
             db,
             id,
@@ -487,6 +568,7 @@ class RevealPlanService(
         data: RevealPlanCreate,
     ) -> RevealPlanResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        await _require_related_threads_in_novel(db, nid, data.related_thread_ids)
         payload = data.model_dump()
         plan = await self.repo.create(db, nid, payload)
         return self.response.model_validate(plan)
@@ -498,6 +580,11 @@ class RevealPlanService(
         items: list[RevealPlanCreate],
     ) -> list[RevealPlanResponse]:
         nid = parse_uuid(novel_id, "novel_id")
+        await _require_related_threads_in_novel(
+            db,
+            nid,
+            [thread_id for item in items for thread_id in item.related_thread_ids],
+        )
         plans = await self.repo.create_batch(
             db,
             nid,
@@ -513,6 +600,12 @@ class RevealPlanService(
         *,
         novel_id: str,
     ) -> RevealPlanResponse:
+        if data.related_thread_ids is not None:
+            await _require_related_threads_in_novel(
+                db,
+                parse_uuid(novel_id, "novel_id"),
+                data.related_thread_ids,
+            )
         return await super().update(
             db,
             id,

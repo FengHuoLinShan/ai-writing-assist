@@ -53,6 +53,17 @@ describe("createEditor", () => {
     expect(document.getElementById("wc-paragraphs").textContent).toBe("4")
   })
 
+  it("uses effective project author preferences for daily goal and editor font", () => {
+    state._authorPreferences = { dailyGoal: 2500, editorFont: "serif" }
+    const editor = createTestEditor()
+    editor.setState({ chapter: 1, content: "正文" })
+
+    const html = editor.render()
+
+    expect(html).toContain("2 / 2,500")
+    expect(html).toContain("novel-editor--font-serif")
+  })
+
   it("有选中章节时渲染编辑器", async () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({
@@ -166,6 +177,7 @@ describe("createEditor", () => {
   })
 
   it("采用 candidate 后切换到 API 返回的可编辑工作稿", async () => {
+    autoConfirm()
     state.currentProjectId = "p1"
     api.writing.get.mockResolvedValue({
       id: "candidate-1",
@@ -588,12 +600,56 @@ describe("createEditor", () => {
     expect(html).not.toContain("hidden_source_text")
   })
 
+  it("显示当前 POV v2 状态字段和可读的修复提示", () => {
+    const editor = createTestEditor()
+    editor.setState({
+      chapter: 1,
+      draftId: "d-pov-v2",
+      draftStatus: "candidate",
+      title: "POV 候选",
+      content: "他没有立刻追问。",
+      provenanceJson: {
+        generation_profile: "pov_character",
+        pov_view: {
+          pov_state: {
+            perceived_facts: ["听见第二块亵渎石板"],
+            interpretation: "消息来源仍不明确",
+            current_intention: "维持镇定",
+            withheld_known_information: ["自己是值夜者"],
+          },
+          draft_prose: "他没有立刻追问。",
+          uncertainties: ["倒吊人的消息来源未知"],
+        },
+        pov_validation: {
+          status: "warning",
+          findings: [],
+          warnings: ["json_repaired"],
+        },
+      },
+    })
+
+    const html = editor.render()
+
+    expect(html).toContain("已感知 / 已知事实")
+    expect(html).toContain("听见第二块亵渎石板")
+    expect(html).toContain("当前意图")
+    expect(html).toContain("实质性不确定项")
+    expect(html).toContain("模型返回的 JSON 已自动修复，请复核结构化信息")
+    expect(html).not.toContain("json_repaired")
+  })
+
   it("POV 高风险 candidate 提供显式采用动作而不是确认即生效", async () => {
+    autoConfirm()
     state.currentProjectId = "p1"
     api.writing.adoptDraftCandidate.mockResolvedValue({
       id: "working-2",
       content: "正文建议",
       status: "draft",
+      provenance_json: {
+        generation_profile: "pov_character",
+        pov_view: { pov_state: { perceived_facts: ["已知事实"] } },
+        pov_validation: { status: "failed", findings: [], warnings: [] },
+      },
     })
     const editor = createTestEditor()
     editor.setState({
@@ -616,6 +672,73 @@ describe("createEditor", () => {
     expect(api.writing.adoptDraftCandidate).toHaveBeenCalledWith("candidate-1", "p1")
     expect(editor.getDraftId()).toBe("working-2")
     expect(editor.isReadonly()).toBe(false)
+    expect(document.body.textContent).toContain("当前内容已进入工作稿")
+    expect(document.querySelector('[data-action="adopt-draft-candidate"]')).toBeNull()
+  })
+
+  it("普通 AI candidate 同时提供采用和拒绝动作", async () => {
+    autoConfirm()
+    state.currentProjectId = "p1"
+    api.writing.deleteDraft.mockResolvedValue(undefined)
+    const onCandidateRejected = vi.fn()
+    const editor = createTestEditor({ onCandidateRejected })
+    editor.setState({
+      chapter: 6,
+      draftId: "candidate-default",
+      draftStatus: "candidate",
+      content: "普通正文建议",
+      provenanceJson: { generation_profile: "default" },
+    })
+    document.body.innerHTML = editor.render()
+
+    expect(document.querySelectorAll('[data-action="adopt-draft-candidate"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-action="reject-draft-candidate"]')).toHaveLength(1)
+
+    editor.bindEvents(document.body)
+    await document.querySelector('[data-action="reject-draft-candidate"]').click()
+    await vi.waitFor(() => expect(api.writing.deleteDraft).toHaveBeenCalledWith(
+      "candidate-default",
+      "p1",
+    ))
+    expect(onCandidateRejected).toHaveBeenCalledWith({ chapterIndex: 6 })
+  })
+
+  it("普通 AI candidate 的 POV 不适用状态不会误报为解析失败", () => {
+    const editor = createTestEditor()
+    editor.setState({
+      chapter: 6,
+      draftId: "candidate-default",
+      draftStatus: "candidate",
+      content: "普通正文建议",
+      provenanceJson: {
+        generation_profile: "default",
+        pov_view: null,
+        pov_validation: { status: "not_applicable", findings: [], warnings: [] },
+      },
+    })
+
+    const html = editor.render()
+
+    expect(html).toContain("AI 正文建议待审核")
+    expect(html).not.toContain("角色视角建议预览")
+    expect(html).not.toContain("结构化角色视角解析失败")
+  })
+
+  it("取消采用 candidate 时不会创建工作稿", async () => {
+    state.currentProjectId = "p1"
+    const editor = createTestEditor()
+    editor.setState({
+      chapter: 8,
+      draftId: "candidate-cancel",
+      draftStatus: "candidate",
+      content: "正文建议",
+    })
+    confirmAction.mockImplementation(() => {})
+    const promise = editor.adoptDraftCandidate()
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+
+    await expect(promise).resolves.toBeNull()
+    expect(api.writing.adoptDraftCandidate).not.toHaveBeenCalled()
   })
 
   it("普通 draft 没有 provenance_json 时不显示 POV panel", async () => {

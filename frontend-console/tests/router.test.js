@@ -366,6 +366,25 @@ describe("route guard and normalization", () => {
     expect(window.router.getCurrentQuery().get("scene_id")).toBe("s1")
   })
 
+  it.each(["foreshadowing", "reveals"])(
+    "redirects legacy outline/%s routes to thread information progression",
+    async (legacySubView) => {
+      addWorkspace()
+      registerBasicView("outline")
+      api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+      window.location.hash = `#workbench/p1/outline/${legacySubView}`
+
+      await window.router.initRouter()
+
+      expect(state.currentView).toBe("outline")
+      expect(state.currentSubView).toBe("threads")
+      expect(window.router.getCurrentQuery().get("information")).toBe(legacySubView)
+      expect(window.location.hash).toBe(
+        `#workbench/p1/outline/threads?information=${legacySubView}`,
+      )
+    },
+  )
+
   it("redirects legacy context routes without a project to projects", async () => {
     addWorkspace()
     registerBasicView("project")

@@ -67,7 +67,7 @@ describe("createAutoExtraction", () => {
     extractor.showForm("scenes")
 
     const [title] = modal.showModalHtml.mock.calls[0]
-    expect(title).toBe("场景（scene）自动提取")
+    expect(title).toBe("从正文提取 Scene")
   })
 
   it("submitStage starts task and notifies orchestrator", async () => {
@@ -114,7 +114,7 @@ describe("createAutoExtraction", () => {
       endChapter: 3,
       highQuality: true,
     }))
-    expect(toast).toHaveBeenCalledWith("场景（scene）自动提取已启动", "success")
+    expect(toast).toHaveBeenCalledWith("从正文提取 Scene 已启动", "success")
   })
 
 })

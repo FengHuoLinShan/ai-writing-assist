@@ -734,7 +734,7 @@ class PlotStructureGenerator:
                 chapter_index=start_chapter,
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
-                prompt_name="structure_plot",
+                prompt_name="phase3_structure_simple",
                 model=model,
                 compile_options={
                     "source": "deep_import_phase3_structure_context",

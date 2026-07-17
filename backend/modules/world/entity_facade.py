@@ -156,6 +156,7 @@ async def append_candidate_alias(
     scene_index: int | None = None,
     confidence: float = 0.5,
     quote: str | None = None,
+    review_meta: dict | None = None,
 ) -> bool:
     """追加待复核别名，已存在时返回 False。"""
     return await _alias_service.append_candidate_alias(
@@ -169,6 +170,7 @@ async def append_candidate_alias(
         scene_index=scene_index,
         confidence=confidence,
         quote=quote,
+        review_meta=review_meta,
     )
 
 
@@ -445,6 +447,8 @@ async def apply_entity_fusion_group(
     *,
     primary_entity_id: str,
     operations: list[dict],
+    validate_only: bool = False,
+    execution_fingerprints_prevalidated: bool = False,
 ) -> list[dict]:
     """Strict, caller-transactional entity fusion group apply."""
     from modules.world.entity_fusion import WorldEntityFusionService
@@ -454,6 +458,8 @@ async def apply_entity_fusion_group(
         novel_id=novel_id,
         primary_entity_id=primary_entity_id,
         operations=operations,
+        validate_only=validate_only,
+        execution_fingerprints_prevalidated=execution_fingerprints_prevalidated,
     )
 
 

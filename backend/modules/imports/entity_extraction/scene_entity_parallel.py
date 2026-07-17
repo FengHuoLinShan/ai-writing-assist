@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.entity_extraction.scene_entity_checkpoint import (
+    phase2a_input_fingerprint,
+)
 from modules.imports.entity_extraction.scene_entity_config import (
+    PHASE2A_PROMPT_CONTRACT_VERSION,
     phase2_parallel_llm_timeout_seconds,
     phase2_parallel_provider_timeout_seconds,
     phase2_parallel_scene_concurrency,
@@ -17,6 +22,19 @@ from modules.imports.entity_extraction.scene_entity_config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
+    """Preserve test/monkeypatch seams while adding optional v2 context."""
+    try:
+        parameters = inspect.signature(callable_obj).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        or parameter.name == keyword
+        for parameter in parameters
+    )
 
 
 class ParallelSceneEntityExtractionMixin:
@@ -67,11 +85,64 @@ class ParallelSceneEntityExtractionMixin:
                 chapters_text = activation.current_scene_text
                 world_context = activation.world_context_text
                 memory_context = activation.neighbor_context_text
+                context_fingerprint = str(
+                    getattr(activation, "context_fingerprint", "") or ""
+                )
+                identity_candidates = list(
+                    getattr(activation, "identity_candidates", []) or []
+                )
+                outline_context = dict(
+                    getattr(activation, "outline_context", {}) or {}
+                )
+                scene_card = dict(getattr(activation, "scene_card", {}) or {})
                 activation_metadata = {
                     "activation_version": activation.activation_version,
+                    "prompt_contract_version": PHASE2A_PROMPT_CONTRACT_VERSION,
                     "sources": activation.sources,
                     "budget_events": activation.budget_events,
                     "warnings": activation.warnings,
+                    "context_fingerprint": context_fingerprint,
+                    "identity_candidate_refs": [
+                        item.get("prompt_ref")
+                        for item in identity_candidates
+                        if item.get("prompt_ref")
+                    ],
+                    "identity_candidate_count": len(identity_candidates),
+                    "outline_counts": {
+                        key: len(outline_context.get(key, []))
+                        for key in ("scenes", "arcs", "plot_threads")
+                    },
+                    "scene_card": scene_card,
+                    "outline_context": outline_context,
+                    "identity_candidates": identity_candidates,
+                    "previous_scene_briefs": list(
+                        getattr(activation, "previous_briefs", []) or []
+                    ),
+                    "previous_scene_evidence": list(
+                        getattr(activation, "previous_evidence", []) or []
+                    ),
+                    "current_scene_sources": list(
+                        getattr(activation, "current_scene_sources", []) or []
+                    ),
+                }
+                context_bundle = {
+                    "activation_version": activation.activation_version,
+                    "prompt_contract_version": PHASE2A_PROMPT_CONTRACT_VERSION,
+                    "context_fingerprint": context_fingerprint,
+                    "scene_card": scene_card,
+                    "outline_context": outline_context,
+                    "identity_candidates": identity_candidates,
+                    "previous_scene_briefs": list(
+                        getattr(activation, "previous_briefs", []) or []
+                    ),
+                    "previous_scene_evidence": list(
+                        getattr(activation, "previous_evidence", []) or []
+                    ),
+                    # Audit/source IDs are intentionally local-only. The adapter
+                    # strips underscore-prefixed keys before serializing prompt data.
+                    "_current_scene_sources": list(
+                        getattr(activation, "current_scene_sources", []) or []
+                    ),
                 }
             else:
                 source_chapter_index = service._scene_source_chapter_index(scene)
@@ -80,11 +151,29 @@ class ParallelSceneEntityExtractionMixin:
                 memory_context = service._parallel_scene_memory_context(scene, scene_idx)
                 activation_metadata = {
                     "activation_version": "legacy-transient-scene",
+                    "prompt_contract_version": PHASE2A_PROMPT_CONTRACT_VERSION,
                     "sources": [],
                     "budget_events": [],
                     "warnings": ["transient_scene_compatibility_adapter"],
+                    "context_fingerprint": "",
                 }
-            input_fingerprint = service._scene_input_fingerprint(scene, chapters_text)
+                context_bundle = {
+                    "activation_version": "legacy-transient-scene",
+                    "prompt_contract_version": PHASE2A_PROMPT_CONTRACT_VERSION,
+                    "scene_card": scene,
+                    "legacy_existing_context": world_context,
+                    "legacy_previous_context": memory_context,
+                }
+            context_fingerprint = str(
+                activation_metadata.get("context_fingerprint") or ""
+            )
+            base_fingerprint = service._scene_input_fingerprint(scene, chapters_text)
+            input_fingerprint = phase2a_input_fingerprint(
+                scene,
+                chapters_text,
+                context_fingerprint=context_fingerprint,
+                base_fingerprint=base_fingerprint,
+            )
             fingerprint_matches = bool(
                 previous and previous.get("input_fingerprint") == input_fingerprint
             )
@@ -139,6 +228,7 @@ class ParallelSceneEntityExtractionMixin:
                         "memory_context": memory_context,
                         "world_context": world_context,
                         "activation": activation_metadata,
+                        "context_bundle": context_bundle,
                         "snapshot_id": None,
                         "input_fingerprint": input_fingerprint,
                     }
@@ -165,25 +255,42 @@ class ParallelSceneEntityExtractionMixin:
                     "memory_context": memory_context,
                     "world_context": world_context,
                     "activation": activation_metadata,
+                    "context_bundle": context_bundle,
                     "snapshot_id": snapshot.id,
                     "input_fingerprint": input_fingerprint,
                 }
             )
+
+        # Context assembly and snapshot creation are complete. Provider calls must
+        # not hold a database transaction open across network waits.
+        commit_result = db.commit()
+        if inspect.isawaitable(commit_result):
+            await commit_result
+        if isinstance(db, AsyncSession) and db.in_transaction():
+            raise RuntimeError("phase2_provider_call_requires_closed_transaction")
 
         async def extract_scene(item: dict[str, Any]) -> dict[str, Any]:
             if not item["chapters_text"]:
                 return {**item, "extraction": None, "error": None}
             format_diagnostics: list[dict[str, Any]] = []
             try:
+                call_kwargs: dict[str, Any] = {
+                    "max_tokens": scene_max_tokens,
+                    "client_timeout": provider_timeout_seconds,
+                    "transport_retries": False,
+                    "diagnostics": format_diagnostics,
+                }
+                if _accepts_keyword(
+                    service._call_llm_extraction,
+                    "context_bundle",
+                ):
+                    call_kwargs["context_bundle"] = item["context_bundle"]
                 extraction = await asyncio.wait_for(
                     service._call_llm_extraction(
                         item["chapters_text"],
                         item["world_context"],
                         item["memory_context"],
-                        max_tokens=scene_max_tokens,
-                        client_timeout=provider_timeout_seconds,
-                        transport_retries=False,
-                        diagnostics=format_diagnostics,
+                        **call_kwargs,
                     ),
                     timeout=llm_timeout_seconds,
                 )
@@ -205,16 +312,48 @@ class ParallelSceneEntityExtractionMixin:
         concurrency = configured_concurrency
         throttle_reasons: list[str] = []
         healthy_completions = 0
-        for start in range(0, len(prepared), concurrency):
-            wave = prepared[start : start + concurrency]
-            results = await asyncio.gather(*(extract_scene(item) for item in wave))
+        provider_completed = len(skipped_checkpoints)
+        if provider_completed and on_scene_progress is not None:
+            await on_scene_progress(provider_completed, len(scenes))
+        cursor = 0
+        while cursor < len(prepared):
+            wave = prepared[cursor : cursor + concurrency]
+            pending = {
+                asyncio.create_task(extract_scene(item))
+                for item in wave
+            }
+            results: list[dict[str, Any]] = []
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    results.append(task.result())
+                    provider_completed += 1
+                    if on_scene_progress is not None:
+                        await on_scene_progress(provider_completed, len(scenes))
             extracted.extend(results)
-            transport_failures = sum(1 for item in results if item.get("error"))
-            format_failures = sum(1 for item in results if item.get("format_diagnostics"))
-            if transport_failures >= 2 or format_failures >= 3:
+            cursor += len(wave)
+            transport_errors = [
+                item["error"]
+                for item in results
+                if item.get("error") is not None
+                and service._is_transport_failure(item["error"])
+            ]
+            rate_limit_failures = sum(
+                1
+                for error in transport_errors
+                if service._error_kind(error) == "rate_limit"
+            )
+            if rate_limit_failures >= 1 or len(transport_errors) >= 2:
                 next_concurrency = max(1, concurrency // 2)
                 if next_concurrency < concurrency:
-                    throttle_reasons.append("transport_or_format_failure_window")
+                    throttle_reasons.append(
+                        "rate_limit_window"
+                        if rate_limit_failures
+                        else "transport_failure_window"
+                    )
                     concurrency = next_concurrency
                 healthy_completions = 0
             else:
@@ -229,6 +368,7 @@ class ParallelSceneEntityExtractionMixin:
         total_created = 0
         total_relations = 0
         total_deltas = 0
+        total_uncertain_items = 0
         map_candidate_created = 0
         map_candidate_reused = 0
         completed_scenes = 0
@@ -239,6 +379,7 @@ class ParallelSceneEntityExtractionMixin:
         seen_entity_keys: set[tuple[str, str]] = set()
         accumulated_memory: list[dict] = []
         updated_context = existing_context
+        persistence_stats = service._empty_phase2_persistence_stats()
         error_kind: str | None = None
         error_message: str | None = None
         structured_format_diagnostics: list[dict[str, Any]] = []
@@ -281,8 +422,6 @@ class ParallelSceneEntityExtractionMixin:
                         input_fingerprint=item["input_fingerprint"],
                     )
                 )
-                if on_scene_progress is not None:
-                    await on_scene_progress(scene_idx + 1, len(scenes))
                 continue
 
             if extraction is None:
@@ -314,8 +453,6 @@ class ParallelSceneEntityExtractionMixin:
                 )
                 if not missing_current_evidence:
                     completed_scenes += 1
-                if on_scene_progress is not None:
-                    await on_scene_progress(scene_idx + 1, len(scenes))
                 continue
 
             result_refs: list[dict[str, str]] = []
@@ -332,18 +469,11 @@ class ParallelSceneEntityExtractionMixin:
                     scene_provenance_key=scene_provenance_key,
                     context_snapshot_id=snapshot_id,
                     result_refs=result_refs,
+                    persistence_stats=persistence_stats,
                 )
-                relation_count = await service._persist_relations(
-                    db,
-                    nid,
-                    extraction.relations,
-                    scene_index=scene_index,
-                    source_chapter_index=item["source_chapter_index"],
-                    workflow_id=workflow_id,
-                    scene_id=scene_id,
-                    context_snapshot_id=snapshot_id,
-                    result_refs=result_refs,
-                )
+                # P13 no longer owns relations. P14 Phase 2b extracts and persists
+                # aliases/relations after the entity identity index is available.
+                relation_count = 0
                 delta_count = await service._record_deltas(
                     db,
                     nid,
@@ -407,13 +537,12 @@ class ParallelSceneEntityExtractionMixin:
                         input_fingerprint=item["input_fingerprint"],
                     )
                 )
-                if on_scene_progress is not None:
-                    await on_scene_progress(scene_idx + 1, len(scenes))
                 continue
 
             total_created += created_count
             total_relations += relation_count
             total_deltas += delta_count
+            total_uncertain_items += len(getattr(extraction, "uncertain_items", []))
             completed_scenes += 1
             updated_context = service._append_extracted_entities_to_context(
                 updated_context,
@@ -457,9 +586,6 @@ class ParallelSceneEntityExtractionMixin:
                     scene_index,
                     exc,
                 )
-            if on_scene_progress is not None:
-                await on_scene_progress(scene_idx + 1, len(scenes))
-
         flush_status = await service._phase2_flush_with_timeout(db)
         audit_summary = await service._phase2_audit_summary(
             db,
@@ -476,6 +602,7 @@ class ParallelSceneEntityExtractionMixin:
             "total_relations": total_relations,
             "total_aliases": 0,
             "total_deltas": total_deltas,
+            "total_uncertain_items": total_uncertain_items,
             "map_observation_candidates_created": map_candidate_created,
             "map_observation_candidates_reused": map_candidate_reused,
             "total_scenes": len(scenes),
@@ -516,12 +643,19 @@ class ParallelSceneEntityExtractionMixin:
                 "unified_activation:"
             ),
             "bulk_error_kind": bulk_error_kind,
-            "activation_version": "import-context-v1",
+            "activation_version": "import-context-v2",
+            "prompt_contract_version": PHASE2A_PROMPT_CONTRACT_VERSION,
             "phase2_effective_concurrency": configured_concurrency,
             "phase2_scene_max_tokens": scene_max_tokens,
             "phase2_provider_timeout_seconds": provider_timeout_seconds,
             "phase2_llm_timeout_seconds": llm_timeout_seconds,
             "phase2_throttle_reasons": throttle_reasons,
+            "phase2_action_counts": persistence_stats["action_counts"],
+            "phase2_dedup_counts": persistence_stats["dedup_counts"],
+            "phase2_linked_to_existing": persistence_stats["linked_to_existing"],
+            "phase2_ignored": persistence_stats["ignored"],
+            "phase2_temporary_only": persistence_stats["temporary_only"],
+            "phase2_low_confidence": persistence_stats["low_confidence"],
             "supplemental_llm_created": 0,
             "fallback_created": 0,
             "supplemental_error_kind": None,
@@ -533,6 +667,7 @@ class ParallelSceneEntityExtractionMixin:
                 nid,
                 scenes,
                 workflow_id=workflow_id,
+                on_scene_progress=on_scene_progress,
                 existing_checkpoints=existing_alias_relation_checkpoints,
             )
         else:

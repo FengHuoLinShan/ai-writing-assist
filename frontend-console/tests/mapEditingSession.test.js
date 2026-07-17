@@ -34,6 +34,17 @@ describe("MapEditingSession", () => {
     session.syncBaseline("map-1", 7)
   })
 
+  it("counts draft changes for the active editor layer", () => {
+    state.editorLayer = "territory"
+    state.pendingTerrainChanges["1,1"] = { hex_q: 1, hex_r: 1, terrain_type: "forest" }
+    state.pendingTerritoryChanges.add.t1 = { faction_entity_id: "f1", hex_q: 2, hex_r: 2 }
+    state.pendingTerritoryChanges.remove.t2 = { faction_entity_id: "f1", hex_q: 3, hex_r: 3 }
+
+    expect(session.draftChangeCount()).toBe(2)
+    expect(session.draftChangeCount("baseTerrain")).toBe(1)
+    expect(session.draftChangeCount("none")).toBe(3)
+  })
+
   it("freezes apply revision, commands, and layer scope until commit", () => {
     state.editorLayer = "marker"
     state.pendingMarkerChanges.m1 = {

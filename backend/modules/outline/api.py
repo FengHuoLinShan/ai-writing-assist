@@ -10,6 +10,8 @@ from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
+from modules.outline.p20_schemas import OutlineLayerGenerateRequest
+from modules.outline.p20_service import P20ConflictError, P20GenerationService
 from modules.outline.scene_workbench import (
     SceneSuggestionConflictError,
     SceneWorkbenchService,
@@ -157,6 +159,47 @@ async def _enqueue_confirmed_outline_task(
         data.novel_id,
     )
     task_id = enqueue_task(db, task_type, meta=meta)
+    await attach_result_ref(
+        db,
+        confirmation_id=data.context_confirmation_id,
+        result_type="task",
+        result_id=task_id,
+        status="running",
+    )
+    await db.flush()
+    return OutlineAiTaskResponse(task_id=task_id)
+
+
+async def _enqueue_outline_layer_task(
+    db: DbSession,
+    data: OutlineLayerGenerateRequest,
+) -> OutlineAiTaskResponse:
+    try:
+        await require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action="outline.generate",
+            confirmation_id=data.context_confirmation_id,
+        )
+        plan = await P20GenerationService().prepare(db, data)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    meta = data.model_dump(exclude_none=True, mode="json")
+    meta.update(
+        {
+            "action": "outline.generate",
+            "submission_fingerprint": plan.source_fingerprint,
+            "context_provenance": plan.context_provenance,
+        }
+    )
+    from modules.project.facade import build_project_llm_execution_snapshot
+
+    meta["llm_execution_snapshot"] = await build_project_llm_execution_snapshot(
+        db,
+        data.novel_id,
+    )
+    task_id = enqueue_task(db, "outline_generate", meta=meta)
     await attach_result_ref(
         db,
         confirmation_id=data.context_confirmation_id,
@@ -913,15 +956,10 @@ async def api_analyze_outline(
 )
 async def api_generate_plot_structure(
     db: DbSession,
-    data: OutlineAiTaskRequest,
+    data: OutlineLayerGenerateRequest,
 ) -> OutlineAiTaskResponse:
     await require_active_project(db, data.novel_id)
-    return await _enqueue_confirmed_outline_task(
-        db,
-        data,
-        action="outline.generate",
-        task_type="outline_generate",
-    )
+    return await _enqueue_outline_layer_task(db, data)
 
 
 @router.post(
@@ -945,6 +983,8 @@ async def api_apply_structure_preview(
             draft_structure=data.draft_structure,
             confirmed=data.confirmed,
         )
+    except P20ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (PermissionError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return OutlineStructurePreviewApplyResponse.model_validate(result)
@@ -979,6 +1019,8 @@ async def api_list_foreshadowing(
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
     needs_review: bool | None = Query(None, description="是否需要复核"),
+    related_thread_id: str | None = Query(None, description="关联剧情线 ID"),
+    unassigned: bool | None = Query(None, description="是否未归入有效剧情线"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
@@ -992,6 +1034,8 @@ async def api_list_foreshadowing(
         source=source,
         workflow_id=workflow_id,
         needs_review=needs_review,
+        related_thread_id=related_thread_id,
+        unassigned=unassigned,
     )
 
 
@@ -1061,6 +1105,8 @@ async def api_list_reveals(
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
     needs_review: bool | None = Query(None, description="是否需要复核"),
+    related_thread_id: str | None = Query(None, description="关联剧情线 ID"),
+    unassigned: bool | None = Query(None, description="是否未归入有效剧情线"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
@@ -1074,6 +1120,8 @@ async def api_list_reveals(
         source=source,
         workflow_id=workflow_id,
         needs_review=needs_review,
+        related_thread_id=related_thread_id,
+        unassigned=unassigned,
     )
 
 

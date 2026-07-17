@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.container import register, reset
 from core.errors import NotFoundError
 from modules.world.services.common import (
     find_alias_in_entity,
@@ -22,7 +21,6 @@ from modules.world.services.common import (
     normalize_name,
     world_entity_types_compatible,
 )
-from modules.world.services.core.draft_provider import WritingDraftProvider
 from modules.world.services.core.entity_revision_service import EntityRevisionService
 from modules.world.services.core.event_service import EventService
 
@@ -802,123 +800,3 @@ def test_find_alias_in_list_non_dict_entry_skips():
     aliases = [123, {"alias": "Z"}]
     assert find_alias_in_list(aliases, "Z") is True
     assert find_alias_in_list(aliases, "123") is False
-
-
-# ============================================================
-# DraftProvider
-# ============================================================
-
-
-class TestDraftProvider:
-    pytestmark = [pytest.mark.asyncio]
-
-    def setup_method(self):
-        reset()
-
-    def teardown_method(self):
-        reset()
-
-    async def test_draft_provider_uses_authoritative_draft_after_indexing(
-        self,
-    ):
-        """RAG chunks remain derived candidates and never replace writing text."""
-        db = MagicMock()
-        novel_id = str(uuid.uuid4())
-        draft = MagicMock()
-        draft.chapter_index = 1
-        draft.content = "draft text"
-        draft.title = "Chapter One"
-        chunk = MagicMock()
-        chunk.chapter_index = 1
-        chunk.chunk_index = 0
-        chunk.text = "rag text"
-        report = MagicMock()
-        report.warnings = []
-
-        register(
-            "writing.list_latest_drafts_for_chapters",
-            AsyncMock(return_value=[draft]),
-        )
-        register("rag.index_chapter", AsyncMock(return_value=report))
-        register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[chunk]))
-
-        provider = WritingDraftProvider()
-        result = await provider.load_chapters(db, novel_id, 1, 1)
-
-        assert len(result) == 1
-        assert result[0]["chapter_index"] == 1
-        assert result[0]["title"] == "Chapter One"
-        assert result[0]["content"] == "draft text"
-
-    async def test_writing_draft_provider_load_chapters_no_rag_fallback_to_draft(self):
-        """Boundary: empty RAG chunks falls back to draft.content."""
-        db = MagicMock()
-        novel_id = str(uuid.uuid4())
-        draft = MagicMock()
-        draft.chapter_index = 2
-        draft.content = "fallback content"
-        draft.title = None
-        report = MagicMock()
-        report.warnings = ["warn"]
-
-        register(
-            "writing.list_latest_drafts_for_chapters",
-            AsyncMock(return_value=[draft]),
-        )
-        register("rag.index_chapter", AsyncMock(return_value=report))
-        register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[]))
-
-        provider = WritingDraftProvider()
-        result = await provider.load_chapters(db, novel_id, 2, 2)
-
-        assert len(result) == 1
-        assert result[0]["content"] == "fallback content"
-        assert result[0]["title"] == "第2章"
-        assert result[0]["rag_warnings"] == ["warn"]
-
-    async def test_writing_draft_provider_load_chapters_no_draft_returns_empty(self):
-        """Boundary: no draft returns empty list."""
-        db = MagicMock()
-        novel_id = str(uuid.uuid4())
-
-        register(
-            "writing.list_latest_drafts_for_chapters",
-            AsyncMock(return_value=[]),
-        )
-        register("rag.index_chapter", AsyncMock())
-        register("rag.get_ordered_chapter_chunks", AsyncMock())
-
-        provider = WritingDraftProvider()
-        result = await provider.load_chapters(db, novel_id, 1, 1)
-
-        assert result == []
-
-    async def test_writing_draft_provider_load_chapters_range_inclusive(self):
-        """Boundary: range includes both start and end."""
-        db = MagicMock()
-        novel_id = str(uuid.uuid4())
-        drafts = {
-            1: MagicMock(content="c1", title="T1"),
-            2: MagicMock(content="c2", title="T2"),
-        }
-        drafts[1].chapter_index = 1
-        drafts[2].chapter_index = 2
-        report = MagicMock()
-        report.warnings = []
-
-        async def _list_drafts(_db, _nid, indices):
-            return [drafts[idx] for idx in indices if idx in drafts]
-
-        register(
-            "writing.list_latest_drafts_for_chapters",
-            AsyncMock(side_effect=_list_drafts),
-        )
-        register("rag.index_chapter", AsyncMock(return_value=report))
-        register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[]))
-
-        provider = WritingDraftProvider()
-        result = await provider.load_chapters(db, novel_id, 1, 2)
-
-        assert len(result) == 2
-        assert result[0]["chapter_index"] == 1
-        assert result[1]["chapter_index"] == 2

@@ -930,6 +930,8 @@ describe("mapWorkspaceView overview", () => {
           spatial_anchor_label: "东门",
           review_state: "candidate",
           source_summary: "deep_import · 沈砚进入内城。",
+          source_ref: { source: "deep_import" },
+          evidence_text: "沈砚进入内城。",
         }],
       },
     }
@@ -946,6 +948,8 @@ describe("mapWorkspaceView overview", () => {
     expect(body).toContain("人物动态")
     expect(body).toContain("洛阳内城")
     expect(body).toContain("东门")
+    expect(body).toContain("沈砚进入内城。")
+    expect(body).toContain("deep_import")
     expect(body).not.toContain("technical-object-id")
     expect(actions.map((action) => action.text)).toEqual([
       "修改",
@@ -1335,6 +1339,9 @@ describe("mapWorkspaceView overview", () => {
     expect(mapWorkspaceView._renderDynamicSummary()).toContain("已忽略密道")
     expect(mapWorkspaceView._renderDynamicSummary()).toContain("已回滚驻地")
     expect(mapWorkspaceView._renderDynamicSummary()).toContain("已废弃旧路")
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("历史（已忽略）")
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("历史（已回滚）")
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("历史（已废弃）")
 
     await mapWorkspaceView._toggleHistory()
     await mapWorkspaceView._toggleHistory()

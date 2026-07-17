@@ -14,7 +14,7 @@ const routes = {
   project: { title: "项目", subViews: [], requiresProject: false },
   world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "待处理", "review-objects": "待处理 · 对象", "review-aliases": "待处理 · 别名", "review-relations": "待处理 · 关系", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
   rag: { title: "小说检索", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "检索", status: "索引维护" } },
-  outline: { title: "大纲", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes", "foreshadowing", "reveals"], subViewTitles: { "story-outline": "小说总纲", arcs: "篇章纲", threads: "剧情线", scenes: "场景工作台", foreshadowing: "伏笔", reveals: "揭示" } },
+  outline: { title: "大纲", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "小说总纲", arcs: "篇章纲", threads: "剧情线", scenes: "场景工作台" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
   writing: { title: "写作台", subViews: [], requiresProject: true },
   map: { title: "地图", subViews: [], requiresProject: true },
@@ -213,6 +213,13 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     if (targetSubView) targetQuery.set("scene_id", targetSubView)
     targetView = "outline"
     targetSubView = "scenes"
+  }
+
+  // 伏笔与揭示已归并为剧情线的信息推进。旧链接仍可定位到归并后的区域。
+  if (targetView === "outline" && ["foreshadowing", "reveals"].includes(targetSubView)) {
+    targetQuery = new URLSearchParams(targetQuery)
+    targetQuery.set("information", targetSubView)
+    targetSubView = "threads"
   }
 
   if (targetView === "context") {

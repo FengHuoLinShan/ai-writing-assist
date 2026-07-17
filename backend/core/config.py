@@ -220,6 +220,12 @@ class Settings:
         )
     )
     inference_worker_timeout: float = float(_env("INFERENCE_WORKER_TIMEOUT", "30.0"))
+    inference_worker_startup_timeout: float = field(
+        default_factory=lambda: _env_float(
+            "INFERENCE_WORKER_STARTUP_TIMEOUT",
+            300.0,
+        )
+    )
     inference_worker_max_batch: int = int(_env("INFERENCE_WORKER_MAX_BATCH", "64"))
     inference_worker_queue_maxsize: int = field(
         default_factory=lambda: _env_int("INFERENCE_WORKER_QUEUE_MAXSIZE", 200)

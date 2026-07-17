@@ -22,7 +22,6 @@ async def get_scenes(db: AsyncSession, nid) -> list[dict[str, Any]]:
         db,
         str(nid),
         status_filter=["draft", "canonical"],
-        exclude_narrative_tags=["valley", "transition"],
     )
 
 

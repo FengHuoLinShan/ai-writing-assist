@@ -94,6 +94,21 @@ class StoryOutlineContent(StoryOutlineSchema):
     open_decisions: list[StoryOutlineOpenDecision] = Field(max_length=100)
 
 
+class StoryOutlineEvidenceAudit(StoryOutlineSchema):
+    """Internal semantic audit for one generated StoryOutline preview."""
+
+    verdict: Literal["pass", "revise"]
+    violations: list[ListText] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_verdict(self) -> StoryOutlineEvidenceAudit:
+        if self.verdict == "pass" and self.violations:
+            raise ValueError("pass audit cannot include violations")
+        if self.verdict == "revise" and not self.violations:
+            raise ValueError("revise audit requires at least one violation")
+        return self
+
+
 class StoryOutlineGenerateRequest(StoryOutlineSchema):
     novel_id: str
     author_intent: Annotated[

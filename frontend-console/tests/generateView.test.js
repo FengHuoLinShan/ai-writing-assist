@@ -61,7 +61,7 @@ beforeEach(() => {
     task: "",
     scope: "arc",
     reveal_mode: "author_safe",
-    budget_tokens: 4000,
+    budget_tokens: 0,
     entity_ids: undefined,
     character_ids: undefined,
     viewpoint_character_id: undefined,
@@ -150,9 +150,15 @@ beforeEach(() => {
   api.world.listBibleCategories.mockResolvedValue({ items: [{ category_key: "custom", name: "自定义", status: "active" }] })
   api.world.listBiblePageTemplates.mockResolvedValue({ items: [], total: 0 })
   api.world.listSuggestions.mockResolvedValue({ items: [], total: 0 })
-  api.outline.listScenes.mockResolvedValue({ items: [] })
+  api.outline.listScenesOrdered.mockResolvedValue([])
   api.outline.listThreads.mockResolvedValue({ items: [] })
   api.writing.generate.mockResolvedValue({ task_id: "task-1" })
+  api.tasks.get.mockResolvedValue({
+    task_id: "task-1",
+    status: "done",
+    progress: 1,
+    result: { draft_id: "draft-pov-1", chapter_index: 1 },
+  })
 })
 
 function mountAiReferenceModalShell() {
@@ -847,7 +853,7 @@ describe("generateView chatbox", () => {
     expect(document.getElementById("generate-selected-chapters")?.textContent).toContain("第1章")
   })
 
-  it("章节选择不会因预览回读上限隐藏后续章节", async () => {
+  it("章节选择会为后续章节加载正文摘录而不把选择上限误作预览上限", async () => {
     const chapters = Array.from({ length: 21 }, (_, index) => ({
       id: `draft-${index + 1}`,
       chapter_index: index + 1,
@@ -864,8 +870,9 @@ describe("generateView chatbox", () => {
 
     const html = showModal.mock.calls[0][1].html
     expect(html).toContain('id="generate-chapter-21"')
-    expect(api.writing.get).toHaveBeenCalledTimes(20)
-    expect(api.writing.get).not.toHaveBeenCalledWith("draft-21", "p1")
+    expect(html).toContain("content-draft-21")
+    expect(api.writing.get).toHaveBeenCalledTimes(21)
+    expect(api.writing.get).toHaveBeenCalledWith("draft-21", "p1")
   })
 
   it("生成请求符合聊天和章节的服务上限", () => {
@@ -1025,6 +1032,39 @@ describe("generateView task tab", () => {
     expect(html).toContain("gen-scope")
     expect(html).toContain("编译上下文")
     expect(html).toContain("不会启动不存在的业务执行链路")
+    expect(html).toContain('id="gen-budget" type="number" min="0" max="1000000" value="0"')
+    expect(html).toContain("0 表示不做应用层裁剪")
+  })
+
+  it("默认以零预算编译完整上下文并如实显示未裁剪", async () => {
+    generateView._generateSubTab = "task"
+    generateView._taskForm = {
+      task: "检查完整上下文",
+      scope: "chapter",
+      reveal_mode: "author_full",
+      budget_tokens: 0,
+    }
+    api.context.compile.mockResolvedValue({
+      sections: [{ tier: 1, key: "world_entities", token_count: 12000 }],
+      total_tokens: 12000,
+      budget_tokens: 0,
+      scope: "chapter",
+      reveal_mode: "author_full",
+      evicted: [],
+      truncated: [],
+      warnings: [],
+    })
+    document.body.innerHTML = await generateView.render()
+
+    await generateView._runTask()
+
+    expect(api.context.compile).toHaveBeenCalledWith(
+      expect.objectContaining({ budget_tokens: 0 }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(generateView._renderCompileResult(generateView._lastContextBundle)).toContain(
+      "Tokens：12000（无应用层裁剪）",
+    )
   })
 
   it("点击任务卡片填充默认值", async () => {
@@ -1126,6 +1166,8 @@ describe("generateView task tab", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(generateView._lastContextMarkdown).toContain("测试内容")
+    expect(document.querySelector('[data-action="copy-task-md"]')?.disabled).toBe(false)
+    expect(document.querySelector('[data-action="export-task-md"]')?.disabled).toBe(false)
   })
 
   it("执行任务后保留视角人物 ID", async () => {
@@ -1436,6 +1478,59 @@ describe("generateView POV prose tab", () => {
     }))
   })
 
+  it("世界创设工作区分页加载全部人物和世界对象", async () => {
+    const firstCharacters = Array.from({ length: 50 }, (_, index) => ({
+      entity_id: `char-${index + 1}`,
+      name: `人物 ${index + 1}`,
+    }))
+    const firstEntities = Array.from({ length: 50 }, (_, index) => ({
+      id: `entity-${index + 1}`,
+      name: `对象 ${index + 1}`,
+      entity_type: "item",
+    }))
+    api.world.listCharacters
+      .mockResolvedValueOnce({ items: firstCharacters, total: 51 })
+      .mockResolvedValueOnce({
+        items: [{ entity_id: "char-51", name: "人物 51" }],
+        total: 51,
+      })
+    api.world.listEntities
+      .mockResolvedValueOnce({ items: firstEntities, total: 51 })
+      .mockResolvedValueOnce({
+        items: [{ id: "entity-51", name: "对象 51", entity_type: "item" }],
+        total: 51,
+      })
+
+    await generateView._loadWorldWorkspace()
+
+    expect(generateView._worldCharacters).toHaveLength(51)
+    expect(generateView._worldEntities).toHaveLength(51)
+    expect(api.world.listCharacters).toHaveBeenNthCalledWith(2, {
+      novel_id: "p1",
+      skip: 50,
+      limit: 50,
+    })
+    expect(api.world.listEntities).toHaveBeenNthCalledWith(2, {
+      novel_id: "p1",
+      display_state: "active",
+      skip: 50,
+      limit: 50,
+    })
+  })
+
+  it("世界创设工作区只加载全部活跃 Scene，不使用包含历史态的分页列表", async () => {
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "scene-1", title: "活跃 Scene", status: "canonical" },
+      { id: "scene-2", title: "计划 Scene", status: "draft" },
+    ])
+
+    await generateView._loadWorldWorkspace()
+
+    expect(generateView._worldScenes.map((item) => item.id)).toEqual(["scene-1", "scene-2"])
+    expect(api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
+    expect(api.outline.listScenes).not.toHaveBeenCalled()
+  })
+
   it("整页提案按 section_id 展示新增、修改与删除", () => {
     generateView._sourcePage = {
       title: "原页",
@@ -1607,6 +1702,7 @@ describe("generateView POV prose tab", () => {
       viewpoint_character_id: "char-1",
       character_ids: ["char-1"],
       include_pending_objects: false,
+      budget_tokens: 0,
     }))
     expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
@@ -1617,7 +1713,47 @@ describe("generateView POV prose tab", () => {
     expect(instruction).toContain("保持克制")
     expect(instruction).toContain("用户指令是作者意图，不等于角色知识")
     expect(instruction).toContain("角色判断、台词、内心只能使用确认上下文中该角色可见的信息")
-    expect(document.getElementById("generate-pov-result")?.innerHTML).toContain("task-1")
+    expect(api.tasks.get).toHaveBeenCalledWith("task-1", "p1")
+    expect(document.getElementById("generate-pov-result")?.innerHTML).toContain("draft-pov-1")
+    expect(document.getElementById("generate-pov-result")?.innerHTML).toContain("打开并审阅建议")
+  })
+
+  it("角色视角结果从生成中心直达对应待审核建议", () => {
+    generateView._generateSubTab = "pov_prose"
+    generateView._povScenes = [{ id: "scene-1", title: "第一场" }]
+    generateView._povCharacters = [{ entity_id: "char-1", name: "秦岚" }]
+    generateView._povForm = {
+      chapterIndex: 6,
+      sceneId: "scene-1",
+      viewpointCharacterId: "char-1",
+      instruction: "",
+    }
+    generateView._lastPovSubmission = {
+      chapterIndex: 6,
+      sceneId: "scene-1",
+      viewpointCharacterId: "char-1",
+      result: { task_id: "task-1", draft_id: "draft-pov-1" },
+    }
+    document.body.innerHTML = `<div id="workspace-content">${generateView._renderPovProseTab()}</div>`
+
+    generateView._bindEvents()
+    document.querySelector('[data-action="open-generated-destination"]').click()
+
+    expect(state.viewStates.writing).toEqual(expect.objectContaining({
+      projectId: "p1",
+      currentChapter: 6,
+      currentDraftId: "draft-pov-1",
+      isReadonly: true,
+    }))
+    expect(router.navigate).toHaveBeenCalledWith(
+      "writing",
+      null,
+      true,
+      expect.objectContaining({}),
+    )
+    const query = router.navigate.mock.calls.at(-1)[3]
+    expect(query.get("chapter_index")).toBe("6")
+    expect(query.get("draft_id")).toBe("draft-pov-1")
   })
 
   it("角色视角正文缺必要选择时不会打开 confirmation 或调用生成", async () => {

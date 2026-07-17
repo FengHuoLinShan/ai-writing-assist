@@ -54,6 +54,20 @@ _register_container_services()
 
 logger = logging.getLogger(__name__)
 
+
+def _configure_application_logging(log_level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    # The OpenAI SDK logs the complete request JSON at DEBUG, including prompt
+    # context and manuscript excerpts. Application DEBUG must never imply that
+    # author content is copied into transport logs.
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.INFO)
+
 _REQUEST_PATH_LOG_MAX_LENGTH = 160
 _UUID_PATH_SEGMENT_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
@@ -188,11 +202,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
 
     # --- 配置日志 ---
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    _configure_application_logging(settings.log_level)
 
     logger.info(
         "Starting %s v%s",

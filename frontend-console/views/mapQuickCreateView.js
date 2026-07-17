@@ -22,6 +22,8 @@ const mapQuickCreateView = {
   _gridWidth: 40,
   _gridHeight: 30,
   _baseTemplate: "blank",
+  _mapName: "",
+  _mapNameTouched: false,
   _dragLocationId: null,
   _onCreated: null,
   _projectId: null,
@@ -49,6 +51,8 @@ const mapQuickCreateView = {
     this._gridWidth = 40
     this._gridHeight = 30
     this._baseTemplate = "blank"
+    this._mapName = ""
+    this._mapNameTouched = false
     await this._loadContext()
     if (!this._isCurrentOpen(generation, frozenProjectId)) return false
     await this._loadPreview()
@@ -111,6 +115,7 @@ const mapQuickCreateView = {
   },
 
   _snapshotPreviewState() {
+    this._captureMapName()
     return {
       context: this._context,
       preview: this._preview,
@@ -129,6 +134,8 @@ const mapQuickCreateView = {
       gridWidth: this._gridWidth,
       gridHeight: this._gridHeight,
       baseTemplate: this._baseTemplate,
+      mapName: this._mapName,
+      mapNameTouched: this._mapNameTouched,
     }
   },
 
@@ -150,6 +157,8 @@ const mapQuickCreateView = {
     this._gridWidth = snapshot.gridWidth
     this._gridHeight = snapshot.gridHeight
     this._baseTemplate = snapshot.baseTemplate
+    this._mapName = snapshot.mapName
+    this._mapNameTouched = snapshot.mapNameTouched
   },
 
   async _loadContext() {
@@ -182,6 +191,9 @@ const mapQuickCreateView = {
       throw new Error("当前项目已切换")
     }
     this._preview = preview
+    if (!this._mapNameTouched) {
+      this._mapName = this._preview?.map?.name || ""
+    }
     this._gridWidth = Number(this._preview?.map?.grid_width || this._gridWidth)
     this._gridHeight = Number(this._preview?.map?.grid_height || this._gridHeight)
     this._mapType = this._preview?.map?.map_type || this._mapType
@@ -252,7 +264,7 @@ const mapQuickCreateView = {
             <div class="form-group"><label>父地图</label><select class="form-select" id="map-quick-parent-map" ${this._replaceMapId ? "disabled" : ""}><option value="">请选择</option>${mapOptions}</select></div>
           ` : ""}
           <div class="form-group"><label>创建方式</label><select class="form-select" id="map-quick-replace"><option value="">创建新地图</option>${replaceOptions}</select></div>
-          <div class="form-group"><label>地图名称</label><input class="form-input" id="map-quick-name" value="${esc(preview.map?.name || "")}" ${this._replaceMapId ? "disabled" : ""}/></div>
+          <div class="form-group"><label>地图名称</label><input class="form-input" id="map-quick-name" value="${esc(this._mapName || preview.map?.name || "")}" ${this._replaceMapId ? "disabled" : ""}/></div>
           <div class="form-group"><label>地图类型</label><select class="form-select" id="map-quick-type" ${this._replaceMapId ? "disabled" : ""}>
             ${["world", "city", "region", "dungeon"].map((type) => `<option value="${type}" ${this._mapType === type ? "selected" : ""}>${type}</option>`).join("")}
           </select></div>
@@ -375,6 +387,13 @@ const mapQuickCreateView = {
   },
 
   _bindModalEvents() {
+    const mapName = document.getElementById("map-quick-name")
+    if (mapName) {
+      mapName.oninput = () => {
+        this._mapName = mapName.value
+        this._mapNameTouched = true
+      }
+    }
     const candidate = document.getElementById("map-quick-include-candidates")
     if (candidate) {
       candidate.onchange = () => this.setIncludeCandidates(candidate.checked)
@@ -468,6 +487,13 @@ const mapQuickCreateView = {
     if (map?.parent_map_id) return "drilldown"
     if (map?.parent_entity_id) return "detail"
     return "world"
+  },
+
+  _captureMapName() {
+    const input = document.getElementById("map-quick-name")
+    if (!input || input.value === this._mapName) return
+    this._mapName = input.value
+    this._mapNameTouched = true
   },
 
   _updatePreviewDom() {
@@ -745,7 +771,7 @@ const mapQuickCreateView = {
       const nameInput = document.getElementById("map-quick-name")
       const created = await api.world.confirmQuickCreateMap({
         ...this._previewPayload(),
-        name: nameInput?.value?.trim() || this._preview?.map?.name || undefined,
+        name: nameInput?.value?.trim() || this._mapName?.trim() || this._preview?.map?.name || undefined,
         layouts: selectedLayouts,
       }, projectId)
       if (!this._isCurrentOpen(generation, projectId)) {

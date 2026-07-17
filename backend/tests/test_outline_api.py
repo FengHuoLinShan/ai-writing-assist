@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 
@@ -293,6 +295,8 @@ class TestApiOutlineGenerate:
         # Arrange
         from unittest import mock
 
+        confirmation_id = str(uuid.uuid4())
+
         with (
             mock.patch(
                 "modules.outline.api.require_fresh_confirmation", autospec=True
@@ -301,15 +305,33 @@ class TestApiOutlineGenerate:
                 "modules.outline.api.attach_result_ref", autospec=True
             ) as mock_attach,
             mock.patch("modules.outline.api.enqueue_task", autospec=True) as mock_enqueue,
+            mock.patch(
+                "modules.outline.api.P20GenerationService",
+                autospec=True,
+            ) as service_cls,
+            mock.patch(
+                "modules.project.facade.build_project_llm_execution_snapshot",
+                autospec=True,
+            ) as mock_snapshot,
         ):
             mock_enqueue.return_value = "task-outline-generate"
+            service_cls.return_value.prepare = mock.AsyncMock(
+                return_value=mock.Mock(
+                    source_fingerprint="p20-fingerprint",
+                    context_provenance={"version": "outline-layer-context-v2"},
+                )
+            )
+            mock_snapshot.return_value = {"profile_hash": "frozen"}
 
             # Act
             resp = await async_client.post(
                 "/api/outline/generate",
                 json={
                     "novel_id": test_project_id,
-                    "context_confirmation_id": "confirm-1",
+                    "context_confirmation_id": confirmation_id,
+                    "target": "plot_thread",
+                    "mode": "create",
+                    "instruction": "基于当前小说总纲设计主剧情线。",
                     "start_chapter": 1,
                     "end_chapter": 5,
                 },

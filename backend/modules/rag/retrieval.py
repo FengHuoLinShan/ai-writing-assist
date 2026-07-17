@@ -21,7 +21,11 @@ from modules.rag.metrics import get_metrics
 from modules.rag.models import RagChunk
 from modules.rag.query_expansion import QueryExpander
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.reranker import rerank_results
+from modules.rag.reranker import (
+    RERANKER_TOTAL_TIMEOUT_SECONDS,
+    RerankOutcome,
+    rerank_results,
+)
 from modules.rag.scoring import Scorer, keyword_query_terms, smart_tokenize_chinese
 
 EmbedderFn = Callable[..., Awaitable[list[float]]]
@@ -49,10 +53,10 @@ async def _default_embedder(query: str, *, is_query: bool = False) -> list[float
 
 
 def _is_rerank_enabled(mode: str) -> bool:
-    """检查是否启用 LLM 重排序。extraction 模式且配置开启时生效。"""
+    """Enable the optional reranker for every supported retrieval mode."""
     from core.config import get_settings
 
-    if mode not in ("extraction",):
+    if mode not in {"search", "context", "extraction"}:
         return False
     return get_settings().reranker_enabled
 
@@ -416,6 +420,7 @@ class RetrievalOrchestrator:
         mode: str = "search",
         top_k: int = 12,
         reference_chapter_index: int | None = None,
+        retrieval_purpose: str | None = None,
     ) -> RagResultBundle:
         """混合检索编排：embedding 生成 → 混合搜索 → 去重 → 重排序 → 指标记录。"""
         import time as _time
@@ -490,11 +495,17 @@ class RetrievalOrchestrator:
                 if self._reranker_fn is rerank_results:
                     from modules.project.facade import open_project_llm_client
 
-                    async with open_project_llm_client(db, str(novel_id)) as client:
+                    async with open_project_llm_client(
+                        db,
+                        str(novel_id),
+                        timeout_override=RERANKER_TOTAL_TIMEOUT_SECONDS,
+                    ) as client:
                         deduped_chunks = await self._reranker_fn(
                             query,
                             deduped_chunks,
                             top_k=top_k,
+                            retrieval_mode=mode,
+                            retrieval_purpose=retrieval_purpose,
                             llm_client=client,
                         )
                 else:
@@ -503,6 +514,12 @@ class RetrievalOrchestrator:
                         deduped_chunks,
                         top_k=top_k,
                     )
+                if isinstance(deduped_chunks, RerankOutcome):
+                    outcome = deduped_chunks
+                    deduped_chunks = outcome.chunks
+                    degraded = degraded or outcome.degraded
+                    if outcome.warning:
+                        warnings.append(outcome.warning)
                 _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000
             except Exception as exc:
                 _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000

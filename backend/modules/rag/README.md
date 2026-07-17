@@ -154,6 +154,11 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
 - `split_text_into_chunks(text, method, **kwargs) -> list[str]`
   - 文本分割工具
 
+本地 BGE worker 的单次编码/队列等待仍使用独立短时限；冷启动需要加载、校验或首次下载
+模型，使用 `INFERENCE_WORKER_STARTUP_TIMEOUT`，默认 300 秒。冷启动时限不能复用单次编码
+的 30 秒预算，也不能在固定 60 秒后杀死即将就绪的模型；部署可用 `/api/rag/prewarm` 把这段
+成本移到用户检索或生成请求之前。
+
 ### Task-only seams
 
 `rag.index_chapter_for_task` 注册为组合根 DI port，不是 RAG facade 公开契约。
@@ -226,8 +231,21 @@ RAG 检索排序、chunk schema 或跨模块稳定接口。
 ## 依赖注入约定
 
 - `RetrievalOrchestrator` 构造函数可注入 `repo / scorer / query_expander / reranker_fn / embedder_fn / metrics / circuit_breaker`，默认使用仓库/评分器/容器单例。
-- LLM reranker 启用时先召回 `2 * top_k` 候选，再通过 project runtime client
-  重排并截断；reranker 失败保留原排序和 warning。Embedding 继续只读取
+- `RERANKER_ENABLED=true` 时，`search / context / extraction` 都可以在去重后候选数
+  大于 `top_k` 时调用 project runtime LLM。reranker 完整读取已有 `2 * top_k`
+  候选池及每个 chunk 全文，不再按 24 个候选或前 300 字二次裁剪；调用方可以通过
+  可选 `retrieval_purpose` 说明下游用途。模型严格区分直接证据、辅助证据、反证、
+  仅主题相关和无关内容；它先审阅完整集合，再只返回值得保留的服务端短引用，无价值候选
+  可以省略，避免把重复输出清单误当成检索质量。
+- P21 整轮重排序（含 schema 修复）共享 1800 秒总预算；项目 client 同步使用该
+  timeout override，前端检索请求保留 35 分钟交付窗口，避免后端仍在有效执行时被
+  浏览器先行中断。
+- 高置信 `unsupported` 会返回空 chunks，形成有效 abstention；`uncertain`、低置信、
+  provider/schema 或未知引用失败均保留原排序并返回 warning，其中非确定性回退标记
+  `degraded`。最终排序先按 direct/counterevidence、supporting、topical_only 的证据角色
+  分层，同层再按模型证据价值分与模型显式顺序排序，原始混合分只作最终稳定回退；不再使用
+  固定 30%/70% 混分。作者检索页按重排顺序聚合章节，不再按原始分二次洗牌；展示摘要聚焦
+  查询命中的正文位置，但阅读引用仍保持原始精确来源。Embedding 仍只读取
   `EMBEDDING_*` 配置，不继承项目 chat profile。
 - Pilot v1.1 的旧 P@5/MRR/R@10 把 no-answer case 错误纳入
   ranking 聚合，且 visibility cutoff 未落入机器可执行字段，
@@ -236,7 +254,8 @@ RAG 检索排序、chunk schema 或跨模块稳定接口。
   或 positive source 越界的 visibility case。修复后的 127-case fresh
   v1.1 artifact 为 P@5/MRR/R@10=0.1656/0.6098/0.8996，no-answer
   false-positive rate=1.0，visibility leakage=0；只有 R@10 和 leakage
-  达到当前门槛。`RERANKER_ENABLED` 因此保持默认关闭。
+  达到当前门槛。P21 虽已提供可 abstain 的严格证据重排序契约，
+  `RERANKER_ENABLED` 仍保持默认关闭。
   后续优化必须在同一冻结
   dataset/metric/threshold 上比较，不按被测模型换题或换门槛。
 - 即使调用方持有绑定 novel 的 project chat client，remote embedding 也会

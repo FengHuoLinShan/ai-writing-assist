@@ -15,6 +15,8 @@ beforeEach(() => {
   mapQuickCreateView._includeCandidates = false
   mapQuickCreateView._target = "world"
   mapQuickCreateView._replaceMapId = null
+  mapQuickCreateView._mapName = ""
+  mapQuickCreateView._mapNameTouched = false
   mapQuickCreateView._onCreated = null
   mapQuickCreateView._projectId = "p1"
   mapQuickCreateView._openGeneration = 0
@@ -115,6 +117,21 @@ describe("mapQuickCreateView", () => {
     expect(api.world.previewQuickCreateMap).toHaveBeenCalledWith(expect.objectContaining({
       include_candidates: true,
     }), "p1")
+  })
+
+  it("preserves an edited map name across preview refreshes", async () => {
+    mockQuickCreateApis()
+    await mapQuickCreateView.open()
+    document.body.innerHTML = mapQuickCreateView._render()
+    mapQuickCreateView._bindModalEvents()
+    const nameInput = document.getElementById("map-quick-name")
+    nameInput.value = "廷根空间草图"
+    nameInput.dispatchEvent(new Event("input"))
+
+    await mapQuickCreateView._changeSetting("_baseTemplate", "continent")
+
+    expect(mapQuickCreateView._mapName).toBe("廷根空间草图")
+    expect(document.getElementById("map-quick-name").value).toBe("廷根空间草图")
   })
 
   it("infers the fixed target level when replacing an existing map", () => {

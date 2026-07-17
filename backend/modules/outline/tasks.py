@@ -1,10 +1,38 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from infrastructure.tasks.registry import task_handler
 
 logger = logging.getLogger(__name__)
+
+
+async def _mark_confirmation_task_terminal(
+    db,
+    *,
+    confirmation_id: str,
+    task_id: str,
+    status: str,
+) -> None:
+    """Close manual context tracking without hiding the task's real failure."""
+    try:
+        await db.rollback()
+        from modules.context.facade import attach_result_ref
+
+        await attach_result_ref(
+            db,
+            confirmation_id=confirmation_id,
+            result_type="task",
+            result_id=task_id,
+            status=status,
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.exception(
+            "Failed to close outline context confirmation after task terminal state"
+        )
 
 
 def _require_str(meta: dict, key: str, task_type: str) -> str:
@@ -105,19 +133,7 @@ async def handle_story_outline_generate(db, task):
 
 @task_handler("plot_structure_generate", recovery_policy="restart_origin")
 async def handle_plot_structure_generate(db, task):
-    """处理 legacy 剧情结构 preview 生成任务。
-
-    根据已有世界对象和人物生成剧情线和篇章纲 preview，
-    不直接持久化，也不能绕过新的确认采用路径。
-
-    Task meta 参数：
-    - novel_id: 项目 ID
-    - start_chapter: 起始章节（可选，默认 1）
-    - end_chapter: 结束章节（可选，默认 10）
-    """
-    # 延迟导入，避免 infrastructure.tasks 初始化时形成循环依赖
-    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
-
+    """Fail closed: the legacy monolithic creative task has no production path."""
     meta = task.meta or {}
     novel_id = meta.get("novel_id", "")
     start_chapter = int(meta.get("start_chapter", 1))
@@ -126,42 +142,30 @@ async def handle_plot_structure_generate(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for plot_structure_generate")
 
-    llm_execution_snapshot = await _require_llm_execution_snapshot(
-        db,
-        task,
-        meta,
+    task.update_progress(1.0)
+    logger.warning(
+        "plot_structure_generate is retired (novel_id=%s, chapters=%d-%d)",
         novel_id,
+        start_chapter,
+        end_chapter,
     )
-
-    task.update_progress(0.1)
-
-    result = await OutlineAIWorkflowService().generate_legacy_preview_for_task(
-        db,
-        novel_id=novel_id,
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        llm_execution_snapshot=llm_execution_snapshot,
-    )
-    task.update_progress(0.85)
-
-    logger.info(
-        "Plot structure preview complete: %d threads, %d arcs",
-        result["total_threads"],
-        result["total_arcs"],
-    )
-    task.update_progress(0.95)
-
-    return result
+    return {
+        "status": "unsupported",
+        "task_type": "plot_structure_generate",
+        "novel_id": novel_id,
+        "message": (
+            "旧的一次性剧情结构生成已停用。请在剧情线、篇章纲或场景工作台"
+            "重新发起当前层 AI 创作。"
+        ),
+    }
 
 
 @task_handler("chapter_card_extraction", recovery_policy="restart_origin")
 async def handle_chapter_card_extraction(db, task):
     """兼容旧任务类型：章节卡生成尚未有独立 domain handler。
 
-    当前真实生成入口是 /api/outline/generate，只产生 preview，
-    经 /api/outline/generate/apply 确认后才写入。这里注册旧 task type，
-    避免 worker 以“无 handler”失败，并让
-    前端轮询可以看到结构化 unsupported 结果。
+    当前 Planned Scene 创作入口是 Scene 工作台的 P20 v2，正文 Scene 提取入口是
+    imports 深度导入。这里仅让存量 task 得到可展示的 unsupported 结果。
     """
     meta = task.meta or {}
     novel_id = meta.get("novel_id", "")
@@ -175,8 +179,8 @@ async def handle_chapter_card_extraction(db, task):
     task.update_progress(1.0)
 
     logger.warning(
-        "chapter_card_extraction is unsupported; use plot_structure_generate "
-        "or /api/outline/generate instead (novel_id=%s, chapters=%d-%d)",
+        "chapter_card_extraction is unsupported; use the page-local P20 workflow "
+        "or imports Scene extraction (novel_id=%s, chapters=%d-%d)",
         novel_id,
         start_chapter,
         end_chapter,
@@ -189,8 +193,8 @@ async def handle_chapter_card_extraction(db, task):
         "start_chapter": start_chapter,
         "end_chapter": end_chapter,
         "message": (
-            "chapter_card_extraction is not implemented as an async task. "
-            "Use /api/outline/generate to create a preview, then apply it."
+            "旧章节卡生成已停用。请在场景工作台创作 Planned Scene，"
+            "或使用 imports 从正文提取 Scene。"
         ),
     }
 
@@ -199,16 +203,14 @@ async def handle_chapter_card_extraction(db, task):
 async def handle_chapter_scene_generate(db, task):
     """兼容任务枚举中的章节/场景生成类型。
 
-    当前还没有独立异步章节卡生成器。复用 chapter_card_extraction 的结构化
-    unsupported 响应，确保前端轮询能得到可展示结果，而不是 worker 无 handler。
+    复用 chapter_card_extraction 的结构化 unsupported 响应，确保旧任务可诊断。
     """
     result = await handle_chapter_card_extraction(db, task)
     return {
         **result,
         "task_type": "chapter_scene_generate",
         "message": (
-            "chapter_scene_generate is not implemented as an async task. "
-            "Use /api/outline/generate to create a preview, then apply it."
+            "旧章节/Scene 整套生成已停用。请使用当前层 P20 或 imports Scene 提取。"
         ),
     }
 
@@ -246,8 +248,9 @@ async def handle_outline_analyze(db, task):
 
 @task_handler("outline_generate", recovery_policy="restart_origin")
 async def handle_outline_generate(db, task):
-    """处理确认上下文后的剧情结构 preview 生成任务。"""
+    """Generate one P20 v2 current-layer preview."""
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
+    from modules.outline.p20_schemas import OutlineLayerGenerateRequest
 
     meta = task.meta or {}
     novel_id = _require_str(meta, "novel_id", "outline_generate")
@@ -256,28 +259,56 @@ async def handle_outline_generate(db, task):
         "context_confirmation_id",
         "outline_generate",
     )
-    start_chapter = _int_or_default(meta.get("start_chapter"), 1)
-    end_chapter = _int_or_default(meta.get("end_chapter"), 10)
-    llm_execution_snapshot = await _require_llm_execution_snapshot(
-        db,
-        task,
-        meta,
-        novel_id,
-    )
+    try:
+        if meta.get("contract_version") != "outline_layer_v2":
+            raise ValueError(
+                "未完成的旧版大纲生成任务不能由 P20 v2 恢复；请在对应大纲页面重新提交"
+            )
+        request_payload = {
+            field_name: meta[field_name]
+            for field_name in OutlineLayerGenerateRequest.model_fields
+            if field_name in meta
+        }
+        data = OutlineLayerGenerateRequest.model_validate(request_payload)
+        submission_fingerprint = _require_str(
+            meta,
+            "submission_fingerprint",
+            "outline_generate",
+        )
+        llm_execution_snapshot = await _require_llm_execution_snapshot(
+            db,
+            task,
+            meta,
+            novel_id,
+        )
 
-    result = await OutlineAIWorkflowService().generate_for_task(
-        db,
-        novel_id=novel_id,
-        confirmation_id=confirmation_id,
-        task_id=str(task.id),
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        llm_execution_snapshot=llm_execution_snapshot,
-        progress_callback=task.update_progress,
-    )
+        result = await OutlineAIWorkflowService().generate_layer_for_task(
+            db,
+            data=data,
+            task_id=str(task.id),
+            submission_fingerprint=submission_fingerprint,
+            llm_execution_snapshot=llm_execution_snapshot,
+            progress_callback=task.update_progress,
+        )
+    except asyncio.CancelledError:
+        await _mark_confirmation_task_terminal(
+            db,
+            confirmation_id=confirmation_id,
+            task_id=str(task.id),
+            status="cancelled",
+        )
+        raise
+    except Exception:
+        await _mark_confirmation_task_terminal(
+            db,
+            confirmation_id=confirmation_id,
+            task_id=str(task.id),
+            status="failed",
+        )
+        raise
     logger.info(
-        "Outline preview generation complete: %d threads, %d arcs",
-        result["total_threads"],
-        result["total_arcs"],
+        "P20 preview complete: target=%s mode=%s",
+        data.target,
+        data.mode,
     )
     return result

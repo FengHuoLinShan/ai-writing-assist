@@ -1942,6 +1942,11 @@ class MapObservationRepository:
             MapObservation.novel_id == novel_id,
             MapObservation.map_id.is_(None),
             MapObservation.review_state.in_(["candidate", "conflicted"]),
+            or_(
+                MapObservation.source_ref["source"].as_string().is_(None),
+                MapObservation.source_ref["source"].as_string()
+                != "deep_import_delta_event",
+            ),
         ]
         if dynamic_types:
             conditions.append(MapObservation.dynamic_type.in_(dynamic_types))

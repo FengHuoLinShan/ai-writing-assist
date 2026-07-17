@@ -190,7 +190,7 @@ HTTP 请求在认证、CORS 和路由之前经过进程级 token bucket。限流
 | 模块 | 当前注册处理器 |
 |------|------|
 | project | `smart_dedup_scan` |
-| world | `world_entity_extraction`、`world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh` |
+| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh` |
 | outline | `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate` |
 | rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings` |
 | writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review` |
@@ -240,6 +240,8 @@ session 的每次显式 checkpoint commit 和最终 commit 都在同一事务内
 `project FOR SHARE -> running task + lease` fence；项目删除或 lease 丢失先线性化时，
 当前业务写入与 checkpoint 一起回滚。慢 LLM/embedding/provider I/O 前如已发生 DB
 读写，handler 必须先建立可恢复 checkpoint 释放事务，并在采用结果前重验适用来源。
+独立 heartbeat 同样按 running lease 更新心跳与 handler 的最新百分比进度，但不写
+业务 result/meta，也不提交 handler 事务。
 这些基础设施 fence 不替代各业务任务自己的 source/profile/confirmation 校验。
 
 ## 不做

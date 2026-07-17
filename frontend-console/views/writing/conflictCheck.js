@@ -213,7 +213,7 @@ export function createConflictCheck({
       ? created.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
       : "刚刚"
     const total = check?.summary_json?.total ?? (check?.items || []).length
-    return `${time} · 发现 ${total} 个冲突`
+    return `${time} · 发现 ${total} 个问题`
   }
 
   function open(checkOrId) {

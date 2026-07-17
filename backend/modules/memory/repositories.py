@@ -13,6 +13,7 @@ from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from modules.memory.models import DeltaLog, MemoryEvent, MemorySnapshot
@@ -550,6 +551,23 @@ class SnapshotRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
     ) -> tuple[int, int | None, int | None, int | None]:
+        stale_snapshot = aliased(MemorySnapshot)
+        current_snapshot = aliased(MemorySnapshot)
+        actionable_stale_from = (
+            select(func.min(stale_snapshot.chapter_index))
+            .where(
+                stale_snapshot.novel_id == novel_id,
+                stale_snapshot.status == "stale",
+                ~select(current_snapshot.id)
+                .where(
+                    current_snapshot.novel_id == stale_snapshot.novel_id,
+                    current_snapshot.chapter_index == stale_snapshot.chapter_index,
+                    current_snapshot.status == "current",
+                )
+                .exists(),
+            )
+            .scalar_subquery()
+        )
         stmt = select(
             func.count(MemorySnapshot.id),
             func.max(MemorySnapshot.chapter_index),
@@ -559,12 +577,7 @@ class SnapshotRepository:
                     else_=None,
                 )
             ),
-            func.min(
-                case(
-                    (MemorySnapshot.status == "stale", MemorySnapshot.chapter_index),
-                    else_=None,
-                )
-            ),
+            actionable_stale_from,
         ).where(MemorySnapshot.novel_id == novel_id)
         row = (await db.execute(stmt)).one()
         return int(row[0] or 0), row[1], row[2], row[3]

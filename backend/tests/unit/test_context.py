@@ -2293,3 +2293,15 @@ class TestSchemaValidation:
             token_count=10,
         )
         assert item.truncated is False
+
+    def test_section_item_accepts_director_only_status(self) -> None:
+        """角色视角导演资料应能通过公开响应 schema。"""
+        item = ContextSectionItem(
+            key="scene_director_constraints",
+            tier=0,
+            content="不得泄露角色尚未知晓的事实",
+            token_count=12,
+            status="director_only",
+        )
+
+        assert item.status == "director_only"

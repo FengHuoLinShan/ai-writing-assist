@@ -245,6 +245,7 @@ class SceneEntityExtractionService(
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,
+        scene_ids: list[str] | None = None,
         include_alias_relations: bool = True,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
@@ -254,6 +255,13 @@ class SceneEntityExtractionService(
             start_chapter=start_chapter,
             end_chapter=end_chapter,
         )
+        if scene_ids is not None:
+            selected_scene_ids = {str(scene_id) for scene_id in scene_ids}
+            scenes = [
+                scene
+                for scene in scenes
+                if self._scene_id(scene) in selected_scene_ids
+            ]
         total_scenes = len(scenes)
         checkpoint_by_scene = self._phase2_checkpoint_by_scene(existing_checkpoints)
         route = SceneEntityExtractionStrategySelector.select(
@@ -268,6 +276,7 @@ class SceneEntityExtractionService(
                 "total_relations": 0,
                 "total_aliases": 0,
                 "total_deltas": 0,
+                "total_uncertain_items": 0,
                 "total_scenes": 0,
                 "degraded": False,
                 "error_kind": None,
@@ -910,8 +919,9 @@ class SceneEntityExtractionService(
     def _scene_input_fingerprint(
         scene: dict[str, Any],
         scene_text: str,
+        context_fingerprint: str | None = None,
     ) -> str:
-        return scene_input_fingerprint(scene, scene_text)
+        return scene_input_fingerprint(scene, scene_text, context_fingerprint)
 
     async def _current_scene_input_fingerprint(
         self,
@@ -1656,6 +1666,7 @@ class SceneEntityExtractionService(
         max_fix_attempts: int = 1,
         transport_retries: bool = True,
         diagnostics: list[dict[str, Any]] | None = None,
+        context_bundle: dict[str, Any] | None = None,
     ) -> SceneEntityExtractionOutput:
         return await call_llm_extraction(
             chapters_text,
@@ -1666,6 +1677,7 @@ class SceneEntityExtractionService(
             max_fix_attempts=max_fix_attempts,
             transport_retries=transport_retries,
             diagnostics=diagnostics,
+            context_bundle=context_bundle,
         )
 
     async def _call_alias_relation_extraction(
@@ -1676,6 +1688,7 @@ class SceneEntityExtractionService(
         max_tokens: int = 32_768,
         client_timeout: int = 120,
         diagnostics: list[dict[str, Any]] | None = None,
+        context_bundle: dict[str, Any] | None = None,
     ) -> AliasRelationExtractionOutput:
         return await call_alias_relation_extraction(
             chapters_text,
@@ -1683,6 +1696,7 @@ class SceneEntityExtractionService(
             max_tokens=max_tokens,
             client_timeout=client_timeout,
             diagnostics=diagnostics,
+            context_bundle=context_bundle,
         )
 
     async def _phase2_alias_relation_result(
@@ -1822,6 +1836,7 @@ class SceneEntityExtractionService(
         entity_index: str,
         *,
         workflow_id: str | None = None,
+        context_bundle: dict[str, Any] | None = None,
     ):
         return await create_phase2b_snapshot(
             self,
@@ -1831,6 +1846,7 @@ class SceneEntityExtractionService(
             chapters_text,
             entity_index,
             workflow_id=workflow_id,
+            context_bundle=context_bundle,
         )
 
     @staticmethod

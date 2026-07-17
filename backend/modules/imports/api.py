@@ -289,7 +289,7 @@ async def submit_scene_auto_extraction(
     db: DbSession,
     body: DeepImportRequest = Body(..., description="场景自动提取参数"),
 ) -> dict:
-    """提交场景（scene）自动提取任务。"""
+    """提交从正文提取 Scene 任务。"""
     return await _submit_stage(db, body, stage="scenes")
 
 

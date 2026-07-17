@@ -92,6 +92,8 @@ class RagQueryContract:
     """是否严格按 Scene 过滤，排除未标注 Scene 的片段"""
     mode: str = "search"
     """检索模式：search / context / extraction"""
+    retrieval_purpose: str | None = None
+    """可选下游用途，帮助内部证据重排序理解调用目的"""
     top_k: int = 12
     """返回的最大结果数"""
 

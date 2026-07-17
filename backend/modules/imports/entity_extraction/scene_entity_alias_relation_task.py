@@ -22,23 +22,23 @@ from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.entity_extraction import scene_entity_config as _phase2_config
 from modules.imports.entity_extraction.scene_entity_alias_relation import (
-    _compact_entity_index_for_scene,
+    _accepts_keyword,
     _effective_alias_relation_total_timeout_seconds,
     _run_alias_relation_llm_calls,
-    _trim_phase2b_scene_text,
 )
-from modules.imports.entity_extraction.scene_entity_checkpoint import (
-    scene_input_fingerprint,
+from modules.imports.entity_extraction.scene_entity_phase2b_context import (
+    build_phase2b_context_bundle,
+    phase2b_scene_input_fingerprint,
 )
 from modules.imports.llm_schemas import AliasRelationExtractionOutput
 from shared.utils import parse_uuid
 
-_VERSION = 1
+_VERSION = 2
 _ACTION = "world.alias_relations.extract"
-_MAX_CONFIRMATION_DIRECTIVE_CHARS = 16_000
-_MAX_RECEIPT_BYTES = 512 * 1024
-_MAX_OUTPUT_BYTES = 256 * 1024
-_MAX_OUTPUT_ITEMS = 64
+_MAX_CONFIRMATION_PAYLOAD_CHARS = 16_000
+_MAX_RECEIPT_BYTES = 8 * 1024 * 1024
+_MAX_OUTPUT_BYTES = 2 * 1024 * 1024
+_MAX_OUTPUT_ITEMS = 10_000
 _MAX_OUTPUT_STRING_CHARS = 4_000
 
 
@@ -79,7 +79,7 @@ class _AliasRelationReceiptScene(BaseModel):
 class _AliasRelationProviderReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1]
+    version: Literal[2]
     plan_fingerprint: str = Field(min_length=1, max_length=128)
     elapsed_s: float = Field(ge=0, le=604_800)
     total_timeout_s: float = Field(gt=0, le=604_800)
@@ -172,19 +172,9 @@ def _confirmation_payload(
         "compiled_at": str(confirmation.get("compiled_at") or ""),
     }
     encoded = _stable_json(payload)
-    if len(encoded) > _MAX_CONFIRMATION_DIRECTIVE_CHARS:
+    if len(encoded) > _MAX_CONFIRMATION_PAYLOAD_CHARS:
         raise ValueError("context confirmation content exceeds the task limit")
     return payload
-
-
-def _confirmation_directive(payload: dict[str, Any]) -> str:
-    """Render confirmed user choices into the actual alias/relation prompt input."""
-    return (
-        "\n\n## 本次已确认的参考资料边界\n"
-        "下列 JSON 是用户确认的任务、模式、选中/排除资产与备注；"
-        "必须遵守排除项，不得扩展资料范围。\n"
-        f"{_stable_json(payload)}"
-    )
 
 
 def _manifest_without_volatile_ids(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -203,6 +193,7 @@ def _validate_output_payload(output: Any) -> dict[str, Any]:
     if (
         len(validated.aliases) > _MAX_OUTPUT_ITEMS
         or len(validated.relations) > _MAX_OUTPUT_ITEMS
+        or len(validated.uncertain_items) > _MAX_OUTPUT_ITEMS
     ):
         raise ValueError("alias/relation output contains too many items")
     payload = validated.model_dump(mode="json")
@@ -301,6 +292,11 @@ class AliasRelationTaskMixin:
         llm_execution_snapshot: dict[str, Any],
         existing_manifest: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        if existing_manifest is not None and existing_manifest.get("version") != _VERSION:
+            raise ValueError(
+                "unfinished alias/relation v1 task cannot run with the v2 prompt; "
+                "submit the task again"
+            )
         if start_chapter < 1 or end_chapter < start_chapter:
             raise ValueError("invalid alias/relation chapter range")
         requested_scene_ids = list(dict.fromkeys(scene_ids or []))
@@ -314,7 +310,6 @@ class AliasRelationTaskMixin:
             confirmation_id=confirmation_id,
         )
         confirmation_hash = _stable_hash(confirmation_payload)
-        directive = _confirmation_directive(confirmation_payload)
 
         all_scenes = await self._get_scenes(db, nid)
         selected: list[dict[str, Any]] = []
@@ -340,39 +335,6 @@ class AliasRelationTaskMixin:
                 f"requested scenes are unavailable: {','.join(missing)[:300]}"
             )
 
-        from modules.world.facade import list_entities
-
-        entities = await list_entities(
-            db,
-            novel_id,
-            statuses=("canonical", "draft", "candidate"),
-            limit=10000,
-        )
-        excluded = set(
-            confirmation_payload["excluded_asset_ids"].get("world_entities", [])
-        )
-        exact_entities = sorted(
-            (
-                {
-                    "id": str(entity.get("id") or ""),
-                    "name": str(entity.get("name") or "").strip(),
-                    "entity_type": str(entity.get("entity_type") or "").strip(),
-                }
-                for entity in entities
-                if str(entity.get("id") or "") not in excluded
-            ),
-            key=lambda item: (item["name"], item["entity_type"], item["id"]),
-        )
-        if any(not item["id"] or not item["name"] for item in exact_entities):
-            raise ValueError("world entity index contains incomplete entries")
-        entity_index_hash = _stable_hash(exact_entities)
-        if exact_entities:
-            entity_index = "## 可用对象索引\n" + "\n".join(
-                f"- {item['name']} ({item['entity_type']})" for item in exact_entities
-            )
-        else:
-            entity_index = "无可用对象"
-
         runtime_scenes: list[dict[str, Any]] = []
         scene_manifest: list[dict[str, Any]] = []
         existing_by_scene = {
@@ -382,25 +344,57 @@ class AliasRelationTaskMixin:
         }
         for position, scene in enumerate(selected):
             scene_id = str(self._scene_id(scene))
-            full_text = await self._load_scene_chapters(db, scene)
-            consumed_text = _trim_phase2b_scene_text(full_text) if full_text else ""
-            compact_index = _compact_entity_index_for_scene(
-                entity_index,
-                consumed_text,
+            activation = await self._prepare_import_context_activation(
+                db,
+                novel_id=str(novel_id),
+                scene_id=scene_id,
             )
-            prompt_index = f"{compact_index}{directive}"
+            context_bundle = build_phase2b_context_bundle(
+                activation,
+                novel_id=str(novel_id),
+                scene_id=scene_id,
+                authorization_scope=confirmation_payload,
+            )
+            full_text = str(context_bundle["_current_scene_text"])
             scene_index = int(scene.get("scene_index") or position + 1)
+            input_fingerprint = phase2b_scene_input_fingerprint(
+                scene,
+                full_text,
+                str(context_bundle["context_fingerprint"]),
+            )
+            source_refs = list(context_bundle.get("_current_scene_sources") or [])
+            included_sources = list(context_bundle.get("_included_sources") or [])
+            omitted_sources = list(context_bundle.get("_omitted_sources") or [])
             item = {
                 "scene_id": scene_id,
                 "scene_index": scene_index,
                 "position": position,
-                "semantic_fingerprint": scene_input_fingerprint(scene, ""),
+                "semantic_fingerprint": _stable_hash(scene),
                 "source_text_hash": _stable_hash(full_text),
-                "consumed_text_hash": _stable_hash(consumed_text),
-                "input_fingerprint": scene_input_fingerprint(scene, full_text),
-                "entity_index_hash": entity_index_hash,
-                "prompt_entity_index_hash": _stable_hash(prompt_index),
-                "empty_text": not bool(consumed_text),
+                "consumed_text_hash": _stable_hash(full_text),
+                "input_fingerprint": input_fingerprint,
+                "context_fingerprint": context_bundle["context_fingerprint"],
+                "activation_context_fingerprint": context_bundle.get(
+                    "_activation_context_fingerprint"
+                ),
+                "prompt_contract_version": (
+                    _phase2_config.PHASE2B_PROMPT_CONTRACT_VERSION
+                ),
+                "source_refs_hash": _stable_hash(source_refs),
+                "included_sources_hash": _stable_hash(included_sources),
+                "omitted_sources_hash": _stable_hash(omitted_sources),
+                "included_entity_refs": sorted(
+                    (context_bundle.get("_entity_ref_map") or {}).keys()
+                ),
+                "included_relation_refs": sorted(
+                    (context_bundle.get("_relation_ref_map") or {}).keys()
+                ),
+                "omitted_source_refs": sorted(
+                    str(source.get("prompt_ref"))
+                    for source in omitted_sources
+                    if isinstance(source, dict) and source.get("prompt_ref")
+                ),
+                "empty_text": False,
                 "context_snapshot_id": None,
             }
             existing_scene = existing_by_scene.get(scene_id)
@@ -410,17 +404,20 @@ class AliasRelationTaskMixin:
                     if existing_scene
                     else ""
                 )
-                if consumed_text and not snapshot_id:
+                if not snapshot_id:
                     raise ValueError("prepared context snapshot is missing")
                 item["context_snapshot_id"] = snapshot_id or None
-            elif consumed_text:
+            else:
+                snapshot_kwargs: dict[str, Any] = {"workflow_id": task_id}
+                if _accepts_keyword(self._create_phase2b_snapshot, "context_bundle"):
+                    snapshot_kwargs["context_bundle"] = context_bundle
                 snapshot = await self._create_phase2b_snapshot(
                     db,
                     nid,
                     scene,
-                    consumed_text,
-                    prompt_index,
-                    workflow_id=task_id,
+                    full_text,
+                    "",
+                    **snapshot_kwargs,
                 )
                 snapshot_id = str(getattr(snapshot, "id", "") or "")
                 if not snapshot_id:
@@ -434,8 +431,9 @@ class AliasRelationTaskMixin:
                     "scene": scene,
                     "scene_id": scene_id,
                     "scene_index": scene_index,
-                    "chapters_text": consumed_text,
-                    "entity_index": prompt_index,
+                    "chapters_text": full_text,
+                    "entity_index": "",
+                    "context_bundle": context_bundle,
                     "snapshot_id": item["context_snapshot_id"],
                     "input_fingerprint": item["input_fingerprint"],
                     "retry_count": 0,
@@ -452,7 +450,7 @@ class AliasRelationTaskMixin:
             "start_chapter": start_chapter,
             "end_chapter": end_chapter,
             "requested_scene_ids": requested_scene_ids,
-            "entity_index_hash": entity_index_hash,
+            "prompt_contract_version": _phase2_config.PHASE2B_PROMPT_CONTRACT_VERSION,
             "scene_count": len(scene_manifest),
             "scenes": scene_manifest,
         }
@@ -545,7 +543,11 @@ class AliasRelationTaskMixin:
                 receipt_item.update(
                     {
                         "status": "fallback",
-                        "output": {"aliases": [], "relations": []},
+                        "output": {
+                            "aliases": [],
+                            "relations": [],
+                            "uncertain_items": [],
+                        },
                         "error_kind": "invalid_response",
                         "error": redact_diagnostic(exc, limit=300),
                     }
@@ -610,7 +612,7 @@ class AliasRelationTaskMixin:
         receipt: dict[str, Any],
     ) -> dict[str, Any]:
         """Revalidate all sources, then stage every domain/result write atomically."""
-        await self.prepare(
+        recompiled = await self.prepare(
             db,
             novel_id=novel_id,
             task_id=task_id,
@@ -623,6 +625,10 @@ class AliasRelationTaskMixin:
             project_settings=project_settings,
             existing_manifest=manifest,
         )
+        runtime_by_scene = {
+            str(item["scene_id"]): item
+            for item in recompiled["runtime_plan"].get("scenes") or []
+        }
         receipt = _validated_receipt_payload(receipt, require_hash=True)
         if str(receipt.get("plan_fingerprint") or "") != str(
             manifest.get("plan_fingerprint") or ""
@@ -647,6 +653,8 @@ class AliasRelationTaskMixin:
 
         total_aliases = 0
         total_relations = 0
+        total_uncertain = 0
+        uncertain_diagnostics: list[dict[str, Any]] = []
         completed = 0
         skipped = 0
         failed: list[int] = []
@@ -656,6 +664,9 @@ class AliasRelationTaskMixin:
         for receipt_item in receipt_scenes:
             scene_id = str(receipt_item.get("scene_id") or "")
             source = manifest_by_scene[scene_id]
+            runtime_source = runtime_by_scene.get(scene_id)
+            if runtime_source is None:
+                raise ValueError("alias/relation recompiled runtime source is missing")
             if str(receipt_item.get("input_fingerprint") or "") != str(
                 source.get("input_fingerprint") or ""
             ) or receipt_item.get("context_snapshot_id") != source.get(
@@ -674,6 +685,7 @@ class AliasRelationTaskMixin:
                 "input_fingerprint": source["input_fingerprint"],
                 "aliases": 0,
                 "relations": 0,
+                "uncertain_items": 0,
                 "fallback": status == "fallback",
             }
             snapshot_id = source.get("context_snapshot_id")
@@ -686,25 +698,40 @@ class AliasRelationTaskMixin:
                 )
                 if status == "succeeded":
                     scene_result_refs: list[dict[str, str]] = []
+                    persist_kwargs: dict[str, Any] = {
+                        "scene_index": scene_index,
+                        "workflow_id": task_id,
+                        "scene_id": scene_id,
+                        "result_refs": scene_result_refs,
+                        "strict": True,
+                        "context_bundle": runtime_source.get("context_bundle"),
+                        "current_scene_text": runtime_source.get("chapters_text"),
+                    }
+                    if _accepts_keyword(
+                        self._persist_alias_relation_output,
+                        "context_snapshot_id",
+                    ):
+                        persist_kwargs["context_snapshot_id"] = snapshot_id
                     persisted = await self._persist_alias_relation_output(
                         db,
                         novel_id,
                         output,
-                        scene_index=scene_index,
-                        workflow_id=task_id,
-                        scene_id=scene_id,
-                        result_refs=scene_result_refs,
-                        strict=True,
+                        **persist_kwargs,
                     )
                     result_refs.extend(scene_result_refs)
                     total_aliases += int(persisted["aliases"])
                     total_relations += int(persisted["relations"])
+                    total_uncertain += int(persisted.get("uncertain_count", 0) or 0)
+                    uncertain_diagnostics.extend(persisted.get("diagnostics") or [])
                     completed += 1
                     checkpoint.update(
                         {
                             "status": "done",
                             "aliases": int(persisted["aliases"]),
                             "relations": int(persisted["relations"]),
+                            "uncertain_items": int(
+                                persisted.get("uncertain_count", 0) or 0
+                            ),
                         }
                     )
                     if snapshot_id:
@@ -752,6 +779,7 @@ class AliasRelationTaskMixin:
             "summary": {
                 "total_aliases": total_aliases,
                 "total_relations": total_relations,
+                "total_uncertain_items": total_uncertain,
                 "total_scenes": len(manifest_by_scene),
                 "alias_relation_scenes": completed,
                 "alias_relation_failed_scenes": failed,
@@ -766,6 +794,7 @@ class AliasRelationTaskMixin:
                 "alias_relation_concurrency": int(receipt["concurrency"]),
                 "alias_relation_llm_timeout_s": int(receipt["llm_timeout_s"]),
                 "alias_relation_format_diagnostics": [],
+                "alias_relation_uncertain_diagnostics": uncertain_diagnostics,
                 "alias_relation_checkpoints": {"phase2b": {"scenes": checkpoints}},
             },
             "result_refs": result_refs,

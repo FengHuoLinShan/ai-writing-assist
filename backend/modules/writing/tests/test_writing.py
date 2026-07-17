@@ -219,6 +219,28 @@ def test_pov_parser_repairs_common_json_wrapper() -> None:
     assert "json_repaired" in parsed.warnings
 
 
+def test_pov_parser_repairs_missing_comma_before_uncertainties() -> None:
+    """真实 provider 偶发漏掉顶层字段间逗号时仍提取正文。"""
+    from modules.writing.pov_generation import PovGenerationParser
+
+    parsed = PovGenerationParser().parse(
+        """{
+          "pov_state": {
+            "perceived_facts": ["听见第二块亵渎石板"],
+            "interpretation": "信息来源仍不明确",
+            "current_intention": "维持镇定",
+            "withheld_known_information": []
+          },
+          "draft_prose": "他没有立刻追问。"
+          "uncertainties": ["消息来源未知"]
+        }"""
+    )
+
+    assert parsed.content == "他没有立刻追问。"
+    assert parsed.pov_view["uncertainties"] == ["消息来源未知"]
+    assert "json_repaired" in parsed.warnings
+
+
 def test_pov_prompt_uses_limited_viewpoint_without_prose_templates() -> None:
     from modules.writing.pov_generation import (
         POV_SYSTEM_PROMPT,
@@ -229,13 +251,19 @@ def test_pov_prompt_uses_limited_viewpoint_without_prose_templates() -> None:
         chapter_index=3,
         instruction="保持克制",
         context_markdown="## POV 角色档案\n\n- 姓名: 秦岚",
+        base_content="警报响起前，秦岚正在核对日志。",
     )
 
     assert "不等于必须使用第一人称" in POV_SYSTEM_PROMPT
     assert "不是分步推理过程" in POV_SYSTEM_PROMPT
     assert "不预设字数、段落" in POV_SYSTEM_PROMPT
+    assert "当前 Scene" in POV_SYSTEM_PROMPT
+    assert "不能扩大输出范围" in POV_SYSTEM_PROMPT
     assert "<writing_request>" in prompt
-    assert "<character_safe_context>" in prompt
+    assert "<character_safe_context_json>" in prompt
+    assert "<locked_existing_chapter_json>" in prompt
+    assert "警报响起前，秦岚正在核对日志。" in prompt
+    assert "完整替换候选" in prompt
     assert '"pov_state"' in prompt
     assert '"withheld_known_information"' in prompt
     assert '"uncertainties"' in prompt
@@ -1040,7 +1068,8 @@ class TestWritingDraftService:
         repo.delete = AsyncMock(return_value=v2)
         repo.renumber_versions_after_delete = AsyncMock()
         service = WritingDraftService(repo=repo)
-        db = AsyncMock()
+        db = MagicMock()
+        db.flush = AsyncMock()
 
         await service.delete_draft(db, str(v2.id), sample_draft_data.novel_id)
 
@@ -1091,7 +1120,7 @@ class TestWritingDraftService:
         repo.delete.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_delete_candidate_is_rejected_as_read_only_history(
+    async def test_delete_candidate_rejects_it_into_read_only_history(
         self,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
@@ -1103,17 +1132,19 @@ class TestWritingDraftService:
         repo.get = AsyncMock(return_value=candidate)
         repo.delete = AsyncMock(return_value=candidate)
         service = WritingDraftService(repo=repo)
-        db = AsyncMock()
+        db = MagicMock()
+        db.flush = AsyncMock()
 
-        with pytest.raises(ConflictError, match="仅供预览"):
-            await service.delete_draft(
-                db,
-                str(candidate.id),
-                sample_draft_data.novel_id,
-            )
+        await service.delete_draft(
+            db,
+            str(candidate.id),
+            sample_draft_data.novel_id,
+        )
 
         repo.count_working_versions.assert_not_called()
-        repo.delete.assert_not_awaited()
+        repo.delete.assert_awaited_once_with(db, candidate.id)
+        assert candidate.provenance_json["rejected_by"] == "author"
+        assert candidate.provenance_json["rejected_at"]
 
     @pytest.mark.asyncio
     async def test_get_latest_draft(

@@ -310,10 +310,27 @@ describe("前后端 API 契约", () => {
       .toEqual(["adoption_policy", "authorization_confirmed"])
     expect(getApiContract("imports.startStage").requiredBody)
       .toEqual(["adoption_policy", "authorization_confirmed"])
+    expect(contractPath("outline.analyze")).toBe("/outline/analyze")
+    expect(getApiContract("outline.analyze")).toMatchObject({
+      method: "POST",
+      timeoutKind: "aiTaskSubmit",
+      timeout: 600000,
+    })
+    expect(contractPath("outline.generate")).toBe("/outline/generate")
+    expect(getApiContract("outline.generate")).toMatchObject({
+      method: "POST",
+      timeoutKind: "aiTaskSubmit",
+      timeout: 600000,
+    })
     expect(contractPath("outline.applyStructurePreview"))
       .toBe("/outline/generate/apply")
     expect(getApiContract("outline.applyStructurePreview").requiredBody)
       .toEqual(["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"])
+    expect(getApiContract("outline.applyStructurePreview")).toMatchObject({
+      method: "POST",
+      timeoutKind: "aiPreviewApply",
+      timeout: 600000,
+    })
     expect(contractPath("outline.getStoryOutline", {}, { novel_id: "novel-1" }))
       .toBe("/outline/story-outline?novel_id=novel-1")
     expect(contractPath("outline.listStoryOutlineRevisions", {}, {
@@ -331,23 +348,38 @@ describe("前后端 API 契约", () => {
       .toBe("/outline/story-outline/generate")
     expect(getApiContract("outline.generateStoryOutline")).toMatchObject({
       method: "POST",
-      timeoutKind: "default",
-      timeout: 15000,
+      timeoutKind: "aiTaskSubmit",
+      timeout: 600000,
     })
     expect(contractPath("outline.applyStoryOutlinePreview"))
       .toBe("/outline/story-outline/generate/apply")
+    expect(getApiContract("outline.applyStoryOutlinePreview")).toMatchObject({
+      method: "POST",
+      timeoutKind: "aiPreviewApply",
+      timeout: 600000,
+    })
     expect(contractPath("outline.previewSceneFusion", {}, { novel_id: "novel-1" }))
       .toBe("/outline/scene-workbench/fusion/preview?novel_id=novel-1")
     expect(getApiContract("outline.previewSceneFusion")).toMatchObject({
       method: "POST",
       timeoutKind: "llmGenerate",
-      timeout: 90000,
+      timeout: 2100000,
     })
 
     expect(getApiContract("context.confirm")).toMatchObject({
       method: "POST",
       timeoutKind: "contextConfirm",
-      timeout: 90000,
+      timeout: 600000,
+    })
+    expect(getApiContract("context.compile")).toMatchObject({
+      method: "POST",
+      timeoutKind: "contextCompile",
+      timeout: 600000,
+    })
+    expect(getApiContract("context.render")).toMatchObject({
+      method: "POST",
+      timeoutKind: "contextCompile",
+      timeout: 600000,
     })
     expect(contractPath("context.evidenceHealth", {}, { novel_id: "novel-1" }))
       .toBe("/context/evidence-health?novel_id=novel-1")
@@ -356,8 +388,39 @@ describe("前后端 API 契约", () => {
       content_mode: "canonical",
       limit: 20,
     })).toBe("/context/retrieval-traces?novel_id=novel-1&content_mode=canonical&limit=20")
+    for (const name of [
+      "context.searchEvidence",
+      "context.grepEvidence",
+      "context.readEvidence",
+    ]) {
+      expect(getApiContract(name)).toMatchObject({
+        method: "POST",
+        timeoutKind: "ragSearch",
+        timeout: 2100000,
+      })
+    }
     expect(contractPath("generate.listPromptTemplateRevisions", { templateId: "tpl-1" }, { novel_id: "novel-1" }))
       .toBe("/world/generation-prompt-templates/tpl-1/revisions?novel_id=novel-1")
+    expect(getApiContract("generate.worldChat")).toMatchObject({
+      method: "POST",
+      timeoutKind: "llmGenerate",
+      timeout: 2100000,
+    })
+    expect(getApiContract("generate.generateWorldSuggestion")).toMatchObject({
+      method: "POST",
+      timeoutKind: "llmGenerate",
+      timeout: 2100000,
+    })
+    expect(getApiContract("generate.applyWorldPageDraft")).toMatchObject({
+      method: "POST",
+      timeoutKind: "aiPreviewApply",
+      timeout: 600000,
+    })
+    expect(contractPath(
+      "generate.applyWorldPageDraft",
+      { suggestionId: "suggestion-1" },
+      { novel_id: "novel-1" },
+    )).toBe("/world/generation-center/suggestions/suggestion-1/apply-page-draft?novel_id=novel-1")
     expect(contractPath("tasks.cancel", { taskId: "task-1" }, { novel_id: "novel-1" }))
       .toBe("/tasks/task-1/cancel?novel_id=novel-1")
     expect(contractPath("tasks.retry", { taskId: "task-1" }, { novel_id: "novel-1" }))
@@ -365,16 +428,26 @@ describe("前后端 API 契约", () => {
     expect(getApiContract("rag.search")).toMatchObject({
       method: "POST",
       timeoutKind: "ragSearch",
-      timeout: 60000,
+      timeout: 2100000,
     })
     expect(getApiContract("rag.prewarm")).toMatchObject({
       method: "POST",
       timeoutKind: "ragPrewarm",
-      timeout: 75000,
+      timeout: 600000,
     })
 
     expect(contractPath("writing.runConflictAiReview", { checkId: "check-1" }))
       .toBe("/writing/conflict-checks/check-1/ai-review")
+    expect(getApiContract("writing.runConflictAiReview")).toMatchObject({
+      timeoutKind: "llmGenerate",
+      timeout: 2100000,
+    })
+    expect(contractPath("writing.requestConflictAiSuggestion", { itemId: "item-1" }))
+      .toBe("/writing/conflict-check-items/item-1/ai-suggestion")
+    expect(getApiContract("writing.generate")).toMatchObject({
+      timeoutKind: "aiTaskSubmit",
+      timeout: 600000,
+    })
     expect(contractPath("writing.adoptDraftCandidate", { draftId: "draft-1" }, { novel_id: "novel-1" }))
       .toBe("/writing/drafts/draft-1/adopt?novel_id=novel-1")
     expect(contractPath("writing.checkpoint", { draftId: "draft-1" }, { novel_id: "novel-1" }))

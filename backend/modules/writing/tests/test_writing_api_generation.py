@@ -862,7 +862,7 @@ async def test_writing_generation_creates_candidate_without_publish_task(
 
 
 @pytest.mark.asyncio
-async def test_default_writing_prompt_uses_scene_scope_and_delimited_context(
+async def test_default_writing_prompt_keeps_scene_as_chapter_context(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -909,10 +909,63 @@ async def test_default_writing_prompt_uses_scene_scope_and_delimited_context(
     assert "共同创作者" in system_prompt
     assert "不预设字数" in system_prompt
     assert "保持人物动机、关系、状态、物品" in system_prompt
-    assert "写作范围：当前 Scene" in user_prompt
+    assert "写作范围：当前章节" in user_prompt
+    assert "完整替换候选" in user_prompt
+    assert "当前 Scene 可能跨越多章" in user_prompt
     assert "<confirmed_context>" in user_prompt
     assert "逃离封锁" in user_prompt
     assert "林澈、铜制密钥" in user_prompt
+
+
+@pytest.mark.asyncio
+async def test_continuation_generation_appends_to_frozen_base_deterministically(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.facade import confirm_context
+    from modules.writing.services import WritingGenerationService
+
+    novel_id = "00000000-0000-0000-0000-00000000a213"
+    base = await WritingDraftRepository().create_with_status(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id,
+            chapter_index=4,
+            title="第四章",
+            content="锁定正文最后一句。",
+        ),
+        status="published",
+    )
+    confirmation = await confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="从第 4 章末尾续写",
+        scope="chapter",
+        chapter_index=4,
+    )
+    client = FakePovLLMClient("这是模型只返回的新增段落。")
+
+    draft = await WritingGenerationService(llm_client=client).generate_candidate(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=4,
+        title="第四章",
+        instruction="自然接续",
+        context_confirmation_id=confirmation.id,
+        generation_mode="continue",
+        base_draft_id=str(base.id),
+    )
+
+    assert draft.content == "锁定正文最后一句。\n\n这是模型只返回的新增段落。"
+    assert draft.provenance_json["generation_mode"] == "continue"
+    assert draft.provenance_json["base_draft_id"] == str(base.id)
+    assert draft.provenance_json["base_content_hash"] == base.content_hash
+    request = client.requests[0]
+    assert "只为一份锁定的章节正文续写新内容" in request.messages[0].content
+    assert "输出只能包含新增的续写正文" in request.messages[0].content
+    assert "不能擅自增加会约束后文的长期规则" in request.messages[0].content
+    assert "锁定正文最后一句。" in request.messages[1].content
+    assert "输出范围：只输出新增续写正文" in request.messages[1].content
 
 
 @pytest.mark.asyncio
@@ -1181,6 +1234,16 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
             must_happen="秦岚必须发现控制台日志异常",
         ),
     )
+    base = await WritingDraftRepository().create_with_status(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id,
+            chapter_index=3,
+            title="第三章",
+            content="警报响起前，秦岚正在核对控制台日志。",
+        ),
+        status="published",
+    )
     await db_session.flush()
 
     confirmation = await confirm_context(
@@ -1228,6 +1291,8 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
     assert provenance["scene_id"] == str(scene.id)
     assert provenance["viewpoint_character_id"] == str(char_id)
     assert provenance["prompt_name"] == "writing_pov_character"
+    assert provenance["base_draft_id"] == str(base.id)
+    assert provenance["base_content_hash"] == base.content_hash
     assert provenance["model"] == "fake-pov-model"
     assert provenance["pov_view"]["pov_state"]["withheld_known_information"] == [
         "首领是国王"
@@ -1241,7 +1306,10 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
     assert "首领是国王" not in finding["source_label"]
     prompt_text = llm.requests[0].messages[1].content
     assert "首领是国王" not in prompt_text
-    assert "<character_safe_context>" in prompt_text
+    assert "<character_safe_context_json>" in prompt_text
+    assert "<locked_existing_chapter_json>" in prompt_text
+    assert "警报响起前，秦岚正在核对控制台日志。" in prompt_text
+    assert "完整替换候选" in prompt_text
     assert "不等于必须使用第一人称" in llm.requests[0].messages[0].content
 
 
@@ -1317,7 +1385,7 @@ async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
 
     assert draft.content == "这不是 JSON，但可以作为候选正文。"
     assert draft.provenance_json["pov_view"] is None
-    assert draft.provenance_json["pov_validation"]["status"] == "passed"
+    assert draft.provenance_json["pov_validation"]["status"] == "failed"
     assert "pov_parse_failed" in draft.provenance_json["pov_validation"]["warnings"]
 
 

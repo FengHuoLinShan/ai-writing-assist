@@ -29,6 +29,8 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 - `ForeshadowingPlanService`
 - `RevealPlanService`
 - `PlotStructureGenerator`
+- `P20GenerationService`
+- `P20ApplyService`
 
 ## API
 
@@ -103,9 +105,23 @@ manual 来源或引用跨项目 task。
 完整预览中编辑，不因命名措辞整批拒绝高质量输出。
 
 LLM 通过 project execution snapshot seam 恢复提交时的 provider / model，使用固定
-action `outline.story_outline.generate`、受管 structured step、输入/输出预算和 180 秒超时。
+action `outline.story_outline.generate`、受管 structured step、输入/输出预算和 1800 秒超时。
 system 固定来自 `load_prompt("story_outline")`；作者意图和所有资料都是转义后的
-user JSON 数据块，不能闭合或覆盖 system 边界。任务冻结策略为 `restart_origin`。
+user JSON 数据块，不能闭合或覆盖 system 边界。首次候选和审计都从第一次
+请求获得 exact `OUTPUT_CONTRACT`。候选会经过窄语义审计：项目上下文是已采用事实的
+唯一来源，不允许模型把对同名作品的外部记忆写成正史。一般证据/作者意图
+审计、外部正史污染检测和已采用世界规则/人物边界审计是三个分离 step。
+正史污染检测只利用模型知识识别候选已写出、
+但项目未提供的后续正史，不会把额外正史补入上下文。作者明确禁止借用时，
+污染细节放入例子或开放决策也会被拒绝。世界规则审计则只比较项目已明确采用的
+硬规则和人物边界；候选选项也不能默认违反它们，除非作者正在明确重设该规则。
+同时审计不会因为新的未来
+设计没有来源就压制创作，只要它清楚属于本版总纲的方向、条件提案或开放决策。
+第一版越界时最多完整修订两次；每轮必须逐项执行审计给出的字段级修正，错误短引用应替换为
+输入中的正确引用，无法确认时清空并标记不确定。候选、三类审计和全部语义修订共享一个
+1800 秒阶段总时限，不为额外修订重新计时。
+精确章号、章数区间和“前 N 章”式阶段日程还会经过确定性守卫，不依赖审计模型自觉。
+任务冻结策略为 `restart_origin`。
 
 `POST .../revisions` 是手工保存并采用新版本的明确动作。应用历史 revision 必须提交
 `confirmed=true`；服务会复制其内容形成新的不可变 revision，再推进 current，而不是改写
@@ -127,6 +143,65 @@ GET /api/outline/reveals
 产生的 `deprecated`、`needs_review` 等结构资产。未指定 `status` 时默认排除
 `deprecated`；显式传入 `status=deprecated` 时可查看历史。返回的 `items` 和
 `total` 使用同一过滤条件，分页在过滤后执行，仍按 `novel_id` 隔离。
+伏笔和揭示列表还支持 `related_thread_id` 与 `unassigned`。`unassigned=true`
+表示没有任何同项目 active PlotThread 关联；旧资产、从未分配的计划，以及最后一条关联线程
+进入历史后的计划都进入该集合。
+
+## P20 当前层 AI 创作
+
+`POST /api/outline/generate` 保留原地址，但 v2 请求必须声明
+`target=plot_thread|outline_arc|planned_scene`、`mode=create|revise`、作者指令与当前层
+显式选择。入口分别位于剧情线、篇章纲和 Scene 工作台，不在生成中心。三个入口都要求当前
+StoryOutline；总纲或所选资产漂移会令 preview 失效并在 apply 返回 409。
+
+模型只生成当前层 strict preview：剧情线可内嵌统一的信息推进 movement；篇章纲只能引用
+已有剧情线；Planned Scene 不从正文提取 Scene。新建 Planned Scene 的
+`scene_chunks/chapter_ids` 为空，`structure_meta.planning_state=planned` 并保存计划章节范围和
+父篇章纲。建立真实正文映射后转为 `materialized`；修订已有正文 Scene 保留原 chunks、章节
+关联和 span。
+
+P20 的 context 使用完整当前总纲、作者确认的实际 context、相关结构/信息推进、人物 Top-6
+和非人物对象 Top-16。人物会通过稳定 world facade 分页读完同项目候选后再排序，避免只在首个
+50 条页面中取 Top-K；显式选择优先，其后综合作者指令/当前总纲名称命中、Scene 卡出现、既有
+结构关联和 author-safe 档案相关性。Top-K 是资产范围而不是 token 预算；confirmation 必须显式使用
+`budget_tokens=0`，provider 超限时失败，不做应用层裁剪。system 只承载目标、层级权限和
+完整 JSON Schema 输出契约；所有动态资料作为转义后的不可信 user JSON。provider 调用前
+checkpoint，等待时不持有数据库事务。
+
+context 还显式记录 active Scene 的已物化章节范围；该范围内的剧情节点必须来自已确认正文或
+Scene/RAG 证据，不能把未发生的后续正史插回已写章节。每版候选随后并行通过项目证据/外部正史、
+层级权限/世界规则和作者指令忠实性三类审计；失败时允许最多两次完整语义修订并复审。候选、审计和修订共享
+P20 的 1800 秒总预算，不把每个子步骤扩成独立的 30 分钟。初审与复审使用独立受管步骤名；
+复审仍失败时，任务向作者返回经过长度限制、带证据/层级类别的违规说明，便于调整资料或指令。
+
+`POST /api/outline/generate/apply` 仍要求 `confirmed=true + source_task_id +
+draft_structure`。服务按源 task target 重验 strict schema、短引用、当前 StoryOutline、所选
+资产与 context fingerprint，并在单一 savepoint 中全有或全无应用。新建写
+`source=ai_generated`；修订保留 ID/source，把字段前值、task、总纲 revision、context hash
+和采用时间追加到 `ai_revision_history`。已完成 v1 preview 仍由旧兼容 apply 读取；未完成
+v1 task fail closed。`plot_structure_generate` 不再调用创作 Prompt。
+生成任务失败或取消时，任务 handler 会先回滚未完成的预览业务写入，再把对应
+`context_confirmation` 的结果跟踪收尾为 `failed` 或 `cancelled`。任务已进入终态后，
+手动 AI 参考资料确认不得永久停留在 `running`。
+
+PlotThread 是作者侧的信息推进聚合根。P20 将 movement 的 seed/reinforce/payoff 确定性投影
+为伏笔计划，将 partial/full reveal 投影为揭示计划，两类记录共享
+`information_movement_id`。揭示目标无法解析时，movement 以 `target_ref` uncertain 保留在
+PlotThread 并标记复核，不伪造对象引用，也不创建无目标 RevealPlan。模型漏写这一不确定
+标记时，内部契约根据“存在揭示节点且目标为空”确定性补上，不为纯记账字段重复调用模型。
+信息对象只有现象或问题、尚无可靠答案时，movement 的 `hidden_content` 也可为空并确定性标记
+uncertain；若揭示目标或秘密任一未解析，只保留 PlotThread movement，不投影伪 RevealPlan。
+带确定章号的 movement 节点必须按时间从早到晚；倒序由确定性语义审计定位到具体 movement，
+再进入有界语义修订，不作为 JSON 格式错误重试，也不静默改写节点。partial/full reveal 还必须
+真实改变读者或人物对该 target 秘密的知识边界，一般能力展示、压力增加或线索积累只能作为
+reinforce。
+修订 PlotThread 时，以本次 movement 集合为准同步确定性投影：被移除或改变类型的旧伏笔/
+揭示投影进入历史并解除线程关联，重新出现的同一 projection 可恢复为工作稿，避免剧情线已
+删去的信息推进仍作为活跃计划残留。
+`provenance_meta.information_movement_id` 并关联同一 PlotThread。RevealPlan 的
+`related_thread_ids` 与伏笔一致，所有引用在写入前验证同一 `novel_id`。旧计划不猜测归属，
+由剧情线页“未归入剧情线”区域人工分配；底层 CRUD、Context、Writing reveal decision 和
+深度导入消费接口继续保留。
 
 ## Scene 工作台
 
@@ -196,6 +271,9 @@ POST  /api/outline/scene-workbench/replacement-suggestions/apply
 
 健康项由 `SceneWorkbenchService` 派生，固定为 `未复核`、`未关联章节`、
 `缺设定`、`待整理`。跨多章 Scene 是正常形态，不作为默认风险。
+深度导入 Scene 的 `structure_meta.core_conflict_status=not_applicable` 表示正文中没有
+需要强行概括为冲突的内容；当其他必填设定完整时，空 `core_conflict` 不进入“缺设定”。
+缺少该标记或标记为 `uncertain` 时仍进入“缺设定”，手工 Scene 继续沿用原有规则。
 顶层健康键保持四类，`health_details.needs_organize` 进一步区分
 Scene 结构、正文定位和待处理跨章融合建议；`health.needs_organize.breakdown`
 提供各子类的 Scene 数量。`采用/标记已检查`只处理 Scene 审阅状态，
@@ -225,42 +303,39 @@ AI Scene 审稿响应统一由 `SceneDraftReviewService` 生成。`fusion/previe
 `field_references`、`field_sources`、`source_scene_summaries`、`conflicts`、
 `warnings`、`confidence` 和 `reason`。preview 不修改来源 Scene；章节映射和
 `scene_chunks` 由系统确定性合并或拆分，LLM 不拥有这些事实字段。
-Scene 融合语义草稿通过 project runtime seam 调用受管结构化 LLM step；
+Scene 融合语义草稿通过 project runtime seam 调用共享的 v2 synthesis 契约；
 只有 `exact/reanchored` 且 draft / source hash / range 重新校验成功的
 SceneSpan 正文才会进入 prompt，且 span 必须指向该章当前的
-working / canonical 源版本。证据按 working 优先、canonical 回退，
-全部来源 Scene 正文合计不超过 24000 字符；完整 prompt 还会按
-结构卡和 JSON 开销二次限制。单次最多融合 20 个 Scene，不精确映射只使用 Scene 卡。
+working / canonical 源版本。证据按 working 优先、canonical 回退，不做应用层
+字符/token 裁剪；同时加载当前范围涉及的活跃结构、人物 Top-6 与非人物世界对象
+Top-16。Top-K 只限定相关资产范围，不是输入预算。单次最多融合 20 个 Scene，
+不精确映射只使用 Scene 卡。provider 调用前完成 context/DTO 编译并结束数据库事务。
 LLM 或结构校验失败时返回明确 warning 的确定性草稿，不暴露
 provider 原始错误，也不扩大保存权限。
 `fusion/save` 支持 `keep_originals`、`deprecate_originals`、`discard` 和
 `edit_then_save`。只有 `deprecate_originals` 会把来源 Scene 标记为
 `deprecated`，新 Scene 记录 `source="manual_fusion"` 与
-`structure_meta.fused_from_scene_ids`，来源 Scene 记录 `fused_into_scene_id`。确认保存会将新 Scene 的 `structure_meta.needs_review` 明确清为 false，并记录 `adopted_at` 和 `source`；preview 中的旧 review 标记不会残留到已采用 Scene。
+`structure_meta.fused_from_scene_ids`，来源 Scene 记录 `fused_into_scene_id`。确认保存会
+记录 `adopted_at` 和 `source`，并保留/重算 `semantic_field_statuses`；未解决的
+uncertain 字段继续令 `needs_review=true`。
+精确映射按章节、起止 offset 稳定合并 `scene_chunks`；包含/相邻关系按范围而不是只按章节
+ID 判断，因此同章首尾相接的 Scene 不会被误报为互相包含。融合语义保存前还会检查来源边界
+限定是否已因融合失效，避免 must-happen 与 must-not-happen 自相矛盾。
 保存后的 `fusion_strategy="author_reviewed_preview"` 只表示作者已审阅预览，
 不把可编辑结果伪装成纯 LLM 或纯确定性产物。
 
-`generate` 只把 AI 结构生成为 `draft_structure` review preview，任务结果标记
-`requires_apply=true` 且不写入剧情线、篇章纲、Scene、伏笔或揭示表。作者编辑后
-通过 `generate/apply` 提交 `confirmed=true`；服务在同一事务内锁定源 task，复核
-novel/action/fresh confirmation 和各类条目数，然后写入普通 `draft` 工作资产，并记录
-`source=ai_generated / adopted_at / adopted_from_preview_task_id`。重放同一 task 返回首次
-采用结果，不重复建资产。旧 `plot_structure_generate` task 也只产生 preview，且不能作为
-`generate/apply` 的源 task；深度导入则继续由其一次性授权流水线显式
-`persist=true` 写入工作资产。采用使用 savepoint 严格全成功语义：任一预期资产写入
-失败则整批回滚，源 task 仍保持可采用。
-
-深度导入 Phase 3 把每条结构的 `confidence / needs_review / review_reason /
-supporting_scene_ids` 写入 `provenance_meta`；无有效 Scene 证据、低置信或无法解析目标的
-揭示保留为 review 提案。无法解析的 reveal 不会用 zero UUID 伪造已落库资产。
+深度导入 Phase 3 使用独立 Scene 证据结构化契约，不复用 P20 创作 Prompt。每条结论必须
+引用输入 Scene；无有效 Scene 证据时不调用 provider，返回空结构和复核诊断。低置信或无法
+解析目标的结果保留为 review 提案，无法解析的 reveal 不会用 zero UUID 伪造已落库资产。
 
 新 Scene 写入的 `status` 只允许 `draft / canonical`；更新路径另允许 `deprecated` 用于软废弃。兼容期仍可读取存量 `candidate` Scene，但新 create/apply/split/fusion 不再写 candidate。
 
-高质量深度导入 Phase 1c 生成同章候选、跨章延续和重复窗口的 Scene 融合建议。建议持久化在
+高质量深度导入 Phase 1c 先成组审阅相邻边界，再对满足自动门槛的连通组单独综合。建议持久化在
 `scene_fusion_suggestions`，使用 `pending/adopted/dismissed/stale`
 生命周期；刷新后仍可继续处理。前端打开建议后进入同一个
 Scene 草稿审稿界面，由用户选择主 Scene 并确认编辑后再复用
-`fusion/save` 保存；不提供批量自动采用。已判定为 `keep_separate` 的建议可在
+`fusion/save` 保存；不提供批量自动采用。高置信且来源精确的 `separate` 以隐藏的
+`dismissed` 决策保存，不进入待处理列表；其他 `keep_separate` 建议可在
 前端每批最多 100 条确认“保持分开”，该操作只将建议标记为 `dismissed`，
 不修改 Scene 内容；合并、替换和失败复核仍须逐条预览与确认。来源指纹仍有效的 pending、dismissed、adopted
 建议来源对，以及 adopted 融合结果与其来源的组合，由工作台独占处理，
@@ -321,16 +396,19 @@ RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_dupl
 `degraded` reason。对 Scene，它会先排除仍由 Phase 1c 融合决定管理的来源对，以及
 已采用融合结果与其来源的组合，避免全局语义扫描与导入边界审稿产生两条待办。
 
-应用建议必须由用户确认。Scene 复用 Scene 工作台 merge 逻辑；其他结构资产不会
+应用建议必须由用户确认。Scene 默认创建待处理的 AI 融合建议，不立即修改或废弃
+来源；作者随后在 Scene 工作台使用共享 synthesis 契约生成、编辑并保存。机械融合仍是
+显式动作，只合并映射并按目标优先级选字段，字段冲突与无法判断的空字段写入复核元数据。
+其他结构资产不会
 硬删除，只标记为 `deprecated`，并在 `provenance_meta` 写入
 `merged_into_asset_id`、`dedup_source="smart_dedup"` 和 `needs_review=true`。
 项目级工作台调用 `apply_structure_dedup_group()` 严格入口：整组先校验资产类型、
 状态和 execution fingerprint，任一操作失败直接向上抛出以便 project savepoint
 回滚；组内存在 `keep_separate` 时，会在其他写入完成后按最终资产状态重新生成
-semantic fingerprints。Scene 融合还要求客户端先调用 Scene 工作台 preview，确认预览后才能进入
-待执行组；实际写入仍委托 `SceneWorkbenchService`。
+semantic fingerprints。只有显式机械融合要求先调用 Scene merge preview 并确认；
+AI 融合建议本身不改写 Scene。两条路径都委托 `SceneWorkbenchService`。
 
-Analyze/generate、PlotStructureGenerator 和结构去重均通过
+Analyze、P20、PlotStructureGenerator 和结构去重均通过
 project runtime seam 获取 client；batch/pair 外层复用同一 client，结果仍只进入
 preview/needs_review，不扩大自动 apply 权限。
 异步 `plot_structure_generate`、`outline_analyze` 和 `outline_generate`
@@ -338,11 +416,13 @@ preview/needs_review，不扩大自动 apply 权限。
 finalize seam：提交时冻结无 secret 的 project LLM execution snapshot（旧任务首次执行时
 补建并先做 lease-fenced checkpoint），prepare 阶段在 project `FOR SHARE` 保护下把确认
 上下文和生成器输入复制为 plain DTO 并记录 source fingerprint，同时恢复冻结 profile
-与 Phase 3 token budget；随后显式 fenced commit 并清空 prepare 阶段的 ORM identity
+与对应阶段配置；随后显式 fenced commit 并清空 prepare 阶段的 ORM identity
 map，LLM 等待期间 session 必须没有数据库事务。finalize 重新取得
 project 短暂排他锁、复核 fresh confirmation，并重建必要上下文/生成器 fingerprint；并发修改
 导致漂移时丢弃旧结果，不绑定 preview/result ref。取消或 provider 错误同样不会留下部分
 结果。普通 API/service 入口不拥有该 commit 权限，也不会隐式提交调用方事务。
+P20 在候选生成、每轮三路语义审计和最多两次语义修订后更新任务进度；这些阶段仍共享
+同一 1800 秒总预算，进度更新不创建领域提交，也不重置超时。
 手动 `outline_analyze` 把 `start_chapter / end_chapter` 与已确认 context 中的
 `chapter_index / visible_until_chapter` 对齐后才调用模型。确认阶段通过
 `get_outline_analysis_context()` 读取范围内按 `scene_index` 排序的 Scene、重叠篇章、
@@ -354,7 +434,8 @@ AI 参考资料审查台，任务阶段
 任务 metadata 中的兼容性 `instruction` 不能覆盖它。相关人物与世界对象沿用 context 的 Top-K
 （人物 6、世界对象 16）。结果保持 `{"analysis": string}` 只读形状，只绑定
 `outline_analysis` result ref，不提供 apply，也不写结构资产。
-深度导入 Phase 3 传入任务提交时冻结的 project settings snapshot，
+P20 v2 task 还冻结实际确认内容和 reference map；worker 重新准备后的 fingerprint 必须与
+提交值一致。未完成 v1 task 不会使用新 Prompt 消费旧快照。深度导入 Phase 3 传入任务提交时冻结的 project settings snapshot，
 `PlotStructureGenerator` 用 project snapshot seam 构造并在 `finally` 关闭 client；
 `high_quality=true` 时使用 `max` reasoning，但仍使用冻结 snapshot 中手动选择的 model，不因 worker 启动后项目默认模型变更而漂移。
 
@@ -395,7 +476,10 @@ async def suggest_structure_dedup(...)
 async def apply_structure_dedup(...)
 ```
 
-异步 AI 任务入口只解析 task meta、更新进度并委托 `OutlineAIWorkflowService`；
+异步 AI 任务入口只解析 task meta、更新进度并委托 `OutlineAIWorkflowService`。P20 在
+provider 返回后先重新编译并校验确认上下文，再取得短时项目独占锁；锁内只复核确认记录和
+确定性资产指纹，不再触发使用独立事务写入的 RAG trace，避免 trace 外键等待当前事务持有的
+project 行锁。
 
 `get_scene_span_coverage()` 是只读稳定 facade，按 `novel_id + content_mode + active
 Scene/status` 统计 exact/reanchored/chapter_only/unresolved、无 span Scene 和 precise rate。

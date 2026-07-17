@@ -19,6 +19,55 @@ class GeneratedWorldGenerationChatOutput(BaseModel):
         return reply
 
 
+class GeneratedWorldGenerationDecisionState(BaseModel):
+    """Author-controlled state compiled from a multi-turn generation chat."""
+
+    current_author_goal: str = Field(..., min_length=1, max_length=4000)
+    confirmed_requirements: list[str] = Field(
+        default_factory=list,
+        max_length=64,
+        description="作者明确确认、选择或修正后仍然有效的要求。",
+    )
+    supported_developments: list[str] = Field(
+        default_factory=list,
+        max_length=64,
+        description="最近共创结果中直接落实作者要求、可继续收束的内容。",
+    )
+    rejected_elements: list[str] = Field(
+        default_factory=list,
+        max_length=64,
+        description="作者已经否定、作废、替换或明确禁止的内容。",
+    )
+    forbidden_exact_terms: list[str] = Field(
+        default_factory=list,
+        max_length=64,
+        description="被作者明确作废且不得在提案中再次出现的名称或短语。",
+    )
+    unresolved_choices: list[str] = Field(default_factory=list, max_length=64)
+    naming_policy: Literal["allowed", "unnamed_placeholder", "uncertain"] = (
+        "allowed"
+    )
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+    @field_validator("forbidden_exact_terms")
+    @classmethod
+    def _normalize_forbidden_exact_terms(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            term = value.strip()
+            if len(term) < 2 or term in normalized:
+                continue
+            normalized.append(term)
+        return normalized
+
+
+class GeneratedWorldGenerationDecisionAudit(BaseModel):
+    """Narrow semantic audit of a proposal against compiled author decisions."""
+
+    verdict: Literal["pass", "revise"]
+    violations: list[str] = Field(default_factory=list, max_length=20)
+
+
 class GeneratedObjectDraftOutput(BaseModel):
     """Generation Center structured LLM output for a draft world object."""
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
@@ -54,7 +54,6 @@ from modules.world.services.core.entity_types import (
     map_entity_type,
     normalize_entity_type,
 )
-from modules.world.tasks import handle_world_entity_extraction
 from shared.enums import CandidateAction
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -395,6 +394,7 @@ class TestEntityServiceList:
         existing = _mock_entity(
             id=uuid.UUID(entity_id),
             novel_id=uuid.UUID(nid),
+            entity_type="location",
             status="candidate",
         )
         with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
@@ -1757,126 +1757,3 @@ class TestContractsConstruction:
         assert r.merge_result is None
         assert r.promoted_entity_id is None
         assert r.suggestions == []
-
-
-# ============================================================
-# tasks.py — world_entity_extraction handler
-# ============================================================
-
-
-class TestHandleWorldEntityExtraction:
-    async def test_happy_path_calls_service_and_returns_result(self) -> None:
-        task = MagicMock()
-        task.meta = {
-            "novel_id": str(uuid.uuid4()),
-            "start_chapter": 1,
-            "end_chapter": 3,
-            "batch_size": 5,
-        }
-
-        mock_result = MagicMock()
-        mock_result.total_chapters = 3
-        mock_result.total_created = 5
-        mock_result.total_skipped = 2
-        mock_result.failed_chapters = []
-        mock_result.items = []
-
-        with patch(
-            "modules.world.tasks.EntityExtractionService",
-            autospec=True,
-        ) as mock_svc_cls:
-            mock_svc = AsyncMock()
-            mock_svc_cls.return_value = mock_svc
-            mock_svc.extract_entities_from_chapters = AsyncMock(return_value=mock_result)
-
-            result = await handle_world_entity_extraction(MagicMock(), task)
-
-        assert result["total_chapters"] == 3
-        assert result["total_created"] == 5
-        assert result["total_skipped"] == 2
-        assert result["failed_chapters"] == []
-        assert result["items"] == []
-
-    async def test_missing_novel_id_raises_value_error(self) -> None:
-        task = MagicMock()
-        task.meta = {"start_chapter": 1}
-
-        with pytest.raises(ValueError, match="novel_id is required"):
-            await handle_world_entity_extraction(MagicMock(), task)
-
-    async def test_default_values_when_meta_partial(self) -> None:
-        task = MagicMock()
-        task.meta = {"novel_id": str(uuid.uuid4())}
-
-        mock_result = MagicMock()
-        mock_result.total_chapters = 0
-        mock_result.total_created = 0
-        mock_result.total_skipped = 0
-        mock_result.failed_chapters = []
-        mock_result.items = []
-
-        with patch(
-            "modules.world.tasks.EntityExtractionService",
-            autospec=True,
-        ) as mock_svc_cls:
-            mock_svc = AsyncMock()
-            mock_svc_cls.return_value = mock_svc
-            mock_svc.extract_entities_from_chapters = AsyncMock(return_value=mock_result)
-
-            result = await handle_world_entity_extraction(MagicMock(), task)
-
-        # Defaults: start=1, end=10, batch=5
-        args, kwargs = mock_svc.extract_entities_from_chapters.call_args
-        assert kwargs["start_chapter"] == 1
-        assert kwargs["end_chapter"] == 10
-        assert kwargs["batch_size"] == 5
-        assert result is not None
-
-    async def test_context_result_refs_are_attached_in_one_batch(self) -> None:
-        task = MagicMock()
-        task.id = uuid.uuid4()
-        task.meta = {
-            "novel_id": str(uuid.uuid4()),
-            "context_confirmation_id": str(uuid.uuid4()),
-        }
-
-        mock_result = MagicMock()
-        mock_result.total_chapters = 1
-        mock_result.total_created = 2
-        mock_result.total_skipped = 0
-        mock_result.failed_chapters = []
-        mock_result.items = [{"id": "entity-1"}, {"id": "entity-2"}]
-
-        with (
-            patch(
-                "modules.world.tasks.EntityExtractionService", autospec=True
-            ) as mock_svc_cls,
-            patch(
-                "modules.world.tasks.context_facade.compile_from_confirmation",
-                autospec=True,
-            ),
-            patch(
-                "modules.world.tasks.context_facade.attach_result_refs",
-                autospec=True,
-            ) as mock_attach_refs,
-            patch(
-                "modules.world.tasks.context_facade.attach_result_ref",
-                autospec=True,
-            ) as mock_attach_ref,
-        ):
-            mock_svc = AsyncMock()
-            mock_svc_cls.return_value = mock_svc
-            mock_svc.extract_entities_from_chapters = AsyncMock(return_value=mock_result)
-
-            await handle_world_entity_extraction(MagicMock(), task)
-
-        mock_attach_refs.assert_awaited_once_with(
-            ANY,
-            confirmation_id=task.meta["context_confirmation_id"],
-            result_refs=[
-                {"type": "world_entity", "id": "entity-1"},
-                {"type": "world_entity", "id": "entity-2"},
-            ],
-            status="done",
-        )
-        mock_attach_ref.assert_not_awaited()

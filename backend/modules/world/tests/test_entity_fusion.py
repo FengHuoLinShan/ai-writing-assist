@@ -540,6 +540,65 @@ async def test_entity_fusion_group_recomputes_canonical_alias_gate_and_fingerpri
     assert target.summary == "保留对象正文"
 
 
+async def test_entity_fusion_group_merges_candidate_pair_without_adopting_primary(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    source_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="意念拓印",
+        status="candidate",
+        summary="较短的候选摘要",
+    )
+    target_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="意念拓印",
+        status="candidate",
+        summary="更完整的候选摘要",
+    )
+    repo = CoreEntityRepository()
+    source = await repo.get(db_session, uuid.UUID(source_id))
+    target = await repo.get(db_session, uuid.UUID(target_id))
+    assert source is not None and target is not None
+    service = WorldEntityFusionService()
+    source_fp = await service._entity_fingerprints(
+        db_session,
+        uuid.UUID(project_novel_id),
+        source,
+    )
+    target_fp = await service._entity_fingerprints(
+        db_session,
+        uuid.UUID(project_novel_id),
+        target,
+    )
+
+    results = await service.apply_group(
+        db_session,
+        novel_id=project_novel_id,
+        primary_entity_id=target_id,
+        operations=[
+            {
+                "action": "merge",
+                "source_entity_id": source_id,
+                "expected_source_execution_fingerprint": source_fp[
+                    "execution_fingerprint"
+                ],
+                "expected_target_execution_fingerprint": target_fp[
+                    "execution_fingerprint"
+                ],
+            }
+        ],
+    )
+
+    await db_session.refresh(source)
+    await db_session.refresh(target)
+    assert results[0]["action"] == "merge"
+    assert source.status == "merged"
+    assert target.status == "candidate"
+
+
 async def test_entity_fusion_group_validates_keep_separate_against_current_state(
     db_session: AsyncSession,
     project_novel_id: str,

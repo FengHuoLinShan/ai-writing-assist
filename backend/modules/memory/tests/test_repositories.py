@@ -765,6 +765,35 @@ class TestSnapshotRepository:
 
         assert summary == (2, 10, 5, 10)
 
+    async def test_get_status_summary_ignores_superseded_snapshot_history(
+        self,
+        snapshot_repo: SnapshotRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        empty_state = {
+            "entities": [],
+            "relations": [],
+            "character_locations": {},
+            "character_knowledge": [],
+        }
+        await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=5,
+            full_state=empty_state,
+        )
+        await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=5,
+            full_state={**empty_state, "entities": [{"id": "replacement"}]},
+        )
+
+        summary = await snapshot_repo.get_status_summary(db_with_project, sample_novel_id)
+
+        assert summary == (2, 5, 5, None)
+
     async def test_mark_stale_from(
         self,
         snapshot_repo: SnapshotRepository,

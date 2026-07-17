@@ -12,7 +12,17 @@ import pytest
 
 from modules.rag.query_expansion import QueryExpander
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.retrieval import RetrievalOrchestrator
+from modules.rag.reranker import (
+    RERANKER_TOTAL_TIMEOUT_SECONDS,
+    RerankerCandidateDecision,
+    RerankerEvidenceRole,
+    RerankerOutput,
+    RerankerSupportStatus,
+    RerankOutcome,
+    rerank,
+    rerank_results,
+)
+from modules.rag.retrieval import RetrievalOrchestrator, _is_rerank_enabled
 from modules.rag.scoring import Scorer
 
 
@@ -113,6 +123,126 @@ class TestRetrievalOrchestratorDedup:
 
 class TestRetrievalOrchestratorInjected:
     @pytest.mark.asyncio
+    async def test_reranker_drops_only_low_value_topical_noise(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = uuid.uuid4()
+        chunks = [_rerank_test_chunk(novel_id, index) for index in range(3)]
+
+        async def fake_rerank(*_args, **_kwargs):
+            return RerankerOutput(
+                support_status=RerankerSupportStatus.supported,
+                confidence=0.95,
+                basis="直接答案与有价值背景足以支持查询。",
+                ranked_candidates=[
+                    RerankerCandidateDecision(
+                        candidate_ref="candidate-001",
+                        evidence_role=RerankerEvidenceRole.direct,
+                        relevance_score=0.95,
+                        basis="直接回答。",
+                    ),
+                    RerankerCandidateDecision(
+                        candidate_ref="candidate-002",
+                        evidence_role=RerankerEvidenceRole.topical_only,
+                        relevance_score=0.35,
+                        basis="有助于理解主题背景。",
+                    ),
+                    RerankerCandidateDecision(
+                        candidate_ref="candidate-003",
+                        evidence_role=RerankerEvidenceRole.topical_only,
+                        relevance_score=0.05,
+                        basis="仅提到同一专名。",
+                    ),
+                ],
+                uncertainties=[],
+            )
+
+        monkeypatch.setattr("modules.rag.reranker.rerank", fake_rerank)
+
+        outcome = await rerank_results(
+            "从哪里知道这个事实？",
+            [(chunk, 0.8 - index * 0.1) for index, chunk in enumerate(chunks)],
+            top_k=2,
+            retrieval_mode="search",
+            llm_client=object(),  # type: ignore[arg-type]
+        )
+
+        assert [chunk.id for chunk, _score in outcome.chunks] == [
+            chunks[0].id,
+            chunks[1].id,
+        ]
+        assert [score for _chunk, score in outcome.chunks] == [0.95, 0.35]
+
+    @pytest.mark.asyncio
+    async def test_reranker_role_tier_keeps_direct_evidence_above_topical_score(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = uuid.uuid4()
+        chunks = [_rerank_test_chunk(novel_id, index) for index in range(3)]
+
+        async def fake_rerank(*_args, **_kwargs):
+            return RerankerOutput(
+                support_status=RerankerSupportStatus.supported,
+                confidence=0.9,
+                basis="直接证据回答时间边界后的变化。",
+                ranked_candidates=[
+                    RerankerCandidateDecision(
+                        candidate_ref="candidate-001",
+                        evidence_role=RerankerEvidenceRole.topical_only,
+                        relevance_score=0.95,
+                        basis="只在更早阶段提到同一概念。",
+                    ),
+                    RerankerCandidateDecision(
+                        candidate_ref="candidate-003",
+                        evidence_role=RerankerEvidenceRole.direct,
+                        relevance_score=0.8,
+                        basis="直接展示查询所问的变化。",
+                    ),
+                    RerankerCandidateDecision(
+                        candidate_ref="candidate-002",
+                        evidence_role=RerankerEvidenceRole.direct,
+                        relevance_score=0.8,
+                        basis="同层同分，但模型将其排在后一位。",
+                    ),
+                ],
+                uncertainties=[],
+            )
+
+        monkeypatch.setattr("modules.rag.reranker.rerank", fake_rerank)
+
+        outcome = await rerank_results(
+            "服药之后如何逐步理解力量边界？",
+            [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks)],
+            top_k=2,
+            retrieval_mode="search",
+            llm_client=object(),  # type: ignore[arg-type]
+        )
+
+        assert [chunk.id for chunk, _score in outcome.chunks] == [
+            chunks[2].id,
+            chunks[1].id,
+        ]
+
+    @pytest.mark.parametrize("mode", ["search", "context", "extraction"])
+    def test_enabled_reranker_supports_every_retrieval_mode(self, mode: str) -> None:
+        with patch(
+            "core.config.get_settings",
+            return_value=type("Settings", (), {"reranker_enabled": True})(),
+            autospec=True,
+        ):
+            assert _is_rerank_enabled(mode) is True
+
+    def test_enabled_reranker_rejects_unknown_mode(self) -> None:
+        with patch(
+            "core.config.get_settings",
+            return_value=type("Settings", (), {"reranker_enabled": True})(),
+            autospec=True,
+        ):
+            assert _is_rerank_enabled("unknown") is False
+
+    @pytest.mark.asyncio
     async def test_reranker_failure_keeps_original_order_and_returns_warning(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -123,9 +253,15 @@ class TestRetrievalOrchestratorInjected:
         lifecycle: list[str] = []
 
         @asynccontextmanager
-        async def open_project_client(actual_db, actual_novel_id):
+        async def open_project_client(
+            actual_db,
+            actual_novel_id,
+            *,
+            timeout_override,
+        ):
             assert actual_db is None
             assert actual_novel_id == str(novel_id)
+            assert timeout_override == RERANKER_TOTAL_TIMEOUT_SECONDS
             lifecycle.append("entered")
             try:
                 yield object()
@@ -146,9 +282,10 @@ class TestRetrievalOrchestratorInjected:
             "modules.project.facade.open_project_llm_client",
             open_project_client,
         )
+        rerank_mock = AsyncMock(side_effect=RuntimeError("reranker unavailable"))
         monkeypatch.setattr(
             "modules.rag.reranker.rerank",
-            AsyncMock(side_effect=RuntimeError("reranker unavailable")),
+            rerank_mock,
         )
         monkeypatch.setattr(
             "modules.rag.retrieval._is_rerank_enabled",
@@ -161,6 +298,7 @@ class TestRetrievalOrchestratorInjected:
             "灰雾",
             mode="extraction",
             top_k=2,
+            retrieval_purpose="world_fusion",
         )
 
         assert [chunk.id for chunk in result.chunks] == [
@@ -170,6 +308,90 @@ class TestRetrievalOrchestratorInjected:
         assert result.warnings == ["重排序失败，使用原始排序: reranker unavailable"]
         assert result.degraded is True
         assert lifecycle == ["entered", "exited"]
+        assert rerank_mock.await_args.kwargs["retrieval_mode"] == "extraction"
+        assert rerank_mock.await_args.kwargs["retrieval_purpose"] == "world_fusion"
+
+    @pytest.mark.asyncio
+    async def test_reranker_managed_step_uses_full_total_timeout(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        output = RerankerOutput(
+            support_status=RerankerSupportStatus.supported,
+            confidence=0.9,
+            basis="候选直接支持查询。",
+            ranked_candidates=[
+                RerankerCandidateDecision(
+                    candidate_ref="candidate-001",
+                    evidence_role=RerankerEvidenceRole.direct,
+                    relevance_score=0.9,
+                    basis="正文直接陈述。",
+                ),
+            ],
+            uncertainties=[],
+        )
+        managed = AsyncMock(return_value=output)
+        monkeypatch.setattr(
+            "modules.rag.reranker.run_managed_structured",
+            managed,
+        )
+        client = type("Client", (), {"model_name": "test-model"})()
+
+        result = await rerank(
+            "克莱恩为何加入值夜者？",
+            [{"text": "他接受邀请加入值夜者。", "chapter_index": 14}],
+            llm_client=client,  # type: ignore[arg-type]
+        )
+
+        assert result == output
+        assert managed.await_args.kwargs["timeout"] == RERANKER_TOTAL_TIMEOUT_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_reranker_abstention_returns_empty_without_degraded(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = uuid.uuid4()
+        chunks = [_rerank_test_chunk(novel_id, index) for index in range(4)]
+        original = [(chunk, 1.0 - index * 0.1) for index, chunk in enumerate(chunks)]
+
+        async def fake_reranker(query, scored_chunks, *, top_k):
+            assert query == "不存在的事实"
+            assert len(scored_chunks) == 4
+            assert top_k == 2
+            return RerankOutcome(
+                chunks=[],
+                support_status=RerankerSupportStatus.unsupported,
+                warning="当前候选不足以支持检索意图",
+            )
+
+        class _Metrics:
+            def record(self, **kwargs) -> None:
+                pass
+
+        repo = type("Repo", (), {"has_embeddings": AsyncMock(return_value=False)})()
+        orchestrator = RetrievalOrchestrator(
+            repo=repo,  # type: ignore[arg-type]
+            reranker_fn=fake_reranker,
+            metrics=lambda: _Metrics(),
+        )
+        orchestrator.hybrid_search = AsyncMock(return_value=original)  # type: ignore[method-assign]
+        monkeypatch.setattr(
+            "modules.rag.retrieval._is_rerank_enabled",
+            lambda _mode: True,
+        )
+
+        result = await orchestrator.retrieve(
+            None,  # type: ignore[arg-type]
+            novel_id,
+            "不存在的事实",
+            mode="search",
+            top_k=2,
+        )
+
+        assert result.chunks == []
+        assert result.warnings == ["当前候选不足以支持检索意图"]
+        assert result.degraded is False
 
     @pytest.mark.asyncio
     async def test_enabled_reranker_receives_more_than_final_top_k(

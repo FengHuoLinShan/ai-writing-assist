@@ -317,6 +317,20 @@ class WritingGenerateRequest(BaseModel):
     title: str | None = Field(None, max_length=500, description="正文建议标题")
     instruction: str | None = Field(None, max_length=4000, description="生成要求")
     context_confirmation_id: str = Field(..., description="AI 参考资料确认 ID")
+    generation_mode: Literal["draft", "continue"] = Field(
+        "draft",
+        description="整章正文建议或基于锁定草稿的续写",
+    )
+    base_draft_id: str | None = Field(
+        None,
+        description="续写模式使用的锁定正文版本 ID",
+    )
+
+    @model_validator(mode="after")
+    def validate_generation_base(self) -> WritingGenerateRequest:
+        if self.generation_mode == "continue" and not self.base_draft_id:
+            raise ValueError("base_draft_id is required for continue mode")
+        return self
 
 
 class WritingGenerateResponse(BaseModel):
@@ -384,6 +398,8 @@ class WritingConflictAiReviewIssue(BaseModel):
         "implicit_lore_conflict",
         "voice_or_pov_drift",
         "scene_goal_drift",
+        "scene_commitment_missing",
+        "scene_forbidden_deviation",
         "continuity_soft_risk",
     ]
     severity: Literal["low", "medium", "high"]

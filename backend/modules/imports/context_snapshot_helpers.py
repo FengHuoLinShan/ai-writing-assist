@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 from infrastructure.llm.token_estimation import estimate_token_count
@@ -40,11 +41,42 @@ def build_phase2_snapshot_payload(
         for line in existing_context.splitlines()
         if line.startswith("- ")
     ]
-    sections = {
-        "existing_entities_context": existing_context,
-        "memory_context": memory_context,
-        "scene_text": chapters_text,
-    }
+    activation = activation or {}
+    if activation.get("activation_version") == "import-context-v2":
+        actual_prompt_context = {
+            "activation_version": activation.get("activation_version"),
+            "prompt_contract_version": activation.get("prompt_contract_version"),
+            "context_fingerprint": activation.get("context_fingerprint"),
+            "scene_card": activation.get("scene_card") or {},
+            "outline_context": activation.get("outline_context") or {},
+            "identity_candidates": activation.get("identity_candidates") or [],
+            "previous_scene_briefs": activation.get("previous_scene_briefs") or [],
+            "previous_scene_evidence": (
+                activation.get("previous_scene_evidence") or []
+            ),
+            "current_scene_text": chapters_text,
+        }
+        sections = {
+            key: (
+                value
+                if isinstance(value, str)
+                else json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+            )
+            for key, value in actual_prompt_context.items()
+        }
+    else:
+        actual_prompt_context = None
+        sections = {
+            "existing_entities_context": existing_context,
+            "memory_context": memory_context,
+            "scene_text": chapters_text,
+        }
     section_items = [
         {
             "key": key,
@@ -56,7 +88,27 @@ def build_phase2_snapshot_payload(
     ]
     per_section_tokens = {item["key"]: item["token_estimate"] for item in section_items}
 
-    activation = activation or {}
+    identity_candidates = list(activation.get("identity_candidates") or [])
+    activated_entity_ids = [
+        str(source["id"])
+        for source in activation.get("sources") or []
+        if isinstance(source, dict)
+        and source.get("type") == "world_entity"
+        and source.get("id")
+    ]
+    if actual_prompt_context is not None:
+        rendered_activation_context = json.dumps(
+            actual_prompt_context,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    else:
+        rendered_activation_context = (
+            f"{existing_context}\n\n{memory_context}\n\n"
+            f"请从以下正文中提取世界对象。\n\n{chapters_text}"
+        )
     return {
         "scene_id": scene_id,
         "scene_index": scene.get("scene_index"),
@@ -67,12 +119,14 @@ def build_phase2_snapshot_payload(
             "scene_index": scene.get("scene_index"),
             "chapter_ids": chapter_ids,
             "activation_version": activation.get("activation_version"),
+            "prompt_contract_version": activation.get("prompt_contract_version"),
+            "context_fingerprint": activation.get("context_fingerprint"),
             "llm_runtime": profile_summary or {},
         },
         "included_asset_ids": {
             "scenes": [scene_id] if scene_id else [],
             "chapters": chapter_ids,
-            "existing_entities": [],
+            "existing_entities": activated_entity_ids,
             "pending_entities": [],
         },
         "context_summary": {
@@ -83,6 +137,8 @@ def build_phase2_snapshot_payload(
             "scene_text_char_count": len(chapters_text),
             "include_pending_objects": True,
             "activation_source_count": len(activation.get("sources") or []),
+            "identity_candidate_count": len(identity_candidates),
+            "context_fingerprint": activation.get("context_fingerprint"),
         },
         "section_metadata": {
             "sections": section_items,
@@ -95,10 +151,7 @@ def build_phase2_snapshot_payload(
             "max_tokens": max_tokens,
             "temperature": temperature,
         },
-        "rendered_context": (
-            f"{existing_context}\n\n{memory_context}\n\n"
-            f"请从以下正文中提取世界对象。\n\n{chapters_text}"
-        ),
+        "rendered_context": rendered_activation_context,
     }
 
 

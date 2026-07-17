@@ -70,6 +70,30 @@ export class MapEditingSession {
     )
   }
 
+  draftChangeCount(layer = this.state.editorLayer) {
+    const state = this.state
+    const counts = {
+      location: Object.keys(state.pendingBindings || {}).length
+        + Object.keys(state.pendingLocationLayouts || {}).length,
+      baseTerrain: Object.keys(state.pendingTerrainChanges || {}).length,
+      terrainOverlay: (state.pendingTerrainLayerDeletes || []).length
+        + (state.pendingTerrainOverlay
+          ? (state.pendingTerrainOverlay.patches || []).length
+            + (state.pendingTerrainOverlay.regions || []).length
+            + Number(Boolean(state.pendingTerrainOverlay.layerCreate))
+            + Number(Boolean(state.pendingTerrainOverlay.layerUpdate))
+          : 0),
+      marker: Object.keys(state.pendingMarkerChanges || {}).length,
+      layerTree: Number(Boolean(state.pendingLayerTree)),
+      path: Object.keys(state.pendingPathChanges || {}).length
+        + Object.keys(state.pendingPathLayerChanges || {}).length,
+      territory: Object.keys(state.pendingTerritoryChanges?.add || {}).length
+        + Object.keys(state.pendingTerritoryChanges?.remove || {}).length,
+    }
+    if (Object.prototype.hasOwnProperty.call(counts, layer)) return counts[layer]
+    return Object.values(counts).reduce((sum, count) => sum + count, 0)
+  }
+
   recordCommand(layer, command) {
     const key = layer || this.state.editorLayer || "none"
     if (!this.state.editorHistory[key]) this.state.editorHistory[key] = []

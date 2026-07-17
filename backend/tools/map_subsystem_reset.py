@@ -68,7 +68,6 @@ BLOCKING_TASK_TYPES: tuple[str, ...] = (
     "deep_import_resume",
     "scene_auto_extraction",
     "world_object_auto_extraction",
-    "world_entity_extraction",
     "world_alias_relation_extraction",
     "world_bible_projection_refresh",
     "world_bible_synopsis_refresh",

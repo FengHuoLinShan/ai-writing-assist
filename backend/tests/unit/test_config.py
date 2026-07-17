@@ -48,6 +48,7 @@ class TestSettingsEffectiveDefaults:
 
     def test_effective_inference_timeout(self):
         assert Settings().inference_worker_timeout == 30.0
+        assert Settings().inference_worker_startup_timeout == 300.0
 
     def test_effective_inference_max_batch(self):
         assert Settings().inference_worker_max_batch == 64

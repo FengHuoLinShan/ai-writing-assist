@@ -10,7 +10,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 - 对象抽取不是 NER，而是长期创作资产识别
 - 手动创建对象默认直接写入 `status="canonical"`，并保留 `created_by` / `approved_by`；显式传入 `draft` / `candidate` 的旧调用仍保持原状态
-- 手动 AI 补抽必须先通过 `POST /api/context/confirm` 确认“AI 参考资料”，再调用 `POST /api/world/entities/extract`
+- 正文世界对象自动识别统一由 imports 深度导入体系负责：首次导入使用
+  `POST /api/imports/deep`，已有 Scene 的补抽使用
+  `POST /api/imports/stages/world-objects`（Phase 2a/2b）
 - AI 抽取对象以 `status="candidate"` 入库，等待用户确认、合并或忽略；不自动提升为正史
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
@@ -31,7 +33,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 关系筛选用来命中对象对，返回时仍包含该有向对的完整待处理成员；指纹也基于完整快照，避免筛选后提交必然过期
 - 分组列表为每组/每条别名返回 SHA-256 `execution_fingerprint`；批处理必须 `confirmed=true`，批次内先按 UUID 全局稳定顺序锁定端点和关系行，再为每个决策使用 savepoint；单组原子、组间可部分成功
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
-- `characters` / `events` / `character_knowledge` 活跃扩展只能挂在同项目、类型匹配且已采用的 `CoreEntity` 下；列表与写作上下文默认排除父对象或 CoreEntity 目标已转为待处理/已归档的历史扩展行
+- `characters` / `events` / `character_knowledge` 活跃扩展只能挂在同项目、类型匹配且已采用的 `CoreEntity` 下；人物 CoreEntity 被创建或提升为 canonical 时会确定性补齐最小 `characters` 档案，使导入人物立即可用于 POV、生成中心和人物上下文。作者显式保存人物档案时原位升级该 scaffold；自动 scaffold 不阻断后续类型纠正。列表与写作上下文默认排除父对象或 CoreEntity 目标已转为待处理/已归档的历史扩展行
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 
@@ -130,6 +132,11 @@ World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity
 复用同一内容 hash、draft identity 和更新时间比较；`WorldBibleService` 只保留页面查询与
 projection 任务编排，激活解析不再调用它的私有 hash helper。
 
+世界观简介优先以已发布页面为综合主干，再用结构化对象和关系补充校验。输入仅保留约
+50 万字符的异常安全栏，单页可使用约 20 万字符，不按常规短上下文压缩；输出导航上限约
+4000 词元，避免因旧 1200 词元限制截掉作者页面后半部分。provider 超限时任务显式失败，
+不静默改用更短资料。
+
 编辑器始终显示主操作“保存并发布”；即使当前只打开正式页、尚未显式创建工作稿，也会先
 保存服务器工作稿再发布。单独的“保存工作稿”只保存，不改变正式页。
 
@@ -150,7 +157,10 @@ TargetRef 的 hash，`projection_policy` 和 `sensitivity_hint` 只能收紧投�
 
 `world_bible_synopsis` 是独立的作者模式 P1 section，UI 名称为“世界观简介”。它由 LLM
 从已采用结构化世界事实和 `canonical/confirmed` 页面派生，允许按资料本身选择最有用的
-导航结构，不要求固定类别或穷举全部事实。输出中的短来源 key 必须映射回冻结 manifest；
+导航结构，不要求固定类别或穷举全部事实。已发布页面在 manifest 中优先于单个对象和关系，
+Prompt 要求以页面为综合骨架、把对象和关系作为补充证据，并把内部关系枚举改写成自然语言，
+避免退化为资产清单。结构化契约要求至少一个含 claim 的 section，不能把空 JSON 当成成功；
+输出中的短来源 key 必须映射回冻结 manifest；
 服务保存不可变 revision、来源、source manifest/hash、coverage、Prompt/model/provider 和项目
 LLM execution snapshot。
 它不能替代确定性、不可驱逐的 P0 `World Core Brief`，也永不进入 reader/character/POV。
@@ -169,6 +179,8 @@ LLM 返回的 claim 若全部无法映射到当前 source manifest，不会让�
 current/pinned/active 指针与不含密钥的项目 LLM execution snapshot，经 lease-fenced
 checkpoint 释放事务后才调用 LLM。返回后重做 project guard 并以新鲜
 source/head 重验；任何来源、desired、pin、current 或 active 漂移都不得晋升。
+模型 client 和受管 structured step 使用 1800 秒上限；前端通过任务状态轮询，不设置整体
+等待截止时间。
 revision/head/补排任务在同一个最终 lease-fenced 短事务提交，旧失败不得
 覆盖新成功或作者固定状态。普通 `refresh_now()` 仍由调用方拥有事务，不主动
 commit。active-task 状态只通过 tasks facade 的 lifecycle contract 读取，world 不直接依赖
@@ -198,6 +210,8 @@ tasks ORM。
   标记为历史态。
 - 项目级“智能去重”按钮复用同一套 world 实体融合逻辑；它只改变入口和结果聚合，
   不放宽用户确认、正史二次确认或 novel_id 隔离规则。
+- 智能去重确认 candidate 之间的机械融合时，来源转为 `merged`，主对象仍保持
+  `candidate` 并继续等待作者采用；去重确认本身不等于采用为正史。
 - 智能去重把对象确认为别名时，如果目标对象已存在同文本的待复核别名，会原位确认该别名
   而不是以重复冲突跳过；来源对象、关系迁移和别名复核状态在同一事务完成，因此待处理别名
   列表可在执行后的当前页刷新中立即收敛。
@@ -221,7 +235,7 @@ tasks ORM。
   最终短事务按 `project FOR UPDATE -> running source-writer tasks -> current
   task attempt -> fresh confirmation/profile/Scene/draft/entity -> aliases/relations/context
   snapshot/confirmation/task checkpoint` 的锁序提交。已运行的 `deep_import`、
-  `scene_auto_extraction`、`world_object_auto_extraction` 或 `world_entity_extraction`
+  `scene_auto_extraction` 或 `world_object_auto_extraction`
   会使 finalizer fail closed；新的同步写入受项目 `FOR SHARE` 门禁阻塞，新 claim
   任务的写入则在 worker commit guard 处阻塞。普通 `extract_alias_relations()` 和
   Deep Import Phase 2b 的调用/返回契约不变。
@@ -235,8 +249,11 @@ tasks ORM。
 - 确认为别名不是深合并：仅写入目标别名、迁移/去重关系并标记源候选为 `merged`，不得合并 summary/public_info/hidden_truth 或人物扩展字段。
 - `CreationSuggestion` 中的 `core_entity` / `core_entity_draft` 经用户确认后直接写入 `canonical`，并保留建议 ID、来源、证据与 `approved_by` 审计。
 - `entity_relation` / `entity_alias` 建议必须通过各自的 schema 验证和领域服务写入；未支持的 `target_type` 直接拒绝，不得标记为已接受后空操作。
-- 生成中心与手动 AI 章节补抽的新对象统一先写 `creation_suggestion_queue`。为保持旧 API / 批次读取契约，队列服务同时物化一条 `draft` / `candidate` 兼容影子，并以 `_meta.compatibility_shadow=true` 与 `suggestion_id` 关联；采用或编辑后采用时提升同一条对象，合并/设为别名时由队列原子裁决并归档同一影子，忽略时同步标记该影子为 `ignored`。待处理影子不能绕过队列直接 CRUD，所有裁决都必须经过建议队列的 compare-and-set 门禁。
-- imports 模块的 deep-import Scene 抽取是用户明确启动的独立受控流水线，不调用 `EntityExtractionService`；该授权路径的 candidate 写入契约仍由 imports 模块拥有。
+- 生成中心的新对象先写 `creation_suggestion_queue`。队列服务同时物化一条
+  `draft` / `candidate` 兼容影子，并以 `_meta.compatibility_shadow=true` 与
+  `suggestion_id` 关联；采用或编辑后采用时提升同一条对象，合并/设为别名时由队列原子裁决并归档同一影子，忽略时同步标记该影子为 `ignored`。待处理影子不能绕过队列直接 CRUD，所有裁决都必须经过建议队列的 compare-and-set 门禁。
+- imports 模块拥有深度导入和阶段化正文抽取的编排、授权快照、Scene 证据与
+  candidate 写入契约；world 只提供受控的对象、别名、关系和地图观察持久化 seam。
 
 ## 数据表
 
@@ -378,7 +395,7 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
   `GET /api/world/maps/{map_id}/terrain?include_candidates=true` 可显式返回
   `candidate_bindings`，默认 `bindings` 只包含 confirmed 且 canonical-owner 的绑定。
 - `map_configs.parent_entity_id` 和已确认的 `map_terrain_bindings` 同样只能引用已采用的 location；候选地形绑定可保留预览，但采用前会重新校验地点状态。
-- `map_observations` 是世界动态地图的证据层：deep import `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。
+- `map_observations` 是世界动态地图的证据层：类型化地图建议、显式携带地图/空间元数据的 legacy `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。普通剧情状态变化只保存在 memory delta log，不重复进入地图收件箱。
 - observation 必须能说明目标名称/类型、动态类型、时间锚点、空间锚点、来源引用、证据摘要、置信度和审查状态；目标实体或地图尚未解析时可为空，但不得存入跨 `novel_id` 的实体引用。
 - 未分配且仍为 `candidate` / `conflicted` 的 observation 进入项目级地图收件箱；具体地图的
   observation、dashboard 和 playback 只读取精确 `map_id`，不会混入项目收件箱候选。
@@ -408,7 +425,7 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
   `candidate` / `ignored` / `conflicted`；不得通过 PATCH 直接设为 `confirmed`。正式确认必须
   走 `/confirm`，以保证生成或复用对应 `map_facts`。
 - 忽略候选只更新 `review_state="ignored"`，不硬删除候选记录。
-- 深度导入仍保留 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations` 候选流；该接入不自动写正式 `map_facts`。
+- 深度导入仍完整保留 `memory.delta_log`；只有显式携带 `map_id`、空间锚点或类型化地图值的 legacy `delta_event` 才兼容接入 `map_observations`，新流程优先使用独立的类型化地图 proposal。历史无空间意图的自动 observation 保留审计，但不再进入默认地图收件箱。该接入不自动写正式 `map_facts`。
 - 地图移动解释使用 `dynamic_type="movement_explanation"`，地图冲突使用 `dynamic_type="map_conflict"`；二者复用 observation/fact 流，不新增独立冲突表。
 - 写作冲突检查通过 `summarize_scene_map_for_writing(..., include_candidates=False)` 消费 Scene 地图摘要，默认只返回已确认事实；用户在写作页显式勾选包含待确认对象时才会纳入 candidate observation，并在 writing 问题项标记 `needs_review`。
 
@@ -667,7 +684,6 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | DELETE | `/api/world/generation-prompt-templates/{template_id}` | 软归档用户模板 |
 | GET | `/api/world/generation-prompt-templates/{template_id}/revisions` | 模板版本历史 |
 | POST | `/api/world/generation-prompt-templates/{template_id}/copy` | 复制内置模板为用户模板 |
-| POST | `/api/world/entities/extract` | 手动世界对象补抽；必须携带 `context_confirmation_id` |
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
@@ -698,23 +714,29 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 
 ### AI 参考资料确认
 
-- `POST /api/world/entities/extract` 的确认 action 为 `world.entities.extract`。
-- entity extraction、entity fusion 和世界生成中心通过 project runtime seam 消费项目 profile；
-  extraction 在成功、异常和取消路径都由 context manager 关闭 client；
-  测试通过构造器显式注入 project LLM opener，不在生产代码中检测测试替身，
-  也不回退零参数 client。
+- entity fusion 和世界生成中心通过 project runtime seam 消费项目 profile；
   LLM 输出继续只形成 suggestion/draft，不直接成为 canonical。
-- 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
-- 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。
+- 世界生成中心的受管模型步骤总上限为 1800 秒。服务在 provider 调用前提交准备阶段
+  checkpoint，确保等待期间没有数据库事务；结构化结果返回后重新校验来源页面 baseline，
+  来源发生变化时以 409 丢弃过时建议，不在长事务中等待或静默落库。多轮对话的决策编译、
+  结构化生成和必要的语义守卫重试共同受同一个 1800 秒总预算约束，避免步骤叠加后越过
+  浏览器 35 分钟等待窗口；单次 provider client 同样允许 1800 秒。
 - 生成中心世界工作区的自由聊天不创建确认记录，也不写业务资产；只有
   `POST /api/world/generation-center/suggestions` 创建待处理 `CreationSuggestion`。
   服务依据作者明确选择的 target 做确定性分派，模型不能改变落库目标，也不能调用工具。
   对象建议继续进入待处理队列；页面建议只能经专用 apply 路由进入服务器工作稿。
-  聊天虽返回自然语言，仍经只含 `reply` 的输出 schema 校验和修复。
+  聊天直接使用普通文本生成，再由后端以只含 `reply` 的 schema 校验非空与长度；它不启用
+  provider JSON mode，避免 DeepSeek 偶发空 content 导致一次高成本格式修复。空文本最多在
+  同一个 1800 秒阶段预算内重试一次。
 - 自由聊天把模型定位为世界设定共创搭档；模型可根据对话自主选择
   发散、比较、质疑、关键追问或阶段性收束，不使用固定问卷。最终结构化
-  step 以作者较新的明确决定为优先级；聊天中的助手建议只有被作者
-  接受或后续明显沿用时才进入对象建议。
+  step 对存在往返修订的多轮对话先编译 author decision state，区分已确认要求、受支持发展、
+  已作废内容、禁用专名、未决项和命名权限；最终提案不再直接消费包含旧方案的原始助手历史。
+  提案随后只审计作者边界，不评价创意偏好或要求补齐字段；禁用专名重新出现、作者仍要求
+  不命名却生成专名，或提案擅自解决未决项时，结果不能进入待处理队列，并在同一阶段预算内
+  重生成一次。决策编译、提案和审计从首轮请求就收到实际 Pydantic JSON schema；不依赖
+  provider 的 `json_object` 模式猜测字段后再做一次高成本格式修复。聊天中的助手建议只有
+  被作者接受或后续明显沿用时才进入对象建议。
 - 对象建议的 `summary` 不设统一字数或固定内容模板；`hidden_truth`
   只在设计确实存在隐藏层时生成，`character_card` 只用于人物且不为
   完整度填充无依据字段。`importance_level` 与 `reveal_level`
@@ -722,6 +744,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 - 生成中心背景使用专用 `generation_center` scope：显式选择和来源页引用优先，随后是
   当前 Scene、当前章节活跃剧情线、相关篇章/RAG 证据，以及由这些资料关联的人物与
   世界对象。人物自动候选最多 6 个、非人物世界对象最多 16 个；作者显式选择优先占位。
+  Scene 选择器读取全部 active ordered Scene；后端再次要求所选 Scene 处于
+  `candidate/draft/canonical`，历史 `deprecated` Scene 在调用模型前 fail closed。
   没有章节、Scene、引用或检索证据时不注入第一章剧情线。作者选中的章节在总预算内优先
   提取命中创作意图的窗口，未命中时保留头尾，不固定只取每章开头 500 字。
 - `core_entity` 使用对象 Prompt 模板；现有页继承服务器加载的页面/工作稿结构；新页面

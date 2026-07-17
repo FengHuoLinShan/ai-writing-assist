@@ -218,37 +218,6 @@ class SceneChunk(BaseModel):
         return self
 
 
-class SceneItem(BaseModel):
-    """LLM 输出的单个 Scene。"""
-
-    title: str = Field(default="")
-    goal: str = Field(default="")
-    core_conflict: str = Field(default="")
-    emotional_beat: str = Field(default="")
-    must_happen: str = Field(default="")
-    must_not_happen: str = Field(default="")
-    narrative_tag: str = Field(default="draft")
-    scene_chunks: list[SceneChunk] = Field(default_factory=list)
-
-    @field_validator("must_happen", "must_not_happen", mode="before")
-    @classmethod
-    def _normalize_constraint_text(cls, value: Any) -> str:
-        return _coerce_short_text(value)
-
-    @field_validator("scene_chunks")
-    @classmethod
-    def _ensure_at_least_one_chunk(cls, v: list[SceneChunk]) -> list[SceneChunk]:
-        if not v:
-            return [SceneChunk(chapter_index=1)]
-        return v
-
-
-class SceneSegmentationOutput(BaseModel):
-    """Phase 1 LLM 输出结构：章节正文 → scenes[]。"""
-
-    scenes: list[SceneItem] = Field(default_factory=list)
-
-
 class SceneCandidateOutput(BaseModel):
     """Phase 0/1a 中间候选输出，不直接写入正式 Scene 表。"""
 
@@ -295,20 +264,22 @@ class SceneSliceItem(BaseModel):
 
     title: str = Field(default="")
     goal: str = Field(default="")
-    core_conflict: str = Field(default="")
+    core_conflict: str | None = Field(default=None)
+    core_conflict_status: Literal["present", "not_applicable", "uncertain"] = "uncertain"
     start_chapter: int = Field(default=1, ge=1)
     end_chapter: int = Field(default=1, ge=1)
     start_anchor: str = Field(default="")
     end_anchor: str = Field(default="")
-    boundary_status: str = Field(default="uncertain")
+    boundary_status: Literal["complete", "continues_right", "uncertain"] = "uncertain"
+    boundary_basis: str = Field(default="")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @field_validator(
         "title",
         "goal",
-        "core_conflict",
         "start_anchor",
         "end_anchor",
-        "boundary_status",
+        "boundary_basis",
         mode="before",
     )
     @classmethod
@@ -324,68 +295,235 @@ class SceneSliceItem(BaseModel):
             return 1
         return max(1, chapter)
 
+    @field_validator("core_conflict", mode="before")
+    @classmethod
+    def _normalize_optional_conflict(cls, value: Any) -> str | None:
+        conflict = _coerce_short_text(value).strip()
+        return conflict or None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_scene_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.0)
+
+    @model_validator(mode="after")
+    def _validate_conflict_status(self) -> SceneSliceItem:
+        if self.core_conflict_status == "present" and not self.core_conflict:
+            raise ValueError(
+                "core_conflict is required when core_conflict_status is present"
+            )
+        if self.core_conflict_status == "not_applicable" and self.core_conflict:
+            raise ValueError(
+                "core_conflict must be empty when core_conflict_status is not_applicable"
+            )
+        return self
+
+
+class SceneWindowEdges(BaseModel):
+    """Phase 1a interpretation of text outside the owned window."""
+
+    leading_relation: Literal["new_scene", "continues_from_left", "uncertain"] = (
+        "uncertain"
+    )
+    trailing_relation: Literal["ends_in_input", "continues_right", "uncertain"] = (
+        "uncertain"
+    )
+    reason: str = Field(default="")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _normalize_reason(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
 
 class SceneSlicingOutput(BaseModel):
     """Phase 1a LLM output: text window -> locked Scene fields."""
 
     scenes: list[SceneSliceItem] = Field(default_factory=list)
+    window_edges: SceneWindowEdges = Field(default_factory=SceneWindowEdges)
 
 
 class SceneAnchorRepairOutput(BaseModel):
     """Small-context retry for one unresolved Phase 1a Scene boundary."""
 
-    start_anchor: str = Field(min_length=4, max_length=80)
-    end_anchor: str = Field(min_length=4, max_length=80)
+    status: Literal["resolved", "partial", "unresolved"] = "resolved"
+    start_anchor: str | None = Field(default=None, min_length=4, max_length=80)
+    end_anchor: str | None = Field(default=None, min_length=4, max_length=80)
+    reason: str = Field(default="")
 
     @field_validator("start_anchor", "end_anchor", mode="before")
     @classmethod
-    def _normalize_anchor(cls, value: Any, info: ValidationInfo) -> str:
+    def _normalize_anchor(cls, value: Any, info: ValidationInfo) -> str | None:
         anchor = _coerce_short_text(value).strip()
+        if not anchor:
+            return None
         if len(anchor) <= 80:
             return anchor
         if info.field_name == "end_anchor":
             return anchor[-80:]
         return anchor[:80]
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _normalize_repair_reason(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @model_validator(mode="after")
+    def _validate_repair_status(self) -> SceneAnchorRepairOutput:
+        supplied = sum(
+            anchor is not None for anchor in (self.start_anchor, self.end_anchor)
+        )
+        if self.status == "resolved" and supplied != 2:
+            raise ValueError("resolved anchor repair requires both anchors")
+        if self.status == "partial" and supplied != 1:
+            raise ValueError("partial anchor repair requires exactly one anchor")
+        if self.status == "unresolved" and supplied:
+            raise ValueError("unresolved anchor repair must not include anchors")
+        return self
+
+
+class SceneRecoverySegment(BaseModel):
+    """One exact, ordered portion of a continuous Phase 1a coverage gap."""
+
+    disposition: Literal["extend_left", "new_scene", "extend_right"]
+    start_chapter: int = Field(ge=1)
+    end_chapter: int = Field(ge=1)
+    start_anchor: str = Field(min_length=4, max_length=80)
+    end_anchor: str = Field(min_length=4, max_length=80)
+    boundary_basis: str = Field(default="")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    title: str = Field(default="")
+    goal: str = Field(default="")
+    core_conflict: str | None = Field(default=None)
+    core_conflict_status: Literal["present", "not_applicable", "uncertain"] = "uncertain"
+    boundary_status: Literal["complete", "continues_right", "uncertain"] = "uncertain"
+
+    @field_validator(
+        "start_anchor",
+        "end_anchor",
+        "boundary_basis",
+        "title",
+        "goal",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_recovery_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("core_conflict", mode="before")
+    @classmethod
+    def _normalize_recovery_conflict(cls, value: Any) -> str | None:
+        conflict = _coerce_short_text(value).strip()
+        return conflict or None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_recovery_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.0)
+
+    @model_validator(mode="after")
+    def _validate_recovery_segment(self) -> SceneRecoverySegment:
+        if self.end_chapter < self.start_chapter:
+            raise ValueError("end_chapter must not precede start_chapter")
+        if self.core_conflict_status == "present" and not self.core_conflict:
+            raise ValueError(
+                "core_conflict is required when core_conflict_status is present"
+            )
+        if self.core_conflict_status == "not_applicable" and self.core_conflict:
+            raise ValueError(
+                "core_conflict must be empty when core_conflict_status is not_applicable"
+            )
+        if self.disposition == "new_scene":
+            if not self.title or not self.goal:
+                raise ValueError("new_scene recovery segments require title and goal")
+        elif (
+            self.title
+            or self.goal
+            or self.core_conflict
+            or self.core_conflict_status != "uncertain"
+        ):
+            raise ValueError(
+                "extend recovery segments must not carry Scene semantic fields"
+            )
+        return self
+
+
+class SceneRecoveryOutput(BaseModel):
+    """One atomic decision for a continuous Phase 1a coverage gap."""
+
+    status: Literal["resolved", "uncertain"] = "uncertain"
+    segments: list[SceneRecoverySegment] = Field(default_factory=list)
+    left_right_relation: Literal["separate", "same_scene", "uncertain"] = "uncertain"
+    reason: str = Field(default="")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _normalize_recovery_reason(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @model_validator(mode="after")
+    def _validate_resolved_segments(self) -> SceneRecoveryOutput:
+        if self.status == "resolved" and not self.segments:
+            raise ValueError("resolved recovery requires at least one segment")
+        if self.status == "uncertain" and self.segments:
+            raise ValueError("uncertain recovery must not include segments")
+        return self
+
 
 class SceneEnrichmentOutput(BaseModel):
     """Phase 1b LLM output; locked Scene fields are intentionally absent."""
 
-    emotional_beat: str = Field(default="")
-    must_happen: str = Field(default="")
-    must_not_happen: str = Field(default="")
-    narrative_tag: str = Field(default="imported")
+    emotional_beat: str | None = Field(default=None)
+    must_happen: str | None = Field(default=None)
+    must_not_happen: str | None = Field(default=None)
+    narrative_tag: Literal[
+        "draft",
+        "hook",
+        "inciting_incident",
+        "rising_action",
+        "climax",
+        "valley",
+        "transition",
+        "payoff",
+    ] = "draft"
+    narrative_function: str = Field(default="")
+    basis: str = Field(default="")
+    uncertain_fields: list[
+        Literal[
+            "emotional_beat",
+            "must_happen",
+            "must_not_happen",
+            "narrative_tag",
+            "narrative_function",
+        ]
+    ] = Field(default_factory=list)
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
-    needs_review: bool = False
-    review_reason: str = Field(default="")
 
     @field_validator(
         "emotional_beat",
         "must_happen",
         "must_not_happen",
-        "narrative_tag",
-        "review_reason",
         mode="before",
     )
     @classmethod
-    def _normalize_text(cls, value: Any) -> str:
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        text = _coerce_short_text(value).strip()
+        return text or None
+
+    @field_validator("narrative_function", "basis", mode="before")
+    @classmethod
+    def _normalize_enrichment_text(cls, value: Any) -> str:
         return _coerce_short_text(value).strip()
+
+    @field_validator("uncertain_fields", mode="after")
+    @classmethod
+    def _deduplicate_uncertain_fields(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(value))
 
     @field_validator("confidence", mode="before")
     @classmethod
     def _normalize_confidence(cls, value: Any) -> float:
         return _coerce_score(value, default=0.7)
-
-    @field_validator("needs_review", mode="before")
-    @classmethod
-    def _normalize_needs_review(cls, value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None or value == "":
-            return False
-        if isinstance(value, int | float):
-            return bool(value)
-        return str(value).strip().lower() in {"true", "1", "yes", "y", "是", "需要"}
 
 
 class ExtractedEntity(BaseModel):
@@ -403,6 +541,7 @@ class ExtractedEntity(BaseModel):
     quote: str | None = Field(default=None)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     aliases: list[dict] | None = Field(default=None)
+    evidence_quotes: list[str] = Field(default_factory=list)
 
     @field_validator("importance", "confidence", mode="before")
     @classmethod
@@ -454,6 +593,11 @@ class ExtractedEntity(BaseModel):
                     )
         return aliases or None
 
+    @field_validator("evidence_quotes", mode="before")
+    @classmethod
+    def _normalize_evidence_quotes(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
 
 class ExtractedRelation(BaseModel):
     """Phase 2 LLM 输出的实体关系。"""
@@ -483,40 +627,132 @@ class ExtractedRelation(BaseModel):
 
 
 class ExtractedAlias(BaseModel):
-    """Phase 2b LLM 输出的实体别名候选。"""
+    """P14 alias judgment before deterministic identity materialization."""
 
-    entity_name: str = Field(..., min_length=1)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    entity_ref: str = Field(..., min_length=1)
     alias: str = Field(..., min_length=1)
-    alias_type: str = Field(default="alias")
-    quote: str | None = Field(default=None)
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    alias_type: Literal[
+        "name",
+        "title",
+        "nickname",
+        "alias",
+        "translation",
+        "abbreviation",
+    ] = "alias"
+    identity_scope: Literal["durable", "context_bound", "uncertain"]
+    identity_basis: str = Field(..., min_length=1)
+    evidence_quotes: list[str] = Field(..., min_length=1)
+    confidence: float = Field(..., ge=0.0, le=1.0)
 
     @field_validator("confidence", mode="before")
     @classmethod
     def _normalize_confidence(cls, value: Any) -> float:
         return _coerce_score(value)
 
-    @field_validator("alias_type", mode="before")
+    @field_validator("alias", "identity_basis", mode="before")
     @classmethod
-    def _normalize_alias_type(cls, value: Any) -> str:
-        if value is None:
-            return "alias"
-        text = str(value).strip()
-        return text or "alias"
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
 
-    @field_validator("quote", mode="before")
+    @field_validator("evidence_quotes", mode="before")
     @classmethod
-    def _normalize_quote(cls, value: Any) -> str | None:
+    def _normalize_evidence_quotes(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+
+class Phase2bRelationObservation(BaseModel):
+    """P14 relation judgment before deterministic endpoint materialization."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    source_ref: str = Field(..., min_length=1)
+    target_ref: str = Field(..., min_length=1)
+    relation_type: str = Field(..., min_length=1)
+    persistence_scope: Literal["enduring", "stateful", "episodic", "uncertain"]
+    directionality: Literal["directed", "symmetric"]
+    claim_status: Literal["established", "reaffirmed", "changed", "ended"]
+    previous_relation_ref: str | None = None
+    description: str = Field(..., min_length=1)
+    strength: float | None = Field(default=None, ge=0.0, le=1.0)
+    basis: str = Field(..., min_length=1)
+    evidence_quotes: list[str] = Field(..., min_length=1)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+    @field_validator("strength", "confidence", mode="before")
+    @classmethod
+    def _normalize_scores(cls, value: Any, info: ValidationInfo) -> float | None:
+        if info.field_name == "strength" and (value is None or value == ""):
+            return None
+        return _coerce_score(value)
+
+    @field_validator(
+        "relation_type",
+        "previous_relation_ref",
+        "description",
+        "basis",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str | None:
         return _coerce_optional_short_text(value)
+
+    @field_validator("evidence_quotes", mode="before")
+    @classmethod
+    def _normalize_evidence_quotes(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @model_validator(mode="after")
+    def _validate_relation_identity(self) -> Phase2bRelationObservation:
+        if self.source_ref == self.target_ref:
+            raise ValueError("relation endpoints must be distinct")
+        if self.claim_status == "established" and self.previous_relation_ref:
+            raise ValueError("established relation cannot reference a previous relation")
+        if self.claim_status != "established" and not self.previous_relation_ref:
+            raise ValueError(
+                "reaffirmed, changed, or ended relation requires previous_relation_ref"
+            )
+        return self
+
+
+class Phase2bUncertainItem(BaseModel):
+    """Useful P14 alias/relation observation that cannot be safely materialized."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    kind: Literal[
+        "alias_identity",
+        "relation_endpoint",
+        "relation_type",
+        "relation_change",
+    ]
+    related_refs: list[str] = Field(default_factory=list)
+    mention_or_claim: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+    evidence_quotes: list[str] = Field(default_factory=list)
+
+    @field_validator("mention_or_claim", "reason", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("related_refs", "evidence_quotes", mode="before")
+    @classmethod
+    def _normalize_string_lists(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
 
 
 class AliasRelationExtractionOutput(BaseModel):
-    """Phase 2b LLM 输出结构：Scene 正文 + 对象索引 → aliases/relations。"""
+    """P14 LLM contract: current Scene -> aliases/relations/uncertainty."""
+
+    model_config = ConfigDict(extra="forbid")
 
     aliases: list[ExtractedAlias] = Field(default_factory=list)
-    relations: list[ExtractedRelation] = Field(default_factory=list)
+    relations: list[Phase2bRelationObservation] = Field(default_factory=list)
+    uncertain_items: list[Phase2bUncertainItem] = Field(default_factory=list)
 
-    @field_validator("aliases", "relations", mode="before")
+    @field_validator("aliases", "relations", "uncertain_items", mode="before")
     @classmethod
     def _normalize_optional_lists(cls, value: Any) -> list[Any]:
         return _coerce_list_or_empty(value)
@@ -606,8 +842,207 @@ ExtractedMapObservationProposal = Annotated[
 ]
 
 
+class Phase2aMapProposalBase(BaseModel):
+    """P13 map observation without caller-owned provenance identifiers."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    quote: str = Field(..., min_length=1, max_length=8000)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+    @field_validator("quote", mode="before")
+    @classmethod
+    def _normalize_quote(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.7)
+
+
+class Phase2aCharacterLocationProposal(Phase2aMapProposalBase):
+    proposal_type: Literal["character_location"]
+    character_name: str = Field(..., min_length=1, max_length=255)
+    location_name: str | None = Field(None, max_length=255)
+    movement_mode: Literal[
+        "walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"
+    ] = "unknown"
+    state: str = Field("present", min_length=1, max_length=64)
+
+
+class Phase2aEventLocationProposal(Phase2aMapProposalBase):
+    proposal_type: Literal["event_location"]
+    event_name: str = Field(..., min_length=1, max_length=255)
+    location_name: str | None = Field(None, max_length=255)
+    state: str = Field("occurred", min_length=1, max_length=64)
+
+
+class Phase2aRouteStateProposal(Phase2aMapProposalBase):
+    proposal_type: Literal["route_state"]
+    path_name: str | None = Field(None, max_length=255)
+    state: Literal["open", "restricted", "blocked"]
+    reason: str | None = Field(None, max_length=1000)
+
+
+class Phase2aBoundaryProposal(Phase2aMapProposalBase):
+    proposal_type: Literal["boundary"]
+    controller_name: str | None = Field(None, max_length=255)
+    area_description: str | None = Field(None, max_length=2000)
+
+
+Phase2aMapObservationProposal = Annotated[
+    Phase2aCharacterLocationProposal
+    | Phase2aEventLocationProposal
+    | Phase2aRouteStateProposal
+    | Phase2aBoundaryProposal,
+    Field(discriminator="proposal_type"),
+]
+
+
+class Phase2aEntityObservation(BaseModel):
+    """P13 entity judgment before deterministic identity materialization."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(..., min_length=1)
+    entity_type: str = Field(default="other")
+    summary: str | None = None
+    public_info: str | None = None
+    hidden_truth: str | None = None
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    identity_disposition: Literal["new", "existing", "uncertain"]
+    matched_existing_ref: str | None = None
+    basis: str = ""
+    uncertainties: list[str] = Field(default_factory=list)
+    evidence_quotes: list[str] = Field(..., min_length=1)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def _normalize_entity_type(cls, value: Any) -> str:
+        return _normalize_ai_world_entity_type(value)
+
+    @field_validator("importance", "confidence", mode="before")
+    @classmethod
+    def _normalize_scores(cls, value: Any) -> float:
+        return _coerce_score(value)
+
+    @field_validator(
+        "summary",
+        "public_info",
+        "hidden_truth",
+        "matched_existing_ref",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        return _coerce_optional_short_text(value)
+
+    @field_validator("basis", mode="before")
+    @classmethod
+    def _normalize_basis(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("uncertainties", "evidence_quotes", mode="before")
+    @classmethod
+    def _normalize_string_lists(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @model_validator(mode="after")
+    def _validate_identity_reference(self) -> Phase2aEntityObservation:
+        if self.identity_disposition == "existing" and not self.matched_existing_ref:
+            raise ValueError("existing identity requires matched_existing_ref")
+        if self.identity_disposition == "new" and self.matched_existing_ref:
+            raise ValueError("new identity cannot reference an existing object")
+        return self
+
+
+class Phase2aDeltaObservation(BaseModel):
+    """P13 durable state change with exact current-Scene evidence."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    subject_name: str = Field(..., min_length=1)
+    category: str = Field(..., min_length=1)
+    field: str | None = None
+    old: Any | None = None
+    new: Any | None = None
+    description: str = ""
+    basis: str = ""
+    uncertainties: list[str] = Field(default_factory=list)
+    evidence_quotes: list[str] = Field(..., min_length=1)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @field_validator(
+        "subject_name",
+        "category",
+        "field",
+        "description",
+        "basis",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str | None:
+        return _coerce_optional_short_text(value)
+
+    @field_validator("uncertainties", "evidence_quotes", mode="before")
+    @classmethod
+    def _normalize_string_lists(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float:
+        return _coerce_score(value)
+
+
+class Phase2aUncertainItem(BaseModel):
+    """Useful P13 observation that cannot safely materialize as an asset."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    description: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+    evidence_quotes: list[str] = Field(default_factory=list)
+
+    @field_validator("description", "reason", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("evidence_quotes", mode="before")
+    @classmethod
+    def _normalize_evidence_quotes(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+
+class Phase2aSceneExtractionOutput(BaseModel):
+    """P13 LLM contract: current Scene -> durable world continuity observations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entities: list[Phase2aEntityObservation] = Field(default_factory=list)
+    delta_events: list[Phase2aDeltaObservation] = Field(default_factory=list)
+    map_observation_proposals: list[Phase2aMapObservationProposal] = Field(
+        default_factory=list
+    )
+    uncertain_items: list[Phase2aUncertainItem] = Field(default_factory=list)
+
+    @field_validator(
+        "entities",
+        "delta_events",
+        "map_observation_proposals",
+        "uncertain_items",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_lists(cls, value: Any) -> list[Any]:
+        return _coerce_list_or_empty(value)
+
+
 class SceneEntityExtractionOutput(BaseModel):
-    """Phase 2 LLM 输出结构：Scene 正文 → entities/relations/delta_events。"""
+    """Materialized Phase 2a result consumed by deterministic persistence."""
 
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
@@ -615,12 +1050,14 @@ class SceneEntityExtractionOutput(BaseModel):
     map_observation_proposals: list[ExtractedMapObservationProposal] = Field(
         default_factory=list
     )
+    uncertain_items: list[Phase2aUncertainItem] = Field(default_factory=list)
 
     @field_validator(
         "entities",
         "relations",
         "delta_events",
         "map_observation_proposals",
+        "uncertain_items",
         mode="before",
     )
     @classmethod

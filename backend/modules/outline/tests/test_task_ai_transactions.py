@@ -231,6 +231,37 @@ async def test_analyze_task_restores_frozen_profile_and_waits_without_transactio
     )
 
 
+async def test_outline_task_client_applies_generation_timeout_override() -> None:
+    client = SimpleNamespace(close=mock.AsyncMock())
+    settings = {"llm": {"model": "frozen-model"}}
+    with (
+        mock.patch(
+            "modules.project.facade.restore_project_llm_execution_settings",
+            autospec=True,
+        ) as restore_settings,
+        mock.patch(
+            "modules.project.facade.create_project_snapshot_llm_client",
+            return_value=client,
+            autospec=True,
+        ) as create_client,
+    ):
+        restore_settings.return_value = settings
+        async with OutlineAIWorkflowService()._open_task_llm_client(
+            SimpleNamespace(),
+            "11111111-1111-1111-1111-111111111111",
+            {"profile_hash": "frozen"},
+            timeout_override=1800,
+        ) as opened:
+            assert opened is client
+
+    create_client.assert_called_once_with(
+        settings,
+        novel_id="11111111-1111-1111-1111-111111111111",
+        timeout_override=1800,
+    )
+    client.close.assert_awaited_once()
+
+
 async def test_real_task_handler_session_checkpoints_before_provider_wait(
     db_session,
     sample_novel_id: str,
@@ -656,18 +687,6 @@ async def test_task_confirmation_prepare_matches_legacy_compile_render(
             {"instruction": "分析节奏", "start_chapter": 3, "end_chapter": 8},
             {"analysis": "ok"},
         ),
-        (
-            "handle_outline_generate",
-            "generate_for_task",
-            {
-                "novel_id": "11111111-1111-1111-1111-111111111111",
-                "context_confirmation_id": "confirmation-1",
-                "start_chapter": 2,
-                "end_chapter": 4,
-            },
-            {"start_chapter": 2, "end_chapter": 4},
-            {"total_threads": 1, "total_arcs": 0},
-        ),
     ],
 )
 async def test_outline_handlers_delegate_only_to_task_workflow_seams(
@@ -708,11 +727,199 @@ async def test_outline_handlers_delegate_only_to_task_workflow_seams(
     )
 
 
+async def test_outline_generate_handler_delegates_p20_v2_contract() -> None:
+    from modules.outline import tasks as outline_tasks
+
+    snapshot = {"profile_hash": "frozen"}
+    task = SimpleNamespace(
+        id="task-1",
+        meta={
+            "contract_version": "outline_layer_v2",
+            "novel_id": "11111111-1111-1111-1111-111111111111",
+            "context_confirmation_id": "22222222-2222-2222-2222-222222222222",
+            "target": "plot_thread",
+            "mode": "create",
+            "instruction": "创建主线",
+            "selected_thread_ids": [],
+            "selected_arc_ids": [],
+            "selected_scene_ids": [],
+            "submission_fingerprint": "f" * 64,
+            "llm_execution_snapshot": snapshot,
+        },
+        update_progress=mock.MagicMock(),
+    )
+    db = SimpleNamespace(task_checkpoint_enabled=True)
+    result = {"contract_version": "outline_layer_v2", "target": "plot_thread"}
+    with mock.patch(
+        "modules.outline.ai_workflow_service.OutlineAIWorkflowService",
+        autospec=True,
+    ) as service_cls:
+        service_cls.return_value.generate_layer_for_task.return_value = result
+
+        actual = await outline_tasks.handle_outline_generate(db, task)
+
+    assert actual == result
+    call = service_cls.return_value.generate_layer_for_task.await_args
+    assert call.kwargs["data"].target == "plot_thread"
+    assert call.kwargs["data"].mode == "create"
+    assert call.kwargs["submission_fingerprint"] == "f" * 64
+    assert call.kwargs["llm_execution_snapshot"] == snapshot
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_status"),
+    [
+        (RuntimeError("provider failed"), "failed"),
+        (asyncio.CancelledError(), "cancelled"),
+    ],
+)
+async def test_outline_generate_handler_closes_confirmation_on_terminal_failure(
+    failure: BaseException,
+    expected_status: str,
+) -> None:
+    from modules.outline import tasks as outline_tasks
+
+    snapshot = {"profile_hash": "frozen"}
+    task = SimpleNamespace(
+        id="task-1",
+        meta={
+            "contract_version": "outline_layer_v2",
+            "novel_id": "11111111-1111-1111-1111-111111111111",
+            "context_confirmation_id": "22222222-2222-2222-2222-222222222222",
+            "target": "plot_thread",
+            "mode": "create",
+            "instruction": "创建主线",
+            "selected_thread_ids": [],
+            "selected_arc_ids": [],
+            "selected_scene_ids": [],
+            "submission_fingerprint": "f" * 64,
+            "llm_execution_snapshot": snapshot,
+        },
+        update_progress=mock.MagicMock(),
+    )
+    db = SimpleNamespace(
+        task_checkpoint_enabled=True,
+        rollback=mock.AsyncMock(),
+        commit=mock.AsyncMock(),
+    )
+    with (
+        mock.patch(
+            "modules.outline.ai_workflow_service.OutlineAIWorkflowService",
+            autospec=True,
+        ) as service_cls,
+        mock.patch(
+            "modules.context.facade.attach_result_ref",
+            autospec=True,
+        ) as attach_result_ref,
+    ):
+        service_cls.return_value.generate_layer_for_task.side_effect = failure
+
+        with pytest.raises(type(failure)):
+            await outline_tasks.handle_outline_generate(db, task)
+
+    db.rollback.assert_awaited_once_with()
+    db.commit.assert_awaited_once_with()
+    attach_result_ref.assert_awaited_once_with(
+        db,
+        confirmation_id="22222222-2222-2222-2222-222222222222",
+        result_type="task",
+        result_id="task-1",
+        status=expected_status,
+    )
+
+
+async def test_p20_compiles_fresh_context_before_exclusive_finalization_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Independent RAG trace persistence must not wait on our project lock."""
+    db = _CheckpointSession()
+    data = SimpleNamespace(
+        novel_id="11111111-1111-1111-1111-111111111111",
+        context_confirmation_id="22222222-2222-2222-2222-222222222222",
+    )
+    confirmed = SimpleNamespace()
+    plan = SimpleNamespace(source_fingerprint="frozen", confirmed_context=confirmed)
+    events: list[str] = []
+
+    async def prepare(_db, _data, *, confirmed_context=None):
+        events.append("prepare_locked" if confirmed_context is not None else "prepare")
+        return plan
+
+    generation = SimpleNamespace(
+        prepare=mock.AsyncMock(side_effect=prepare),
+        execute=mock.AsyncMock(return_value=SimpleNamespace()),
+        task_result=mock.MagicMock(return_value={"requires_apply": True}),
+    )
+    monkeypatch.setattr(
+        "modules.outline.p20_service.P20GenerationService",
+        lambda: generation,
+    )
+
+    async def exclusive(_db, _novel_id):
+        events.append("exclusive")
+
+    monkeypatch.setattr(
+        OutlineAIWorkflowService,
+        "_require_active_project",
+        mock.AsyncMock(),
+    )
+    monkeypatch.setattr(
+        OutlineAIWorkflowService,
+        "_require_active_project_exclusive",
+        staticmethod(exclusive),
+    )
+
+    async def mark_fresh(*_args, **_kwargs):
+        events.append("fresh_confirmation")
+
+    require_fresh = mock.AsyncMock(side_effect=mark_fresh)
+    attach = mock.AsyncMock()
+    monkeypatch.setattr(
+        "modules.outline.ai_workflow_service.context_facade.require_fresh_confirmation",
+        require_fresh,
+    )
+    monkeypatch.setattr(
+        "modules.outline.ai_workflow_service.context_facade.attach_result_ref",
+        attach,
+    )
+
+    result = await OutlineAIWorkflowService(
+        llm_client=SimpleNamespace(model_name="test-model"),
+    ).generate_layer_for_task(
+        db,
+        data=data,
+        task_id="task-1",
+        submission_fingerprint="frozen",
+        llm_execution_snapshot={"profile_hash": "frozen"},
+    )
+
+    assert result == {"requires_apply": True}
+    assert events == [
+        "prepare",
+        "prepare",
+        "exclusive",
+        "fresh_confirmation",
+        "prepare_locked",
+    ]
+    assert generation.prepare.await_args_list[-1].kwargs == {
+        "confirmed_context": confirmed,
+    }
+    require_fresh.assert_awaited_once_with(
+        db,
+        novel_id=data.novel_id,
+        action="outline.generate",
+        confirmation_id=data.context_confirmation_id,
+        for_update=True,
+    )
+    attach.assert_awaited_once()
+
+
 async def test_task_only_methods_are_not_cross_module_facade_exports() -> None:
     from modules.outline import facade
 
     assert not {
         "analyze_for_task",
         "generate_for_task",
+        "generate_layer_for_task",
         "generate_legacy_preview_for_task",
     }.intersection(facade.__all__)

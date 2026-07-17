@@ -92,6 +92,12 @@ function structureAlerts(scene, chapterIndex) {
     ...(Array.isArray(scene.health_flags) ? scene.health_flags : []),
   ])
   const addMissing = (field, label, severity) => {
+    const status = semanticFieldStatus(scene, field)
+    if (status === "not_applicable") return
+    if (status === "uncertain") {
+      alerts.push(alert(`structure-${field}`, severity, "结构", `Scene 的${label}仍待确认`))
+      return
+    }
     if (hasText(scene?.[field])) return
     alerts.push(alert(`structure-${field}`, severity, "结构", `Scene 尚未配置${label}`))
   }
@@ -125,8 +131,12 @@ function structureAlerts(scene, chapterIndex) {
 
 function proseAlerts(scene, chapterIndex, content) {
   const alerts = []
-  const requiredPhrases = splitRulePhrases(scene?.must_happen)
-  const forbiddenPhrases = splitRulePhrases(scene?.must_not_happen)
+  const requiredPhrases = semanticFieldStatus(scene, "must_happen") == null
+    ? splitRulePhrases(scene?.must_happen)
+    : []
+  const forbiddenPhrases = semanticFieldStatus(scene, "must_not_happen") == null
+    ? splitRulePhrases(scene?.must_not_happen)
+    : []
   if (!requiredPhrases.length && !forbiddenPhrases.length) return alerts
 
   const scope = sceneTextScope(scene, chapterIndex, content)
@@ -157,6 +167,24 @@ function proseAlerts(scene, chapterIndex, content) {
     }
   }
   return alerts
+}
+
+function semanticFieldStatus(scene, field) {
+  const meta = scene?.structure_meta
+  if (!meta || typeof meta !== "object") return null
+  const source = String(scene?.source || "")
+  const origin = String(meta.semantic_origin || "")
+  const trusted = source === "deep_import"
+    || source === "manual_fusion"
+    || ["phase1b_enrichment", "phase1c_synthesis", "author_reviewed_fusion"].includes(origin)
+  if (!trusted) return null
+  const statuses = meta.semantic_field_statuses && typeof meta.semantic_field_statuses === "object"
+    ? meta.semantic_field_statuses
+    : (meta.phase1b_field_statuses || {})
+  const status = field === "core_conflict"
+    ? (statuses[field] || meta.core_conflict_status)
+    : statuses[field]
+  return ["present", "not_applicable", "uncertain"].includes(status) ? status : null
 }
 
 function mapAlerts(mapSummary, mapError) {

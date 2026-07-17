@@ -65,7 +65,7 @@ test.describe("深度导入流水线", () => {
     )
     await expect(sceneExtractionBtn).toBeVisible()
     await sceneExtractionBtn.click()
-    await expect(page.locator(SEL.modalTitle)).toContainText("场景（scene）自动提取")
+    await expect(page.locator(SEL.modalTitle)).toContainText("从正文提取 Scene")
 
     // Step 4: Mock 深度导入 API 以加速测试
     await page.route("**/api/imports/stages/scenes", async (route) => {

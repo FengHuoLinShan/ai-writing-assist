@@ -1,6 +1,6 @@
 {
   "id": "phase1b_scene_enrichment",
-  "version": 1,
+  "version": 2,
   "owner": "imports",
   "schema_model": "modules.imports.llm_schemas.SceneEnrichmentOutput",
   "declared_prompt_fields": [
@@ -8,9 +8,10 @@
     "must_happen",
     "must_not_happen",
     "narrative_tag",
-    "confidence",
-    "needs_review",
-    "review_reason"
+    "narrative_function",
+    "basis",
+    "uncertain_fields",
+    "confidence"
   ],
   "forbidden_fields": ["status"],
   "required_evidence_field": null,
@@ -20,9 +21,10 @@
     {"source": "must_happen", "target": "scenes.must_happen"},
     {"source": "must_not_happen", "target": "scenes.must_not_happen"},
     {"source": "narrative_tag", "target": "scenes.narrative_tag"},
-    {"source": "confidence", "target": "scenes.structure_meta.confidence"},
-    {"source": "needs_review", "target": "scenes.structure_meta.needs_review"},
-    {"source": "review_reason", "target": "scenes.structure_meta.review_reason"}
+    {"source": "narrative_function", "target": "scenes.structure_meta.narrative_function"},
+    {"source": "basis", "target": "scenes.structure_meta.phase1b_basis"},
+    {"source": "uncertain_fields", "target": "scenes.structure_meta.phase1b_uncertain_fields"},
+    {"source": "confidence", "target": "scenes.structure_meta.phase1b_confidence"}
   ],
   "observed_fields": [],
   "ignored_fields": [],

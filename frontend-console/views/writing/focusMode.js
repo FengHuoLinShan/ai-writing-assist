@@ -11,6 +11,7 @@ export function createFocusModeManager({ state, onChange }) {
   let forceDesktopMode = false
 
   function loadAuthorPreferences() {
+    if (projectState._authorPreferences) return projectState._authorPreferences
     try {
       const raw = localStorage.getItem(`novel_author_preferences:${projectState.currentProjectId || "global"}`)
       return raw ? JSON.parse(raw) : {}

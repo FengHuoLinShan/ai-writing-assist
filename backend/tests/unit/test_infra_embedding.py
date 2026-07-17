@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import math
+import sys
 import threading
 import time
+from types import ModuleType
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -404,6 +406,75 @@ class TestResolveModelId:
         assert result == "BAAI/bge-base-zh-v1.5"
 
 
+class TestLoadSentenceTransformer:
+    """SentenceTransformer 优先使用本地缓存，缺失时才联网。"""
+
+    def test_loads_complete_local_cache_without_remote_request(self) -> None:
+        from infrastructure.embedding.worker import _load_st_model
+
+        model = MagicMock()
+        model.get_embedding_dimension.return_value = 768
+        wlog = MagicMock()
+        snapshot_download = MagicMock(return_value="/cache/bge-base-zh-v1.5")
+        constructor = MagicMock(return_value=model)
+        huggingface_hub = ModuleType("huggingface_hub")
+        huggingface_hub.snapshot_download = snapshot_download
+        sentence_transformers = ModuleType("sentence_transformers")
+        sentence_transformers.SentenceTransformer = constructor
+
+        with patch.dict(
+            sys.modules,
+            {
+                "huggingface_hub": huggingface_hub,
+                "sentence_transformers": sentence_transformers,
+            },
+        ):
+            result = _load_st_model("BAAI/bge-base-zh-v1.5", wlog)
+
+        assert result is model
+        snapshot_download.assert_called_once_with(
+            "BAAI/bge-base-zh-v1.5",
+            local_files_only=True,
+        )
+        constructor.assert_called_once_with(
+            "/cache/bge-base-zh-v1.5",
+            device="cpu",
+            trust_remote_code=True,
+            local_files_only=True,
+        )
+
+    def test_retries_remote_only_when_local_cache_is_unavailable(self) -> None:
+        from infrastructure.embedding.worker import _load_st_model
+
+        model = MagicMock()
+        model.get_embedding_dimension.return_value = 768
+        wlog = MagicMock()
+        snapshot_download = MagicMock(side_effect=OSError("cache miss"))
+        constructor = MagicMock(return_value=model)
+        huggingface_hub = ModuleType("huggingface_hub")
+        huggingface_hub.snapshot_download = snapshot_download
+        sentence_transformers = ModuleType("sentence_transformers")
+        sentence_transformers.SentenceTransformer = constructor
+
+        with patch.dict(
+            sys.modules,
+            {
+                "huggingface_hub": huggingface_hub,
+                "sentence_transformers": sentence_transformers,
+            },
+        ):
+            result = _load_st_model("BAAI/bge-base-zh-v1.5", wlog)
+
+        assert result is model
+        assert constructor.call_args_list == [
+            call(
+                "BAAI/bge-base-zh-v1.5",
+                device="cpu",
+                trust_remote_code=True,
+            ),
+        ]
+
+
 # ============================================================
 # embedding/worker.py — BgeOnnxWorker
 # ============================================================
@@ -427,6 +498,7 @@ class TestBgeOnnxWorkerInit:
         assert worker._quantization == "int8"
         assert worker._max_batch == 64
         assert worker._timeout == 5.0
+        assert worker._startup_timeout == 300.0
         assert worker._queue_maxsize == 200
         assert worker._task_queue is None
         assert worker._result_queue is None
@@ -443,6 +515,7 @@ class TestBgeOnnxWorkerInit:
             quantization="fp16",
             max_batch=128,
             timeout=30.0,
+            startup_timeout=180.0,
             queue_maxsize=17,
         )
 
@@ -450,6 +523,7 @@ class TestBgeOnnxWorkerInit:
         assert worker._quantization == "fp16"
         assert worker._max_batch == 128
         assert worker._timeout == 30.0
+        assert worker._startup_timeout == 180.0
         assert worker._queue_maxsize == 17
 
     def test_init_clamps_queue_maxsize_to_at_least_one(self) -> None:
@@ -573,7 +647,7 @@ class TestBgeOnnxWorkerStart:
             name="bge-worker",
         )
         process_mock.start.assert_called_once_with()
-        result_queue.get.assert_called_once_with(timeout=60.0)
+        result_queue.get.assert_called_once_with(timeout=300.0)
         assert worker._task_queue is task_queue
         assert worker._result_queue is result_queue
         assert worker._healthy is True
@@ -1301,6 +1375,7 @@ class TestBgeEmbeddingClientStartClose:
             bge_onnx_quantization="int8",
             inference_worker_max_batch=64,
             inference_worker_timeout=30.0,
+            inference_worker_startup_timeout=300.0,
             inference_worker_queue_maxsize=123,
             embedding_batch_queue_delay_ms=5,
             embedding_batch_queue_max_items=64,
@@ -1324,6 +1399,7 @@ class TestBgeEmbeddingClientStartClose:
             quantization="int8",
             max_batch=64,
             timeout=30.0,
+            startup_timeout=300.0,
             queue_maxsize=123,
         )
 

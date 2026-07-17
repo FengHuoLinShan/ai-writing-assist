@@ -393,7 +393,18 @@ async def test_group_apply_rolls_back_failed_group_and_continues(
     db_session.add(task)
     await db_session.flush()
 
-    async def fake_apply(db, novel_id, *, primary_entity_id, operations):
+    async def fake_apply(
+        db,
+        novel_id,
+        *,
+        primary_entity_id,
+        operations,
+        validate_only=False,
+        execution_fingerprints_prevalidated=False,
+    ):
+        if validate_only:
+            return []
+        assert execution_fingerprints_prevalidated is True
         current = (
             await db.execute(select(Project).where(Project.id == project_id))
         ).scalar_one()
@@ -434,6 +445,74 @@ async def test_group_apply_rolls_back_failed_group_and_continues(
         "该裁决组执行失败，请重试或重新扫描。"
     )
     assert "forced group failure" not in result["group_results"][0]["message"]
+
+
+async def test_group_apply_preflights_all_fingerprints_before_any_group_mutates(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = Project(title="batch preflight")
+    db_session.add(project)
+    await db_session.flush()
+    task = AsyncTask(
+        task_type="smart_dedup_scan",
+        status="done",
+        meta={"novel_id": str(project.id)},
+        result={
+            "schema_version": 2,
+            "groups": [
+                _server_group("g1", "a", "p1"),
+                _server_group("g2", "b", "p2"),
+            ],
+        },
+    )
+    db_session.add(task)
+    await db_session.flush()
+    state = {"mutated": False, "preflight": [], "applied": []}
+
+    async def fake_apply(
+        db,
+        novel_id,
+        *,
+        primary_entity_id,
+        operations,
+        validate_only=False,
+        execution_fingerprints_prevalidated=False,
+    ):
+        if validate_only:
+            assert state["mutated"] is False
+            state["preflight"].append(primary_entity_id)
+            return []
+        assert execution_fingerprints_prevalidated is True
+        state["mutated"] = True
+        state["applied"].append(primary_entity_id)
+        return [{"action": "merge"}]
+
+    monkeypatch.setattr(
+        "modules.world.facade.apply_entity_fusion_group",
+        fake_apply,
+    )
+
+    result = await SmartDedupService().apply_groups(
+        db_session,
+        novel_id=str(project.id),
+        scan_task_id=str(task.id),
+        groups=[
+            _request_group("g1", "a", "p1"),
+            _request_group("g2", "b", "p2"),
+        ],
+        confirmed=True,
+    )
+
+    assert state == {
+        "mutated": True,
+        "preflight": ["p1", "p2"],
+        "applied": ["p1", "p2"],
+    }
+    assert [item["status"] for item in result["group_results"]] == [
+        "success",
+        "success",
+    ]
 
 
 async def test_keep_separate_is_idempotent_and_semantic_change_supersedes_it(

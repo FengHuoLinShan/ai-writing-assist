@@ -671,15 +671,31 @@ class WorldEntityFusionService:
         novel_id: str,
         primary_entity_id: str,
         operations: list[dict[str, Any]],
+        validate_only: bool = False,
+        execution_fingerprints_prevalidated: bool = False,
     ) -> list[dict[str, Any]]:
         """Strict group apply. Any error is raised for the caller savepoint."""
+        if validate_only and execution_fingerprints_prevalidated:
+            raise ValidationError("Invalid group validation mode")
         nid = parse_uuid(novel_id, "novel_id")
         ids = [parse_uuid(primary_entity_id, "primary_entity_id")]
         ids.extend(
             parse_uuid(item["source_entity_id"], "source_entity_id")
             for item in operations
         )
-        entities = await self._entity_repo.get_by_ids(db, nid, list(dict.fromkeys(ids)))
+        unique_ids = list(dict.fromkeys(ids))
+        if validate_only:
+            entity_stmt = (
+                select(CoreEntity)
+                .where(
+                    CoreEntity.novel_id == nid,
+                    CoreEntity.id.in_(unique_ids),
+                )
+                .with_for_update(read=True)
+            )
+            entities = list((await db.execute(entity_stmt)).scalars().all())
+        else:
+            entities = await self._entity_repo.get_by_ids(db, nid, unique_ids)
         by_id = {str(item.id): item for item in entities}
         target = by_id.get(primary_entity_id)
         if target is None:
@@ -691,6 +707,7 @@ class WorldEntityFusionService:
             db,
             nid,
             entities,
+            lock=validate_only,
         )
         fingerprints_by_id = {
             entity.id: await self._entity_fingerprints(
@@ -711,10 +728,11 @@ class WorldEntityFusionService:
                 raise ValidationError("Entity fusion group must use one entity type")
             source_fp = fingerprints_by_id[source.id]
             target_fp = fingerprints_by_id[target.id]
-            if source_fp["execution_fingerprint"] != item.get(
-                "expected_source_execution_fingerprint"
-            ) or target_fp["execution_fingerprint"] != item.get(
-                "expected_target_execution_fingerprint"
+            if not execution_fingerprints_prevalidated and (
+                source_fp["execution_fingerprint"]
+                != item.get("expected_source_execution_fingerprint")
+                or target_fp["execution_fingerprint"]
+                != item.get("expected_target_execution_fingerprint")
             ):
                 raise ValidationError("stale_suggestion")
             action = str(item.get("action") or "")
@@ -733,6 +751,9 @@ class WorldEntityFusionService:
             ):
                 raise ValidationError("confirmation_required")
             prepared.append((item, source))
+
+        if validate_only:
+            return []
 
         results: list[dict[str, Any]] = []
         for item, source in prepared:

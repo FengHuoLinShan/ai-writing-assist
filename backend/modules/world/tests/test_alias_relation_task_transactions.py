@@ -113,12 +113,12 @@ class _Port:
         self.execute_calls = 0
         self.finalize_calls = 0
         self.manifest = {
-            "version": 1,
+            "version": 2,
             "plan_fingerprint": "plan-1",
             "scenes": [],
         }
         self.receipt = {
-            "version": 1,
+            "version": 2,
             "plan_fingerprint": "plan-1",
             "receipt_hash": "receipt-1",
             "scenes": [],
@@ -131,7 +131,7 @@ class _Port:
         return {
             "manifest": self.manifest,
             "runtime_plan": {
-                "version": 1,
+                "version": 2,
                 "plan_fingerprint": "plan-1",
                 "scenes": [],
             },
@@ -229,7 +229,7 @@ async def test_handler_checkpoints_before_provider_and_finalizes_atomically(
     assert fresh.await_args_list[0].kwargs.get("for_update", False) is False
     assert fresh.await_args_list[-1].kwargs["for_update"] is True
     assert task.progress == 1.0
-    assert task.result["_alias_relation_task_v1"]["stage"] == "done"
+    assert task.result["_alias_relation_task_v2"]["stage"] == "done"
     attached.assert_awaited_once_with(
         db,
         confirmation_id=CONFIRMATION_ID,
@@ -271,8 +271,8 @@ async def test_retry_reuses_validated_receipt_without_provider_repeat(
     _patch_handler_dependencies(monkeypatch, db, port)
     task = _Task(
         result={
-            "_alias_relation_task_v1": {
-                "version": 1,
+            "_alias_relation_task_v2": {
+                "version": 2,
                 "stage": "llm_complete",
                 "manifest": port.manifest,
                 "receipt": port.receipt,
@@ -286,6 +286,31 @@ async def test_retry_reuses_validated_receipt_without_provider_repeat(
     assert port.prepare_calls[0]["existing_manifest"] == port.manifest
     assert port.finalize_calls == 1
     assert db.commit_count == 2
+
+
+async def test_unfinished_v1_checkpoint_fails_closed_before_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _CheckpointSession()
+    port = _Port(db)
+    _patch_handler_dependencies(monkeypatch, db, port)
+    task = _Task(
+        result={
+            "_alias_relation_task_v1": {
+                "version": 1,
+                "stage": "llm_complete",
+                "manifest": {"version": 1},
+                "receipt": {"version": 1},
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="v1 task.*submit the task again"):
+        await world_tasks.handle_world_alias_relation_extraction(db, task)
+
+    assert port.prepare_calls == []
+    assert port.execute_calls == 0
+    assert port.finalize_calls == 0
 
 
 async def test_final_confirmation_drift_keeps_receipt_but_writes_no_result(
@@ -310,7 +335,7 @@ async def test_final_confirmation_drift_keeps_receipt_but_writes_no_result(
     assert port.execute_calls == 1
     assert port.finalize_calls == 0
     assert db.commit_count == 2
-    assert task.result["_alias_relation_task_v1"]["stage"] == "llm_complete"
+    assert task.result["_alias_relation_task_v2"]["stage"] == "llm_complete"
     attached.assert_not_awaited()
 
 
@@ -336,7 +361,7 @@ async def test_final_rejects_concurrent_stale_reason_without_lost_update(
     assert fresh.await_args_list[-1].kwargs["for_update"] is True
     assert port.execute_calls == 1
     assert port.finalize_calls == 0
-    assert task.result["_alias_relation_task_v1"]["stage"] == "llm_complete"
+    assert task.result["_alias_relation_task_v2"]["stage"] == "llm_complete"
     attached.assert_not_awaited()
 
 
@@ -368,7 +393,7 @@ async def test_superseded_task_discards_detached_provider_receipt(
     assert fresh.await_args_list[-1].kwargs["for_update"] is True
     assert port.execute_calls == 1
     assert port.finalize_calls == 0
-    assert task.result["_alias_relation_task_v1"]["stage"] == "llm_complete"
+    assert task.result["_alias_relation_task_v2"]["stage"] == "llm_complete"
     attached.assert_not_awaited()
 
 
@@ -445,7 +470,7 @@ async def test_lease_loss_at_receipt_checkpoint_prevents_finalize(
 
     assert port.execute_calls == 1
     assert port.finalize_calls == 0
-    assert task.result["_alias_relation_task_v1"]["stage"] == "prepared"
+    assert task.result["_alias_relation_task_v2"]["stage"] == "prepared"
 
 
 @pytest.mark.parametrize(
@@ -454,7 +479,6 @@ async def test_lease_loss_at_receipt_checkpoint_prevents_finalize(
         "deep_import",
         "scene_auto_extraction",
         "world_object_auto_extraction",
-        "world_entity_extraction",
     ],
 )
 async def test_running_source_writer_defers_finalization(
@@ -513,7 +537,7 @@ async def test_source_writer_query_is_novel_scoped_and_excludes_current_task(
             ),
             AsyncTask(
                 id=uuid.uuid4(),
-                task_type="world_entity_extraction",
+                task_type="world_object_auto_extraction",
                 status="running",
                 meta={"novel_id": other_novel_id},
                 attempt=1,
@@ -536,7 +560,7 @@ async def test_source_writer_query_is_novel_scoped_and_excludes_current_task(
         task_types={
             "deep_import",
             "scene_auto_extraction",
-            "world_entity_extraction",
+            "world_object_auto_extraction",
             "world_alias_relation_extraction",
         },
         exclude_task_id=str(current_id),
@@ -898,7 +922,7 @@ async def test_real_worker_rejected_final_checkpoint_rolls_back_domain_and_bindi
         assert returned.id == task_id
         assert returned.status == "cancelled"
         assert returned.progress == 0.75
-        assert returned.result["_alias_relation_task_v1"]["stage"] == "llm_complete"
+        assert returned.result["_alias_relation_task_v2"]["stage"] == "llm_complete"
         assert guard_calls == 4
         assert port.execute_calls == 1
         assert port.finalize_calls == 1

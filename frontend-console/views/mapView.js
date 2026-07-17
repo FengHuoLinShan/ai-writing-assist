@@ -956,6 +956,7 @@ const mapView = {
         paths: this._effectivePaths(),
         pathProfiles: MAP_PATH_PROFILES,
         territoryTools: this._renderTerritoryTools(),
+        pendingCount: mapEditingSession.draftChangeCount(),
       })
       : ""
 
@@ -4216,6 +4217,7 @@ const mapView = {
 
   _notifyEditingChanged() {
     this._renderSubsetCache.clear()
+    updatePendingCount(mapEditingSession.draftChangeCount())
     const callback = this._mountContext?.onEditingChange
     if (typeof callback === "function") {
       callback({
@@ -5535,9 +5537,12 @@ const mapView = {
           )
           closeModal()
           toast("地图信息已更新", "success")
-          await this._loadMapState(cfg.id)
+          await this._reloadMapStatePreservingSession(cfg.id)
           await this._loadMaps()
-          this.unmount()
+          // Keep the current map selected after saving its metadata. A full
+          // unmount clears `_state` and unexpectedly sends the author back to
+          // the map list, interrupting an otherwise local settings edit.
+          this._teardownInteractiveSurface()
           mapState.mode = previousMode
           this._render("map-root")
         } catch (err) {

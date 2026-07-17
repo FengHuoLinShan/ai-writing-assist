@@ -71,6 +71,44 @@ def test_import_snapshot_helper_uses_model_aware_token_estimate() -> None:
     )
 
 
+def test_phase2_v2_snapshot_covers_actual_structured_prompt_context() -> None:
+    activation = {
+        "activation_version": "import-context-v2",
+        "prompt_contract_version": "scene-entity-extraction-v2",
+        "context_fingerprint": "fingerprint",
+        "scene_card": {"title": "锁定 Scene"},
+        "outline_context": {"plot_threads": [{"name": "主线"}]},
+        "identity_candidates": [{"prompt_ref": "entity-001", "name": "沈砚"}],
+        "previous_scene_briefs": [{"prompt_ref": "previous-scene-001"}],
+        "previous_scene_evidence": [{"text": "前序逐字证据"}],
+        "sources": [{"type": "world_entity", "id": "audit-only-id"}],
+    }
+
+    payload = build_phase2_snapshot_payload(
+        scene={"id": "scene-1", "scene_index": 1, "chapter_ids": ["1"]},
+        source_chapter_index=1,
+        existing_context="legacy world",
+        memory_context="legacy memory",
+        chapters_text="当前 Scene 完整正文",
+        accumulated_memory=[],
+        model="not-a-real-openai-model",
+        max_tokens=1024,
+        temperature=0.3,
+        activation=activation,
+    )
+
+    rendered = payload["rendered_context"]
+    assert "前序逐字证据" in rendered
+    assert "当前 Scene 完整正文" in rendered
+    assert "scene-entity-extraction-v2" in rendered
+    assert "audit-only-id" not in rendered
+    section_keys = {
+        item["key"] for item in payload["section_metadata"]["sections"]
+    }
+    assert "previous_scene_evidence" in section_keys
+    assert "outline_context" in section_keys
+
+
 def test_agent_step_autocompact_uses_tiktoken_estimate() -> None:
     text = "今天天气很好。" * 20
     guard = ContextBudgetGuard(ContextBudget(context_limit_tokens=10, trigger_ratio=0.5))

@@ -2051,6 +2051,8 @@ class MapDashboardQueueItem(BaseModel):
     time_label: str
     status_label: str
     source_summary: str
+    source_ref: dict = Field(default_factory=dict)
+    evidence_text: str | None = None
     location_label: str | None = None
     spatial_anchor_label: str | None = None
     debug_ref: dict = Field(default_factory=dict)

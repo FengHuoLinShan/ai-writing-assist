@@ -13,7 +13,7 @@ DEEP_IMPORT_FROZEN_SETTINGS_KEY = "_deep_import_settings_frozen"
 
 DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     "global": {
-        "structured_timeout_grace_seconds": 15,
+        "structured_timeout_grace_seconds": 60,
         "structured_max_fix_attempts": 2,
     },
     "phase0": {
@@ -25,7 +25,7 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "max_max_tokens": 32_768,
         # Legacy prefetch-only fields. Hidden from the normal settings UI.
         "scene_max_tokens": 8192,
-        "scene_timeout_seconds": 120,
+        "scene_timeout_seconds": 420,
     },
     "phase1a": {
         # Legacy reinforcement-only field. Formal slicing uses Phase 0 window budgets.
@@ -35,12 +35,12 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     },
     "phase1b": {
         "small_sample_max_tokens": 6144,
-        "small_sample_timeout_seconds": 90,
+        "small_sample_timeout_seconds": 420,
         "reducer_max_tokens": 128,
-        "reducer_timeout_seconds": 45,
+        "reducer_timeout_seconds": 420,
         "compact_text_limit": 180,
         "enrich_max_tokens": 32_768,
-        "enrich_timeout_seconds": 300,
+        "enrich_timeout_seconds": 1200,
         "use_llm": None,
     },
     "phase1c": {
@@ -49,34 +49,34 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "concurrency": 20,
         # None means inherit the effective project/global/system LLM budget.
         "decision_max_tokens": None,
-        "timeout_seconds": 360,
+        "timeout_seconds": 1200,
     },
     "phase2": {
-        "world_timeout_seconds": 900,
+        "world_timeout_seconds": 1200,
         "world_min_max_tokens": 32_768,
         "world_max_max_tokens": 32_768,
         "world_max_tokens_per_source_char": 1.0,
         "world_window_concurrency": 20,
-        "parallel_scene_concurrency": 20,
+        "parallel_scene_concurrency": 25,
         "parallel_scene_max_tokens": 32_768,
-        "parallel_provider_timeout_seconds": 240,
-        "parallel_llm_timeout_seconds": 270,
+        "parallel_provider_timeout_seconds": 360,
+        "parallel_llm_timeout_seconds": 900,
         "batch_size_scenes": 12,
         "batch_concurrency": 6,
         "boundary_scenes": 2,
         "boundary_supplement_enabled": False,
-        "boundary_total_timeout_seconds": 120.0,
-        "alias_relation_total_timeout_seconds": 240,
+        "boundary_total_timeout_seconds": 900.0,
+        "alias_relation_total_timeout_seconds": 1200,
         "alias_relation_concurrency": 4,
-        "alias_relation_llm_timeout_seconds": 120,
+        "alias_relation_llm_timeout_seconds": 600,
         "alias_relation_scene_char_limit": 3200,
         "alias_relation_entity_index_char_limit": 3600,
         "alias_relation_entity_index_fallback_limit": 30,
         "alias_relation_supplement_enabled": False,
-        "postprocess_timeout_seconds": 30.0,
+        "postprocess_timeout_seconds": 120.0,
     },
     "phase3": {
-        "structure_timeout_seconds": 300,
+        "structure_timeout_seconds": 1200,
         "structure_max_tokens": 32_768,
     },
 }

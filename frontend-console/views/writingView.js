@@ -25,6 +25,7 @@ const writingView = {
   _bulkSelections: {},
   _showBulkActions: false,
   _chapterSelectionGeneration: 0,
+  _authorPreferences: null,
 
   // 子模块实例
   _chapterTree: null,
@@ -41,12 +42,53 @@ const writingView = {
   _mobileQuickNote: null,
 
   _beforeUnloadHandler: null,
+  _loadedProjectId: null,
+
+  _requestedLocation() {
+    const query = router.getCurrentQuery?.()
+    const queryChapter = Number(query?.get?.("chapter_index") || 0)
+    if (Number.isInteger(queryChapter) && queryChapter > 0) {
+      const draftId = query?.get?.("draft_id") || null
+      return {
+        projectId: state.currentProjectId,
+        currentChapter: queryChapter,
+        currentDraftId: draftId,
+      }
+    }
+    return state.viewStates.writing?.projectId === state.currentProjectId
+      ? state.viewStates.writing
+      : null
+  },
+
+  async _openRequestedLocation() {
+    const requested = this._requestedLocation()
+    if (!requested?.currentChapter || !this._chapterList.includes(requested.currentChapter)) {
+      return false
+    }
+    await this._selectChapter(requested.currentChapter, {
+      draftId: requested.currentDraftId,
+      versionNumber: requested.currentVersionNumber,
+      isReadonly: requested.isReadonly,
+      restoreSourceVersion: requested.restoreSourceVersion,
+      restoreExpectedVersion: requested.restoreExpectedVersion,
+      restoreExpectedUpdatedAt: requested.restoreExpectedUpdatedAt,
+    })
+    return true
+  },
 
   // ============================================================
   // 生命周期
   // ============================================================
 
   async onEnter() {
+    const projectId = state.currentProjectId || null
+    // writingView is a singleton while the router caches one DOM fragment per
+    // project. A new project entry must therefore rebuild the project-scoped
+    // submodules instead of retaining the last project's in-memory chapter
+    // tree behind a different cached DOM.
+    this._disposeSubModules()
+    this._removeBeforeUnloadHandler()
+    await this._loadAuthorPreferences()
     this._initSubModules()
     this._resetSharedState()
     this._loading = true
@@ -81,19 +123,7 @@ const writingView = {
       toast("章节列表加载失败，可稍后重试", "warning")
     }
 
-    const saved = state.viewStates.writing?.projectId === state.currentProjectId
-      ? state.viewStates.writing
-      : null
-    if (saved?.currentChapter && this._chapterList.includes(saved.currentChapter)) {
-      await this._selectChapter(saved.currentChapter, {
-        draftId: saved.currentDraftId,
-        versionNumber: saved.currentVersionNumber,
-        isReadonly: saved.isReadonly,
-        restoreSourceVersion: saved.restoreSourceVersion,
-        restoreExpectedVersion: saved.restoreExpectedVersion,
-        restoreExpectedUpdatedAt: saved.restoreExpectedUpdatedAt,
-      })
-    }
+    await this._openRequestedLocation()
 
     try {
       await this._deepImportRecovery.recover()
@@ -102,13 +132,11 @@ const writingView = {
     }
 
     this._loading = false
+    this._loadedProjectId = projectId
   },
 
   onLeave() {
-    if (this._beforeUnloadHandler) {
-      window.removeEventListener("beforeunload", this._beforeUnloadHandler)
-      this._beforeUnloadHandler = null
-    }
+    this._removeBeforeUnloadHandler()
 
     state.viewStates.writing = {
       projectId: state.currentProjectId,
@@ -125,10 +153,21 @@ const writingView = {
     }
 
     this._disposeSubModules()
+    this._loadedProjectId = null
   },
 
   async onActivate() {
+    if (this._loadedProjectId !== (state.currentProjectId || null)) {
+      await this.onEnter()
+      await this._rerender()
+      return
+    }
+    await this._loadAuthorPreferences()
     this._bindEvents()
+    // KeepAlive restores the existing DOM and skips onEnter().  Navigation
+    // sources such as the generation center, RAG, and Scene Workbench put the
+    // requested chapter/draft in viewStates, so consume that intent here too.
+    await this._openRequestedLocation()
     const editorEl = document.getElementById("writing-editor")
     if (editorEl && this._currentChapter !== null) {
       editorEl.focus()
@@ -138,6 +177,7 @@ const writingView = {
     } catch {
       // ignore
     }
+    await this._rerender()
   },
 
   onDeactivate() {
@@ -152,6 +192,48 @@ const writingView = {
     if (titleInput && this._editor) {
       this._editor.setState({ title: titleInput.value })
     }
+  },
+
+  async _loadAuthorPreferences() {
+    const projectId = state.currentProjectId
+    const unwrap = (value, fallback) => {
+      if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "value")) {
+        return value.value ?? fallback
+      }
+      return value ?? fallback
+    }
+    let prefs = null
+    if (projectId) {
+      try {
+        const response = await api.settings.getEffectiveAuthorPrefs(projectId)
+        if (response) {
+          prefs = {
+            dailyGoal: unwrap(response.daily_goal, null),
+            editorFont: unwrap(response.editor_font, "system"),
+            defaultFocusMode: Boolean(unwrap(response.default_focus_mode, false)),
+          }
+        }
+      } catch {
+        // Author preferences improve the editor but must not block writing.
+      }
+    }
+    if (!prefs) {
+      try {
+        const raw = localStorage.getItem(`novel_author_preferences:${projectId || "global"}`)
+        prefs = raw ? JSON.parse(raw) : {}
+      } catch {
+        prefs = {}
+      }
+    }
+    this._authorPreferences = {
+      dailyGoal: prefs.dailyGoal ?? null,
+      editorFont: ["system", "serif", "sans", "mono"].includes(prefs.editorFont)
+        ? prefs.editorFont
+        : "system",
+      defaultFocusMode: Boolean(prefs.defaultFocusMode),
+    }
+    state._authorPreferences = this._authorPreferences
+    return this._authorPreferences
   },
 
   // ============================================================
@@ -274,7 +356,6 @@ const writingView = {
       "toggle-focus-mode": () => this._toggleFocusMode(),
       "toggle-outline-float": () => this._toggleOutlineFloat(),
       "close-outline-float": () => this._closeOutlineFloat(),
-      "ai-continue": () => this._editor?.aiContinue?.(),
       "switch-desktop-mode": () => this._switchDesktopMode(),
       "save-mobile-note": () => this._mobileQuickNote?.save?.(),
       "restore-from-version": () => this._versions?.restoreFromVersion?.(),
@@ -331,6 +412,12 @@ const writingView = {
     this._focusModeManager?.dispose?.()
     this._tools?.dispose?.()
     this._mobileQuickNote?.dispose?.()
+  },
+
+  _removeBeforeUnloadHandler() {
+    if (!this._beforeUnloadHandler) return
+    window.removeEventListener("beforeunload", this._beforeUnloadHandler)
+    this._beforeUnloadHandler = null
   },
 
   _ensureSubModulesInitialized() {
@@ -440,6 +527,10 @@ const writingView = {
 
   _syncChapterMetaToTree(chapterIndex) {
     if (chapterIndex == null || !this._chapters[chapterIndex]) return
+    // Candidate/deprecated drafts are previews, not the chapter's active
+    // manuscript. Opening one must not replace the tree's published/draft
+    // badge, title, or word count with suggestion metadata.
+    if (["candidate", "deprecated"].includes(this._editor?.getDraftStatus?.())) return
     const content = this._editor?.getLoadedContent?.()
       ?? this._editor?.getContent?.()
       ?? ""
@@ -610,7 +701,7 @@ const writingView = {
     if (!action.selectChapter && !action.rerender) return
     this._syncSharedStateToSubModules()
     if (action.selectChapter) {
-      this._selectChapter(action.selectChapter)
+      await this._selectChapter(action.selectChapter, action.selectOptions || {})
     } else if (action.rerender) {
       await this._rerender()
     }

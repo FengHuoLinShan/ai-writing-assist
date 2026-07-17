@@ -998,7 +998,7 @@ test.describe("写作台模块", () => {
 
     await sceneExtraction.click()
     await expect(page.locator("#modal-overlay")).toBeVisible()
-    await expect(page.locator("#modal-overlay")).toContainText("场景（scene）自动提取")
+    await expect(page.locator("#modal-overlay")).toContainText("从正文提取 Scene")
     await expect(page.locator("#modal-overlay")).toContainText("起始章节")
     await expect(page.locator("#modal-overlay")).toContainText("结束章节")
 

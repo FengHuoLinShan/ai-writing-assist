@@ -63,6 +63,10 @@ _EXTRA_BODY_FIELDS = {
     "thinking",
 }
 
+_JSON_OBJECT_OUTPUT_INSTRUCTION = (
+    "Return exactly one valid JSON object matching the requested schema."
+)
+
 
 class OpenAIProvider:
     """OpenAI-compatible API Provider
@@ -363,9 +367,36 @@ class OpenAIProvider:
 
     def _build_kwargs(self, request: LLMCallRequest, model: str) -> dict[str, Any]:
         """构建 OpenAI SDK 调用参数"""
+        messages = [m.model_dump() for m in request.messages]
+        if (
+            request.response_format == {"type": "json_object"}
+            and not any(
+                "json" in str(message.get("content") or "").casefold()
+                for message in messages
+            )
+        ):
+            system_message = next(
+                (message for message in messages if message.get("role") == "system"),
+                None,
+            )
+            if system_message is None:
+                messages.insert(
+                    0,
+                    {
+                        "role": "system",
+                        "content": _JSON_OBJECT_OUTPUT_INSTRUCTION,
+                    },
+                )
+            else:
+                content = str(system_message.get("content") or "").rstrip()
+                system_message["content"] = (
+                    f"{content}\n\n{_JSON_OBJECT_OUTPUT_INSTRUCTION}"
+                    if content
+                    else _JSON_OBJECT_OUTPUT_INSTRUCTION
+                )
         kwargs: dict[str, Any] = {
             "model": model,
-            "messages": [m.model_dump() for m in request.messages],
+            "messages": messages,
         }
         if request.temperature is not None:
             kwargs["temperature"] = request.temperature

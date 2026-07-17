@@ -237,6 +237,38 @@ describe("api.js cache behavior", () => {
     }
   })
 
+  it("generation center keeps a direct LLM request open beyond the old 90 second limit", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveFetch
+      let requestSignal
+      globalThis.fetch = vi.fn((_url, init) => {
+        requestSignal = init.signal
+        return new Promise((resolve) => {
+          resolveFetch = resolve
+        })
+      })
+
+      const pending = window.api.generate.generateWorldSuggestion({ novel_id: "p1" })
+      await vi.advanceTimersByTimeAsync(180_000)
+
+      expect(requestSignal.aborted).toBe(false)
+      expect(globalThis.fetch.mock.calls[0][0]).toContain(
+        "/api/world/generation-center/suggestions",
+      )
+      resolveFetch({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ result: { kind: "world_bible_new_page" } }),
+      })
+      await expect(pending).resolves.toEqual({
+        result: { kind: "world_bible_new_page" },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("failed POST does not clear existing GET cache", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true,
@@ -566,8 +598,7 @@ describe("api.js request headers", () => {
     expect(init.headers.Authorization).toBeUndefined()
   })
 
-  it("prompts once on 401, retries from memory, and never persists the token", async () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("closed-token")
+  it("uses an app modal once on 401, retries from memory, and never persists the token", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
         ok: false,
@@ -580,19 +611,20 @@ describe("api.js request headers", () => {
         json: () => Promise.resolve({ ok: true }),
       })
 
-    await expect(window.api.request("/projects/auth-check")).resolves.toEqual({ ok: true })
+    const requestPromise = window.api.request("/projects/auth-check")
+    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledOnce())
+    document.body.innerHTML = '<input id="closed-test-access-token" value="closed-token" />'
+    await showModalHtml.mock.calls[0][2][0].handler()
+    await expect(requestPromise).resolves.toEqual({ ok: true })
 
-    expect(promptSpy).toHaveBeenCalledOnce()
     expect(globalThis.fetch).toHaveBeenCalledTimes(2)
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
     expect(globalThis.fetch.mock.calls[1][1].headers.Authorization)
       .toBe("Bearer closed-token")
     expect(sessionStorage.getItem("novel_app_access_token")).toBeNull()
-    promptSpy.mockRestore()
   })
 
   it("clears a rejected retry token after the second 401", async () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("rejected-token")
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
         ok: false,
@@ -605,14 +637,15 @@ describe("api.js request headers", () => {
         json: () => Promise.resolve({ detail: "Invalid access token" }),
       })
 
-    await expect(window.api.request("/projects/auth-check"))
-      .rejects.toMatchObject({ status: 401 })
-    expect(promptSpy).toHaveBeenCalledOnce()
+    const requestPromise = window.api.request("/projects/auth-check")
+    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledOnce())
+    document.body.innerHTML = '<input id="closed-test-access-token" value="rejected-token" />'
+    await showModalHtml.mock.calls[0][2][0].handler()
+    await expect(requestPromise).rejects.toMatchObject({ status: 401 })
 
     mockJsonResponse({ ok: true })
     await window.api.request("/projects/after-rejection", { cache: "no-store" })
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
-    promptSpy.mockRestore()
   })
 
   it("uses the same in-memory token for upload XHR without exposing a getter", async () => {

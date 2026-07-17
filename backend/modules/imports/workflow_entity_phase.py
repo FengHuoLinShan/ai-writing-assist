@@ -81,19 +81,30 @@ class EntityExtractionPhaseRunner:
             *,
             scene_id: str | None = None,
             chapter: int | None = None,
+            operation: str = "scene_entity_extraction",
         ) -> None:
-            progress.phase2_total_scenes = total
-            progress.phase2_completed_scenes = completed
+            is_alias_relation = operation == "alias_relation_extraction"
+            if is_alias_relation:
+                progress.phase2b_total_scenes = total
+                progress.phase2b_completed_scenes = completed
+            else:
+                progress.phase2_total_scenes = total
+                progress.phase2_completed_scenes = completed
+            progress.current_operation = operation
             if scene_id is not None:
                 progress.current_scene_candidate_id = scene_id
             if chapter is not None:
                 progress.current_chapter = chapter
             progress.current_item = {
                 "kind": "scene",
+                "operation": operation,
                 "completed": completed,
                 "total": total,
             }
-            value = 0.4 + 0.4 * (completed / total) if total else 0.4
+            if is_alias_relation:
+                value = 0.6 + 0.2 * (completed / total) if total else 0.6
+            else:
+                value = 0.4 + 0.2 * (completed / total) if total else 0.4
             await workflow._emit_progress(progress, value, on_progress)
 
         phase2_failed = False
@@ -138,6 +149,11 @@ class EntityExtractionPhaseRunner:
             )
             if phase2_result.get("degraded"):
                 progress.degraded = True
+                progress.degraded_reason = (
+                    progress.degraded_reason
+                    or phase2_result.get("error_kind")
+                    or "phase2_degraded"
+                )
                 skipped_scenes = phase2_result.get("skipped_scenes", 0)
                 failed_scenes = phase2_result.get("failed_scene_indices", [])
                 details = []
@@ -203,9 +219,12 @@ class EntityExtractionPhaseRunner:
         if (
             not phase2_failed
             and total_scenes > 0
-            and phase2_result.get("total_created", 0) <= 0
+            and not _has_phase2a_entity_effect(phase2_result)
         ):
             progress.degraded = True
+            progress.degraded_reason = progress.degraded_reason or (
+                phase2_result.get("error_kind") or "empty_output"
+            )
             progress.phase_errors.append(
                 {
                     "phase": DeepImportStep.entity_extraction.value,
@@ -224,7 +243,7 @@ class EntityExtractionPhaseRunner:
         phase2_degraded = bool(phase2_result.get("degraded")) or (
             not phase2_failed
             and total_scenes > 0
-            and int(phase2_result.get("total_created", 0) or 0) <= 0
+            and not _has_phase2a_entity_effect(phase2_result)
         )
         add_phase_artifact(
             progress,
@@ -324,7 +343,7 @@ class EntityExtractionPhaseRunner:
             )
             missing = scene_coverage["missing_chapters"]
             progress.message = (
-                "请先执行场景（scene）自动提取"
+                "请先执行从正文提取 Scene"
                 if not scene_coverage["covered_chapters"]
                 else f"场景（scene）覆盖不完整，缺少章节：{missing}"
             )
@@ -368,19 +387,30 @@ class EntityExtractionPhaseRunner:
             *,
             scene_id: str | None = None,
             chapter: int | None = None,
+            operation: str = "scene_entity_extraction",
         ) -> None:
-            progress.phase2_total_scenes = total
-            progress.phase2_completed_scenes = completed
+            is_alias_relation = operation == "alias_relation_extraction"
+            if is_alias_relation:
+                progress.phase2b_total_scenes = total
+                progress.phase2b_completed_scenes = completed
+            else:
+                progress.phase2_total_scenes = total
+                progress.phase2_completed_scenes = completed
+            progress.current_operation = operation
             if scene_id is not None:
                 progress.current_scene_candidate_id = scene_id
             if chapter is not None:
                 progress.current_chapter = chapter
             progress.current_item = {
                 "kind": "scene",
+                "operation": operation,
                 "completed": completed,
                 "total": total,
             }
-            value = 0.1 + 0.85 * (completed / total) if total else 0.1
+            if is_alias_relation:
+                value = 0.55 + 0.4 * (completed / total) if total else 0.55
+            else:
+                value = 0.1 + 0.45 * (completed / total) if total else 0.1
             await workflow._emit_progress(progress, value, on_progress)
 
         phase2_result = await workflow._extract_entities_by_scene(
@@ -422,7 +452,7 @@ class EntityExtractionPhaseRunner:
                 {
                     "phase": DeepImportStep.entity_extraction.value,
                     "error_kind": "missing_scene_prerequisite",
-                    "message": "请先执行场景（scene）自动提取",
+                    "message": "请先执行从正文提取 Scene",
                 }
             )
         else:
@@ -436,11 +466,16 @@ class EntityExtractionPhaseRunner:
                 progress.quality_status = (
                     "partial"
                     if phase2_result.get("degraded")
-                    or int(phase2_result.get("total_created", 0) or 0) <= 0
+                    or not _has_phase2a_entity_effect(phase2_result)
                     else "complete"
                 )
             if phase2_result.get("degraded"):
                 progress.degraded = True
+                progress.degraded_reason = (
+                    progress.degraded_reason
+                    or phase2_result.get("error_kind")
+                    or "phase2_degraded"
+                )
                 progress.phase_errors.append(
                     {
                         "phase": DeepImportStep.entity_extraction.value,
@@ -528,6 +563,11 @@ class EntityExtractionPhaseRunner:
         if not _has_phase2a_failures(phase2_result):
             return phase2_result, repair_summary
 
+        failed_scene_ids = _failed_phase2a_scene_ids(phase2_result)
+        if not failed_scene_ids:
+            repair_summary["reason"] = "failed_scene_identity_missing"
+            return phase2_result, repair_summary
+
         workflow = self.workflow
         repair_result = await workflow._extract_entities_by_scene(
             db,
@@ -538,9 +578,11 @@ class EntityExtractionPhaseRunner:
             existing_checkpoints=progress.checkpoints,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
+            scene_ids=failed_scene_ids,
+            include_alias_relations=False,
         )
-        workflow._merge_checkpoints(progress, repair_result)
         merged = _merge_phase2_repair_result(phase2_result, repair_result)
+        workflow._merge_checkpoints(progress, merged)
         repair_summary = phase2_repair_summary(
             repair_result,
             attempted=True,
@@ -825,6 +867,50 @@ def _has_phase2a_failures(phase2_result: dict[str, Any]) -> bool:
     )
 
 
+def _has_phase2a_entity_effect(phase2_result: dict[str, Any]) -> bool:
+    """Treat deterministic identity reuse as useful idempotent output."""
+    dedup_counts = phase2_result.get("phase2_dedup_counts") or {}
+    return bool(
+        int(phase2_result.get("total_created", 0) or 0) > 0
+        or int(dedup_counts.get("skipped", 0) or 0) > 0
+    )
+
+
+def _failed_phase2a_scene_ids(phase2_result: dict[str, Any]) -> list[str]:
+    failed_ids = [
+        str(scene_id)
+        for scene_id in phase2_result.get("failed_scene_ids") or []
+        if scene_id
+    ]
+    if failed_ids:
+        return list(dict.fromkeys(failed_ids))
+
+    failed_indices = {
+        int(index)
+        for index in phase2_result.get("failed_scene_indices") or []
+        if str(index).lstrip("-").isdigit()
+    }
+    checkpoints = (
+        (phase2_result.get("checkpoints") or {})
+        .get("phase2", {})
+        .get("scenes", [])
+    )
+    for checkpoint in checkpoints if isinstance(checkpoints, list) else []:
+        if not isinstance(checkpoint, dict) or checkpoint.get("status") != "failed":
+            continue
+        scene_id = checkpoint.get("scene_id")
+        scene_index = checkpoint.get("scene_index")
+        if scene_id and (
+            not failed_indices
+            or (
+                str(scene_index).lstrip("-").isdigit()
+                and int(scene_index) in failed_indices
+            )
+        ):
+            failed_ids.append(str(scene_id))
+    return list(dict.fromkeys(failed_ids))
+
+
 def _merge_phase2_repair_result(
     source: dict[str, Any],
     repair: dict[str, Any],
@@ -835,23 +921,118 @@ def _merge_phase2_repair_result(
         "total_aliases",
         "total_relations",
         "total_deltas",
+        "total_uncertain_items",
+        "map_observation_candidates_created",
+        "map_observation_candidates_reused",
         "supplemental_llm_created",
         "fallback_created",
     ):
         merged[key] = int(source.get(key, 0) or 0) + int(repair.get(key, 0) or 0)
-    merged["completed_scenes"] = max(
-        int(source.get("completed_scenes", 0) or 0),
-        int(repair.get("completed_scenes", 0) or 0),
+    merged["total_scenes"] = int(source.get("total_scenes", 0) or 0)
+    for key in ("phase2_action_counts", "phase2_dedup_counts"):
+        combined_counts: dict[str, int] = {}
+        for counts in (source.get(key) or {}, repair.get(key) or {}):
+            for name, value in counts.items():
+                combined_counts[name] = combined_counts.get(name, 0) + int(value or 0)
+        merged[key] = combined_counts
+    for key in (
+        "phase2_linked_to_existing",
+        "phase2_ignored",
+        "phase2_temporary_only",
+        "phase2_low_confidence",
+    ):
+        merged[key] = int(source.get(key, 0) or 0) + int(repair.get(key, 0) or 0)
+    merged["completed_scenes"] = min(
+        merged["total_scenes"],
+        int(source.get("completed_scenes", 0) or 0)
+        + int(repair.get("completed_scenes", 0) or 0),
+    )
+    merged["skipped_scenes"] = int(source.get("skipped_scenes", 0) or 0) + int(
+        repair.get("skipped_scenes", 0) or 0
+    )
+    merged["rerun_scenes"] = int(source.get("rerun_scenes", 0) or 0) + int(
+        repair.get("rerun_scenes", 0) or 0
     )
     merged["failed_scene_indices"] = repair.get("failed_scene_indices") or []
     merged["failed_scene_ids"] = repair.get("failed_scene_ids") or []
     merged["phase2_failed_batches"] = repair.get("phase2_failed_batches") or []
+    for key in (
+        "unresolved_scene_indices",
+        "unresolved_scene_ids",
+        "alias_relation_failed_scenes",
+        "alias_relation_fallback_scenes",
+    ):
+        merged[key] = list(
+            dict.fromkeys([*(source.get(key) or []), *(repair.get(key) or [])])
+        )
+    merged["checkpoints"] = _merge_phase2_checkpoints(
+        source.get("checkpoints") or {},
+        repair.get("checkpoints") or {},
+    )
+    merged["structured_format_diagnostics"] = [
+        *(source.get("structured_format_diagnostics") or []),
+        *(repair.get("structured_format_diagnostics") or []),
+    ][:20]
+    merged["phase2_throttle_reasons"] = list(
+        dict.fromkeys(
+            [
+                *(source.get("phase2_throttle_reasons") or []),
+                *(repair.get("phase2_throttle_reasons") or []),
+            ]
+        )
+    )
     merged["degraded"] = bool(
         repair.get("degraded")
-        or repair.get("alias_relation_failed_scenes")
-        or repair.get("alias_relation_fallback_scenes")
+        or repair.get("failed_scene_indices")
+        or merged["unresolved_scene_indices"]
+        or merged["alias_relation_failed_scenes"]
+        or merged["alias_relation_fallback_scenes"]
     )
     if not merged["failed_scene_indices"] and not merged["phase2_failed_batches"]:
-        merged["error_kind"] = repair.get("error_kind")
-        merged["error_message"] = repair.get("error_message")
+        if merged["unresolved_scene_indices"]:
+            merged["error_kind"] = (
+                source.get("error_kind") or "current_scene_span_coverage_missing"
+            )
+            merged["error_message"] = source.get("error_message")
+        else:
+            merged["error_kind"] = repair.get("error_kind")
+            merged["error_message"] = repair.get("error_message")
+    return merged
+
+
+def _merge_phase2_checkpoints(
+    source: dict[str, Any],
+    repair: dict[str, Any],
+) -> dict[str, Any]:
+    merged = {**source, **repair}
+    for phase_name in ("phase2", "phase2b"):
+        source_section = source.get(phase_name) or {}
+        repair_section = repair.get(phase_name) or {}
+        if not isinstance(source_section, dict) or not isinstance(repair_section, dict):
+            continue
+        source_scenes = source_section.get("scenes") or []
+        repair_scenes = repair_section.get("scenes") or []
+        if not isinstance(source_scenes, list) or not isinstance(repair_scenes, list):
+            continue
+        by_scene_id = {
+            str(item.get("scene_id")): index
+            for index, item in enumerate(source_scenes)
+            if isinstance(item, dict) and item.get("scene_id")
+        }
+        combined = [
+            dict(item) if isinstance(item, dict) else item for item in source_scenes
+        ]
+        for item in repair_scenes:
+            scene_id = str(item.get("scene_id")) if isinstance(item, dict) else ""
+            if scene_id and scene_id in by_scene_id:
+                combined[by_scene_id[scene_id]] = item
+            else:
+                if scene_id:
+                    by_scene_id[scene_id] = len(combined)
+                combined.append(item)
+        merged[phase_name] = {
+            **source_section,
+            **repair_section,
+            "scenes": combined,
+        }
     return merged

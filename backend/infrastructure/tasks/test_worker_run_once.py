@@ -80,6 +80,66 @@ async def test_run_once_returns_reloaded_terminal_task(
 
 
 @pytest.mark.asyncio
+async def test_handler_can_checkpoint_progress_without_domain_commit(test_engine) -> None:
+    sessions = async_sessionmaker(
+        test_engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    task_id = uuid.uuid4()
+    task_type = f"run-once-progress-checkpoint-{uuid.uuid4()}"
+    registry = TaskRegistry()
+    observed: dict[str, object] = {}
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def handler(*, db, task):
+        assert db.in_transaction() is False
+        task.result = {"phase": "provider", "message": "正在分析正文"}
+        task.update_progress(0.42)
+        observed["accepted"] = await db.checkpoint_task_progress()
+        assert db.in_transaction() is False
+        async with sessions() as inspection_db:
+            persisted = await inspection_db.get(AsyncTask, task.id)
+            assert persisted is not None
+            observed["progress"] = persisted.progress
+            observed["result"] = dict(persisted.result or {})
+        return {"ok": True}
+
+    registry.register(task_type, handler)
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    meta={},
+                )
+            )
+
+        returned = await TaskWorker(
+            db_manager=TestManager(),
+            heartbeat_interval=60.0,
+        ).run_once()
+
+        assert returned is not None
+        assert returned.status == "done"
+        assert observed == {
+            "accepted": True,
+            "progress": 0.42,
+            "result": {"phase": "provider", "message": "正在分析正文"},
+        }
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "opens_transaction",
     [False, True],

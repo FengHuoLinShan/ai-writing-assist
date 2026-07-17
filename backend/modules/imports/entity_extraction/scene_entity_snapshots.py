@@ -150,24 +150,77 @@ async def create_phase2b_snapshot(
     entity_index: str,
     *,
     workflow_id: str | None = None,
+    context_bundle: dict[str, Any] | None = None,
 ):
     from core.errors import ValidationError
     from modules.context.contracts import ContextSnapshotRequest
     from modules.context.facade import get_import_scene_source_refs, open_context_snapshot
+    from modules.imports.entity_extraction.scene_entity_config import (
+        PHASE2B_PROMPT_CONTRACT_VERSION,
+    )
+    from modules.imports.entity_extraction.scene_entity_phase2b_context import (
+        prompt_context_bundle,
+        render_phase2b_user_payload,
+    )
 
     profile_summary = _phase2_profile_summary()
-    rendered_context = f"{entity_index}\n\n{service._scene_context_header(scene)}"
+    prompt_bundle = prompt_context_bundle(context_bundle or {})
+    if context_bundle is not None:
+        rendered_context = render_phase2b_user_payload(
+            context_bundle,
+            chapters_text,
+        )
+    else:
+        rendered_context = (
+            f"{entity_index}\n\n{service._scene_context_header(scene)}"
+            f"\n\n{chapters_text}"
+        )
     source_refs: list[dict] = []
     source_warning = None
-    try:
-        source_refs = await get_import_scene_source_refs(
-            db,
-            novel_id=str(nid),
-            scene_id=service._scene_id(scene),
-            content_mode="working",
+    if context_bundle is not None:
+        source_refs = list(context_bundle.get("_current_scene_sources") or [])
+        if not source_refs:
+            raise ValueError("Phase 2b snapshot source refs are missing")
+    else:
+        try:
+            source_refs = await get_import_scene_source_refs(
+                db,
+                novel_id=str(nid),
+                scene_id=service._scene_id(scene),
+                content_mode="working",
+            )
+        except (ValidationError, ValueError) as exc:
+            source_warning = str(exc)
+    included_sources = list((context_bundle or {}).get("_included_sources") or [])
+    omitted_sources = list((context_bundle or {}).get("_omitted_sources") or [])
+    included_asset_ids: dict[str, list[str]] | list = (
+        _snapshot_asset_ids(included_sources) if context_bundle is not None else []
+    )
+    excluded_asset_ids: dict[str, list[str]] | None = (
+        _snapshot_asset_ids(omitted_sources) if context_bundle is not None else None
+    )
+    section_metadata = [
+        {"name": "entity_index", "chars": len(entity_index)},
+        {
+            "name": "scene_text",
+            "chars": len(chapters_text),
+            "source_refs": source_refs,
+            "source_warning": source_warning,
+        },
+    ]
+    if context_bundle is not None:
+        section_metadata.append(
+            {
+                "name": "phase2b_context",
+                "chars": len(rendered_context) - len(chapters_text),
+                "prompt_contract_version": PHASE2B_PROMPT_CONTRACT_VERSION,
+                "activation_context_fingerprint": context_bundle.get(
+                    "_activation_context_fingerprint"
+                ),
+                "included_sources": included_sources,
+                "omitted_sources": omitted_sources,
+            }
         )
-    except (ValidationError, ValueError) as exc:
-        source_warning = str(exc)
     return await open_context_snapshot(
         db,
         ContextSnapshotRequest(
@@ -185,24 +238,44 @@ async def create_phase2b_snapshot(
                 "source": "deep_import_phase2b_alias_relation",
                 "content_mode": "working",
                 "llm_runtime": profile_summary,
+                "prompt_contract_version": PHASE2B_PROMPT_CONTRACT_VERSION,
+                "context_fingerprint": (context_bundle or {}).get(
+                    "context_fingerprint"
+                ),
             },
-            included_asset_ids=[],
+            included_asset_ids=included_asset_ids,
+            excluded_asset_ids=excluded_asset_ids,
             context_summary={
                 "scene_index": scene.get("scene_index"),
                 "entity_index_chars": len(entity_index),
                 "text_chars": len(chapters_text),
                 "source_ref_count": len(source_refs),
+                "identity_candidate_count": len(
+                    prompt_bundle.get("identity_candidates") or []
+                ),
+                "relation_candidate_count": len(
+                    prompt_bundle.get("relation_candidates") or []
+                ),
+                "context_fingerprint": (context_bundle or {}).get(
+                    "context_fingerprint"
+                ),
             },
-            section_metadata=[
-                {"name": "entity_index", "chars": len(entity_index)},
-                {
-                    "name": "scene_text",
-                    "chars": len(chapters_text),
-                    "source_refs": source_refs,
-                    "source_warning": source_warning,
-                },
-            ],
+            section_metadata=section_metadata,
             token_metadata={"estimated_chars": len(rendered_context)},
             rendered_context=rendered_context,
+            retain_rendered_context=context_bundle is not None,
         ),
     )
+
+
+def _snapshot_asset_ids(sources: list[dict[str, Any]]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for source in sources:
+        if not isinstance(source, dict) or not source.get("id"):
+            continue
+        source_type = str(source.get("type") or "unknown")
+        grouped.setdefault(source_type, []).append(str(source["id"]))
+    return {
+        key: sorted(dict.fromkeys(values))
+        for key, values in sorted(grouped.items())
+    }

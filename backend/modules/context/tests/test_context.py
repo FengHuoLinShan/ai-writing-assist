@@ -1248,7 +1248,7 @@ class TestContextSnapshot:
             novel_id,
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
         )
         legacy_failed = await mark_context_snapshot_failed(
             db_session,
@@ -1307,7 +1307,7 @@ class TestContextSnapshot:
             workflow_id="wf-2",
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
             model="test-model",
             compile_options={"scope": "full"},
             included_asset_ids={"context_sections": ["project"]},
@@ -1356,7 +1356,7 @@ class TestContextSnapshot:
             workflow_id="wf-3",
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
             model="test-model",
             compile_options={},
             included_asset_ids={},
@@ -1563,7 +1563,7 @@ class TestContextSceneIsolation:
             workflow_id="wf-light",
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
             model="test-model",
             compile_options={},
             included_asset_ids={},
@@ -1625,7 +1625,7 @@ class TestContextSceneIsolation:
             workflow_id=workflow_id,
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
             model="test-model",
             compile_options={},
             included_asset_ids={},
@@ -1641,7 +1641,7 @@ class TestContextSceneIsolation:
             workflow_id=workflow_id,
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
             model="test-model",
             compile_options={},
             included_asset_ids={},
@@ -1738,7 +1738,7 @@ class TestContextSceneIsolation:
             workflow_id=workflow_id,
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
             model="test-model",
             compile_options={},
             included_asset_ids={"context_sections": ["project"]},
@@ -1945,7 +1945,7 @@ class TestContextSceneIsolation:
             workflow_id="wf-a",
             phase="structure_analysis",
             operation="plot_structure_generation",
-            prompt_name="structure_plot",
+            prompt_name="p20_plot_thread",
             model="test-model",
             compile_options={},
             included_asset_ids={},
@@ -2475,8 +2475,8 @@ class TestContextConfirmation:
         created = await confirm_context(
             db_session,
             novel_id=novel_id,
-            action="world.entities.extract",
-            task="补抽世界对象",
+            action="world.alias_relations.extract",
+            task="补抽别名和关系",
             scope="world",
             context_mode="working",
             include_pending_objects=True,
@@ -2492,7 +2492,7 @@ class TestContextConfirmation:
         with_ref = await require_confirmation(
             db_session,
             novel_id=novel_id,
-            action="world.entities.extract",
+            action="world.alias_relations.extract",
             confirmation_id=created.id,
         )
         assert with_ref.result_refs == [{"type": "task", "id": "task-1"}]
@@ -2510,7 +2510,7 @@ class TestContextConfirmation:
         stale = await require_confirmation(
             db_session,
             novel_id=novel_id,
-            action="world.entities.extract",
+            action="world.alias_relations.extract",
             confirmation_id=created.id,
         )
         assert stale.result_status == "stale_context"
@@ -2522,7 +2522,7 @@ class TestContextConfirmation:
             await require_fresh_confirmation(
                 db_session,
                 novel_id=novel_id,
-                action="world.entities.extract",
+                action="world.alias_relations.extract",
                 confirmation_id=created.id,
             )
 

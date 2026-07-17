@@ -127,8 +127,8 @@ describe("aiReferenceModal", () => {
     })
     confirmAiReference({
       novel_id: "p1",
-      action: "world.entities.extract",
-      task: "世界对象补抽",
+      action: "world.alias_relations.extract",
+      task: "别名/关系补抽",
       scope: "chapter",
       chapter_index: 1,
       scene_id: "scene-1",
@@ -144,7 +144,7 @@ describe("aiReferenceModal", () => {
 
     expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
-      action: "world.entities.extract",
+      action: "world.alias_relations.extract",
       context_mode: "working",
       scene_id: "scene-1",
       include_pending_objects: true,
@@ -156,6 +156,37 @@ describe("aiReferenceModal", () => {
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("包含待处理内容，结果需要人工检查")
     expect(document.getElementById("ai-ref-summary")?.innerHTML).not.toContain("<script>bad</script>")
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("范围较大")
+  })
+
+  it("整理参考资料期间显示明确的长任务反馈并在完成后恢复", async () => {
+    let resolveConfirmation
+    api.context.confirm.mockImplementation(() => new Promise((resolve) => {
+      resolveConfirmation = resolve
+    }))
+    confirmAiReference({
+      novel_id: "p1",
+      action: "outline.generate",
+      task: "修订剧情线",
+      scope: "full",
+    }).catch(() => {})
+
+    const refreshBtn = document.querySelector("#modal-footer button")
+    refreshBtn.click()
+
+    expect(refreshBtn.disabled).toBe(true)
+    expect(refreshBtn.textContent).toBe("正在整理…")
+
+    resolveConfirmation({
+      id: "c-long",
+      context_mode: "canonical",
+      include_pending_objects: false,
+      scope: "full",
+      selected_asset_ids: {},
+      sections: [],
+      warnings: [],
+    })
+    await vi.waitFor(() => expect(refreshBtn.disabled).toBe(false))
+    expect(refreshBtn.textContent).toBe("重新整理")
   })
 
   it("character reveal 的 POV 字段在重新整理和确认使用时都不会丢失", async () => {

@@ -22,7 +22,8 @@ POV_FIELDS = (
 
 POV_SYSTEM_PROMPT = """\
 你是中文长篇小说的共同创作者。本次任务是从指定角色的有限经验与认知出发，
-完成当前 Scene 的单角色 POV 正文候选。
+完成目标章节的单角色 POV 正文候选。候选采用时会替换目标章节全文；当前 Scene
+即使跨越多章，也只提供目标章节的结构与连续性依据，不能扩大输出范围。
 
 - 单角色 POV 不等于必须使用第一人称；遵循项目已确立的叙事人称、叙事距离和文风。
 - 只有 POV 角色当下可感知、已知、可以合理推断或可能误解的信息，
@@ -31,6 +32,8 @@ POV_SYSTEM_PROMPT = """\
   可以通过可观察的动作、表情、话语、外观和已知历史来呈现。
 - POV 角色的解读可以错误、不完整或带有偏见；不要用作者视角自动纠正。
 - Scene 目标、冲突、必须发生和不得发生等导演约束只用于组织情节，不是角色已知事实。
+- 作者本次明确要求优先于 Scene 中较宽泛的导演目标；不得为了完成跨章 Scene 而越过
+  作者指定的停止点，或改写其它章节的内容。
 - 安全剧情线摘要只用于理解当前 Scene 的叙事作用；隐藏规划不得变成角色知识。
 - 可以补充不改变重大设定的局部、自然、可逆细节。
   不预设字数、段落、对话、动作、描写或内心戏比例。
@@ -38,7 +41,8 @@ POV_SYSTEM_PROMPT = """\
 
 输出必须是一个合法 JSON object，且只包含 pov_state、draft_prose、
 uncertainties 三个顶层字段。draft_prose 是主要成果，必须是完整、连贯、
-可直接审阅和继续编辑的小说正文。pov_state 只是简洁、可检查的角色状态摘要，
+可直接替换目标章节的完整小说正文；如果输入包含锁定的现有章节，只局部改写时也要
+保留未要求改动的正文、既有事实和叙事顺序。pov_state 只是简洁、可检查的角色状态摘要，
 不是分步推理过程。uncertainties 只记录会实质影响写作的上下文不确定性，
 没有则输出空数组。不要输出分析、创作说明、标题栏或 Markdown 围栏。"""
 
@@ -156,6 +160,19 @@ class PovGenerationParser:
         if start >= 0 and end > start:
             text = text[start : end + 1]
         text = re.sub(r",\s*([}\]])", r"\1", text)
+        # Structured providers occasionally omit the comma before one of our
+        # known top-level fields while still returning otherwise valid JSON.
+        # Repair only line-leading contract keys so prose inside draft_prose
+        # can never be rewritten as JSON structure.
+        for key in ("draft_prose", "uncertainties"):
+            marker = re.search(rf'(?m)^\s*"{key}"\s*:', text)
+            if marker is None:
+                continue
+            previous = marker.start() - 1
+            while previous >= 0 and text[previous].isspace():
+                previous -= 1
+            if previous >= 0 and text[previous] in {'"', "}", "]"}:
+                text = text[: marker.start()] + "," + text[marker.start() :]
         return text
 
 
@@ -197,15 +214,18 @@ class CharacterRevealGuard:
                         }
                     )
 
+        warning_codes = list(warnings or [])
         status = "passed"
-        if any(item["severity"] == "error" for item in findings):
+        if "pov_parse_failed" in warning_codes:
             status = "failed"
-        elif findings:
+        elif any(item["severity"] == "error" for item in findings):
+            status = "failed"
+        elif findings or warning_codes:
             status = "warning"
         return {
             "status": status,
             "findings": findings,
-            "warnings": list(warnings or []),
+            "warnings": warning_codes,
         }
 
 
@@ -214,6 +234,7 @@ def build_pov_generation_prompt(
     chapter_index: int,
     instruction: str | None,
     context_markdown: str,
+    base_content: str | None = None,
 ) -> str:
     note = instruction.strip() if instruction else "无额外要求"
     schema = {
@@ -225,14 +246,35 @@ def build_pov_generation_prompt(
                 "角色确实已知但此刻选择不表达的信息"
             ],
         },
-        "draft_prose": "完整连贯的小说正文候选",
+        "draft_prose": "可直接替换目标章节的完整连贯小说正文",
         "uncertainties": ["会实质影响写作的上下文不确定性；没有则为空数组"],
     }
+    locked_chapter = (
+        "<locked_existing_chapter_json>\n"
+        f"{json.dumps(base_content, ensure_ascii=False)}\n"
+        "</locked_existing_chapter_json>\n\n"
+        if base_content is not None
+        else ""
+    )
+    existing_rule = (
+        "目标章节已有锁定正文。draft_prose 必须给出完整章节；除作者明确要求改写的部分外，"
+        "保留原文内容、既有事实和叙事顺序。\n"
+        if base_content is not None
+        else (
+            "目标章节没有锁定正文；只创作属于目标章节的内容，"
+            "不补写当前 Scene 的其它章节。\n"
+        )
+    )
     return (
         "<writing_request>\n"
-        f"写作范围：第 {chapter_index} 章的当前 Scene\n"
-        f"作者额外要求：{note}\n"
+        f"目标章节：第 {chapter_index} 章\n"
+        "采用语义：draft_prose 会作为目标章节的完整替换候选。\n"
+        f"{existing_rule}"
         "</writing_request>\n\n"
+        "<author_instruction_json>\n"
+        f"{json.dumps(note, ensure_ascii=False)}\n"
+        "</author_instruction_json>\n\n"
+        f"{locked_chapter}"
         "<context_usage>\n"
         "- POV 角色档案、角色可见知识和当前证据："
         "可以影响角色的感知、解读、意图与行动。\n"
@@ -240,9 +282,9 @@ def build_pov_generation_prompt(
         "不得转化为角色已知事实。\n"
         "- 编译警告：表示资料缺口或保守排除；不要伪造被排除的知识。\n"
         "</context_usage>\n\n"
-        "<character_safe_context>\n"
-        f"{context_markdown}\n"
-        "</character_safe_context>\n\n"
+        "<character_safe_context_json>\n"
+        f"{json.dumps(context_markdown, ensure_ascii=False)}\n"
+        "</character_safe_context_json>\n\n"
         "<output_contract>\n"
         "只输出符合以下形状的 JSON object：\n"
         f"{json.dumps(schema, ensure_ascii=False, indent=2)}\n"

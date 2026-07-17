@@ -121,6 +121,8 @@ def _repo() -> SimpleNamespace:
     return SimpleNamespace(
         created=created,
         create_with_status=mock.AsyncMock(side_effect=_create),
+        get_latest_by_chapter=mock.AsyncMock(return_value=None),
+        get_for_update=mock.AsyncMock(return_value=None),
     )
 
 
@@ -547,6 +549,7 @@ async def test_task_client_closes_once_and_revalidates_profile_before_finalize(
     assert result.status == "candidate"
     assert restore_snapshot.await_count == 2
     create_client.assert_called_once()
+    assert create_client.call_args.kwargs["timeout_override"] == 1800
     client.close.assert_awaited_once()
 
 

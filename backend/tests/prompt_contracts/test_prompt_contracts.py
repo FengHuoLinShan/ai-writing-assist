@@ -26,12 +26,20 @@ def test_registry_loads_all_deep_import_contracts() -> None:
         "world_generation_world_bible_new_page",
         "world_bible_synopsis",
         "phase1a_scene_slicing",
+        "phase1a_scene_anchor_repair",
+        "phase1a_scene_recovery",
         "phase1b_scene_enrichment",
+        "phase1c_boundary_review",
+        "phase1c_scene_synthesis",
         "phase2_world_extraction",
         "phase2_alias_relation",
         "phase3_structure_simple",
+        "p20_plot_thread",
+        "p20_outline_arc",
+        "p20_planned_scene",
         "scene_entity_extraction",
         "story_outline",
+        "rag_reranker",
     }
 
 

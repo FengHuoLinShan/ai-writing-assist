@@ -35,6 +35,8 @@ class SceneWindowPlan(BaseModel):
     max_tokens: int = Field(default=PHASE0_MIN_MAX_TOKENS, ge=1)
     batch_size: int = Field(default=PHASE0_MAX_CHAPTERS_PER_WINDOW, ge=1)
     overlap: int = Field(default=PHASE0_RIGHT_OVERLAP_CHAPTERS, ge=0)
+    left_boundary_context: str = ""
+    reference_context: dict[str, Any] = Field(default_factory=dict)
 
 
 class ScenePlanResult(BaseModel):
@@ -44,6 +46,7 @@ class ScenePlanResult(BaseModel):
     windows: list[SceneWindowPlan] = Field(default_factory=list)
     quality_stats: dict[str, Any] = Field(default_factory=dict)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
+    phase1a_context: dict[str, Any] = Field(default_factory=dict)
     blocked: bool = False
     block_reason: str | None = None
 

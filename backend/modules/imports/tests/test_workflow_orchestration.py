@@ -384,7 +384,17 @@ def _stub_resilient_scene_pipeline(monkeypatch):
     ):
         return _phase1b_enrichment_result(list(range(start_chapter, end_chapter + 1)))
 
-    async def _commit(_db, _novel_id, _candidates, *, workflow_id):
+    async def _commit(
+        _db,
+        _novel_id,
+        _candidates,
+        *,
+        workflow_id,
+        fusion_suggestions=None,
+        start_chapter=None,
+        end_chapter=None,
+        replace_existing=False,
+    ):
         return _scene_commit_result()
 
     monkeypatch.setattr(DeepImportWorkflow, "_run_phase0_plan", _plan)

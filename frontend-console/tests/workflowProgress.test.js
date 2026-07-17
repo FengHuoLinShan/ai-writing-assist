@@ -6,7 +6,6 @@ import {
   pollTaskProgress,
   recoverActiveWorkflows,
   sanitizeTaskErrorMessage,
-  workflowProgressStorageKey,
 } from "../shared/workflowProgress.js"
 
 beforeEach(() => {
@@ -62,7 +61,7 @@ describe("normalizeTaskProgress", () => {
   it("uses indeterminate state when no real progress exists", () => {
     const progress = normalizeTaskProgress({
       task_id: "t2",
-      task_type: "world_entity_extraction",
+      task_type: "world_object_auto_extraction",
       status: "running",
     })
 
@@ -304,15 +303,6 @@ describe("active workflow storage", () => {
     expect(recoverActiveWorkflows("p1")).toEqual([])
   })
 
-  it("migrates the supported legacy world extraction key", () => {
-    localStorage.setItem("novel_world_extract_task", "legacy-world")
-
-    const recovered = recoverActiveWorkflows("p1")
-
-    expect(recovered.map((item) => item.taskId)).toEqual(["legacy-world"])
-    expect(localStorage.getItem("novel_world_extract_task")).toBe(null)
-    expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey))).toHaveLength(1)
-  })
 })
 
 describe("pollTaskProgress", () => {

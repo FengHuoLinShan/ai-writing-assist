@@ -1,14 +1,13 @@
 import { authorFacingStateText } from "./assetDisplayState.js"
 
 const ACTIVE_WORKFLOWS_KEY = "novel_active_workflows_v1"
-const LEGACY_WORLD_EXTRACT_KEY = "novel_world_extract_task"
 
 const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"])
 const RUNNING_STATUSES = new Set(["pending", "running"])
 
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
-  scene_auto_extraction: "场景（scene）自动提取",
+  scene_auto_extraction: "从正文提取 Scene",
   smart_dedup_scan: "智能去重扫描",
   world_object_auto_extraction: "世界对象与别名/关系自动提取",
   world_entity_fusion_suggestions: "世界对象 AI 合并建议",
@@ -16,7 +15,6 @@ const WORKFLOW_LABELS = {
   publish_chapter: "发布正文",
   rag_reindex_novel: "重建 RAG 索引",
   rag_retry_embeddings: "重试失败向量",
-  world_entity_extraction: "补抽世界对象",
   plot_structure_generate: "生成剧情结构",
   outline_generate: "生成剧情结构",
   story_outline_generate: "AI 小说总纲",
@@ -158,7 +156,6 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   }
   if (workflowType === "rag_reindex_novel") return "正在逐章重建索引"
   if (workflowType === "rag_retry_embeddings") return "正在重试失败向量"
-  if (workflowType === "world_entity_extraction") return "正在抽取世界对象"
   if (workflowType === "plot_structure_generate" || workflowType === "outline_generate") return "正在生成剧情结构"
   if (workflowType === "outline_analyze") return "正在分析大纲结构"
   if (workflowType === "story_outline_generate") return "正在生成小说总纲预览"
@@ -208,12 +205,6 @@ function buildResultSummary(result, workflowType) {
     if (result.total != null) parts.push(`${result.total} 个片段`)
     if (result.succeeded != null) parts.push(`${result.succeeded} 个成功`)
     if (result.failed != null) parts.push(`${result.failed} 个失败`)
-    return parts.length ? parts.join("，") : null
-  }
-  if (workflowType === "world_entity_extraction") {
-    const parts = []
-    if (result.total_created != null) parts.push(`新增 ${result.total_created}`)
-    if (result.total_skipped != null) parts.push(`跳过 ${result.total_skipped}`)
     return parts.length ? parts.join("，") : null
   }
   if (workflowType === "plot_structure_generate" || workflowType === "outline_generate") {
@@ -391,28 +382,10 @@ export function clearActiveWorkflow(idOrTaskId, storage = globalThis.localStorag
 
 export function recoverActiveWorkflows(projectId = null, storage = globalThis.localStorage) {
   const items = readStorage(storage)
-  const migrated = [...items]
-  if (storage) {
-    const worldExtractTaskId = storage.getItem(LEGACY_WORLD_EXTRACT_KEY)
-    if (worldExtractTaskId) {
-      migrated.push({
-        id: `${projectId || "global"}:world_entity_extraction:${worldExtractTaskId}`,
-        taskId: worldExtractTaskId,
-        workflowType: "world_entity_extraction",
-        label: WORKFLOW_LABELS.world_entity_extraction,
-        projectId,
-        view: "world",
-        meta: { migratedFrom: LEGACY_WORLD_EXTRACT_KEY },
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      })
-      storage.removeItem(LEGACY_WORLD_EXTRACT_KEY)
-    }
-  }
 
   const deduped = []
   const seen = new Set()
-  for (const item of migrated) {
+  for (const item of items) {
     const id = item.id || workflowIdFor(item)
     if (!item.taskId || seen.has(id)) continue
     seen.add(id)

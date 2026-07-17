@@ -113,7 +113,6 @@ describe("AI 自动识别", () => {
           authorization_confirmed: true,
         },
       )
-      expect(api.world.extractEntities).not.toHaveBeenCalled()
       expect(api.world.extractAliasRelations).not.toHaveBeenCalled()
       expect(worldView._autoExtractTaskId).toBe("t1")
     })
@@ -154,7 +153,6 @@ describe("AI 自动识别", () => {
       await worldView._pollAutoExtract("t1")
 
       expect(worldView._autoExtractTimer).toBeNull()
-      expect(localStorage.getItem("novel_world_extract_task")).toBeNull()
       expect(api.world.listEntities).toHaveBeenCalled()
     })
 
@@ -195,24 +193,6 @@ describe("AI 自动识别", () => {
       expect(html).toContain("disabled")
     })
 
-    it("onEnter 兼容恢复旧 JSON localStorage 任务并用 api.tasks.get 轮询", async () => {
-      state.currentProjectId = "p1"
-      localStorage.setItem("novel_world_extract_task", JSON.stringify({ taskId: "legacy-t", status: "running" }))
-      api.tasks.get.mockResolvedValue({
-        task_id: "legacy-t",
-        task_type: "world_object_auto_extraction",
-        status: "running",
-        progress: null,
-      })
-      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
-      api.world.listEntityBatches.mockResolvedValue([])
-
-      await worldView.onEnter()
-
-      expect(api.tasks.get).toHaveBeenCalledWith("legacy-t")
-      expect(worldView._autoExtractTaskId).toBe("legacy-t")
-      expect(localStorage.getItem("novel_world_extract_task")).toBeNull()
-    })
   })
 })
 
@@ -699,18 +679,31 @@ describe("批量操作", () => {
     }), { novel_id: "p1" })
   })
 
-  it("候选清洗批量确认只处理 create_new 类候选", async () => {
+  it("候选清洗批量确认处理 create_new 和目标未解析的别名候选", async () => {
     worldView._candidates = [
       { id: "c1", name: "新对象", content_json: { _meta: { suggested_action: "create_new" } } },
-      { id: "c2", name: "别名", content_json: { _meta: { suggested_action: "alias_of_existing" } } },
+      { id: "c2", name: "已解析别名", content_json: { _meta: {
+        suggested_action: "alias_of_existing",
+        suggested_existing_entity_id: "canonical-1",
+      } } },
+      { id: "c3", name: "仅名称目标", content_json: { _meta: {
+        suggested_action: "link_to_existing",
+        suggested_existing_entity_name: "仅名称目标",
+      } } },
+      { id: "c4", name: "指向自己", content_json: { _meta: {
+        suggested_action: "alias_of_existing",
+        suggested_existing_entity_id: "c4",
+      } } },
     ]
-    worldView._bulkSelections["world-candidates"] = new Set(["c1", "c2"])
+    worldView._bulkSelections["world-candidates"] = new Set(["c1", "c2", "c3", "c4"])
     api.world.promoteEntity.mockResolvedValue({})
 
     await worldView._executeBulkAction("world-candidates", "accept-candidates", worldView._itemsForBulkScope("world-candidates"))
 
-    expect(api.world.promoteEntity).toHaveBeenCalledTimes(1)
+    expect(api.world.promoteEntity).toHaveBeenCalledTimes(3)
     expect(api.world.promoteEntity).toHaveBeenCalledWith("c1", "p1")
+    expect(api.world.promoteEntity).toHaveBeenCalledWith("c3", "p1")
+    expect(api.world.promoteEntity).toHaveBeenCalledWith("c4", "p1")
   })
 
   it("点击对象多选不重绘页面也不强制刷新数据", () => {

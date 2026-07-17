@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
 from core.errors import NotFoundError, ValidationError
-from modules.world.models import Character
+from modules.world.models import Character, CoreEntity
 from modules.world.repositories import (
     CharacterKnowledgeRepository,
     CharacterRepository,
@@ -70,6 +70,30 @@ class CharacterService(
             entity_type="character",
             label="CoreEntity",
         )
+        existing = await self.repo.get(db, eid)
+        if existing is not None:
+            if existing.novel_id != nid:
+                self._raise_404(data.entity_id)
+            meta = dict(existing.meta or {})
+            if meta.get("auto_materialized") is not True:
+                raise ValidationError(f"Character {data.entity_id} already exists")
+
+            changes = data.model_dump(
+                exclude={"entity_id", "novel_id"},
+                exclude_unset=True,
+            )
+            submitted_meta = changes.pop("meta", None)
+            meta.update(submitted_meta or {})
+            meta["auto_materialized"] = False
+            changes["meta"] = meta
+            updated = await self.repo.update(
+                db,
+                existing,
+                CharacterUpdate.model_validate(changes),
+            )
+            if updated is None:
+                self._raise_404(data.entity_id)
+            return self._to_response(updated)
         try:
             obj = await self.repo.create(db, nid, data)
         except IntegrityError as exc:
@@ -77,6 +101,87 @@ class CharacterService(
                 f"CoreEntity {data.entity_id} not found or conflict"
             ) from exc
         return self._to_response(obj)
+
+    async def ensure_for_core_entity(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+    ) -> Character:
+        """Ensure an adopted character identity has its minimum typed profile.
+
+        CoreEntity is the identity root while ``characters`` stores optional
+        character-specific details.  Author-facing character selectors and
+        POV context require the typed row to exist, so adoption materializes a
+        reversible scaffold.  An explicit Character create later upgrades the
+        scaffold instead of creating a duplicate row.
+        """
+
+        if entity.entity_type != "character" or entity.status != "canonical":
+            raise ValidationError("Only canonical character entities have profiles")
+
+        existing = await self.repo.get(db, entity.id)
+        core_meta = dict(entity.content_json or {})
+        scaffold_meta = {
+            "auto_materialized": True,
+            "source": "core_entity",
+            "core_summary": entity.summary,
+            "public_info": entity.public_info,
+        }
+        if existing is not None:
+            if existing.novel_id != entity.novel_id:
+                raise ValidationError("Character profile belongs to another novel")
+            existing_meta = dict(existing.meta or {})
+            if existing_meta.get("auto_materialized") is True:
+                existing_meta.update(scaffold_meta)
+                updated = await self.repo.update(
+                    db,
+                    existing,
+                    CharacterUpdate(
+                        name=entity.name,
+                        aliases=self._core_aliases(core_meta),
+                        secret=entity.hidden_truth,
+                        meta=existing_meta,
+                        status="canonical",
+                    ),
+                )
+                assert updated is not None
+                return updated
+            if existing.name != entity.name:
+                updated = await self.repo.update(
+                    db,
+                    existing,
+                    CharacterUpdate(name=entity.name),
+                )
+                assert updated is not None
+                return updated
+            return existing
+
+        return await self.repo.create(
+            db,
+            entity.novel_id,
+            CharacterCreate(
+                entity_id=str(entity.id),
+                name=entity.name,
+                aliases=self._core_aliases(core_meta),
+                secret=entity.hidden_truth,
+                meta=scaffold_meta,
+                status="canonical",
+            ),
+        )
+
+    @staticmethod
+    def _core_aliases(content_json: dict) -> list[dict]:
+        aliases: list[dict] = []
+        for item in content_json.get("aliases") or []:
+            if isinstance(item, dict):
+                alias = str(item.get("alias") or item.get("name") or "").strip()
+                alias_type = str(item.get("type") or item.get("alias_type") or "alias")
+            else:
+                alias = str(item or "").strip()
+                alias_type = "alias"
+            if alias:
+                aliases.append({"alias": alias, "type": alias_type})
+        return aliases
 
     async def get(  # type: ignore[override]
         self,
@@ -212,6 +317,7 @@ class CharacterService(
                 voice_style=char.voice_style,
                 behavior_rules=char.behavior_rules or [],
                 relationship_summary=char.relationship_summary,
+                meta=char.meta or {},
             )
             if reveal_mode == "author_only":
                 item.secret = char.secret
