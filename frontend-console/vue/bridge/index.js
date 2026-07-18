@@ -73,6 +73,11 @@ export function getEsc() {
   return typeof fn === "function" ? fn : (value) => String(value ?? "")
 }
 
+/** window.errorLog — 前端错误日志（bible 投影 409 冲突处理读 _lastApiError）。 */
+export function getErrorLog() {
+  return _overrides.errorLog ?? globalThis.errorLog ?? null
+}
+
 /** D20-D22: localStorage 旧作者偏好一次性迁移，失败仅告警不阻断页面加载。 */
 export async function tryMigrateLocalAuthorPreferences(projectId) {
   const migrate = _overrides.tryMigrateLocalAuthorPreferences

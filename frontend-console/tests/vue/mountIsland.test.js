@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { h } from "vue"
 import { mountIsland } from "../../vue/mountIsland.js"
+import { useLeaveGuard } from "../../vue/composables/useLeaveGuard.js"
 
 const Probe = {
   name: "Probe",
@@ -78,5 +79,28 @@ describe("mountIsland", () => {
     const island = mountIsland({ viewName: "settings", component: Probe })
     document.body.innerHTML = "<div></div>"
     await expect(island.onRendered()).resolves.toBeUndefined()
+  })
+
+  it("canLeave 默认放行；组件注册守卫后由守卫决定", async () => {
+    let allow = true
+    const GuardedProbe = {
+      name: "GuardedProbe",
+      setup() {
+        useLeaveGuard(() => allow)
+        return () => h("div", { class: "probe" }, "guarded")
+      },
+    }
+    const island = mountIsland({ viewName: "world", component: GuardedProbe })
+    content.innerHTML = island.render()
+
+    expect(island.canLeave()).toBe(true) // 未挂载时无守卫
+
+    await island.onRendered()
+    expect(island.canLeave()).toBe(true)
+    allow = false
+    expect(island.canLeave()).toBe(false)
+
+    island.onLeave()
+    expect(island.canLeave()).toBe(true) // 卸载后守卫注销
   })
 })

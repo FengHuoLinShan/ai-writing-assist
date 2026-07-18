@@ -14,19 +14,28 @@
  *
  * settings/project-settings 不在 router 的 keep-alive 名单内，无需处理
  * DocumentFragment 缓存搬运；后续迁移 keep-alive 视图时再扩展该策略。
+ *
+ * canLeave：router 的路由守卫契约（router.js _canLeaveCurrentRoute，同步返回
+ * false 阻断导航）。组件经 useLeaveGuard(fn) 注册同步守卫（如 worldBible 的
+ * 未保存确认）；单槽位，后注册覆盖先注册，组件卸载时注销。
  */
 import { createApp } from "vue"
 import { createPinia } from "pinia"
 
+/** provide key：island 内向组件暴露守卫注册器（useLeaveGuard 使用）。 */
+export const ISLAND_LEAVE_GUARD = Symbol("vue-island-leave-guard")
+
 export function mountIsland({ viewName, component, load = null }) {
   let app = null
   let loadedProps = {}
+  let leaveGuard = null
 
   function unmount() {
     if (app) {
       app.unmount()
       app = null
     }
+    leaveGuard = null
   }
 
   return {
@@ -47,11 +56,17 @@ export function mountIsland({ viewName, component, load = null }) {
       }
       app = createApp(component, loadedProps)
       app.use(createPinia())
+      app.provide(ISLAND_LEAVE_GUARD, (fn) => { leaveGuard = fn || null })
       app.mount(el)
     },
 
     onLeave() {
       unmount()
+    },
+
+    canLeave() {
+      if (!leaveGuard) return true
+      return leaveGuard() !== false
     },
   }
 }
