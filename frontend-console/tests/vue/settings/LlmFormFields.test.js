@@ -168,6 +168,46 @@ describe("模型成本提示", () => {
   })
 })
 
+describe("Key 状态跨挂载一致性（回归：P2 跨 Tab 误报）", () => {
+  it("切换供应商后组件重挂载，状态仍按新供应商显示", async () => {
+    const form = makeForm()
+    // sourceMap 携带加载时的 effective 供应商，是重挂载后识别未保存切换的基准
+    const sourceMap = { provider_id: { value: "deepseek", source: "project" } }
+    const first = mountFields({
+      form,
+      templates: [DEEPSEEK_TEMPLATE, OTHER_TEMPLATE],
+      apiKeyConfigured: true,
+      sourceMap,
+    })
+    expect(first.find("#llm-key-status").text()).toBe("已保存")
+
+    await first.find("#llm-provider").setValue("other")
+    expect(first.find("#llm-key-status").text()).toBe("此模板未保存")
+
+    // 模拟跨 Tab 往返：组件卸载重挂，表单对象（含未保存的供应商）保留
+    first.unmount()
+    const second = mountFields({
+      form,
+      templates: [DEEPSEEK_TEMPLATE, OTHER_TEMPLATE],
+      apiKeyConfigured: true,
+      sourceMap,
+    })
+    expect(second.find("#llm-key-status").text()).toBe("此模板未保存")
+  })
+
+  it("切回加载时的供应商后恢复初始文案", async () => {
+    const form = makeForm()
+    const wrapper = mountFields({
+      form,
+      templates: [DEEPSEEK_TEMPLATE, OTHER_TEMPLATE],
+      apiKeyConfigured: true,
+    })
+    await wrapper.find("#llm-provider").setValue("other")
+    await wrapper.find("#llm-provider").setValue("deepseek")
+    expect(wrapper.find("#llm-key-status").text()).toBe("已保存")
+  })
+})
+
 describe("来源标签", () => {
   it("sourceMap 提供时渲染 settings-field-source", () => {
     const wrapper = mountFields({

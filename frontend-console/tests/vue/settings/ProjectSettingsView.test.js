@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import ProjectSettingsView from "../../../vue/views/settings/ProjectSettingsView.vue"
 import { resetBridgeOverrides } from "../../../vue/bridge/index.js"
+import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
 
 function makeEffectiveLLM(overrides = {}) {
   return {
@@ -47,6 +48,7 @@ function makeProps(overrides = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  projectSettingsSession.tab = "main"
   globalThis.api.settings.getEffectiveLLMSettings.mockImplementation(async () => makeEffectiveLLM())
   globalThis.api.settings.getEffectiveAuthorPrefs.mockImplementation(async () => makeEffectivePrefs())
 })
@@ -93,6 +95,56 @@ describe("Tab 渲染与切换（原 vanilla Tab 契约）", () => {
 
     await tabs[0].trigger("click")
     expect(wrapper.find(".llm-main-tab").exists()).toBe(true)
+  })
+
+  it("Tab 选择跨页面往返保留（vanilla _tab 单例语义，P3 回归）", async () => {
+    const first = mount(ProjectSettingsView, { props: makeProps() })
+    await first.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    expect(first.find(".author-prefs-tab").exists()).toBe(true)
+
+    // 模拟路由往返：island 卸载后重新挂载
+    first.unmount()
+    const second = mount(ProjectSettingsView, { props: makeProps() })
+    expect(second.find(".author-prefs-tab").exists()).toBe(true)
+    expect(second.findAll(".settings-tab-nav .tab-btn")[2].classes()).toContain("active")
+  })
+})
+
+describe("Key 状态跨 Tab 一致性（P2 回归）", () => {
+  const DEEPSEEK_TEMPLATE = {
+    id: "deepseek",
+    name: "DeepSeek",
+    base_url: "https://api.deepseek.com",
+    default_model: "deepseek-v4-flash",
+    models: ["deepseek-v4-flash"],
+    default_parameters: { timeout: 180, max_tokens: 12000, temperature: 0.3 },
+  }
+  const OTHER_TEMPLATE = {
+    id: "other",
+    name: "Other",
+    base_url: "https://other.example.com/v1",
+    default_model: "other-model",
+    models: ["other-model"],
+    default_parameters: { timeout: 60 },
+  }
+
+  it("切换供应商 → 切 Tab → 返回，Key 状态仍按新供应商显示", async () => {
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectiveLLM: makeEffectiveLLM({
+          api_key_configured: { value: true, source: "project" },
+        }),
+        templates: [DEEPSEEK_TEMPLATE, OTHER_TEMPLATE],
+      }),
+    })
+    expect(wrapper.find("#llm-key-status").text()).toBe("已保存")
+
+    await wrapper.find("#llm-provider").setValue("other")
+    expect(wrapper.find("#llm-key-status").text()).toBe("此模板未保存")
+
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[0].trigger("click")
+    expect(wrapper.find("#llm-key-status").text()).toBe("此模板未保存")
   })
 })
 

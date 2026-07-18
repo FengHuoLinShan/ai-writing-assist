@@ -25,8 +25,6 @@ const props = defineProps({
 })
 
 const showKey = ref(false)
-// 区分"初始加载"与"用户切换供应商"：vanilla 两者 Key 状态文案不同
-const providerTouched = ref(false)
 // 预设高亮 = 初始按参数检测 + 点击后跟随最后点击项（vanilla bindLLMPresetEvents 契约；
 // 手动改参数或模板联动不回写高亮，与 vanilla 一致）
 const activePreset = ref(detectCreativeMode(form.value))
@@ -34,8 +32,13 @@ const activePreset = ref(detectCreativeMode(form.value))
 const modelOptions = computed(() => modelsForProvider(props.templates, form.value.provider_id))
 const modelCostHintVisible = computed(() => String(form.value.model ?? "").trim() === "deepseek-v4-pro")
 
+// 加载时的供应商：effective 值（sourceMap）或挂载时点表单值的快照。
+// 必须是快照而非 computed——否则组件重挂载后无法识别"未保存的供应商切换"
+// （跨 Tab 往返时表单对象保留，挂载快照才是不变基准）。
+const loadedProviderId = props.sourceMap?.provider_id?.value ?? form.value.provider_id
+
 const keyStatus = computed(() => {
-  if (providerTouched.value) {
+  if (form.value.provider_id !== loadedProviderId) {
     const hasKey = props.configuredProviders.includes(form.value.provider_id)
     return { text: hasKey ? "已保存到此模板" : "此模板未保存", ok: hasKey }
   }
@@ -56,7 +59,6 @@ watch(() => form.value.provider_id, (providerId) => {
   Object.assign(form.value, patch)
   form.value.api_key = ""
   form.value.clear_api_key = false
-  providerTouched.value = true
 })
 
 function applyPreset(presetId) {

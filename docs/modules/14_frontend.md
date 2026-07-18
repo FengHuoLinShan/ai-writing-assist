@@ -2,7 +2,11 @@
 
 ## 定位
 
-前端是纯 Vanilla JS SPA，通过 REST API 驱动整个创作工作台。动态地图视口使用 Leaflet，但应用主体仍保持无框架。
+前端为 SPA 控制台，通过 REST API 驱动整个创作工作台：外壳（`index.html` 骨架、hash router、
+Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模式渐进迁移到 Vue 3
+（`settings` / `project-settings` 已迁移；Vue 视图经 `vue/mountIsland.js` 注册进 vanilla
+router，组件只经 `vue/bridge/index.js` 访问既有基建，动态内容禁止 `v-html`）。
+动态地图视口使用 Leaflet。
 
 ## 架构
 
@@ -14,7 +18,8 @@
 - 路由：`router.js`
 - API 封装：`api.js`
 - API 契约注册表：`apiContracts.js`
-- 视图：`views/*.js`
+- 视图：`views/*.js`（vanilla）+ `vue/views/**`（Vue SFC island，经 `vue/mountIsland.js` 注册）
+- Vue 基建：`vue/bridge/`（组件访问 vanilla 基建的唯一入口）、`vue/composables/`
 - 通用交互：`shared/`、`ui/`
 
 当前注册的一级路由为：
@@ -46,8 +51,8 @@
 | `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
 | `ragView` | 智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
 | `generateView` | 生成中心：world 工作区承载对象/完善当前页/新建页面的共创对话、来源与上下文选择、结构化预览和工作稿应用；同时保留上下文任务预览/编译、POV 与其他既有领域流程 |
-| `globalSettingsView` | `settings` 路由；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
-| `projectSettingsView` | `project-settings` 路由；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承；通用输出上限与深度导入阶段预算分开说明 |
+| `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
+| `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承；通用输出上限与深度导入阶段预算分开说明 |
 
 ## 路由与状态特性
 
@@ -60,6 +65,7 @@
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 - `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
+- Vue island 生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点 div → `onRendered` 挂载（同视图 forceRefresh 不触发 `onLeave`，先卸载残留实例）→ `onLeave` 卸载；`settings` / `project-settings` 不在 KeepAlive 名单内
 - 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
 
 ## 对象引用交互契约
@@ -110,7 +116,7 @@
 - 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。
 - 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。默认启动 fresh 8000/8080 服务，只有 `PW_REUSE_EXISTING_SERVER=1` 才复用已有服务；后端启动前执行 `APP_ENV=test alembic upgrade head`。`APP_ENV=test` 不改写 `DATABASE_URL`；本机存在开发 worker 时应显式传入独立测试库。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
 - `npm run test:all` 先跑 Vitest，再跑 Playwright。
-- 当前 `package.json` 未定义前端构建脚本，也没有独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
+- `npm run build`（vite build）仅作 Vue 构建链冒烟验证：`dist` 仍缺少 classic vanilla scripts，不能视为可部署产物。无独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
 - 当前已落地 vanilla JS 共享 API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 - 小说检索继续消费 context evidence API：单次最多取回 100 条现有命中，DOM 首批只挂载
   20 张结果卡并按 20 条渐进加载。检索词、方式、正文版本、可见视角、章节范围和 scope

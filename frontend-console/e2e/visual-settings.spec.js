@@ -4,13 +4,19 @@
  * 基线 PNG 提交在 e2e/visual-settings.spec.js-snapshots/（Playwright 默认目录约定）。
  * 首次生成用 `--update-snapshots`；此后普通运行即做像素对比。
  *
- * 动态内容处理：项目 ID 为随机 UUID，"引用此默认的项目"列表逐次不同，整体 mask；
- * toast 容器同样 mask，避免异步通知干扰。
+ * 确定性保障：
+ * - beforeAll 显式重置后端全局 LLM 默认与作者偏好（其他 E2E 会修改这些持久化值），
+ *   截图内容不依赖执行顺序或复用数据库状态。
+ * - 动态内容 mask：项目 ID 为随机 UUID（"引用此默认的项目"列表逐次不同）与 toast 容器。
+ * - 基线仅提交 darwin 平台；其他平台默认跳过，需 `VISUAL_BASELINE=1` 配合
+ *   `--update-snapshots` 生成并提交本平台基线后再作为门禁运行。
  */
-import { test, expect } from "./fixtures.js"
-import { waitForBackend } from "./helpers/api-client.js"
+import { test, expect, request } from "./fixtures.js"
+import { API_BASE, waitForBackend } from "./helpers/api-client.js"
 
 const THEMES = ["minimal", "warm", "dark"]
+
+const xhrHeaders = { "X-Requested-With": "XMLHttpRequest" }
 
 async function applyTheme(page, theme) {
   await page.locator("#theme-toggle").click()
@@ -33,10 +39,38 @@ async function screenshotSettingsPage(page, name) {
 }
 
 test.describe("settings 视觉基线", () => {
+  test.skip(
+    process.platform !== "darwin" && !process.env.VISUAL_BASELINE,
+    "视觉基线仅提交 darwin 平台；其他平台需 VISUAL_BASELINE=1 --update-snapshots 生成本地基线",
+  )
+
   test.use({ viewport: { width: 1440, height: 900 } })
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
+    // 固定后端全局设置为"未配置"（继承系统默认），屏蔽其他 E2E 的持久化修改
+    const ctx = await request.newContext()
+    const llmResp = await ctx.put(`${API_BASE}/settings/llm-defaults`, {
+      headers: xhrHeaders,
+      data: {
+        provider_id: null,
+        label: null,
+        base_url: null,
+        model: null,
+        timeout: null,
+        max_tokens: null,
+        temperature: null,
+        top_p: null,
+        extra: {},
+      },
+    })
+    const prefsResp = await ctx.put(`${API_BASE}/settings/author-preferences`, {
+      headers: xhrHeaders,
+      data: { daily_goal: null, editor_font: null, default_focus_mode: null },
+    })
+    await ctx.dispose()
+    expect(llmResp.ok(), "重置全局 LLM 默认失败").toBeTruthy()
+    expect(prefsResp.ok(), "重置全局作者偏好失败").toBeTruthy()
   })
 
   test.beforeEach(async ({ page }) => {

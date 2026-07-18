@@ -60,7 +60,10 @@ Vue 模板 `{{ }}` 自动转义即满足 AGENTS.md 的 `esc()` 纪律。**禁止
   scoped style；模板输出的 DOM 结构/class/id 与旧 HTML 字符串逐节点对齐。
 - `e2e/visual-settings.spec.js` 在迁移前对 settings 两页 × 三主题建立像素基线
   （提交于 `e2e/visual-settings.spec.js-snapshots/`），迁移后同一 spec 做像素对比，
-  动态内容（随机 UUID 列表、toast）mask。后续每批视图迁移沿用同一机制。
+  动态内容（随机 UUID 列表、toast）mask。基线确定性依赖两条约束：`beforeAll` 显式重置
+  后端全局 LLM 默认与作者偏好（其他 E2E 会持久化修改它们），以及平台门禁——基线仅按
+  平台提交（当前 darwin），其他平台默认跳过，需显式生成并提交本平台基线后启用。
+  后续每批视图迁移沿用同一机制。
 
 ### 6. 首阶段范围与后续路线图
 

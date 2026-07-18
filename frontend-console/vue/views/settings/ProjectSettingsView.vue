@@ -1,11 +1,12 @@
 <script setup>
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import LlmFormFields from "./components/LlmFormFields.vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
 import SourceLabel from "./components/SourceLabel.vue"
 import { getApi, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
+import { projectSettingsSession } from "./projectSettingsSession.js"
 import {
   buildLlmPayload,
   llmFormFromEffective,
@@ -39,7 +40,11 @@ const TABS = [
   { key: "author", label: "作者偏好" },
 ]
 
-const tab = ref("main")
+// 会话级保留所选 Tab（vanilla renderer 单例 _tab 语义）：路由往返后恢复
+const tab = ref(projectSettingsSession.tab)
+watch(tab, (value) => {
+  projectSettingsSession.tab = value
+})
 
 function deepImportSettingsSource(llm) {
   const deepImport = llm?.deep_import
