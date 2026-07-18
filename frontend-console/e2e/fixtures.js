@@ -1,9 +1,15 @@
 import { expect, request, test as base } from "@playwright/test"
 
-import { cleanupProject, createProject } from "./helpers/api-client.js"
+import { API_HOST, cleanupProject, createProject } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
 
 export const test = base.extend({
+  // 全局注入页面内 API 地址，支持 BACKEND_PORT 非默认端口运行（默认时与 api.js 兜底值一致，行为无变化）
+  apiHost: [async ({ page }, use) => {
+    await page.addInitScript((host) => { window.API_HOST = host }, API_HOST)
+    await use()
+  }, { auto: true }],
+
   browserErrors: [async ({ page }, use, testInfo) => {
     const errors = []
     const onConsole = (message) => {

@@ -8,7 +8,7 @@
  * toast 容器同样 mask，避免异步通知干扰。
  */
 import { test, expect } from "./fixtures.js"
-import { API_HOST, waitForBackend } from "./helpers/api-client.js"
+import { waitForBackend } from "./helpers/api-client.js"
 
 const THEMES = ["minimal", "warm", "dark"]
 
@@ -40,8 +40,6 @@ test.describe("settings 视觉基线", () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    // 支持非默认端口运行（BACKEND_PORT 环境变量）：页面内 API 请求指向本次 e2e 后端
-    await page.addInitScript((host) => { window.API_HOST = host }, API_HOST)
     await page.goto("/")
     await page.evaluate(() => localStorage.clear())
     await page.reload()

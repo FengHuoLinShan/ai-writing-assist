@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: vanilla JS SPA console.
+AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: SPA console (vanilla JS 外壳 + Vue 3 视图岛渐进迁移，ADR-0009).
 
 ## Commands
 
@@ -70,7 +70,7 @@ make format                      # ruff format --check
 make format-fix                  # ruff format
 ```
 
-Frontend currently has no build script and no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`.
+Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证，生产构建部署不在当前阶段。
 
 `python -m scripts.reset_map_subsystem` 是地图子系统的开发管理预检工具。它只提供
 dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数据库 fingerprint，
@@ -178,7 +178,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - **中文优先**: All UI text in Chinese. No engineering jargon.
 - **命令行风格但易用**: Buttons + keyboard shortcuts + command bar in parallel.
 - **纯文字为主**: Tables, tree views, cards, collapsible panels, ASCII maps.
-- **低依赖**: Vanilla JS by default. New frontend stack or heavy component libraries require user/ADR approval.
+- **低依赖**: Vanilla JS by default；Vue 3 渐进迁移经 ADR-0009 批准，按 island 模式推进（`vue/mountIsland.js` + `vue/bridge/`）。Other new frontend stack or heavy component libraries require user/ADR approval.
 - **易用性**: Every workflow needs clear empty/error states and danger confirmation. Copy/export/undo are added only where the workflow naturally needs them.
 - **XSS防护**: Never write unescaped user/AI/API dynamic content into `innerHTML`; static templates and `esc()`-escaped dynamic content are acceptable.
 

@@ -11,6 +11,8 @@
  */
 
 import { createSmartDedupManager } from "./shared/smartDedup.js"
+// settings 两个视图已迁移为 Vue island（strangler-fig），在此完成注册
+import "./vue/settingsIslands.js"
 
 const App = {
   /** @type {boolean} */

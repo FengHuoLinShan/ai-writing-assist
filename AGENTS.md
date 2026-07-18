@@ -32,15 +32,17 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 
 ### 架构与代码
 
-- 默认栈为 FastAPI、PostgreSQL async task queue、Vanilla JS。新增基础设施、前端栈、
+- 默认栈为 FastAPI、PostgreSQL async task queue；前端为 Vanilla JS → Vue 3 渐进迁移中
+  （ADR-0009）：迁移后的视图用 Vue SFC，经 `vue/mountIsland.js` 注册进既有 vanilla router，
+  组件只能经 `vue/bridge/index.js` 访问 vanilla 基建（禁裸全局）。新增基础设施、前端栈、
   数据库/队列/向量存储或强制类型门禁，须用户确认或 ADR。
 - 生产业务代码跨模块只能依赖 `contracts.py`、`facade.py` 或已注册 DI port；不得直接依赖
   其他模块的 `models.py`、`repositories.py`、`services.py`。测试、Alembic、ORM metadata
   注册与应用组合根可有限导入实现，但组合根不得承载业务判断。
 - API 与 facade 保持薄层：参数适配、稳定返回形状和委托。非平凡编排下沉到拥有领域概念的
   模块实现。新增 facade/contracts/DI port 前做 deletion test，避免 pass-through seam。
-- 动态用户、AI 或 API 内容不得未经转义进入 `innerHTML`；不得 `eval` / `exec` LLM 输出；
-  不得硬编码、记录或返回 API Key。
+- 动态用户、AI 或 API 内容不得未经转义进入 `innerHTML`；Vue 模板动态内容禁止 `v-html`
+  （依赖 `{{ }}` 自动转义）；不得 `eval` / `exec` LLM 输出；不得硬编码、记录或返回 API Key。
 - 生产代码不得 import 或检测 `Mock`；测试替身通过 DI。所有 `@patch` / `mock.patch` 使用
   `autospec=True`，无法使用时说明原因。
 

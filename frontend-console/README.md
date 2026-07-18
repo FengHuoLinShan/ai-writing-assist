@@ -28,7 +28,7 @@ npm run test:e2e:worker
 npm run test:all
 ```
 
-当前 `package.json` 未定义前端构建脚本，也没有独立 lint/format 依赖；前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
+`npm run build`（vite build）可作 Vue 构建链冒烟验证；无独立 lint/format 依赖，前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
 
 ## 后端连接
 
@@ -112,6 +112,12 @@ frontend-console/
 │   ├── writingToolsResult.js # 工具结果应用到 orchestrator
 │   ├── sceneLocator.js     # 光标/章节定位当前 Scene
 │   └── ...                 # 其他共享模块
+├── vue/                    # Vue 3 视图岛（ADR-0009）
+│   ├── bridge/             #   组件访问 vanilla 基建的唯一入口（可 DI 替身）
+│   ├── mountIsland.js      #   Vue 根组件 → vanilla router 视图契约适配器
+│   ├── composables/        #   跨视图组合式函数（如保存按钮状态）
+│   ├── settingsIslands.js  #   settings/project-settings 注册与数据预取
+│   └── views/settings/     #   设置 SFC 与纯逻辑（logic/）
 ├── views/                  # 一级路由视图
 │   ├── projectView.js      # 项目
 │   ├── writingView.js      # 写作台 orchestrator
@@ -158,8 +164,9 @@ frontend-console/
 
 ## 技术栈
 
-- 纯原生 HTML + CSS + JavaScript
-- 无前端框架；地图视口按需加载 Leaflet（ADR-0003）
+- Vanilla JS 外壳 + Vue 3 SFC 视图岛（渐进迁移，ADR-0009）：`settings` / `project-settings` 已迁移为 Vue，其余视图仍为 vanilla JS
+- Vue 视图经 `vue/mountIsland.js` 注册进 vanilla router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；动态内容依赖模板自动转义，禁止 `v-html`
+- 地图视口按需加载 Leaflet（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。
 - 图层面板使用递归树，展示祖先继承后的有效显隐、锁定、透明度与 zoom；exclusive/floor 当前子层由 route + localStorage 会话投影管理，isolate 不持久化。世界对象通过 map presence 在多张地图和多条线路间选择并双向定位。
 - 连续道路/水系由 `mapPathRenderer.js` 负责 RDP 简化、平滑采样、变宽绘制、AABB 裁剪和命中测试；Pointer 手绘、节点拖动、端点吸附与线路草稿由 `mapView` 编排。地图 Canvas 使用单 RAF 和 revision/viewport 缓存。

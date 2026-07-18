@@ -1,3 +1,9 @@
+/**
+ * 深度导入字段纯逻辑 — 从 views/settings/shared/deepImportFields.js 移植。
+ * DEEP_IMPORT_GROUPS 为字段事实来源（默认值/min/max/类型），与原文件保持一致；
+ * 表单读写由 DOM 改为响应式对象，校验语义不变。
+ */
+
 const DEEP_IMPORT_GROUPS = [
   {
     id: "global",
@@ -92,110 +98,69 @@ const DEEP_IMPORT_GROUPS = [
 
 export { DEEP_IMPORT_GROUPS }
 
-export function renderDeepImportFields(settings) {
-  const configured = settings || {}
-  return `
-    <div class="llm-deep-import-grid">
-      ${DEEP_IMPORT_GROUPS.map((group) => `
-        <div class="deep-import-group">
-          <h4>${group.label}</h4>
-          <div class="form-row">
-            ${group.fields.map((field) => {
-              const groupSettings = configured[group.id]
-              const value = groupSettings && Object.hasOwn(groupSettings, field.key)
-                ? groupSettings[field.key]
-                : field.value
-              return renderDeepImportField(group.id, field, value)
-            }).join("")}
-          </div>
-        </div>
-      `).join("")}
-    </div>
-  `
-}
-
-function renderDeepImportField(groupId, field, value) {
-  const id = deepImportFieldId(groupId, field.key)
-  if (field.type === "bool") {
-    return renderBoolField(id, field.label, value)
-  }
-  if (field.type === "nullableBool") {
-    return renderNullableBoolField(id, field.label, value)
-  }
-  return renderNumberField(id, field, value)
-}
-
-function renderBoolField(id, label, value) {
-  return `
-    <div class="form-group">
-      <label for="${id}">${label}</label>
-      <select class="form-input" id="${id}">
-        <option value="false" ${value ? "" : "selected"}>关闭</option>
-        <option value="true" ${value ? "selected" : ""}>开启</option>
-      </select>
-    </div>
-  `
-}
-
-function renderNullableBoolField(id, label, value) {
-  const selected = value === true ? "true" : value === false ? "false" : ""
-  return `
-    <div class="form-group">
-      <label for="${id}">${label}</label>
-      <select class="form-input" id="${id}">
-        <option value="" ${selected === "" ? "selected" : ""}>自动</option>
-        <option value="true" ${selected === "true" ? "selected" : ""}>开启</option>
-        <option value="false" ${selected === "false" ? "selected" : ""}>关闭</option>
-      </select>
-    </div>
-  `
-}
-
-function renderNumberField(id, field, value) {
-  const step = field.step || (field.type === "float" ? "0.01" : "1")
-  const displayValue = value === undefined || value === null ? "" : String(value)
-  return `
-    <div class="form-group">
-      <label for="${id}">${field.label}</label>
-      <input class="form-input" id="${id}" type="number" min="${field.min}" max="${field.max}" step="${step}" value="${displayValue}" />
-    </div>
-  `
-}
-
 export function deepImportFieldId(groupId, key) {
   return `deep-import-${groupId}-${key.replaceAll("_", "-")}`
 }
 
-export function readDeepImportFields() {
+function displayValue(value) {
+  return value === undefined || value === null ? "" : String(value)
+}
+
+/**
+ * 由 deep_import 覆盖对象（source=project 时的 value，否则 {}）构造表单初值：
+ * 未覆盖字段回退到 DEEP_IMPORT_GROUPS 内嵌默认值；bool 统一为 "true"/"false"
+ * 字符串，nullableBool 允许 ""（自动）。
+ */
+export function deepImportFormFromSettings(settings) {
+  const configured = settings || {}
+  const form = {}
+  for (const group of DEEP_IMPORT_GROUPS) {
+    form[group.id] = {}
+    for (const field of group.fields) {
+      const groupSettings = configured[group.id]
+      const value = groupSettings && Object.hasOwn(groupSettings, field.key)
+        ? groupSettings[field.key]
+        : field.value
+      if (field.type === "bool") {
+        form[group.id][field.key] = value ? "true" : "false"
+      } else if (field.type === "nullableBool") {
+        form[group.id][field.key] = value === true ? "true" : value === false ? "false" : ""
+      } else {
+        form[group.id][field.key] = displayValue(value)
+      }
+    }
+  }
+  return form
+}
+
+function readFormField(field, raw) {
+  if (field.type === "bool") {
+    return { ok: true, value: raw === "true" }
+  }
+  if (field.type === "nullableBool") {
+    return { ok: true, value: raw === "" || raw === null || raw === undefined ? null : raw === "true" }
+  }
+  const text = String(raw ?? "").trim()
+  if (!text) return { ok: true, value: null }
+  const num = Number(text)
+  const inRange = num >= field.min && num <= field.max
+  const ok = field.type === "float" ? Number.isFinite(num) && inRange : Number.isInteger(num) && inRange
+  if (!ok) {
+    return { ok: false, error: `${field.label} 必须是 ${field.min}-${field.max} 的数字` }
+  }
+  return { ok: true, value: num }
+}
+
+/** 对应原 readDeepImportFields：空值回退字段默认值，越界返回首个错误。 */
+export function buildDeepImportPayload(form) {
   const value = {}
   for (const group of DEEP_IMPORT_GROUPS) {
     value[group.id] = {}
     for (const field of group.fields) {
-      const id = deepImportFieldId(group.id, field.key)
-      const readResult = readField(field, id)
+      const readResult = readFormField(field, form?.[group.id]?.[field.key])
       if (!readResult.ok) return readResult
       value[group.id][field.key] = readResult.value ?? field.value
     }
   }
   return { ok: true, value }
-}
-
-function readField(field, id) {
-  if (field.type === "bool") {
-    return { ok: true, value: document.getElementById(id)?.value === "true" }
-  }
-  if (field.type === "nullableBool") {
-    const raw = document.getElementById(id)?.value || ""
-    return { ok: true, value: raw === "" ? null : raw === "true" }
-  }
-  const raw = document.getElementById(id)?.value.trim() || ""
-  if (!raw) return { ok: true, value: null }
-  const num = Number(raw)
-  const inRange = num >= field.min && num <= field.max
-  const isFinite = Number.isFinite(num)
-  const ok = field.type === "float" ? isFinite && inRange : Number.isInteger(num) && inRange
-  if (!ok) {
-    return { ok: false, error: `${field.label} 必须是 ${field.min}-${field.max} 的数字` }
-  }
-  return { ok: true, value: num }
 }
