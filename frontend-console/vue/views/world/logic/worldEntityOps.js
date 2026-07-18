@@ -150,6 +150,11 @@ function mountEntityReferencePicker({
   return picker
 }
 
+/** review 决策模态复用同一 picker 挂载（useWorldReview 的别名入口）。 */
+export function mountEntityReferencePickerForReview(options) {
+  return mountEntityReferencePicker(options)
+}
+
 // ============================================================
 // 类型选择控件（对应 vanilla _entityTypeControlHtml 系列）
 // ============================================================
