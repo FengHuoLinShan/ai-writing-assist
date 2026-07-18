@@ -11,10 +11,11 @@
  */
 
 import { createSmartDedupManager } from "./shared/smartDedup.js"
-// settings / project / rag 视图已迁移为 Vue island（strangler-fig），在此完成注册
+// settings / project / rag / world 视图已迁移为 Vue island（strangler-fig），在此完成注册
 import "./vue/settingsIslands.js"
 import "./vue/projectIsland.js"
 import "./vue/ragIsland.js"
+import "./vue/worldIsland.js"
 
 const App = {
   /** @type {boolean} */

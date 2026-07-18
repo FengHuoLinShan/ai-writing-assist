@@ -18,9 +18,15 @@
  * canLeave：router 的路由守卫契约（router.js _canLeaveCurrentRoute，同步返回
  * false 阻断导航）。组件经 useLeaveGuard(fn) 注册同步守卫（如 worldBible 的
  * 未保存确认）；单槽位，后注册覆盖先注册，组件卸载时注销。
+ *
+ * query-only 导航兜底：router 的 isSameRender 优化在同视图+同子视图+同项目
+ * 时跳过 onEnter（render/onRendered 仍执行）。world 等 query 驱动视图靠
+ * onRendered() 挂载前的 query 漂移检测补载数据，vanilla 视图不受影响
+ * （它们的数据加载本就在 render 阶段）；render() 保持同步纯挂载点契约。
  */
 import { createApp } from "vue"
 import { createPinia } from "pinia"
+import { getRouter } from "./bridge/index.js"
 
 /** provide key：island 内向组件暴露守卫注册器（useLeaveGuard 使用）。 */
 export const ISLAND_LEAVE_GUARD = Symbol("vue-island-leave-guard")
@@ -29,6 +35,7 @@ export function mountIsland({ viewName, component, load = null }) {
   let app = null
   let loadedProps = {}
   let leaveGuard = null
+  let loadedQuery = null
 
   function unmount() {
     if (app) {
@@ -38,9 +45,14 @@ export function mountIsland({ viewName, component, load = null }) {
     leaveGuard = null
   }
 
+  async function reload() {
+    loadedProps = load ? (await load()) || {} : {}
+    loadedQuery = getRouter()?.getCurrentQuery?.()?.toString() ?? null
+  }
+
   return {
     async onEnter() {
-      loadedProps = load ? (await load()) || {} : {}
+      await reload()
     },
 
     render() {
@@ -48,6 +60,10 @@ export function mountIsland({ viewName, component, load = null }) {
     },
 
     async onRendered() {
+      if (load) {
+        const query = getRouter()?.getCurrentQuery?.()?.toString() ?? null
+        if (query !== loadedQuery) await reload()
+      }
       unmount()
       const el = document.querySelector(`#workspace-content [data-vue-island="${viewName}"]`)
       if (!el) {

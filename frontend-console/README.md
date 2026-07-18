@@ -120,8 +120,9 @@ frontend-console/
 │   ├── settingsIslands.js  #   settings/project-settings 注册与数据预取
 │   ├── projectIsland.js    #   project 注册与数据预取
 │   ├── ragIsland.js        #   rag 注册与数据预取
-│   └── views/              #   各 island 的 SFC、纯逻辑与会话状态（settings/project/rag）
-├── views/                  # 一级路由视图（vanilla；project/rag/settings 已迁入 vue/）
+│   ├── worldIsland.js      #   world 注册与数据预取
+│   └── views/              #   各 island 的 SFC、纯逻辑与会话状态（settings/project/rag/world）
+├── views/                  # 一级路由视图（vanilla；project/rag/settings/world 已迁入 vue/）
 │   ├── writingView.js      # 写作台 orchestrator
 │   ├── writing/            # 写作台子模块
 │   │   ├── chapterTree.js
@@ -139,7 +140,6 @@ frontend-console/
 │   │   ├── tools.js
 │   │   ├── mobileQuickNote.js
 │   │   └── submodules.js   # 子模块工厂
-│   ├── worldView.js        # 世界对象 / 关系 / 别名 / 世界书 / 地图子标签
 │   ├── mapWorkspaceView.js # 地图一级工作台
 │   ├── mapView.js          # 动态地图主视图
 │   ├── mapState.js         # 地图前端可观察会话状态
@@ -165,7 +165,7 @@ frontend-console/
 
 ## 技术栈
 
-- Vanilla JS 外壳 + Vue 3 SFC 视图岛（渐进迁移，ADR-0009）：`project` / `rag` / `settings` / `project-settings` 已迁移为 Vue，其余视图仍为 vanilla JS
+- Vanilla JS 外壳 + Vue 3 SFC 视图岛（渐进迁移，ADR-0009）：`project` / `rag` / `settings` / `project-settings` / `world` 已迁移为 Vue，其余视图仍为 vanilla JS
 - Vue 视图经 `vue/mountIsland.js` 注册进 vanilla router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；动态内容依赖模板自动转义，禁止 `v-html`
 - 地图视口按需加载 Leaflet（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。
