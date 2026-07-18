@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import { getApi, getAppState } from "../../../bridge/index.js"
 import {
@@ -81,8 +81,15 @@ const embeddingAvg = computed(() => (fields.metrics?.embedding_avg_ms != null ? 
 const degradedRate = computed(() => (fields.metrics?.degraded_rate != null ? percentText(fields.metrics.degraded_rate) : "-"))
 const cacheStatsText = computed(() => cacheText(fields.embeddingRuntime?.cache_stats))
 
-// vanilla：维度漂移或预热警告时诊断默认展开（渲染期计算一次）
+// vanilla 每次诊断重绘都按 (维度漂移 || 预热警告) 重算 open：
+// 条件转真自动展开（如预热失败、轮询产生警告），转假收回
 const diagnosticsOpen = ref(Boolean(fields.embeddingDimensionMismatch || session.prewarmWarning))
+watch(
+  () => Boolean(fields.embeddingDimensionMismatch || session.prewarmWarning),
+  (value) => {
+    diagnosticsOpen.value = value
+  },
+)
 
 const health = computed(() => props.evidenceHealth)
 const healthScene = computed(() => health.value?.scene_span_coverage || {})

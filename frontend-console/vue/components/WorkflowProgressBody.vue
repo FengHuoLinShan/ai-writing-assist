@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import {
   artifactItems,
   checkItems,
@@ -22,14 +22,18 @@ const props = defineProps({
   detailsStorageKeyOverride: { type: String, default: "" },
 })
 
-const detailsKey = computed(() => detailsStorageKey(props.progress, {
+const detailsOptions = () => ({
   detailLevel: props.detailLevel,
   detailsStorageKey: props.detailsStorageKeyOverride || undefined,
-}))
-const detailsOpen = ref(initialDetailsOpen(props.progress, {
-  detailLevel: props.detailLevel,
-  detailsStorageKey: props.detailsStorageKeyOverride || undefined,
-}))
+})
+
+const detailsKey = computed(() => detailsStorageKey(props.progress, detailsOptions()))
+const detailsOpen = ref(initialDetailsOpen(props.progress, detailsOptions()))
+
+// 任务切换（新 taskId → 新存储键）时按 vanilla 渲染期语义重算开合
+watch(() => props.progress?.taskId, () => {
+  detailsOpen.value = initialDetailsOpen(props.progress, detailsOptions())
+})
 
 function onDetailsToggle(event) {
   detailsOpen.value = event.target.open

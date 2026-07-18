@@ -159,25 +159,11 @@ describe("recoverRebuildWorkflow", () => {
   })
 })
 
-describe("prewarm", () => {
-  it("预热成功更新会话状态", async () => {
-    globalThis.api.rag.prewarm = vi.fn(async () => ({ status: "ready", warning: "" }))
+describe("prewarm（已迁移至 prewarmManager，见其测试）", () => {
+  it("useRagWorkflow 不再暴露 prewarm（避免组件生命周期内重启）", () => {
     const scope = effectScope()
     const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
-    await workflow.prewarm()
-    expect(ragSearchSession.prewarmState).toBe("ready")
-    scope.stop()
-  })
-
-  it("预热失败记录警告", async () => {
-    globalThis.api.rag.prewarm = vi.fn(async () => {
-      throw new Error("模型不可用")
-    })
-    const scope = effectScope()
-    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
-    await workflow.prewarm()
-    expect(ragSearchSession.prewarmState).toBe("failed")
-    expect(ragSearchSession.prewarmWarning).toBe("模型不可用")
+    expect(workflow.prewarm).toBeUndefined()
     scope.stop()
   })
 })

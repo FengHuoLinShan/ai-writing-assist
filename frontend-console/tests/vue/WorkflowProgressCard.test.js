@@ -102,6 +102,63 @@ describe("折叠持久化", () => {
   })
 })
 
+describe("开合随进度变化（vanilla 渲染期重算语义）", () => {
+  it("running→failed 轮询更新自动展开并显示错误与重试区", async () => {
+    const wrapper = mount(WorkflowProgressCard, { props: { progress: makeProgress() } })
+    expect(wrapper.find("details.workflow-progress").attributes("open")).toBeUndefined()
+
+    await wrapper.setProps({
+      progress: makeProgress({ failed: true, errorMessage: "Embedding 服务不可用" }),
+    })
+    expect(wrapper.find("details.workflow-progress").attributes("open")).toBeDefined()
+    expect(wrapper.text()).toContain("Embedding 服务不可用")
+  })
+
+  it("failed→running（重试后）自动收起（无存储选择时）", async () => {
+    const wrapper = mount(WorkflowProgressCard, {
+      props: { progress: makeProgress({ failed: true }) },
+    })
+    expect(wrapper.find("details.workflow-progress").attributes("open")).toBeDefined()
+
+    await wrapper.setProps({ progress: makeProgress({ failed: false }) })
+    expect(wrapper.find("details.workflow-progress").attributes("open")).toBeUndefined()
+  })
+
+  it("用户手动收起后 failed 不再自动展开", async () => {
+    const wrapper = mount(WorkflowProgressCard, { props: { progress: makeProgress() } })
+    const details = wrapper.find("details.workflow-progress")
+    details.element.open = false
+    await details.trigger("toggle")
+    expect(sessionStorage.getItem("workflow-progress-card:task-1")).toBe("closed")
+
+    await wrapper.setProps({ progress: makeProgress({ failed: true }) })
+    expect(wrapper.find("details.workflow-progress").attributes("open")).toBeUndefined()
+  })
+
+  it("切换任务（新 taskId）按新存储键重算卡片与详情开合", async () => {
+    const progress = makeProgress({
+      phaseTimeline: [{ phase: "phase0_plan", status: "completed", duration_s: 3 }],
+    })
+    const wrapper = mount(WorkflowProgressCard, { props: { progress } })
+    const details = wrapper.find("details.workflow-progress__details")
+    details.element.open = true
+    await details.trigger("toggle")
+    expect(sessionStorage.getItem("workflow-progress-details:task-1")).toBe("open")
+
+    await wrapper.setProps({
+      progress: makeProgress({
+        taskId: "task-2",
+        failed: true,
+        phaseTimeline: [{ phase: "phase0_plan", status: "completed", duration_s: 3 }],
+      }),
+    })
+    expect(wrapper.find("details.workflow-progress").attributes("data-collapse-storage-key")).toBe("workflow-progress-card:task-2")
+    expect(wrapper.find("details.workflow-progress").attributes("open")).toBeDefined()
+    // task-2 详情无存储 → 回到默认（关闭）
+    expect(wrapper.find("details.workflow-progress__details").attributes("open")).toBeUndefined()
+  })
+})
+
 describe("内容区块", () => {
   it("资产摘要 / 阶段产物 / 警告 / 错误", () => {
     const wrapper = mount(WorkflowProgressCard, {

@@ -25,6 +25,8 @@ export const ragSearchSession = reactive({
   // 预热状态（vanilla 单例字段，onEnter 不重置）
   prewarmState: "idle",
   prewarmWarning: "",
+  // 预热结果回写（prewarmManager 写入；RagView 应用到 statusFields）
+  prewarmResult: null,
 })
 
 export function resetRagSearchSession() {

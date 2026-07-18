@@ -81,4 +81,45 @@ describe("ragIsland", () => {
     expect(content.textContent).toContain("与服务器连接断开")
     views.rag.onLeave()
   })
+
+  it("worker 已就绪时不触发预热", async () => {
+    setBridgeOverrides({ state: { currentProjectId: "p-healthy" } })
+    globalThis.api.rag.status = vi.fn(async () => ({
+      total: 5,
+      embedding_runtime: { started: true, healthy: true, cache_stats: {} },
+      warnings: [],
+      items: [],
+    }))
+    globalThis.api.context.evidenceHealth = vi.fn(async () => null)
+    globalThis.api.world.listCharacters = vi.fn(async () => ({ items: [], total: 0 }))
+    globalThis.api.outline.listScenesOrdered = vi.fn(async () => [])
+    globalThis.api.rag.prewarm = vi.fn()
+    await views.rag.onEnter()
+    expect(globalThis.api.rag.prewarm).not.toHaveBeenCalled()
+  })
+
+  it("有片段且 worker 未就绪时触发后台预热，同项目不重复发起", async () => {
+    setBridgeOverrides({ state: { currentProjectId: "p-need-prewarm" } })
+    globalThis.api.rag.status = vi.fn(async () => ({
+      total: 5,
+      embedding_runtime: { started: false, healthy: false, cache_stats: {} },
+      warnings: [],
+      items: [],
+    }))
+    globalThis.api.context.evidenceHealth = vi.fn(async () => null)
+    globalThis.api.world.listCharacters = vi.fn(async () => ({ items: [], total: 0 }))
+    globalThis.api.outline.listScenesOrdered = vi.fn(async () => [])
+    globalThis.api.rag.prewarm = vi.fn(async () => ({
+      status: "ready",
+      embedding_dim: 1024,
+      cache_stats: {},
+    }))
+
+    await views.rag.onEnter()
+    expect(globalThis.api.rag.prewarm).toHaveBeenCalledTimes(1)
+    // 子标签切换再次 onEnter：ready 去重，不重复发起（P2 回归）
+    await views.rag.onEnter()
+    expect(globalThis.api.rag.prewarm).toHaveBeenCalledTimes(1)
+    views.rag.onLeave()
+  })
 })

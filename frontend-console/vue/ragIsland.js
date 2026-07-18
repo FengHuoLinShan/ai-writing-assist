@@ -7,6 +7,7 @@ import { mountIsland } from "./mountIsland.js"
 import RagView from "./views/rag/RagView.vue"
 import { getApi, getAppState, getRouter } from "./bridge/index.js"
 import { resetRagSearchSession } from "./views/rag/ragSearchSession.js"
+import { ensurePrewarm } from "./views/rag/prewarmManager.js"
 
 const CHARACTER_PAGE_SIZE = 50
 
@@ -52,6 +53,12 @@ async function loadRag() {
     apiAvailable = true
   } catch {
     status = null
+  }
+
+  // vanilla onEnter 的后台预热触发点：island load 即 vanilla onEnter；
+  // 请求由模块级 prewarmManager 去重，不随 island 重挂载反复重启（P2 评审）
+  if (apiAvailable && (status?.total || 0) > 0 && !status?.embedding_runtime?.healthy) {
+    void ensurePrewarm()
   }
 
   let evidenceHealth = null

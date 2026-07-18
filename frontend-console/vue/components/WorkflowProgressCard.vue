@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import WorkflowProgressBody from "./WorkflowProgressBody.vue"
 import {
   classesFor,
@@ -44,12 +44,23 @@ const cardKey = computed(() => collapseStorageKey(props.progress, {
   collapseStorageKey: props.collapseStorageKeyOverride || undefined,
 }))
 
-// 初始开合按 sessionStorage + fallback 计算一次；之后跟随用户操作（与 vanilla 渲染期计算语义一致）
-const cardOpen = ref(initialCardOpen(props.progress, {
+const openOptions = () => ({
   defaultExpanded: props.defaultExpanded,
   attentionRequired: props.attentionRequired,
   collapseStorageKey: props.collapseStorageKeyOverride || undefined,
-}))
+})
+
+// 初始开合按 sessionStorage + fallback 计算；之后跟随用户操作写回存储
+const cardOpen = ref(initialCardOpen(props.progress, openOptions()))
+
+// vanilla 每次渲染都重算开合（stored ?? fallback）：轮询把 progress 从 running
+// 更新为 failed/attentionRequired 时自动展开，用户手动选择（有存储）始终优先。
+watch(
+  () => [props.progress?.taskId, Boolean(props.progress?.failed), Boolean(props.attentionRequired)],
+  () => {
+    cardOpen.value = initialCardOpen(props.progress, openOptions())
+  },
+)
 
 function onCardToggle(event) {
   cardOpen.value = event.target.open

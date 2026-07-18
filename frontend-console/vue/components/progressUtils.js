@@ -159,13 +159,18 @@ export function detailsStorageKey(progress, options = {}) {
   return options.detailsStorageKey || (progress.taskId ? `workflow-progress-details:${progress.taskId}` : null)
 }
 
-function readStoredOpen(storageKey) {
+function _readStoredOpenImpl(storageKey) {
   if (!storageKey || !globalThis.sessionStorage) return null
   try {
     return globalThis.sessionStorage.getItem(storageKey)
   } catch {
     return null
   }
+}
+
+/** 读取折叠存储选择（"open" | "closed" | null=用户未选择）。 */
+export function readStoredOpen(storageKey) {
+  return _readStoredOpenImpl(storageKey)
 }
 
 export function persistStoredOpen(storageKey, open) {

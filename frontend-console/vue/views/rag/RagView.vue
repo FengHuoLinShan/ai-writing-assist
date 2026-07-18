@@ -1,9 +1,11 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import RagSearchView from "./RagSearchView.vue"
 import RagStatusPanel from "./components/RagStatusPanel.vue"
 import { getApi, getRouter, useStateKey } from "../../bridge/index.js"
 import { useRagWorkflow } from "./useRagWorkflow.js"
+import { ensurePrewarm } from "./prewarmManager.js"
+import { ragSearchSession } from "./ragSearchSession.js"
 
 /**
  * 小说检索根组件 — header（子标签导航 + 状态页操作）+ search/status 分支。
@@ -70,6 +72,25 @@ async function refreshStatus() {
 
 const workflow = useRagWorkflow({ statusFields, refreshStatus })
 
+// 预热结果回写（对应 vanilla _prewarm 的 _embeddingDim/_embeddingRuntime 更新）：
+// 请求由 prewarmManager 模块级管理（island load 触发/手动按钮强制），
+// 完成可能晚于组件挂载，故初始应用一次并持续监听。
+function applyPrewarmResult(result) {
+  if (!result) return
+  if (result.embedding_dim != null) statusFields.embeddingDim = result.embedding_dim
+  statusFields.embeddingRuntime = {
+    ...(statusFields.embeddingRuntime || {}),
+    ...result.embedding_runtime,
+  }
+}
+applyPrewarmResult(ragSearchSession.prewarmResult)
+watch(() => ragSearchSession.prewarmResult, applyPrewarmResult)
+
+/** 手动"预热检索引擎"按钮（vanilla 无条件发起）。 */
+function manualPrewarm() {
+  void ensurePrewarm({ force: true })
+}
+
 const rebuildForm = reactive({ contentMode: "canonical", start: "", end: "" })
 
 function navigateSub(sub) {
@@ -87,11 +108,7 @@ onMounted(async () => {
       // 诊断数据失败不影响状态页
     }
   }
-  // vanilla onEnter 的 background prewarm 触发条件
-  if (statusFields.totalChunks > 0 && !statusFields.embeddingRuntime?.healthy) {
-    void workflow.prewarm()
-  }
-  // vanilla onEnter 末尾的工作流恢复
+  // vanilla onEnter 末尾的工作流恢复（后台预热已上移到 island load）
   workflow.recoverRebuildWorkflow()
 })
 </script>
@@ -105,7 +122,7 @@ onMounted(async () => {
     <div class="view-header__actions">
       <template v-if="subView === 'status'">
         <button class="btn btn-sm" data-action="rebuild-index" @click="workflow.rebuildIndex(rebuildForm)">重建索引</button>
-        <button class="btn btn-sm" data-action="prewarm-rag" @click="workflow.prewarm()">预热检索引擎</button>
+        <button class="btn btn-sm" data-action="prewarm-rag" @click="manualPrewarm">预热检索引擎</button>
         <button v-if="statusFields.retryableEmbeddingCount > 0" class="btn btn-sm" data-action="retry-embeddings" @click="workflow.retryEmbeddings()">重试失败向量</button>
       </template>
     </div>
@@ -124,7 +141,7 @@ onMounted(async () => {
     :api-available="apiAvailable"
     v-model:rebuild-form="rebuildForm"
     @rebuild="workflow.rebuildIndex(rebuildForm)"
-    @prewarm="workflow.prewarm()"
+    @prewarm="manualPrewarm"
     @retry-embeddings="workflow.retryEmbeddings()"
     @retry-task="workflow.retryFailedTask()"
     @navigate-search="navigateSub('search')"

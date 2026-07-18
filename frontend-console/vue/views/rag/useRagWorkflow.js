@@ -1,7 +1,8 @@
 /**
  * RAG 索引工作流 composable — 对应 vanilla ragView 的 _rebuildIndex /
- * _retryEmbeddings / _retryFailedTask / _recoverRebuildWorkflow / _prewarm
+ * _retryEmbeddings / _retryFailedTask / _recoverRebuildWorkflow
  * 与轮询管理（_startRebuildPolling/_stopRebuildPolling）。
+ * （预热由 ./prewarmManager.js 模块级管理，不在组件生命周期内。）
  * 进度写入 ragSearchSession（跨 island 重挂载存活）；scope 销毁时停止轮询并
  * abort 在途请求（对应 vanilla onLeave 清理）。
  */
@@ -232,23 +233,6 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
     }
   }
 
-  /** 预热检索引擎（对应 _prewarm；background 模式由调用方决定是否触发 UI 刷新）。 */
-  async function prewarm() {
-    const session = ragSearchSession
-    session.prewarmState = "running"
-    session.prewarmWarning = ""
-    try {
-      const result = await getApi().rag.prewarm({ signal: ensureAbortController().signal })
-      session.prewarmState = result.status === "ready" ? "ready" : "failed"
-      session.prewarmWarning = result.warning || ""
-      return result
-    } catch (err) {
-      session.prewarmState = "failed"
-      session.prewarmWarning = err.message || "预热失败"
-      return null
-    }
-  }
-
   if (getCurrentScope()) {
     onScopeDispose(() => {
       polling.stopAll()
@@ -265,6 +249,5 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
     retryFailedTask,
     recoverRebuildWorkflow,
     startRebuildPolling,
-    prewarm,
   }
 }

@@ -102,6 +102,20 @@ describe("状态页渲染", () => {
     expect(wrapper.text()).toContain("8/2")
   })
 
+  it("预热警告产生后诊断自动展开，清除后收回（vanilla 重算语义）", async () => {
+    const wrapper = mountPanel()
+    expect(wrapper.find(".rag-diagnostics-card").attributes("open")).toBeUndefined()
+
+    ragSearchSession.prewarmWarning = "Embedding 模型不可用"
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find(".rag-diagnostics-card").attributes("open")).toBeDefined()
+    expect(wrapper.text()).toContain("Embedding 模型不可用")
+
+    ragSearchSession.prewarmWarning = ""
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find(".rag-diagnostics-card").attributes("open")).toBeUndefined()
+  })
+
   it("证据健康卡", () => {
     const wrapper = mountPanel({
       evidenceHealth: {

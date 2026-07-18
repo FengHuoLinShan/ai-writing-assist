@@ -4,8 +4,8 @@
 
 前端为 SPA 控制台，通过 REST API 驱动整个创作工作台：外壳（`index.html` 骨架、hash router、
 Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模式渐进迁移到 Vue 3
-（`settings` / `project-settings` 已迁移；Vue 视图经 `vue/mountIsland.js` 注册进 vanilla
-router，组件只经 `vue/bridge/index.js` 访问既有基建，动态内容禁止 `v-html`）。
+（`project` / `rag` / `settings` / `project-settings` 已迁移；Vue 视图经 `vue/mountIsland.js`
+注册进 vanilla router，组件只经 `vue/bridge/index.js` 访问既有基建，动态内容禁止 `v-html`）。
 动态地图视口使用 Leaflet。
 
 ## 架构
@@ -65,7 +65,7 @@ router，组件只经 `vue/bridge/index.js` 访问既有基建，动态内容禁
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 - `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
-- Vue island 生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点 div → `onRendered` 挂载（同视图 forceRefresh 不触发 `onLeave`，先卸载残留实例）→ `onLeave` 卸载；`settings` / `project-settings` 不在 KeepAlive 名单内
+- Vue island 生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点 div → `onRendered` 挂载（同视图 forceRefresh 不触发 `onLeave`，先卸载残留实例）→ `onLeave` 卸载；当前已迁移的 `project` / `rag` / `settings` / `project-settings` 均不在 KeepAlive 名单内，keep-alive 视图（writing/outline）的 island 策略留待对应迁移阶段
 - 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
 
 ## 对象引用交互契约
