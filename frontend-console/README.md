@@ -115,11 +115,13 @@ frontend-console/
 ├── vue/                    # Vue 3 视图岛（ADR-0009）
 │   ├── bridge/             #   组件访问 vanilla 基建的唯一入口（可 DI 替身）
 │   ├── mountIsland.js      #   Vue 根组件 → vanilla router 视图契约适配器
-│   ├── composables/        #   跨视图组合式函数（如保存按钮状态）
+│   ├── components/         #   跨视图组件（WorkflowProgressCard 等）
+│   ├── composables/        #   跨视图组合式函数（上传/轮询/保存按钮）
 │   ├── settingsIslands.js  #   settings/project-settings 注册与数据预取
-│   └── views/settings/     #   设置 SFC 与纯逻辑（logic/）
-├── views/                  # 一级路由视图
-│   ├── projectView.js      # 项目
+│   ├── projectIsland.js    #   project 注册与数据预取
+│   ├── ragIsland.js        #   rag 注册与数据预取
+│   └── views/              #   各 island 的 SFC、纯逻辑与会话状态（settings/project/rag）
+├── views/                  # 一级路由视图（vanilla；project/rag/settings 已迁入 vue/）
 │   ├── writingView.js      # 写作台 orchestrator
 │   ├── writing/            # 写作台子模块
 │   │   ├── chapterTree.js
@@ -153,7 +155,6 @@ frontend-console/
 │   ├── outlineView.js      # 剧情结构
 │   ├── storyOutlineView.js # 小说总纲当前版、修订历史与 AI 预览采用
 │   ├── sceneWorkbenchView.js # Scene 一级工作台
-│   ├── ragView.js          # RAG 检索
 │   ├── contextView.js      # 旧上下文页代码；当前 hash 入口重定向到生成中心任务页
 │   └── generateView.js     # 生成中心
 ├── tests/                  # 测试目录

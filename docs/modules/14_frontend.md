@@ -42,14 +42,14 @@ router，组件只经 `vue/bridge/index.js` 访问既有基建，动态内容禁
 
 | 视图 | 当前职责 |
 |------|----------|
-| `projectView` | 编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口 |
+| `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口 |
 | `writingView` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene 面板；版本历史；授权深度导入；Scene 地图摘要跳转 |
 | `worldView` | 对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
 | `outlineView` | 大纲分层创作；默认组合 `storyOutlineView` 管理小说总纲，在篇章纲、剧情线和 Scene 工作台分别提供当前层 AI 创作。伏笔/揭示作为剧情线的信息推进时间线与未归类区展示，不再是顶层子标签 |
 | `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
-| `ragView` | 智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
+| `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
 | `generateView` | 生成中心：world 工作区承载对象/完善当前页/新建页面的共创对话、来源与上下文选择、结构化预览和工作稿应用；同时保留上下文任务预览/编译、POV 与其他既有领域流程 |
 | `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
 | `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承；通用输出上限与深度导入阶段预算分开说明 |

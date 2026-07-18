@@ -16,7 +16,14 @@ import { useWorkflowPolling } from "../../composables/useWorkflowPolling.js"
 import { getApi, getAppState, getToast } from "../../bridge/index.js"
 import { ragSearchSession } from "./ragSearchSession.js"
 
-export function useRagWorkflow({ refreshStatus } = {}) {
+/**
+ * 创建索引工作流。
+ * @param {{statusFields: object, refreshStatus?: () => Promise<void>}} options
+ *   statusFields 为 RagView 持有的 reactive 状态字段（totalChunks/
+ *   embeddingFailedCount/retryableEmbeddingCount/statusWarnings/statusDegraded）；
+ *   refreshStatus 用于工作流完成后刷新状态页数据。
+ */
+export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
   const polling = useWorkflowPolling()
   let abortController = new AbortController()
   let pollerStarted = false
@@ -47,7 +54,6 @@ export function useRagWorkflow({ refreshStatus } = {}) {
   }
 
   async function applyRagRebuildResult(result = {}) {
-    const state = getAppState()
     if (result.chunks_created != null) {
       statusFields.totalChunks = result.chunks_created
     } else if (result.total_chapters != null) {
@@ -61,7 +67,6 @@ export function useRagWorkflow({ refreshStatus } = {}) {
       statusFields.statusWarnings = result.warnings
       statusFields.statusDegraded = result.warnings.length > 0 || Boolean(result.embedding_failed_count)
     }
-    void state
   }
 
   async function handleRebuildDone(taskId, workflowType, result = {}) {
@@ -74,15 +79,6 @@ export function useRagWorkflow({ refreshStatus } = {}) {
       await applyRagRebuildResult(result)
     }
     clearActiveWorkflow(taskId)
-  }
-
-  /** 由 RagView 持有的状态字段容器（reactive），在 setup 时注入。 */
-  const statusFields = {
-    totalChunks: null,
-    embeddingFailedCount: 0,
-    retryableEmbeddingCount: 0,
-    statusWarnings: [],
-    statusDegraded: false,
   }
 
   /** 恢复跨刷新的活动工作流（对应 _recoverRebuildWorkflow）。 */
@@ -264,7 +260,6 @@ export function useRagWorkflow({ refreshStatus } = {}) {
   }
 
   return {
-    statusFields,
     rebuildIndex,
     retryEmbeddings,
     retryFailedTask,
