@@ -46,6 +46,33 @@ export function getConfirm() {
   return typeof confirmFn === "function" ? (message) => confirmFn(message) : () => true
 }
 
+/**
+ * showModalHtml(title, htmlString, buttons, options) — 外壳全局模态框。
+ * 内容 HTML 必须先用 esc() 处理动态片段（README「安全与契约」既有豁免模式，
+ * 不属于 Vue 模板 v-html 场景）；外壳 modal 的 Vue 化留待 Phase 6。
+ */
+export function getShowModalHtml() {
+  const fn = _overrides.showModalHtml ?? globalThis.showModalHtml
+  return typeof fn === "function" ? fn : () => {}
+}
+
+/** confirmAction(message, onConfirm, confirmText) — 外壳全局二次确认。 */
+export function getConfirmAction() {
+  const fn = _overrides.confirmAction ?? globalThis.confirmAction
+  return typeof fn === "function" ? fn : () => {}
+}
+
+export function getCloseModal() {
+  const fn = _overrides.closeModal ?? globalThis.closeModal
+  return typeof fn === "function" ? fn : () => {}
+}
+
+/** esc(value) — HTML 转义（仅供 modal 内容等字符串拼装场景；Vue 模板用 {{ }} 自动转义）。 */
+export function getEsc() {
+  const fn = _overrides.esc ?? globalThis.esc
+  return typeof fn === "function" ? fn : (value) => String(value ?? "")
+}
+
 /** D20-D22: localStorage 旧作者偏好一次性迁移，失败仅告警不阻断页面加载。 */
 export async function tryMigrateLocalAuthorPreferences(projectId) {
   const migrate = _overrides.tryMigrateLocalAuthorPreferences

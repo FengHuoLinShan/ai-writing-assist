@@ -5,8 +5,12 @@ import { describe, it, expect, afterEach, vi } from "vitest"
 import {
   getApi,
   getAppState,
+  getCloseModal,
   getConfirm,
+  getConfirmAction,
+  getEsc,
   getRouter,
+  getShowModalHtml,
   getToast,
   resetBridgeOverrides,
   setBridgeOverrides,
@@ -14,6 +18,11 @@ import {
   useStateKey,
 } from "../../vue/bridge/index.js"
 import { effectScope } from "vue"
+import { beforeEach } from "vitest"
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 afterEach(() => {
   resetBridgeOverrides()
@@ -58,6 +67,37 @@ describe("bridge 测试替身", () => {
     setBridgeOverrides({ tryMigrateLocalAuthorPreferences: failing })
     await expect(tryMigrateLocalAuthorPreferences("p1")).resolves.toBeUndefined()
     expect(failing).toHaveBeenCalledWith("p1")
+  })
+})
+
+describe("bridge 外壳 modal 与 esc", () => {
+  it("modal 三件套回退到 window 全局", () => {
+    getShowModalHtml()("标题", "<p>内容</p>", [])
+    expect(globalThis.showModalHtml).toHaveBeenCalledWith("标题", "<p>内容</p>", [])
+    getConfirmAction()("确定删除？", () => {}, "删除")
+    expect(globalThis.confirmAction).toHaveBeenCalledWith("确定删除？", expect.any(Function), "删除")
+    getCloseModal()()
+    expect(globalThis.closeModal).toHaveBeenCalled()
+  })
+
+  it("modal 三件套可注入替身", () => {
+    const showModalHtml = vi.fn()
+    const confirmAction = vi.fn()
+    const closeModal = vi.fn()
+    setBridgeOverrides({ showModalHtml, confirmAction, closeModal })
+    getShowModalHtml()("t", "h", [])
+    getConfirmAction()("m", () => {})
+    getCloseModal()()
+    expect(showModalHtml).toHaveBeenCalledOnce()
+    expect(confirmAction).toHaveBeenCalledOnce()
+    expect(closeModal).toHaveBeenCalledOnce()
+    expect(globalThis.showModalHtml).not.toHaveBeenCalled()
+  })
+
+  it("getEsc 回退到全局 esc 并可注入替身", () => {
+    expect(getEsc()("<b>")).toBe("&lt;b&gt;")
+    setBridgeOverrides({ esc: () => "SAFE" })
+    expect(getEsc()("<b>")).toBe("SAFE")
   })
 })
 
