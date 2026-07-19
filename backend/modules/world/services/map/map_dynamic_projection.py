@@ -20,6 +20,14 @@ NormalizationState = Literal[
     "untyped",
     "invalid",
 ]
+MapDynamicTrack = Literal[
+    "journey",
+    "territory",
+    "crisis",
+    "resource",
+    "status",
+    "world",
+]
 
 _VALUE_ADAPTER = TypeAdapter(MapDynamicValueV1)
 
@@ -66,12 +74,45 @@ def equivalent_dynamic_types(dynamic_type: object) -> tuple[str, ...]:
     """Return every persisted alias represented by one canonical filter."""
     canonical = canonical_dynamic_type(dynamic_type)
     return tuple(
-        sorted(
-            key
-            for key, value in _DYNAMIC_TYPE_ALIASES.items()
-            if value == canonical
-        )
+        sorted(key for key, value in _DYNAMIC_TYPE_ALIASES.items() if value == canonical)
     ) or (canonical,)
+
+
+def map_dynamic_track(
+    dynamic_type: object,
+    *,
+    target_entity_type: object = None,
+    proposal_type: object = None,
+) -> MapDynamicTrack:
+    """Classify one dynamic without treating every place record as a journey.
+
+    A typed ``location`` value describes where its *target* is.  It is a
+    character journey only when that target is a character (or when a typed
+    proposal preserves that intent).  Static location layout facts and event
+    locations remain world-state records.
+    """
+    raw_type = str(dynamic_type or "").strip().lower().replace("-", "_")
+    canonical_type = canonical_dynamic_type(raw_type)
+    normalized_target = str(target_entity_type or "").strip().lower().replace("-", "_")
+    normalized_proposal = str(proposal_type or "").strip().lower().replace("-", "_")
+
+    if raw_type in {"movement", "position", "position_change", "journey"}:
+        return "journey"
+    if canonical_type == "location":
+        if normalized_target in {"character", "person"}:
+            return "journey"
+        if normalized_proposal == "character_location":
+            return "journey"
+        return "world"
+    if canonical_type == "boundary":
+        return "territory"
+    if canonical_type == "crisis":
+        return "crisis"
+    if canonical_type == "resource":
+        return "resource"
+    if canonical_type == "status":
+        return "status"
+    return "world"
 
 
 def validate_versioned_dynamic_value(
@@ -185,9 +226,7 @@ def _legacy_payload(
                 "path_id",
             )
         )
-        location_id = anchor.get("location_entity_id") or value.get(
-            "location_entity_id"
-        )
+        location_id = anchor.get("location_entity_id") or value.get("location_entity_id")
         path_id = anchor.get("path_id") or value.get("path_id")
         if not has_anchor and not location_id and not path_id:
             return None

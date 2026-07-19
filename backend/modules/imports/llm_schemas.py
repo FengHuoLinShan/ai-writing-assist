@@ -1017,6 +1017,26 @@ class Phase2aUncertainItem(BaseModel):
         return _coerce_string_list(value)
 
 
+class MapSceneObservationEnrichmentOutput(BaseModel):
+    """Map-only Scene extraction contract used outside the deep-import stages."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    map_observation_proposals: list[Phase2aMapObservationProposal] = Field(
+        default_factory=list
+    )
+    uncertain_items: list[Phase2aUncertainItem] = Field(default_factory=list)
+
+    @field_validator(
+        "map_observation_proposals",
+        "uncertain_items",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_lists(cls, value: Any) -> list[Any]:
+        return _coerce_list_or_empty(value)
+
+
 class Phase2aSceneExtractionOutput(BaseModel):
     """P13 LLM contract: current Scene -> durable world continuity observations."""
 

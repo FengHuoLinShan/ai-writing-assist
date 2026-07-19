@@ -157,6 +157,59 @@ async def test_map_observation_confirm_flow_keeps_candidate_until_confirmed(
 
 
 @pytest.mark.asyncio
+async def test_auto_ingested_observation_without_evidence_cannot_be_confirmed(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    scene = await create_scene(
+        db_session,
+        nid,
+        {"scene_index": 3, "title": "城门戒严", "status": "canonical"},
+    )
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 8, "grid_height": 8},
+    )
+    map_id = map_resp.json()["id"]
+    created = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_name": "城门戒严",
+            "dynamic_type": "status",
+            "time_anchor": {"scene_index": 3},
+            "value_json": {
+                "schema_version": 1,
+                "type": "status",
+                "field_key": "alert_level",
+                "value": "high",
+            },
+            "confidence": 0.81,
+            "source_ref": {"source": "map_enrichment", "auto_ingested": True},
+            "scene_id": scene["id"],
+            "scene_index": 3,
+            "source_chapter_index": 2,
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    observation = created.json()
+    assert observation["eligibility"]["can_confirm"] is False
+    assert observation["eligibility"]["missing_items"] == ["evidence"]
+    assert observation["eligibility"]["missing_item_labels"] == ["缺少可核对的正文证据"]
+
+    confirmed = await async_client.post(
+        f"/api/world/maps/{map_id}/observations/{observation['id']}/confirm",
+        params={"novel_id": nid},
+        json=_revision_payload(observation),
+    )
+    assert confirmed.status_code == 422, confirmed.text
+
+
+@pytest.mark.asyncio
 async def test_map_observation_can_be_ignored_without_creating_fact(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -636,6 +689,27 @@ async def test_dashboard_deduplicates_confirmed_observations_and_main_characters
     )
     assert location_obs.status_code == 201, location_obs.text
 
+    later_character_obs = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_entity_id": str(character.id),
+            "target_entity_type": "character",
+            "target_name": "沈砚",
+            "dynamic_type": "location",
+            "spatial_anchor": {"hex_q": 3, "hex_r": 3},
+            "value_json": {
+                "schema_version": 1,
+                "type": "location",
+                "state": "present",
+            },
+            "confidence": 0.75,
+            "scene_index": 3,
+            "source_ref": {"source": "manual_test"},
+        },
+    )
+    assert later_character_obs.status_code == 201, later_character_obs.text
+
     resp = await async_client.get(
         f"/api/world/maps/{map_id}/dashboard",
         params={"novel_id": nid},
@@ -644,9 +718,12 @@ async def test_dashboard_deduplicates_confirmed_observations_and_main_characters
     body = resp.json()
 
     queue = body["dynamic_queue"]
-    assert [item["title"] for item in queue].count("沈砚") == 1
-    assert next(item for item in queue if item["title"] == "沈砚")["item_kind"] == "fact"
-    assert "沈砚" in body["first_visual_layer"]["main_characters"]
+    assert [item["title"] for item in queue].count("沈砚") == 2
+    assert {item["item_kind"] for item in queue if item["title"] == "沈砚"} == {
+        "fact",
+        "observation",
+    }
+    assert body["first_visual_layer"]["main_characters"].count("沈砚") == 1
     assert "洛阳外城" not in body["first_visual_layer"]["main_characters"]
 
 
@@ -862,7 +939,7 @@ async def test_dashboard_scene_filter_and_object_labels_are_author_facing(
     assert item["spatial_anchor_label"] == "坐标 1,2"
     assert item["debug_ref"]["id"] == item["item_id"]
     assert body["first_visual_layer"]["current_scene_events"] == ["东门封锁"]
-    assert body["first_visual_layer"]["current_storyline"] == "Scene 1"
+    assert body["first_visual_layer"]["current_storyline"] == "Scene 2"
 
 
 @pytest.mark.asyncio
@@ -1411,12 +1488,25 @@ async def test_playback_derives_typed_tracks_from_facts_and_candidates(
         name="沈砚",
         status="canonical",
     )
-    map_resp = await async_client.post(
-        "/api/world/maps",
-        params={"novel_id": nid},
-        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    location = await _create_entity(
+        db_session,
+        nid,
+        entity_type="location",
+        name="洛阳外城",
+        status="canonical",
     )
-    map_id = map_resp.json()["id"]
+    map_resp = await async_client.post(
+        "/api/world/maps/quick-create/confirm",
+        params={"novel_id": nid},
+        json={
+            "name": "九州",
+            "location_entity_ids": [str(location.id)],
+            "grid_width": 6,
+            "grid_height": 6,
+        },
+    )
+    assert map_resp.status_code == 201, map_resp.text
+    map_id = map_resp.json()["map"]["id"]
 
     position_resp = await async_client.post(
         f"/api/world/maps/{map_id}/observations",
@@ -1468,20 +1558,29 @@ async def test_playback_derives_typed_tracks_from_facts_and_candidates(
     )
     assert playback.status_code == 200, playback.text
     body = playback.json()
-    assert [track["track"] for track in body["tracks"]] == ["journey", "crisis"]
+    assert [track["track"] for track in body["tracks"]] == [
+        "journey",
+        "crisis",
+        "world",
+    ]
     assert body["events"][0]["typed_observation"] == "position_change"
     assert body["events"][0]["track"] == "journey"
     assert body["events"][0]["change_summary"] == "沈砚进入内城。"
     assert body["events"][1]["typed_observation"] == "crisis_spread"
     assert body["events"][1]["track"] == "crisis"
     assert body["events"][1]["status_label"] == "待处理"
+    assert body["events"][2]["title"] == "洛阳外城"
+    assert body["events"][2]["track"] == "world"
 
     confirmed_only = await async_client.get(
         f"/api/world/maps/{map_id}/playback",
         params={"novel_id": nid, "include_candidates": False},
     )
     assert confirmed_only.status_code == 200
-    assert [event["track"] for event in confirmed_only.json()["events"]] == ["journey"]
+    assert [event["track"] for event in confirmed_only.json()["events"]] == [
+        "journey",
+        "world",
+    ]
 
 
 @pytest.mark.asyncio

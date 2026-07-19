@@ -127,6 +127,10 @@
       hasBody: true,
       requiredBody: ["adoption_policy", "authorization_confirmed"],
     }),
+    "imports.startMapObservationEnrichment": define("POST", () => "/imports/stages/map-observations", {
+      hasBody: true,
+      requiredBody: ["novel_id", "start_chapter", "end_chapter", "high_quality", "adoption_policy", "authorization_confirmed"],
+    }),
     "imports.resumeDeepImport": define("POST", () => "/imports/deep/resume", { hasBody: true }),
     "imports.abandonDeepImport": define("POST", () => "/imports/deep/abandon", { hasBody: true }),
 

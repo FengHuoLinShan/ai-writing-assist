@@ -122,7 +122,9 @@ test.describe("地图真实性能采样", () => {
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const initialViewport = await leafletViewportState(page)
-    await canvas.click({ position: { x: 220, y: 180 } })
+    await canvas.click({
+      position: { x: box.width / 2, y: box.height / 2 },
+    })
     await page.mouse.wheel(0, -240)
     await page.waitForTimeout(350)
     const zoomedViewport = await leafletViewportState(page)

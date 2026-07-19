@@ -187,7 +187,18 @@ class MapConfigService(
         novel_id: str,
     ) -> MapConfigResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        existing = await self._ctx.require_map(db, novel_id, map_id)
+        mid = parse_uuid(map_id, "map_id")
+        await self.repo.lock_hierarchy(db, nid)
+        await self._ctx.require_map(db, novel_id, map_id)
+        existing = await self.repo.get_in_novel(
+            db,
+            nid,
+            mid,
+            status="active",
+            for_update=True,
+        )
+        if existing is None:
+            self._raise_404(map_id)
         if existing.parent_entity_id is not None:
             await self._ctx.require_canonical_entity(
                 db,
@@ -209,16 +220,56 @@ class MapConfigService(
             if value is not None:
                 values[field] = value
 
-        if "name" in values and values["name"] != existing.name:
+        if "parent_map_id" in data.model_fields_set:
+            next_parent_id = (
+                parse_uuid(data.parent_map_id, "parent_map_id")
+                if data.parent_map_id
+                else None
+            )
+            if next_parent_id == existing.id:
+                raise ValidationError(
+                    "地图不能作为自己的父地图",
+                    code="map_hierarchy_cycle",
+                    status_code=422,
+                )
+            if next_parent_id is not None:
+                await self._ctx.require_map(db, novel_id, str(next_parent_id))
+                subtree = await self.repo.lock_subtree(db, nid, existing.id)
+                if next_parent_id in {item.id for item in subtree}:
+                    raise ValidationError(
+                        "不能将地图移动到自己的后代地图下",
+                        code="map_hierarchy_cycle",
+                        status_code=422,
+                    )
+            values["parent_map_id"] = next_parent_id
+
+        if "parent_entity_id" in data.model_fields_set:
+            next_parent_entity_id = None
+            if data.parent_entity_id:
+                parent_entity = await self._ctx.require_canonical_entity(
+                    db,
+                    novel_id,
+                    data.parent_entity_id,
+                    allowed_types={"location"},
+                )
+                next_parent_entity_id = parent_entity.id
+            values["parent_entity_id"] = next_parent_entity_id
+
+        effective_name = values.get("name", existing.name)
+        effective_parent_id = values.get("parent_map_id", existing.parent_map_id)
+        if (
+            effective_name != existing.name
+            or effective_parent_id != existing.parent_map_id
+        ):
             duplicate = await self.repo.get_by_name(
                 db,
                 nid,
-                name=values["name"],
-                parent_map_id=existing.parent_map_id,
+                name=effective_name,
+                parent_map_id=effective_parent_id,
             )
             if duplicate is not None and duplicate.id != existing.id:
                 raise ConflictError(
-                    f"同层级已存在名为 {values['name']!r} 的地图",
+                    f"同层级已存在名为 {effective_name!r} 的地图",
                     code="duplicate_map_name",
                 )
 

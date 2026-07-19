@@ -38,6 +38,7 @@ def test_registry_loads_all_deep_import_contracts() -> None:
         "p20_outline_arc",
         "p20_planned_scene",
         "scene_entity_extraction",
+        "map_scene_observation_enrichment",
         "story_outline",
         "rag_reranker",
     }
@@ -123,6 +124,16 @@ def test_generation_center_schema_contract_forbids_llm_controlled_fields() -> No
         ("summary", "core_entities.summary"),
         ("details", "core_entities.content_json.details"),
     } <= {(mapping.source, mapping.target) for mapping in contract.required_mappings}
+
+
+def test_map_enrichment_contract_records_proposal_type_in_source_ref() -> None:
+    contract = _load_contract("map_scene_observation_enrichment")
+
+    assert contract.version == 2
+    assert (
+        "map_observation_proposals.proposal_type",
+        "map_observations.source_ref.proposal_type",
+    ) in {(mapping.source, mapping.target) for mapping in contract.required_mappings}
 
 
 def test_forbidden_field_validator_reports_status_as_p1() -> None:
@@ -272,8 +283,7 @@ def test_prompt_contract_json_report_is_stable_for_generation_contract() -> None
     payload = format_json([contract], [])
 
     assert payload == (
-        '{"contracts": ["world_generation_core_entity"], '
-        '"issue_count": 0, "issues": []}'
+        '{"contracts": ["world_generation_core_entity"], "issue_count": 0, "issues": []}'
     )
 
 

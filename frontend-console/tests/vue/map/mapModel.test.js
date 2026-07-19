@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
-import { filterInboxItems, loadMapProps, readRecentMap, saveRecentMap } from "../../../vue/views/map/mapModel.js"
+import { filterInboxItems, inboxSourceLabel, inboxTimeLabel, loadMapProps, mapSceneLabel, mapSourceText, readRecentMap, saveRecentMap } from "../../../vue/views/map/mapModel.js"
 
 describe("mapModel", () => {
   beforeEach(() => {
@@ -39,5 +39,12 @@ describe("mapModel", () => {
       { id: "a", source: "manual", confidence: 0.9, eligibility: { can_confirm: true } },
       { id: "b", source: "deep_import", confidence: 0.2, eligibility: { can_confirm: false } },
     ], { source: "manual", confidence: "high", eligibility: "ready" })).toEqual([expect.objectContaining({ id: "a" })])
+  })
+
+  it("将内部来源和零基 Scene 编号转为作者可读文案", () => {
+    expect(inboxSourceLabel({ source: "map_enrichment_typed_map_proposal" })).toBe("地图事实补充")
+    expect(mapSourceText("deep_import_delta_event · 路线")).toBe("深度导入 · 路线")
+    expect(mapSceneLabel(0)).toBe("Scene 1")
+    expect(inboxTimeLabel({ scene_index: 1, scene_sequence: 0 })).toBe("Scene 2 · 片段 1")
   })
 })

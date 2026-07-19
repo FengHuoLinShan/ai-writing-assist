@@ -59,6 +59,7 @@ class MapObservationMixin:
         "controller": "未选择控制势力",
         "controller_canonical": "控制势力尚未采用",
         "boundary_hexes": "需要绘制明确势力范围",
+        "evidence": "缺少可核对的正文证据",
         "scene": "缺少来源 Scene",
         "chapter": "缺少来源章节",
     }
@@ -209,6 +210,12 @@ class MapObservationMixin:
                     conflict_reason = conflict_reason or exc.code
 
         if not self._is_initial_state(observation):
+            source_ref = observation.source_ref or {}
+            if (
+                source_ref.get("auto_ingested") is True
+                and not str(observation.evidence_text or "").strip()
+            ):
+                missing.append("evidence")
             if observation.scene_id is None:
                 missing.append("scene")
             if observation.source_chapter_index is None:
@@ -1379,6 +1386,7 @@ class MapObservationMixin:
 
             proposal_type = candidate.proposal.proposal_type
             target_uuid = None
+            target = None
             target_type = None
             target_name = candidate.target_name
             if candidate.target_entity_id:
@@ -1413,10 +1421,67 @@ class MapObservationMixin:
             elif proposal_type == "boundary" and not target_name:
                 target_name = candidate.proposal.controller_name
 
+            if (
+                candidate.source_workflow == "map_enrichment"
+                and target_uuid is not None
+                and target is not None
+                and target.status != "canonical"
+            ):
+                raise ValidationError(
+                    "地图补充候选只能确定性关联已采用目标对象",
+                    code="map_observation_candidate_target_not_canonical",
+                    status_code=422,
+                )
+
+            resolved_location = None
+            candidate_map_id = None
+            spatial_anchor: dict[str, Any] = {}
+            candidate_value = candidate.proposal.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+            if candidate.resolved_location_entity_id:
+                resolved_location = await owner._ctx.require_canonical_entity(
+                    db,
+                    novel_id,
+                    candidate.resolved_location_entity_id,
+                    allowed_types={"location"},
+                )
+                spatial_anchor = {
+                    "location_entity_id": str(resolved_location.id),
+                }
+                candidate_value = {
+                    "schema_version": 1,
+                    "type": "location",
+                    "location_entity_id": str(resolved_location.id),
+                    "movement_mode": (
+                        candidate.proposal.movement_mode
+                        if proposal_type == "character_location"
+                        else "unknown"
+                    ),
+                    "state": candidate.proposal.state,
+                }
+                centers = await owner._binding_repo.get_active_centers_for_location(
+                    db,
+                    nid,
+                    resolved_location.id,
+                )
+                center_maps = {binding.map_id for binding in centers}
+                if len(center_maps) == 1:
+                    center = centers[0]
+                    candidate_map_id = center.map_id
+                    spatial_anchor.update(
+                        {
+                            "hex_q": center.hex_q,
+                            "hex_r": center.hex_r,
+                        }
+                    )
+
             observation_id = self._candidate_identity(str(nid), candidate)
             payload_hash = self._candidate_payload_hash(candidate)
             source_ref = {
-                "source": "deep_import_typed_map_proposal",
+                "source": f"{candidate.source_workflow}_typed_map_proposal",
+                "source_workflow": candidate.source_workflow,
                 "identity_version": 1,
                 "workflow_id": candidate.workflow_id,
                 "task_id": candidate.task_id,
@@ -1437,9 +1502,27 @@ class MapObservationMixin:
                 ),
                 "auto_ingested": True,
             }
+            if resolved_location is not None:
+                source_ref["resolved_location_entity_id"] = str(resolved_location.id)
+                source_ref["deterministic_map_assignment"] = (
+                    {
+                        "status": "assigned_unique_location_center",
+                        "map_id": str(candidate_map_id),
+                    }
+                    if candidate_map_id is not None
+                    else {"status": "location_has_no_unique_map_center"}
+                )
+            if candidate.scene_sequence is not None:
+                source_ref.update(
+                    {
+                        "scene_sequence": candidate.scene_sequence,
+                        "source_start_offset": candidate.source_start_offset,
+                        "source_end_offset": candidate.source_end_offset,
+                    }
+                )
             values = {
                 "id": observation_id,
-                "map_id": None,
+                "map_id": candidate_map_id,
                 "target_entity_id": target_uuid,
                 "target_entity_type": target_type,
                 "target_name": target_name,
@@ -1449,11 +1532,18 @@ class MapObservationMixin:
                     "scene_id": candidate.scene_id,
                     "scene_index": candidate.scene_index,
                     "source_chapter_index": candidate.source_chapter_index,
+                    **(
+                        {
+                            "scene_sequence": candidate.scene_sequence,
+                            "source_start_offset": candidate.source_start_offset,
+                            "source_end_offset": candidate.source_end_offset,
+                        }
+                        if candidate.scene_sequence is not None
+                        else {}
+                    ),
                 },
-                "spatial_anchor": {},
-                "value_json": candidate.proposal.model_dump(
-                    mode="json", exclude_none=True
-                ),
+                "spatial_anchor": spatial_anchor,
+                "value_json": candidate_value,
                 "confidence": candidate.confidence,
                 "review_state": "candidate",
                 "source_ref": source_ref,

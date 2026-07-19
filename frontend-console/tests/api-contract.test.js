@@ -306,10 +306,14 @@ describe("前后端 API 契约", () => {
       .toBe("/imports/stages/world-objects")
     expect(contractPath("imports.startStage", { stage: "plot_structure" }))
       .toBe("/imports/stages/plot-structure")
+    expect(contractPath("imports.startMapObservationEnrichment"))
+      .toBe("/imports/stages/map-observations")
     expect(getApiContract("imports.deepImport").requiredBody)
       .toEqual(["adoption_policy", "authorization_confirmed"])
     expect(getApiContract("imports.startStage").requiredBody)
       .toEqual(["adoption_policy", "authorization_confirmed"])
+    expect(getApiContract("imports.startMapObservationEnrichment").requiredBody)
+      .toEqual(["novel_id", "start_chapter", "end_chapter", "high_quality", "adoption_policy", "authorization_confirmed"])
     expect(contractPath("outline.analyze")).toBe("/outline/analyze")
     expect(getApiContract("outline.analyze")).toMatchObject({
       method: "POST",

@@ -29,7 +29,12 @@ import {
   floodFillTerrain,
   TERRAIN_COLORS,
 } from "./mapHexRenderer.js"
-import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "./mapEditPanel.js"
+import renderEditPanel, {
+  renderMarkerEntityOptions,
+  updatePendingCount,
+  updateBindingPendingCount,
+  toggleToolSections,
+} from "./mapEditPanel.js"
 import { buildMapLayout } from "./mapLayoutEngine.js"
 import { drawTerrainLayers } from "./mapTerrainRenderer.js"
 import { getTerrainAsset, TERRAIN_PRESETS } from "./mapTerrainAssets.js"
@@ -51,6 +56,7 @@ import {
 } from "./mapLayerSession.js"
 import {
   drawTimelineProjection,
+  mapSceneDisplayNumber,
   timelineAnchorPoint,
   timelineProjectionSignature,
 } from "./mapTimelineProjection.js"
@@ -107,6 +113,8 @@ const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leafl
 const LEAFLET_JS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`
 const LEAFLET_CSS_INTEGRITY = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
 const LEAFLET_JS_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+const MAP_FIT_FLOOR_ZOOM = -12
+const MAP_DEFAULT_MIN_ZOOM = -3
 const MAP_TILE_BATCH_LIMIT = 10000
 const MAP_LOCATION_BINDING_HEX_LIMIT = 5000
 const MAP_PATH_NODE_LIMIT = 500
@@ -185,6 +193,7 @@ const mapView = {
   _indexedMaps: null,
   _redrawFrame: null,
   _renderSubsetCache: new Map(),
+  _terrainOverviewCache: new Map(),
   _renderMetrics: null,
   _performanceMetrics: null,
   _performanceFrameDurations: [],
@@ -291,6 +300,7 @@ const mapView = {
     this._pathState = normalizePathState()
     this._pathGeometryCache.clear()
     this._renderSubsetCache.clear()
+    this._terrainOverviewCache.clear()
     this._renderMetrics = null
     this._performanceMetrics = null
     this._performanceFrameDurations = []
@@ -465,6 +475,7 @@ const mapView = {
       this._performanceFrameDurations = []
       this._firstDrawStartedAt = startedAt
       this._renderSubsetCache.clear()
+      this._terrainOverviewCache.clear()
       this._markerBaselineById = new Map(
         (this._state.markers || []).map((marker) => [marker.id, { ...marker }]),
       )
@@ -654,7 +665,7 @@ const mapView = {
       mapState.sceneList = (data.items || data || []).map((s) => ({
         id: s.id,
         index: s.scene_index,
-        title: s.title || `Scene ${s.scene_index}`,
+        title: s.title || `Scene ${mapSceneDisplayNumber(s.scene_index) ?? "-"}`,
       }))
       return true
     } catch {
@@ -905,7 +916,7 @@ const mapView = {
     }
     const currentIdx = scenes.findIndex((s) => s.id === mapState.currentSceneId)
     const sceneLabel = currentIdx >= 0
-      ? `Scene ${scenes[currentIdx].index}: ${esc(scenes[currentIdx].title || "")}`
+      ? `Scene ${mapSceneDisplayNumber(scenes[currentIdx].index) ?? "-"}: ${esc(scenes[currentIdx].title || "")}`
       : "选择 Scene"
 
     return `
@@ -933,9 +944,18 @@ const mapView = {
       ? `<button class="btn btn-sm" data-action="map-exit-edit">退出编辑</button>`
       : `<button class="btn btn-sm" data-action="map-enter-edit">编辑</button>`
 
+    const editablePaths = this._effectivePaths().map((path) => {
+      const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+      return {
+        ...path,
+        start_endpoint_status: this._pathEndpointStatus(path, "start", nodes[0]),
+        end_endpoint_status: this._pathEndpointStatus(path, "end", nodes.at(-1)),
+      }
+    })
     const editPanelHtml = mapState.mode === "edit" && !compactViewport
       ? renderEditPanel({
         locations: this._locations,
+        locationLayouts: this._effectiveLocationLayouts(),
         allEntities: this._allEntities,
         scenes: mapState.sceneList,
         terrainLayers: this._state.terrain_layers || [],
@@ -953,7 +973,7 @@ const mapView = {
           )
           return { ...layer, name: leaf?.name || layer.name || layer.display_name }
         }),
-        paths: this._effectivePaths(),
+        paths: editablePaths,
         pathProfiles: MAP_PATH_PROFILES,
         territoryTools: this._renderTerritoryTools(),
         pendingCount: mapEditingSession.draftChangeCount(),
@@ -990,41 +1010,30 @@ const mapView = {
   },
 
   _renderDetailPanel(q, r) {
-    const path = this._pathAt(q, r)
-    if (path) {
-      const profile = MAP_PATH_PROFILES[path.path_type]
-      const nodes = pathNodesFor(path, this._pathState?.nodes || [])
-      const start = this._pathEndpointStatus(path, "start", nodes[0])
-      const end = this._pathEndpointStatus(path, "end", nodes.at(-1))
-      return `
-        <div class="map-detail-header">${esc(path.name || "未命名线路")}</div>
-        <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">${esc(profile?.label || path.path_type || "线路")}${path.status === "archived" ? " · 已归档" : ""}</div></div>
-        <div class="map-detail-section"><div class="map-detail-label">几何</div><div class="map-detail-value">${nodes.length} 个节点 · revision ${Number(path.content_revision || 0)}</div></div>
-        ${start ? `<div class="map-detail-section"><div class="map-detail-label">起点</div><div class="map-detail-value ${start.drifted ? "is-warning" : ""}">${esc(start.name)}${start.unresolved ? " · 未布置" : start.drifted ? ` · 偏离 ${start.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
-        ${end ? `<div class="map-detail-section"><div class="map-detail-label">终点</div><div class="map-detail-value ${end.drifted ? "is-warning" : ""}">${esc(end.name)}${end.unresolved ? " · 未布置" : end.drifted ? ` · 偏离 ${end.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
-      `
-    }
-    const marker = this._markerAt(q, r)
+    const selectedLocation = mapState.selectedMapObject?.kind === "location"
+      && Number(mapState.selectedMapObject.q) === Number(q)
+      && Number(mapState.selectedMapObject.r) === Number(r)
+      ? mapState.selectedMapObject
+      : null
+    const selectedBinding = selectedLocation
+      ? (this._state?.location_bindings || []).find(
+        (item) => item.id === selectedLocation.id
+          || (item.location_entity_id === selectedLocation.entityId && item.is_center),
+      ) || null
+      : null
+    // Clicking an explicit location label is a stronger intent than the
+    // coordinate hit order. A character marker or route may share the same
+    // hex, but must not replace the location detail the author just selected.
+    const marker = selectedBinding ? null : this._markerAt(q, r)
+    const binding = selectedBinding || this._visibleBindingAt(q, r)
+    const path = marker || binding ? null : this._pathAt(q, r)
+    if (path) return this._renderPathDetail(path)
     if (marker) {
-      const typeLabel = { character: "人物标记", event: "事件标记", item: "物品标记" }[marker.marker_type] || "标记"
-      return `
-        <div class="map-detail-header">${esc(marker.label || typeLabel)}</div>
-        <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">${esc(typeLabel)}</div></div>
-        <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${q}, r:${r}</div></div>
-        <div class="map-detail-actions"><button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(marker.entity_id)}">查看世界对象</button></div>
-      `
+      return this._renderMarkerDetail(marker, q, r)
     }
     const territory = this._visibleTerritoryAt(q, r)
     if (territory) {
-      const entity = (this._allEntities || []).find(
-        (item) => item.id === territory.faction_entity_id,
-      )
-      return `
-        <div class="map-detail-header">${esc(entity?.name || "领地")}</div>
-        <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">领地</div></div>
-        <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${q}, r:${r}</div></div>
-        <div class="map-detail-actions"><button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(territory.faction_entity_id)}">查看世界对象</button></div>
-      `
+      return this._renderTerritoryDetail(territory, q, r)
     }
     const terrainState = this._terrainRenderState()
     const patch = this._visibleTerrainPatchAt(q, r, terrainState)
@@ -1036,7 +1045,6 @@ const mapView = {
         <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${q}, r:${r}</div></div>
       `
     }
-    const binding = this._visibleBindingAt(q, r)
     if (binding) {
       const loc = this._locationById.get(binding.location_entity_id)
       const name = loc ? loc.name : "未命名地点"
@@ -1056,6 +1064,7 @@ const mapView = {
         </div>
         <div class="map-detail-actions">
           ${binding.is_center ? `<button class="btn btn-sm btn-primary" data-action="map-detail-drill" data-id="${esc(binding.location_entity_id)}">${esc(actionText)}</button>` : ""}
+          <button class="btn btn-sm" data-action="map-detail-focus-entity" data-id="${esc(binding.location_entity_id)}">叙事透镜</button>
           <button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(binding.location_entity_id)}">查看世界对象</button>
         </div>
       `
@@ -1071,6 +1080,55 @@ const mapView = {
       `
     }
     return `<div class="map-detail-empty">点击地图查看详情</div>`
+  },
+
+  _renderMarkerDetail(marker, q = marker?.hex_q, r = marker?.hex_r) {
+    if (!marker) return `<div class="map-detail-empty">标记不可用</div>`
+    const typeLabel = {
+      character: "人物标记",
+      event: "事件标记",
+      item: "物品标记",
+    }[marker.marker_type] || "标记"
+    return `
+      <div class="map-detail-header">${esc(marker.label || typeLabel)}</div>
+      <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">${esc(typeLabel)}</div></div>
+      <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${esc(q)}, r:${esc(r)}</div></div>
+      <div class="map-detail-actions">
+        <button class="btn btn-sm btn-primary" data-action="map-detail-focus-entity" data-id="${esc(marker.entity_id)}">叙事透镜</button>
+        <button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(marker.entity_id)}">查看世界对象</button>
+      </div>
+    `
+  },
+
+  _renderTerritoryDetail(territory, q = territory?.hex_q, r = territory?.hex_r) {
+    if (!territory) return `<div class="map-detail-empty">势力范围不可用</div>`
+    const entity = (this._allEntities || []).find(
+      (item) => item.id === territory.faction_entity_id,
+    )
+    return `
+      <div class="map-detail-header">${esc(entity?.name || "领地")}</div>
+      <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">领地</div></div>
+      <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${esc(q)}, r:${esc(r)}</div></div>
+      <div class="map-detail-actions">
+        <button class="btn btn-sm btn-primary" data-action="map-detail-focus-entity" data-id="${esc(territory.faction_entity_id)}">叙事透镜</button>
+        <button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(territory.faction_entity_id)}">查看世界对象</button>
+      </div>
+    `
+  },
+
+  _renderPathDetail(path) {
+    if (!path) return `<div class="map-detail-empty">线路不可用</div>`
+    const profile = MAP_PATH_PROFILES[path.path_type]
+    const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+    const start = this._pathEndpointStatus(path, "start", nodes[0])
+    const end = this._pathEndpointStatus(path, "end", nodes.at(-1))
+    return `
+      <div class="map-detail-header">${esc(path.name || "未命名线路")}</div>
+      <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">${esc(profile?.label || path.path_type || "线路")}${path.status === "archived" ? " · 已归档" : ""}</div></div>
+      <div class="map-detail-section"><div class="map-detail-label">几何</div><div class="map-detail-value">${nodes.length} 个节点 · revision ${Number(path.content_revision || 0)}</div></div>
+      ${start ? `<div class="map-detail-section"><div class="map-detail-label">起点</div><div class="map-detail-value ${start.drifted ? "is-warning" : ""}">${esc(start.name)}${start.unresolved ? " · 未布置" : start.drifted ? ` · 偏离 ${start.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
+      ${end ? `<div class="map-detail-section"><div class="map-detail-label">终点</div><div class="map-detail-value ${end.drifted ? "is-warning" : ""}">${esc(end.name)}${end.unresolved ? " · 未布置" : end.drifted ? ` · 偏离 ${end.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
+    `
   },
 
   _locationAnchor(entityId) {
@@ -1135,7 +1193,7 @@ const mapView = {
     // 用一个 CRS.Simple 投影，把 hex 像素坐标当世界坐标
     this._leaflet = window.L.map(container, {
       crs: window.L.CRS.Simple,
-      minZoom: -3,
+      minZoom: MAP_FIT_FLOOR_ZOOM,
       maxZoom: 3,
       zoomControl: true,
       attributionControl: false,
@@ -1156,6 +1214,10 @@ const mapView = {
     const bounds = window.L.latLngBounds(
       [[-(lastY + size), -size], [size, (size * 1.5 * (w - 1)) + size]]
     )
+    const fittedZoom = Number(this._leaflet.getBoundsZoom?.(bounds))
+    if (Number.isFinite(fittedZoom)) {
+      this._leaflet.setMinZoom?.(Math.min(MAP_DEFAULT_MIN_ZOOM, fittedZoom))
+    }
     this._leaflet.fitBounds(bounds)
     this._focusViewportFromContext(size)
 
@@ -1534,6 +1596,69 @@ const mapView = {
     return subset
   },
 
+  _terrainOverviewRaster(size) {
+    const cfg = this._state?.map
+    const tiles = this._state?.tiles || []
+    if (!cfg || tiles.length < 1000 || typeof document === "undefined") return null
+    const revision = Number(cfg.editor_revision || 0)
+    const key = [
+      cfg.id,
+      revision,
+      cfg.grid_width,
+      cfg.grid_height,
+      size,
+      tiles.length,
+    ].join(":")
+    if (this._terrainOverviewCache.has(key)) {
+      return this._terrainOverviewCache.get(key)
+    }
+
+    const rasterHexSize = 2
+    const rasterScale = rasterHexSize / size
+    const [lastX, lastY] = hexToPixel(
+      Number(cfg.grid_width) - 1,
+      Number(cfg.grid_height) - 1,
+      size,
+    )
+    const worldBounds = {
+      x: -size,
+      y: -size,
+      width: lastX + size * 2,
+      height: lastY + size * 2,
+    }
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.max(1, Math.ceil(worldBounds.width * rasterScale))
+    canvas.height = Math.max(1, Math.ceil(worldBounds.height * rasterScale))
+    const context = canvas.getContext("2d")
+    if (!context?.fillRect) return null
+
+    const byColor = new Map()
+    for (const tile of tiles) {
+      const color = (TERRAIN_COLORS[tile.terrain_type] || TERRAIN_COLORS.grassland).fill
+      const items = byColor.get(color) || []
+      items.push(tile)
+      byColor.set(color, items)
+    }
+    const cellSize = Math.ceil(rasterHexSize * 1.8)
+    const halfCell = cellSize / 2
+    for (const [color, items] of byColor) {
+      context.fillStyle = color
+      for (const tile of items) {
+        const [x, y] = hexToPixel(tile.hex_q, tile.hex_r, rasterHexSize)
+        context.fillRect(
+          Math.floor(x + rasterHexSize - halfCell),
+          Math.floor(y + rasterHexSize - halfCell),
+          cellSize,
+          cellSize,
+        )
+      }
+    }
+    const raster = { canvas, ...worldBounds }
+    if (this._terrainOverviewCache.size >= 2) this._terrainOverviewCache.clear()
+    this._terrainOverviewCache.set(key, raster)
+    return raster
+  },
+
   /** Leaflet 视口变换 → 计算 canvas 偏移/缩放，重绘 */
   _redraw(options = {}) {
     if (!this._ctx || !this._canvas || !this._state) return
@@ -1560,7 +1685,33 @@ const mapView = {
     const pendingLayer = this._effectiveLayerNode({ layerKey: "pending", zoom })
     if (this._isLayerEnabled("terrain") && baseLayer.visible) {
       this._drawWithOpacity(baseLayer.opacity, () => {
-        drawTerrain(this._ctx, visible.tiles, size, 0, 0, getHexOpacity)
+        const overview = size * scale < 2
+          ? this._terrainOverviewRaster(size)
+          : null
+        if (!overview) {
+          drawTerrain(this._ctx, visible.tiles, size, 0, 0, getHexOpacity)
+          return
+        }
+        this._ctx.save()
+        this._ctx.imageSmoothingEnabled = false
+        if (mapState.focusMode) this._ctx.globalAlpha *= 0.3
+        this._ctx.drawImage(
+          overview.canvas,
+          overview.x,
+          overview.y,
+          overview.width,
+          overview.height,
+        )
+        this._ctx.restore()
+        if (mapState.focusMode) {
+          drawTerrain(
+            this._ctx,
+            visible.tiles.filter((tile) => getHexOpacity(tile.hex_q, tile.hex_r) === 1),
+            size,
+            0,
+            0,
+          )
+        }
       })
     }
     if (this._isLayerEnabled("terrain") && this._effectiveLayerNode({ layerKey: "terrainOverlay", zoom }).visible) {
@@ -1885,35 +2036,12 @@ const mapView = {
       layerKey: "location",
       zoom: this._leaflet.getZoom?.() ?? null,
     })
-    if (
-      mapState.mode === "edit"
-      || !this._isLayerEnabled("locations")
-      || !locationLayer.visible
-    ) {
+    if (mapState.mode === "edit") {
       markMapTelemetryCondition("labels_ready")
       return // 编辑模式不显示标签
     }
 
-    const cfg = this._state.map
-    const size = cfg.hex_size || 30
-    const centers = (this._state.location_bindings || []).filter((binding) => binding.is_center)
-    const layoutItems = centers.map((binding, index) => {
-      const [x, y] = hexToPixel(binding.hex_q, binding.hex_r, size)
-      const latlng = window.L.latLng(-y, x)
-      const point = this._leaflet.latLngToContainerPoint(latlng)
-      const label = binding.label_override || this._locationName(binding.location_entity_id)
-      return {
-        item_id: binding.location_entity_id || `location-${index}`,
-        item_kind: "fact",
-        fact_status: "confirmed",
-        title: label,
-        object_type: "location",
-        dynamic_type: "location",
-        priority: this._hasDetailMap(binding.location_entity_id) ? 82 : 56,
-        target_entity_id: binding.location_entity_id,
-        anchor: { x: point.x, y: point.y },
-      }
-    })
+    const layoutItems = this._buildMapLabelItems(locationLayer)
     const container = this._leaflet.getContainer?.()
     startMapTelemetryStage("label_layout")
     const layout = buildMapLayout({
@@ -1928,22 +2056,25 @@ const mapView = {
       lowMotion: Boolean(this._mountContext?.lowMotion),
     })
     endMapTelemetryStage("label_layout")
-    const labelById = new Map(layout.labels.map((label) => [label.itemId, label]))
-    for (const b of centers) {
-      const [x, y] = hexToPixel(b.hex_q, b.hex_r, size)
+    for (const labelLayout of layout.labels) {
+      const q = Number(labelLayout.q)
+      const r = Number(labelLayout.r)
+      if (!Number.isFinite(q) || !Number.isFinite(r)) continue
+      const [x, y] = hexToPixel(q, r, this._state.map.hex_size || 30)
       const latlng = window.L.latLng(-y, x)
       const point = this._leaflet.latLngToContainerPoint(latlng)
-      const labelLayout = labelById.get(b.location_entity_id)
-      if (!labelLayout) continue
       const label = labelLayout.title
-      const hasDetail = this._hasDetailMap(b.location_entity_id)
+      const sourceKind = labelLayout.sourceKind || "location"
+      const sourceId = labelLayout.sourceId || labelLayout.targetEntityId
+      const hasDetail = sourceKind === "location" && this._hasDetailMap(sourceId)
       const iconWidth = labelLayout.box.width
       const iconHeight = labelLayout.box.height
+      const action = sourceKind === "location" ? "map-click-center" : "map-click-layout-label"
       const icon = window.L.divIcon({
-        className: `map-center-marker map-layout-marker is-${labelLayout.displayLevel}`,
-        html: `<div class="map-center-label" style="opacity:${locationLayer.opacity}" data-action="map-click-center" data-id="${esc(b.location_entity_id)}">
+        className: `map-center-marker map-layout-marker is-${labelLayout.displayLevel} is-${esc(sourceKind)}`,
+        html: `<div class="map-center-label" style="opacity:${Number(labelLayout.opacity ?? 1)}" data-action="${action}" data-kind="${esc(sourceKind)}" data-id="${esc(sourceId)}" data-q="${q}" data-r="${r}">
                  <span class="map-center-name">${esc(labelLayout.label || label)}</span>
-                 <span class="map-center-drill ${hasDetail ? "has-detail" : ""}">${hasDetail ? "▾" : "·"}</span>
+                 ${sourceKind === "location" ? `<span class="map-center-drill ${hasDetail ? "has-detail" : ""}">${hasDetail ? "▾" : "·"}</span>` : ""}
                </div>`,
         iconSize: [iconWidth, iconHeight],
         iconAnchor: [point.x - labelLayout.box.x, point.y - labelLayout.box.y],
@@ -1981,6 +2112,127 @@ const mapView = {
       marker.addTo(this._leaflet)
     }
     markMapTelemetryCondition("labels_ready")
+  },
+
+  _buildMapLabelItems(locationLayer = this._effectiveLayerNode({ layerKey: "location" })) {
+    if (!this._leaflet || !this._state) return []
+    const size = this._state.map.hex_size || 30
+    const anchorFor = (q, r) => {
+      const [x, y] = hexToPixel(q, r, size)
+      const point = this._leaflet.latLngToContainerPoint(window.L.latLng(-y, x))
+      return { x: point.x, y: point.y }
+    }
+    const items = []
+    if (this._isLayerEnabled("locations") && locationLayer.visible) {
+      for (const [index, binding] of (this._state.location_bindings || [])
+        .filter((item) => item.is_center)
+        .entries()) {
+        items.push({
+          item_id: `location:${binding.location_entity_id || index}`,
+          item_kind: "fact",
+          fact_status: "confirmed",
+          title: binding.label_override || this._locationName(binding.location_entity_id),
+          object_type: "location",
+          dynamic_type: "location",
+          priority: this._hasDetailMap(binding.location_entity_id) ? 82 : 56,
+          target_entity_id: binding.location_entity_id,
+          source_kind: "location",
+          source_id: binding.location_entity_id,
+          q: binding.hex_q,
+          r: binding.hex_r,
+          opacity: locationLayer.opacity,
+          anchor: anchorFor(binding.hex_q, binding.hex_r),
+        })
+      }
+    }
+    for (const marker of this._filteredMarkers()) {
+      items.push({
+        item_id: `marker:${marker.id}`,
+        item_kind: "fact",
+        fact_status: "confirmed",
+        title: marker.label || ({ character: "人物", event: "事件", item: "物品" }[marker.marker_type] || "标记"),
+        object_type: marker.marker_type || "event",
+        dynamic_type: "location",
+        priority: marker.marker_type === "event" ? 78 : 72,
+        target_entity_id: marker.entity_id,
+        source_kind: "marker",
+        source_id: marker.id,
+        q: marker.hex_q,
+        r: marker.hex_r,
+        anchor: anchorFor(marker.hex_q, marker.hex_r),
+      })
+    }
+    for (const path of this._effectivePaths().filter((item) => this._pathVisible(item))) {
+      const midpoint = representativePathPoint(path, this._pathState?.nodes || [])
+      if (!midpoint) continue
+      items.push({
+        item_id: `path:${path.id || path.client_id}`,
+        item_kind: "fact",
+        fact_status: "confirmed",
+        title: path.name || "未命名线路",
+        object_type: "route",
+        dynamic_type: "route_state",
+        priority: 64,
+        source_kind: "path",
+        source_id: path.id || path.client_id,
+        q: midpoint.q,
+        r: midpoint.r,
+        opacity: Number(path.opacity ?? 1),
+        anchor: anchorFor(midpoint.q, midpoint.r),
+      })
+    }
+    const territoryLayer = this._effectiveLayerNode({ layerKey: "territory" })
+    if (territoryLayer.visible && this._isLayerEnabled("territories")) {
+      const byFaction = new Map()
+      for (const tile of this._state.territories || []) {
+        if (!byFaction.has(tile.faction_entity_id)) byFaction.set(tile.faction_entity_id, [])
+        byFaction.get(tile.faction_entity_id).push(tile)
+      }
+      for (const [factionId, tiles] of byFaction.entries()) {
+        const q = tiles.reduce((sum, tile) => sum + Number(tile.hex_q), 0) / tiles.length
+        const r = tiles.reduce((sum, tile) => sum + Number(tile.hex_r), 0) / tiles.length
+        const entity = (this._allEntities || []).find((item) => item.id === factionId)
+        items.push({
+          item_id: `territory:${factionId}`,
+          item_kind: "fact",
+          fact_status: "confirmed",
+          title: entity?.name || "势力范围",
+          object_type: "organization",
+          dynamic_type: "boundary",
+          priority: 68,
+          target_entity_id: factionId,
+          source_kind: "territory",
+          source_id: factionId,
+          q,
+          r,
+          opacity: territoryLayer.opacity,
+          anchor: anchorFor(q, r),
+        })
+      }
+    }
+    for (const stateItem of this._timelineProjection?.stateItems || []) {
+      const point = timelineAnchorPoint(stateItem.spatial_anchor || stateItem.normalized_value)
+      if (!point) continue
+      const dynamicType = stateItem.dynamic_type || stateItem.normalized_value?.type || "status"
+      if (!["crisis", "crisis_spread", "resource", "resource_control", "status", "boundary"].includes(dynamicType)) continue
+      const id = stateItem.fact_id || stateItem.id || stateItem.dimension_key
+      items.push({
+        ...stateItem,
+        item_id: `dynamic:${id}`,
+        item_kind: "fact",
+        fact_status: "confirmed",
+        title: stateItem.target_name || ({ crisis: "危机", resource: "资源", boundary: "势力变化" }[dynamicType] || "状态变化"),
+        object_type: dynamicType === "boundary" ? "organization" : dynamicType,
+        dynamic_type: dynamicType,
+        priority: dynamicType.startsWith("crisis") ? 96 : 74,
+        source_kind: "dynamic",
+        source_id: id,
+        q: point.q,
+        r: point.r,
+        anchor: anchorFor(point.q, point.r),
+      })
+    }
+    return items
   },
 
   _locationName(entityId) {
@@ -2060,6 +2312,8 @@ const mapView = {
   _typedSelectionAt(q, r) {
     const marker = this._markerAt(q, r)
     if (marker) return { kind: "marker", id: marker.id, entityId: marker.entity_id, q, r }
+    const binding = this._visibleBindingAt(q, r)
+    if (binding) return { kind: "location", id: binding.id, entityId: binding.location_entity_id, q, r }
     const path = hitTestPath(
       this._effectivePaths().filter((item) => this._pathVisible(item)),
       this._pathState?.nodes || [],
@@ -2073,8 +2327,6 @@ const mapView = {
     if (territory) return { kind: "territory", id: territory.id, entityId: territory.faction_entity_id, q, r }
     const patch = this._visibleTerrainPatchAt(q, r)
     if (patch) return { kind: "terrain", id: patch.id, layerId: patch.layer_id, q, r }
-    const binding = this._visibleBindingAt(q, r)
-    if (binding) return { kind: "location", id: binding.id, entityId: binding.location_entity_id, q, r }
     const tile = this._visibleTileAt(q, r)
     if (tile) return { kind: "baseTerrain", id: tile.id, q, r }
     return null
@@ -2977,6 +3229,12 @@ const mapView = {
         const id = t.getAttribute("data-id")
         if (id) this._onCenterClick(id)
       },
+      "map-click-layout-label": (_e, t) => this._openMapLayoutItem({
+        kind: t.getAttribute("data-kind"),
+        id: t.getAttribute("data-id"),
+        q: Number(t.getAttribute("data-q")),
+        r: Number(t.getAttribute("data-r")),
+      }),
       "map-click-cluster": (_e, t) => {
         const id = t.getAttribute("data-id")
         if (id) this._showLocationCluster(id)
@@ -2991,6 +3249,11 @@ const mapView = {
         const callback = this._mountContext?.onOpenEntity
         if (typeof callback === "function") callback(id)
         else router.navigate("world", "objects")
+      },
+      "map-detail-focus-entity": (_e, t) => {
+        const id = t.getAttribute("data-id")
+        const callback = this._mountContext?.onFocusEntity
+        if (id && typeof callback === "function") callback(id)
       },
       "map-filter": (_e, t) => {
         this._currentFilter = t.getAttribute("data-filter") || "all"
@@ -3063,6 +3326,7 @@ const mapView = {
         const select = document.getElementById(`map-path-${side}-location`)
         this._stageSelectedPathEndpoint(side, select?.value || null, true)
       },
+      "map-path-resnap": (_e, t) => this._resnapPathEndpoints(t.getAttribute("data-id")),
       "map-path-node-action": (_e, t) => {
         this._editSelectedPathNode(t.getAttribute("data-node-action"))
       },
@@ -3159,6 +3423,10 @@ const mapView = {
       }
       this._rerenderEditor()
     })
+    const pathNameInput = document.getElementById("map-path-name")
+    pathNameInput?.addEventListener("change", () => {
+      this._stageSelectedPathName(pathNameInput.value)
+    })
     for (const side of ["start", "end"]) {
       const endpointSelect = document.getElementById(`map-path-${side}-location`)
       endpointSelect?.addEventListener("change", () => {
@@ -3181,6 +3449,7 @@ const mapView = {
     const bindSelect = document.getElementById("map-bind-select")
     bindSelect?.addEventListener("change", () => {
       mapState.selectedLocationEntityId = bindSelect.value || null
+      this._rerenderEditor()
     })
     // 中心点绑定模式
     const bindCenterCheck = document.getElementById("map-bind-center")
@@ -3191,6 +3460,15 @@ const mapView = {
     const markerTypeSelect = document.getElementById("map-marker-type")
     markerTypeSelect?.addEventListener("change", () => {
       mapState.selectedMarkerType = markerTypeSelect.value
+      mapState.selectedMarkerEntityId = null
+      const markerEntitySelect = document.getElementById("map-marker-entity")
+      if (markerEntitySelect) {
+        markerEntitySelect.innerHTML = renderMarkerEntityOptions(
+          this._allEntities || [],
+          mapState.selectedMarkerType,
+        )
+        markerEntitySelect.value = ""
+      }
     })
     const markerEntitySelect = document.getElementById("map-marker-entity")
     markerEntitySelect?.addEventListener("change", () => {
@@ -4043,6 +4321,72 @@ const mapView = {
     })
     this._notifyEditingChanged()
     this._redraw()
+    this._rerenderEditor()
+  },
+
+  _stageSelectedPathName(rawName) {
+    const path = this._effectivePaths().find(
+      (item) => (item.id || item.client_id) === mapState.selectedPathId,
+    )
+    if (!path || !this._pathWritable(path)) return false
+    const name = String(rawName || "").trim()
+    if (!name) {
+      toast("线路名称不能为空", "warning")
+      this._rerenderEditor()
+      return false
+    }
+    if (name.length > 255) {
+      toast("线路名称不能超过 255 个字符", "warning")
+      this._rerenderEditor()
+      return false
+    }
+    if (path.name === name) return true
+    const before = this._snapshotActiveDraft()
+    this._stagePathUpdate(path, { name })
+    mapEditingSession.recordCommand("path", {
+      kind: "draft",
+      before,
+      after: this._snapshotActiveDraft(),
+    })
+    this._notifyEditingChanged()
+    this._rerenderEditor()
+    return true
+  },
+
+  _resnapPathEndpoints(pathId = mapState.selectedPathId) {
+    const path = this._effectivePaths().find(
+      (item) => (item.id || item.client_id) === pathId,
+    )
+    if (!path || !this._pathWritable(path)) return false
+    const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+      .map((node) => ({ ...node }))
+    if (nodes.length < 2) return false
+    let changed = 0
+    for (const [side, index] of [["start", 0], ["end", nodes.length - 1]]) {
+      const entityId = path[`${side}_location_entity_id`]
+      const anchor = this._locationAnchor(entityId)
+      const status = this._pathEndpointStatus(path, side, nodes[index])
+      if (!entityId || !anchor || !status?.drifted) continue
+      nodes[index] = { ...nodes[index], q: anchor.q, r: anchor.r }
+      changed += 1
+    }
+    if (!changed) {
+      toast("这条线路没有需要重新吸附的端点", "info")
+      return false
+    }
+    const before = this._snapshotActiveDraft()
+    mapState.selectedPathId = pathId
+    this._stagePathUpdate(path, { nodes: this._normalizedPathNodes(nodes) })
+    mapEditingSession.recordCommand("path", {
+      kind: "draft",
+      before,
+      after: this._snapshotActiveDraft(),
+    })
+    this._pathGeometryCache.clear()
+    this._notifyEditingChanged()
+    toast(`已重新吸附 ${changed} 个偏离端点`, "success")
+    this._rerenderEditor()
+    return true
   },
 
   async _undo() {
@@ -4248,6 +4592,21 @@ const mapView = {
     this._timelineProjection = projection
     this._timelineProjectionSignature = nextSignature
     this._renderSubsetCache.clear()
+    this._labelsDirty = true
+    this._scheduleRedraw()
+    return true
+  },
+
+  setPresentationContext({ viewMode, lowMotion, focusEntityId } = {}) {
+    // Presentation state is mutable within one mounted viewport. Keep the
+    // lifecycle owner object stable: async editor/apply paths capture this
+    // reference to distinguish an actual remount from an in-place UI change.
+    const context = this._mountContext || (this._mountContext = {})
+    if (viewMode) context.viewMode = viewMode
+    if (lowMotion !== undefined) context.lowMotion = Boolean(lowMotion)
+    if (focusEntityId !== undefined) context.focusEntityId = focusEntityId || null
+    this._renderSubsetCache.clear()
+    this._labelsDirty = true
     this._scheduleRedraw()
     return true
   },
@@ -5370,22 +5729,89 @@ const mapView = {
     const items = this._labelClusterItemsById.get(clusterId) || []
     const locations = items
       .map((item) => ({
-        id: item.target_entity_id || item.location_entity_id || item.entity_id,
+        id: item.source_id || item.target_entity_id || item.location_entity_id || item.entity_id,
+        kind: item.source_kind || "location",
         name: item.title || this._locationName(item.target_entity_id),
+        q: item.q ?? item.hex_q,
+        r: item.r ?? item.hex_r,
       }))
       .filter((item) => item.id)
     if (!locations.length) return false
     const body = `<div class="map-cluster-member-list">${locations.map((item) => `
-      <button class="btn map-cluster-member" data-map-cluster-member="${esc(item.id)}">${esc(item.name || "未命名地点")}</button>
+      <button class="btn map-cluster-member" data-map-cluster-member="${esc(item.id)}" data-kind="${esc(item.kind)}" data-q="${esc(item.q)}" data-r="${esc(item.r)}">${esc(item.name || "未命名地图对象")}</button>
     `).join("")}</div>`
-    showModalHtml("选择地点", body, [{ text: "取消", class: "btn", handler: closeModal }])
+    showModalHtml("选择地图对象", body, [{ text: "取消", class: "btn", handler: closeModal }])
     document.querySelectorAll("[data-map-cluster-member]").forEach((button) => {
       button.onclick = () => {
         closeModal()
-        this._onCenterClick(button.dataset.mapClusterMember)
+        this._openMapLayoutItem({
+          kind: button.dataset.kind,
+          id: button.dataset.mapClusterMember,
+          q: Number(button.dataset.q),
+          r: Number(button.dataset.r),
+        })
       }
     })
     return true
+  },
+
+  _openMapLayoutItem({ kind, id, q, r } = {}) {
+    if (kind === "location") return this._onCenterClick(id)
+    if (kind === "path") {
+      const path = this._effectivePaths().find((item) => (item.id || item.client_id) === id)
+      if (!path) return false
+      this.selectInspectorObject("path", path)
+      const panel = document.getElementById("map-detail-panel")
+      if (panel) panel.innerHTML = this._renderPathDetail(path)
+      return true
+    }
+    if (kind === "marker") {
+      const marker = (this._state?.markers || []).find((item) => item.id === id)
+      if (!marker) return false
+      setSelectedHex(marker.hex_q, marker.hex_r)
+      mapState.selectedMapObject = {
+        kind: "marker",
+        id: marker.id,
+        entityId: marker.entity_id,
+        q: marker.hex_q,
+        r: marker.hex_r,
+      }
+      const panel = document.getElementById("map-detail-panel")
+      if (panel) panel.innerHTML = this._renderMarkerDetail(marker)
+      return true
+    }
+    if (kind === "territory") {
+      const tiles = (this._state?.territories || []).filter(
+        (item) => item.faction_entity_id === id,
+      )
+      const territory = [...tiles].sort((left, right) => (
+        Math.hypot(Number(left.hex_q) - Number(q), Number(left.hex_r) - Number(r))
+        - Math.hypot(Number(right.hex_q) - Number(q), Number(right.hex_r) - Number(r))
+      ))[0]
+      if (!territory) return false
+      setSelectedHex(territory.hex_q, territory.hex_r)
+      mapState.selectedMapObject = {
+        kind: "territory",
+        id: territory.id,
+        entityId: territory.faction_entity_id,
+        q: territory.hex_q,
+        r: territory.hex_r,
+      }
+      const panel = document.getElementById("map-detail-panel")
+      if (panel) panel.innerHTML = this._renderTerritoryDetail(territory)
+      return true
+    }
+    if (kind === "dynamic") {
+      const callback = this._mountContext?.onOpenDynamicItem
+      if (typeof callback === "function") callback(id)
+      return true
+    }
+    if (Number.isFinite(q) && Number.isFinite(r)) {
+      setSelectedHex(Math.round(q), Math.round(r))
+      this._updateDetailPanel(Math.round(q), Math.round(r))
+      return true
+    }
+    return false
   },
 
   _drillToLocation(entityId) {
@@ -5514,6 +5940,35 @@ const mapView = {
   _showSettingsModal() {
     const cfg = this._state.map
     const previousMode = mapState.mode
+    const descendantIds = new Set([cfg.id])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const candidate of this._maps || []) {
+        if (
+          !descendantIds.has(candidate.id)
+          && descendantIds.has(candidate.parent_map_id)
+        ) {
+          descendantIds.add(candidate.id)
+          changed = true
+        }
+      }
+    }
+    const parentMapOptions = (this._maps || [])
+      .filter((candidate) => !descendantIds.has(candidate.id))
+      .map((candidate) => `
+        <option value="${esc(candidate.id)}" ${candidate.id === cfg.parent_map_id ? "selected" : ""}>
+          ${esc(candidate.name)}
+        </option>
+      `)
+      .join("")
+    const parentEntityOptions = (this._locations || [])
+      .map((location) => `
+        <option value="${esc(location.id)}" ${location.id === cfg.parent_entity_id ? "selected" : ""}>
+          ${esc(location.name)}
+        </option>
+      `)
+      .join("")
     const formHtml = `
       <div class="form-group">
         <label>名称</label>
@@ -5523,16 +5978,40 @@ const mapView = {
         <label>描述</label>
         <textarea class="form-input" id="map-settings-desc" rows="3">${esc(cfg.description || "")}</textarea>
       </div>
+      <div class="form-group">
+        <label>上级地图</label>
+        <select class="form-select" id="map-settings-parent-map">
+          <option value="">顶层地图</option>
+          ${parentMapOptions}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>对应的上级地点（可选）</label>
+        <select class="form-select" id="map-settings-parent-entity">
+          <option value="">不关联具体地点</option>
+          ${parentEntityOptions}
+        </select>
+        <p class="map-hint">移动地图只修改层级，已绘制的地形、地点、线路和动态事实会完整保留。</p>
+      </div>
     `
     showModalHtml("地图设置", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         const name = document.getElementById("map-settings-name")?.value.trim()
         if (!name) { toast("请输入地图名称", "warning"); return }
         const description = document.getElementById("map-settings-desc")?.value.trim()
+        const parentMapField = document.getElementById("map-settings-parent-map")
+        const parentEntityField = document.getElementById("map-settings-parent-entity")
+        const payload = { name, description }
+        if (parentMapField) {
+          payload.parent_map_id = parentMapField.value || null
+          payload.parent_entity_id = parentMapField.value
+            ? (parentEntityField?.value || null)
+            : null
+        }
         try {
           await api.world.updateMap(
             cfg.id,
-            { name, description },
+            payload,
             state.currentProjectId
           )
           closeModal()
@@ -5557,14 +6036,13 @@ const mapView = {
   _renderTerritoryTools() {
     const orgs = this._allEntities.filter((e) => e.entity_type === "organization")
     if (orgs.length === 0) {
-      return `<div class="map-tool-group"><h4>势力范围</h4><p class="world-text-dim">暂无组织实体（需在 world 对象中创建 organization 类型实体）</p></div>`
+      return `<div class="map-tool-group"><p class="world-text-dim">暂无组织实体（需在 world 对象中创建 organization 类型实体）</p></div>`
     }
     const orgOptions = orgs.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("")
     const selectedOrg = mapState.selectedFactionId
     const currentColor = this._safeHexColor(mapState.factionColors[selectedOrg], "#FF6B6B")
     return `
       <div class="map-tool-group">
-        <h4>势力范围</h4>
         <select id="map-territory-faction" class="form-select">
           <option value="">选择组织...</option>
           ${orgOptions}
@@ -5574,8 +6052,7 @@ const mapView = {
           <span style="font-size:12px;color:var(--text-dim);">颜色</span>
         </div>
         <div class="map-tool-actions" style="margin-top:8px;">
-          <button class="btn btn-sm btn-primary" data-action="map-territory-paint">绘制</button>
-          <button class="btn btn-sm btn-danger" data-action="map-territory-clear">清除</button>
+          <button class="btn btn-sm btn-danger" data-action="map-territory-clear">清空该组织全部范围</button>
         </div>
       </div>
     `
@@ -5651,7 +6128,9 @@ const mapView = {
   },
 
   _filteredMarkers(zoom = this._leaflet?.getZoom?.() ?? null) {
-    return (this._state?.markers || []).filter((marker) => this._isMarkerLayerEnabled(marker, zoom))
+    return (this._state?.markers || []).filter(
+      (marker) => marker.visible !== false && this._isMarkerLayerEnabled(marker, zoom),
+    )
   },
 
   _candidateMarkers(zoom = this._leaflet?.getZoom?.() ?? null) {

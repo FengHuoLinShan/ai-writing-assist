@@ -21,6 +21,38 @@ function sceneNumber(value) {
   return Number.isInteger(number) && number >= 0 ? number : null
 }
 
+export function mapSceneDisplayNumber(value) {
+  const index = sceneNumber(value)
+  return index === null ? null : index + 1
+}
+
+function sceneSequence(value) {
+  if (value === null || value === undefined || value === "") return null
+  const number = Number(value)
+  return Number.isInteger(number) && number >= 0 ? number : null
+}
+
+function timelineOrder(item = {}) {
+  const sequence = sceneSequence(item.scene_sequence ?? item.time_anchor?.scene_sequence)
+  const sourceOffset = Number(item.time_anchor?.source_start_offset)
+  return [
+    sceneNumber(item.scene_index ?? item.time_anchor?.scene_index) ?? Number.MAX_SAFE_INTEGER,
+    sequence ?? -1,
+    Number.isInteger(sourceOffset) && sourceOffset >= 0 ? sourceOffset : Number.MAX_SAFE_INTEGER,
+    String(item.delta_id || item.id || item.conflict_id || ""),
+  ]
+}
+
+function compareTimelineItems(left, right) {
+  const a = timelineOrder(left)
+  const b = timelineOrder(right)
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] < b[index]) return -1
+    if (a[index] > b[index]) return 1
+  }
+  return 0
+}
+
 function selectedTrackKeys(selectedTracks = {}) {
   return new Set(
     MAP_TIMELINE_TRACKS
@@ -31,16 +63,37 @@ function selectedTrackKeys(selectedTracks = {}) {
 
 function itemTrack(item = {}) {
   if (TRACK_KEYS.has(item.track)) return item.track
+  const dynamicType = String(item.dynamic_type || item.normalized_value?.type || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("-", "_")
+  if (["movement", "position", "position_change", "journey"].includes(dynamicType)) {
+    return "journey"
+  }
+  if (dynamicType === "location") {
+    const targetType = String(item.target_entity_type || "").trim().toLowerCase()
+    const proposalType = String(item.proposal_type || item.source_ref?.proposal_type || "")
+      .trim()
+      .toLowerCase()
+      .replaceAll("-", "_")
+    return ["character", "person"].includes(targetType) || proposalType === "character_location"
+      ? "journey"
+      : "world"
+  }
   return {
-    location: "journey",
-    position_change: "journey",
-    movement: "journey",
     boundary: "territory",
+    boundary_change: "territory",
     territory: "territory",
     crisis: "crisis",
+    crisis_spread: "crisis",
+    risk: "crisis",
+    conflict: "crisis",
     resource: "resource",
+    resource_control: "resource",
+    resource_control_change: "resource",
     status: "status",
-  }[item.dynamic_type || item.normalized_value?.type] || "world"
+    status_change: "status",
+  }[dynamicType] || "world"
 }
 
 export function createMapTimelineState() {
@@ -62,9 +115,9 @@ export function createMapTimelineState() {
 }
 
 export function normalizeMapTimelineResponse(payload = {}) {
-  const deltas = asArray(payload.deltas)
-  const candidates = asArray(payload.candidates)
-  const conflicts = asArray(payload.conflicts)
+  const deltas = [...asArray(payload.deltas)].sort(compareTimelineItems)
+  const candidates = [...asArray(payload.candidates)].sort(compareTimelineItems)
+  const conflicts = [...asArray(payload.conflicts)].sort(compareTimelineItems)
   const continuityIssues = asArray(payload.continuity_issues)
   const sceneByIndex = new Map()
 
@@ -133,9 +186,11 @@ export function filterTimelineItems(items, selectedTracks = {}) {
 
 export function timelineItemsAtScene(items, sceneIndex, selectedTracks = {}) {
   const target = sceneNumber(sceneIndex)
-  return filterTimelineItems(items, selectedTracks).filter((item) => (
-    sceneNumber(item?.scene_index ?? item?.time_anchor?.scene_index) === target
-  ))
+  return filterTimelineItems(items, selectedTracks)
+    .filter((item) => (
+      sceneNumber(item?.scene_index ?? item?.time_anchor?.scene_index) === target
+    ))
+    .sort(compareTimelineItems)
 }
 
 export function mapDynamicNormalizationLabel(state) {
@@ -259,6 +314,7 @@ function candidateProjectionSignature(candidate = {}) {
     id: candidate.id ?? null,
     item_id: candidate.item_id ?? null,
     scene_index: candidate.scene_index ?? null,
+    scene_sequence: candidate.scene_sequence ?? candidate.time_anchor?.scene_sequence ?? null,
     track: candidate.track ?? null,
     dynamic_type: candidate.dynamic_type ?? null,
     spatial_anchor: candidate.spatial_anchor ?? null,

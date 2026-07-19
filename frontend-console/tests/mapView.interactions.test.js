@@ -680,6 +680,8 @@ describe("mapView Leaflet overlay alignment", () => {
     window.L = {
       CRS: { Simple: {} },
       map: vi.fn(() => ({
+        getBoundsZoom: vi.fn(() => -5),
+        setMinZoom: vi.fn(),
         fitBounds: vi.fn(),
         on: vi.fn(),
         off: vi.fn(function () { return this }),
@@ -729,6 +731,8 @@ describe("mapView Leaflet overlay alignment", () => {
       methods: ["setTransform", "clearRect", "translate", "scale"],
     }))
     const leafletMap = {
+      getBoundsZoom: vi.fn(() => -5),
+      setMinZoom: vi.fn(),
       fitBounds: vi.fn(),
       on: vi.fn(),
       off: vi.fn(function () { return this }),
@@ -766,8 +770,10 @@ describe("mapView Leaflet overlay alignment", () => {
 
       expect(window.L.map).toHaveBeenCalledWith(container, expect.objectContaining({
         crs: window.L.CRS.Simple,
+        minZoom: -12,
         attributionControl: false,
       }))
+      expect(freshMapView._leaflet.setMinZoom).toHaveBeenCalledWith(-5)
       expect(freshMapView._leaflet).toBe(leafletMap)
     } finally {
       freshMapView._teardownInteractiveSurface()
@@ -950,6 +956,50 @@ describe("mapView 地图设置", () => {
     const formHtml = showModal.mock.calls[0][1].html
     expect(formHtml).toContain('value="九州"')
     expect(formHtml).toContain("古都世界")
+    expect(formHtml).toContain("上级地图")
+    expect(formHtml).toContain("移动地图只修改层级")
+  })
+
+  it("_showSettingsModal 可将既有地图移到另一层级且不列出后代", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = {
+      map: { id: "m1", name: "廷根城", description: "城市图", parent_map_id: null },
+    }
+    mapView._maps = [
+      { id: "m0", name: "鲁恩世界", parent_map_id: null },
+      { id: "m1", name: "廷根城", parent_map_id: null },
+      { id: "m2", name: "教堂详图", parent_map_id: "m1" },
+    ]
+    mapView._locations = [{ id: "loc-tingen", name: "廷根市" }]
+    api.world.updateMap.mockResolvedValue({})
+    api.world.getMapState.mockResolvedValue({
+      map: { id: "m1", name: "廷根城", parent_map_id: "m0", parent_entity_id: "loc-tingen" },
+      breadcrumbs: [],
+      tiles: [],
+      location_bindings: [],
+    })
+    api.world.listMaps.mockResolvedValue({ items: [], total: 0 })
+
+    mapView._showSettingsModal()
+    const formHtml = showModal.mock.calls[0][1].html
+    expect(formHtml).toContain('value="m0"')
+    expect(formHtml).not.toContain('value="m2"')
+    document.body.innerHTML = `
+      <input id="map-settings-name" value="廷根城" />
+      <textarea id="map-settings-desc">城市图</textarea>
+      <select id="map-settings-parent-map"><option value="m0" selected>鲁恩世界</option></select>
+      <select id="map-settings-parent-entity"><option value="loc-tingen" selected>廷根市</option></select>
+      <div id="map-root"></div>
+    `
+
+    await showModal.mock.calls[0][2][0].handler()
+
+    expect(api.world.updateMap).toHaveBeenCalledWith("m1", {
+      name: "廷根城",
+      description: "城市图",
+      parent_map_id: "m0",
+      parent_entity_id: "loc-tingen",
+    }, "p1")
   })
 
   it("_showSettingsModal 保存时空名称给出警告", async () => {
@@ -1173,6 +1223,111 @@ describe("mapView 详情面板", () => {
     expect(html).toContain("洛阳")
     expect(html).toContain("古都")
     expect(html).toContain(">2<")
+  })
+
+  it("地点与线路重叠时优先打开地点信息", () => {
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      markers: [],
+      territories: [],
+      terrain_layers: [],
+      terrain_patches: [],
+      location_bindings: [{
+        hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true,
+      }],
+    }
+    mapView._pathState = {
+      path_layers: [{ id: "layer-1", category: "transport" }],
+      paths: [{
+        id: "path-1",
+        name: "重叠道路",
+        path_layer_id: "layer-1",
+        path_type: "street",
+        nodes: [{ q: 0, r: 1 }, { q: 2, r: 1 }],
+      }],
+      nodes: [],
+    }
+    mapView._locations = [{ id: "loc1", name: "莫雷蒂家公寓", summary: "家" }]
+    mapView._rebuildIndexes()
+
+    const html = mapView._renderDetailPanel(1, 1)
+
+    expect(mapView._typedSelectionAt(1, 1)).toMatchObject({
+      kind: "location",
+      entityId: "loc1",
+    })
+    expect(html).toContain("莫雷蒂家公寓")
+    expect(html).not.toContain("重叠道路")
+  })
+
+  it("从线路标签显式打开线路时不被重叠地点详情覆盖", () => {
+    document.body.innerHTML = `<div id="map-detail-panel"></div>`
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      markers: [],
+      territories: [],
+      terrain_layers: [],
+      terrain_patches: [],
+      location_bindings: [{
+        hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true,
+      }],
+    }
+    mapView._pathState = {
+      path_layers: [{ id: "layer-1", category: "transport" }],
+      paths: [{
+        id: "path-1",
+        name: "重叠道路",
+        path_layer_id: "layer-1",
+        path_type: "street",
+        nodes: [{ q: 0, r: 1 }, { q: 2, r: 1 }],
+      }],
+      nodes: [],
+    }
+    mapView._locations = [{ id: "loc1", name: "莫雷蒂家公寓", summary: "家" }]
+    mapView._rebuildIndexes()
+
+    expect(mapView._openMapLayoutItem({ kind: "path", id: "path-1", q: 1, r: 1 })).toBe(true)
+
+    const panel = document.getElementById("map-detail-panel")
+    expect(panel.textContent).toContain("重叠道路")
+    expect(panel.textContent).not.toContain("莫雷蒂家公寓")
+  })
+
+  it("从标记和势力标签显式打开对象时不被重叠地点覆盖", () => {
+    document.body.innerHTML = `<div id="map-detail-panel"></div>`
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      markers: [{
+        id: "marker-1", entity_id: "char-1", marker_type: "character",
+        label: "克莱恩", hex_q: 1, hex_r: 1,
+      }],
+      territories: [{
+        id: "territory-1", faction_entity_id: "faction-1", hex_q: 1, hex_r: 1,
+      }],
+      terrain_layers: [],
+      terrain_patches: [],
+      location_bindings: [{
+        hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true,
+      }],
+    }
+    mapView._locations = [{ id: "loc1", name: "莫雷蒂家公寓", summary: "家" }]
+    mapView._allEntities = [{ id: "faction-1", name: "值夜者" }]
+    mapView._rebuildIndexes()
+
+    expect(mapView._openMapLayoutItem({
+      kind: "marker", id: "marker-1", q: 1, r: 1,
+    })).toBe(true)
+    expect(document.getElementById("map-detail-panel").textContent).toContain("克莱恩")
+    expect(document.getElementById("map-detail-panel").textContent).not.toContain("莫雷蒂家公寓")
+
+    expect(mapView._openMapLayoutItem({
+      kind: "territory", id: "faction-1", q: 1, r: 1,
+    })).toBe(true)
+    expect(document.getElementById("map-detail-panel").textContent).toContain("值夜者")
+    expect(document.getElementById("map-detail-panel").textContent).not.toContain("莫雷蒂家公寓")
   })
 })
 

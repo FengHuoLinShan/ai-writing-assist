@@ -82,6 +82,32 @@ async def start_deep_import_stage(
     )
 
 
+async def start_map_observation_enrichment(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    *,
+    high_quality: bool = True,
+    adoption_policy: str = DEFAULT_ADOPTION_POLICY,
+    authorization_confirmed: bool = False,
+) -> dict[str, Any]:
+    """Submit map-only enrichment without exposing its internal workflow module."""
+    from modules.imports.map_observation_enrichment_workflow import (
+        submit_map_observation_enrichment,
+    )
+
+    return await submit_map_observation_enrichment(
+        db,
+        novel_id=novel_id,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+        high_quality=high_quality,
+        adoption_policy=adoption_policy,
+        authorization_confirmed=authorization_confirmed,
+    )
+
+
 async def run_submitted_deep_import_stage(
     db: AsyncSession,
     task_id: str,

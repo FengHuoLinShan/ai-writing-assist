@@ -113,6 +113,15 @@ class MapConfigUpdate(BaseModel):
     default_center_y: Annotated[float | None, Field(None, ge=0.0, le=1.0)]
     default_zoom: Annotated[float | None, Field(None)]
     sort_order: Annotated[int | None, Field(None, ge=0)]
+    parent_map_id: Annotated[str | None, Field(None)]
+    parent_entity_id: Annotated[str | None, Field(None)]
+
+    @field_validator("parent_map_id", "parent_entity_id")
+    @classmethod
+    def _coerce_optional_parent_uuid(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return str(uuid.UUID(value))
 
 
 class MapConfigResponse(BaseModel):
@@ -1028,15 +1037,18 @@ class MapPathNodeInput(BaseModel):
     r: float = Field(..., ge=0, allow_inf_nan=False)
     width_scale: float = Field(1.0, ge=0.25, le=4, allow_inf_nan=False)
     tension: float = Field(0.5, ge=0, le=1, allow_inf_nan=False)
-    segment_type: Literal[
-        "major_road",
-        "street",
-        "dirt_trail",
-        "rail",
-        "river",
-        "stream",
-        "canal",
-    ] | None = None
+    segment_type: (
+        Literal[
+            "major_road",
+            "street",
+            "dirt_trail",
+            "rail",
+            "river",
+            "stream",
+            "canal",
+        ]
+        | None
+    ) = None
 
 
 class MapPathCreate(BaseModel):
@@ -1077,15 +1089,18 @@ class MapPathCreate(BaseModel):
 
 class MapPathUpdate(BaseModel):
     name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
-    path_type: Literal[
-        "major_road",
-        "street",
-        "dirt_trail",
-        "rail",
-        "river",
-        "stream",
-        "canal",
-    ] | None = None
+    path_type: (
+        Literal[
+            "major_road",
+            "street",
+            "dirt_trail",
+            "rail",
+            "river",
+            "stream",
+            "canal",
+        ]
+        | None
+    ) = None
     nodes: list[MapPathNodeInput] | None = Field(None, min_length=2, max_length=500)
     sort_order: Annotated[int | None, Field(None, ge=0)]
     visible: bool | None = None
@@ -1793,9 +1808,9 @@ class MapObservationResponse(BaseModel):
     value_json: dict | None = None
     normalized_value: MapDynamicValueV1 | None = None
     dimension_key: str | None = None
-    normalization_state: Literal[
-        "typed", "legacy_normalized", "untyped", "invalid"
-    ] | None = None
+    normalization_state: (
+        Literal["typed", "legacy_normalized", "untyped", "invalid"] | None
+    ) = None
     proposal_value: MapObservationProposalV1 | None = None
     proposal_type: str | None = None
     eligibility: MapObservationEligibility = Field(
@@ -1863,9 +1878,7 @@ class MapObservationResponse(BaseModel):
             isinstance(self.value_json, dict)
             and self.value_json.get("payload_kind") == "proposal"
         ):
-            proposal = _MAP_OBSERVATION_PROPOSAL_ADAPTER.validate_python(
-                self.value_json
-            )
+            proposal = _MAP_OBSERVATION_PROPOSAL_ADAPTER.validate_python(self.value_json)
             self.proposal_value = proposal
             self.proposal_type = proposal.proposal_type
             self.normalized_value = None
@@ -1905,9 +1918,9 @@ class MapFactResponse(BaseModel):
     value_json: dict | None = None
     normalized_value: MapDynamicValueV1 | None = None
     dimension_key: str | None = None
-    normalization_state: Literal[
-        "typed", "legacy_normalized", "untyped", "invalid"
-    ] | None = None
+    normalization_state: (
+        Literal["typed", "legacy_normalized", "untyped", "invalid"] | None
+    ) = None
     confidence: float
     fact_status: str
     display_state: Literal["active", "review", "archived"] | None = None
@@ -2016,11 +2029,15 @@ class MapBatchActionRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_action_items(self) -> MapBatchActionRequest:
-        if self.action in {
-            "confirm_observations",
-            "ignore_observations",
-            "mark_conflicted",
-        } and not self.observation_items:
+        if (
+            self.action
+            in {
+                "confirm_observations",
+                "ignore_observations",
+                "mark_conflicted",
+            }
+            and not self.observation_items
+        ):
             raise ValueError("observation_items is required for observation actions")
         return self
 
@@ -2124,6 +2141,7 @@ class MapPlaybackEvent(BaseModel):
     source_summary: str
     spatial_anchor: dict = Field(default_factory=dict)
     scene_index: int | None = None
+    scene_sequence: int | None = Field(None, ge=0)
     source_chapter_index: int | None = None
     risk_level: Literal["info", "warning", "danger"] = "info"
     confidence: float | None = None
@@ -2162,7 +2180,9 @@ class MapDynamicDeltaRead(BaseModel):
     track: Literal["journey", "territory", "crisis", "resource", "status", "world"]
     dimension_key: str
     scene_index: int
+    scene_sequence: int | None = Field(None, ge=0)
     before_scene_index: int | None = None
+    before_scene_sequence: int | None = Field(None, ge=0)
     source_chapter_index: int | None = None
     change_kind: Literal["initial", "change"]
     before: MapDynamicValueV1 | None = None
@@ -2180,6 +2200,7 @@ class MapDynamicConflict(BaseModel):
     dynamic_type: str
     dimension_key: str
     scene_index: int
+    scene_sequence: int | None = Field(None, ge=0)
     source_fact_ids: list[str] = Field(default_factory=list)
     values: list[MapDynamicValueV1] = Field(default_factory=list)
     spatial_anchors: list[dict] = Field(default_factory=list)
@@ -2201,6 +2222,8 @@ class MapContinuityIssue(BaseModel):
     target_name: str | None = None
     from_scene_index: int
     to_scene_index: int
+    from_scene_sequence: int | None = Field(None, ge=0)
+    to_scene_sequence: int | None = Field(None, ge=0)
     source_fact_ids: list[str] = Field(default_factory=list)
     path_ids: list[str] = Field(default_factory=list)
     distance_hex: float | None = Field(None, allow_inf_nan=False)
@@ -2245,6 +2268,7 @@ class MapDynamicStateItem(BaseModel):
     spatial_anchor: dict | None = None
     source_fact_ids: list[str] = Field(default_factory=list)
     scene_index: int
+    scene_sequence: int | None = Field(None, ge=0)
 
 
 class MapDynamicStateAtResponse(BaseModel):

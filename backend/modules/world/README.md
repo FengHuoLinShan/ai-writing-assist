@@ -20,13 +20,21 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - “待处理”入口按对象 / 别名 / 关系三个子 tab 处理复核队列；对象库、别名、关系页仍保留全量管理能力
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
 - 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
-- 深度导入的类型化地图候选通过稳定 `contracts.py` / `facade.py` seam 进入 world；world 按
+- 深度导入与独立地图补充的类型化地图候选都通过稳定 `contracts.py` / `facade.py` seam
+  进入 world；`MapObservationCandidateInput.source_workflow` 只允许
+  `deep_import | map_enrichment`，并分别写入真实来源字符串。world 按
   `novel_id + workflow_id + scene_id + source_item_key + proposal_type` 生成 UUIDv5，并保存原始
   payload hash。相同重试复用已有 observation；同一身份内容变化返回 409，且不覆盖作者编辑。
-  world 同时校验冻结授权快照的 novel/章节 scope，并将快照指纹写入只读来源。
+  world 同时校验冻结授权快照的 novel/章节 scope；map enrichment 还必须固定
+  `stage="map_observations"`、与逐字证据等长的精确偏移、Scene 内序号和 64 位
+  SHA-256 来源/证据指纹，并将快照指纹写入只读来源。
   PostgreSQL 首次并发写入使用确定性身份锁，避免空行无法行锁导致的唯一冲突。导入
-  proposal 类型是来源身份的一部分，作者可编辑内容，但不能原地切换类型。候选只进入
-  收件箱，不自动分配地图或生成 Fact。
+  proposal 类型是来源身份的一部分，作者可编辑内容，但不能原地切换类型。map enrichment
+  可携带已由 imports 冻结词典唯一解析的 canonical 目标/地点 ID；world 会重验项目、
+  类型与 canonical 状态，但跨 organization/faction 的同名歧义必须由 imports 在 seam
+  之前拒绝。地点恰有一个作者可见 active 地图中心绑定时，world 确定性分配
+  map/hex，其他候选进入项目收件箱。所有结果仍为 candidate，
+  不自动生成 Fact。
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
 - 待处理关系按有向 `(source_id, target_id)` 分组，别名按 owner 对象分组；Scene 只用于筛选和展示，反向关系不自动归并
 - 类型目录只是推荐与保守同义词建议；关系和别名的数据库/Pydantic 契约仍接受自由字符串，自定义值未经用户点击不得替换
@@ -397,6 +405,9 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 - `map_configs.parent_entity_id` 和已确认的 `map_terrain_bindings` 同样只能引用已采用的 location；候选地形绑定可保留预览，但采用前会重新校验地点状态。
 - `map_observations` 是世界动态地图的证据层：类型化地图建议、显式携带地图/空间元数据的 legacy `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。普通剧情状态变化只保存在 memory delta log，不重复进入地图收件箱。
 - observation 必须能说明目标名称/类型、动态类型、时间锚点、空间锚点、来源引用、证据摘要、置信度和审查状态；目标实体或地图尚未解析时可为空，但不得存入跨 `novel_id` 的实体引用。
+- 同一 Scene 内具有精确正文 offset 的 observation 使用 `time_anchor.scene_sequence` 表达叙事先后；
+  时间线只把相同 Scene 和相同 sequence 的同维度异值视为同一时刻冲突。旧事实缺少 sequence
+  时保持原兼容冲突语义。
 - 未分配且仍为 `candidate` / `conflicted` 的 observation 进入项目级地图收件箱；具体地图的
   observation、dashboard 和 playback 只读取精确 `map_id`，不会混入项目收件箱候选。
 - `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。

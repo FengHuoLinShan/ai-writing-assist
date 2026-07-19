@@ -12,6 +12,8 @@ const mapQuickCreateView = {
   _layoutRedo: [],
   _selectedLocationIds: new Set(),
   _previousLayoutIds: new Set(),
+  _selectionOverrides: new Map(),
+  _selectionTarget: null,
   _includeCandidates: false,
   _target: "world",
   _parentEntityId: null,
@@ -24,6 +26,10 @@ const mapQuickCreateView = {
   _baseTemplate: "blank",
   _mapName: "",
   _mapNameTouched: false,
+  _scopeFilter: "all",
+  _parentFilter: "all",
+  _detailFilter: "all",
+  _filterQuery: "",
   _dragLocationId: null,
   _onCreated: null,
   _projectId: null,
@@ -42,6 +48,8 @@ const mapQuickCreateView = {
     this._layoutRedo = []
     this._selectedLocationIds = new Set()
     this._previousLayoutIds = new Set()
+    this._selectionOverrides = new Map()
+    this._selectionTarget = null
     this._target = "world"
     this._parentEntityId = null
     this._parentMapId = null
@@ -53,6 +61,10 @@ const mapQuickCreateView = {
     this._baseTemplate = "blank"
     this._mapName = ""
     this._mapNameTouched = false
+    this._scopeFilter = "all"
+    this._parentFilter = "all"
+    this._detailFilter = "all"
+    this._filterQuery = ""
     await this._loadContext()
     if (!this._isCurrentOpen(generation, frozenProjectId)) return false
     await this._loadPreview()
@@ -124,6 +136,8 @@ const mapQuickCreateView = {
       layoutRedo: this._layoutRedo.map((entry) => entry.map((layout) => ({ ...layout }))),
       selectedLocationIds: new Set(this._selectedLocationIds),
       previousLayoutIds: new Set(this._previousLayoutIds),
+      selectionOverrides: new Map(this._selectionOverrides),
+      selectionTarget: this._selectionTarget,
       includeCandidates: this._includeCandidates,
       target: this._target,
       parentEntityId: this._parentEntityId,
@@ -136,6 +150,10 @@ const mapQuickCreateView = {
       baseTemplate: this._baseTemplate,
       mapName: this._mapName,
       mapNameTouched: this._mapNameTouched,
+      scopeFilter: this._scopeFilter,
+      parentFilter: this._parentFilter,
+      detailFilter: this._detailFilter,
+      filterQuery: this._filterQuery,
     }
   },
 
@@ -147,6 +165,8 @@ const mapQuickCreateView = {
     this._layoutRedo = snapshot.layoutRedo
     this._selectedLocationIds = snapshot.selectedLocationIds
     this._previousLayoutIds = snapshot.previousLayoutIds
+    this._selectionOverrides = snapshot.selectionOverrides || new Map()
+    this._selectionTarget = snapshot.selectionTarget ?? null
     this._includeCandidates = snapshot.includeCandidates
     this._target = snapshot.target
     this._parentEntityId = snapshot.parentEntityId
@@ -159,6 +179,10 @@ const mapQuickCreateView = {
     this._baseTemplate = snapshot.baseTemplate
     this._mapName = snapshot.mapName
     this._mapNameTouched = snapshot.mapNameTouched
+    this._scopeFilter = snapshot.scopeFilter || "all"
+    this._parentFilter = snapshot.parentFilter || "all"
+    this._detailFilter = snapshot.detailFilter || "all"
+    this._filterQuery = snapshot.filterQuery || ""
   },
 
   async _loadContext() {
@@ -244,7 +268,7 @@ const mapQuickCreateView = {
     )).join("")
     const activeIds = new Set((this._activeLayouts || []).map((layout) => layout.location_entity_id))
     const extraOptions = locations.filter((location) => !activeIds.has(location.id)).map((location) => (
-      `<option value="${esc(location.id)}">${esc(location.name)}</option>`
+      `<option value="${esc(location.id)}">${esc(location.name)} · ${esc(location.map_scope?.label || "尺度待判断")}</option>`
     )).join("")
     return `
       <div class="map-quick-create">
@@ -290,16 +314,24 @@ const mapQuickCreateView = {
 
   _syncSelectionForLayouts(layouts) {
     const nextIds = new Set((layouts || []).map((layout) => layout.location_entity_id))
+    const targetChanged = this._selectionTarget !== this._target
     const selected = new Set()
-    for (const id of this._selectedLocationIds || []) {
-      if (nextIds.has(id)) selected.add(id)
-    }
     for (const id of nextIds) {
       const layout = (layouts || []).find((item) => item.location_entity_id === id)
-      if (!this._previousLayoutIds.has(id) && !this._isCandidateLayout(layout)) selected.add(id)
+      if (this._isCandidateLayout(layout)) continue
+      if (this._selectionOverrides.has(id)) {
+        if (this._selectionOverrides.get(id)) selected.add(id)
+        continue
+      }
+      if (targetChanged || !this._previousLayoutIds.has(id)) {
+        if (this._isRecommendedForTarget(id)) selected.add(id)
+        continue
+      }
+      if (this._selectedLocationIds.has(id)) selected.add(id)
     }
     this._selectedLocationIds = selected
     this._previousLayoutIds = nextIds
+    this._selectionTarget = this._target
   },
 
   _selectedLayouts() {
@@ -322,12 +354,68 @@ const mapQuickCreateView = {
     )
   },
 
+  _locationRecord(locationId) {
+    return [
+      ...(this._context?.locations || []),
+      ...(this._context?.candidate_locations || []),
+    ].find((location) => location.id === locationId) || null
+  },
+
+  _locationScope(locationId) {
+    return this._locationRecord(locationId)?.map_scope || {
+      key: "unknown",
+      label: "尺度待判断",
+      recommended_targets: ["world", "detail", "drilldown"],
+    }
+  },
+
+  _isRecommendedForTarget(locationId) {
+    const targets = this._locationScope(locationId).recommended_targets || []
+    return targets.includes(this._target)
+  },
+
+  _visibleLayouts() {
+    const query = String(this._filterQuery || "").trim().toLocaleLowerCase()
+    return (this._activeLayouts || []).filter((layout) => {
+      const location = this._locationRecord(layout.location_entity_id) || {}
+      const scope = this._locationScope(layout.location_entity_id)
+      if (query && !String(location.name || "").toLocaleLowerCase().includes(query)) {
+        return false
+      }
+      if (this._scopeFilter !== "all" && scope.key !== this._scopeFilter) return false
+      const parents = location.parent_locations || []
+      if (this._parentFilter === "root" && parents.length) return false
+      if (
+        !["all", "root"].includes(this._parentFilter)
+        && !parents.some((parent) => parent.id === this._parentFilter)
+      ) return false
+      if (this._detailFilter === "with" && !location.has_detail_map) return false
+      if (this._detailFilter === "without" && location.has_detail_map) return false
+      return true
+    })
+  },
+
+  _splitRecommendations() {
+    if (this._target !== "world") return []
+    return (this._activeLayouts || [])
+      .filter((layout) => !this._isCandidateLayout(layout))
+      .map((layout) => this._locationRecord(layout.location_entity_id))
+      .filter((location) => (
+        location
+        && !this._isRecommendedForTarget(location.id)
+        && !location.has_detail_map
+      ))
+  },
+
   _renderRows() {
-    const layouts = this._activeLayouts || []
+    const layouts = this._visibleLayouts()
     const selectedIds = this._selectedLocationIds || new Set()
     return layouts.map((layout) => {
       const id = layout.location_entity_id
       const candidate = this._isCandidateLayout(layout)
+      const location = this._locationRecord(id) || {}
+      const scope = this._locationScope(id)
+      const parentLabel = (location.parent_locations || []).map((parent) => parent.name).join("、") || "未设父地点"
       const selected = !candidate && selectedIds.has(id)
       const disabled = selected && !layout.locked ? "" : "disabled"
       const lockDisabled = selected ? "" : "disabled"
@@ -337,6 +425,7 @@ const mapQuickCreateView = {
           <input type="checkbox" data-action="map-quick-select" data-id="${esc(id)}" ${selected ? "checked" : ""} ${candidate ? "disabled" : ""}/>
         </td>
         <td>${esc(this._locationName(layout.location_entity_id))}</td>
+        <td><span class="map-quick-scope-badge" data-scope="${esc(scope.key)}">${esc(scope.label)}</span><small>${esc(parentLabel)}${location.has_detail_map ? " · 已有详图" : ""}</small></td>
         <td>${layout.center_hex_q}, ${layout.center_hex_r}</td>
         <td>
           <button class="btn btn-sm" data-action="map-quick-radius" data-id="${esc(id)}" data-direction="decrease" ${disabled}>-</button>
@@ -362,26 +451,53 @@ const mapQuickCreateView = {
     )).join("")
     const rows = this._renderRows()
     const placeableLayouts = (this._activeLayouts || []).filter((layout) => !this._isCandidateLayout(layout))
+    const visibleLayouts = this._visibleLayouts().filter((layout) => !this._isCandidateLayout(layout))
     const total = placeableLayouts.length
     const selectedCount = this._selectedCount()
-    const allSelected = total > 0 && selectedCount === total
+    const visibleSelectedCount = visibleLayouts.filter(
+      (layout) => this._selectedLocationIds.has(layout.location_entity_id),
+    ).length
+    const allSelected = visibleLayouts.length > 0 && visibleSelectedCount === visibleLayouts.length
+    const scopeOptions = [
+      ["all", "全部尺度"],
+      ["world", "世界级"],
+      ["region", "区域级"],
+      ["settlement", "城市/聚落"],
+      ["site", "地点/建筑"],
+      ["interior", "室内/地下"],
+      ["nonphysical", "非物理空间"],
+      ["unknown", "尺度待判断"],
+    ]
+    const parentOptions = new Map()
+    for (const location of this._context?.locations || []) {
+      for (const parent of location.parent_locations || []) parentOptions.set(parent.id, parent.name)
+    }
+    const splitRecommendations = this._splitRecommendations()
+    const splitNames = splitRecommendations.slice(0, 5).map((location) => location.name).join("、")
     return `
       ${warnings}
+      ${splitRecommendations.length ? `<div class="alert alert-info">世界图已默认取消选择 ${splitRecommendations.length} 个建筑或室内地点。建议拆分详图：${esc(splitNames)}${splitRecommendations.length > 5 ? ` 等 ${splitRecommendations.length} 个地点` : ""}。</div>` : ""}
       <div class="view-header map-toolbar">
         <div class="view-header__title">快速放置</div>
         <div class="view-header__actions">
           <button class="btn btn-sm" id="map-quick-undo" ${this._layoutHistory.length ? "" : "disabled"}>撤销</button>
           <button class="btn btn-sm" id="map-quick-redo" ${this._layoutRedo.length ? "" : "disabled"}>重做</button>
-          <span class="view-header__count">已选 ${selectedCount} / 共 ${total}</span>
+          <span class="view-header__count">已选 ${selectedCount} / 共 ${total}${visibleLayouts.length !== total ? ` · 当前筛选 ${visibleLayouts.length}` : ""}</span>
         </div>
+      </div>
+      <div class="map-quick-filters">
+        <input class="form-input" id="map-quick-filter-query" type="search" value="${esc(this._filterQuery)}" placeholder="搜索地点名称" />
+        <select class="form-select" id="map-quick-filter-scope">${scopeOptions.map(([value, label]) => `<option value="${value}" ${this._scopeFilter === value ? "selected" : ""}>${label}</option>`).join("")}</select>
+        <select class="form-select" id="map-quick-filter-parent"><option value="all">全部父地点</option><option value="root" ${this._parentFilter === "root" ? "selected" : ""}>未设父地点</option>${[...parentOptions.entries()].sort((a, b) => a[1].localeCompare(b[1], "zh-CN")).map(([id, name]) => `<option value="${esc(id)}" ${this._parentFilter === id ? "selected" : ""}>${esc(name)}</option>`).join("")}</select>
+        <select class="form-select" id="map-quick-filter-detail"><option value="all">全部详图状态</option><option value="with" ${this._detailFilter === "with" ? "selected" : ""}>已有详图</option><option value="without" ${this._detailFilter === "without" ? "selected" : ""}>尚无详图</option></select>
       </div>
       <div class="map-quick-canvas-wrap"><canvas id="map-quick-canvas" class="map-quick-canvas" width="920" height="420" aria-label="地点布局画布"></canvas><p class="map-quick-meta">拖动已采用地点调整中心格；待处理地点仅供预览。</p></div>
       <table class="data-table">
         <thead><tr>
-          <th><input type="checkbox" id="map-quick-select-all" ${allSelected ? "checked" : ""} ${total ? "" : "disabled"} /></th>
-          <th>地点</th><th>位置</th><th>半径</th><th>状态</th><th>调整</th>
+          <th><input type="checkbox" id="map-quick-select-all" ${allSelected ? "checked" : ""} ${visibleLayouts.length ? "" : "disabled"} /></th>
+          <th>地点</th><th>尺度与父地点</th><th>位置</th><th>半径</th><th>状态</th><th>调整</th>
         </tr></thead>
-        <tbody>${rows || `<tr><td colspan="6">暂无可放置地点</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="7">当前筛选下暂无可放置地点</td></tr>`}</tbody>
       </table>
     `
   },
@@ -446,11 +562,33 @@ const mapQuickCreateView = {
       this._extraLocationIds.add(select.value)
       await this._reloadSettingsPreview(previous)
     }
+    const filterQuery = document.getElementById("map-quick-filter-query")
+    if (filterQuery) filterQuery.onchange = () => {
+      this._filterQuery = filterQuery.value
+      this._updatePreviewDom()
+    }
+    const scopeFilter = document.getElementById("map-quick-filter-scope")
+    if (scopeFilter) scopeFilter.onchange = () => {
+      this._scopeFilter = scopeFilter.value
+      this._updatePreviewDom()
+    }
+    const parentFilter = document.getElementById("map-quick-filter-parent")
+    if (parentFilter) parentFilter.onchange = () => {
+      this._parentFilter = parentFilter.value
+      this._updatePreviewDom()
+    }
+    const detailFilter = document.getElementById("map-quick-filter-detail")
+    if (detailFilter) detailFilter.onchange = () => {
+      this._detailFilter = detailFilter.value
+      this._updatePreviewDom()
+    }
     const selectAll = document.getElementById("map-quick-select-all")
     if (selectAll) {
-      const total = (this._activeLayouts || []).filter((layout) => !this._isCandidateLayout(layout)).length
-      const selectedCount = this._selectedCount()
-      selectAll.indeterminate = selectedCount > 0 && selectedCount < total
+      const visible = this._visibleLayouts().filter((layout) => !this._isCandidateLayout(layout))
+      const selectedCount = visible.filter(
+        (layout) => this._selectedLocationIds.has(layout.location_entity_id),
+      ).length
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < visible.length
       selectAll.onchange = () => this._setAllSelected(selectAll.checked)
     }
     document.querySelectorAll("[data-action='map-quick-select']").forEach((checkbox) => {
@@ -544,13 +682,14 @@ const mapQuickCreateView = {
   },
 
   _setAllSelected(enabled) {
-    this._selectedLocationIds = new Set(
-      enabled
-        ? (this._activeLayouts || [])
-          .filter((layout) => !this._isCandidateLayout(layout))
-          .map((layout) => layout.location_entity_id)
-        : [],
-    )
+    const next = new Set(this._selectedLocationIds || [])
+    for (const layout of this._visibleLayouts()) {
+      if (this._isCandidateLayout(layout)) continue
+      this._selectionOverrides.set(layout.location_entity_id, Boolean(enabled))
+      if (enabled) next.add(layout.location_entity_id)
+      else next.delete(layout.location_entity_id)
+    }
+    this._selectedLocationIds = next
     this._updatePreviewDom()
   },
 
@@ -558,6 +697,7 @@ const mapQuickCreateView = {
     const layout = (this._activeLayouts || []).find((item) => item.location_entity_id === locationId)
     if (this._isCandidateLayout(layout)) return
     const next = new Set(this._selectedLocationIds || [])
+    this._selectionOverrides.set(locationId, Boolean(selected))
     if (selected) next.add(locationId)
     else next.delete(locationId)
     this._selectedLocationIds = next
@@ -663,7 +803,7 @@ const mapQuickCreateView = {
       ctx.lineTo(width - 24, point.y)
       ctx.stroke()
     }
-    for (const layout of this._activeLayouts || []) {
+    for (const layout of this._visibleLayouts()) {
       const point = this._layoutCanvasPoint(
         canvas,
         layout.center_hex_q,
@@ -715,7 +855,7 @@ const mapQuickCreateView = {
     if (!canvas) return
     canvas.onpointerdown = (event) => {
       const rect = canvas.getBoundingClientRect()
-      const hit = (this._activeLayouts || []).find((layout) => {
+      const hit = this._visibleLayouts().find((layout) => {
         if (layout.locked || this._isCandidateLayout(layout)) return false
         if (!this._selectedLocationIds.has(layout.location_entity_id)) return false
         const point = this._layoutCanvasPoint(canvas, layout.center_hex_q, layout.center_hex_r)

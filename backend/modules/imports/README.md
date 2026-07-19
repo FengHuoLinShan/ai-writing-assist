@@ -15,6 +15,9 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 记录导入历史
 - 提交并编排深度导入任务（基于 async_tasks）
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
+- 对已经完成深度导入、但地图时间事实不足的项目，提交独立
+  `map_observation_enrichment` 任务；该任务只读取既有 active Scene 与正文来源，
+  不执行 Phase 0/1/2/3，不新建或改写 Scene、世界对象、关系和结构资产
 - 在重复导入时返回覆盖确认要求，确认后才入队；确认只冻结
   `replace_existing` 意图，不在任务执行前修改 Scene 或实体
 - 深度导入 Scene 阶段执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Phase1c scene fusion → Scene commit`；Phase 1c 仅在 `high_quality=true` 时运行
@@ -32,6 +35,23 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
   窗口路径都必须沿用 task 提交时冻结的 `authorization_snapshot`；不得在映射时
   临时伪造授权。旧通用 `delta_event` 地图入口仅保留兼容，不能承载这四类
   proposal。
+- 独立地图补充使用 `map_scene_observation_enrichment.md` 与只含四类地图 proposal / 不确定项
+  的 strict schema。`high_quality=true` 固定执行首轮抽取与第二遍全文完整性审计，而不是只在
+  首轮证据失败时修复；两轮结果经逐字证据、名称归一、离开动作和语义去重门禁合并。任务把
+  只消费绑定 published draft/hash/offset 的 authoritative exact SceneSpan；
+  chapter-only、版本漂移和跨 Scene 重叠全部 fail closed 跳过，不裁剪重叠、
+  不把章节 gap 派生给相邻 Scene。`coverage` 保留跳过原因、重叠 Scene 数和
+  未归属正文范围。同一 quote 必须完整位于一个 authoritative span 内且
+  全 Scene 唯一命中；跨 span 或重复 quote 只进入诊断，不会在 finalizer
+  伪造 offset。模型名称词典按每个 Scene 正文对 canonical 名称/已确认别名
+  做确定性命中选择；未知或歧义名称只进入诊断。
+- 地图补充任务使用提交时的 project LLM execution snapshot，按
+  `prepared → llm_complete → done` 持久化 checkpoint；provider 调用不持有数据库事务，
+  finalizer 以 project/task attempt 锁和来源 fingerprint 重验后，只通过 world facade
+  写 `review_state="candidate"` 的地图观察。可唯一解析的目标/地点携带 canonical ID；地点恰有
+  一个 active 地图中心绑定时由 world 确定性分配 map/hex，否则保持未分配并进入项目收件箱。
+  同一 Scene 的证据按 published draft offset 写入 `scene_sequence`，不把先后发生的位置误判为
+  同时冲突。来源显式记为 `map_enrichment_typed_map_proposal`，不得伪装成 deep import。
 - Phase 2a 的逐 Scene LLM 默认并发为 25，provider/LLM 超时为 240/270 秒。运行时降载只把 429、连接失败与超时视为 provider 压力信号：单波出现任一 429，或至少两个传输/超时失败时并发减半；schema、partial-list 等格式诊断只进入质量统计和 Prompt 修复，不触发降载。历史真实验收表明 64 并发会放大后半段尾延迟与批量超时，因此不恢复到 64。
 - Phase 2a 的阶段内自动修复使用首轮失败 Scene 的稳定 ID 作为显式白名单，并显式关闭 Phase 2b；首轮持久化导致 working 世界上下文指纹变化时，不得把已完成 Scene 扩大为修复重跑范围，也不得因一个 P13 失败重放已完成的别名/关系阶段。修复结果按 Scene ID 覆盖失败 checkpoint，并保留其他已完成或来源不完整的 checkpoint。
 - 深度导入保持自动流水线，不对每个 LLM step 重复弹出“AI 参考资料”确认；但首次提交必须显式传 `authorization_confirmed=true`，一次授权 `user_authorized_pipeline` 采用策略。Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
@@ -299,6 +319,7 @@ POST /api/imports/deep        — 提交深度导入任务；重复导入时先�
 POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b + Scene commit
 POST /api/imports/stages/world-objects — 提交世界对象与别名/关系自动提取任务，只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure — 提交剧情线自动提取任务，只执行 Phase 3
+POST /api/imports/stages/map-observations — 对既有 Scene 补充地图待复核事实；不重跑深度导入
 POST /api/imports/deep/sync   — 同步执行深度导入（测试/无 worker 场景）
 POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_import task
 POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派生资产

@@ -28,6 +28,8 @@ const TYPE_LABELS = {
   item: "物品",
   resource: "资源",
   crisis: "危机",
+  route: "线路",
+  organization: "组织",
   secret: "秘密",
   rule: "规则",
   power_system: "能力",
@@ -105,12 +107,21 @@ function scoreItem(item, context) {
 }
 
 function isFocusRelated(item, focusEntityId) {
-  return [
+  const singularIds = [
     item.target_entity_id,
     item.entity_id,
     item.focus_entity_id,
     item.related_entity_id,
-  ].filter(Boolean).includes(focusEntityId)
+    item.location_entity_id,
+    item.faction_entity_id,
+  ]
+  const relatedIds = [
+    ...(Array.isArray(item.related_entity_ids) ? item.related_entity_ids : []),
+    ...(Array.isArray(item.normalized_value?.related_entity_ids)
+      ? item.normalized_value.related_entity_ids
+      : []),
+  ]
+  return [...singularIds, ...relatedIds].filter(Boolean).includes(focusEntityId)
 }
 
 function isSemanticItem(item) {
@@ -196,6 +207,12 @@ function placeLabel(entry, occupied, width, height) {
       label: level.label,
       objectType: entry.item.object_type,
       dynamicType: entry.item.dynamic_type,
+      sourceKind: entry.item.source_kind || null,
+      sourceId: entry.item.source_id || null,
+      targetEntityId: entry.item.target_entity_id || entry.item.entity_id || null,
+      q: entry.item.q ?? entry.item.hex_q ?? null,
+      r: entry.item.r ?? entry.item.hex_r ?? null,
+      opacity: Number(entry.item.opacity ?? 1),
       priority: entry.score,
       displayLevel: level.displayLevel,
       anchor: entry.anchor,

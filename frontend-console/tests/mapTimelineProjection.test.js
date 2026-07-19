@@ -5,6 +5,7 @@ import {
   drawTimelineProjection,
   filterTimelineItems,
   formatMapDynamicValue,
+  mapSceneDisplayNumber,
   mapDynamicNormalizationLabel,
   normalizeMapStateAtResponse,
   normalizeMapTimelineResponse,
@@ -43,9 +44,41 @@ describe("mapTimelineProjection", () => {
     expect(result.untyped_facts).toEqual([{ id: "legacy", scene_index: 9 }])
   })
 
+  it("orders same-Scene deltas and candidates by narrative fragment", () => {
+    const result = normalizeMapTimelineResponse({
+      deltas: [
+        { delta_id: "later", scene_index: 4, scene_sequence: 2 },
+        { delta_id: "earlier", scene_index: 4, scene_sequence: 0 },
+      ],
+      candidates: [
+        { id: "candidate-later", scene_index: 4, time_anchor: { scene_sequence: 3 } },
+        { id: "candidate-earlier", scene_index: 4, time_anchor: { scene_sequence: 1 } },
+      ],
+    })
+
+    expect(result.deltas.map((item) => item.delta_id)).toEqual(["earlier", "later"])
+    expect(result.candidates.map((item) => item.id)).toEqual([
+      "candidate-earlier",
+      "candidate-later",
+    ])
+  })
+
   it("keeps candidates outside formal state and infers tracks for old records", () => {
     const timeline = normalizeMapTimelineResponse({
-      candidates: [{ id: "candidate", scene_index: 3, dynamic_type: "location" }],
+      candidates: [
+        {
+          id: "place-candidate",
+          scene_index: 3,
+          dynamic_type: "location",
+          target_entity_type: "location",
+        },
+        {
+          id: "character-candidate",
+          scene_index: 3,
+          dynamic_type: "location",
+          target_entity_type: "character",
+        },
+      ],
     })
     const stateAt = normalizeMapStateAtResponse({
       scene_index: 3,
@@ -55,8 +88,17 @@ describe("mapTimelineProjection", () => {
 
     expect(stateAt.items).toHaveLength(1)
     expect(stateAt.items).not.toContainEqual(expect.objectContaining({ id: "candidate" }))
-    expect(filterTimelineItems(timeline.candidates, { journey: true, world: false })).toHaveLength(1)
+    expect(filterTimelineItems(timeline.candidates, { journey: true, world: false }))
+      .toEqual([expect.objectContaining({ id: "character-candidate" })])
+    expect(filterTimelineItems(timeline.candidates, { journey: false, world: true }))
+      .toEqual([expect.objectContaining({ id: "place-candidate" })])
     expect(filterTimelineItems(stateAt.items, selected)).toHaveLength(0)
+  })
+
+  it("converts zero-based Scene indices to author-facing ordinals", () => {
+    expect(mapSceneDisplayNumber(0)).toBe(1)
+    expect(mapSceneDisplayNumber("20")).toBe(21)
+    expect(mapSceneDisplayNumber(null)).toBeNull()
   })
 
   it("formats typed and legacy states with author-facing labels", () => {
@@ -83,6 +125,15 @@ describe("mapTimelineProjection", () => {
       .not.toBe(timelineProjectionSignature(projection))
     expect(timelineProjectionSignature({ ...projection, includeCandidates: true }))
       .not.toBe(timelineProjectionSignature(projection))
+    expect(timelineProjectionSignature({
+      ...projection,
+      includeCandidates: true,
+      candidates: [{ id: "candidate-1", scene_sequence: 2 }],
+    })).not.toBe(timelineProjectionSignature({
+      ...projection,
+      includeCandidates: true,
+      candidates: [{ id: "candidate-1", scene_sequence: 1 }],
+    }))
   })
 
   it("includes stable candidate content and position only while candidate preview is enabled", () => {

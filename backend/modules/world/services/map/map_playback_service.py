@@ -77,6 +77,8 @@ class MapPlaybackMixin:
             key=lambda event: (
                 event.scene_index is None,
                 event.scene_index if event.scene_index is not None else 10**6,
+                event.scene_sequence is None,
+                event.scene_sequence if event.scene_sequence is not None else 10**6,
                 event.source_chapter_index
                 if event.source_chapter_index is not None
                 else 10**6,

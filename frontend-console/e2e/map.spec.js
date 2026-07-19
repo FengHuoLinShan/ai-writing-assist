@@ -17,6 +17,7 @@ import {
   createProject,
   createScene,
   getFocusState,
+  getTask,
   getMapLayerTree,
   getMapPaths,
   getMapState,
@@ -101,6 +102,37 @@ test.describe("地图一级工作台", () => {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
     }
+  })
+
+  test("从地图总览授权独立 Scene 事实补充任务", async ({ page }) => {
+    const project = await createProject({
+      title: "地图事实补充 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    await createDraft(project.id, 1, "第一章", "主角抵达北港。")
+
+    await openWorkbench(page, project, "map")
+    const responsePromise = page.waitForResponse((response) => (
+      response.url().endsWith("/api/imports/stages/map-observations")
+      && response.request().method() === "POST"
+    ))
+    await page.locator("#map-enrichment-start").fill("1")
+    await page.locator("#map-enrichment-end").fill("1")
+    await page.getByRole("button", { name: "确认并开始补充" }).click()
+
+    const response = await responsePromise
+    expect(response.status()).toBe(201)
+    const submitted = await response.json()
+    expect(submitted).toMatchObject({ workflow_type: "map_observation_enrichment" })
+    const task = await getTask(submitted.task_id, project.id)
+    expect(task).toMatchObject({
+      task_type: "map_observation_enrichment",
+      status: "pending",
+    })
+    await expect(page.locator("#map-enrichment-progress")).toContainText("地图事实补充")
+    await expect(page.locator("#map-enrichment-progress")).toContainText("等待执行")
   })
 
   test("should create a world map from the sidebar workspace and persist its state", async ({ page }) => {
@@ -907,7 +939,7 @@ test.describe("地图一级工作台", () => {
     await expect(cluster).toBeVisible()
     await cluster.click()
     expect(await page.evaluate(() => window.__mapCanvasClickCount)).toBe(0)
-    await expect(page.locator(SEL.modalTitle)).toHaveText("选择地点")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("选择地图对象")
     const memberNames = (await page.locator(".map-cluster-member").allTextContents())
       .map((name) => name.trim())
       .filter(Boolean)
@@ -956,7 +988,7 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map, { sceneId: firstScene.id })
-    await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 0: 抵达洛阳")
+    await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 1: 抵达洛阳")
     expect(new URL(page.url()).hash).toContain(`scene_id=${firstScene.id}`)
 
     await page.getByRole("button", { name: "编辑" }).click()
@@ -992,7 +1024,7 @@ test.describe("地图一级工作台", () => {
     }).toBe(false)
 
     await page.locator(SEL.mapSceneBar).getByRole("button", { name: "→" }).click()
-    await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 1: 夜探城门", {
+    await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 2: 夜探城门", {
       timeout: 10000,
     })
     await expect.poll(() => new URL(page.url()).hash).toContain(`scene_id=${secondScene.id}`)

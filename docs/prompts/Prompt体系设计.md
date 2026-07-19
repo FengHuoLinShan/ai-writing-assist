@@ -27,6 +27,7 @@
 | `p20_author_instruction_audit.md` | P20 候选逐字段遵守本次作者明确边界的独立审计 | `P20GenerationService` |
 | `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.rag.reranker` |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象/Delta 与四类显式地图 proposal 抽取 | imports |
+| `map_scene_observation_enrichment.md` | 已完成深度导入项目的独立 Scene 地图事实补充；只生成带当前 Scene 逐字证据的待复核候选；高质量模式固定执行首轮抽取与第二遍全文完整性审计 | imports |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 | `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创与结构化建议 | world 生成中心 |
@@ -191,12 +192,14 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 ### 抽取类
 
 - `scene_entity_extraction.md`
+- `map_scene_observation_enrichment.md`
 - `alias_relation_extraction.md`
 
 这类 Prompt 面向“从已有正文中识别长期资产”，重点是：
 
 - 不是 NER，而是长期创作资产识别
 - `scene_entity_extraction.md`（P13）只读取一个锁定 Scene 的完整精确正文及相关结构上下文，输出长期世界对象、持久 Delta、四类局部地图观察和不确定项；关系、新别名、数据库 ID、持久化动作和审核状态不属于该契约
+- `map_scene_observation_enrichment.md` 面向已经完成深度导入、但地图时间事实不足的项目；它不重跑 Scene、世界对象或结构提取，只读取一个既有锁定 Scene 的完整正文和冻结名称上下文，输出同四类地图待复核候选。逐字证据守卫失败的条目只保留为诊断，不进入持久化输入
 - P13 的既有身份只允许引用服务端生成的 `entity-xxx`；每个可物化观察必须提供当前 Scene 中可逐字定位的证据。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
 - P13 不按固定类别或数量凑结果，也不对输入做应用层字符/token 裁剪。直接名称/别名命中全部保留；其余人物 Top-6、非人物对象 Top-16 是相关性边界
 - `alias_relation_extraction.md`（P14 v3）独占新别名和对象关系；它复用同一份冻结的完整 Scene 正文、相关结构、`entity-xxx` 身份候选和 `relation-xxx` 既有关系引用，不接受数据库 ID，也不做应用层输入裁剪。关系输出是当前 Scene 带来的增量，不是本 Scene 中仍成立关系的摘要；模型用“删去本 Scene 是否会改变关系可信度、状态、强度或后续创作约束”做反事实判断。模型先判断联系是否在 Scene 结束后仍成立，区分 `enduring / stateful / episodic / uncertain`；只有持久结构和持续状态能进入关系候选，会面、提及、检测、支付、感谢等一次性动作只保留诊断。模型同时区分新建、有实质新证据的再次确认、改变和终止；日常称呼、例行共处和重复记载不算再次确认。关系类型优先复用已有类型和稳定语义族，但不以数量上限裁剪真实关系。确定性 materializer 重新校验项目归属、冻结关系、逐字证据、持续性和快照来源，只写待复核候选或补充证据，不自动覆盖或废弃已采用关系。别名不创建重复对象，并作为带 `identity_scope`、判断依据和快照来源的待复核内联证据写入目标对象

@@ -455,9 +455,7 @@ async def get_map_timeline(
     limit: int = Query(100, ge=1, le=500),
 ) -> MapDynamicTimelineResponse:
     selected_tracks = (
-        {item.strip() for item in tracks.split(",") if item.strip()}
-        if tracks
-        else None
+        {item.strip() for item in tracks.split(",") if item.strip()} if tracks else None
     )
     return await _dynamic_fact_service.get_timeline(
         db,
@@ -489,9 +487,7 @@ async def get_map_state_at(
     limit: int = Query(100, ge=1, le=500),
 ) -> MapDynamicStateAtResponse:
     selected_tracks = (
-        {item.strip() for item in tracks.split(",") if item.strip()}
-        if tracks
-        else None
+        {item.strip() for item in tracks.split(",") if item.strip()} if tracks else None
     )
     return await _dynamic_fact_service.get_state_at(
         db,
@@ -757,9 +753,7 @@ async def update_marker(
     *,
     novel_id: ActiveNovelIdQuery,
 ):
-    marker = await _marker_service.update(
-        db, novel_id, marker_id, data, map_id=map_id
-    )
+    marker = await _marker_service.update(db, novel_id, marker_id, data, map_id=map_id)
     return MapMarkerResponse.model_validate(marker)
 
 

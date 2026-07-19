@@ -1510,6 +1510,20 @@ const api = {
       })
     },
 
+    async startMapObservationEnrichment(novelId, startChapter, endChapter, highQuality = true, authorization = {}) {
+      if (authorization.authorization_confirmed !== true) {
+        throw new Error("启动地图事实补充前必须获得用户授权")
+      }
+      return contractJson("imports.startMapObservationEnrichment", {}, {}, {
+        novel_id: novelId,
+        start_chapter: startChapter,
+        end_chapter: endChapter,
+        high_quality: highQuality,
+        adoption_policy: authorization.adoption_policy || "user_authorized_pipeline",
+        authorization_confirmed: true,
+      })
+    },
+
     async resumeDeepImport(taskId) {
       return contractJson("imports.resumeDeepImport", {}, {}, { task_id: taskId })
     },

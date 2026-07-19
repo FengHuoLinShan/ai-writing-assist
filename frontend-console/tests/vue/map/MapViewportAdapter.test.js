@@ -8,6 +8,8 @@ const stubs = vi.hoisted(() => ({
     canLeave: vi.fn(() => true),
     setTimelineProjection: vi.fn(),
     clearTimelineProjection: vi.fn(),
+    setPresentationContext: vi.fn(() => true),
+    spatialContext: vi.fn(() => ({ map: { id: "m1" }, locationAnchors: [] })),
     focusPath: vi.fn(),
     focusTimelineAnchor: vi.fn(),
     clearPathFocus: vi.fn(),
@@ -60,6 +62,21 @@ describe("MapViewportAdapter", () => {
     await vi.waitFor(() => expect(stubs.controller.mount).toHaveBeenCalledTimes(2))
     expect(stubs.controller.clearTimelineProjection).toHaveBeenCalled()
 
+    wrapper.unmount()
+  })
+
+  it("更新展示模式时不 remount 命令式视口", async () => {
+    const wrapper = mount(MapViewportAdapter, {
+      attachTo: document.body,
+      props: { context: { projectId: "p1", mapId: "m1", viewMode: "dashboard", lowMotion: false } },
+    })
+    await vi.waitFor(() => expect(stubs.controller.mount).toHaveBeenCalledTimes(1))
+
+    await wrapper.setProps({ context: { projectId: "p1", mapId: "m1", viewMode: "lens", lowMotion: true, focusEntityId: "e1" } })
+
+    expect(stubs.controller.mount).toHaveBeenCalledTimes(1)
+    expect(stubs.controller.setPresentationContext).toHaveBeenCalledWith({ viewMode: "lens", lowMotion: true, focusEntityId: "e1" })
+    expect(wrapper.vm.spatialContext()).toEqual({ map: { id: "m1" }, locationAnchors: [] })
     wrapper.unmount()
   })
 })

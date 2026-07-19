@@ -87,6 +87,77 @@ class TestMapMarkerCRUD:
         assert len(markers) >= 1
 
     @pytest.mark.asyncio
+    async def test_index_bounded_marker_is_not_treated_as_timeless(
+        self,
+        db_session: AsyncSession,
+        world_map,
+    ) -> None:
+        bounded_entity_id = uuid.uuid4()
+        timeless_entity_id = uuid.uuid4()
+        db_session.add_all(
+            [
+                CoreEntity(
+                    id=bounded_entity_id,
+                    novel_id=uuid.UUID(hex=world_map.novel_id),
+                    entity_type="character",
+                    name="仅第三场出现",
+                    status="canonical",
+                ),
+                CoreEntity(
+                    id=timeless_entity_id,
+                    novel_id=uuid.UUID(hex=world_map.novel_id),
+                    entity_type="character",
+                    name="永久展示",
+                    status="canonical",
+                ),
+            ]
+        )
+        await db_session.flush()
+
+        marker_svc = MapMarkerService()
+        bounded = await marker_svc.create(
+            db_session,
+            world_map.novel_id,
+            world_map.id,
+            MapMarkerCreate(
+                entity_id=str(bounded_entity_id),
+                marker_type="character",
+                hex_q=1,
+                hex_r=1,
+                start_scene_index=3,
+                end_scene_index=3,
+            ),
+        )
+        timeless = await marker_svc.create(
+            db_session,
+            world_map.novel_id,
+            world_map.id,
+            MapMarkerCreate(
+                entity_id=str(timeless_entity_id),
+                marker_type="character",
+                hex_q=2,
+                hex_r=2,
+            ),
+        )
+
+        repo = MapMarkerRepository()
+        at_scene_3 = await repo.get_by_scene(
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            scene_id=uuid.uuid4(),
+            scene_index=3,
+        )
+        at_scene_40 = await repo.get_by_scene(
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            scene_id=uuid.uuid4(),
+            scene_index=40,
+        )
+
+        assert {str(marker.id) for marker in at_scene_3} == {bounded.id, timeless.id}
+        assert {str(marker.id) for marker in at_scene_40} == {timeless.id}
+
+    @pytest.mark.asyncio
     async def test_create_marker_rejects_pending_compatibility_shadow(
         self,
         db_session: AsyncSession,

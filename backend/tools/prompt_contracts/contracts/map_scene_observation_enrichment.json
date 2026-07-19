@@ -1,0 +1,55 @@
+{
+  "id": "map_scene_observation_enrichment",
+  "version": 2,
+  "owner": "imports",
+  "schema_model": "modules.imports.llm_schemas.MapSceneObservationEnrichmentOutput",
+  "declared_prompt_fields": [
+    "map_observation_proposals",
+    "uncertain_items"
+  ],
+  "forbidden_fields": [
+    "status",
+    "entities",
+    "delta_events",
+    "relations",
+    "aliases",
+    "suggested_action",
+    "needs_review"
+  ],
+  "strict_schema_coverage": true,
+  "required_mappings": [
+    {
+      "source": "map_observation_proposals.proposal_type",
+      "target": "map_observations.source_ref.proposal_type"
+    },
+    {
+      "source": "map_observation_proposals.quote",
+      "target": "map_observations.evidence_text"
+    },
+    {
+      "source": "map_observation_proposals.confidence",
+      "target": "map_observations.confidence"
+    }
+  ],
+  "observed_fields": [
+    "map_observation_proposals.character_name",
+    "map_observation_proposals.event_name",
+    "map_observation_proposals.path_name",
+    "map_observation_proposals.controller_name",
+    "map_observation_proposals.location_name",
+    "map_observation_proposals.movement_mode",
+    "map_observation_proposals.state",
+    "map_observation_proposals.reason",
+    "map_observation_proposals.area_description",
+    "uncertain_items.description",
+    "uncertain_items.reason",
+    "uncertain_items.evidence_quotes"
+  ],
+  "ignored_fields": [
+    {
+      "source": "uncertain_items",
+      "reason": "diagnostics only; exact-evidence guard blocks unsafe persistence"
+    }
+  ],
+  "probes": []
+}

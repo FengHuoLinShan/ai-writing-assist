@@ -21,6 +21,7 @@ export function createMapViewportController({
   let host = null
   let mounted = false
   let ownerProjectId = null
+  let pendingPresentationContext = null
 
   function isCurrent(token, element, projectId) {
     return token === generation
@@ -40,6 +41,7 @@ export function createMapViewportController({
     rendererOwners.set(renderer, ownership)
     renderer.unmount?.()
     mounted = false
+    pendingPresentationContext = null
     host = element
     ownerProjectId = context.projectId || getState()?.currentProjectId || null
 
@@ -59,6 +61,10 @@ export function createMapViewportController({
       return false
     }
     mounted = didMount !== false
+    if (mounted && pendingPresentationContext && typeof renderer.setPresentationContext === "function") {
+      renderer.setPresentationContext(pendingPresentationContext)
+      pendingPresentationContext = null
+    }
     return mounted
   }
 
@@ -69,6 +75,7 @@ export function createMapViewportController({
       rendererOwners.delete(renderer)
     }
     mounted = false
+    pendingPresentationContext = null
     ownerProjectId = null
     host = null
   }
@@ -89,6 +96,41 @@ export function createMapViewportController({
     return true
   }
 
+  function setPresentationContext(context) {
+    if (!mounted) {
+      pendingPresentationContext = {
+        ...(pendingPresentationContext || {}),
+        ...(context || {}),
+      }
+      return true
+    }
+    if (typeof renderer.setPresentationContext !== "function") return false
+    return renderer.setPresentationContext(context) !== false
+  }
+
+  function spatialContext() {
+    if (!mounted) return null
+    const map = renderer._state?.map || null
+    const layouts = renderer._effectiveLocationLayouts?.() || []
+    if (!map) return null
+    return {
+      map: {
+        id: map.id || null,
+        name: map.name || "当前地图",
+        grid_width: Number(map.grid_width || 0),
+        grid_height: Number(map.grid_height || 0),
+      },
+      locationAnchors: layouts.map((layout) => ({
+        location_entity_id: layout.location_entity_id,
+        name: renderer._locationName?.(layout.location_entity_id) || "地点",
+        q: Number(layout.center_hex_q),
+        r: Number(layout.center_hex_r),
+      })).filter((item) => (
+        item.location_entity_id && Number.isFinite(item.q) && Number.isFinite(item.r)
+      )),
+    }
+  }
+
   function forward(name, ...args) {
     if (!mounted || typeof renderer[name] !== "function") return false
     return renderer[name](...args)
@@ -100,6 +142,7 @@ export function createMapViewportController({
     canLeave,
     setTimelineProjection,
     clearTimelineProjection,
+    setPresentationContext,
     focusPath: (...args) => forward("focusPath", ...args),
     focusTimelineAnchor: (...args) => forward("focusTimelineAnchor", ...args),
     clearPathFocus: (...args) => forward("clearPathFocus", ...args),
@@ -107,6 +150,7 @@ export function createMapViewportController({
     timelineEntityOptions: () => mounted ? (renderer.timelineEntityOptions?.() || []) : [],
     timelinePathOptions: () => mounted ? (renderer.timelinePathOptions?.() || []) : [],
     pathRevisionMismatch: (...args) => mounted ? Boolean(renderer.pathRevisionMismatch?.(...args)) : false,
+    spatialContext,
     get mounted() { return mounted },
     get projectId() { return ownerProjectId },
   }

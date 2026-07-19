@@ -78,13 +78,46 @@ export function clearRecentMap(projectId) {
 
 export function inboxSourceLabel(item = {}) {
   const source = item.source || item.source_ref?.source || item.source_ref?.workflow || ""
-  return {
+  const label = {
     deep_import: "深度导入",
     deep_import_delta_event: "深度导入",
+    deep_import_typed_map_proposal: "深度导入",
+    map_enrichment_typed_map_proposal: "地图事实补充",
+    map_quick_create: "快速创建",
     entity_created: "对象抽取",
     relation_created: "关系抽取",
     manual: "人工录入",
   }[source] || source || "来源已保留"
+  return mapSourceText(label)
+}
+
+export function mapSourceText(value) {
+  let text = String(value || "")
+  const replacements = {
+    map_enrichment_typed_map_proposal: "地图事实补充",
+    deep_import_typed_map_proposal: "深度导入",
+    deep_import_delta_event: "深度导入",
+    map_quick_create: "快速创建",
+  }
+  for (const [source, label] of Object.entries(replacements)) {
+    text = text.split(source).join(label)
+  }
+  return text
+}
+
+export function mapSceneLabel(sceneIndex) {
+  if (sceneIndex === null || sceneIndex === undefined || sceneIndex === "") return "Scene -"
+  const value = Number(sceneIndex)
+  return Number.isInteger(value) && value >= 0 ? `Scene ${value + 1}` : "Scene -"
+}
+
+export function normalizeEmbeddedSceneLabel(title, item = {}) {
+  const value = String(title || "")
+  if (!/^Scene\s+\d+\s+地图上下文/.test(value)) return value
+  const sceneIndex = item.scene_index ?? item.time_anchor?.scene_index
+  const timeLabel = String(item.time_label || "").match(/^Scene\s+\d+/)?.[0] || null
+  const displayLabel = sceneIndex == null ? timeLabel : mapSceneLabel(sceneIndex)
+  return displayLabel ? value.replace(/^Scene\s+\d+/, displayLabel) : value
 }
 
 export function proposalTypeLabel(item = {}) {
@@ -104,7 +137,7 @@ export function proposalTypeLabel(item = {}) {
 export function inboxEvidenceText(item = {}) {
   const raw = item.evidence_text || item.proposal_value?.area_description
     || item.proposal_value?.location_name || item.proposal_value?.path_name || ""
-  return String(raw).replace(/^(?:deep_import_delta_event|entity_created|relation_created)\s*[\xB7:\uFF1A-]\s*/, "").trim()
+  return mapSourceText(String(raw).replace(/^(?:map_enrichment_typed_map_proposal|deep_import_typed_map_proposal|deep_import_delta_event|entity_created|relation_created)\s*[\xB7:\uFF1A-]\s*/, "").trim())
     || "尚无可读的空间证据；可查看诊断信息或忽略此建议。"
 }
 
@@ -128,7 +161,11 @@ export function inboxConfidenceLabel(item = {}) {
 export function inboxTimeLabel(item = {}) {
   const parts = []
   const sceneIndex = item.scene_index ?? item.time_anchor?.scene_index
-  if (sceneIndex != null) parts.push(`Scene ${Number(sceneIndex) + 1}`)
+  if (sceneIndex != null) {
+    parts.push(mapSceneLabel(sceneIndex))
+    const sequence = item.scene_sequence ?? item.time_anchor?.scene_sequence
+    if (sequence != null) parts.push(`片段 ${Number(sequence) + 1}`)
+  }
   else if (item.scene_id) parts.push("已关联 Scene")
   if (item.source_chapter_index != null) parts.push(`第 ${item.source_chapter_index} 章`)
   if (item.time_anchor?.kind === "initial_state") parts.push("初始状态")

@@ -44,6 +44,7 @@
 | P3 | typed observations、Scene 状态与确定性差分 | ✅ | `GET /{map_id}/timeline`、`/{map_id}/state-at` | Scene 游标、正式状态、candidate 预览与冲突分区 |
 | P3 | 人物旅程 / 势力变化 / 危机推进 / 资源控制 / 状态变化轨道 | ✅ | `MapTimelineService` + 兼容 playback | 差分轨道、只读 Canvas 覆盖与空间连续性面板 |
 | P3 | AI 位置建议 | ❌ | 未建表 | 未实现 |
+| P3 | 既有 Scene 地图事实补充 | ✅ | imports 独立 task + world candidate seam | 地图总览章节范围、高质量模式、可恢复进度与候选复核入口 |
 | P4 | 地图缩略图 / 图片底图 / 伪 3D | ❌ | 未规划 | 未实现 |
 
 ---
@@ -226,7 +227,20 @@ Scene 输入指纹、context snapshot、evidence anchor 与原始 payload hash�
 继续细分为 Scene 输入指纹 + proposal type + evidence anchor + 同源局部序号，避免同类
 proposal 重排导致假冲突。任务提交时的冻结授权快照须跨 imports/world seam 原样携带；
 world 验证 novel/章节 scope 并持久化快照指纹。PostgreSQL 用确定性事务锁串行化尚未
-存在的候选身份；导入 proposal type 属于不可变来源身份。
+存在的候选身份；导入 proposal type 属于不可变来源身份。逐字证据按发布正文 offset 排序，
+同一 Scene 内不同位置使用 `time_anchor.scene_sequence` 表达叙事先后；只有相同 Scene 和相同
+sequence 的同对象同维度异值才构成同一时刻冲突。
+
+已经完成深度导入的项目可调用 `POST /api/imports/stages/map-observations`，运行独立
+`map_observation_enrichment` 任务补充四类地图候选。该路径不调用深度导入 Phase 0/1/2/3，
+不修改 Scene、世界对象或剧情结构；它从既有 Scene span 与 published draft 组装一次性、
+非重叠正文覆盖，保留 chapter/draft/hash/offset 和唯一逐字证据。名称必须能通过冻结的
+canonical 名称或已确认别名词典归一，否则只进入不确定诊断。最终 observation 的
+`source_ref.source` 为 `map_enrichment_typed_map_proposal`，始终保持未采用候选。高质量模式固定
+执行首轮抽取和第二遍全文完整性审计；非逐字、非唯一、目标未在证据中命名，以及“只离开但
+没有可投影到达位置”的结果均由确定性门禁降为诊断。目标/地点名称可唯一归一时写入 canonical
+ID；地点在 active 地图中恰有一个中心绑定时自动分配该地图和 hex，否则进入项目收件箱等待
+作者选择。无论是否自动分配，都必须由作者复核后才能确认成 Fact。
 
 ### `map_facts` — 已采用时间化地图事实（世界动态 P0）
 
@@ -260,7 +274,7 @@ world 验证 novel/章节 scope 并持久化快照指纹。PostgreSQL 用确定�
 | GET | `/scene-summary?novel_id={}&scene_id={}` | 写作页 Scene 地图摘要 |
 | GET | `/open-target?novel_id={}&scene_id={}&focus_entity_id={}` | 统一地图打开目标；返回 `map_id` / `scene_id` / `focus_entity_id` 和 fallback 文案 |
 | GET | `/{map_id}?novel_id={}` | 地图详情 |
-| PATCH | `/{map_id}?novel_id={}` | 更新地图配置（name / description / default_center_x / default_center_y / default_zoom / sort_order） |
+| PATCH | `/{map_id}?novel_id={}` | 更新地图配置（name / description / 默认视口 / sort_order / parent_map_id / parent_entity_id） |
 | DELETE | `/{map_id}?novel_id={}` | 兼容入口：归档整棵子树，保留旧 204 响应 |
 | GET | `/{map_id}/archive-impact?novel_id={}` | 返回子树地图数与各类关联资产数量 |
 | POST | `/{map_id}/archive?novel_id={}` | 单事务归档完整子树 |
@@ -443,6 +457,9 @@ list/dashboard/playback 不会混入未分配候选。
 - `template` 仅在 `map_type = "world"` 时生效：`blank` / `continent` / `islands`；非 world 类型创建时自动使用 `blank`。
 - `parent_map_id` 必须存在且属于同 novel；`parent_entity_id` 必须存在、属于同 novel、`entity_type = "location"` 且已经采用。默认 list/get/state 与后续操作隐藏 owner 已待处理或归档的遗留详图。
 - 同层级（同 `novel_id` + 同 `parent_map_id`）下 `name` 唯一，冲突返回 **409**。
+- 既有 active 地图可通过 PATCH 修改 `parent_map_id` / `parent_entity_id`；这只改变地图树
+  位置，不重建 tiles、bindings、图层、线路或动态事实。修改前锁定项目地图层级，
+  目标父地图必须 active 且属于同 novel；禁止指向自身或任意后代，移动后仍会重验同层同名冲突。
 
 ### 地形编辑
 
@@ -509,10 +526,13 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 
 ## 前端实现现状
 
-- `mapWorkspaceView`：总览、项目级地图收件箱、最近地图、地图树、搜索、图层开关、打开具体地图；收件箱支持类型/Scene/来源/置信度/资格筛选、分页、分配后继续编辑和忽略。导入事件来源先转换为作者可读标签，原始 Scene ID 收进诊断筛选，且已有 Scene/章节锚点不会再显示矛盾的缺失提示。具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框。
+- Vue `MapWorkspaceView.vue` / `useMapWorkspace.js`：总览、项目级地图收件箱、最近地图、地图树、搜索、图层开关、打开具体地图；总览可按章节范围启动独立地图事实补充，默认使用双阶段高质量审计，明确说明不重跑深度导入且只写待复核候选，并持久化/恢复任务进度。收件箱支持类型/Scene/来源/置信度/资格筛选、分页、分配后继续编辑和忽略。导入事件来源先转换为作者可读标签，原始 Scene ID 收进诊断筛选，且已有 Scene/章节锚点不会再显示矛盾的缺失提示。具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框；Leaflet/Canvas 继续由 `MapViewportAdapter.vue` 下的窄 controller seam 承载。
+- 从具体地图创建并打开工作台索引中尚不存在的子地图/根地图时，工作台会先刷新地图与地点索引，保证返回总览后地图树、数量和搜索立即包含新地图。
+- 动态历史与当前动态分区展示；“查看历史”加载 ignored observation、rolled-back/deprecated fact 后，历史不会再受当前动态八条展示上限影响。
 - `worldView`：对象行先读取全部 map presence；一张时直接定位，多张时展示地图角色与绑定数量选择器，无 presence 时回退 `open-target`。
 - `writingView`：Scene 面板展示地图摘要、危机、风险和 warning，并通过 `open_target` 打开地图工作台。
-- `mapView`：浏览模式以 typed selection 区分地点、marker、territory、terrain 与底图，fact/observation 仍走 dashboard inspector。Canvas 使用单 RAF、视口裁剪和 revision/viewport 缓存，隐藏、zoom 外和视口外节点不进入绘制队列。
+- `mapView`：浏览模式以 typed selection 区分地点、marker、territory、terrain 与底图，fact/observation 仍走 dashboard inspector。地图设置可将既有地图移到其他层级并关联上级地点，后代地图不进入可选父项。Canvas 使用单 RAF、视口裁剪和 revision/viewport 缓存，隐藏、zoom 外和视口外节点不进入绘制队列。
+- 标记编辑器按 `character` / `event` / `item` 过滤同类型世界对象，切换类型时清空旧选择；桌面编辑态释放隐藏动态栏的布局宽度，编辑侧栏在画布高度内独立滚动。
 - 地点标签与聚合簇使用专用 `mapLabels` Leaflet pane；pane 本身不拦截背景，
   仅可交互 marker 消费点击。地点点击先打开信息框，详图/创建预览由信息框内按钮触发。
 - `mapLayoutEngine.js`：纯前端布局引擎，根据视图模式、焦点、风险、待处理/已采用状态和视口空间，派生标签、聚合簇、语义气泡与低动效状态。
@@ -642,7 +662,11 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
   quick-create 支持预览、地点微调和确认；地形绘制、线路节点精修、势力 hex 涂抹和递归
   图层编辑不在窄屏提供。
 - **Scene 时间轴 UI**：按后端返回的 Scene stop 使用前后按钮、下拉与游标导航；Scene 序号
-  是逻辑顺序，不是经过时长，播放节奏也不代表人物移动速度。
+  在 API/路由中保持 0 起始的稳定索引，作者界面统一显示为 1 起始序号。它表示
+  逻辑叙事顺序，不是经过时长，播放节奏也不代表人物移动速度。
+- **人物旅程轨道**：只有目标对象为人物（或保留 `character_location` proposal
+  语义）的位置变化进入“人物旅程”。地点本身的快速创建/静态布局事实与事件发生地
+  属于“世界状态”，不得虚增人物旅程数量。
 - **聚焦模式**：仅按组织过滤势力范围；人物 / 事件聚焦未实现。
 - **世界动态事实边界**：有意不建立 `MapDelta` / `WorldDynamic` 持久表；它们连同 Scene
   状态和连续性问题均从 confirmed `map_facts` 确定性派生，避免形成第二事实源。

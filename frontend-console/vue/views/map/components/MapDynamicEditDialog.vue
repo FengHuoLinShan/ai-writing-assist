@@ -11,7 +11,25 @@
             <div class="form-group"><label>目标名称</label><input id="map-object-edit-target-name" v-model="editor.state.targetName" class="form-input" maxlength="255" /></div>
             <div class="form-group"><label>关联对象</label><select id="map-object-edit-target-entity" v-model="editor.state.targetEntityId" class="form-select"><option value="">未指定</option><option v-for="item in editor.state.entities" :key="item.id" :value="item.id">{{ item.name }} · {{ item.entityType || '对象' }}</option></select></div>
             <div class="map-observation-eligibility" :class="editor.state.item?.eligibility?.can_confirm ? 'is-ready' : 'is-missing'">{{ editor.state.item?.eligibility?.can_confirm ? '字段已完整，保存后可采用。' : `待补：${editor.state.item?.eligibility?.missing_item_labels?.join('、') || '请补全结构化字段'}` }}</div>
-            <div class="map-object-readonly-context" role="note" aria-label="来源信息（只读）"><div><strong>时间：</strong>{{ editor.state.item?.time_label || '时间未确定' }}</div><div><strong>位置：</strong>{{ editor.state.item?.location_label || editor.state.item?.spatial_anchor_label || '位置未确定' }}</div><div><strong>证据：</strong>{{ editor.state.item?.evidence_text || editor.state.item?.source_summary || '未提供正文证据' }}</div><div><strong>来源：</strong>{{ editor.state.item?.source_ref?.workflow || editor.state.item?.source_ref?.source || editor.state.item?.source_workflow || '来源工作流已记录' }}</div></div>
+            <section class="map-spatial-anchor-editor">
+              <div class="map-typed-dynamic-heading"><strong>地图落点预览</strong><span>{{ editor.state.item?.evidence_text ? '正文证据已锁定' : '缺少正文证据' }}</span></div>
+              <p class="map-muted-text">{{ spatialMap.name || '当前地图' }} · {{ spatialMap.grid_width || '?' }}×{{ spatialMap.grid_height || '?' }} 格。落点只修改候选；采用前仍由服务端复核。</p>
+              <div class="map-spatial-anchor-fields">
+                <label>q 坐标<input id="map-object-edit-anchor-q" v-model="editor.state.anchorQ" class="form-input" inputmode="numeric" /></label>
+                <label>r 坐标<input id="map-object-edit-anchor-r" v-model="editor.state.anchorR" class="form-input" inputmode="numeric" /></label>
+                <button id="map-anchor-use-location" class="btn btn-sm" type="button" @click="editor.useLocationCenter">使用地点中心</button>
+                <button id="map-anchor-clear" class="btn btn-sm" type="button" @click="editor.clearSpatialHex">清除精确格</button>
+              </div>
+              <div id="map-spatial-anchor-preview" class="map-spatial-anchor-preview" role="img" aria-label="候选地图落点预览">
+                <svg viewBox="0 0 240 132" aria-hidden="true" preserveAspectRatio="none">
+                  <rect x="1" y="1" width="238" height="130" rx="8" />
+                  <circle v-for="point in locationPoints" :key="point.id" class="map-anchor-location-dot" :cx="point.x" :cy="point.y" r="2.5"><title>{{ point.name }}</title></circle>
+                  <g v-if="candidatePoint" class="map-anchor-candidate"><circle :cx="candidatePoint.x" :cy="candidatePoint.y" r="6" /><text :x="candidatePoint.x + 9" :y="candidatePoint.y + 4">候选</text></g>
+                </svg>
+              </div>
+              <p id="map-spatial-anchor-message" class="map-muted-text">{{ candidatePoint ? `候选落点 q:${editor.state.anchorQ}, r:${editor.state.anchorR}` : '尚未指定精确 hex；可以保留地点级锚点。' }}</p>
+            </section>
+            <div class="map-object-readonly-context" role="note" aria-label="来源信息（只读）"><div><strong>时间：</strong>{{ editor.state.item?.time_label || '时间未确定' }}</div><div><strong>位置：</strong>{{ editor.state.item?.location_label || editor.state.item?.spatial_anchor_label || '位置未确定' }}</div><div><strong>证据：</strong>{{ mapSourceText(editor.state.item?.evidence_text || editor.state.item?.source_summary || '未提供正文证据') }}</div><div><strong>来源：</strong>{{ mapSourceText(editor.state.item?.source_ref?.workflow || editor.state.item?.source_ref?.source || editor.state.item?.source_workflow || '来源工作流已记录') }}</div></div>
             <section v-if="editor.state.legacy" class="map-typed-dynamic-editor" role="note"><div class="map-typed-dynamic-heading"><strong>结构化动态</strong><span>旧版数据</span></div><p class="map-legacy-dynamic-note">该记录仍使用旧版格式，本批只读保留；请等待后续结构化迁移后再编辑动态值。</p></section>
             <section v-else class="map-typed-dynamic-editor">
               <div class="map-typed-dynamic-heading"><strong>结构化动态</strong><span>已结构化</span></div>
@@ -36,10 +54,20 @@
 <script setup>
 import { computed, defineComponent, h } from "vue"
 import { MAP_DYNAMIC_TYPES } from "../useMapDynamicEditor.js"
+import { mapSourceText } from "../mapModel.js"
 const props = defineProps({ editor: { type: Object, required: true } })
 const MOVEMENT_MODES = ["walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"]
 function movementLabel(value) { return ({ walk: "步行", ride: "骑乘", vehicle: "载具", rail: "轨道", water: "水路", flight: "飞行", teleport: "传送", unknown: "未知" })[value] }
 const locationOptions = computed(() => props.editor.state.entities.filter((item) => item.entityType === "location"))
+const spatialMap = computed(() => props.editor.state.spatialContext?.map || {})
+function point(value, max, extent) { return 8 + (Math.max(0, Math.min(Math.max(0, max - 1), Number(value))) / Math.max(1, max - 1)) * (extent - 16) }
+const locationPoints = computed(() => (props.editor.state.spatialContext?.locationAnchors || []).slice(0, 80).map((item) => ({ id: item.location_entity_id, name: item.name || "地点", x: point(item.q, Number(spatialMap.value.grid_width || 1), 240), y: point(item.r, Number(spatialMap.value.grid_height || 1), 132) })))
+const candidatePoint = computed(() => {
+  const q = Number(props.editor.state.anchorQ)
+  const r = Number(props.editor.state.anchorR)
+  if (String(props.editor.state.anchorQ ?? "").trim() === "" || String(props.editor.state.anchorR ?? "").trim() === "" || !Number.isInteger(q) || !Number.isInteger(r)) return null
+  return { x: point(q, Number(spatialMap.value.grid_width || 1), 240), y: point(r, Number(spatialMap.value.grid_height || 1), 132) }
+})
 const HexEditor = defineComponent({ props: { modelValue: String, label: String, id: String }, emits: ["update:modelValue"], setup(props, { emit }) { return () => h("div", { class: "form-group" }, [h("label", { for: props.id }, props.label), h("textarea", { id: props.id, class: "form-textarea", rows: 4, value: props.modelValue, onInput: (event) => emit("update:modelValue", event.target.value) })]) } })
 </script>
 

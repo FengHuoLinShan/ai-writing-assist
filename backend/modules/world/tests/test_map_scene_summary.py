@@ -162,6 +162,123 @@ async def test_scene_summary_batches_primary_location_binding_lookup(
 
 
 @pytest.mark.asyncio
+async def test_scene_summary_primary_location_prefers_confirmed_scene_fact_anchor(
+    db_session: AsyncSession,
+) -> None:
+    """无 Scene marker 时，已确认地点事实应精确选择锚定地点而非首个布局。"""
+    from modules.world.services.map.map_scene_summary import MapSceneSummaryService
+
+    novel_id = uuid.uuid4()
+    map_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    wrong_location_id = uuid.uuid4()
+    anchored_location_id = uuid.uuid4()
+
+    class FakeFactRepo:
+        async def list_for_scene_summary(self, *args, **kwargs):
+            assert kwargs["dynamic_types"] == {"location", "status"}
+            assert kwargs["fact_status"] == "confirmed"
+            return [
+                SimpleNamespace(
+                    spatial_anchor={
+                        "location_entity_id": str(anchored_location_id),
+                    },
+                    evidence_text="她回到霍尔别墅的起居室",
+                )
+            ]
+
+    class FakeBindingRepo:
+        async def get_by_map_for_entity_statuses(self, db, nid, mid, *, statuses):
+            assert statuses == ["canonical"]
+            return [
+                SimpleNamespace(
+                    location_entity_id=wrong_location_id,
+                    map_id=map_id,
+                    hex_q=1,
+                    hex_r=1,
+                    is_center=True,
+                ),
+                SimpleNamespace(
+                    location_entity_id=anchored_location_id,
+                    map_id=map_id,
+                    hex_q=4,
+                    hex_r=3,
+                    is_center=True,
+                ),
+            ]
+
+    class FakeEntityRepo:
+        async def get_by_ids(self, db, nid, ids):
+            return [
+                SimpleNamespace(
+                    id=anchored_location_id,
+                    name="霍尔别墅",
+                    status="canonical",
+                )
+            ]
+
+    service = MapSceneSummaryService(
+        fact_repo=FakeFactRepo(),  # type: ignore[arg-type]
+        binding_repo=FakeBindingRepo(),  # type: ignore[arg-type]
+        entity_repo=FakeEntityRepo(),  # type: ignore[arg-type]
+    )
+
+    item = await service._primary_location(
+        db_session,
+        novel_id,
+        map_id,
+        [],
+        scene_id=scene_id,
+    )
+
+    assert item is not None
+    assert item.entity_id == str(anchored_location_id)
+    assert item.name == "霍尔别墅"
+    assert (item.hex_q, item.hex_r) == (4, 3)
+    assert item.evidence_excerpt == "她回到霍尔别墅的起居室"
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_coordinate_only_context_does_not_invent_primary_location(
+    db_session: AsyncSession,
+) -> None:
+    """显式坐标上下文不应回退成地图中任意一个地点。"""
+    from modules.world.services.map.map_scene_summary import MapSceneSummaryService
+
+    novel_id = uuid.uuid4()
+    map_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+
+    class FakeFactRepo:
+        async def list_for_scene_summary(self, *args, **kwargs):
+            return [
+                SimpleNamespace(
+                    spatial_anchor={"hex_q": 2, "hex_r": 3},
+                    evidence_text="进入尚未建模的临时现场",
+                )
+            ]
+
+    class FakeBindingRepo:
+        async def get_centers(self, *args, **kwargs):
+            raise AssertionError("must not choose an unrelated center")
+
+    service = MapSceneSummaryService(
+        fact_repo=FakeFactRepo(),  # type: ignore[arg-type]
+        binding_repo=FakeBindingRepo(),  # type: ignore[arg-type]
+    )
+
+    item = await service._primary_location(
+        db_session,
+        novel_id,
+        map_id,
+        [],
+        scene_id=scene_id,
+    )
+
+    assert item is None
+
+
+@pytest.mark.asyncio
 async def test_scene_summary_loads_marker_entities_once(
     db_session: AsyncSession,
 ) -> None:

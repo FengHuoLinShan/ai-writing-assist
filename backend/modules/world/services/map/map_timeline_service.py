@@ -34,7 +34,10 @@ from modules.world.map_schemas import (
 )
 from modules.world.services.common import parse_uuid
 from modules.world.services.map.map_context import MapContext
-from modules.world.services.map.map_dynamic_projection import normalize_dynamic_value
+from modules.world.services.map.map_dynamic_projection import (
+    map_dynamic_track,
+    normalize_dynamic_value,
+)
 
 _MAX_PROJECTION_FACTS = 20000
 _MAX_CANDIDATES = 500
@@ -56,6 +59,7 @@ class _StateRecord:
     spatial_anchor: dict[str, Any]
     source_fact_ids: list[str]
     scene_index: int
+    scene_sequence: int | None
     source_chapter_index: int | None
 
 
@@ -149,7 +153,7 @@ class MapTimelineService:
             if response.scene_index is not None
             and from_scene_index <= response.scene_index <= to_scene_index
             and response.normalized_value is None
-            and "world" in selected_tracks
+            and self._track_for_item(response) in selected_tracks
             and self._visible_for_focus(response.target_entity_id, focus_id)
         ]
         all_deltas = [
@@ -167,7 +171,11 @@ class MapTimelineService:
             item
             for item in projection.conflicts
             if from_scene_index <= item.scene_index <= to_scene_index
-            and self._track_for_type(item.dynamic_type) in selected_tracks
+            and self._track_for_type(
+                item.dynamic_type,
+                target_entity_type=item.target_entity_type,
+            )
+            in selected_tracks
             and self._visible_for_focus(item.target_entity_id, focus_id)
         ]
 
@@ -192,15 +200,9 @@ class MapTimelineService:
             candidates = [
                 response
                 for response in (
-                    MapObservationResponse.model_validate(item)
-                    for item in candidate_rows
+                    MapObservationResponse.model_validate(item) for item in candidate_rows
                 )
-                if self._track_for_type(
-                    response.normalized_value.type
-                    if response.normalized_value is not None
-                    else response.dynamic_type
-                )
-                in selected_tracks
+                if self._track_for_item(response) in selected_tracks
             ]
 
         paths = await self._path_repo.get_by_map(db, nid, mid, status="all")
@@ -224,7 +226,11 @@ class MapTimelineService:
             for item in projection.conflicts
             if item.dynamic_type == "route_state"
             or (
-                self._track_for_type(item.dynamic_type) in selected_tracks
+                self._track_for_type(
+                    item.dynamic_type,
+                    target_entity_type=item.target_entity_type,
+                )
+                in selected_tracks
                 and self._visible_for_focus(item.target_entity_id, focus_id)
             )
         ]
@@ -251,12 +257,7 @@ class MapTimelineService:
         undated_responses = [
             response
             for response in (MapFactResponse.model_validate(item) for item in undated)
-            if self._track_for_type(
-                response.normalized_value.type
-                if response.normalized_value is not None
-                else response.dynamic_type
-            )
-            in selected_tracks
+            if self._track_for_item(response) in selected_tracks
         ]
         scenes = self._scene_summaries(deltas, candidates, conflicts, issues)
         total = len(deltas)
@@ -325,7 +326,11 @@ class MapTimelineService:
         conflicts = [
             item
             for item in projection.active_conflicts
-            if self._track_for_type(item.dynamic_type) in selected_tracks
+            if self._track_for_type(
+                item.dynamic_type,
+                target_entity_type=item.target_entity_type,
+            )
+            in selected_tracks
             and self._visible_for_focus(item.target_entity_id, focus_id)
         ]
         total = len(items)
@@ -412,9 +417,7 @@ class MapTimelineService:
             if from_scene_index is None and to_scene_index is None:
                 return None, None
             boundary = (
-                from_scene_index
-                if from_scene_index is not None
-                else to_scene_index
+                from_scene_index if from_scene_index is not None else to_scene_index
             )
             return boundary, boundary
         latest = max(indices)
@@ -456,27 +459,37 @@ class MapTimelineService:
         states: dict[tuple[str, str], _StateRecord] = {}
         active_conflicts: dict[tuple[str, str], MapDynamicConflict] = {}
         for key in sorted(grouped):
-            by_scene: dict[int, list[tuple[Any, dict[str, Any], str, str]]] = defaultdict(
-                list
-            )
+            by_moment: dict[
+                tuple[int, int | None],
+                list[tuple[Any, dict[str, Any], str, str]],
+            ] = defaultdict(list)
             for entry in grouped[key]:
                 fact = entry[0]
                 if fact.scene_index is not None:
-                    by_scene[int(fact.scene_index)].append(entry)
+                    by_moment[
+                        (
+                            int(fact.scene_index),
+                            self._scene_sequence(fact),
+                        )
+                    ].append(entry)
             previous: _StateRecord | None = None
-            for scene_index in sorted(by_scene):
+            for scene_index, scene_sequence in sorted(
+                by_moment,
+                key=lambda item: self._temporal_key(item[0], item[1]),
+            ):
                 entries = sorted(
-                    by_scene[scene_index],
+                    by_moment[(scene_index, scene_sequence)],
                     key=lambda item: (
                         item[0].source_chapter_index is None,
                         item[0].source_chapter_index or 0,
+                        self._source_start_offset(item[0]),
                         item[0].created_at,
                         str(item[0].id),
                     ),
                 )
-                by_signature: dict[
-                    str, list[tuple[Any, dict[str, Any], str, str]]
-                ] = defaultdict(list)
+                by_signature: dict[str, list[tuple[Any, dict[str, Any], str, str]]] = (
+                    defaultdict(list)
+                )
                 for entry in entries:
                     by_signature[entry[3]].append(entry)
                 representative = entries[0]
@@ -488,18 +501,18 @@ class MapTimelineService:
                             "conflict",
                             dimension_key,
                             str(scene_index),
+                            str(scene_sequence),
                             *(str(item[0].id) for item in entries),
                         ),
                         target_entity_id=(
-                            str(fact.target_entity_id)
-                            if fact.target_entity_id
-                            else None
+                            str(fact.target_entity_id) if fact.target_entity_id else None
                         ),
                         target_entity_type=fact.target_entity_type,
                         target_name=fact.target_name,
                         dynamic_type=representative[1]["type"],
                         dimension_key=dimension_key,
                         scene_index=scene_index,
+                        scene_sequence=scene_sequence,
                         source_fact_ids=[str(item[0].id) for item in entries],
                         values=[items[0][1] for items in by_signature.values()],
                         spatial_anchors=[
@@ -526,13 +539,20 @@ class MapTimelineService:
                     target_entity_type=current_fact.target_entity_type,
                     target_name=current_fact.target_name,
                     dynamic_type=current_value["type"],
-                    track=self._track_for_type(current_value["type"]),
+                    track=self._track_for_type(
+                        current_value["type"],
+                        target_entity_type=current_fact.target_entity_type,
+                        proposal_type=(current_fact.source_ref or {}).get(
+                            "proposal_type"
+                        ),
+                    ),
                     dimension_key=dimension_key,
                     value=current_value,
                     signature=current_signature,
                     spatial_anchor=dict(current_fact.spatial_anchor or {}),
                     source_fact_ids=[str(item[0].id) for item in matching],
                     scene_index=scene_index,
+                    scene_sequence=scene_sequence,
                     source_chapter_index=current_fact.source_chapter_index,
                 )
                 active_conflicts.pop(key, None)
@@ -552,6 +572,7 @@ class MapTimelineService:
                                 "delta",
                                 dimension_key,
                                 str(scene_index),
+                                str(scene_sequence),
                                 *delta_source_ids,
                             ),
                             target_entity_id=current.target_entity_id,
@@ -561,8 +582,12 @@ class MapTimelineService:
                             track=current.track,
                             dimension_key=current.dimension_key,
                             scene_index=current.scene_index,
+                            scene_sequence=current.scene_sequence,
                             before_scene_index=(
                                 previous.scene_index if previous else None
+                            ),
+                            before_scene_sequence=(
+                                previous.scene_sequence if previous else None
                             ),
                             source_chapter_index=current.source_chapter_index,
                             change_kind="initial" if previous is None else "change",
@@ -589,6 +614,7 @@ class MapTimelineService:
                 spatial_anchor=item.spatial_anchor,
                 source_fact_ids=item.source_fact_ids,
                 scene_index=item.scene_index,
+                scene_sequence=item.scene_sequence,
             )
             for _, item in sorted(
                 states.items(),
@@ -600,10 +626,18 @@ class MapTimelineService:
             )
         ]
         deltas.sort(
-            key=lambda item: (item.scene_index, item.dimension_key, item.delta_id)
+            key=lambda item: (
+                self._temporal_key(item.scene_index, item.scene_sequence),
+                item.dimension_key,
+                item.delta_id,
+            )
         )
         conflicts.sort(
-            key=lambda item: (item.scene_index, item.dimension_key, item.conflict_id)
+            key=lambda item: (
+                self._temporal_key(item.scene_index, item.scene_sequence),
+                item.dimension_key,
+                item.conflict_id,
+            )
         )
         return _Projection(
             deltas=deltas,
@@ -632,6 +666,8 @@ class MapTimelineService:
                     target_name=conflict.target_name,
                     from_scene_index=conflict.scene_index,
                     to_scene_index=conflict.scene_index,
+                    from_scene_sequence=conflict.scene_sequence,
+                    to_scene_sequence=conflict.scene_sequence,
                     source_fact_ids=conflict.source_fact_ids,
                     message="同一 Scene 存在互相矛盾的位置事实。",
                 )
@@ -724,6 +760,7 @@ class MapTimelineService:
                 conflicts,
                 route_deltas,
                 delta.scene_index,
+                delta.scene_sequence,
             )
             matching_path_ids = {str(path.id) for path in matching_paths}
             if conflict_path_ids & matching_path_ids:
@@ -739,7 +776,11 @@ class MapTimelineService:
                 )
                 continue
             all_graph = self._path_graph(matching_paths, nodes_by_path, blocked=set())
-            route_states = self._route_states_at(route_deltas, delta.scene_index)
+            route_states = self._route_states_at(
+                route_deltas,
+                delta.scene_index,
+                delta.scene_sequence,
+            )
             blocked_ids = {
                 path_id for path_id, state in route_states.items() if state == "blocked"
             }
@@ -799,8 +840,10 @@ class MapTimelineService:
         distance_hex: float | None = None,
     ) -> MapContinuityIssue:
         previous_scene = delta.before_scene_index
+        previous_sequence = delta.before_scene_sequence
         if previous_scene is None:
             previous_scene = max(0, delta.scene_index - 1)
+            previous_sequence = None
         return self._issue(
             issue_type=issue_type,
             severity=severity,
@@ -808,6 +851,8 @@ class MapTimelineService:
             target_name=delta.target_name,
             from_scene_index=previous_scene,
             to_scene_index=delta.scene_index,
+            from_scene_sequence=previous_sequence,
+            to_scene_sequence=delta.scene_sequence,
             source_fact_ids=delta.source_fact_ids,
             path_ids=path_ids or [],
             distance_hex=distance_hex,
@@ -824,6 +869,8 @@ class MapTimelineService:
         target_name: str | None,
         from_scene_index: int,
         to_scene_index: int,
+        from_scene_sequence: int | None = None,
+        to_scene_sequence: int | None = None,
         source_fact_ids: list[str],
         message: str,
         path_ids: list[str] | None = None,
@@ -835,7 +882,9 @@ class MapTimelineService:
             issue_type,
             target_entity_id or target_name or "unknown",
             str(from_scene_index),
+            str(from_scene_sequence),
             str(to_scene_index),
+            str(to_scene_sequence),
             *source_fact_ids,
             *(path_ids or []),
         )
@@ -848,6 +897,8 @@ class MapTimelineService:
             "time_anchor": {
                 "from_scene_index": from_scene_index,
                 "to_scene_index": to_scene_index,
+                "from_scene_sequence": from_scene_sequence,
+                "to_scene_sequence": to_scene_sequence,
             },
             "spatial_anchor": spatial_anchor or {},
             "value_json": {
@@ -877,6 +928,8 @@ class MapTimelineService:
             target_name=target_name,
             from_scene_index=from_scene_index,
             to_scene_index=to_scene_index,
+            from_scene_sequence=from_scene_sequence,
+            to_scene_sequence=to_scene_sequence,
             source_fact_ids=source_fact_ids,
             path_ids=path_ids or [],
             distance_hex=distance_hex,
@@ -914,17 +967,31 @@ class MapTimelineService:
         ]
 
     @staticmethod
-    def _track_for_type(dynamic_type: str) -> str:
-        return {
-            "location": "journey",
-            "movement": "journey",
-            "position_change": "journey",
-            "boundary": "territory",
-            "territory": "territory",
-            "crisis": "crisis",
-            "resource": "resource",
-            "status": "status",
-        }.get(str(dynamic_type), "world")
+    def _track_for_type(
+        dynamic_type: str,
+        *,
+        target_entity_type: str | None = None,
+        proposal_type: str | None = None,
+    ) -> str:
+        return map_dynamic_track(
+            dynamic_type,
+            target_entity_type=target_entity_type,
+            proposal_type=proposal_type,
+        )
+
+    @classmethod
+    def _track_for_item(cls, item: Any) -> str:
+        normalized_value = getattr(item, "normalized_value", None)
+        dynamic_type = (
+            normalized_value.type if normalized_value is not None else item.dynamic_type
+        )
+        return cls._track_for_type(
+            dynamic_type,
+            target_entity_type=getattr(item, "target_entity_type", None),
+            proposal_type=dict(getattr(item, "source_ref", None) or {}).get(
+                "proposal_type"
+            ),
+        )
 
     @staticmethod
     def _target_key(fact: Any, value: dict[str, Any]) -> str:
@@ -981,6 +1048,7 @@ class MapTimelineService:
                     "status": item.fact_status,
                     "value": item.value_json,
                     "anchor": item.spatial_anchor,
+                    "time_anchor": item.time_anchor,
                 }
                 for item in facts
             ],
@@ -1100,10 +1168,21 @@ class MapTimelineService:
     def _route_states_at(
         route_deltas: list[MapDynamicDeltaRead],
         scene_index: int,
+        scene_sequence: int | None,
     ) -> dict[str, str]:
         result: dict[str, str] = {}
+        target_moment = MapTimelineService._temporal_key(
+            scene_index,
+            scene_sequence,
+        )
         for delta in route_deltas:
-            if delta.scene_index > scene_index:
+            if (
+                MapTimelineService._temporal_key(
+                    delta.scene_index,
+                    delta.scene_sequence,
+                )
+                > target_moment
+            ):
                 break
             payload = MapTimelineService._dynamic_payload(delta.after)
             path_id = payload["path_id"]
@@ -1115,23 +1194,65 @@ class MapTimelineService:
         conflicts: list[MapDynamicConflict],
         route_deltas: list[MapDynamicDeltaRead],
         scene_index: int,
+        scene_sequence: int | None,
     ) -> set[str]:
-        latest_delta_scene: dict[str, int] = {}
+        target_moment = MapTimelineService._temporal_key(
+            scene_index,
+            scene_sequence,
+        )
+        latest_delta_moment: dict[str, tuple[int, int]] = {}
         for delta in route_deltas:
-            if delta.scene_index > scene_index:
+            delta_moment = MapTimelineService._temporal_key(
+                delta.scene_index,
+                delta.scene_sequence,
+            )
+            if delta_moment > target_moment:
                 break
             payload = MapTimelineService._dynamic_payload(delta.after)
-            latest_delta_scene[str(payload["path_id"])] = delta.scene_index
+            latest_delta_moment[str(payload["path_id"])] = delta_moment
         result: set[str] = set()
         for conflict in conflicts:
             if conflict.dynamic_type != "route_state":
                 continue
-            if conflict.scene_index > scene_index:
+            conflict_moment = MapTimelineService._temporal_key(
+                conflict.scene_index,
+                conflict.scene_sequence,
+            )
+            if conflict_moment > target_moment:
                 continue
             path_id = conflict.dimension_key.removeprefix("route:")
-            if latest_delta_scene.get(path_id, -1) <= conflict.scene_index:
+            if latest_delta_moment.get(path_id, (-1, -1)) <= conflict_moment:
                 result.add(path_id)
         return result
+
+    @staticmethod
+    def _scene_sequence(item: Any) -> int | None:
+        value = dict(getattr(item, "time_anchor", None) or {}).get("scene_sequence")
+        if isinstance(value, bool):
+            return None
+        try:
+            sequence = int(value)
+        except (TypeError, ValueError):
+            return None
+        return sequence if sequence >= 0 else None
+
+    @staticmethod
+    def _source_start_offset(item: Any) -> int:
+        value = dict(getattr(item, "time_anchor", None) or {}).get("source_start_offset")
+        if isinstance(value, bool):
+            return 10**12
+        try:
+            offset = int(value)
+        except (TypeError, ValueError):
+            return 10**12
+        return offset if offset >= 0 else 10**12
+
+    @staticmethod
+    def _temporal_key(
+        scene_index: int,
+        scene_sequence: int | None,
+    ) -> tuple[int, int]:
+        return (scene_index, -1 if scene_sequence is None else scene_sequence)
 
     @staticmethod
     def _dynamic_payload(value: Any) -> dict[str, Any]:
@@ -1147,6 +1268,7 @@ class MapTimelineService:
             by_key.values(),
             key=lambda item: (
                 item.to_scene_index,
+                -1 if item.to_scene_sequence is None else item.to_scene_sequence,
                 order[item.severity],
                 item.issue_key,
             ),

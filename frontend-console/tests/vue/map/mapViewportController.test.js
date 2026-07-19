@@ -15,6 +15,7 @@ function renderer(overrides = {}) {
     canLeave: vi.fn(() => true),
     setTimelineProjection: vi.fn(),
     clearTimelineProjection: vi.fn(),
+    setPresentationContext: vi.fn(() => true),
     focusPath: vi.fn(() => true),
     focusTimelineAnchor: vi.fn(() => true),
     clearPathFocus: vi.fn(() => true),
@@ -22,6 +23,9 @@ function renderer(overrides = {}) {
     timelineEntityOptions: vi.fn(() => [{ id: "e1" }]),
     timelinePathOptions: vi.fn(() => [{ id: "path1" }]),
     pathRevisionMismatch: vi.fn(() => false),
+    _state: { map: { id: "m1", name: "九州", grid_width: 20, grid_height: 12 } },
+    _effectiveLocationLayouts: vi.fn(() => [{ location_entity_id: "l1", center_hex_q: 7, center_hex_r: 4 }]),
+    _locationName: vi.fn(() => "北港"),
     ...overrides,
   }
 }
@@ -85,6 +89,30 @@ describe("mapViewportController", () => {
     expect(controller.mounted).toBe(false)
   })
 
+  it("replays the latest presentation context after an in-flight mount", async () => {
+    let resolveMount
+    const engine = renderer({
+      mount: vi.fn(() => new Promise((resolve) => { resolveMount = resolve })),
+    })
+    const host = document.createElement("div")
+    document.body.append(host)
+    const controller = createMapViewportController({ renderer: engine, getState: () => state })
+
+    const pending = controller.mount(host, { projectId: "p1", mapId: "m1" })
+    expect(controller.setPresentationContext({ viewMode: "lens" })).toBe(true)
+    expect(controller.setPresentationContext({ lowMotion: true, focusEntityId: "e1" })).toBe(true)
+    expect(engine.setPresentationContext).not.toHaveBeenCalled()
+
+    resolveMount(true)
+    await expect(pending).resolves.toBe(true)
+    expect(engine.setPresentationContext).toHaveBeenCalledTimes(1)
+    expect(engine.setPresentationContext).toHaveBeenCalledWith({
+      viewMode: "lens",
+      lowMotion: true,
+      focusEntityId: "e1",
+    })
+  })
+
   it("旧路由 controller 延迟 dispose 不会卸载新路由已接管的单例视口", async () => {
     const engine = renderer()
     const firstHost = document.createElement("div")
@@ -116,11 +144,16 @@ describe("mapViewportController", () => {
     await controller.mount(host, { projectId: "p1", mapId: "m1" })
     expect(controller.setTimelineProjection({ scene: 2 })).toBe(true)
     expect(controller.clearTimelineProjection()).toBe(true)
+    expect(controller.setPresentationContext({ viewMode: "lens" })).toBe(true)
     expect(engine.setTimelineProjection).toHaveBeenCalledWith({ scene: 2 })
     expect(engine.clearTimelineProjection).toHaveBeenCalledTimes(1)
     expect(controller.focusPath("path1")).toBe(true)
     expect(controller.focusTimelineAnchor({ hex_q: 1, hex_r: 2 })).toBe(true)
     expect(controller.timelineEntityOptions()).toEqual([{ id: "e1" }])
     expect(controller.timelinePathOptions()).toEqual([{ id: "path1" }])
+    expect(controller.spatialContext()).toEqual({
+      map: { id: "m1", name: "九州", grid_width: 20, grid_height: 12 },
+      locationAnchors: [{ location_entity_id: "l1", name: "北港", q: 7, r: 4 }],
+    })
   })
 })

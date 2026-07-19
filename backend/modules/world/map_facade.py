@@ -24,7 +24,7 @@ async def create_map_observation_candidates(
     *,
     candidates: list[MapObservationCandidateInput],
 ) -> MapObservationCandidateBatchResult:
-    """Persist a fail-closed batch of typed deep-import map candidates."""
+    """Persist a fail-closed batch of typed, workflow-owned map candidates."""
     return await _map_dynamic_facts.create_observation_candidates(
         db,
         novel_id,

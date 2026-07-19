@@ -84,6 +84,28 @@ class DeepImportRecoveryRequest(BaseModel):
     )
 
 
+class MapObservationEnrichmentRequest(BaseModel):
+    """Map-only enrichment request; it never invokes a deep-import stage."""
+
+    novel_id: str = Field(..., min_length=1)
+    start_chapter: int = Field(default=1, ge=1)
+    end_chapter: int = Field(default=0, ge=0)
+    high_quality: bool = True
+    adoption_policy: Literal["user_authorized_pipeline"] = "user_authorized_pipeline"
+    authorization_confirmed: bool = Field(
+        ...,
+        description="已理解并授权流水线写入地图待复核候选",
+    )
+
+    @model_validator(mode="after")
+    def validate_chapter_range(self) -> MapObservationEnrichmentRequest:
+        if self.end_chapter and self.end_chapter < self.start_chapter:
+            raise ValueError("end_chapter must be >= start_chapter")
+        if self.authorization_confirmed is not True:
+            raise ValueError("authorization_confirmed must be true")
+        return self
+
+
 class DeepImportCleanupSummaryResponse(BaseModel):
     """Workflow cleanup result with legacy aliases kept for wire compatibility."""
 
@@ -309,6 +331,31 @@ async def submit_plot_structure_auto_extraction(
 ) -> dict:
     """提交剧情线自动提取任务。"""
     return await _submit_stage(db, body, stage="plot_structure")
+
+
+@router.post("/stages/map-observations", status_code=201)
+async def submit_map_observation_enrichment(
+    db: DbSession,
+    body: MapObservationEnrichmentRequest = Body(
+        ...,
+        description="既有 Scene 的地图事实补充参数",
+    ),
+) -> dict:
+    """提交地图事实补充任务；不重跑深度导入的任何阶段。"""
+    from modules.imports.facade import start_map_observation_enrichment as _submit
+
+    await _require_active_project(db, body.novel_id)
+    end_chapter = await _resolve_end_chapter(db, body)
+    _validate_chapter_count_limit(body.start_chapter, end_chapter)
+    return await _submit(
+        db,
+        novel_id=body.novel_id,
+        start_chapter=body.start_chapter,
+        end_chapter=end_chapter,
+        high_quality=body.high_quality,
+        adoption_policy=body.adoption_policy,
+        authorization_confirmed=body.authorization_confirmed,
+    )
 
 
 @router.post("/deep/resume", status_code=201)

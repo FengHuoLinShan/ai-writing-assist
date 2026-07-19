@@ -76,3 +76,17 @@ async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
         result["completed_steps"],
     )
     return result
+
+
+@task_handler(
+    "map_observation_enrichment",
+    recovery_policy="auto_requeue",
+    max_attempts=3,
+)
+async def handle_map_observation_enrichment(db, task) -> dict[str, Any]:
+    """Delegate map-only extraction to its checkpoint-owning orchestrator."""
+    from modules.imports.map_observation_enrichment_workflow import (
+        MapObservationEnrichmentTaskOrchestrator,
+    )
+
+    return await MapObservationEnrichmentTaskOrchestrator().run_task(db, task)

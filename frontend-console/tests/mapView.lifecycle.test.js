@@ -95,6 +95,7 @@ beforeEach(() => {
   mapView._mapsLoadError = null
   mapView._layerTree = null
   mapView._renderSubsetCache.clear()
+  mapView._terrainOverviewCache.clear()
   mapView._renderMetrics = null
   mapView._dragLocationId = null
   mapView._dragMarkerId = null
@@ -150,6 +151,7 @@ describe("mapView Scene 时间轴", () => {
     mapState.currentSceneId = "s1"
     const html = mapView._renderSceneBar()
     expect(html).toContain("开端")
+    expect(html).toContain("Scene 2")
     expect(html).toContain("map-scene-prev")
     expect(html).toContain("map-scene-next")
     expect(html).toContain("map-scene-clear")
@@ -380,6 +382,106 @@ describe("mapView 原子保存与渲染裁剪", () => {
 
     expect(html).toContain('data-editor-locked="true"')
     expect(html).toContain("画布工具已停用")
+  })
+
+  it("标记对象只展示当前标记类型并保留已选对象", () => {
+    mapState.editorLayer = "marker"
+    mapState.selectedMarkerType = "event"
+    mapState.selectedMarkerEntityId = "event-1"
+    const html = renderEditPanel({
+      locations: [],
+      allEntities: [
+        { id: "character-1", name: "克莱恩", entity_type: "character" },
+        { id: "event-1", name: "塔罗聚会", entity_type: "event" },
+        { id: "item-1", name: "安提哥努斯笔记", entity_type: "item" },
+      ],
+      scenes: [],
+      terrainLayers: [],
+      territoryTools: "",
+      layerTree: [],
+    })
+
+    expect(html).toContain('<option value="event" selected>事件</option>')
+    expect(html).toContain('<option value="event-1" selected>塔罗聚会</option>')
+    expect(html).not.toContain("克莱恩")
+    expect(html).not.toContain("安提哥努斯笔记")
+  })
+
+  it("地点编辑器保留当前选择并明确显示锁定状态", () => {
+    mapState.editorLayer = "location"
+    mapState.selectedLocationEntityId = "loc-2"
+
+    const html = renderEditPanel({
+      locations: [
+        { id: "loc-1", name: "廷根市" },
+        { id: "loc-2", name: "黑荆棘安保公司" },
+      ],
+      locationLayouts: [
+        { location_entity_id: "loc-2", locked: true },
+      ],
+      layerTree: [],
+    })
+
+    expect(html).toContain('<option value="loc-2" selected>黑荆棘安保公司</option>')
+    expect(html).toContain("黑荆棘安保公司 · 已锁定")
+    expect(html).toContain(">解锁地点</button>")
+  })
+
+  it("线路编辑器展示名称、端点偏离和单一领地工具语义", () => {
+    mapState.editorLayer = "path"
+    mapState.selectedPathId = "path-1"
+    mapState.selectedPathLayerId = "layer-1"
+    mapView._allEntities = [{ id: "org-1", name: "值夜者", entity_type: "organization" }]
+
+    const html = renderEditPanel({
+      locations: [{ id: "loc-1", name: "黑荆棘安保公司" }],
+      layerTree: [],
+      pathLayers: [{ id: "layer-1", category: "transport", name: "道路" }],
+      pathProfiles: { street: { category: "transport", label: "街道" } },
+      paths: [{
+        id: "path-1",
+        name: "佐特兰街",
+        path_layer_id: "layer-1",
+        path_type: "street",
+        nodes: [{ q: 1, r: 1 }, { q: 3, r: 3 }],
+        start_location_entity_id: "loc-1",
+        start_endpoint_status: {
+          name: "黑荆棘安保公司", drifted: true, unresolved: false, distance: 1.25,
+        },
+      }],
+      territoryTools: mapView._renderTerritoryTools(),
+    })
+
+    expect(html).toContain('id="map-path-name"')
+    expect(html).toContain('value="佐特兰街"')
+    expect(html).toContain("1 条线路的地点端点已偏离")
+    expect(html).toContain("重新吸附全部偏离端点")
+    expect(html).not.toContain('data-action="map-territory-paint"')
+  })
+
+  it("切换标记类型时清空旧选择并刷新候选对象", () => {
+    mapState.editorLayer = "marker"
+    mapState.selectedMarkerType = "character"
+    mapState.selectedMarkerEntityId = "character-1"
+    mapView._allEntities = [
+      { id: "character-1", name: "克莱恩", entity_type: "character" },
+      { id: "event-1", name: "塔罗聚会", entity_type: "event" },
+    ]
+    document.body.innerHTML = `<main id="workspace-content">${renderEditPanel({
+      allEntities: mapView._allEntities,
+      layerTree: [],
+    })}</main>`
+    mapView._bindMapEvents()
+    const typeSelect = document.getElementById("map-marker-type")
+    typeSelect.value = "event"
+
+    typeSelect.dispatchEvent(new Event("change"))
+
+    expect(mapState.selectedMarkerType).toBe("event")
+    expect(mapState.selectedMarkerEntityId).toBeNull()
+    expect(document.getElementById("map-marker-entity").textContent).toContain("塔罗聚会")
+    expect(document.getElementById("map-marker-entity").textContent).not.toContain("克莱恩")
+    mapView.unmount()
   })
 
   it("revision 冲突时保留当前图层草稿", async () => {
@@ -679,6 +781,45 @@ describe("mapView 原子保存与渲染裁剪", () => {
     expect(mapView._renderMetrics.culled_hex_items).toBe(2)
   })
 
+  it("大地图缩放总览复用低分辨率地形快照", () => {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext
+    const context = createCanvasMock({
+      captureAlpha: false,
+      methods: ["fillRect"],
+    })
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => context)
+    mapView._state = {
+      map: {
+        id: "large-map",
+        editor_revision: 3,
+        grid_width: 40,
+        grid_height: 25,
+      },
+      tiles: Array.from({ length: 1000 }, (_, index) => ({
+        hex_q: index % 40,
+        hex_r: Math.floor(index / 40),
+        terrain_type: index % 2 ? "grassland" : "water",
+      })),
+    }
+
+    try {
+      const first = mapView._terrainOverviewRaster(30)
+      const cached = mapView._terrainOverviewRaster(30)
+
+      expect(first).not.toBeNull()
+      expect(cached).toBe(first)
+      expect(first.canvas.width).toBeGreaterThan(0)
+      expect(first.canvas.height).toBeGreaterThan(0)
+      expect(context.fillRect).toHaveBeenCalledTimes(1000)
+
+      mapView._state.map.editor_revision = 4
+      expect(mapView._terrainOverviewRaster(30)).not.toBe(first)
+      expect(context.fillRect).toHaveBeenCalledTimes(2000)
+    } finally {
+      HTMLCanvasElement.prototype.getContext = originalGetContext
+    }
+  })
+
   it("场景动态数据更新会失效视口缓存并重建 marker 索引", () => {
     mapView._state = {
       map: { id: "m1", editor_revision: 1 },
@@ -786,10 +927,29 @@ describe("mapView P2 势力范围", () => {
         { id: "mk1", marker_type: "character", visible: true },
         { id: "mk2", marker_type: "event", visible: true },
         { id: "mk3", marker_type: "item", visible: true },
+        { id: "mk4", marker_type: "character", visible: false },
       ],
     }
 
     expect(mapView._filteredMarkers().map((m) => m.id)).toEqual(["mk1"])
+  })
+
+  it("presentation 更新保持当前 viewport lifecycle owner", () => {
+    const owner = { viewMode: "live", focusEntityId: "old" }
+    mapView._mountContext = owner
+
+    expect(mapView.setPresentationContext({
+      viewMode: "lens",
+      lowMotion: true,
+      focusEntityId: "new",
+    })).toBe(true)
+
+    expect(mapView._mountContext).toBe(owner)
+    expect(owner).toMatchObject({
+      viewMode: "lens",
+      lowMotion: true,
+      focusEntityId: "new",
+    })
   })
 
   it("待确认图层默认关闭，打开后才返回 candidate marker", () => {
@@ -1185,6 +1345,68 @@ describe("图层会话与连续线路纵切", () => {
     expect(mapState.editorHistory.path).toHaveLength(1)
   })
 
+  it("线路可就地重命名并保留在同一编辑历史中", () => {
+    mapView._state = { map: { id: "m1" }, location_layouts: [], location_bindings: [] }
+    mapView._pathState = {
+      path_layers: [{ id: "l1", category: "transport" }],
+      paths: [{
+        id: "p1", name: "主干道 1", path_layer_id: "l1", path_type: "street",
+        nodes: [{ q: 1, r: 1 }, { q: 2, r: 2 }],
+      }],
+      nodes: [],
+    }
+    mapState.editorLayer = "path"
+    mapState.selectedPathId = "p1"
+    mapState.selectedPathLayerId = "l1"
+    const rerender = vi.spyOn(mapView, "_rerenderEditor").mockImplementation(() => {})
+
+    expect(mapView._stageSelectedPathName("  佐特兰街  ")).toBe(true)
+
+    expect(mapState.pendingPathChanges.p1).toMatchObject({
+      operation: "update",
+      data: { name: "佐特兰街" },
+    })
+    expect(mapState.editorHistory.path).toHaveLength(1)
+    rerender.mockRestore()
+  })
+
+  it("线路端点偏离后可一次重新吸附全部已布置地点", () => {
+    mapView._state = {
+      map: { id: "m1" },
+      location_layouts: [
+        { location_entity_id: "start", center_hex_q: 4, center_hex_r: 5 },
+        { location_entity_id: "end", center_hex_q: 8, center_hex_r: 9 },
+      ],
+      location_bindings: [],
+    }
+    mapView._pathState = {
+      path_layers: [{ id: "l1", category: "transport" }],
+      paths: [{
+        id: "p1",
+        path_layer_id: "l1",
+        path_type: "street",
+        start_location_entity_id: "start",
+        end_location_entity_id: "end",
+        nodes: [{ q: 1, r: 1 }, { q: 2, r: 2 }, { q: 3, r: 3 }],
+      }],
+      nodes: [],
+    }
+    mapState.editorLayer = "path"
+    mapState.selectedPathId = "p1"
+    mapState.selectedPathLayerId = "l1"
+    const rerender = vi.spyOn(mapView, "_rerenderEditor").mockImplementation(() => {})
+
+    expect(mapView._resnapPathEndpoints("p1")).toBe(true)
+
+    expect(mapState.pendingPathChanges.p1.data.nodes).toMatchObject([
+      { q: 4, r: 5 },
+      { q: 2, r: 2 },
+      { q: 8, r: 9 },
+    ])
+    expect(mapState.editorHistory.path).toHaveLength(1)
+    rerender.mockRestore()
+  })
+
   it("楼层会话选择直接影响 path leaf 有效可见性", () => {
     mapState.activeLayerChildIds = { floors: "f0" }
     mapView._layerTree = { nodes: [
@@ -1231,6 +1453,91 @@ describe("图层会话与连续线路纵切", () => {
     expect(mapView._typedSelectionAt(2, 0)).toBeNull()
     expect(mapView._typedSelectionAt(3, 0)).toBeNull()
     expect(mapView._renderDetailPanel(0, 0)).toContain("点击地图查看详情")
+  })
+
+  it("显式点击地点标签时地点详情优先于同格人物标记", () => {
+    document.body.innerHTML = '<div id="map-detail-panel"></div>'
+    mapView._state = {
+      map: { id: "m1" },
+      tiles: [],
+      location_bindings: [{
+        id: "binding-1",
+        location_entity_id: "loc-1",
+        hex_q: 4,
+        hex_r: 8,
+        is_center: true,
+      }],
+      markers: [{
+        id: "marker-1",
+        entity_id: "char-1",
+        marker_type: "character",
+        label: "克莱恩",
+        hex_q: 4,
+        hex_r: 8,
+        visible: true,
+      }],
+      territories: [],
+      terrain_layers: [],
+      terrain_patches: [],
+      terrain_regions: [],
+    }
+    mapView._locations = [{ id: "loc-1", name: "灰雾之上", summary: "非物理空间" }]
+    mapView._maps = []
+    mapView._rebuildIndexes()
+
+    expect(mapView._onCenterClick("loc-1")).toBe(true)
+    expect(document.getElementById("map-detail-panel").textContent).toContain("灰雾之上")
+    expect(document.getElementById("map-detail-panel").textContent).not.toContain("克莱恩")
+  })
+
+  it("地点标记线路势力与 Scene 动态共享地图标签布局输入", () => {
+    window.L = {
+      latLng: (lat, lng) => ({ lat, lng }),
+    }
+    mapView._leaflet = {
+      getZoom: () => 0,
+      latLngToContainerPoint: ({ lat, lng }) => ({ x: lng, y: -lat }),
+    }
+    mapView._state = {
+      map: { id: "m1", hex_size: 30 },
+      location_bindings: [{
+        location_entity_id: "loc-1", hex_q: 1, hex_r: 1, is_center: true,
+      }],
+      markers: [{
+        id: "marker-1", entity_id: "char-1", marker_type: "character",
+        label: "克莱恩", hex_q: 2, hex_r: 2, visible: true,
+      }],
+      territories: [{ faction_entity_id: "org-1", hex_q: 4, hex_r: 4 }],
+    }
+    mapView._locations = [{ id: "loc-1", name: "莫雷蒂家公寓" }]
+    mapView._allEntities = [{ id: "org-1", name: "值夜者" }]
+    mapView._pathState = {
+      path_layers: [{ id: "layer-1", category: "transport" }],
+      paths: [{
+        id: "path-1", name: "佐特兰街", path_layer_id: "layer-1",
+        path_type: "street", nodes: [{ q: 1, r: 3 }, { q: 3, r: 3 }],
+      }],
+      nodes: [],
+    }
+    mapView._timelineProjection = {
+      stateItems: [{
+        id: "fact-1", dynamic_type: "crisis", target_name: "神秘污染",
+        spatial_anchor: { hex_q: 5, hex_r: 5 },
+      }],
+    }
+    mapView._rebuildIndexes()
+
+    const items = mapView._buildMapLabelItems()
+
+    expect(new Set(items.map((item) => item.source_kind))).toEqual(new Set([
+      "location", "marker", "path", "territory", "dynamic",
+    ]))
+    expect(items.find((item) => item.source_kind === "path")).toMatchObject({
+      title: "佐特兰街", q: 2, r: 3,
+    })
+    expect(items.find((item) => item.source_kind === "dynamic")).toMatchObject({
+      title: "神秘污染", priority: 96,
+    })
   })
 
   it("归档不覆盖未保存线路编辑，再次点击取消已 staging 的归档", async () => {

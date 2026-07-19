@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError
@@ -55,6 +56,29 @@ class TestMapConfigService:
         assert len(tiles) == 600
         # blank 模板全 grassland
         assert all(t.terrain_type == "grassland" for t in tiles)
+
+    @pytest.mark.asyncio
+    async def test_create_map_api_leaves_commit_to_request_dependency(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = uuid.uuid4().hex
+        await _create_project(db_session, novel_id)
+
+        response = await async_client.post(
+            "/api/world/maps",
+            params={"novel_id": novel_id},
+            json={
+                "name": "请求事务地图",
+                "map_type": "world",
+                "grid_width": 3,
+                "grid_height": 3,
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        assert db_session.in_transaction() is True
 
     @pytest.mark.asyncio
     async def test_list_maps_filter_by_parent(self, db_session: AsyncSession):

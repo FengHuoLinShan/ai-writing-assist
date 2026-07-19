@@ -160,7 +160,7 @@ test.describe("地图 Scene 动态时间轴", () => {
     await expect(timeline).toBeVisible({ timeout: 10000 })
     const sceneSelect = timeline.getByLabel("选择 Scene")
     await expect(sceneSelect).toHaveValue("1")
-    await expect(sceneSelect.locator("option:checked")).toHaveText("Scene 9")
+    await expect(sceneSelect.locator("option:checked")).toHaveText("Scene 10")
     await expect(timeline.locator(".map-timeline-state")).toContainText("巡夜人")
     await expect(timeline.getByLabel("待处理预览")).not.toBeChecked()
     await expect(timeline).not.toContainText("未经确认的警戒")
@@ -175,7 +175,7 @@ test.describe("地图 Scene 动态时间轴", () => {
 
     await timeline.getByRole("button", { name: "上一个 Scene" }).click()
     await expect(sceneSelect).toHaveValue("0")
-    await expect(sceneSelect.locator("option:checked")).toHaveText("Scene 2")
+    await expect(sceneSelect.locator("option:checked")).toHaveText("Scene 3")
     await expect(timeline.locator(".map-timeline-state")).toContainText("巡夜人")
     await expect(page.locator(".map-continuity-panel")).toContainText("空间连续性")
     await expect(page.locator(".map-continuity-panel")).toContainText("没有完整接入当前线路图")

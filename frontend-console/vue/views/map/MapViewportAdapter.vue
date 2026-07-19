@@ -17,18 +17,20 @@ const mounting = ref(false)
 const controller = createMapViewportController()
 let mountGeneration = 0
 
-const contextKey = computed(() => JSON.stringify({
+const identityKey = computed(() => JSON.stringify({
   projectId: props.context.projectId || null,
   mapId: props.context.mapId || null,
   sceneId: props.context.sceneId || null,
-  focusEntityId: props.context.focusEntityId || null,
   focusHexQ: props.context.focusHexQ ?? null,
   focusHexR: props.context.focusHexR ?? null,
   focusPathId: props.context.focusPathId || null,
   focusLayerNodeId: props.context.focusLayerNodeId || null,
+  layers: props.context.layers || {},
+}))
+const presentationKey = computed(() => JSON.stringify({
   viewMode: props.context.viewMode || "live",
   lowMotion: Boolean(props.context.lowMotion),
-  layers: props.context.layers || {},
+  focusEntityId: props.context.focusEntityId || null,
 }))
 
 async function remount() {
@@ -52,9 +54,17 @@ async function remount() {
   }
 }
 
-watch(contextKey, async () => {
+watch(identityKey, async () => {
   await nextTick()
   await remount()
+})
+
+watch(presentationKey, () => {
+  controller.setPresentationContext({
+    viewMode: props.context.viewMode || "live",
+    lowMotion: Boolean(props.context.lowMotion),
+    focusEntityId: props.context.focusEntityId || null,
+  })
 })
 
 watch(() => props.timelineProjection, (projection) => {
@@ -78,5 +88,7 @@ defineExpose({
   timelineEntityOptions: () => controller.timelineEntityOptions(),
   timelinePathOptions: () => controller.timelinePathOptions(),
   pathRevisionMismatch: (...args) => controller.pathRevisionMismatch(...args),
+  setPresentationContext: (...args) => controller.setPresentationContext(...args),
+  spatialContext: () => controller.spatialContext(),
 })
 </script>

@@ -369,6 +369,7 @@ globalThis.api = {
     list: vi.fn(),
     deepImport: vi.fn(),
     startStage: vi.fn(),
+    startMapObservationEnrichment: vi.fn(),
     resumeDeepImport: vi.fn(),
     abandonDeepImport: vi.fn(),
   },

@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError
@@ -14,6 +15,7 @@ from modules.world.map_repositories import (
     MapLocationBindingRepository,
 )
 from modules.world.map_schemas import (
+    MapConfigCreate,
     MapQuickCreateConfirmRequest,
     MapQuickCreatePreviewRequest,
 )
@@ -26,6 +28,7 @@ from modules.world.services.map.map_location_binding_service import (
     MapLocationBindingService,
 )
 from modules.world.services.map.map_quick_create import MapQuickCreateService
+from modules.world.services.map_service import MapConfigService
 from modules.world.tests.helpers import _create_entity, _create_project
 
 
@@ -101,6 +104,97 @@ async def test_quick_create_preview_includes_candidates_when_enabled(
     layouts = {item.location_entity_id: item for item in preview.location_layouts}
     assert layouts[str(candidate.id)].meta == {"entity_status": "candidate"}
     assert layouts[str(draft.id)].meta == {"entity_status": "draft"}
+
+
+@pytest.mark.asyncio
+async def test_quick_create_context_exposes_scope_parent_and_detail_map_advice(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    city = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="廷根市",
+        status="canonical",
+        summary="鲁恩王国阿霍瓦郡的城市",
+    )
+    office = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="黑荆棘安保公司",
+        status="canonical",
+    )
+    await EntityRelationRepository().create(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        EntityRelationCreate(
+            source_id=str(city.id),
+            target_id=str(office.id),
+            relation_type="contains",
+            status="canonical",
+        ),
+    )
+    detail_map = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(
+            name="黑荆棘内部详图",
+            map_type="region",
+            grid_width=6,
+            grid_height=6,
+            parent_entity_id=str(office.id),
+        ),
+    )
+
+    context = await MapQuickCreateService().context(db_session, novel_id)
+
+    locations = {item["id"]: item for item in context.locations}
+    assert locations[str(city.id)]["map_scope"] == {
+        "key": "settlement",
+        "label": "城市/聚落",
+        "basis": "name_summary",
+        "recommended_targets": ["world", "detail"],
+    }
+    assert locations[str(office.id)]["parent_locations"] == [
+        {"id": str(city.id), "name": "廷根市"}
+    ]
+    assert locations[str(office.id)]["has_detail_map"] is True
+    assert locations[str(office.id)]["detail_maps"] == [
+        {"id": detail_map.id, "name": "黑荆棘内部详图", "map_type": "region"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_quick_create_world_preview_warns_about_cross_scale_locations(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="鲁恩王国",
+        status="canonical",
+    )
+    await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="地下炼金室",
+        status="canonical",
+    )
+
+    preview = await MapQuickCreateService().preview(
+        db_session,
+        novel_id,
+        MapQuickCreatePreviewRequest(target="world"),
+    )
+
+    assert any("建筑或室内地点" in warning for warning in preview.warnings)
 
 
 @pytest.mark.asyncio
@@ -327,6 +421,36 @@ async def test_quick_create_confirm_creates_one_map_without_new_world_objects(
     assert len(response.location_bindings) == 1
     assert before_total == after_total
     assert {item.id for item in before} == {item.id for item in after}
+
+
+@pytest.mark.asyncio
+async def test_quick_create_api_leaves_commit_to_request_dependency(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    location = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="洛阳",
+        status="canonical",
+    )
+
+    response = await async_client.post(
+        "/api/world/maps/quick-create/confirm",
+        params={"novel_id": novel_id},
+        json={
+            "name": "请求事务快速地图",
+            "location_entity_ids": [str(location.id)],
+            "grid_width": 6,
+            "grid_height": 6,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert db_session.in_transaction() is True
 
 
 @pytest.mark.asyncio

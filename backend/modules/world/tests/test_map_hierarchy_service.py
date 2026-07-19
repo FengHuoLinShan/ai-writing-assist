@@ -7,9 +7,11 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError
 from modules.world.map_repositories import MapConfigRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
+    MapConfigUpdate,
     MapLocationBindingCreate,
 )
 from modules.world.services.map_service import (
@@ -145,6 +147,112 @@ class TestMapHierarchyService:
 
         breadcrumbs = await repo.get_breadcrumbs(db_session, uuid.UUID(hex=inner.id))
         assert [b.name for b in breadcrumbs] == ["世界", "洛阳", "内城"]
+
+    @pytest.mark.asyncio
+    async def test_update_reparents_existing_map_and_can_promote_it_to_root(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = uuid.uuid4().hex
+        await _create_project(db_session, novel_id)
+        service = MapConfigService()
+        world = await service.create(
+            db_session,
+            novel_id,
+            MapConfigCreate(
+                name="世界",
+                map_type="world",
+                grid_width=8,
+                grid_height=8,
+            ),
+        )
+        detached = await service.create(
+            db_session,
+            novel_id,
+            MapConfigCreate(
+                name="廷根城",
+                map_type="region",
+                grid_width=8,
+                grid_height=8,
+            ),
+        )
+        tingen_id = await _create_location_entity(db_session, novel_id, "廷根市")
+
+        nested = await service.update(
+            db_session,
+            detached.id,
+            MapConfigUpdate(
+                parent_map_id=world.id,
+                parent_entity_id=tingen_id,
+            ),
+            novel_id=novel_id,
+        )
+
+        assert nested.parent_map_id == world.id
+        assert nested.parent_entity_id == tingen_id
+        nested_state = await service.get_state(db_session, novel_id, detached.id)
+        assert [item.name for item in nested_state.breadcrumbs] == ["世界", "廷根城"]
+
+        promoted = await service.update(
+            db_session,
+            detached.id,
+            MapConfigUpdate(parent_map_id=None, parent_entity_id=None),
+            novel_id=novel_id,
+        )
+
+        assert promoted.parent_map_id is None
+        assert promoted.parent_entity_id is None
+
+    @pytest.mark.asyncio
+    async def test_update_rejects_reparenting_map_below_its_descendant(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = uuid.uuid4().hex
+        await _create_project(db_session, novel_id)
+        service = MapConfigService()
+        world = await service.create(
+            db_session,
+            novel_id,
+            MapConfigCreate(
+                name="世界",
+                map_type="world",
+                grid_width=8,
+                grid_height=8,
+            ),
+        )
+        city = await service.create(
+            db_session,
+            novel_id,
+            MapConfigCreate(
+                name="廷根城",
+                map_type="city",
+                grid_width=8,
+                grid_height=8,
+                parent_map_id=world.id,
+            ),
+        )
+        detail = await service.create(
+            db_session,
+            novel_id,
+            MapConfigCreate(
+                name="教堂详图",
+                map_type="dungeon",
+                grid_width=8,
+                grid_height=8,
+                parent_map_id=city.id,
+            ),
+        )
+
+        with pytest.raises(ValidationError) as exc_info:
+            await service.update(
+                db_session,
+                world.id,
+                MapConfigUpdate(parent_map_id=detail.id),
+                novel_id=novel_id,
+            )
+
+        assert exc_info.value.code == "map_hierarchy_cycle"
 
     @pytest.mark.asyncio
     async def test_get_state_returns_tiles_and_bindings(self, db_session: AsyncSession):

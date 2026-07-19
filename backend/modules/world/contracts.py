@@ -354,22 +354,37 @@ class MapObservationCandidateInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     workflow_id: str = Field(..., min_length=1, max_length=255)
+    source_workflow: Literal["deep_import", "map_enrichment"] = "deep_import"
     task_id: str | None = Field(None, max_length=255)
     source_item_key: str = Field(..., min_length=1, max_length=255)
     scene_id: str
     scene_index: int = Field(..., ge=0)
+    scene_sequence: int | None = Field(None, ge=0)
     source_chapter_index: int = Field(..., ge=0)
-    scene_source_fingerprint: str = Field(..., min_length=1, max_length=255)
+    source_start_offset: int | None = Field(None, ge=0)
+    source_end_offset: int | None = Field(None, ge=1)
+    scene_source_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     context_snapshot_id: str | None = Field(None, max_length=255)
     evidence_text: str = Field(..., min_length=1, max_length=8000)
-    evidence_anchor: str = Field(..., min_length=1, max_length=255)
+    evidence_anchor: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     confidence: float = Field(..., ge=0.0, le=1.0)
-    target_entity_id: str | None = None
+    target_entity_id: str | None = Field(
+        None,
+        description=(
+            "Only set after the caller uniquely resolves one canonical target; "
+            "world revalidates project, type, and canonical status."
+        ),
+    )
+    resolved_location_entity_id: str | None = None
     target_name: str | None = Field(None, max_length=255)
     proposal: MapObservationProposalV1
     authorization: MapObservationCandidateAuthorization
 
-    @field_validator("scene_id", "target_entity_id")
+    @field_validator(
+        "scene_id",
+        "target_entity_id",
+        "resolved_location_entity_id",
+    )
     @classmethod
     def _validate_uuid(cls, value: str | None) -> str | None:
         if value is None:
@@ -377,6 +392,33 @@ class MapObservationCandidateInput(BaseModel):
         import uuid
 
         return str(uuid.UUID(value))
+
+    @model_validator(mode="after")
+    def _validate_source_position(self) -> MapObservationCandidateInput:
+        offsets = (self.source_start_offset, self.source_end_offset)
+        if (offsets[0] is None) != (offsets[1] is None):
+            raise ValueError("source offsets must be provided together")
+        if offsets[0] is not None and offsets[1] is not None:
+            if offsets[1] <= offsets[0]:
+                raise ValueError("source_end_offset must exceed source_start_offset")
+        if self.source_workflow == "map_enrichment":
+            if self.scene_sequence is None or offsets[0] is None or offsets[1] is None:
+                raise ValueError(
+                    "map enrichment candidates require exact source position and sequence"
+                )
+            if self.authorization.scope.stage != "map_observations":
+                raise ValueError(
+                    "map enrichment authorization scope stage must be map_observations"
+                )
+            if offsets[1] - offsets[0] != len(self.evidence_text):
+                raise ValueError(
+                    "map enrichment source offsets must match evidence text length"
+                )
+        if self.resolved_location_entity_id is not None and (
+            self.proposal.proposal_type not in {"character_location", "event_location"}
+        ):
+            raise ValueError("resolved location is only valid for location proposals")
+        return self
 
 
 class MapObservationCandidateResult(BaseModel):

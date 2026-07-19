@@ -183,7 +183,9 @@ class MapDynamicHelperMixin:
         risk_summary: list[str],
     ) -> dict[str, Any]:
         crisis = next((item for item in queue if item.dynamic_type == "crisis"), None)
-        characters = [item.title for item in queue if item.object_type == "character"][:5]
+        characters = list(
+            dict.fromkeys(item.title for item in queue if item.object_type == "character")
+        )[:5]
         scene_events = [
             item.title
             for item in queue
@@ -303,6 +305,7 @@ class MapDynamicHelperMixin:
             return None
         from modules.world.asset_state import project_map_state
         from modules.world.services.map.map_dynamic_projection import (
+            map_dynamic_track,
             normalize_dynamic_value,
         )
 
@@ -326,7 +329,11 @@ class MapDynamicHelperMixin:
             event_id=str(item.id),
             event_kind="observation" if kind == "observation" else "fact",
             typed_observation=typed_observation,
-            track=self._playback_track(track_dynamic_type),
+            track=map_dynamic_track(
+                track_dynamic_type,
+                target_entity_type=item.target_entity_type,
+                proposal_type=(item.source_ref or {}).get("proposal_type"),
+            ),
             title=self._display_title(item),
             time_label=self._time_label(item),
             status_label=self._status_label(status),
@@ -334,6 +341,7 @@ class MapDynamicHelperMixin:
             source_summary=self._source_summary(item),
             spatial_anchor=item.spatial_anchor or {},
             scene_index=item.scene_index,
+            scene_sequence=self._item_scene_sequence(item),
             source_chapter_index=item.source_chapter_index,
             risk_level=self._risk_level(
                 dynamic_type=track_dynamic_type,
@@ -636,18 +644,22 @@ class MapDynamicHelperMixin:
             return "世界动态"
         return text or "状态变化"
 
-    def _playback_track(self, dynamic_type: str) -> str:
-        if dynamic_type in {"location", "position_change", "movement"}:
-            return "journey"
-        if dynamic_type in {"boundary", "boundary_change", "territory"}:
-            return "territory"
-        if dynamic_type in {"crisis", "crisis_spread", "risk", "conflict"}:
-            return "crisis"
-        if dynamic_type in {"resource", "resource_control", "resource_control_change"}:
-            return "resource"
-        if dynamic_type in {"status", "status_change"}:
-            return "status"
-        return "world"
+    def _playback_track(
+        self,
+        dynamic_type: str,
+        *,
+        target_entity_type: str | None = None,
+        proposal_type: str | None = None,
+    ) -> str:
+        from modules.world.services.map.map_dynamic_projection import (
+            map_dynamic_track,
+        )
+
+        return map_dynamic_track(
+            dynamic_type,
+            target_entity_type=target_entity_type,
+            proposal_type=proposal_type,
+        )
 
     def _playback_track_label(self, track: str) -> str:
         return {
@@ -697,15 +709,32 @@ class MapDynamicHelperMixin:
 
     def _time_label(self, item: Any) -> str:
         time_anchor = item.time_anchor or {}
-        scene_index = getattr(item, "scene_index", None) or time_anchor.get("scene_index")
+        scene_index = getattr(item, "scene_index", None)
+        if scene_index is None:
+            scene_index = time_anchor.get("scene_index")
         if scene_index is not None:
-            return f"Scene {scene_index}"
+            scene_ordinal = int(scene_index) + 1
+            sequence = self._item_scene_sequence(item)
+            if sequence is not None:
+                return f"Scene {scene_ordinal} · 片段 {sequence + 1}"
+            return f"Scene {scene_ordinal}"
         chapter_index = getattr(item, "source_chapter_index", None) or time_anchor.get(
             "chapter_index"
         )
         if chapter_index is not None:
             return f"第 {chapter_index} 章"
         return "时间待补充"
+
+    @staticmethod
+    def _item_scene_sequence(item: Any) -> int | None:
+        value = dict(getattr(item, "time_anchor", None) or {}).get("scene_sequence")
+        if isinstance(value, bool):
+            return None
+        try:
+            sequence = int(value)
+        except (TypeError, ValueError):
+            return None
+        return sequence if sequence >= 0 else None
 
     def _status_label(self, status: str | None) -> str:
         return {

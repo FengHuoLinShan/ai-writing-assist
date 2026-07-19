@@ -98,6 +98,44 @@ describe("mapLayoutEngine", () => {
     expect(layout.layoutHint).toContain("叙事透镜")
   })
 
+  it("treats semantic related ids as focus links and preserves map label sources", () => {
+    const layout = buildMapLayout({
+      dashboard: {
+        dynamic_queue: [
+          item({
+            item_id: "related-route",
+            title: "通往黑荆棘的路线",
+            object_type: "route",
+            related_entity_ids: ["char-1"],
+            source_kind: "path",
+            source_id: "path-1",
+            q: 3,
+            r: 4,
+            priority: 20,
+            anchor: { x: 120, y: 120 },
+          }),
+          item({
+            item_id: "background",
+            title: "远方事件",
+            priority: 80,
+            anchor: { x: 220, y: 160 },
+          }),
+        ],
+      },
+      viewport: { width: 360, height: 240 },
+      viewMode: "lens",
+      focusEntityId: "char-1",
+    })
+
+    expect(layout.labels[0]).toMatchObject({
+      itemId: "related-route",
+      sourceKind: "path",
+      sourceId: "path-1",
+      q: 3,
+      r: 4,
+    })
+  })
+
   it("keeps chaos density deterministic and degrades in the documented order", () => {
     const queue = Array.from({ length: 42 }, (_, index) => item({
       item_id: `chaos-${index}`,

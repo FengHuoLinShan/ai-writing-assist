@@ -72,9 +72,10 @@ def generation_center_frontend_template_options_match(
         SUPPORTED_OBJECT_TEMPLATES,
     )
 
-    view_path = REPO_ROOT / "frontend-console" / "views" / "generateView.js"
+    relative_view_path = "frontend-console/vue/views/generate/logic/generateLogic.js"
+    view_path = REPO_ROOT / relative_view_path
     text = view_path.read_text(encoding="utf-8")
-    match = re.search(r"const TEMPLATE_TYPE_OPTIONS = \[(.*?)\]", text, re.S)
+    match = re.search(r"const allowed = new Set\(\[(.*?)\]\)", text, re.S)
     if not match:
         return [
             ContractIssue(
@@ -84,7 +85,7 @@ def generation_center_frontend_template_options_match(
                 message=(
                     "Generation Center frontend template type options were not found."
                 ),
-                path="frontend-console/views/generateView.js",
+                path=relative_view_path,
             )
         ]
     issues: list[ContractIssue] = []
@@ -100,7 +101,7 @@ def generation_center_frontend_template_options_match(
                     "Generation Center frontend template type options differ from "
                     "backend supported object templates."
                 ),
-                path="frontend-console/views/generateView.js",
+                path=relative_view_path,
             )
         )
 
@@ -116,7 +117,7 @@ def generation_center_frontend_template_options_match(
                 contract_id=contract_id,
                 code="frontend.template_prompts_missing",
                 message="Generation Center frontend fallback prompts were not found.",
-                path="frontend-console/views/generateView.js",
+                path=relative_view_path,
             )
         )
         return issues
@@ -143,7 +144,7 @@ def generation_center_frontend_template_options_match(
                     "Generation Center frontend fallback prompts differ from "
                     "backend built-in templates."
                 ),
-                path="frontend-console/views/generateView.js",
+                path=relative_view_path,
             )
         )
     return issues

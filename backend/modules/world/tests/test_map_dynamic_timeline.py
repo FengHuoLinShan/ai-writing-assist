@@ -56,7 +56,11 @@ async def _create_fact(
     scene: dict,
     spatial_anchor: dict,
     value_json: dict,
+    scene_sequence: int | None = None,
 ) -> dict:
+    time_anchor = {"scene_index": scene["scene_index"]}
+    if scene_sequence is not None:
+        time_anchor["scene_sequence"] = scene_sequence
     created = await client.post(
         f"/api/world/maps/{map_id}/observations",
         params={"novel_id": novel_id},
@@ -67,7 +71,7 @@ async def _create_fact(
             "dynamic_type": dynamic_type,
             "scene_id": scene["id"],
             "scene_index": scene["scene_index"],
-            "time_anchor": {"scene_index": scene["scene_index"]},
+            "time_anchor": time_anchor,
             "spatial_anchor": spatial_anchor,
             "value_json": value_json,
             "source_ref": {"source": "timeline_test"},
@@ -206,9 +210,7 @@ async def test_partial_observation_patch_validates_merged_typed_contract(
         },
     )
     assert type_only.status_code == 422
-    assert any(
-        error["loc"][-1] == "dynamic_type" for error in type_only.json()["detail"]
-    )
+    assert any(error["loc"][-1] == "dynamic_type" for error in type_only.json()["detail"])
 
     value_only = await async_client.patch(
         f"/api/world/maps/{map_data['id']}/observations/{observation_id}",
@@ -221,7 +223,7 @@ async def test_partial_observation_patch_validates_merged_typed_contract(
                 "terrain_key": "flood",
                 "state": "spread",
                 "hexes": [{"hex_q": 2, "hex_r": 2}],
-            }
+            },
         },
     )
     assert value_only.status_code == 422
@@ -370,9 +372,7 @@ async def test_deep_import_typed_gate_canonicalizes_or_quarantines(
         scene_index=2,
     )
     assert "schema_version" not in quarantined.value_json
-    assert quarantined.source_ref["invalid_map_value"]["reason"] == (
-        "entity_not_found"
-    )
+    assert quarantined.source_ref["invalid_map_value"]["reason"] == ("entity_not_found")
 
 
 @pytest.mark.asyncio
@@ -599,6 +599,189 @@ async def test_same_scene_conflict_is_not_selected_and_rollback_reprojects(
 
 
 @pytest.mark.asyncio
+async def test_same_scene_sequenced_movements_project_as_ordered_journey(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    map_data = await _create_map(async_client, novel_id)
+    character = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="character",
+        name="林照",
+        status="canonical",
+    )
+    east = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="东门",
+        status="canonical",
+    )
+    west = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="西门",
+        status="canonical",
+    )
+    scene = await _create_scene(db_session, novel_id, 3)
+    for sequence, (location, q, r) in enumerate(((east, 1, 1), (west, 8, 8))):
+        await _create_fact(
+            async_client,
+            novel_id,
+            map_data["id"],
+            target_entity_id=str(character.id),
+            target_name="林照",
+            dynamic_type="location",
+            scene=scene,
+            scene_sequence=sequence,
+            spatial_anchor={
+                "location_entity_id": str(location.id),
+                "hex_q": q,
+                "hex_r": r,
+            },
+            value_json={
+                "schema_version": 1,
+                "type": "location",
+                "location_entity_id": str(location.id),
+                "movement_mode": "walk",
+            },
+        )
+
+    timeline = await async_client.get(
+        f"/api/world/maps/{map_data['id']}/timeline",
+        params={
+            "novel_id": novel_id,
+            "from_scene_index": 3,
+            "to_scene_index": 3,
+        },
+    )
+
+    assert timeline.status_code == 200, timeline.text
+    body = timeline.json()
+    assert body["conflicts"] == []
+    assert [item["scene_sequence"] for item in body["deltas"]] == [0, 1]
+    assert [item["track"] for item in body["deltas"]] == ["journey", "journey"]
+    assert body["deltas"][1]["change_kind"] == "change"
+    assert body["deltas"][1]["before_scene_index"] == 3
+    assert body["deltas"][1]["before_scene_sequence"] == 0
+    assert body["deltas"][1]["after"]["location_entity_id"] == str(west.id)
+
+    state = await async_client.get(
+        f"/api/world/maps/{map_data['id']}/state-at",
+        params={"novel_id": novel_id, "scene_index": 3},
+    )
+    assert state.status_code == 200, state.text
+    assert state.json()["conflicts"] == []
+    assert state.json()["items"][0]["scene_sequence"] == 1
+    assert state.json()["items"][0]["normalized_value"]["location_entity_id"] == str(
+        west.id
+    )
+
+    playback = await async_client.get(
+        f"/api/world/maps/{map_data['id']}/playback",
+        params={"novel_id": novel_id, "include_candidates": False},
+    )
+    assert playback.status_code == 200, playback.text
+    assert [event["scene_sequence"] for event in playback.json()["events"]] == [
+        0,
+        1,
+    ]
+    assert [event["time_label"] for event in playback.json()["events"]] == [
+        "Scene 4 · 片段 1",
+        "Scene 4 · 片段 2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_location_fact_for_place_uses_world_track_not_character_journey(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    location = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="东门",
+        status="canonical",
+    )
+    character = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="character",
+        name="林照",
+        status="canonical",
+    )
+    map_response = await async_client.post(
+        "/api/world/maps/quick-create/confirm",
+        params={"novel_id": novel_id},
+        json={
+            "name": "动态地图",
+            "location_entity_ids": [str(location.id)],
+            "grid_width": 12,
+            "grid_height": 12,
+        },
+    )
+    assert map_response.status_code == 201, map_response.text
+    map_data = map_response.json()["map"]
+    scene = await _create_scene(db_session, novel_id, 0)
+    await _create_fact(
+        async_client,
+        novel_id,
+        map_data["id"],
+        target_entity_id=str(character.id),
+        target_name="林照",
+        dynamic_type="location",
+        scene=scene,
+        scene_sequence=0,
+        spatial_anchor={
+            "location_entity_id": str(location.id),
+            "hex_q": 1,
+            "hex_r": 1,
+        },
+        value_json={
+            "schema_version": 1,
+            "type": "location",
+            "location_entity_id": str(location.id),
+            "state": "present",
+        },
+    )
+
+    world_timeline = await async_client.get(
+        f"/api/world/maps/{map_data['id']}/timeline",
+        params={
+            "novel_id": novel_id,
+            "from_scene_index": 0,
+            "to_scene_index": 0,
+            "tracks": "world",
+        },
+    )
+    assert world_timeline.status_code == 200, world_timeline.text
+    assert world_timeline.json()["deltas"] == []
+    assert [item["target_name"] for item in world_timeline.json()["undated_facts"]] == [
+        "东门"
+    ]
+
+    journey_timeline = await async_client.get(
+        f"/api/world/maps/{map_data['id']}/timeline",
+        params={
+            "novel_id": novel_id,
+            "from_scene_index": 0,
+            "to_scene_index": 0,
+            "tracks": "journey",
+        },
+    )
+    assert journey_timeline.status_code == 200, journey_timeline.text
+    assert [item["track"] for item in journey_timeline.json()["deltas"]] == ["journey"]
+    assert journey_timeline.json()["undated_facts"] == []
+
+
+@pytest.mark.asyncio
 async def test_unresolved_targets_are_not_merged_by_display_name(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -607,8 +790,7 @@ async def test_unresolved_targets_are_not_merged_by_display_name(
     await _create_project(db_session, novel_id)
     map_data = await _create_map(async_client, novel_id)
     scenes = [
-        await _create_scene(db_session, novel_id, scene_index)
-        for scene_index in (1, 2)
+        await _create_scene(db_session, novel_id, scene_index) for scene_index in (1, 2)
     ]
     for scene, value in zip(scenes, ("open", "closed"), strict=True):
         await _create_fact(
@@ -811,9 +993,9 @@ async def test_focused_timeline_uses_global_route_without_leaking_other_entity(
     )
     assert baseline.status_code == 200, baseline.text
     assert baseline.json()["continuity_issues"] == []
-    assert {
-        item["target_entity_id"] for item in baseline.json()["deltas"]
-    } == {str(character.id)}
+    assert {item["target_entity_id"] for item in baseline.json()["deltas"]} == {
+        str(character.id)
+    }
 
     await _create_fact(
         async_client,
@@ -844,9 +1026,9 @@ async def test_focused_timeline_uses_global_route_without_leaking_other_entity(
     )
     assert response.status_code == 200, response.text
     assert response.json()["projection_token"] != baseline.json()["projection_token"]
-    assert {
-        item["target_entity_id"] for item in response.json()["deltas"]
-    } == {str(character.id)}
+    assert {item["target_entity_id"] for item in response.json()["deltas"]} == {
+        str(character.id)
+    }
     focused_state = await async_client.get(
         f"/api/world/maps/{map_data['id']}/state-at",
         params={
@@ -900,9 +1082,7 @@ async def test_focused_timeline_uses_global_route_without_leaking_other_entity(
         },
     )
     assert after_edit.status_code == 200, after_edit.text
-    issue_types = {
-        item["issue_type"] for item in after_edit.json()["continuity_issues"]
-    }
+    issue_types = {item["issue_type"] for item in after_edit.json()["continuity_issues"]}
     assert issue_types == {"path_revision_mismatch"}
     assert after_edit.json()["projection_token"] != response.json()["projection_token"]
 
@@ -941,8 +1121,7 @@ async def test_value_only_path_is_snapshotted_on_batch_confirm_and_reprojects(
     )
     path_id = path_result["client_id_map"]["road"]
     scenes = [
-        await _create_scene(db_session, novel_id, scene_index)
-        for scene_index in (1, 2)
+        await _create_scene(db_session, novel_id, scene_index) for scene_index in (1, 2)
     ]
     observations = []
     for scene, location, (hex_q, hex_r) in zip(
@@ -1037,6 +1216,6 @@ async def test_value_only_path_is_snapshotted_on_batch_confirm_and_reprojects(
         },
     )
     assert projected.status_code == 200, projected.text
-    assert {
-        item["issue_type"] for item in projected.json()["continuity_issues"]
-    } == {"path_revision_mismatch"}
+    assert {item["issue_type"] for item in projected.json()["continuity_issues"]} == {
+        "path_revision_mismatch"
+    }

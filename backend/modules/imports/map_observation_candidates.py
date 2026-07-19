@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from modules.imports.llm_schemas import ExtractedMapObservationProposal
 from modules.world.contracts import (
@@ -16,6 +17,15 @@ from modules.world.contracts import (
     MapObservationCandidateInput,
     MapRouteStateProposal,
 )
+
+
+@dataclass(frozen=True)
+class MapObservationProposalPosition:
+    """Exact published-draft coordinate for one materialized proposal."""
+
+    scene_sequence: int
+    source_start_offset: int
+    source_end_offset: int
 
 
 def build_map_observation_candidates(
@@ -29,9 +39,26 @@ def build_map_observation_candidates(
     scene_source_fingerprint: str,
     context_snapshot_id: str | None = None,
     task_id: str | None = None,
+    source_workflow: Literal["deep_import", "map_enrichment"] = "deep_import",
+    proposal_positions: list[MapObservationProposalPosition | None] | None = None,
+    target_entity_ids: list[str | None] | None = None,
+    location_entity_ids: list[str | None] | None = None,
     authorization_snapshot: dict[str, Any],
 ) -> list[MapObservationCandidateInput]:
     """Map untrusted LLM output to provenance-complete stable inputs."""
+    positions = (
+        [None] * len(proposals) if proposal_positions is None else proposal_positions
+    )
+    if len(positions) != len(proposals):
+        raise ValueError("proposal positions must align with proposals")
+    targets = [None] * len(proposals) if target_entity_ids is None else target_entity_ids
+    locations = (
+        [None] * len(proposals) if location_entity_ids is None else location_entity_ids
+    )
+    if len(targets) != len(proposals):
+        raise ValueError("target entity ids must align with proposals")
+    if len(locations) != len(proposals):
+        raise ValueError("location entity ids must align with proposals")
     if not isinstance(authorization_snapshot, dict) or not authorization_snapshot:
         raise ValueError("typed map proposals require an authorization snapshot")
     fingerprint_payload = json.dumps(
@@ -121,25 +148,38 @@ def build_map_observation_candidates(
             )
         source_key_basis, evidence_anchor = source_metadata[index]
         local_ordinal = stable_ordinals[index]
+        position = positions[index]
         source_key_digest = hashlib.sha256(source_key_basis.encode("utf-8")).hexdigest()
         candidates.append(
             MapObservationCandidateInput(
                 workflow_id=workflow_id,
+                source_workflow=source_workflow,
                 task_id=task_id,
                 source_item_key=(
                     f"map-proposal:v1:{proposal_type}:{source_key_digest}:{local_ordinal}"
                 ),
                 scene_id=scene_id,
                 scene_index=scene_index,
+                scene_sequence=(position.scene_sequence if position else None),
                 source_chapter_index=source_chapter_index,
+                source_start_offset=(position.source_start_offset if position else None),
+                source_end_offset=(position.source_end_offset if position else None),
                 scene_source_fingerprint=scene_source_fingerprint,
                 context_snapshot_id=context_snapshot_id,
                 evidence_text=item.quote,
                 evidence_anchor=evidence_anchor,
                 confidence=item.confidence,
+                target_entity_id=targets[index],
+                resolved_location_entity_id=locations[index],
                 target_name=target_name,
                 proposal=proposal,
                 authorization=authorization,
             )
         )
     return candidates
+
+
+__all__ = [
+    "MapObservationProposalPosition",
+    "build_map_observation_candidates",
+]

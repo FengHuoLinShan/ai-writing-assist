@@ -49,6 +49,24 @@ GEO_RELATION_TYPES = {
 
 PLACEABLE_LOCATION_STATUSES = ("canonical",)
 REVIEW_LOCATION_STATUSES = ("draft", "candidate")
+MAP_SCOPE_LABELS = {
+    "world": "世界级",
+    "region": "区域级",
+    "settlement": "城市/聚落",
+    "site": "地点/建筑",
+    "interior": "室内/地下",
+    "nonphysical": "非物理空间",
+    "unknown": "尺度待判断",
+}
+MAP_SCOPE_TARGETS = {
+    "world": ["world"],
+    "region": ["world"],
+    "settlement": ["world", "detail"],
+    "site": ["detail", "drilldown"],
+    "interior": ["detail", "drilldown"],
+    "nonphysical": ["world", "detail"],
+    "unknown": ["world", "detail", "drilldown"],
+}
 
 
 @dataclass(frozen=True)
@@ -97,20 +115,26 @@ class MapQuickCreateService:
                 nid,
                 REVIEW_LOCATION_STATUSES,
             )
+        relations = await self._list_canonical_relations(db, nid)
         maps = await self._config_service.list(db, novel_id)
         warnings = []
         if not locations and not candidate_locations:
             warnings.append("缺少可用于快速创建的地点对象")
+        location_summaries = [self._entity_summary(item) for item in locations]
+        candidate_summaries = [self._entity_summary(item) for item in candidate_locations]
+        self._enrich_location_context(
+            [*location_summaries, *candidate_summaries],
+            relations,
+            maps.items,
+        )
         return MapQuickCreateContextResponse(
             map_targets=[
                 {"target": "world", "label": "创建世界地图"},
                 {"target": "detail", "label": "为地点创建详图"},
                 {"target": "drilldown", "label": "基于当前地点下钻地图"},
             ],
-            locations=[self._entity_summary(item) for item in locations],
-            candidate_locations=[
-                self._entity_summary(item) for item in candidate_locations
-            ],
+            locations=location_summaries,
+            candidate_locations=candidate_summaries,
             existing_maps=maps.items,
             warnings=warnings,
         )
@@ -159,6 +183,17 @@ class MapQuickCreateService:
             warnings.append("缺少可用于快速创建的地点对象")
         elif not geo_relations:
             warnings.append("缺少地点方向/距离关系，已生成等间距草稿")
+        if data.target == "world":
+            local_count = sum(
+                1
+                for item in locations
+                if item.get("map_scope", {}).get("key") in {"site", "interior"}
+            )
+            if local_count:
+                warnings.append(
+                    f"检测到 {local_count} 个建筑或室内地点；建议在世界图中取消选择，"
+                    "并为其所属城市或建筑创建详图"
+                )
         return MapQuickCreatePreviewResponse(
             map=map_draft,
             location_layouts=layout_items,
@@ -283,9 +318,7 @@ class MapQuickCreateService:
             created_map.id,
             locked_config=locked_config,
         )
-        fresh_map = await self._config_service.get(
-            db, created_map.id, novel_id=novel_id
-        )
+        fresh_map = await self._config_service.get(db, created_map.id, novel_id=novel_id)
         return MapQuickCreateConfirmResponse(
             map=fresh_map,
             location_layouts=layout_response.items,
@@ -839,10 +872,134 @@ class MapQuickCreateService:
         return "快速创建地点详图"
 
     def _entity_summary(self, entity) -> dict:
+        map_scope = self._infer_map_scope(entity)
         return {
             "id": str(entity.id),
             "name": entity.name,
             "entity_type": entity.entity_type,
             "status": entity.status,
             "summary": entity.summary,
+            "map_scope": map_scope,
         }
+
+    def _infer_map_scope(self, entity) -> dict:
+        content = dict(getattr(entity, "content_json", None) or {})
+        explicit = content.get("map_scope") or content.get("location_scale")
+        if isinstance(explicit, dict):
+            explicit = explicit.get("key")
+        if explicit in MAP_SCOPE_LABELS:
+            key = explicit
+            basis = "explicit"
+        else:
+            text = f"{entity.name or ''} {entity.summary or ''}"
+            if any(token in text for token in ("灰雾", "梦境", "神秘空间", "精神空间")):
+                key = "nonphysical"
+            elif any(
+                token in text
+                for token in (
+                    "房间",
+                    "会议室",
+                    "炼金室",
+                    "告解室",
+                    "盥洗室",
+                    "武器库",
+                    "地下室",
+                    "地下通道",
+                    "走廊",
+                    "查尼斯门",
+                    "船长室",
+                )
+            ):
+                key = "interior"
+            elif any(token in entity.name for token in ("市", "城", "港")) or any(
+                token in text for token in ("首都", "城市", "聚落")
+            ):
+                key = "settlement"
+            elif any(
+                token in entity.name
+                for token in (
+                    "世界",
+                    "大陆",
+                    "王国",
+                    "帝国",
+                    "国家",
+                    "山脉",
+                    "海域",
+                    "岛屿",
+                    "神弃之地",
+                )
+            ):
+                key = "region"
+            elif any(
+                token in text
+                for token in (
+                    "街",
+                    "公寓",
+                    "住所",
+                    "公司",
+                    "教堂",
+                    "大学",
+                    "学校",
+                    "俱乐部",
+                    "别墅",
+                    "酒吧",
+                    "商店",
+                    "餐厅",
+                    "面包店",
+                )
+            ):
+                key = "site"
+            else:
+                key = "unknown"
+            basis = "name_summary" if key != "unknown" else "unknown"
+        return {
+            "key": key,
+            "label": MAP_SCOPE_LABELS[key],
+            "basis": basis,
+            "recommended_targets": MAP_SCOPE_TARGETS[key],
+        }
+
+    def _enrich_location_context(self, locations, relations, maps) -> None:
+        by_id = {item["id"]: item for item in locations}
+        parent_ids: dict[str, set[str]] = {location_id: set() for location_id in by_id}
+        child_ids: dict[str, set[str]] = {location_id: set() for location_id in by_id}
+        for relation in relations:
+            source_id = str(relation.source_id)
+            target_id = str(relation.target_id)
+            if relation.relation_type == "contains":
+                parent_id, child_id = source_id, target_id
+            elif relation.relation_type in {"contained_in", "located_in"}:
+                parent_id, child_id = target_id, source_id
+            else:
+                continue
+            if parent_id not in by_id or child_id not in by_id:
+                continue
+            parent_ids[child_id].add(parent_id)
+            child_ids[parent_id].add(child_id)
+        detail_maps: dict[str, list[dict]] = {location_id: [] for location_id in by_id}
+        for map_item in maps:
+            parent_entity_id = (
+                str(map_item.parent_entity_id) if map_item.parent_entity_id else None
+            )
+            if parent_entity_id not in detail_maps:
+                continue
+            detail_maps[parent_entity_id].append(
+                {
+                    "id": map_item.id,
+                    "name": map_item.name,
+                    "map_type": map_item.map_type,
+                }
+            )
+        for location_id, item in by_id.items():
+            item["parent_locations"] = [
+                {"id": parent_id, "name": by_id[parent_id]["name"]}
+                for parent_id in sorted(
+                    parent_ids[location_id], key=lambda value: by_id[value]["name"]
+                )
+            ]
+            item["child_location_count"] = len(child_ids[location_id])
+            item["detail_maps"] = sorted(
+                detail_maps[location_id],
+                key=lambda value: (value["name"], value["id"]),
+            )
+            item["has_detail_map"] = bool(item["detail_maps"])

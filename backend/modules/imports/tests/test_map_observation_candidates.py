@@ -14,6 +14,7 @@ from modules.imports.llm_schemas import (
     SceneEntityExtractionOutput,
 )
 from modules.imports.map_observation_candidates import (
+    MapObservationProposalPosition,
     build_map_observation_candidates,
 )
 from modules.imports.phase2_world_extraction import (
@@ -90,6 +91,100 @@ def test_mapping_keeps_source_identity_stable_and_payload_evidence_explicit() ->
     assert first.evidence_anchor != proposal.quote
     assert first.proposal.proposal_type == "character_location"
     assert first.authorization.authorization_confirmed is True
+
+
+def test_mapping_marks_map_enrichment_as_distinct_source_workflow() -> None:
+    novel_id = str(uuid.uuid4())
+    proposal = ExtractedCharacterLocationProposal(
+        proposal_type="character_location",
+        character_name="沈砚",
+        location_name="青石镇",
+        quote="沈砚走进青石镇。",
+        confidence=0.91,
+    )
+
+    candidate = build_map_observation_candidates(
+        [proposal],
+        novel_id=novel_id,
+        workflow_id="map-enrichment-1",
+        scene_id=str(uuid.uuid4()),
+        scene_index=4,
+        source_chapter_index=2,
+        scene_source_fingerprint="a" * 64,
+        source_workflow="map_enrichment",
+        proposal_positions=[
+            MapObservationProposalPosition(
+                scene_sequence=0,
+                source_start_offset=12,
+                source_end_offset=20,
+            )
+        ],
+        authorization_snapshot={
+            "adoption_policy": "user_authorized_pipeline",
+            "authorization_confirmed": True,
+            "authorized_at": "2026-07-18T00:00:00Z",
+            "scope": {
+                "novel_id": novel_id,
+                "start_chapter": 1,
+                "end_chapter": 10,
+                "stage": "map_observations",
+            },
+        },
+    )[0]
+
+    assert candidate.source_workflow == "map_enrichment"
+    assert candidate.scene_sequence == 0
+    assert candidate.source_start_offset == 12
+    assert candidate.source_end_offset == 20
+
+
+def test_mapping_requires_exact_position_for_map_enrichment() -> None:
+    novel_id = str(uuid.uuid4())
+    proposal = ExtractedCharacterLocationProposal(
+        proposal_type="character_location",
+        character_name="沈砚",
+        location_name="青石镇",
+        quote="沈砚走进青石镇。",
+        confidence=0.91,
+    )
+    authorization = {
+        "adoption_policy": "user_authorized_pipeline",
+        "authorization_confirmed": True,
+        "authorized_at": "2026-07-18T00:00:00Z",
+        "scope": {
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 10,
+            "stage": "map_observations",
+        },
+    }
+
+    with pytest.raises(ValidationError, match="exact source position"):
+        build_map_observation_candidates(
+            [proposal],
+            novel_id=novel_id,
+            workflow_id="map-enrichment-1",
+            scene_id=str(uuid.uuid4()),
+            scene_index=4,
+            source_chapter_index=2,
+            scene_source_fingerprint="a" * 64,
+            source_workflow="map_enrichment",
+            authorization_snapshot=authorization,
+        )
+
+    with pytest.raises(ValueError, match="must align"):
+        build_map_observation_candidates(
+            [proposal],
+            novel_id=novel_id,
+            workflow_id="map-enrichment-1",
+            scene_id=str(uuid.uuid4()),
+            scene_index=4,
+            source_chapter_index=2,
+            scene_source_fingerprint="a" * 64,
+            source_workflow="map_enrichment",
+            proposal_positions=[],
+            authorization_snapshot=authorization,
+        )
 
 
 def test_mapping_identity_survives_same_type_proposal_reordering() -> None:

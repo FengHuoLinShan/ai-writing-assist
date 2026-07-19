@@ -17,12 +17,15 @@ import {
   createMapInboxFilters,
   filterInboxItems,
   listItems,
+  mapSceneLabel,
+  mapSourceText,
   readRecentMap,
   saveRecentMap,
 } from "./mapModel.js"
 import { createMapModalController } from "./mapModalController.js"
 import { useMapQuickCreate } from "./useMapQuickCreate.js"
 import { useMapDynamicEditor } from "./useMapDynamicEditor.js"
+import { useMapEnrichment } from "./useMapEnrichment.js"
 
 function emptySummary() {
   return { loading: false, loaded: false, dashboard: null, observations: [], facts: [], historyItems: [], historyLoaded: false, historyLoading: false, error: null }
@@ -115,19 +118,74 @@ export function useMapWorkspace(props) {
   const archivedPageCount = computed(() => Math.max(1, Math.ceil(archivedRoots.value.length / ARCHIVED_PAGE_SIZE)))
   const visibleArchivedMaps = computed(() => archivedRoots.value.slice(archivedPage.value * ARCHIVED_PAGE_SIZE, (archivedPage.value + 1) * ARCHIVED_PAGE_SIZE))
   const dashboardQueue = computed(() => dynamicSummary.dashboard?.dynamic_queue || [])
-  const activeQueue = computed(() => {
-    const mergedQueue = dashboardQueue.value.map((item) => {
+  const mergedDashboardQueue = computed(() => dashboardQueue.value.map((item) => {
       if (item.item_kind !== "observation") return item
       const fresh = dynamicSummary.observations.find((entry) => String(itemId(entry)) === String(itemId(item)))
       return fresh ? { ...item, ...fresh } : item
-    })
-    const active = mergedQueue.filter((item) => !mapAssetDisplay(item).isHistory)
-    if (!showHistory.value) return active
-    return [...active, ...mergedQueue.filter((item) => mapAssetDisplay(item).isHistory), ...dynamicSummary.historyItems]
+    }))
+  const activeQueue = computed(() => mergedDashboardQueue.value.filter(
+    (item) => !mapAssetDisplay(item).isHistory,
+  ))
+  const historyQueue = computed(() => {
+    const result = new Map()
+    for (const item of [
+      ...mergedDashboardQueue.value.filter((entry) => mapAssetDisplay(entry).isHistory),
+      ...dynamicSummary.historyItems,
+    ]) {
+      result.set(`${item.item_kind || "item"}:${itemId(item) || result.size}`, item)
+    }
+    return [...result.values()]
   })
   const observationById = computed(() => new Map(dynamicSummary.observations.flatMap((item) => [[String(itemId(item)), item], [String(item.id || ""), item]])))
   const factById = computed(() => new Map(dynamicSummary.facts.flatMap((item) => [[String(itemId(item)), item], [String(item.id || ""), item]])))
   const currentTimelineScene = computed(() => timeline.data?.scenes?.[timeline.activeIndex] || null)
+  const activeSceneLabel = computed(() => {
+    const scene = (timeline.data?.scenes || []).find((item) => item.scene_id === activeSceneId.value)
+    if (scene?.scene_index != null) return mapSceneLabel(scene.scene_index)
+    const queueItem = dashboardQueue.value.find(
+      (item) => item.scene_id === activeSceneId.value || item.source_scene_id === activeSceneId.value,
+    )
+    return queueItem?.time_label || (activeSceneId.value ? "当前 Scene" : "当前正式世界状态")
+  })
+  const currentLiveFacts = computed(() => activeQueue.value.filter((item) => (
+    item.item_kind === "fact"
+    && (!activeSceneId.value || item.scene_id === activeSceneId.value || item.source_scene_id === activeSceneId.value)
+  )))
+  function dynamicItemRelatedToEntity(item, entityId) {
+    if (!item || !entityId) return false
+    return [
+      item.target_entity_id,
+      item.entity_id,
+      item.location_entity_id,
+      item.faction_entity_id,
+      ...(Array.isArray(item.related_entity_ids) ? item.related_entity_ids : []),
+      ...(Array.isArray(item.normalized_value?.related_entity_ids)
+        ? item.normalized_value.related_entity_ids
+        : []),
+    ].filter(Boolean).includes(entityId)
+  }
+  const lensHasFocus = computed(() => Boolean(
+    focusEntityId.value || focusedDynamicItemId.value || activeSceneId.value,
+  ))
+  const lensContextItems = computed(() => {
+    const timelineItems = dynamicSummary.dashboard?.inspector?.timeline || []
+    if (timelineItems.length) return timelineItems
+    return activeQueue.value.filter((item) => (
+      (focusEntityId.value && dynamicItemRelatedToEntity(item, focusEntityId.value))
+      || (activeSceneId.value && (
+        item.scene_id === activeSceneId.value || item.source_scene_id === activeSceneId.value
+      ))
+    ))
+  })
+  const lensFocusableItems = computed(() => {
+    const seen = new Set()
+    return activeQueue.value.filter((item) => {
+      const id = item.target_entity_id
+      if (!id || seen.has(id)) return false
+      seen.add(id)
+      return true
+    }).slice(0, 6)
+  })
   const timelineProjection = computed(() => {
     if (!timeline.data || timeline.sceneIndex == null || timeline.stateError) return null
     return {
@@ -362,7 +420,7 @@ export function useMapWorkspace(props) {
   }
 
   function setViewMode(next) {
-    if (!["dashboard", "live", "lens"].includes(next) || viewport.value?.canLeave?.() === false) return false
+    if (!["dashboard", "live", "lens"].includes(next)) return false
     viewMode.value = next
     navigateRoute({ mode: next }, true)
     return true
@@ -563,6 +621,36 @@ export function useMapWorkspace(props) {
     viewport.value?.selectInspectorObject?.(item.item_kind, item)
     toast("检查器已在右侧显示", "info")
   }
+  async function focusEntityInLens(entityId) {
+    if (!entityId || !activeMapId.value) return false
+    focusEntityId.value = entityId
+    focusedDynamicItemId.value = null
+    viewMode.value = "lens"
+    navigateRoute({ focusEntityId: entityId, mode: "lens" }, true)
+    await loadDynamic({ force: true })
+    if (owned()) toast("已进入该对象的叙事透镜", "info")
+    return owned()
+  }
+  async function clearLensFocus() {
+    if (!activeMapId.value) return false
+    focusEntityId.value = null
+    focusedDynamicItemId.value = null
+    navigateRoute({ focusEntityId: null, mode: viewMode.value }, true)
+    await loadDynamic({ force: true })
+    return owned()
+  }
+  async function openDynamicItemById(dynamicItemId) {
+    const item = activeQueue.value.find(
+      (entry) => String(itemId(entry)) === String(dynamicItemId),
+    )
+    if (item) {
+      modalController.showDynamicItem(item)
+      return true
+    }
+    focusedDynamicItemId.value = dynamicItemId || null
+    await loadDynamic({ force: true })
+    return owned()
+  }
   function continuityAnchor(issue, side) {
     const factIds = new Set(issue?.source_fact_ids || [])
     const deltas = (timeline.data?.deltas || []).filter((delta) => (delta.source_fact_ids || []).some((id) => factIds.has(id)))
@@ -582,7 +670,8 @@ export function useMapWorkspace(props) {
   }
   function continuityEvidence(issue) {
     const evidence = (issue?.source_fact_ids || []).map((id) => factById.value.get(String(id))).filter(Boolean).map((item) => item.evidence_text || item.source_summary).filter(Boolean)
-    showModalHtml("空间连续性证据", `<div class="map-object-info"><div class="map-detail-section"><div class="map-detail-label">检查结果</div><div class="map-detail-value">${esc(issue?.message || "空间连续性待核对")}</div></div><div class="map-detail-section"><div class="map-detail-label">Scene</div><div class="map-detail-value">${esc(`Scene ${issue?.from_scene_index} → ${issue?.to_scene_index}`)}</div></div><div class="map-detail-section"><div class="map-detail-label">来源证据</div><div class="map-detail-value">${evidence.length ? evidence.slice(0, 5).map((text) => `<p>${esc(text)}</p>`).join("") : `已保留 ${esc((issue?.source_fact_ids || []).length)} 条来源事实`}</div></div></div>`, [{ text: "关闭", class: "", handler: closeModal }])
+    const sceneRange = `${mapSceneLabel(issue?.from_scene_index)} → ${mapSceneLabel(issue?.to_scene_index)}`
+    showModalHtml("空间连续性证据", `<div class="map-object-info"><div class="map-detail-section"><div class="map-detail-label">检查结果</div><div class="map-detail-value">${esc(issue?.message || "空间连续性待核对")}</div></div><div class="map-detail-section"><div class="map-detail-label">Scene</div><div class="map-detail-value">${esc(sceneRange)}</div></div><div class="map-detail-section"><div class="map-detail-label">来源证据</div><div class="map-detail-value">${evidence.length ? evidence.slice(0, 5).map((text) => `<p>${esc(mapSourceText(text))}</p>`).join("") : `已保留 ${esc((issue?.source_fact_ids || []).length)} 条来源事实`}</div></div></div>`, [{ text: "关闭", class: "", handler: closeModal }])
   }
   function continuityExplain(issue) {
     const suggestion = issue?.suggested_observation
@@ -615,6 +704,7 @@ export function useMapWorkspace(props) {
     getViewport: () => viewport.value,
     getEntities: () => dynamicEditorEntities.value,
     getLocations: () => locations.value,
+    getSpatialContext: () => viewport.value?.spatialContext?.() || null,
     onSaveObservation: saveObservation,
     onFactStatus: updateFact,
   })
@@ -650,6 +740,13 @@ export function useMapWorkspace(props) {
     projectId,
     onCreated: async (map) => { await reloadCatalog(); return openMap(map.id, { viewMode: "live" }) },
   })
+  const enrichment = useMapEnrichment({
+    projectId,
+    onDone: async () => {
+      await Promise.all([reloadCatalog(), loadInbox()])
+      if (activeMapId.value) await loadDynamic({ force: true })
+    },
+  })
 
   const viewportContext = computed(() => ({
     projectId, mapId: activeMapId.value, sceneId: activeSceneId.value,
@@ -658,11 +755,16 @@ export function useMapWorkspace(props) {
     viewMode: viewMode.value, lowMotion: lowMotion.value, mode: "map", layers: { ...layers },
     onMapOpened: (map) => saveRecentMap(projectId, map),
     onEditingChange,
-    onOpenMap: (mapId) => openMap(mapId, { viewMode: "live" }),
+    onOpenMap: async (mapId) => {
+      if (!maps.value.some((item) => item.id === mapId)) await reloadCatalog()
+      return openMap(mapId, { viewMode: "live" })
+    },
     onBackOverview: returnOverview,
     onSceneChange: (sceneId) => { activeSceneId.value = sceneId || null; navigateRoute({ sceneId: activeSceneId.value }, true); loadDynamic({ force: true }) },
     onLayerFocusChange: (id) => { focusLayerNodeId.value = id || null; navigateRoute({ focusLayerNodeId: focusLayerNodeId.value }, true) },
     onOpenEntity: (id) => { appState.selectedItem = id; router?.navigate?.("world", "objects") },
+    onFocusEntity: focusEntityInLens,
+    onOpenDynamicItem: openDynamicItemById,
   }))
 
   async function initializeRoute() {
@@ -673,17 +775,21 @@ export function useMapWorkspace(props) {
 
   useLeaveGuard(() => viewport.value?.canLeave?.() !== false)
   const beforeUnload = (event) => { if (!editingState.dirty) return; event.preventDefault(); event.returnValue = "" }
-  onMounted(() => { window.addEventListener("beforeunload", beforeUnload); void initializeRoute() })
+  onMounted(() => {
+    window.addEventListener("beforeunload", beforeUnload)
+    enrichment.recover()
+    void initializeRoute()
+  })
   onBeforeUnmount(() => {
     disposed = true; dynamicGeneration.value += 1; timelineGeneration.value += 1
-    window.removeEventListener("beforeunload", beforeUnload); stopTimeline(); stopPlayback(); modalController.dispose(); quickCreate.close(); dynamicEditor.close()
+    window.removeEventListener("beforeunload", beforeUnload); stopTimeline(); stopPlayback(); modalController.dispose(); quickCreate.close(); dynamicEditor.close(); enrichment.dispose()
   })
 
   return {
-    activeMap, activeMapId, activeQueue, archiveMap, archivedPage, archivedPageCount,
+    activeMap, activeMapId, activeQueue, activeSceneLabel, archiveMap, archivedPage, archivedPageCount,
     archivedMaps, batchReview, confirmObservation, currentTimelineScene, dashboardQueue,
-    consumePendingObservationEditor, continuityEvidence, continuityExplain, continuityFocus, dynamicEditor, dynamicSummary, editingState, factById, focusEntityId, ignoreInbox, ignoreObservation,
-    inbox, inboxItems, layers, loadDynamic, loadInbox, locations, lowMotion, mapByParent,
+    clearLensFocus, consumePendingObservationEditor, continuityEvidence, continuityExplain, continuityFocus, currentLiveFacts, dynamicEditor, dynamicSummary, editingState, enrichment, factById, focusEntityId, focusEntityInLens, historyQueue, ignoreInbox, ignoreObservation,
+    inbox, inboxItems, layers, lensContextItems, lensFocusableItems, lensHasFocus, loadDynamic, loadInbox, locations, lowMotion, mapByParent,
     maps, message, modalController, mode, openLocation, openMap, openRecent, playback,
     projectId, quickCreate, recentMap, reloadCatalog, returnOverview, searchQuery, searchResults,
     setLayer, setLowMotion, setTimelineCandidates, setTimelinePosition, setTimelineTrack,

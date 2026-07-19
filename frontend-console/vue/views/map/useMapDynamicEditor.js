@@ -25,12 +25,13 @@ export function parseDynamicHexes(raw) {
   return [...byKey.values()].sort((a, b) => a.hex_q - b.hex_q || a.hex_r - b.hex_r)
 }
 
-export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLocations, onSaveObservation, onFactStatus }) {
+export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLocations, getSpatialContext, onSaveObservation, onFactStatus }) {
   const toast = getToast()
   const state = reactive({
     open: false, saving: false, item: null, isFact: false, legacy: false,
     status: "candidate", targetName: "", targetEntityId: "", targetEntityType: "",
     entities: [], paths: [], value: {}, scalarType: "string", hexText: "", error: null,
+    spatialContext: null, originalSpatialAnchor: {}, anchorQ: "", anchorR: "",
   })
   const owns = () => state.open && getAppState()?.currentProjectId === projectId
 
@@ -64,6 +65,10 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
     const scalar = state.value?.value
     state.scalarType = scalar === null ? "null" : typeof scalar === "number" ? "number" : typeof scalar === "boolean" ? "boolean" : "string"
     state.hexText = (state.value?.hexes || []).map((hex) => `${hex.hex_q},${hex.hex_r}`).join("\n")
+    state.spatialContext = getSpatialContext?.() || null
+    state.originalSpatialAnchor = JSON.parse(JSON.stringify(item.spatial_anchor || {}))
+    state.anchorQ = item.spatial_anchor?.hex_q == null ? "" : String(item.spatial_anchor.hex_q)
+    state.anchorR = item.spatial_anchor?.hex_r == null ? "" : String(item.spatial_anchor.hex_r)
     state.error = null
     state.open = true
   }
@@ -101,6 +106,63 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
     return { schema_version: 1, type: value.type, relation_type: value.relation_type, related_entity_ids: value.related_entity_ids, summary: value.summary }
   }
 
+  function useLocationCenter() {
+    const locationId = state.value?.location_entity_id
+      || state.originalSpatialAnchor?.location_entity_id
+    const anchor = state.spatialContext?.locationAnchors?.find(
+      (item) => item.location_entity_id === locationId,
+    )
+    if (!anchor) {
+      toast("该地点尚未在当前地图布置中心点", "warning")
+      return false
+    }
+    state.anchorQ = String(Math.round(anchor.q))
+    state.anchorR = String(Math.round(anchor.r))
+    return true
+  }
+
+  function clearSpatialHex() {
+    state.anchorQ = ""
+    state.anchorR = ""
+  }
+
+  function spatialAnchor() {
+    const rawQ = String(state.anchorQ ?? "").trim()
+    const rawR = String(state.anchorR ?? "").trim()
+    if ((rawQ === "") !== (rawR === "")) {
+      throw new Error("q、r 坐标必须同时填写或同时留空")
+    }
+    const map = state.spatialContext?.map || {}
+    const result = { ...(state.originalSpatialAnchor || {}) }
+    const mapId = map.id || result.map_id
+    if (mapId) result.map_id = mapId
+    else delete result.map_id
+    if (rawQ !== "") {
+      const q = Number(rawQ)
+      const r = Number(rawR)
+      if (!Number.isInteger(q) || !Number.isInteger(r) || q < 0 || r < 0) {
+        throw new Error("地图落点必须是大于等于 0 的整数坐标")
+      }
+      if ((map.grid_width && q >= map.grid_width) || (map.grid_height && r >= map.grid_height)) {
+        throw new Error(`地图落点超出当前 ${map.grid_width}×${map.grid_height} 网格`)
+      }
+      result.hex_q = q
+      result.hex_r = r
+    } else {
+      delete result.hex_q
+      delete result.hex_r
+    }
+    if (Object.hasOwn(state.value || {}, "location_entity_id")) {
+      if (state.value.location_entity_id) result.location_entity_id = state.value.location_entity_id
+      else delete result.location_entity_id
+    }
+    if (Object.hasOwn(state.value || {}, "path_id")) {
+      if (state.value.path_id) result.path_id = state.value.path_id
+      else delete result.path_id
+    }
+    return result
+  }
+
   async function save() {
     if (!owns()) { toast("当前项目已切换，请重新打开编辑", "warning"); return false }
     state.saving = true
@@ -118,6 +180,7 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
           target_entity_type: entity?.entityType || state.targetEntityType || null,
           target_name: state.targetName.trim() || entity?.name || null,
           value_json: typedValue(),
+          spatial_anchor: spatialAnchor(),
         })
       }
       if (success) close()
@@ -126,5 +189,5 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
     finally { state.saving = false }
   }
 
-  return { state, open, close, save, typedValue }
+  return { state, open, close, save, typedValue, spatialAnchor, useLocationCenter, clearSpatialHex }
 }

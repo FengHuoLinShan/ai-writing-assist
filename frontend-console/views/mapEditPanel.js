@@ -67,13 +67,22 @@ function renderLayerTree(nodes) {
 export function renderEditPanel(ctx) {
   const locations = ctx.locations || []
   const locOptions = locations.length
-    ? locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")
+    ? locations.map((l) => `<option value="${esc(l.id)}" ${l.id === mapState.selectedLocationEntityId ? "selected" : ""}>${esc(l.name)}</option>`).join("")
     : `<option value="">（无可用地点）</option>`
+  const selectedLocation = locations.find(
+    (location) => location.id === mapState.selectedLocationEntityId,
+  )
+  const selectedLocationLayout = (ctx.locationLayouts || []).find(
+    (layout) => layout.location_entity_id === mapState.selectedLocationEntityId,
+  )
 
   const allEntities = ctx.allEntities || []
-  const entityOptions = allEntities.length
-    ? allEntities.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")
-    : `<option value="">（无可用实体）</option>`
+  const markerType = mapState.selectedMarkerType || "character"
+  const entityOptions = renderMarkerEntityOptions(
+    allEntities,
+    markerType,
+    mapState.selectedMarkerEntityId,
+  )
 
   const scenes = ctx.scenes || []
   const sceneOptions = scenes.length
@@ -131,6 +140,15 @@ export function renderEditPanel(ctx) {
     `<option value="${esc(key)}" ${mapState.selectedPathType === key ? "selected" : ""}>${esc(profile.label)}</option>`
   )).join("")
   const selectedPath = paths.find((path) => (path.id || path.client_id) === mapState.selectedPathId)
+  const driftedPaths = paths.filter((path) => (
+    path.start_endpoint_status?.drifted || path.end_endpoint_status?.drifted
+  ))
+  const endpointStatusLabel = (status) => {
+    if (!status) return "未绑定"
+    if (status.unresolved) return `${status.name} · 尚未布置`
+    if (status.drifted) return `${status.name} · 偏离 ${Number(status.distance).toFixed(2)} 格`
+    return `${status.name} · 已对齐`
+  }
   const endpointOptions = (selectedEntityId) => [
     `<option value="">（未绑定地点）</option>`,
     ...locations.map((location) => (
@@ -178,7 +196,10 @@ export function renderEditPanel(ctx) {
         <h4>地点位置</h4>
         <div class="map-tool-row"><button class="btn btn-sm map-tool-btn ${mapState.activeTool === "locationMove" ? "active" : ""}" data-action="map-tool-locationMove">移动地点</button><button class="btn btn-sm map-tool-btn ${mapState.activeTool === "bind" ? "active" : ""}" data-action="map-tool-bind">编辑范围</button></div>
         <select class="form-select" id="map-bind-select">${locOptions}</select>
-        <button class="btn btn-sm" data-action="map-location-lock">锁定/解锁所选地点</button>
+        <div class="map-location-lock-state ${selectedLocationLayout?.locked ? "is-locked" : ""}">
+          <span>${selectedLocation ? esc(selectedLocation.name) : "尚未选择地点"} · ${selectedLocationLayout ? (selectedLocationLayout.locked ? "已锁定" : "未锁定") : "尚未布置"}</span>
+          <button class="btn btn-sm" data-action="map-location-lock" ${selectedLocationLayout ? "" : "disabled"}>${selectedLocationLayout?.locked ? "解锁地点" : "锁定地点"}</button>
+        </div>
         <label class="map-checkbox"><input type="checkbox" id="map-bind-center" /> 设为中心点</label>
         <p class="map-hint">移动地点会整体平移它的全部范围格；锁定地点需要先解锁。</p>
         <span class="map-pending-count" id="map-binding-pending-count">0 个待绑定</span>
@@ -206,15 +227,15 @@ export function renderEditPanel(ctx) {
 
       <div class="map-edit-section" id="map-marker-section" style="display:${mapState.editorLayer === "marker" ? "" : "none"};">
         <h4>动态标记</h4>
-        <select class="form-select" id="map-marker-type">
-          <option value="character">人物</option>
-          <option value="event">事件</option>
-          <option value="item">物品</option>
+        <select class="form-select" id="map-marker-type" aria-label="标记类型">
+          <option value="character" ${markerType === "character" ? "selected" : ""}>人物</option>
+          <option value="event" ${markerType === "event" ? "selected" : ""}>事件</option>
+          <option value="item" ${markerType === "item" ? "selected" : ""}>物品</option>
         </select>
-        <select class="form-select" id="map-marker-entity">
+        <select class="form-select" id="map-marker-entity" aria-label="标记对象">
           ${entityOptions}
         </select>
-        <input class="form-input" id="map-marker-label" placeholder="标记名称（可选）" />
+        <input class="form-input" id="map-marker-label" value="${esc(mapState.selectedMarkerLabel || "")}" placeholder="标记名称（可选）" />
         <select class="form-select" id="map-marker-scene-start">
           <option value="">不限定起始 Scene</option>
           ${sceneOptions}
@@ -233,6 +254,7 @@ export function renderEditPanel(ctx) {
           <button class="btn btn-xs btn-danger" data-action="map-path-layer-delete" ${selectedPathLayerId ? "" : "disabled"}>删除图层</button>
         </div>
         <select class="form-select" id="map-path-type">${pathTypeOptions}</select>
+        ${driftedPaths.length ? `<div class="map-path-drift-alert" role="status">${driftedPaths.length} 条线路的地点端点已偏离。选择线路后可一键重新吸附。</div>` : ""}
         <div class="map-tool-row">
           <button class="btn btn-sm map-path-tool ${mapState.pathTool === "draw" ? "active" : ""}" data-action="map-path-tool" data-tool="draw">手绘</button>
           <button class="btn btn-sm map-path-tool ${mapState.pathTool === "select" ? "active" : ""}" data-action="map-path-tool" data-tool="select">选择</button>
@@ -244,12 +266,14 @@ export function renderEditPanel(ctx) {
         </div>
         ${selectedPath ? `
           <div class="map-path-selection-summary"><strong>${esc(selectedPath.name || "未命名线路")}</strong><span>${(selectedPath.nodes || []).length || 0} 个节点</span><button class="btn btn-xs" data-action="map-path-archive" data-id="${esc(selectedPath.id || selectedPath.client_id)}">${selectedPath.status === "archived" ? "恢复" : "归档"}</button></div>
+          <label><span>线路名称</span><input class="form-input" id="map-path-name" maxlength="255" value="${esc(selectedPath.name || "")}" ${selectedPath.status === "archived" ? "disabled" : ""} /></label>
           <div class="map-path-endpoints">
-            <label><span>起点地点</span><select class="form-select" id="map-path-start-location" ${selectedPath.status === "archived" ? "disabled" : ""}>${endpointOptions(selectedPath.start_location_entity_id)}</select></label>
+            <label><span>起点地点 · ${esc(endpointStatusLabel(selectedPath.start_endpoint_status))}</span><select class="form-select" id="map-path-start-location" ${selectedPath.status === "archived" ? "disabled" : ""}>${endpointOptions(selectedPath.start_location_entity_id)}</select></label>
             <button class="btn btn-xs" data-action="map-path-endpoint-snap" data-side="start" ${selectedPath.start_location_entity_id && selectedPath.status !== "archived" ? "" : "disabled"}>重新吸附</button>
-            <label><span>终点地点</span><select class="form-select" id="map-path-end-location" ${selectedPath.status === "archived" ? "disabled" : ""}>${endpointOptions(selectedPath.end_location_entity_id)}</select></label>
+            <label><span>终点地点 · ${esc(endpointStatusLabel(selectedPath.end_endpoint_status))}</span><select class="form-select" id="map-path-end-location" ${selectedPath.status === "archived" ? "disabled" : ""}>${endpointOptions(selectedPath.end_location_entity_id)}</select></label>
             <button class="btn btn-xs" data-action="map-path-endpoint-snap" data-side="end" ${selectedPath.end_location_entity_id && selectedPath.status !== "archived" ? "" : "disabled"}>重新吸附</button>
           </div>
+          ${(selectedPath.start_endpoint_status?.drifted || selectedPath.end_endpoint_status?.drifted) ? `<button class="btn btn-sm btn-primary" data-action="map-path-resnap" data-id="${esc(selectedPath.id || selectedPath.client_id)}">重新吸附全部偏离端点</button>` : ""}
           ${mapState.pathTool === "nodes" ? `
             <div class="map-path-node-editor">
               <div class="map-path-node-heading">
@@ -268,8 +292,10 @@ export function renderEditPanel(ctx) {
       </div>
 
       <div class="map-edit-section" id="map-territory-section" style="display:${mapState.editorLayer === "territory" ? "" : "none"};">
+        <h4>势力范围</h4>
         ${ctx.territoryTools || ""}
-        <div class="map-tool-row"><button class="btn btn-sm ${!mapState.territoryEraseMode ? "active" : ""}" data-action="map-territory-mode" data-mode="paint">绘制</button><button class="btn btn-sm ${mapState.territoryEraseMode ? "active" : ""}" data-action="map-territory-mode" data-mode="erase">擦除</button></div>
+        <div class="map-tool-row"><button class="btn btn-sm ${!mapState.territoryEraseMode ? "active" : ""}" data-action="map-territory-mode" data-mode="paint">画笔</button><button class="btn btn-sm ${mapState.territoryEraseMode ? "active" : ""}" data-action="map-territory-mode" data-mode="erase">橡皮</button></div>
+        <p class="map-hint">画笔和橡皮先修改当前草稿；“应用当前图层”后才会保存。</p>
       </div>
 
       <div class="map-edit-section">
@@ -284,6 +310,21 @@ export function renderEditPanel(ctx) {
       </div>
     </div>
   `
+}
+
+export function renderMarkerEntityOptions(allEntities = [], markerType = "character", selectedId = null) {
+  const typeLabels = { character: "人物", event: "事件", item: "物品" }
+  const matching = allEntities.filter((entity) => entity.entity_type === markerType)
+  const validSelectedId = matching.some((entity) => entity.id === selectedId) ? selectedId : null
+  const placeholder = matching.length
+    ? `请选择${typeLabels[markerType] || "对象"}`
+    : `（无可用${typeLabels[markerType] || "对象"}）`
+  return [
+    `<option value="" ${validSelectedId ? "" : "selected"}>${placeholder}</option>`,
+    ...matching.map((entity) => (
+      `<option value="${esc(entity.id)}" ${entity.id === validSelectedId ? "selected" : ""}>${esc(entity.name)}</option>`
+    )),
+  ].join("")
 }
 
 /**

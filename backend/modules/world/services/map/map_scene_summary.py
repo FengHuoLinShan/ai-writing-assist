@@ -96,7 +96,10 @@ class MapSceneSummaryService:
             for entity_id, entity in marker_entities.items()
         }
         markers = [m for m in markers if marker_statuses.get(m.entity_id) == "canonical"]
-        selected_map_id = self._select_map_id(markers, sid)
+        # A marker explicitly anchored to this Scene is the strongest static
+        # signal. Confirmed Scene facts outrank broad marker ranges, otherwise
+        # one long-lived character marker can mask the Scene's real map.
+        selected_map_id = self._select_explicit_map_id(markers, sid)
         if selected_map_id is None:
             selected_map_id = await self._fact_repo.find_map_for_scene(
                 db,
@@ -109,6 +112,8 @@ class MapSceneSummaryService:
                 nid,
                 sid,
             )
+        if selected_map_id is None:
+            selected_map_id = self._select_map_id(markers)
         selected_from_project_fallback = False
         if selected_map_id is None:
             fallback_map = await self._map_repo.first_by_novel(db, nid)
@@ -149,6 +154,7 @@ class MapSceneSummaryService:
             nid,
             selected_map_id,
             map_markers,
+            scene_id=sid,
             include_candidates=include_candidates,
         )
         if selected_from_project_fallback and primary_location is None:
@@ -212,7 +218,7 @@ class MapSceneSummaryService:
             ),
         )
 
-    def _select_map_id(
+    def _select_explicit_map_id(
         self,
         markers: list[MapMarker],
         scene_id: uuid.UUID,
@@ -222,8 +228,10 @@ class MapSceneSummaryService:
             for m in markers
             if m.start_scene_id == scene_id or m.end_scene_id == scene_id
         ]
-        source = explicit or markers
-        return source[0].map_id if source else None
+        return explicit[0].map_id if explicit else None
+
+    def _select_map_id(self, markers: list[MapMarker]) -> uuid.UUID | None:
+        return markers[0].map_id if markers else None
 
     async def _load_entities_by_id(
         self,
@@ -271,11 +279,108 @@ class MapSceneSummaryService:
         map_id: uuid.UUID,
         markers: list[MapMarker],
         *,
+        scene_id: uuid.UUID | None = None,
         include_candidates: bool = False,
     ) -> MapSceneSummaryItem | None:
         allowed_statuses = (
             ["canonical", "draft", "candidate"] if include_candidates else ["canonical"]
         )
+        scene_anchors: list[tuple[uuid.UUID, str | None, str | None]] = []
+        has_scene_location_context = False
+        if scene_id is not None:
+            facts = await self._fact_repo.list_for_scene_summary(
+                db,
+                novel_id,
+                map_id=map_id,
+                scene_id=scene_id,
+                dynamic_types={"location", "status"},
+                fact_status="confirmed",
+                limit=20,
+            )
+            has_scene_location_context = bool(facts)
+            for fact in facts:
+                anchor = fact.spatial_anchor or {}
+                location_id = anchor.get("location_entity_id")
+                if location_id:
+                    scene_anchors.append(
+                        (uuid.UUID(str(location_id)), fact.evidence_text, None)
+                    )
+            if include_candidates:
+                observations = await self._observation_repo.list_for_scene_summary(
+                    db,
+                    novel_id,
+                    map_id=map_id,
+                    scene_id=scene_id,
+                    dynamic_types={"location", "status"},
+                    limit=20,
+                )
+                has_scene_location_context = bool(
+                    has_scene_location_context or observations
+                )
+                for observation in observations:
+                    anchor = observation.spatial_anchor or {}
+                    location_id = anchor.get("location_entity_id")
+                    if location_id:
+                        scene_anchors.append(
+                            (
+                                uuid.UUID(str(location_id)),
+                                observation.evidence_text,
+                                observation.review_state,
+                            )
+                        )
+
+        if scene_anchors:
+            anchor_bindings = await self._binding_repo.get_by_map_for_entity_statuses(
+                db,
+                novel_id,
+                map_id,
+                statuses=allowed_statuses,
+            )
+            anchor_entities = await self._entity_repo.get_by_ids(
+                db,
+                novel_id,
+                [location_id for location_id, _, _ in scene_anchors],
+            )
+            anchor_names = {entity.id: entity.name for entity in anchor_entities}
+            anchor_statuses = {entity.id: entity.status for entity in anchor_entities}
+            bindings_by_location: dict[uuid.UUID, list[MapLocationBinding]] = {}
+            for binding in anchor_bindings:
+                bindings_by_location.setdefault(binding.location_entity_id, []).append(
+                    binding
+                )
+            for location_id, evidence_text, review_state in scene_anchors:
+                if anchor_statuses.get(location_id) not in allowed_statuses:
+                    continue
+                candidates = bindings_by_location.get(location_id, [])
+                if not candidates:
+                    continue
+                candidates.sort(key=lambda binding: not binding.is_center)
+                binding = candidates[0]
+                depends_on_candidate = anchor_statuses.get(location_id) in {
+                    "draft",
+                    "candidate",
+                }
+                return MapSceneSummaryItem(
+                    entity_id=str(location_id),
+                    name=anchor_names.get(location_id) or "未命名地点",
+                    map_id=str(binding.map_id),
+                    hex_q=binding.hex_q,
+                    hex_r=binding.hex_r,
+                    depends_on_candidate=depends_on_candidate,
+                    candidate_review_state=(
+                        review_state or anchor_statuses.get(location_id)
+                        if depends_on_candidate
+                        else None
+                    ),
+                    evidence_excerpt=evidence_text,
+                )
+
+        # An explicit Scene context with only coordinates deliberately means
+        # that the precise canonical location is unknown. Do not replace that
+        # boundary with an unrelated first center from the selected map.
+        if has_scene_location_context and not markers:
+            return None
+
         marker_hexes = list(
             dict.fromkeys((marker.hex_q, marker.hex_r) for marker in markers)
         )

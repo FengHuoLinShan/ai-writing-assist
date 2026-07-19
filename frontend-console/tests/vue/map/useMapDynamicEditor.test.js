@@ -17,6 +17,10 @@ describe("useMapDynamicEditor", () => {
         timelineEntityOptions: () => [{ id: "e1", name: "沈澜", entityType: "character" }, { id: "l1", name: "北港", entityType: "location" }],
         timelinePathOptions: () => [{ id: "path1", name: "北境道" }],
       }),
+      getSpatialContext: () => ({
+        map: { id: "m1", name: "九州", grid_width: 20, grid_height: 12 },
+        locationAnchors: [{ location_entity_id: "l1", name: "北港", q: 7, r: 4 }],
+      }),
       getLocations: () => [{ id: "l1", name: "北港" }],
       onSaveObservation: onSave,
       onFactStatus: vi.fn(async () => true),
@@ -56,7 +60,34 @@ describe("useMapDynamicEditor", () => {
       target_entity_type: "character",
       target_name: "北境道封锁",
       value_json: expect.objectContaining({ schema_version: 1, type: "route_state", path_id: "path1", state: "blocked" }),
+      spatial_anchor: { map_id: "m1", path_id: "path1" },
     })
+  })
+
+  it("使用地点中心生成 q/r 预览并随候选保存", async () => {
+    editor.open({
+      id: "o-location", item_kind: "observation", updated_at: "r2",
+      normalized_value: { schema_version: 1, type: "location", location_entity_id: "l1", state: "present" },
+      spatial_anchor: { location_entity_id: "l1" },
+    })
+    expect(editor.useLocationCenter()).toBe(true)
+    expect(editor.state.anchorQ).toBe("7")
+    expect(editor.state.anchorR).toBe("4")
+
+    await editor.save()
+
+    expect(onSave).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      spatial_anchor: { map_id: "m1", location_entity_id: "l1", hex_q: 7, hex_r: 4 },
+    }))
+  })
+
+  it("拒绝超出当前地图网格的落点", async () => {
+    editor.open({ id: "o1", item_kind: "observation", updated_at: "r1", normalized_value: { schema_version: 1, type: "location", state: "present" } })
+    editor.state.anchorQ = "20"
+    editor.state.anchorR = "1"
+    await expect(editor.save()).resolves.toBe(false)
+    expect(onSave).not.toHaveBeenCalled()
+    expect(editor.state.error).toContain("超出当前 20×12 网格")
   })
 
   it("validates hex limits and rejects save after project switch", async () => {

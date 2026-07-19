@@ -11,9 +11,11 @@ function editorFixture(type = "location") {
       targetName: "沈澜", targetEntityId: "e1",
       entities: [{ id: "e1", name: "沈澜", entityType: "character" }, { id: "l1", name: "北港", entityType: "location" }],
       paths: [{ id: "path1", name: "北境道" }], scalarType: "string", hexText: "1,2",
-      value: { schema_version: 1, type, state: "present", related_entity_ids: [] },
+      value: { schema_version: 1, type, state: "present", location_entity_id: "l1", related_entity_ids: [] },
+      spatialContext: { map: { id: "m1", name: "九州", grid_width: 20, grid_height: 12 }, locationAnchors: [{ location_entity_id: "l1", name: "北港", q: 7, r: 4 }] },
+      anchorQ: "", anchorR: "",
     }),
-    close: vi.fn(), save: vi.fn(),
+    close: vi.fn(), save: vi.fn(), useLocationCenter: vi.fn(), clearSpatialHex: vi.fn(),
   }
 }
 
@@ -36,6 +38,16 @@ describe("MapDynamicEditDialog", () => {
     const save = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "保存")
     save.click()
     expect(editor.save).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("展示候选落点预览并调用地点中心动作", async () => {
+    const editor = editorFixture("location")
+    const wrapper = mount(MapDynamicEditDialog, { attachTo: document.body, props: { editor } })
+    expect(document.body.querySelector("#map-spatial-anchor-preview")).not.toBeNull()
+    document.body.querySelector("#map-anchor-use-location").click()
+    await Promise.resolve()
+    expect(editor.useLocationCenter).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 })

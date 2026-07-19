@@ -56,6 +56,20 @@ _MAP_BREADCRUMB_MAX_DEPTH = 32
 _MAP_TILE_UPSERT_POSTGRES_CHUNK_SIZE = 1000
 _MAP_TILE_UPSERT_SQLITE_CHUNK_SIZE = 180
 
+
+def _active_map_parent_condition():
+    """Keep active-map reads aligned with the author-visible map guard."""
+    return or_(
+        MapConfig.parent_entity_id.is_(None),
+        exists().where(
+            CoreEntity.id == MapConfig.parent_entity_id,
+            CoreEntity.novel_id == MapConfig.novel_id,
+            CoreEntity.entity_type == "location",
+            CoreEntity.status == "canonical",
+        ),
+    )
+
+
 # ============================================================
 # MapEntityRepository — 放置型地图实体泛型基类
 # ============================================================
@@ -174,15 +188,7 @@ class MapConfigRepository:
 
     @staticmethod
     def _active_parent_condition():
-        return or_(
-            MapConfig.parent_entity_id.is_(None),
-            exists().where(
-                CoreEntity.id == MapConfig.parent_entity_id,
-                CoreEntity.novel_id == MapConfig.novel_id,
-                CoreEntity.entity_type == "location",
-                CoreEntity.status == "canonical",
-            ),
-        )
+        return _active_map_parent_condition()
 
     async def get(self, db: AsyncSession, map_id: uuid.UUID) -> MapConfig | None:
         stmt = select(MapConfig).where(MapConfig.id == map_id)
@@ -695,6 +701,28 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
     """地点绑定数据访问。"""
 
     model_class = MapLocationBinding
+
+    async def get_active_centers_for_location(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        location_entity_id: uuid.UUID,
+    ) -> list[MapLocationBinding]:
+        stmt = (
+            select(MapLocationBinding)
+            .join(MapConfig, MapConfig.id == MapLocationBinding.map_id)
+            .where(
+                MapLocationBinding.novel_id == novel_id,
+                MapLocationBinding.location_entity_id == location_entity_id,
+                MapLocationBinding.is_center.is_(True),
+                MapConfig.novel_id == novel_id,
+                MapConfig.status == "active",
+                _active_map_parent_condition(),
+            )
+            .order_by(MapConfig.sort_order, MapConfig.id, MapLocationBinding.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_by_map_for_entity_statuses(
         self,
@@ -1475,6 +1503,8 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         timeless = and_(
             MapMarker.start_scene_id.is_(None),
             MapMarker.end_scene_id.is_(None),
+            MapMarker.start_scene_index.is_(None),
+            MapMarker.end_scene_index.is_(None),
         )
         direct_ids = (
             MapMarker.start_scene_id == scene_id,
