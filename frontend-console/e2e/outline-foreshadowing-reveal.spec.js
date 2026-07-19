@@ -86,7 +86,7 @@ test.describe("Outline View — 剧情线信息推进", () => {
     await reloadWorkbench(page, "outline", "threads")
 
     const information = page.locator("#outline-thread-information")
-    await expect(information).toContainText("潮门发光")
+    await expect(information).toContainText("潮门只在特定人靠近时发光")
     await expect(information).toContainText("潮门正在筛选继承者")
     await expect(information).toContainText("未归入剧情线（1）")
 
@@ -96,6 +96,6 @@ test.describe("Outline View — 剧情线信息推进", () => {
     await unassigned.locator('[data-role="information-thread-assignment"]').selectOption(thread.id)
     await expect(page.locator(SEL.toastContainer)).toContainText("信息推进计划已归入剧情线")
     await expect(information).toContainText("未归入剧情线（0）")
-    await expect(information).toContainText("无主铃声")
+    await expect(information).toContainText("无人触碰时铜铃自行鸣响")
   })
 })

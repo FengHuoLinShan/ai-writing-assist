@@ -1,0 +1,250 @@
+<template>
+  <div
+    v-if="model.open"
+    class="modal-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-label="剧情设定冲突检查"
+  >
+    <div class="modal-content modal-content--wide writing-conflict-modal">
+      <div class="modal-header">
+        <h3>剧情设定冲突检查</h3>
+        <button class="btn-icon" aria-label="关闭" :disabled="model.busy" @click="$emit('close')">×</button>
+      </div>
+      <div class="modal-body">
+        <p v-if="model.error" class="writing-conflict-empty is-error" role="alert">{{ model.error }}</p>
+        <p v-if="!check" class="writing-conflict-empty">暂无检查记录</p>
+        <template v-else>
+          <div class="writing-conflict-modal__meta">
+            <span>检查范围：第 {{ check.chapter_index || '-' }} 章</span>
+            <span>问题 {{ items.length }} 条</span>
+            <span v-if="check.include_candidates" class="pill pill-warning">包含待处理内容
+            </span>
+          </div>
+
+          <section class="writing-conflict-group">
+            <div class="writing-conflict-group__head">
+              <strong>规则命中</strong>
+              <span>{{ ruleItems.length }} 条</span>
+            </div>
+            <ConflictRows
+              :items="ruleItems"
+              :busy="model.busy"
+              :drafts="suggestionDrafts"
+              @status="forwardStatus"
+              @suggestion="forwardSuggestion"
+              @apply="forwardApply"
+              @locate="$emit('locate', $event)"
+              @source="$emit('source', $event)"
+              @update-draft="updateDraft"
+              @copy="copySuggestion"
+            />
+          </section>
+
+          <section class="writing-conflict-group writing-conflict-group--ai">
+            <div class="writing-conflict-group__head">
+              <strong>AI 判断</strong>
+              <span>{{ aiItems.length }} 条</span>
+            </div>
+            <div class="writing-conflict-ai-toolbar">
+              <button
+                class="btn btn-sm btn-primary"
+                data-action="conflict-ai-review"
+                :disabled="model.busy || check.ai_review_status === 'running'"
+                @click="$emit('ai-review')"
+              >补充 AI 软冲突判断</button>
+              <span class="pill">状态：{{ aiReviewStatusLabel(check.ai_review_status) }}</span>
+            </div>
+            <ConflictRows
+              :items="aiItems"
+              :busy="model.busy"
+              :drafts="suggestionDrafts"
+              @status="forwardStatus"
+              @suggestion="forwardSuggestion"
+              @apply="forwardApply"
+              @locate="$emit('locate', $event)"
+              @source="$emit('source', $event)"
+              @update-draft="updateDraft"
+              @copy="copySuggestion"
+            />
+          </section>
+
+          <aside v-if="model.sourcePreview" class="writing-conflict-source-modal" aria-label="冲突来源详情">
+            <div class="writing-conflict-group__head">
+              <strong>{{ model.sourcePreview.title || '来源详情' }}</strong>
+              <button class="btn btn-sm" @click="$emit('dismiss-source')">收起</button>
+            </div>
+            <template v-if="model.sourcePreview.kind === 'memory'">
+              <p><strong>章节</strong>：第 {{ model.sourcePreview.chapterIndex ?? '-' }} 章</p>
+              <p><strong>角色</strong>：{{ model.sourcePreview.characterId || '-' }}</p>
+            </template>
+            <p v-else>{{ model.sourcePreview.message || '该来源暂无可打开视图' }}</p>
+          </aside>
+        </template>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" :disabled="model.busy" @click="$emit('close')">关闭</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, defineComponent, h, reactive, watch } from "vue"
+
+const props = defineProps({
+  model: {
+    type: Object,
+    default: () => ({ open: false, check: null, busy: false, error: null, sourcePreview: null }),
+  },
+})
+const emit = defineEmits(["close", "status", "ai-review", "suggestion", "apply", "locate", "source", "dismiss-source"])
+
+const severityLabels = { high: "高", medium: "中", low: "低", info: "提示" }
+const statusLabels = { open: "未处理", resolved: "已处理", ignored: "忽略", later: "稍后" }
+const kindLabels = {
+  forbidden_present: "禁止项出现在正文",
+  required_missing: "必须发生项缺失",
+  map_risk: "地图/世界状态风险",
+  continuity_location_mismatch: "前后连续性风险",
+  motivation_gap: "动机衔接风险",
+  emotion_jump: "情绪跳变",
+  foreshadowing_misfire: "伏笔承接风险",
+  premature_reveal: "过早揭示",
+  implicit_lore_conflict: "隐含设定风险",
+  voice_or_pov_drift: "声音/视角漂移",
+  scene_goal_drift: "Scene 目标漂移",
+  scene_commitment_missing: "Scene 必要承诺缺失",
+  scene_forbidden_deviation: "Scene 禁止偏离",
+  continuity_soft_risk: "软连续性风险",
+}
+
+function parseSuggestion(value) {
+  if (value && typeof value === "object") return { suggested_text: value.suggested_text ?? "", ...value }
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === "object" ? { suggested_text: "", ...parsed } : { suggested_text: value || "" }
+  } catch {
+    return { suggested_text: value || "" }
+  }
+}
+
+function humanReason(value) {
+  return String(value || "").replaceAll("_", " ")
+}
+
+const ConflictRows = defineComponent({
+  name: "ConflictRows",
+  props: {
+    items: { type: Array, default: () => [] },
+    busy: Boolean,
+    drafts: { type: Object, required: true },
+  },
+  emits: ["status", "suggestion", "apply", "locate", "source", "update-draft", "copy"],
+  setup(rowProps, { emit: rowEmit }) {
+    const button = (label, attrs, handler) => h("button", {
+      class: attrs.primary ? "btn btn-sm btn-primary" : "btn btn-sm",
+      disabled: rowProps.busy,
+      "data-action": attrs.action,
+      onClick: handler,
+    }, label)
+    const itemView = (item) => {
+      const location = item.location_json || {}
+      const source = location.source || {}
+      const target = location.open_target || {}
+      const reason = humanReason(location.needs_review_reason || item.needs_review_reason)
+      const suggestion = item.ai_suggestion ? parseSuggestion(item.ai_suggestion) : null
+      const evidence = source.module || source.label || source.field || source.type || source.excerpt || target.kind || reason
+        ? h("details", { class: "writing-conflict-evidence-drawer" }, [
+            h("summary", "证据"),
+            h("div", { class: "writing-conflict-evidence-drawer__grid" }, [
+              h("span", "模块"), h("strong", source.module || item.source_module || "-"),
+              h("span", "来源"), h("strong", source.label || "-"),
+              h("span", "字段"), h("strong", source.field || "-"),
+              h("span", "类型"), h("strong", source.type || "-"),
+              h("span", "摘录"), h("strong", source.excerpt || "-"),
+              h("span", "注意原因"), h("strong", reason || "-"),
+              h("span", "打开"), h("strong", target.kind || "-"),
+            ]),
+          ])
+        : null
+      const suggestionView = item.suggestion_status === "failed"
+        ? h("div", { class: "writing-conflict-suggestion is-error" }, `AI 修复建议失败：${item.suggestion_error || "未知错误"}`)
+        : suggestion
+          ? h("div", { class: "writing-conflict-suggestion" }, [
+              h("div", { class: "writing-conflict-suggestion__head" }, [
+                h("strong", suggestion.strategy || "AI 修复建议"),
+                button("复制", { action: "copy-conflict-suggestion" }, () => rowEmit("copy", item.id)),
+                button("采用到工作稿", { action: "apply-conflict-suggestion", primary: true }, () => rowEmit("apply", item.id)),
+              ]),
+              h("textarea", {
+                class: "form-textarea",
+                rows: 4,
+                "aria-label": `编辑 ${kindLabels[item.kind] || item.kind || "问题"} 的 AI 修复建议`,
+                value: rowProps.drafts[item.id] ?? suggestion.suggested_text ?? "",
+                onInput: (event) => rowEmit("update-draft", { itemId: item.id, text: event.target.value }),
+              }),
+              suggestion.rationale ? h("small", suggestion.rationale) : null,
+              Array.isArray(suggestion.constraints) && suggestion.constraints.length ? h("small", `约束：${suggestion.constraints.join("；")}`) : null,
+              Array.isArray(suggestion.risk_notes) && suggestion.risk_notes.length ? h("small", `注意：${suggestion.risk_notes.join("；")}`) : null,
+            ])
+          : null
+      return h("article", { key: item.id, class: "writing-conflict-item", "data-conflict-item-id": item.id }, [
+        h("div", { class: "writing-conflict-item__head" }, [
+          h("span", { class: "badge badge-conflicted" }, severityLabels[item.severity] || item.severity || "-"),
+          h("strong", kindLabels[item.kind] || item.kind || "问题"),
+          h("span", { class: "pill" }, item.source_module || "-"),
+          item.is_ai_judgment ? h("span", { class: "pill" }, "AI 判断") : null,
+          item.needs_review ? h("span", { class: "pill pill-warning" }, "需要人工检查") : null,
+          typeof item.confidence === "number" ? h("span", { class: "pill" }, `置信度 ${Math.round(item.confidence * 100)}%`) : null,
+          h("span", { class: "writing-conflict-status" }, statusLabels[item.status] || item.status || "未处理"),
+        ]),
+        h("p", { class: "writing-conflict-evidence" }, item.evidence_summary || ""),
+        item.llm_rationale ? h("p", { class: "writing-conflict-rationale" }, item.llm_rationale) : null,
+        evidence,
+        h("div", { class: "writing-conflict-actions" }, [
+          button("定位", { action: "locate-conflict" }, () => rowEmit("locate", item.id)),
+          button("来源", { action: "open-conflict-source" }, () => rowEmit("source", item.id)),
+          button("已处理", { action: "resolve-conflict" }, () => rowEmit("status", { itemId: item.id, status: "resolved" })),
+          button("忽略", { action: "ignore-conflict" }, () => rowEmit("status", { itemId: item.id, status: "ignored" })),
+          button("稍后", { action: "later-conflict" }, () => rowEmit("status", { itemId: item.id, status: "later" })),
+          button("生成 AI 修复建议", { action: "generate-conflict-suggestion" }, () => rowEmit("suggestion", item.id)),
+        ]),
+        suggestionView,
+      ])
+    }
+    return () => rowProps.items.length
+      ? h("div", { class: "writing-conflict-list" }, rowProps.items.map(itemView))
+      : h("div", { class: "writing-conflict-empty" }, "暂无记录")
+  },
+})
+
+const check = computed(() => props.model.check)
+const items = computed(() => Array.isArray(check.value?.items) ? check.value.items : [])
+const ruleItems = computed(() => items.value.filter((item) => !item.is_ai_judgment))
+const aiItems = computed(() => items.value.filter((item) => item.is_ai_judgment))
+const suggestionDrafts = reactive({})
+
+watch(items, (nextItems) => {
+  const present = new Set(nextItems.map((item) => String(item.id)))
+  for (const key of Object.keys(suggestionDrafts)) if (!present.has(key)) delete suggestionDrafts[key]
+  for (const item of nextItems) {
+    if (item.ai_suggestion && suggestionDrafts[item.id] == null) {
+      suggestionDrafts[item.id] = parseSuggestion(item.ai_suggestion).suggested_text ?? ""
+    }
+  }
+}, { immediate: true })
+
+function aiReviewStatusLabel(status) {
+  return { not_requested: "未生成", running: "生成中", done: "已生成", partial: "部分生成", failed: "失败" }[status] || status || "未生成"
+}
+function updateDraft({ itemId, text }) { suggestionDrafts[itemId] = text }
+function forwardStatus(value) { emit("status", value) }
+function forwardSuggestion(itemId) { emit("suggestion", itemId) }
+function forwardApply(itemId) { emit("apply", { itemId, text: suggestionDrafts[itemId] || "" }) }
+async function copySuggestion(itemId) {
+  const text = suggestionDrafts[itemId] || ""
+  if (!text) return
+  try { await navigator.clipboard?.writeText?.(text) } catch { /* Clipboard availability is optional. */ }
+}
+</script>

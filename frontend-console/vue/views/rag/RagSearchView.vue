@@ -112,7 +112,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <RagSearchPanel v-model:form="form" :characters="characters" :scenes="scenes" @submit="submit" />
+  <RagSearchPanel :form="form" :characters="characters" :scenes="scenes" @submit="submit" />
   <RagResultList
     :searching="searching"
     :search-error="searchError"

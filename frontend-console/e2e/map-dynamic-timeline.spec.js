@@ -16,7 +16,7 @@ import { openWorkbench } from "./helpers/workbench.js"
 
 async function openMapWorkspace(page, project, map) {
   await openWorkbench(page, project, "map")
-  await page.goto(`/#workbench/${project.id}/map?map_id=${map.id}&mode=map`)
+  await page.goto(`/#workbench/${project.id}/map?map_id=${map.id}&mode=live`)
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await expect(page.locator(SEL.viewTitle)).toHaveText("地图", { timeout: 10000 })
   await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
@@ -162,7 +162,7 @@ test.describe("地图 Scene 动态时间轴", () => {
     await expect(sceneSelect).toHaveValue("1")
     await expect(sceneSelect.locator("option:checked")).toHaveText("Scene 9")
     await expect(timeline.locator(".map-timeline-state")).toContainText("巡夜人")
-    await expect(timeline).toContainText("待处理内容默认隐藏")
+    await expect(timeline.getByLabel("待处理预览")).not.toBeChecked()
     await expect(timeline).not.toContainText("未经确认的警戒")
 
     await timeline.getByLabel("待处理预览").check()

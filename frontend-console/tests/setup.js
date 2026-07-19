@@ -66,7 +66,6 @@ globalThis.confirmAction = vi.fn()
 globalThis.closeModal = vi.fn()
 globalThis.prompt = vi.fn()
 globalThis.onStateChange = vi.fn(() => vi.fn()) // returns unsubscribe
-globalThis.updateRightPanelForView = vi.fn()
 
 // ============================================================
 // 模拟 Router (router.js)

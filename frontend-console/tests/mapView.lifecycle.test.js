@@ -930,8 +930,8 @@ describe("mapView 批量地图操作", () => {
     mapView._maps = [{ id: "m1", name: "主地图" }, { id: "m2", name: "地下城" }]
     mapView._bulkSelections = { "map-list": new Set(["m1", "m2"]) }
     api.world.archiveMap.mockResolvedValue({})
-    vi.spyOn(mapView, "_loadMaps").mockResolvedValue()
-    vi.spyOn(mapView, "_render").mockImplementation(() => {})
+    const loadMaps = vi.spyOn(mapView, "_loadMaps").mockResolvedValue()
+    const render = vi.spyOn(mapView, "_render").mockImplementation(() => {})
     autoConfirm()
 
     await mapView._runMapBulkAction("delete-maps")
@@ -941,6 +941,8 @@ describe("mapView 批量地图操作", () => {
       expect(api.world.archiveMap).toHaveBeenCalledWith("m2", "p1")
       expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
     })
+    loadMaps.mockRestore()
+    render.mockRestore()
   })
 })
 
@@ -997,6 +999,46 @@ describe("图层会话与连续线路纵切", () => {
     expect(commands.map((item) => item.type)).toEqual(["path_layer_create", "path_create"])
     expect(commands[1].data.layer_ref).toEqual({ client_id: "layerClient" })
     expect(commands[1].data.nodes[0]).not.toHaveProperty("sort_order")
+  })
+
+  it("手绘新路径后立即刷新列表选中态", () => {
+    document.body.innerHTML = `<div id="map-root"></div>`
+    mapView._mountRootId = "map-root"
+    mapView._state = {
+      map: { id: "m1", grid_width: 8, grid_height: 8 },
+      breadcrumbs: [],
+      terrain_layers: [],
+      territories: [],
+      markers: [],
+    }
+    mapView._layerTree = { nodes: [] }
+    mapView._pathState = {
+      path_layers: [{ id: "roads", name: "道路", category: "transport", status: "active" }],
+      paths: [],
+      nodes: [],
+    }
+    mapState.mode = "edit"
+    mapState.editorLayer = "path"
+    mapState.selectedPathLayerId = "roads"
+    mapState.selectedPathType = "major_road"
+    mapView._pathPointerSamples = [{ q: 1, r: 1 }, { q: 2, r: 2 }]
+    mapView._pointerStartSnapshot = mapView._snapshotActiveDraft()
+    mapView._dragMoved = true
+    mapView._canvas = { releasePointerCapture: vi.fn() }
+    mapView._leaflet = {
+      dragging: { enable: vi.fn() },
+      off: vi.fn(),
+      remove: vi.fn(),
+    }
+    const defer = vi.spyOn(mapView, "_defer").mockImplementation(() => null)
+
+    mapView._handlePathPointerUp({ type: "pointerup", pointerId: 7 })
+
+    const activePath = document.querySelector(".map-path-list-row.active")
+    expect(activePath).not.toBeNull()
+    expect(activePath.dataset.id).toBe(mapState.selectedPathId)
+    expect(activePath.textContent).toContain("主干道")
+    defer.mockRestore()
   })
 
   it("保存全部时将新路径图层 leaf 合并进完整图层树", () => {

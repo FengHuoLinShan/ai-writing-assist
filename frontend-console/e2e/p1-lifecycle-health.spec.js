@@ -61,7 +61,7 @@ test.describe("P1 lifecycle and evidence health", () => {
 
     await openWorkbench(page, project, "writing")
 
-    const prompt = page.locator(".deep-import-recovery")
+    const prompt = page.locator("#writing-deep-import-bar-container")
     await expect(prompt).toContainText("自动提取需要恢复")
     await expect(prompt.getByRole("button", { name: "继续" })).toBeVisible()
     await expect(prompt.getByRole("button", { name: "放弃恢复" })).toBeVisible()

@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -56,16 +56,15 @@ test.describe("深度导入流水线", () => {
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 
     // 等待写作视图加载完成
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await waitWritingReady(page)
 
     // Step 3: 上传完成后由用户从受支持入口显式启动场景自动提取
     await page.locator("details.writing-tools-menu > summary").click()
-    const sceneExtractionBtn = page.locator(
-      '[data-action="auto-extract-stage"][data-stage="scenes"]',
-    )
+    const sceneExtractionBtn = page.getByRole("button", { name: "从正文提取 Scene" })
     await expect(sceneExtractionBtn).toBeVisible()
     await sceneExtractionBtn.click()
-    await expect(page.locator(SEL.modalTitle)).toContainText("从正文提取 Scene")
+    const extractionDialog = page.getByRole("dialog", { name: "自动提取" })
+    await expect(extractionDialog).toContainText("从正文提取 Scene")
 
     // Step 4: Mock 深度导入 API 以加速测试
     await page.route("**/api/imports/stages/scenes", async (route) => {
@@ -92,10 +91,10 @@ test.describe("深度导入流水线", () => {
     })
 
     // Step 5: 在当前表单中确认授权并提交
-    await page.locator("#modal-footer").getByRole("button", { name: "确认并开始提取" }).click()
+    await extractionDialog.getByRole("button", { name: "确认并开始提取" }).click()
 
     // Step 6: 验证当前任务入口成功启动
-    await expect(page.locator(SEL.toastContainer)).toContainText("自动提取已启动", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("从正文提取 Scene已启动", { timeout: 10000 })
 
     // Step 7: 验证进度条出现（由于 Mock 快速完成，进度条可能一闪而过）
     // 至少验证页面没有报错
@@ -154,9 +153,10 @@ test.describe("深度导入流水线", () => {
 
     // 验证当前 stage task 通过 active workflow contract 恢复显示
     await expect(page.locator("#writing-deep-import-bar-container")).toContainText(
-      "Phase: entity_extraction",
+      "Phase 2/3: 实体提取",
       { timeout: 10000 },
     )
+    await expect(page.locator("#writing-deep-import-bar-container")).toContainText("entity_extraction")
   })
 
   test("刷新恢复遇到 503 会保留记录并退避重试", async ({ page }) => {
@@ -203,10 +203,10 @@ test.describe("深度导入流水线", () => {
     await page.waitForFunction(() => !state.loading)
 
     await expect(page.locator("#writing-deep-import-bar-container")).toContainText(
-      "任务状态查询暂时不可用",
+      "任务状态暂不可用",
     )
     await expect(page.locator("#writing-deep-import-bar-container")).toContainText(
-      "Phase: entity_extraction",
+      "entity_extraction",
       { timeout: 10000 },
     )
     const retained = await page.evaluate(() => (
@@ -262,13 +262,15 @@ test.describe("深度导入流水线", () => {
     await page.waitForFunction(() => !state.loading)
 
     const bar = page.locator("#writing-deep-import-bar-container")
-    const progressSummary = bar.locator(".workflow-progress__compact")
-    await expect(progressSummary).toBeVisible()
-    await progressSummary.click()
-    await expect(bar.locator('[data-action="cancel-deep-import"]')).toBeVisible()
-    await bar.locator('[data-action="cancel-deep-import"]').click()
-    await expect(page.locator(SEL.modalTitle)).toContainText("确认")
-    await page.locator("#modal-footer").getByRole("button", { name: "确认取消" }).click()
+    const compactSummary = bar.locator("summary.workflow-progress__compact")
+    await expect(compactSummary).toBeVisible()
+    await compactSummary.click()
+    const cancelButton = bar.getByRole("button", { name: "取消任务" })
+    await expect(cancelButton).toBeVisible()
+    await cancelButton.click()
+    const confirmDialog = page.getByRole("dialog", { name: "确认操作" })
+    await expect(confirmDialog).toContainText("确认取消当前任务")
+    await confirmDialog.getByRole("button", { name: "确认取消" }).click()
 
     await expect(bar).toContainText("已取消")
     expect(cancelRequestSeen).toBe(true)
@@ -315,7 +317,7 @@ test.describe("深度导入流水线", () => {
       JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]").length
     ))).toBe(1)
 
-    await bar.locator('[data-action="dismiss-deep-import"]').click()
+    await bar.getByRole("button", { name: "关闭" }).click()
     expect(await page.evaluate(() => (
       JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]").length
     ))).toBe(0)
@@ -331,9 +333,7 @@ test.describe("深度导入流水线", () => {
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 
     // 空状态下（无章节）不渲染编辑器区域，因此深度导入按钮不显示
-    await expect(page.locator('[data-action="new-chapter"]')).toBeVisible()
-    await expect(
-      page.locator('[data-action="auto-extract-stage"][data-stage="scenes"]'),
-    ).not.toBeVisible()
+    await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "从正文提取 Scene" })).not.toBeVisible()
   })
 })

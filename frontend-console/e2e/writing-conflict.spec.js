@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { installLeafletStub } from "./helpers/leaflet-stub.js"
-import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   createProject,
   cleanupProject,
@@ -35,7 +35,7 @@ test.describe("写作工作台 — 版本冲突", () => {
     testProjectId = project.id
 
     await openWorkbench(page, project, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await waitWritingReady(page)
   })
 
   test.afterEach(async () => {
@@ -54,8 +54,8 @@ test.describe("写作工作台 — 版本冲突", () => {
 
     // Step 2: 真实导航加载第 1 章 v1
     await reloadWorkbench(page, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
-    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await waitWritingReady(page, { chapter: 1 })
+    await page.getByRole("button", { name: /打开第 1 章/ }).click()
     await expect(page.locator("#writing-editor")).toHaveValue("v1 内容", { timeout: 5000 })
 
     // Step 3: 模拟另一个会话发布 v2（提升章节最新版本号）
@@ -63,7 +63,7 @@ test.describe("写作工作台 — 版本冲突", () => {
 
     // Step 4: 在当前页面编辑并暂存（expected_version 仍为 v1）
     await page.locator("#writing-editor").fill("v3 内容 — 冲突")
-    await page.locator('[data-action="autosave"]').click()
+    await page.locator("#btn-autosave").click()
 
     // Step 5: 应收到 409 冲突 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("已被其他会话更新", { timeout: 10000 })
@@ -150,10 +150,11 @@ test.describe("写作工作台 — 版本冲突", () => {
     })
 
     await reloadWorkbench(page, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
-    await page.locator('[data-action="select-scene"]').first().click()
+    await waitWritingReady(page)
+    await page.locator(".scene-tree-label").first().click()
     await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 10000 })
     await expect(page.locator("#writing-panel-container")).toContainText("旧约门交涉")
+    await page.getByRole("tab", { name: "地图" }).click()
     await expect(page.locator("#writing-panel-container")).toContainText("地图摘要", {
       timeout: 10000,
     })
@@ -162,17 +163,19 @@ test.describe("写作工作台 — 版本冲突", () => {
     await page.locator("#writing-editor").fill(
       "守门人交出银色通行符，主角说明自己违背誓约的原因后，准备从旧约门进入禁区。",
     )
-    await page.locator('[data-action="run-conflict-check"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("剧情设定冲突检查")
-    await page.locator("#writing-conflict-include-candidates").check()
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "开始检查" }).click()
+    await page.locator("#btn-conflict-check").click()
+    const conflictOptions = page.getByRole("dialog", { name: "剧情设定冲突检查选项" })
+    await expect(conflictOptions).toContainText("剧情设定冲突检查")
+    await conflictOptions.getByRole("checkbox", { name: "包含待处理内容" }).check()
+    await conflictOptions.getByRole("button", { name: "开始检查" }).click()
 
-    await expect(page.locator(SEL.modalOverlay)).toContainText("地图/世界状态风险", {
+    const conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
+    await expect(conflictDialog).toContainText("地图/世界状态风险", {
       timeout: 15000,
     })
-    await expect(page.locator(SEL.modalOverlay)).toContainText("旧约门粮仓火势")
-    await expect(page.locator(SEL.modalOverlay)).toContainText("候选地图证据")
-    await expect(page.locator(SEL.modalOverlay)).toContainText("本次检查包含待处理内容")
+    await expect(conflictDialog).toContainText("旧约门粮仓火势")
+    await expect(conflictDialog).toContainText("候选地图证据")
+    await expect(conflictDialog).toContainText("包含待处理内容")
 
     const mapRiskItem = page.locator(".writing-conflict-item", {
       hasText: "地图/世界状态风险",
@@ -217,8 +220,8 @@ test.describe("写作工作台 — 版本冲突", () => {
       observation_id: observation.id,
     })
 
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "关闭" }).click()
-    await page.locator('[data-action="publish"]').click()
+    await conflictDialog.locator(".modal-footer").getByRole("button", { name: "关闭" }).click()
+    await page.locator("#btn-publish").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 30000 })
 
     const latestDraft = await getLatestDraft(testProjectId, 1)
@@ -250,19 +253,19 @@ test.describe("写作工作台 — 版本冲突", () => {
     try {
       for (const page of [pageA, pageB]) {
         await openWorkbench(page, { id: testProjectId, title: "冲突测试项目" }, "writing")
-        await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
-        await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+        await waitWritingReady(page, { chapter: 1 })
+        await page.getByRole("button", { name: /打开第 1 章/ }).click()
         await expect(page.locator("#writing-editor")).toHaveValue("v1 内容", { timeout: 5000 })
       }
 
       // Step 3: Tab A 编辑并暂存
       await pageA.locator("#writing-editor").fill("Tab A 内容")
-      await pageA.locator('[data-action="autosave"]').click()
-      await expect(pageA.locator(SEL.toastContainer)).toContainText("已暂存", { timeout: 10000 })
+      await pageA.locator("#btn-autosave").click()
+      await expect(pageA.locator("#writing-save-status")).toHaveText("已保存", { timeout: 10000 })
 
       // Step 4: Tab B 再暂存应收到 409
       await pageB.locator("#writing-editor").fill("Tab B 内容")
-      await pageB.locator('[data-action="autosave"]').click()
+      await pageB.locator("#btn-autosave").click()
       await expect(pageB.locator(SEL.toastContainer)).toContainText("已被其他会话更新", { timeout: 10000 })
     } finally {
       await context.close()

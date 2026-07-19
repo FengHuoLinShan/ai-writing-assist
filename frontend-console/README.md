@@ -95,83 +95,66 @@ python scripts/doctor.py --json
 
 ```
 frontend-console/
-├── index.html              # 单页应用入口
+├── index.html              # Vue shell 空挂载根与稳定脚本加载顺序
 ├── styles.css              # 基础布局、组件和页面样式（设计 Token 驱动）
 ├── editorial-theme.css     # 全站编辑档案主题覆层（浅色 / 暖色 / 暗色）
-├── state.js                # 全局响应式状态管理
-├── stateSlices.js          # 状态副作用、listener 通知、DOM 同步调度 helper
+├── state.js                # Proxy 状态、持久化与订阅；不直接投影 shell DOM
+├── stateSlices.js          # 状态副作用与 listener 通知 helper
 ├── api.js                  # API 封装（projects/world/rag/context/writing/imports/tasks）
-├── apiContracts.js         # vanilla JS 共享 API 契约注册表（高风险 wrapper 子集）
-├── router.js               # Hash 路由系统
+├── apiContracts.js         # 共享 API 契约注册表（高风险 wrapper 子集）
+├── router.js               # Hash router 与 #workspace-content route-host 生命周期
 ├── commands.js             # 命令系统（全中文帮助）
-├── app.js                  # 应用主入口（快捷键绑定）
+├── app.js                  # 启动顺序、项目摘要恢复、SmartDedup 生命周期
 ├── shared/                 # 可复用业务组件与工具
 │   ├── smartDedup.js       # 智能去重管理器
 │   ├── referencePicker.js  # 作者向对象名称搜索与稳定 ID 回写
 │   ├── confirmAsync.js     # 异步二次确认封装
-│   ├── writingToolsResult.js # 工具结果应用到 orchestrator
+│   ├── writingToolsResult.js # 工具结果应用到 Vue Writing workspace
 │   ├── sceneLocator.js     # 光标/章节定位当前 Scene
 │   └── ...                 # 其他共享模块
-├── vue/                    # Vue 3 视图岛（ADR-0009）
-│   ├── bridge/             #   组件访问 vanilla 基建的唯一入口（可 DI 替身）
-│   ├── mountIsland.js      #   Vue 根组件 → vanilla router 视图契约适配器
+├── vue/                    # Vue 3 shell 与业务页面（ADR-0009）
+│   ├── shell/              #   topbar/sidebar/命令栏/主题/快捷键/service hosts
+│   ├── bridge/             #   组件访问稳定基建的唯一入口（可 DI 替身）
+│   ├── mountIsland.js      #   Vue 根组件 → hash router 视图契约适配器
 │   ├── components/         #   跨视图组件（WorkflowProgressCard 等）
 │   ├── composables/        #   跨视图组合式函数（上传/轮询/保存按钮）
-│   ├── settingsIslands.js  #   settings/project-settings 注册与数据预取
-│   ├── projectIsland.js    #   project 注册与数据预取
-│   ├── ragIsland.js        #   rag 注册与数据预取
-│   ├── worldIsland.js      #   world 注册与数据预取
-│   └── views/              #   各 island 的 SFC、纯逻辑与会话状态（settings/project/rag/world）
-├── views/                  # 一级路由视图（vanilla；project/rag/settings/world 已迁入 vue/）
-│   ├── writingView.js      # 写作台 orchestrator
-│   ├── writing/            # 写作台子模块
-│   │   ├── chapterTree.js
-│   │   ├── editor.js
-│   │   ├── versions.js
-│   │   ├── publish.js
-│   │   ├── deepImportRecovery.js
-│   │   ├── autoExtraction.js
-│   │   ├── conflictCheck.js
-│   │   ├── sceneAlerts.js   # Scene 确定性现场警报与校验新鲜度
-│   │   ├── scenePanel.js
-│   │   ├── versionDiff.js   # 只读临时版本 Diff
-│   │   ├── outlineFloat.js
-│   │   ├── focusMode.js
-│   │   ├── tools.js
-│   │   ├── mobileQuickNote.js
-│   │   └── submodules.js   # 子模块工厂
-│   ├── mapWorkspaceView.js # 地图一级工作台
-│   ├── mapView.js          # 动态地图主视图
-│   ├── mapState.js         # 地图前端可观察会话状态
-│   ├── mapEditingSession.js # 编辑草稿、历史、CAS 基线与 apply 生命周期
-│   ├── mapHexRenderer.js   # 六边形渲染
-│   ├── mapEditPanel.js     # 地图编辑面板
-│   ├── mapLayerSession.js  # exclusive/floor 当前子层与 isolate 会话投影
-│   ├── mapPathRenderer.js  # 连续道路/水系几何、裁剪、命中与 Canvas 绘制
-│   ├── mapTimelineProjection.js # Scene 状态/差分归一化与只读 Canvas 覆盖
-│   ├── mapTerrainAssets.js # 内置覆盖素材包与样式预设
-│   ├── mapTerrainRenderer.js # 程序化 Canvas 覆盖素材渲染
-│   ├── mapRouteContext.js  # 地图路由上下文
-│   ├── outlineView.js      # 剧情结构
-│   ├── storyOutlineView.js # 小说总纲当前版、修订历史与 AI 预览采用
-│   ├── sceneWorkbenchView.js # Scene 一级工作台
-│   ├── contextView.js      # 旧上下文页代码；当前 hash 入口重定向到生成中心任务页
-│   └── generateView.js     # 生成中心
+│   ├── *Island.js          #   各一级路由注册与首屏数据预取
+│   └── views/              #   project/rag/settings/world/outline/scene/generate/writing/map SFC
+├── views/                  # Vue 页之下的限定兼容 seam（不再注册页面 renderer）
+│   ├── mapView.js          # 唯一地图 DOM seam：Leaflet/Canvas viewport controller
+│   ├── mapState.js         # mapView seam 内部的可观察会话状态
+│   ├── mapEditingSession.js # mapView seam 内部的草稿、历史与 CAS 基线
+│   ├── mapHexRenderer.js   # mapView seam 内部六边形渲染
+│   ├── mapEditPanel.js     # mapView seam 内部编辑面板
+│   ├── mapLayerSession.js  # mapView seam 内部图层会话投影
+│   ├── mapPathRenderer.js  # mapView seam 内部几何、裁剪、命中与 Canvas 绘制
+│   ├── mapTimelineProjection.js # mapView seam 内部 Scene 只读 Canvas 覆盖
+│   ├── mapTerrainAssets.js # mapView seam 内部素材包与样式预设
+│   ├── mapTerrainRenderer.js # mapView seam 内部程序化 Canvas 渲染
+│   ├── mapRouteContext.js  # mapView seam 的规范路由上下文
+│   ├── mapQuickCreateView.js # 仅由 Vue Writing 的 mapQuickCreateBridge 调用
+│   └── writing/            # 仅 sceneAlerts.js / versionDiff.js 作为无 DOM 纯 helper 被复用
 ├── tests/                  # 测试目录
-│   ├── writing/            # 写作台子模块单元测试
+│   ├── vue/                # Vue shell、业务视图、controller 与 owner gate 测试
 │   └── shared/             # shared 模块测试
 └── README.md
 ```
 
 ## 技术栈
 
-- Vanilla JS 外壳 + Vue 3 SFC 视图岛（渐进迁移，ADR-0009）：`project` / `rag` / `settings` / `project-settings` / `world` 已迁移为 Vue，其余视图仍为 vanilla JS
-- Vue 视图经 `vue/mountIsland.js` 注册进 vanilla router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；动态内容依赖模板自动转义，禁止 `v-html`
+- Vue 3 SFC shell + 业务页面（ADR-0009）：Vue 拥有静态外壳和所有实际路由目标的
+  主 DOM；`scene` / `llm` 只作兼容重定向，不拥有页面 DOM
+- hash router、Proxy state、API 和 toast/modal 作为集中式基础设施保留；router 不再使用
+  DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态
+- Leaflet/Canvas 只通过 Vue `MapViewportAdapter` 下的 `mapView` seam 运行；Writing 仅保留
+  `mapQuickCreateView` bridge 以及 `sceneAlerts` / `versionDiff` 纯 helper
+- Vue 视图经 `vue/mountIsland.js` 注册进 hash router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；异步 `load()` 使用代次守卫，新加载或 `onLeave` 后的旧响应不得回写当前 island；动态内容依赖模板自动转义，禁止 `v-html`
+- 上述变更只调整前端内部所有权；HTTP API、数据库 schema 和前端 wire shape 保持不变
 - 地图视口按需加载 Leaflet（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。
 - 图层面板使用递归树，展示祖先继承后的有效显隐、锁定、透明度与 zoom；exclusive/floor 当前子层由 route + localStorage 会话投影管理，isolate 不持久化。世界对象通过 map presence 在多张地图和多条线路间选择并双向定位。
 - 连续道路/水系由 `mapPathRenderer.js` 负责 RDP 简化、平滑采样、变宽绘制、AABB 裁剪和命中测试；Pointer 手绘、节点拖动、端点吸附与线路草稿由 `mapView` 编排。地图 Canvas 使用单 RAF 和 revision/viewport 缓存。
-- Scene 时间轴由 `mapWorkspaceView` 消费 timeline/state-at 只读投影，支持 Scene 游标、前后步进、
+- Scene 时间轴由 Vue `MapWorkspaceView` 消费 timeline/state-at 只读投影，支持 Scene 游标、前后步进、
   播放节奏、轨道过滤、candidate preview 和空间连续性面板。`mapTimelineProjection.js` 负责
   响应归一化、投影签名和 Canvas 覆盖；事实变化不依赖 `editor_revision` 失效缓存。
 - 地图总览包含项目级“地图收件箱”，只展示未分配的待处理 observation。作者可按类型、
@@ -190,7 +173,7 @@ frontend-console/
 ## 路由与设置
 
 - 项目回收站支持单个恢复、单个永久删除、批量恢复和批量永久删除；永久删除必须二次确认，批量删除使用后端原子接口，不做部分成功。回收站每页 20 条，桌面端大模态框用双列完整展示当前页，并提供上一页、下一页和总数。
-- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`rag`、`generate`、`settings`、`project-settings`；`outline` 默认进入层级最高的 `story-outline`，子导航依次进入篇章纲、剧情线和场景工作台。旧 `scene` 路由跳转到 `outline/scenes`，旧伏笔/揭示路由跳转到剧情线的信息推进区域。快速切换项目或初始化期间使用浏览器前进/后退时，晚到的项目元数据请求不会继续提交旧路由和页面，也不会覆盖当前工作区。新鲜渲染由路由提交 view 返回的 HTML 后再调用 `onRendered()`；需要访问新 DOM 的事件绑定应放在该生命周期中，keep-alive 恢复仍使用 `onActivate()`，不要用零延时定时器猜测 DOM 提交时机。KeepAlive DOM 虽按项目缓存，但 renderer 单例的章节树等内存状态也必须核对所属项目；不匹配时应重新执行项目级装配，不能把另一个项目的状态写入已恢复 DOM。
+- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`rag`、`generate`、`settings`、`project-settings`；`outline` 默认进入层级最高的 `story-outline`，子导航依次进入篇章纲、剧情线和场景工作台。旧 `scene` 路由跳转到 `outline/scenes`，旧伏笔/揭示路由跳转到剧情线的信息推进区域。快速切换项目或初始化期间使用浏览器前进/后退时，晚到的项目元数据或 island 加载请求不会继续提交旧路由和页面，也不会覆盖当前工作区。新鲜渲染由路由提交 view 返回的挂载点后再调用 `onRendered()`；需要访问新 DOM 的 controller 绑定应放在该生命周期中，不要用零延时定时器猜测 DOM 提交时机。router 不再缓存活 DOM；`outline` 离开时停止 workflow 轮询并从持久化记录恢复，`writing` 使用项目隔离的显式 session snapshot 恢复作者编辑态。
 - 地图 hash 使用 `overview` / `recent` / `dashboard` / `live` / `lens` 规范模式；旧
   `mode=map` 首次读取后使用 replace 规范为 `mode=live`。跨地图/返回总览使用
   history push，同地图的模式、Scene 和聚焦变更使用 replace。
@@ -267,8 +250,8 @@ frontend-console/
 
 - `index.html` 配置 CSP meta baseline：脚本仅允许本源和 Leaflet CDN，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
 - 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
-- 动态内容默认使用 `textContent`；必须拼 HTML 时先走 `esc()`。
-- 当前已落地 vanilla JS 共享 API 契约校验第一阶段：`apiContracts.js` 注册高风险 wrapper 的 method/path/query/body/timeout，浏览器 `api.js` 与 Playwright API helper 共用同一 registry 和序列化规则；Vitest 覆盖加载顺序、必填 body、method 固定与代表 endpoint 映射。
+- Vue 模板动态内容使用插值自动转义；命令式 seam 默认使用 `textContent`，必须拼 HTML 时先走 `esc()`。
+- 当前已落地共享 JS API 契约校验第一阶段：`apiContracts.js` 注册高风险 wrapper 的 method/path/query/body/timeout，浏览器 `api.js` 与 Playwright API helper 共用同一 registry 和序列化规则；Vitest 覆盖加载顺序、必填 body、method 固定与代表 endpoint 映射。
 - TypeScript / OpenAPI codegen 仍是未来设计项；当前契约层不覆盖响应字段级 schema drift，设计记录见 `docs/frontend/typescript-api-contracts.md`。
 
 ## 快捷键

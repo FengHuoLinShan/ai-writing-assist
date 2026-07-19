@@ -4,6 +4,27 @@
 - **日期**: 2026-07-18
 - **背景**: 用户明确要求"前端升级为 Vue 框架"；AGENTS.md「默认栈为 …Vanilla JS。新增…前端栈…须用户确认或 ADR」——用户指令已确认，本 ADR 记录决策与边界。
 
+## 2026-07-19 实施结论
+
+原路线图标记的 Phase 1–6 已全部完成。下文“外壳保持 vanilla”、“本阶段不涉及
+keep-alive”与“后续批次”等措辞仅保留 2026-07-18 的决策过程，不再描述当前代码
+所有权。当前裁定为：
+
+- Vue shell 拥有 topbar、sidebar、命令栏、主题、快捷键和 toast/modal 的静态 host；
+  所有一级业务页面的主 DOM 均由 Vue SFC 拥有。
+- 现有 hash router 保留为窄的命令式 route-host seam，继续拥有 URL、兼容别名、项目元数据
+  同步和 `#workspace-content` 子树。外壳收口时已评估 Vue Router：当前不引入，以避免
+  新增依赖、双路由状态和 URL/wire 迁移；所有实际业务页的主 DOM 仍由 Vue 拥有。
+- router 已删除 DocumentFragment keep-alive。所有视图离开时卸载，写作会话以项目隔离的
+  显式 snapshot 恢复；详见附录 A。
+- Leaflet/Canvas 的 `mapView` 保留为 Vue `MapViewportAdapter` 下的窄 viewport controller；
+  toast/modal、hash router、API 和 Proxy state 是集中式基础设施 seam，不拥有业务页主 DOM。
+- Writing 只通过 Vue `mapQuickCreateBridge` 调用 `mapQuickCreateView`，并复用
+  `sceneAlerts` / `versionDiff` 纯 helper；没有其他 `views/writing/` 运行时依赖。
+- 动态用户、AI 与 API 内容继续禁止 `v-html`；命令式 modal 或 Canvas seam 必须集中、可释放，
+  且字符串内容显式转义。
+- 本次迁移是前端内部所有权调整；HTTP API、数据库 schema 和前端 wire shape 保持不变。
+
 ## 背景与问题
 
 `frontend-console/` 原为 53k 行零框架 Vanilla JS（87 个生产文件）：视图是返回 HTML 字符串的
@@ -14,7 +35,10 @@ Playwright e2e 深度绑定这套"HTML 字符串 + 全局变量"契约。
 整体一次性重写风险高（30 个视图、地图/编辑器等命令式子系统、并行维护两套）。需要一条
 **新旧共存、逐视图替换、每步可交付**的渐进路径，且迁移期间不破坏现有 e2e 与视觉契约。
 
-## 决策
+## 原始决策（历史记录）
+
+> 本节保留渐进迁移启动时的分批设计。其中“外壳保持 vanilla”、
+> “待外壳 Vue 化”和 DocumentFragment 延后设计均已被上文实施结论取代。
 
 ### 1. 引入 Vue 3（SFC + Composition API），以 island 模式渐进替换
 
@@ -65,7 +89,7 @@ Vue 模板 `{{ }}` 自动转义即满足 AGENTS.md 的 `esc()` 纪律。**禁止
   平台提交（当前 darwin），其他平台默认跳过，需显式生成并提交本平台基线后启用。
   后续每批视图迁移沿用同一机制。
 
-### 6. 首阶段范围与后续路线图
+### 6. 首阶段范围与后续路线图（历史，已全部完成）
 
 首阶段（本 ADR 随附实现）：迁移 `views/settings/` 全部 1,338 行（全局设置 +
 项目设置三个 Tab），`index.html` 移除对应 vanilla 脚本，由 `app.js` import
@@ -76,7 +100,7 @@ Phase 2 project/rag → Phase 3 outline/world → Phase 4 generate/writing/scene
 （编辑器与命令式子系统接缝）→ Phase 5 map（Leaflet 封装）→ Phase 6 外壳 Vue 化并
 评估 Vue Router、移除 vanilla 基建。
 
-## 影响
+## 原始影响（历史记录）
 
 - `frontend-console/package.json` 新增 dependencies；`vite.config.js` /
   `vitest.config.js` 注册 vue 插件；新增 `npm run build`（`vite build`，仅冒烟验证，
@@ -87,7 +111,8 @@ Phase 2 project/rag → Phase 3 outline/world → Phase 4 generate/writing/scene
   `tests/vue/`。
 - e2e：`e2e/fixtures.js` 增加 auto fixture 为所有页面注入 `API_HOST`（与
   `helpers/workbench.js` 既有模式一致），支持非默认端口运行；既有 spec 文件未改动。
-- AGENTS.md「默认栈」条目更新为"Vue 3 渐进迁移中"，并记录 island/bridge/v-html 约定。
+- AGENTS.md 的前端栈确认门禁保持不变；本 ADR 与用户明确指令构成引入 Vue 的确认记录，
+  具体 island/bridge/v-html 约定由本 ADR 和前端模块文档维护。
 
 ## 备选方案（拒绝）
 

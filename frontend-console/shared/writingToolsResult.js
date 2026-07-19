@@ -1,7 +1,7 @@
 /**
- * 将 tools / autoExtraction 回调结果应用到 writingView orchestrator 的共享状态。
+ * 将 tools / autoExtraction 回调结果应用到 Writing workspace 的标准化状态。
  *
- * 返回的 action 由 orchestrator 负责触发后续视图更新。
+ * 返回的 action 由 Vue workspace controller 负责触发后续视图更新。
  */
 export function applyToolsResult(result, view) {
   if (result?.draft_id && result?.chapter_index != null) {

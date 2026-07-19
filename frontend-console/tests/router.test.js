@@ -48,6 +48,30 @@ describe("renderCurrentView error handling", () => {
     expect(content.innerHTML).toContain("world:bible")
   })
 
+  it("shows an accessible route-host skeleton while a fresh view enters", async () => {
+    const content = addWorkspace()
+    let releaseEnter
+    window.router.registerView("slow-loading-test", {
+      onEnter: () => new Promise((resolve) => { releaseEnter = resolve }),
+      async render() { return '<p id="loaded-route">完成</p>' },
+    })
+    state.currentView = "slow-loading-test"
+
+    const rendering = window.router.renderCurrentView()
+    await vi.waitFor(() => expect(releaseEnter).toBeTypeOf("function"))
+
+    const status = content.querySelector(".loading-skeleton")
+    expect(status?.getAttribute("role")).toBe("status")
+    expect(status?.getAttribute("aria-live")).toBe("polite")
+    expect(status?.getAttribute("aria-busy")).toBe("true")
+    expect(status?.querySelector(".sr-only")?.textContent).toBe("工作区加载中...")
+    expect(status?.querySelectorAll('.skeleton[aria-hidden="true"]')).toHaveLength(4)
+
+    releaseEnter()
+    await rendering
+    expect(content.querySelector("#loaded-route")?.textContent).toBe("完成")
+  })
+
   it("does not let an older async render overwrite the current route", async () => {
     const content = addWorkspace()
     let resolveOld
@@ -133,18 +157,16 @@ describe("renderCurrentView error handling", () => {
     expect(state.currentProject).toBeNull()
   })
 
-  it("does not reuse keep-alive writing DOM across projects", async () => {
+  it("re-enters writing instead of reusing DOM across projects", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
     document.body.append(content)
 
     const onEnter = vi.fn()
-    const onActivate = vi.fn()
+    const onLeave = vi.fn()
     window.router.registerView("writing", {
       onEnter,
-      onActivate,
-      onDeactivate: vi.fn(),
-      onLeave: vi.fn(),
+      onLeave,
       async render() {
         return `<p id="writing-project">${state.currentProjectId}</p>`
       },
@@ -157,31 +179,26 @@ describe("renderCurrentView error handling", () => {
     await window.router.renderCurrentView()
     expect(document.getElementById("writing-project").textContent).toBe("p1")
     const enterCountAfterProjectOne = onEnter.mock.calls.length
-    const activateCountAfterProjectOne = onActivate.mock.calls.length
 
     await window.router.navigate("project", null, false)
+    expect(onLeave).toHaveBeenCalledTimes(1)
 
     state.currentProjectId = "p2"
     await window.router.navigate("writing", null, false)
 
     expect(document.getElementById("writing-project").textContent).toBe("p2")
     expect(onEnter).toHaveBeenCalledTimes(enterCountAfterProjectOne + 1)
-    expect(onActivate).toHaveBeenCalledTimes(activateCountAfterProjectOne)
   })
 
-  it("keeps a writing view's module state alive while its DOM is cached", async () => {
+  it("disposes and recreates writing when revisiting the route", async () => {
     const content = addWorkspace()
-    const onDeactivate = vi.fn()
     const onLeave = vi.fn()
-    const onActivate = vi.fn()
     const onEnter = vi.fn()
     const onRendered = vi.fn()
 
     window.router.registerView("writing", {
       onEnter,
-      onDeactivate,
       onLeave,
-      onActivate,
       onRendered,
       async render() {
         return '<p id="writing-state">章节树仍在</p>'
@@ -197,13 +214,11 @@ describe("renderCurrentView error handling", () => {
     expect(onRendered).toHaveBeenCalledTimes(1)
 
     await window.router.navigate("world", null, false)
-    expect(onDeactivate).toHaveBeenCalledTimes(1)
-    expect(onLeave).not.toHaveBeenCalled()
+    expect(onLeave).toHaveBeenCalledTimes(1)
 
     await window.router.navigate("writing", null, false)
-    expect(onActivate).toHaveBeenCalledTimes(1)
-    expect(onEnter).toHaveBeenCalledTimes(1)
-    expect(onRendered).toHaveBeenCalledTimes(1)
+    expect(onEnter).toHaveBeenCalledTimes(2)
+    expect(onRendered).toHaveBeenCalledTimes(2)
     expect(content.querySelector("#writing-state")?.textContent).toBe("章节树仍在")
   })
 })
@@ -228,6 +243,22 @@ describe("subview memory", () => {
 })
 
 describe("route guard and normalization", () => {
+  it("首次进入 legacy map 深链时以 replace 收敛到 canonical live", async () => {
+    addWorkspace()
+    registerBasicView("map")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.location.hash = "#workbench/p1/map?map_id=m1&scene_id=s1&mode=map"
+    const beforeLength = window.history.length
+
+    await window.router.initRouter()
+
+    expect(window.location.hash).toBe(
+      "#workbench/p1/map?map_id=m1&scene_id=s1&mode=live",
+    )
+    expect(window.router.getCurrentQuery().get("mode")).toBe("live")
+    expect(window.history.length).toBe(beforeLength)
+  })
+
   it("replace shares route normalization and canLeave while preserving history length", async () => {
     addWorkspace()
     const canLeave = vi.fn(() => true)

@@ -40,8 +40,8 @@ test.describe("Scene 工作台", () => {
     await createDraft(project.id, 1, "第一章", "正文")
 
     await openWorkbench(page, project, "writing")
-    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
-    await page.locator('[data-action="open-scene-workbench"]').click()
+    await page.getByRole("button", { name: /写作联动 Scene/ }).click()
+    await page.getByRole("button", { name: "整理" }).click()
 
     await expect(page.locator("#topbar-module")).toHaveText("大纲")
     await expect(page).toHaveURL(new RegExp(`scene_id=${scene.id}`))

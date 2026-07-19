@@ -27,14 +27,14 @@ const routes = {
 /**
  * 视图渲染器映射
  * 每个视图模块提供 render() 函数
- * @type {Object<string, {render: function, onEnter?: function, onRendered?: function, onActivate?: function, onDeactivate?: function, canLeave?: function, onLeave?: function}>}
+ * @type {Object<string, {render: function, onEnter?: function, onRendered?: function, canLeave?: function, onLeave?: function}>}
  */
 const viewRenderers = {}
 
 /**
  * 注册视图渲染器
  * @param {string} name - 视图名称
- * @param {Object} renderer - { render(), onEnter?(), onRendered?(), onActivate?(), onDeactivate?(), canLeave?(), onLeave?() }
+ * @param {Object} renderer - { render(), onEnter?(), onRendered?(), canLeave?(), onLeave?() }
  */
 function registerView(name, renderer) {
   viewRenderers[name] = renderer
@@ -98,6 +98,36 @@ function _queueMapTelemetry(routeState) {
  */
 function onNavigate(listener) {
   _navListeners.push(listener)
+  return () => {
+    const index = _navListeners.indexOf(listener)
+    if (index >= 0) _navListeners.splice(index, 1)
+  }
+}
+
+function _showRouteLoadingSkeleton(content) {
+  const status = document.createElement("div")
+  status.className = "loading-skeleton"
+  status.setAttribute("role", "status")
+  status.setAttribute("aria-live", "polite")
+  status.setAttribute("aria-busy", "true")
+
+  const label = document.createElement("span")
+  label.className = "sr-only"
+  label.textContent = "工作区加载中..."
+  status.append(label)
+
+  for (const className of [
+    "skeleton loading-skeleton__heading",
+    "skeleton loading-skeleton__line",
+    "skeleton loading-skeleton__line loading-skeleton__line--medium",
+    "skeleton loading-skeleton__line loading-skeleton__line--short",
+  ]) {
+    const bar = document.createElement("div")
+    bar.className = className
+    bar.setAttribute("aria-hidden", "true")
+    status.append(bar)
+  }
+  content.replaceChildren(status)
 }
 
 /**
@@ -116,26 +146,12 @@ const _nonRestorableSubViews = {
   world: new Set(["map"]),
 }
 
-/** @type {Object<string, DocumentFragment>} 各视图缓存的 DOM */
-const _viewDomCache = {}
-
-/** @type {Set<string>} 标记为 KeepAlive 的视图 */
-const _keepAliveViews = new Set(["writing", "outline"])
-
 /** @type {URLSearchParams} 当前 hash 的 query 参数 */
 let _currentQuery = new URLSearchParams()
 
 /** 当前项目元数据同步的取消与代次边界，防止快速切换时旧响应回写。 */
 let _projectSyncController = null
 let _projectSyncGeneration = 0
-
-function _viewCacheKey(viewName, subView = null, projectId = state.currentProjectId) {
-  return `${projectId || "global"}:${viewName}:${subView || ""}`
-}
-
-function _shouldKeepAlive(viewName, subView = null) {
-  return _keepAliveViews.has(viewName) && !(viewName === "outline" && subView === "scenes")
-}
 
 /**
  * 根据当前是否选择了项目，构造路由 hash
@@ -234,6 +250,13 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     targetView = effectiveProjectId ? "project-settings" : "settings"
     targetProjectId = effectiveProjectId
     targetSubView = null
+  }
+
+  // `mode=map` 仅作为旧深链输入保留。统一在路由边界改为 canonical live，
+  // 让首次 init/popstate 的 replace 与 router 内部 query 使用同一值。
+  if (targetView === "map" && targetQuery.get("mode") === "map") {
+    targetQuery = new URLSearchParams(targetQuery)
+    targetQuery.set("mode", "live")
   }
 
   let route = routes[targetView]
@@ -348,7 +371,7 @@ function _rememberSubView(viewName, subView) {
 }
 
 /**
- * 同步当前项目状态：当 projectId 变化时，清空缓存并加载项目元数据。
+ * 同步当前项目状态：当 projectId 变化时加载项目元数据。
  * 避免面包屑/标题显示旧项目名或为空。
  */
 async function _syncCurrentProject(projectId, force) {
@@ -365,7 +388,6 @@ async function _syncCurrentProject(projectId, force) {
 
   const changed = state.currentProjectId !== projectId
   if (changed) {
-    Object.keys(_viewDomCache).forEach((k) => delete _viewDomCache[k])
     state.currentProjectId = projectId
     state.currentProject = null
   }
@@ -426,25 +448,8 @@ async function renderCurrentView() {
   // 离开旧视图
   if (_prevView && _prevView !== viewName) {
     const prevRenderer = viewRenderers[_prevView]
-    if (prevRenderer) {
-      const keepAlive = _shouldKeepAlive(_prevView, _prevRenderedSubView)
-      if (keepAlive && prevRenderer.onDeactivate) {
-        try { prevRenderer.onDeactivate() } catch (e) { console.error(e) }
-      }
-      // Keep-alive views retain their renderer instances and DOM. `onLeave`
-      // tears down that instance, so calling it here leaves restored DOM bound
-      // to cleared module state on the next activation.
-      if (!keepAlive && prevRenderer.onLeave) {
-        try { prevRenderer.onLeave() } catch (e) { console.error(e) }
-      }
-    }
-    if (_shouldKeepAlive(_prevView, _prevRenderedSubView)) {
-      const frag = document.createDocumentFragment()
-      while (content.firstChild) {
-        frag.appendChild(content.firstChild)
-      }
-      const cacheKey = _viewCacheKey(_prevView, _prevRenderedSubView, _prevRenderedProjectId)
-      _viewDomCache[cacheKey] = frag
+    if (prevRenderer?.onLeave) {
+      try { prevRenderer.onLeave() } catch (e) { console.error(e) }
     }
   }
   _prevView = viewName
@@ -459,32 +464,20 @@ async function renderCurrentView() {
   const renderer = viewRenderers[viewName]
 
   state.loading = true
+  if (!isSameRender) _showRouteLoadingSkeleton(content)
 
   try {
     if (renderer) {
-      const cacheKey = _viewCacheKey(viewName, state.currentSubView, currentProjectId)
-      const cached = _viewDomCache[cacheKey]
-      if (cached && _shouldKeepAlive(viewName, state.currentSubView) && !forceRefresh) {
+      if (!isSameRender && renderer.onEnter) {
+        await renderer.onEnter()
         if (!isCurrentRender()) return false
-        content.innerHTML = ""
-        content.appendChild(cached)
-        delete _viewDomCache[cacheKey]
-        if (renderer.onActivate) {
-          await renderer.onActivate()
-          if (!isCurrentRender()) return false
-        }
-      } else {
-        if (!isSameRender && renderer.onEnter) {
-          await renderer.onEnter()
-          if (!isCurrentRender()) return false
-        }
-        const html = await renderer.render()
+      }
+      const html = await renderer.render()
+      if (!isCurrentRender()) return false
+      content.innerHTML = html
+      if (renderer.onRendered) {
+        await renderer.onRendered()
         if (!isCurrentRender()) return false
-        content.innerHTML = html
-        if (renderer.onRendered) {
-          await renderer.onRendered()
-          if (!isCurrentRender()) return false
-        }
       }
     } else {
       if (!isCurrentRender()) return false
@@ -524,8 +517,6 @@ async function renderCurrentView() {
   }
 
   if (!isCurrentRender()) return false
-  updateRightPanelForView(viewName)
-
   for (const listener of _navListeners) {
     try { listener(viewName, state.currentSubView) } catch (e) { console.error(e) }
   }
@@ -607,8 +598,6 @@ async function refresh() {
   const isCurrent = await _syncCurrentProject(state.currentProjectId, true)
   if (!isCurrent) return false
   _forceRefresh = true
-  const cacheKey = _viewCacheKey(state.currentView, state.currentSubView)
-  delete _viewDomCache[cacheKey]
   await renderCurrentView()
   return true
 }

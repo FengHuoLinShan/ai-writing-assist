@@ -21,7 +21,7 @@ const MOBILE_VIEWPORT = { width: 390, height: 844 }
 
 async function openMapWorkspace(page, project, map) {
   await openWorkbench(page, project, "map")
-  await page.goto(`/#workbench/${project.id}/map?map_id=${map.id}&mode=map`)
+  await page.goto(`/#workbench/${project.id}/map?map_id=${map.id}&mode=live`)
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await expect(page.locator(SEL.viewTitle)).toHaveText("地图", { timeout: 10000 })
   await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
@@ -162,28 +162,21 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
 
     await openWorkbench(page, project, "map")
     await page.getByRole("button", { name: "快速创建" }).first().click()
-    const preview = page.locator("#map-quick-canvas")
+    const quickDialog = page.getByRole("dialog", { name: "快速创建地图" })
+    const preview = quickDialog.getByLabel("地点布局画布")
     await preview.scrollIntoViewIfNeeded()
     await expect(preview).toBeVisible()
     await expectWithinViewport(preview)
-    await page.locator("#map-quick-name").fill("移动云港世界图")
-    const locationRow = page.locator(
-      `[data-action="map-quick-move"][data-id="${location.id}"]`,
-    ).first().locator("xpath=ancestor::tr")
+    await quickDialog.locator("#map-quick-name").fill("移动云港世界图")
+    const locationRow = quickDialog.getByRole("row").filter({ hasText: location.name })
     const initialCoordinates = (await locationRow.locator("td").nth(2).textContent())
       .split(",")
       .map((value) => Number(value.trim()))
     expect(initialCoordinates).toHaveLength(2)
     expect(initialCoordinates.every(Number.isFinite)).toBe(true)
-    const moveButton = page.locator(
-      `[data-action="map-quick-move"][data-id="${location.id}"][data-dq="1"]`,
-    )
-    const radiusButton = page.locator(
-      `[data-action="map-quick-radius"][data-id="${location.id}"]`,
-    ).first()
-    const lockButton = page.locator(
-      `[data-action="map-quick-lock"][data-id="${location.id}"]`,
-    )
+    const moveButton = locationRow.getByRole("button", { name: "→", exact: true })
+    const radiusButton = locationRow.getByRole("button", { name: "+", exact: true })
+    const lockButton = locationRow.getByRole("button", { name: "锁定", exact: true })
     for (const control of [moveButton, radiusButton, lockButton]) {
       const box = await control.boundingBox()
       expect(box).not.toBeNull()
@@ -191,7 +184,7 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
       expect(box.height).toBeGreaterThanOrEqual(40)
     }
     await moveButton.tap()
-    const createButton = page.getByRole("button", { name: "创建", exact: true }).last()
+    const createButton = quickDialog.getByRole("button", { name: "创建", exact: true })
     await createButton.scrollIntoViewIfNeeded()
     const createBox = await createButton.boundingBox()
     expect(createBox).not.toBeNull()
@@ -239,7 +232,7 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
       entity_type: "organization",
       status: "canonical",
     })
-    const observation = await createMapObservation(testProjectId, map.id, {
+    await createMapObservation(testProjectId, map.id, {
       target_entity_id: faction.id,
       target_entity_type: "organization",
       target_name: faction.name,
@@ -258,20 +251,23 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
     })
 
     await openMapWorkspace(page, project, map)
-    await page.locator('.workspace-rail__summary[aria-label="展开动态摘要"]').click()
-    const candidate = page.locator(
-      `.map-dynamic-item[data-id="${observation.id}"]`,
-    ).first()
+    await page.locator('summary[aria-label="展开动态摘要"]').click()
+    const dynamicQueue = page.locator(".map-dynamic-section").filter({
+      has: page.getByRole("heading", { name: "动态队列", exact: true }),
+    })
+    const candidate = dynamicQueue.locator(".map-dynamic-item").filter({ hasText: faction.name })
     await expect(candidate).toBeVisible({ timeout: 10000 })
     await candidate.click()
-    await expect(page.locator(SEL.modalTitle)).toContainText("海风盟")
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "修改" }).click()
+    const detailDialog = page.getByRole("dialog", { name: faction.name })
+    await expect(detailDialog).toBeVisible()
+    await detailDialog.getByRole("button", { name: "修改", exact: true }).click()
 
-    await expect(page.locator(SEL.modalTitle)).toHaveText("修改地图对象")
-    await expect(page.locator(".map-boundary-spatial-field")).toBeHidden()
-    await expect(page.locator(".map-boundary-mobile-handoff")).toBeVisible()
-    await expect(page.locator(".map-boundary-mobile-handoff")).toContainText("请在桌面端继续")
-    const saveButton = page.locator(SEL.modalFooter).getByRole("button", { name: "保存" })
+    const editDialog = page.getByRole("dialog", { name: "修改地图对象" })
+    await expect(editDialog).toBeVisible()
+    await expect(editDialog.locator(".map-boundary-spatial-field")).toBeHidden()
+    await expect(editDialog.locator(".map-boundary-mobile-handoff")).toBeVisible()
+    await expect(editDialog.locator(".map-boundary-mobile-handoff")).toContainText("请在桌面端继续")
+    const saveButton = editDialog.getByRole("button", { name: "保存", exact: true })
     const saveBox = await saveButton.boundingBox()
     expect(saveBox).not.toBeNull()
     expect(saveBox.height).toBeGreaterThanOrEqual(44)

@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { installLeafletStub } from "./helpers/leaflet-stub.js"
-import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport, runResponsiveMatrix } from "./helpers/responsive.js"
 import {
   applyMapEditor,
@@ -44,7 +44,7 @@ async function openMapWorkspace(page, project, map, params = {}) {
   await openWorkbench(page, project, "map")
   const query = new URLSearchParams({
     map_id: map.id,
-    mode: "map",
+    mode: "live",
   })
   if (params.sceneId) query.set("scene_id", params.sceneId)
   if (params.focusEntityId) query.set("focus_entity_id", params.focusEntityId)
@@ -214,13 +214,17 @@ test.describe("地图一级工作台", () => {
     await page.locator(SEL.modalFooter).getByRole("button", { name: "分配并继续" }).click()
 
     await expect(page.locator(SEL.toastContainer)).toContainText("已分配地图", { timeout: 10000 })
-    await expect(page.locator(SEL.modalTitle)).toHaveText("修改地图对象", { timeout: 10000 })
-    await page.locator("#map-object-edit-target-entity").selectOption(character.id)
-    await page.locator("#map-typed-location-entity").selectOption(location.id)
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "保存" }).click()
+    const editDialog = page.getByRole("dialog", { name: "修改地图对象" })
+    await expect(editDialog).toBeVisible({ timeout: 10000 })
+    await editDialog.locator("#map-object-edit-target-entity").selectOption(character.id)
+    await editDialog.locator("#map-typed-location-entity").selectOption(location.id)
+    await editDialog.getByRole("button", { name: "保存" }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("地图待处理项已保存", { timeout: 10000 })
 
-    const confirmButton = page.locator(`[data-action="map-confirm-observation"][data-id="${observation.id}"]`)
+    const confirmButton = page.locator(".map-dynamic-item")
+      .filter({ hasText: "沈砚" })
+      .getByRole("button", { name: "采用", exact: true })
+      .first()
     await expect(confirmButton).toBeVisible({ timeout: 10000 })
     await confirmButton.click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
@@ -309,10 +313,12 @@ test.describe("地图一级工作台", () => {
 
     await openWorkbench(page, project, "map")
     await page.getByRole("button", { name: "快速创建" }).first().click()
-    await expect(page.locator("#map-quick-canvas")).toBeVisible()
-    await page.locator("#map-quick-name").fill("云中世界图")
-    await page.locator('[data-action="map-quick-move"][data-id="' + location.id + '"][data-dq="1"]').click()
-    await page.getByRole("button", { name: "创建", exact: true }).last().click()
+    const quickDialog = page.getByRole("dialog", { name: "快速创建地图" })
+    await expect(quickDialog.getByLabel("地点布局画布")).toBeVisible()
+    await quickDialog.locator("#map-quick-name").fill("云中世界图")
+    const locationRow = quickDialog.getByRole("row").filter({ hasText: location.name })
+    await locationRow.getByRole("button", { name: "→", exact: true }).click()
+    await quickDialog.getByRole("button", { name: "创建", exact: true }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("地图已快速创建", {
       timeout: 10000,
     })
@@ -465,7 +471,6 @@ test.describe("地图一级工作台", () => {
     await page.mouse.down()
     await page.mouse.move(box.x + end.x, box.y + end.y, { steps: 16 })
     await page.mouse.up()
-
     await expect(page.locator(".map-path-list-row.active")).toContainText("主干道")
     await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已原子应用 2 个编辑命令", {
@@ -1152,11 +1157,11 @@ test.describe("写作页地图入口", () => {
 
     await openWorkbench(page, project, "writing")
     await reloadWorkbench(page, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await waitWritingReady(page)
 
-    await page.locator('[data-action="select-scene"]').first().click()
+    await page.getByRole("button", { name: /抵达洛阳/ }).click()
     await expect(page.locator("#writing-panel-container")).toContainText("抵达洛阳")
-    await page.locator('[data-action="switch-cockpit-tab"][data-tab="map"]').click()
+    await page.getByRole("tab", { name: "地图" }).click()
     await expect(page.locator('[data-panel="map"]')).toBeVisible()
     await expect(page.locator("#writing-panel-container")).toContainText("地图摘要", {
       timeout: 10000,

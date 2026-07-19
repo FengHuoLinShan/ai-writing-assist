@@ -33,7 +33,7 @@ async function openMapWorkspace(page, project, map, params = {}) {
   await page.goto(`/#workbench/${project.id}/map?${query.toString()}`)
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await expect(page.locator(SEL.viewTitle)).toHaveText("地图", { timeout: 10000 })
-  await expect(page.locator("#map-dynamic-summary")).toContainText("世界动态总控台", {
+  await expect(page.locator(".map-dynamic-panel")).toContainText("世界动态总控台", {
     timeout: 10000,
   })
 }
@@ -268,7 +268,7 @@ test.describe("世界动态地图混乱路径", () => {
     await openMapWorkspace(page, fixture.project, fixture.map, {
       sceneId: fixture.scenes.sceneB.id,
     })
-    const summary = page.locator("#map-dynamic-summary")
+    const summary = page.locator(".map-dynamic-panel")
     await expect(summary).toContainText("世界动态总控台")
     await expect(summary).toContainText("暗门传闻")
     await expect(summary).toContainText("沈砚")
@@ -277,7 +277,10 @@ test.describe("世界动态地图混乱路径", () => {
     await expect(summary).toContainText("批量修改")
     await expect(summary).not.toContainText(uuidPattern)
 
-    await summary.locator(".map-dynamic-item", { hasText: "暗门传闻" }).first().click()
+    await summary.locator(".map-dynamic-item", {
+      hasText: "暗门传闻",
+      has: page.getByRole("button", { name: "忽略" }),
+    }).click()
     await expect(page.locator(SEL.modalTitle)).toContainText("暗门传闻")
     await expect(page.locator(SEL.modalBody)).toContainText("东门")
     await expect(page.locator(SEL.modalFooter)).toContainText("修改")
@@ -316,7 +319,8 @@ test.describe("世界动态地图混乱路径", () => {
 
     await openWorkbench(page, fixture.project, "writing")
     await reloadWorkbench(page, "writing")
-    await page.locator('[data-action="select-scene"]').first().click()
+    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("tab", { name: "地图" }).click()
     await expect(page.locator("#writing-panel-container")).toContainText("地图摘要", {
       timeout: 10000,
     })
@@ -334,29 +338,32 @@ test.describe("世界动态地图混乱路径", () => {
       { timeout: 10000 },
     )
     expect(popup.url()).toContain(`focus_entity_id=${fixture.entities.shen.id}`)
-    await expect(popup.locator("#map-dynamic-summary")).toContainText("世界动态总控台", {
+    await expect(popup.locator(".map-dynamic-panel")).toContainText("世界动态总控台", {
       timeout: 10000,
     })
     await popup.close()
 
     await openMapWorkspace(page, fixture.project, fixture.map)
-    await page.waitForFunction(() => Boolean(document.querySelector("[data-view-mode='live']")?.onclick))
+    const viewModeGroup = page.getByRole("group", { name: "地图视图" })
+    await expect(viewModeGroup).toBeVisible()
     for (const mode of [
       ["live", "活地图"],
       ["lens", "叙事透镜"],
       ["dashboard", "世界动态总控台"],
     ]) {
-      const modeButton = page.locator(`[data-view-mode="${mode[0]}"]`)
+      const modeButton = viewModeGroup.getByRole("button", { name: mode[1], exact: true })
       await modeButton.click()
-      await expect.poll(() => page.evaluate(() => window.mapWorkspaceView?._viewMode)).toBe(mode[0])
-      await expect(modeButton).toContainText(mode[1])
-      await expect(page.locator("#map-dynamic-summary")).toContainText("洛阳封锁")
+      await expect(modeButton).toHaveClass(/is-active/)
+      await expect.poll(() => new URLSearchParams(new URL(page.url()).hash.split("?")[1] || "").get("mode"))
+        .toBe(mode[0])
+      await expect(page.locator(".map-dynamic-panel")).toContainText("洛阳封锁")
     }
 
-    await page.locator('[data-action="map-low-motion-toggle"]').check()
-    await expect(page.locator('[data-action="map-low-motion-toggle"]')).toBeChecked()
+    const lowMotionToggle = viewModeGroup.locator(".map-low-motion-toggle input")
+    await lowMotionToggle.check()
+    await expect(lowMotionToggle).toBeChecked()
     await page.getByRole("button", { name: "播放" }).click()
-    await expect(page.locator("#map-dynamic-summary")).toContainText("电影化播放")
+    await expect(page.locator(".map-dynamic-panel")).toContainText("电影化播放")
   })
 
   test("high-density chaos layout remains readable on desktop and 390px viewport", async ({ page }) => {
@@ -384,12 +391,12 @@ test.describe("世界动态地图混乱路径", () => {
       await openMapWorkspace(page, fixture.project, fixture.map, {
         sceneId: fixture.scenes.sceneC.id,
       })
-      await expect(page.locator("#map-dynamic-summary")).toContainText("密集对象", {
+      await expect(page.locator(".map-dynamic-panel")).toContainText("密集对象", {
         timeout: 10000,
       })
       await expectNoOverlaps(page.locator(".map-semantic-bubble"))
       await expectNoOverlaps(page.locator(".map-dynamic-item:visible"))
-      await expect(page.locator("#map-dynamic-summary")).not.toContainText(uuidPattern)
+      await expect(page.locator(".map-dynamic-panel")).not.toContainText(uuidPattern)
     }
   })
 })

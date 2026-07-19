@@ -49,7 +49,7 @@ export function getConfirm() {
 /**
  * showModalHtml(title, htmlString, buttons, options) — 外壳全局模态框。
  * 内容 HTML 必须先用 esc() 处理动态片段（README「安全与契约」既有豁免模式，
- * 不属于 Vue 模板 v-html 场景）；外壳 modal 的 Vue 化留待 Phase 6。
+ * 不属于 Vue 模板 v-html 场景）；Vue shell 仅提供该命令式模态框的 DOM host。
  */
 export function getShowModalHtml() {
   const fn = _overrides.showModalHtml ?? globalThis.showModalHtml

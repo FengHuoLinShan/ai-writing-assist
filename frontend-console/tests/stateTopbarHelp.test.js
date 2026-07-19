@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import "../stateSlices.js"
 import "../state.js"
@@ -10,93 +10,13 @@ function resetState() {
   window.appState.viewStates = {}
 }
 
-describe("state topbar help", () => {
-  beforeEach(() => {
-    resetState()
-    document.body.innerHTML = `
-      <div class="topbar-center">
-        <span id="topbar-module">写作台</span>
-      </div>
-      <aside id="contextual-notes">
-        <div class="note-card">旧帮助</div>
-      </aside>
-    `
-  })
-
-  it("moves route help copy to the topbar and clears the right help rail", () => {
-    window.updateRightPanelForView("writing")
-
-    expect(document.getElementById("contextual-notes")?.innerHTML).toBe("")
-    expect(document.getElementById("topbar-view-note")?.textContent).toBe(
-      "按章节撰写正文。支持暂存、发布、版本管理。",
-    )
-  })
-
-  it("removes route help when the view has no migrated help copy", () => {
-    window.updateRightPanelForView("writing")
-    window.updateRightPanelForView("generate")
-
-    expect(document.getElementById("topbar-view-note")).toBeNull()
-    expect(document.getElementById("contextual-notes")?.innerHTML).toBe("")
-  })
-})
-
-describe("state mode styling", () => {
-  beforeEach(() => {
-    resetState()
-    document.body.innerHTML = `
-      <span id="command-mode" class="command-mode-label"></span>
-      <input id="command-input" />
-    `
-  })
-
-  it("sets command class on COMMAND mode", () => {
-    window.appState.mode = "COMMAND"
-    expect(document.getElementById("command-mode").className).toBe("command-mode-label command")
-  })
-
-  it("sets search class on SEARCH mode", () => {
-    window.appState.mode = "SEARCH"
-    expect(document.getElementById("command-mode").className).toBe("command-mode-label search")
-  })
-
-  it("resets mode label class to default on NORMAL mode", () => {
-    window.appState.mode = "COMMAND"
-    expect(document.getElementById("command-mode").className).toBe("command-mode-label command")
-
-    window.appState.mode = "NORMAL"
-    expect(document.getElementById("command-mode").className).toBe("command-mode-label")
-  })
-})
-
-describe("state loading presentation", () => {
-  beforeEach(() => {
-    resetState()
-    window.appState.loading = false
-    document.body.innerHTML = '<main id="workspace-content"></main>'
-  })
-
-  it("renders an accessible workspace skeleton for a global loading state", () => {
-    window.appState.loading = true
-
-    const status = document.querySelector(".loading-skeleton")
-    expect(status?.getAttribute("role")).toBe("status")
-    expect(status?.getAttribute("aria-busy")).toBe("true")
-    expect(status?.querySelector(".sr-only")?.textContent).toBe("工作区加载中...")
-    expect(status?.querySelectorAll(".skeleton")).toHaveLength(4)
-    expect([...status.querySelectorAll(".skeleton")].every((node) => (
-      node.getAttribute("aria-hidden") === "true"
-    ))).toBe(true)
-  })
-})
-
 describe("state project persistence", () => {
   beforeEach(() => {
     resetState()
     document.body.innerHTML = ""
   })
 
-  it("persists and clears currentProjectId and drops writing view state on project changes", () => {
+  it("persists project ids and drops writing view state on project changes", () => {
     window.appState.viewStates = {
       writing: { projectId: "old-project", currentChapter: 3 },
       outline: { selectedThreadId: "thread-1" },
@@ -110,16 +30,14 @@ describe("state project persistence", () => {
 
     window.appState.viewStates.writing = { projectId: "project-1", currentChapter: 1 }
     window.appState.currentProjectId = "project-2"
-
     expect(localStorage.getItem("novel_currentProjectId")).toBe("project-2")
     expect(window.appState.viewStates.writing).toBeUndefined()
 
     window.appState.currentProjectId = null
-
     expect(localStorage.getItem("novel_currentProjectId")).toBeNull()
   })
 
-  it("persists and clears currentProject", () => {
+  it("persists only the safe project summary and clears it", () => {
     const project = {
       id: "project-1",
       title: "第一本书",
@@ -132,8 +50,6 @@ describe("state project persistence", () => {
     }
 
     window.appState.currentProject = project
-
-    expect(window.appState.currentProject).toEqual(project)
     expect(JSON.parse(localStorage.getItem("novel_currentProject"))).toEqual({
       id: "project-1",
       title: "第一本书",
@@ -141,39 +57,32 @@ describe("state project persistence", () => {
     })
 
     window.appState.currentProject = null
-
     expect(localStorage.getItem("novel_currentProject")).toBeNull()
   })
 
-  it("notifies listeners before DOM sync and still syncs DOM after listener errors", () => {
-    document.body.innerHTML = '<span id="topbar-project">旧项目</span>'
+  it("continues notifying subscribers after one listener fails", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const observed = []
-    const unsubscribe = window.onStateChange((key, value, oldValue) => {
-      if (key !== "currentProject") return
-      observed.push({
-        domText: document.getElementById("topbar-project").textContent,
-        title: value.title,
-        oldValue,
-      })
-      throw new Error("listener failed")
+    const unsubscribeFailing = window.onStateChange((key) => {
+      if (key === "currentProject") throw new Error("listener failed")
+    })
+    const unsubscribeObserved = window.onStateChange((key, value, oldValue) => {
+      if (key === "currentProject") observed.push({ title: value.title, oldValue })
     })
 
     try {
       window.appState.currentProject = { id: "project-1", title: "新项目" }
       expect(consoleError).toHaveBeenCalledWith("State listener error:", expect.any(Error))
     } finally {
-      unsubscribe()
+      unsubscribeFailing()
+      unsubscribeObserved()
       consoleError.mockRestore()
     }
 
-    expect(observed).toEqual([
-      {
-        domText: "旧项目",
-        title: "新项目",
-        oldValue: null,
-      },
-    ])
-    expect(document.getElementById("topbar-project").textContent).toBe("新项目")
+    expect(observed).toEqual([{ title: "新项目", oldValue: null }])
+    expect(JSON.parse(localStorage.getItem("novel_currentProject"))).toEqual({
+      id: "project-1",
+      title: "新项目",
+    })
   })
 })

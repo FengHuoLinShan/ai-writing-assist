@@ -138,13 +138,9 @@ test.describe("深度导入真实流水线 (无 Mock)", () => {
     const scenesTab = page.locator('[data-action="nav-scenes"]')
     await expect(scenesTab).toHaveClass(/active/)
 
-    // 等待 Scene 列表加载
-    await page.waitForFunction(() => {
-      return typeof outlineView !== "undefined" && outlineView._loading === false
-    }, { timeout: 10000 })
-
     // Scene 卡以 .scene-card 类渲染
     const sceneCards = page.locator(".scene-card")
+    await expect(sceneCards.first()).toBeVisible({ timeout: 10000 })
     const cardCount = await sceneCards.count()
     console.log(`[E2E] Found ${cardCount} scene cards in outline view`)
     expect(cardCount).toBeGreaterThan(0)

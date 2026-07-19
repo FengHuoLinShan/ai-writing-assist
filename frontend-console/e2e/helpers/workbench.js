@@ -109,3 +109,18 @@ export async function reloadWorkbench(page, view, subview = null) {
   }, { viewName: view, subViewName: subview })
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 }
+
+/**
+ * Wait for the public Writing island surface instead of a renderer singleton.
+ * Optional chapter/editor checks let specs wait for fixture-backed UI state
+ * without reading Vue internals.
+ */
+export async function waitWritingReady(page, { chapter = null, editor = false } = {}) {
+  await expect(page.locator(".writing-toolbar")).toBeVisible({ timeout: 10000 })
+  if (chapter != null) {
+    await expect(
+      page.getByRole("button", { name: new RegExp(`^打开第 ${Number(chapter)} 章`) }),
+    ).toBeVisible({ timeout: 10000 })
+  }
+  if (editor) await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 10000 })
+}

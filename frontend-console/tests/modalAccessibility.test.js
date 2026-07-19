@@ -6,7 +6,10 @@ import { dirname, resolve } from "node:path"
 await import("../ui/modal.js")
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const indexHtml = readFileSync(resolve(__dirname, "../index.html"), "utf8")
+const serviceHostsSource = readFileSync(
+  resolve(__dirname, "../vue/shell/components/ServiceHosts.vue"),
+  "utf8",
+)
 
 function renderModalShell() {
   document.body.innerHTML = `
@@ -42,11 +45,11 @@ afterEach(() => {
 })
 
 describe("shared modal accessibility", () => {
-  it("declares the shared shell as a labelled modal dialog", () => {
-    expect(indexHtml).toMatch(
+  it("declares the Vue service host as a labelled modal dialog", () => {
+    expect(serviceHostsSource).toMatch(
       /id="modal-content"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="modal-title"/,
     )
-    expect(indexHtml).toMatch(
+    expect(serviceHostsSource).toMatch(
       /id="modal-close"[^>]*type="button"[^>]*aria-label="关闭对话框"/,
     )
   })

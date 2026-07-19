@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   createProject,
   cleanupProject,
@@ -135,7 +135,7 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     })
 
     await openWorkbench(page, project, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await waitWritingReady(page)
   })
 
   test.afterEach(async () => {
@@ -149,18 +149,20 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
 
   test("规则检查、AI 软冲突、AI 建议、状态更新与发布快照归档", async ({ page }) => {
     await reloadWorkbench(page, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
-    await page.locator('[data-action="select-scene"]').first().click()
+    await waitWritingReady(page)
+    await page.locator(".scene-tree-label").first().click()
     await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 10000 })
 
     await page.locator("#writing-title-input").fill("第一章 旧约门")
     await page.locator("#writing-editor").fill(TEST_CONTENT)
-    await page.locator('[data-action="run-conflict-check"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("剧情设定冲突检查")
-    await page.locator("#writing-conflict-include-candidates").check()
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "开始检查" }).click()
+    await page.locator("#btn-conflict-check").click()
+    const conflictOptions = page.getByRole("dialog", { name: "剧情设定冲突检查选项" })
+    await expect(conflictOptions).toContainText("剧情设定冲突检查")
+    await conflictOptions.getByRole("checkbox", { name: "包含待处理内容" }).check()
+    await conflictOptions.getByRole("button", { name: "开始检查" }).click()
 
-    await expect(page.locator(SEL.modalOverlay)).toContainText("剧情设定冲突检查", { timeout: 15000 })
+    let conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
+    await expect(conflictDialog).toBeVisible({ timeout: 15000 })
     await expect(page.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })).toBeVisible()
     await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项缺失" }).first()).toBeVisible()
     await expect(page.locator(".writing-conflict-item", { hasText: "地图/世界状态风险" })).toBeVisible()
@@ -192,14 +194,15 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     ))).toBe(true)
 
     await reloadWorkbench(page, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
-    await page.locator('[data-action="select-scene"]').first().click()
+    await waitWritingReady(page)
+    await page.locator(".scene-tree-label").first().click()
 
-    await page.locator(".writing-conflict-latest").click()
-    await expect(page.locator(SEL.modalOverlay)).toContainText("剧情设定冲突检查", { timeout: 10000 })
+    await page.getByRole("button", { name: "查看最近校验" }).click()
+    conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
+    await expect(conflictDialog).toBeVisible({ timeout: 10000 })
     const aiItems = page.locator(".writing-conflict-group--ai .writing-conflict-item")
     await expect(aiItems.first()).toBeVisible({ timeout: 240000 })
-    const aiReviewText = await page.locator(SEL.modalOverlay).textContent()
+    const aiReviewText = await conflictDialog.textContent()
     expect(aiReviewText).not.toContain("AI 软冲突判断失败")
     expect(aiReviewText).not.toContain("状态：失败")
 
@@ -223,9 +226,9 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     }, { timeout: 240000 }).toBe("done")
 
     await reloadWorkbench(page, "writing")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
-    await page.locator('[data-action="select-scene"]').first().click()
-    await page.locator(".writing-conflict-latest").click()
+    await waitWritingReady(page)
+    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("button", { name: "查看最近校验" }).click()
 
     const suggestion = page.locator(".writing-conflict-group--ai .writing-conflict-suggestion").first()
     await expect(suggestion).toBeVisible({ timeout: 240000 })
@@ -238,9 +241,10 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     }).first()
     await suggestedAiItem.getByRole("button", { name: "稍后" }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("状态已更新", { timeout: 10000 })
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "关闭" }).click()
+    conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
+    await conflictDialog.locator(".modal-footer").getByRole("button", { name: "关闭" }).click()
 
-    await page.locator('[data-action="publish"]').click()
+    await page.locator("#btn-publish").click()
     await expect(page.locator(SEL.modalOverlay)).toContainText("未处理高严重度问题", { timeout: 10000 })
     await confirmPublishIfPrompted(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 30000 })

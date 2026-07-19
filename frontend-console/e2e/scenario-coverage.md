@@ -1,7 +1,7 @@
 # 场景覆盖矩阵
 
 > 本文档基于 `docs/核心业务场景与预期行为.md` 中的场景覆盖矩阵，结合当前 E2E 测试实际状态维护。
-> 更新日期：2026-07-17（P20 大纲分层创作与信息推进归并后）
+> 更新日期：2026-07-19（Vue 前端路由迁移完成后）
 
 ## 图例
 
@@ -11,14 +11,14 @@
 
 | 场景 | 当前优先轮次 | 后端主模块 | 前端主视图 | 必须覆盖的测试 | 当前状态 |
 |------|--------------|------------|------------|----------------|----------|
-| 场景 1 项目创建与管理 | R1 | `project` | `projectView` | project 单测 + project E2E | ✅ 场景闭环 |
-| 场景 2 文件上传与章节导入 | R1 | `imports`, `writing`, `rag` | `projectView`, `writingView` | imports 单测 + import E2E | ✅ 场景闭环 |
-| 场景 3 深度导入流水线 | R2 | `imports`, `outline`, `world`, `memory` | `writingView` | workflow 集成 + deep-import E2E | 🟡 部分覆盖 |
-| 场景 4 手工写作工作台 | R3 | `writing`, `outline`, `rag` | `writingView` | writing 单测 + writing E2E | ✅ 场景闭环 |
-| 场景 5 世界对象管理 | R5 | `world`, `memory` | `worldView` | world 单测 + world E2E | ✅ 场景闭环 |
-| 场景 6 大纲与结构管理 | R4 | `outline`, `context` | `outlineView` | outline 单测 + outline E2E | 🟡 部分覆盖 |
-| A1 RAG 混合检索 | R6 | `rag` | `ragView` | rag 单测 + rag E2E | 🟡 部分覆盖 |
-| A2 上下文编译 | R6 | `context`, `world`, `outline`, `rag` | `contextView` | context 单测 + context E2E | 🟡 部分覆盖 |
+| 场景 1 项目创建与管理 | R1 | `project` | Vue 项目视图 | project 单测 + project E2E | ✅ 场景闭环 |
+| 场景 2 文件上传与章节导入 | R1 | `imports`, `writing`, `rag` | 项目视图、Vue 写作工作台 | imports 单测 + import E2E | ✅ 场景闭环 |
+| 场景 3 深度导入流水线 | R2 | `imports`, `outline`, `world`, `memory` | Vue 写作工作台 | workflow 集成 + deep-import E2E | 🟡 部分覆盖 |
+| 场景 4 手工写作工作台 | R3 | `writing`, `outline`, `rag` | Vue 写作工作台 | writing 单测 + writing E2E | ✅ 场景闭环 |
+| 场景 5 世界对象管理 | R5 | `world`, `memory` | Vue 世界视图 | world 单测 + world E2E | ✅ 场景闭环 |
+| 场景 6 大纲与结构管理 | R4 | `outline`, `context` | Vue 大纲视图 | outline 单测 + outline E2E | 🟡 部分覆盖 |
+| A1 RAG 混合检索 | R6 | `rag` | Vue RAG 视图 | rag 单测 + rag E2E | 🟡 部分覆盖 |
+| A2 上下文编译 | R6 | `context`, `world`, `outline`, `rag` | Vue 生成中心 | context 单测 + context E2E | 🟡 部分覆盖 |
 
 ## E2E 文件与场景映射
 

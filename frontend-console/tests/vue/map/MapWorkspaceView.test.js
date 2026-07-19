@@ -1,0 +1,142 @@
+import { mount } from "@vue/test-utils"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+
+const viewportSpies = vi.hoisted(() => ({ clearPathFocus: vi.fn(() => true) }))
+
+vi.mock("../../../vue/views/map/MapViewportAdapter.vue", async () => {
+  const { defineComponent, h } = await import("vue")
+  return { default: defineComponent({
+    name: "MapViewportAdapter",
+    props: { context: { type: Object, default: () => ({}) } },
+    setup(_, { expose }) {
+      expose({ canLeave: () => true, clearPathFocus: viewportSpies.clearPathFocus, timelineEntityOptions: () => [], timelinePathOptions: () => [{ id: "path1", name: "北境道" }] })
+      return () => h("div", { class: "map-root", "data-test": "viewport" })
+    },
+  }) }
+})
+
+const MapWorkspaceView = (await import("../../../vue/views/map/MapWorkspaceView.vue")).default
+
+function worldApi() {
+  return {
+    getMapDashboard: vi.fn(async () => ({
+      title: "<img src=x onerror=alert(1)>",
+      first_visual_layer: { main_crisis: "危机", main_characters: [], top_risks: [] },
+      dynamic_queue: [{ item_id: "o1", id: "o1", item_kind: "observation", title: "<script>alert(1)</script>", review_state: "candidate", updated_at: "rev-1", eligibility: { can_confirm: true }, source_summary: "正文", normalized_value: { schema_version: 1, type: "route_state", path_id: "path1", state: "open" } }],
+      batch_groups: [],
+      inspector: null,
+    })),
+    getMapPlayback: vi.fn(async () => ({ events: [], tracks: [] })),
+    getMapTimeline: vi.fn(async () => ({ scenes: [], deltas: [], candidates: [], conflicts: [] })),
+    listMapObservations: vi.fn(async () => ({ items: [] })),
+    confirmMapObservation: vi.fn(async () => ({})),
+    listMaps: vi.fn(async () => ({ items: [] })),
+    listEntities: vi.fn(async () => ({ items: [] })),
+    getMapQuickCreateContext: vi.fn(async () => ({ locations: [{ id: "l1", name: "北港" }], candidate_locations: [], existing_maps: [] })),
+    previewQuickCreateMap: vi.fn(async () => ({ map: { name: "快速地图", grid_width: 40, grid_height: 30, map_type: "world" }, location_layouts: [{ location_entity_id: "l1", center_hex_q: 2, center_hex_r: 3, occupy_radius: 1 }], warnings: [] })),
+    confirmQuickCreateMap: vi.fn(async () => ({ map: { id: "m2", name: "快速地图" } })),
+  }
+}
+
+describe("MapWorkspaceView", () => {
+  let api
+  let state
+  let showModalHtml
+  beforeEach(() => {
+    document.body.replaceChildren()
+    resetBridgeOverrides()
+    state = { currentProjectId: "p1", currentView: "map" }
+    api = { world: worldApi() }
+    showModalHtml = vi.fn()
+    viewportSpies.clearPathFocus.mockClear()
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(), set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {}, set textAlign(_) {} })
+    setBridgeOverrides({ api, state, confirmAction: (_message, onConfirm) => onConfirm(), toast: vi.fn(), showModalHtml, closeModal: vi.fn(), esc: (value) => String(value ?? "").replaceAll("<", "&lt;"), router: { navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: () => new URLSearchParams() } })
+  })
+
+  it("opens the Vue quick-create layout editor from the route toolbar", async () => {
+    const wrapper = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mode: "overview" }, maps: [], locations: [], archivedMaps: [], inbox: {} } })
+    await wrapper.find('[data-action="map-quick-create"]').trigger("click")
+    await vi.waitFor(() => expect(document.body.querySelector("#map-quick-canvas")).not.toBeNull())
+    expect(api.world.previewQuickCreateMap).toHaveBeenCalledWith(expect.objectContaining({ include_markers: false }), "p1")
+    wrapper.unmount()
+  })
+
+  it("routes dynamic-object modification into the Vue typed editor", async () => {
+    const wrapper = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], inbox: {} } })
+    await vi.waitFor(() => expect(wrapper.find(".map-dynamic-item").exists()).toBe(true))
+    await wrapper.find(".map-dynamic-item").trigger("click")
+    const buttons = showModalHtml.mock.calls.at(-1)[2]
+    buttons.find((button) => button.text === "修改").handler()
+    await vi.waitFor(() => expect(document.body.querySelector("#map-typed-route-path")).not.toBeNull())
+    expect(document.body.querySelector("#map-object-edit-value-json")).toBeNull()
+    wrapper.unmount()
+  })
+
+  it("owns overview, inbox and search DOM without injecting dynamic HTML", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: {
+        projectId: "p1", route: { mode: "overview" },
+        maps: [{ id: "m1", name: "<script>alert(1)</script>" }],
+        locations: [{ id: "l1", name: "北港" }], archivedMaps: [],
+        inbox: { items: [{ id: "i1", target_name: "<img src=x>", source: "manual", updated_at: "r1", eligibility: { can_confirm: false } }], total: 1, filters: {} },
+      },
+    })
+    await wrapper.find(".map-overview-search").setValue("script")
+    expect(wrapper.find(".map-project-inbox").exists()).toBe(true)
+    expect(wrapper.find("#map-search-results").text()).toContain("<script>alert(1)</script>")
+    expect(wrapper.find("script").exists()).toBe(false)
+    expect(wrapper.find("img").exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("renders the Vue-owned active workspace and preserves observation CAS", async () => {
+    api.world.listMapObservations.mockResolvedValue({ items: [{
+      id: "o1",
+      item_id: "o1",
+      item_kind: "observation",
+      title: "<script>alert(1)</script>",
+      review_state: "candidate",
+      updated_at: "rev-2",
+      eligibility: { can_confirm: true },
+    }] })
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: { items: [], total: 0, filters: {} } },
+    })
+    await vi.waitFor(() => expect(wrapper.find(".map-dynamic-title").text()).toContain("<script>alert(1)</script>"))
+    expect(wrapper.find("[data-test='viewport']").exists()).toBe(true)
+    expect(wrapper.find("script").exists()).toBe(false)
+
+    await wrapper.find(".map-dynamic-item .btn-primary").trigger("click")
+    await vi.waitFor(() => expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "o1", "p1", "rev-2"))
+    wrapper.unmount()
+  })
+
+  it("不会在非播放状态的编辑通知中清除新建线路选中态", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const viewport = wrapper.findComponent({ name: "MapViewportAdapter" })
+    await vi.waitFor(() => expect(viewport.props("context")?.onEditingChange).toEqual(expect.any(Function)))
+
+    viewport.props("context").onEditingChange({ editing: true, dirty: true, editorLayer: "path" })
+
+    expect(viewportSpies.clearPathFocus).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("drops late dynamic responses after project ownership changes", async () => {
+    let resolveDashboard
+    api.world.getMapDashboard.mockImplementationOnce(() => new Promise((resolve) => { resolveDashboard = resolve }))
+    const wrapper = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], inbox: {} } })
+    state.currentProjectId = "p2"
+    resolveDashboard({ title: "迟到项目", dynamic_queue: [], first_visual_layer: {} })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(wrapper.text()).not.toContain("迟到项目")
+    wrapper.unmount()
+  })
+})

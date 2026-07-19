@@ -49,6 +49,48 @@ describe("mountIsland", () => {
     island.onLeave()
   })
 
+  it("并发 onEnter 只提交最新一次 load 结果", async () => {
+    const pending = []
+    const island = mountIsland({
+      viewName: "world",
+      component: Probe,
+      load: () => new Promise((resolve) => pending.push(resolve)),
+    })
+
+    const firstEnter = island.onEnter()
+    const secondEnter = island.onEnter()
+    pending[1]({ message: "new project" })
+    await secondEnter
+    pending[0]({ message: "stale project" })
+    await firstEnter
+
+    content.innerHTML = island.render()
+    await island.onRendered()
+    expect(content.querySelector(".probe")?.textContent).toBe("new project")
+    island.onLeave()
+  })
+
+  it("onLeave 使在途 load 失效", async () => {
+    setBridgeOverrides({ router: { getCurrentQuery: () => null } })
+    let resolveLoad
+    const island = mountIsland({
+      viewName: "world",
+      component: Probe,
+      load: () => new Promise((resolve) => { resolveLoad = resolve }),
+    })
+
+    const entering = island.onEnter()
+    island.onLeave()
+    resolveLoad({ message: "late response" })
+    await entering
+
+    content.innerHTML = island.render()
+    // 下一次进入之前不应提交已失效的 props。
+    await island.onRendered()
+    expect(content.querySelector(".probe")?.textContent).toBe("")
+    island.onLeave()
+  })
+
   it("重复 onRendered（同视图 forceRefresh 场景）先卸载旧实例再挂载", async () => {
     const island = mountIsland({
       viewName: "settings",

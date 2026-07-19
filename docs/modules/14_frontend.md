@@ -2,11 +2,13 @@
 
 ## 定位
 
-前端为 SPA 控制台，通过 REST API 驱动整个创作工作台：外壳（`index.html` 骨架、hash router、
-Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模式渐进迁移到 Vue 3
-（`project` / `rag` / `settings` / `project-settings` 已迁移；Vue 视图经 `vue/mountIsland.js`
-注册进 vanilla router，组件只经 `vue/bridge/index.js` 访问既有基建，动态内容禁止 `v-html`）。
-动态地图视口使用 Leaflet。
+前端为 Vue 3 SPA 控制台，通过 REST API 驱动整个创作工作台。Vue shell 拥有静态外壳，
+所有一级业务页主 DOM 由 SFC 拥有；既有 hash router、Proxy 状态、命令服务和 API wrapper
+保留为集中式基础设施 seam。业务视图经 `vue/mountIsland.js` 接入 `#workspace-content`
+route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容禁止 `v-html`。动态地图的
+Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` controller；这是地图唯一
+命令式 DOM seam，不拥有 route-host 页面 DOM。Writing 只通过 `mapQuickCreateBridge` 调用
+`mapQuickCreateView`，并复用 `sceneAlerts` / `versionDiff` 纯 helper，没有其他旧视图运行时依赖。
 
 ## 架构
 
@@ -18,11 +20,17 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 - 路由：`router.js`
 - API 封装：`api.js`
 - API 契约注册表：`apiContracts.js`
-- 视图：`views/*.js`（vanilla）+ `vue/views/**`（Vue SFC island，经 `vue/mountIsland.js` 注册）
-- Vue 基建：`vue/bridge/`（组件访问 vanilla 基建的唯一入口）、`vue/composables/`
+- 静态外壳：`vue/shell/`（topbar/sidebar/命令栏/主题/快捷键/service hosts）
+- 业务视图：`vue/views/**`（Vue SFC，经 `vue/mountIsland.js` 注册）
+- 命令式接缝：`router.js`、`state.js`、`api.js`、集中式 `shared/` / `ui/` 服务，
+  以及仅在 Vue 地图视口内运行的 `views/mapView.js`
+- Writing 兼容接缝：`vue/views/writing/controllers/mapQuickCreateBridge.js` 是
+  `views/mapQuickCreateView.js` 的唯一业务调用路径；`views/writing/sceneAlerts.js` 和
+  `views/writing/versionDiff.js` 是无 DOM 纯 helper
+- Vue 基建：`vue/bridge/`、`vue/composables/`、`vue/mountIsland.js`
 - 通用交互：`shared/`、`ui/`
 
-当前注册的一级路由为：
+当前 router 识别的 hash 名称为：
 
 - `project`
 - `writing`
@@ -30,11 +38,13 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 - `map`
 - `rag`
 - `outline`
-- `scene`
+- `scene`（兼容重定向，不渲染独立页面）
 - `generate`
 - `settings`
 - `project-settings`
-- `llm`（向后兼容别名，按当前项目状态跳转到项目设置或全局设置）
+- `llm`（兼容重定向，按当前项目状态跳转到项目设置或全局设置）
+
+除上述两个无业务 DOM 的兼容重定向外，9 个实际路由目标的主 DOM 全部由 Vue SFC 拥有。
 
 旧 `context` hash 不再作为一级页面注册；路由初始化或浏览器前进/后退遇到它时，会重定向到 `generate?tab=task`。
 
@@ -43,14 +53,14 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 | 视图 | 当前职责 |
 |------|----------|
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口 |
-| `writingView` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene 面板；版本历史；授权深度导入；Scene 地图摘要跳转 |
+| `vue/views/writing/WritingView.vue` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene Cockpit；版本历史/恢复、发布、冲突检查、授权深度导入与地图下一步均由 Vue 页编排；只剩 quick-create bridge 和 Scene alert/version diff 纯 helper |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
-| `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查 |
-| `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
-| `outlineView` | 大纲分层创作；默认组合 `storyOutlineView` 管理小说总纲，在篇章纲、剧情线和 Scene 工作台分别提供当前层 AI 创作。伏笔/揭示作为剧情线的信息推进时间线与未归类区展示，不再是顶层子标签 |
-| `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
+| `vue/views/map/MapWorkspaceView.vue` | 地图一级工作台，总览、最近地图、地图树、收件箱、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查 |
+| `views/mapView.js` | 仅作为 `MapViewportAdapter` 下的 Leaflet/Canvas viewport controller：地形、地点、标记、线路、势力范围与编辑会话；不拥有一级页面 DOM |
+| `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；`OutlineStoryTab` 管理小说总纲，`OutlineArcsTab` / `OutlineThreadsTab` 管理篇章纲和剧情线，并提供当前层 AI 创作。伏笔/揭示作为剧情线的信息推进时间线与未归类区展示，不再是顶层子标签 |
+| `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
-| `generateView` | 生成中心：world 工作区承载对象/完善当前页/新建页面的共创对话、来源与上下文选择、结构化预览和工作稿应用；同时保留上下文任务预览/编译、POV 与其他既有领域流程 |
+| `vue/views/generate/GenerateView.vue` | 生成中心：world 共创对话、来源与上下文选择、结构化预览和工作稿应用；同时承担上下文任务预览/编译、POV、模板与既有领域流程 |
 | `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
 | `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承；通用输出上限与深度导入阶段预算分开说明 |
 
@@ -58,14 +68,14 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 
 - `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
 - `outline` 的规范默认子视图是 `story-outline`，导航层级为“小说总纲 → 篇章纲 → 剧情线 → 场景工作台”。旧 `scene` 路由重定向到 `outline/scenes`；旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
-- `writing` 与 `outline` 被标记为 KeepAlive 视图；DOM 缓存按项目分桶，renderer 单例的项目级内存状态必须在 `onActivate()` 校验归属，不匹配时重新装配。`outline/scenes` 为避免复用过期工作台 DOM，不进入 KeepAlive 缓存
+- router 不再保留 KeepAlive/DocumentFragment 缓存；所有视图离开时卸载。写作快照、Outline/Scene workflow 与滚动位置采用显式项目隔离 session 恢复，详见 [ADR-0009 附录 A](../adr/0009-appendix-a-keep-alive-policy.md)
 - 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
-- Scene 工作台的筛选、详情和复核状态由 `sceneWorkbenchView` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。
+- Scene 工作台的筛选、详情和复核状态由 `useSceneWorkbench` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 - `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
-- Vue island 生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点 div → `onRendered` 挂载（同视图 forceRefresh 不触发 `onLeave`，先卸载残留实例）→ `onLeave` 卸载；当前已迁移的 `project` / `rag` / `settings` / `project-settings` 均不在 KeepAlive 名单内，keep-alive 视图（writing/outline）的 island 策略留待对应迁移阶段
+- Vue 视图生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点 div → `onRendered` 挂载（同视图 forceRefresh 先卸载残留实例）→ `onLeave` 卸载。`mountIsland` 为异步 `load()` 维护代次；新加载或 `onLeave` 会使旧请求失效，防止晚到数据覆盖当前 props。9 个实际页面均使用该契约，兼容路由只重定向；不再有另一套 KeepAlive 生命周期
 - 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
 
 ## 对象引用交互契约
@@ -99,9 +109,12 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
   focus-visible/聚焦切换朱红并显示焦点环。暗色主题保持相同层级；`760px` 以下常用按钮高度
   不低于 `42px`，输入控件不低于 `44px`。
 - 创作工作台以正文、主列表、编辑区、生成结果和地图画布为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
-- `shared/workspaceRail.js` 统一渲染主题化辅助栏，并以 `项目 + 页面 + 栏位` 为 key 在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
+- Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
+  在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
 - 写作专注模式高于普通辅助栏状态；中等宽度重排第三栏，`760px` 及以下使用单栏、抽屉或手风琴，不允许产生页面级横向溢出。
-- `shared/progressRenderer.js` 的任务卡默认可折叠：普通运行/完成态显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态默认展开；用户保存状态优先于自动规则。
+- Vue 业务页使用 `vue/components/WorkflowProgressCard.vue` 渲染任务卡：普通运行/完成态
+  显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态
+  默认展开；用户保存状态优先于自动规则。
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
   双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
   对比默认“只看差异”；勾选操作与切换合格主对象会保留工作台滚动位置，且主对象 radio
@@ -116,8 +129,8 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 - 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。
 - 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。默认启动 fresh 8000/8080 服务，只有 `PW_REUSE_EXISTING_SERVER=1` 才复用已有服务；后端启动前执行 `APP_ENV=test alembic upgrade head`。`APP_ENV=test` 不改写 `DATABASE_URL`；本机存在开发 worker 时应显式传入独立测试库。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
 - `npm run test:all` 先跑 Vitest，再跑 Playwright。
-- `npm run build`（vite build）仅作 Vue 构建链冒烟验证：`dist` 仍缺少 classic vanilla scripts，不能视为可部署产物。无独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
-- 当前已落地 vanilla JS 共享 API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
+- `npm run build`（vite build）仅作 Vue 构建链冒烟验证：`dist` 仍缺少 classic 基础设施 seam scripts，不能视为可部署产物。无独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
+- 当前已落地共享 JS API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 - 小说检索继续消费 context evidence API：单次最多取回 100 条现有命中，DOM 首批只挂载
   20 张结果卡并按 20 条渐进加载。检索词、方式、正文版本、可见视角、章节范围和 scope
   保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。新查询
@@ -135,7 +148,7 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 
 ## 写作流补充
 
-`writingView` 当前不只是草稿编辑器，还承担：
+`vue/views/writing/WritingView.vue` 当前不只是草稿编辑器，还承担：
 
 - Scene 树导航
 - 自动保存与未保存提醒
@@ -175,11 +188,11 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 
 ## 结构整理补充
 
-- `storyOutlineView` 只管理 StoryOutline 聚合，不会因为采用总纲而创建 PlotThread、OutlineArc 或 Scene。当前版完整展示 title、creative core 四字段、`outline_markdown`、`major_storylines`、`macro_movements` 和 `open_decisions`。手工保存、AI preview apply 和历史采用都带 current `base_revision_id` 与 `idempotency_key` 创建新 revision；同一 payload 重试保持 key，内容或 base 改变后轮换。409 保留当前 DOM 编辑草稿，显式重新加载后把它 rebase 到最新 current。
+- `OutlineStoryTab.vue` 及 `useStoryOutline` 只管理 StoryOutline 聚合，不会因为采用总纲而创建 PlotThread、OutlineArc 或 Scene。当前版完整展示 title、creative core 四字段、`outline_markdown`、`major_storylines`、`macro_movements` 和 `open_decisions`。手工保存、AI preview apply 和历史采用都带 current `base_revision_id` 与 `idempotency_key` 创建新 revision；同一 payload 重试保持 key，内容或 base 改变后轮换。409 保留当前编辑草稿，显式重新加载后把它 rebase 到最新 current。
 - StoryOutline AI 请求只接受作者意图、计划尺度、覆盖描述、可为空的显式人物/世界对象选择和 `include_current_outline`，不提供起止章或强制模板/数量；显式选择为空时由后端自动使用 Top-K。返回内容以 strict 完整 preview 编辑，三个嵌套数组用带字段说明与错误提示的 JSON 编辑区。导航数组是辅助摘要，不要求名称唯一或精确字符串引用；生成完成不自动采用。
 - 生成恢复复用通用 workflow 记录与 `/tasks/{id}` 轮询/取消，但只恢复同一 project、`task_type=story_outline_generate` 且 `action=outline.story_outline.generate` 的任务。完成结果允许服务端附带 `managed_llm_steps` provenance；已标记 adopted 的 task 不重复恢复为可采用 preview。路由离开或项目切换后丢弃晚到响应；取消、过期、任务上下文不匹配和短暂查询失败保持不同的作者可读状态。
 
-- `sceneWorkbenchView` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。
+- `vue/views/scene/SceneWorkbenchView.vue` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。
 - Scene 工作台把机械合并和 AI 融合建议分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后在大尺寸语义表格中并列展示 AI 建议、主 Scene 原值和其他来源 Scene 原值；拆分使用“原 Scene / 建议 A / 建议 B”对比。两类预览覆盖语义字段、叙事标签、POV 和章节映射，默认显示全部字段并可只看初始差异；AI 建议保持完整可编辑，长来源证据按需展开。融合预览是同步 LLM 请求，API contract 使用 90 秒生成窗口。叙事标签把空值规范为 `draft`（未标注），拆分字段支持显式清空。保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存；废弃来源必须在预览内再次确认，所有融合保存入口共享单次请求锁，失败时恢复操作并保留当前编辑。手动融合输出使用 `source="manual_fusion"`。
 - 重复提取的 replacement suggestion 使用专用对比面板，展示受保护原 Scene、新候选、边界/章节重叠证据，并提供“保留原 Scene / 直接替换 / 编辑后替换”。历史列表区分“原已采用 · 重复提取替换”，替换后提示世界对象和剧情结构需按需刷新。
 - Scene 每行只展示当前最高优先级主操作：复核、查看跨章建议、确认章节定位、整理映射、关联章节、补全设定、编辑。完成一项后刷新为下一项；健康标签可直接执行对应操作。桌面端显示“上下文主按钮 + 编辑 + 更多”，窄屏只显示“主按钮 + 更多”，“更多”固定包含打开写作、合并和拆分。
@@ -190,13 +203,13 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
   总纲冲突。采用时保留 409 错误和编辑内容。P20 不进入生成中心。
 - 剧情线详情把同一 `information_movement_id` 的伏笔/揭示按章节合成时间线；无 active 线程
   关联的计划进入“未归入剧情线”，作者通过现有 API 分配。旧入口打开后滚动到该区域。
-- `outlineView` 的剧情线、篇章纲与底层伏笔/揭示数据继续支持 status / deep_import source /
+- `OutlineView.vue` 的剧情线、篇章纲与底层伏笔/揭示数据继续支持 status / deep_import source /
   workflow_id / needs_review 筛选；后两者只在剧情线页内部消费，不再占顶层导航。
 - 筛选只改变视图，不自动 promote、deprecated 或删除资产；状态变更必须来自明确按钮、选择器或二次确认操作。
 
 ## 地图工作台补充
 
-- `mapWorkspaceView` 保存“最近地图”到本地存储
+- `vue/views/map/MapWorkspaceView.vue` 保存“最近地图”到本地存储
 - 可按地图名或地点名搜索
 - 支持图层开关
 - 右侧消费 `GET /api/world/maps/{map_id}/dashboard`，展示世界动态总控台、动态队列、检查器和批量分组
@@ -250,8 +263,9 @@ Proxy 状态、命令栏）保持 Vanilla JS，视图按 ADR-0009 以 island 模
 
 ## 安全与渲染约束
 
-- 动态文本优先走 `textContent`
+- Vue 模板动态文本使用插值自动转义；命令式 seam 优先走 `textContent`
 - 必须插入 HTML 时先走 `esc()`
 - 不把用户/AI/API 返回的未转义内容直接写入 `innerHTML`
 - `index.html` 通过 CSP meta 建立 baseline：脚本仅允许本源和 ADR-0003 接受的 Leaflet CDN（`https://unpkg.com`），连接仅允许本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`
-- 现阶段 `style-src` 仍保留 `'unsafe-inline'`，用于兼容入口和现有静态模板中的 inline style；迁移 inline style 并收紧 `style-src` 留到下一批
+- 当前 `style-src` 仍保留 `'unsafe-inline'`，用于兼容入口与少量 inline style；收紧
+  `style-src` 需作为独立 CSP 变更评审，不是前端页面 Vue 所有权迁移的未完成阶段

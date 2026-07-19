@@ -647,9 +647,18 @@ html, body {
   padding-bottom: 0;
 }
 
-#workspace-content:has(.outline-scene-layout) > .outline-scene-layout {
+#workspace-content:has(.outline-scene-layout) > .vue-island {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+#workspace-content:has(.outline-scene-layout) > .vue-island > .outline-scene-layout {
   flex: 1 1 auto;
   height: auto;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* ===== 右侧功能留白 / 批注区 ===== */
@@ -1839,13 +1848,13 @@ html, body {
 }
 
 .writing-panel-rail[open] .workspace-rail__body {
-  max-height: calc(100vh - 200px);
+  max-height: calc(100dvh - 200px - var(--space-3));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .writing-panel-rail .scene-cockpit {
-  max-height: calc(100vh - 200px);
+  max-height: calc(100dvh - 200px - var(--space-3));
 }
 
 .writing-editor-buttons,
@@ -6014,6 +6023,7 @@ kbd {
 
   .outline-scene-layout > .subnav .scene-workbench-actions {
     flex: 1 0 100%;
+    flex-wrap: wrap;
     justify-content: flex-end;
     margin-left: 0;
     padding: var(--space-2) 0 0;
