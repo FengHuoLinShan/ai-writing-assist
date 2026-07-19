@@ -488,5 +488,3 @@ export function showRelationReviewEditForm(relationId) {
     },
   }])
 }
-
-
