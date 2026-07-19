@@ -10,7 +10,7 @@ const _commands = {}
 /**
  * 注册命令
  * @param {string} name - 命令名称
- * @param {function} handler - 处理函数 (args, context) => void
+ * @param {function} handler - 处理函数 (args, context) => void|Promise<void>
  * @param {string} help - 帮助文本
  * @param {string} [args] - 参数说明
  */
@@ -32,7 +32,7 @@ async function executeCommand(input) {
     const query = trimmed.slice(1).trim()
     if (query) {
       state.searchQuery = query
-      router.navigate("rag", "search", true, new URLSearchParams({ q: query }))
+      await router.navigate("rag", "search", true, new URLSearchParams({ q: query }))
     } else {
       toast("请在 / 后输入搜索关键词，如 /王印 旧王都", "warning")
     }
@@ -127,7 +127,7 @@ registerCommand("help", () => {
 }, "查看帮助")
 
 registerCommand("projects", async () => {
-  router.navigate("project")
+  await router.navigate("project")
 }, "查看项目列表")
 
 registerCommand("open", async (args) => {
@@ -146,7 +146,7 @@ registerCommand("open", async (args) => {
         // 没有子视图的模块忽略第二个参数
         subView = null
       }
-      router.navigate(targetView, subView)
+      await router.navigate(targetView, subView)
     } else {
       toast(`未知模块 "${targetView}"`, "error")
     }
@@ -156,33 +156,33 @@ registerCommand("open", async (args) => {
 }, "打开模块", "<模块名> [子视图]")
 
 registerCommand("world", async () => {
-  router.navigate("world", "objects")
+  await router.navigate("world", "objects")
 }, "打开世界对象页")
 
 registerCommand("candidates", async () => {
-  router.navigate("world", "review-objects")
+  await router.navigate("world", "review-objects")
 }, "打开待处理内容")
 
 registerCommand("rag", async (args) => {
   if (args[0] === "search" && args[1]) {
     state.searchQuery = args.slice(1).join(" ")
-    router.navigate("rag", "search", true, new URLSearchParams({ q: state.searchQuery }))
+    await router.navigate("rag", "search", true, new URLSearchParams({ q: state.searchQuery }))
   } else {
-    router.navigate("rag", "status")
+    await router.navigate("rag", "status")
   }
 }, "RAG 检索", "search <关键词>")
 
 registerCommand("context", async () => {
   const query = new URLSearchParams({ tab: "task" })
-  router.navigate("generate", null, true, query)
+  await router.navigate("generate", null, true, query)
 }, "编译上下文")
 
 registerCommand("writing", async () => {
-  router.navigate("writing")
+  await router.navigate("writing")
 }, "打开写作工作台")
 
 registerCommand("generate", async () => {
-  router.navigate("generate")
+  await router.navigate("generate")
 }, "打开生成中心")
 
 registerCommand("export", async (args) => {

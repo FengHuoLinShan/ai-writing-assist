@@ -6,7 +6,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { showRecycleBin } from "../../../vue/views/project/logic/recycleBin.js"
 import { projectSession } from "../../../vue/views/project/projectSession.js"
-import { deleteProject, editProject, showCreateForm } from "../../../vue/views/project/logic/projectModals.js"
+import {
+  deleteProject,
+  editProject,
+  importAsNewProject,
+  showCreateForm,
+} from "../../../vue/views/project/logic/projectModals.js"
 
 function deletedItem(id, overrides = {}) {
   return {
@@ -175,5 +180,44 @@ describe("项目 modal 流程", () => {
     expect(globalThis.toast).toHaveBeenCalledWith("项目「星际旅人」已移至回收站", "success")
     expect(clearSelection).toHaveBeenCalled()
     expect(globalThis.router.refresh).toHaveBeenCalled()
+  })
+
+  it("导入为新项目只在用户确认后创建项目并上传文件", async () => {
+    const state = makeState()
+    let confirmImport = null
+    const confirmAction = vi.fn((_message, onConfirm) => { confirmImport = onConfirm })
+    setBridgeOverrides({ state, confirmAction })
+    globalThis.api.projects.create.mockResolvedValue({ id: "p-new", title: "迷雾之城" })
+    globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-new", title: "迷雾之城" }] })
+    globalThis.api.imports.upload.mockResolvedValue({ total_chapters: 12, imported_chapters: 12 })
+
+    const createElement = document.createElement.bind(document)
+    let fileInput = null
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+      const element = createElement(tagName, options)
+      if (String(tagName).toLowerCase() === "input") fileInput = element
+      return element
+    })
+    try {
+      importAsNewProject()
+      const file = new File(["正文"], "迷雾之城.txt", { type: "text/plain" })
+      Object.defineProperty(fileInput, "files", { configurable: true, value: [file] })
+      await fileInput.onchange()
+
+      expect(confirmAction).toHaveBeenCalledWith(
+        "将创建新项目「迷雾之城」并导入文件「迷雾之城.txt」。是否继续？",
+        expect.any(Function),
+        "创建并导入",
+      )
+      expect(globalThis.api.projects.create).not.toHaveBeenCalled()
+
+      await confirmImport()
+      expect(globalThis.api.projects.create).toHaveBeenCalledWith(expect.objectContaining({ title: "迷雾之城" }))
+      expect(globalThis.api.imports.upload).toHaveBeenCalledWith("p-new", file)
+      expect(state).toMatchObject({ currentProjectId: "p-new", currentProject: { id: "p-new" } })
+      expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
+    } finally {
+      createSpy.mockRestore()
+    }
   })
 })

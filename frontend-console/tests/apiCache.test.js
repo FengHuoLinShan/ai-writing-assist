@@ -183,6 +183,24 @@ describe("api.js cache behavior", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2)
   })
 
+  it("bounds the GET cache and evicts the least recently used entry", async () => {
+    globalThis.fetch = vi.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ url }),
+    }))
+
+    for (let index = 0; index < 129; index += 1) {
+      await window.api.request(`/cache-bound/${index}`)
+    }
+    expect(globalThis.fetch).toHaveBeenCalledTimes(129)
+
+    await window.api.request("/cache-bound/0")
+    expect(globalThis.fetch).toHaveBeenCalledTimes(130)
+    await window.api.request("/cache-bound/128")
+    expect(globalThis.fetch).toHaveBeenCalledTimes(130)
+  })
+
   it("honors external cancellation even when the fetch transport resolves late", async () => {
     let resolveFetch
     globalThis.fetch = vi.fn(() => new Promise((resolve) => {

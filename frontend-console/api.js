@@ -8,6 +8,7 @@
 const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api"
 const API_TIMEOUT = 15000
 const API_CACHE_TTL = 30000
+const API_CACHE_MAX_ENTRIES = 128
 // 封闭测试服令牌只保存在当前页面的 module scope 中。刷新后重新输入，避免
 // bearer credential 暴露在可枚举、可跨页面生命周期读取的 Web Storage 中。
 let _accessToken = ""
@@ -112,11 +113,22 @@ function _getCached(key) {
     _apiCache.delete(key)
     return null
   }
+  // Map 保留插入顺序；命中后移到末尾，使容量淘汰遵循 LRU。
+  _apiCache.delete(key)
+  _apiCache.set(key, entry)
   return entry.data
 }
 
 function _setCache(key, data) {
-  _apiCache.set(key, { data, time: Date.now() })
+  const now = Date.now()
+  for (const [cachedKey, entry] of _apiCache) {
+    if (now - entry.time > API_CACHE_TTL) _apiCache.delete(cachedKey)
+  }
+  _apiCache.delete(key)
+  _apiCache.set(key, { data, time: now })
+  while (_apiCache.size > API_CACHE_MAX_ENTRIES) {
+    _apiCache.delete(_apiCache.keys().next().value)
+  }
 }
 
 function _formatErrorValue(value) {

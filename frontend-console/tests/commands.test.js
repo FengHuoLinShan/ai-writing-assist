@@ -1,0 +1,44 @@
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+
+beforeAll(async () => {
+  globalThis.routes = {
+    project: { subViews: [] },
+    writing: { subViews: [] },
+    rag: { subViews: ["search", "status"] },
+  }
+  await import("../commands.js")
+})
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe("commands navigation lifecycle", () => {
+  it("does not resolve a navigation command before router.navigate settles", async () => {
+    let resolveNavigation
+    globalThis.router.navigate.mockReturnValueOnce(new Promise((resolve) => { resolveNavigation = resolve }))
+    let commandSettled = false
+
+    const execution = window.commands.execute(":writing").then(() => { commandSettled = true })
+    await Promise.resolve()
+    expect(commandSettled).toBe(false)
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
+
+    resolveNavigation(true)
+    await execution
+    expect(commandSettled).toBe(true)
+  })
+
+  it("awaits search navigation and forwards the query", async () => {
+    globalThis.router.navigate.mockResolvedValueOnce(true)
+    await window.commands.execute("/旧王都")
+
+    expect(globalThis.router.navigate).toHaveBeenCalledWith(
+      "rag",
+      "search",
+      true,
+      expect.any(URLSearchParams),
+    )
+    expect(globalThis.router.navigate.mock.calls[0][3].get("q")).toBe("旧王都")
+  })
+})

@@ -30,6 +30,10 @@ npm run test:all
 
 `npm run build`（vite build）可作 Vue 构建链冒烟验证；无独立 lint/format 依赖，前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
 
+Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancestors 'none'` / `X-Frame-Options: DENY`
+禁止第三方页面嵌入控制台。部署 `dist/` 时，静态托管层必须保留 `vite.config.js` 中
+`frontendSecurityHeaders` 的同等响应头；`frame-ancestors` 不能用 HTML `<meta>` 代替。
+
 ## 后端连接
 
 前端默认连接 `http://localhost:8000/api`。

@@ -33,6 +33,7 @@ const App = {
     this._initialized = true
 
     try {
+      globalThis.installStateGlobalListeners?.()
       this._restoreProjectState()
 
       this._smartDedup = createSmartDedupManager({
@@ -68,6 +69,7 @@ const App = {
       this._smartDedup = null
       this._shell?.unmount?.()
       this._shell = null
+      globalThis.disposeStateGlobalListeners?.()
       this._initialized = false
       this._showBootstrapError(error)
       throw error
@@ -82,6 +84,7 @@ const App = {
     this._smartDedup = null
     this._shell?.unmount?.()
     this._shell = null
+    globalThis.disposeStateGlobalListeners?.()
     this._initialized = false
   },
 

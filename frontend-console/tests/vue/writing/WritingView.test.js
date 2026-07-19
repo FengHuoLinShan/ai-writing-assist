@@ -113,6 +113,56 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("快速切换章节时只保存旧章节并以最后一次选择为准", async () => {
+    let resolveSave
+    globalThis.api.writing.autosave.mockReturnValueOnce(new Promise((resolve) => { resolveSave = resolve }))
+    globalThis.api.writing.getVersionHistory.mockImplementation(async (chapter) => ({
+      versions: [{ id: `d${chapter}`, version_number: 1, status: "draft" }],
+    }))
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      chapter_index: Number(String(id).slice(1)),
+      title: `第 ${String(id).slice(1)} 章`,
+      content: `正文 ${String(id).slice(1)}`,
+      version_number: 1,
+      status: "draft",
+    }))
+    const wrapper = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2, 3],
+        chapters: {
+          1: { chapter_index: 1, title: "第一章", status: "draft" },
+          2: { chapter_index: 2, title: "第二章", status: "draft" },
+          3: { chapter_index: 3, title: "第三章", status: "draft" },
+        },
+        scenes: [],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await wrapper.get("#writing-editor").setValue("第一章尚未保存的正文")
+
+    const vm = wrapper.vm.$.setupState.vm
+    const selectSecond = vm.selectChapter(2)
+    await vi.waitFor(() => expect(globalThis.api.writing.autosave).toHaveBeenCalledTimes(1))
+    const selectThird = vm.selectChapter(3)
+    resolveSave({ id: "d1", version_number: 2, status: "draft" })
+    await Promise.all([selectSecond, selectThird])
+    await flushPromises()
+
+    expect(globalThis.api.writing.autosave).toHaveBeenCalledWith(
+      "d1",
+      expect.objectContaining({ content: "第一章尚未保存的正文" }),
+      "p1",
+    )
+    expect(vm.selectedChapter.value).toBe(3)
+    expect(vm.editorState.chapter).toBe(3)
+    expect(globalThis.api.writing.get).not.toHaveBeenCalledWith("d2", "p1")
+    expect(globalThis.api.writing.get).toHaveBeenCalledWith("d3", "p1")
+    wrapper.unmount()
+  })
+
   it("从 Scene 地图摘要沿用 open_target 打开精确深链", async () => {
     globalThis.api.world.getMapSceneSummary.mockResolvedValue({
       summary: "安全",

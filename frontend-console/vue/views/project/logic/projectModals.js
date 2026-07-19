@@ -204,35 +204,41 @@ export function importAsNewProject() {
     if (!input.files || !input.files[0]) return
     const file = input.files[0]
     const toast = getToast()
+    const projectName = file.name.replace(/\.[^.]+$/, "").trim() || "未命名小说"
 
-    try {
-      const projectName = file.name.replace(/\.[^.]+$/, "").trim() || "未命名小说"
-      const project = await getApi().projects.create({
-        title: projectName,
-        genre: "",
-        tone: "",
-        language: "zh",
-      })
-      const state = getAppState()
-      if (state) {
-        state.currentProjectId = project.id
-        state.currentProject = project
-        const data = await getApi().projects.list()
-        state.projects = data.items || data || []
-      }
+    getConfirmAction()(
+      `将创建新项目「${projectName}」并导入文件「${file.name}」。是否继续？`,
+      async () => {
+        try {
+          const project = await getApi().projects.create({
+            title: projectName,
+            genre: "",
+            tone: "",
+            language: "zh",
+          })
+          const state = getAppState()
+          if (state) {
+            state.currentProjectId = project.id
+            state.currentProject = project
+            const data = await getApi().projects.list()
+            state.projects = data.items || data || []
+          }
 
-      const result = await getApi().imports.upload(project.id, file)
-      const nextStep = result.imported_chapters > 0
-        ? "，可在写作台按需启动场景自动提取"
-        : ""
-      toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
-      getApi().clearCache()
-      await getRouter().navigate("writing")
-      await getRouter().refresh()
-    } catch (err) {
-      const detail = err.message || "导入失败"
-      toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
-    }
+          const result = await getApi().imports.upload(project.id, file)
+          const nextStep = result.imported_chapters > 0
+            ? "，可在写作台按需启动场景自动提取"
+            : ""
+          toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
+          getApi().clearCache()
+          await getRouter().navigate("writing")
+          await getRouter().refresh()
+        } catch (err) {
+          const detail = err.message || "导入失败"
+          toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
+        }
+      },
+      "创建并导入",
+    )
   }
   input.click()
 }

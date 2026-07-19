@@ -142,8 +142,23 @@ window.appState = state
 window.onStateChange = onStateChange
 window.projectStorageSummary = stateSliceHelpers.projectStorageSummary
 
-// D21: 监听跨标签页 global_settings_cache_version 变更，失效本标签的缓存
-stateSliceHelpers.installGlobalSettingsCacheStorageHandler(state)
+// D21: 监听跨标签页 global_settings_cache_version 变更，失效本标签的缓存。
+// App dispose/HMR 时显式释放，重新 init 时可幂等恢复。
+let _uninstallStateGlobalListeners = null
+
+function installStateGlobalListeners() {
+  if (_uninstallStateGlobalListeners) return
+  _uninstallStateGlobalListeners = stateSliceHelpers.installGlobalSettingsCacheStorageHandler(state)
+}
+
+function disposeStateGlobalListeners() {
+  _uninstallStateGlobalListeners?.()
+  _uninstallStateGlobalListeners = null
+}
+
+installStateGlobalListeners()
+window.installStateGlobalListeners = installStateGlobalListeners
+window.disposeStateGlobalListeners = disposeStateGlobalListeners
 
 /**
  * D20-D22: 一次性迁移 localStorage 旧作者偏好到后端项目覆盖。

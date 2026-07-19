@@ -28,6 +28,22 @@ beforeEach(() => {
 })
 
 describe("App smart dedup integration", () => {
+  it("releases app-lifetime state listeners on dispose", () => {
+    const previousDispose = globalThis.disposeStateGlobalListeners
+    const disposeStateGlobalListeners = vi.fn()
+    globalThis.disposeStateGlobalListeners = disposeStateGlobalListeners
+    App._shell = { unmount: vi.fn() }
+    App._initialized = true
+    try {
+      App.dispose()
+      expect(disposeStateGlobalListeners).toHaveBeenCalledTimes(1)
+      expect(App._initialized).toBe(false)
+    } finally {
+      if (previousDispose) globalThis.disposeStateGlobalListeners = previousDispose
+      else delete globalThis.disposeStateGlobalListeners
+    }
+  })
+
   it("renders one local smart dedup button on the world page", () => {
     App._renderGlobalActions()
 

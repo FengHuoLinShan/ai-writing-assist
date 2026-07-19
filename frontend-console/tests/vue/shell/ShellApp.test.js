@@ -80,7 +80,13 @@ describe("ShellApp", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }))
     await nextTick()
     expect(wrapper.get("#help-overlay").classes()).not.toContain("hidden")
+    expect(wrapper.get("#main-layout").attributes()).toHaveProperty("inert")
+    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.get("#help-close").element))
+    document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }))
+    expect(document.activeElement).toBe(wrapper.get("#help-close").element)
     await wrapper.get("#help-close").trigger("click")
+    await nextTick()
+    expect(wrapper.get("#main-layout").attributes()).not.toHaveProperty("inert")
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: ":", bubbles: true }))
     await nextTick()
@@ -105,6 +111,19 @@ describe("ShellApp", () => {
     window.dispatchEvent(new CustomEvent("writing:dashboard-update", { detail: { chapterIndex: 99, chapterWords: 999 } }))
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }))
     expect(document.getElementById("help-overlay")).toBeNull()
+  })
+
+  it("restores focus to the help trigger after closing the modal", async () => {
+    const services = createShellTestServices()
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
+    const trigger = wrapper.get(".nav-item.help")
+    trigger.element.focus()
+    await trigger.trigger("click")
+    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.get("#help-close").element))
+
+    await wrapper.get("#help-close").trigger("click")
+    await nextTick()
+    expect(document.activeElement).toBe(trigger.element)
   })
 
   it("rejects a late health result after shell unmount", async () => {
