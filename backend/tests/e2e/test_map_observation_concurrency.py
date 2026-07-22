@@ -41,6 +41,7 @@ async def test_competing_first_candidate_inserts_reuse_one_observation() -> None
     try:
         async with sessions.begin() as setup_db:
             setup_db.add(Project(id=novel_id, title="candidate insert concurrency"))
+            await setup_db.flush()
             scene = await create_scene(
                 setup_db,
                 str(novel_id),

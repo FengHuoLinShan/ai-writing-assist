@@ -76,6 +76,9 @@ from modules.world.map_schemas import (
     MapTerritoryUpdate,
     MapTileBatchUpdate,
     MapTileResponse,
+    MapVisualRevisionListResponse,
+    MapVisualRevisionRestoreRequest,
+    MapVisualRevisionRestoreResponse,
 )
 from modules.world.services.map.map_archive import MapArchiveService
 from modules.world.services.map.map_editor_apply import MapEditorApplyService
@@ -83,6 +86,7 @@ from modules.world.services.map.map_layer_tree import MapLayerTreeService
 from modules.world.services.map.map_location_layout import MapLocationLayoutService
 from modules.world.services.map.map_path import MapPathService
 from modules.world.services.map.map_quick_create import MapQuickCreateService
+from modules.world.services.map.map_revision import MapRevisionService
 from modules.world.services.map.map_scene_summary import MapSceneSummaryService
 from modules.world.services.map.map_terrain import MapTerrainService
 from modules.world.services.map_service import (
@@ -110,6 +114,7 @@ _archive_service = MapArchiveService()
 _editor_apply_service = MapEditorApplyService()
 _layer_tree_service = MapLayerTreeService()
 _path_service = MapPathService()
+_revision_service = MapRevisionService()
 
 
 async def _require_active_novel_id(
@@ -300,6 +305,48 @@ async def apply_map_editor_commands(
     return await _editor_apply_service.apply(db, novel_id, map_id, data)
 
 
+@router.get(
+    "/{map_id}/revisions",
+    response_model=MapVisualRevisionListResponse,
+)
+async def list_map_visual_revisions(
+    db: DbSession,
+    map_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+) -> MapVisualRevisionListResponse:
+    return await _revision_service.list_revisions(
+        db,
+        novel_id,
+        map_id,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/{map_id}/revisions/{revision_number}/restore",
+    response_model=MapVisualRevisionRestoreResponse,
+)
+async def restore_map_visual_revision(
+    db: DbSession,
+    map_id: str,
+    revision_number: int,
+    data: MapVisualRevisionRestoreRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapVisualRevisionRestoreResponse:
+    return await _revision_service.restore_revision(
+        db,
+        novel_id,
+        map_id,
+        revision_number,
+        expected_revision=data.expected_revision,
+    )
+
+
 @router.get("/{map_id}/layer-tree", response_model=MapLayerTreeResponse)
 async def get_map_layer_tree(
     db: DbSession,
@@ -349,6 +396,48 @@ async def get_map_path_archive_impact(
     novel_id: ActiveNovelIdQuery,
 ) -> MapPathArchiveImpactResponse:
     return await _path_service.archive_impact(db, novel_id, map_id, path_id)
+
+
+@router.post(
+    "/{map_id}/paths/{path_id}/archive",
+    response_model=MapEditorApplyResponse,
+)
+async def archive_map_path(
+    db: DbSession,
+    map_id: str,
+    path_id: str,
+    data: MapVisualRevisionRestoreRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapEditorApplyResponse:
+    request = MapEditorApplyRequest.model_validate(
+        {
+            "expected_revision": data.expected_revision,
+            "commands": [{"type": "path_archive", "ref": {"id": path_id}}],
+        }
+    )
+    return await _editor_apply_service.apply(db, novel_id, map_id, request)
+
+
+@router.post(
+    "/{map_id}/paths/{path_id}/restore",
+    response_model=MapEditorApplyResponse,
+)
+async def restore_map_path(
+    db: DbSession,
+    map_id: str,
+    path_id: str,
+    data: MapVisualRevisionRestoreRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapEditorApplyResponse:
+    request = MapEditorApplyRequest.model_validate(
+        {
+            "expected_revision": data.expected_revision,
+            "commands": [{"type": "path_restore", "ref": {"id": path_id}}],
+        }
+    )
+    return await _editor_apply_service.apply(db, novel_id, map_id, request)
 
 
 @router.post("/{map_id}/generate", response_model=MapStateResponse)
@@ -605,6 +694,27 @@ async def delete_terrain_layer(
     return await _terrain_service.delete_layer(db, novel_id, map_id, layer_id)
 
 
+@router.post(
+    "/{map_id}/terrain/layers/{layer_id}/restore",
+    response_model=MapEditorApplyResponse,
+)
+async def restore_terrain_layer(
+    db: DbSession,
+    map_id: str,
+    layer_id: str,
+    data: MapVisualRevisionRestoreRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapEditorApplyResponse:
+    request = MapEditorApplyRequest.model_validate(
+        {
+            "expected_revision": data.expected_revision,
+            "commands": [{"type": "terrain_layer_restore", "ref": {"id": layer_id}}],
+        }
+    )
+    return await _editor_apply_service.apply(db, novel_id, map_id, request)
+
+
 @router.put(
     "/{map_id}/terrain/layers/{layer_id}/patches",
     response_model=MapTerrainStateResponse,
@@ -766,6 +876,27 @@ async def delete_marker(
     novel_id: ActiveNovelIdQuery,
 ):
     await _marker_service.delete(db, novel_id, marker_id, map_id=map_id)
+
+
+@router.post(
+    "/{map_id}/markers/{marker_id}/restore",
+    response_model=MapEditorApplyResponse,
+)
+async def restore_marker(
+    db: DbSession,
+    map_id: str,
+    marker_id: str,
+    data: MapVisualRevisionRestoreRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapEditorApplyResponse:
+    request = MapEditorApplyRequest.model_validate(
+        {
+            "expected_revision": data.expected_revision,
+            "commands": [{"type": "marker_restore", "ref": {"id": marker_id}}],
+        }
+    )
+    return await _editor_apply_service.apply(db, novel_id, map_id, request)
 
 
 # ============================================================

@@ -90,6 +90,10 @@ async function retry({ literal = false } = {}) {
   await submit()
 }
 
+function openScene(ref) {
+  if (ref?.target_id) getRouter().navigate("scene", ref.target_id)
+}
+
 // 对应 vanilla onRendered 的 _restoreSearchFromRoute
 onMounted(() => {
   const routeState = parseRouteQuery(getRouter().getCurrentQuery?.())
@@ -118,6 +122,7 @@ onMounted(() => {
     :search-error="searchError"
     @load-more="loadMore"
     @open-hit="(index) => drawer.openHit(session.hits[index])"
+    @open-scene="openScene"
     @retry="retry()"
     @retry-literal="retry({ literal: true })"
   >

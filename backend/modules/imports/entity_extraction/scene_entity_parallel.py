@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.entity_extraction.scene_entity_checkpoint import (
     phase2a_input_fingerprint,
 )
@@ -31,8 +32,7 @@ def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
     except (TypeError, ValueError):
         return True
     return any(
-        parameter.kind is inspect.Parameter.VAR_KEYWORD
-        or parameter.name == keyword
+        parameter.kind is inspect.Parameter.VAR_KEYWORD or parameter.name == keyword
         for parameter in parameters
     )
 
@@ -91,9 +91,7 @@ class ParallelSceneEntityExtractionMixin:
                 identity_candidates = list(
                     getattr(activation, "identity_candidates", []) or []
                 )
-                outline_context = dict(
-                    getattr(activation, "outline_context", {}) or {}
-                )
+                outline_context = dict(getattr(activation, "outline_context", {}) or {})
                 scene_card = dict(getattr(activation, "scene_card", {}) or {})
                 activation_metadata = {
                     "activation_version": activation.activation_version,
@@ -318,10 +316,7 @@ class ParallelSceneEntityExtractionMixin:
         cursor = 0
         while cursor < len(prepared):
             wave = prepared[cursor : cursor + concurrency]
-            pending = {
-                asyncio.create_task(extract_scene(item))
-                for item in wave
-            }
+            pending = {asyncio.create_task(extract_scene(item)) for item in wave}
             results: list[dict[str, Any]] = []
             while pending:
                 done, pending = await asyncio.wait(
@@ -397,13 +392,14 @@ class ParallelSceneEntityExtractionMixin:
 
             if error is not None:
                 error_kind = service._error_kind(error)
-                error_message = str(error)[:300]
+                error_message = redact_diagnostic(error, limit=300)
                 failed_scene_indices.append(scene_index)
                 if snapshot_id is not None:
                     from modules.context.facade import fail_context_snapshot
 
                     await fail_context_snapshot(
                         db,
+                        novel_id=str(nid),
                         snapshot_id=snapshot_id,
                         error_kind=error_kind,
                         error_message=error_message,
@@ -479,6 +475,7 @@ class ParallelSceneEntityExtractionMixin:
                     nid,
                     extraction.delta_events,
                     scene_index=scene_index,
+                    source_chapter_index=item["source_chapter_index"],
                     workflow_id=workflow_id,
                     scene_id=scene_id,
                     scene_provenance_key=scene_provenance_key,
@@ -507,18 +504,20 @@ class ParallelSceneEntityExtractionMixin:
 
                     await succeed_context_snapshot(
                         db,
+                        novel_id=str(nid),
                         snapshot_id=snapshot_id,
                         result_refs=result_refs,
                     )
             except Exception as exc:
                 error_kind = service._error_kind(exc)
-                error_message = str(exc)[:300]
+                error_message = redact_diagnostic(exc, limit=300)
                 failed_scene_indices.append(scene_index)
                 if snapshot_id is not None:
                     from modules.context.facade import fail_context_snapshot
 
                     await fail_context_snapshot(
                         db,
+                        novel_id=str(nid),
                         snapshot_id=snapshot_id,
                         error_kind=error_kind,
                         error_message=error_message,
@@ -573,18 +572,18 @@ class ParallelSceneEntityExtractionMixin:
                 )
             )
             try:
-                from modules.memory.facade import capture_snapshot
+                from modules.memory.facade import ensure_scene_checkpoints
 
-                await capture_snapshot(
+                await ensure_scene_checkpoints(
                     db,
                     str(nid),
-                    chapter_index=item["source_chapter_index"],
+                    scene_id,
                 )
             except Exception as exc:
                 logger.warning(
                     "Memory snapshot after scene %d failed: %s",
                     scene_index,
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
         flush_status = await service._phase2_flush_with_timeout(db)
         audit_summary = await service._phase2_audit_summary(

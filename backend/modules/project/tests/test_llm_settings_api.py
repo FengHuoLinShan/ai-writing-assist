@@ -72,6 +72,26 @@ async def test_get_project_llm_settings_does_not_require_xhr_header(
 
 
 @pytest.mark.asyncio
+async def test_effective_settings_hide_recycled_project(
+    async_client: AsyncClient,
+    factory,
+) -> None:
+    pid = await factory.create_project()
+    deleted = await async_client.delete(f"/api/projects/{pid}")
+    assert deleted.status_code == 204
+
+    llm_response = await async_client.get(
+        f"/api/projects/{pid}/effective-llm-settings"
+    )
+    author_response = await async_client.get(
+        f"/api/projects/{pid}/effective-author-preferences"
+    )
+
+    assert llm_response.status_code == 404
+    assert author_response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_update_project_llm_settings_requires_xhr_header(
     raw_async_client: AsyncClient,
     sample_project: dict,

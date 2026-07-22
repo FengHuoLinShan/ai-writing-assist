@@ -56,6 +56,7 @@ make test-v                      # Fast layer, verbose, stop on first failure
 make test ARGS="-k test_create"  # Filter by test name
 make test-integration            # SQLite cross-module integration tests
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB at Alembic head
+E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # Serial PostgreSQL merge-gate subset; retries=0
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"  # Map observation row-lock race
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' python -m pytest tests/e2e/test_map_subsystem_reset_postgresql.py -m "not real_llm and not external_data"  # Map reset dry-run/restore drill
 make test-real-llm               # Explicit SQLite real-model acceptance

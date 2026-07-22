@@ -6,7 +6,12 @@ export function createE2EConfig({
   testMatch,
   testIgnore,
   preserveOutput,
+  outputDir,
+  reporter = "list",
+  expect,
+  timeout,
   use = {},
+  extraWebServers = [],
 }) {
   validateE2EDatabaseEnvironment(profile)
 
@@ -24,8 +29,11 @@ export function createE2EConfig({
     forbidOnly: !!process.env.CI,
     retries: 0,
     workers: 1,
-    reporter: "list",
+    reporter,
     preserveOutput,
+    ...(timeout ? { timeout } : {}),
+    ...(outputDir ? { outputDir } : {}),
+    ...(expect ? { expect } : {}),
     use: {
       baseURL: frontendBase,
       trace: "retain-on-failure",
@@ -46,6 +54,7 @@ export function createE2EConfig({
         timeout: 60000,
         reuseExistingServer: false,
       },
+      ...extraWebServers,
     ],
   })
 }

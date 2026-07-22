@@ -6,6 +6,8 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,13 +26,14 @@ async def mark_synopsis_source_changed(
             )
 
             await WorldBibleSynopsisService().mark_stale(db, novel_id)
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "世界观简介标脏失败 source_type=%s source_id=%s novel_id=%s",
+            "世界观简介标脏失败 source_type=%s source_id=%s novel_id=%s "
+            "reason=%s",
             source_type,
             source_id,
             novel_id,
-            exc_info=True,
+            redact_diagnostic(exc, limit=300),
         )
 
 

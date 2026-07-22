@@ -18,6 +18,7 @@ describe("WritingWorkflowBars", () => {
             message: "正在提取世界对象",
             status: "running",
             percent: 1,
+            availableActions: ["cancel"],
           },
         },
       },
@@ -83,6 +84,28 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.get("details.workflow-progress").attributes("open")).toBeUndefined()
   })
 
+  it("只有恢复标记但没有后端 action 时不暴露继续或放弃", () => {
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: null },
+        conflict: { latest: null, error: null },
+        deepImport: {
+          taskId: "recovery-pending",
+          progress: {
+            status: "failed",
+            message: "正在确认恢复策略",
+            recoveryRequired: true,
+            availableActions: [],
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain("后端正在确认可用的恢复操作")
+    expect(wrapper.findAll("button").some((button) => button.text() === "继续")).toBe(false)
+    expect(wrapper.findAll("button").some((button) => button.text() === "放弃恢复")).toBe(false)
+  })
+
   it("剧情结构分析使用不确定进度语义，同时保留取消入口", async () => {
     const wrapper = mount(WritingWorkflowBars, {
       props: {
@@ -94,6 +117,7 @@ describe("WritingWorkflowBars", () => {
             status: "running",
             currentPhase: "structure_analysis",
             percent: 80,
+            availableActions: ["cancel"],
           },
         },
       },
@@ -103,6 +127,21 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.text()).toContain("正在提取剧情结构")
     await wrapper.findAll("button").find((button) => button.text() === "取消任务").trigger("click")
     expect(wrapper.emitted("cancel")).toHaveLength(1)
+  })
+
+  it("后端未返回 cancel action 时不显示取消入口", () => {
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: null },
+        conflict: { latest: null, error: null },
+        deepImport: {
+          taskId: "pending-contract",
+          progress: { status: "running", availableActions: [] },
+        },
+      },
+    })
+
+    expect(wrapper.findAll("button").some((button) => button.text() === "取消任务")).toBe(false)
   })
 
   it("展示实时位置与质量统计，并暴露审计和地图重试入口", async () => {
@@ -117,8 +156,8 @@ describe("WritingWorkflowBars", () => {
           currentWindow: { start: 1, end: 3 },
           currentOperation: "merge",
           qualityStatus: "partial",
-          qualityStats: { schema_422_rate: "2%" },
-          phaseArtifacts: { phase1: { count: 2 } },
+          qualityStats: { schema_422_rate: "2%", phase3: { error_kind: "schema_failure" } },
+          phaseArtifacts: { phase1: { count: 2, error_kind: "provider_error" } },
           acceptanceChecks: [{ name: "coverage" }],
           diagnosticCounts: { warnings: 1 },
           throttleReasons: ["budget"],
@@ -126,13 +165,38 @@ describe("WritingWorkflowBars", () => {
         } },
       },
     })
-    expect(wrapper.text()).toContain("entity_extraction")
+    expect(wrapper.text()).toContain("世界对象与关系提取")
     expect(wrapper.text()).toContain("schema_422_rate：2%")
+    expect(wrapper.text()).not.toContain("error_kind")
+    expect(wrapper.text()).not.toContain("schema_failure")
+    expect(wrapper.text()).not.toContain("provider_error")
+    expect(wrapper.text()).toContain("结果格式未通过校验")
     expect(wrapper.text()).toContain("地图下一步暂时无法加载")
     await wrapper.findAll("button").find((button) => button.text() === "重试").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "查看快照状态").trigger("click")
     expect(wrapper.emitted("retry-map")).toHaveLength(1)
     expect(wrapper.emitted("open-audit")).toHaveLength(1)
+  })
+
+  it("失败消息中的内部健康码会转换为作者提示", () => {
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: null },
+        conflict: { latest: null, error: null },
+        deepImport: {
+          taskId: "failed-health",
+          progress: {
+            status: "failed",
+            message: "结构健康检查失败：health.error_kind=schema_failure",
+            availableActions: ["dismiss"],
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain("结构健康检查失败：原因：结果格式未通过校验")
+    expect(wrapper.text()).not.toContain("error_kind")
+    expect(wrapper.text()).not.toContain("schema_failure")
   })
 
   it("完成态保留地图下一步操作", async () => {
@@ -154,5 +218,52 @@ describe("WritingWorkflowBars", () => {
     expect(button).toBeTruthy()
     await button.trigger("click")
     expect(wrapper.emitted("map-next")).toHaveLength(1)
+  })
+
+  it("降级完成态自动展开并隐藏内部原因码", () => {
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: null },
+        conflict: { latest: null, error: null },
+        deepImport: {
+          taskId: "degraded-task",
+          progress: {
+            status: "done",
+            percent: 100,
+            qualityStatus: "partial",
+            degraded: true,
+            degradedReason: "phase1b_422_rate_exceeded",
+            phase1aFallback: true,
+            phaseErrors: [{
+              phase: "phase1b_enrichment",
+              error_kind: "schema_failure",
+              message: "部分 Scene 已使用可复核结果继续导入",
+            }],
+          },
+        },
+      },
+    })
+
+    expect(wrapper.get("details.workflow-progress").attributes("open")).toBeDefined()
+    expect(wrapper.text()).toContain("部分降级完成")
+    expect(wrapper.text()).toContain("部分步骤已降级完成，请检查需要人工处理的结果")
+    expect(wrapper.text()).toContain("自动整理失败，已使用质量补强结果继续导入")
+    expect(wrapper.text()).not.toContain("phase1b_422_rate_exceeded")
+    expect(wrapper.text()).not.toContain("schema_failure")
+    expect(wrapper.text()).not.toContain("phase1b_enrichment")
+    expect(wrapper.text()).toContain("结果格式未通过校验")
+    expect(wrapper.text()).toContain("Phase 1b · Scene 字段补全")
+  })
+
+  it("允许宿主把最近冲突检查移到顶部操作行", () => {
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: null },
+        conflict: { latest: { id: "check-1", status: "completed" }, error: null },
+        deepImport: { taskId: null, progress: null },
+        showConflict: false,
+      },
+    })
+    expect(wrapper.find("#writing-conflict-strip").exists()).toBe(false)
   })
 })

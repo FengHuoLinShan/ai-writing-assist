@@ -1401,6 +1401,7 @@ async def test_ai_review_partial_invalid_output_records_discard_count(
 async def test_ai_review_failure_keeps_rule_items_and_marks_check_failed(
     async_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     novel_id = await _create_project(async_client)
     scene = await _create_scene(async_client, novel_id)
@@ -1412,8 +1413,13 @@ async def test_ai_review_failure_keeps_rule_items_and_marks_check_failed(
         scene_id=scene["id"],
     )
 
+    secret = "private-token-value"
+
     async def fake_generate_structured(_self, _request, _schema, **_kwargs):
-        raise LLMTimeoutError("timeout", provider="fake")
+        raise LLMTimeoutError(
+            f"timeout Authorization: Bearer {secret} api_key={secret}",
+            provider="fake",
+        )
 
     monkeypatch.setattr(
         "infrastructure.llm.client.LLMClient.generate_structured",
@@ -1432,6 +1438,8 @@ async def test_ai_review_failure_keeps_rule_items_and_marks_check_failed(
     body = resp.json()
     assert body["ai_review_status"] == "failed"
     assert "timeout" in body["ai_review_error"]
+    assert secret not in body["ai_review_error"]
+    assert secret not in caplog.text
     assert [item for item in body["items"] if not item["is_ai_judgment"]]
 
 

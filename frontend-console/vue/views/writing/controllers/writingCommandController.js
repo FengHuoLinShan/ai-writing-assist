@@ -124,32 +124,6 @@ export function createWritingCommandController({
     }
   }
 
-  async function splitAtOffset(requestedPosition = null) {
-    const { projectId, chapter, scene } = context()
-    const position = requestedPosition == null ? editor.getCursorOffset() : Number(requestedPosition)
-    if (!projectId || !chapter || !scene) {
-      toast("当前章节未关联 Scene", "warning")
-      return null
-    }
-    if (position < 1 || position >= editor.getContent().length) {
-      toast("请把光标放在正文中间的有效断章位置", "warning")
-      return null
-    }
-    try {
-      const result = await api.writing.splitChapter(chapter, {
-        split_pos: position,
-        source_scene_id: scene.id,
-      }, projectId)
-      if (disposed || getProjectId() !== projectId) return null
-      await onResult(result)
-      toast("断章完成", "success")
-      return result
-    } catch (err) {
-      toast(err?.message || "断章失败", "error")
-      return null
-    }
-  }
-
   function dispose() {
     disposed = true
     generation += 1
@@ -161,8 +135,6 @@ export function createWritingCommandController({
     generateDraft: () => generate("draft"),
     generateContinuation: () => generate("continue"),
     generatePovDraft: () => generate("pov"),
-    splitAtCursor: () => splitAtOffset(),
-    splitAtOffset,
     dispose,
   }
 }

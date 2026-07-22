@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.contracts import TaskLifecycleContract
 from infrastructure.tasks.facade import list_task_lifecycle_contracts
 from modules.context.contracts import ContextSnapshotContract, ContextSnapshotRequest
@@ -130,13 +131,15 @@ class ContextSnapshotService:
         self,
         db: AsyncSession,
         *,
+        novel_id: str,
         snapshot_id: str | uuid.UUID,
         result_refs: list[dict],
     ) -> ContextSnapshotContract:
-        snapshot = await self._require_snapshot(db, snapshot_id)
-        updated = await self._repo.mark_succeeded(
+        updated = await self._repo.transition_terminal(
             db,
-            snapshot,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            snapshot_id=self._parse_snapshot_id(snapshot_id),
+            terminal_status="succeeded",
             result_refs=result_refs,
         )
         return self._to_contract(updated)
@@ -145,11 +148,13 @@ class ContextSnapshotService:
         self,
         db: AsyncSession,
         *,
+        novel_id: str,
         snapshot_id: str | uuid.UUID,
         result_refs: list[dict],
     ) -> ContextSnapshotContract:
         return await self.mark_context_snapshot_succeeded(
             db,
+            novel_id=novel_id,
             snapshot_id=snapshot_id,
             result_refs=result_refs,
         )
@@ -158,16 +163,18 @@ class ContextSnapshotService:
         self,
         db: AsyncSession,
         *,
+        novel_id: str,
         snapshot_id: str | uuid.UUID,
         error_kind: str,
         error_message: str,
     ) -> ContextSnapshotContract:
-        snapshot = await self._require_snapshot(db, snapshot_id)
-        updated = await self._repo.mark_failed(
+        updated = await self._repo.transition_terminal(
             db,
-            snapshot,
-            error_kind=error_kind,
-            error_message=error_message[:500],
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            snapshot_id=self._parse_snapshot_id(snapshot_id),
+            terminal_status="failed",
+            error_kind=redact_diagnostic(error_kind, limit=100),
+            error_message=redact_diagnostic(error_message, limit=500),
         )
         return self._to_contract(updated)
 
@@ -175,12 +182,14 @@ class ContextSnapshotService:
         self,
         db: AsyncSession,
         *,
+        novel_id: str,
         snapshot_id: str | uuid.UUID,
         error_kind: str,
         error_message: str,
     ) -> ContextSnapshotContract:
         return await self.mark_context_snapshot_failed(
             db,
+            novel_id=novel_id,
             snapshot_id=snapshot_id,
             error_kind=error_kind,
             error_message=error_message,
@@ -336,11 +345,13 @@ class ContextSnapshotService:
             return len(stale_records)
 
         for record, reason in stale_records:
-            record.status = "failed"
-            record.error_kind = reason
-            record.error_message = self._stale_error_message(reason)
-        if stale_records:
-            await db.flush()
+            await self.fail_context_snapshot(
+                db,
+                novel_id=str(nid),
+                snapshot_id=record.id,
+                error_kind=reason,
+                error_message=self._stale_error_message(reason),
+            )
         return len(stale_records)
 
     async def _owner_task_contracts(
@@ -496,6 +507,14 @@ class ContextSnapshotService:
         return snapshot
 
     @staticmethod
+    def _parse_snapshot_id(snapshot_id: str | uuid.UUID) -> uuid.UUID:
+        return (
+            snapshot_id
+            if isinstance(snapshot_id, uuid.UUID)
+            else parse_uuid(str(snapshot_id), "context_snapshot_id")
+        )
+
+    @staticmethod
     def _prompt_hash(
         *,
         prompt_name: str,
@@ -605,12 +624,14 @@ class DurableContextSnapshotService:
         self,
         caller_db: AsyncSession,
         *,
+        novel_id: str,
         snapshot_id: str | uuid.UUID,
         result_refs: list[dict],
     ) -> ContextSnapshotContract:
         async with self._transaction(caller_db) as snapshot_db:
             return await self._snapshot_service.succeed_context_snapshot(
                 snapshot_db,
+                novel_id=novel_id,
                 snapshot_id=snapshot_id,
                 result_refs=result_refs,
             )
@@ -619,6 +640,7 @@ class DurableContextSnapshotService:
         self,
         caller_db: AsyncSession,
         *,
+        novel_id: str,
         snapshot_id: str | uuid.UUID,
         error_kind: str,
         error_message: str,
@@ -626,6 +648,7 @@ class DurableContextSnapshotService:
         async with self._transaction(caller_db) as snapshot_db:
             return await self._snapshot_service.fail_context_snapshot(
                 snapshot_db,
+                novel_id=novel_id,
                 snapshot_id=snapshot_id,
                 error_kind=error_kind,
                 error_message=error_message,

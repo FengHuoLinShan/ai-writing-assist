@@ -158,7 +158,7 @@ class TestLoadProjectTerms:
         novel_id = uuid.uuid4()
 
         async def _fail_entity_terms(*_args: Any, **_kwargs: Any):
-            raise RuntimeError("world terms unavailable")
+            raise RuntimeError("api_key=credential-value")
 
         reset()
         clear_project_terms_cache()
@@ -184,4 +184,6 @@ class TestLoadProjectTerms:
             if "rag_project_terms_load_failed" in item.getMessage()
         )
         assert str(novel_id) in record.getMessage()
-        assert record.exc_info is not None
+        assert record.exc_info is None
+        assert "credential-value" not in record.getMessage()
+        assert "[REDACTED]" in record.getMessage()

@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -59,6 +60,11 @@ class ContextConfirmation(Base, TimestampMixin):
     __tablename__ = "context_confirmations"
     __table_args__ = (
         Index("ix_context_confirmations_novel_action", "novel_id", "action"),
+        UniqueConstraint(
+            "id",
+            "novel_id",
+            name="uq_context_confirmations_id_novel",
+        ),
         {"comment": "AI 参考资料确认记录"},
     )
 
@@ -154,6 +160,40 @@ class ContextConfirmation(Base, TimestampMixin):
         default=lambda: datetime.now(UTC),
         comment="确认时重新编译完成时间",
     )
+
+
+class ContextConfirmationAssetRef(Base):
+    """Exact selected/result asset index owned by context confirmations."""
+
+    __tablename__ = "context_confirmation_asset_refs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["confirmation_id", "novel_id"],
+            ["context_confirmations.id", "context_confirmations.novel_id"],
+            name="fk_context_confirmation_asset_refs_owner",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_context_confirmation_asset_refs_lookup",
+            "novel_id",
+            "asset_type",
+            "asset_id",
+        ),
+        {"comment": "确认记录选中及结果资产的精确失效索引"},
+    )
+
+    confirmation_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        primary_key=True,
+    )
+    novel_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    asset_role: Mapped[str] = mapped_column(
+        String(16),
+        primary_key=True,
+        comment="selected / result",
+    )
+    asset_type: Mapped[str] = mapped_column(String(128), primary_key=True)
+    asset_id: Mapped[str] = mapped_column(String(255), primary_key=True)
 
 
 class ContextSnapshot(Base, TimestampMixin):

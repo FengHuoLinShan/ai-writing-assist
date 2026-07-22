@@ -11,6 +11,19 @@ export { runBulkAction, bulkResultMessage, selectedItemsFrom } from "../../../..
 
 /** outline 会话级批量选择状态（scope → Set<string>）。 */
 export const outlineBulkSelections = reactive({})
+let ownerProjectId = null
+
+/**
+ * 把模块级选择会话绑定到当前项目。相同项目的 island 重挂载保留选择；
+ * 跨项目时确定性清空，避免旧资产 ID 进入新项目的批量或 AI 请求。
+ */
+export function scopeBulkSelectionsToProject(projectId) {
+  const nextProjectId = projectId || null
+  if (ownerProjectId === nextProjectId) return false
+  clearAllBulkSelections()
+  ownerProjectId = nextProjectId
+  return true
+}
 
 /** 获取某 scope 的 selection Set，惰性初始化。 */
 export function getBulkSelection(scope) {

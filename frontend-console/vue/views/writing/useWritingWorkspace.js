@@ -28,7 +28,7 @@ import { createWritingCommandController } from "./controllers/writingCommandCont
 import { createDeepImportController } from "./controllers/deepImportController.js"
 import { createConflictController } from "./controllers/conflictController.js"
 import { openWritingMapQuickCreate } from "./controllers/mapQuickCreateBridge.js"
-import { getWritingSession } from "./writingSession.js"
+import { getWritingSession, rememberWritingLocation } from "./writingSession.js"
 
 function normalizeChapters(data = {}) {
   const summaries = Array.isArray(data.chapters) ? data.chapters : []
@@ -68,14 +68,20 @@ export async function loadWritingProps() {
 
   const session = getWritingSession(projectId)
   const queryChapter = Number(query.get("chapter_index") || 0)
+  const querySceneId = query.get("scene_id") || null
   result.requestedLocation = queryChapter > 0
-    ? { chapter: queryChapter, draftId: query.get("draft_id") || null }
+    ? { chapter: queryChapter, draftId: query.get("draft_id") || null, sceneId: querySceneId }
     : session?.currentChapter
-      ? { chapter: session.currentChapter, draftId: session.currentDraftId }
+      ? {
+          chapter: session.currentChapter,
+          draftId: session.currentDraftId,
+          sceneId: session.currentSceneId,
+        }
       : state?.viewStates?.writing?.projectId === projectId
         ? {
             chapter: state.viewStates.writing.currentChapter,
             draftId: state.viewStates.writing.currentDraftId,
+            sceneId: state.viewStates.writing.currentSceneId,
             versionNumber: state.viewStates.writing.currentVersionNumber,
             isReadonly: state.viewStates.writing.isReadonly,
           }
@@ -145,7 +151,6 @@ export function useWritingWorkspace(props) {
   const autoExtraction = reactive({ open: false, stage: "scenes", start: 1, end: 1, highQuality: false, busy: false })
   const outlineFloat = reactive({ open: false, loading: false, threads: [], error: null })
   const versionDialog = reactive({ open: false, diffOpen: false, leftId: null, rightId: null, diff: null, loading: false, error: null })
-  const splitDialog = reactive({ open: false, position: 1, max: 1, sceneTitle: "", busy: false })
   const focusMode = ref(Boolean(props.authorPreferences?.defaultFocusMode))
   const forceDesktop = ref(false)
   const isNarrow = ref(typeof window !== "undefined" && window.innerWidth < 600)
@@ -157,11 +162,15 @@ export function useWritingWorkspace(props) {
   let publishTimer = null
   let lastPublishPayload = null
 
-  const currentScene = computed(() => findCurrentScene({
+  const inferredScene = computed(() => findCurrentScene({
     scenes: scenes.value,
     chapterIndex: selectedChapter.value,
     cursorOffset: editorState.cursorOffset,
   }))
+  const currentScene = computed(() => (
+    scenes.value.find((scene) => scene.id === selectedSceneId.value)
+    || inferredScene.value
+  ))
   const mobileMode = computed(() => isNarrow.value && !forceDesktop.value && selectedChapter.value && !editorState.readonly)
   const canEdit = computed(() => selectedChapter.value != null && !editorState.readonly)
   const activeVersions = computed(() => versions.value.filter((version) => (
@@ -259,11 +268,12 @@ export function useWritingWorkspace(props) {
 
   function syncLegacyState() {
     if (!appState) return
+    const currentSceneId = currentScene.value?.id || null
     appState._chapterList = chapterList.value
     appState._chapters = chapters
     appState._scenes = scenes.value
     appState._currentChapter = selectedChapter.value
-    appState._currentSceneId = currentScene.value?.id || null
+    appState._currentSceneId = currentSceneId
     appState._currentContent = editorState.content
     appState._currentTitle = editorState.title
     appState._currentDraftId = editorState.status === "candidate" ? null : editorState.draftId
@@ -274,6 +284,21 @@ export function useWritingWorkspace(props) {
     appState._cursorOffset = editorState.cursorOffset
     appState._focusMode = focusMode.value
     appState._forceDesktopMode = forceDesktop.value
+    appState.viewStates = appState.viewStates || {}
+    appState.viewStates.writing = {
+      ...(appState.viewStates.writing || {}),
+      projectId,
+      currentChapter: selectedChapter.value,
+      currentDraftId: editorState.draftId,
+      currentVersionNumber: editorState.versionNumber,
+      isReadonly: editorState.readonly,
+      currentSceneId,
+    }
+    rememberWritingLocation(projectId, {
+      currentChapter: selectedChapter.value,
+      currentDraftId: editorState.draftId,
+      currentSceneId,
+    })
   }
 
   function dailyWordcount() {
@@ -303,7 +328,11 @@ export function useWritingWorkspace(props) {
       versions.value = result?.versions || []
       return true
     } catch (err) {
-      if (generation !== selectionGeneration) return false
+      if (
+        generation !== selectionGeneration
+        || disposed.value
+        || getAppState()?.currentProjectId !== projectId
+      ) return false
       versions.value = []
       versionLoadError.value = err?.message || "版本历史加载失败"
       return false
@@ -328,7 +357,16 @@ export function useWritingWorkspace(props) {
       loadVersions(next, generation),
     ])
     if (!loaded || generation !== selectionGeneration || disposed.value) return false
-    selectedSceneId.value = currentScene.value?.id || null
+    const requestedScene = scenes.value.find((scene) => (
+      scene.id === options.sceneId
+      && (
+        (scene.chapter_ids || []).includes(String(next))
+        || (scene.scene_chunks || []).some((chunk) => (
+          Number(chunk.chapter_index) === next
+        ))
+      )
+    ))
+    selectedSceneId.value = requestedScene?.id || inferredScene.value?.id || null
     syncLegacyState()
     await loadSceneContext()
     return true
@@ -378,26 +416,42 @@ export function useWritingWorkspace(props) {
 
   async function submitAutoExtraction(force = false) {
     if (autoExtraction.busy) return
+    const activeStatus = deepImportState.progress?.status || deepImportState.progress?.phase
+    if (deepImportState.progress && !["done", "failed", "cancelled"].includes(activeStatus)) {
+      toast("已有自动提取任务正在运行，请等待完成或先取消当前任务", "warning")
+      return
+    }
     if (Number(autoExtraction.end) < Number(autoExtraction.start)) {
       toast("结束章节必须 ≥ 起始章节", "warning")
       return
     }
     autoExtraction.busy = true
     const stageConfig = {
+      deep: ["deep_import", "深度导入"],
       scenes: ["scene_auto_extraction", "从正文提取 Scene"],
       world_objects: ["world_object_auto_extraction", "世界对象与别名/关系自动提取"],
       plot_structure: ["plot_structure_auto_extraction", "剧情线自动提取"],
     }[autoExtraction.stage] || ["scene_auto_extraction", "从正文提取 Scene"]
     try {
-      const result = await api.imports.startStage(
-        autoExtraction.stage,
-        projectId,
-        Number(autoExtraction.start),
-        Number(autoExtraction.end),
-        force,
-        autoExtraction.highQuality,
-        importAuthorizationPayload(),
-      )
+      const authorization = importAuthorizationPayload()
+      const result = autoExtraction.stage === "deep"
+        ? await api.imports.deepImport(
+          projectId,
+          Number(autoExtraction.start),
+          Number(autoExtraction.end),
+          force,
+          autoExtraction.highQuality,
+          authorization,
+        )
+        : await api.imports.startStage(
+          autoExtraction.stage,
+          projectId,
+          Number(autoExtraction.start),
+          Number(autoExtraction.end),
+          force,
+          autoExtraction.highQuality,
+          authorization,
+        )
       if (getAppState()?.currentProjectId !== projectId) return
       if (result?.requires_confirmation) {
         if (confirm(result.warning || "该操作会覆盖现有结果，确定继续？")) {
@@ -410,16 +464,26 @@ export function useWritingWorkspace(props) {
         toast(result?.message || "未启动自动提取", "warning")
         return
       }
+      const returnedWorkflowType = result.workflow_type || stageConfig[0]
+      const returnedLabel = {
+        deep_import: "深度导入",
+        scene_auto_extraction: "从正文提取 Scene",
+        world_object_auto_extraction: "世界对象与别名/关系自动提取",
+        plot_structure_auto_extraction: "剧情线自动提取",
+      }[returnedWorkflowType] || stageConfig[1]
       deepImport.startTask({
         taskId: result.task_id,
-        workflowType: stageConfig[0],
-        stage: autoExtraction.stage,
-        label: stageConfig[1],
+        workflowType: returnedWorkflowType,
+        stage: result.stage || autoExtraction.stage,
+        label: returnedLabel,
         startChapter: Number(autoExtraction.start),
         endChapter: Number(autoExtraction.end),
       })
       autoExtraction.open = false
-      toast(`${stageConfig[1]}已启动`, "success")
+      toast(
+        result.reused_task ? `已连接到现有“${returnedLabel}”任务` : `${returnedLabel}已启动`,
+        "success",
+      )
     } catch (err) {
       toast(err?.message || "提交自动提取失败", "error")
     } finally {
@@ -505,9 +569,18 @@ export function useWritingWorkspace(props) {
       versionDialog.diff = buildVersionDiff(left?.content || "", right?.content || "")
       versionDialog.diffOpen = true
     } catch (err) {
+      if (
+        token !== versionDiffGeneration
+        || disposed.value
+        || getAppState()?.currentProjectId !== projectId
+      ) return
       versionDialog.error = err?.message || "版本比较失败"
     } finally {
-      versionDialog.loading = false
+      if (
+        token === versionDiffGeneration
+        && !disposed.value
+        && getAppState()?.currentProjectId === projectId
+      ) versionDialog.loading = false
     }
   }
 
@@ -522,8 +595,10 @@ export function useWritingWorkspace(props) {
       })
       if (disposed.value || getAppState()?.currentProjectId !== projectId) return false
       latest = result?.items?.[0] || null
-    } catch {
-      return true
+    } catch (err) {
+      if (disposed.value || getAppState()?.currentProjectId !== projectId) return false
+      toast(`无法读取发布前冲突检查：${err?.message || "服务暂不可用"}。本次发布已停止，请稍后重试。`, "error")
+      return false
     }
     if (!latest) {
       return confirmAsync(
@@ -635,7 +710,11 @@ export function useWritingWorkspace(props) {
       if (generation !== publishGeneration || disposed.value || getAppState()?.currentProjectId !== projectId) return
       try {
         const task = await api.tasks.get(taskId, projectId)
-        if (generation !== publishGeneration || disposed.value) return
+        if (
+          generation !== publishGeneration
+          || disposed.value
+          || getAppState()?.currentProjectId !== projectId
+        ) return
         publishProgress.progress = task.progress == null ? null : Math.round(Number(task.progress) * (Number(task.progress) <= 1 ? 100 : 1))
         publishProgress.phase = task.status
         if (["done", "failed", "cancelled"].includes(task.status)) {
@@ -657,40 +736,6 @@ export function useWritingWorkspace(props) {
       }
       schedulePublishPoll(generation, taskId)
     }, 2000)
-  }
-
-  function openSplitDialog() {
-    if (editorState.readonly) {
-      toast("当前内容只读；待处理建议需先采用到工作稿", "warning")
-      return
-    }
-    if (!selectedChapter.value || !currentScene.value) {
-      toast("当前章节未关联 Scene", "warning")
-      return
-    }
-    if (editorState.content.length < 2) {
-      toast("当前章节内容太短，无法断章", "warning")
-      return
-    }
-    splitDialog.position = Math.min(Math.max(1, Number(editorState.cursorOffset || 1)), editorState.content.length - 1)
-    splitDialog.max = editorState.content.length - 1
-    splitDialog.sceneTitle = currentScene.value.title || "未命名"
-    splitDialog.open = true
-  }
-
-  async function submitSplit() {
-    const position = Number(splitDialog.position)
-    if (!Number.isInteger(position) || position < 1 || position > splitDialog.max) {
-      toast("请输入有效的断章位置", "warning")
-      return
-    }
-    splitDialog.busy = true
-    try {
-      const result = await commands.splitAtOffset(position)
-      if (result) splitDialog.open = false
-    } finally {
-      splitDialog.busy = false
-    }
   }
 
   function requestConflictCheck() {
@@ -1077,6 +1122,7 @@ export function useWritingWorkspace(props) {
         draftId: requested.draftId || null,
         versionNumber: requested.versionNumber,
         isReadonly: requested.isReadonly,
+        sceneId: requested.sceneId,
       })
     }
   })
@@ -1105,6 +1151,7 @@ export function useWritingWorkspace(props) {
         currentDraftId: editorState.draftId,
         currentVersionNumber: editorState.versionNumber,
         isReadonly: editorState.readonly,
+        currentSceneId: currentScene.value?.id || null,
       }
     }
   })
@@ -1131,7 +1178,6 @@ export function useWritingWorkspace(props) {
     autoExtraction,
     outlineFloat,
     versionDialog,
-    splitDialog,
     focusMode,
     forceDesktop,
     mobileMode,
@@ -1157,8 +1203,6 @@ export function useWritingWorkspace(props) {
     generateDraft: commands.generateDraft,
     generateContinuation: commands.generateContinuation,
     generatePovDraft: commands.generatePovDraft,
-    openSplitDialog,
-    submitSplit,
     openAutoExtraction,
     submitAutoExtraction,
     cancelDeepImport,

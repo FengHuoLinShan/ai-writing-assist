@@ -30,6 +30,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -355,6 +356,12 @@ class MapTerrainLayer(Base, UUIDMixin, TimestampMixin, NovelMixin):
     z_index: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
 
 
@@ -728,6 +735,12 @@ class MapMarker(Base, UUIDMixin, TimestampMixin, NovelMixin):
     visible: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, comment="是否可见"
     )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     def __repr__(self) -> str:
         return (
@@ -788,6 +801,44 @@ class MapTerritoryTile(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
 
 # ============================================================
+# MapVisualRevision — 不可变地图视觉历史
+# ============================================================
+
+
+class MapVisualRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """One immutable committed state and its reversible resource-level delta."""
+
+    __tablename__ = "map_visual_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "map_id",
+            "revision_number",
+            name="uq_map_visual_revision_map_number",
+        ),
+        Index(
+            "ix_map_visual_revision_novel_map_number",
+            "novel_id",
+            "map_id",
+            "revision_number",
+        ),
+        {"comment": "不可变地图视觉 revision 与正反变更"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    restored_from_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    forward_changes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    reverse_changes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    state_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+# ============================================================
 # MapObservation — 地图观察事实候选（世界动态 P0）
 # ============================================================
 
@@ -802,6 +853,11 @@ class MapObservation(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
     __tablename__ = "map_observations"
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "novel_id",
+            name="uq_map_observations_id_novel",
+        ),
         Index("ix_map_observation_map_review", "map_id", "review_state"),
         Index(
             "ix_map_observation_novel_map_review_scene_id",
@@ -897,6 +953,16 @@ class MapFact(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
     __tablename__ = "map_facts"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["observation_id", "novel_id"],
+            ["map_observations.id", "map_observations.novel_id"],
+            name="fk_map_facts_observation_novel",
+        ),
+        UniqueConstraint(
+            "novel_id",
+            "observation_id",
+            name="uq_map_facts_novel_observation",
+        ),
         Index("ix_map_fact_map_status", "map_id", "fact_status"),
         Index(
             "ix_map_fact_novel_map_status_scene_id",

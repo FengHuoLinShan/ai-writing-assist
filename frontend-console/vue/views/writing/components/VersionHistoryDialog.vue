@@ -11,7 +11,7 @@
             <div>
               <strong>v{{ version.version_number }}</strong>
               <span class="pill">{{ statusLabel(version) }}</span>
-              <span v-if="version.updated_at" class="muted">{{ version.updated_at }}</span>
+              <span v-if="version.updated_at" class="muted writing-version-history-date">{{ formatTimestamp(version.updated_at) }}</span>
             </div>
             <div class="row-actions">
               <button class="btn btn-sm" @click="$emit('preview', version.id)">预览</button>
@@ -72,4 +72,10 @@ defineEmits(["preview", "restore", "delete", "compare"])
 const close = () => { props.model.open = false; props.model.diffOpen = false }
 const isActive = (version) => version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
 const statusLabel = (version) => version.status === "published" ? "已发布" : version.status === "candidate" ? "待处理" : version.status === "deprecated" ? "历史" : "工作稿"
+function formatTimestamp(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  const pad = (number) => String(number).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 </script>

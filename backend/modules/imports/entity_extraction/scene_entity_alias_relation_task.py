@@ -737,6 +737,7 @@ class AliasRelationTaskMixin:
                     if snapshot_id:
                         await succeed_context_snapshot(
                             db,
+                            novel_id=novel_id,
                             snapshot_id=str(snapshot_id),
                             result_refs=scene_result_refs,
                         )
@@ -753,6 +754,7 @@ class AliasRelationTaskMixin:
                     if snapshot_id:
                         await fail_context_snapshot(
                             db,
+                            novel_id=novel_id,
                             snapshot_id=str(snapshot_id),
                             error_kind="invalid_response",
                             error_message=str(receipt_item.get("error") or "")[:300],
@@ -767,6 +769,7 @@ class AliasRelationTaskMixin:
                 if snapshot_id:
                     await fail_context_snapshot(
                         db,
+                        novel_id=novel_id,
                         snapshot_id=str(snapshot_id),
                         error_kind=error_kind,
                         error_message=error,

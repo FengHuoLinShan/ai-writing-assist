@@ -7,6 +7,7 @@ from typing import Any
 
 from evals.codex_executor import CodexStructuredExecutor
 from evals.schemas import MetricValue
+from infrastructure.llm.redaction import redact_diagnostic
 
 
 class RagasUnavailableError(RuntimeError):
@@ -149,7 +150,10 @@ async def _score(name: str, score_awaitable: Any) -> MetricValue:
         return MetricValue(
             name=name,
             available=False,
-            details={"error": str(exc), "adapter": "ragas-collections"},
+            details={
+                "error": redact_diagnostic(exc, limit=500),
+                "adapter": "ragas-collections",
+            },
         )
     return MetricValue(
         name=name,

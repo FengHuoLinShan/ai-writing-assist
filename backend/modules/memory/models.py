@@ -13,13 +13,16 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -38,6 +41,12 @@ class MemoryEvent(Base):
             "sequence",
             name="uq_memory_events_novel_chapter_sequence",
         ),
+        UniqueConstraint(
+            "novel_id",
+            "scene_id",
+            "scene_sequence",
+            name="uq_memory_events_novel_scene_sequence",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -55,6 +64,29 @@ class MemoryEvent(Base):
         Integer,
         nullable=False,
         comment="所属章节",
+    )
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        index=True,
+        comment="Scene 时间锚点；新事件必须提供",
+    )
+    scene_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="Scene 逻辑顺序冗余，用于确定性重放",
+    )
+    scene_sequence: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Scene 内事件顺序",
+    )
+    dimension: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        index=True,
+        comment="entities / relations / locations / knowledge",
     )
     sequence: Mapped[int] = mapped_column(
         Integer,
@@ -217,3 +249,99 @@ class DeltaLog(Base, UUIDMixin, NovelMixin):
             f"<DeltaLog id={self.id} entity={self.entity_id} "
             f"category={self.category} field={self.field_path}>"
         )
+
+
+class MemorySceneCheckpoint(Base, UUIDMixin):
+    """Scene 结束后的单维度轻量状态；历史版本只软 supersede。"""
+
+    __tablename__ = "memory_scene_checkpoints"
+    __table_args__ = (
+        Index(
+            "uq_memory_scene_checkpoint_current",
+            "novel_id",
+            "scene_id",
+            "dimension",
+            unique=True,
+            postgresql_where=text("is_current"),
+            sqlite_where=text("is_current = 1"),
+        ),
+        Index(
+            "ix_memory_scene_checkpoint_order",
+            "novel_id",
+            "scene_index",
+            "dimension",
+        ),
+        {"comment": "Scene 分维度轻量状态与覆盖缺口"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scene_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    scene_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    dimension: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="system_generated"
+    )
+    confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    state_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    display_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    gap_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    decision_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=lambda: datetime.now(UTC),
+    )
+
+
+class MemorySceneSnapshot(Base, UUIDMixin):
+    """stage0、周期、章末和 latest 的稀疏全量 Scene 快照。"""
+
+    __tablename__ = "memory_scene_snapshots"
+    __table_args__ = (
+        Index(
+            "uq_memory_scene_snapshot_current_stage",
+            "novel_id",
+            "stage_index",
+            unique=True,
+            postgresql_where=text("is_current"),
+            sqlite_where=text("is_current = 1"),
+        ),
+        Index("ix_memory_scene_snapshot_latest", "novel_id", "is_latest"),
+        {"comment": "Scene 时间轴稀疏全量快照"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    scene_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stage_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_reasons: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    full_state: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_latest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=lambda: datetime.now(UTC),
+    )

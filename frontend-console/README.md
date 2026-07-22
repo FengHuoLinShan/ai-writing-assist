@@ -21,6 +21,8 @@ npm run test:watch
 npm run test:e2e
 npm run test:e2e:functional
 npm run test:e2e:smoke
+npm run test:e2e:visual
+npm run test:e2e:visual:update
 npm run test:e2e:map
 npm run test:e2e:map-perf
 npm run test:e2e:real-llm
@@ -58,16 +60,44 @@ worker 套件。各专用入口分别为：
 
 ```bash
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:visual
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:real-llm
-DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:worker
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
+  LLM_SETTINGS_ENCRYPTION_KEY='<shared-fernet-key>' \
+  WORKER_E2E_LLM_API_KEY='<provider-key>' npm run test:e2e:worker
 ```
 
 如果默认端口已有旧服务，先停止旧服务，或像上面一样指定备用端口；测试配置不会复用它。
 `APP_ENV=test` 只切换应用模式与测试路由，不会自动改写 `DATABASE_URL`。
-若本机同时运行开发 worker，应确保它不连接同一个 E2E 数据库，避免抢占 E2E 创建的任务。
+worker profile 会随 Playwright 启动连接同一独立 E2E 数据库的真实 worker，并等待
+`TaskWorker started` readiness 日志后才运行用例。它用 `WORKER_E2E_LLM_API_KEY` 写入当次
+临时项目的项目级配置；响应、trace 和日志不回显 key，teardown 会先清除全部项目级 key，
+再严格永久删除测试项目。用例使用持久 Chromium profile，真实关闭并重启浏览器进程，且在
+无页面期间从 task API 观察到 worker 状态或心跳推进后才允许继续。
+可用 `WORKER_E2E_LLM_PROVIDER_ID / WORKER_E2E_LLM_BASE_URL / WORKER_E2E_LLM_MODEL`
+覆盖默认 DeepSeek 配置；`WORKER_E2E_TEST_TIMEOUT_MS` 与
+`WORKER_E2E_TASK_TIMEOUT_MS` 可覆盖专用长任务预算。若本机同时运行开发 worker，应确保它不
+连接同一个 E2E 数据库，避免抢占 E2E 创建的任务。
 `scripts/e2e-servers.sh` 使用同一 fail-closed guard，会先校验并迁移当前 `DATABASE_URL` 再启动
 backend；通用 `backend/scripts/dev_server.py` 不自动迁移。
+
+视觉回归使用独立的 `playwright.visual.config.js`，只串行收集
+`e2e/visual-*.spec.js`。配置固定 Chromium、`zh-CN`、`Asia/Shanghai`、DPR=1、
+reduced-motion 与默认 1440×900 视口，并把失败产物与 HTML 报告分别写入
+`test-results/visual/` 和 `playwright-report/visual/`。默认像素差异比例上限为 0.5%；
+spec 可为特定页面追加 mask，但不得放宽全局阈值来接受未解释差异。
+
+仓库只提交 darwin 基线；更新基线时需显式运行
+`npm run test:e2e:visual:update`，随后逐张检查 actual / expected / diff PNG，不能只凭
+测试通过接受差异。非 darwin 平台仅在显式设置 `VISUAL_BASELINE=1`
+后生成本平台基线。写作页基线覆盖桌面三主题、专注模式与
+390×844 移动速记。
+
+Scene 阶段状态修复台复用地图动态侧栏、卡片、警示与主按钮视觉语言，信息顺序固定为
+“来源证据 → 当前事实 → 作者决定”，不向作者暴露 checkpoint JSON、内部 ID 或重建参数。
+组件 DOM 基线由 `tests/vue/map/SceneMemoryRepairPanel.test.js` snapshot 固定，确保三段层级、
+单一主操作和技术字段隐藏不被回归。
 
 地图功能回归使用 `npm run test:e2e:map`；专用性能采样使用
 `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf`。
@@ -202,11 +232,12 @@ frontend-console/
   任务轮询不设置整体截止时间。
 - `outline/story-outline` 展示当前小说总纲的全部 creative core、Markdown 正文、主要剧情线、宏观推进和开放决策。手工保存、采用 AI preview 和采用历史内容都会使用 current revision 作为 CAS base 创建新 revision；历史不会被原地改写或回退版本号。AI 表单只包含作者意图、计划尺度、覆盖描述、显式可选人物/世界对象和是否参考当前总纲，不包含起止章；人物/对象不显式选择时由后端自动取 Top-K，结果完整可编辑且不自动采用。生成任务只恢复匹配 project / `story_outline_generate` / `outline.story_outline.generate` 的记录，接受受管 LLM provenance 但拒绝其他结果字段；轮询与取消显式携带 `novel_id`。409 保留当前 DOM 编辑内容，重新加载后更新 CAS base；同一 apply payload 重试复用幂等键，内容或 base 改变时轮换。
 - Scene 融合与拆分使用大尺寸字段对比表，完整展示 AI 建议、原 Scene 引用、叙事标签、POV 和章节映射；默认显示全部字段，可只看服务端初始预览中的差异。融合预览属于同步 LLM 请求，后端生成窗口为 30 分钟，浏览器等待 35 分钟以给持久化和响应传输留出余量，不受普通 API 的 15 秒超时限制。长来源证据按需展开，AI 建议始终可见。叙事标签统一用 `draft` 表示“未标注”，拆分时显式清空的字段会按空值保存。废弃融合来源需要在预览内再次确认；保存请求期间所有融合操作保持锁定，失败后恢复控件并保留当前编辑内容。
-- 深度导入和 Scene 自动提取任务以 `taskId + projectId` 持久化；查询与取消都显式携带 `novel_id`。Scene stage 百分比是基于历史实测的耗时估算，Phase 0 只显示准备状态。Scene 工作台轮询只局部更新进度卡，不重绘正在浏览的列表。运行中的进度卡可在二次确认后取消当前任务；瞬时查询失败保留恢复记录，只有明确 404 或用户关闭时清理失败/已取消任务。
+- 写作台“AI 工具”提供一次授权的完整“启动深度导入”入口，也保留三个分阶段提取入口。深度导入和 Scene 自动提取任务以 `taskId + projectId` 持久化；查询与取消都显式携带 `novel_id`。Scene stage 百分比是基于历史实测的耗时估算，Phase 0 只显示准备状态。Scene 工作台轮询只局部更新进度卡，不重绘正在浏览的列表。运行中的进度卡可在二次确认后取消当前任务；瞬时查询失败保留恢复记录，完成/降级/失败/已取消终态均保留到作者明确关闭，只有明确 404、放弃恢复或用户关闭时清理对应记录。
+- 同项目多个标签页或浏览器同时提交完整/分阶段自动提取时，服务端在项目级短事务锁内复用已有活动/待恢复 task；前端按返回的真实 `workflow_type` 连接原任务。恢复、放弃与取消按钮只按 task status API 的 `available_actions` 渲染。作者界面的失败、降级、质量与审计摘要会递归转换 `error_kind`，不直接展示内部错误码。
 - 共享任务卡只在后端 `available_actions` 包含 `retry` 时显示重试；`restart_origin` 与深度导入 `resume/abandon` 继续走各自领域流程。
 - 生成中心自定义模板可查看修订历史并把旧版本载入编辑器；载入不写库，仍需用户明确保存。
 - 前端依后端契约分页或拦截超限请求：Scene 建议每次最多忽略 100 条，地图分组每次最多处理 100 条，地形修改每次最多 10000 格，单地点每次最多绑定 5000 格；不会通过多请求静默产生部分成功。
-- 生成中心 world 工作区每次最多附带 20 章索引，章节选择器会分批为全部章节加载摘录，选择上限不作为预览上限；人物和世界对象选择范围同样分页加载全项目资产，Scene 选择器读取全部活跃有序 Scene 并排除历史态。长对话只发送最近 40 条消息。同步聊天、世界建议、Scene 融合和冲突建议统一等待 35 分钟，后端模型步骤使用 30 分钟上限；多轮世界建议的作者决策编译、最终生成和守卫重试共享该 30 分钟预算，异步生成只限制提交请求，任务轮询没有整体截止时间。当前页面历史不因请求上限被删除。本地 v2 会话按“项目 + world workspace + 来源页 + target”隔离，只缓存对话、选择项和 suggestion ID，不缓存服务器页面正文，也不迁移旧 v1 状态。
+- 生成中心 world 工作区每次最多附带 20 章索引，章节选择器会分批为全部章节加载摘录，选择上限不作为预览上限；人物和世界对象选择范围同样分页加载全项目资产，Scene 选择器读取全部活跃有序 Scene 并排除历史态。长对话只发送最近 40 条消息。同步聊天、世界建议、Scene 融合和冲突建议统一等待 35 分钟，后端模型步骤使用 30 分钟上限；多轮世界建议的作者决策编译、最终生成和守卫重试共享该 30 分钟预算，异步生成只限制提交请求，任务轮询没有整体截止时间。当前页面历史不因请求上限被删除。本地 v2 会话按“项目 + world workspace + 来源页 + target”隔离，只缓存对话、选择项和 suggestion ID，不缓存服务器页面正文，也不迁移旧 v1 状态。上下文编译预览只在页面内存中按项目隔离，切换 world target 时保留，刷新页面后清空。
 - 生成中心“角色视角正文”选择章节、Scene 和角色后只创建待审核候选。已有目标章时后端冻结并向模型提供该章完整 active 正文；候选必须是目标章完整替换稿，跨章 Scene 只作结构上下文。完成后“打开并审阅建议”进入写作台的通用采用/拒绝面板；角色知识检查通过只显示“未发现明显越权”，不冒充整体内容验收。
 - 世界书资料编辑支持稳定 section 排序和页面模板，AI 参考规则继续使用受限表单、发布与 dry-run trace；AI 对话、目标和模板选择已从世界书侧栏移除。“用 AI 完善此页”会在未保存时要求先保存，随后进入生成中心。世界书、生成中心和通用 AI 参考弹窗只在作者显式选择已发布 Activation Profile 后发送 profile ID，不默认激活长期规则。
 - 生成中心 world 工作区提供项目/来源页状态、对象/完善当前页/新建页面目标、大尺寸共创对话、章节/Scene/剧情线/人物/世界对象/简介/Profile 上下文面板，以及可编辑的完整页面预览。页面应用只写服务器工作稿，成功后返回世界书；正式页仍需作者显式发布。
@@ -214,16 +245,16 @@ frontend-console/
   收入折叠的“诊断信息”，不占用作者阅读和编辑设定的主界面。
 - 写作台自动保存以编辑序号保护请求期间的新输入；版本切换触发局部重绘时不会用旧响应覆盖正文。发布成功提示只在章节状态刷新完成后出现；后台 RAG / 记忆后处理完成只收起进度，不再次重载当前编辑器，且已 dispose 或已被新任务取代的轮询响应不会回写。恢复历史正文时保留选择当时的最新版本快照，发布前若其他会话已更新则提示 409 冲突。写作台从设置服务读取项目生效作者偏好，日目标、编辑器字体和默认专注模式遵循“项目覆盖 → 全局默认 → 系统默认”，只在接口不可用时兼容读取旧本地偏好。“AI 工具”菜单与“专注模式”位于编辑器顶部同一操作行，正文 Scene 提取统一使用 imports 的“从正文提取 Scene”入口。顶部“AI 续写”锁定当前服务端 base draft，任务轮询不设前端总截止时间，完成后自动打开只读候选；候选统一提供“采用到工作稿”和“拒绝建议”，拒绝仅软废弃并保留审计。普通正文候选不会因 POV 检查明确不适用而显示角色视角解析失败。
 - 写作页右侧“写作副驾驶”常驻显示当前 Scene 的确定性警报摘要，并在“警报”标签中组合 Scene 结构、must/must_not 字面覆盖、地图风险和最近冲突检查；编辑后旧检查立即标记过期，切换项目、章节、Scene 或草稿时晚到响应不会覆盖当前驾驶舱。警报不自动运行 LLM，也不创建 finding。
-- 版本条与版本历史提供只读“比较版本”，可临时比较工作稿、待审核、已发布和归档版本。Diff 先按段落对齐，再在变化段落内标记中文字符、标点和英文词，识别稳定段落移动并对超长输入安全降级；动态正文统一转义，比较本身不创建、恢复或采用版本。
+- 版本选择、历史入口和最近冲突检查以紧凑控件常驻在编辑器顶部操作行，无需滚动到正文底部；版本历史提供只读“比较版本”，可临时比较工作稿、待审核、已发布和归档版本。Diff 先按段落对齐，再在变化段落内标记中文字符、标点和英文词，识别稳定段落移动并对超长输入安全降级；动态正文统一转义，比较本身不创建、恢复或采用版本。
 - 390px 速记输入会实时同步同一编辑器状态；首次保存返回的 draft id/version 会立即回写，连续保存复用同一工作稿，切换“完整编辑器”时保留尚未保存的正文。
 - RAG 索引维护的技术诊断区可按需加载隐私安全的检索追踪摘要，不展示 raw query 或正文。
-- 小说检索的智能/字面模式都按章节聚合同章结果：智能模式解释为语义相关性检索，字面模式解释为完全一致文字匹配；结果卡显示该章聚合的相关片段数或出现次数。
+- 小说检索的智能/字面模式都按章节聚合同章结果：智能模式解释为语义相关性检索，字面模式解释为完全一致文字匹配；结果卡显示该章聚合的相关片段数或出现次数。作者视角的正文卡消费 `parent_scene_contexts` 和 `writing_relevance`：每个被聚合的父 Scene 都单独展示序号、标题、目标/冲突/情绪摘要及写作关系，点击可直接打开对应 Scene。当前 Scene 只从同项目的写作台快照读取，不使用跨项目全局残留值；读者/角色视角隐藏作者专用 Scene 上下文，不显示“未关联 Scene”的误导文案。
 - 小说检索一次最多取回 100 条现有 evidence 命中，但首屏只挂载 20 张结果卡；“加载更多”
   每次再显示 20 条。检索词、方式、正文版本、可见视角、章节和 scope 写入 hash URL，刷新与
   前进/后退会恢复并重新检索；显示游标和证据抽屉不写 URL。新查询会 abort 旧请求，并以
   project/lifecycle generation 拒绝晚到响应。证据抽屉另有独立 abort/generation/project/drawer
   门禁，关闭抽屉或切换项目后的旧正文、引用和导航结果不能覆盖当前抽屉。
-- `settings` 是无项目也可访问的全局设置页；`project-settings` 管理当前项目的 LLM 主配置、深度导入参数和作者偏好。主配置中的“默认输出上限”由非深度导入业务调用继承，系统默认 `12000`；深度导入继续显示并使用自己的阶段预算。
+- `settings` 是无项目也可访问的全局设置页；`project-settings` 管理当前项目的 LLM 主配置、深度导入参数和作者偏好。主配置中的“默认输出上限”由非深度导入业务调用继承，系统默认 `12000`；深度导入继续显示并使用自己的阶段预算。两个设置页在存在未保存输入时都会拦截路由离开和浏览器关闭。
 - 旧 `llm` 入口会按当前项目状态跳转到 `project-settings` 或 `settings`。
 - 旧 `context` hash 不再是一级页面，路由层会重定向到 `generate?tab=task`。
 

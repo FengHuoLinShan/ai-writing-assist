@@ -9,10 +9,12 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CoreEntityUpdate,
@@ -233,14 +235,14 @@ class EntityAliasService:
                 asset_id=entity_id,
                 reason=reason,
             )
-        except Exception:
+        except Exception as exc:
             logger.warning(
                 "world_alias_context_invalidation_failed novel_id=%s "
-                "entity_id=%s reason=%s; alias_write_remains_valid",
+                "entity_id=%s reason=%s; alias_write_remains_valid; error=%s",
                 novel_id,
                 entity_id,
                 reason,
-                exc_info=True,
+                redact_diagnostic(exc, limit=300),
             )
 
     async def list_aliases(
@@ -589,6 +591,10 @@ class EntityAliasService:
                         "message": "待处理别名已发生变化，请刷新后重试",
                     }
                 )
+            except SQLAlchemyError:
+                # Savepoints isolate expected domain failures only.  A database
+                # failure invalidates the persistence boundary for the batch.
+                raise
             except Exception as exc:
                 results.append(
                     {

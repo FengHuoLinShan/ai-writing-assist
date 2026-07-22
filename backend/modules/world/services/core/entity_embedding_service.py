@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.embedding.client import BgeEmbeddingClient
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.models import CoreEntity
 from modules.world.services.common import parse_uuid
 
@@ -54,8 +55,12 @@ class EntityEmbeddingService:
             batch_texts = [n for _, n in batch]
             try:
                 embeddings = await bge.generate_embedding(batch_texts, is_query=False)
-            except Exception:
-                _logger.exception("Backfill embedding batch failed at offset %d", i)
+            except Exception as exc:
+                _logger.error(
+                    "Backfill embedding batch failed at offset %d: %s",
+                    i,
+                    redact_diagnostic(exc, limit=300),
+                )
                 continue
 
             for entity, emb in zip(batch_entities, embeddings):

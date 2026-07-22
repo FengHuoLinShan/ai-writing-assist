@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
+from infrastructure.llm.redaction import redact_diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +68,15 @@ async def _load_project_terms(
                     target_id=str(item["id"]),
                     target_type=target_type,
                 )
-    except Exception:
+    except Exception as exc:
         if strict:
             _PROJECT_TERMS_CACHE.pop(novel_id, None)
             raise
         logger.warning(
             "rag_project_terms_load_failed novel_id=%s; "
-            "continuing_without_world_terms",
+            "continuing_without_world_terms reason=%s",
             novel_id,
-            exc_info=True,
+            redact_diagnostic(exc, limit=300),
         )
 
     terms.sort(key=lambda x: len(x["term"]), reverse=True)

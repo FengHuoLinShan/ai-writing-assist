@@ -301,7 +301,7 @@ function aliasEvidenceHtml(item = {}) {
 // ============================================================
 
 /** 对应 vanilla _showCreateForm。 */
-export function showEntityCreateForm() {
+export function showEntityCreateForm(initial = {}) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -310,15 +310,15 @@ export function showEntityCreateForm() {
   const formHtml = `
     <div class="form-group">
       <label>名称 *</label>
-      <input class="form-input" id="create-entity-name" placeholder="对象名称" />
+      <input class="form-input" id="create-entity-name" placeholder="对象名称" value="${esc(initial.name || "")}" />
     </div>
     <div class="form-group">
       <label>类型</label>
-      ${entityTypeControlHtml("create", "character")}
+      ${entityTypeControlHtml("create", initial.entity_type || "character")}
     </div>
     <div class="form-group">
       <label>概要</label>
-      <textarea class="form-textarea" id="create-entity-summary" rows="3" placeholder="简要描述"></textarea>
+      <textarea class="form-textarea" id="create-entity-summary" rows="3" placeholder="简要描述">${esc(initial.summary || "")}</textarea>
     </div>
   `
 
@@ -351,6 +351,9 @@ export function showEntityCreateForm() {
           if (detail?.requires_confirmation) {
             const similar = formatSimilarEntities(detail.similar_entities)
             let forceSubmissionPending = false
+            // 交给二次确认弹窗后，原表单不再占有提交锁。用户取消确认时
+            // 仍可修改名称并重试；强制创建自身仍有独立的防重锁。
+            submissionPending = false
             confirmAction(
               `发现相似对象：${similar || "已有对象"}。是否仍要创建？`,
               async () => {
@@ -366,6 +369,7 @@ export function showEntityCreateForm() {
                 return finishEntityMutation(`对象 "${name}" 已创建`)
               },
               "强制创建",
+              () => showEntityCreateForm(payload),
             )
             return false
           }
@@ -897,7 +901,7 @@ export async function openEntityMap(entityIdParam) {
     return
   }
   try {
-    const entity = worldListRegistry.entities.find((item) => entityId(item) === entityIdParam)
+    const entity = findEntity(entityIdParam)
     const includeCandidates = entity?.status === "candidate" || entity?.status === "draft"
     const presence = await getApi().world.getEntityMapPresence(entityIdParam, projectId, includeCandidates)
     const items = presence?.items || []

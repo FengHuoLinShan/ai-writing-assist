@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.context_snapshot_helpers import build_result_ref
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
@@ -671,9 +672,9 @@ class SceneEntityPersistenceMixin:
             except Exception as exc:
                 logger.warning(
                     "Failed to create phase2b relation %s -> %s: %s",
-                    rel.source_ref,
-                    rel.target_ref,
-                    exc,
+                    redact_diagnostic(rel.source_ref, limit=120),
+                    redact_diagnostic(rel.target_ref, limit=120),
+                    redact_diagnostic(exc, limit=300),
                 )
                 if strict:
                     raise
@@ -909,8 +910,8 @@ class SceneEntityPersistenceMixin:
             except Exception as exc:
                 logger.warning(
                     "Failed to create entity '%s': %s",
-                    ent.name,
-                    exc,
+                    redact_diagnostic(ent.name, limit=120),
+                    redact_diagnostic(exc, limit=300),
                 )
 
         return created
@@ -1010,9 +1011,9 @@ class SceneEntityPersistenceMixin:
             except Exception as exc:
                 logger.warning(
                     "Failed to create relation %s -> %s: %s",
-                    rel.source_name,
-                    rel.target_name,
-                    exc,
+                    redact_diagnostic(rel.source_name, limit=120),
+                    redact_diagnostic(rel.target_name, limit=120),
+                    redact_diagnostic(exc, limit=300),
                 )
         return created
 
@@ -1022,6 +1023,7 @@ class SceneEntityPersistenceMixin:
         nid,
         delta_events: list[DeltaEvent],
         scene_index: int,
+        source_chapter_index: int | None = None,
         workflow_id: str | None = None,
         scene_id: str | None = None,
         scene_provenance_key: str | None = None,
@@ -1029,7 +1031,10 @@ class SceneEntityPersistenceMixin:
         result_refs: list[dict[str, str]] | None = None,
     ) -> int:
         from modules.memory.contracts import MemoryDeltaEventIngest
-        from modules.memory.facade import ingest_delta_events
+        from modules.memory.facade import (
+            ingest_delta_events,
+            replace_scene_memory_events,
+        )
         from modules.world.facade import create_map_observation_from_delta_event
 
         ingest_events: list[MemoryDeltaEventIngest] = []
@@ -1052,6 +1057,7 @@ class SceneEntityPersistenceMixin:
                     scene_id=scene_id,
                     scene_provenance_key=scene_key,
                     context_snapshot_id=context_snapshot_id,
+                    source_chapter_index=source_chapter_index,
                 )
             )
             source_ref = {
@@ -1076,6 +1082,17 @@ class SceneEntityPersistenceMixin:
                 observation_meta.pop("scene_id", None)
                 map_payload["meta"] = observation_meta
                 map_payloads.append((len(ingest_events) - 1, map_payload))
+
+        if not ingest_events and scene_id and source_chapter_index is not None:
+            await replace_scene_memory_events(
+                db,
+                str(nid),
+                scene_id=scene_id,
+                scene_index=scene_index,
+                chapter_index=source_chapter_index,
+                events=[],
+            )
+            return 0
 
         result = await ingest_delta_events(
             db,
@@ -1102,8 +1119,8 @@ class SceneEntityPersistenceMixin:
             except Exception as exc:
                 logger.warning(
                     "Failed to create map observation for delta event %s: %s",
-                    event_payload.get("category"),
-                    exc,
+                    redact_diagnostic(event_payload.get("category"), limit=120),
+                    redact_diagnostic(exc, limit=300),
                 )
         return result.count
 

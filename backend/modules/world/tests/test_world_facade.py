@@ -20,12 +20,16 @@ from sqlalchemy.pool import StaticPool
 
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from modules.outline.facade import create_scene, update_scene
 from modules.world.facade import (
     expand_related_entities,
     find_entity_id_by_name,
+    get_confirmed_map_facts_through_scene,
     get_world_context,
     list_entity_terms,
 )
+from modules.world.map_models import MapFact
+from modules.world.models import CoreEntity, EntityRelation
 from modules.world.repositories import (
     CoreEntityRepository,
     EntityRelationRepository,
@@ -42,6 +46,7 @@ from modules.world.services import (
 )
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.entity_relation_service import EntityRelationService
+from modules.world.world_background import WorldBackgroundAggregation
 
 
 @pytest.fixture
@@ -88,6 +93,159 @@ def sample_entity_data() -> WorldEntityCreate:
         content_json={"climate": "温带", "area": "500万平方公里"},
         created_by="测试用户",
     )
+
+
+@pytest.mark.asyncio
+async def test_confirmed_map_fact_replay_revalidates_current_scene_order_and_status(
+    db_session: AsyncSession,
+    two_projects: tuple[str, str],
+) -> None:
+    novel_id, other_novel_id = two_projects
+    moved_earlier = await create_scene(
+        db_session,
+        novel_id,
+        {"scene_index": 30, "title": "移到前面", "status": "draft"},
+    )
+    moved_future = await create_scene(
+        db_session,
+        novel_id,
+        {"scene_index": 5, "title": "移到未来", "status": "canonical"},
+    )
+    deprecated = await create_scene(
+        db_session,
+        novel_id,
+        {"scene_index": 4, "title": "已归档", "status": "canonical"},
+    )
+    await create_scene(
+        db_session,
+        novel_id,
+        {"scene_index": 10, "title": "当前阶段", "status": "canonical"},
+    )
+    other_scene = await create_scene(
+        db_session,
+        other_novel_id,
+        {"scene_index": 1, "title": "其他项目", "status": "canonical"},
+    )
+    earlier_fact = MapFact(
+        novel_id=uuid.UUID(novel_id),
+        scene_id=uuid.UUID(moved_earlier["id"]),
+        scene_index=30,
+        dynamic_type="status",
+        target_name="应进入",
+        fact_status="confirmed",
+    )
+    future_fact = MapFact(
+        novel_id=uuid.UUID(novel_id),
+        scene_id=uuid.UUID(moved_future["id"]),
+        scene_index=5,
+        dynamic_type="status",
+        target_name="未来事实",
+        fact_status="confirmed",
+    )
+    deprecated_fact = MapFact(
+        novel_id=uuid.UUID(novel_id),
+        scene_id=uuid.UUID(deprecated["id"]),
+        scene_index=4,
+        dynamic_type="status",
+        target_name="归档事实",
+        fact_status="confirmed",
+    )
+    cross_novel_fact = MapFact(
+        novel_id=uuid.UUID(other_novel_id),
+        scene_id=uuid.UUID(other_scene["id"]),
+        scene_index=1,
+        dynamic_type="status",
+        target_name="跨项目事实",
+        fact_status="confirmed",
+    )
+    db_session.add_all(
+        [earlier_fact, future_fact, deprecated_fact, cross_novel_fact]
+    )
+    await db_session.flush()
+
+    await update_scene(
+        db_session,
+        novel_id,
+        moved_earlier["id"],
+        {"scene_index": 6},
+    )
+    await update_scene(
+        db_session,
+        novel_id,
+        moved_future["id"],
+        {"scene_index": 20},
+    )
+    await update_scene(
+        db_session,
+        novel_id,
+        deprecated["id"],
+        {"status": "deprecated"},
+    )
+
+    replay = await get_confirmed_map_facts_through_scene(
+        db_session,
+        novel_id,
+        10,
+    )
+
+    assert [item.id for item in replay.facts] == [str(earlier_fact.id)]
+    assert replay.facts[0].scene_index == 6
+    assert replay.undated_count == 0
+
+
+@pytest.mark.asyncio
+async def test_world_background_preserves_explicit_zero_float_signals(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    nid = uuid.UUID(project_novel_id)
+    source = CoreEntity(
+        novel_id=nid,
+        entity_type="character",
+        name="零权重人物",
+        summary="明确低权重",
+        importance=0.0,
+        status="canonical",
+    )
+    target = CoreEntity(
+        novel_id=nid,
+        entity_type="location",
+        name="零权重地点",
+        summary="明确低权重",
+        importance=0.0,
+        status="canonical",
+    )
+    db_session.add_all([source, target])
+    await db_session.flush()
+    relation = EntityRelation(
+        novel_id=nid,
+        source_id=source.id,
+        target_id=target.id,
+        relation_type="observes",
+        strength=0.0,
+        status="canonical",
+    )
+    fact = MapFact(
+        novel_id=nid,
+        target_name="零置信度事实",
+        dynamic_type="status",
+        confidence=0.0,
+        fact_status="confirmed",
+    )
+    db_session.add_all([relation, fact])
+    await db_session.flush()
+
+    bundle = await WorldBackgroundAggregation().build(
+        db_session,
+        project_novel_id,
+        context_mode="canonical",
+    )
+    by_id = {entry.asset_id: entry for entry in bundle.entries}
+
+    assert by_id[str(source.id)].importance == 0.0
+    assert by_id[str(target.id)].importance == 0.0
+    assert by_id[str(relation.id)].importance == 0.0
+    assert by_id[str(fact.id)].importance == 0.0
 
 
 @pytest.fixture

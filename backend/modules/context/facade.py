@@ -775,6 +775,7 @@ async def grep_novel_evidence(
     skip: int = 0,
     limit: int = 20,
     group_by_chapter: bool = False,
+    context_scene_id: str | None = None,
 ) -> dict:
     return await _evidence_service().grep(
         db,
@@ -788,6 +789,7 @@ async def grep_novel_evidence(
         skip=skip,
         limit=limit,
         group_by_chapter=group_by_chapter,
+        context_scene_id=context_scene_id,
     )
 
 
@@ -803,6 +805,7 @@ async def search_novel_evidence(
     chapter_from: int | None = None,
     chapter_to: int | None = None,
     top_k: int = 100,
+    context_scene_id: str | None = None,
 ) -> dict:
     return await _evidence_service().search(
         db,
@@ -815,6 +818,7 @@ async def search_novel_evidence(
         chapter_from=chapter_from,
         chapter_to=chapter_to,
         top_k=top_k,
+        context_scene_id=context_scene_id,
     )
 
 
@@ -973,6 +977,7 @@ async def compile_from_confirmation(
 async def attach_result_ref(
     db: AsyncSession,
     *,
+    novel_id: str,
     confirmation_id: str,
     result_type: str,
     result_id: str,
@@ -980,6 +985,7 @@ async def attach_result_ref(
 ) -> ContextConfirmationContract:
     return await _confirmation_service.attach_result_ref(
         db,
+        novel_id=novel_id,
         confirmation_id=confirmation_id,
         result_type=result_type,
         result_id=result_id,
@@ -990,6 +996,7 @@ async def attach_result_ref(
 async def bind_confirmed_action_result(
     db: AsyncSession,
     *,
+    novel_id: str,
     confirmation_id: str,
     result_type: str,
     result_id: str,
@@ -998,6 +1005,7 @@ async def bind_confirmed_action_result(
     """Attach an AI action result reference to a context confirmation."""
     return await _confirmed_ai_action_service.bind_result(
         db,
+        novel_id=novel_id,
         confirmation_id=confirmation_id,
         result_type=result_type,
         result_id=result_id,
@@ -1008,12 +1016,14 @@ async def bind_confirmed_action_result(
 async def attach_result_refs(
     db: AsyncSession,
     *,
+    novel_id: str,
     confirmation_id: str,
     result_refs: list[dict[str, str]],
     status: str = "running",
 ) -> ContextConfirmationContract:
     return await _confirmation_service.attach_result_refs(
         db,
+        novel_id=novel_id,
         confirmation_id=confirmation_id,
         result_refs=result_refs,
         status=status,
@@ -1125,11 +1135,13 @@ async def open_generation_context_snapshot(
 async def mark_context_snapshot_succeeded(
     db: AsyncSession,
     *,
+    novel_id: str,
     snapshot_id: str,
     result_refs: list[dict],
 ) -> ContextSnapshotContract:
     return await succeed_context_snapshot(
         db,
+        novel_id=novel_id,
         snapshot_id=snapshot_id,
         result_refs=result_refs,
     )
@@ -1138,11 +1150,13 @@ async def mark_context_snapshot_succeeded(
 async def succeed_context_snapshot(
     db: AsyncSession,
     *,
+    novel_id: str,
     snapshot_id: str,
     result_refs: list[dict],
 ) -> ContextSnapshotContract:
     return await _snapshot_service.succeed_context_snapshot(
         db,
+        novel_id=novel_id,
         snapshot_id=snapshot_id,
         result_refs=result_refs,
     )
@@ -1151,12 +1165,14 @@ async def succeed_context_snapshot(
 async def succeed_generation_context_snapshot(
     db: AsyncSession,
     *,
+    novel_id: str,
     snapshot_id: str,
     result_refs: list[dict],
 ) -> ContextSnapshotContract:
     """Durably close a generation snapshot as succeeded."""
     return await _durable_snapshot_service.succeed_context_snapshot(
         db,
+        novel_id=novel_id,
         snapshot_id=snapshot_id,
         result_refs=result_refs,
     )
@@ -1165,12 +1181,14 @@ async def succeed_generation_context_snapshot(
 async def mark_context_snapshot_failed(
     db: AsyncSession,
     *,
+    novel_id: str,
     snapshot_id: str,
     error_kind: str,
     error_message: str,
 ) -> ContextSnapshotContract:
     return await fail_context_snapshot(
         db,
+        novel_id=novel_id,
         snapshot_id=snapshot_id,
         error_kind=error_kind,
         error_message=error_message,
@@ -1180,12 +1198,14 @@ async def mark_context_snapshot_failed(
 async def fail_context_snapshot(
     db: AsyncSession,
     *,
+    novel_id: str,
     snapshot_id: str,
     error_kind: str,
     error_message: str,
 ) -> ContextSnapshotContract:
     return await _snapshot_service.fail_context_snapshot(
         db,
+        novel_id=novel_id,
         snapshot_id=snapshot_id,
         error_kind=error_kind,
         error_message=error_message,
@@ -1195,6 +1215,7 @@ async def fail_context_snapshot(
 async def fail_generation_context_snapshot(
     db: AsyncSession,
     *,
+    novel_id: str,
     snapshot_id: str,
     error_kind: str,
     error_message: str,
@@ -1202,6 +1223,7 @@ async def fail_generation_context_snapshot(
     """Durably close a generation snapshot as failed."""
     return await _durable_snapshot_service.fail_context_snapshot(
         db,
+        novel_id=novel_id,
         snapshot_id=snapshot_id,
         error_kind=error_kind,
         error_message=error_message,

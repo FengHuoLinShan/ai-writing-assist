@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { generateSessionKey, readGenerateSession, serializeGenerateSession, writeGenerateSession } from "../../../vue/views/generate/generateSession.js"
+import {
+  generateSessionKey,
+  readGenerateContextPreview,
+  readGenerateSession,
+  serializeGenerateSession,
+  writeGenerateContextPreview,
+  writeGenerateSession,
+} from "../../../vue/views/generate/generateSession.js"
 
 beforeEach(() => localStorage.clear())
 
@@ -7,6 +14,12 @@ describe("generate Vue bounded session", () => {
   it("isolates project, source page, and target", () => {
     expect(generateSessionKey("p1", "page-1", "world_bible_page")).toBe("generate_world_workspace_state_v2_p1_page-1_world_bible_page")
     expect(generateSessionKey("p2", null, "core_entity")).not.toBe(generateSessionKey("p1", null, "core_entity"))
+  })
+
+  it("上下文预览跨目标保留且按项目隔离", () => {
+    writeGenerateContextPreview("p1", { bundle: { sections: [{ key: "world" }] }, markdown: "# 预览", source: "task", request: { task: "检查" } })
+    expect(readGenerateContextPreview("p1")).toMatchObject({ markdown: "# 预览", source: "task" })
+    expect(readGenerateContextPreview("p2")).toEqual({ bundle: null, markdown: "", source: null, request: null })
   })
 
   it("uses UTF-8 bytes and never overwrites a valid snapshot with oversized data", () => {

@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
+
 logger = logging.getLogger(__name__)
 
 _backend = _os.path.dirname(
@@ -209,15 +211,16 @@ async def evaluate_weights(
             emb = await embedding_client.generate_embedding(eq.query, is_query=True)
             if isinstance(emb, list) and emb and isinstance(emb[0], float):
                 query_embedding = emb  # type: ignore[assignment]
-        except Exception:
+        except Exception as exc:
             failure_log_state.failure_count += 1
             if not failure_log_state.warning_emitted:
                 logger.warning(
                     "rag_tuning_embedding_failed novel_id=%s chapter_index=%s; "
-                    "continuing_without_vector; subsequent_failures_suppressed",
+                    "continuing_without_vector; subsequent_failures_suppressed; "
+                    "reason=%s",
                     novel_id,
                     eq.chapter_index,
-                    exc_info=True,
+                    redact_diagnostic(exc, limit=300),
                 )
                 failure_log_state.warning_emitted = True
         finally:

@@ -2,7 +2,10 @@ import { mount } from "@vue/test-utils"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
-const viewportSpies = vi.hoisted(() => ({ clearPathFocus: vi.fn(() => true) }))
+const viewportSpies = vi.hoisted(() => ({
+  clearPathFocus: vi.fn(() => true),
+  remount: vi.fn(async () => true),
+}))
 
 vi.mock("../../../vue/views/map/MapViewportAdapter.vue", async () => {
   const { defineComponent, h } = await import("vue")
@@ -10,7 +13,7 @@ vi.mock("../../../vue/views/map/MapViewportAdapter.vue", async () => {
     name: "MapViewportAdapter",
     props: { context: { type: Object, default: () => ({}) } },
     setup(_, { expose }) {
-      expose({ canLeave: () => true, clearPathFocus: viewportSpies.clearPathFocus, timelineEntityOptions: () => [], timelinePathOptions: () => [{ id: "path1", name: "北境道" }] })
+      expose({ canLeave: () => true, clearPathFocus: viewportSpies.clearPathFocus, remount: viewportSpies.remount, timelineEntityOptions: () => [], timelinePathOptions: () => [{ id: "path1", name: "北境道" }] })
       return () => h("div", { class: "map-root", "data-test": "viewport" })
     },
   }) }
@@ -36,22 +39,27 @@ function worldApi() {
     getMapQuickCreateContext: vi.fn(async () => ({ locations: [{ id: "l1", name: "北港" }], candidate_locations: [], existing_maps: [] })),
     previewQuickCreateMap: vi.fn(async () => ({ map: { name: "快速地图", grid_width: 40, grid_height: 30, map_type: "world" }, location_layouts: [{ location_entity_id: "l1", center_hex_q: 2, center_hex_r: 3, occupy_radius: 1 }], warnings: [] })),
     confirmQuickCreateMap: vi.fn(async () => ({ map: { id: "m2", name: "快速地图" } })),
+    listMapVisualRevisions: vi.fn(async () => ({ items: [] })),
+    restoreMapVisualRevision: vi.fn(async () => ({ editor_revision: 3 })),
   }
 }
 
 describe("MapWorkspaceView", () => {
   let api
   let state
+  let router
   let showModalHtml
   beforeEach(() => {
     document.body.replaceChildren()
     resetBridgeOverrides()
     state = { currentProjectId: "p1", currentView: "map" }
     api = { world: worldApi() }
+    router = { navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: () => new URLSearchParams() }
     showModalHtml = vi.fn()
     viewportSpies.clearPathFocus.mockClear()
+    viewportSpies.remount.mockClear()
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(), set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {}, set textAlign(_) {} })
-    setBridgeOverrides({ api, state, confirmAction: (_message, onConfirm) => onConfirm(), toast: vi.fn(), showModalHtml, closeModal: vi.fn(), esc: (value) => String(value ?? "").replaceAll("<", "&lt;"), router: { navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: () => new URLSearchParams() } })
+    setBridgeOverrides({ api, state, confirmAction: (_message, onConfirm) => onConfirm(), toast: vi.fn(), showModalHtml, closeModal: vi.fn(), esc: (value) => String(value ?? "").replaceAll("<", "&lt;"), router })
   })
 
   it("opens the Vue quick-create layout editor from the route toolbar", async () => {
@@ -70,6 +78,30 @@ describe("MapWorkspaceView", () => {
     buttons.find((button) => button.text === "修改").handler()
     await vi.waitFor(() => expect(document.body.querySelector("#map-typed-route-path")).not.toBeNull())
     expect(document.body.querySelector("#map-object-edit-value-json")).toBeNull()
+    wrapper.unmount()
+  })
+
+  it("restores a committed visual revision through the existing map modal style", async () => {
+    api.world.listMapVisualRevisions.mockResolvedValue({ items: [
+      { revision_number: 2, operation: "editor_apply", forward_changes: [{}], created_at: "2026-07-22T10:00:00Z" },
+      { revision_number: 1, operation: "legacy_edit", forward_changes: [{}, {}], created_at: "2026-07-22T09:00:00Z" },
+      { revision_number: 0, operation: "baseline", forward_changes: [], created_at: "2026-07-22T08:00:00Z" },
+    ] })
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州", editor_revision: 2 }], locations: [], archivedMaps: [], inbox: {} },
+    })
+
+    await wrapper.get('[data-action="map-visual-history"]').trigger("click")
+    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalled())
+    const [title, body, buttons] = showModalHtml.mock.calls.at(-1)
+    expect(title).toBe("地图编辑历史")
+    expect(body).toContain("版本 1")
+    document.body.insertAdjacentHTML("beforeend", body)
+    await buttons.find((button) => button.text === "恢复所选版本").handler()
+
+    expect(api.world.restoreMapVisualRevision).toHaveBeenCalledWith("m1", 1, 2, "p1")
+    expect(viewportSpies.remount).toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -138,5 +170,51 @@ describe("MapWorkspaceView", () => {
     await Promise.resolve()
     expect(wrapper.text()).not.toContain("迟到项目")
     wrapper.unmount()
+  })
+
+  it("does not start dynamic requests from the old island after map query navigation unmounts it", async () => {
+    let resolveNavigation
+    router.navigate.mockImplementationOnce(() => new Promise((resolve) => { resolveNavigation = resolve }))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mode: "overview" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+
+    await wrapper.get('[data-action="map-open"]').trigger("click")
+    await vi.waitFor(() => expect(resolveNavigation).toBeTypeOf("function"))
+    wrapper.unmount()
+    resolveNavigation(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(api.world.getMapDashboard).not.toHaveBeenCalled()
+    expect(api.world.getMapPlayback).not.toHaveBeenCalled()
+    expect(api.world.getMapTimeline).not.toHaveBeenCalled()
+    expect(api.world.listMapObservations).not.toHaveBeenCalled()
+  })
+
+  it("does not reload lens data from the old island after query-only navigation", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    await vi.waitFor(() => expect(api.world.getMapDashboard).toHaveBeenCalledTimes(1))
+    const viewport = wrapper.findComponent({ name: "MapViewportAdapter" })
+    let resolveNavigation
+    router.replace.mockImplementationOnce(() => new Promise((resolve) => { resolveNavigation = resolve }))
+    for (const method of ["getMapDashboard", "getMapPlayback", "getMapTimeline", "listMapObservations"]) {
+      api.world[method].mockClear()
+    }
+
+    const pending = viewport.props("context").onFocusEntity("entity-1")
+    await vi.waitFor(() => expect(resolveNavigation).toBeTypeOf("function"))
+    wrapper.unmount()
+    resolveNavigation(true)
+    await pending
+
+    expect(api.world.getMapDashboard).not.toHaveBeenCalled()
+    expect(api.world.getMapPlayback).not.toHaveBeenCalled()
+    expect(api.world.getMapTimeline).not.toHaveBeenCalled()
+    expect(api.world.listMapObservations).not.toHaveBeenCalled()
   })
 })

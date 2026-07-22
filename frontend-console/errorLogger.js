@@ -16,6 +16,57 @@
   const MAX_ENTRIES = 50
   let _isUnloading = false
 
+  function _isSensitiveLogKey(key) {
+    const normalized = String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+    return normalized === "auth"
+      || normalized.includes("authorization")
+      || normalized.includes("apikey")
+      || normalized.endsWith("token")
+      || normalized.includes("secret")
+      || normalized.includes("password")
+      || normalized.includes("passwd")
+      || normalized.includes("credential")
+      || normalized.includes("cookie")
+  }
+
+  function _redactLogText(value) {
+    return String(value)
+      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+      .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
+      .replace(
+        /((?:api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|credential)\s*[:=]\s*["']?)([^"',;\s}&]+)/gi,
+        "$1[REDACTED]",
+      )
+  }
+
+  function _redactLogValue(value, seen = new WeakSet()) {
+    if (typeof value === "string") return _redactLogText(value)
+    if (value == null || typeof value !== "object") return value
+    if (seen.has(value)) return "[Circular]"
+    seen.add(value)
+    if (Array.isArray(value)) return value.map((item) => _redactLogValue(item, seen))
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      _isSensitiveLogKey(key) ? "[REDACTED]" : _redactLogValue(item, seen),
+    ]))
+  }
+
+  function _safeRequestContext(request) {
+    if (!request || typeof request !== "object") return undefined
+    const safe = _redactLogValue(request)
+    return Object.fromEntries(["method", "url", "status", "response"]
+      .filter((key) => safe[key] !== undefined)
+      .map((key) => [key, safe[key]]))
+  }
+
+  function _sanitizeLogEntry(entry) {
+    const safe = _redactLogValue(entry)
+    if (safe && typeof safe === "object" && Object.hasOwn(safe, "request")) {
+      safe.request = _safeRequestContext(entry.request)
+    }
+    return safe
+  }
+
   function _currentProjectId() {
     return (typeof state !== "undefined" && state.currentProjectId) || null
   }
@@ -61,7 +112,7 @@
 
   function _write(entries, scopeId = _scopeId()) {
     // 只保留最近的 MAX_ENTRIES 条
-    const trimmed = entries.slice(-MAX_ENTRIES)
+    const trimmed = entries.map(_sanitizeLogEntry).slice(-MAX_ENTRIES)
     try {
       localStorage.setItem(_storageKey(scopeId), JSON.stringify(trimmed))
     } catch {}
@@ -71,14 +122,14 @@
 
   function _add(entry) {
     const entries = _read()
-    const full = {
+    const full = _sanitizeLogEntry({
       id: (_latestId(entries) || 0) + 1,
       timestamp: new Date().toISOString(),
       view: (typeof state !== "undefined" && state.currentView) || "",
       subView: (typeof state !== "undefined" && state.currentSubView) || "",
       ...entry,
       projectId: _currentProjectId(),
-    }
+    })
     entries.push(full)
     _write(entries)
     _syncToBackend(full)
@@ -92,7 +143,7 @@
 
   function _syncToBackend(entry) {
     if (!entry || entry.level !== "error" || typeof fetch !== "function") return
-    const payload = {
+    const payload = _redactLogValue({
       frontendId: entry.id,
       level: entry.level,
       type: entry.type || "runtime",
@@ -101,7 +152,7 @@
       view: entry.view || "",
       subView: entry.subView || "",
       stack: entry.stack || "",
-      request: entry.request || undefined,
+      request: _safeRequestContext(entry.request),
       page: {
         url: window.location?.href || "",
         title: document.title || "",
@@ -110,7 +161,7 @@
         userAgent: navigator.userAgent || "",
         language: navigator.language || "",
       },
-    }
+    })
 
     if (typeof window.api?.reportFrontendError === "function") {
       window.api.reportFrontendError(payload).catch(() => {})
@@ -157,6 +208,21 @@
     const kept = entries.filter((entry) => entry?.level === "error")
     if (kept.length !== entries.length) _write(kept)
     return kept
+  }
+
+  function _sanitizeStoredBuckets() {
+    try {
+      const keys = []
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index)
+        if (key?.startsWith(STORAGE_PREFIX)) keys.push(key)
+      }
+      for (const key of keys) {
+        const entries = JSON.parse(localStorage.getItem(key) || "[]")
+        if (!Array.isArray(entries)) continue
+        localStorage.setItem(key, JSON.stringify(entries.map(_sanitizeLogEntry).slice(-MAX_ENTRIES)))
+      }
+    } catch {}
   }
 
   function _hidePanel() {
@@ -331,6 +397,7 @@
 
   // ── 初始化 ──
   _migrateLegacyLog()
+  _sanitizeStoredBuckets()
   _installToastStateListener()
 
   const count = _pruneNonErrorEntries().length

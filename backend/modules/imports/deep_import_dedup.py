@@ -6,6 +6,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
+
 
 class StructureReviewAgent:
     """Run outline structure dedup suggestions after Phase 3 writes."""
@@ -46,7 +48,7 @@ class StructureReviewAgent:
                 },
                 "degraded": 1,
                 "error_kind": "structure_dedup_failed",
-                "error_message": str(exc)[:240],
+                "error_message": redact_diagnostic(exc, limit=240),
                 "suggestions": [],
             }
 

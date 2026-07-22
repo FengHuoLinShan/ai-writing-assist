@@ -272,7 +272,9 @@ class ActivationPreviewService:
     ) -> None:
         target = TargetRef(target_type="core_entity", target_id=str(entity.id))
         weight = self.SOURCE_WEIGHTS.get(source, self.SOURCE_WEIGHTS["generic_related"])
-        importance = int((entity.importance or 0) * 1000)
+        importance = int(
+            (entity.importance if entity.importance is not None else 0) * 1000
+        )
         score = weight + importance
         existing = candidates.get(target.target_hash())
         if existing and existing["score"] >= score:

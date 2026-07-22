@@ -226,7 +226,6 @@ globalThis.api = {
     getVersionHistory: vi.fn(),
     deleteDraft: vi.fn(),
     deleteChapter: vi.fn(),
-    splitChapter: vi.fn(),
     generate: vi.fn(),
     createConflictCheck: vi.fn(),
     listConflictChecks: vi.fn(),

@@ -10,6 +10,7 @@
 import { reactive } from "vue"
 
 export const ragSearchSession = reactive({
+  ownerProjectId: null,
   hits: [],
   visibleCount: 0,
   total: 0,
@@ -28,6 +29,24 @@ export const ragSearchSession = reactive({
   // 预热结果回写（prewarmManager 写入；RagView 应用到 statusFields）
   prewarmResult: null,
 })
+
+/**
+ * RAG 模块状态只允许在同一项目内跨 island 重挂载保留。
+ * 项目变化时清理工作流与预热投影，避免旧项目元数据进入新工作区。
+ */
+export function scopeRagSessionToProject(projectId) {
+  const nextProjectId = projectId || null
+  if (ragSearchSession.ownerProjectId === nextProjectId) return false
+  ragSearchSession.ownerProjectId = nextProjectId
+  resetRagSearchSession()
+  ragSearchSession.rebuildProgress = null
+  ragSearchSession.rebuildInfo = null
+  ragSearchSession.taskRetryPending = false
+  ragSearchSession.prewarmState = "idle"
+  ragSearchSession.prewarmWarning = ""
+  ragSearchSession.prewarmResult = null
+  return true
+}
 
 export function resetRagSearchSession() {
   ragSearchSession.hits = []

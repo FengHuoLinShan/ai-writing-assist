@@ -296,6 +296,7 @@ tasks ORM。
 | `map_path_layers` | 连续线路图层资源（仅保存 transport / water 类别，显示属性由图层树 leaf 拥有） |
 | `map_paths` | 可归档道路/水系资产、端点绑定和独立内容 revision |
 | `map_path_nodes` | 线路有序连续轴向控制点、宽度、张力与分段类型 |
+| `map_visual_revisions` | 每次已提交视觉编辑的不可变状态与资源级正向/反向变更；随地图永久删除级联清理 |
 | `map_observations` | 地图观察事实候选（来源证据、置信度、审查状态；默认不污染正式事实） |
 | `map_facts` | 已确认时间化地图事实（由 observation 确认生成，供世界动态地图消费） |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
@@ -410,7 +411,7 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
   时保持原兼容冲突语义。
 - 未分配且仍为 `candidate` / `conflicted` 的 observation 进入项目级地图收件箱；具体地图的
   observation、dashboard 和 playback 只读取精确 `map_id`，不会混入项目收件箱候选。
-- `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。
+- `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`；数据库以 `(novel_id, observation_id)` 保证一条 observation 只对应一个逻辑 Fact。重复采用内容一致时复用原 Fact，内容冲突返回 409。
 - 人物位置、事件发生地、线路状态和势力边界的待解析值使用显式
   `payload_kind="proposal"` proposal union。proposal 保持 `normalization_state="untyped"`；
   作者把它补齐为 canonical `MapDynamicValueV1` 后，服务端才可能允许确认。
@@ -553,7 +554,10 @@ class ResolveResult:
 `map_configs.editor_revision` 是地图视觉写入的 CAS 版本；tiles、地点布局/绑定、覆盖层、
 marker、territory、generate、quick-create replace 和图层树成功修改时递增，
 observation/fact 审查不计入该版本。统一编辑入口在同一事务内按顺序执行命令，成功只递增一次，
-任何命令失败都回滚整批。`map_layer_nodes` 是图层属性权威，旧 terrain 图层字段仅作兼容投影。
+任何命令失败都回滚整批。每次递增同时写入不可变 `map_visual_revisions`，保存提交后的完整
+可恢复状态和资源级 `before/after` 正反变更；旧单项 API 与 editor apply 共用该入口。
+恢复历史版本必须携带当前 `expected_revision`，恢复成功产生新的 revision，不覆盖旧历史。
+`map_layer_nodes` 是图层属性权威，旧 terrain 图层字段仅作兼容投影。
 图层树还保存 exclusive/floor 结构和每个子层的楼层编号；当前激活子层与 isolate 是不写库的
 前端会话状态。连续线路使用同一 editor apply CAS，线路本体只归档，空线路图层才允许删除。
 
@@ -625,6 +629,7 @@ async def get_full_state(db, novel_id) -> dict
 # ---- Map dynamic facts ----
 async def create_map_observation_from_delta_event(db, novel_id, *, event: dict, scene_index: int, ...) -> dict
 async def summarize_scene_map_for_writing(db, novel_id, scene_id, *, include_candidates=False) -> dict
+async def get_confirmed_map_facts_through_scene(db, novel_id, scene_index) -> ConfirmedMapFactReplayContract
 
 # ---- Worldbuilding ----
 async def preview_worldbuilding_activation(db, novel_id, *, entity_ids=None, ...) -> dict
@@ -651,6 +656,9 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 ```
 
 `summarize_scene_map_for_writing` 返回写作模块可消费的轻量 Scene 地图摘要，包括主地点、角色/事件/势力/风险、打开地图目标和候选支持状态。它是 world → writing 的稳定边界；writing 不直接读取 `map_observations` / `map_facts` 内部表。
+`get_confirmed_map_facts_through_scene` 是 memory Scene 重放的只读稳定边界，只返回同项目、
+confirmed 且带 Scene 锚点的事实，并单独返回 undated 数量供调用方 fail closed；candidate
+永不进入历史阶段投影。
 默认主地点只从 `canonical` 绑定推导；只有调用方显式传入
 `include_candidates=True` 时才可纳入历史 `draft` / `candidate` 绑定，且响应会以
 `depends_on_candidate=true` 和 `candidate_review_state` 标明尚未采用。
@@ -810,10 +818,14 @@ cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright tes
 | POST | `/api/world/maps/{map_id}/archive` | 锁定并归档完整地图子树 |
 | POST | `/api/world/maps/{map_id}/restore` | 恢复完整子树；可用 `root_name` 仅重命名恢复根 |
 | POST | `/api/world/maps/{map_id}/editor/apply` | 按 `expected_revision` 原子应用有序视觉编辑命令 |
+| GET | `/api/world/maps/{map_id}/revisions` | 分页读取不可变视觉编辑历史（不返回完整状态快照） |
+| POST | `/api/world/maps/{map_id}/revisions/{revision_number}/restore` | 重验依赖后恢复所选状态并生成新 revision |
 | GET | `/api/world/maps/{map_id}/layer-tree` | 读取递归图层树及继承后的有效属性 |
 | GET | `/api/world/maps/{map_id}/paths` | 按 active / archived / all 读取连续线路状态 |
 | GET | `/api/world/maps/{map_id}/paths/{path_id}` | 读取单条 active 或 archived 线路及节点 |
 | GET | `/api/world/maps/{map_id}/paths/{path_id}/archive-impact` | 查询线路归档前的 observation / fact 引用数量 |
+| POST | `/api/world/maps/{map_id}/paths/{path_id}/archive` | 通过 editor history seam 归档线路 |
+| POST | `/api/world/maps/{map_id}/paths/{path_id}/restore` | 重验图层、端点和几何后恢复线路 |
 | POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |
 | GET | `/api/world/maps/{map_id}/state` | 地图聚合状态（map+面包屑+地形+绑定，PRD §6.2） |
 | GET | `/api/world/maps/{map_id}/dashboard` | 世界动态总控台派生状态（首屏层、动态队列、检查器、批量分组） |
@@ -831,6 +843,7 @@ cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright tes
 | GET | `/api/world/maps/{map_id}/terrain` | 手绘地形图层/区域/patch/绑定聚合状态 |
 | PATCH | `/api/world/maps/{map_id}/terrain/layers/{layer_id}` | 部分更新覆盖图层名称、显隐、锁定、透明度、排序、素材与 metadata |
 | DELETE | `/api/world/maps/{map_id}/terrain/layers/{layer_id}` | 删除已解锁覆盖图层并返回 region/patch/binding 级联计数 |
+| POST | `/api/world/maps/{map_id}/terrain/layers/{layer_id}/restore` | 重验图层/地点依赖后恢复归档覆盖图层 |
 | PUT | `/api/world/maps/{map_id}/terrain/layers/{layer_id}/patches` | 覆盖保存某手绘地形图层最终 patches |
 | POST | `/api/world/maps/{map_id}/terrain/regions/{region_id}/bindings` | 创建地形区域与地点绑定 |
 | PATCH | `/api/world/maps/{map_id}/terrain/bindings/{binding_id}` | 更新地形绑定状态或类型 |
@@ -840,7 +853,8 @@ cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright tes
 | GET | `/api/world/maps/{map_id}/markers` | 动态标记列表（P1，可带 scene_id） |
 | POST | `/api/world/maps/{map_id}/markers` | 创建动态标记（P1） |
 | PATCH | `/api/world/maps/{map_id}/markers/{marker_id}` | 更新动态标记（P1） |
-| DELETE | `/api/world/maps/{map_id}/markers/{marker_id}` | 删除动态标记（P1） |
+| DELETE | `/api/world/maps/{map_id}/markers/{marker_id}` | 归档动态标记（保留旧 204 形状） |
+| POST | `/api/world/maps/{map_id}/markers/{marker_id}/restore` | 重验对象/Scene/坐标后恢复标记 |
 | GET | `/api/world/maps/{map_id}/territories` | 势力范围列表（P2） |
 | POST | `/api/world/maps/{map_id}/territories` | 批量创建势力范围（P2） |
 | PATCH | `/api/world/maps/{map_id}/territories/{territory_id}` | 更新单格势力范围样式（P2） |

@@ -270,3 +270,5 @@ async def test_literal_grep_can_group_occurrences_by_chapter(
     assert missing == []
     assert [hit.source_ref.chapter_index for hit in hits] == [1, 2]
     assert [hit.match_count for hit in hits] == [2, 1]
+    assert [len(hit.source_refs) for hit in hits] == [2, 1]
+    assert [ref.start_offset for ref in hits[0].source_refs] == [0, 6]

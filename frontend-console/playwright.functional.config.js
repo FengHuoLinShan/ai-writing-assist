@@ -3,6 +3,7 @@ import { createE2EConfig } from "./playwright.base.config.js"
 export default createE2EConfig({
   profile: "test:e2e:functional",
   testIgnore: [
+    "visual-*.spec.js",
     "map-performance.spec.js",
     "deep-import-real.spec.js",
     "outline-real-llm.spec.js",

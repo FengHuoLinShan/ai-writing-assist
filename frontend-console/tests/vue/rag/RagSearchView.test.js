@@ -18,8 +18,8 @@ function makeHits(count) {
   }))
 }
 
-function overrideRouterQuery(queryString) {
-  const state = { currentProjectId: "p1", searchQuery: "", viewStates: {} }
+function overrideRouterQuery(queryString, stateOverrides = {}) {
+  const state = { currentProjectId: "p1", searchQuery: "", viewStates: {}, ...stateOverrides }
   setBridgeOverrides({
     state,
     router: {
@@ -138,6 +138,89 @@ describe("路由恢复", () => {
 })
 
 describe("结果交互", () => {
+  it("卡片直接展示父 Scene 与当前创作关系并可跳转", async () => {
+    overrideRouterQuery(
+      "q=铜铃&kind=smart&content_mode=canonical&visibility=author&scope=manuscript",
+      { viewStates: { writing: { projectId: "p1", currentSceneId: "scene-12" } } },
+    )
+    globalThis.api.context.searchEvidence = vi.fn(async () => ({
+      total: 1,
+      warnings: [],
+      degraded: false,
+      hits: [{
+        kind: "manuscript",
+        title: "第十一章",
+        snippet: "林晚在旧塔找到铜铃。",
+        chapter_index: 11,
+        source_ref: { content_mode: "canonical", chapter_index: 11, version_number: 1 },
+        scene_refs: [{
+          target_type: "outline_scene",
+          target_id: "scene-11",
+          scene_index: 11,
+          scene_title: "旧塔铜铃",
+          context_summary: "目标：确认密道入口；冲突：铜铃声会惊动守卫",
+        }],
+        parent_scene_contexts: [{
+          target_type: "outline_scene",
+          target_id: "scene-10",
+          scene_index: 10,
+          scene_title: "进入旧塔",
+          context_summary: "目标：找到旧塔入口",
+        }, {
+          target_type: "outline_scene",
+          target_id: "scene-11",
+          scene_index: 11,
+          scene_title: "旧塔铜铃",
+          context_summary: "目标：确认密道入口；冲突：铜铃声会惊动守卫",
+        }],
+        writing_relevance: {
+          kind: "previous_scene",
+          label: "前序 Scene：可用于核对当前 Scene 的剧情承接。",
+        },
+      }],
+    }))
+
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+    await vi.waitFor(() => expect(wrapper.find(".rag-result-context").exists()).toBe(true))
+
+    expect(wrapper.find(".rag-result-context").text()).toContain("Scene 11 · 旧塔铜铃")
+    expect(wrapper.find(".rag-result-context").text()).toContain("Scene 10 · 进入旧塔")
+    expect(wrapper.findAll(".rag-result-context__summary")).toHaveLength(2)
+    expect(wrapper.find(".rag-result-context").text()).toContain("剧情承接")
+    expect(wrapper.find(".rag-result-evidence-label").text()).toBe("命中依据")
+    expect(globalThis.api.context.searchEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({ context_scene_id: "scene-12" }),
+      expect.any(Object),
+    )
+
+    await wrapper.findAll('[data-action="open-scene-context"]')[1].trigger("click")
+    const router = (await import("../../../vue/bridge/index.js")).getRouter()
+    expect(router.navigate).toHaveBeenCalledWith("scene", "scene-11")
+  })
+
+  it("读者视角不把被省略的作者 Scene 元数据误报为未映射", async () => {
+    overrideRouterQuery("q=铜铃&kind=smart&content_mode=canonical&visibility=reader&cutoff_chapter=11&scope=manuscript")
+    globalThis.api.context.searchEvidence = vi.fn(async () => ({
+      total: 1,
+      warnings: [],
+      degraded: false,
+      hits: [{
+        kind: "manuscript",
+        title: "第十一章",
+        snippet: "铜铃响起。",
+        chapter_index: 11,
+        source_ref: { content_mode: "canonical", chapter_index: 11, version_number: 1 },
+        scene_refs: [{ target_type: "outline_scene", target_id: "scene-11" }],
+        writing_relevance: {},
+      }],
+    }))
+
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+    await vi.waitFor(() => expect(wrapper.find(".rag-result-card").exists()).toBe(true))
+    expect(wrapper.find(".rag-result-context").exists()).toBe(false)
+    expect(wrapper.text()).not.toContain("未关联 Scene")
+  })
+
   it("打开结果卡显示抽屉原文", async () => {
     overrideRouterQuery("q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript")
     globalThis.api.context.readEvidence = vi.fn(async () => ({

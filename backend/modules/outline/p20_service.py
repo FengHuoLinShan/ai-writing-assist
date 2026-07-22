@@ -584,6 +584,7 @@ class P20ApplyService:
                 )
             await context_facade.attach_result_refs(
                 db,
+                novel_id=novel_id,
                 confirmation_id=confirmation_id,
                 result_refs=result_refs,
                 status="done",

@@ -46,8 +46,11 @@ Three layers:
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
+| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"` | Map observation confirm/ignore row-lock race | Dedicated PostgreSQL at Alembic head |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Complete map browser regression, including touch/390px | Explicit dedicated PostgreSQL and fresh backend/frontend |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map-perf` | Fixed 24×18 and 200×200 map telemetry profiles | Dedicated PostgreSQL; Chromium 1280×720; workers=1; retries=0 |
 | `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, dedicated PostgreSQL, and configured provider credentials |
@@ -79,15 +82,23 @@ or silently fall back to the developer database.
 预算两倍；真实输入到下一帧 p95 执行 `≤33ms`。样本不足、retry 非零、未真实点击 hex、
 指标缺失或数据库不是独立 `audit/e2e/test` 库都会直接失败。
 
+视觉回归由独立 `playwright.visual.config.js` 固定 Chromium、语言、时区、DPR、viewport、
+reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。功能修复不得通过放宽
+全局阈值来接受风格漂移，已确认的 UI 变化必须显式更新并逐张检查基线。
+
 ### Continuous integration
 
-GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality` 和
-`Frontend unit quality`。后端 job checkout 后先用
+GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
+`PostgreSQL critical` 和 `Frontend unit quality`。后端快速 job checkout 后先用
 系统 Python 执行零依赖的 repository secret hygiene gate，再通过 `backend/uv.lock` 安装
 Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后依次执行 `make lint` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
-Frontend job 使用 `frontend-console/package-lock.json` 执行 `npm ci` 和完整 Vitest；
-Playwright 仍属于需要显式专用 PostgreSQL 的验收层，不进入默认 CI。
+PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
+零重试规则执行 fresh migration 与高风险事务契约，并分别保留测试前、测试后的脱敏
+JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
+PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，不包含真实 LLM 或外部数据。
+Frontend job 使用 `frontend-console/package-lock.json` 执行 `npm ci`、完整 Vitest 和生产 build；
+Playwright 功能验收仍不进入默认 CI。
 secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、
 常见私钥文件名、私钥块与高置信服务凭据；测试/文档中的显式占位值仅在受控路径豁免。
 失败日志只包含安全化路径、规则名和不可逆短指纹，不输出凭据原文。等价本地入口是

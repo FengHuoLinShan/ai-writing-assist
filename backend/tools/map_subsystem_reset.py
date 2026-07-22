@@ -34,6 +34,7 @@ from modules.world import map_models as _map_models  # noqa: F401
 # Child-first order is retained for a future, separately approved design.  This
 # batch only uses the tuple as a closed inspection allowlist.
 MAP_TABLES: tuple[str, ...] = (
+    "map_visual_revisions",
     "map_facts",
     "map_observations",
     "map_path_nodes",

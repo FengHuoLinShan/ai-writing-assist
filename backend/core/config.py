@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -71,7 +72,10 @@ def _env_float(key: str, default: float) -> float:
     value = os.environ.get(key)
     if value is None:
         return default
-    return float(value)
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{key} must be finite")
+    return parsed
 
 
 _LOCAL_ENVS = {"development", "test", "local"}
@@ -144,9 +148,9 @@ class Settings:
             "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5207/ai_novel_engine",
         )
     )
-    pool_size: int = int(_env("POOL_SIZE", "10"))
-    max_overflow: int = int(_env("MAX_OVERFLOW", "20"))
-    echo_sql: bool = _env("ECHO_SQL", "false").lower() == "true"
+    pool_size: int = field(default_factory=lambda: _env_int("POOL_SIZE", 10))
+    max_overflow: int = field(default_factory=lambda: _env_int("MAX_OVERFLOW", 20))
+    echo_sql: bool = field(default_factory=lambda: _env_bool("ECHO_SQL", False))
 
     # --- LLM ---
     # Business LLM profile fields are DB-backed (project/global settings), not env-backed.
@@ -187,7 +191,7 @@ class Settings:
     )
 
     # --- Embedding ---
-    embedding_dim: int = int(_env("EMBEDDING_DIM", "768"))
+    embedding_dim: int = field(default_factory=lambda: _env_int("EMBEDDING_DIM", 768))
     embedding_model: str = field(
         default_factory=lambda: _env(
             "EMBEDDING_MODEL",
@@ -219,14 +223,18 @@ class Settings:
             "int8",
         )
     )
-    inference_worker_timeout: float = float(_env("INFERENCE_WORKER_TIMEOUT", "30.0"))
+    inference_worker_timeout: float = field(
+        default_factory=lambda: _env_float("INFERENCE_WORKER_TIMEOUT", 30.0)
+    )
     inference_worker_startup_timeout: float = field(
         default_factory=lambda: _env_float(
             "INFERENCE_WORKER_STARTUP_TIMEOUT",
             300.0,
         )
     )
-    inference_worker_max_batch: int = int(_env("INFERENCE_WORKER_MAX_BATCH", "64"))
+    inference_worker_max_batch: int = field(
+        default_factory=lambda: _env_int("INFERENCE_WORKER_MAX_BATCH", 64)
+    )
     inference_worker_queue_maxsize: int = field(
         default_factory=lambda: _env_int("INFERENCE_WORKER_QUEUE_MAXSIZE", 200)
     )
@@ -276,7 +284,9 @@ class Settings:
     )
 
     # --- 重排序 ---
-    reranker_enabled: bool = _env("RERANKER_ENABLED", "false").lower() == "true"
+    reranker_enabled: bool = field(
+        default_factory=lambda: _env_bool("RERANKER_ENABLED", False)
+    )
 
     # --- 运行环境 ---
     app_env: str = field(default_factory=lambda: _env("APP_ENV", "development"))

@@ -308,7 +308,7 @@ async def test_get_chapter_panorama_no_snapshot_but_events_builds_from_empty(
 
 @mock.patch("modules.world.facade.get_full_state", autospec=True)
 @pytest.mark.asyncio
-async def test_get_chapter_panorama_no_data_falls_back_to_world_state(
+async def test_get_chapter_panorama_no_data_returns_empty_stage0(
     mock_get_full_state, db_session, test_project_id
 ):
     # Arrange
@@ -321,9 +321,8 @@ async def test_get_chapter_panorama_no_data_falls_back_to_world_state(
     result = await _memory.get_panorama(db_session, test_project_id, 1)
 
     # Assert
-    assert len(result.entities) == 1
-    assert result.entities[0].name == "Castle"
-    mock_get_full_state.assert_awaited_once_with(db_session, test_project_id)
+    assert result.entities == []
+    mock_get_full_state.assert_not_awaited()
 
 
 # ============================================================

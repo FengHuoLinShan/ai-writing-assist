@@ -136,6 +136,10 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。新查询
   abort 旧请求，晚到响应还需通过 project/lifecycle generation 才能回写；证据抽屉使用独立
   abort/generation/project/drawer 门禁，关闭抽屉或切换项目后不接受旧正文、引用或导航结果。
+  作者视角的聚合卡会为每个实际命中范围展示所属 Scene 位置和摘要，
+  并用项目隔离的写作台 Scene 快照标记“当前/前序/后续”关系；同章多 Scene
+  会逐个展示摘要和跳转入口。读者/角色视角不显示这些作者专用元数据，
+  不将“因可见性被隐藏”误报为“未关联 Scene”。
 - 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。
 - 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。来源页面正文始终由服务器重载，本地 v2 会话只缓存对话、选择项和 suggestion ID，并按项目 + 来源页 + target 隔离。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
 - 生成中心任务页签选择章节后，Scene 选择器先展示该章的可用 Scene，同时仍可按名称搜索项目内其他活跃 Scene。

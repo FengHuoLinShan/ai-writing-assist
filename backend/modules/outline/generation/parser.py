@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest
 from modules.outline.generation.context_builder import PlotStructureContext
 from modules.outline.generation.models import (
@@ -182,7 +183,7 @@ class PlotStructureParser:
                 logger.warning(
                     "Deep import simple structure parse failed at max_tokens=%s: %s",
                     max_tokens,
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
                 continue
             normalized, invalid_refs = _normalize_simple_structure_refs(
@@ -201,7 +202,10 @@ class PlotStructureParser:
                     diagnostics=diagnostics,
                 )
             last_error = RuntimeError("empty simple structure output")
-        logger.warning("Deep import simple structure failed: %s", last_error)
+        logger.warning(
+            "Deep import simple structure failed: %s",
+            redact_diagnostic(last_error, limit=300),
+        )
         return None
 
     def _build_deep_import_simple_request(

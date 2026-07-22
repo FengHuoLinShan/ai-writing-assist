@@ -10,7 +10,6 @@ function setup(overrides = {}) {
   const api = {
     writing: {
       generate: vi.fn(async () => ({ draft_id: "candidate-1" })),
-      splitChapter: vi.fn(async () => ({ new_chapter_index: 2 })),
     },
     tasks: { get: vi.fn() },
   }
@@ -65,13 +64,4 @@ describe("writingCommandController", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("未保存"), "warning")
   })
 
-  it("断章使用当前 Scene 和光标 offset", async () => {
-    const { api, onResult, controller } = setup()
-    await controller.splitAtCursor()
-    expect(api.writing.splitChapter).toHaveBeenCalledWith(1, {
-      split_pos: 2,
-      source_scene_id: "scene-1",
-    }, "p1")
-    expect(onResult).toHaveBeenCalledWith({ new_chapter_index: 2 })
-  })
 })

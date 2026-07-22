@@ -1019,13 +1019,18 @@ class MapTerrainLayerRepository(MapEntityRepository[MapTerrainLayer]):
         db: AsyncSession,
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
+        *,
+        status: str = "active",
     ) -> list[MapTerrainLayer]:
+        conditions: list[Any] = [
+            MapTerrainLayer.novel_id == novel_id,
+            MapTerrainLayer.map_id == map_id,
+        ]
+        if status != "all":
+            conditions.append(MapTerrainLayer.status == status)
         stmt = (
             select(MapTerrainLayer)
-            .where(
-                MapTerrainLayer.novel_id == novel_id,
-                MapTerrainLayer.map_id == map_id,
-            )
+            .where(*conditions)
             .order_by(
                 MapTerrainLayer.z_index,
                 MapTerrainLayer.created_at,
@@ -1041,12 +1046,17 @@ class MapTerrainLayerRepository(MapEntityRepository[MapTerrainLayer]):
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
         layer_id: uuid.UUID,
+        *,
+        status: str | None = None,
     ) -> MapTerrainLayer | None:
-        stmt = select(MapTerrainLayer).where(
+        conditions: list[Any] = [
             MapTerrainLayer.novel_id == novel_id,
             MapTerrainLayer.map_id == map_id,
             MapTerrainLayer.id == layer_id,
-        )
+        ]
+        if status is not None:
+            conditions.append(MapTerrainLayer.status == status)
+        stmt = select(MapTerrainLayer).where(*conditions)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -1545,6 +1555,7 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         conditions: list[Any] = [
             MapMarker.novel_id == novel_id,
             MapMarker.map_id == map_id,
+            MapMarker.status == "active",
             CoreEntity.novel_id == novel_id,
             CoreEntity.status.in_(statuses),
         ]
@@ -1577,6 +1588,7 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         conditions: list[Any] = [
             MapMarker.novel_id == novel_id,
             MapMarker.map_id == map_id,
+            MapMarker.status == "active",
         ]
         scene_window = self._scene_window_condition(scene_id, scene_index)
         if scene_window is not None:
@@ -1605,6 +1617,7 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         conditions: list[Any] = [
             MapMarker.novel_id == novel_id,
             MapMarker.visible.is_(True),
+            MapMarker.status == "active",
         ]
         conditions.append(
             self._scene_window_condition(
@@ -1638,6 +1651,7 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
                 MapMarker.novel_id == novel_id,
                 MapMarker.entity_id == entity_id,
                 MapMarker.visible.is_(True),
+                MapMarker.status == "active",
             )
             .order_by(
                 MapMarker.start_scene_index.nulls_last(),
@@ -1665,6 +1679,7 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
             .where(
                 MapMarker.novel_id == novel_id,
                 MapMarker.visible.is_(True),
+                MapMarker.status == "active",
                 MapMarker.marker_type == "character",
                 MapMarker.entity_id.in_(entity_ids),
                 MapMarker.start_scene_index.isnot(None),
@@ -2257,21 +2272,29 @@ class MapFactRepository:
     async def get_by_observation(
         self,
         db: AsyncSession,
+        novel_id: uuid.UUID,
         observation_id: uuid.UUID,
     ) -> MapFact | None:
-        stmt = select(MapFact).where(MapFact.observation_id == observation_id)
+        stmt = select(MapFact).where(
+            MapFact.novel_id == novel_id,
+            MapFact.observation_id == observation_id,
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_observations(
         self,
         db: AsyncSession,
+        novel_id: uuid.UUID,
         observation_ids: list[uuid.UUID],
     ) -> list[MapFact]:
         unique_ids = list(dict.fromkeys(observation_ids))
         if not unique_ids:
             return []
-        stmt = select(MapFact).where(MapFact.observation_id.in_(unique_ids))
+        stmt = select(MapFact).where(
+            MapFact.novel_id == novel_id,
+            MapFact.observation_id.in_(unique_ids),
+        )
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -2372,6 +2395,43 @@ class MapFactRepository:
             .limit(limit)
         )
         return list((await db.execute(stmt)).scalars().all())
+
+    async def list_project_through_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        to_scene_index: int,
+        limit: int = 20001,
+    ) -> tuple[list[MapFact], int]:
+        """Return confirmed Scene-identified facts for facade-side order validation."""
+        base = [MapFact.novel_id == novel_id, MapFact.fact_status == "confirmed"]
+        undated = int(
+            (
+                await db.execute(
+                    select(func.count(MapFact.id)).where(
+                        *base,
+                        MapFact.scene_id.is_(None),
+                    )
+                )
+            ).scalar()
+            or 0
+        )
+        result = await db.execute(
+            select(MapFact)
+            .where(
+                *base,
+                MapFact.scene_id.is_not(None),
+            )
+            .order_by(
+                MapFact.scene_index,
+                MapFact.source_chapter_index.nulls_last(),
+                MapFact.created_at,
+                MapFact.id,
+            )
+            .limit(limit)
+        )
+        return list(result.scalars().all()), undated
 
     async def list_undated_for_projection(
         self,

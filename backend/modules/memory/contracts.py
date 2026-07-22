@@ -62,6 +62,7 @@ class MemoryDeltaEventIngest:
     scene_id: str | None = None
     scene_provenance_key: str | None = None
     context_snapshot_id: str | None = None
+    source_chapter_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -70,3 +71,10 @@ class MemoryDeltaIngestResult:
 
     count: int
     delta_logs: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class SceneCheckpointRepairResult:
+    scene_id: str
+    dimension: str
+    rebuilt_scene_count: int

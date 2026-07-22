@@ -1047,7 +1047,7 @@ class TestTuningExtra:
         assert "chapter_index=7" in record.getMessage()
         assert "测试检索正文" not in record.getMessage()
         assert _CapturingRetrieval.calls == 2
-        assert record.exc_info is not None
+        assert record.exc_info is None
 
     @pytest.mark.asyncio
     async def test_run_tuning_shares_embedding_failure_log_suppression(
@@ -1101,7 +1101,7 @@ class TestTuningExtra:
             if "rag_tuning_embedding_failed" in item.getMessage()
         ]
         assert len(records) == 1
-        assert records[0].exc_info is not None
+        assert records[0].exc_info is None
 
     # --- run_tuning ---
 

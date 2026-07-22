@@ -688,6 +688,7 @@ async def test_real_task_session_checkpoints_before_provider_wait(
     )
     await bind_confirmed_action_result(
         db_session,
+        novel_id=test_project_id,
         confirmation_id=confirmation.id,
         result_type="task",
         result_id=str(task_id),
@@ -857,6 +858,7 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
             )
             await bind_confirmed_action_result(
                 setup_db,
+                novel_id=novel_id,
                 confirmation_id=confirmation.id,
                 result_type="task",
                 result_id=str(task_id),

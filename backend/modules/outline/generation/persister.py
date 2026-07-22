@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.outline.generation.models import (
     ForeshadowingPlan as GeneratedForeshadowingPlan,
 )
@@ -337,23 +338,28 @@ class PlotStructurePersister:
             return []
 
         try:
-            created_threads = await self._thread_service.create_batch(
-                db,
-                str(novel_id),
-                thread_payloads,
-            )
+            async with db.begin_nested():
+                created_threads = await self._thread_service.create_batch(
+                    db,
+                    str(novel_id),
+                    thread_payloads,
+                )
         except Exception as exc:
-            logger.warning("Failed to create thread batch: %s", exc)
+            logger.warning(
+                "Failed to create thread batch: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             if strict:
                 raise
             created: list[dict] = []
             for thread_data in thread_payloads:
                 try:
-                    thread_resp = await self._thread_service.create(
-                        db,
-                        str(novel_id),
-                        thread_data,
-                    )
+                    async with db.begin_nested():
+                        thread_resp = await self._thread_service.create(
+                            db,
+                            str(novel_id),
+                            thread_data,
+                        )
                     created.append(
                         {
                             "id": str(thread_resp.id),
@@ -368,8 +374,8 @@ class PlotStructurePersister:
                 except Exception as item_exc:
                     logger.warning(
                         "Failed to create thread '%s': %s",
-                        thread_data.name,
-                        item_exc,
+                        redact_diagnostic(thread_data.name, limit=120),
+                        redact_diagnostic(item_exc, limit=300),
                     )
             return created
 
@@ -452,23 +458,28 @@ class PlotStructurePersister:
             return []
 
         try:
-            created_arcs = await self._arc_service.create_batch(
-                db,
-                str(novel_id),
-                arc_payloads,
-            )
+            async with db.begin_nested():
+                created_arcs = await self._arc_service.create_batch(
+                    db,
+                    str(novel_id),
+                    arc_payloads,
+                )
         except Exception as exc:
-            logger.warning("Failed to create arc batch: %s", exc)
+            logger.warning(
+                "Failed to create arc batch: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             if strict:
                 raise
             created: list[dict] = []
             for arc_data in arc_payloads:
                 try:
-                    arc_resp = await self._arc_service.create(
-                        db,
-                        str(novel_id),
-                        arc_data,
-                    )
+                    async with db.begin_nested():
+                        arc_resp = await self._arc_service.create(
+                            db,
+                            str(novel_id),
+                            arc_data,
+                        )
                     created.append(
                         {
                             "id": str(arc_resp.id),
@@ -483,8 +494,8 @@ class PlotStructurePersister:
                 except Exception as item_exc:
                     logger.warning(
                         "Failed to create arc '%s': %s",
-                        arc_data.title,
-                        item_exc,
+                        redact_diagnostic(arc_data.title, limit=120),
+                        redact_diagnostic(item_exc, limit=300),
                     )
             return created
 
@@ -538,16 +549,21 @@ class PlotStructurePersister:
                     )
                 )
             except Exception as exc:
-                logger.warning("Failed to create foreshadowing '%s': %s", fp.name, exc)
+                logger.warning(
+                    "Failed to create foreshadowing '%s': %s",
+                    redact_diagnostic(fp.name, limit=120),
+                    redact_diagnostic(exc, limit=300),
+                )
                 if strict:
                     raise
         if foreshadowing_payloads:
             try:
-                plans = await self._foreshadowing_service.create_batch(
-                    db,
-                    str(novel_id),
-                    foreshadowing_payloads,
-                )
+                async with db.begin_nested():
+                    plans = await self._foreshadowing_service.create_batch(
+                        db,
+                        str(novel_id),
+                        foreshadowing_payloads,
+                    )
                 created_foreshadowing.extend(
                     {
                         "id": str(plan.id),
@@ -558,7 +574,10 @@ class PlotStructurePersister:
                     for plan, payload in zip(plans, foreshadowing_payloads)
                 )
             except Exception as exc:
-                logger.warning("Failed to create foreshadowing batch: %s", exc)
+                logger.warning(
+                    "Failed to create foreshadowing batch: %s",
+                    redact_diagnostic(exc, limit=300),
+                )
                 if strict:
                     raise
             if strict and len(created_foreshadowing) != len(foreshadowing_payloads):
@@ -625,18 +644,19 @@ class PlotStructurePersister:
             except Exception as exc:
                 logger.warning(
                     "Failed to create reveal for '%s': %s",
-                    rp.target_name,
-                    exc,
+                    redact_diagnostic(rp.target_name, limit=120),
+                    redact_diagnostic(exc, limit=300),
                 )
                 if strict:
                     raise
         if reveal_payloads:
             try:
-                plans = await self._reveal_service.create_batch(
-                    db,
-                    str(novel_id),
-                    reveal_payloads,
-                )
+                async with db.begin_nested():
+                    plans = await self._reveal_service.create_batch(
+                        db,
+                        str(novel_id),
+                        reveal_payloads,
+                    )
                 created_reveals.extend(
                     {
                         "id": str(plan.id),
@@ -651,7 +671,10 @@ class PlotStructurePersister:
                     )
                 )
             except Exception as exc:
-                logger.warning("Failed to create reveal batch: %s", exc)
+                logger.warning(
+                    "Failed to create reveal batch: %s",
+                    redact_diagnostic(exc, limit=300),
+                )
                 if strict:
                     raise
             if strict and len(created_reveals) != len(reveal_payloads):
@@ -715,23 +738,30 @@ class PlotStructurePersister:
             return []
 
         try:
-            created_scenes = await self._scene_service.batch_create_models_from_dicts(
-                db,
-                str(novel_id),
-                scene_payloads,
-            )
+            async with db.begin_nested():
+                created_scenes = (
+                    await self._scene_service.batch_create_models_from_dicts(
+                        db,
+                        str(novel_id),
+                        scene_payloads,
+                    )
+                )
         except Exception as exc:
-            logger.warning("Failed to create scene batch: %s", exc)
+            logger.warning(
+                "Failed to create scene batch: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             if strict:
                 raise
             created: list[dict[str, Any]] = []
             for payload in scene_payloads:
                 try:
-                    scene_resp = await self._scene_service.create(
-                        db,
-                        str(novel_id),
-                        SceneCreate(**payload),
-                    )
+                    async with db.begin_nested():
+                        scene_resp = await self._scene_service.create(
+                            db,
+                            str(novel_id),
+                            SceneCreate(**payload),
+                        )
                     created.append(
                         {
                             "id": str(scene_resp.id),
@@ -742,8 +772,8 @@ class PlotStructurePersister:
                 except Exception as item_exc:
                     logger.warning(
                         "Failed to create scene '%s': %s",
-                        payload.get("title"),
-                        item_exc,
+                        redact_diagnostic(payload.get("title"), limit=120),
+                        redact_diagnostic(item_exc, limit=300),
                     )
             return created
 

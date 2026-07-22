@@ -61,6 +61,7 @@ class ConfirmedAIActionService:
         self,
         db: AsyncSession,
         *,
+        novel_id: str,
         confirmation_id: str,
         result_type: str,
         result_id: str,
@@ -68,6 +69,7 @@ class ConfirmedAIActionService:
     ) -> ContextConfirmationContract:
         return await self._confirmation.attach_result_ref(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_type=result_type,
             result_id=result_id,

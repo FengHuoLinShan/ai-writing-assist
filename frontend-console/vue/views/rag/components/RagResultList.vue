@@ -1,6 +1,13 @@
 <script setup>
 import { computed } from "vue"
-import { highlightParts, hitKindLabel, resultCountLabel, searchErrorReason } from "../logic/searchPayload.js"
+import {
+  highlightParts,
+  hitKindLabel,
+  parentSceneContexts,
+  parentSceneLabel,
+  resultCountLabel,
+  searchErrorReason,
+} from "../logic/searchPayload.js"
 import { ragSearchSession } from "../ragSearchSession.js"
 
 /**
@@ -12,13 +19,16 @@ const props = defineProps({
   searchError: { type: Object, default: null },
 })
 
-const emit = defineEmits(["load-more", "open-hit", "retry", "retry-literal"])
+const emit = defineEmits(["load-more", "open-hit", "open-scene", "retry", "retry-literal"])
 
 const session = ragSearchSession
 
 const visibleHits = computed(() => session.hits.slice(0, session.visibleCount))
 const remaining = computed(() => Math.max(0, session.hits.length - visibleHits.value.length))
 const searched = computed(() => Boolean(session.lastSearchPayload))
+const authorMode = computed(() => (
+  (session.lastSearchPayload?.visibility?.mode || "author") === "author"
+))
 
 const warnings = computed(() => {
   const meta = session.resultMeta || {}
@@ -79,6 +89,29 @@ function hitMode(hit) {
             <span>{{ hit.title || "检索结果" }}</span>
             <span v-if="hit.score" class="rag-result-score">{{ (hit.score * 100).toFixed(0) }}%</span>
           </div>
+          <section v-if="hit.kind === 'manuscript' && authorMode" class="rag-result-context">
+            <div class="rag-result-context__row">
+              <span class="rag-result-context__label">剧情归属</span>
+              <div v-if="parentSceneContexts(hit).length" class="rag-result-scene-list">
+                <div
+                  v-for="ref in parentSceneContexts(hit)"
+                  :key="`${ref.target_id}:${ref.scene_span_id || ''}`"
+                  class="rag-result-scene-item"
+                >
+                  <button
+                    type="button"
+                    class="rag-result-scene-link"
+                    data-action="open-scene-context"
+                    @click="emit('open-scene', ref)"
+                  >{{ parentSceneLabel(ref) }}</button>
+                  <p v-if="ref.context_summary" class="rag-result-context__summary">{{ ref.context_summary }}</p>
+                </div>
+              </div>
+              <span v-else class="rag-result-context__missing">未关联 Scene</span>
+            </div>
+            <p v-if="hit.writing_relevance?.label" class="rag-result-context__relevance"><strong>与当前创作：</strong>{{ hit.writing_relevance.label }}</p>
+          </section>
+          <div class="rag-result-evidence-label">命中依据</div>
           <p class="rag-result-text">{{ highlightParts(hit.snippet, session.query).before }}<mark v-if="highlightParts(hit.snippet, session.query).mark">{{ highlightParts(hit.snippet, session.query).mark }}</mark>{{ highlightParts(hit.snippet, session.query).after }}</p>
           <div class="card-meta">
             {{ hitKindLabel(hit.kind) }}<template v-if="hit.chapter_index"> · 第 {{ hit.chapter_index }} 章</template><template v-if="hit.match_count > 1"> · {{ hit.match_basis === "occurrence" ? `本章 ${hit.match_count} 处命中` : `聚合 ${hit.match_count} 个相关片段` }}</template><template v-if="hit.source_ref"> · {{ hitMode(hit) }} v{{ hit.source_ref.version_number || "-" }}</template><template v-if="hit.index_fresh === false"> · 索引待更新</template><template v-if="(hit.scene_refs || []).length"> · Scene {{ hit.scene_refs.length }}</template><template v-if="(hit.object_refs || []).length"> · 对象 {{ hit.object_refs.length }}</template>

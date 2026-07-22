@@ -149,7 +149,7 @@ ok
 网络小说作者需要长时间在写作工作台中反复写正文、切换 Scene、查看结构提示、保存版本、发布索引，并从正文反向提取 Scene。
 
 目标：
-让作者在 /workbench/:projectId/writing 中完成正文编辑、暂存、发布、版本历史、断章、Scene 树导航、右侧 Scene 卡联动、实体轻量查询和“场景自动提取”。
+让作者在 /workbench/:projectId/writing 中完成正文编辑、暂存、发布、版本历史、Scene 树导航、右侧 Scene 卡联动、实体轻量查询和“场景自动提取”。
 
 真实 LLM 验收数据：
 - “场景自动提取”路径必须使用数据库中《诡秘之主 第一部》项目的第 1-3 章真实内容。
@@ -168,7 +168,6 @@ ok
 - 光标 offset 命中 scene_chunks 时，右侧 Scene 卡随光标切换。
 - “暂存”或 Ctrl+S 原地更新当前最新版本，不新增版本号，并提示“已暂存”。
 - “发布”新增 writing_drafts 版本，version_number 自增，并入队 publish_chapter/RAG 索引；空内容发布被前端拦截。
-- “断章至此”按 offset 切分当前 Chapter，生成新 Chapter 与新草稿版本，更新 scene_chunks，不立即触发 RAG 索引。
 - Scene 切换时编辑器内容进入前端暂存，不触发后端保存，不丢失当前输入。
 - 版本历史可预览并恢复到编辑器，恢复后需用户再次保存才入库。
 - 多 Tab 保存冲突返回 409，前端提示且保留用户输入。
@@ -181,8 +180,8 @@ ok
 - 执行计划时并行派出子代理。
 
 验收：
-- 前端 E2E 覆盖空状态、新建章节、暂存、发布、Scene 切换不丢内容、版本历史、断章、光标联动、AI 提取弹窗、localStorage 备份、多 Tab 冲突。
-- 后端覆盖 draft CRUD、版本号、发布任务入队、断章映射、409 expected_version。
+- 前端 E2E 覆盖空状态、新建章节、暂存、发布、Scene 切换不丢内容、版本历史、光标联动、AI 提取弹窗、localStorage 备份、多 Tab 冲突。
+- 后端覆盖 draft CRUD、版本号、发布任务入队和 409 expected_version。
 - 真实 LLM 验收记录《诡秘之主 第一部》第 1-3 章 AI 提取后生成/更新的 Scene 卡数量和关键字段。
 ```
 

@@ -5,6 +5,7 @@ TB1: Embedding provider — generate_embedding() 测试
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -15,10 +16,43 @@ import pytest
 from infrastructure.embedding.client import (
     BgeEmbeddingClient,
     EmbeddingBatchQueueClosedError,
+    prewarm_embedding_worker,
 )
 from infrastructure.embedding.worker import BgeOnnxWorker
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.providers import OpenAIProvider
+
+
+@pytest.mark.asyncio
+async def test_prewarm_failure_redacts_runtime_warning() -> None:
+    secret = "private-token-value"
+    client = AsyncMock()
+    client.generate_embedding.side_effect = RuntimeError(
+        f"Authorization: Bearer {secret} api_key={secret}"
+    )
+    settings = SimpleNamespace(
+        embedding_provider="bge_onnx",
+        embedding_model="test-model",
+    )
+
+    with (
+        patch(
+            "infrastructure.embedding.client.get_settings",
+            return_value=settings,
+            autospec=True,
+        ),
+        patch.object(
+            BgeEmbeddingClient,
+            "get_instance",
+            autospec=True,
+            return_value=client,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="prewarm failed"):
+            await prewarm_embedding_worker()
+
+    warning = BgeEmbeddingClient.runtime_snapshot()["last_prewarm"]["warning"]
+    assert secret not in warning
 
 
 @pytest.fixture
@@ -246,22 +280,24 @@ async def test_bge_embedding_cache_hit_does_not_enter_batch_queue():
 
 
 @pytest.mark.asyncio
-async def test_bge_embedding_worker_exception_fails_entire_batch():
+async def test_bge_embedding_worker_exception_fails_entire_batch(caplog):
     worker = RecordingBgeWorker()
-    worker.error = RuntimeError("encode exploded")
+    secret = "private-token-value"
+    worker.error = RuntimeError(
+        f"encode exploded Authorization: Bearer {secret} api_key={secret}"
+    )
 
-    async with bge_client_context(delay_ms=25, worker=worker) as (client, _worker):
-        results = await asyncio.gather(
-            client.generate_embedding("one"),
-            client.generate_embedding("two"),
-            return_exceptions=True,
-        )
+    with caplog.at_level(logging.ERROR, logger="infrastructure.embedding.client"):
+        async with bge_client_context(delay_ms=25, worker=worker) as (client, _worker):
+            results = await asyncio.gather(
+                client.generate_embedding("one"),
+                client.generate_embedding("two"),
+                return_exceptions=True,
+            )
 
     assert worker.calls == [(["one", "two"], False)]
-    assert [str(result) for result in results] == [
-        "encode exploded",
-        "encode exploded",
-    ]
+    assert secret not in caplog.text
+    assert [str(result) for result in results] == [str(worker.error)] * 2
 
 
 @pytest.mark.asyncio

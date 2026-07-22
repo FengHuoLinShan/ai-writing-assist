@@ -16,14 +16,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from infrastructure.llm.schemas import LLMCallResponse
-from infrastructure.tasks.models import AsyncTask
-from modules.outline.repositories import SceneRepository
-from modules.outline.schemas import SceneCreate
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.facade import (
     create_draft,
@@ -1064,6 +1060,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v2)
+        repo.get_for_update = AsyncMock(return_value=v2)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.count_working_versions = AsyncMock(return_value=2)
         repo.delete = AsyncMock(return_value=v2)
         repo.renumber_versions_after_delete = AsyncMock()
@@ -1073,6 +1071,11 @@ class TestWritingDraftService:
 
         await service.delete_draft(db, str(v2.id), sample_draft_data.novel_id)
 
+        repo.lock_version_chapters_for_revalidation.assert_awaited_once_with(
+            db,
+            v2.novel_id,
+            [v2.chapter_index],
+        )
         repo.delete.assert_awaited_once_with(db, v2.id)
         repo.renumber_versions_after_delete.assert_not_awaited()
 
@@ -1087,6 +1090,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v1)
+        repo.get_for_update = AsyncMock(return_value=v1)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.count_working_versions = AsyncMock(return_value=1)
         service = WritingDraftService(repo=repo)
         db = MagicMock()
@@ -1106,6 +1111,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=working)
+        repo.get_for_update = AsyncMock(return_value=working)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.count_working_versions = AsyncMock(return_value=1)
         repo.delete = AsyncMock()
         service = WritingDraftService(repo=repo)
@@ -1130,6 +1137,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=candidate)
+        repo.get_for_update = AsyncMock(return_value=candidate)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.delete = AsyncMock(return_value=candidate)
         service = WritingDraftService(repo=repo)
         db = MagicMock()
@@ -1391,257 +1400,6 @@ class TestWritingDraftService:
         count = await service.delete_chapter(db, sample_draft_data.novel_id, 1)
 
         assert count == 1
-
-
-@pytest.mark.asyncio
-async def test_split_chapter_at_offset_creates_new_chapter_without_publish_task(
-    service: WritingDraftService,
-    db_session: AsyncSession,
-) -> None:
-    novel_id = str(uuid.uuid4())
-    original = await service.create_draft(
-        db_session,
-        WritingDraftCreate(
-            novel_id=novel_id,
-            chapter_index=5,
-            title="第五章",
-            content="前半段内容。后半段内容。",
-        ),
-    )
-
-    result = await service.split_chapter_at_offset(
-        db_session,
-        novel_id=novel_id,
-        chapter_index=5,
-        split_pos=5,
-        source_scene_id=None,
-    )
-
-    tasks_result = await db_session.execute(select(AsyncTask))
-    assert len(tasks_result.scalars().all()) == 0
-
-    assert result.source_chapter_index == 5
-    assert result.new_chapter_index == 6
-    assert result.source_draft.content == "前半段内容"
-    assert result.new_draft.content == "。后半段内容。"
-    assert result.source_draft.version_number == original.version_number
-    assert result.new_draft.version_number == 1
-
-
-@pytest.mark.asyncio
-async def test_split_chapter_shifts_later_chapters(
-    service: WritingDraftService,
-    db_session: AsyncSession,
-) -> None:
-    novel_id = str(uuid.uuid4())
-    await service.create_draft(
-        db_session,
-        WritingDraftCreate(
-            novel_id=novel_id, chapter_index=5, title="第五章", content="甲乙丙丁"
-        ),
-    )
-    await service.create_draft(
-        db_session,
-        WritingDraftCreate(
-            novel_id=novel_id, chapter_index=6, title="第六章", content="原第六章"
-        ),
-    )
-    await service.create_draft(
-        db_session,
-        WritingDraftCreate(
-            novel_id=novel_id, chapter_index=7, title="第七章", content="原第七章"
-        ),
-    )
-    await service.create_draft(
-        db_session,
-        WritingDraftCreate(
-            novel_id=novel_id, chapter_index=8, title="第八章", content="原第八章"
-        ),
-    )
-
-    engine = db_session.bind.sync_engine
-    draft_updates: list[str] = []
-
-    def count_draft_updates(
-        _conn: object,
-        _cursor: object,
-        statement: str,
-        _parameters: object,
-        _context: object,
-        _executemany: bool,
-    ) -> None:
-        normalized = " ".join(statement.lower().split())
-        if normalized.startswith("update writing_drafts"):
-            draft_updates.append(normalized)
-
-    event.listen(engine, "before_cursor_execute", count_draft_updates)
-    try:
-        result = await service.split_chapter_at_offset(
-            db_session,
-            novel_id=novel_id,
-            chapter_index=5,
-            split_pos=2,
-            source_scene_id=None,
-        )
-    finally:
-        event.remove(engine, "before_cursor_execute", count_draft_updates)
-
-    assert result.new_chapter_index == 6
-    indices = await service.list_chapter_indices(db_session, novel_id)
-    assert indices == [5, 6, 7, 8, 9]
-    assert (await service.get_latest_draft(db_session, novel_id, 7)).content == "原第六章"
-    assert (await service.get_latest_draft(db_session, novel_id, 8)).content == "原第七章"
-    assert (await service.get_latest_draft(db_session, novel_id, 9)).content == "原第八章"
-    assert len(draft_updates) == 3
-
-
-@pytest.mark.asyncio
-async def test_split_chapter_at_offset_syncs_scene_chunks(
-    service: WritingDraftService,
-    db_session: AsyncSession,
-) -> None:
-    """跨模块测试：切分章节时同步切分 source Scene 的 chunk 并新建 Scene"""
-    novel_id = str(uuid.uuid4())
-    await service.create_draft(
-        db_session,
-        WritingDraftCreate(
-            novel_id=novel_id,
-            chapter_index=1,
-            title="第一章",
-            content="一二三四五六七八九十",
-        ),
-    )
-
-    repo = SceneRepository()
-    nid = uuid.UUID(hex=novel_id)
-    source_scene = await repo.create(
-        db_session,
-        nid,
-        SceneCreate(
-            scene_index=0,
-            title="Source Scene",
-            chapter_ids=["1"],
-            scene_chunks=[
-                {"chapter_id": "1", "chapter_index": 1, "start_pos": 0, "end_pos": 10}
-            ],
-            status="draft",
-        ),
-    )
-    await db_session.flush()
-
-    result = await service.split_chapter_at_offset(
-        db_session,
-        novel_id=novel_id,
-        chapter_index=1,
-        split_pos=4,
-        source_scene_id=str(source_scene.id),
-    )
-
-    assert result.source_chapter_index == 1
-    assert result.new_chapter_index == 2
-    assert result.source_draft.content == "一二三四"
-    assert result.new_draft.content == "五六七八九十"
-    assert len(result.scenes) >= 2
-
-    source_id = str(source_scene.id)
-    source_item = next(item for item in result.scenes if item.id == source_id)
-    assert source_item.scene_chunks[0]["end_pos"] == 4
-
-    new_item = next(item for item in result.scenes if item.id != source_id)
-    assert new_item.chapter_ids == ["2"]
-    assert new_item.scene_chunks[0]["chapter_id"] == "2"
-    assert new_item.scene_chunks[0]["chapter_index"] == 2
-    assert new_item.scene_index == source_item.scene_index + 1
-
-
-@pytest.mark.asyncio
-async def test_split_chapter_at_offset_uses_injected_scene_chunk_splitter(
-    db_session: AsyncSession,
-) -> None:
-    novel_id = str(uuid.uuid4())
-    calls: list[dict[str, object]] = []
-
-    async def fake_split_scene_chunk_to_new_chapter(
-        db: AsyncSession,
-        passed_novel_id: str,
-        *,
-        source_scene_id: str,
-        source_chapter_id: str,
-        source_chapter_index: int,
-        new_chapter_id: str,
-        new_chapter_index: int,
-        split_pos: int,
-        new_chapter_length: int,
-    ) -> list[dict[str, object]]:
-        calls.append(
-            {
-                "db": db,
-                "novel_id": passed_novel_id,
-                "source_scene_id": source_scene_id,
-                "source_chapter_id": source_chapter_id,
-                "source_chapter_index": source_chapter_index,
-                "new_chapter_id": new_chapter_id,
-                "new_chapter_index": new_chapter_index,
-                "split_pos": split_pos,
-                "new_chapter_length": new_chapter_length,
-            }
-        )
-        return [
-            {
-                "id": "fake-scene-2",
-                "novel_id": passed_novel_id,
-                "scene_index": 2,
-                "title": "Injected Scene",
-                "scene_chunks": [
-                    {
-                        "chapter_id": new_chapter_id,
-                        "chapter_index": new_chapter_index,
-                        "start_pos": 0,
-                        "end_pos": new_chapter_length,
-                    }
-                ],
-                "chapter_ids": [new_chapter_id],
-            }
-        ]
-
-    service = WritingDraftService(
-        split_scene_chunk_to_new_chapter=fake_split_scene_chunk_to_new_chapter
-    )
-    await service.create_draft(
-        db_session,
-        WritingDraftCreate(
-            novel_id=novel_id,
-            chapter_index=1,
-            title="第一章",
-            content="abcdEFGH",
-        ),
-    )
-
-    result = await service.split_chapter_at_offset(
-        db_session,
-        novel_id=novel_id,
-        chapter_index=1,
-        split_pos=4,
-        source_scene_id="fake-scene-1",
-    )
-
-    assert calls == [
-        {
-            "db": db_session,
-            "novel_id": novel_id,
-            "source_scene_id": "fake-scene-1",
-            "source_chapter_id": "1",
-            "source_chapter_index": 1,
-            "new_chapter_id": "2",
-            "new_chapter_index": 2,
-            "split_pos": 4,
-            "new_chapter_length": 4,
-        }
-    ]
-    assert result.source_draft.content == "abcd"
-    assert result.new_draft.content == "EFGH"
-    assert result.scenes[0].id == "fake-scene-2"
-    assert result.scenes[0].scene_chunks[0]["end_pos"] == 4
 
 
 # ============================================================

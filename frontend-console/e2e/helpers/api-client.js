@@ -100,6 +100,20 @@ export async function createProject(payload) {
   throw lastError || new Error(`Project ${project.id} was not visible after creation`)
 }
 
+export async function updateProjectLLMSettings(projectId, payload) {
+  return request(`/projects/${projectId}/llm-settings`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function clearProjectLLMApiKeys(projectId) {
+  return request(`/projects/${projectId}/llm-settings`, {
+    method: "PUT",
+    body: JSON.stringify({ clear_all_api_keys: true }),
+  })
+}
+
 export async function deleteProject(id) {
   return request(`/projects/${id}`, { method: "DELETE" })
 }
@@ -108,6 +122,12 @@ export async function deleteProject(id) {
 export async function cleanupProject(id) {
   try { await deleteProject(id) } catch {}
   try { await request(`/projects/${id}/permanent?confirmed=true`, { method: "DELETE" }) } catch {}
+}
+
+/** 严格清理真实凭据 E2E 项目；任一步失败都必须让测试失败。 */
+export async function cleanupProjectStrict(id) {
+  await deleteProject(id)
+  await request(`/projects/${id}/permanent?confirmed=true`, { method: "DELETE" })
 }
 
 export async function healthCheck() {

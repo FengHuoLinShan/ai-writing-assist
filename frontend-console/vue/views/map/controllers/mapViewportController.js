@@ -54,7 +54,10 @@ export function createMapViewportController({
     })
 
     if (!isCurrent(token, element, ownerProjectId)) {
-      if (rendererOwners.get(renderer) === ownership) {
+      // 只有本次 mount 仍是当前代次时，才拥有清理 renderer 的权利。
+      // 同一 controller 的下一次 mount 会复用 ownership；若旧请求晚到，
+      // 仅检查 ownership 会误卸载已经由新代次接管的视口。
+      if (token === generation && rendererOwners.get(renderer) === ownership) {
         renderer.unmount?.()
         rendererOwners.delete(renderer)
       }

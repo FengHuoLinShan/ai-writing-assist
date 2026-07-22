@@ -137,8 +137,12 @@ class MemoryEventResponse(BaseModel):
     snapshot_after: dict[str, Any] = {}
     source: str = "ai_extraction"
     created_at: datetime | None = None
+    scene_id: str | None = None
+    scene_index: int | None = None
+    scene_sequence: int | None = None
+    dimension: str | None = None
 
-    @field_validator("id", "novel_id", "entity_id", mode="before")
+    @field_validator("id", "novel_id", "entity_id", "scene_id", mode="before")
     @classmethod
     def coerce_uuid(cls, v: object) -> str | None:
         if v is None:
@@ -196,3 +200,119 @@ class MemoryStatusResponse(BaseModel):
     latest_snapshot_chapter: int | None = None
     has_stale: bool = False
     stale_from_chapter: int | None = None
+
+
+SCENE_MEMORY_DIMENSIONS = (
+    "entities",
+    "relations",
+    "locations",
+    "knowledge",
+    "map",
+)
+
+
+class SceneCheckpointResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    scene_id: str
+    scene_index: int
+    stage_index: int
+    dimension: str
+    status: str
+    source: str
+    confirmed: bool
+    state_json: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    display_summary: str = ""
+    gap_reason: str | None = None
+    retry_count: int = 0
+    decision_summary: str | None = None
+    created_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "scene_id", mode="before")
+    @classmethod
+    def coerce_checkpoint_uuid(cls, value: object) -> str:
+        return str(value)
+
+
+class SceneCheckpointSetResponse(BaseModel):
+    novel_id: str
+    scene_id: str
+    scene_index: int
+    stage_index: int
+    scene_title: str | None = None
+    coverage_status: str
+    items: list[SceneCheckpointResponse] = Field(default_factory=list)
+    missing_dimensions: list[str] = Field(default_factory=list)
+
+
+class SceneCheckpointEnsureRequest(BaseModel):
+    scene_id: str
+
+
+class SceneCheckpointRebuildRequest(BaseModel):
+    from_scene_id: str | None = None
+    dimensions: list[str] = Field(default_factory=lambda: list(SCENE_MEMORY_DIMENSIONS))
+
+    @field_validator("dimensions")
+    @classmethod
+    def validate_dimensions(cls, value: list[str]) -> list[str]:
+        unique = list(dict.fromkeys(value))
+        if not unique or any(item not in SCENE_MEMORY_DIMENSIONS for item in unique):
+            raise ValueError("unknown memory checkpoint dimension")
+        return unique
+
+
+class SceneCheckpointRepairRequest(BaseModel):
+    scene_id: str
+    dimension: str
+    expected_checkpoint_id: str
+    decision: str
+    decision_summary: str = Field(..., min_length=2, max_length=2000)
+    replacement_summary: str | None = Field(default=None, max_length=12000)
+    confirmed: bool = False
+
+    @field_validator("decision_summary")
+    @classmethod
+    def normalize_decision_summary(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 2:
+            raise ValueError("decision_summary must contain at least 2 characters")
+        return normalized
+
+    @field_validator("replacement_summary")
+    @classmethod
+    def normalize_replacement_summary(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("dimension")
+    @classmethod
+    def validate_dimension(cls, value: str) -> str:
+        if value not in SCENE_MEMORY_DIMENSIONS:
+            raise ValueError("unknown memory checkpoint dimension")
+        return value
+
+    @field_validator("decision")
+    @classmethod
+    def validate_decision(cls, value: str) -> str:
+        if value not in {"keep_current", "replace_with_summary", "confirm_empty"}:
+            raise ValueError("unsupported repair decision")
+        return value
+
+    @field_validator("confirmed")
+    @classmethod
+    def require_confirmation(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("confirmed=true is required")
+        return value
+
+
+class SceneCheckpointRepairResponse(BaseModel):
+    scene_id: str
+    dimension: str
+    rebuilt_scene_count: int
+    checkpoint: SceneCheckpointResponse

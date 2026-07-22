@@ -301,6 +301,8 @@ class EvidenceHitContract:
     chapter_index: int | None = None
     score: float | None = None
     scene_refs: list[dict] = field(default_factory=list)
+    parent_scene_contexts: list[dict] = field(default_factory=list)
+    """Unique parent Scenes represented by an aggregated manuscript hit."""
     object_refs: list[dict] = field(default_factory=list)
     index_fresh: bool = True
     visibility_decision: dict = field(default_factory=dict)
@@ -308,6 +310,8 @@ class EvidenceHitContract:
     """Number of occurrences or chunks aggregated into this chapter-level hit."""
     match_basis: str = "chunk"
     """Aggregation basis: occurrence or chunk."""
+    writing_relevance: dict = field(default_factory=dict)
+    """Author-facing relation between this hit and the active writing Scene."""
 
 
 @dataclass(frozen=True)

@@ -271,7 +271,9 @@ class WorldBibleActivationTargetService:
             target_hash=target.target_hash(),
             label=entity.name,
             status=entity.status,
-            importance=float(entity.importance or 0.0),
+            importance=float(
+                entity.importance if entity.importance is not None else 0.0
+            ),
             content=content,
             token_count=estimate_token_count(content),
             source_kind=source_kind,

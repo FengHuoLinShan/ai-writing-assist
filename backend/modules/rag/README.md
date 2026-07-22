@@ -213,6 +213,12 @@ RAG 文本只是候选召回材料。context 或证据 API 在输出前必须通
 不新增分页 cursor：前端单次请求最多 100 条命中，但首批只挂载 20 张结果卡，随后按 20 条
 渐进显示；检索条件保存在前端 URL，临时显示游标不进入 wire 或 URL。该展示策略不改变
 RAG 检索排序、chunk schema 或跨模块稳定接口。
+经校验的 evidence 响应会把 chunk 命中的精确 SceneSpan 补成作者可读的父 Scene
+位置与短摘要，并可结合写作台当前 Scene 说明前后文关系。聚合卡片以
+`parent_scene_contexts` 保留全部子命中的父 Scene，`scene_refs` 则继续与卡片当前
+`source_ref` 严格对齐。这些字段属于
+context 的作者可见 evidence wire；`/api/rag/retrieve` 仍只返回候选块及原始
+`scene_id/scene_span_id`，不绕过正文版本和可见性校验。
 
 ## 模块职责
 

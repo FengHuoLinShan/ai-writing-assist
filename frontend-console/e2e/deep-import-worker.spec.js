@@ -1,44 +1,102 @@
 /**
- * 深度导入真实异步 Worker 受理测试
+ * 深度导入真实异步 Worker 恢复测试
  *
  * 前置条件：
- * - 后端 API 已启动
- * - 前端静态服务器已启动
- * - 数据库可用
- * - Worker 进程正在运行（cd backend && python run_worker.py，或 make dev）
+ * - 专用 PostgreSQL E2E 数据库可用
+ * - WORKER_E2E_LLM_API_KEY 与 LLM_SETTINGS_ENCRYPTION_KEY 已配置
  *
- * 注意：默认 Playwright webServer 只启动后端 API + 前端，不会启动 Worker。
- * 这个用例只在真实 Worker 环境中运行，不做 Mock。
+ * playwright.worker.config.js 会依次启动 API、前端和隔离 Worker；
+ * LLM provider 不做 Mock，Worker 必须输出 readiness 日志后才开始测试。
  *
  * 运行方式：
- *   RUN_WORKER_E2E=1 npx playwright test deep-import-worker.spec.js --reporter=list
+ *   DATABASE_URL='<dedicated-postgresql-url>' \
+ *   WORKER_E2E_LLM_API_KEY='<provider-key>' \
+ *   LLM_SETTINGS_ENCRYPTION_KEY='<shared-encryption-key>' \
+ *   npm run test:e2e:worker -- --reporter=list
  */
-import { test, expect } from "./fixtures.js"
-import { openProjectView, openWorkbench } from "./helpers/workbench.js"
-import {
-  API_BASE,
-  createProject,
-  cleanupProject,
-  waitForBackend,
-  getTask,
-} from "./helpers/api-client.js"
+import { chromium, expect, test } from "@playwright/test"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 
+import { SEL } from "./helpers/selectors.js"
+import { openProjectView, openWorkbench, waitWritingReady } from "./helpers/workbench.js"
+import {
+  clearProjectLLMApiKeys,
+  cleanupProjectStrict,
+  createProject,
+  getTask,
+  updateProjectLLMSettings,
+  waitForBackend,
+} from "./helpers/api-client.js"
+import { createPersistentBrowserProfile } from "./helpers/persistent-browser.js"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TERMINAL_TASK_STATUSES = new Set(["done", "failed", "cancelled"])
 
-test.skip(
-  process.env.RUN_WORKER_E2E !== "1",
-  "requires RUN_WORKER_E2E=1 and a running backend worker",
+function timeoutFromEnv(name, fallback, minimum = 1_000) {
+  const value = Number(process.env[name] || fallback)
+  if (!Number.isFinite(value) || value < minimum) {
+    throw new Error(`${name} must be a finite value >= ${minimum}`)
+  }
+  return value
+}
+
+const TASK_TIMEOUT_MS = timeoutFromEnv("WORKER_E2E_TASK_TIMEOUT_MS", 2_400_000, 60_000)
+const CLOSED_BROWSER_ADVANCE_TIMEOUT_MS = timeoutFromEnv(
+  "WORKER_E2E_CLOSED_ADVANCE_TIMEOUT_MS",
+  180_000,
+  10_000,
 )
 
-async function waitForTaskDone(taskId, novelId, timeoutMs = 180_000) {
+test.skip(
+  process.env.RUN_WORKER_E2E !== "1"
+    || !process.env.WORKER_E2E_LLM_API_KEY
+    || !process.env.LLM_SETTINGS_ENCRYPTION_KEY,
+  "requires RUN_WORKER_E2E=1, WORKER_E2E_LLM_API_KEY, and LLM_SETTINGS_ENCRYPTION_KEY",
+)
+
+function taskProgressMarker(task = {}) {
+  return JSON.stringify({
+    status: task.status,
+    progress: task.progress,
+    updated_at: task.updated_at,
+    heartbeat_at: task.heartbeat_at,
+    current_phase: task.result?.current_phase,
+    current_operation: task.result?.current_operation,
+    current_item: task.result?.current_item,
+  })
+}
+
+async function waitForTaskAdvance(taskId, novelId, initialTask, timeoutMs) {
+  const initialMarker = taskProgressMarker(initialTask)
+  const deadline = Date.now() + timeoutMs
+  let lastTask = initialTask
+
+  while (Date.now() < deadline) {
+    lastTask = await getTask(taskId, novelId)
+    if (
+      TERMINAL_TASK_STATUSES.has(lastTask.status)
+      || taskProgressMarker(lastTask) !== initialMarker
+    ) {
+      return lastTask
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  throw new Error(
+    `Task ${taskId} did not advance while the browser was closed; `
+      + `last status=${lastTask?.status ?? "unknown"}; `
+      + `progress=${lastTask?.progress ?? "unknown"}`,
+  )
+}
+
+async function waitForTaskDone(taskId, novelId, timeoutMs = TASK_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs
   let lastTask = null
 
   while (Date.now() < deadline) {
     lastTask = await getTask(taskId, novelId)
-    if (TERMINAL_TASK_STATUSES.has(lastTask.status)) {
-      return lastTask
-    }
+    if (TERMINAL_TASK_STATUSES.has(lastTask.status)) return lastTask
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
 
@@ -55,10 +113,10 @@ test.describe("深度导入异步 Worker 受理", () => {
   let testProject = null
 
   test.beforeAll(async () => {
-    await waitForBackend(60000)
+    await waitForBackend(60_000)
   })
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async () => {
     const project = await createProject({
       title: "深度导入异步 Worker 测试项目",
       genre: "fantasy",
@@ -67,114 +125,125 @@ test.describe("深度导入异步 Worker 受理", () => {
     testProjectId = project.id
     testProject = project
 
-    await openProjectView(page, project)
+    await updateProjectLLMSettings(testProjectId, {
+      provider_id: process.env.WORKER_E2E_LLM_PROVIDER_ID || "deepseek",
+      base_url: process.env.WORKER_E2E_LLM_BASE_URL || "https://api.deepseek.com",
+      model: process.env.WORKER_E2E_LLM_MODEL || "deepseek-v4-flash",
+      api_key: process.env.WORKER_E2E_LLM_API_KEY,
+    })
   })
 
   test.afterEach(async () => {
-    if (testProjectId) {
-      try { await cleanupProject(testProjectId) } catch {}
-      testProjectId = null
-      testProject = null
+    const projectId = testProjectId
+    testProjectId = null
+    testProject = null
+    if (!projectId) return
+
+    try {
+      await clearProjectLLMApiKeys(projectId)
+    } finally {
+      await cleanupProjectStrict(projectId)
     }
   })
 
-  test("提交异步深度导入后，关闭页面并等待 worker 完成", async ({ page, context }) => {
-    const uploadResult = await page.evaluate(async ({ apiBase, projectId }) => {
-      const fileContent = [
-        "第一章 起风",
-        "",
-        "青石镇的清晨有些冷，林昭在薄雾里推开了门。",
-        "",
-        "第二章 旧信",
-        "",
-        "信封里没有署名，只有一行字：今晚子时到桥下见。",
-        "",
-        "第三章 约定",
-        "",
-        "他把信折好，抬头看向窗外，风已经更急了。",
-      ].join("\n")
+  test("真实 UI 提交后关闭浏览器，worker 推进并在两次重开后保留终态", async () => {
+    const browserProfile = await createPersistentBrowserProfile(chromium)
+    let persistentContext = null
 
-      const formData = new FormData()
-      formData.append("novel_id", projectId)
-      formData.append(
-        "file",
-        new File([fileContent], "three-chapter-novel.txt", {
-          type: "text/plain",
-        }),
+    try {
+      persistentContext = await browserProfile.launch()
+      const page = persistentContext.pages()[0] || await persistentContext.newPage()
+      await openProjectView(page, testProject)
+
+      await page.locator(SEL.projectImportToggle).click()
+      await page.locator(SEL.projectImportFile).setInputFiles(
+        path.join(__dirname, "helpers", "fixtures", "sample-novel.txt"),
       )
-
-      const uploadResp = await fetch(`${apiBase}/imports/upload`, {
-        method: "POST",
-        body: formData,
+      await page.locator(SEL.projectImportSubmit).click()
+      await expect(page.locator(SEL.toastContainer)).toContainText("导入完成", {
+        timeout: 15_000,
       })
-      if (!uploadResp.ok) {
-        const text = await uploadResp.text()
-        throw new Error(`Upload failed (${uploadResp.status}): ${text}`)
-      }
 
-      return uploadResp.json()
-    }, { apiBase: API_BASE, projectId: testProjectId })
-
-    expect(uploadResult).toBeTruthy()
-
-    const deepImportResponse = await page.evaluate(async ({ apiBase, projectId }) => {
-      const deepResp = await fetch(`${apiBase}/imports/deep`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          novel_id: projectId,
-          start_chapter: 1,
-          end_chapter: 3,
-          adoption_policy: "user_authorized_pipeline",
-          authorization_confirmed: true,
-        }),
+      await page.evaluate(() => window.router.navigate("writing"))
+      await page.waitForFunction(() => !state.loading, { timeout: 10_000 })
+      await waitWritingReady(page)
+      await page.locator(SEL.writingToolsMenu).click()
+      await page.getByRole("button", { name: "启动深度导入" }).click()
+      const dialog = page.getByRole("dialog", { name: "自动提取" })
+      await expect(dialog).toContainText("启动深度导入")
+      await dialog.getByRole("button", { name: "确认并开始提取" }).click()
+      await expect(page.locator(SEL.toastContainer)).toContainText("深度导入已启动", {
+        timeout: 15_000,
       })
-      if (!deepResp.ok) {
-        const text = await deepResp.text()
-        throw new Error(`Deep import submission failed (${deepResp.status}): ${text}`)
-      }
-      return deepResp.json()
-    }, { apiBase: API_BASE, projectId: testProjectId })
 
-    const { task_id: taskId } = await deepImportResponse
-    expect(taskId).toBeTruthy()
+      await expect.poll(() => page.evaluate(() => {
+        const workflows = JSON.parse(
+          localStorage.getItem("novel_active_workflows_v1") || "[]",
+        )
+        return workflows.find((item) => item.workflowType === "deep_import")?.taskId || null
+      })).not.toBeNull()
+      const taskId = await page.evaluate(() => {
+        const workflows = JSON.parse(
+          localStorage.getItem("novel_active_workflows_v1") || "[]",
+        )
+        return workflows.find((item) => item.workflowType === "deep_import")?.taskId
+      })
 
-    await page.evaluate(({ projectId, activeTaskId }) => {
-      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
-        id: `${projectId}:deep_import:${activeTaskId}`,
-        taskId: activeTaskId,
-        workflowType: "deep_import",
-        label: "深度导入",
-        projectId,
-        view: "writing",
-        meta: {},
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }]))
-    }, { projectId: testProjectId, activeTaskId: taskId })
+      const beforeClose = await getTask(taskId, testProjectId)
+      expect(TERMINAL_TASK_STATUSES.has(beforeClose.status)).toBe(false)
 
-    await page.close()
+      await browserProfile.close()
+      const advancedWhileClosed = await waitForTaskAdvance(
+        taskId,
+        testProjectId,
+        beforeClose,
+        CLOSED_BROWSER_ADVANCE_TIMEOUT_MS,
+      )
+      expect(
+        TERMINAL_TASK_STATUSES.has(advancedWhileClosed.status)
+          || taskProgressMarker(advancedWhileClosed) !== taskProgressMarker(beforeClose),
+      ).toBe(true)
 
-    const task = await waitForTaskDone(taskId, testProjectId)
+      persistentContext = await browserProfile.launch()
+      let recoveryPage = persistentContext.pages()[0] || await persistentContext.newPage()
+      await openWorkbench(recoveryPage, testProject, "writing")
+      let progressBar = recoveryPage.locator(SEL.deepImportProgress)
+      await expect(progressBar).toBeVisible({ timeout: 15_000 })
+      await expect(progressBar).toContainText(/等待执行|运行中|已完成/)
 
-    expect(task.status).toBe("done")
-    expect(task.error_message || "").toBe("")
-    expect(task.result.phase).toBe("done")
-    expect(task.result.completed_steps).toEqual(
-      expect.arrayContaining([
+      const task = await waitForTaskDone(taskId, testProjectId)
+      expect(task.status).toBe("done")
+      expect(task.error_message || "").toBe("")
+      expect(task.result.phase).toBe("done")
+      expect(task.result.completed_steps).toEqual(expect.arrayContaining([
         "scene_segmentation",
         "entity_extraction",
         "structure_analysis",
-      ]),
-    )
+      ]))
+      await expect(recoveryPage.locator(SEL.deepImportMapNext)).toBeVisible({
+        timeout: 15_000,
+      })
 
-    const recoveryPage = await context.newPage()
-    await openWorkbench(recoveryPage, testProject, "writing")
-    await expect(
-      recoveryPage.locator('[data-action="deep-import-map-next"]'),
-    ).toBeVisible({ timeout: 15_000 })
-    await expect(recoveryPage.locator("#writing-deep-import-bar-container")).toContainText(
-      /一键创建地图|先审核 \d+ 个地点|查看地图收件箱/,
-    )
+      // 完成态在未确认关闭前必须再次跨浏览器进程恢复。
+      await browserProfile.close()
+      persistentContext = await browserProfile.launch()
+      recoveryPage = persistentContext.pages()[0] || await persistentContext.newPage()
+      await openWorkbench(recoveryPage, testProject, "writing")
+      progressBar = recoveryPage.locator(SEL.deepImportProgress)
+      await expect(progressBar).toContainText("已完成", { timeout: 15_000 })
+      await expect(recoveryPage.locator(SEL.deepImportMapNext)).toBeVisible({
+        timeout: 15_000,
+      })
+
+      await progressBar.getByRole("button", { name: "关闭" }).click()
+      await expect.poll(() => recoveryPage.evaluate((expectedTaskId) => {
+        const workflows = JSON.parse(
+          localStorage.getItem("novel_active_workflows_v1") || "[]",
+        )
+        return workflows.some((item) => item.taskId === expectedTaskId)
+      }, taskId)).toBe(false)
+    } finally {
+      await browserProfile.dispose()
+    }
   })
 })

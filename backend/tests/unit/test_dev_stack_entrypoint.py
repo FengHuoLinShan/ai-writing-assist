@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import signal
 import subprocess
@@ -22,6 +23,47 @@ def _load_dev_stack() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_repo_dev_process_requires_matching_command_and_repo_cwd(monkeypatch) -> None:
+    dev_stack = _load_dev_stack()
+    monkeypatch.setattr(
+        dev_stack,
+        "_process_command",
+        lambda _pid: "python scripts/dev_server.py --port 8000",
+    )
+    monkeypatch.setattr(dev_stack, "_process_cwd", lambda _pid: dev_stack.BACKEND)
+
+    assert dev_stack._is_repo_dev_process(123) is True
+
+    monkeypatch.setattr(dev_stack, "_process_cwd", lambda _pid: Path("/tmp/other"))
+    assert dev_stack._is_repo_dev_process(123) is False
+
+    monkeypatch.setattr(dev_stack, "_process_cwd", lambda _pid: dev_stack.BACKEND)
+    monkeypatch.setattr(dev_stack, "_process_command", lambda _pid: "python other.py")
+    assert dev_stack._is_repo_dev_process(123) is False
+
+
+def test_stop_apps_skips_unverified_stale_pid(monkeypatch, tmp_path) -> None:
+    dev_stack = _load_dev_stack()
+    pidfile = tmp_path / "stack.json"
+    pidfile.write_text(
+        json.dumps(
+            {
+                "root": str(dev_stack.ROOT),
+                "processes": {"backend": 4242},
+            }
+        )
+    )
+    terminated: list[int] = []
+    monkeypatch.setattr(dev_stack, "PIDFILE", pidfile)
+    monkeypatch.setattr(dev_stack, "_is_alive", lambda _pid: True)
+    monkeypatch.setattr(dev_stack, "_is_repo_dev_process", lambda _pid: False)
+    monkeypatch.setattr(dev_stack, "_terminate_pid", terminated.append)
+
+    dev_stack.stop_apps(fallback=False)
+
+    assert terminated == []
 
 
 def test_legacy_start_script_delegates_from_any_cwd_with_spaced_paths(

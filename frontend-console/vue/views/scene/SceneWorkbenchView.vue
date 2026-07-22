@@ -11,7 +11,7 @@
           <button class="btn btn-sm" :class="{ 'btn-primary': viewMode === 'hot' }" data-action="set-scene-view-mode" data-mode="hot" @click="setViewMode('hot')">热点</button>
         </span>
         <button class="btn btn-sm btn-primary" data-action="ai-create-planned-scene" @click="createPlannedScene">AI 创作细纲</button>
-        <button class="btn btn-sm" data-action="scene-auto-extract" @click="showAutoExtractForm">从正文提取 Scene</button>
+        <button class="btn btn-sm" data-action="scene-auto-extract" :disabled="autoExtractionBusy" @click="showAutoExtractForm">{{ autoExtractionBusy ? "提取中..." : "从正文提取 Scene" }}</button>
         <span data-role="smart-dedup-action"></span>
       </div>
     </div>
@@ -180,7 +180,7 @@ const props = defineProps({
 
 const vm = useSceneWorkbench(props)
 const {
-  activeHealth, advancedFiltersOpen, allVisibleSelected, applyFilters,
+  activeHealth, advancedFiltersOpen, allVisibleSelected, applyFilters, autoExtractionBusy,
   cancelAutoExtraction, changePage, clearSelectedScene, dismissAutoExtraction,
   dismissibleSuggestionCount, filterForm, filters, healthLabel, items, loadError,
   loading, mobileDetailOpen, modalController, narrow, openOverlap, openWriting,

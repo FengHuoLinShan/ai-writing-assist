@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import tiktoken
+import pytest
 
+from infrastructure.llm import token_estimation
 from infrastructure.llm.agent_step_harness import (
     ContextBudget,
     ContextBudgetGuard,
@@ -20,20 +21,84 @@ def test_estimate_token_count_handles_empty_text() -> None:
     assert estimate_token_count("") == 0
 
 
-def test_estimate_token_count_uses_known_openai_model_mapping() -> None:
+class _FakeEncoding:
+    def encode(self, text: str) -> list[str]:
+        return text.split()
+
+
+@pytest.fixture(autouse=True)
+def _clear_tokenizer_caches() -> None:
+    token_estimation._encoding_for_model.cache_clear()
+    token_estimation._encoding_by_name.cache_clear()
+    yield
+    token_estimation._encoding_for_model.cache_clear()
+    token_estimation._encoding_by_name.cache_clear()
+
+
+def test_estimate_token_count_uses_known_openai_model_mapping(monkeypatch) -> None:
     text = "antidisestablishmentarianism 今天天气很好。"
+    requested: list[str] = []
 
-    assert estimate_token_count(text, model="gpt-4") == len(
-        tiktoken.encoding_for_model("gpt-4").encode(text)
+    monkeypatch.setattr(
+        token_estimation.tiktoken,
+        "encoding_name_for_model",
+        lambda model: "known-encoding" if model == "gpt-4" else "unexpected",
+    )
+    monkeypatch.setattr(
+        token_estimation.tiktoken,
+        "get_encoding",
+        lambda name: requested.append(name) or _FakeEncoding(),
     )
 
+    assert estimate_token_count(text, model="gpt-4") == 2
+    assert requested == ["known-encoding"]
 
-def test_estimate_token_count_falls_back_to_cl100k_for_unknown_model() -> None:
+
+def test_estimate_token_count_falls_back_to_cl100k_for_unknown_model(
+    monkeypatch,
+) -> None:
     text = "unknown OpenAI-compatible model should still use cl100k_base"
+    requested: list[str] = []
 
-    assert estimate_token_count(text, model="not-a-real-openai-model") == len(
-        tiktoken.get_encoding("cl100k_base").encode(text)
+    def unknown_model(_model: str) -> str:
+        raise KeyError("unknown model")
+
+    monkeypatch.setattr(
+        token_estimation.tiktoken,
+        "encoding_name_for_model",
+        unknown_model,
     )
+    monkeypatch.setattr(
+        token_estimation.tiktoken,
+        "get_encoding",
+        lambda name: requested.append(name) or _FakeEncoding(),
+    )
+
+    assert estimate_token_count(text, model="not-a-real-openai-model") == 7
+    assert requested == ["cl100k_base"]
+
+
+def test_estimate_token_count_uses_cached_byte_bound_when_asset_load_fails(
+    monkeypatch,
+) -> None:
+    attempts = 0
+
+    def unavailable(_name: str):
+        nonlocal attempts
+        attempts += 1
+        raise OSError("offline tokenizer asset")
+
+    monkeypatch.setattr(
+        token_estimation.tiktoken,
+        "get_encoding",
+        unavailable,
+    )
+
+    text = "离线 token budget"
+    expected = len(text.encode("utf-8"))
+    assert estimate_token_count(text) == expected
+    assert estimate_token_count(text) == expected
+    assert attempts == 1
 
 
 def test_import_snapshot_helper_uses_model_aware_token_estimate() -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,6 +25,8 @@ from modules.memory.models import DeltaLog
 from modules.memory.repositories import (
     DeltaLogRepository,
     EventRepository,
+    SceneCheckpointRepository,
+    SceneSnapshotRepository,
     SnapshotRepository,
 )
 from modules.memory.schemas import (
@@ -59,10 +62,16 @@ class MemoryService:
         event_repo: EventRepository | None = None,
         snapshot_repo: SnapshotRepository | None = None,
         delta_log_repo: DeltaLogRepository | None = None,
+        scene_checkpoint_repo: SceneCheckpointRepository | None = None,
+        scene_snapshot_repo: SceneSnapshotRepository | None = None,
     ) -> None:
         self._event_repo = event_repo or EventRepository()
         self._snapshot_repo = snapshot_repo or SnapshotRepository()
         self._delta_log_repo = delta_log_repo or DeltaLogRepository()
+        self._scene_checkpoint_repo = (
+            scene_checkpoint_repo or SceneCheckpointRepository()
+        )
+        self._scene_snapshot_repo = scene_snapshot_repo or SceneSnapshotRepository()
 
     # ============================================================
     # 事件记录
@@ -120,6 +129,72 @@ class MemoryService:
         await db.flush()
         return results
 
+    async def record_scene_events(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        scene_id: str,
+        scene_index: int,
+        chapter_index: int,
+        events: list[dict[str, Any]],
+    ) -> list[MemoryEventResponse]:
+        """Replace one Scene's event stream using Scene as the atomic stage."""
+        from modules.outline.facade import get_scene_contract
+
+        scene = await get_scene_contract(db, novel_id, scene_id)
+        if scene is None:
+            raise ValidationError("Scene not found")
+        if scene.scene_index != scene_index:
+            raise ValidationError("scene_index does not match Scene")
+        if len(events) > MAX_MEMORY_EVENTS_PER_CHAPTER:
+            raise ValidationError("Too many memory events for Scene")
+        rows: list[dict[str, Any]] = []
+        for sequence, event in enumerate(events, start=1):
+            dimension = event.get("dimension") or self._event_dimension(event)
+            if dimension not in {"entities", "relations", "locations", "knowledge"}:
+                raise ValidationError("Unsupported memory event dimension")
+            payload = event.get("snapshot_after", event.get("payload", {}))
+            serialized = json.dumps(payload, ensure_ascii=False, default=str)
+            if len(serialized) > MAX_MEMORY_EVENT_PAYLOAD_CHARS:
+                raise ValidationError("Memory event payload exceeds limit")
+            rows.append(
+                {
+                    "scene_sequence": sequence,
+                    "dimension": dimension,
+                    "event_type": event.get("event_type", "manual_correction"),
+                    "entity_id": parse_uuid(event["entity_id"], "entity_id")
+                    if event.get("entity_id")
+                    else None,
+                    "entity_type": event.get("entity_type"),
+                    "snapshot_before": event.get("snapshot_before"),
+                    "snapshot_after": payload,
+                    "source": event.get("source", "ai_extraction"),
+                }
+            )
+        records = await self._event_repo.replace_scene_events(
+            db,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            scene_id=parse_uuid(scene_id, "scene_id"),
+            scene_index=scene_index,
+            chapter_index=chapter_index,
+            rows=rows,
+        )
+        await self._scene_checkpoint_repo.supersede_system_from(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            scene_index,
+            ["entities", "relations", "locations", "knowledge"],
+            include_start=True,
+        )
+        await self._scene_snapshot_repo.supersede_from(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            scene_index,
+            include_start=True,
+        )
+        return [MemoryEventResponse.model_validate(item) for item in records]
+
     # ============================================================
     # 状态重放
     # ============================================================
@@ -170,17 +245,9 @@ class MemoryService:
         novel_id: str,
         chapter_index: int,
     ) -> SnapshotResponse:
-        """在指定章生成快照节点
-
-        从 world facade 抓取当前世界状态，结合 replay 的事件流验证一致性，
-        然后物化为快照行。
-        """
-        from modules.world.facade import get_full_state
-
+        """物化事件重放结果；绝不把当前 World 注入历史章节。"""
         nid = parse_uuid(novel_id)
-
-        # 获取当前世界完整状态
-        full_state = await get_full_state(db, novel_id)
+        full_state = await self.replay_state(db, novel_id, chapter_index)
 
         # 计算该快照覆盖的事件数，不加载完整事件流
         events_until = await self._event_repo.count_by_chapter_range(
@@ -270,6 +337,39 @@ class MemoryService:
             delta_logs.append(delta)
             if result_refs is not None and delta.get("id"):
                 result_refs.append({"type": "delta_log", "id": delta["id"]})
+        scene_groups: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
+        for event in events:
+            if not event.scene_id or event.source_chapter_index is None:
+                continue
+            key = (event.scene_id, event.scene_index, event.source_chapter_index)
+            scene_groups.setdefault(key, []).append(
+                {
+                    "event_type": "manual_correction",
+                    "dimension": self._delta_dimension(event.category),
+                    "entity_id": (event.meta or {}).get("entity_id"),
+                    "snapshot_after": {
+                        "category": event.category,
+                        "field_path": event.field_path,
+                        "old_value": event.old_value,
+                        "new_value": event.new_value,
+                        "meta": event.meta or {},
+                    },
+                    "source": event.source,
+                }
+            )
+        for (scene_id, scene_index, chapter_index), scene_events in scene_groups.items():
+            recorded = await self.record_scene_events(
+                db,
+                novel_id,
+                scene_id=scene_id,
+                scene_index=scene_index,
+                chapter_index=chapter_index,
+                events=scene_events,
+            )
+            if result_refs is not None:
+                result_refs.extend(
+                    {"type": "memory_event", "id": item.id} for item in recorded
+                )
         return MemoryDeltaIngestResult(count=len(delta_logs), delta_logs=delta_logs)
 
     @staticmethod
@@ -279,6 +379,28 @@ class MemoryService:
         if isinstance(value, str):
             return value
         return json.dumps(value, ensure_ascii=False)
+
+    @staticmethod
+    def _delta_dimension(category: str) -> str:
+        normalized = str(category or "").lower()
+        if "relation" in normalized:
+            return "relations"
+        if "location" in normalized or "move" in normalized:
+            return "locations"
+        if "knowledge" in normalized or "reveal" in normalized:
+            return "knowledge"
+        return "entities"
+
+    @classmethod
+    def _event_dimension(cls, event: dict[str, Any]) -> str:
+        event_type = str(event.get("event_type") or "")
+        if event_type.startswith("relation_"):
+            return "relations"
+        if event_type == "entity_moved":
+            return "locations"
+        if event_type == "knowledge_changed":
+            return "knowledge"
+        return cls._delta_dimension(str(event.get("category") or event_type))
 
     async def count_deep_import_delta_logs_by_workflow(
         self,
@@ -347,11 +469,9 @@ class MemoryService:
         """返回指定章节的世界全景
 
         流程：找最近快照 → 应用增量事件 → 组装 ChapterPanorama
-        如果没有任何快照/事件，回退到 world facade 直接获取当前状态。
+        没有任何快照/事件时返回 stage0 空状态，禁止当前 World 泄漏到历史。
         """
         nid = parse_uuid(novel_id)
-        from modules.world.facade import get_full_state
-
         nearest = await self._snapshot_repo.get_nearest(db, nid, chapter_index)
 
         if nearest:
@@ -367,16 +487,13 @@ class MemoryService:
                 )
         else:
             # 没有任何快照 — 检查是否有事件可重放
-            state, events_seen = await self._apply_events_in_range(
+            state, _ = await self._apply_events_in_range(
                 db,
                 nid,
                 1,
                 chapter_index,
                 self._empty_replay_state(),
             )
-            if not events_seen:
-                # 完全没有数据，回退到 world 当前状态
-                state = await get_full_state(db, novel_id)
 
         return self._build_panorama(novel_id, chapter_index, state)
 
@@ -548,46 +665,15 @@ class MemoryService:
     ) -> dict[str, Any]:
         """从前文修正点开始，全量重建后续的事件和快照
 
-        流程：
-        1. 重放到 from_chapter-1 的状态作为基准
-        2. 获取 world 当前完整状态
-        3. 对比差异，重新生成 from_chapter 之后的事件
-        4. 重建 from_chapter 之后的快照
+        只从已有事件确定性重放并重建稀疏章节快照；不读取当前 World。
         """
         nid = parse_uuid(novel_id)
-        from modules.world.facade import get_full_state
-
         # Preserve snapshot history: rebuilt current snapshots are superseded,
         # not hard-deleted.  Snapshots before the correction point remain valid.
         await self._snapshot_repo.mark_stale_from(db, nid, from_chapter)
         max_chapter = await self._event_repo.get_max_chapter_in_range(
             db, nid, from_chapter, 999999
         )
-        await self._event_repo.delete_from_chapter(db, nid, from_chapter)
-
-        # 获取基准状态（from_chapter 之前的状态）
-        if from_chapter > 1:
-            base_state = await self.replay_state(db, novel_id, from_chapter - 1)
-        else:
-            base_state = {
-                "entities": {},
-                "relations": [],
-                "character_locations": {},
-                "character_knowledge": [],
-            }
-
-        # 获取当前世界状态
-        current_state = await get_full_state(db, novel_id)
-
-        # 计算差异事件
-        all_events = self._diff_states(base_state, current_state)
-
-        # 按章节重新分配事件（如果事件中带有 chapter_index 信息）
-        # v1 简化：将所有差异事件作为 from_chapter 的新事件
-        # 后续可扩展为更细粒度的差异分配
-        if all_events:
-            await self.record_events(db, novel_id, from_chapter, all_events)
-
         # 重建快照（每 K 章一个，加上最新章）
         final_chapter = max_chapter or from_chapter
 
@@ -661,18 +747,18 @@ class MemoryService:
     def _normalize_replay_state(self, state: dict[str, Any]) -> dict[str, Any]:
         entities = state.get("entities", {})
         if isinstance(entities, dict):
-            entity_map = dict(entities)
+            entity_map = deepcopy(entities)
         else:
             entity_map = {
-                e["id"]: e
+                e["id"]: deepcopy(e)
                 for e in entities
                 if isinstance(e, dict) and e.get("id") is not None
             }
         return {
             "entities": entity_map,
-            "relations": list(state.get("relations", [])),
-            "character_locations": dict(state.get("character_locations", {})),
-            "character_knowledge": list(state.get("character_knowledge", [])),
+            "relations": deepcopy(state.get("relations", [])),
+            "character_locations": deepcopy(state.get("character_locations", {})),
+            "character_knowledge": deepcopy(state.get("character_knowledge", [])),
         }
 
     def _apply_event_to_replay_state(
@@ -681,7 +767,7 @@ class MemoryService:
         event: Any,
     ) -> None:
         etype = event.event_type
-        after = event.snapshot_after or {}
+        after = deepcopy(event.snapshot_after or {})
         eid = str(event.entity_id) if event.entity_id else None
 
         if etype == EventType.entity_created and eid:

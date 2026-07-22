@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import get_settings
 from core.errors import DomainError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.imports.models import ImportRecord
 from modules.imports.parsers import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, parse_file
@@ -127,8 +128,11 @@ class ImportService:
             )
             raise
         except ValueError as exc:
-            logger.warning("导入参数错误: %s", exc)
-            error_message = str(exc)[:1000]
+            logger.warning(
+                "导入参数错误: %s",
+                redact_diagnostic(exc, limit=300),
+            )
+            error_message = redact_diagnostic(exc, limit=1000)
             await self._repo.update_status(
                 db,
                 record.id,
@@ -140,19 +144,28 @@ class ImportService:
                 status_code=422,
             ) from exc
         except Exception as exc:
-            logger.error("导入失败: %s", exc, exc_info=True)
+            logger.error(
+                "导入失败 error_type=%s diagnostic=%s",
+                type(exc).__name__,
+                redact_diagnostic(exc, limit=300),
+            )
             error_message = "导入过程中发生服务器错误，请查看日志"
             try:
                 await self._repo.update_status(
                     db,
                     record.id,
                     status="failed",
-                    error_message=str(exc)[:1000],
+                    error_message=redact_diagnostic(exc, limit=1000),
                 )
             except Exception as update_exc:
                 # 事务可能已被底层数据库错误污染，标记失败状态也可能失败。
                 # 记录日志，避免二次异常掩盖原始业务错误。
-                logger.error("标记导入记录失败状态时出错: %s", update_exc, exc_info=True)
+                logger.error(
+                    "标记导入记录失败状态时出错 "
+                    "error_type=%s diagnostic=%s",
+                    type(update_exc).__name__,
+                    redact_diagnostic(update_exc, limit=300),
+                )
             raise DomainError(
                 error_message,
                 code="import_failed",
@@ -170,7 +183,10 @@ class ImportService:
                 imported_chapters=imported,
             )
         except IntegrityError as exc:
-            logger.warning("并发重复导入被数据库约束拦截: %s", exc)
+            logger.warning(
+                "并发重复导入被数据库约束拦截: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             await db.rollback()
             raise DomainValidationError(f"文件已导入: {file_name}") from exc
         if record is None:

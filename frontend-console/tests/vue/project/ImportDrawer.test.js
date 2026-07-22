@@ -2,17 +2,22 @@
  * ImportDrawer 组件测试 — 导入抽屉（上传入口、历史渲染、项目联动）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import ImportDrawer from "../../../vue/views/project/components/ImportDrawer.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 function makeState(currentProjectId = "p1", currentProject = { title: "测试项目" }) {
   const listeners = []
+  const state = { currentProjectId, currentProject }
   return {
-    state: { currentProjectId, currentProject },
+    state,
     onStateChange: (listener) => {
       listeners.push(listener)
       return () => listeners.splice(listeners.indexOf(listener), 1)
+    },
+    emit(key, value) {
+      state[key] = value
+      for (const listener of listeners) listener(key, value)
     },
   }
 }
@@ -71,6 +76,30 @@ describe("ImportDrawer", () => {
       expect(wrapper.find(".project-import-list__empty").exists()).toBe(true)
     })
     expect(wrapper.text()).toContain("暂无导入记录。")
+  })
+
+  it("项目切换后丢弃旧项目晚到的导入历史", async () => {
+    let resolveOld
+    let resolveCurrent
+    globalThis.api.imports.list = vi.fn(({ novel_id: projectId }) => new Promise((resolve) => {
+      if (projectId === "p-old") resolveOld = resolve
+      if (projectId === "p-current") resolveCurrent = resolve
+    }))
+    const harness = makeState("p-old", { title: "旧项目" })
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+    await vi.waitFor(() => expect(globalThis.api.imports.list).toHaveBeenCalledWith({ novel_id: "p-old" }))
+
+    harness.emit("currentProjectId", "p-current")
+    harness.emit("currentProject", { title: "当前项目" })
+    await vi.waitFor(() => expect(globalThis.api.imports.list).toHaveBeenCalledWith({ novel_id: "p-current" }))
+    resolveCurrent({ items: [{ id: "current", file_name: "当前稿.txt", status: "done" }] })
+    await vi.waitFor(() => expect(wrapper.text()).toContain("当前稿.txt"))
+
+    resolveOld({ items: [{ id: "old", file_name: "旧项目稿.txt", status: "done" }] })
+    await flushPromises()
+    expect(wrapper.text()).toContain("当前稿.txt")
+    expect(wrapper.text()).not.toContain("旧项目稿.txt")
   })
 
   it("未选择文件点击上传给出警告", async () => {

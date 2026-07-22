@@ -117,6 +117,55 @@ describe("api.js cache behavior", () => {
     })
   })
 
+  it("omits request bodies and redacts secrets from failed-request diagnostics", async () => {
+    const previousErrorLog = window.errorLog
+    window.errorLog = { _lastApiError: null }
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({
+        detail: "api_key=server-secret",
+        nested: {
+          api_key: "response-api-key",
+          authorization: "Bearer response-token",
+          safe_code: "invalid_provider",
+        },
+      }),
+    }))
+
+    try {
+      await expect(window.api.request(
+        "/settings/project?access_token=query-secret",
+        {
+          method: "PUT",
+          body: JSON.stringify({ api_key: "request-api-key", model: "demo" }),
+        },
+      )).rejects.toMatchObject({
+        status: 422,
+        message: expect.not.stringContaining("server-secret"),
+      })
+
+      const diagnostic = window.errorLog._lastApiError
+      expect(diagnostic).toMatchObject({
+        method: "PUT",
+        status: 422,
+      })
+      expect(diagnostic).not.toHaveProperty("body")
+      expect(diagnostic.url).toContain("access_token=[REDACTED]")
+      expect(diagnostic.response).toContain("invalid_provider")
+
+      const serialized = JSON.stringify(diagnostic)
+      expect(serialized).not.toContain("query-secret")
+      expect(serialized).not.toContain("request-api-key")
+      expect(serialized).not.toContain("response-api-key")
+      expect(serialized).not.toContain("response-token")
+      expect(serialized).not.toContain("server-secret")
+    } finally {
+      if (previousErrorLog === undefined) delete window.errorLog
+      else window.errorLog = previousErrorLog
+    }
+  })
+
   it("health check requests bypass cache by using unique _ts", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true,
@@ -742,6 +791,33 @@ describe("api.js request headers", () => {
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
   })
 
+  it("aborts the upload XHR when its signal is cancelled", async () => {
+    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
+    let instance = null
+    class AbortableXMLHttpRequest {
+      constructor() { this.upload = {}; instance = this }
+      open() {}
+      setRequestHeader() {}
+      send() {}
+      abort() { this.aborted = true; this.onabort() }
+    }
+    globalThis.XMLHttpRequest = AbortableXMLHttpRequest
+    const controller = new AbortController()
+    try {
+      const pending = window.api.imports.uploadFile(
+        new File(["chapter"], "novel.txt", { type: "text/plain" }),
+        "novel-1",
+        null,
+        { signal: controller.signal },
+      )
+      controller.abort()
+      await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+      expect(instance.aborted).toBe(true)
+    } finally {
+      globalThis.XMLHttpRequest = OriginalXMLHttpRequest
+    }
+  })
+
   it("uses the same in-memory token for frontend error reports", async () => {
     mockJsonResponse({ ok: true })
     window.api.setAccessToken("closed-token")
@@ -752,6 +828,26 @@ describe("api.js request headers", () => {
     expect(url).toContain("/api/debug/frontend-errors")
     expect(init.headers.Authorization).toBe("Bearer closed-token")
     expect(init.keepalive).toBe(true)
+  })
+
+  it("redacts secrets passed to frontend error reporting", async () => {
+    mockJsonResponse({ ok: true })
+
+    await window.api.reportFrontendError({
+      message: "authorization=message-secret",
+      request: {
+        headers: { Authorization: "Bearer header-secret" },
+        body: { api_key: "body-secret", model: "demo" },
+      },
+    })
+
+    const payload = JSON.parse(globalThis.fetch.mock.calls[0][1].body)
+    expect(payload.message).not.toContain("message-secret")
+    expect(payload.request.headers.Authorization).toBe("[REDACTED]")
+    expect(payload.request.body.api_key).toBe("[REDACTED]")
+    expect(payload.request.body.model).toBe("demo")
+    expect(JSON.stringify(payload)).not.toContain("header-secret")
+    expect(JSON.stringify(payload)).not.toContain("body-secret")
   })
 
   it("clears a token rejected by frontend error reporting", async () => {

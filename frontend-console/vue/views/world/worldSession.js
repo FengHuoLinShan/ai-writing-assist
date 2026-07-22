@@ -95,8 +95,9 @@ export function markWorldLeft() {
 export function reconcileWorldEntry(projectId, subView) {
   const route = worldSession._route
   const normalizedProjectId = projectId || null
+  const projectChanged = route.projectId !== normalizedProjectId
   const fullEnter = !route.active
-    || route.projectId !== normalizedProjectId
+    || projectChanged
     || route.subView !== subView
   if (fullEnter) {
     worldSession.relationReviewDrafts = {}
@@ -105,6 +106,16 @@ export function reconcileWorldEntry(projectId, subView) {
     worldSession.aliasReviewErrors = {}
     worldSession.bulkSelections = {}
     loadFilterPanelState(normalizedProjectId)
+  }
+  // Bible 的“上次页面”只能在同一项目内保留。跨项目复用旧 id /
+  // baseline 会把旧项目的编辑会话短暂带入新项目。
+  if (projectChanged) {
+    worldSession.bible = {
+      activePageId: null,
+      activeDraftId: null,
+      editorBaseline: null,
+      editorBaselineKey: null,
+    }
   }
   worldSession._route = { active: true, projectId: normalizedProjectId, subView }
   return fullEnter

@@ -17,12 +17,14 @@ from sqlalchemy import (
     or_,
     select,
     true,
+    update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.models import (
     ContextConfirmation,
+    ContextConfirmationAssetRef,
     ContextRetrievalTrace,
     ContextSnapshot,
 )
@@ -72,17 +74,44 @@ class ContextConfirmationRepository:
         db: AsyncSession,
         confirmation_id: uuid.UUID,
         *,
+        novel_id: uuid.UUID,
         for_update: bool = False,
     ) -> ContextConfirmation | None:
-        if not for_update:
-            return await db.get(ContextConfirmation, confirmation_id)
-        stmt = (
-            select(ContextConfirmation)
-            .where(ContextConfirmation.id == confirmation_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+        stmt = select(ContextConfirmation).where(
+            ContextConfirmation.id == confirmation_id,
+            ContextConfirmation.novel_id == novel_id,
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def replace_asset_refs(
+        self,
+        db: AsyncSession,
+        record: ContextConfirmation,
+        *,
+        asset_role: str,
+        refs: list[tuple[str, str]],
+    ) -> None:
+        """Replace one exact-ref role inside the caller's transaction."""
+        await db.execute(
+            delete(ContextConfirmationAssetRef).where(
+                ContextConfirmationAssetRef.confirmation_id == record.id,
+                ContextConfirmationAssetRef.novel_id == record.novel_id,
+                ContextConfirmationAssetRef.asset_role == asset_role,
+            )
+        )
+        for asset_type, asset_id in dict.fromkeys(refs):
+            db.add(
+                ContextConfirmationAssetRef(
+                    confirmation_id=record.id,
+                    novel_id=record.novel_id,
+                    asset_role=asset_role,
+                    asset_type=asset_type,
+                    asset_id=asset_id,
+                )
+            )
+        await db.flush()
 
     async def update_tracking(
         self,
@@ -124,27 +153,27 @@ class ContextConfirmationRepository:
         asset_type: str,
         asset_id: str,
     ) -> list[ContextConfirmation]:
-        stmt = select(ContextConfirmation).where(
-            ContextConfirmation.novel_id == novel_id,
+        stmt = (
+            select(ContextConfirmation)
+            .join(
+                ContextConfirmationAssetRef,
+                and_(
+                    ContextConfirmationAssetRef.confirmation_id
+                    == ContextConfirmation.id,
+                    ContextConfirmationAssetRef.novel_id
+                    == ContextConfirmation.novel_id,
+                ),
+            )
+            .where(
+                ContextConfirmation.novel_id == novel_id,
+                ContextConfirmationAssetRef.asset_type == asset_type,
+                ContextConfirmationAssetRef.asset_id == str(asset_id),
+            )
+            .with_for_update(of=ContextConfirmation)
+            .execution_options(populate_existing=True)
         )
         result = await db.execute(stmt)
-        records = list(result.scalars().all())
-        normalized_asset_id = str(asset_id)
-        matched: list[ContextConfirmation] = []
-        for record in records:
-            selected = record.selected_asset_ids or {}
-            selected_ids = {str(value) for value in selected.get(asset_type, [])}
-            if normalized_asset_id in selected_ids:
-                matched.append(record)
-                continue
-            result_ref_ids = {
-                str(ref.get("id"))
-                for ref in record.result_refs or []
-                if isinstance(ref, dict) and ref.get("id") is not None
-            }
-            if normalized_asset_id in result_ref_ids:
-                matched.append(record)
-        return matched
+        return list(result.unique().scalars().all())
 
 
 class ContextSnapshotRepository:
@@ -251,33 +280,79 @@ class ContextSnapshotRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
-    async def mark_succeeded(
+    async def transition_terminal(
         self,
         db: AsyncSession,
-        snapshot: ContextSnapshot,
         *,
-        result_refs: list[dict],
+        novel_id: uuid.UUID,
+        snapshot_id: uuid.UUID,
+        terminal_status: str,
+        result_refs: list[dict] | None = None,
+        error_kind: str | None = None,
+        error_message: str | None = None,
     ) -> ContextSnapshot:
-        snapshot.status = "succeeded"
-        snapshot.result_refs = result_refs
-        snapshot.error_kind = None
-        snapshot.error_message = None
-        await db.flush()
-        return snapshot
+        """Close a running snapshot exactly once, scoped to its project.
 
-    async def mark_failed(
-        self,
-        db: AsyncSession,
-        snapshot: ContextSnapshot,
-        *,
-        error_kind: str,
-        error_message: str,
-    ) -> ContextSnapshot:
-        snapshot.status = "failed"
-        snapshot.error_kind = error_kind
-        snapshot.error_message = error_message
-        await db.flush()
-        return snapshot
+        The guarded UPDATE is the terminal-state compare-and-set.  A repeated
+        request for the winning terminal state is idempotent and returns the
+        stored row without replacing its original terminal payload.  The
+        opposite terminal state is rejected.
+        """
+        if terminal_status not in {"succeeded", "failed"}:
+            raise ValueError("invalid context snapshot terminal status")
+        values = {"status": terminal_status}
+        if terminal_status == "succeeded":
+            values.update(
+                result_refs=result_refs or [],
+                error_kind=None,
+                error_message=None,
+            )
+        else:
+            values.update(
+                error_kind=error_kind,
+                error_message=error_message,
+            )
+        transitioned = await db.execute(
+            update(ContextSnapshot)
+            .where(
+                ContextSnapshot.novel_id == novel_id,
+                ContextSnapshot.id == snapshot_id,
+                ContextSnapshot.status == "running",
+            )
+            .values(**values)
+            .returning(ContextSnapshot.id)
+            .execution_options(synchronize_session=False)
+        )
+        won = transitioned.scalar_one_or_none() is not None
+        result = await db.execute(
+            select(ContextSnapshot)
+            .where(
+                ContextSnapshot.novel_id == novel_id,
+                ContextSnapshot.id == snapshot_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        snapshot = result.scalar_one_or_none()
+        if snapshot is None:
+            raise ValueError("context_snapshot_id not found")
+        if won:
+            return snapshot
+        if snapshot.status == terminal_status:
+            same_payload = (
+                (snapshot.result_refs or []) == (result_refs or [])
+                if terminal_status == "succeeded"
+                else snapshot.error_kind == error_kind
+                and snapshot.error_message == error_message
+            )
+            if same_payload:
+                return snapshot
+            raise ValueError(
+                "context snapshot terminal payload conflicts with the stored result"
+            )
+        raise ValueError(
+            "context snapshot already finalized as "
+            f"{snapshot.status}; cannot finalize as {terminal_status}"
+        )
 
     async def prune_rendered_context(
         self,

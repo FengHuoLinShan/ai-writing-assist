@@ -68,10 +68,11 @@ def _blocker_codes(report) -> set[str]:
     return {item.code for item in report.blockers}
 
 
-def test_allowlist_is_exactly_the_16_owned_map_tables() -> None:
-    assert len(MAP_TABLES) == 16
-    assert len(set(MAP_TABLES)) == 16
+def test_allowlist_is_exactly_the_17_owned_map_tables() -> None:
+    assert len(MAP_TABLES) == 17
+    assert len(set(MAP_TABLES)) == 17
     assert set(MAP_TABLES) == {
+        "map_visual_revisions",
         "map_configs",
         "map_tiles",
         "map_location_bindings",
@@ -90,6 +91,7 @@ def test_allowlist_is_exactly_the_16_owned_map_tables() -> None:
         "map_facts",
     }
     assert MAP_TABLES == (
+        "map_visual_revisions",
         "map_facts",
         "map_observations",
         "map_path_nodes",

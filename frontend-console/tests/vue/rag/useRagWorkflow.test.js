@@ -6,7 +6,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { effectScope, reactive } from "vue"
 import { useRagWorkflow } from "../../../vue/views/rag/useRagWorkflow.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
-import { ragSearchSession, resetRagSearchSession } from "../../../vue/views/rag/ragSearchSession.js"
+import {
+  ragSearchSession,
+  resetRagSearchSession,
+  scopeRagSessionToProject,
+} from "../../../vue/views/rag/ragSearchSession.js"
 
 function makeStatusFields(overrides = {}) {
   return reactive({
@@ -21,7 +25,10 @@ function makeStatusFields(overrides = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  scopeRagSessionToProject(null)
   resetRagSearchSession()
+  ragSearchSession.rebuildProgress = null
+  ragSearchSession.rebuildInfo = null
   localStorage.clear()
   setBridgeOverrides({ state: { currentProjectId: "p1" } })
 })
@@ -49,6 +56,9 @@ describe("rebuildIndex", () => {
       expect.any(Object),
     )
     expect(ragSearchSession.rebuildProgress?.taskId).toBe("t1")
+    await vi.waitFor(() => {
+      expect(globalThis.api.tasks.get).toHaveBeenCalledWith("t1", "p1")
+    })
     expect(globalThis.toast).toHaveBeenCalledWith("索引重建任务已提交", "success")
     const persisted = JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]")
     expect(persisted.some((w) => w.taskId === "t1" && w.workflowType === "rag_reindex_novel")).toBe(true)
@@ -76,6 +86,66 @@ describe("rebuildIndex", () => {
     expect(globalThis.toast).toHaveBeenCalledWith("暂无可索引工作稿", "info")
     scope.stop()
   })
+
+  it("项目切换后忽略旧轮询的晚到状态", async () => {
+    const state = { currentProjectId: "p-old" }
+    setBridgeOverrides({ state })
+    scopeRagSessionToProject("p-old")
+    let resolveTask
+    globalThis.api.rag.rebuild = vi.fn(async () => ({ task_id: "t-old" }))
+    globalThis.api.tasks.get = vi.fn(() => new Promise((resolve) => { resolveTask = resolve }))
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
+    await workflow.rebuildIndex({ contentMode: "canonical", start: "", end: "" })
+    await vi.waitFor(() => expect(globalThis.api.tasks.get).toHaveBeenCalledWith("t-old", "p-old"))
+
+    state.currentProjectId = "p-new"
+    scopeRagSessionToProject("p-new")
+    resolveTask({
+      task_id: "t-old",
+      task_type: "rag_reindex_novel",
+      status: "running",
+      progress: 60,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(ragSearchSession.ownerProjectId).toBe("p-new")
+    expect(ragSearchSession.rebuildProgress).toBeNull()
+    scope.stop()
+  })
+
+  it("同步双击只提交一个重建任务并在响应后释放锁", async () => {
+    let resolveRebuild
+    globalThis.api.rag.rebuild = vi.fn(() => new Promise((resolve) => { resolveRebuild = resolve }))
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
+
+    const first = workflow.rebuildIndex({ contentMode: "canonical", start: "", end: "" })
+    const second = workflow.rebuildIndex({ contentMode: "canonical", start: "", end: "" })
+    await expect(second).resolves.toBe(false)
+    expect(globalThis.api.rag.rebuild).toHaveBeenCalledTimes(1)
+    expect(workflow.maintenanceSubmitting.value).toBe(true)
+
+    resolveRebuild({ task_id: "t-double" })
+    await expect(first).resolves.toBe(true)
+    expect(workflow.maintenanceSubmitting.value).toBe(false)
+    scope.stop()
+  })
+
+  it("提交异常后释放重建锁以允许重试", async () => {
+    globalThis.api.rag.rebuild = vi.fn()
+      .mockRejectedValueOnce(new Error("网络失败"))
+      .mockResolvedValueOnce({ total: 0 })
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
+
+    await expect(workflow.rebuildIndex({})).resolves.toBe(false)
+    expect(workflow.maintenanceSubmitting.value).toBe(false)
+    await expect(workflow.rebuildIndex({})).resolves.toBe(true)
+    expect(globalThis.api.rag.rebuild).toHaveBeenCalledTimes(2)
+    scope.stop()
+  })
 })
 
 describe("retryEmbeddings", () => {
@@ -100,6 +170,24 @@ describe("retryEmbeddings", () => {
       expect.any(Object),
     )
     expect(ragSearchSession.rebuildProgress?.workflowType).toBe("rag_retry_embeddings")
+    scope.stop()
+  })
+
+  it("同步双击只提交一个向量重试任务", async () => {
+    let resolveRetry
+    globalThis.api.rag.retryEmbeddings = vi.fn(() => new Promise((resolve) => { resolveRetry = resolve }))
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({
+      statusFields: makeStatusFields({ retryableEmbeddingCount: 4 }),
+    }))
+
+    const first = workflow.retryEmbeddings()
+    const second = workflow.retryEmbeddings()
+    await expect(second).resolves.toBe(false)
+    expect(globalThis.api.rag.retryEmbeddings).toHaveBeenCalledTimes(1)
+    resolveRetry({ task_id: "t-retry-double" })
+    await expect(first).resolves.toBe(true)
+    expect(workflow.maintenanceSubmitting.value).toBe(false)
     scope.stop()
   })
 })
@@ -132,6 +220,35 @@ describe("retryFailedTask", () => {
     expect(globalThis.api.tasks.retry).not.toHaveBeenCalled()
     scope.stop()
   })
+
+  it("项目切换后不让旧重试响应覆盖新项目任务", async () => {
+    const state = { currentProjectId: "p-old" }
+    setBridgeOverrides({ state })
+    scopeRagSessionToProject("p-old")
+    ragSearchSession.rebuildProgress = {
+      taskId: "t-old",
+      workflowType: "rag_reindex_novel",
+      availableActions: ["retry"],
+      raw: { task_id: "t-old", result: { error: "boom" } },
+    }
+    let resolveRetry
+    globalThis.api.tasks.retry = vi.fn(() => new Promise((resolve) => { resolveRetry = resolve }))
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
+
+    const pending = workflow.retryFailedTask()
+    state.currentProjectId = "p-new"
+    scopeRagSessionToProject("p-new")
+    ragSearchSession.rebuildProgress = { taskId: "t-new", status: "running" }
+    ragSearchSession.taskRetryPending = true
+    resolveRetry({ status: "pending" })
+
+    await expect(pending).resolves.toBe(true)
+    expect(ragSearchSession.rebuildProgress).toEqual({ taskId: "t-new", status: "running" })
+    expect(ragSearchSession.taskRetryPending).toBe(true)
+    expect(globalThis.toast).not.toHaveBeenCalledWith("任务已重新加入队列", "success")
+    scope.stop()
+  })
 })
 
 describe("recoverRebuildWorkflow", () => {
@@ -155,7 +272,32 @@ describe("recoverRebuildWorkflow", () => {
     await vi.waitFor(() => {
       expect(statusFields.totalChunks).toBe(42)
     })
+    expect(globalThis.api.tasks.get).toHaveBeenCalledWith("t7", "p1")
     scope.stop()
+  })
+})
+
+describe("项目会话隔离", () => {
+  it("跨项目时清理重建与预热元数据，同项目重挂载时保留", () => {
+    scopeRagSessionToProject("p-old")
+    ragSearchSession.rebuildProgress = { taskId: "old-task" }
+    ragSearchSession.rebuildInfo = "旧项目索引"
+    ragSearchSession.hits = [{ id: "old-hit" }]
+    ragSearchSession.prewarmState = "ready"
+    ragSearchSession.prewarmWarning = "旧项目警告"
+    ragSearchSession.prewarmResult = { embedding_dim: 512 }
+
+    expect(scopeRagSessionToProject("p-old")).toBe(false)
+    expect(ragSearchSession.prewarmResult).toEqual({ embedding_dim: 512 })
+
+    expect(scopeRagSessionToProject("p-new")).toBe(true)
+    expect(ragSearchSession.ownerProjectId).toBe("p-new")
+    expect(ragSearchSession.rebuildProgress).toBeNull()
+    expect(ragSearchSession.rebuildInfo).toBeNull()
+    expect(ragSearchSession.hits).toEqual([])
+    expect(ragSearchSession.prewarmState).toBe("idle")
+    expect(ragSearchSession.prewarmWarning).toBe("")
+    expect(ragSearchSession.prewarmResult).toBeNull()
   })
 })
 

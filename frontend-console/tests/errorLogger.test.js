@@ -84,6 +84,46 @@ describe("errorLogger scoped buckets", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("omits request bodies and redacts credentials before storage and upload", () => {
+    window.errorLog._lastApiError = {
+      method: "PUT",
+      url: "/settings/project?api_key=query-secret",
+      status: 422,
+      response: {
+        detail: "Bearer response-secret",
+        client_secret: "nested-secret",
+        safe_code: "invalid_provider",
+      },
+      headers: { Authorization: "Bearer header-secret" },
+      body: JSON.stringify({ api_key: "body-secret", model: "demo" }),
+    }
+
+    recordToastError("authorization=toast-secret")
+
+    const entry = window.errorLog.getAll()[0]
+    expect(entry.request).toMatchObject({
+      method: "PUT",
+      status: 422,
+    })
+    expect(entry.request).not.toHaveProperty("body")
+    expect(entry.request).not.toHaveProperty("headers")
+    expect(entry.request.response.safe_code).toBe("invalid_provider")
+
+    const stored = localStorage.getItem("_errorLog:global")
+    const uploaded = JSON.stringify(api.reportFrontendError.mock.calls[0][0])
+    for (const secret of [
+      "query-secret",
+      "response-secret",
+      "nested-secret",
+      "header-secret",
+      "body-secret",
+      "toast-secret",
+    ]) {
+      expect(stored).not.toContain(secret)
+      expect(uploaded).not.toContain(secret)
+    }
+  })
+
   it("clears only the current project bucket", () => {
     state.currentProjectId = "project-a"
     recordToastError("A")

@@ -10,7 +10,15 @@ from time import monotonic
 from typing import TypeVar
 
 from core.config import get_settings
-from infrastructure.llm.errors import LLMError
+from infrastructure.llm.errors import (
+    LLMAuthError,
+    LLMConnectionError,
+    LLMContentFilterError,
+    LLMError,
+    LLMInvalidResponseError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 
 T = TypeVar("T")
 
@@ -64,8 +72,9 @@ class LLMProcessLimiter:
             await self._raise_if_circuit_open()
             try:
                 yield
-            except Exception:
-                await self.record_failure()
+            except Exception as exc:
+                if _counts_toward_circuit_breaker(exc):
+                    await self.record_failure()
                 raise
             await self.record_success()
 
@@ -143,6 +152,19 @@ _PROCESS_LIMITER = LLMProcessLimiter()
 
 def get_llm_limiter() -> LLMProcessLimiter:
     return _PROCESS_LIMITER
+
+
+def _counts_toward_circuit_breaker(exc: Exception) -> bool:
+    """Count provider availability failures, not deterministic request errors."""
+    if isinstance(
+        exc,
+        (LLMAuthError, LLMContentFilterError, LLMInvalidResponseError),
+    ):
+        return False
+    return isinstance(
+        exc,
+        (LLMConnectionError, LLMRateLimitError, LLMTimeoutError, LLMError),
+    )
 
 
 def reset_llm_limiter_for_tests() -> None:

@@ -56,7 +56,7 @@ export function getShowModalHtml() {
   return typeof fn === "function" ? fn : () => {}
 }
 
-/** confirmAction(message, onConfirm, confirmText) — 外壳全局二次确认。 */
+/** confirmAction(message, onConfirm, confirmText, onCancel?) — 外壳全局二次确认。 */
 export function getConfirmAction() {
   const fn = _overrides.confirmAction ?? globalThis.confirmAction
   return typeof fn === "function" ? fn : () => {}

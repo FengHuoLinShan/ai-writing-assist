@@ -75,12 +75,14 @@ def _unit_orchestrator(
     *,
     progress_observer=None,
 ) -> DeepImportOrchestrator:
-    return DeepImportOrchestrator(
+    orchestrator = DeepImportOrchestrator(
         workflow=workflow,
         progress_observer=progress_observer,
         snapshot_builder=_empty_llm_execution_snapshot,
         snapshot_restorer=_restore_empty_llm_execution_snapshot,
     )
+    orchestrator._find_active_import_task = AsyncMock(return_value=None)
+    return orchestrator
 
 
 def _phase0_plan_result(
@@ -453,6 +455,106 @@ class TestDeepImportOrchestrator:
 
         orchestrator._check_duplicate_import.assert_not_awaited()
         orchestrator._enqueue_deep_import.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_reuses_existing_active_import_task_without_enqueue(self):
+        orchestrator = _unit_orchestrator()
+        task_id = uuid.uuid4()
+        active = AsyncTask(
+            id=task_id,
+            task_type="scene_auto_extraction",
+            status="running",
+            meta={
+                "novel_id": "novel-1",
+                "stage": "scenes",
+                "authorization_snapshot": {
+                    "adoption_policy": "user_authorized_pipeline",
+                    "authorization_confirmed": True,
+                },
+            },
+        )
+        orchestrator._find_active_import_task = AsyncMock(return_value=active)
+        orchestrator._build_llm_execution_snapshot = AsyncMock()
+        orchestrator._check_duplicate_import = AsyncMock()
+        orchestrator._enqueue_deep_import = Mock()
+
+        result = await orchestrator.start(
+            db=AsyncMock(),
+            novel_id="novel-1",
+            start_chapter=1,
+            end_chapter=3,
+            authorization_confirmed=True,
+        )
+
+        assert result["task_id"] == str(task_id)
+        assert result["workflow_type"] == "scene_auto_extraction"
+        assert result["reused_task"] is True
+        orchestrator._build_llm_execution_snapshot.assert_not_awaited()
+        orchestrator._check_duplicate_import.assert_not_awaited()
+        orchestrator._enqueue_deep_import.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_discovers_persisted_pending_task_for_same_novel(
+        self,
+        db_session,
+    ):
+        novel_id = str(uuid.uuid4())
+        active = AsyncTask(
+            task_type="deep_import",
+            status="pending",
+            meta={
+                "novel_id": novel_id,
+                "authorization_snapshot": {
+                    "adoption_policy": "user_authorized_pipeline",
+                    "authorization_confirmed": True,
+                },
+            },
+        )
+        db_session.add(active)
+        await db_session.flush()
+        orchestrator = DeepImportOrchestrator(
+            snapshot_builder=AsyncMock(side_effect=AssertionError("must reuse task")),
+        )
+
+        result = await orchestrator.start(
+            db=db_session,
+            novel_id=novel_id,
+            start_chapter=1,
+            end_chapter=3,
+            authorization_confirmed=True,
+        )
+
+        assert result["task_id"] == str(active.id)
+        assert result["reused_task"] is True
+
+    @pytest.mark.asyncio
+    async def test_single_recovery_flag_does_not_block_new_submission(
+        self,
+        db_session,
+    ):
+        novel_id = str(uuid.uuid4())
+        db_session.add_all([
+            AsyncTask(
+                task_type="deep_import",
+                status="failed",
+                meta={"novel_id": novel_id, "recovery_required": True},
+                result={},
+            ),
+            AsyncTask(
+                task_type="scene_auto_extraction",
+                status="failed",
+                meta={"novel_id": novel_id},
+                result={"recovery_required": True},
+            ),
+        ])
+        await db_session.flush()
+
+        active = await DeepImportOrchestrator._find_active_import_task(
+            db_session,
+            novel_id,
+        )
+
+        assert active is None
 
     @pytest.mark.asyncio
     async def test_start_returns_confirmation_without_enqueue_when_duplicates_exist(self):

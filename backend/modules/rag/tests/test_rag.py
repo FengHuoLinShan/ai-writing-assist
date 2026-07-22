@@ -307,6 +307,36 @@ class TestRagChunkRepository:
         assert refreshed.embedding is None
 
     @pytest.mark.asyncio
+    async def test_mark_embedding_failed_redacts_persisted_diagnostic(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        secret = "private-repository-token-value"
+        chunk = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="待标记片段",
+            ),
+        )
+
+        await repo.mark_embedding_failed(
+            db_with_project,
+            chunk.id,
+            f"Authorization: Bearer {secret} api_key={secret}",
+        )
+        await db_with_project.flush()
+        refreshed = await repo.get(db_with_project, chunk.id)
+
+        assert secret not in refreshed.embedding_error
+        assert secret not in refreshed.index_warnings[0]
+        assert "[REDACTED]" in refreshed.embedding_error
+
+    @pytest.mark.asyncio
     async def test_retryable_embedding_queries_are_scoped_to_novel_and_range(
         self,
         repo: RagChunkRepository,

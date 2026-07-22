@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.workflow_schemas import DeepImportProgress
 
@@ -92,7 +93,7 @@ def _trim_progress_events(progress: DeepImportProgress) -> None:
 def _short_message(message: Any) -> str | None:
     if message is None:
         return None
-    return str(message)[:300]
+    return redact_diagnostic(message, limit=300)
 
 
 def _now_iso() -> str:

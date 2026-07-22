@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.service_phase_artifacts import (
     add_phase_artifact,
     phase2_checkpoint_summary,
@@ -195,7 +196,7 @@ class EntityExtractionPhaseRunner:
                 "failed_scene_indices": [],
                 "fallback_created": 0,
                 "error_kind": "phase_failed",
-                "error_message": str(exc)[:300],
+                "error_message": redact_diagnostic(exc, limit=300),
             }
             progress.quality_stats["phase2"] = phase2_quality_stats(phase2_result)
             progress.degraded = True
@@ -203,7 +204,10 @@ class EntityExtractionPhaseRunner:
                 {
                     "phase": DeepImportStep.entity_extraction.value,
                     "error_kind": "phase_failed",
-                    "message": f"实体提取阶段失败，已继续后续阶段：{str(exc)[:180]}",
+                    "message": (
+                        "实体提取阶段失败，已继续后续阶段："
+                        f"{redact_diagnostic(exc, limit=180)}"
+                    ),
                 }
             )
             progress.message = "实体提取阶段失败，已降级继续结构分析。"
@@ -213,7 +217,7 @@ class EntityExtractionPhaseRunner:
                 status="failed",
                 details=progress.quality_stats["phase2"],
                 error_kind="phase_failed",
-                error_message=str(exc),
+                error_message=redact_diagnostic(exc, limit=1000),
             )
             repair_summary = phase2_repair_summary(phase2_result)
         if (

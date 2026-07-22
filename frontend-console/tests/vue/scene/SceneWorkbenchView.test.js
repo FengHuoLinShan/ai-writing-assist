@@ -186,4 +186,35 @@ describe("SceneWorkbenchView", () => {
     expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("late-task"), "success")
     adopt.mockRestore()
   })
+
+  it("submits Scene auto-extraction only once on a synchronous double click", async () => {
+    let resolveStart
+    let modalButtons = []
+    api.imports.startStage.mockImplementation(() => new Promise((resolve) => { resolveStart = resolve }))
+    setBridgeOverrides({
+      api,
+      state,
+      router,
+      toast: vi.fn(),
+      showModalHtml: vi.fn((_title, body, buttons) => {
+        document.getElementById("modal-body").innerHTML = body
+        modalButtons = buttons
+      }),
+      closeModal: vi.fn(),
+      esc: (value) => String(value ?? ""),
+    })
+    document.body.insertAdjacentHTML("beforeend", '<div id="modal-body"></div>')
+    createWrapper()
+    await wrapper.get('[data-action="scene-auto-extract"]').trigger("click")
+
+    const first = modalButtons[0].handler()
+    const second = modalButtons[0].handler()
+    await expect(second).resolves.toBe(false)
+    expect(api.imports.startStage).toHaveBeenCalledTimes(1)
+    expect(sceneAutoExtractManager.state.submitting).toBe(true)
+
+    resolveStart({ task_id: "scene-double" })
+    await expect(first).resolves.toBe(true)
+    expect(sceneAutoExtractManager.state.submitting).toBe(false)
+  })
 })

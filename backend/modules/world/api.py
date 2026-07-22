@@ -1320,6 +1320,7 @@ async def extract_alias_relations(
     )
     await attach_result_ref(
         db,
+        novel_id=data.novel_id,
         confirmation_id=data.context_confirmation_id,
         result_type="task",
         result_id=task_id,

@@ -1,8 +1,12 @@
 # ADR — Outline / Writing 双向 facade 依赖
 
-- **状态**: Accepted / Implemented
+- **状态**: Partially superseded
 - **日期**: 2026-07-07
 - **关联追踪**: M1
+
+> 2026-07-22：Writing 的按正文 offset 断章入口及其 split provider 已取消。
+> 下文关于该入口的内容仅记录原始决策，不再是当前契约；Scene contract loader 与
+> outline 只读消费 writing facade/contracts 的边界继续有效。
 
 ## 背景
 

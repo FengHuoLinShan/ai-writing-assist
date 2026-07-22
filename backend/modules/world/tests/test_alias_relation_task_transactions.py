@@ -232,6 +232,7 @@ async def test_handler_checkpoints_before_provider_and_finalizes_atomically(
     assert task.result["_alias_relation_task_v2"]["stage"] == "done"
     attached.assert_awaited_once_with(
         db,
+        novel_id=NOVEL_ID,
         confirmation_id=CONFIRMATION_ID,
         result_type="world_alias_relation_extraction",
         result_id=str(task.id),
@@ -619,6 +620,7 @@ async def test_confirmation_finalizer_seam_compiles_to_row_lock() -> None:
     await ContextConfirmationRepository().get(
         _Db(),  # type: ignore[arg-type]
         confirmation_id,
+        novel_id=uuid.UUID(NOVEL_ID),
         for_update=True,
     )
 
@@ -714,6 +716,7 @@ async def test_real_task_handler_session_fences_each_checkpoint(
     db_session.add(task)
     await attach_result_ref(
         db_session,
+        novel_id=project_novel_id,
         confirmation_id=confirmation.id,
         result_type="task",
         result_id=str(task.id),
@@ -890,6 +893,7 @@ async def test_real_worker_rejected_final_checkpoint_rolls_back_domain_and_bindi
             )
             await attach_result_ref(
                 setup_db,
+                novel_id=novel_id,
                 confirmation_id=confirmation.id,
                 result_type="task",
                 result_id=str(task_id),

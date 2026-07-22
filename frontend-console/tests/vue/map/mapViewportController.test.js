@@ -72,6 +72,30 @@ describe("mapViewportController", () => {
     expect(controller.mounted).toBe(false)
   })
 
+  it("does not let an earlier mount completion unmount the current viewport", async () => {
+    const resolvers = []
+    const engine = renderer({
+      mount: vi.fn(() => new Promise((resolve) => { resolvers.push(resolve) })),
+    })
+    const host = document.createElement("div")
+    document.body.append(host)
+    const controller = createMapViewportController({ renderer: engine, getState: () => state })
+
+    const firstMount = controller.mount(host, { projectId: "p1", mapId: "m1" })
+    const secondMount = controller.mount(host, { projectId: "p1", mapId: "m2" })
+
+    resolvers[1](true)
+    await expect(secondMount).resolves.toBe(true)
+    const unmountsAfterCurrentMount = engine.unmount.mock.calls.length
+
+    resolvers[0](true)
+    await expect(firstMount).resolves.toBe(false)
+
+    expect(engine.unmount).toHaveBeenCalledTimes(unmountsAfterCurrentMount)
+    expect(controller.mounted).toBe(true)
+    expect(controller.projectId).toBe("p1")
+  })
+
   it("invalidates an in-flight mount on dispose", async () => {
     let resolveMount
     const engine = renderer({

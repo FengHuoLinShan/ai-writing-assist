@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.container import get as _container_get
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.chapter_loader import load_chapter_range
 from modules.imports.service_phase_artifacts import coverage_summary
 from modules.imports.workflow_entity_phase import EntityExtractionPhaseRunner
@@ -655,9 +656,17 @@ class DeepImportWorkflow:
         try:
             await db.rollback()
         except Exception:
-            logger.warning("%s failed and rollback also failed", phase, exc_info=True)
+            logger.warning(
+                "%s failed and rollback also failed; original_error_type=%s",
+                phase,
+                type(exc).__name__,
+            )
         else:
-            logger.warning("%s failed; transaction rolled back: %s", phase, exc)
+            logger.warning(
+                "%s failed; transaction rolled back: %s",
+                phase,
+                redact_diagnostic(exc, limit=300),
+            )
 
     async def run_entity_extraction_only(
         self,
@@ -916,7 +925,10 @@ class DeepImportWorkflow:
             )
             return result
         except Exception as exc:
-            logger.warning("Phase 3 structure analysis failed: %s", exc)
+            logger.warning(
+                "Phase 3 structure analysis failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             return {
                 "total_threads": 0,
                 "total_arcs": 0,
@@ -924,5 +936,5 @@ class DeepImportWorkflow:
                 "arcs": [],
                 "extra_sections": {},
                 "error_kind": getattr(exc, "error_kind", "phase_error"),
-                "error_message": str(exc)[:300],
+                "error_message": redact_diagnostic(exc, limit=300),
             }

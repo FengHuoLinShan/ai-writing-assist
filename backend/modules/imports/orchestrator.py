@@ -43,6 +43,7 @@ STAGE_TASK_TYPES = {
     "world_objects": "world_object_auto_extraction",
     "plot_structure": "plot_structure_auto_extraction",
 }
+IMPORT_TASK_TYPES = {"deep_import", *STAGE_TASK_TYPES.values()}
 
 # Scene stage progress is an elapsed-time estimate based on the two most recent
 # 1-60 chapter runs of the current pipeline. Phase 0 is intentionally excluded:
@@ -60,6 +61,15 @@ class DeepImportWorkflowFailedError(RuntimeError):
 
 class SceneStageInputDriftError(RuntimeError):
     """Frozen Scene-stage business inputs changed before formal persistence."""
+
+
+def _requires_manual_recovery(task: AsyncTask) -> bool:
+    result_data = task.result if isinstance(task.result, dict) else {}
+    meta_data = task.meta if isinstance(task.meta, dict) else {}
+    return bool(
+        result_data.get("recovery_required") is True
+        and meta_data.get("recovery_required") is True
+    )
 
 
 class DeepImportOrchestrator:
@@ -98,6 +108,9 @@ class DeepImportOrchestrator:
             adoption_policy=adoption_policy,
             authorization_confirmed=authorization_confirmed,
         )
+        active_task = await self._find_active_import_task(db, novel_id)
+        if active_task is not None:
+            return self._existing_task_response(active_task, authorization_snapshot)
         llm_execution_snapshot = await self._build_llm_execution_snapshot(
             db,
             novel_id,
@@ -167,6 +180,9 @@ class DeepImportOrchestrator:
             authorization_confirmed=authorization_confirmed,
             stage=stage,
         )
+        active_task = await self._find_active_import_task(db, novel_id)
+        if active_task is not None:
+            return self._existing_task_response(active_task, authorization_snapshot)
         llm_execution_snapshot = await self._build_llm_execution_snapshot(
             db,
             novel_id,
@@ -1288,12 +1304,7 @@ class DeepImportOrchestrator:
         if task.status != "failed":
             raise ValueError("only failed interrupted deep import tasks can recover")
 
-        result_data = task.result or {}
-        meta_data = task.meta or {}
-        if not (
-            result_data.get("recovery_required") is True
-            and meta_data.get("recovery_required") is True
-        ):
+        if not _requires_manual_recovery(task):
             raise ValueError("deep import task does not require recovery")
         return task
 
@@ -1341,6 +1352,60 @@ class DeepImportOrchestrator:
                 "不会直接覆盖，实体也不会在入队时清理。是否继续？"
             )
         return None
+
+    @staticmethod
+    async def _find_active_import_task(
+        db: AsyncSession,
+        novel_id: str,
+    ) -> AsyncTask | None:
+        """Return the newest import task that still owns this project's pipeline.
+
+        The API acquires the project's existing exclusive DB fence before this
+        query, so concurrent tabs/processes serialize the absence check and
+        enqueue without introducing a task-schema-specific uniqueness column.
+        """
+        stmt = (
+            select(AsyncTask)
+            .where(
+                AsyncTask.task_type.in_(sorted(IMPORT_TASK_TYPES)),
+                AsyncTask.status.in_(("pending", "running", "failed")),
+                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+            )
+            .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+        )
+        tasks = list((await db.execute(stmt)).scalars().all())
+        for task in tasks:
+            if task.status in {"pending", "running"}:
+                return task
+            if task.status == "failed" and _requires_manual_recovery(task):
+                return task
+        return None
+
+    @staticmethod
+    def _existing_task_response(
+        task: AsyncTask,
+        fallback_authorization_snapshot: dict[str, Any],
+    ) -> dict[str, Any]:
+        meta = task.meta if isinstance(task.meta, dict) else {}
+        authorization_snapshot = meta.get("authorization_snapshot")
+        if not isinstance(authorization_snapshot, dict):
+            authorization_snapshot = fallback_authorization_snapshot
+        task_id = str(task.id)
+        return {
+            "workflow_id": task_id,
+            "task_id": task_id,
+            "status": str(task.status or "pending"),
+            "requires_confirmation": False,
+            "reused_task": True,
+            "workflow_type": str(task.task_type),
+            "stage": meta.get("stage"),
+            "adoption_policy": authorization_snapshot.get(
+                "adoption_policy",
+                DEFAULT_ADOPTION_POLICY,
+            ),
+            "authorization_snapshot": authorization_snapshot,
+            "message": "已有自动提取任务仍在执行或等待恢复，已连接到原任务",
+        }
 
     @staticmethod
     def _enqueue_deep_import(

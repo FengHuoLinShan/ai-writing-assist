@@ -56,10 +56,9 @@ facade 的 create 系列只暴露跨模块 `WritingDraftContract`，不返回 AP
 ## 跨模块依赖
 
 outline 可以只读消费 writing facade/contracts 中的草稿和章节索引。writing 需要调用
-outline 时不在服务模块顶层 import outline facade，而是通过可注入 provider 完成：
-断章同步使用 split provider，冲突检查使用 Scene contract loader。默认 provider 仍在
-调用时 lazy import `modules.outline.facade`，所以写作断章同步调整 Scene chunk、冲突
-检查读取 Scene contract、outline 读取 writing 草稿/章节索引这三条用户流程保持不变。
+outline 时不在服务模块顶层 import outline facade，而是通过可注入 Scene contract loader
+完成。默认 loader 仍在调用时 lazy import `modules.outline.facade`；outline 继续通过
+writing facade/contracts 只读消费草稿与章节索引。
 
 ## API
 
@@ -75,7 +74,6 @@ DELETE /api/writing/chapters/{index}                    # 软废弃整章所有�
 GET    /api/writing/chapters/{index}/draft              # 按章节索引获取最新草稿
 GET    /api/writing/chapters/{index}/versions           # 章节版本历史
 GET    /api/writing/chapters                            # 列出有草稿的章节索引
-POST   /api/writing/chapters/{chapter_index}/split     # 断章：在 split_pos 处切分当前章，生成下一章草稿
 POST   /api/writing/conflict-checks                    # 创建剧情设定冲突检查
 GET    /api/writing/conflict-checks                    # 获取章节/Scene 检查历史
 GET    /api/writing/conflict-checks/{id}               # 获取检查详情
@@ -86,10 +84,6 @@ POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 生成单条 AI �
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
 POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
 ```
-
-`POST /api/writing/chapters/{chapter_index}/split?novel_id=...` 只允许未发布的
-working 章节拓扑变更；切分位置及后续存在 published 版本时拒绝。该入口通过
-outline provider 重映射 Scene chunk，不修改正文事实源，也不自动发布。
 
 ## 稳定原文引用
 

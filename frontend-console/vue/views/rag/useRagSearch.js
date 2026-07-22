@@ -47,7 +47,15 @@ export function useRagSearch() {
     )
 
     try {
-      const { payload, error } = buildEvidencePayload({ ...formState, query }, projectId)
+      const writingLocation = state?.viewStates?.writing
+      const currentSceneId = writingLocation?.projectId === projectId
+        ? (writingLocation.currentSceneId || null)
+        : null
+      const { payload, error } = buildEvidencePayload({
+        ...formState,
+        query,
+        currentSceneId,
+      }, projectId)
       if (!payload) {
         getToast()(error, "warning")
         ragSearchSession.hits = []

@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
 from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.models import AsyncTask
@@ -118,7 +119,10 @@ class WorldBibleService:
         page_id: str,
         projection_type: str,
     ) -> WorldBibleProjectionResponse:
-        page = await self._get_page_model(db, novel_id, page_id)
+        # The page row is the stable serialization point even when the projection
+        # row does not exist yet.  Locking it prevents concurrent force-refresh
+        # tasks from racing into the projection uniqueness constraint.
+        page = await self._get_page_model(db, novel_id, page_id, for_update=True)
         projection = await self._get_projection_model(db, page, projection_type)
         if projection is None:
             projection = WorldBiblePageProjection(
@@ -144,8 +148,8 @@ class WorldBibleService:
             projection.status = "failed"
             projection.stale = True
             projection.stale_checked_at = datetime.now(UTC)
-            projection.error_kind = exc.__class__.__name__
-            projection.error_summary = str(exc)[:500]
+            projection.error_kind = exc.__class__.__name__[:64]
+            projection.error_summary = redact_diagnostic(exc, limit=500)
         await db.flush()
         return WorldBibleProjectionResponse.model_validate(projection)
 

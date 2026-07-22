@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.context.contracts import (
     CONTEXT_BUDGET,
     CompileOptions,
@@ -212,8 +213,11 @@ class CharactersLoader(Loader):
                             "无法确定学习位置或超出截止位置的人物知识"
                             "已保守排除；未授权对象仅保留公开基线"
                         )
-            except Exception:
-                logger.warning("知识边界过滤失败", exc_info=True)
+            except Exception as exc:
+                logger.warning(
+                    "知识边界过滤失败: %s",
+                    redact_diagnostic(exc, limit=300),
+                )
                 bundle.world_entities = []
                 bundle.warnings.append("人物知识过滤失败，已按保守策略排除对象")
 

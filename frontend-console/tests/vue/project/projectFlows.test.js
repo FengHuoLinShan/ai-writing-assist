@@ -220,4 +220,106 @@ describe("项目 modal 流程", () => {
       createSpy.mockRestore()
     }
   })
+
+  it("上传前拦截不支持的格式且不创建项目", async () => {
+    const state = makeState()
+    const confirmAction = vi.fn()
+    setBridgeOverrides({ state, confirmAction })
+    const createElement = document.createElement.bind(document)
+    let fileInput = null
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+      const element = createElement(tagName, options)
+      if (String(tagName).toLowerCase() === "input") fileInput = element
+      return element
+    })
+    try {
+      importAsNewProject()
+      Object.defineProperty(fileInput, "files", { configurable: true, value: [new File(["正文"], "错误格式.pdf")] })
+      await fileInput.onchange()
+      expect(globalThis.toast).toHaveBeenCalledWith(
+        "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件",
+        "error",
+      )
+      expect(confirmAction).not.toHaveBeenCalled()
+      expect(globalThis.api.projects.create).not.toHaveBeenCalled()
+
+      const tooLarge = new File(["正文"], "超限.txt")
+      Object.defineProperty(tooLarge, "size", { configurable: true, value: 50 * 1024 * 1024 + 1 })
+      Object.defineProperty(fileInput, "files", { configurable: true, value: [tooLarge] })
+      await fileInput.onchange()
+      expect(globalThis.toast).toHaveBeenCalledWith("文件大小超过限制（最大 50MB）", "error")
+      expect(confirmAction).not.toHaveBeenCalled()
+      expect(globalThis.api.projects.create).not.toHaveBeenCalled()
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
+
+  it("新项目导入失败时保留并选中新项目供重试", async () => {
+    const state = makeState([{ id: "p-old", title: "原项目" }], "p-old")
+    state.currentProject = { id: "p-old", title: "原项目" }
+    let confirmImport = null
+    setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
+    globalThis.api.projects.create.mockResolvedValue({ id: "p-new", title: "失败导入" })
+    globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-old" }, { id: "p-new" }] })
+    globalThis.api.imports.upload.mockRejectedValue(new Error("解析失败"))
+    const createElement = document.createElement.bind(document)
+    let fileInput = null
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+      const element = createElement(tagName, options)
+      if (String(tagName).toLowerCase() === "input") fileInput = element
+      return element
+    })
+    try {
+      importAsNewProject()
+      Object.defineProperty(fileInput, "files", { configurable: true, value: [new File(["正文"], "失败导入.txt")] })
+      await fileInput.onchange()
+      await confirmImport()
+      expect(state.currentProjectId).toBe("p-new")
+      expect(state.currentProject.id).toBe("p-new")
+      expect(state.projects.map((project) => project.id)).toEqual(["p-old", "p-new"])
+      expect(globalThis.toast).toHaveBeenCalledWith(
+        "导入失败：解析失败。项目「失败导入」已保留并选中，可在项目页重新导入文件",
+        "error",
+      )
+      expect(globalThis.router.navigate).toHaveBeenCalledWith("project")
+      expect(globalThis.router.navigate).not.toHaveBeenCalledWith("writing")
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
+
+  it("上传期间用户切换项目时不抢回新建项目", async () => {
+    const state = makeState()
+    state.currentProjectId = "p-old"
+    state.currentProject = { id: "p-old" }
+    let confirmImport = null
+    let resolveUpload = null
+    setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
+    globalThis.api.projects.create.mockResolvedValue({ id: "p-import", title: "慢导入" })
+    globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-old" }, { id: "p-import" }] })
+    globalThis.api.imports.upload.mockImplementation(() => new Promise((resolve) => { resolveUpload = resolve }))
+    const createElement = document.createElement.bind(document)
+    let fileInput = null
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+      const element = createElement(tagName, options)
+      if (String(tagName).toLowerCase() === "input") fileInput = element
+      return element
+    })
+    try {
+      importAsNewProject()
+      Object.defineProperty(fileInput, "files", { configurable: true, value: [new File(["正文"], "慢导入.txt")] })
+      await fileInput.onchange()
+      const pending = confirmImport()
+      await vi.waitFor(() => expect(resolveUpload).toBeTypeOf("function"))
+      state.currentProjectId = "p-user-selected"
+      state.currentProject = { id: "p-user-selected" }
+      resolveUpload({ total_chapters: 1, imported_chapters: 1 })
+      await pending
+      expect(state.currentProjectId).toBe("p-user-selected")
+      expect(globalThis.router.navigate).not.toHaveBeenCalledWith("writing")
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
 })

@@ -7,6 +7,19 @@ import { getCurrentScope, onScopeDispose, ref } from "vue"
 import { getApi, getRouter, getToast } from "../bridge/index.js"
 
 export const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024
+export const IMPORT_FILE_ACCEPT = ".txt,.epub,.html,.htm,.mobi,.azw3"
+const IMPORT_FILE_EXTENSIONS = new Set(IMPORT_FILE_ACCEPT.split(","))
+
+export function validateImportFile(file) {
+  if (!file) return "请先选择文件"
+  const name = String(file.name || "").trim().toLowerCase()
+  const suffix = name.includes(".") ? name.slice(name.lastIndexOf(".")) : ""
+  if (!IMPORT_FILE_EXTENSIONS.has(suffix)) {
+    return "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件"
+  }
+  if (file.size > MAX_IMPORT_FILE_BYTES) return "文件大小超过限制（最大 50MB）"
+  return null
+}
 
 export function useImportUpload() {
   const uploading = ref(false)
@@ -15,9 +28,12 @@ export function useImportUpload() {
   const progress = ref(null)
 
   let active = true
+  let uploadController = null
   if (getCurrentScope()) {
     onScopeDispose(() => {
       active = false
+      uploadController?.abort()
+      uploadController = null
     })
   }
 
@@ -40,20 +56,27 @@ export function useImportUpload() {
    */
   async function upload(file, projectId, { onSettled } = {}) {
     const toast = getToast()
-    if (!file) {
-      toast("请先选择文件", "warning")
+    const validationError = validateImportFile(file)
+    if (validationError === "请先选择文件") {
+      toast(validationError, "warning")
       return false
     }
     if (!projectId) {
       toast("请先点击项目行选择项目", "warning")
       return false
     }
-    if (file.size > MAX_IMPORT_FILE_BYTES) {
-      toast("文件大小超过限制（最大 50MB）", "error")
+    if (validationError) {
+      toast(validationError, "error")
+      return false
+    }
+    if (uploading.value) {
+      toast("已有文件正在上传", "info")
       return false
     }
 
     uploading.value = true
+    const controller = new AbortController()
+    uploadController = controller
     progress.value = null
     percent.value = 0
     setProgress("上传文件", 0, "正在上传文件...")
@@ -66,7 +89,7 @@ export function useImportUpload() {
         if (value >= 100) {
           setProgress("解析章节", 100, "文件已上传，正在解析章节...")
         }
-      })
+      }, { signal: controller.signal })
       setProgress("解析章节", 100, "章节解析完成")
 
       const nextStep = result.imported_chapters > 0
@@ -80,11 +103,13 @@ export function useImportUpload() {
       await getRouter().refresh()
       return true
     } catch (err) {
+      if (err?.name === "AbortError") return false
       toast(err.message || "导入失败", "error")
       getApi().clearCache()
       onSettled?.(err, null)
       return false
     } finally {
+      if (uploadController === controller) uploadController = null
       if (active) {
         uploading.value = false
         progress.value = null

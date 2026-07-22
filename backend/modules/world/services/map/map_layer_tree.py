@@ -176,10 +176,13 @@ class MapLayerTreeService:
 
         path_group = next((node for node in nodes if node.layer_key == "path"), None)
         if path_group is None:
-            root_order = max(
-                (node.sort_order for node in nodes if node.parent_id is None),
-                default=-1,
-            ) + 1
+            root_order = (
+                max(
+                    (node.sort_order for node in nodes if node.parent_id is None),
+                    default=-1,
+                )
+                + 1
+            )
             created = await self._node_repo.create(
                 db,
                 nid,
@@ -215,10 +218,13 @@ class MapLayerTreeService:
             )
         missing = [layer for layer in layers if layer.id not in terrain_ids]
         if missing:
-            next_order = max(
-                (node.sort_order for node in nodes if node.parent_id == overlay.id),
-                default=-1,
-            ) + 1
+            next_order = (
+                max(
+                    (node.sort_order for node in nodes if node.parent_id == overlay.id),
+                    default=-1,
+                )
+                + 1
+            )
             created = await self._node_repo.create_many(
                 db,
                 nid,
@@ -248,10 +254,17 @@ class MapLayerTreeService:
         path_ids = {node.path_layer_id for node in nodes if node.path_layer_id}
         missing_paths = [layer for layer in path_layers if layer.id not in path_ids]
         if missing_paths:
-            next_order = max(
-                (node.sort_order for node in nodes if node.parent_id == path_group.id),
-                default=-1,
-            ) + 1
+            next_order = (
+                max(
+                    (
+                        node.sort_order
+                        for node in nodes
+                        if node.parent_id == path_group.id
+                    ),
+                    default=-1,
+                )
+                + 1
+            )
             created = await self._node_repo.create_many(
                 db,
                 nid,
@@ -299,15 +312,11 @@ class MapLayerTreeService:
                 parent_max = parent_state["max_zoom"]
                 if parent_min is not None:
                     min_zoom = (
-                        max(min_zoom, parent_min)
-                        if min_zoom is not None
-                        else parent_min
+                        max(min_zoom, parent_min) if min_zoom is not None else parent_min
                     )
                 if parent_max is not None:
                     max_zoom = (
-                        min(max_zoom, parent_max)
-                        if max_zoom is not None
-                        else parent_max
+                        min(max_zoom, parent_max) if max_zoom is not None else parent_max
                     )
             zoom_visible = not (
                 min_zoom is not None and max_zoom is not None and min_zoom > max_zoom
@@ -343,6 +352,20 @@ class MapLayerTreeService:
     ) -> MapLayerTreeResponse:
         config = await self._ctx.require_map(db, novel_id, map_id)
         nodes = await self.ensure_default_tree(db, novel_id, map_id)
+        active_terrain_ids = {
+            layer.id
+            for layer in await self._terrain_repo.get_by_map(
+                db,
+                parse_uuid(novel_id, "novel_id"),
+                config.id,
+            )
+        }
+        nodes = [
+            node
+            for node in nodes
+            if node.terrain_layer_id is None
+            or node.terrain_layer_id in active_terrain_ids
+        ]
         ordered, effective = self._ordered(nodes)
         responses = []
         for node in ordered:
@@ -470,9 +493,7 @@ class MapLayerTreeService:
         submitted_ids = [
             parse_uuid(item.id, "layer_node_id") for item in items if item.id
         ]
-        submitted_existing = await self._node_repo.get_existing_by_ids(
-            db, submitted_ids
-        )
+        submitted_existing = await self._node_repo.get_existing_by_ids(db, submitted_ids)
         if len(submitted_existing) != len(submitted_ids) or any(
             node.novel_id != nid or node.map_id != config.id
             for node in submitted_existing
@@ -740,9 +761,7 @@ class MapLayerTreeService:
         map_id: str,
         terrain_layer_id: str,
     ) -> None:
-        await self.assert_writable(
-            db, novel_id, map_id, layer_key="terrainOverlay"
-        )
+        await self.assert_writable(db, novel_id, map_id, layer_key="terrainOverlay")
         await self.ensure_default_tree(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -750,9 +769,7 @@ class MapLayerTreeService:
         if await self._node_repo.get_by_terrain_layer(db, nid, mid, lid):
             return
         layer = await self._terrain_repo.get_in_map(db, nid, mid, lid)
-        overlay = await self._node_repo.get_by_layer_key(
-            db, nid, mid, "terrainOverlay"
-        )
+        overlay = await self._node_repo.get_by_layer_key(db, nid, mid, "terrainOverlay")
         if layer is None or overlay is None:
             raise NotFoundError(
                 "terrain layer 不存在", code="map_terrain_layer_not_found"

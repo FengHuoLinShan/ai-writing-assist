@@ -301,8 +301,12 @@ class WorldBibleSynopsisService:
         for item in manifest:
             key = (str(item.get("type")), str(item.get("id")))
             previous = deduplicated.get(key)
-            if previous is None or float(item.get("importance") or 0) > float(
-                previous.get("importance") or 0
+            item_importance = item.get("importance")
+            previous_importance = previous.get("importance") if previous else None
+            if previous is None or float(
+                item_importance if item_importance is not None else 0
+            ) > float(
+                previous_importance if previous_importance is not None else 0
             ):
                 if previous is not None:
                     omitted.append(f"duplicate_source:{key[0]}:{key[1]}")
@@ -317,7 +321,11 @@ class WorldBibleSynopsisService:
                 else 2
                 if item.get("type") == "relation"
                 else 1,
-                -float(item.get("importance") or 0.0),
+                -float(
+                    item.get("importance")
+                    if item.get("importance") is not None
+                    else 0.0
+                ),
                 str(item.get("type")),
                 str(item.get("id")),
             )

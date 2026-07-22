@@ -14,10 +14,12 @@ const state = reactive({
   progress: null,
   meta: null,
   cancelPending: false,
+  submitting: false,
 })
 
 let poller = null
 let terminalHandler = null
+let submissionGeneration = 0
 
 function stop() {
   poller?.stop?.()
@@ -25,12 +27,32 @@ function stop() {
 }
 
 function resetMemory() {
+  submissionGeneration += 1
   stop()
   state.ownerProjectId = null
   state.taskId = null
   state.progress = null
   state.meta = null
   state.cancelPending = false
+  state.submitting = false
+}
+
+function beginSubmission(projectId) {
+  if (
+    !projectId
+    || state.submitting
+    || (state.taskId && state.progress && !state.progress.terminal)
+  ) return null
+  if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemory()
+  const token = { generation: ++submissionGeneration, projectId }
+  state.ownerProjectId = projectId
+  state.submitting = true
+  return token
+}
+
+function endSubmission(token) {
+  if (!token || token.generation !== submissionGeneration) return
+  state.submitting = false
 }
 
 function owned(projectId) {
@@ -169,8 +191,10 @@ function subscribeTerminal(handler) {
 export const sceneAutoExtractManager = {
   state,
   adopt,
+  beginSubmission,
   cancel,
   dismiss,
+  endSubmission,
   recover,
   resetMemory,
   stop,

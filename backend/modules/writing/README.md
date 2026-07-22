@@ -55,8 +55,8 @@ PostgreSQL 上同一 `novel_id + chapter_index` 的版本号分配使用事务�
 advisory lock 串行化，再读取历史最大版本号；因此首版和后续版本的并发创建
 都不会分配重复号。底层唯一约束继续作为最终防线，已废弃版本的号码也不复用。
 advisory key 稳定为 `writing_versions:{novel_id}:{chapter_index}`，多章时按章号
-升序取锁。同一把锁也覆盖 working 正文原地修改、latest content 更新和
-发布时的内容替换，并通过
+升序取锁。同一把锁也覆盖 working 正文原地修改、latest content 更新、
+单版本软废弃的最后 working 版本判定、candidate 采用和发布时的内容替换，并通过
 `facade.lock_chapter_versions_for_revalidation()` 允许独立 Scene task 在最终
 来源重验到资产提交期间阻止并发正文写入。SQLite 环境下该锁是 no-op，
 不改变现有单进程测试语义。
@@ -120,6 +120,8 @@ snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补�
 重新校验 novel 归属、源 hash 和范围 hash。V1 grep 只支持有上限、可分页的
 字面匹配，不接受正则表达式。检索页可传 `group_by_chapter=True`，此时每章只返回
 一个代表命中，`match_count` 表示该章的字面出现次数，分页与 `total` 都按章节组计算。
+聚合命中通过可选 `source_refs` 保留该章全部命中范围，供 context 在不改变分页语义的
+前提下对齐每个命中的父 Scene；未聚合结果保持空列表。
 
 `facade.list_latest_drafts_for_chapters(..., content_limit=N)` 供跨模块批量加载正文时做 DB-side 截断；默认 `None` 保持返回完整最新正文。`content_limit` 必须为正整数，启用时仅投影跨模块契约必要字段，不加载完整 `WritingDraft` ORM。
 
@@ -129,7 +131,7 @@ snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补�
 
 Writing 对外继续通过 `contracts.py` / `facade.py` 暴露草稿和章节索引。outline 可以只读消费这些契约，用于结构生成上下文、Scene 工作台和跨章检测，不直接访问 writing 的 model / repository / service。
 
-Writing 服务需要同步 outline 结构时通过可注入 port 调用：断章使用 `split_scene_chunk_to_new_chapter` provider，冲突检查使用 Scene contract loader provider。默认 provider 在函数内部 lazy import `modules.outline.facade`，保持旧的用户流程和 HTTP/API 返回形状；测试可注入 fake callable，不需要 monkeypatch outline facade。
+Writing 服务需要读取 outline Scene contract 时通过可注入 loader 调用。默认 loader 在函数内部 lazy import `modules.outline.facade`；测试可注入 fake callable，不需要 monkeypatch outline facade。
 
 ## API
 
@@ -149,7 +151,6 @@ DELETE /api/writing/chapters/{chapter_index}      → 软废弃整章所有版�
 GET /api/writing/chapters/{chapter_index}/draft   → 获取章节最新草稿
 GET /api/writing/chapters/{chapter_index}/versions → 版本历史
 GET /api/writing/chapters                         → 列出有草稿的章节索引
-POST /api/writing/chapters/{chapter_index}/split  → 断章：在 split_pos 处切分当前章
 POST /api/writing/drafts/autosave                 → 创建纯草稿版本，不发布；合并标脏 working 索引
 POST /api/writing/conflict-checks                 → 创建剧情设定冲突检查
 GET /api/writing/conflict-checks                  → 获取章节/Scene 检查历史
@@ -207,10 +208,6 @@ working 快照；编辑最新 published 仍使用 copy-on-write。candidate 和
 deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candidate
 采用只能经过专用 adopt 状态迁移，也可由作者显式“拒绝建议”软废弃。
 拒绝保留完整版本、原状态和 `rejected_at/rejected_by` 审计，不硬删除正文。
-
-`POST /api/writing/chapters/{chapter_index}/split` 仅允许未发布的 working 章节拓扑变更；
-从切分位置起存在 published 版本时拒绝，避免修改已发布源的章号。通过注入的
-split provider 同步 Scene chunk；该操作不入队 `publish_chapter`。
 
 已发布版本不得原地修改。单版本/整章删除仅将状态改为 `deprecated`，
 `version_number` 永不重排；只有项目永久删除可通过外键级联硬删除。

@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
 
 from core.config import get_settings  # noqa: E402
 from infrastructure.llm.health import check_llm_health  # noqa: E402
+from infrastructure.llm.redaction import redact_diagnostic  # noqa: E402
 from shared.constants import TASK_MAX_HEARTBEAT_GAP  # noqa: E402
 
 Status = str
@@ -50,7 +51,7 @@ class CheckResult:
         return {
             "name": self.name,
             "status": self.status,
-            "message": self.message,
+            "message": redact_text(self.message),
             "details": sanitize_value(self.details),
         }
 
@@ -136,7 +137,7 @@ def redact_text(value: str) -> str:
     redacted = value
     for secret in secret_values_for_redaction():
         redacted = redacted.replace(secret, "<redacted>")
-    return redacted
+    return redact_diagnostic(redacted)
 
 
 def sanitize_value(value: Any) -> Any:
@@ -157,6 +158,8 @@ def sanitize_value(value: Any) -> Any:
         return [sanitize_value(item) for item in value]
     if isinstance(value, tuple):
         return [sanitize_value(item) for item in value]
+    if isinstance(value, str):
+        return redact_text(value)
     return value
 
 

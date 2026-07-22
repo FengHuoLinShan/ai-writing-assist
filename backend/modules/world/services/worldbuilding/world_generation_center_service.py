@@ -19,6 +19,7 @@ from core.errors import ConflictError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.world.contracts import GenerationBackgroundProvider
 from modules.world.llm_schemas import (
@@ -306,10 +307,13 @@ class WorldGenerationCenterService:
                 )
                 provider = str(client.provider)
         except Exception as exc:
-            await self._finish_context_snapshot(db, prepared["background"], error=exc)
+            await self._finish_context_snapshot(
+                db, data.novel_id, prepared["background"], error=exc
+            )
             raise
         await self._finish_context_snapshot(
             db,
+            data.novel_id,
             prepared["background"],
             result_refs=[
                 {
@@ -391,10 +395,13 @@ class WorldGenerationCenterService:
                         )
                 provider = str(client.provider)
         except Exception as exc:
-            await self._finish_context_snapshot(db, prepared["background"], error=exc)
+            await self._finish_context_snapshot(
+                db, data.novel_id, prepared["background"], error=exc
+            )
             raise
         await self._finish_context_snapshot(
             db,
+            data.novel_id,
             prepared["background"],
             result_refs=[{"type": "creation_suggestion", "id": result.suggestion.id}],
         )
@@ -1857,6 +1864,7 @@ class WorldGenerationCenterService:
     async def _finish_context_snapshot(
         cls,
         db: AsyncSession,
+        novel_id: str,
         background: dict[str, Any],
         *,
         result_refs: list[dict[str, str]] | None = None,
@@ -1871,23 +1879,25 @@ class WorldGenerationCenterService:
 
                 await fail_generation_context_snapshot(
                     db,
+                    novel_id=novel_id,
                     snapshot_id=snapshot_id,
                     error_kind=error.__class__.__name__,
-                    error_message=str(error),
+                    error_message=redact_diagnostic(error, limit=1000),
                 )
             else:
                 from modules.context.facade import succeed_generation_context_snapshot
 
                 await succeed_generation_context_snapshot(
                     db,
+                    novel_id=novel_id,
                     snapshot_id=snapshot_id,
                     result_refs=result_refs or [],
                 )
         except Exception as finish_error:
             logger.warning(
-                "世界生成中心上下文快照收尾失败 snapshot_id=%s",
+                "世界生成中心上下文快照收尾失败 snapshot_id=%s reason=%s",
                 snapshot_id,
-                exc_info=True,
+                redact_diagnostic(finish_error, limit=300),
             )
             if error is not None:
                 return
@@ -1896,15 +1906,17 @@ class WorldGenerationCenterService:
 
                 await fail_generation_context_snapshot(
                     db,
+                    novel_id=novel_id,
                     snapshot_id=snapshot_id,
                     error_kind="snapshot_finalization_failed",
-                    error_message=str(finish_error),
+                    error_message=redact_diagnostic(finish_error, limit=1000),
                 )
-            except Exception:
+            except Exception as fallback_error:
                 logger.warning(
-                    "世界生成中心上下文快照失败回退也未完成 snapshot_id=%s",
+                    "世界生成中心上下文快照失败回退也未完成 snapshot_id=%s "
+                    "reason=%s",
                     snapshot_id,
-                    exc_info=True,
+                    redact_diagnostic(fallback_error, limit=300),
                 )
 
 

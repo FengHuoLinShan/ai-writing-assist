@@ -553,6 +553,23 @@ describe("shared modal accessibility", () => {
     expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
   })
 
+  it("确认框取消回调可恢复被替换的表单且不被旧弹窗关闭", async () => {
+    const restoredInput = document.createElement("input")
+    restoredInput.value = "已填内容"
+    confirmAction("发现相似对象，仍要创建吗？", vi.fn(), "强制创建", () => {
+      showModal("新建世界对象", restoredInput, [{ text: "创建", handler: vi.fn() }])
+    })
+
+    const cancel = Array.from(document.querySelectorAll("#modal-footer button"))
+      .find((button) => button.textContent === "取消")
+    cancel.click()
+    await Promise.resolve()
+
+    expect(document.getElementById("modal-title").textContent).toBe("新建世界对象")
+    expect(document.getElementById("modal-body").contains(restoredInput)).toBe(true)
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+  })
+
   it("bypasses the discard prompt after a successful primary action", async () => {
     const confirmSpy = stubConfirm(false)
     const handler = vi.fn().mockResolvedValue(true)

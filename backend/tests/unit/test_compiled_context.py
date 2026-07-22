@@ -71,7 +71,12 @@ def test_enforce_budget_p2_per_item_truncation():
             truncatable_per_item=True,
         ),
     ]
-    ctx = CompiledContext(sections=sections, total_tokens=210, budget_tokens=115)
+    budget = 10 + estimate_token_count(items[0])
+    ctx = CompiledContext(
+        sections=sections,
+        total_tokens=10 + estimate_token_count(content),
+        budget_tokens=budget,
+    )
     result = ctx.enforce_budget()
     p2_sections = [s for s in result.sections if s.tier == Tier.P2]
     assert len(p2_sections) == 1

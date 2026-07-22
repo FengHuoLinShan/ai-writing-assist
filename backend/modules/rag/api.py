@@ -7,6 +7,8 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query
 
 from core.api_params import NovelIdQuery
@@ -45,7 +47,7 @@ async def create_rag_chunk(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
-    data: RagChunkCreate = None,  # noqa: ANN401 — FastAPI body
+    data: RagChunkCreate,
 ) -> RagChunkResponse:
     """创建 RAG 片段
 
@@ -84,7 +86,7 @@ async def retrieve_chunks(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
-    query: RagQuery = None,  # noqa: ANN401 — FastAPI body
+    query: RagQuery,
 ) -> RagResult:
     """混合检索 RAG 片段
 
@@ -213,15 +215,29 @@ async def retry_embeddings(
 
 @router.post("/chunks/split", response_model=dict)
 async def split_text(
-    text: str = Query(..., description="要分割的文本"),
-    method: str = Query(
-        default="paragraph",
-        description="分割方法 (paragraph / length)",
-    ),
-    chunk_size: int = Query(default=1000, ge=100, description="chunk 大小"),
-    overlap: int = Query(default=100, ge=0, description="重叠字符数"),
+    text: Annotated[
+        str,
+        Query(max_length=200_000, description="要分割的文本"),
+    ],
+    method: Annotated[
+        str,
+        Query(description="分割方法 (paragraph / length)"),
+    ] = "paragraph",
+    chunk_size: Annotated[
+        int,
+        Query(ge=100, le=100_000, description="chunk 大小"),
+    ] = 1000,
+    overlap: Annotated[
+        int,
+        Query(ge=0, le=99_999, description="重叠字符数"),
+    ] = 100,
 ) -> dict:
     """分割文本为 RAG 片段（工具接口，不写入数据库）"""
+    if overlap >= chunk_size:
+        raise HTTPException(
+            status_code=422,
+            detail="overlap must be smaller than chunk_size",
+        )
     chunks = await split_text_into_chunks(
         text,
         method=method,

@@ -232,6 +232,7 @@ class ConflictCheckAiReviewService:
             )
             await bind_confirmed_action_result(
                 db,
+                novel_id=novel_id,
                 confirmation_id=context_confirmation_id,
                 result_type="writing_conflict_check",
                 result_id=check_id,
@@ -239,7 +240,8 @@ class ConflictCheckAiReviewService:
             )
             return updated or check, items
         except Exception as exc:  # LLM/context failures degrade AI only.
-            logger.exception("AI conflict review failed")
+            safe_error = redact_diagnostic(exc, limit=500)
+            logger.warning("AI conflict review failed: %s", safe_error)
             items = await self._repo.list_items(db, cid, nid)
             summary_json = _summary_with_ai_review(
                 items,
@@ -255,18 +257,19 @@ class ConflictCheckAiReviewService:
                 summary_json=summary_json,
                 confirmation_id=confirmation_uuid,
                 model=getattr(self._llm, "model_name", None),
-                error=str(exc),
+                error=safe_error,
             )
             try:
                 await bind_confirmed_action_result(
                     db,
+                    novel_id=novel_id,
                     confirmation_id=context_confirmation_id,
                     result_type="writing_conflict_check",
                     result_id=check_id,
                     status="failed",
                 )
             except ValueError:
-                logger.exception("Failed to attach AI review result ref")
+                logger.warning("Failed to attach AI review result ref")
             return updated or check, items
 
     async def run_for_task(
@@ -548,6 +551,7 @@ class ConflictCheckAiReviewService:
         )
         await bind_confirmed_action_result(
             db,
+            novel_id=plan.novel_id,
             confirmation_id=plan.confirmation_id,
             result_type="writing_conflict_check",
             result_id=plan.check_id,
@@ -619,6 +623,7 @@ class ConflictCheckAiReviewService:
         try:
             await bind_confirmed_action_result(
                 db,
+                novel_id=plan.novel_id,
                 confirmation_id=plan.confirmation_id,
                 result_type="writing_conflict_check",
                 result_id=plan.check_id,
@@ -764,6 +769,7 @@ class ConflictSuggestionService:
             )
             await bind_confirmed_action_result(
                 db,
+                novel_id=novel_id,
                 confirmation_id=context_confirmation_id,
                 result_type="writing_conflict_item",
                 result_id=item_id,
@@ -771,24 +777,26 @@ class ConflictSuggestionService:
             )
             return updated or item
         except Exception as exc:
-            logger.exception("AI conflict suggestion failed")
+            safe_error = redact_diagnostic(exc, limit=500)
+            logger.warning("AI conflict suggestion failed: %s", safe_error)
             updated = await self._repo.update_loaded_item_suggestion(
                 db,
                 item,
                 status="failed",
                 confirmation_id=confirmation_uuid,
-                error=str(exc),
+                error=safe_error,
             )
             try:
                 await bind_confirmed_action_result(
                     db,
+                    novel_id=novel_id,
                     confirmation_id=context_confirmation_id,
                     result_type="writing_conflict_item",
                     result_id=item_id,
                     status="failed",
                 )
             except ValueError:
-                logger.exception("Failed to attach AI suggestion result ref")
+                logger.warning("Failed to attach AI suggestion result ref")
             return updated or item
 
 

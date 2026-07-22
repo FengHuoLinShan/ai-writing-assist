@@ -6,7 +6,7 @@
 import { mountIsland } from "./mountIsland.js"
 import RagView from "./views/rag/RagView.vue"
 import { getApi, getAppState, getRouter } from "./bridge/index.js"
-import { resetRagSearchSession } from "./views/rag/ragSearchSession.js"
+import { resetRagSearchSession, scopeRagSessionToProject } from "./views/rag/ragSearchSession.js"
 import { ensurePrewarm } from "./views/rag/prewarmManager.js"
 
 const CHARACTER_PAGE_SIZE = 50
@@ -37,10 +37,11 @@ async function loadAllCharacters(novelId) {
 }
 
 async function loadRag() {
+  const state = getAppState()
+  const projectId = state?.currentProjectId || null
+  scopeRagSessionToProject(projectId)
   // 对应 vanilla onEnter 开头的 _resetSearchState()
   resetRagSearchSession()
-  const state = getAppState()
-  const projectId = state?.currentProjectId
   if (!projectId) {
     return { projectId: null, apiAvailable: false }
   }

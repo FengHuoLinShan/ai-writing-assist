@@ -124,12 +124,18 @@ class ManuscriptSourceService:
         if group_by_chapter:
             grouped: dict[int, ManuscriptSearchHitContract] = {}
             counts: dict[int, int] = {}
+            refs: dict[int, list[SourceRangeRefContract]] = {}
             for hit in hits:
                 chapter_index = hit.source_ref.chapter_index
                 counts[chapter_index] = counts.get(chapter_index, 0) + 1
+                refs.setdefault(chapter_index, []).append(hit.source_ref)
                 grouped.setdefault(chapter_index, hit)
             hits = [
-                replace(hit, match_count=counts[chapter_index])
+                replace(
+                    hit,
+                    match_count=counts[chapter_index],
+                    source_refs=refs[chapter_index],
+                )
                 for chapter_index, hit in grouped.items()
             ]
             total = len(hits)

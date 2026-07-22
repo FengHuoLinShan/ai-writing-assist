@@ -1,8 +1,9 @@
 <script setup>
-import { ref } from "vue"
+import { onBeforeUnmount, onMounted, ref } from "vue"
 import LlmFormFields from "./components/LlmFormFields.vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
-import { getApi, getRouter, getToast, useStateKey } from "../../bridge/index.js"
+import { getApi, getConfirm, getRouter, getToast, useStateKey } from "../../bridge/index.js"
+import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
 import { buildLlmPayload, llmFormFromDefaults, validateLLMPayload } from "./logic/llmForm.js"
 import {
@@ -29,6 +30,8 @@ const currentProjectId = useStateKey("currentProjectId")
 
 const llmForm = ref(llmFormFromDefaults(props.llmDefaults))
 const authorForm = ref(authorFormFromDefaults(props.authorPrefs))
+const llmBaseline = ref(JSON.stringify(llmForm.value))
+const authorBaseline = ref(JSON.stringify(authorForm.value))
 
 const llmButton = useSaveButton()
 const authorButton = useSaveButton()
@@ -39,6 +42,7 @@ function gotoRecentProject() {
 
 async function saveLLM() {
   const toast = getToast()
+  const submittedForm = JSON.stringify(llmForm.value)
   const { payload } = buildLlmPayload(llmForm.value)
   const validation = validateLLMPayload(payload)
   if (!validation.ok) return toast(validation.message, "warning")
@@ -48,6 +52,9 @@ async function saveLLM() {
     delete clean.api_key
     delete clean.clear_api_key
     await getApi().settings.updateGlobalLLMDefaults(clean)
+    if (JSON.stringify(llmForm.value) === submittedForm) {
+      llmBaseline.value = submittedForm
+    }
     toast("LLM 全局默认已保存", "success")
   } catch (err) {
     toast(err.message || "保存失败", "error")
@@ -59,12 +66,16 @@ async function saveLLM() {
 
 async function saveAuthor() {
   const toast = getToast()
+  const submittedForm = JSON.stringify(authorForm.value)
   const prefs = buildAuthorPrefsPayload(authorForm.value)
   const validation = validateAuthorPreferences(prefs)
   if (!validation.ok) return toast(validation.message, "warning")
   authorButton.saving.value = true
   try {
     await getApi().settings.updateGlobalAuthorPrefs(prefs)
+    if (JSON.stringify(authorForm.value) === submittedForm) {
+      authorBaseline.value = submittedForm
+    }
     toast("作者偏好已保存", "success")
   } catch (err) {
     toast(err.message || "保存失败", "error")
@@ -116,6 +127,25 @@ async function runManualMigration() {
   }
   toast(`已迁移 ${migrated} 个项目，余 ${keys.length - migrated} 个`, migrated ? "success" : "info")
 }
+
+function hasUnsavedChanges() {
+  return JSON.stringify(llmForm.value) !== llmBaseline.value
+    || JSON.stringify(authorForm.value) !== authorBaseline.value
+}
+
+useLeaveGuard(() => (
+  !hasUnsavedChanges()
+  || getConfirm()("全局设置有未保存修改，确定放弃并离开吗？")
+))
+
+function beforeUnload(event) {
+  if (!hasUnsavedChanges()) return
+  event.preventDefault()
+  event.returnValue = ""
+}
+
+onMounted(() => window.addEventListener("beforeunload", beforeUnload))
+onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
 </script>
 
 <template>

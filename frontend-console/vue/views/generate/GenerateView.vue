@@ -6,8 +6,8 @@
     <div class="view-header__actions">
       <span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span>
       <template v-if="activeTab === 'world'">
-        <button class="btn btn-sm" data-action="send-chat-message" :disabled="chatPending" @click="sendChat">发送</button>
-        <button class="btn btn-sm btn-primary" data-action="generate-world-suggestion" :disabled="suggestionPending" @click="generateWorldSuggestion">{{ generateLabel }}</button>
+        <button class="btn btn-sm" data-action="send-chat-message" :disabled="worldBusy" @click="sendChat">发送</button>
+        <button class="btn btn-sm btn-primary" data-action="generate-world-suggestion" :disabled="worldBusy" @click="generateWorldSuggestion">{{ generateLabel }}</button>
       </template>
       <button v-else-if="activeTab === 'pov_prose'" class="btn btn-sm btn-primary" data-action="generate-pov-prose" :disabled="povPending" @click="generatePov">生成角色视角正文</button>
       <template v-else-if="activeTab === 'task'">
@@ -46,7 +46,13 @@ import PovProseTab from "./components/PovProseTab.vue"
 import TaskContextTab from "./components/TaskContextTab.vue"
 import ContextPreviewTab from "./components/ContextPreviewTab.vue"
 import { createGenerateRequestOwner } from "./requestOwner.js"
-import { readGenerateComposerDraft, writeGenerateComposerDraft, writeGenerateSession } from "./generateSession.js"
+import {
+  readGenerateComposerDraft,
+  readGenerateContextPreview,
+  writeGenerateComposerDraft,
+  writeGenerateContextPreview,
+  writeGenerateSession,
+} from "./generateSession.js"
 import {
   AI_SELECTED_CHAPTER_LIMIT, OBJECT_TEMPLATES, PAGE_SIZE, TASK_PRESETS, applyTaskPreset,
   buildPovInstruction, buildTaskPayload, buildWorldPayload, characterId, createDefaultTaskForm,
@@ -73,7 +79,8 @@ const activationProfiles = ref(props.activationProfiles)
 const activeTab = ref(props.tab)
 const taskPreset = ref(TASK_PRESETS[props.preset] ? props.preset : "custom")
 const taskForm = ref(applyTaskPreset(createDefaultTaskForm(), taskPreset.value))
-const lastContextBundle = ref(null); const lastContextMarkdown = ref(""); const lastContextSource = ref(null); const lastContextRequest = ref(null)
+const restoredContext = readGenerateContextPreview(props.projectId)
+const lastContextBundle = ref(restoredContext.bundle); const lastContextMarkdown = ref(restoredContext.markdown); const lastContextSource = ref(restoredContext.source); const lastContextRequest = ref(restoredContext.request)
 const taskPending = ref(false); const taskError = ref("")
 const pageProposalDirty = ref(false)
 const worldResult = ref(props.restoredWorldResult); const chatContextUsage = ref(null); const entityContextUsage = ref(null); const worldError = ref("")
@@ -91,8 +98,24 @@ const worldBusy = computed(() => chatPending.value || suggestionPending.value ||
 const contextSourceText = computed(() => lastContextSource.value === "world" ? "世界设定共创" : lastContextSource.value === "task" ? `任务：${TASK_PRESETS[taskPreset.value]?.label || "自定义任务"}` : "")
 
 function notifyOnce(code, message) { const key = `${props.sessionKey}:${code}`; if (notices.has(key)) return; notices.add(key); toast(message, "warning") }
-function persist() { writeGenerateComposerDraft(props.sessionKey, composer.value); return writeGenerateSession(props.sessionKey, session, { notify: notifyOnce }) }
+function persistContextPreview() {
+  writeGenerateContextPreview(props.projectId, {
+    bundle: lastContextBundle.value,
+    markdown: lastContextMarkdown.value,
+    source: lastContextSource.value,
+    request: lastContextRequest.value,
+  })
+}
+function persist() {
+  writeGenerateComposerDraft(props.sessionKey, composer.value)
+  return writeGenerateSession(props.sessionKey, session, { notify: notifyOnce })
+}
 watch(session, persist, { deep: true }); watch(composer, (value) => writeGenerateComposerDraft(props.sessionKey, value))
+watch(
+  [lastContextBundle, lastContextMarkdown, lastContextSource, lastContextRequest],
+  persistContextPreview,
+  { deep: true },
+)
 
 function confirmDiscard(message) { if (!pageProposalDirty.value) return true; const accepted = confirm(message); if (accepted) pageProposalDirty.value = false; return accepted }
 useLeaveGuard(() => confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并离开吗？"))
@@ -128,6 +151,7 @@ function currentWorldPayload() { return buildWorldPayload({ ...session, projectI
 function captureComposer() { const text = composer.value.trim(); if (!text) return false; session.messages.push({ role: "user", content: text }); composer.value = ""; return true }
 
 async function sendChat() {
+  if (worldBusy.value) return false
   if (!composer.value.trim()) return toast("请输入要聊的内容", "warning")
   captureComposer(); const pending = reactive({ role: "assistant", content: "正在思考...", pending: true }); session.messages.push(pending); chatPending.value = true; const scope = owner.begin()
   try { const response = await api.generate.worldChat(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false }
@@ -135,6 +159,7 @@ async function sendChat() {
   finally { owner.finish(scope); chatPending.value = false }
 }
 async function generateWorldSuggestion() {
+  if (worldBusy.value) return false
   if (!session.messages.length && !composer.value.trim()) return toast("请先聊天或粘贴已有对话到输入框", "warning")
   if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃并重新生成吗？")) return
   captureComposer(); suggestionPending.value = true; worldError.value = ""; const scope = owner.begin()
@@ -143,6 +168,7 @@ async function generateWorldSuggestion() {
   finally { owner.finish(scope); suggestionPending.value = false }
 }
 async function applyWorldPage(payload) {
+  if (worldBusy.value) return false
   const suggestionId = worldResult.value?.suggestion?.id || session.suggestionId; if (!suggestionId || worldResult.value?.kind === "core_entity") return
   applyPending.value = true; const scope = owner.begin()
   try { const response = await api.generate.applyWorldPageDraft(suggestionId, payload, props.projectId, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; pageProposalDirty.value = false; toast("提案已应用到工作稿，尚未发布", "success"); const query = new URLSearchParams({ draft_id: response.draft.id }); if (response.draft.page_id) query.set("page_id", response.draft.page_id); router.navigate("world", "bible", true, query) }
@@ -159,6 +185,7 @@ function changePovScene(id) { const scene = pov.scenes.find((item) => item.id ==
 function abortableDelay(ms, signal) { return new Promise((resolve, reject) => { const timer = setTimeout(resolve, ms); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")) }, { once: true }) }) }
 async function waitForPovTask(taskId, scope) { while (owner.isActive(scope)) { let task; try { task = await api.tasks.get(taskId, props.projectId) } catch (err) { if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); await abortableDelay(1500, scope.controller.signal); continue } if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); povProgress.value = Number(task?.progress || 0); if (task?.status === "done") { if (!task.result?.draft_id) throw new Error("任务已完成，但未返回正文建议 ID"); return task } if (task?.status === "failed") throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败"); if (task?.status === "cancelled") throw new Error("角色视角正文生成已取消"); await abortableDelay(1500, scope.controller.signal) } throw new DOMException("Aborted", "AbortError") }
 async function generatePov() {
+  if (povPending.value) return false
   const form = povForm.value; if (!form.chapterIndex) return toast("请先选择章节", "warning"); if (!form.sceneId) return toast("请先选择 Scene", "warning"); if (!form.viewpointCharacterId) return toast("请先选择视角角色", "warning")
   povPending.value = true; povProgress.value = null; povError.value = ""; const scope = owner.begin()
   try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选 Scene 和 POV 角色有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0 }); if (!owner.isActive(scope)) return; let result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(form.instruction, confirmation.user_note), context_confirmation_id: confirmation.id }); if (!owner.isActive(scope)) return; if (result?.task_id && !result?.draft_id) { const task = await waitForPovTask(result.task_id, scope); result = { ...result, ...(task.result || {}), task_status: task.status } } if (!owner.isActive(scope)) return; povSubmission.value = { result, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId }; toast(`角色视角正文建议已生成：${result.draft_id || result.id || result.task_id || ""}`, "success") }
@@ -168,8 +195,8 @@ async function generatePov() {
 function openPovResult(submission) { const draftId = submission?.result?.draft_id || submission?.result?.draft?.id || ""; appState.viewStates.writing = { projectId: props.projectId, currentChapter: submission.chapterIndex, currentDraftId: draftId || null, isReadonly: Boolean(draftId) }; const query = new URLSearchParams({ chapter_index: String(submission.chapterIndex) }); if (draftId) query.set("draft_id", draftId); router.navigate("writing", null, true, query) }
 
 function selectTaskPreset(key) { if (!TASK_PRESETS[key]) return; taskPreset.value = key; taskForm.value = applyTaskPreset(taskForm.value, key) }
-async function compileTask(silent) { const payload = buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) return toast(error, "warning"); lastContextRequest.value = payload; lastContextSource.value = "task"; lastContextMarkdown.value = ""; taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.compile(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; lastContextBundle.value = data; activeTab.value = "preview" } catch (err) { if (!owner.isActive(scope)) return; taskError.value = `编译失败：${err?.message || "未知错误"}`; if (!silent) toast(taskError.value, "error") } finally { owner.finish(scope); taskPending.value = false } }
-async function renderTaskMarkdown() { const payload = lastContextRequest.value || buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) return toast(error, "warning"); taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.render(payload, { signal: scope.controller.signal }); if (owner.isActive(scope)) lastContextMarkdown.value = data?.markdown || "" } catch (err) { if (owner.isActive(scope)) taskError.value = `渲染失败：${err?.message || "未知错误"}` } finally { owner.finish(scope); taskPending.value = false } }
+async function compileTask(silent) { if (taskPending.value) return false; const payload = buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) return toast(error, "warning"); lastContextRequest.value = payload; lastContextSource.value = "task"; lastContextMarkdown.value = ""; taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.compile(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; lastContextBundle.value = data; activeTab.value = "preview" } catch (err) { if (!owner.isActive(scope)) return; taskError.value = `编译失败：${err?.message || "未知错误"}`; if (!silent) toast(taskError.value, "error") } finally { owner.finish(scope); taskPending.value = false } }
+async function renderTaskMarkdown() { if (taskPending.value) return false; const payload = lastContextRequest.value || buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) return toast(error, "warning"); taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.render(payload, { signal: scope.controller.signal }); if (owner.isActive(scope)) lastContextMarkdown.value = data?.markdown || "" } catch (err) { if (owner.isActive(scope)) taskError.value = `渲染失败：${err?.message || "未知错误"}` } finally { owner.finish(scope); taskPending.value = false } }
 function copyTaskMarkdown() { if (!lastContextMarkdown.value) return; navigator.clipboard.writeText(lastContextMarkdown.value).then(() => toast("上下文 Markdown 已复制到剪贴板", "success")).catch(() => toast("复制失败，请手动选择复制", "warning")) }
 function exportTaskMarkdown() { if (!lastContextMarkdown.value) return; const url = URL.createObjectURL(new Blob([lastContextMarkdown.value], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = `context-${projectTitle.value || "project"}-${Date.now()}.md`; link.click(); URL.revokeObjectURL(url); toast("上下文已导出为 Markdown 文件", "success") }
 async function applyTaskToChat() { if (!taskForm.value.task) return toast("当前没有任务内容", "warning"); session.messages.push({ role: "user", content: taskForm.value.task }); if (lastContextBundle.value?.sections?.length) session.messages.push({ role: "assistant", content: `已加载 ${lastContextBundle.value.sections.length} 段上下文，共 ${lastContextBundle.value.total_tokens || 0} tokens。` }); activeTab.value = "world"; await ensureWorld() }

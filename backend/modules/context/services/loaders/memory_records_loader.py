@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.services.protocol import Loader
 
@@ -55,7 +56,10 @@ class MemoryRecordsLoader(Loader):
             # 将全景数据注入 context bundle
             bundle.memory_records = panorama.model_dump()
             bundle.budget_used["memory"] = len(panorama.entities)
-        except Exception:
-            logger.warning("Failed to load memory panorama", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "Failed to load memory panorama: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             bundle.memory_records = []
             bundle.budget_used["memory"] = 0

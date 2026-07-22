@@ -183,7 +183,11 @@ class CoreEntityRepository:
         scored.sort(
             key=lambda item: (
                 -item[1],
-                -(item[0].importance or 0),
+                -(
+                    item[0].importance
+                    if item[0].importance is not None
+                    else 0
+                ),
                 item[0].name,
                 str(item[0].id),
             )
@@ -1215,7 +1219,7 @@ class EntityRelationRepository:
             target_id=parse_uuid(data.target_id),
             relation_type=data.relation_type,
             description=data.description,
-            strength=data.strength or 0.5,
+            strength=data.strength if data.strength is not None else 0.5,
             source_chapter_id=parse_uuid(data.source_chapter_id)
             if data.source_chapter_id
             else None,

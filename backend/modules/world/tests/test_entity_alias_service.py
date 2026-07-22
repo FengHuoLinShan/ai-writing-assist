@@ -32,7 +32,7 @@ async def test_context_marker_failure_logs_without_blocking_alias_write(
     novel_id: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    marker = AsyncMock(side_effect=RuntimeError("context unavailable"))
+    marker = AsyncMock(side_effect=RuntimeError("api_key=credential-value"))
     service = EntityAliasService(repo=MagicMock(), context_marker=marker)
     entity_id = str(uuid.uuid4())
 
@@ -55,7 +55,9 @@ async def test_context_marker_failure_logs_without_blocking_alias_write(
     )
     assert novel_id in record.getMessage()
     assert entity_id in record.getMessage()
-    assert record.exc_info is not None
+    assert record.exc_info is None
+    assert "credential-value" not in record.getMessage()
+    assert "[REDACTED]" in record.getMessage()
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.context_snapshot_helpers import build_phase2_snapshot_payload
 
 
@@ -190,7 +191,7 @@ async def create_phase2b_snapshot(
                 content_mode="working",
             )
         except (ValidationError, ValueError) as exc:
-            source_warning = str(exc)
+            source_warning = redact_diagnostic(exc, limit=1000)
     included_sources = list((context_bundle or {}).get("_included_sources") or [])
     omitted_sources = list((context_bundle or {}).get("_omitted_sources") or [])
     included_asset_ids: dict[str, list[str]] | list = (

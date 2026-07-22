@@ -62,7 +62,7 @@ README、ORM 模型与 Alembic migration。
 
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
-| 记忆事件 / 快照 | `memory_events` / `memory_snapshots` | 事件溯源与阶段性全景快照。 |
+| 记忆事件 / 快照 | `memory_events` / `memory_scene_checkpoints` / `memory_scene_snapshots` / `memory_snapshots` | Scene 是唯一基础阶段；stage0 是空初始状态，每个 Scene 有分维度轻量 checkpoint，stage0/周期/章末/latest 才保存稀疏全量快照。历史状态只由带 Scene 锚点的 MemoryEvent 与 confirmed MapFact 确定性重放，禁止用当前 World 补历史。 |
 | 字段差分 | `delta_log` | memory 拥有的结构化 before/after 记录；不替代 TextArchive。 |
 | RAG 分块 | `rag_chunks` | 文字、来源、offset、Scene/Span、可见性、索引版本和 embedding 状态。 |
 | AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择和结果引用。 |

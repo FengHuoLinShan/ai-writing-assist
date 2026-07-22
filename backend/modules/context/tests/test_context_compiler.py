@@ -15,6 +15,7 @@ Context 模块测试
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 
@@ -31,6 +32,66 @@ from modules.context.facade import (
 )
 from modules.context.markdown_renderer import render_context_markdown as render_md
 from modules.context.services import CompileOptions
+from modules.context.services.context_compiler import ContextCompiler
+from modules.context.services.protocol import Loader
+
+
+@pytest.mark.asyncio
+async def test_compiler_serializes_loaders_sharing_one_async_session() -> None:
+    active_loaders = 0
+    overlap_detected = False
+
+    class SessionUsingLoader(Loader):
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        @property
+        def name(self) -> str:
+            return self._name
+
+        async def load(self, db, options, bundle) -> None:
+            nonlocal active_loaders, overlap_detected
+            active_loaders += 1
+            overlap_detected = overlap_detected or active_loaders > 1
+            await asyncio.sleep(0)
+            active_loaders -= 1
+
+    compiler = ContextCompiler(
+        [
+            SessionUsingLoader("memory_records"),
+            SessionUsingLoader("events"),
+        ]
+    )
+    await compiler.compile(
+        db=object(),
+        options=CompileOptions(novel_id="test-id", task="test", scope="full"),
+    )
+
+    assert overlap_detected is False
+
+
+@pytest.mark.asyncio
+async def test_compiler_redacts_loader_failure_warning() -> None:
+    secret = "private-token-value"
+
+    class FailingLoader(Loader):
+        @property
+        def name(self) -> str:
+            return "project"
+
+        async def load(self, db, options, bundle) -> None:
+            raise RuntimeError(
+                f"Authorization: Bearer {secret} api_key={secret}"
+            )
+
+    bundle = await ContextCompiler([FailingLoader()]).compile(
+        db=object(),
+        options=CompileOptions(novel_id="test-id", task="test", scope="project"),
+    )
+
+    serialized = " ".join(bundle.warnings)
+    assert secret not in serialized
+    assert "[REDACTED]" in serialized
 
 
 def _snapshot_request(

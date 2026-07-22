@@ -35,8 +35,11 @@ function createWorkflowManager({
     status: "就绪",
     meta: null,
     progress: null,
+    ownerProjectId: null,
+    submitting: false,
   })
   let poller = null
+  let submissionGeneration = 0
 
   function stop() {
     if (poller?.stop) poller.stop()
@@ -51,12 +54,42 @@ function createWorkflowManager({
     await onTerminal?.(progress, state)
   }
 
-  function startPolling(taskId) {
+  function resetMemoryScope() {
+    submissionGeneration += 1
+    stop()
+    state.taskId = null
+    state.status = "就绪"
+    state.meta = null
+    state.progress = null
+    state.ownerProjectId = null
+    state.submitting = false
+  }
+
+  function beginSubmission(projectId) {
+    if (
+      !projectId
+      || state.submitting
+      || (state.taskId && state.progress && !state.progress.terminal)
+    ) return null
+    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
+    const token = { generation: ++submissionGeneration, projectId }
+    state.ownerProjectId = projectId
+    state.submitting = true
+    return token
+  }
+
+  function endSubmission(token) {
+    if (!token || token.generation !== submissionGeneration) return
+    state.submitting = false
+  }
+
+  function startPolling(taskId, projectId) {
     stop()
     const api = getApi()
     poller = pollTaskProgress({
       taskId,
       workflowType,
+      novelId: projectId,
       apiClient: api,
       onUpdate: (progress) => {
         state.progress = progress
@@ -68,46 +101,70 @@ function createWorkflowManager({
   }
 
   /** 提交成功后接管任务：写 localStorage 并开始轮询（对应 vanilla submit 后半段）。 */
-  function adopt(result, meta = null) {
-    const toast = getToast()
+  function adopt(result, meta = null, projectId = getAppState()?.currentProjectId || null) {
+    if (!result?.task_id || !projectId) return false
+    persistActiveWorkflow({
+      taskId: result.task_id,
+      workflowType,
+      label,
+      projectId,
+      view: "world",
+      meta: meta || undefined,
+    })
+    if (getAppState()?.currentProjectId !== projectId) return false
+    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
     state.taskId = result.task_id
     state.status = "运行中"
     state.meta = meta || state.meta || null
+    state.ownerProjectId = projectId
     state.progress = normalizeTaskProgress({
       ...result,
       task_type: workflowType,
       meta: state.meta || {},
     }, workflowType)
-    persistActiveWorkflow({
-      taskId: result.task_id,
-      workflowType,
-      label,
-      projectId: getAppState()?.currentProjectId || null,
-      view: "world",
-      meta: state.meta || undefined,
-    })
-    startPolling(result.task_id)
+    startPolling(result.task_id, projectId)
     return state
   }
 
   /** island load() 调用：从 localStorage 恢复未终结任务（对应 vanilla _recoverXxxWorkflow）。 */
   function recover(projectId) {
-    if (state.taskId && state.progress && !state.progress.terminal) return // 已在轮询
+    if (!projectId) {
+      resetMemoryScope()
+      return
+    }
+    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
+    if (state.taskId && state.progress && !state.progress.terminal) {
+      state.ownerProjectId = projectId
+      if (!poller) startPolling(state.taskId, projectId)
+      return
+    }
     const workflow = matchRecovered(recoverActiveWorkflows(projectId))
     if (!workflow?.taskId) return
     state.taskId = workflow.taskId
     state.status = "运行中"
     state.meta = workflow.meta || state.meta || null
+    state.ownerProjectId = projectId
     state.progress = normalizeTaskProgress({
       task_id: workflow.taskId,
       task_type: workflow.workflowType || workflowType,
       status: "running",
       meta: workflow.meta || {},
     }, workflow.workflowType || workflowType)
-    startPolling(workflow.taskId)
+    startPolling(workflow.taskId, projectId)
   }
 
-  return { state, workflowType, label, destinationLabel, adopt, recover, stop }
+  return {
+    state,
+    workflowType,
+    label,
+    destinationLabel,
+    adopt,
+    recover,
+    stop,
+    resetMemoryScope,
+    beginSubmission,
+    endSubmission,
+  }
 }
 
 function refreshWorldIfActive() {
@@ -174,23 +231,37 @@ export async function submitAutoExtract(start, end) {
     toast("起始章节不能大于结束章节", "warning")
     return false
   }
+  const projectId = appState.currentProjectId
+  const submission = autoExtractManager.beginSubmission(projectId)
+  if (!submission) {
+    toast("世界对象提取正在提交，请稍候", "info")
+    return false
+  }
   try {
     const result = await getApi().imports.startStage(
       "world_objects",
-      appState.currentProjectId,
+      projectId,
       start,
       end,
       false,
       false,
       importAuthorizationPayload(),
     )
-    autoExtractManager.adopt(result, { start_chapter: start, end_chapter: end })
-    toast("世界对象与别名/关系自动提取任务已提交", "info")
+    const adopted = autoExtractManager.adopt(
+      result,
+      { start_chapter: start, end_chapter: end },
+      projectId,
+    )
+    if (adopted) toast("世界对象与别名/关系自动提取任务已提交", "info")
     return true
   } catch (err) {
-    autoExtractManager.state.status = `失败: ${err.message}`
-    toast(err.message || "提交失败", "error")
+    if (getAppState()?.currentProjectId === projectId) {
+      autoExtractManager.state.status = `失败: ${err.message}`
+      toast(err.message || "提交失败", "error")
+    }
     return false
+  } finally {
+    autoExtractManager.endSubmission(submission)
   }
 }
 
@@ -202,16 +273,26 @@ export async function startEntityFusionSuggestions(entityType = "") {
     toast("请先选择项目", "warning")
     return false
   }
+  const projectId = appState.currentProjectId
+  const submission = fusionManager.beginSubmission(projectId)
+  if (!submission) {
+    toast("世界对象 AI 合并建议正在提交，请稍候", "info")
+    return false
+  }
   try {
     const result = await getApi().world.createEntityFusionSuggestions({
-      novel_id: appState.currentProjectId,
+      novel_id: projectId,
       entity_type: entityType || undefined,
     })
-    fusionManager.adopt(result)
-    toast("世界对象 AI 合并建议任务已提交", "success")
+    const adopted = fusionManager.adopt(result, null, projectId)
+    if (adopted) toast("世界对象 AI 合并建议任务已提交", "success")
     return true
   } catch (err) {
-    toast(err.message || "提交失败", "error")
+    if (getAppState()?.currentProjectId === projectId) {
+      toast(err.message || "提交失败", "error")
+    }
     return false
+  } finally {
+    fusionManager.endSubmission(submission)
   }
 }

@@ -41,6 +41,8 @@ function resetManagers() {
     manager.state.status = "就绪"
     manager.state.meta = null
     manager.state.progress = null
+    manager.state.ownerProjectId = null
+    manager.state.submitting = false
   }
 }
 
@@ -72,6 +74,7 @@ describe("adopt", () => {
     expect(pollTaskProgress).toHaveBeenCalledWith(expect.objectContaining({
       taskId: "task-a1",
       workflowType: "world_object_auto_extraction",
+      novelId: "p-adopt",
     }))
   })
 })
@@ -80,6 +83,18 @@ describe("recover", () => {
   it("无持久化记录时不动作", () => {
     recoverActiveWorkflows.mockReturnValue([])
     autoExtractManager.recover("p-none")
+    expect(autoExtractManager.state.taskId).toBeNull()
+    expect(pollTaskProgress).not.toHaveBeenCalled()
+  })
+
+  it("无当前项目时不读取或恢复任何持久化任务", () => {
+    recoverActiveWorkflows.mockReturnValue([
+      { taskId: "task-other-project", workflowType: "world_object_auto_extraction", view: "world" },
+    ])
+
+    autoExtractManager.recover(null)
+
+    expect(recoverActiveWorkflows).not.toHaveBeenCalled()
     expect(autoExtractManager.state.taskId).toBeNull()
     expect(pollTaskProgress).not.toHaveBeenCalled()
   })
@@ -109,6 +124,40 @@ describe("recover", () => {
     ])
     autoExtractManager.recover("p-dedupe")
     expect(pollTaskProgress).toHaveBeenCalledTimes(1)
+  })
+
+  it("未终结任务的 poller 已停止时 recover 会按原项目恢复轮询", () => {
+    setBridgeOverrides({ state: { currentProjectId: "p-resume" } })
+    autoExtractManager.adopt({ task_id: "task-resume", status: "running" })
+    autoExtractManager.stop()
+
+    autoExtractManager.recover("p-resume")
+
+    expect(pollTaskProgress).toHaveBeenCalledTimes(2)
+    expect(pollTaskProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      taskId: "task-resume",
+      novelId: "p-resume",
+    }))
+  })
+
+  it("切换项目时清理旧内存任务并恢复新项目任务", () => {
+    const state = { currentProjectId: "p-old" }
+    setBridgeOverrides({ state })
+    autoExtractManager.adopt({ task_id: "task-old", status: "running" })
+    autoExtractManager.stop()
+    recoverActiveWorkflows.mockReturnValue([
+      { taskId: "task-new", workflowType: "world_object_auto_extraction", view: "world" },
+    ])
+
+    state.currentProjectId = "p-new"
+    autoExtractManager.recover("p-new")
+
+    expect(autoExtractManager.state.taskId).toBe("task-new")
+    expect(autoExtractManager.state.ownerProjectId).toBe("p-new")
+    expect(pollTaskProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      taskId: "task-new",
+      novelId: "p-new",
+    }))
   })
 
   it("fusion 只匹配自己的 workflowType", () => {
@@ -223,6 +272,51 @@ describe("submitAutoExtract", () => {
     expect(autoExtractManager.state.status).toBe("失败: 鉴权失败")
     expect(toast).toHaveBeenCalledWith("鉴权失败", "error")
   })
+
+  it("同步双击只提交一次，并在请求完成后释放提交锁", async () => {
+    let resolveStart
+    const startStage = vi.fn(() => new Promise((resolve) => { resolveStart = resolve }))
+    setBridgeOverrides({
+      api: { imports: { startStage } },
+      state: { currentProjectId: "p-double" },
+      toast: vi.fn(),
+    })
+
+    const first = submitAutoExtract(1, 3)
+    const second = submitAutoExtract(1, 3)
+
+    expect(await second).toBe(false)
+    expect(startStage).toHaveBeenCalledTimes(1)
+    expect(autoExtractManager.state.submitting).toBe(true)
+    resolveStart({ task_id: "task-double", status: "running" })
+    await expect(first).resolves.toBe(true)
+    expect(autoExtractManager.state.submitting).toBe(false)
+  })
+
+  it("响应前切换项目时只持久化到提交项目，不接管新项目 UI", async () => {
+    let resolveStart
+    const state = { currentProjectId: "p-old" }
+    setBridgeOverrides({
+      api: { imports: { startStage: vi.fn(() => new Promise((resolve) => { resolveStart = resolve })) } },
+      state,
+      toast: vi.fn(),
+    })
+
+    const pending = submitAutoExtract(2, 4)
+    state.currentProjectId = "p-new"
+    recoverActiveWorkflows.mockReturnValue([])
+    autoExtractManager.recover("p-new")
+    resolveStart({ task_id: "task-old", status: "running" })
+    await expect(pending).resolves.toBe(true)
+
+    expect(persistActiveWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: "task-old",
+      projectId: "p-old",
+    }))
+    expect(autoExtractManager.state.taskId).toBeNull()
+    expect(autoExtractManager.state.ownerProjectId).toBeNull()
+    expect(autoExtractManager.state.submitting).toBe(false)
+  })
 })
 
 describe("startEntityFusionSuggestions", () => {
@@ -247,5 +341,47 @@ describe("startEntityFusionSuggestions", () => {
     })
     await startEntityFusionSuggestions("")
     expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs2", entity_type: undefined })
+  })
+
+  it("同步双击只提交一次", async () => {
+    let resolveCreate
+    const createEntityFusionSuggestions = vi.fn(() => new Promise((resolve) => { resolveCreate = resolve }))
+    setBridgeOverrides({
+      api: { world: { createEntityFusionSuggestions } },
+      state: { currentProjectId: "p-fusion-double" },
+      toast: vi.fn(),
+    })
+
+    const first = startEntityFusionSuggestions("location")
+    const second = startEntityFusionSuggestions("location")
+    expect(await second).toBe(false)
+    expect(createEntityFusionSuggestions).toHaveBeenCalledTimes(1)
+    resolveCreate({ task_id: "task-fusion-double" })
+    await expect(first).resolves.toBe(true)
+    expect(fusionManager.state.submitting).toBe(false)
+  })
+
+  it("响应前切换项目时把融合任务留在原项目", async () => {
+    let resolveCreate
+    const state = { currentProjectId: "p-fusion-old" }
+    setBridgeOverrides({
+      api: { world: { createEntityFusionSuggestions: vi.fn(() => new Promise((resolve) => { resolveCreate = resolve })) } },
+      state,
+      toast: vi.fn(),
+    })
+
+    const pending = startEntityFusionSuggestions("location")
+    state.currentProjectId = "p-fusion-new"
+    recoverActiveWorkflows.mockReturnValue([])
+    fusionManager.recover("p-fusion-new")
+    resolveCreate({ task_id: "task-fusion-old" })
+    await expect(pending).resolves.toBe(true)
+
+    expect(persistActiveWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: "task-fusion-old",
+      projectId: "p-fusion-old",
+    }))
+    expect(fusionManager.state.taskId).toBeNull()
+    expect(fusionManager.state.submitting).toBe(false)
   })
 })

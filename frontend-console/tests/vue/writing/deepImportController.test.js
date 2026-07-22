@@ -98,6 +98,92 @@ describe("deepImportController", () => {
     controller.startTask({ taskId: "task-1", workflowType: "deep_import", label: "深度导入" })
     await vi.waitFor(() => expect(changes.at(-1)?.progress?.mapNextStep?.action).toBe("quick-create"))
     expect(changes.at(-1).progress.mapNextStep.count).toBe(1)
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({ taskId: "task-1" }),
+    ])
+    controller.dispose()
+  })
+
+  it("完成态在再次打开时仍可恢复，直到作者明确关闭", async () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:deep_import:task-done",
+      taskId: "task-done",
+      workflowType: "deep_import",
+      projectId: "p1",
+      label: "深度导入",
+    }]))
+    const task = {
+      status: "done",
+      progress: 1,
+      task_type: "deep_import",
+      result: { workflow_id: "wf-done", degraded: true, degraded_reason: "timeout" },
+    }
+    const api = {
+      tasks: { get: vi.fn(async () => task) },
+      world: {
+        getMapQuickCreateContext: vi.fn(async () => ({
+          existing_maps: [],
+          locations: [{ id: "location-1" }],
+          candidate_locations: [],
+        })),
+        listProjectMapObservationInbox: vi.fn(),
+      },
+      imports: {},
+    }
+    const firstChanges = []
+    const first = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: (value) => firstChanges.push(value),
+    })
+    await first.recover()
+    expect(firstChanges.at(-1).progress).toEqual(expect.objectContaining({
+      status: "done",
+      degraded: true,
+      mapNextStep: expect.objectContaining({ action: "quick-create" }),
+    }))
+    first.dispose()
+
+    const secondChanges = []
+    const second = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: (value) => secondChanges.push(value),
+    })
+    await second.recover()
+    expect(api.tasks.get).toHaveBeenLastCalledWith("task-done", "p1")
+    expect(secondChanges.at(-1).progress.mapNextStep.action).toBe("quick-create")
+
+    second.dismiss()
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([])
+    second.dispose()
+  })
+
+  it("作者从终态启动新任务时只替换已确认离开的旧终态记录", async () => {
+    const api = {
+      tasks: {
+        get: vi.fn()
+          .mockResolvedValueOnce({ status: "done", progress: 1, task_type: "deep_import", result: {} })
+          .mockImplementation(() => new Promise(() => {})),
+      },
+      world: { getMapQuickCreateContext: vi.fn(async () => ({ existing_maps: [], locations: [], candidate_locations: [] })) },
+      imports: {},
+    }
+    const controller = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: vi.fn(),
+    })
+    controller.startTask({ taskId: "task-done", workflowType: "deep_import" })
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledTimes(1))
+
+    controller.startTask({ taskId: "task-new", workflowType: "deep_import" })
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({ taskId: "task-new" }),
+    ])
     controller.dispose()
   })
 
@@ -123,6 +209,58 @@ describe("deepImportController", () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(changes).toHaveLength(before)
+    controller.dispose()
+  })
+
+  it("重新打开时恢复最新任务并还原生命周期与详细进度", async () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([
+      {
+        id: "p1:deep_import:task-old",
+        taskId: "task-old",
+        workflowType: "deep_import",
+        projectId: "p1",
+      },
+      {
+        id: "p1:scene_auto_extraction:task-current",
+        taskId: "task-current",
+        workflowType: "scene_auto_extraction",
+        projectId: "p1",
+      },
+    ]))
+    const changes = []
+    const api = {
+      tasks: {
+        get: vi.fn(async () => ({
+          status: "failed",
+          progress: 0.4,
+          task_type: "scene_auto_extraction",
+          lifecycle: { recovery_required: true },
+          available_actions: ["resume", "abandon"],
+          result: {
+            phase: "failed",
+            progress_events: [{ phase: "phase1a", message: "窗口中断" }],
+            phase_timeline: [{ phase: "phase1a", status: "failed" }],
+          },
+        })),
+      },
+      world: {},
+      imports: {},
+    }
+    const controller = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: (value) => changes.push(value),
+    })
+
+    await controller.recover()
+
+    expect(api.tasks.get).toHaveBeenCalledWith("task-current", "p1")
+    expect(changes.at(-1).progress).toEqual(expect.objectContaining({
+      recoveryRequired: true,
+      progressEvents: [{ phase: "phase1a", message: "窗口中断" }],
+      phaseTimeline: [{ phase: "phase1a", status: "failed" }],
+    }))
     controller.dispose()
   })
 
@@ -202,5 +340,110 @@ describe("deepImportController", () => {
     await abandoned.abandon()
     expect(api.imports.abandonDeepImport).toHaveBeenCalledWith("task-abandon")
     abandoned.dispose()
+  })
+
+  it("放弃旧任务的晚到响应不会清除随后启动的新任务", async () => {
+    let resolveAbandon
+    const api = {
+      tasks: { get: vi.fn(() => new Promise(() => {})) },
+      world: {},
+      imports: {
+        abandonDeepImport: vi.fn(() => new Promise((resolve) => { resolveAbandon = resolve })),
+      },
+    }
+    const changes = []
+    const controller = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: (value) => changes.push(value),
+    })
+    controller.startTask({ taskId: "task-a", workflowType: "deep_import" })
+    const abandoning = controller.abandon()
+    controller.startTask({ taskId: "task-b", workflowType: "deep_import" })
+    resolveAbandon({})
+
+    await expect(abandoning).resolves.toBe(true)
+    expect(changes.at(-1)).toEqual(expect.objectContaining({ taskId: "task-b" }))
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({ taskId: "task-b" }),
+    ])
+    controller.dispose()
+  })
+
+  it.each([
+    ["cancel", "cancel", "tasks"],
+    ["resume", "resumeDeepImport", "imports"],
+  ])("%s 的晚到响应不会覆盖随后启动的新任务", async (method, apiMethod, namespace) => {
+    let resolveOperation
+    const api = {
+      tasks: {
+        get: vi.fn(() => new Promise(() => {})),
+        cancel: vi.fn(() => new Promise((resolve) => { resolveOperation = resolve })),
+      },
+      world: {},
+      imports: {
+        resumeDeepImport: vi.fn(() => new Promise((resolve) => { resolveOperation = resolve })),
+      },
+    }
+    const changes = []
+    const controller = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: (value) => changes.push(value),
+    })
+    controller.startTask({ taskId: "task-a", workflowType: "deep_import" })
+    const operation = controller[method]()
+    expect(api[namespace][apiMethod]).toHaveBeenCalled()
+    controller.startTask({ taskId: "task-b", workflowType: "deep_import" })
+    resolveOperation(method === "resume" ? { task_id: "task-a" } : {})
+
+    await expect(operation).resolves.toBe(true)
+    expect(changes.at(-1)).toEqual(expect.objectContaining({
+      taskId: "task-b",
+      progress: expect.objectContaining({ status: "running" }),
+    }))
+    controller.dispose()
+  })
+
+  it.each([
+    ["404", Object.assign(new Error("旧任务不存在"), { status: 404 })],
+    ["网络失败", new Error("旧任务查询失败")],
+  ])("旧轮询的晚到%s不会清除或覆盖新任务", async (_label, failure) => {
+    let rejectOldPoll
+    const api = {
+      tasks: {
+        get: vi.fn()
+          .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+            rejectOldPoll = reject
+          }))
+          .mockImplementation(() => new Promise(() => {})),
+      },
+      world: {},
+      imports: {},
+    }
+    const changes = []
+    const controller = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange: (value) => changes.push(value),
+    })
+    controller.startTask({ taskId: "task-a", workflowType: "deep_import" })
+    controller.startTask({ taskId: "task-b", workflowType: "deep_import" })
+    rejectOldPoll(failure)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(changes.at(-1)).toEqual(expect.objectContaining({
+      taskId: "task-b",
+      progress: expect.objectContaining({ status: "running" }),
+    }))
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({ taskId: "task-a" }),
+      expect.objectContaining({ taskId: "task-b" }),
+    ])
+    controller.dispose()
   })
 })

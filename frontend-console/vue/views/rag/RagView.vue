@@ -71,6 +71,7 @@ async function refreshStatus() {
 }
 
 const workflow = useRagWorkflow({ statusFields, refreshStatus })
+const maintenanceBusy = workflow.maintenanceBusy
 
 // 预热结果回写（对应 vanilla _prewarm 的 _embeddingDim/_embeddingRuntime 更新）：
 // 请求由 prewarmManager 模块级管理（island load 触发/手动按钮强制），
@@ -121,9 +122,9 @@ onMounted(async () => {
     </div>
     <div class="view-header__actions">
       <template v-if="subView === 'status'">
-        <button class="btn btn-sm" data-action="rebuild-index" @click="workflow.rebuildIndex(rebuildForm)">重建索引</button>
+        <button class="btn btn-sm" data-action="rebuild-index" :disabled="maintenanceBusy" @click="workflow.rebuildIndex(rebuildForm)">{{ maintenanceBusy ? "提交中..." : "重建索引" }}</button>
         <button class="btn btn-sm" data-action="prewarm-rag" @click="manualPrewarm">预热检索引擎</button>
-        <button v-if="statusFields.retryableEmbeddingCount > 0" class="btn btn-sm" data-action="retry-embeddings" @click="workflow.retryEmbeddings()">重试失败向量</button>
+        <button v-if="statusFields.retryableEmbeddingCount > 0" class="btn btn-sm" data-action="retry-embeddings" :disabled="maintenanceBusy" @click="workflow.retryEmbeddings()">{{ maintenanceBusy ? "提交中..." : "重试失败向量" }}</button>
       </template>
     </div>
   </div>

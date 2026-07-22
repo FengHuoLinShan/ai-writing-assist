@@ -15,6 +15,9 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 记录导入历史
 - 提交并编排深度导入任务（基于 async_tasks）
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
+- 完整/分阶段提交在现有 project exclusive 短事务锁内检查同项目任务；若已有
+  `pending/running` 或 `failed + recovery_required` 的 imports task，则返回原
+  `task_id/workflow_type`，不重复入队。该锁不跨 provider I/O，仅覆盖 DB 检查与提交
 - 对已经完成深度导入、但地图时间事实不足的项目，提交独立
   `map_observation_enrichment` 任务；该任务只读取既有 active Scene 与正文来源，
   不执行 Phase 0/1/2/3，不新建或改写 Scene、世界对象、关系和结构资产
@@ -315,7 +318,7 @@ managed provenance、失败状态和脱敏 error，结束时取消 heartbeat。
 POST /api/imports/upload      — 上传文件（multipart multipart）
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
-POST /api/imports/deep        — 提交深度导入任务；重复导入时先返回 requires_confirmation
+POST /api/imports/deep        — 提交深度导入任务；活动任务复用原 task，资产重复时先返回 requires_confirmation
 POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b + Scene commit
 POST /api/imports/stages/world-objects — 提交世界对象与别名/关系自动提取任务，只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure — 提交剧情线自动提取任务，只执行 Phase 3

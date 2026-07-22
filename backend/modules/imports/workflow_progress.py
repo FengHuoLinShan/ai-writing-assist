@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.service_progress_logs import record_progress_event
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
@@ -25,7 +26,7 @@ class DeepImportProgressTracker:
 
     @staticmethod
     def short_message(message: Any) -> str:
-        return str(message or "")[:300]
+        return redact_diagnostic(message or "", limit=300)
 
     @classmethod
     def start_phase(
@@ -304,7 +305,7 @@ class DeepImportProgressTracker:
             return
         progress.checkpoints = {
             **(progress.checkpoints or {}),
-            **checkpoints,
+            **_redact_checkpoint_strings(checkpoints),
         }
 
     @staticmethod
@@ -316,7 +317,7 @@ class DeepImportProgressTracker:
         if isinstance(audit_summary, dict):
             progress.audit_summary = {
                 **(progress.audit_summary or {}),
-                **audit_summary,
+                **_redact_checkpoint_strings(audit_summary),
             }
 
     @staticmethod
@@ -326,7 +327,9 @@ class DeepImportProgressTracker:
     ) -> None:
         snapshot_health_summary = phase_result.get("snapshot_health_summary")
         if isinstance(snapshot_health_summary, dict):
-            progress.snapshot_health_summary = snapshot_health_summary
+            progress.snapshot_health_summary = _redact_checkpoint_strings(
+                snapshot_health_summary
+            )
 
     @staticmethod
     async def refresh_snapshot_health_summary(
@@ -340,10 +343,37 @@ class DeepImportProgressTracker:
         from modules.context.facade import build_snapshot_health_summary
 
         try:
-            progress.snapshot_health_summary = await build_snapshot_health_summary(
-                db,
-                novel_id=novel_id,
-                workflow_id=workflow_id,
+            progress.snapshot_health_summary = _redact_checkpoint_strings(
+                await build_snapshot_health_summary(
+                    db,
+                    novel_id=novel_id,
+                    workflow_id=workflow_id,
+                )
             )
         except Exception as exc:
-            logger.warning("snapshot health summary refresh failed: %s", exc)
+            logger.warning(
+                "snapshot health summary refresh failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
+
+
+def _redact_checkpoint_strings(value: Any, *, depth: int = 0) -> Any:
+    """Redact credentials in resumable state without changing checkpoint shape."""
+    if depth > 12:
+        return "<truncated>"
+    if isinstance(value, dict):
+        return {
+            str(key): _redact_checkpoint_strings(item, depth=depth + 1)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _redact_checkpoint_strings(item, depth=depth + 1) for item in value
+        ]
+    if isinstance(value, tuple):
+        return [
+            _redact_checkpoint_strings(item, depth=depth + 1) for item in value
+        ]
+    if isinstance(value, str):
+        return redact_diagnostic(value)
+    return value

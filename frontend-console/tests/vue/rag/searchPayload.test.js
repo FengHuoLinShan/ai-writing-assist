@@ -8,6 +8,8 @@ import {
   highlightParts,
   hitKindLabel,
   normalizeEvidenceHit,
+  parentSceneContexts,
+  parentSceneLabel,
   resultCountLabel,
   searchErrorReason,
 } from "../../../vue/views/rag/logic/searchPayload.js"
@@ -80,6 +82,16 @@ describe("buildEvidencePayload", () => {
   it("空 scopes 回退正文", () => {
     expect(buildEvidencePayload(makeForm({ scopes: [] }), "p1").payload.scopes).toEqual(["manuscript"])
   })
+
+  it("作者搜索携带当前写作 Scene，读者视角不携带", () => {
+    expect(buildEvidencePayload(makeForm({ currentSceneId: "scene-12" }), "p1").payload.context_scene_id)
+      .toBe("scene-12")
+    expect(buildEvidencePayload(makeForm({
+      currentSceneId: "scene-12",
+      visibilityMode: "reader",
+      cutoffChapter: "11",
+    }), "p1").payload.context_scene_id).toBeNull()
+  })
 })
 
 describe("normalizeEvidenceHit", () => {
@@ -96,6 +108,25 @@ describe("normalizeEvidenceHit", () => {
       match_basis: "occurrence",
     })
     expect(normalizeEvidenceHit({ index_fresh: false }).index_fresh).toBe(false)
+  })
+
+  it("保留写作关系并可读化父 Scene", () => {
+    const hit = normalizeEvidenceHit({
+      scene_refs: [{
+        target_type: "outline_scene",
+        target_id: "scene-11",
+        scene_index: 11,
+        scene_title: "旧塔铜铃",
+      }],
+      writing_relevance: { kind: "previous_scene", label: "前序 Scene" },
+    })
+    expect(parentSceneContexts(hit)).toHaveLength(1)
+    expect(parentSceneLabel(parentSceneContexts(hit)[0])).toBe("Scene 11 · 旧塔铜铃")
+    expect(hit.writing_relevance.kind).toBe("previous_scene")
+  })
+
+  it("无标题 Scene 不重复序号标签", () => {
+    expect(parentSceneLabel({ scene_index: 11, target_name: "Scene 11" })).toBe("Scene 11")
   })
 })
 

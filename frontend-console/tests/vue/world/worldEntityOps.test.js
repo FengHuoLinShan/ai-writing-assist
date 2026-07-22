@@ -14,6 +14,7 @@ import {
   ignoreCandidate,
   acceptCandidate,
   markEntityReviewed,
+  openEntityMap,
   promoteEntity,
   registerCandidateListHooks,
   showEntityCreateForm,
@@ -44,6 +45,7 @@ beforeEach(() => {
   confirmCalls = []
   toastCalls = []
   document.body.innerHTML = ""
+  vi.spyOn(window, "open").mockImplementation(() => null)
   apiMock = {
     world: {
       createEntity: vi.fn(async () => ({})),
@@ -52,6 +54,8 @@ beforeEach(() => {
       deleteEntity: vi.fn(async () => ({})),
       getEntity: vi.fn(async () => null),
       resolveEntityAsAlias: vi.fn(async () => ({})),
+      getEntityMapPresence: vi.fn(async () => ({ items: [] })),
+      getMapOpenTarget: vi.fn(async () => ({ map_id: null, mode: "overview" })),
     },
   }
   setBridgeOverrides({
@@ -59,8 +63,8 @@ beforeEach(() => {
     state: { currentProjectId: "p-ops", currentView: "world" },
     toast: (...args) => toastCalls.push(args),
     showModalHtml: captureModal,
-    confirmAction: (message, onConfirm, confirmText) => {
-      confirmCalls.push({ message, confirmText, onConfirm })
+    confirmAction: (message, onConfirm, confirmText, onCancel) => {
+      confirmCalls.push({ message, confirmText, onConfirm, onCancel })
     },
     confirm: vi.fn(() => true),
     router: { refresh: vi.fn(async () => true) },
@@ -70,6 +74,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   resetBridgeOverrides()
 })
 
@@ -105,6 +110,33 @@ describe("showEntityCreateForm", () => {
     await modalCalls[0].buttons[0].handler()
     expect(toastCalls).toContainEqual(["请输入名称", "warning"])
     expect(apiMock.world.createEntity).not.toHaveBeenCalled()
+  })
+
+  it("相似对象确认取消后可从原表单重试", async () => {
+    apiMock.world.createEntity
+      .mockRejectedValueOnce({ status: 409, detail: { requires_confirmation: true, similar_entities: [{ name: "雾岭" }] } })
+      .mockResolvedValueOnce({})
+    showEntityCreateForm()
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("create-entity-name").value = "雾岭新村"
+    document.getElementById("create-entity-type").value = "location"
+    const handler = modalCalls[0].buttons[0].handler
+
+    expect(await handler()).toBe(false)
+    expect(confirmCalls).toHaveLength(1)
+    confirmCalls[0].onCancel()
+    expect(modalCalls).toHaveLength(2)
+    expect(modalCalls[1].html).toContain('value="雾岭新村"')
+    document.body.innerHTML = modalCalls[1].html
+    await modalCalls[1].buttons[0].handler()
+    expect(apiMock.world.createEntity).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("openEntityMap", () => {
+  it("候选对象查地图时显式包含候选绑定", async () => {
+    await openEntityMap("c1")
+    expect(apiMock.world.getEntityMapPresence).toHaveBeenCalledWith("c1", "p-ops", true)
   })
 })
 

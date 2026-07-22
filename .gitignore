@@ -24,10 +24,12 @@ Thumbs.db
 .pytest_cache/
 *.coverage
 htmlcov/
+backend/.test-artifacts/
 
 # Node
 node_modules/
 frontend-console/test-results/
+frontend-console/playwright-report/
 
 # Database
 *.db

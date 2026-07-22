@@ -7,10 +7,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.models import EntityRelation
 from modules.world.repositories import (
     CoreEntityRepository,
@@ -369,7 +371,10 @@ class EntityRelationService(
 
         existing.description = _merge_text(existing.description, data.description)
         existing.quote = _merge_text(existing.quote, data.quote)
-        existing.strength = max(float(existing.strength or 0.0), float(data.strength))
+        existing.strength = max(
+            float(existing.strength if existing.strength is not None else 0.0),
+            float(data.strength),
+        )
         if data.review_meta:
             existing.review_meta = {
                 **(existing.review_meta or {}),
@@ -432,12 +437,18 @@ class EntityRelationService(
                 return False
             if (
                 strength_min is not None
-                and float(relation.strength or 0.0) < strength_min
+                and float(
+                    relation.strength if relation.strength is not None else 0.0
+                )
+                < strength_min
             ):
                 return False
             if (
                 strength_max is not None
-                and float(relation.strength or 0.0) > strength_max
+                and float(
+                    relation.strength if relation.strength is not None else 0.0
+                )
+                > strength_max
             ):
                 return False
             if normalized_query:
@@ -525,7 +536,11 @@ class EntityRelationService(
             members = sorted(
                 members,
                 key=lambda relation: (
-                    -(relation.strength or 0.0),
+                    -(
+                        relation.strength
+                        if relation.strength is not None
+                        else 0.0
+                    ),
                     relation.relation_type,
                     str(relation.id),
                 ),
@@ -694,6 +709,10 @@ class EntityRelationService(
                         "message": "待处理关系已发生变化，请刷新后重试",
                     }
                 )
+            except SQLAlchemyError:
+                # Do not flatten a persistence fault into a normal item result;
+                # the outer transaction must roll back and surface the failure.
+                raise
             except Exception as exc:
                 results.append(
                     {
@@ -1102,13 +1121,13 @@ class EntityRelationService(
                     asset_id=entity_id,
                     reason="relation_review_batch",
                 )
-            except Exception:
+            except Exception as exc:
                 logger.warning(
                     "world_relation_context_invalidation_failed novel_id=%s "
-                    "entity_id=%s; relation_write_remains_valid",
+                    "entity_id=%s; relation_write_remains_valid; reason=%s",
                     novel_id,
                     entity_id,
-                    exc_info=True,
+                    redact_diagnostic(exc, limit=300),
                 )
 
     # ============================================================

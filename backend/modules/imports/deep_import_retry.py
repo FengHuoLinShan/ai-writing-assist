@@ -16,6 +16,7 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from infrastructure.llm.redaction import redact_diagnostic
 
 DeepImportErrorType = Literal[
     "422",
@@ -247,4 +248,4 @@ def _elapsed_ms(started_at: float) -> float:
 
 
 def _safe_message(exc: Exception) -> str:
-    return str(exc)[:300]
+    return redact_diagnostic(exc, limit=300)

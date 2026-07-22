@@ -1,7 +1,7 @@
 /**
  * Router regression tests
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest"
 
 import "../router.js"
 
@@ -495,6 +495,13 @@ describe("route guard and normalization", () => {
 })
 
 describe("refresh forces project sync", () => {
+  let App
+
+  beforeAll(async () => {
+    const appModule = await import("../app.js")
+    App = appModule.default
+  }, 15_000)
+
   it("re-fetches current project metadata even when project is unchanged", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
@@ -522,7 +529,6 @@ describe("refresh forces project sync", () => {
   })
 
   it("re-fetches full project metadata after restoring a legacy project object summary", async () => {
-    const { default: App } = await import("../app.js")
     const content = document.createElement("div")
     content.id = "workspace-content"
     document.body.append(content)

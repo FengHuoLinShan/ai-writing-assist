@@ -774,6 +774,10 @@ class EvidenceGrepRequest(BaseModel):
     skip: int = Field(0, ge=0)
     limit: int = Field(20, ge=1, le=100)
     group_by_chapter: bool = False
+    context_scene_id: str | None = Field(
+        None,
+        description="当前写作 Scene；仅用于作者结果的前后文关系说明",
+    )
 
 
 class EvidenceSearchRequest(BaseModel):
@@ -791,6 +795,10 @@ class EvidenceSearchRequest(BaseModel):
     chapter_from: int | None = Field(None, ge=1)
     chapter_to: int | None = Field(None, ge=1)
     top_k: int = Field(100, ge=1, le=100)
+    context_scene_id: str | None = Field(
+        None,
+        description="当前写作 Scene；仅用于作者结果的前后文关系说明",
+    )
 
 
 class EvidenceReadRequest(BaseModel):
@@ -822,11 +830,13 @@ class EvidenceHitResponse(BaseModel):
     chapter_index: int | None = None
     score: float | None = None
     scene_refs: list[dict] = Field(default_factory=list)
+    parent_scene_contexts: list[dict] = Field(default_factory=list)
     object_refs: list[dict] = Field(default_factory=list)
     index_fresh: bool = True
     visibility_decision: dict = Field(default_factory=dict)
     match_count: int = Field(1, ge=1)
     match_basis: Literal["occurrence", "chunk"] = "chunk"
+    writing_relevance: dict = Field(default_factory=dict)
 
 
 class EvidenceSearchResponse(BaseModel):

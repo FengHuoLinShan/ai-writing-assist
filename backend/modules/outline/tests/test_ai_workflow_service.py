@@ -149,6 +149,7 @@ async def test_generate_returns_preview_without_persisting(
     assert result["context_confirmation_id"] == "confirmation-1"
     attach_preview.assert_awaited_once_with(
         db,
+        novel_id="11111111-1111-1111-1111-111111111111",
         confirmation_id="confirmation-1",
         result_type="outline_structure_preview",
         result_id="task-1",

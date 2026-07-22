@@ -12,13 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.outline.facade import get_scene_contract
 from modules.world.contracts import (
     MapObservationCandidateBatchResult,
     MapObservationCandidateInput,
     MapObservationCandidateResult,
 )
-from modules.world.map_models import MapObservation
+from modules.world.map_models import MapFact, MapObservation
 from modules.world.map_repositories import MapPathNodeRepository, MapPathRepository
 from modules.world.map_schemas import (
     MapFactResponse,
@@ -73,6 +74,33 @@ class MapObservationMixin:
         if expected.tzinfo is None:
             expected = expected.replace(tzinfo=UTC)
         return actual.astimezone(UTC) == expected.astimezone(UTC)
+
+    @staticmethod
+    def _fact_matches_observation(
+        fact: MapFact,
+        observation: MapObservation,
+    ) -> bool:
+        observation_spatial = observation.spatial_anchor or {}
+        fact_spatial = fact.spatial_anchor or {}
+        return (
+            fact.map_id == observation.map_id
+            and fact.target_entity_id == observation.target_entity_id
+            and fact.target_entity_type == observation.target_entity_type
+            and fact.target_name == observation.target_name
+            and fact.dynamic_type == observation.dynamic_type
+            and (fact.time_anchor or {}) == (observation.time_anchor or {})
+            and all(
+                fact_spatial.get(key) == value
+                for key, value in observation_spatial.items()
+            )
+            and (fact.value_json or {}) == (observation.value_json or {})
+            and fact.confidence == observation.confidence
+            and (fact.source_ref or {}) == (observation.source_ref or {})
+            and fact.evidence_text == observation.evidence_text
+            and fact.scene_id == observation.scene_id
+            and fact.scene_index == observation.scene_index
+            and fact.source_chapter_index == observation.source_chapter_index
+        )
 
     @staticmethod
     def _is_initial_state(observation: MapObservation) -> bool:
@@ -279,7 +307,7 @@ class MapObservationMixin:
                 "地图动态值不符合 schema_version=1 契约",
                 code="invalid_map_dynamic_value",
                 status_code=422,
-                context={"reason": str(exc)},
+                context={"reason": redact_diagnostic(exc, limit=500)},
             ) from exc
 
         anchor = dict(spatial_anchor or {})
@@ -841,7 +869,7 @@ class MapObservationMixin:
                     "地图待处理项不符合 proposal/canonical 契约",
                     code="invalid_map_observation_payload",
                     status_code=422,
-                    context={"reason": str(exc)},
+                    context={"reason": redact_diagnostic(exc, limit=500)},
                 ) from exc
             if config is None and value_json.get("payload_kind") != "proposal":
                 raise ValidationError(
@@ -1019,8 +1047,19 @@ class MapObservationMixin:
         assert observation is not None
         owner._assert_observation_in_map(observation, observation_id, mid)
 
-        existing = await owner._fact_repo.get_by_observation(db, oid)
+        existing = await owner._fact_repo.get_by_observation(db, nid, oid)
         if existing is not None:
+            if not self._fact_matches_observation(existing, observation):
+                raise ConflictError(
+                    "地图待处理项与已采用事实内容不一致，请先人工核对",
+                    code="map_observation_fact_conflict",
+                )
+            if observation.review_state != "confirmed":
+                await owner._observation_repo.update_review_state(
+                    db,
+                    observation,
+                    "confirmed",
+                )
             return MapFactResponse.model_validate(existing)
         if observation.review_state not in {
             "candidate",
@@ -1123,6 +1162,16 @@ class MapObservationMixin:
         request_by_id = {
             parse_uuid(item.observation_id, "observation_id"): item for item in data.items
         }
+        fact_by_observation: dict[uuid.UUID | None, MapFact] = {}
+        if data.action == "confirm":
+            existing_facts = await owner._fact_repo.get_by_observations(
+                db,
+                nid,
+                observation_ids,
+            )
+            fact_by_observation = {
+                fact.observation_id: fact for fact in existing_facts
+            }
         observations: list[MapObservation] = []
         for oid in sorted(observation_ids, key=str):
             request_item = request_by_id[oid]
@@ -1138,12 +1187,21 @@ class MapObservationMixin:
                 request_item.observation_id,
                 mid,
             )
-            if observation.review_state not in {
-                "candidate",
-                "conflicted",
-            } or not self._same_revision(
-                observation.updated_at,
-                request_item.expected_updated_at,
+            existing_fact = fact_by_observation.get(observation.id)
+            if existing_fact is not None and not self._fact_matches_observation(
+                existing_fact,
+                observation,
+            ):
+                raise ConflictError(
+                    "批量采用包含与既有事实不一致的地图待处理项",
+                    code="map_observation_fact_conflict",
+                )
+            if existing_fact is None and (
+                observation.review_state not in {"candidate", "conflicted"}
+                or not self._same_revision(
+                    observation.updated_at,
+                    request_item.expected_updated_at,
+                )
             ):
                 await self._raise_revision_conflict(db, novel_id, oid)
             observations.append(observation)
@@ -1153,7 +1211,12 @@ class MapObservationMixin:
         created_fact_count = 0
         if data.action == "confirm":
             config = await owner._ctx.require_map(db, novel_id, map_id)
-            for observation in observations:
+            missing_observations = [
+                observation
+                for observation in observations
+                if observation.id not in fact_by_observation
+            ]
+            for observation in missing_observations:
                 response = await self._response(db, novel_id, observation)
                 if not response.eligibility.can_confirm:
                     raise ValidationError(
@@ -1179,21 +1242,6 @@ class MapObservationMixin:
                     str(observation.scene_id) if observation.scene_id else None,
                     observation.scene_index,
                 )
-            existing_facts = await owner._fact_repo.get_by_observations(
-                db,
-                [observation.id for observation in observations],
-            )
-            fact_by_observation = {fact.observation_id: fact for fact in existing_facts}
-            missing_observations = []
-            seen_missing: set[Any] = set()
-            for observation in observations:
-                if observation.id in fact_by_observation:
-                    continue
-                if observation.id in seen_missing:
-                    continue
-                seen_missing.add(observation.id)
-                missing_observations.append(observation)
-
             fact_anchors = {
                 observation.id: await self._fact_anchor_snapshot(
                     db,
@@ -1246,7 +1294,7 @@ class MapObservationMixin:
                 updated_observations.append(
                     await self._response(db, novel_id, observation)
                 )
-            if facts:
+            if created_facts:
                 from modules.world.services.worldbuilding.synopsis_invalidation import (
                     mark_synopsis_source_changed,
                 )

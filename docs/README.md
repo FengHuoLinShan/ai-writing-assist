@@ -135,6 +135,7 @@
 9. [`superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md`](superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md) — P2 文档同步、world contract 解耦、facade 公共面冻结和 legacy 删除计划
 10. [`audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md`](audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md) — P2 删除清单、稳定接口影响与仓库级验证结果
 11. [`audit/2026-07-14-全量代码扫描修复收敛报告.md`](audit/2026-07-14-全量代码扫描修复收敛报告.md) — 全量 bug / 低效路径分批修复、独立复核、全仓库验证，以及 8 项未关闭 P1 结构债务、1 项已关闭重复路径与 1 项 P2 性能优化
+12. [`audit/2026-07-20-全项目持续风险审查.md`](audit/2026-07-20-全项目持续风险审查.md) — 当前 checkout 的全项目持续审查台账：完成条件、逐模块覆盖、直接修复、决策项与独立验证证据
 
 ## 当前状态
 

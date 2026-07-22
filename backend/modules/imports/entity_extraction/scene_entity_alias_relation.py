@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.entity_extraction.scene_entity_config import (
     phase2_alias_relation_concurrency,
     phase2_alias_relation_entity_index_char_limit,
@@ -206,7 +207,7 @@ class AliasRelationExtractionMixin:
                 )
             except Exception as exc:
                 error_kind = service._error_kind(exc)
-                error_message = str(exc)[:300]
+                error_message = redact_diagnostic(exc, limit=300)
                 failed_scenes.append(scene_index)
                 progress_completed += 1
                 scene_checkpoints.append(
@@ -224,7 +225,7 @@ class AliasRelationExtractionMixin:
                 logger.warning(
                     "Alias/relation preparation failed for scene %s: %s",
                     scene_index,
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
                 if on_scene_progress is not None:
                     await _notify_alias_relation_progress(
@@ -269,7 +270,7 @@ class AliasRelationExtractionMixin:
             result_refs: list[dict[str, str]] = []
             if exc is not None:
                 current_error_kind = service._error_kind(exc)
-                current_error_message = str(exc)[:300] or (
+                current_error_message = redact_diagnostic(exc, limit=300) or (
                     "Phase 2b alias/relation extraction exceeded total timeout "
                     f"budget ({total_timeout_seconds}s)"
                 )
@@ -299,6 +300,7 @@ class AliasRelationExtractionMixin:
                     )
                     await _mark_phase2b_snapshot_failed(
                         db,
+                        str(nid),
                         snapshot_id,
                         error_kind=current_error_kind,
                         error_message=current_error_message,
@@ -322,10 +324,11 @@ class AliasRelationExtractionMixin:
                 logger.warning(
                     "Alias/relation extraction failed for scene %s: %s",
                     scene_index,
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
                 await _mark_phase2b_snapshot_failed(
                     db,
+                    str(nid),
                     snapshot_id,
                     error_kind=error_kind,
                     error_message=error_message,
@@ -377,12 +380,13 @@ class AliasRelationExtractionMixin:
 
                     await succeed_context_snapshot(
                         db,
+                        novel_id=str(nid),
                         snapshot_id=snapshot_id,
                         result_refs=result_refs,
                     )
             except Exception as exc:
                 error_kind = service._error_kind(exc)
-                error_message = str(exc)[:300]
+                error_message = redact_diagnostic(exc, limit=300)
                 failed_scenes.append(scene_index)
                 scene_checkpoints.append(
                     _build_phase2b_checkpoint(
@@ -399,10 +403,11 @@ class AliasRelationExtractionMixin:
                 logger.warning(
                     "Alias/relation persistence failed for scene %s: %s",
                     scene_index,
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
                 await _mark_phase2b_snapshot_failed(
                     db,
+                    str(nid),
                     snapshot_id,
                     error_kind=error_kind,
                     error_message=error_message,
@@ -761,6 +766,7 @@ async def _notify_alias_relation_progress(
 
 async def _mark_phase2b_snapshot_failed(
     db: AsyncSession,
+    novel_id: str,
     snapshot_id: str | None,
     *,
     error_kind: str,
@@ -772,6 +778,7 @@ async def _mark_phase2b_snapshot_failed(
 
     await fail_context_snapshot(
         db,
+        novel_id=novel_id,
         snapshot_id=snapshot_id,
         error_kind=error_kind,
         error_message=error_message,

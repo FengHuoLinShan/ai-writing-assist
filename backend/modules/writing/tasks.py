@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from core.container import get as _container_get
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.registry import task_handler
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,6 @@ async def handle_publish_chapter(db, task):
         raise ValueError("chapter_index must be >= 1 for publish_chapter")
 
     results: dict[str, object] = {}
-    errors: list[str] = []
 
     # Step 1: RAG 索引
     rag_ok = False
@@ -107,15 +107,14 @@ async def handle_publish_chapter(db, task):
             break
         except Exception as e:
             await db.rollback()
+            safe_error = redact_diagnostic(e, limit=500)
             logger.warning(
                 "Publish chapter %d — RAG attempt %d/%d failed: %s",
                 chapter_index,
                 attempt,
                 _MAX_RETRIES,
-                e,
-                exc_info=True,
+                safe_error,
             )
-            errors.append(f"RAG attempt {attempt}: {e}")
 
     if not rag_ok:
         raise RuntimeError(
@@ -147,15 +146,14 @@ async def handle_publish_chapter(db, task):
             )
             break
         except Exception as e:
+            safe_error = redact_diagnostic(e, limit=500)
             logger.warning(
                 "Publish chapter %d — snapshot attempt %d/%d failed: %s",
                 chapter_index,
                 attempt,
                 _MAX_RETRIES,
-                e,
-                exc_info=True,
+                safe_error,
             )
-            errors.append(f"Snapshot attempt {attempt}: {e}")
 
     if not snapshot_ok:
         raise RuntimeError(

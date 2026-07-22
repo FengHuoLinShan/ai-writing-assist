@@ -22,13 +22,13 @@
           <button class="btn btn-sm btn-primary" data-action="create-thread" @click="showCreateThreadForm()">新建剧情线</button>
           <button class="btn btn-sm" data-action="ai-create-plot-thread" @click="showOutlineLayerAiForm('plot_thread')">AI 创作剧情线</button>
           <button class="btn btn-sm" data-action="analyze-outline" :disabled="analysisBusy" @click="showOutlineAnalysisForm()">{{ analysisBusy ? "AI 分析中" : "AI 分析大纲" }}</button>
-          <button class="btn btn-sm" data-action="plot-structure-auto-extract" @click="showPlotStructureAutoExtractForm()">从正文提取剧情线</button>
+          <button class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "提取中..." : "从正文提取剧情线" }}</button>
         </template>
         <template v-else-if="subView === 'arcs'">
           <button class="btn btn-sm btn-primary" data-action="create-arc" @click="showCreateArcForm()">新建篇章纲</button>
           <button class="btn btn-sm" data-action="ai-create-outline-arc" @click="showOutlineLayerAiForm('outline_arc')">AI 创作篇章纲</button>
           <button class="btn btn-sm" data-action="analyze-outline" :disabled="analysisBusy" @click="showOutlineAnalysisForm()">{{ analysisBusy ? "AI 分析中" : "AI 分析大纲" }}</button>
-          <button class="btn btn-sm" data-action="plot-structure-auto-extract" @click="showPlotStructureAutoExtractForm()">从正文提取篇章纲</button>
+          <button class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "提取中..." : "从正文提取篇章纲" }}</button>
         </template>
         <span data-role="smart-dedup-action"></span>
       </div>
@@ -45,7 +45,7 @@ import {
   showOutlineLayerAiForm,
   showPlotStructureAutoExtractForm,
 } from "../ai/outlineAiOps.js"
-import { outlineAnalysisManager } from "../ai/outlineWorkflowManagers.js"
+import { outlineAnalysisManager, plotAutoExtractManager } from "../ai/outlineWorkflowManagers.js"
 
 const props = defineProps({
   subView: { type: String, default: "story-outline" },
@@ -61,6 +61,11 @@ const projectTitle = computed(() => {
 const analysisBusy = computed(() => {
   const progress = outlineAnalysisManager.state.progress
   return Boolean(outlineAnalysisManager.state.submitting || (progress && !progress.terminal))
+})
+
+const plotExtractBusy = computed(() => {
+  const progress = plotAutoExtractManager.state.progress
+  return Boolean(plotAutoExtractManager.state.submitting || (progress && !progress.terminal))
 })
 
 function navigateSub(sub) {

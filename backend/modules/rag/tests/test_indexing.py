@@ -1209,6 +1209,37 @@ async def test_embedding_writer_falls_back_per_chunk_after_batch_failure() -> No
 
 
 @pytest.mark.asyncio
+async def test_embedding_writer_redacts_persisted_provider_diagnostics() -> None:
+    from modules.rag.embedding_writer import EmbeddingWriter
+
+    secret = "private-embedding-token-value"
+
+    class FailingLLM:
+        async def generate_embedding(self, _value):  # type: ignore[no-untyped-def]
+            raise RuntimeError(
+                f"Authorization: Bearer {secret} api_key={secret}"
+            )
+
+    chunk = SimpleNamespace(
+        id=uuid.uuid4(),
+        text="失败片段",
+        embedding=[0.1],
+        embedding_status="pending",
+        embedding_error=None,
+        index_warnings=[],
+    )
+
+    result = await EmbeddingWriter(SimpleNamespace(), FailingLLM()).embed_per_chunk(
+        [chunk]
+    )
+
+    assert result.failed_count == 1
+    assert secret not in chunk.embedding_error
+    assert secret not in chunk.index_warnings[0]
+    assert "[REDACTED]" in chunk.embedding_error
+
+
+@pytest.mark.asyncio
 async def test_embedding_writer_closes_only_the_client_it_owns() -> None:
     from modules.rag.embedding_writer import EmbeddingWriter
 

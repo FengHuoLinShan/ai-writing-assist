@@ -1,13 +1,58 @@
 from __future__ import annotations
 
+import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.generation.context_builder import PlotStructureContext
+from modules.outline.generation.models import GeneratedThread
 from modules.outline.generation.parser import PlotStructureParser
-from modules.outline.generation.persister import PersistResult
+from modules.outline.generation.persister import PersistResult, PlotStructurePersister
 from modules.outline.generator import PlotStructureGenerator
+
+
+@pytest.mark.asyncio
+async def test_persister_batch_failure_uses_savepoint_before_item_fallback(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    class ThreadService:
+        async def create_batch(self, db, _novel_id, _payloads):
+            await db.execute(
+                text("INSERT INTO plot_threads (id) VALUES (:id)"),
+                {"id": str(uuid.uuid4())},
+            )
+
+        async def create(self, _db, _novel_id, payload):
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                name=payload.name,
+                thread_type=payload.thread_type,
+            )
+
+    persister = PlotStructurePersister(
+        ThreadService(),
+        object(),
+        object(),
+        object(),
+        object(),
+    )
+    result = await persister._persist_threads(
+        db_session,
+        uuid.UUID(test_project_id),
+        1,
+        [GeneratedThread(name="主线", thread_type="main")],
+        {},
+        {},
+        {},
+    )
+
+    assert result[0]["name"] == "主线"
+    assert await db_session.scalar(select(1)) == 1
 
 
 class FakeLLM:

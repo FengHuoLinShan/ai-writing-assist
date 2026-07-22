@@ -16,9 +16,11 @@ from modules.memory.contracts import (
     MemoryDeltaEventIngest,
     MemoryDeltaIngestResult,
 )
+from modules.memory.scene_projection import SceneMemoryProjectionService
 from modules.memory.services import MemoryService
 
 _memory = MemoryService()
+_scene_memory = SceneMemoryProjectionService()
 
 
 async def get_memory_panorama(
@@ -84,6 +86,26 @@ async def ingest_delta_events(
     )
 
 
+async def replace_scene_memory_events(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    scene_id: str,
+    scene_index: int,
+    chapter_index: int,
+    events: list[dict[str, Any]],
+):
+    """Replace one Scene event stream, including an explicitly empty rerun."""
+    return await _memory.record_scene_events(
+        db,
+        novel_id,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        chapter_index=chapter_index,
+        events=events,
+    )
+
+
 async def count_deep_import_delta_logs_by_workflow(
     db: AsyncSession,
     novel_id: str,
@@ -95,6 +117,23 @@ async def count_deep_import_delta_logs_by_workflow(
         novel_id,
         workflow_id,
     )
+
+
+async def ensure_scene_checkpoints(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+):
+    """Build every Scene checkpoint through the requested Scene."""
+    return await _scene_memory.ensure_scene(db, novel_id, scene_id)
+
+
+async def get_scene_checkpoints(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+):
+    return await _scene_memory.get_scene(db, novel_id, scene_id)
 
 
 async def rollback_deep_import_delta_logs_by_workflow(

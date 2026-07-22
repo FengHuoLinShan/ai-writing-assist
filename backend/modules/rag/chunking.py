@@ -169,6 +169,10 @@ class ChunkingService:
         Returns:
             str 列表
         """
+        if isinstance(chunk_size, bool) or chunk_size <= 0:
+            raise ValueError("chunk_size must be a positive integer")
+        if isinstance(overlap, bool) or overlap < 0 or overlap >= chunk_size:
+            raise ValueError("overlap must be between 0 and chunk_size - 1")
         if not text.strip():
             return []
 

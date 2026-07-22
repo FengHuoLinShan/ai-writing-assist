@@ -5,7 +5,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import ProjectSettingsView from "../../../vue/views/settings/ProjectSettingsView.vue"
-import { resetBridgeOverrides } from "../../../vue/bridge/index.js"
+import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
 
 function makeEffectiveLLM(overrides = {}) {
@@ -73,6 +74,22 @@ describe("空态与导航", () => {
       props: makeProps({ effectiveLLM: null, effectivePrefs: null }),
     })
     expect(wrapper.text()).toContain("加载中…")
+  })
+})
+
+describe("未保存离开守卫", () => {
+  it("修改项目设置后在路由离开前确认", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    let guard = null
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps(),
+      global: { provide: { [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn } } },
+    })
+    expect(guard()).toBe(true)
+    await wrapper.find("#llm-model").setValue("changed-model")
+    expect(guard()).toBe(false)
+    expect(confirm).toHaveBeenCalledWith("项目设置有未保存修改，确定放弃并离开吗？")
   })
 })
 
@@ -233,7 +250,10 @@ describe("作者偏好", () => {
     })
   })
 
-  it("项目覆盖字段显示恢复到全局默认按钮并触发重置", async () => {
+  it("恢复单字段时只更新目标字段并保留其他未保存输入", async () => {
+    globalThis.api.settings.getEffectiveAuthorPrefs.mockResolvedValue(makeEffectivePrefs({
+      daily_goal: { value: 6000, source: "global" },
+    }))
     const wrapper = mount(ProjectSettingsView, {
       props: makeProps({
         effectivePrefs: makeEffectivePrefs({
@@ -242,11 +262,61 @@ describe("作者偏好", () => {
       }),
     })
     await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await wrapper.find("#author-editor-font").setValue("serif")
+    await wrapper.find("#author-default-focus").setValue(true)
     const resetButton = wrapper.find('.field-reset[data-field="daily_goal"]')
     expect(resetButton.exists()).toBe(true)
     await resetButton.trigger("click")
     await vi.waitFor(() => {
       expect(globalThis.api.settings.resetProjectAuthorPrefsField).toHaveBeenCalledWith("p1", "daily_goal")
     })
+    await vi.waitFor(() => expect(wrapper.find("#author-daily-goal").element.value).toBe("6000"))
+    expect(wrapper.find("#author-editor-font").element.value).toBe("serif")
+    expect(wrapper.find("#author-default-focus").element.checked).toBe(true)
+    expect(globalThis.api.settings.getEffectiveLLMSettings).not.toHaveBeenCalled()
+  })
+
+  it("恢复单字段失败时保留全部本地输入并提示错误", async () => {
+    globalThis.api.settings.resetProjectAuthorPrefsField.mockRejectedValueOnce(
+      new Error("恢复服务暂时不可用"),
+    )
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectivePrefs: makeEffectivePrefs({
+          daily_goal: { value: 3000, source: "project" },
+        }),
+      }),
+    })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await wrapper.find("#author-daily-goal").setValue("777")
+    await wrapper.find("#author-editor-font").setValue("serif")
+
+    await wrapper.find('.field-reset[data-field="daily_goal"]').trigger("click")
+
+    await vi.waitFor(() => {
+      expect(globalThis.toast).toHaveBeenCalledWith("恢复服务暂时不可用", "error")
+    })
+    expect(wrapper.find("#author-daily-goal").element.value).toBe("777")
+    expect(wrapper.find("#author-editor-font").element.value).toBe("serif")
+    expect(globalThis.api.settings.getEffectiveAuthorPrefs).not.toHaveBeenCalled()
+  })
+
+  it("保存作者偏好时不覆盖其他 Tab 的未保存输入", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    let guard = null
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps(),
+      global: { provide: { [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn } } },
+    })
+    await wrapper.find("#llm-model").setValue("author-save-must-not-reset-me")
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await wrapper.find("#author-daily-goal").setValue("500")
+    await wrapper.find("#author-prefs-tab-save").trigger("click")
+    await vi.waitFor(() => expect(globalThis.toast).toHaveBeenCalledWith("作者偏好已保存", "success"))
+
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[0].trigger("click")
+    expect(wrapper.find("#llm-model").element.value).toBe("author-save-must-not-reset-me")
+    expect(guard()).toBe(false)
   })
 })

@@ -4,6 +4,7 @@ import uuid
 from unittest import mock
 
 import pytest
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.repositories import (
@@ -23,6 +24,58 @@ from modules.outline.structure_dedup import (
 )
 
 pytestmark = [pytest.mark.asyncio]
+
+
+async def test_apply_isolates_database_failure_per_suggestion(
+    db_session: AsyncSession,
+    test_project_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = OutlineStructureDedupService(
+        llm_client=mock.MagicMock(model_name="test-model")
+    )
+    calls = 0
+
+    async def apply_one(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await db_session.execute(
+                text("INSERT INTO plot_threads (id) VALUES (:id)"),
+                {"id": str(uuid.uuid4())},
+            )
+        return {
+            "asset_type": "plot_thread",
+            "action": "deprecate_duplicate",
+            "source_asset_id": "source-2",
+            "target_asset_id": "target-2",
+        }
+
+    monkeypatch.setattr(service, "_apply_one", apply_one)
+    result = await service.apply(
+        db_session,
+        novel_id=test_project_id,
+        confirmed=True,
+        suggestions=[
+            {
+                "asset_type": "plot_thread",
+                "action": "deprecate_duplicate",
+                "source_asset_id": "source-1",
+                "target_asset_id": "target-1",
+            },
+            {
+                "asset_type": "plot_thread",
+                "action": "deprecate_duplicate",
+                "source_asset_id": "source-2",
+                "target_asset_id": "target-2",
+            },
+        ],
+    )
+
+    assert result["applied"] == 1
+    assert result["skipped"] == 1
+    assert len(result["warnings"]) == 1
+    assert await db_session.scalar(select(1)) == 1
 
 
 async def _create_thread(

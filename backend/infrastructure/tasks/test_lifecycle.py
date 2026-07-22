@@ -325,6 +325,29 @@ async def test_manual_resume_policy_becomes_failed_recoverable(
     assert task.result["lifecycle"]["reason"] == "heartbeat_timeout"
 
 
+@pytest.mark.parametrize(
+    ("meta", "result"),
+    [
+        ({"recovery_required": True}, {}),
+        ({}, {"recovery_required": True}),
+    ],
+)
+def test_manual_resume_actions_require_matching_persisted_flags(meta, result) -> None:
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="deep_import",
+        status="failed",
+        meta=meta,
+        result=result,
+        recovery_policy="manual_resume",
+    )
+
+    contract = lifecycle_contract(task, max_heartbeat_gap=60)
+
+    assert contract.recovery_required is False
+    assert contract.available_actions == ["dismiss"]
+
+
 @pytest.mark.asyncio
 async def test_heartbeat_is_fenced_by_lease(db_session: AsyncSession) -> None:
     service = TaskLifecycleService()

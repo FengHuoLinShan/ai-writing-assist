@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get as _container_get
 from core.crud import CrudService
 from core.errors import ConflictError, ValidationError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CoreEntityCreate,
@@ -230,11 +231,11 @@ class WorldEntityService(
                 db,
                 novel_id,
             )
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "world_entity_hot_activity_unavailable novel_id=%s",
+                "world_entity_hot_activity_unavailable novel_id=%s reason=%s",
                 novel_id,
-                exc_info=True,
+                redact_diagnostic(exc, limit=300),
             )
         activity_by_id = {
             item.entity_id: item for item in (getattr(activity, "items", None) or [])
@@ -472,8 +473,12 @@ class WorldEntityService(
                     novel_id=novel_id,
                     revision_reason="manual_update",
                 )
-            except Exception:
-                logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
+            except Exception as exc:
+                logger.warning(
+                    "实体 %s 手动编辑前快照失败: %s",
+                    id,
+                    redact_diagnostic(exc, limit=300),
+                )
 
         if type_changed:
             from modules.world.services.core.entity_type_transition_service import (
@@ -513,11 +518,11 @@ class WorldEntityService(
                     asset_id=id,
                     reason=reason,
                 )
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "实体 %s 更新后标记上下文确认失效失败",
+                    "实体 %s 更新后标记上下文确认失效失败: %s",
                     id,
-                    exc_info=True,
+                    redact_diagnostic(exc, limit=300),
                 )
         if type_changed:
             from modules.context.facade import mark_asset_context_changed
@@ -596,8 +601,12 @@ class WorldEntityService(
                     novel_id=novel_id,
                     revision_reason="manual_delete",
                 )
-        except Exception:
-            logger.warning("实体 %s 手动废弃前快照失败", id, exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "实体 %s 手动废弃前快照失败: %s",
+                id,
+                redact_diagnostic(exc, limit=300),
+            )
 
         existing.status = "deprecated"
         await db.flush()
@@ -629,11 +638,11 @@ class WorldEntityService(
                     asset_id=id,
                     reason="entity_deprecated",
                 )
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "实体 %s 手动废弃后标记上下文确认失效失败",
+                "实体 %s 手动废弃后标记上下文确认失效失败: %s",
                 id,
-                exc_info=True,
+                redact_diagnostic(exc, limit=300),
             )
 
     # ============================================================
@@ -703,11 +712,11 @@ class WorldEntityService(
                             novel_id=novel_id,
                             revision_reason="manual_update",
                         )
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "实体 %s 编辑后采用前快照失败",
+                        "实体 %s 编辑后采用前快照失败: %s",
                         entity_id,
-                        exc_info=True,
+                        redact_diagnostic(exc, limit=300),
                     )
 
         approved_by = data.approved_by or "manual"
@@ -759,11 +768,11 @@ class WorldEntityService(
                 asset_id=entity_id,
                 reason="candidate_promoted",
             )
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "实体 %s 提升后标记上下文确认复核失败",
+                "实体 %s 提升后标记上下文确认复核失败: %s",
                 entity_id,
-                exc_info=True,
+                redact_diagnostic(exc, limit=300),
             )
         if type_changed:
             from modules.context.facade import mark_asset_context_changed

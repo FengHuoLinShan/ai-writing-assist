@@ -249,7 +249,10 @@ class TaskWorker:
             try:
                 await self._maybe_recover_stale_tasks(force=True)
             except Exception as e:
-                logger.error("TaskWorker startup stale scan failed: %s", e, exc_info=True)
+                logger.error(
+                    "TaskWorker startup stale scan failed: %s",
+                    _task_error_for_log(e),
+                )
 
             while self._running or in_flight:
                 try:
@@ -284,7 +287,7 @@ class TaskWorker:
                     in_flight.clear()
                     break
                 except Exception as e:
-                    logger.error("TaskWorker loop error: %s", e, exc_info=True)
+                    logger.error("TaskWorker loop error: %s", _task_error_for_log(e))
                     await asyncio.sleep(self._poll_interval)
         finally:
             self._running = False
@@ -461,7 +464,9 @@ class TaskWorker:
 
                 # 更新任务为完成
                 result_data = (
-                    result if isinstance(result, dict) else {"result": str(result)}
+                    result
+                    if isinstance(result, dict)
+                    else {"result": redact_diagnostic(result, limit=2000)}
                 )
                 if managed_llm_steps:
                     result_data = merge_managed_llm_provenance(
@@ -618,9 +623,11 @@ class TaskWorker:
                             if runner is not None and not runner.done():
                                 runner.cancel()
                             return
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "Heartbeat update failed for task %s", task_id, exc_info=True
+                        "Heartbeat update failed for task %s: %s",
+                        task_id,
+                        redact_diagnostic(exc, limit=300),
                     )
         except asyncio.CancelledError:
             pass

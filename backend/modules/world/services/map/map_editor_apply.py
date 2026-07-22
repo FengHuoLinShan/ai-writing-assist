@@ -331,14 +331,18 @@ class MapEditorApplyService:
                 case "path_layer_create":
                     seen_clients.add(command.client_id)
                     seen_clients.add(command.leaf_client_id)
-                case "terrain_layer_update" | "terrain_layer_delete":
+                case (
+                    "terrain_layer_update"
+                    | "terrain_layer_delete"
+                    | "terrain_layer_restore"
+                ):
                     await validate_ref(command.ref, "terrain")
                     mark_modified(command.ref, "terrain")
                     if command.type == "terrain_layer_delete":
                         deleted_resources.add(modification_key(command.ref, "terrain"))
                 case "terrain_patch_replace":
                     await validate_ref(command.layer_ref, "terrain")
-                case "marker_update" | "marker_delete":
+                case "marker_update" | "marker_delete" | "marker_restore":
                     await validate_ref(command.ref, "marker")
                     mark_modified(command.ref, "marker")
                     if command.type == "marker_delete":
@@ -514,6 +518,16 @@ class MapEditorApplyService:
                         bump_revision=False,
                     )
                     result.update(row.model_dump())
+                case "terrain_layer_restore":
+                    layer_id = self._resolve_ref(command.ref, client_id_map)
+                    row = await self._terrain.restore_layer(
+                        db,
+                        novel_id,
+                        map_id,
+                        layer_id,
+                        bump_revision=False,
+                    )
+                    result.update({"id": row.id, "status": row.status})
                 case "terrain_patch_replace":
                     layer_id = self._resolve_ref(command.layer_ref, client_id_map)
                     patch_data = command.data
@@ -645,6 +659,16 @@ class MapEditorApplyService:
                         bump_revision=False,
                     )
                     result["id"] = marker_id
+                case "marker_restore":
+                    marker_id = self._resolve_ref(command.ref, client_id_map)
+                    row = await self._markers.restore(
+                        db,
+                        novel_id,
+                        marker_id,
+                        map_id=map_id,
+                        bump_revision=False,
+                    )
+                    result.update({"id": row.id, "status": row.status})
                 case "territory_replace":
                     await self._territories.delete_by_faction(
                         db,
@@ -700,6 +724,7 @@ class MapEditorApplyService:
             novel_id,
             map_id,
             locked_config=locked_config,
+            operation="editor_apply",
         )
         return MapEditorApplyResponse(
             map_id=map_id,

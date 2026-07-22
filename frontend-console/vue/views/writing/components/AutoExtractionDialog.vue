@@ -14,7 +14,7 @@
           <label for="vue-auto-extract-end">结束章节</label>
           <input id="vue-auto-extract-end" v-model.number="model.end" class="form-input" type="number" min="1">
         </div>
-        <label v-if="model.stage === 'scenes'" class="writing-checkbox-label writing-form-option">
+        <label v-if="model.stage === 'scenes' || model.stage === 'deep'" class="writing-checkbox-label writing-form-option">
           <input v-model="model.highQuality" type="checkbox">
           <span>更高质量</span>
           <span class="writing-checkbox-hint">最大推理 + 融合补强，约需更长时间</span>
@@ -34,6 +34,7 @@ import { computed } from "vue"
 const props = defineProps({ model: { type: Object, required: true } })
 defineEmits(["submit"])
 const label = computed(() => ({
+  deep: "启动深度导入",
   scenes: "从正文提取 Scene",
   world_objects: "世界对象与别名/关系自动提取",
   plot_structure: "剧情线自动提取",

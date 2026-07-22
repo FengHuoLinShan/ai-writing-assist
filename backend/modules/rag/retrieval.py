@@ -13,6 +13,7 @@ from inspect import signature
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.rag import scoring as rag_scoring
 from modules.rag.circuit_breaker import get_circuit_breaker
 from modules.rag.contracts import RagResultBundle
@@ -458,7 +459,8 @@ class RetrievalOrchestrator:
                     cb.record_failure()
                     degraded = True
                     warnings.append(
-                        f"embedding 生成失败，本次检索已降级，结果可能不准确: {exc}",
+                        "embedding 生成失败，本次检索已降级，结果可能不准确: "
+                        f"{redact_diagnostic(exc, limit=300)}",
                     )
             else:
                 degraded = True
@@ -524,7 +526,10 @@ class RetrievalOrchestrator:
             except Exception as exc:
                 _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000
                 degraded = True
-                warnings.append(f"重排序失败，使用原始排序: {exc}")
+                warnings.append(
+                    "重排序失败，使用原始排序: "
+                    f"{redact_diagnostic(exc, limit=300)}"
+                )
         else:
             _rerank_ms = 0.0
 

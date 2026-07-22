@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from datetime import UTC, datetime
@@ -10,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.context.contracts import (
     CONTEXT_BUDGET,
@@ -136,9 +136,12 @@ class ContextCompiler:
     ) -> StructureContextBundle:
         """主入口：编译结构化上下文
 
-        分两阶段并发加载：
+        分两阶段加载：
         1. 先加载前置 loader（project、world_entities）
-        2. 再并发加载其余 loader（部分依赖 world_entities 的输出）
+        2. 再顺序加载其余 loader（部分依赖 world_entities 的输出）
+
+        所有 loader 共用同一 AsyncSession；SQLAlchemy 不允许并发使用
+        同一 session，因此这里必须顺序执行。
         """
         bundle = StructureContextBundle(
             novel_id=options.novel_id,
@@ -214,13 +217,11 @@ class ContextCompiler:
                         options.chapter_index = scene_chapter
                         bundle.chapter_index = scene_chapter
             except Exception as exc:
-                msg = f"加载 {name} 时出错: {exc}"
+                msg = f"加载 {name} 时出错: {redact_diagnostic(exc, limit=500)}"
                 logger.warning(msg)
                 warnings.append(msg)
 
         if dependent_names:
-            tasks = []
-            task_names = []
             for name in dependent_names:
                 loader = self._loaders.get(name)
                 if loader is None:
@@ -228,13 +229,13 @@ class ContextCompiler:
                     logger.warning(msg)
                     warnings.append(msg)
                     continue
-                tasks.append(loader.load(db, options, bundle))
-                task_names.append(name)
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for task_name, result in zip(task_names, results):
-                if isinstance(result, Exception):
-                    msg = f"加载 {task_name} 时出错: {result}"
+                try:
+                    await loader.load(db, options, bundle)
+                except Exception as exc:
+                    msg = (
+                        f"加载 {name} 时出错: "
+                        f"{redact_diagnostic(exc, limit=500)}"
+                    )
                     logger.warning(msg)
                     warnings.append(msg)
 
@@ -249,7 +250,10 @@ class ContextCompiler:
                     try:
                         await loader.load(db, options, bundle)
                     except Exception as exc:
-                        msg = f"加载 plot_threads 时出错: {exc}"
+                        msg = (
+                            "加载 plot_threads 时出错: "
+                            f"{redact_diagnostic(exc, limit=500)}"
+                        )
                         logger.warning(msg)
                         warnings.append(msg)
             for name in ("world_entities", "characters"):
@@ -264,7 +268,10 @@ class ContextCompiler:
                 try:
                     await loader.load(db, options, bundle)
                 except Exception as exc:
-                    msg = f"加载 {name} 时出错: {exc}"
+                    msg = (
+                        f"加载 {name} 时出错: "
+                        f"{redact_diagnostic(exc, limit=500)}"
+                    )
                     logger.warning(msg)
                     warnings.append(msg)
 

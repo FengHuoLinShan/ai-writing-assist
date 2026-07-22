@@ -246,14 +246,10 @@ class MapPathService:
     ) -> Any:
         config = await self._ctx.require_map(db, novel_id, map_id)
         layer = await self._require_layer(db, novel_id, map_id, layer_id)
-        await self._tree.assert_writable(
-            db, novel_id, map_id, path_layer_id=layer.id
-        )
+        await self._tree.assert_writable(db, novel_id, map_id, path_layer_id=layer.id)
         self._assert_type_matches(layer.category, data.path_type)
         node_values = self._node_values(config, data.nodes, category=layer.category)
-        start = await self._validate_location(
-            db, novel_id, data.start_location_entity_id
-        )
+        start = await self._validate_location(db, novel_id, data.start_location_entity_id)
         end = await self._validate_location(db, novel_id, data.end_location_entity_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -307,9 +303,7 @@ class MapPathService:
         if not path.locked:
             return
         allowed_unlock = (
-            values == {"locked": False}
-            and not moves_layer
-            and not snaps_endpoint
+            values == {"locked": False} and not moves_layer and not snaps_endpoint
         )
         if not allowed_unlock:
             raise ConflictError(
@@ -383,9 +377,7 @@ class MapPathService:
             target_layer_id or str(path.path_layer_id),
         )
         if layer.id != path.path_layer_id:
-            await self._tree.assert_writable(
-                db, novel_id, map_id, path_layer_id=layer.id
-            )
+            await self._tree.assert_writable(db, novel_id, map_id, path_layer_id=layer.id)
 
         raw_values = data.model_dump(exclude_unset=True, exclude={"layer_ref"})
         raw_values.pop("snap_start", None)
@@ -482,9 +474,7 @@ class MapPathService:
                     "吸附起点前必须绑定地点",
                     code="map_path_endpoint_unresolved",
                 )
-            coordinate = await self._representative_location_hex(
-                db, nid, mid, start.id
-            )
+            coordinate = await self._representative_location_hex(db, nid, mid, start.id)
             if coordinate is None:
                 raise ConflictError(
                     "起点地点尚未布置在当前地图",
@@ -563,10 +553,46 @@ class MapPathService:
         map_id: str,
         path_id: str,
     ) -> Any:
-        await self._ctx.require_map(db, novel_id, map_id)
+        config = await self._ctx.require_map(db, novel_id, map_id)
         path = await self._require_path(db, novel_id, map_id, path_id)
         if path.status == "active":
             return path
+        try:
+            await self._validate_location(
+                db,
+                novel_id,
+                str(path.start_location_entity_id)
+                if path.start_location_entity_id
+                else None,
+            )
+            await self._validate_location(
+                db,
+                novel_id,
+                str(path.end_location_entity_id) if path.end_location_entity_id else None,
+            )
+        except (NotFoundError, ValidationError) as exc:
+            raise ConflictError(
+                "线路端点依赖已不可用，无法恢复",
+                code="map_path_restore_dependency_conflict",
+            ) from exc
+        nid = parse_uuid(novel_id, "novel_id")
+        nodes = await self._nodes.get_by_paths(db, nid, config.id, [path.id])
+        if len(nodes) < 2:
+            raise ConflictError(
+                "线路几何已不完整，无法恢复",
+                code="map_path_restore_dependency_conflict",
+            )
+        if any(
+            node.q < 0
+            or node.r < 0
+            or node.q >= config.grid_width
+            or node.r >= config.grid_height
+            for node in nodes
+        ):
+            raise ConflictError(
+                "线路几何已超出当前地图边界，无法恢复",
+                code="map_path_restore_dependency_conflict",
+            )
         await self._tree.assert_writable(
             db, novel_id, map_id, path_layer_id=path.path_layer_id
         )

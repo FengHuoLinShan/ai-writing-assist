@@ -10,10 +10,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import and_, func, select, text, update
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.writing.conflict_evidence import snapshot_location
 from modules.writing.models import WritingConflictCheck, WritingConflictItem, WritingDraft
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
@@ -104,7 +105,12 @@ class WritingDraftRepository:
         PostgreSQL serializes concurrent adopters on this row. SQLite ignores
         ``FOR UPDATE`` in tests while preserving the same repository interface.
         """
-        stmt = select(WritingDraft).where(WritingDraft.id == draft_id).with_for_update()
+        stmt = (
+            select(WritingDraft)
+            .where(WritingDraft.id == draft_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -618,19 +624,6 @@ class WritingDraftRepository:
         await db.flush()
         return draft
 
-    async def has_published_from(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        chapter_index: int,
-    ) -> bool:
-        stmt = select(func.count(WritingDraft.id)).where(
-            WritingDraft.novel_id == novel_id,
-            WritingDraft.chapter_index >= chapter_index,
-            WritingDraft.status == "published",
-        )
-        return int((await db.execute(stmt)).scalar() or 0) > 0
-
     async def set_conflict_check_snapshot(
         self,
         db: AsyncSession,
@@ -644,39 +637,6 @@ class WritingDraftRepository:
         db.add(draft)
         await db.flush()
         return draft
-
-    async def shift_chapter_indices_from(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        start_index: int,
-    ) -> None:
-        max_stmt = select(func.max(WritingDraft.chapter_index)).where(
-            WritingDraft.novel_id == novel_id,
-            WritingDraft.chapter_index >= start_index,
-        )
-        max_index = (await db.execute(max_stmt)).scalar_one_or_none()
-        if max_index is None:
-            return
-
-        offset = int(max_index) + 2
-        await db.execute(
-            update(WritingDraft)
-            .where(
-                WritingDraft.novel_id == novel_id,
-                WritingDraft.chapter_index >= start_index,
-            )
-            .values(chapter_index=WritingDraft.chapter_index + offset)
-        )
-        await db.execute(
-            update(WritingDraft)
-            .where(
-                WritingDraft.novel_id == novel_id,
-                WritingDraft.chapter_index >= start_index + offset,
-            )
-            .values(chapter_index=WritingDraft.chapter_index - offset + 1)
-        )
-        await db.flush()
 
     async def _next_version_number(
         self,
@@ -779,7 +739,11 @@ class WritingConflictCheckRepository:
                 suggestion_confirmation_id=item.get("suggestion_confirmation_id"),
                 status=item.get("status", "open"),
                 ai_suggestion=item.get("ai_suggestion"),
-                suggestion_error=item.get("suggestion_error"),
+                suggestion_error=(
+                    redact_diagnostic(item["suggestion_error"], limit=500)
+                    if item.get("suggestion_error") is not None
+                    else None
+                ),
             )
             db.add(conflict_item)
             created_items.append(conflict_item)
@@ -1004,7 +968,11 @@ class WritingConflictCheckRepository:
                 suggestion_status=item.get("suggestion_status", "not_requested"),
                 suggestion_confirmation_id=item.get("suggestion_confirmation_id"),
                 ai_suggestion=item.get("ai_suggestion"),
-                suggestion_error=item.get("suggestion_error"),
+                suggestion_error=(
+                    redact_diagnostic(item["suggestion_error"], limit=500)
+                    if item.get("suggestion_error") is not None
+                    else None
+                ),
             )
             db.add(conflict_item)
             created_items.append(conflict_item)
@@ -1057,7 +1025,9 @@ class WritingConflictCheckRepository:
         check.ai_review_status = status
         check.ai_review_confirmation_id = confirmation_id
         check.ai_review_model = model
-        check.ai_review_error = error
+        check.ai_review_error = (
+            redact_diagnostic(error, limit=500) if error is not None else None
+        )
         if summary_json is not None:
             check.summary_json = summary_json
         db.add(check)
@@ -1104,7 +1074,9 @@ class WritingConflictCheckRepository:
         item.suggestion_confirmation_id = confirmation_id
         item.ai_suggestion = ai_suggestion
         item.llm_rationale = llm_rationale
-        item.suggestion_error = error
+        item.suggestion_error = (
+            redact_diagnostic(error, limit=500) if error is not None else None
+        )
         db.add(item)
         await db.flush()
         return item

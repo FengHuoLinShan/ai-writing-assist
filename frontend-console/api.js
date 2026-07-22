@@ -131,6 +131,51 @@ function _setCache(key, data) {
   }
 }
 
+function _isSensitiveDiagnosticKey(key) {
+  const normalized = String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+  return normalized === "auth"
+    || normalized.includes("authorization")
+    || normalized.includes("apikey")
+    || normalized.endsWith("token")
+    || normalized.includes("secret")
+    || normalized.includes("password")
+    || normalized.includes("passwd")
+    || normalized.includes("credential")
+    || normalized.includes("cookie")
+}
+
+function _redactDiagnosticText(value) {
+  return String(value)
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
+    .replace(
+      /((?:api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|credential)\s*[:=]\s*["']?)([^"',;\s}&]+)/gi,
+      "$1[REDACTED]",
+    )
+}
+
+function _redactDiagnosticValue(value, seen = new WeakSet()) {
+  if (typeof value === "string") return _redactDiagnosticText(value)
+  if (value == null || typeof value !== "object") return value
+  if (seen.has(value)) return "[Circular]"
+  seen.add(value)
+  if (Array.isArray(value)) {
+    return value.map((item) => _redactDiagnosticValue(item, seen))
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    _isSensitiveDiagnosticKey(key) ? "[REDACTED]" : _redactDiagnosticValue(item, seen),
+  ]))
+}
+
+function _stringifyDiagnostic(value, maxLength = 500) {
+  try {
+    return JSON.stringify(_redactDiagnosticValue(value)).slice(0, maxLength)
+  } catch {
+    return ""
+  }
+}
+
 function _formatErrorValue(value) {
   if (value == null) return ""
   if (typeof value === "string") return value
@@ -301,19 +346,18 @@ async function request(path, options = {}) {
         try {
           errorBody = await resp.json()
           rawDetail = errorBody.detail || errorBody.message || ""
-          responseBody = JSON.stringify(errorBody).slice(0, 500)
-          detail = _formatErrorDetail(rawDetail)
+          responseBody = _stringifyDiagnostic(errorBody)
+          detail = _formatErrorDetail(_redactDiagnosticValue(rawDetail))
         } catch (e) { console.warn("解析错误响应失败", e) }
 
         const msg = errorMap[resp.status] || `请求失败 (${resp.status})`
 
-        // 记录请求详情供 error-logger 使用
+        // 只记录无凭据的诊断元数据。请求体可能包含 API Key，禁止进入错误日志。
         if (window.errorLog) {
           window.errorLog._lastApiError = {
-            method, url: path,
+            method, url: _redactDiagnosticText(path),
             status: resp.status,
             response: responseBody,
-            body: fetchOptions.body ? String(fetchOptions.body).slice(0, 200) : undefined,
           }
         }
 
@@ -411,9 +455,10 @@ function deleteRequest(path) {
   return request(path, { method: "DELETE" })
 }
 
-function uploadImportFile(file, novelId, onProgress = null) {
+function uploadImportFile(file, novelId, onProgress = null, options = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
+    const signal = options?.signal
     const formData = new FormData()
     formData.append("file", file)
     formData.append("novel_id", novelId)
@@ -422,7 +467,15 @@ function uploadImportFile(file, novelId, onProgress = null) {
       if (!event.lengthComputable || typeof onProgress !== "function") return
       onProgress(Math.round((event.loaded / event.total) * 100))
     }
+    const cleanup = () => signal?.removeEventListener?.("abort", abortUpload)
+    const abortUpload = () => xhr.abort()
+    if (signal?.aborted) {
+      reject(new DOMException("上传已取消", "AbortError"))
+      return
+    }
+    signal?.addEventListener?.("abort", abortUpload, { once: true })
     xhr.onload = () => {
+      cleanup()
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           resolve(JSON.parse(xhr.responseText))
@@ -439,7 +492,14 @@ function uploadImportFile(file, novelId, onProgress = null) {
         reject(new Error("上传失败"))
       }
     }
-    xhr.onerror = () => reject(new Error("网络错误"))
+    xhr.onerror = () => {
+      cleanup()
+      reject(new Error("网络错误"))
+    }
+    xhr.onabort = () => {
+      cleanup()
+      reject(new DOMException("上传已取消", "AbortError"))
+    }
     xhr.open("POST", `${API_BASE_URL}/imports/upload`)
     xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
     if (_accessToken) xhr.setRequestHeader("Authorization", `Bearer ${_accessToken}`)
@@ -456,7 +516,7 @@ function reportFrontendError(payload) {
       "Accept": "application/json",
       "X-Requested-With": "XMLHttpRequest",
     }),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(_redactDiagnosticValue(payload)),
     keepalive: true,
   }).then((response) => {
     if (response.status === 401) _clearAccessToken()
@@ -554,6 +614,22 @@ const api = {
     },
     async applySmartDedup(id, payload) {
       return post(`/projects/${id}/smart-dedup/apply`, payload)
+    },
+  },
+
+  memory: {
+    async getSceneCheckpoints(novelId, sceneId) {
+      return request(withQuery(`/novels/${novelId}/memories/scene-checkpoints`, {
+        scene_id: sceneId,
+      }))
+    },
+    async ensureSceneCheckpoints(novelId, sceneId) {
+      return post(`/novels/${novelId}/memories/scene-checkpoints/ensure`, {
+        scene_id: sceneId,
+      })
+    },
+    async repairSceneCheckpoint(novelId, payload) {
+      return post(`/novels/${novelId}/memories/scene-checkpoints/repair`, payload)
     },
   },
 
@@ -910,6 +986,21 @@ const api = {
     },
     async applyMapEditor(mapId, payload, novelId) {
       return contractJson("world.applyMapEditor", { mapId }, { novel_id: novelId }, payload)
+    },
+    async listMapVisualRevisions(mapId, novelId, { skip = 0, limit = 50 } = {}) {
+      return request(withQuery(`/world/maps/${mapId}/revisions`, {
+        novel_id: novelId,
+        skip,
+        limit,
+      }))
+    },
+    async restoreMapVisualRevision(mapId, revisionNumber, expectedRevision, novelId) {
+      return post(
+        withQuery(`/world/maps/${mapId}/revisions/${revisionNumber}/restore`, {
+          novel_id: novelId,
+        }),
+        { expected_revision: expectedRevision },
+      )
     },
     async getMapLayerTree(mapId, novelId) {
       return contractFetch("world.getMapLayerTree", { mapId }, { novel_id: novelId })
@@ -1353,10 +1444,6 @@ const api = {
       return request(withQuery(`/writing/chapters/${chapterIndex}/versions`, { novel_id: novelId }))
     },
 
-    async splitChapter(chapterIndex, payload, novelId) {
-      return post(withQuery(`/writing/chapters/${chapterIndex}/split`, { novel_id: novelId }), payload)
-    },
-
     async generate(payload) {
       return contractJson("writing.generate", {}, {}, payload)
     },
@@ -1470,8 +1557,8 @@ const api = {
   // 导入
   // ============================================================
   imports: {
-    async uploadFile(file, novelId, onProgress = null) {
-      return uploadImportFile(file, novelId, onProgress)
+    async uploadFile(file, novelId, onProgress = null, options = {}) {
+      return uploadImportFile(file, novelId, onProgress, options)
     },
 
     async upload(novelId, file) {

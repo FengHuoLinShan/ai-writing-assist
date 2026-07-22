@@ -80,6 +80,7 @@ function createOutlineWorkflowManager({
     submitting: false,
   })
   let poller = null
+  let submissionGeneration = 0
 
   function stop() {
     if (poller?.stop) poller.stop()
@@ -87,6 +88,7 @@ function createOutlineWorkflowManager({
   }
 
   function resetMemoryScope() {
+    submissionGeneration += 1
     stop()
     state.taskId = null
     state.status = "就绪"
@@ -95,6 +97,24 @@ function createOutlineWorkflowManager({
     state.ownerProjectId = null
     state.submitting = false
     onScopeReset?.(state)
+  }
+
+  function beginSubmission(projectId) {
+    if (
+      !projectId
+      || state.submitting
+      || (state.taskId && state.progress && !state.progress.terminal)
+    ) return null
+    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
+    const token = { generation: ++submissionGeneration, projectId }
+    state.ownerProjectId = projectId
+    state.submitting = true
+    return token
+  }
+
+  function endSubmission(token) {
+    if (!token || token.generation !== submissionGeneration) return
+    state.submitting = false
   }
 
   async function handleTerminal(progress, task = null) {
@@ -127,8 +147,17 @@ function createOutlineWorkflowManager({
   }
 
   /** 提交成功后接管任务：写 localStorage 并开始轮询。 */
-  function adopt(result, meta = null) {
-    const projectId = getAppState()?.currentProjectId || null
+  function adopt(result, meta = null, projectId = getAppState()?.currentProjectId || null) {
+    if (!result?.task_id || !projectId) return false
+    persistActiveWorkflow({
+      taskId: result.task_id,
+      workflowType,
+      label,
+      projectId,
+      view: "outline",
+      meta: meta || undefined,
+    })
+    if (getAppState()?.currentProjectId !== projectId) return false
     if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
     state.taskId = result.task_id
     state.status = "运行中"
@@ -139,20 +168,16 @@ function createOutlineWorkflowManager({
       task_type: workflowType,
       meta: state.meta || {},
     }, workflowType)
-    persistActiveWorkflow({
-      taskId: result.task_id,
-      workflowType,
-      label,
-      projectId,
-      view: "outline",
-      meta: state.meta || undefined,
-    })
     startPolling(result.task_id, state.meta?.project_id || null)
     return state
   }
 
   /** island load() 调用：从 localStorage 恢复未终结任务。 */
   function recover(projectId) {
+    if (!projectId) {
+      resetMemoryScope()
+      return
+    }
     const scopeMatches = (
       (!state.ownerProjectId || state.ownerProjectId === projectId)
       && (!matchesActiveScope || matchesActiveScope(state, projectId))
@@ -175,7 +200,17 @@ function createOutlineWorkflowManager({
     startPolling(workflow.taskId, state.meta?.project_id || null)
   }
 
-  return { state, workflowType, label, adopt, recover, stop, resetMemoryScope }
+  return {
+    state,
+    workflowType,
+    label,
+    adopt,
+    recover,
+    stop,
+    resetMemoryScope,
+    beginSubmission,
+    endSubmission,
+  }
 }
 
 // ─── Outline Generate Manager ────────────────────────────────────────────

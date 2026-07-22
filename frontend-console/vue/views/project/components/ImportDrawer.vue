@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import { useImportUpload } from "../../../composables/useImportUpload.js"
 import { getApi, getToast, useStateKey } from "../../../bridge/index.js"
@@ -19,6 +19,7 @@ const fileInput = ref(null)
 const importRecords = ref([])
 const historyLoaded = ref(false)
 const historyLoading = ref(false)
+let historyLoadGeneration = 0
 
 const { uploading, percent, progress, upload } = useImportUpload()
 
@@ -37,18 +38,24 @@ const uploadCardProgress = computed(() => {
 })
 
 async function loadImportHistory() {
-  if (!currentProjectId.value) {
+  const projectId = currentProjectId.value
+  const generation = ++historyLoadGeneration
+  if (!projectId) {
     importRecords.value = []
     historyLoaded.value = true
+    historyLoading.value = false
     return
   }
   historyLoading.value = true
   try {
-    const data = await getApi().imports.list({ novel_id: currentProjectId.value })
+    const data = await getApi().imports.list({ novel_id: projectId })
+    if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
     importRecords.value = data.items || []
   } catch {
+    if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
     importRecords.value = []
   } finally {
+    if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
     historyLoading.value = false
     historyLoaded.value = true
   }
@@ -59,6 +66,10 @@ watch(currentProjectId, () => {
   historyLoaded.value = false
   void loadImportHistory()
 }, { immediate: true })
+
+onBeforeUnmount(() => {
+  historyLoadGeneration += 1
+})
 
 async function uploadFile() {
   const input = fileInput.value

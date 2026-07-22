@@ -4,6 +4,8 @@ RAG 分块单元测试
 
 from __future__ import annotations
 
+import pytest
+
 from modules.rag.chunking import ChunkingService
 
 
@@ -22,6 +24,22 @@ class TestChunkingService:
         chunks = ChunkingService().split_by_length(text, chunk_size=100, overlap=0)
         assert len(chunks) > 1
         assert all(c for c in chunks)
+
+    @pytest.mark.parametrize(
+        ("chunk_size", "overlap"),
+        [(0, 0), (-1, 0), (100, -1), (100, 100), (100, 101)],
+    )
+    def test_split_by_length_rejects_non_progressing_windows(
+        self,
+        chunk_size: int,
+        overlap: int,
+    ) -> None:
+        with pytest.raises(ValueError):
+            ChunkingService().split_by_length(
+                "测试文本" * 100,
+                chunk_size=chunk_size,
+                overlap=overlap,
+            )
 
     def test_split_chinese_novel_keeps_offsets_and_overlap(self) -> None:
         text = "\n\n".join(

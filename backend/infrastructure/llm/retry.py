@@ -22,6 +22,7 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from infrastructure.llm.redaction import redact_diagnostic
 from shared.constants import LLM_RETRY_BASE_DELAY, LLM_RETRY_MAX_ATTEMPTS
 
 logger = logging.getLogger(__name__)
@@ -89,13 +90,14 @@ async def retry_with_backoff(
             return await fn(**kwargs)
         except Exception as e:
             last_error = e
+            diagnostic = redact_diagnostic(e, limit=500)
 
             if not _is_retryable(e):
                 logger.warning(
                     "Non-retryable error at attempt %d/%d: %s",
                     attempt,
                     max_attempts,
-                    e,
+                    diagnostic,
                 )
                 raise
 
@@ -103,7 +105,7 @@ async def retry_with_backoff(
                 logger.error(
                     "All %d retry attempts exhausted: %s",
                     max_attempts,
-                    e,
+                    diagnostic,
                 )
                 raise
 
@@ -123,7 +125,7 @@ async def retry_with_backoff(
                 actual_delay,
                 delay,
                 jitter,
-                e,
+                diagnostic,
             )
             await asyncio.sleep(actual_delay)
 

@@ -18,6 +18,7 @@ from core.config import get_settings
 from core.dependencies import DbSession
 from core.errors import DomainError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.parsers import MAX_FILE_SIZE
 from modules.imports.schemas import ImportListResponse, ImportResponse
 from modules.imports.services import ImportService
@@ -34,6 +35,12 @@ async def _require_active_project(db: DbSession, novel_id: str) -> None:
     from modules.project.facade import require_active_project
 
     await require_active_project(db, novel_id)
+
+
+async def _require_active_project_exclusive(db: DbSession, novel_id: str) -> None:
+    from modules.project.facade import require_active_project_exclusive
+
+    await require_active_project_exclusive(db, novel_id)
 
 
 async def _require_task_owner_active_project(
@@ -209,7 +216,10 @@ async def upload_file(
         try:
             await db.commit()
         except Exception as commit_exc:
-            logger.warning("导入异常后提交记录状态失败: %s", commit_exc)
+            logger.warning(
+                "导入异常后提交记录状态失败: %s",
+                redact_diagnostic(commit_exc, limit=300),
+            )
             try:
                 await db.rollback()
             except Exception:
@@ -265,7 +275,7 @@ async def submit_deep_import(
     """
     from modules.imports.facade import start_deep_import as _start
 
-    await _require_active_project(db, body.novel_id)
+    await _require_active_project_exclusive(db, body.novel_id)
     end_chapter = await _resolve_end_chapter(db, body)
     _validate_chapter_count_limit(body.start_chapter, end_chapter)
     result = await _start(
@@ -289,7 +299,7 @@ async def _submit_stage(
 ) -> dict:
     from modules.imports.facade import start_deep_import_stage as _start_stage
 
-    await _require_active_project(db, body.novel_id)
+    await _require_active_project_exclusive(db, body.novel_id)
     end_chapter = await _resolve_end_chapter(db, body)
     _validate_chapter_count_limit(body.start_chapter, end_chapter)
 
@@ -380,9 +390,9 @@ async def resume_deep_import(
         await _require_task_owner_active_project(db, task_id)
         result = await imports_facade.resume_deep_import(db, task_id)
     except TaskNotFoundError as exc:
-        raise HTTPException(404, detail=str(exc)) from exc
+        raise HTTPException(404, detail=redact_diagnostic(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=redact_diagnostic(exc)) from exc
     return result
 
 
@@ -408,7 +418,7 @@ async def abandon_deep_import(
         await _require_task_owner_active_project(db, task_id)
         result = await imports_facade.abandon_deep_import(db, task_id)
     except TaskNotFoundError as exc:
-        raise HTTPException(404, detail=str(exc)) from exc
+        raise HTTPException(404, detail=redact_diagnostic(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=redact_diagnostic(exc)) from exc
     return DeepImportAbandonResponse.model_validate(result)

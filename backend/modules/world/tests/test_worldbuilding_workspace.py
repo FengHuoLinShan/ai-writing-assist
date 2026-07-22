@@ -48,6 +48,15 @@ def test_target_ref_rejects_wildcards() -> None:
         TargetRef(target_type="profile", target_id="species:1", target_path="items[*]")
 
 
+@pytest.mark.parametrize("field", ["target_type", "target_id"])
+def test_target_ref_rejects_whitespace_only_identity(field: str) -> None:
+    values = {"target_type": "profile", "target_id": "species:1"}
+    values[field] = "   "
+
+    with pytest.raises(ValueError):
+        TargetRef(**values)
+
+
 def test_worldbuilding_service_hub_reexports_concept_services_by_identity() -> None:
     from modules.world.services.worldbuilding import (
         activation_preview_service,
@@ -235,6 +244,55 @@ async def test_projection_refresh_task_lifecycle_conflict(
 
 
 @pytest.mark.asyncio
+async def test_projection_refresh_locks_page_and_bounds_redacted_failure(
+    db_session,
+    project_novel_id: str,
+    monkeypatch,
+) -> None:
+    service = WorldBibleService()
+    page = await service.create_page(
+        db_session,
+        WorldBiblePageCreate(
+            novel_id=project_novel_id,
+            title="投影竞态页",
+            free_text="稳定资料",
+        ),
+    )
+    lock_modes: list[bool] = []
+    original_get_page_model = service._lifecycle.get_page_model  # noqa: SLF001
+
+    async def get_page_model_spy(*args, for_update=False, **kwargs):
+        lock_modes.append(for_update)
+        return await original_get_page_model(
+            *args,
+            for_update=for_update,
+            **kwargs,
+        )
+
+    private_value = "private-token-value"
+    failure_type = type("ProjectionFailure" + "X" * 80, (RuntimeError,), {})
+
+    def fail_projection(*_args, **_kwargs):
+        raise failure_type(f"Authorization: Bearer {private_value}")
+
+    monkeypatch.setattr(service._lifecycle, "get_page_model", get_page_model_spy)  # noqa: SLF001
+    monkeypatch.setattr(service, "_build_projection_content", fail_projection)
+
+    projection = await service.refresh_projection_now(
+        db_session,
+        novel_id=project_novel_id,
+        page_id=page.id,
+        projection_type="context_brief",
+    )
+
+    assert lock_modes == [True]
+    assert projection.status == "failed"
+    assert len(projection.error_kind or "") == 64
+    assert private_value not in (projection.error_summary or "")
+    assert "[REDACTED]" in (projection.error_summary or "")
+
+
+@pytest.mark.asyncio
 async def test_suggestion_duplicate_confirm_returns_domain_error(
     db_session,
     project_novel_id: str,
@@ -270,7 +328,7 @@ async def test_suggestion_context_invalidation_failure_logs_and_keeps_acceptance
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     async def _fail_context_invalidation(*_args, **_kwargs):
-        raise RuntimeError("context unavailable")
+        raise RuntimeError("api_key=credential-value")
 
     monkeypatch.setattr(
         "modules.context.facade.mark_asset_context_changed",
@@ -321,7 +379,9 @@ async def test_suggestion_context_invalidation_failure_logs_and_keeps_acceptance
     )
     assert project_novel_id in record.getMessage()
     assert suggestion.id in record.getMessage()
-    assert record.exc_info is not None
+    assert record.exc_info is None
+    assert "credential-value" not in record.getMessage()
+    assert "[REDACTED]" in record.getMessage()
 
 
 @pytest.mark.asyncio

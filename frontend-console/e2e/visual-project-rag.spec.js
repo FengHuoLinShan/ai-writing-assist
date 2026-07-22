@@ -21,12 +21,12 @@ async function applyTheme(page, theme) {
 
 async function screenshotPage(page, name, mask = []) {
   await page.evaluate(() => document.fonts.ready.then(() => true))
+  await expect(page.locator("#toast-container > *")).toHaveCount(0, { timeout: 3000 })
   await expect(page).toHaveScreenshot(name, {
     fullPage: true,
     animations: "disabled",
     caret: "hide",
-    mask: [page.locator("#toast-container"), ...mask],
-    maxDiffPixelRatio: 0.02,
+    mask,
   })
 }
 

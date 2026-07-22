@@ -95,7 +95,7 @@ class TestIsValidUUID:
 
 
 class TestParseLLMJsonLogging:
-    """parse_llm_json — 失败日志脱敏"""
+    """parse_llm_json — 失败日志不记录 provider 返回内容。"""
 
     def test_parse_failure_log_redacts_secrets(self, caplog):
         bearer_secret = "bearersecret123456"
@@ -111,10 +111,10 @@ class TestParseLLMJsonLogging:
                 parse_llm_json(content, label="Bad LLM")
 
         assert str(exc.value) == "Bad LLM is not valid JSON"
-        assert "[REDACTED]" in caplog.text
         assert bearer_secret not in caplog.text
         assert api_secret not in caplog.text
         assert token_secret not in caplog.text
+        assert "length=" in caplog.text
 
     def test_empty_branch_log_keeps_error_message(self, caplog):
         with caplog.at_level(logging.WARNING, logger="shared.utils"):

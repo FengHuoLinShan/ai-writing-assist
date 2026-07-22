@@ -400,13 +400,14 @@ function showModalHtml(title, htmlString, buttons = [], options = {}) {
  * @param {string} message - 确认消息
  * @param {function} onConfirm - 确认回调
  * @param {string} confirmText - 确认按钮文字
+ * @param {function} onCancel - 可选取消回调；可用于恢复被确认框替换的表单
  */
-function confirmAction(message, onConfirm, confirmText = "确认") {
+function confirmAction(message, onConfirm, confirmText = "确认", onCancel = closeModal) {
   const p = document.createElement("p")
   p.textContent = message
   showModal("确认操作", p, [
     { text: confirmText, class: "btn-danger", handler: onConfirm },
-    { text: "取消", class: "btn-ghost", handler: closeModal },
+    { text: "取消", class: "btn-ghost", handler: onCancel },
   ])
 }
 

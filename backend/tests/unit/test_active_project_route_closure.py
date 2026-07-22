@@ -17,6 +17,7 @@ PROJECT_ID_NAMES = {"novel_id", "project_id"}
 GUARD_CALLS = {
     "require_active_project",
     "_require_active_project",
+    "_require_active_project_exclusive",
     "_require_task_owner_active_project",
 }
 PRE_GUARD_SAFE_CALLS = {"HTTPException", "get_settings"}

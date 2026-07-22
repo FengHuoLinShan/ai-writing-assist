@@ -282,7 +282,12 @@ class TestRetrievalOrchestratorInjected:
             "modules.project.facade.open_project_llm_client",
             open_project_client,
         )
-        rerank_mock = AsyncMock(side_effect=RuntimeError("reranker unavailable"))
+        secret = "private-token-value"
+        rerank_mock = AsyncMock(
+            side_effect=RuntimeError(
+                f"reranker unavailable Authorization: Bearer {secret} api_key={secret}"
+            )
+        )
         monkeypatch.setattr(
             "modules.rag.reranker.rerank",
             rerank_mock,
@@ -305,7 +310,11 @@ class TestRetrievalOrchestratorInjected:
             str(chunks[0].id),
             str(chunks[1].id),
         ]
-        assert result.warnings == ["重排序失败，使用原始排序: reranker unavailable"]
+        assert len(result.warnings) == 1
+        assert result.warnings[0].startswith(
+            "重排序失败，使用原始排序: reranker unavailable"
+        )
+        assert secret not in result.warnings[0]
         assert result.degraded is True
         assert lifecycle == ["entered", "exited"]
         assert rerank_mock.await_args.kwargs["retrieval_mode"] == "extraction"

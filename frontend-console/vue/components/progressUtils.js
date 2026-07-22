@@ -7,7 +7,92 @@ export const PHASE_DISPLAY_LABELS = {
   phase0_plan: "Phase 0 · Scene 窗口规划",
   phase1a_scene_slicing: "Phase 1a · Scene 边界切分",
   phase1b_enrichment: "Phase 1b · Scene 字段补全",
+  phase1c_scene_fusion: "Phase 1c · Scene 融合",
   scene_commit: "Scene commit · 正式写入",
+  entity_extraction: "世界对象与关系提取",
+  structure_analysis: "剧情结构分析",
+}
+
+export const ERROR_KIND_LABELS = {
+  timeout: "处理超时",
+  schema_failure: "结果格式未通过校验",
+  schema_validation: "结果格式未通过校验",
+  invalid_response: "未得到有效结果",
+  phase_failed: "阶段执行失败",
+  transport_failure: "服务暂时不可用",
+  connection_error: "服务暂时不可用",
+  provider_error: "服务暂时不可用",
+  proxy_error: "服务暂时不可用",
+  empty_output: "未生成可用结果",
+  missing_world_object_context: "缺少必要的世界设定上下文",
+  fallback: "已使用降级结果",
+  degraded: "已使用降级结果",
+}
+
+export function errorKindLabel(value) {
+  const text = String(value || "").trim()
+  if (!text) return "需要人工检查"
+  if (ERROR_KIND_LABELS[text]) return ERROR_KIND_LABELS[text]
+  return /^[a-z0-9_.:-]+$/i.test(text) ? "需要人工检查" : text
+}
+
+const ERROR_FIELD_LABELS = {
+  error_kind: "原因",
+  bulk_error_kind: "批量处理原因",
+  supplemental_error_kind: "补充处理原因",
+  final_error_type: "最终失败原因",
+}
+
+function isErrorKindField(key) {
+  return key === "error_kind"
+    || key.endsWith("_error_kind")
+    || key === "final_error_type"
+    || key.endsWith("_error_type")
+}
+
+function authorFacingDiagnosticKey(key) {
+  if (!isErrorKindField(key)) return key
+  return ERROR_FIELD_LABELS[key] || "处理失败原因"
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+export function authorFacingDiagnosticText(value, { fallbackForCode = false } = {}) {
+  let text = String(value ?? "").trim()
+  if (!text) return ""
+  text = text.replace(
+    /(?:health\.)?error_kind\s*[:=]\s*([a-z0-9_.:-]+)/gi,
+    (_match, kind) => `原因：${errorKindLabel(kind)}`,
+  )
+  for (const [kind, label] of Object.entries(ERROR_KIND_LABELS)) {
+    text = text.replace(new RegExp(`\\b${escapeRegExp(kind)}\\b`, "gi"), label)
+  }
+  if (fallbackForCode && /^[a-z0-9_.:-]+$/i.test(text)) return "任务执行失败，请稍后重试或查看恢复操作"
+  return text
+}
+
+export function authorFacingDiagnosticValue(value) {
+  if (Array.isArray(value)) return value.map((item) => authorFacingDiagnosticValue(item))
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => (
+      isErrorKindField(key)
+        ? [authorFacingDiagnosticKey(key), errorKindLabel(item)]
+        : [key, authorFacingDiagnosticValue(item)]
+    )))
+  }
+  if (typeof value === "string") return authorFacingDiagnosticText(value)
+  return value
+}
+
+export function formatAuthorFacingDiagnostic(value) {
+  const safe = authorFacingDiagnosticValue(value)
+  if (safe == null) return "-"
+  if (typeof safe === "object") {
+    try { return JSON.stringify(safe) } catch { return String(safe) }
+  }
+  return String(safe)
 }
 
 export const PHASE_STATUS_LABELS = {
@@ -87,12 +172,12 @@ export function compactValue(value) {
       .map(([key, item]) => `${key}: ${compactValue(item)}`)
       .join(" · ")
   }
-  return String(value)
+  return typeof value === "string" ? authorFacingDiagnosticText(value) : String(value)
 }
 
 export function keyValueItems(details = {}) {
   if (!details || typeof details !== "object") return []
-  return Object.entries(details)
+  return Object.entries(authorFacingDiagnosticValue(details))
     .filter(([, value]) => value !== null && value !== undefined && value !== "")
     .slice(0, 8)
     .map(([key, value]) => ({ key, text: compactValue(value) }))
@@ -104,7 +189,8 @@ export function timelineItems(timeline = []) {
     const bits = []
     if (item.status) bits.push(phaseStatusLabel(item.status))
     if (item.duration_s != null) bits.push(`${item.duration_s}s`)
-    if (item.error_kind) bits.push(item.error_kind)
+    const errorEntry = Object.entries(item).find(([key]) => isErrorKindField(key))
+    if (errorEntry) bits.push(errorKindLabel(errorEntry[1]))
     return { phase: phaseDisplayLabel(item.phase), detail: bits.join(" · ") }
   })
 }
@@ -113,8 +199,13 @@ export function eventItems(events = []) {
   if (!Array.isArray(events)) return []
   return events.slice(-10).map((event) => ({
     level: event.level || "info",
-    label: [event.phase, event.event, event.status].filter(Boolean).join(" · ") || "event",
-    message: event.message || "",
+    label: [
+      event.phase ? phaseDisplayLabel(event.phase) : null,
+      event.event,
+      event.status ? phaseStatusLabel(event.status) : null,
+    ]
+      .filter(Boolean).join(" · ") || "事件",
+    message: authorFacingDiagnosticText(event.message || "", { fallbackForCode: true }),
     details: keyValueItems(event.details),
   }))
 }
@@ -123,8 +214,9 @@ export function checkItems(checks = []) {
   if (!Array.isArray(checks)) return []
   return checks.slice(-10).map((check) => ({
     ok: Boolean(check.ok),
-    label: [check.phase, check.name].filter(Boolean).join(" · ") || "check",
-    message: check.message || "",
+    label: [check.phase ? phaseDisplayLabel(check.phase) : null, check.name]
+      .filter(Boolean).join(" · ") || "检查",
+    message: authorFacingDiagnosticText(check.message || "", { fallbackForCode: true }),
     details: keyValueItems(check.details),
   }))
 }
@@ -132,14 +224,18 @@ export function checkItems(checks = []) {
 export function errorItems(errors = []) {
   if (!Array.isArray(errors)) return []
   return errors.slice(-6).map((error) => ({
-    phase: error.phase || "phase",
-    kind: error.error_kind || "error",
-    message: error.message || "",
+    phase: phaseDisplayLabel(error.phase),
+    kind: errorKindLabel(
+      Object.entries(error).find(([key]) => isErrorKindField(key))?.[1],
+    ),
+    message: authorFacingDiagnosticText(error.message || "", { fallbackForCode: true }),
   }))
 }
 
 export function warningItems(warnings = []) {
-  return Array.isArray(warnings) ? warnings.slice(0, 3) : []
+  return Array.isArray(warnings)
+    ? warnings.slice(0, 3).map((warning) => authorFacingDiagnosticValue(warning))
+    : []
 }
 
 export function diagnosticItems(progress) {

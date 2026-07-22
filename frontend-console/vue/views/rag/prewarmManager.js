@@ -11,7 +11,7 @@
  *   对应 vanilla _prewarm 的字段回写；HTTP 成功即回写（含非 ready 状态）。
  */
 import { getApi, getAppState } from "../../bridge/index.js"
-import { ragSearchSession } from "./ragSearchSession.js"
+import { ragSearchSession, scopeRagSessionToProject } from "./ragSearchSession.js"
 
 const manager = {
   projectId: null,
@@ -28,6 +28,7 @@ const manager = {
 export async function ensurePrewarm({ force = false } = {}) {
   const projectId = getAppState()?.currentProjectId
   if (!projectId) return null
+  scopeRagSessionToProject(projectId)
 
   const sameProject = manager.projectId === projectId
   if (sameProject && !force && (manager.controller || manager.ready)) return null

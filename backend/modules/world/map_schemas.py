@@ -443,6 +443,8 @@ class MapTerrainLayerResponse(BaseModel):
     z_index: int
     visible: bool
     locked: bool
+    status: Literal["active", "archived"] = "active"
+    archived_at: datetime | None = None
     meta: dict | None = None
     created_at: datetime
     updated_at: datetime | None = None
@@ -812,6 +814,8 @@ class MapMarkerResponse(BaseModel):
     end_scene_id: str | None
     end_scene_index: int | None
     visible: bool
+    status: Literal["active", "archived"] = "active"
+    archived_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -1262,6 +1266,11 @@ class TerrainLayerDeleteCommand(BaseModel):
     ref: MapResourceRef
 
 
+class TerrainLayerRestoreCommand(BaseModel):
+    type: Literal["terrain_layer_restore"]
+    ref: MapResourceRef
+
+
 class PathLayerCreateCommand(BaseModel):
     type: Literal["path_layer_create"]
     client_id: str = Field(..., min_length=1, max_length=64)
@@ -1329,6 +1338,11 @@ class MarkerDeleteCommand(BaseModel):
     ref: MapResourceRef
 
 
+class MarkerRestoreCommand(BaseModel):
+    type: Literal["marker_restore"]
+    ref: MapResourceRef
+
+
 class TerritoryReplaceCommand(BaseModel):
     type: Literal["territory_replace"]
     faction_entity_id: str
@@ -1352,6 +1366,7 @@ MapEditorCommand = Annotated[
     | TerrainLayerCreateCommand
     | TerrainLayerUpdateCommand
     | TerrainLayerDeleteCommand
+    | TerrainLayerRestoreCommand
     | PathLayerCreateCommand
     | PathLayerDeleteCommand
     | PathCreateCommand
@@ -1362,6 +1377,7 @@ MapEditorCommand = Annotated[
     | MarkerCreateCommand
     | MarkerUpdateCommand
     | MarkerDeleteCommand
+    | MarkerRestoreCommand
     | TerritoryReplaceCommand
     | LayerTreeReplaceCommand,
     Field(discriminator="type"),
@@ -1378,6 +1394,40 @@ class MapEditorApplyResponse(BaseModel):
     editor_revision: int
     command_results: list[dict] = Field(default_factory=list)
     client_id_map: dict[str, str] = Field(default_factory=dict)
+
+
+class MapVisualRevisionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str
+    revision_number: int
+    operation: str
+    restored_from_revision: int | None = None
+    forward_changes: list[dict] = Field(default_factory=list)
+    reverse_changes: list[dict] = Field(default_factory=list)
+    created_at: datetime
+
+    @field_validator("id", "novel_id", "map_id", mode="before")
+    @classmethod
+    def _coerce_revision_ids(cls, value: object) -> str:
+        return _uuid_validator(value)
+
+
+class MapVisualRevisionListResponse(BaseModel):
+    items: list[MapVisualRevisionResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class MapVisualRevisionRestoreRequest(BaseModel):
+    expected_revision: int = Field(..., ge=0)
+
+
+class MapVisualRevisionRestoreResponse(BaseModel):
+    map_id: str
+    editor_revision: int
+    restored_from_revision: int
 
 
 # ============================================================

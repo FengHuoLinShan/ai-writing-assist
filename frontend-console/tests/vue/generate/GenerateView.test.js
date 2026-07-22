@@ -8,7 +8,11 @@ vi.mock("../../../shared/referencePicker.js", () => ({
 }))
 
 import GenerateView from "../../../vue/views/generate/GenerateView.vue"
-import { emptyGenerateSession, generateSessionKey } from "../../../vue/views/generate/generateSession.js"
+import {
+  emptyGenerateSession,
+  generateSessionKey,
+  writeGenerateContextPreview,
+} from "../../../vue/views/generate/generateSession.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 enableAutoUnmount(afterEach)
@@ -33,6 +37,7 @@ function baseProps(overrides = {}) {
 
 beforeEach(() => {
   localStorage.clear()
+  writeGenerateContextPreview("p1", {})
   document.body.innerHTML = '<div id="topbar-module"></div><div id="modal-body"></div>'
   api = {
     generate: {
@@ -85,6 +90,57 @@ describe("GenerateView Vue behavior matrix", () => {
     }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
 
+  it("rejects synchronous double clicks before the pending disabled state renders", async () => {
+    let resolveSuggestion
+    api.generate.generateWorldSuggestion.mockImplementation(() => new Promise((resolve) => {
+      resolveSuggestion = resolve
+    }))
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get("#generate-chat-input").setValue("只提交一次")
+    const button = wrapper.get('[data-action="generate-world-suggestion"]').element
+
+    button.click()
+    button.click()
+
+    expect(api.generate.generateWorldSuggestion).toHaveBeenCalledTimes(1)
+    resolveSuggestion({
+      result: {
+        kind: "core_entity",
+        suggestion: { id: "single-suggestion", payload_json: { name: "唯一结果" } },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.get("#generate-result").text()).toContain("唯一结果")
+  })
+
+  it("keeps world chat, suggestion generation, and apply mutually exclusive", async () => {
+    let resolveChat
+    api.generate.worldChat.mockImplementation(() => new Promise((resolve) => { resolveChat = resolve }))
+    const wrapper = mount(GenerateView, {
+      props: baseProps({
+        targetKind: "world_bible_page",
+        restoredWorldResult: { kind: "world_bible_page", suggestion: { id: "suggestion-1" } },
+      }),
+      attachTo: document.body,
+    })
+    await wrapper.get("#generate-chat-input").setValue("先等聊天完成")
+    wrapper.get('[data-action="send-chat-message"]').element.click()
+    await flushPromises()
+
+    expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-action="generate-world-suggestion"]').element.disabled).toBe(true)
+    wrapper.findComponent({ name: "WorldWorkspace" }).vm.$emit("apply-page", { title: "不应应用" })
+    wrapper.get('[data-action="generate-world-suggestion"]').element.click()
+    await flushPromises()
+    expect(api.generate.applyWorldPageDraft).not.toHaveBeenCalled()
+    expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
+
+    resolveChat({ reply: "聊天完成" })
+    await flushPromises()
+    expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(false)
+    expect(wrapper.get('[data-action="generate-world-suggestion"]').element.disabled).toBe(false)
+  })
+
   it("aborts an in-flight world request and rejects its late response after unmount", async () => {
     let resolve
     api.generate.worldChat.mockImplementation((_payload, options) => new Promise((done) => { resolve = done; expect(options.signal.aborted).toBe(false) }))
@@ -123,6 +179,33 @@ describe("GenerateView Vue behavior matrix", () => {
     await wrapper.get('[data-action="render-task-md"]').trigger("click")
     await vi.waitFor(() => expect(wrapper.get(".generate-markdown-pre").text()).toContain("<img"))
     expect(wrapper.find("img").exists()).toBe(false)
+  })
+
+  it("编译后跨目标重挂载仍保留当前项目的上下文预览", async () => {
+    api.context.compile.mockResolvedValue({
+      scope: "arc",
+      total_tokens: 12,
+      sections: [{ key: "story_outline", tier: "core", token_count: 12 }],
+    })
+    const first = mount(GenerateView, {
+      props: baseProps({ tab: "task" }),
+      attachTo: document.body,
+    })
+    await first.get("#gen-task").setValue("跨目标检查")
+    await first.get('[data-action="run-task"]').trigger("click")
+    await vi.waitFor(() => expect(first.text()).toContain("已加载 1 段上下文"))
+    first.unmount()
+
+    const second = mount(GenerateView, {
+      props: baseProps({
+        tab: "preview",
+        targetKind: "new_page",
+        sessionKey: generateSessionKey("p1", null, "new_page"),
+      }),
+      attachTo: document.body,
+    })
+
+    expect(second.text()).toContain("已加载 1 段上下文")
   })
 
   it("uses character confirmation, polls with project ownership, then opens the exact writing candidate", async () => {

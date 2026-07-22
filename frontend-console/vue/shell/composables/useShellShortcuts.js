@@ -21,7 +21,26 @@ export function useShellShortcuts({
 
   function onKeydown(event) {
     const key = event.key
+    const actionKey = key.length === 1 ? key.toLowerCase() : key
     const mod = event.ctrlKey || event.metaKey
+
+    if (isFormControl(event.target)) {
+      if (key === "Escape") {
+        event.target.blur?.()
+        services.state.mode = "NORMAL"
+      }
+      return
+    }
+
+    const overlayOpen = command.isOpen() || help.isOpen() || services.modal.isOpen()
+    if (overlayOpen) {
+      if (key === "Escape") {
+        if (command.isOpen()) command.close()
+        else if (services.modal.isOpen()) services.modal.close(event)
+        else if (help.isOpen()) help.close()
+      }
+      return
+    }
 
     if (mod && key.toLowerCase() === "s") {
       event.preventDefault()
@@ -36,13 +55,6 @@ export function useShellShortcuts({
       return
     }
 
-    if (isFormControl(event.target)) {
-      if (key === "Escape") {
-        event.target.blur?.()
-        services.state.mode = "NORMAL"
-      }
-      return
-    }
     if (event.altKey || event.ctrlKey || event.metaKey) return
 
     if (key === "?") {
@@ -52,20 +64,17 @@ export function useShellShortcuts({
       event.preventDefault()
       command.open(key)
     } else if (key === "Escape") {
-      if (command.isOpen()) command.close()
-      else if (services.modal.isOpen()) services.modal.close(event)
-      else if (help.isOpen()) help.close()
-      else if (shellState.currentSubView) {
+      if (shellState.currentSubView) {
         Promise.resolve(services.router.navigate(shellState.currentView, null)).catch(report("导航失败"))
       }
-    } else if (["n", "e", "g", "x"].includes(key)) {
-      trigger(({ n: "new", e: "edit", g: "generate", x: "delete" })[key])
-    } else if (key === "s") {
+    } else if (["n", "e", "g", "x"].includes(actionKey)) {
+      trigger(({ n: "new", e: "edit", g: "generate", x: "delete" })[actionKey])
+    } else if (actionKey === "s") {
       if (!services.workspace.autosave(getRouteHost()) && !trigger("save")) services.toast("没有可保存的内容", "info")
-    } else if (key === "j" || key === "k") {
+    } else if (actionKey === "j" || actionKey === "k") {
       event.preventDefault()
-      services.workspace.moveSelection(key === "j" ? 1 : -1, getRouteHost())
-    } else if (key === "h") {
+      services.workspace.moveSelection(actionKey === "j" ? 1 : -1, getRouteHost())
+    } else if (actionKey === "h") {
       event.preventDefault()
       focusSidebar()
     } else if (key === "Enter") {

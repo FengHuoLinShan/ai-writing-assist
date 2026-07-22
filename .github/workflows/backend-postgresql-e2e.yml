@@ -1,0 +1,86 @@
+name: Backend PostgreSQL E2E
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-postgresql-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  postgresql-e2e:
+    name: PostgreSQL full E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg17-bookworm
+        env:
+          POSTGRES_DB: ai_writing_nightly_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_writing_nightly_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_writing_nightly_test
+      E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_writing_nightly_test
+      RUN_E2E_TESTS: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install locked backend dependencies
+        run: uv sync --locked --extra ci
+
+      - name: Upgrade the dedicated database to Alembic head
+        run: uv run --locked --extra ci -- alembic upgrade head
+
+      - name: Prepare test artifacts directory
+        run: mkdir -p .test-artifacts
+
+      - name: Run the full serial PostgreSQL E2E suite
+        run: >-
+          uv run --locked --extra ci -- pytest tests/e2e
+          -m "not real_llm and not external_data"
+          --timeout=180
+          --junitxml=.test-artifacts/postgresql-e2e.junit.xml
+
+      - name: Capture PostgreSQL diagnostics
+        if: always()
+        env:
+          POSTGRESQL_DIAGNOSTICS_PHASE: post-test
+        run: uv run --locked --extra ci -- python tools/postgresql_ci_diagnostics.py
+
+      - name: Upload PostgreSQL E2E diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: postgresql-e2e-diagnostics
+          path: backend/.test-artifacts/
+          if-no-files-found: error
+          retention-days: 14

@@ -80,3 +80,30 @@ async def test_rag_global_tools_remain_project_guard_exempt(
 ) -> None:
     response = await async_client.request(method, path, params=params)
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_split_tool_rejects_overlap_that_cannot_advance(
+    async_client: AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/api/rag/chunks/split",
+        params={"text": "测试文本" * 100, "chunk_size": 100, "overlap": 100},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/api/rag/chunks", "/api/rag/retrieve"])
+async def test_rag_body_endpoints_reject_missing_body(
+    async_client: AsyncClient,
+    test_project_id: str,
+    path: str,
+) -> None:
+    response = await async_client.post(
+        path,
+        params={"novel_id": test_project_id},
+    )
+
+    assert response.status_code == 422

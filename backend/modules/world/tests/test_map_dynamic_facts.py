@@ -11,6 +11,9 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.facade import create_scene
+from modules.world.map_models import MapFact, MapObservation
+from modules.world.map_repositories import MapFactRepository
+from modules.world.services.map.map_dynamic_projection import normalize_dynamic_value
 from modules.world.services.map.map_open_target_service import MapOpenTargetService
 from modules.world.tests.helpers import _create_entity, _create_project
 
@@ -43,6 +46,73 @@ def _confirmable_status_payload(name: str) -> dict:
         "confidence": 0.8,
         "source_ref": {"source": "manual_test"},
     }
+
+
+def test_invalid_dynamic_projection_redacts_secret_bearing_validation_input() -> None:
+    private_value = "private-token-value"
+
+    normalized = normalize_dynamic_value(
+        "status",
+        {
+            "schema_version": 1,
+            "type": "status",
+            "field_key": "state",
+            "value": "ready",
+            "Authorization": f"Bearer {private_value}",
+        },
+        None,
+    )
+
+    assert normalized.state == "invalid"
+    assert normalized.error is not None
+    assert private_value not in normalized.error
+    assert "[REDACTED]" in normalized.error
+
+
+@pytest.mark.asyncio
+async def test_fact_lookup_by_observation_remains_novel_scoped(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    await _create_project(db_session, str(novel_id))
+    await _create_project(db_session, str(other_novel_id))
+    observation = MapObservation(
+        novel_id=novel_id,
+        dynamic_type="status",
+        confidence=0.8,
+        review_state="candidate",
+    )
+    db_session.add(observation)
+    await db_session.flush()
+    cross_novel_fact = MapFact(
+        novel_id=other_novel_id,
+        observation_id=observation.id,
+        dynamic_type="status",
+        confidence=0.8,
+        fact_status="confirmed",
+    )
+    db_session.add(cross_novel_fact)
+    await db_session.flush()
+    repository = MapFactRepository()
+
+    assert (
+        await repository.get_by_observation(db_session, novel_id, observation.id)
+        is None
+    )
+    assert await repository.get_by_observations(
+        db_session,
+        novel_id,
+        [observation.id],
+    ) == []
+    assert (
+        await repository.get_by_observation(
+            db_session,
+            other_novel_id,
+            observation.id,
+        )
+        is cross_novel_fact
+    )
 
 
 @pytest.mark.asyncio
@@ -1301,6 +1371,36 @@ async def test_batch_review_confirm_reuses_prefetched_observations(
     assert len(observation_selects) == 1
     assert len(observation_updates) == 1
     assert len(fact_selects) == 1
+
+    repeated = await async_client.post(
+        f"/api/world/maps/{map_id}/observations/batch-review",
+        params={"novel_id": nid},
+        json={"items": _review_items(batch_body["observations"]), "action": "confirm"},
+    )
+    assert repeated.status_code == 200, repeated.text
+    repeated_body = repeated.json()
+    assert repeated_body["created_fact_count"] == 0
+    assert [item["id"] for item in repeated_body["facts"]] == [
+        item["id"] for item in batch_body["facts"]
+    ]
+
+    drifted = await db_session.get(
+        MapObservation,
+        uuid.UUID(repeated_body["observations"][0]["id"]),
+    )
+    assert drifted is not None
+    drifted.target_name = "被外部改写的内容"
+    await db_session.flush()
+    conflicted = await async_client.post(
+        f"/api/world/maps/{map_id}/observations/batch-review",
+        params={"novel_id": nid},
+        json={
+            "items": _review_items(repeated_body["observations"]),
+            "action": "confirm",
+        },
+    )
+    assert conflicted.status_code == 409, conflicted.text
+    assert conflicted.json()["error"] == "map_observation_fact_conflict"
 
 
 @pytest.mark.asyncio

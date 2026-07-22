@@ -2,8 +2,8 @@
 core/config.py 单元测试
 
 测试 Settings dataclass 的行为。
-注意：部分字段使用 = int(_env(...)) 在类定义时求值，monkeypatch 无法覆盖；
-仅 field(default_factory=...) 字段可在实例化时响应环境变量变化。
+所有环境变量驱动字段都应在 Settings 实例化时求值，
+以便测试、运维工具和同进程重新加载能够看到当前环境。
 """
 
 import os
@@ -171,6 +171,34 @@ class TestSettingsFromEnvFactoryFields:
         monkeypatch.setenv("DATABASE_URL", "postgresql://custom:5432/db")
         assert Settings().database_url == "postgresql://custom:5432/db"
 
+    @pytest.mark.parametrize(
+        ("env_name", "value", "field_name", "expected"),
+        [
+            ("POOL_SIZE", "17", "pool_size", 17),
+            ("MAX_OVERFLOW", "23", "max_overflow", 23),
+            ("ECHO_SQL", "true", "echo_sql", True),
+            ("EMBEDDING_DIM", "1024", "embedding_dim", 1024),
+            (
+                "INFERENCE_WORKER_MAX_BATCH",
+                "31",
+                "inference_worker_max_batch",
+                31,
+            ),
+            ("RERANKER_ENABLED", "true", "reranker_enabled", True),
+        ],
+    )
+    def test_environment_backed_fields_are_evaluated_per_instance(
+        self,
+        monkeypatch,
+        env_name,
+        value,
+        field_name,
+        expected,
+    ):
+        monkeypatch.setenv(env_name, value)
+
+        assert getattr(Settings(), field_name) == expected
+
     def test_llm_api_key_ignores_env(self, monkeypatch):
         monkeypatch.setenv("LLM_API_KEY", "sk-test")
         assert Settings().llm_api_key == ""
@@ -229,6 +257,29 @@ class TestSettingsFromEnvFactoryFields:
     def test_inference_worker_queue_maxsize_from_env(self, monkeypatch):
         monkeypatch.setenv("INFERENCE_WORKER_QUEUE_MAXSIZE", "37")
         assert Settings().inference_worker_queue_maxsize == 37
+
+    @pytest.mark.parametrize(
+        "env_name",
+        [
+            "LLM_RETRY_BASE_DELAY",
+            "LLM_RETRY_MAX_DELAY",
+            "LLM_CIRCUIT_BREAKER_RESET_SECONDS",
+            "INFERENCE_WORKER_TIMEOUT",
+            "INFERENCE_WORKER_STARTUP_TIMEOUT",
+            "EMBEDDING_BATCH_QUEUE_TIMEOUT_SECONDS",
+        ],
+    )
+    @pytest.mark.parametrize("invalid", ["nan", "inf", "-inf"])
+    def test_runtime_float_env_rejects_non_finite_values(
+        self,
+        monkeypatch,
+        env_name,
+        invalid,
+    ):
+        monkeypatch.setenv(env_name, invalid)
+
+        with pytest.raises(ValueError, match=f"{env_name} must be finite"):
+            Settings()
 
     def test_import_max_chapters_from_env(self, monkeypatch):
         monkeypatch.setenv("IMPORT_MAX_CHAPTERS", "12")

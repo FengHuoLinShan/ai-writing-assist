@@ -43,6 +43,7 @@ from infrastructure.embedding.client import (
     BgeEmbeddingClient,
     prewarm_embedding_worker,
 )
+from infrastructure.llm.redaction import redact_diagnostic
 
 
 def _register_container_services() -> None:
@@ -228,30 +229,70 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning(
             "Could not check pgvector extension: %s. "
             "Proceeding without vector verification.",
-            exc,
+            redact_diagnostic(exc, limit=500),
         )
 
     # --- 启动完成 ---
+    prewarm_task: asyncio.Task[None] | None = None
     if settings.rag_prewarm_on_startup:
 
         async def _background_prewarm() -> None:
             try:
                 await prewarm_embedding_worker()
-            except Exception:
-                logger.exception("RAG embedding prewarm failed")
+            except Exception as exc:
+                logger.error(
+                    "RAG embedding prewarm failed: %s",
+                    redact_diagnostic(exc, limit=500),
+                )
 
-        asyncio.create_task(_background_prewarm())
+        prewarm_task = asyncio.create_task(_background_prewarm())
 
     logger.info("Application startup complete.")
 
-    yield  # <-- 应用运行期间
+    try:
+        yield  # <-- 应用运行期间
+    finally:
+        # --- 关闭清理 ---
+        # Lifespan body exceptions and one failing closer must not skip the
+        # remaining resource owners. In particular, a container close error
+        # must not leave the embedding worker or DB pool alive.
+        logger.info("Shutting down — closing database connections...")
+        await _shutdown_application_resources(manager, prewarm_task)
+        logger.info("Application shutdown complete.")
 
-    # --- 关闭清理 ---
-    logger.info("Shutting down — closing database connections...")
-    await container.shutdown()
-    await BgeEmbeddingClient.close_instance()
-    await manager.close()
-    logger.info("Application shutdown complete.")
+
+async def _shutdown_application_resources(
+    manager: object,
+    prewarm_task: asyncio.Task[None] | None,
+) -> None:
+    """Attempt every application closer and report all cleanup failures."""
+    errors: list[Exception] = []
+
+    if prewarm_task is not None:
+        if not prewarm_task.done():
+            prewarm_task.cancel()
+        try:
+            await prewarm_task
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            exc.add_note("while awaiting RAG embedding prewarm shutdown")
+            errors.append(exc)
+
+    closers = (
+        ("application container", container.shutdown),
+        ("embedding client", BgeEmbeddingClient.close_instance),
+        ("database manager", manager.close),
+    )
+    for label, closer in closers:
+        try:
+            await closer()
+        except Exception as exc:
+            exc.add_note(f"while closing {label}")
+            errors.append(exc)
+
+    if errors:
+        raise ExceptionGroup("Errors during application shutdown", errors)
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +611,10 @@ async def health_check():
             result = await sess.execute(text("SELECT 1"))
             db_ok = result.scalar() == 1
     except Exception as exc:
-        logger.warning("Health check — DB unreachable: %s", exc)
+        logger.warning(
+            "Health check — DB unreachable: %s",
+            redact_diagnostic(exc, limit=500),
+        )
 
     settings = get_settings()
     status = "healthy" if db_ok else "degraded"

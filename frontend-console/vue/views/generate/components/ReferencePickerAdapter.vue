@@ -16,14 +16,18 @@ const emit = defineEmits(["update:modelValue"])
 const root = ref(null)
 let picker = null
 let syncing = false
+let syncGeneration = 0
 
 function refsFor(ids) {
   const kind = props.sources[0]?.kind || "reference"
   return (ids || []).map((id) => ({ kind, id }))
 }
 
-onMounted(() => {
-  picker = createReferencePicker({
+async function mountPicker() {
+  ++syncGeneration
+  syncing = false
+  picker?.destroy?.()
+  const mountedPicker = createReferencePicker({
     root: root.value,
     projectId: props.projectId,
     sources: props.sources,
@@ -35,21 +39,33 @@ onMounted(() => {
       emit("update:modelValue", refs.map((item) => item.id))
     },
   })
-  if (props.modelValue.length) picker.resolve(refsFor(props.modelValue))
-})
+  picker = mountedPicker
+  await syncPickerItems(props.modelValue, mountedPicker)
+}
+
+async function syncPickerItems(ids, target = picker) {
+  if (!target) return
+  const generation = ++syncGeneration
+  syncing = true
+  try {
+    target.setItems?.([], { notifyChange: false })
+    if (ids?.length) await target.resolve(refsFor(ids))
+  } finally {
+    if (generation === syncGeneration && target === picker) syncing = false
+  }
+}
+
+onMounted(() => { void mountPicker() })
+
+watch(() => props.projectId, () => { void mountPicker() })
 
 watch(() => props.modelValue, async (next, previous) => {
   if (!picker || JSON.stringify(next) === JSON.stringify(previous)) return
-  syncing = true
-  try {
-    picker.setItems?.([], { notifyChange: false })
-    if (next?.length) await picker.resolve(refsFor(next))
-  } finally {
-    syncing = false
-  }
+  await syncPickerItems(next)
 }, { deep: true })
 
 onBeforeUnmount(() => {
+  syncGeneration += 1
   picker?.destroy?.()
   picker = null
 })

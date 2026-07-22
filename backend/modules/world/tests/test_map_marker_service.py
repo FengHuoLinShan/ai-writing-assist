@@ -58,6 +58,39 @@ class TestMapMarkerCRUD:
         assert marker.visible is True
 
     @pytest.mark.asyncio
+    async def test_create_marker_rejects_mismatched_entity_type(
+        self,
+        db_session: AsyncSession,
+        world_map,
+    ) -> None:
+        location_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=location_id,
+                novel_id=uuid.UUID(hex=world_map.novel_id),
+                entity_type="location",
+                name="城门",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        with pytest.raises(DomainError) as exc:
+            await MapMarkerService().create(
+                db_session,
+                world_map.novel_id,
+                world_map.id,
+                MapMarkerCreate(
+                    entity_id=str(location_id),
+                    marker_type="character",
+                    hex_q=1,
+                    hex_r=1,
+                ),
+            )
+
+        assert exc.value.code == "invalid_entity_type"
+
+    @pytest.mark.asyncio
     async def test_list_markers(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
@@ -335,7 +368,31 @@ class TestMapMarkerCRUD:
                 created_marker.id,
                 MapMarkerUpdate(label="应该404"),
             )
-        assert exc.value.status_code == 404
+        assert exc.value.status_code == 409
+        assert exc.value.code == "map_marker_archived"
+        assert (
+            await marker_svc.list(
+                db_session,
+                world_map.novel_id,
+                world_map.id,
+            )
+            == []
+        )
+
+        restored = await marker_svc.restore(
+            db_session,
+            world_map.novel_id,
+            created_marker.id,
+        )
+        assert restored.status == "active"
+        assert [
+            item.id
+            for item in await marker_svc.list(
+                db_session,
+                world_map.novel_id,
+                world_map.id,
+            )
+        ] == [created_marker.id]
 
     @pytest.mark.asyncio
     async def test_cross_novel_marker_404(
@@ -376,6 +433,43 @@ class TestMapMarkerCRUD:
         with pytest.raises(DomainError) as exc:
             await marker_svc.delete(db_session, nid2, created_marker.id)
         assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_restore_marker_revalidates_entity_dependency(
+        self,
+        db_session: AsyncSession,
+        world_map,
+    ) -> None:
+        entity = CoreEntity(
+            id=uuid.uuid4(),
+            novel_id=uuid.UUID(hex=world_map.novel_id),
+            entity_type="character",
+            name="已归档人物",
+            status="canonical",
+        )
+        db_session.add(entity)
+        await db_session.flush()
+        service = MapMarkerService()
+        marker = await service.create(
+            db_session,
+            world_map.novel_id,
+            world_map.id,
+            MapMarkerCreate(
+                entity_id=str(entity.id),
+                marker_type="character",
+                hex_q=1,
+                hex_r=1,
+            ),
+        )
+        await service.delete(db_session, world_map.novel_id, marker.id)
+        entity.status = "deprecated"
+        await db_session.flush()
+
+        with pytest.raises(DomainError) as exc:
+            await service.restore(db_session, world_map.novel_id, marker.id)
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == "map_marker_restore_dependency_conflict"
 
     @pytest.mark.asyncio
     async def test_invalid_marker_type_422(self, db_session: AsyncSession):

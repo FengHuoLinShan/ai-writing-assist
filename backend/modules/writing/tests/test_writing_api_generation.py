@@ -126,56 +126,6 @@ async def _create_api_project(async_client: AsyncClient) -> str:
     return response.json()["id"]
 
 
-class TestWritingSplitApi:
-    @pytest.mark.asyncio
-    async def test_split_chapter_endpoint(
-        self,
-        async_client: AsyncClient,
-        db_session: AsyncSession,
-    ) -> None:
-        """POST /api/writing/chapters/{chapter_index}/split 返回切分结果"""
-        novel_id = await _create_api_project(async_client)
-        service = WritingDraftService()
-        await service.create_draft(
-            db_session,
-            WritingDraftCreate(
-                novel_id=novel_id,
-                chapter_index=1,
-                title="第一章",
-                content="abcdefghij",
-            ),
-        )
-
-        repo = SceneRepository()
-        scene = await repo.create(
-            db_session,
-            uuid.UUID(hex=novel_id),
-            SceneCreate(
-                scene_index=0,
-                title="Scene 1",
-                chapter_ids=["1"],
-                scene_chunks=[
-                    {"chapter_id": "1", "chapter_index": 1, "start_pos": 0, "end_pos": 10}
-                ],
-                status="draft",
-            ),
-        )
-        await db_session.flush()
-
-        response = await async_client.post(
-            f"/api/writing/chapters/1/split?novel_id={novel_id}",
-            json={"split_pos": 4, "source_scene_id": str(scene.id)},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["source_chapter_index"] == 1
-        assert data["new_chapter_index"] == 2
-        assert data["source_draft"]["content"] == "abcd"
-        assert data["new_draft"]["content"] == "efghij"
-        assert len(data["scenes"]) >= 2
-
-
 class TestWritingPublishApi:
     @pytest.mark.asyncio
     async def test_repeated_delete_is_204_and_keeps_original_provenance(
@@ -1140,6 +1090,7 @@ async def test_writing_generate_task_records_task_provenance(
     await db_session.flush()
     confirmation = await bind_confirmed_action_result(
         db_session,
+        novel_id=novel_id,
         confirmation_id=confirmation.id,
         result_type="task",
         result_id=str(task.id),

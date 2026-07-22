@@ -31,8 +31,9 @@ async def get_effective_llm_settings(
     供 project 模块在 GET /api/projects/{id}/effective-llm-settings 路由
     中委托调用。
     """
-    from modules.project.facade import get_project_by_id
+    from modules.project.facade import get_project_by_id, require_active_project
 
+    await require_active_project(db, str(project_id))
     project = await get_project_by_id(db, project_id)
     if project is None:
         raise NotFoundError(f"Project {project_id} not found")
@@ -51,6 +52,9 @@ async def get_effective_author_prefs(
     供 project 模块在 GET /api/projects/{id}/effective-author-preferences
     路由中委托调用。
     """
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, str(project_id))
     return await _service.get_effective_author_prefs(db, project_id)
 
 

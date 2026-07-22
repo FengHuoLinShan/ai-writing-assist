@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import (
     bind_confirmed_action_result,
@@ -28,8 +29,6 @@ from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
 from modules.writing.schemas import (
-    ChapterSplitRequest,
-    ChapterSplitResponse,
     ChapterSummaryItem,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
@@ -192,6 +191,7 @@ async def enqueue_conflict_check_ai_review(
     )
     await bind_confirmed_action_result(
         db,
+        novel_id=data.novel_id,
         confirmation_id=data.context_confirmation_id,
         result_type="task",
         result_id=task_id,
@@ -316,6 +316,7 @@ async def generate_writing_candidate(
     )
     await bind_confirmed_action_result(
         db,
+        novel_id=data.novel_id,
         confirmation_id=data.context_confirmation_id,
         result_type="task",
         result_id=task_id,
@@ -341,7 +342,10 @@ async def create_draft(
             scene_id=data.scene_id,
         )
     except Exception as exc:
-        logger.warning("writing conflict snapshot lookup failed: %s", exc)
+        logger.warning(
+            "writing conflict snapshot lookup failed: %s",
+            redact_diagnostic(exc, limit=500),
+        )
     result, published_new_version = await _service.publish_draft_result(db, data)
     if published_new_version:
         result.conflict_check_snapshot_json = snapshot
@@ -354,7 +358,10 @@ async def create_draft(
                 snapshot,
             )
         except Exception as exc:
-            logger.warning("writing conflict snapshot archive failed: %s", exc)
+            logger.warning(
+                "writing conflict snapshot archive failed: %s",
+                redact_diagnostic(exc, limit=500),
+            )
     from modules.rag.facade import mark_chapter_index_dirty
 
     task_id = None
@@ -590,25 +597,4 @@ async def list_chapters(
     return ChapterIndicesResponse(
         chapter_indices=[item.chapter_index for item in chapters],
         chapters=chapters,
-    )
-
-
-@router.post(
-    "/chapters/{chapter_index}/split",
-    response_model=ChapterSplitResponse,
-)
-async def split_chapter(
-    db: DbSession,
-    data: ChapterSplitRequest,
-    chapter_index: int = Path(..., ge=1, description="章节索引"),
-    *,
-    novel_id: NovelIdQuery,
-) -> ChapterSplitResponse:
-    await require_active_project(db, novel_id)
-    return await _service.split_chapter_at_offset(
-        db,
-        novel_id=novel_id,
-        chapter_index=chapter_index,
-        split_pos=data.split_pos,
-        source_scene_id=data.source_scene_id,
     )

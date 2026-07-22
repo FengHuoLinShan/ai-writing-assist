@@ -41,8 +41,18 @@ describe("reconcileWorldEntry", () => {
   it("项目切换按完整进入重置", () => {
     reconcileWorldEntry("p1", "objects")
     worldSession.relationReviewDrafts = { g1: { action: "merge" } }
+    worldSession.bible = { activePageId: "page-p1", activeDraftId: "draft-p1", editorBaseline: { title: "旧项目" }, editorBaselineKey: "page-p1" }
     expect(reconcileWorldEntry("p2", "objects")).toBe(true)
     expect(worldSession.relationReviewDrafts).toEqual({})
+    expect(worldSession.bible).toEqual({ activePageId: null, activeDraftId: null, editorBaseline: null, editorBaselineKey: null })
+  })
+
+  it("同项目重新进入保留 bible 上次页面", () => {
+    reconcileWorldEntry("p1", "bible")
+    worldSession.bible.activePageId = "page-1"
+    markWorldLeft()
+    reconcileWorldEntry("p1", "bible")
+    expect(worldSession.bible.activePageId).toBe("page-1")
   })
 
   it("markWorldLeft 后再次进入按完整进入重置（vanilla onEnter 语义）", () => {

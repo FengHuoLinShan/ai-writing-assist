@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.entity_extraction import scene_entity_config as _phase2_config
 from modules.imports.entity_extraction.scene_entity_alias_relation import (
     AliasRelationExtractionMixin,
@@ -377,7 +378,7 @@ class SceneEntityExtractionService(
                 logger.warning(
                     "Bulk scene entity extraction failed; falling back to "
                     "parallel scene LLM extraction: %s",
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
                 parallel_result = await self._process_scenes_parallel_llm(
                     db,
@@ -634,7 +635,7 @@ class SceneEntityExtractionService(
                 failed_scene_indices.append(scene_index_value)
                 failed_scene_ids.append(self._scene_id(scene))
                 error_kind = self._error_kind(exc)
-                error_message = str(exc)[:300]
+                error_message = redact_diagnostic(exc, limit=300)
                 scene_checkpoints.append(
                     self._build_scene_checkpoint(
                         scene,
@@ -651,7 +652,7 @@ class SceneEntityExtractionService(
                     "Scene idx=%d scene_index=%r extraction failed: %s",
                     scene_idx,
                     scene_index_value,
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
                 if self._is_transport_failure(exc):
                     consecutive_transport_failures += 1
@@ -1031,7 +1032,7 @@ class SceneEntityExtractionService(
                 failed_batches.append(batch_index)
                 degraded_batches.append(batch_index)
                 error_kind = self._error_kind(result)
-                error_message = str(result)[:300]
+                error_message = redact_diagnostic(result, limit=300)
                 for scene_position, scene in enumerate(batches[batch_index]):
                     failed_scene_indices.append(
                         self._scene_index_value(
@@ -1223,7 +1224,7 @@ class SceneEntityExtractionService(
                 )
             except Exception as exc:
                 error_kind_value = self._error_kind(exc)
-                error_message = str(exc)[:300]
+                error_message = redact_diagnostic(exc, limit=300)
                 failed_scene_indices.append(
                     self._scene_index_value(
                         scene,
@@ -1369,19 +1370,20 @@ class SceneEntityExtractionService(
                 boundary_kwargs: dict[str, Any] = {"workflow_id": workflow_id}
                 if authorization_snapshot is not None:
                     boundary_kwargs["authorization_snapshot"] = authorization_snapshot
-                result = await asyncio.wait_for(
-                    self._process_boundary_window(
-                        db,
-                        nid,
-                        window,
-                        **boundary_kwargs,
-                    ),
-                    timeout=remaining_s,
-                )
+                async with db.begin_nested():
+                    result = await asyncio.wait_for(
+                        self._process_boundary_window(
+                            db,
+                            nid,
+                            window,
+                            **boundary_kwargs,
+                        ),
+                        timeout=remaining_s,
+                    )
             except Exception as exc:
                 counts["failed"] += 1
                 error_kind_value = self._error_kind(exc)
-                error_message = str(exc)[:300]
+                error_message = redact_diagnostic(exc, limit=300)
                 continue
             completed += 1
             counts["created"] += int(result.get("created", 0) or 0)
@@ -1572,8 +1574,12 @@ class SceneEntityExtractionService(
             }
         except Exception as exc:
             error_kind_value = self._error_kind(exc)
-            error_message = str(exc)[:300]
-            logger.warning("Phase 2 %s failed: %s", label, exc)
+            error_message = redact_diagnostic(exc, limit=300)
+            logger.warning(
+                "Phase 2 %s failed: %s",
+                label,
+                redact_diagnostic(exc, limit=300),
+            )
             return {
                 **fallback,
                 "error_kind": error_kind_value,
@@ -1597,8 +1603,11 @@ class SceneEntityExtractionService(
             }
         except Exception as exc:
             error_kind_value = self._error_kind(exc)
-            error_message = str(exc)[:300]
-            logger.warning("Phase 2 db.flush failed: %s", exc)
+            error_message = redact_diagnostic(exc, limit=300)
+            logger.warning(
+                "Phase 2 db.flush failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             return {
                 "degraded": True,
                 "error_kind": error_kind_value,

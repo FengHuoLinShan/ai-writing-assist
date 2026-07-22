@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.map_schemas import MapDynamicValueV1
 
 NormalizationState = Literal[
@@ -157,7 +158,10 @@ def normalize_dynamic_value(
     try:
         parsed = _VALUE_ADAPTER.validate_python(legacy)
     except PydanticValidationError as exc:
-        return NormalizedDynamicValue(state="invalid", error=str(exc))
+        return NormalizedDynamicValue(
+            state="invalid",
+            error=redact_diagnostic(exc, limit=500),
+        )
     payload = parsed.model_dump(mode="json")
     return NormalizedDynamicValue(
         state="legacy_normalized",
@@ -173,7 +177,10 @@ def _normalize_versioned(
     try:
         parsed = _VALUE_ADAPTER.validate_python(value)
     except PydanticValidationError as exc:
-        return NormalizedDynamicValue(state="invalid", error=str(exc))
+        return NormalizedDynamicValue(
+            state="invalid",
+            error=redact_diagnostic(exc, limit=500),
+        )
     payload = parsed.model_dump(mode="json")
     if canonical_type != payload["type"]:
         return NormalizedDynamicValue(

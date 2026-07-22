@@ -13,6 +13,7 @@ function newSession(projectId) {
     projectId,
     currentChapter: null,
     currentDraftId: null,
+    currentSceneId: null,
     chapters: new Map(),
   }
 }
@@ -28,6 +29,9 @@ export function rememberWritingLocation(projectId, location = {}) {
   if (!session) return
   session.currentChapter = location.currentChapter ?? session.currentChapter
   session.currentDraftId = location.currentDraftId ?? session.currentDraftId
+  if (Object.hasOwn(location, "currentSceneId")) {
+    session.currentSceneId = location.currentSceneId || null
+  }
 }
 
 export function rememberChapterSnapshot(projectId, snapshot = {}) {
@@ -69,6 +73,7 @@ export function clearChapterSnapshot(projectId, chapter) {
   if (session.currentChapter === Number(chapter)) {
     session.currentChapter = null
     session.currentDraftId = null
+    session.currentSceneId = null
   }
 }
 

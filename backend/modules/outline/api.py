@@ -8,6 +8,7 @@ from fastapi import status as http_status
 
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.outline.p20_schemas import OutlineLayerGenerateRequest
@@ -102,16 +103,24 @@ _story_outline_service = StoryOutlineService()
 
 def _workbench_error(exc: Exception) -> HTTPException:
     if isinstance(exc, SceneSuggestionConflictError):
-        return HTTPException(status_code=409, detail=str(exc))
+        return HTTPException(status_code=409, detail=redact_diagnostic(exc))
     if isinstance(exc, LookupError):
-        return HTTPException(status_code=404, detail=str(exc) or "Not found")
+        return HTTPException(
+            status_code=404,
+            detail=redact_diagnostic(exc) or "Not found",
+        )
     if isinstance(exc, PermissionError):
-        return HTTPException(status_code=400, detail=str(exc))
+        return HTTPException(status_code=400, detail=redact_diagnostic(exc))
     if isinstance(exc, ValueError):
-        return HTTPException(status_code=400, detail=str(exc))
-    logger.exception(
+        return HTTPException(status_code=400, detail=redact_diagnostic(exc))
+    logger.error(
         "outline_scene_workbench_unexpected_error error_type=%s",
         type(exc).__name__,
+        exc_info=(
+            RuntimeError,
+            RuntimeError(redact_diagnostic(exc, limit=300)),
+            exc.__traceback__,
+        ),
     )
     return HTTPException(
         status_code=500,
@@ -121,12 +130,17 @@ def _workbench_error(exc: Exception) -> HTTPException:
 
 def _story_outline_error(exc: Exception) -> HTTPException:
     if isinstance(exc, StoryOutlineConflictError):
-        return HTTPException(status_code=409, detail=str(exc))
+        return HTTPException(status_code=409, detail=redact_diagnostic(exc))
     if isinstance(exc, StoryOutlineNotFoundError):
-        return HTTPException(status_code=404, detail=str(exc))
-    logger.exception(
+        return HTTPException(status_code=404, detail=redact_diagnostic(exc))
+    logger.error(
         "outline_story_outline_unexpected_error error_type=%s",
         type(exc).__name__,
+        exc_info=(
+            RuntimeError,
+            RuntimeError(redact_diagnostic(exc, limit=300)),
+            exc.__traceback__,
+        ),
     )
     return HTTPException(
         status_code=500,
@@ -149,7 +163,10 @@ async def _enqueue_confirmed_outline_task(
             confirmation_id=data.context_confirmation_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=redact_diagnostic(exc),
+        ) from exc
 
     meta = data.model_dump(exclude_none=True)
     from modules.project.facade import build_project_llm_execution_snapshot
@@ -161,6 +178,7 @@ async def _enqueue_confirmed_outline_task(
     task_id = enqueue_task(db, task_type, meta=meta)
     await attach_result_ref(
         db,
+        novel_id=data.novel_id,
         confirmation_id=data.context_confirmation_id,
         result_type="task",
         result_id=task_id,
@@ -183,7 +201,10 @@ async def _enqueue_outline_layer_task(
         )
         plan = await P20GenerationService().prepare(db, data)
     except (LookupError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=redact_diagnostic(exc),
+        ) from exc
 
     meta = data.model_dump(exclude_none=True, mode="json")
     meta.update(
@@ -202,6 +223,7 @@ async def _enqueue_outline_layer_task(
     task_id = enqueue_task(db, "outline_generate", meta=meta)
     await attach_result_ref(
         db,
+        novel_id=data.novel_id,
         confirmation_id=data.context_confirmation_id,
         result_type="task",
         result_id=task_id,
@@ -336,7 +358,10 @@ async def api_generate_story_outline(
         submission_plan = await StoryOutlineGenerationService().prepare(db, data)
     except Exception as exc:
         if isinstance(exc, ValueError):
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=400,
+                detail=redact_diagnostic(exc),
+            ) from exc
         raise _story_outline_error(exc) from exc
     meta = data.model_dump(mode="json", exclude_none=True)
     meta.update(
@@ -369,7 +394,10 @@ async def api_apply_generated_story_outline(
         return await _story_outline_service.apply_generated_preview(db, data)
     except Exception as exc:
         if isinstance(exc, ValueError):
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=400,
+                detail=redact_diagnostic(exc),
+            ) from exc
         raise _story_outline_error(exc) from exc
 
 
@@ -984,9 +1012,15 @@ async def api_apply_structure_preview(
             confirmed=data.confirmed,
         )
     except P20ConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail=redact_diagnostic(exc),
+        ) from exc
     except (PermissionError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=redact_diagnostic(exc),
+        ) from exc
     return OutlineStructurePreviewApplyResponse.model_validate(result)
 
 

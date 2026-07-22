@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.sql.elements import ColumnElement
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.rag.models import RagChunk, RagEntityAppearance, RagIndexState
 from modules.rag.schemas import RagChunkCreate
 from modules.rag.scoring import keyword_query_terms
@@ -432,10 +433,11 @@ class RagChunkRepository:
         chunk = await self.get(db, chunk_id)
         if chunk is None:
             return False
+        safe_error = redact_diagnostic(error, limit=1000)
         chunk.embedding = None
         chunk.embedding_status = "failed"
-        chunk.embedding_error = error[:1000]
-        chunk.index_warnings = [f"embedding 生成失败: {error[:1000]}"]
+        chunk.embedding_error = safe_error
+        chunk.index_warnings = [f"embedding 生成失败: {safe_error}"]
         return True
 
     async def delete(

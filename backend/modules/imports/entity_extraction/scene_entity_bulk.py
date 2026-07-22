@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.entity_extraction.scene_entity_config import (
     PHASE2_BULK_GROUP_SIZE,
     PHASE2_BULK_LLM_TIMEOUT_SECONDS,
@@ -169,9 +170,10 @@ class BulkSceneEntityExtractionMixin:
 
                 await fail_context_snapshot(
                     db,
+                    novel_id=str(nid),
                     snapshot_id=snapshot_id,
                     error_kind=service._error_kind(exc),
-                    error_message=str(exc)[:300],
+                    error_message=redact_diagnostic(exc, limit=300),
                 )
             raise
 
@@ -218,6 +220,7 @@ class BulkSceneEntityExtractionMixin:
                 nid,
                 extraction.delta_events,
                 scene_index=scene_index,
+                source_chapter_index=source_chapter_index,
                 workflow_id=workflow_id,
                 scene_id=scene_id,
                 scene_provenance_key=scene_provenance_key,
@@ -246,19 +249,20 @@ class BulkSceneEntityExtractionMixin:
 
             await succeed_context_snapshot(
                 db,
+                novel_id=str(nid),
                 snapshot_id=snapshot_id,
                 result_refs=result_refs,
             )
         try:
-            from modules.memory.facade import capture_snapshot
+            from modules.memory.facade import ensure_scene_checkpoints
 
-            await capture_snapshot(
-                db,
-                str(nid),
-                chapter_index=source_chapter_index,
-            )
+            for scene in text_scenes:
+                await ensure_scene_checkpoints(db, str(nid), service._scene_id(scene))
         except Exception as exc:
-            logger.warning("Memory snapshot after bulk phase2 failed: %s", exc)
+            logger.warning(
+                "Scene memory checkpoints after bulk phase2 failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
 
         return {
             "created": created_count,
@@ -314,7 +318,7 @@ class BulkSceneEntityExtractionMixin:
                 supplemental_error_kind = service._error_kind(exc)
                 logger.warning(
                     "Small sample supplemental entity sweep stopped: %s",
-                    exc,
+                    redact_diagnostic(exc, limit=300),
                 )
                 supplement = {"created": 0, "created_entity_ids": []}
             supplemental_llm_created = supplement["created"]
@@ -382,7 +386,10 @@ class BulkSceneEntityExtractionMixin:
                 async with db.begin_nested():
                     created = await create_entity(db, str(nid), payload)
             except Exception as exc:
-                logger.warning("Failed to create fallback entity: %s", exc)
+                logger.warning(
+                    "Failed to create fallback entity: %s",
+                    redact_diagnostic(exc, limit=300),
+                )
                 continue
             if created.get("id"):
                 created_ids.append(str(created["id"]))
@@ -444,7 +451,10 @@ class BulkSceneEntityExtractionMixin:
                 transport_retries=False,
             )
         except Exception as exc:
-            logger.warning("Small sample supplemental entity sweep failed: %s", exc)
+            logger.warning(
+                "Small sample supplemental entity sweep failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             return {
                 "created": 0,
                 "created_entity_ids": [],
@@ -521,7 +531,10 @@ class BulkSceneEntityExtractionMixin:
         if extractions:
             for result in results:
                 if isinstance(result, Exception):
-                    logger.warning("Bulk phase2 group failed: %s", result)
+                    logger.warning(
+                        "Bulk phase2 group failed: %s",
+                        redact_diagnostic(result, limit=300),
+                    )
             return indexed_extractions if with_source_indexes else extractions
         first_error = next(
             (result for result in results if isinstance(result, Exception)),

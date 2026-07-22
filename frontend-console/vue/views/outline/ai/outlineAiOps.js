@@ -80,14 +80,17 @@ export async function showOutlineLayerAiForm(target, { selectedIds } = {}) {
   const { api, state, toast, showModalHtml, esc, router } = getBridge()
   const label = P20_TARGET_LABELS[target]
   if (!label) return
+  const projectId = state?.currentProjectId
+  if (!projectId) return
 
   let currentOutline
   try {
-    currentOutline = await api.outline.getStoryOutline(state?.currentProjectId)
+    currentOutline = await api.outline.getStoryOutline(projectId)
   } catch (err) {
     toast(err.message || "无法检查小说总纲", "error")
     return
   }
+  if (state?.currentProjectId !== projectId) return
   if (!currentOutline?.current_revision_id || !currentOutline?.revision) {
     toast("请先在“小说总纲”页创建并采用当前总纲", "warning")
     router?.navigate?.("outline", "story-outline")
@@ -149,7 +152,8 @@ export async function showOutlineLayerAiForm(target, { selectedIds } = {}) {
  */
 export async function generateOutlineLayer({ target, mode, instruction, selectedIds, startChapter, endChapter }) {
   const { api, state, toast } = getBridge()
-  if (!state?.currentProjectId) { toast("请先选择项目", "warning"); return }
+  const projectId = state?.currentProjectId
+  if (!projectId) { toast("请先选择项目", "warning"); return }
   try {
     const label = P20_TARGET_LABELS[target]
     const selectionContext = target === "plot_thread"
@@ -158,7 +162,7 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
         ? { arc_id: selectedIds?.[0] || null }
         : { scene_id: selectedIds?.[0] || null }
     const confirmation = await confirmAiReference({
-      novel_id: state.currentProjectId,
+      novel_id: projectId,
       action: "outline.generate",
       task: `AI 创作${label}`,
       scope: "full",
@@ -167,9 +171,10 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       include_pending_objects: false,
       ...selectionContext,
     })
+    if (state?.currentProjectId !== projectId) throw new Error("项目已切换，请在当前项目重新发起创作")
     const result = await api.outline.generate({
       contract_version: "outline_layer_v2",
-      novel_id: state.currentProjectId,
+      novel_id: projectId,
       context_confirmation_id: confirmation.id,
       target,
       mode,
@@ -189,6 +194,17 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       target,
       mode,
       label,
+    }
+    if (state?.currentProjectId !== projectId) {
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: "outline_generate",
+        label: `${label}建议`,
+        projectId,
+        view: "outline",
+        meta,
+      })
+      return result
     }
     outlineGenerateManager.adopt(result, meta)
     // 覆盖 preview 为 null（新任务开始，旧预览作废）
@@ -367,6 +383,7 @@ export async function analyzeOutline({ instruction, startChapter, endChapter }) 
   if (!projectId) throw new Error("请先选择项目")
   const submissionGeneration = ++outlineAnalysisSubmissionGeneration
   s.submitting = true
+  s.ownerProjectId = projectId
 
   const requestText = String(instruction || "").trim()
   const tabLabel = {
@@ -502,6 +519,13 @@ export async function cancelOutlineAnalysisTask() {
  */
 export function showPlotStructureAutoExtractForm() {
   const { toast, showModalHtml, closeModal, esc } = getBridge()
+  if (
+    plotAutoExtractManager.state.submitting
+    || (plotAutoExtractManager.state.progress && !plotAutoExtractManager.state.progress.terminal)
+  ) {
+    toast("正文结构提取任务正在处理", "info")
+    return
+  }
   const actionLabel = plotAutoExtractLabel()
   const formHtml = `
     <div class="form-group">
@@ -521,12 +545,22 @@ export function showPlotStructureAutoExtractForm() {
       const start = parseInt(document.getElementById("plot-auto-extract-start")?.value || "1", 10)
       const end = parseInt(document.getElementById("plot-auto-extract-end")?.value || "10", 10)
       if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+      const appState = getAppState()
+      const projectId = appState?.currentProjectId
+      if (!projectId) {
+        toast("请先选择项目", "warning")
+        return false
+      }
+      const submission = plotAutoExtractManager.beginSubmission(projectId)
+      if (!submission) {
+        toast("正文结构提取任务正在处理", "info")
+        return false
+      }
       try {
         const api = getApi()
-        const appState = getAppState()
         const result = await api.imports.startStage(
           "plot_structure",
-          appState?.currentProjectId,
+          projectId,
           start,
           end,
           false,
@@ -535,15 +569,24 @@ export function showPlotStructureAutoExtractForm() {
         )
         const actionLabelFinal = plotAutoExtractLabel()
         const meta = {
+          project_id: projectId,
           start_chapter: start,
           end_chapter: end,
           label: actionLabelFinal,
         }
-        plotAutoExtractManager.adopt(result, meta)
-        closeModal()
-        toast(`${actionLabelFinal}任务已提交`, "success")
+        const adopted = plotAutoExtractManager.adopt(result, meta, projectId)
+        if (adopted) {
+          closeModal()
+          toast(`${actionLabelFinal}任务已提交`, "success")
+        }
+        return true
       } catch (err) {
-        toast(err.message || "提交失败", "error")
+        if (getAppState()?.currentProjectId === projectId) {
+          toast(err.message || "提交失败", "error")
+        }
+        return false
+      } finally {
+        plotAutoExtractManager.endSubmission(submission)
       }
     },
   }])

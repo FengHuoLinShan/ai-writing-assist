@@ -314,9 +314,12 @@ const extractEnd = ref(10)
 
 const extractProgress = computed(() => autoExtractManager.state.progress)
 const extractRunning = computed(() => (
-  Boolean(autoExtractManager.state.taskId)
-  && !extractProgress.value?.terminal
-  && !extractProgress.value?.failed
+  autoExtractManager.state.submitting
+  || (
+    Boolean(autoExtractManager.state.taskId)
+    && !extractProgress.value?.terminal
+    && !extractProgress.value?.failed
+  )
 ))
 
 /** 对应 vanilla _renderAutoExtractPanel 的范围文案（_updateExtractStatusDOM 1102-1119）。 */

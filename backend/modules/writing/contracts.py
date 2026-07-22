@@ -69,6 +69,8 @@ class ManuscriptSearchHitContract:
     match_end: int
     match_count: int = 1
     """Number of literal occurrences represented by this hit."""
+    source_refs: list[SourceRangeRefContract] = field(default_factory=list)
+    """All represented ranges when a result is grouped by chapter."""
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import GlobalSettingsView from "../../../vue/views/settings/GlobalSettingsView.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 
 function makeProps(overrides = {}) {
   return {
@@ -89,6 +90,22 @@ describe("渲染（原 vanilla render 契约）", () => {
   })
 })
 
+describe("未保存离开守卫", () => {
+  it("修改全局设置后在路由离开前确认", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    let guard = null
+    const wrapper = mount(GlobalSettingsView, {
+      props: makeProps(),
+      global: { provide: { [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn } } },
+    })
+    expect(guard()).toBe(true)
+    await wrapper.find("#llm-model").setValue("changed-model")
+    expect(guard()).toBe(false)
+    expect(confirm).toHaveBeenCalledWith("全局设置有未保存修改，确定放弃并离开吗？")
+  })
+})
+
 describe("保存 LLM 全局默认", () => {
   it("成功时剥离 Key 字段并提示", async () => {
     overrideProjectId(null)
@@ -122,6 +139,30 @@ describe("保存 LLM 全局默认", () => {
       expect(wrapper.find("#global-llm-save").classes()).toContain("settings-btn-error")
     })
     expect(globalThis.toast).toHaveBeenCalledWith("保存失败", "error")
+  })
+
+  it("保存请求期间的新输入不会被误标为已保存", async () => {
+    overrideProjectId(null)
+    let resolveSave
+    globalThis.api.settings.updateGlobalLLMDefaults.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSave = resolve
+    }))
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    let guard = null
+    const wrapper = mount(GlobalSettingsView, {
+      props: makeProps(),
+      global: { provide: { [ISLAND_LEAVE_GUARD]: (fn) => { guard = fn } } },
+    })
+    await wrapper.find("#llm-model").setValue("submitted-model")
+    wrapper.find("#global-llm-save").element.click()
+    await vi.waitFor(() => expect(globalThis.api.settings.updateGlobalLLMDefaults).toHaveBeenCalledOnce())
+    await wrapper.find("#llm-model").setValue("newer-unsaved-model")
+
+    resolveSave({})
+    await vi.waitFor(() => expect(globalThis.toast).toHaveBeenCalledWith("LLM 全局默认已保存", "success"))
+    expect(wrapper.find("#llm-model").element.value).toBe("newer-unsaved-model")
+    expect(guard()).toBe(false)
   })
 })
 

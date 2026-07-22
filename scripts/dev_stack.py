@@ -228,16 +228,61 @@ def _pids_for_port(port: int) -> set[int]:
     return pids
 
 
+def _process_command(pid: int) -> str:
+    result = _run(
+        ["ps", "-p", str(pid), "-o", "command="],
+        check=False,
+        capture=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return (result.stdout or "").strip()
+
+
+def _process_cwd(pid: int) -> Path | None:
+    result = _run(
+        ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+        check=False,
+        capture=True,
+    )
+    if result.returncode != 0:
+        return None
+    for line in (result.stdout or "").splitlines():
+        if line.startswith("n") and len(line) > 1:
+            return Path(line[1:]).resolve()
+    return None
+
+
+def _is_repo_dev_process(pid: int) -> bool:
+    """Confirm both executable intent and cwd before sending a signal."""
+    command = _process_command(pid)
+    cwd = _process_cwd(pid)
+    if not command or cwd is None:
+        return False
+    try:
+        cwd.relative_to(ROOT.resolve())
+    except ValueError:
+        return False
+    markers = (
+        "scripts/dev_server.py",
+        "run_worker.py",
+        "vite",
+        "npm run dev",
+    )
+    return any(marker in command for marker in markers)
+
+
 def stop_apps(*, fallback: bool = True, remove_pidfile: bool = True) -> None:
     data = _read_pidfile()
     processes = data.get("processes") if isinstance(data, dict) else {}
-    if isinstance(processes, dict):
+    pidfile_matches_root = data.get("root") == str(ROOT) if isinstance(data, dict) else False
+    if pidfile_matches_root and isinstance(processes, dict):
         for name, raw_pid in processes.items():
             try:
                 pid = int(raw_pid)
             except (TypeError, ValueError):
                 continue
-            if _is_alive(pid):
+            if _is_alive(pid) and _is_repo_dev_process(pid):
                 print(f"Stopping {name} pid={pid}")
                 _terminate_pid(pid)
 
@@ -248,7 +293,7 @@ def stop_apps(*, fallback: bool = True, remove_pidfile: bool = True) -> None:
         fallback_pids.update(_pids_for_port(BACKEND_PORT))
         fallback_pids.update(_pids_for_port(FRONTEND_PORT))
         for pid in sorted(fallback_pids):
-            if _is_alive(pid):
+            if _is_alive(pid) and _is_repo_dev_process(pid):
                 print(f"Stopping stale dev process pid={pid}")
                 _terminate_pid(pid)
 

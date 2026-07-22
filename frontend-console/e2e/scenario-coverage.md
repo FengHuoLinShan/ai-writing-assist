@@ -1,7 +1,7 @@
 # 场景覆盖矩阵
 
 > 本文档基于 `docs/核心业务场景与预期行为.md` 中的场景覆盖矩阵，结合当前 E2E 测试实际状态维护。
-> 更新日期：2026-07-19（Vue 前端路由迁移完成后）
+> 更新日期：2026-07-22（深度导入 worker / workbench 恢复闭环补齐后）
 
 ## 图例
 
@@ -30,11 +30,11 @@
 | `project-chaos.spec.js` | 场景 1 | 危险操作取消路径：取消永久删除后项目仍保留在回收站；1/1 通过 |
 | `import.spec.js` | 场景 2 | 文件上传并解析（基础导入成功流）；1/1 通过 |
 | `import-errors.spec.js` | 场景 2 | 格式不支持、超大文件前端拦截、空文件导入失败且不创建章节；3/3 通过 |
-| `deep-import.spec.js` | 场景 3 | 从项目视图导入后经当前场景自动提取入口启动、active workflow 路由恢复、无章节时不显示按钮；3/3 通过 |
+| `deep-import.spec.js` | 场景 3 | 完整深度导入真实 UI 入口提交、持久浏览器进程关闭/重启恢复、路由恢复、503 退避、取消、失败保留、降级提示、无章节空态；7/7 通过 |
 | `p1-lifecycle-health.spec.js` | 场景 3 / A1 | 后端 action 驱动的深度导入继续/放弃入口，以及 evidence health 展示；2/2 通过 |
-| `deep-import-worker.spec.js` | 场景 3 | guarded worker E2E：提交异步深度导入后关闭页面，任务继续由 worker 完成；需 `RUN_WORKER_E2E=1` 和运行中的 backend worker |
+| `deep-import-worker.spec.js` | 场景 3 | guarded real-provider worker E2E：真实 UI 提交，profile 等待 worker readiness，浏览器进程关闭期间断言 task 推进，两次重启后恢复进度/终态，作者关闭后才清理；需 worker E2E LLM key 与共享加密 key |
 | `deep-import-real.spec.js` | 场景 3 | 真实同步深度导入（`POST /api/imports/deep/sync`），不覆盖新版 Phase 0 / Phase 1a / Phase 1b 韧性策略 |
-| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、断章更新左侧树、光标位置联动右侧 Scene 卡面板、Scene 自动提取唯一入口、离线恢复 localStorage、多 Tab 冲突检测；11/11 通过 |
+| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、光标位置联动右侧 Scene 卡面板、Scene 自动提取唯一入口、离线恢复 localStorage、多 Tab 冲突检测；10/10 通过 |
 | `writing-conflict.spec.js` | 场景 4 | 409 冲突 — 其他会话已更新草稿版本；1/1 通过 |
 | `world.spec.js` | 场景 5 | 对象库空态、创建/编辑/删除世界对象、关系子标签、别名子标签、实体合并、实体回滚、人物知识边界；9/9 通过 |
 | `world-relations-aliases.spec.js` | 场景 5 | 创建关系、创建别名；2/2 通过 |
@@ -50,15 +50,15 @@
 
 - **项目创建与管理**：`project.spec.js` 与 `project-recycle-bin.spec.js` 覆盖创建、列表选择、编辑、软删除、回收站恢复和永久删除。创建和列表选择均进入写作视图（`#/workbench/:projectId/writing`）。
 - **文件上传与基础导入**：`import.spec.js`（1/1）与 `import-errors.spec.js`（3/3）覆盖基础导入成功流、格式不支持、超大文件前端拦截、空文件导入失败且不创建章节。
-- **手工写作工作台**：`writing.spec.js`（11/11）与 `writing-conflict.spec.js`（1/1）全部通过；覆盖写作核心流程与 409 冲突检测。
+- **手工写作工作台**：`writing.spec.js`（10/10）与 `writing-conflict.spec.js`（1/1）全部通过；覆盖写作核心流程与 409 冲突检测。
 - **世界对象管理**：`world.spec.js`（9/9）与 `world-relations-aliases.spec.js`（2/2）全部通过；覆盖对象 CRUD、关系、别名、合并、回滚、知识边界。
 
 ### 🟡 部分覆盖（功能存在但 E2E 未完整断言）
 
 以下功能已有页面/API/基础 E2E，但仍有文档化操作路径未完整断言或未实现：
 
-- **深度导入流水线**：当前覆盖受支持的场景自动提取入口、异步任务提交、active workflow 刷新/路由恢复、后端 action 驱动的手动恢复提示，以及 guarded worker 浏览器关闭场景；阶段质量细节由前端单测和 imports 后端测试覆盖。
-- **深度导入 chaos 待实现项**：成功导入后立即刷新恢复章节树、关闭浏览器后恢复异步深度导入、部分结果降级 warning。仅作为待实现矩阵记录，不再用数组长度伪装成 Playwright 产品覆盖。
+- **深度导入流水线**：当前覆盖完整深度导入真实 UI 入口、任务凭据持久化、持久浏览器进程关闭/重启恢复、路由恢复、503 退避、取消、失败/降级终态保留、后端 action 驱动的手动恢复提示，以及作者关闭后的显式清理。guarded worker profile 会等待真实 worker readiness，并要求无页面期间 task 状态或心跳发生推进；完成后再次重启仍恢复地图下一步。
+- **深度导入仍缺的真实路径**：本轮未提供真实 provider key，因此 guarded worker 用例只验证了 profile readiness 与门禁 skip；仍需在真实 provider 环境跑完一次。另未覆盖 worker 进程中途崩溃后重启、用户继续原任务直至成功；重复提交现在会由服务端复用原 task，但浏览器在 task 响应返回前崩溃、localStorage 被清理或换设备且用户尚未再次提交时，仍缺少主动发现活动任务的只读入口；真实 provider 降级结果的浏览器提示，以及成功后章节树与各模块资产的跨页联动仍需真实结果断言。
 - **真实异步深度导入质量验收**：旧真实 LLM 验收 harness 已废弃；当前以 staged async task 结果、后端 imports 单元/集成测试和必要的手动 provider probe 作为质量回归依据。
 - **P20 当前层创作**：后端 strict schema、上下文、原子 apply 与前端表单/恢复由单元测试覆盖；
   真实 provider 质量验收按 Prompt 全量优化计划统一执行。浏览器 E2E 当前覆盖信息推进归并与

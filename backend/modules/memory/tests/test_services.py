@@ -29,6 +29,10 @@ def _event(**kwargs) -> object:
         "entity_id": uuid.uuid4(),
         "snapshot_before": None,
         "snapshot_after": {"name": "test"},
+        "scene_id": None,
+        "scene_index": None,
+        "scene_sequence": None,
+        "dimension": None,
     }
     defaults.update(kwargs)
     return type("MockEvent", (), defaults)()
@@ -48,6 +52,10 @@ def _make_memory_event(**overrides: object) -> MagicMock:
         "snapshot_after": {"name": "test"},
         "source": "ai_extraction",
         "created_at": datetime.now(UTC),
+        "scene_id": None,
+        "scene_index": None,
+        "scene_sequence": None,
+        "dimension": None,
     }
     defaults.update(overrides)
     for key, value in defaults.items():
@@ -524,6 +532,36 @@ class TestApplyEvents:
         )
         result = memory_service._apply_events(state, [event])
         assert result["entities"][0]["summary"] == "新摘要"
+        assert state["entities"][0]["summary"] == "旧摘要"
+
+    def test_event_snapshots_are_not_mutated_by_later_events(
+        self,
+        memory_service: MemoryService,
+    ) -> None:
+        eid = uuid.uuid4()
+        created = _event(
+            event_type=EventType.entity_created,
+            entity_id=eid,
+            snapshot_after={"id": str(eid), "summary": "旧摘要"},
+        )
+        updated = _event(
+            event_type=EventType.entity_updated,
+            entity_id=eid,
+            snapshot_after={"summary": "新摘要"},
+        )
+
+        result = memory_service._apply_events(
+            {
+                "entities": {},
+                "relations": [],
+                "character_locations": {},
+                "character_knowledge": [],
+            },
+            [created, updated],
+        )
+
+        assert result["entities"][0]["summary"] == "新摘要"
+        assert created.snapshot_after["summary"] == "旧摘要"
 
     def test_entity_removed(self, memory_service: MemoryService) -> None:
         """有一实体 + entity_removed → entities 为空"""
@@ -1124,7 +1162,7 @@ class TestReplayState:
         event_repo.get_by_chapter_range.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_get_panorama_no_snapshot_no_events_keeps_world_fallback(
+    async def test_get_panorama_no_snapshot_no_events_returns_stage0_without_world(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -1153,7 +1191,8 @@ class TestReplayState:
 
         assert result.novel_id == novel_id
         assert result.chapter_index == 3
-        get_full_state.assert_awaited_once_with(db, novel_id)
+        assert result.entities == []
+        get_full_state.assert_not_awaited()
         event_repo.get_by_chapter_range.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -1193,10 +1232,12 @@ class TestReplayState:
         novel_id = str(uuid.uuid4())
         event_repo = MagicMock()
         event_repo.count_by_chapter_range = AsyncMock(return_value=7)
+        event_repo.get_by_chapter_range_page_after = AsyncMock(return_value=[])
         event_repo.get_by_chapter_range = AsyncMock(
             side_effect=AssertionError("capture_snapshot must not full-load events")
         )
         snapshot_repo = MagicMock()
+        snapshot_repo.get_nearest = AsyncMock(return_value=None)
         snapshot_repo.create = AsyncMock(
             return_value=_make_snapshot(
                 novel_id=uuid.UUID(novel_id),
@@ -1236,10 +1277,12 @@ class TestReplayState:
         event_repo.delete_from_chapter = AsyncMock(return_value=0)
         event_repo.get_max_chapter_in_range = AsyncMock(return_value=12)
         event_repo.count_by_chapter_range = AsyncMock(return_value=0)
+        event_repo.get_by_chapter_range_page_after = AsyncMock(return_value=[])
         event_repo.get_by_chapter_range = AsyncMock(
             side_effect=AssertionError("full_rebuild must not full-load events")
         )
         snapshot_repo = MagicMock()
+        snapshot_repo.get_nearest = AsyncMock(return_value=None)
         snapshot_repo.mark_stale_from = AsyncMock(return_value=0)
         snapshot_repo.delete_stale = AsyncMock(
             side_effect=AssertionError("rebuild must preserve stale history")
@@ -1274,6 +1317,7 @@ class TestReplayState:
         event_repo.get_max_chapter_in_range.assert_awaited_once_with(
             db, uuid.UUID(novel_id), 1, 999999
         )
+        event_repo.delete_from_chapter.assert_not_awaited()
         event_repo.get_by_chapter_range.assert_not_awaited()
         snapshot_repo.mark_stale_from.assert_awaited_once_with(db, uuid.UUID(novel_id), 1)
         snapshot_repo.delete_stale.assert_not_awaited()

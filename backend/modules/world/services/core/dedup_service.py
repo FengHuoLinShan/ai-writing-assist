@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.models import CoreEntity
 from modules.world.repositories import (
     CharacterRepository,
@@ -101,7 +102,10 @@ class DedupModelProxy:
             logger.warning("Dedup model files not found, falling back to cascade")
             self._pipeline = None
         except Exception as exc:
-            logger.warning("Dedup model load failed: %s", exc)
+            logger.warning(
+                "Dedup model load failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             self._pipeline = None
 
     @property
@@ -329,7 +333,10 @@ class EntityDedupService:
         try:
             return self._model_score(signals)
         except Exception as exc:
-            logger.warning("Model inference failed: %s", exc)
+            logger.warning(
+                "Model inference failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             return cascade_result
 
     @staticmethod
@@ -555,11 +562,11 @@ class EntityDedupService:
                     asset_id=changed_id,
                     reason=reason,
                 )
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "实体 %s 合并后标记上下文确认失效失败",
+                    "实体 %s 合并后标记上下文确认失效失败: %s",
                     changed_id,
-                    exc_info=True,
+                    redact_diagnostic(exc, limit=300),
                 )
 
         await db.flush()

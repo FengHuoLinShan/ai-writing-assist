@@ -4,11 +4,40 @@ export const GENERATE_STATE_STORAGE_PREFIX = "generate_world_workspace_state_v2_
 export const GENERATE_STATE_MAX_PROJECTS = 5
 export const GENERATE_STATE_MAX_BYTES = 512 * 1024
 const composerDrafts = new Map()
+const contextPreviews = new Map()
 
 export function readGenerateComposerDraft(key) { return composerDrafts.get(key) || "" }
 export function writeGenerateComposerDraft(key, value) {
   if (value) composerDrafts.set(key, value)
   else composerDrafts.delete(key)
+}
+
+export function readGenerateContextPreview(projectId) {
+  return contextPreviews.get(projectId || "none") || {
+    bundle: null,
+    markdown: "",
+    source: null,
+    request: null,
+  }
+}
+
+export function writeGenerateContextPreview(projectId, value = {}) {
+  const key = projectId || "none"
+  const preview = {
+    bundle: value.bundle || null,
+    markdown: value.markdown || "",
+    source: value.source || null,
+    request: value.request || null,
+  }
+  if (!preview.bundle && !preview.markdown && !preview.source && !preview.request) {
+    contextPreviews.delete(key)
+    return
+  }
+  contextPreviews.delete(key)
+  contextPreviews.set(key, preview)
+  while (contextPreviews.size > GENERATE_STATE_MAX_PROJECTS) {
+    contextPreviews.delete(contextPreviews.keys().next().value)
+  }
 }
 
 export function generateSessionKey(projectId, sourcePageId = null, targetKind = "core_entity") {

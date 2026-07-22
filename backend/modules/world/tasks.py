@@ -344,6 +344,7 @@ async def handle_world_alias_relation_extraction(db, task):
     if result_refs:
         await context_facade.attach_result_refs(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_refs=result_refs,
             status="done",
@@ -351,6 +352,7 @@ async def handle_world_alias_relation_extraction(db, task):
     else:
         await context_facade.attach_result_ref(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_type="world_alias_relation_extraction",
             result_id=task_id,

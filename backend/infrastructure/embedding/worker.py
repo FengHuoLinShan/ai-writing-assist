@@ -23,6 +23,8 @@ import os
 import threading
 import time
 
+from infrastructure.llm.redaction import redact_diagnostic
+
 logger = logging.getLogger(__name__)
 
 BGE_QUERY_PREFIX = "为这个句子生成表示以用于检索："
@@ -87,8 +89,8 @@ def _try_load_onnx(model_path: str, wlog) -> tuple | None:
             [i.name for i in session.get_inputs()],
         )
         return (session, tokenizer)
-    except Exception:
-        wlog.exception("ONNX load failed")
+    except Exception as exc:
+        wlog.error("ONNX load failed: %s", redact_diagnostic(exc, limit=300))
         return None
 
 
@@ -178,7 +180,10 @@ def _worker_loop(
             st_model = _load_st_model(model_id, wlog)
             backend = "st"
         except Exception as exc:
-            wlog.exception("Failed to load any embedding backend")
+            wlog.error(
+                "Failed to load any embedding backend: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             result_queue.put(
                 ("__error__", RuntimeError(f"No embedding backend available: {exc}"))
             )
@@ -248,7 +253,11 @@ def _worker_loop(
             result_queue.put((request_id, embeddings_list))
 
         except Exception as exc:
-            wlog.exception("Encoding failed for request %s", request_id)
+            wlog.error(
+                "Encoding failed for request %s: %s",
+                request_id,
+                redact_diagnostic(exc, limit=300),
+            )
             result_queue.put((request_id, RuntimeError(str(exc))))
 
 
@@ -393,12 +402,18 @@ class BgeOnnxWorker:
             return
         try:
             queue.close()
-        except Exception:
-            logger.warning("Failed to close BGE worker queue", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "Failed to close BGE worker queue: %s",
+                redact_diagnostic(exc, limit=300),
+            )
         try:
             queue.join_thread()
-        except Exception:
-            logger.warning("Failed to join BGE worker queue thread", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "Failed to join BGE worker queue thread: %s",
+                redact_diagnostic(exc, limit=300),
+            )
 
     def _release_queues(self) -> None:
         task_queue = self._task_queue
@@ -415,8 +430,11 @@ class BgeOnnxWorker:
             return False
         try:
             return process.is_alive()
-        except Exception:
-            logger.debug("Failed to inspect BGE worker process", exc_info=True)
+        except Exception as exc:
+            logger.debug(
+                "Failed to inspect BGE worker process: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             return False
 
     @staticmethod
@@ -425,8 +443,11 @@ class BgeOnnxWorker:
             return
         try:
             process.close()
-        except Exception:
-            logger.debug("Failed to close BGE worker process handle", exc_info=True)
+        except Exception as exc:
+            logger.debug(
+                "Failed to close BGE worker process handle: %s",
+                redact_diagnostic(exc, limit=300),
+            )
 
     def stop(self, timeout: float = 5.0) -> None:
         with self._request_lock:
@@ -443,25 +464,33 @@ class BgeOnnxWorker:
             try:
                 if task_queue is not None:
                     task_queue.put(_SHUTDOWN, timeout=1.0)
-            except Exception:
-                logger.debug("Failed to enqueue BGE worker shutdown", exc_info=True)
+            except Exception as exc:
+                logger.debug(
+                    "Failed to enqueue BGE worker shutdown: %s",
+                    redact_diagnostic(exc, limit=300),
+                )
             try:
                 process.join(timeout=timeout)
-            except Exception:
-                logger.warning("Failed to join BGE worker process", exc_info=True)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to join BGE worker process: %s",
+                    redact_diagnostic(exc, limit=300),
+                )
             still_alive = self._process_is_alive(process)
             if still_alive:
                 try:
                     process.terminate()
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "Failed to terminate BGE worker process", exc_info=True
+                        "Failed to terminate BGE worker process: %s",
+                        redact_diagnostic(exc, limit=300),
                     )
                 try:
                     process.join(timeout=1.0)
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "Failed to join terminated BGE worker process", exc_info=True
+                        "Failed to join terminated BGE worker process: %s",
+                        redact_diagnostic(exc, limit=300),
                     )
                 still_alive = self._process_is_alive(process)
 

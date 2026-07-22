@@ -9,6 +9,7 @@ from unittest import mock
 
 import pytest
 from sqlalchemy import event
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
@@ -62,6 +63,32 @@ async def test_entity_fusion_evidence_uses_context_planner_with_entity_anchors(
     assert captured["retrieval_purpose"] == "world_fusion"
     assert captured["entity_ids"] == [str(source.id), str(target.id)]
     assert evidence[0]["snippet"] == "两人在值夜者会面。"
+
+
+async def test_entity_fusion_evidence_propagates_database_failures(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _fusion_entity(name="克莱恩", summary="占卜家")
+    target = _fusion_entity(name="道恩·唐泰斯", summary="值夜者")
+    source.id = uuid.uuid4()
+    target.id = uuid.uuid4()
+
+    async def fail_retrieval(*_args, **_kwargs):
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(
+        "modules.context.facade.retrieve_planned_context_evidence",
+        fail_retrieval,
+    )
+
+    with pytest.raises(SQLAlchemyError, match="database unavailable"):
+        await WorldEntityFusionService()._evidence(
+            db_session,
+            str(uuid.uuid4()),
+            source,
+            target,
+        )
 
 
 async def test_entity_fusion_service_has_no_direct_http_exception_dependency() -> None:

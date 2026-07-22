@@ -339,6 +339,7 @@ async def grep_evidence(
         skip=request.skip,
         limit=request.limit,
         group_by_chapter=request.group_by_chapter,
+        context_scene_id=request.context_scene_id,
     )
     return EvidenceSearchResponse(**result)
 
@@ -360,6 +361,7 @@ async def search_evidence(
         chapter_from=request.chapter_from,
         chapter_to=request.chapter_to,
         top_k=request.top_k,
+        context_scene_id=request.context_scene_id,
     )
     return EvidenceSearchResponse(**result)
 

@@ -69,41 +69,60 @@
         @generate-draft="vm.generateDraft"
         @generate-continuation="vm.generateContinuation"
         @generate-pov="vm.generatePovDraft"
-        @split-scene="vm.openSplitDialog"
         @auto-extract="vm.openAutoExtraction"
         @adopt="adoptCandidate"
         @reject="rejectCandidate"
         @export="vm.exportChapter"
         @open-map="vm.openMap"
         @toggle-focus="vm.toggleFocusMode"
-      />
+      >
+        <template #context-actions>
+          <div v-if="vm.activeVersions.value.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
+            <label class="writing-version-label" for="version-selector">版本</label>
+            <span class="writing-version-select-wrap">
+              <select
+                id="version-selector"
+                class="writing-version-select"
+                aria-label="选择章节版本"
+                :value="vm.editorState.draftId || ''"
+                @change="vm.switchVersion($event.target.value)"
+              >
+                <option
+                  v-for="(version, index) in vm.activeVersions.value"
+                  :key="version.id"
+                  :value="version.id"
+                  :data-version="version.version_number"
+                  :data-latest="index === 0 ? 1 : 0"
+                >v{{ version.version_number }} · {{ version.status === 'published' ? '已发布' : version.status === 'candidate' ? '待处理' : version.status === 'deprecated' ? '历史' : '工作稿' }}</option>
+              </select>
+            </span>
+            <span id="publish-status-dot" class="publish-status-dot" :class="{ active: vm.publishProgress.active }" />
+            <button class="btn btn-sm writing-btn-compact" title="版本历史" @click="vm.openVersionHistory">历史</button>
+            <button v-if="vm.versions.value.length >= 2" class="btn btn-sm writing-btn-compact" title="比较两个版本" @click="openVersionDiff">比较</button>
+          </div>
+          <div
+            v-if="vm.conflictState.latest || vm.conflictState.error"
+            id="writing-conflict-strip"
+            class="writing-conflict-strip writing-conflict-strip--compact"
+            :role="vm.conflictState.latest ? 'button' : 'status'"
+            :tabindex="vm.conflictState.latest ? 0 : null"
+            :title="conflictSummary"
+            @click="vm.conflictState.latest && vm.openConflictDialog()"
+            @keydown.enter.prevent="vm.conflictState.latest && vm.openConflictDialog()"
+            @keydown.space.prevent="vm.conflictState.latest && vm.openConflictDialog()"
+          >
+            <strong>{{ vm.conflictState.error ? '检查失败' : '最近检查' }}</strong>
+            <span>{{ conflictSummary }}</span>
+          </div>
+        </template>
+      </WritingEditor>
 
-      <div v-if="vm.activeVersions.value.length" id="writing-versions-container" class="writing-version-bar">
-        <label class="writing-version-label" for="version-selector">版本：</label>
-        <select
-          id="version-selector"
-          class="writing-version-select"
-          aria-label="选择章节版本"
-          :value="vm.editorState.draftId || ''"
-          @change="vm.switchVersion($event.target.value)"
-        >
-          <option
-            v-for="(version, index) in vm.activeVersions.value"
-            :key="version.id"
-            :value="version.id"
-            :data-version="version.version_number"
-            :data-latest="index === 0 ? 1 : 0"
-          >v{{ version.version_number }} · {{ version.status === 'published' ? '已发布' : version.status === 'candidate' ? '待处理' : version.status === 'deprecated' ? '历史' : '工作稿' }}</option>
-        </select>
-        <span id="publish-status-dot" class="publish-status-dot" :class="{ active: vm.publishProgress.active }" />
-        <button class="btn btn-sm writing-btn-compact" title="版本历史" @click="vm.openVersionHistory">历史</button>
-        <button v-if="vm.versions.value.length >= 2" class="btn btn-sm writing-btn-compact" title="比较两个版本" @click="openVersionDiff">比较</button>
-      </div>
       <p v-if="vm.versionLoadError.value" class="writing-empty-hint" role="alert">{{ vm.versionLoadError.value }}</p>
       <WritingWorkflowBars
         :publish="vm.publishProgress"
         :conflict="vm.conflictState"
         :deep-import="vm.deepImportState"
+        :show-conflict="false"
         @cancel="vm.cancelDeepImport"
         @resume="vm.resumeDeepImport"
         @abandon="vm.abandonDeepImport"
@@ -170,7 +189,6 @@
     @source="vm.openConflictSource"
     @dismiss-source="vm.conflictDialog.sourcePreview = null"
   />
-  <SplitChapterDialog :model="vm.splitDialog" @submit="vm.submitSplit" />
   <DeepImportAuditDialog :open="vm.deepAuditOpen.value" :progress="vm.deepImportState.progress" @close="vm.deepAuditOpen.value = false" />
   <VersionHistoryDialog
     :model="vm.versionDialog"
@@ -183,7 +201,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue"
+import { computed, ref } from "vue"
 import ChapterTree from "./components/ChapterTree.vue"
 import AutoExtractionDialog from "./components/AutoExtractionDialog.vue"
 import ConflictDetailDialog from "./components/ConflictDetailDialog.vue"
@@ -192,11 +210,11 @@ import DeepImportAuditDialog from "./components/DeepImportAuditDialog.vue"
 import MobileQuickNote from "./components/MobileQuickNote.vue"
 import OutlineFloat from "./components/OutlineFloat.vue"
 import SceneCockpit from "./components/SceneCockpit.vue"
-import SplitChapterDialog from "./components/SplitChapterDialog.vue"
 import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
 import WritingEditor from "./components/WritingEditor.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
+import "./writing-desk.css"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -209,6 +227,12 @@ const props = defineProps({
 })
 
 const vm = useWritingWorkspace(props)
+const conflictSummary = computed(() => (
+  vm.conflictState.error
+  || vm.conflictState.latest?.summary_json?.message
+  || vm.conflictState.latest?.status
+  || "已完成"
+))
 const stored = (rail, fallback) => {
   try {
     const value = sessionStorage.getItem(`workspace-rail:${props.projectId}:writing:${rail}`)
@@ -232,7 +256,7 @@ function saveRail(event, rail) {
 async function selectScene(sceneId) {
   const scene = vm.scenes.value.find((item) => item.id === sceneId)
   const chapter = (scene?.chapter_ids || []).map(Number).find((item) => vm.chapterList.value.includes(item))
-  if (chapter) await vm.selectChapter(chapter)
+  if (chapter) await vm.selectChapter(chapter, { sceneId })
 }
 
 async function adoptCandidate() {

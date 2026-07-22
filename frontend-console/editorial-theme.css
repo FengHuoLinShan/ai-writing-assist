@@ -1326,6 +1326,27 @@ table tbody tr:hover td {
     scroll-snap-align: start;
   }
 
+  /*
+   * 世界对象和生成中心都拥有超过窄屏可见宽度的主标签。横向滚动会把
+   * 后面的标签裁在视口外，且没有足够明确的滚动提示；改为两列，让所有
+   * 入口在首屏保持可见和可点。
+   */
+  #workspace-content[data-workspace-view="world"] .world-view > .world-toolbar > .subnav,
+  #workspace-content[data-workspace-view="generate"] .generate-subtabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    scroll-snap-type: none;
+  }
+
+  #workspace-content[data-workspace-view="world"] .world-view > .world-toolbar > .subnav > .subnav-item,
+  #workspace-content[data-workspace-view="generate"] .generate-subtabs .generate-subtab {
+    display: inline-flex;
+    flex: 1 1 calc(50% - 3px);
+    min-width: 0;
+    justify-content: center;
+    text-align: center;
+  }
+
   .card,
   .settings-panel,
   .settings-section {

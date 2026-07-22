@@ -6,6 +6,34 @@ from modules.imports.deep_import_dedup import StructureReviewAgent
 
 
 @pytest.mark.asyncio
+async def test_structure_review_redacts_credentials_from_degraded_error(monkeypatch):
+    from modules.outline import facade as outline_facade
+
+    secret = "private-token-value"
+
+    async def fail_suggestion(*args, **kwargs):
+        raise RuntimeError(
+            f"Authorization: Bearer {secret} api_key={secret}"
+        )
+
+    monkeypatch.setattr(
+        outline_facade,
+        "suggest_structure_dedup",
+        fail_suggestion,
+    )
+
+    result = await StructureReviewAgent().review(
+        object(),
+        "novel-1",
+        workflow_id="wf-1",
+    )
+
+    assert result["degraded"] == 1
+    assert secret not in result["error_message"]
+    assert "[REDACTED]" in result["error_message"]
+
+
+@pytest.mark.asyncio
 async def test_structure_review_applies_only_same_workflow_high_confidence(
     monkeypatch,
 ):

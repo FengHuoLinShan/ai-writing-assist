@@ -93,7 +93,14 @@ describe("ShellApp", () => {
     expect(wrapper.get("#command-bar").classes()).toContain("active")
     expect(wrapper.get("#command-input").element.value).toBe(":")
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true }))
-    expect(services.workspace.triggerAction).toHaveBeenCalledWith("generate", wrapper.get("#workspace-content").element)
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true }))
+    expect(services.workspace.autosave).not.toHaveBeenCalled()
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    await nextTick()
+    expect(wrapper.get("#command-bar").classes()).not.toContain("active")
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "G", bubbles: true }))
+    expect(services.workspace.triggerAction).toHaveBeenLastCalledWith("generate", wrapper.get("#workspace-content").element)
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true }))
     expect(services.workspace.autosave).toHaveBeenCalledWith(wrapper.get("#workspace-content").element)
 
@@ -111,6 +118,22 @@ describe("ShellApp", () => {
     window.dispatchEvent(new CustomEvent("writing:dashboard-update", { detail: { chapterIndex: 99, chapterWords: 999 } }))
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }))
     expect(document.getElementById("help-overlay")).toBeNull()
+  })
+
+  it("blocks background workspace shortcuts while a modal is open but keeps Escape", () => {
+    const services = createShellTestServices()
+    services.modal.isOpen.mockReturnValue(true)
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true }))
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true }))
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+    expect(services.workspace.autosave).not.toHaveBeenCalled()
+
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    document.dispatchEvent(escape)
+    expect(services.modal.close).toHaveBeenCalledWith(escape)
+    wrapper.unmount()
   })
 
   it("restores focus to the help trigger after closing the modal", async () => {

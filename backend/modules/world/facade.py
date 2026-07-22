@@ -64,6 +64,7 @@ from modules.world.map_facade import (  # noqa: F401
     count_deep_import_map_observations_by_workflow,
     create_map_observation_candidates,
     create_map_observation_from_delta_event,
+    get_confirmed_map_facts_through_scene,
     rollback_deep_import_map_observations_by_workflow,
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
@@ -108,6 +109,7 @@ __all__ = [
     "get_characters_at_location",
     "get_characters_context",
     "get_deep_import_alias_metadata_summary",
+    "get_confirmed_map_facts_through_scene",
     "get_entity_relations",
     "get_entity_revisions",
     "get_events_context",

@@ -64,6 +64,9 @@ make test
 # PostgreSQL E2E（必须显式指向已迁移到 head 的专用测试库）
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e
 
+# 本地复现 PR 的 PostgreSQL 高风险门禁
+E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical
+
 # 仅启动前端控制台
 cd frontend-console
 npm run dev

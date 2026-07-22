@@ -1,7 +1,9 @@
 import { test, expect } from "./fixtures.js"
+import { chromium } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { createPersistentBrowserProfile } from "./helpers/persistent-browser.js"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -9,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 test.describe("深度导入流水线", () => {
   let testProjectId = null
+  let testProject = null
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -21,6 +24,7 @@ test.describe("深度导入流水线", () => {
       language: "zh",
     })
     testProjectId = project.id
+    testProject = project
 
     await openWorkbench(page, project, "writing")
   })
@@ -29,20 +33,28 @@ test.describe("深度导入流水线", () => {
     if (testProjectId) {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
+      testProject = null
     }
   })
 
-  test("从项目视图导入小说后启动深度导入", async ({ page }) => {
+  test("从真实入口提交后关闭并重启浏览器，可恢复运行进度", async () => {
+    const browserProfile = await createPersistentBrowserProfile(chromium)
+    let persistentContext = null
+    try {
+      persistentContext = await browserProfile.launch()
+      const page = persistentContext.pages()[0] || await persistentContext.newPage()
+      await openWorkbench(page, testProject, "writing")
+
     // Navigate to project view for file upload
     await page.evaluate(() => window.router.navigate("project"))
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
     // Step 1: 在项目视图展开导入区域并上传文件
-    await page.locator('[data-action="toggle-import"]').click()
-    await expect(page.locator("#pv-import-file")).toBeVisible()
+    await page.locator(SEL.projectImportToggle).click()
+    await expect(page.locator(SEL.projectImportFile)).toBeVisible()
 
     const filePath = path.join(__dirname, "helpers", "fixtures", "sample-novel.txt")
-    await page.locator("#pv-import-file").setInputFiles(filePath)
-    await page.locator('[data-action="upload-file"]').click()
+    await page.locator(SEL.projectImportFile).setInputFiles(filePath)
+    await page.locator(SEL.projectImportSubmit).click()
 
     // 等待导入完成 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("导入完成", { timeout: 15000 })
@@ -58,47 +70,72 @@ test.describe("深度导入流水线", () => {
     // 等待写作视图加载完成
     await waitWritingReady(page)
 
-    // Step 3: 上传完成后由用户从受支持入口显式启动场景自动提取
-    await page.locator("details.writing-tools-menu > summary").click()
-    const sceneExtractionBtn = page.getByRole("button", { name: "从正文提取 Scene" })
-    await expect(sceneExtractionBtn).toBeVisible()
-    await sceneExtractionBtn.click()
+    // Step 3: 上传完成后由用户从写作台显式启动完整深度导入
+    await page.locator(SEL.writingToolsMenu).click()
+    const deepImportButton = page.getByRole("button", { name: "启动深度导入" })
+    await expect(deepImportButton).toBeVisible()
+    await deepImportButton.click()
     const extractionDialog = page.getByRole("dialog", { name: "自动提取" })
-    await expect(extractionDialog).toContainText("从正文提取 Scene")
+    await expect(extractionDialog).toContainText("启动深度导入")
 
-    // Step 4: Mock 深度导入 API 以加速测试
-    await page.route("**/api/imports/stages/scenes", async (route) => {
+    // Step 4: Mock 后端执行，但保留真实 UI 提交和本地恢复凭据写入。
+    const taskId = `mock-deep-import-${Date.now()}`
+    await persistentContext.route("**/api/imports/deep", async (route) => {
       await route.fulfill({
         status: 200,
-        body: JSON.stringify({ task_id: `mock-deep-import-${Date.now()}` }),
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: taskId }),
       })
     })
 
-    await page.route("**/api/tasks/**", async (route) => {
-      const url = route.request().url()
-      if (url.includes("/api/tasks/mock-deep-import-")) {
-        await route.fulfill({
-          status: 200,
-          body: JSON.stringify({
-            task_id: "mock-deep-import-123",
-            status: "done",
-            result: { imported_scenes: 3, imported_entities: 5 },
-          }),
-        })
-      } else {
-        await route.continue()
-      }
+    const installTaskRoute = (context) => context.route(`**/api/tasks/${taskId}**`, async (route) => {
+      expect(new URL(route.request().url()).searchParams.get("novel_id")).toBe(
+        testProjectId,
+      )
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: taskId,
+          task_type: "deep_import",
+          status: "running",
+          progress: 0.35,
+          result: {
+            phase: "running",
+            current_phase: "phase1b_enrichment",
+            current_item: { completed: 2, total: 6 },
+            message: "正在补全 Scene 字段",
+          },
+        }),
+      })
     })
+    await installTaskRoute(persistentContext)
 
     // Step 5: 在当前表单中确认授权并提交
     await extractionDialog.getByRole("button", { name: "确认并开始提取" }).click()
 
     // Step 6: 验证当前任务入口成功启动
-    await expect(page.locator(SEL.toastContainer)).toContainText("从正文提取 Scene已启动", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("深度导入已启动", { timeout: 10000 })
+    await expect(page.locator(SEL.deepImportProgress)).toContainText("正在补全 Scene 字段")
+    await expect.poll(() => page.evaluate((expectedTaskId) => {
+      const items = JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]")
+      return items.some((item) => item.taskId === expectedTaskId)
+    }, taskId)).toBe(true)
 
-    // Step 7: 验证进度条出现（由于 Mock 快速完成，进度条可能一闪而过）
-    // 至少验证页面没有报错
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台")
+    // Step 7: 关闭持久浏览器进程，再使用同一用户 profile 重启。
+    await browserProfile.close()
+    persistentContext = await browserProfile.launch()
+    await installTaskRoute(persistentContext)
+    const recoveryPage = persistentContext.pages()[0] || await persistentContext.newPage()
+    await openWorkbench(recoveryPage, testProject, "writing")
+    await expect(recoveryPage.locator(SEL.deepImportProgress)).toContainText(
+      "正在补全 Scene 字段",
+      { timeout: 10000 },
+    )
+    await expect(recoveryPage.locator(SEL.deepImportProgress)).toContainText("35%")
+    } finally {
+      await browserProfile.dispose()
+    }
   })
 
   test("场景自动提取进度在路由切换后恢复", async ({ page }) => {
@@ -156,7 +193,7 @@ test.describe("深度导入流水线", () => {
       "Phase 2/3: 实体提取",
       { timeout: 10000 },
     )
-    await expect(page.locator("#writing-deep-import-bar-container")).toContainText("entity_extraction")
+    await expect(page.locator(SEL.deepImportProgress)).toContainText("世界对象与关系提取")
   })
 
   test("刷新恢复遇到 503 会保留记录并退避重试", async ({ page }) => {
@@ -183,6 +220,7 @@ test.describe("深度导入流水线", () => {
           task_type: "scene_auto_extraction",
           status: "running",
           progress: 0.2,
+          available_actions: ["cancel"],
           result: { phase: "running", current_step: "entity_extraction" },
         }),
       })
@@ -206,7 +244,7 @@ test.describe("深度导入流水线", () => {
       "任务状态暂不可用",
     )
     await expect(page.locator("#writing-deep-import-bar-container")).toContainText(
-      "entity_extraction",
+      "世界对象与关系提取",
       { timeout: 10000 },
     )
     const retained = await page.evaluate(() => (
@@ -242,6 +280,7 @@ test.describe("深度导入流水线", () => {
           task_type: "scene_auto_extraction",
           status: "running",
           progress: 0.2,
+          available_actions: ["cancel"],
           result: { phase: "running", current_step: "entity_extraction" },
         }),
       })
@@ -321,6 +360,56 @@ test.describe("深度导入流水线", () => {
     expect(await page.evaluate(() => (
       JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]").length
     ))).toBe(0)
+  })
+
+  test("降级完成任务刷新后主动展开作者提示", async ({ page }) => {
+    const mockTaskId = `mock-degraded-task-${Date.now()}`
+    await page.context().route(`**/api/tasks/${mockTaskId}**`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: mockTaskId,
+          task_type: "scene_auto_extraction",
+          status: "done",
+          progress: 1,
+          result: {
+            phase: "done",
+            message: "Scene 提取已完成",
+            quality_status: "partial",
+            degraded: true,
+            degraded_reason: "phase1b_422_rate_exceeded",
+            phase1a_fallback: true,
+            phase_errors: [{
+              phase: "phase1b_enrichment",
+              error_kind: "schema_failure",
+              message: "部分 Scene 已使用可复核结果继续导入",
+            }],
+          },
+        }),
+      })
+    })
+    await page.evaluate(({ tid, projectId }) => {
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: `${projectId}:scene_auto_extraction:${tid}`,
+        taskId: tid,
+        workflowType: "scene_auto_extraction",
+        projectId,
+        view: "writing",
+      }]))
+    }, { tid: mockTaskId, projectId: testProjectId })
+
+    await page.evaluate(() => window.router.navigate("project"))
+    await page.waitForFunction(() => !state.loading)
+    await page.evaluate(() => window.router.navigate("writing"))
+    await page.waitForFunction(() => !state.loading)
+
+    const bar = page.locator(SEL.deepImportProgress)
+    await expect(bar.locator("details.workflow-progress")).toHaveAttribute("open", "")
+    await expect(bar).toContainText("部分降级完成")
+    await expect(bar).toContainText("部分步骤已降级完成，请检查需要人工处理的结果")
+    await expect(bar).toContainText("自动整理失败，已使用质量补强结果继续导入")
+    await expect(bar).not.toContainText("phase1b_422_rate_exceeded")
   })
 
   test("无章节时场景自动提取入口不显示", async ({ page }) => {

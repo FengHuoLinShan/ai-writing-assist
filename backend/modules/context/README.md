@@ -84,6 +84,7 @@ async def preview_activation_profile(...) -> dict
 | 表 | 说明 |
 |----|------|
 | `context_confirmations` | AI 参考资料确认记录，保存 `action`、`scope`、`context_mode`、`selected_asset_ids`、`result_refs`、`stale_reasons` |
+| `context_confirmation_asset_refs` | confirmation 选中/结果资产的精确引用索引；与 JSON wire 同事务同步，资产失效只查询此表 |
 | `context_snapshots` | 自动 AI 调用上下文审计记录，保存 `task_id`、`workflow_id`、`phase`、`context_mode`、`included_asset_ids`、摘要、`prompt_hash`、token/section metadata、`result_refs`、错误信息和可选 `rendered_context` |
 | `evidence_links` | 使用 `TargetRef + claim_path` 将对象/人物知识/结构字段连到 `SourceRangeRef`；只记录 provenance，不判定事实真假 |
 | `context_retrieval_traces` | 按 novel/content mode 保存查询计划哈希、clause 摘要、候选/回读/丢弃计数与 safe-empty 原因；不保存 raw task/query/正文 |
@@ -94,6 +95,12 @@ async def preview_activation_profile(...) -> dict
 
 - `context_confirmations` 面向手动 AI 操作，表示用户确认过的参考资料选择。
 - `context_snapshots` 面向自动流水线审计，表示一次真实 LLM 调用使用过的上下文视图。
+
+`selected_asset_ids` 与 `result_refs` 继续保持既有 JSON 对外形状，但不再承担失效查询。
+新 confirmation 创建时同步写入 `selected` 引用，结果绑定时必须携带 `novel_id` 并在
+`id + novel_id` 行锁内同步 `result` 引用；失效只通过精确表匹配类型与 ID，不回退扫描 JSON。
+JSON wire 中为兼容保留 `world_entities/scenes/...` 等复数 key；精确引用表会规范为
+`world_entity/scene/...` 单数资产类型，使各领域的失效命令使用同一类型词汇。
 
 默认只保存可复现摘要和 metadata；`retain_rendered_context=True` 时才保存完整上下文并设置过期时间。清理任务只清空 `rendered_context` 和 `rendered_context_expires_at`，不删除快照行、hash、资产 ID、结果引用或 metadata。
 
@@ -200,7 +207,7 @@ V1 复用 `excluded_asset_ids`，约定：
 
 ## Loader 依赖注入
 
-`ContextCompiler` 的外部行为由 `SCOPE_LOADERS`、loader `name` 和 facade 入口保持稳定；loader 内部依赖统一通过构造函数注入 callable。生产默认 callable 仍委托既有 `project / world / memory / outline / rag` 稳定入口，测试可直接传入 fake callable，不需要在 `load()` 内 monkeypatch facade 或直接访问 DI container。
+`ContextCompiler` 的外部行为由 `SCOPE_LOADERS`、loader `name` 和 facade 入口保持稳定；loader 内部依赖统一通过构造函数注入 callable。生产默认 callable 仍委托既有 `project / world / memory / outline / rag` 稳定入口，测试可直接传入 fake callable，不需要在 `load()` 内 monkeypatch facade 或直接访问 DI container。多个 loader 共用调用方的同一 `AsyncSession`，因此前置与依赖阶段内均顺序执行，不在同一 session 上并发发起 SQL。
 
 `load()` 只使用 `self._...` 依赖：
 
@@ -281,6 +288,14 @@ reader/character 可见性校验，随后才从 writing 读取当前原文。RAG
 先按语义召回并合并同章 chunk，再在索引新鲜时用精确字面命中补足章节覆盖。
 响应中的 `match_count` 与 `match_basis` 分别说明聚合数量以及数量代表
 `occurrence` 还是 `chunk`。索引过期时智能搜索不会绕过 freshness guard 直接读取新稿。
+作者视角下，经 writing 原文回读与 hash 校验后的正文命中会通过精确
+SceneSpan 补充父 Scene 序号、标题及由目标/冲突/情绪组成的短摘要。
+`scene_refs` 始终只对应当前卡片展示的 `source_ref`；按章聚合时，
+`parent_scene_contexts` 再去重汇总 `source_refs` 所代表的全部父 Scene，
+避免字面补命中替换了范围却保留旧 Scene 元数据。
+`context_scene_id` 可选指向当前写作 Scene，响应以 `writing_relevance`
+确定性标记命中属于当前、前序、后续或未映射 Scene，不使用 LLM
+臆测因果关系。读者/角色视角不返回这些作者专用 Scene 语义或写作关系。
 
 `VisibilityContextContract` 有三种模式：
 

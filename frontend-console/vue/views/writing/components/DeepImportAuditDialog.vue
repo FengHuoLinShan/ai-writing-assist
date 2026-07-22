@@ -39,16 +39,13 @@
 
 <script setup>
 import { computed } from "vue"
+import { formatAuthorFacingDiagnostic } from "../../../components/progressUtils.js"
 
 const props = defineProps({ open: Boolean, progress: { type: Object, default: null } })
 defineEmits(["close"])
 
 function formatValue(value) {
-  if (value == null) return "-"
-  if (typeof value === "object") {
-    try { return JSON.stringify(value) } catch { return String(value) }
-  }
-  return String(value)
+  return formatAuthorFacingDiagnostic(value)
 }
 const entries = (value) => Object.entries(value || {}).map(([key, item]) => [key, formatValue(item)])
 const sections = computed(() => [

@@ -7,6 +7,7 @@ the UI gives users useful presets.
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
@@ -518,7 +519,7 @@ def _set_profile_field(
     if isinstance(raw_value, str) and raw_value.strip() == "":
         return
     value = _coerce_profile_value(field_name, raw_value)
-    if value is None and field_name not in {"temperature", "top_p"}:
+    if value is None:
         return
     if field_name == "extra" and not isinstance(value, dict):
         return
@@ -528,13 +529,20 @@ def _set_profile_field(
 
 def _coerce_profile_value(field_name: str, value: Any) -> Any:
     if field_name in _NUMERIC_FIELDS:
+        if isinstance(value, bool):
+            return None
         try:
             parsed = int(value)
         except (TypeError, ValueError):
             return None
-        return parsed if parsed > 0 else None
+        upper_bound = 3600 if field_name == "timeout" else 200_000
+        return parsed if 0 < parsed <= upper_bound else None
     if field_name in _FLOAT_FIELDS:
-        return _optional_float(value)
+        parsed = _optional_float(value)
+        if parsed is None:
+            return None
+        upper_bound = 2.0 if field_name == "temperature" else 1.0
+        return parsed if 0.0 <= parsed <= upper_bound else None
     if field_name == "extra":
         return deepcopy(value) if isinstance(value, dict) else None
     if isinstance(value, str):
@@ -545,12 +553,15 @@ def _coerce_profile_value(field_name: str, value: Any) -> Any:
 def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     if isinstance(value, str) and value.strip() == "":
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _override_key_to_field(key: str) -> str | None:

@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.env_helpers import positive_float_env, positive_int_env
 from modules.imports.service_progress_logs import (
     record_acceptance_check,
@@ -188,7 +189,7 @@ def phase_error(
     return {
         "phase": phase,
         "error_kind": error_kind,
-        "message": message[:300],
+        "message": redact_diagnostic(message, limit=300),
     }
 
 
@@ -310,7 +311,8 @@ def _sanitize(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, list):
         return [_sanitize(item, depth=depth + 1) for item in value[:100]]
     if isinstance(value, str):
-        return value if len(value) <= 500 else f"{value[:500]}..."
+        redacted = redact_diagnostic(value)
+        return redacted if len(redacted) <= 500 else f"{redacted[:500]}..."
     return value
 
 

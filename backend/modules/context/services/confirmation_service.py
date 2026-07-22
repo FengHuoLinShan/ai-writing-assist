@@ -19,6 +19,18 @@ from modules.context.services.compiled_context import CompiledContext
 from modules.context.services.context_compiler import ContextCompiler
 from shared.utils import parse_uuid
 
+_ASSET_TYPE_ALIASES = {
+    "scenes": "scene",
+    "outline_arcs": "outline_arc",
+    "world_entities": "world_entity",
+    "characters": "character",
+    "locations": "location",
+    "plot_threads": "plot_thread",
+    "foreshadowing_plans": "foreshadowing_plan",
+    "reveal_plans": "reveal_plan",
+    "context_sections": "context_section",
+}
+
 
 class ContextConfirmationService:
     """Owns AI reference confirmation semantics."""
@@ -125,6 +137,12 @@ class ContextConfirmationService:
             compile_options=self._compile_options_json(options),
             warnings=warnings,
         )
+        await self._repo.replace_asset_refs(
+            db,
+            record,
+            asset_role="selected",
+            refs=self._selected_refs(selected_asset_ids),
+        )
         return self._to_contract(record, compiled=compiled)
 
     async def require_confirmation(
@@ -139,12 +157,11 @@ class ContextConfirmationService:
         record = await self._repo.get(
             db,
             self._as_uuid(confirmation_id),
+            novel_id=parse_uuid(novel_id, "novel_id"),
             for_update=for_update,
         )
         if record is None:
             raise ValueError("context_confirmation_id not found")
-        if str(record.novel_id) != str(parse_uuid(novel_id, "novel_id")):
-            raise ValueError("context confirmation novel_id mismatch")
         if record.action != action:
             raise ValueError("context confirmation action mismatch")
         return self._to_contract(record)
@@ -207,14 +224,17 @@ class ContextConfirmationService:
         self,
         db: AsyncSession,
         *,
+        novel_id: str,
         confirmation_id: str | uuid.UUID,
         result_type: str,
         result_id: str,
         status: str = "running",
     ) -> ContextConfirmationContract:
+        normalized_ref = self._validated_result_ref(result_type, result_id)
         record = await self._repo.get(
             db,
             self._as_uuid(confirmation_id),
+            novel_id=parse_uuid(novel_id, "novel_id"),
             for_update=True,
         )
         if record is None:
@@ -222,14 +242,23 @@ class ContextConfirmationService:
         refs = [
             ref
             for ref in (record.result_refs or [])
-            if not (ref.get("type") == result_type and ref.get("id") == result_id)
+            if not (
+                ref.get("type") == normalized_ref["type"]
+                and ref.get("id") == normalized_ref["id"]
+            )
         ]
-        refs.append({"type": result_type, "id": result_id})
+        refs.append(normalized_ref)
         updated = await self._repo.update_tracking(
             db,
             record,
             result_refs=refs,
             result_status=status,
+        )
+        await self._repo.replace_asset_refs(
+            db,
+            updated,
+            asset_role="result",
+            refs=self._result_refs(refs),
         )
         return self._to_contract(updated)
 
@@ -237,13 +266,19 @@ class ContextConfirmationService:
         self,
         db: AsyncSession,
         *,
+        novel_id: str,
         confirmation_id: str | uuid.UUID,
         result_refs: list[dict[str, str]],
         status: str = "running",
     ) -> ContextConfirmationContract:
+        normalized_result_refs = [
+            self._validated_result_ref(ref.get("type"), ref.get("id"))
+            for ref in result_refs
+        ]
         record = await self._repo.get(
             db,
             self._as_uuid(confirmation_id),
+            novel_id=parse_uuid(novel_id, "novel_id"),
             for_update=True,
         )
         if record is None:
@@ -256,7 +291,7 @@ class ContextConfirmationService:
             }
             for ref in (record.result_refs or [])
         }
-        for result_ref in result_refs:
+        for result_ref in normalized_result_refs:
             result_type = result_ref.get("type")
             result_id = result_ref.get("id")
             key = (result_type, result_id)
@@ -268,6 +303,12 @@ class ContextConfirmationService:
             record,
             result_refs=list(refs_by_key.values()),
             result_status=status,
+        )
+        await self._repo.replace_asset_refs(
+            db,
+            updated,
+            asset_role="result",
+            refs=self._result_refs(list(refs_by_key.values())),
         )
         return self._to_contract(updated)
 
@@ -283,7 +324,7 @@ class ContextConfirmationService:
         records = await self._repo.list_by_asset_ref(
             db,
             novel_id=parse_uuid(novel_id, "novel_id"),
-            asset_type=asset_type,
+            asset_type=self._normalized_asset_type(asset_type),
             asset_id=asset_id,
         )
         status = "needs_review" if reason == "candidate_promoted" else "stale_context"
@@ -351,6 +392,53 @@ class ContextConfirmationService:
         }
         selected["context_sections"] = [section.key for section in compiled.sections]
         return selected
+
+    @staticmethod
+    def _selected_refs(
+        selected_asset_ids: dict[str, list[str]],
+    ) -> list[tuple[str, str]]:
+        refs: list[tuple[str, str]] = []
+        for asset_type, asset_ids in selected_asset_ids.items():
+            normalized_type = ContextConfirmationService._normalized_asset_type(
+                asset_type
+            )
+            if not normalized_type:
+                continue
+            refs.extend(
+                (normalized_type, normalized_id)
+                for asset_id in asset_ids
+                if (normalized_id := str(asset_id).strip())
+            )
+        return refs
+
+    @staticmethod
+    def _result_refs(result_refs: list[dict[str, str]]) -> list[tuple[str, str]]:
+        refs: list[tuple[str, str]] = []
+        for result_ref in result_refs:
+            result_type = str(result_ref.get("type") or "").strip()
+            result_id = str(result_ref.get("id") or "").strip()
+            if not result_type or not result_id:
+                raise ValueError("result refs require non-empty type and id")
+            refs.append(
+                (
+                    ContextConfirmationService._normalized_asset_type(result_type),
+                    result_id,
+                )
+            )
+        return refs
+
+    @staticmethod
+    def _normalized_asset_type(asset_type: Any) -> str:
+        normalized_type = str(asset_type or "").strip()
+        return _ASSET_TYPE_ALIASES.get(normalized_type, normalized_type)
+
+    @staticmethod
+    def _validated_result_ref(result_type: Any, result_id: Any) -> dict[str, str]:
+        normalized_type = str(result_type or "").strip()
+        normalized_id = str(result_id or "").strip()
+        if not normalized_type or not normalized_id:
+            raise ValueError("result refs require non-empty type and id")
+        return {"type": normalized_type, "id": normalized_id}
 
     @staticmethod
     def _compile_options_json(options: CompileOptions) -> dict[str, Any]:

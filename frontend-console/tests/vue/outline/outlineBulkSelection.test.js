@@ -8,12 +8,14 @@ import {
   clearBulkSelection,
   getBulkSelection,
   reconcileBulkSelection,
+  scopeBulkSelectionsToProject,
   selectAllState,
   toggleAllBulkSelection,
   toggleBulkSelection,
 } from "../../../vue/views/outline/logic/outlineBulkSelection.js"
 
 beforeEach(() => {
+  scopeBulkSelectionsToProject(null)
   clearAllBulkSelections()
 })
 
@@ -40,6 +42,16 @@ describe("选择与清除", () => {
     expect(getBulkSelection("s2").size).toBe(1)
     clearAllBulkSelections()
     expect(getBulkSelection("s2").size).toBe(0)
+  })
+
+  it("相同项目保留选择，跨项目时清空全部 scope", () => {
+    scopeBulkSelectionsToProject("p-one")
+    toggleBulkSelection("outline-threads", "thread-1", true)
+    expect(scopeBulkSelectionsToProject("p-one")).toBe(false)
+    expect(getBulkSelection("outline-threads").has("thread-1")).toBe(true)
+
+    expect(scopeBulkSelectionsToProject("p-two")).toBe(true)
+    expect(getBulkSelection("outline-threads").size).toBe(0)
   })
 })
 

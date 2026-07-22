@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
@@ -42,6 +43,82 @@ def _section(
         sort_order=10,
         linked_asset_ref_hashes=ref_hashes or [],
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method_name", "asset_type"),
+    [
+        ("mark_page_context_changed", "world_bible_page"),
+        ("mark_draft_context_changed", "world_bible_draft"),
+    ],
+)
+async def test_context_invalidation_failure_blocks_world_bible_write(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    asset_type: str,
+) -> None:
+    from modules.context import facade as context_facade
+
+    async def fail_invalidation(*_args, **kwargs):
+        assert kwargs["asset_type"] == asset_type
+        raise RuntimeError("context invalidation unavailable")
+
+    monkeypatch.setattr(
+        context_facade,
+        "mark_asset_context_changed",
+        fail_invalidation,
+    )
+    asset = SimpleNamespace(id=uuid.uuid4(), novel_id=uuid.uuid4())
+
+    with pytest.raises(ConflictError, match="未保存，请重试") as exc_info:
+        await getattr(WorldBibleLifecycleService(), method_name)(
+            db_session,
+            asset,
+            reason="test_change",
+        )
+    assert exc_info.value.code == "world_bible_context_invalidation_failed"
+
+
+@pytest.mark.asyncio
+async def test_draft_update_rolls_back_when_context_invalidation_fails(
+    db_session,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.context import facade as context_facade
+
+    lifecycle = WorldBibleLifecycleService()
+    draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=project_novel_id,
+            title="原始标题",
+            page_type="background",
+        ),
+    )
+
+    async def fail_invalidation(*_args, **_kwargs):
+        raise RuntimeError("context invalidation unavailable")
+
+    monkeypatch.setattr(
+        context_facade,
+        "mark_asset_context_changed",
+        fail_invalidation,
+    )
+
+    with pytest.raises(ConflictError, match="未保存，请重试"):
+        async with db_session.begin_nested():
+            await lifecycle.update_draft(
+                db_session,
+                project_novel_id,
+                draft.id,
+                WorldBiblePageDraftUpdate(title="不能半提交的标题"),
+            )
+
+    stored = await lifecycle.get_draft(db_session, project_novel_id, draft.id)
+    assert stored.title == "原始标题"
 
 
 def test_sections_reject_duplicate_ids_and_executable_template_fields() -> None:

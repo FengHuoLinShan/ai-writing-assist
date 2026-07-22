@@ -49,6 +49,25 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
     pollFailures = 0
   }
 
+  function operationSnapshot() {
+    return {
+      taskId,
+      projectId,
+      generation,
+    }
+  }
+
+  function operationIsCurrent(snapshot) {
+    return Boolean(
+      !disposed
+      && snapshot.taskId
+      && taskId === snapshot.taskId
+      && projectId === snapshot.projectId
+      && generation === snapshot.generation
+      && getProjectId() === snapshot.projectId,
+    )
+  }
+
   function fromTask(task = {}, workflow = {}) {
     const result = task.result || {}
     return {
@@ -79,6 +98,8 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       assetSummary: result.asset_summary || {},
       auditSummary: result.snapshot_health_summary || result.audit_summary || {},
       phaseArtifacts: result.phase_artifacts || {},
+      progressEvents: result.progress_events || [],
+      phaseTimeline: result.phase_timeline || [],
       acceptanceChecks: result.acceptance_checks || [],
       diagnosticCounts: result.diagnostic_counts || {},
       throttleReasons: result.phase2_throttle_reasons || [],
@@ -86,7 +107,12 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       recoverySummary: result.recovery_summary || {},
       lifecycle: task.lifecycle || {},
       mapNextStep: result.map_next_step || null,
-      recoveryRequired: Boolean(result.recovery_required || result.interrupted || result.recoverable),
+      recoveryRequired: Boolean(
+        task.lifecycle?.recovery_required
+        || result.recovery_required
+        || result.interrupted
+        || result.recoverable,
+      ),
       error: result.error || task.error_message || null,
     }
   }
@@ -133,24 +159,38 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
 
   async function poll(token = generation) {
     if (disposed || token !== generation || !taskId || getProjectId() !== projectId) return
+    const requestedTaskId = taskId
+    const requestedProjectId = projectId
     let nextDelay = POLL_INTERVAL_MS
     try {
-      const task = await api.tasks.get(taskId, projectId)
-      if (disposed || token !== generation || getProjectId() !== projectId) return
+      const task = await api.tasks.get(requestedTaskId, requestedProjectId)
+      if (
+        disposed
+        || token !== generation
+        || taskId !== requestedTaskId
+        || projectId !== requestedProjectId
+        || getProjectId() !== requestedProjectId
+      ) return
       pollFailures = 0
       progress = fromTask(task, { label: progress?.label, workflowType: progress?.workflowType })
       emit()
       if (["done", "failed", "cancelled"].includes(task.status)) {
         if (task.status === "done") {
-          clearActiveWorkflow(taskId)
           await onDone?.()
           await prepareMapNextStep(token)
         }
         return
       }
     } catch (err) {
+      if (
+        disposed
+        || token !== generation
+        || taskId !== requestedTaskId
+        || projectId !== requestedProjectId
+        || getProjectId() !== requestedProjectId
+      ) return
       if (err?.status === 404) {
-        clearActiveWorkflow(taskId)
+        clearActiveWorkflow(requestedTaskId)
         taskId = null
         progress = null
         emit()
@@ -167,8 +207,15 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   }
 
   function startTask(info = {}) {
+    const previousTaskId = taskId
+    const previousTerminal = ["done", "failed", "cancelled"].includes(
+      progress?.status || progress?.phase,
+    )
     stop()
     disposed = false
+    if (previousTerminal && previousTaskId && previousTaskId !== info.taskId) {
+      clearActiveWorkflow(previousTaskId)
+    }
     taskId = info.taskId
     projectId = getProjectId()
     progress = {
@@ -196,7 +243,11 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
     disposed = false
     stop()
     projectId = getProjectId()
-    const workflow = recoverActiveWorkflows(projectId).find((item) => SUPPORTED.has(item.workflowType))
+    const supported = recoverActiveWorkflows(projectId)
+      .filter((item) => SUPPORTED.has(item.workflowType))
+    // persistActiveWorkflow 会把最新提交移动到数组末尾。恢复最新任务，避免旧失败
+    // 记录遮住作者刚提交、仍在后台执行的新任务。
+    const workflow = supported[supported.length - 1]
     if (!workflow?.taskId) return
     taskId = workflow.taskId
     progress = { phase: "running", status: "running", workflowType: workflow.workflowType, label: workflow.label || "自动提取", message: "正在恢复任务...", percent: null }
@@ -206,8 +257,10 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
 
   async function cancel() {
     if (!taskId || !projectId) return false
+    const snapshot = operationSnapshot()
     try {
-      await api.tasks.cancel(taskId, projectId)
+      await api.tasks.cancel(snapshot.taskId, snapshot.projectId)
+      if (!operationIsCurrent(snapshot)) return true
       stop()
       progress = { ...(progress || {}), phase: "cancelled", status: "cancelled", message: "任务已取消" }
       emit()
@@ -220,10 +273,11 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
 
   async function resume() {
     if (!taskId) return false
+    const snapshot = operationSnapshot()
     try {
-      const result = await api.imports.resumeDeepImport(taskId)
-      if (getProjectId() !== projectId) return false
-      taskId = result?.task_id || taskId
+      const result = await api.imports.resumeDeepImport(snapshot.taskId)
+      if (!operationIsCurrent(snapshot)) return true
+      taskId = result?.task_id || snapshot.taskId
       progress = { ...(progress || {}), phase: "running", status: "running", message: "任务已继续" }
       emit()
       poll(generation)
@@ -236,9 +290,11 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
 
   async function abandon() {
     if (!taskId) return false
+    const snapshot = operationSnapshot()
     try {
-      await api.imports.abandonDeepImport(taskId)
-      clearActiveWorkflow(taskId)
+      await api.imports.abandonDeepImport(snapshot.taskId)
+      clearActiveWorkflow(snapshot.taskId)
+      if (!operationIsCurrent(snapshot)) return true
       stop()
       taskId = null
       progress = null

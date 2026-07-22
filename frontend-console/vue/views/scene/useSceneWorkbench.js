@@ -85,6 +85,14 @@ export function useSceneWorkbench(props) {
   const selectedItems = computed(() => Array.from(selectedIds.value).map((id) => workbench.value?.items?.find((item) => item.scene?.id === id)).filter(Boolean))
   const pendingSuggestionCount = computed(() => Number(workbench.value?.fusion_suggestions?.pending_count || fusionSuggestions.value.length || 0))
   const dismissibleSuggestionCount = computed(() => fusionSuggestions.value.filter((item) => item.suggestion_kind !== "replacement").length)
+  const autoExtractionBusy = computed(() => (
+    sceneAutoExtractManager.state.submitting
+    || Boolean(
+      sceneAutoExtractManager.state.taskId
+      && sceneAutoExtractManager.state.progress
+      && !sceneAutoExtractManager.state.progress.terminal
+    )
+  ))
 
   function owned(generation = requestGeneration.value) {
     const state = getAppState()
@@ -411,6 +419,10 @@ export function useSceneWorkbench(props) {
   }
 
   function showAutoExtractForm() {
+    if (autoExtractionBusy.value) {
+      toast("正文 Scene 提取任务正在处理", "info")
+      return
+    }
     showModalHtml("从正文提取 Scene", `
       <div class="form-group"><label>起始章节</label><input class="form-input" id="scene-auto-extract-start" type="number" min="1" value="1" /></div>
       <div class="form-group"><label>结束章节</label><input class="form-input" id="scene-auto-extract-end" type="number" min="1" value="10" /></div>
@@ -432,10 +444,28 @@ export function useSceneWorkbench(props) {
     start,
     end,
     highQuality = false,
-    force = false,
     ownerGeneration = requestGeneration.value,
   ) {
     if (!owned(ownerGeneration)) return false
+    const submission = sceneAutoExtractManager.beginSubmission(projectId)
+    if (!submission) {
+      toast("正文 Scene 提取任务正在处理", "info")
+      return false
+    }
+    try {
+      return await submitAutoExtractionAttempt(start, end, highQuality, false, ownerGeneration)
+    } finally {
+      sceneAutoExtractManager.endSubmission(submission)
+    }
+  }
+
+  async function submitAutoExtractionAttempt(
+    start,
+    end,
+    highQuality,
+    force,
+    ownerGeneration,
+  ) {
     try {
       const result = await api.imports.startStage("scenes", projectId, start, end, force, highQuality, importAuthorizationPayload())
       if (!owned(ownerGeneration)) return false
@@ -443,7 +473,7 @@ export function useSceneWorkbench(props) {
         const confirmed = await confirmAsync(result.warning, "确认覆盖")
         if (!owned(ownerGeneration)) return false
         if (!confirmed) return false
-        return submitAutoExtraction(start, end, highQuality, true, ownerGeneration)
+        return submitAutoExtractionAttempt(start, end, highQuality, true, ownerGeneration)
       }
       if (!result?.task_id) {
         closeModal(); toast(result?.message || "从正文提取 Scene 未启动", "warning"); return false
@@ -502,6 +532,7 @@ export function useSceneWorkbench(props) {
     activeHealth,
     advancedFiltersOpen,
     allVisibleSelected,
+    autoExtractionBusy,
     applyFilters,
     cancelAutoExtraction,
     changePage,

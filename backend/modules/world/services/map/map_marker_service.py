@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.map_repositories import (
     MapMarkerRepository,
 )
@@ -26,6 +27,12 @@ logger = logging.getLogger(__name__)
 class MapMarkerService:
     """动态标记服务（P1）。"""
 
+    _ENTITY_TYPES = {
+        "character": {"character"},
+        "event": {"event"},
+        "item": {"item"},
+    }
+
     def __init__(
         self,
         marker_repo: MapMarkerRepository | None = None,
@@ -35,6 +42,31 @@ class MapMarkerService:
         self._ctx = context or MapContext()
         self._layer_tree = MapLayerTreeService(context=self._ctx)
         self._revision = MapRevisionService()
+
+    @staticmethod
+    async def _validate_scenes(
+        db: AsyncSession,
+        novel_id: str,
+        scene_ids: list[str | None],
+        *,
+        restoring: bool = False,
+    ) -> None:
+        from modules.outline.facade import get_scene_contract
+
+        for scene_id in dict.fromkeys(item for item in scene_ids if item):
+            if await get_scene_contract(db, novel_id, scene_id) is not None:
+                continue
+            if restoring:
+                raise ConflictError(
+                    "标记引用的 Scene 已不可用，无法恢复",
+                    code="map_marker_restore_dependency_conflict",
+                    context={"scene_id": scene_id},
+                )
+            raise ValidationError(
+                "标记引用的 Scene 不存在",
+                code="map_marker_scene_not_found",
+                context={"scene_id": scene_id},
+            )
 
     async def list(
         self,
@@ -78,7 +110,17 @@ class MapMarkerService:
             db, novel_id, map_id, layer_key=f"marker.{data.marker_type}"
         )
         self._ctx.assert_hex_in_bounds(config, data.hex_q, data.hex_r)
-        await self._ctx.require_canonical_entity(db, novel_id, data.entity_id)
+        await self._ctx.require_canonical_entity(
+            db,
+            novel_id,
+            data.entity_id,
+            allowed_types=self._ENTITY_TYPES[data.marker_type],
+        )
+        await self._validate_scenes(
+            db,
+            novel_id,
+            [data.start_scene_id, data.end_scene_id],
+        )
 
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -99,6 +141,7 @@ class MapMarkerService:
             "end_scene_id": (uuid.UUID(data.end_scene_id) if data.end_scene_id else None),
             "end_scene_index": data.end_scene_index,
             "visible": data.visible,
+            "status": "active",
         }
         marker = await self.repo.create(db, nid, mid, values)
         if bump_revision:
@@ -138,6 +181,11 @@ class MapMarkerService:
                 f"MapMarker {marker_id} not found",
                 code="map_marker_not_found",
             )
+        if marker.status != "active":
+            raise ConflictError(
+                "已归档标记不能编辑，请先恢复",
+                code="map_marker_archived",
+            )
         resolved_map_id = map_id or str(marker.map_id)
         locked_config = (
             await self._revision.lock_active(db, novel_id, resolved_map_id)
@@ -148,6 +196,7 @@ class MapMarkerService:
             db,
             novel_id,
             str(marker.entity_id),
+            allowed_types=self._ENTITY_TYPES[marker.marker_type],
         )
         await self._layer_tree.assert_writable(
             db,
@@ -185,6 +234,19 @@ class MapMarkerService:
             values["end_scene_id"] = (
                 uuid.UUID(data.end_scene_id) if data.end_scene_id else None
             )
+
+        await self._validate_scenes(
+            db,
+            novel_id,
+            [
+                str(values.get("start_scene_id") or marker.start_scene_id)
+                if values.get("start_scene_id") or marker.start_scene_id
+                else None,
+                str(values.get("end_scene_id") or marker.end_scene_id)
+                if values.get("end_scene_id") or marker.end_scene_id
+                else None,
+            ],
+        )
 
         if "hex_q" in values or "hex_r" in values:
             config = await self._ctx.require_map(db, novel_id, str(marker.map_id))
@@ -242,11 +304,97 @@ class MapMarkerService:
             resolved_map_id,
             layer_key=f"marker.{marker.marker_type}",
         )
-        await self.repo.delete(db, mkid)
+        if marker.status == "archived":
+            return
+        await self.repo.update(
+            db,
+            marker,
+            {"status": "archived", "archived_at": datetime.now(UTC)},
+        )
         if bump_revision:
             await self._revision.bump(
                 db,
                 novel_id,
                 resolved_map_id,
                 locked_config=locked_config,
+                operation="marker_archive",
             )
+
+    async def restore(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        marker_id: str,
+        *,
+        map_id: str | None = None,
+        bump_revision: bool = True,
+    ) -> MapMarkerResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        mkid = parse_uuid(marker_id, "marker_id")
+        marker = (
+            await self.repo.get_in_map(
+                db,
+                nid,
+                parse_uuid(map_id, "map_id"),
+                mkid,
+            )
+            if map_id
+            else await self.repo.get(db, mkid)
+        )
+        if marker is None or marker.novel_id != nid:
+            raise NotFoundError(
+                f"MapMarker {marker_id} not found",
+                code="map_marker_not_found",
+            )
+        resolved_map_id = map_id or str(marker.map_id)
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, resolved_map_id)
+            if bump_revision
+            else None
+        )
+        config = await self._ctx.require_map(db, novel_id, resolved_map_id)
+        try:
+            await self._ctx.require_canonical_entity(
+                db,
+                novel_id,
+                str(marker.entity_id),
+                allowed_types=self._ENTITY_TYPES[marker.marker_type],
+            )
+        except (NotFoundError, ValidationError) as exc:
+            raise ConflictError(
+                "标记关联对象已不可用，无法恢复",
+                code="map_marker_restore_dependency_conflict",
+            ) from exc
+        await self._validate_scenes(
+            db,
+            novel_id,
+            [
+                str(marker.start_scene_id) if marker.start_scene_id else None,
+                str(marker.end_scene_id) if marker.end_scene_id else None,
+            ],
+            restoring=True,
+        )
+        await self._layer_tree.assert_writable(
+            db,
+            novel_id,
+            resolved_map_id,
+            layer_key=f"marker.{marker.marker_type}",
+        )
+        self._ctx.assert_hex_in_bounds(config, marker.hex_q, marker.hex_r)
+        if marker.status == "active":
+            return MapMarkerResponse.model_validate(marker)
+        restored = await self.repo.update(
+            db,
+            marker,
+            {"status": "active", "archived_at": None},
+        )
+        assert restored is not None
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                resolved_map_id,
+                locked_config=locked_config,
+                operation="marker_restore",
+            )
+        return MapMarkerResponse.model_validate(restored)

@@ -187,18 +187,9 @@ class MapConfigService(
         novel_id: str,
     ) -> MapConfigResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        mid = parse_uuid(map_id, "map_id")
         await self.repo.lock_hierarchy(db, nid)
         await self._ctx.require_map(db, novel_id, map_id)
-        existing = await self.repo.get_in_novel(
-            db,
-            nid,
-            mid,
-            status="active",
-            for_update=True,
-        )
-        if existing is None:
-            self._raise_404(map_id)
+        existing = await self._revision.lock_active(db, novel_id, map_id)
         if existing.parent_entity_id is not None:
             await self._ctx.require_canonical_entity(
                 db,
@@ -275,6 +266,14 @@ class MapConfigService(
 
         obj = await self.repo.update(db, existing, values)
         self._assert_found_in_novel(obj, map_id, nid)
+        if values:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=existing,
+                operation="config_update",
+            )
         return self._to_response(obj)
 
     async def delete(  # type: ignore[override]

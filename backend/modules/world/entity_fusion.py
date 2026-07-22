@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError, ValidationError
@@ -1261,6 +1262,11 @@ class WorldEntityFusionService:
                 entity_ids=[str(source.id), str(target.id)],
                 top_k=5,
             )
+        except SQLAlchemyError:
+            # A retrieval database failure is not equivalent to "no evidence";
+            # propagating it prevents low-information suggestions from being
+            # generated while the persistence layer is unhealthy.
+            raise
         except Exception:
             return [
                 {

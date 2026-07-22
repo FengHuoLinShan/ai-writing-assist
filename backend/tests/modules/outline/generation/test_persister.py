@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from unittest import mock
 
 import pytest
@@ -21,6 +22,16 @@ from modules.outline.schemas import (
     RevealPlanResponse,
     SceneResponse,
 )
+
+
+def _transactional_db() -> mock.AsyncMock:
+    @asynccontextmanager
+    async def _nested():
+        yield
+
+    db = mock.AsyncMock()
+    db.begin_nested = mock.Mock(side_effect=_nested)
+    return db
 
 
 @pytest.fixture
@@ -93,7 +104,7 @@ async def test_persist_calls_services_in_order(
     }
 
     result = await persister.persist(
-        db=mock.AsyncMock(),
+        db=_transactional_db(),
         novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
         start_chapter=1,
         end_chapter=3,
@@ -129,7 +140,7 @@ async def test_strict_persist_rejects_incomplete_batch(
 
     with pytest.raises(RuntimeError, match="thread batch persistence was incomplete"):
         await persister.persist(
-            db=mock.AsyncMock(),
+            db=_transactional_db(),
             novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
             start_chapter=1,
             end_chapter=3,
@@ -173,7 +184,7 @@ async def test_deep_import_persist_keeps_item_review_evidence(
     ]
 
     result = await persister.persist(
-        db=mock.AsyncMock(),
+        db=_transactional_db(),
         novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
         start_chapter=1,
         end_chapter=3,
@@ -218,7 +229,7 @@ async def test_persist_sanitizes_invalid_arc_index(
     ]
 
     await persister.persist(
-        db=mock.AsyncMock(),
+        db=_transactional_db(),
         novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
         start_chapter=1,
         end_chapter=3,
@@ -269,7 +280,7 @@ async def test_persist_creates_foreshadowing_and_reveal(
     ]
 
     result = await persister.persist(
-        db=mock.AsyncMock(),
+        db=_transactional_db(),
         novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
         start_chapter=1,
         end_chapter=3,
@@ -317,7 +328,7 @@ async def test_persist_truncates_long_narrative_tag(
     ]
 
     await persister.persist(
-        db=mock.AsyncMock(),
+        db=_transactional_db(),
         novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
         start_chapter=1,
         end_chapter=3,

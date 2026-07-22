@@ -20,6 +20,7 @@ from modules.context.novel_evidence import (
     NovelEvidenceService,
     _query_focused_snippet,
 )
+from modules.context.schemas import EvidenceSearchResponse
 from modules.rag.contracts import RagChunkContract
 from modules.writing.contracts import SourceRangeRefContract
 from modules.writing.facade import create_published_draft_only, grep_manuscript
@@ -47,6 +48,226 @@ def test_query_focused_snippet_shows_evidence_instead_of_chunk_prefix() -> None:
 def test_query_focused_snippet_keeps_short_text_and_falls_back_to_prefix() -> None:
     assert _query_focused_snippet("短证据", "无关查询") == "短证据"
     assert _query_focused_snippet("甲" * 600, "无关查询") == "甲" * 500
+
+
+@pytest.mark.asyncio
+async def test_author_search_returns_parent_scene_context_and_writing_relation(
+    db_session,
+    test_project_id,
+) -> None:
+    from modules.outline.facade import bind_scene_spans_to_source
+    from modules.outline.repositories import SceneRepository
+    from modules.outline.schemas import SceneCreate
+
+    content = "林晚在旧塔找到铜铃，确认密道曾被人打开。"
+    draft = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        11,
+        "第十一章",
+        content,
+    )
+    repo = SceneRepository()
+    parent = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        SceneCreate(
+            scene_index=11,
+            title="旧塔铜铃",
+            goal="确认密道入口",
+            core_conflict="铜铃声会惊动守卫",
+            emotional_beat="从怀疑转为紧迫",
+            chapter_ids=["11"],
+            scene_chunks=[
+                {"chapter_index": 11, "start_offset": 0, "end_offset": len(content)}
+            ],
+            status="canonical",
+        ),
+    )
+    current = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        SceneCreate(
+            scene_index=12,
+            title="追踪守卫",
+            chapter_ids=["12"],
+            status="canonical",
+        ),
+    )
+    await bind_scene_spans_to_source(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=11,
+        content_mode="canonical",
+        source_draft_id=draft.id or "",
+        source_content_hash=draft.content_hash,
+        content=content,
+    )
+
+    result = await grep_novel_evidence(
+        db_session,
+        novel_id=test_project_id,
+        pattern="铜铃",
+        content_mode="canonical",
+        visibility=VisibilityContextContract(mode="author"),
+        context_scene_id=str(current.id),
+    )
+    wire = EvidenceSearchResponse(**result).model_dump()
+
+    ref = wire["hits"][0]["scene_refs"][0]
+    assert ref["target_id"] == str(parent.id)
+    assert ref["scene_index"] == 11
+    assert ref["scene_title"] == "旧塔铜铃"
+    assert ref["context_summary"] == (
+        "目标：确认密道入口；冲突：铜铃声会惊动守卫；情绪：从怀疑转为紧迫"
+    )
+    assert wire["hits"][0]["parent_scene_contexts"] == [ref]
+    assert wire["hits"][0]["writing_relevance"]["kind"] == "previous_scene"
+    assert "剧情承接" in wire["hits"][0]["writing_relevance"]["label"]
+
+    reader_result = await grep_novel_evidence(
+        db_session,
+        novel_id=test_project_id,
+        pattern="铜铃",
+        content_mode="canonical",
+        visibility=VisibilityContextContract(mode="reader", cutoff_chapter=11),
+        context_scene_id=str(current.id),
+    )
+    reader_ref = reader_result["hits"][0]["scene_refs"][0]
+    assert "scene_title" not in reader_ref
+    assert "context_summary" not in reader_ref
+    assert reader_result["hits"][0]["writing_relevance"] == {}
+
+
+@pytest.mark.asyncio
+async def test_smart_search_keeps_primary_range_aligned_and_aggregates_parent_scenes(
+    db_session,
+    test_project_id,
+    monkeypatch,
+) -> None:
+    import modules.outline.facade as outline_facade
+    from modules.outline.facade import bind_scene_spans_to_source
+    from modules.outline.repositories import SceneRepository
+    from modules.outline.schemas import SceneCreate
+
+    first_text = "旧塔入口留下脚印。"
+    second_text = "铜铃在密道深处响起。"
+    content = first_text + second_text
+    draft = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        23,
+        "第二十三章",
+        content,
+    )
+    repo = SceneRepository()
+    first_scene = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        SceneCreate(
+            scene_index=23,
+            title="旧塔入口",
+            goal="追踪脚印",
+            chapter_ids=["23"],
+            scene_chunks=[
+                {"chapter_index": 23, "start_offset": 0, "end_offset": len(first_text)}
+            ],
+            status="canonical",
+        ),
+    )
+    second_scene = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        SceneCreate(
+            scene_index=24,
+            title="密道铜铃",
+            goal="确认追兵位置",
+            chapter_ids=["23"],
+            scene_chunks=[
+                {
+                    "chapter_index": 23,
+                    "start_offset": len(first_text),
+                    "end_offset": len(content),
+                }
+            ],
+            status="canonical",
+        ),
+    )
+    await bind_scene_spans_to_source(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=23,
+        content_mode="canonical",
+        source_draft_id=draft.id or "",
+        source_content_hash=draft.content_hash,
+        content=content,
+    )
+
+    chunks = [
+        RagChunkContract(
+            id=str(uuid.uuid4()),
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            source_id=draft.id,
+            source_content_hash=draft.content_hash,
+            content_mode="canonical",
+            chapter_index=23,
+            start_offset=start,
+            end_offset=end,
+            text=content[start:end],
+            score=score,
+        )
+        for start, end, score in (
+            (0, len(first_text), 0.9),
+            (len(first_text), len(content), 0.8),
+        )
+    ]
+
+    async def fake_retrieve(*_args, **_kwargs):
+        return SimpleNamespace(chunks=chunks, warnings=[], degraded=False)
+
+    async def fresh_index(*_args, **_kwargs):
+        return {"stale": False}
+
+    original_spans = outline_facade.get_scene_spans_by_chapter
+    original_scene = outline_facade.get_scene_contract
+    calls = {"spans": 0, "scenes": []}
+
+    async def counted_spans(*args, **kwargs):
+        calls["spans"] += 1
+        return await original_spans(*args, **kwargs)
+
+    async def counted_scene(*args, **kwargs):
+        calls["scenes"].append(args[2])
+        return await original_scene(*args, **kwargs)
+
+    monkeypatch.setattr("modules.rag.facade.retrieve", fake_retrieve)
+    monkeypatch.setattr("modules.rag.facade.get_index_freshness", fresh_index)
+    monkeypatch.setattr(outline_facade, "get_scene_spans_by_chapter", counted_spans)
+    monkeypatch.setattr(outline_facade, "get_scene_contract", counted_scene)
+
+    result = await search_novel_evidence(
+        db_session,
+        novel_id=test_project_id,
+        query="铜铃",
+        content_mode="canonical",
+        visibility=VisibilityContextContract(mode="author"),
+        scopes=["manuscript"],
+        context_scene_id=str(second_scene.id),
+        top_k=20,
+    )
+
+    hit = result["hits"][0]
+    assert hit["source_ref"]["start_offset"] == len(first_text)
+    assert [ref["target_id"] for ref in hit["scene_refs"]] == [str(second_scene.id)]
+    assert [ref["target_id"] for ref in hit["parent_scene_contexts"]] == [
+        str(first_scene.id),
+        str(second_scene.id),
+    ]
+    assert hit["writing_relevance"]["kind"] == "current_scene"
+    assert calls["spans"] == 1
+    assert calls["scenes"].count(str(first_scene.id)) == 1
+    assert calls["scenes"].count(str(second_scene.id)) == 2
 
 
 @pytest.mark.asyncio

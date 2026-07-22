@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from copy import deepcopy
 from typing import Any
@@ -343,6 +344,8 @@ def _coerce_value(phase: str, key: str, value: Any, default: Any) -> Any:
 
 
 def _within_limits(phase: str, key: str, value: float | int) -> bool:
+    if not math.isfinite(value):
+        return False
     low, high = DEEP_IMPORT_SETTING_LIMITS.get((phase, key), (None, None))
     if low is not None and value < low:
         return False

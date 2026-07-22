@@ -64,6 +64,7 @@ async def test_generation_snapshot_lifecycle_survives_caller_rollbacks(
 
             succeeded = await context_facade.succeed_generation_context_snapshot(
                 caller_db,
+                novel_id=novel_id,
                 snapshot_id=str(succeeded_id),
                 result_refs=[{"type": "suggestion", "id": "suggestion-1"}],
             )
@@ -93,6 +94,7 @@ async def test_generation_snapshot_lifecycle_survives_caller_rollbacks(
             snapshot_ids.append(failed_id)
             failed = await context_facade.fail_generation_context_snapshot(
                 caller_db,
+                novel_id=novel_id,
                 snapshot_id=str(failed_id),
                 error_kind="provider_error",
                 error_message="provider failed",

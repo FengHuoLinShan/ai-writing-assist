@@ -96,6 +96,18 @@ describe("outlineGenerateManager", () => {
   })
 
   describe("recover", () => {
+    it("无当前项目时不读取或恢复任何持久化任务", () => {
+      recoverActiveWorkflows.mockReturnValue([
+        { taskId: "task-other-project", workflowType: "outline_generate", view: "outline" },
+      ])
+
+      outlineGenerateManager.recover(null)
+
+      expect(recoverActiveWorkflows).not.toHaveBeenCalled()
+      expect(outlineGenerateManager.state.taskId).toBeNull()
+      expect(pollTaskProgress).not.toHaveBeenCalled()
+    })
+
     it("无持久化记录时不动作", () => {
       setBridgeOverrides({ state: { currentProjectId: "p-rec", currentSubView: "threads", currentView: "outline" } })
       recoverActiveWorkflows.mockReturnValue([])

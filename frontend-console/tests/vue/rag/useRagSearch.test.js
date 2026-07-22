@@ -74,6 +74,34 @@ describe("doSearch", () => {
     scope.stop()
   })
 
+  it("只携带当前项目的写作 Scene 快照", async () => {
+    const state = {
+      currentProjectId: "p1",
+      viewStates: {
+        writing: { projectId: "p1", currentSceneId: "scene-p1" },
+      },
+      _currentSceneId: "legacy-scene",
+    }
+    setBridgeOverrides({ state })
+    const scope = effectScope()
+    const { doSearch } = scope.run(() => useRagSearch())
+
+    await doSearch("旧塔", { formState: makeForm() })
+    expect(globalThis.api.context.searchEvidence).toHaveBeenLastCalledWith(
+      expect.objectContaining({ context_scene_id: "scene-p1" }),
+      expect.any(Object),
+    )
+
+    state.currentProjectId = "p2"
+    globalThis.api.context.searchEvidence.mockClear()
+    await doSearch("铜铃", { formState: makeForm() })
+    expect(globalThis.api.context.searchEvidence).toHaveBeenLastCalledWith(
+      expect.objectContaining({ context_scene_id: null, novel_id: "p2" }),
+      expect.any(Object),
+    )
+    scope.stop()
+  })
+
   it("校验失败时 toast 并清空结果", async () => {
     const scope = effectScope()
     const { doSearch } = scope.run(() => useRagSearch())

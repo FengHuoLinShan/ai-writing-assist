@@ -325,60 +325,6 @@ test.describe("写作台模块", () => {
   })
 
   // ============================================================
-  // 新 Scene 创建 + 断章更新左侧树
-  // ============================================================
-
-  test("新 Scene 创建和断章更新左侧树", async ({ page }) => {
-    // 创建 3 个章节
-    await createAutosavedDraft(testProjectId, 1, "ch1", "第一章内容")
-    await createAutosavedDraft(testProjectId, 2, "ch2", "第二章内容")
-    await createAutosavedDraft(testProjectId, 3, "ch3", "第三章内容")
-
-    // 创建 Scene 包含 1-3 章（split 依赖 scene_chunks）
-    const scene = await createScene(testProjectId, {
-      scene_index: 0, title: "测试Scene",
-      chapter_ids: ["1", "2", "3"], narrative_tag: "draft",
-      scene_chunks: [
-        { chapter_index: 1, start_pos: 0, end_pos: 5 },
-        { chapter_index: 2, start_pos: 0, end_pos: 5 },
-        { chapter_index: 3, start_pos: 0, end_pos: 5 },
-      ],
-    })
-
-    // 通过真实导航加载第 2 章，避免注入状态不一致
-    await reloadWorkbench(page, "writing")
-    await waitWritingReady(page)
-    await expect(page.locator("#writing-tree-container")).toContainText("测试Scene")
-
-    // Scene 默认折叠，先展开 Scene 节点再选择第 2 章
-    await page.locator(".scene-tree-label").click()
-    await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
-    await expect(page.locator("#writing-editor")).toHaveValue("第一章内容", { timeout: 5000 })
-    await page.getByRole("button", { name: /打开第 2 章/ }).click()
-    await expect(page.locator("#writing-editor")).toHaveValue("第二章内容", { timeout: 5000 })
-
-    // 验证左侧树显示 Scene 节点
-    await expect(page.locator("#writing-tree-container")).toContainText("测试Scene")
-    await expect(page.locator("#writing-tree-container")).toContainText("第 1 章")
-    await expect(page.locator("#writing-tree-container")).toContainText("第 2 章")
-
-    // 点击断章按钮
-    await page.locator(".writing-tools-menu summary").click()
-    await page.getByRole("button", { name: "断章至此" }).click()
-    const splitDialog = page.getByRole("dialog", { name: "断章" })
-    await expect(splitDialog).toBeVisible({ timeout: 5000 })
-
-    // 确认断章（在第 2 章内容 offset 2 处切分）
-    await splitDialog.getByLabel("断章位置（字符 offset）").fill("2")
-    await splitDialog.getByRole("button", { name: "确认断章" }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("断章完成", { timeout: 10000 })
-
-    // 验证树已更新
-    const treeText = await page.locator("#writing-tree-container").textContent()
-    expect(treeText).toContain("Scene")
-  })
-
-  // ============================================================
   // 光标位置联动右侧 Scene 卡面板
   // ============================================================
 

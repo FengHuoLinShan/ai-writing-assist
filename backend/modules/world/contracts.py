@@ -53,6 +53,29 @@ class EventContract:
 
 
 @dataclass(frozen=True)
+class ConfirmedMapFactContract:
+    """Stable, author-adopted map fact for deterministic Scene replay."""
+
+    id: str
+    scene_id: str
+    scene_index: int
+    dynamic_type: str
+    target_entity_id: str | None = None
+    target_name: str | None = None
+    map_id: str | None = None
+    value_json: dict[str, Any] = field(default_factory=dict)
+    spatial_anchor: dict[str, Any] = field(default_factory=dict)
+    time_anchor: dict[str, Any] = field(default_factory=dict)
+    evidence_text: str | None = None
+
+
+@dataclass(frozen=True)
+class ConfirmedMapFactReplayContract:
+    facts: list[ConfirmedMapFactContract] = field(default_factory=list)
+    undated_count: int = 0
+
+
+@dataclass(frozen=True)
 class EntityRelationContract:
     """关系契约"""
 
@@ -444,6 +467,8 @@ __all__ = [
     "CharacterContract",
     "CharacterKnowledgeContract",
     "CoreEntityContract",
+    "ConfirmedMapFactContract",
+    "ConfirmedMapFactReplayContract",
     "EntityRelationContract",
     "EntityRevisionContract",
     "EventContract",

@@ -20,6 +20,7 @@ import { loadStoryOutlineProps, storyOutlineTaskManager } from "./views/outline/
 import { loadStructureProps, structureFiltersFromQuery } from "./views/outline/logic/outlineStructure.js"
 import { loadSceneWorkbenchProps } from "./views/scene/sceneModel.js"
 import { sceneAutoExtractManager } from "./views/scene/sceneAutoExtractManager.js"
+import { scopeBulkSelectionsToProject } from "./views/outline/logic/outlineBulkSelection.js"
 import { getAppState, getRouter } from "./bridge/index.js"
 
 function stopAiManagers() {
@@ -41,6 +42,7 @@ async function loadOutline() {
   const projectId = appState?.currentProjectId || null
   const subView = appState?.currentSubView || "story-outline"
   const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  scopeBulkSelectionsToProject(projectId)
 
   if (subView === "scenes") {
     outlineGenerateManager.recover(projectId)

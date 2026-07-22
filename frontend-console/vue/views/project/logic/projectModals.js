@@ -13,6 +13,14 @@ import {
   getShowModalHtml,
   getToast,
 } from "../../../bridge/index.js"
+import { IMPORT_FILE_ACCEPT, validateImportFile } from "../../../composables/useImportUpload.js"
+
+function mergeProject(projects, project) {
+  const items = Array.isArray(projects) ? projects : []
+  return items.some((item) => item.id === project.id)
+    ? items.map((item) => item.id === project.id ? { ...item, ...project } : item)
+    : [...items, project]
+}
 
 /** 编辑项目（showModalHtml 表单 + 保存回写 state）。 */
 export function editProject(id) {
@@ -199,42 +207,81 @@ export function showCreateForm() {
 export function importAsNewProject() {
   const input = document.createElement("input")
   input.type = "file"
-  input.accept = ".txt,.epub,.html,.htm,.mobi,.azw3"
+  input.accept = IMPORT_FILE_ACCEPT
   input.onchange = async () => {
     if (!input.files || !input.files[0]) return
     const file = input.files[0]
     const toast = getToast()
+    const validationError = validateImportFile(file)
+    if (validationError) {
+      toast(validationError, "error")
+      return
+    }
     const projectName = file.name.replace(/\.[^.]+$/, "").trim() || "未命名小说"
 
     getConfirmAction()(
       `将创建新项目「${projectName}」并导入文件「${file.name}」。是否继续？`,
       async () => {
+        const state = getAppState()
+        const selectionAtStart = state?.currentProjectId || null
+        let createdProject = null
         try {
-          const project = await getApi().projects.create({
+          createdProject = await getApi().projects.create({
             title: projectName,
             genre: "",
             tone: "",
             language: "zh",
           })
-          const state = getAppState()
           if (state) {
-            state.currentProjectId = project.id
-            state.currentProject = project
-            const data = await getApi().projects.list()
-            state.projects = data.items || data || []
+            state.projects = mergeProject(state.projects, createdProject)
+            if ((state.currentProjectId || null) === selectionAtStart) {
+              state.currentProjectId = createdProject.id
+              state.currentProject = createdProject
+            }
           }
 
-          const result = await getApi().imports.upload(project.id, file)
+          const result = await getApi().imports.upload(createdProject.id, file)
+          try {
+            const data = await getApi().projects.list()
+            if (state) state.projects = mergeProject(data.items || data || [], createdProject)
+          } catch {
+            if (state) state.projects = mergeProject(state.projects, createdProject)
+          }
+          const selectionUnchanged = !state || [selectionAtStart, createdProject.id].includes(state.currentProjectId || null)
+          if (state && selectionUnchanged) {
+            state.currentProjectId = createdProject.id
+            state.currentProject = createdProject
+          }
           const nextStep = result.imported_chapters > 0
             ? "，可在写作台按需启动场景自动提取"
             : ""
           toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
           getApi().clearCache()
-          await getRouter().navigate("writing")
-          await getRouter().refresh()
+          if (selectionUnchanged) {
+            await getRouter().navigate("writing")
+            await getRouter().refresh()
+          }
         } catch (err) {
           const detail = err.message || "导入失败"
-          toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
+          if (!createdProject) {
+            toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
+            return
+          }
+          getApi().clearCache()
+          const selectionUnchanged = !state || [selectionAtStart, createdProject.id].includes(state.currentProjectId || null)
+          if (state) {
+            state.projects = mergeProject(state.projects, createdProject)
+            if (selectionUnchanged) {
+              state.currentProjectId = createdProject.id
+              state.currentProject = createdProject
+            }
+          }
+          const location = selectionUnchanged ? "已保留并选中，可在项目页重新导入文件" : "已保留在项目列表，可稍后选择并重新导入文件"
+          toast(`导入失败：${detail}。项目「${projectName}」${location}`, "error")
+          if (selectionUnchanged) {
+            await getRouter().navigate("project")
+            await getRouter().refresh()
+          }
         }
       },
       "创建并导入",

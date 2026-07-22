@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.rag.models import RagChunk
 from modules.rag.repositories import RagChunkRepository
 
@@ -84,11 +85,11 @@ class EmbeddingWriter:
                 chunk.embedding_error = None
                 chunk.index_warnings = []
             except Exception as exc:
-                error = str(exc)
+                error = redact_diagnostic(exc, limit=1000)
                 chunk.embedding = None
                 chunk.embedding_status = "failed"
-                chunk.embedding_error = error[:1000]
-                chunk.index_warnings = [f"embedding 生成失败: {error[:1000]}"]
+                chunk.embedding_error = error
+                chunk.index_warnings = [f"embedding 生成失败: {error}"]
                 failed_count += 1
         warnings = []
         if failed_count > 0:
@@ -135,7 +136,7 @@ class EmbeddingWriter:
                 chunk.index_warnings = []
             return EmbeddingWriteResult()
         except Exception as exc:
-            error = str(exc)
+            error = redact_diagnostic(exc, limit=1000)
             batch_warning = f"{warning_prefix}: {error}"
             fallback_result = await self.embed_per_chunk(chunks)
             return EmbeddingWriteResult(

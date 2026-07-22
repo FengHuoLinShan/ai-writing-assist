@@ -70,6 +70,20 @@ from modules.imports.workflow_structure_phase import (
 from shared.deep_import_settings import DEEP_IMPORT_DEFAULT_SETTINGS
 
 
+class _NestedTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, _exc_type, _exc, _traceback):
+        return False
+
+
+def _boundary_db() -> AsyncMock:
+    db = AsyncMock()
+    db.begin_nested = Mock(return_value=_NestedTransaction())
+    return db
+
+
 def _authorized_task_meta(
     novel_id: str,
     *,
@@ -1602,20 +1616,27 @@ class TestDeepImportSchema:
 
     def test_progress_events_are_sanitized_and_capped(self):
         progress = DeepImportProgress()
+        secret = "private-token-value"
 
         for index in range(205):
             record_progress_event(
                 progress,
                 "llm_call",
                 phase="phase0_prefetch",
+                message=(
+                    f"Authorization: Bearer {secret} api_key={secret}"
+                ),
                 details={
                     "index": index,
                     "raw_prompt": "do not persist",
                     "nested": {
                         "messages": [{"content": "chapter body"}],
                         "safe_count": 1,
+                        "diagnostic": (
+                            f"Authorization: Bearer {secret} api_key={secret}"
+                        ),
                     },
-                    "api_key": "sk-secret",
+                    "api_key": secret,
                 },
             )
 
@@ -1624,8 +1645,53 @@ class TestDeepImportSchema:
         assert progress.progress_events[0]["dropped_event_count"] == 5
         details = progress.progress_events[-1]["details"]
         assert "raw_prompt" not in details
-        assert details["nested"] == {"safe_count": 1}
+        assert details["nested"]["safe_count"] == 1
+        assert secret not in details["nested"]["diagnostic"]
         assert details["api_key"] == "<redacted>"
+        assert secret not in progress.progress_events[-1]["message"]
+
+    def test_progress_checkpoints_redact_credential_strings_without_shape_drift(self):
+        from modules.imports.workflow_progress import DeepImportProgressTracker
+
+        progress = DeepImportProgress()
+        secret = "private-token-value"
+        DeepImportProgressTracker.merge_checkpoints(
+            progress,
+            {
+                "checkpoints": {
+                    "phase2": {
+                        "scenes": [
+                            {
+                                "scene_id": "scene-1",
+                                "status": "failed",
+                                "error": (
+                                    f"Authorization: Bearer {secret} "
+                                    f"api_key={secret}"
+                                ),
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+
+        checkpoint = progress.checkpoints["phase2"]["scenes"][0]
+        assert checkpoint["scene_id"] == "scene-1"
+        assert checkpoint["status"] == "failed"
+        assert secret not in checkpoint["error"]
+        assert "[REDACTED]" in checkpoint["error"]
+
+        DeepImportProgressTracker.merge_snapshot_health_summary(
+            progress,
+            {
+                "snapshot_health_summary": {
+                    "recent_error": (
+                        f"Authorization: Bearer {secret} api_key={secret}"
+                    )
+                }
+            },
+        )
+        assert secret not in progress.snapshot_health_summary["recent_error"]
 
     def test_progress_phase_timeline_is_capped_with_recent_entries(self):
         progress = DeepImportProgress()
@@ -3609,9 +3675,13 @@ class TestDeepImportWorkflowAutoRun:
         """A per-scene persistence failure should not leave the whole task failed."""
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
+        secret = "private-token-value"
 
         workflow._extract_entities_by_scene = AsyncMock(
-            side_effect=RuntimeError("cannot insert generated column")
+            side_effect=RuntimeError(
+                f"cannot insert generated column Authorization: Bearer {secret} "
+                f"api_key={secret}"
+            )
         )
         workflow._analyze_structure = AsyncMock(
             return_value={
@@ -3638,6 +3708,10 @@ class TestDeepImportWorkflowAutoRun:
         assert DeepImportStep.structure_analysis.value in result.completed_steps
         assert result.phase_errors[0]["phase"] == "entity_extraction"
         assert result.phase_errors[0]["error_kind"] == "phase_failed"
+        assert secret not in result.phase_errors[0]["message"]
+        assert secret not in result.phase_artifacts["entity_extraction"]["errors"][0][
+            "message"
+        ]
         timeline = {item["phase"]: item for item in result.phase_timeline}
         assert timeline["entity_extraction"]["status"] == "failed"
         assert timeline["entity_extraction"]["error_kind"] == "phase_failed"
@@ -4250,9 +4324,10 @@ class TestSceneEntityExtractionProgress:
             }
 
         service._process_boundary_window = fake_process_boundary
+        db = _boundary_db()
 
         result = await service._run_boundary_supplements(
-            AsyncMock(),
+            db,
             uuid.uuid4(),
             batches,
             workflow_id="wf",
@@ -4269,9 +4344,10 @@ class TestSceneEntityExtractionProgress:
             "conflicts": 0,
             "failed": 0,
         }
+        db.begin_nested.assert_called_once_with()
 
     @pytest.mark.asyncio
-    async def test_phase2_boundary_failure_degrades_without_rollback(
+    async def test_phase2_boundary_failure_rolls_back_window_and_degrades(
         self,
         monkeypatch,
     ):
@@ -4290,9 +4366,10 @@ class TestSceneEntityExtractionProgress:
             raise RuntimeError("boundary llm failed")
 
         service._process_boundary_window = fail_boundary
+        db = _boundary_db()
 
         result = await service._run_boundary_supplements(
-            AsyncMock(),
+            db,
             uuid.uuid4(),
             batches,
             workflow_id="wf",
@@ -4303,6 +4380,7 @@ class TestSceneEntityExtractionProgress:
         assert result["phase2_boundary_supplement_counts"]["failed"] == 1
         assert result["degraded"] is True
         assert result["error_kind"] == "RuntimeError"
+        db.begin_nested.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_phase2_boundary_timeout_degrades_remaining_windows(self, monkeypatch):
@@ -4334,9 +4412,10 @@ class TestSceneEntityExtractionProgress:
             lambda: 0.01,
         )
         service._process_boundary_window = slow_boundary
+        db = _boundary_db()
 
         result = await service._run_boundary_supplements(
-            AsyncMock(),
+            db,
             uuid.uuid4(),
             batches,
             workflow_id="wf",
@@ -4348,6 +4427,7 @@ class TestSceneEntityExtractionProgress:
         assert result["degraded"] is True
         assert result["error_kind"] == "timeout"
         assert result["phase2_boundary_total_timeout_s"] == 0.01
+        db.begin_nested.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_phase2_boundary_window_skips_duplicate_alias_relation_phase(self):

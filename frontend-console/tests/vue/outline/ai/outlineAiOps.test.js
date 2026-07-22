@@ -191,6 +191,40 @@ describe("generateOutlineLayer", () => {
     expect(outlineGenerateManager.state.taskId).toBe("task-gen1")
     expect(toast).toHaveBeenCalledWith("剧情线建议生成任务已提交", "success")
   })
+
+  it("参考确认期间切换项目时不向新项目提交", async () => {
+    let resolveConfirmation
+    confirmAiReference.mockImplementation(() => new Promise((resolve) => { resolveConfirmation = resolve }))
+    const generate = vi.fn()
+    const bridge = setupBridge({ api: { outline: { generate } } })
+    const pending = generateOutlineLayer({
+      target: "plot_thread", mode: "create", instruction: "只属于旧项目", selectedIds: [], startChapter: 1, endChapter: 3,
+    })
+    await Promise.resolve()
+    bridge.state.currentProjectId = "p-next"
+    resolveConfirmation({ id: "confirm-old" })
+
+    await expect(pending).rejects.toThrow("项目已切换")
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  it("提交响应返回前切换项目时只为原项目保留恢复记录", async () => {
+    confirmAiReference.mockResolvedValue({ id: "confirm-old" })
+    let resolveGenerate
+    const generate = vi.fn(() => new Promise((resolve) => { resolveGenerate = resolve }))
+    const bridge = setupBridge({ api: { outline: { generate } } })
+    const pending = generateOutlineLayer({
+      target: "plot_thread", mode: "create", instruction: "后台任务", selectedIds: [], startChapter: 1, endChapter: 3,
+    })
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    bridge.state.currentProjectId = "p-next"
+    resolveGenerate({ task_id: "task-old", status: "running" })
+    await expect(pending).resolves.toMatchObject({ task_id: "task-old" })
+    expect(persistActiveWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: "task-old", projectId: "p-test", workflowType: "outline_generate",
+    }))
+    expect(outlineGenerateManager.state.taskId).toBeNull()
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -337,6 +371,21 @@ describe("analyzeOutline", () => {
     expect(analyze).toHaveBeenCalledOnce()
     expect(outlineAnalysisManager.state.submitting).toBe(false)
   })
+
+  it("提交锁归属发起项目，切换项目可重置", async () => {
+    let resolveConfirmation
+    confirmAiReference.mockImplementation(() => new Promise((resolve) => { resolveConfirmation = resolve }))
+    const bridge = setupBridge()
+    const pending = analyzeOutline({ instruction: "", startChapter: 1, endChapter: 2 })
+    await Promise.resolve()
+    expect(outlineAnalysisManager.state.ownerProjectId).toBe("p-test")
+    bridge.state.currentProjectId = "p-next"
+    outlineAnalysisManager.recover("p-next")
+    expect(outlineAnalysisManager.state.submitting).toBe(false)
+    expect(outlineAnalysisManager.state.ownerProjectId).toBeNull()
+    resolveConfirmation({ id: "confirm-old", compile_options: {}, sections: [] })
+    await expect(pending).rejects.toThrow("项目已切换")
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -408,5 +457,57 @@ describe("showPlotStructureAutoExtractForm", () => {
     )
     expect(closeModal).toHaveBeenCalled()
     expect(plotAutoExtractManager.state.taskId).toBe("task-plot1")
+  })
+
+  it("同步双击只提交一次，并在完成后释放锁", async () => {
+    let resolveStart
+    const startStage = vi.fn(() => new Promise((resolve) => { resolveStart = resolve }))
+    const showModalHtml = vi.fn()
+    setupBridge({
+      api: { imports: { startStage } },
+      showModalHtml,
+      closeModal: vi.fn(),
+      toast: vi.fn(),
+    })
+    showPlotStructureAutoExtractForm()
+    document.body.innerHTML = `
+      <input id="plot-auto-extract-start" value="1" />
+      <input id="plot-auto-extract-end" value="5" />
+    `
+    const handler = showModalHtml.mock.calls[0][2][0].handler
+
+    const first = handler()
+    const second = handler()
+    await expect(second).resolves.toBe(false)
+    expect(startStage).toHaveBeenCalledTimes(1)
+    expect(plotAutoExtractManager.state.submitting).toBe(true)
+    resolveStart({ task_id: "task-plot-double", status: "running" })
+    await expect(first).resolves.toBe(true)
+    expect(plotAutoExtractManager.state.submitting).toBe(false)
+  })
+
+  it("响应前切换项目时任务持久化到原项目且不接管新项目 UI", async () => {
+    let resolveStart
+    const startStage = vi.fn(() => new Promise((resolve) => { resolveStart = resolve }))
+    const showModalHtml = vi.fn()
+    const bridge = setupBridge({ api: { imports: { startStage } }, showModalHtml, closeModal: vi.fn(), toast: vi.fn() })
+    showPlotStructureAutoExtractForm()
+    document.body.innerHTML = `
+      <input id="plot-auto-extract-start" value="2" />
+      <input id="plot-auto-extract-end" value="6" />
+    `
+    const pending = showModalHtml.mock.calls[0][2][0].handler()
+    bridge.state.currentProjectId = "p-next"
+    recoverActiveWorkflows.mockReturnValue([])
+    plotAutoExtractManager.recover("p-next")
+    resolveStart({ task_id: "task-plot-old", status: "running" })
+    await expect(pending).resolves.toBe(true)
+
+    expect(persistActiveWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: "task-plot-old",
+      projectId: "p-test",
+    }))
+    expect(plotAutoExtractManager.state.taskId).toBeNull()
+    expect(plotAutoExtractManager.state.submitting).toBe(false)
   })
 })

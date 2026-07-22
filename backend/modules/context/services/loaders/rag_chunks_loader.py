@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.context.contracts import (
     CONTEXT_BUDGET,
     CompileOptions,
@@ -350,8 +351,11 @@ class RagChunksLoader(Loader):
             )
         except (ValueError, IntegrityError, ProgrammingError):
             raise
-        except Exception:
-            logger.warning("Context retrieval trace write failed", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "Context retrieval trace write failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             warning = "RAG 检索诊断记录失败"
             if warning not in bundle.warnings:
                 bundle.warnings.append(warning)

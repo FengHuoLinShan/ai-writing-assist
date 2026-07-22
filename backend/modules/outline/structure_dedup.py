@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
 from modules.outline.models import (
@@ -416,18 +417,19 @@ class OutlineStructureDedupService:
                 warnings.append(f"跳过无效建议：{asset_type}")
                 continue
             try:
-                result = await self._apply_one(
-                    db,
-                    novel_id=novel_id,
-                    novel_uuid=nid,
-                    asset_type=asset_type,
-                    source_id=source_id,
-                    target_id=target_id,
-                    action=action,
-                )
+                async with db.begin_nested():
+                    result = await self._apply_one(
+                        db,
+                        novel_id=novel_id,
+                        novel_uuid=nid,
+                        asset_type=asset_type,
+                        source_id=source_id,
+                        target_id=target_id,
+                        action=action,
+                    )
             except Exception as exc:
                 skipped += 1
-                warnings.append(str(exc))
+                warnings.append(redact_diagnostic(exc, limit=300))
                 continue
             applied += 1
             results.append(result)
@@ -613,7 +615,10 @@ class OutlineStructureDedupService:
                 max_fix_attempts=1,
             )
         except Exception as exc:
-            logger.warning("Outline structure dedupe LLM failed: %s", exc)
+            logger.warning(
+                "Outline structure dedupe LLM failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
             return deterministic
 
     async def _apply_one(

@@ -78,4 +78,21 @@ describe("scene auto extraction owner gates", () => {
     expect(sceneAutoExtractManager.state.taskId).toBe("task-2")
     expect(sceneAutoExtractManager.state.progress.status).toBe("running")
   })
+
+  it("releases the synchronous submission guard when the project changes", () => {
+    const oldSubmission = sceneAutoExtractManager.beginSubmission("p1")
+    expect(oldSubmission).not.toBeNull()
+    expect(sceneAutoExtractManager.state.submitting).toBe(true)
+
+    sceneAutoExtractManager.recover("p2")
+    expect(sceneAutoExtractManager.state.submitting).toBe(false)
+    expect(sceneAutoExtractManager.state.ownerProjectId).toBe("p2")
+
+    const newSubmission = sceneAutoExtractManager.beginSubmission("p2")
+    expect(newSubmission).not.toBeNull()
+    sceneAutoExtractManager.endSubmission(oldSubmission)
+    expect(sceneAutoExtractManager.state.submitting).toBe(true)
+    sceneAutoExtractManager.endSubmission(newSubmission)
+    expect(sceneAutoExtractManager.state.submitting).toBe(false)
+  })
 })

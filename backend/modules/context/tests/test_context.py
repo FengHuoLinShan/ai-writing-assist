@@ -1228,6 +1228,7 @@ class TestContextSnapshot:
         assert opened.prompt_hash == legacy.prompt_hash
         legacy_done = await mark_context_snapshot_succeeded(
             db_session,
+            novel_id=novel_id,
             snapshot_id=legacy.id,
             result_refs=[{"type": "scene", "id": "scene-1"}],
         )
@@ -1236,6 +1237,7 @@ class TestContextSnapshot:
 
         failed = await fail_context_snapshot(
             db_session,
+            novel_id=novel_id,
             snapshot_id=opened.id,
             error_kind="long_error",
             error_message="x" * 800,
@@ -1243,6 +1245,26 @@ class TestContextSnapshot:
         assert failed.status == "failed"
         assert failed.error_kind == "long_error"
         assert failed.error_message == "x" * 500
+        secret = "private-token-value"
+        redacted_target = await _open_snapshot(
+            db_session,
+            novel_id,
+            phase="structure_analysis",
+            operation="plot_structure_generation",
+            prompt_name="p20_plot_thread",
+        )
+        redacted = await fail_context_snapshot(
+            db_session,
+            novel_id=novel_id,
+            snapshot_id=redacted_target.id,
+            error_kind=f"provider_error token={secret}",
+            error_message=(
+                f"Authorization: Bearer {secret} api_key={secret}"
+            ),
+        )
+        assert secret not in redacted.error_kind
+        assert secret not in redacted.error_message
+        assert "[REDACTED]" in redacted.error_message
         legacy_failed_target = await _open_snapshot(
             db_session,
             novel_id,
@@ -1252,6 +1274,7 @@ class TestContextSnapshot:
         )
         legacy_failed = await mark_context_snapshot_failed(
             db_session,
+            novel_id=novel_id,
             snapshot_id=legacy_failed_target.id,
             error_kind="compat_timeout",
             error_message="compat failed",
@@ -1367,11 +1390,13 @@ class TestContextSnapshot:
 
         done = await succeed_context_snapshot(
             db_session,
+            novel_id=novel_id,
             snapshot_id=succeeded.id,
             result_refs=[{"type": "core_entity", "id": "entity-1"}],
         )
         errored = await fail_context_snapshot(
             db_session,
+            novel_id=novel_id,
             snapshot_id=failed.id,
             error_kind="timeout",
             error_message="LLM timeout",
@@ -1409,6 +1434,128 @@ class TestContextSnapshot:
         assert after_prune.rendered_context is None
         assert after_prune.result_refs == [{"type": "core_entity", "id": "entity-1"}]
         assert after_prune.prompt_name == "scene_entity_extraction"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_terminal_transition_is_project_scoped_and_first_wins(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.facade import (
+            fail_context_snapshot,
+            get_context_snapshot,
+            succeed_context_snapshot,
+        )
+
+        novel_id = "00000000-0000-0000-0000-00000000020a"
+        other_novel_id = "00000000-0000-0000-0000-00000000020b"
+        snapshot = await _open_snapshot(
+            db_session,
+            novel_id,
+            phase="entity_extraction",
+            operation="scene_entity_extraction",
+            prompt_name="scene_entity_extraction",
+        )
+
+        with pytest.raises(ValueError, match="context_snapshot_id not found"):
+            await succeed_context_snapshot(
+                db_session,
+                novel_id=other_novel_id,
+                snapshot_id=snapshot.id,
+                result_refs=[{"type": "scene", "id": "wrong-project"}],
+            )
+        still_running = await get_context_snapshot(
+            db_session,
+            novel_id=novel_id,
+            snapshot_id=snapshot.id,
+        )
+        assert still_running.status == "running"
+
+        first = await succeed_context_snapshot(
+            db_session,
+            novel_id=novel_id,
+            snapshot_id=snapshot.id,
+            result_refs=[{"type": "scene", "id": "scene-1"}],
+        )
+        repeated = await succeed_context_snapshot(
+            db_session,
+            novel_id=novel_id,
+            snapshot_id=snapshot.id,
+            result_refs=[{"type": "scene", "id": "scene-1"}],
+        )
+        assert first.status == repeated.status == "succeeded"
+        assert repeated.result_refs == [{"type": "scene", "id": "scene-1"}]
+
+        with pytest.raises(ValueError, match="terminal payload conflicts"):
+            await succeed_context_snapshot(
+                db_session,
+                novel_id=novel_id,
+                snapshot_id=snapshot.id,
+                result_refs=[{"type": "scene", "id": "must-not-overwrite"}],
+            )
+
+        with pytest.raises(ValueError, match="already finalized as succeeded"):
+            await fail_context_snapshot(
+                db_session,
+                novel_id=novel_id,
+                snapshot_id=snapshot.id,
+                error_kind="late_failure",
+                error_message="must not replace the winning terminal state",
+            )
+
+    @pytest.mark.asyncio
+    async def test_snapshot_repeated_failure_is_idempotent_and_keeps_redaction(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.facade import (
+            fail_context_snapshot,
+            succeed_context_snapshot,
+        )
+
+        novel_id = "00000000-0000-0000-0000-00000000020c"
+        snapshot = await _open_snapshot(
+            db_session,
+            novel_id,
+            phase="structure_analysis",
+            operation="plot_structure_generation",
+            prompt_name="p20_plot_thread",
+        )
+        secret = "private-terminal-token"
+        first = await fail_context_snapshot(
+            db_session,
+            novel_id=novel_id,
+            snapshot_id=snapshot.id,
+            error_kind="provider_error",
+            error_message=f"Authorization: Bearer {secret}",
+        )
+        repeated = await fail_context_snapshot(
+            db_session,
+            novel_id=novel_id,
+            snapshot_id=snapshot.id,
+            error_kind="provider_error",
+            error_message=f"Authorization: Bearer {secret}",
+        )
+        assert first.status == repeated.status == "failed"
+        assert repeated.error_kind == "provider_error"
+        assert secret not in repeated.error_message
+        assert "[REDACTED]" in repeated.error_message
+
+        with pytest.raises(ValueError, match="terminal payload conflicts"):
+            await fail_context_snapshot(
+                db_session,
+                novel_id=novel_id,
+                snapshot_id=snapshot.id,
+                error_kind="different_error",
+                error_message="must not overwrite the first failure",
+            )
+
+        with pytest.raises(ValueError, match="already finalized as failed"):
+            await succeed_context_snapshot(
+                db_session,
+                novel_id=novel_id,
+                snapshot_id=snapshot.id,
+                result_refs=[],
+            )
 
 
 class TestContextSceneIsolation:
@@ -1666,11 +1813,13 @@ class TestContextSceneIsolation:
 
         await succeed_context_snapshot(
             db_session,
+            novel_id=novel_id,
             snapshot_id=succeeded.id,
             result_refs=[{"type": "plot_thread", "id": "thread-1"}],
         )
         await fail_context_snapshot(
             db_session,
+            novel_id=novel_id,
             snapshot_id=failed.id,
             error_kind="parse_empty",
             error_message="no rows",
@@ -2450,7 +2599,7 @@ class TestContextConfirmation:
                 confirmation_id=created.id,
             )
 
-        with pytest.raises(ValueError, match="novel_id"):
+        with pytest.raises(ValueError, match="not found"):
             await require_confirmation(
                 db_session,
                 novel_id="00000000-0000-0000-0000-000000000103",
@@ -2484,6 +2633,7 @@ class TestContextConfirmation:
 
         await attach_result_ref(
             db_session,
+            novel_id=novel_id,
             confirmation_id=created.id,
             result_type="task",
             result_id="task-1",
@@ -2498,10 +2648,29 @@ class TestContextConfirmation:
         assert with_ref.result_refs == [{"type": "task", "id": "task-1"}]
         assert with_ref.result_status == "running"
 
-        changed = await mark_asset_context_changed(
+        with pytest.raises(ValueError, match="not found"):
+            await attach_result_ref(
+                db_session,
+                novel_id="00000000-0000-0000-0000-000000000999",
+                confirmation_id=created.id,
+                result_type="task",
+                result_id="cross-project-write",
+                status="done",
+            )
+
+        unrelated = await mark_asset_context_changed(
             db_session,
             novel_id=novel_id,
             asset_type="world_entities",
+            asset_id="task-1",
+            reason="ignored",
+        )
+        assert unrelated == 0
+
+        changed = await mark_asset_context_changed(
+            db_session,
+            novel_id=novel_id,
+            asset_type="task",
             asset_id="task-1",
             reason="ignored",
         )
@@ -2548,6 +2717,7 @@ class TestContextConfirmation:
         )
         await attach_result_ref(
             db_session,
+            novel_id=novel_id,
             confirmation_id=created.id,
             result_type="outline_scene",
             result_id="scene-1",
@@ -2556,6 +2726,7 @@ class TestContextConfirmation:
 
         updated = await attach_result_refs(
             db_session,
+            novel_id=novel_id,
             confirmation_id=created.id,
             result_refs=[
                 {"type": "outline_scene", "id": "scene-1"},
@@ -2591,15 +2762,17 @@ class TestContextConfirmation:
             confirm_context,
         )
 
+        novel_id = "00000000-0000-0000-0000-000000000115"
         created = await confirm_context(
             db_session,
-            novel_id="00000000-0000-0000-0000-000000000115",
+            novel_id=novel_id,
             action="outline.generate",
             task="生成 Scene",
             scope="chapter",
         )
         await attach_result_ref(
             db_session,
+            novel_id=novel_id,
             confirmation_id=created.id,
             result_type="outline_scene",
             result_id="scene-1",
@@ -2607,6 +2780,7 @@ class TestContextConfirmation:
         )
         await attach_result_ref(
             db_session,
+            novel_id=novel_id,
             confirmation_id=created.id,
             result_type="outline_scene",
             result_id="scene-3",
@@ -2615,6 +2789,7 @@ class TestContextConfirmation:
 
         updated = await attach_result_refs(
             db_session,
+            novel_id=novel_id,
             confirmation_id=created.id,
             result_refs=[
                 {"type": "outline_scene", "id": "scene-2"},
@@ -2645,9 +2820,11 @@ class TestContextConfirmation:
             SimpleNamespace(stale_reasons=["older_reason"]),
         ]
         batch_calls: list[tuple[list[object], str, list[list[str]]]] = []
+        query_asset_types: list[str] = []
 
         class FakeRepository:
             async def list_by_asset_ref(self, db, *, novel_id, asset_type, asset_id):
+                query_asset_types.append(asset_type)
                 return records
 
             async def update_tracking(self, *args, **kwargs):
@@ -2674,6 +2851,7 @@ class TestContextConfirmation:
         )
 
         assert changed == 2
+        assert query_asset_types == ["world_entity"]
         assert batch_calls == [
             (
                 records,
@@ -2704,6 +2882,12 @@ class TestContextConfirmation:
             user_note=None,
             compile_options={},
             warnings=[],
+        )
+        await repo.replace_asset_refs(
+            db_session,
+            selected,
+            asset_role="selected",
+            refs=[("world_entities", "entity-1"), ("world_entities", "123")],
         )
         result_ref = await repo.create(
             db_session,
@@ -2747,7 +2931,7 @@ class TestContextConfirmation:
             asset_id="entity-1",
         )
 
-        assert [record.id for record in matched] == [selected.id, result_ref.id]
+        assert [record.id for record in matched] == [selected.id]
         assert unmatched.id not in {record.id for record in matched}
 
 

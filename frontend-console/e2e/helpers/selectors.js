@@ -29,6 +29,9 @@ export const SEL = {
   // 项目卡片
   projectGrid: ".project-grid",
   projectCard: (id) => `.project-card[data-id="${id}"]`,
+  projectImportToggle: '[data-action="toggle-import"]',
+  projectImportFile: "#pv-import-file",
+  projectImportSubmit: '[data-action="upload-file"]',
 
   // 按钮
   btnPrimary: ".btn-primary",
@@ -50,6 +53,27 @@ export const SEL = {
 
   // Toast
   toastContainer: "#toast-container",
+  toastItems: "#toast-container > *",
+
+  // 主题
+  themeToggle: "#theme-toggle",
+  themeOption: (theme) => `#theme-menu [data-theme-value="${theme}"]`,
+
+  // 写作台
+  writingToolbar: ".writing-toolbar",
+  writingWorkspace: ".writing-workspace-layout",
+  writingTreeRail: ".writing-tree-rail",
+  writingPanelRail: ".writing-panel-rail",
+  writingEditorContainer: "#writing-editor-container",
+  writingEditor: "#writing-editor",
+  writingSheet: ".writing-sheet",
+  writingSceneLabel: ".scene-tree-label",
+  writingSceneCockpit: ".scene-cockpit",
+  mobileQuickNote: ".mobile-quick-note",
+  mobileNoteEditor: "#mobile-note-editor",
+  writingToolsMenu: "details.writing-tools-menu > summary",
+  deepImportProgress: "#writing-deep-import-bar-container",
+  deepImportMapNext: '[data-action="deep-import-map-next"]',
 
   // 地图
   mapBreadcrumb: ".map-breadcrumb",

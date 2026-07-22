@@ -524,6 +524,19 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 - 恢复要求外部祖先 active，并在写入前检查完整子树名称冲突；后代不能单独恢复。
 - 已采用地图与视觉资产不提供作者可见硬删除入口。
 
+### 独立视觉资产与可逆编辑历史
+
+- 地形图层、Marker 和连续线路保留稳定 ID；作者侧“删除”归档资产，默认读取只返回 active，
+  恢复前重验地图、实体、Scene、图层、线路端点和坐标，失效依赖返回 409。
+- 地点绑定格、势力范围格、底图 tile 和 terrain patch 是当前画布投影，可以从当前表删除；
+  删除前后的逐资源值仍进入不可变 revision，因此可按历史版本反向恢复。
+- `map_visual_revisions` 与 `map_configs.editor_revision` 一一对应，保存提交后状态及资源级
+  正向/反向变更。首次新编辑会惰性保存当前 baseline；不扫描或补录测试项目旧历史。
+- `POST /editor/apply` 与旧单项写接口都通过同一个 revision seam。恢复历史必须带当前
+  `expected_revision`，成功后创建新 revision，旧版本不被覆盖。
+- 地图工作台沿用原 toolbar、card、modal、button 与 toast 样式提供“编辑历史”；409 时要求
+  重新打开历史，不覆盖当前草稿，也不引入新的视觉语言。
+
 ## 前端实现现状
 
 - Vue `MapWorkspaceView.vue` / `useMapWorkspace.js`：总览、项目级地图收件箱、最近地图、地图树、搜索、图层开关、打开具体地图；总览可按章节范围启动独立地图事实补充，默认使用双阶段高质量审计，明确说明不重跑深度导入且只写待复核候选，并持久化/恢复任务进度。收件箱支持类型/Scene/来源/置信度/资格筛选、分页、分配后继续编辑和忽略。导入事件来源先转换为作者可读标签，原始 Scene ID 收进诊断筛选，且已有 Scene/章节锚点不会再显示矛盾的缺失提示。具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框；Leaflet/Canvas 继续由 `MapViewportAdapter.vue` 下的窄 controller seam 承载。

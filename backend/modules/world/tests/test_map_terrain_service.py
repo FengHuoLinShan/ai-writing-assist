@@ -187,6 +187,28 @@ async def test_terrain_layer_partial_update_lock_and_delete_counts(
     assert deleted.deleted_regions == 1
     assert deleted.deleted_patches == 1
     assert deleted.deleted_bindings == 1
+    assert (await service.get_state(db_session, novel_id, created.id)).layers == []
+    archived = await MapTerrainLayerRepository().get_by_map(
+        db_session,
+        uuid.UUID(novel_id),
+        uuid.UUID(created.id),
+        status="all",
+    )
+    assert len(archived) == 1
+    assert archived[0].status == "archived"
+
+    restored = await service.restore_layer(
+        db_session,
+        novel_id,
+        created.id,
+        layer_id,
+    )
+    assert restored.status == "active"
+    restored_state = await service.get_state(db_session, novel_id, created.id)
+    assert [item.id for item in restored_state.layers] == [str(uuid.UUID(layer_id))]
+    assert [item.id for item in restored_state.regions] == [str(uuid.UUID(region_id))]
+    assert len(restored_state.patches) == 1
+    assert len(restored_state.bindings) == 1
 
 
 @pytest.mark.asyncio
@@ -262,9 +284,7 @@ async def test_replace_terrain_regions_cannot_cross_layers_or_maps(
         layer_a,
         MapTerrainPatchReplaceRequest(
             layer=MapTerrainLayerCreate(name="锁定层", terrain_asset_key="mountain"),
-            regions=[
-                MapTerrainRegionCreate(id=region_a, layer_id=layer_a, name="山脉")
-            ],
+            regions=[MapTerrainRegionCreate(id=region_a, layer_id=layer_a, name="山脉")],
             patches=[],
         ),
     )
@@ -275,9 +295,7 @@ async def test_replace_terrain_regions_cannot_cross_layers_or_maps(
         layer_b,
         MapTerrainPatchReplaceRequest(
             layer=MapTerrainLayerCreate(name="目标层", terrain_asset_key="forest"),
-            regions=[
-                MapTerrainRegionCreate(id=region_b, layer_id=layer_b, name="森林")
-            ],
+            regions=[MapTerrainRegionCreate(id=region_b, layer_id=layer_b, name="森林")],
             patches=[],
         ),
     )

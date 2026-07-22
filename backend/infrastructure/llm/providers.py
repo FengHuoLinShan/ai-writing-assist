@@ -214,7 +214,7 @@ class OpenAIProvider:
                 "Content filter triggered",
                 provider=self.name,
                 model=model,
-                filter_reason=str(e),
+                filter_reason=redact_diagnostic(e, limit=300),
             ) from e
         except APIConnectionError as e:
             kind = _classify_connection_error(e)

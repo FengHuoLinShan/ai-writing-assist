@@ -3,6 +3,7 @@ import {
   clearWritingSession,
   getWritingSession,
   readChapterSnapshot,
+  rememberWritingLocation,
   rememberChapterSnapshot,
 } from "../../../vue/views/writing/writingSession.js"
 
@@ -21,5 +22,12 @@ describe("writingSession", () => {
     rememberChapterSnapshot("p2", { chapter: 8, draftId: "d8" })
     expect(getWritingSession("p1")).toMatchObject({ currentChapter: 3, currentDraftId: "d3" })
     expect(getWritingSession("p2")).toMatchObject({ currentChapter: 8, currentDraftId: "d8" })
+  })
+
+  it("每个项目独立记忆当前 Scene", () => {
+    rememberWritingLocation("p1", { currentChapter: 1, currentSceneId: "scene-p1" })
+    rememberWritingLocation("p2", { currentChapter: 1, currentSceneId: "scene-p2" })
+    expect(getWritingSession("p1").currentSceneId).toBe("scene-p1")
+    expect(getWritingSession("p2").currentSceneId).toBe("scene-p2")
   })
 })

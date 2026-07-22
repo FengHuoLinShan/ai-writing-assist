@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.models import Project
 from modules.world.models import Character, CoreEntity
-from modules.world.repositories import CharacterRepository, CoreEntityRepository
+from modules.world.repositories import (
+    CharacterRepository,
+    CoreEntityRepository,
+    EntityRelationRepository,
+)
+from modules.world.schemas import EntityRelationCreate
 
 
 @pytest.fixture
@@ -46,6 +51,48 @@ class _PostgresDialectSessionProxy:
     async def execute(self, statement):
         self.execute_count += 1
         return await self._session.execute(statement)
+
+
+@pytest.mark.asyncio
+async def test_relation_repository_preserves_explicit_zero_strength(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    source_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="zero-strength"),
+            CoreEntity(
+                id=source_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="source",
+                status="canonical",
+            ),
+            CoreEntity(
+                id=target_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="target",
+                status="canonical",
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    relation = await EntityRelationRepository().create(
+        db_session,
+        novel_id,
+        EntityRelationCreate(
+            source_id=str(source_id),
+            target_id=str(target_id),
+            relation_type="neutral",
+            strength=0.0,
+        ),
+    )
+
+    assert relation.strength == 0.0
 
 
 @pytest.mark.asyncio

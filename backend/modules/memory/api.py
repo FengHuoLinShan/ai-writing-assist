@@ -10,10 +10,16 @@ from fastapi import APIRouter, Query
 
 from core.api_params import NovelIdPath
 from core.dependencies import DbSession
+from modules.memory.scene_projection import SceneMemoryProjectionService
 from modules.memory.schemas import (
     ChapterPanorama,
     EventListResponse,
     MemoryStatusResponse,
+    SceneCheckpointEnsureRequest,
+    SceneCheckpointRebuildRequest,
+    SceneCheckpointRepairRequest,
+    SceneCheckpointRepairResponse,
+    SceneCheckpointSetResponse,
     SnapshotListResponse,
     SnapshotResponse,
 )
@@ -21,6 +27,7 @@ from modules.memory.services import MemoryService
 
 router = APIRouter(prefix="/api/novels/{novel_id}/memories", tags=["memory"])
 _service = MemoryService()
+_scene_service = SceneMemoryProjectionService()
 
 
 async def _require_active_project(db: DbSession, novel_id: str) -> None:
@@ -136,3 +143,54 @@ async def get_status(
     """获取 memory 模块当前状态"""
     await _require_active_project(db, novel_id)
     return await _service.get_status(db, novel_id)
+
+
+@router.get("/scene-checkpoints", response_model=SceneCheckpointSetResponse)
+async def get_scene_checkpoints(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    scene_id: str = Query(..., description="Scene ID"),
+) -> SceneCheckpointSetResponse:
+    """读取已有 Scene 分维度 checkpoint，不在 GET 中隐式写入。"""
+    await _require_active_project(db, novel_id)
+    return await _scene_service.get_scene(db, novel_id, scene_id)
+
+
+@router.post("/scene-checkpoints/ensure", response_model=SceneCheckpointSetResponse)
+async def ensure_scene_checkpoints(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    request: SceneCheckpointEnsureRequest,
+) -> SceneCheckpointSetResponse:
+    """确定性生成截至目标 Scene 的全部维度 checkpoint。"""
+    await _require_active_project(db, novel_id)
+    return await _scene_service.ensure_scene(db, novel_id, request.scene_id)
+
+
+@router.post("/scene-checkpoints/rebuild")
+async def rebuild_scene_checkpoints(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    request: SceneCheckpointRebuildRequest,
+) -> dict:
+    await _require_active_project(db, novel_id)
+    return await _scene_service.rebuild_from_scene(
+        db,
+        novel_id,
+        from_scene_id=request.from_scene_id,
+        dimensions=request.dimensions,
+    )
+
+
+@router.post(
+    "/scene-checkpoints/repair",
+    response_model=SceneCheckpointRepairResponse,
+)
+async def repair_scene_checkpoint(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    request: SceneCheckpointRepairRequest,
+) -> SceneCheckpointRepairResponse:
+    """One-action manual repair; protected manual/confirmed rows fail closed."""
+    await _require_active_project(db, novel_id)
+    return await _scene_service.repair(db, novel_id, request)

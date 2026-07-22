@@ -581,7 +581,8 @@ def lifecycle_contract(
     attempt = _int_attr(task, "attempt", 0)
     max_attempts = _int_attr(task, "max_attempts", 1)
     recovery_required = bool(
-        result_data.get("recovery_required") or meta_data.get("recovery_required")
+        result_data.get("recovery_required") is True
+        and meta_data.get("recovery_required") is True
     )
     actions: list[TaskAction] = []
     if task.status in {"pending", "running"}:

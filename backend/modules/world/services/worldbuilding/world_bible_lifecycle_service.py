@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -99,7 +98,6 @@ BUILTIN_WORLD_BIBLE_CATEGORIES: tuple[dict[str, Any], ...] = (
     },
 )
 _BUILTIN_KEYS = frozenset(item["category_key"] for item in BUILTIN_WORLD_BIBLE_CATEGORIES)
-logger = logging.getLogger(__name__)
 
 WorldBibleBaselineMismatch = Literal[
     "page_version",
@@ -922,9 +920,9 @@ class WorldBibleLifecycleService:
         reason: str,
     ) -> None:
         """Invalidate confirmations that consumed this published page."""
-        try:
-            from modules.context.facade import mark_asset_context_changed
+        from modules.context.facade import mark_asset_context_changed
 
+        try:
             await mark_asset_context_changed(
                 db,
                 novel_id=str(page.novel_id),
@@ -932,12 +930,11 @@ class WorldBibleLifecycleService:
                 asset_id=str(page.id),
                 reason=reason,
             )
-        except Exception:
-            logger.warning(
-                "World Bible 页面上下文确认失效标记失败 page_id=%s",
-                page.id,
-                exc_info=True,
-            )
+        except Exception as exc:
+            raise ConflictError(
+                "参考资料状态同步失败，本次世界书发布未保存，请重试",
+                code="world_bible_context_invalidation_failed",
+            ) from exc
 
     def validate_section_refs(
         self,
@@ -1207,9 +1204,9 @@ class WorldBibleLifecycleService:
         reason: str,
     ) -> None:
         """Invalidate confirmations that explicitly selected this working draft."""
-        try:
-            from modules.context.facade import mark_asset_context_changed
+        from modules.context.facade import mark_asset_context_changed
 
+        try:
             await mark_asset_context_changed(
                 db,
                 novel_id=str(draft.novel_id),
@@ -1217,12 +1214,11 @@ class WorldBibleLifecycleService:
                 asset_id=str(draft.id),
                 reason=reason,
             )
-        except Exception:
-            logger.warning(
-                "World Bible 工作稿上下文确认失效标记失败 draft_id=%s",
-                draft.id,
-                exc_info=True,
-            )
+        except Exception as exc:
+            raise ConflictError(
+                "参考资料状态同步失败，本次世界书工作稿修改未保存，请重试",
+                code="world_bible_context_invalidation_failed",
+            ) from exc
 
     @staticmethod
     def _default_page_key(page_type: str, title: str) -> str:

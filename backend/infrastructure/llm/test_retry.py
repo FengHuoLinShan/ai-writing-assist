@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from infrastructure.llm.errors import (
@@ -149,4 +151,27 @@ class TestRetryWithBackoff:
         with pytest.raises(LLMAuthError):
             await retry_with_backoff(auth_fail, max_attempts=3, base_delay=0.01)
         assert call_count == 1
+        assert retry_waits == []
+
+    @pytest.mark.asyncio
+    async def test_retry_logs_redact_credentials(
+        self,
+        retry_waits: list[float],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        secret = "private-retry-token-value"
+
+        async def auth_fail() -> str:
+            raise LLMAuthError(
+                f"Authorization: Bearer {secret} api_key={secret}",
+                provider="test",
+                model="m",
+            )
+
+        with caplog.at_level(logging.WARNING, logger="infrastructure.llm.retry"):
+            with pytest.raises(LLMAuthError):
+                await retry_with_backoff(auth_fail, max_attempts=2)
+
+        assert secret not in caplog.text
+        assert "[REDACTED]" in caplog.text
         assert retry_waits == []

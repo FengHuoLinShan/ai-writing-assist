@@ -883,7 +883,13 @@ class TestTaskWorkerExecuteTask:
         db_session = AsyncMock()
         db_session.commit = AsyncMock()
 
-        handler = AsyncMock(return_value="simple_string_result")
+        secret = "private-token-value"
+        handler = AsyncMock(
+            return_value=(
+                "simple_string_result "
+                f"Authorization: Bearer {secret} api_key={secret}"
+            )
+        )
 
         with (
             patch("infrastructure.tasks.worker.get_manager", autospec=True),
@@ -895,12 +901,14 @@ class TestTaskWorkerExecuteTask:
 
             await worker._execute_task(task_mock, db_session)
 
-        assert worker._lifecycle.finalize.await_args.kwargs == {
-            "task_id": task_mock.id,
-            "lease_id": str(task_mock.lease_id or ""),
-            "status": "done",
-            "result_data": {"result": "simple_string_result"},
-        }
+        finalize_kwargs = worker._lifecycle.finalize.await_args.kwargs
+        assert finalize_kwargs["task_id"] == task_mock.id
+        assert finalize_kwargs["lease_id"] == str(task_mock.lease_id or "")
+        assert finalize_kwargs["status"] == "done"
+        assert finalize_kwargs["result_data"]["result"].startswith(
+            "simple_string_result"
+        )
+        assert secret not in finalize_kwargs["result_data"]["result"]
 
     @pytest.mark.asyncio
     async def test_execute_handler_none_registered(self) -> None:

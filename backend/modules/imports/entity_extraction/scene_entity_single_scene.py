@@ -9,6 +9,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,9 +94,10 @@ class SingleSceneEntityExtractionMixin:
                 async with _optional_lock(db_lock):
                     await fail_context_snapshot(
                         db,
+                        novel_id=str(nid),
                         snapshot_id=snapshot_id,
                         error_kind=service._error_kind(exc),
-                        error_message=str(exc)[:300],
+                        error_message=redact_diagnostic(exc, limit=300),
                     )
             raise
 
@@ -134,6 +137,7 @@ class SingleSceneEntityExtractionMixin:
                     nid,
                     extraction.delta_events,
                     scene_index=scene_index,
+                    source_chapter_index=source_chapter_index,
                     workflow_id=workflow_id,
                     scene_id=scene_id,
                     scene_provenance_key=scene_provenance_key,
@@ -162,6 +166,7 @@ class SingleSceneEntityExtractionMixin:
 
                     await succeed_context_snapshot(
                         db,
+                        novel_id=str(nid),
                         snapshot_id=snapshot_id,
                         result_refs=result_refs,
                     )
@@ -172,9 +177,10 @@ class SingleSceneEntityExtractionMixin:
                 async with _optional_lock(db_lock):
                     await fail_context_snapshot(
                         db,
+                        novel_id=str(nid),
                         snapshot_id=snapshot_id,
                         error_kind=service._error_kind(exc),
-                        error_message=str(exc)[:300],
+                        error_message=redact_diagnostic(exc, limit=300),
                     )
             raise
 
@@ -196,21 +202,21 @@ class SingleSceneEntityExtractionMixin:
             {"scene_index": scene_index, "entities": len(extraction.entities)},
         ]
 
-        # 每个 Scene 完成后更新记忆快照
+        # 每个 Scene 完成后更新 Scene 时间投影；失败会在 checkpoint 中显式呈现。
         try:
-            from modules.memory.facade import capture_snapshot
+            from modules.memory.facade import ensure_scene_checkpoints
 
             async with _optional_lock(db_lock):
-                await capture_snapshot(
+                await ensure_scene_checkpoints(
                     db,
                     str(nid),
-                    chapter_index=source_chapter_index,
+                    scene_id,
                 )
         except Exception as exc:
             logger.warning(
                 "Memory snapshot after scene %d failed: %s",
                 scene_index,
-                exc,
+                redact_diagnostic(exc, limit=300),
             )
 
         return {

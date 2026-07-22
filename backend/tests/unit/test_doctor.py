@@ -47,6 +47,28 @@ def test_sanitize_url_hides_password():
     assert "pass" not in sanitized
 
 
+def test_report_recursively_redacts_unregistered_secret_patterns(monkeypatch):
+    monkeypatch.setattr(doctor, "secret_values_for_redaction", lambda: [])
+    result = doctor.CheckResult(
+        name="provider",
+        status=doctor.STATUS_WARNING,
+        message="request failed with Bearer top-secret-token",
+        details={
+            "nested": {
+                "reason": "api_key=not-loaded-from-env",
+                "items": ["https://user:password@example.test/v1?token=visible"],
+            }
+        },
+    )
+
+    payload = json.dumps(result.as_dict())
+
+    assert "top-secret-token" not in payload
+    assert "not-loaded-from-env" not in payload
+    assert "password" not in payload
+    assert "token=visible" not in payload
+
+
 def test_docker_permission_denied_is_unknown(monkeypatch):
     monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/docker")
 

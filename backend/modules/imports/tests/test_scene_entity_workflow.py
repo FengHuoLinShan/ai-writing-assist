@@ -1109,7 +1109,7 @@ async def test_record_deltas_bridges_explicit_map_intent(
 
 
 @pytest.mark.asyncio
-async def test_process_scene_captures_memory_snapshot(
+async def test_process_scene_builds_scene_memory_checkpoints(
     db_session: AsyncSession,
     novel_with_drafts: str,
 ) -> None:
@@ -1139,9 +1139,13 @@ async def test_process_scene_captures_memory_snapshot(
             autospec=True,
         ),
         patch(
-            "modules.memory.facade.capture_snapshot",
+            "modules.memory.facade.replace_scene_memory_events",
             autospec=True,
-        ) as mock_snapshot,
+        ) as mock_replace_scene_events,
+        patch(
+            "modules.memory.facade.ensure_scene_checkpoints",
+            autospec=True,
+        ) as mock_checkpoints,
         patch(
             "modules.world.facade.find_similar_entities",
             autospec=True,
@@ -1160,7 +1164,19 @@ async def test_process_scene_captures_memory_snapshot(
         )
 
     assert result["created"] == 1
-    mock_snapshot.assert_awaited_once()
+    mock_replace_scene_events.assert_awaited_once_with(
+        db_session,
+        novel_with_drafts,
+        scene_id="scene-1",
+        scene_index=1,
+        chapter_index=1,
+        events=[],
+    )
+    mock_checkpoints.assert_awaited_once_with(
+        db_session,
+        novel_with_drafts,
+        "scene-1",
+    )
 
 
 @pytest.mark.asyncio

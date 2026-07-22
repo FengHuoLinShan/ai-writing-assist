@@ -81,7 +81,11 @@ class WorldBackgroundAggregation:
                     entity.name,
                     summary,
                     f"{entity.entity_type}:{entity.name}",
-                    float(entity.importance or 0.5),
+                    float(
+                        entity.importance
+                        if entity.importance is not None
+                        else 0.5
+                    ),
                     entity.status,
                     entity.reveal_level,
                     self._keywords(entity.name, entity.content_json),
@@ -96,7 +100,11 @@ class WorldBackgroundAggregation:
                         f"{entity.name}档案",
                         profile_summary,
                         f"profile:{entity.entity_type}",
-                        float(entity.importance or 0.5),
+                        float(
+                            entity.importance
+                            if entity.importance is not None
+                            else 0.5
+                        ),
                         entity.status,
                         entity.reveal_level,
                         [entity.name, entity.entity_type],
@@ -111,7 +119,11 @@ class WorldBackgroundAggregation:
                         entity.name,
                         event_summary,
                         "event:timeline",
-                        float(entity.importance or 0.5),
+                        float(
+                            entity.importance
+                            if entity.importance is not None
+                            else 0.5
+                        ),
                         entity.status,
                         entity.reveal_level,
                         [entity.name, "event"],
@@ -135,7 +147,11 @@ class WorldBackgroundAggregation:
                     title,
                     summary,
                     f"relation:{relation.relation_type}",
-                    float(relation.strength or 0.5),
+                    float(
+                        relation.strength
+                        if relation.strength is not None
+                        else 0.5
+                    ),
                     relation.status,
                     "author_safe",
                     [relation.relation_type],
@@ -161,7 +177,9 @@ class WorldBackgroundAggregation:
                     title,
                     summary,
                     f"map:{fact.dynamic_type}",
-                    float(fact.confidence or 0.5),
+                    float(
+                        fact.confidence if fact.confidence is not None else 0.5
+                    ),
                     fact.fact_status,
                     "author_safe",
                     [title, fact.dynamic_type],

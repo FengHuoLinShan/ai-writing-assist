@@ -19,7 +19,7 @@ afterEach(() => {
 })
 
 describe("前置校验", () => {
-  it("无文件/无项目/超限分别给出对应提示", async () => {
+  it("无文件/无项目/格式错误/超限分别给出对应提示", async () => {
     const scope = effectScope()
     const u = scope.run(() => useImportUpload())
 
@@ -28,6 +28,12 @@ describe("前置校验", () => {
 
     expect(await u.upload(makeFile(), null)).toBe(false)
     expect(globalThis.toast).toHaveBeenCalledWith("请先点击项目行选择项目", "warning")
+
+    expect(await u.upload(makeFile(1024, "novel.pdf"), "p1")).toBe(false)
+    expect(globalThis.toast).toHaveBeenCalledWith(
+      "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件",
+      "error",
+    )
 
     const big = makeFile()
     Object.defineProperty(big, "size", { value: MAX_IMPORT_FILE_BYTES + 1 })
@@ -113,5 +119,23 @@ describe("上传流程", () => {
     const before = u.progress.value
     capturedOnProgress(80)
     expect(u.progress.value).toBe(before)
+  })
+
+  it("scope 销毁时取消底层 XHR 上传", async () => {
+    const scope = effectScope()
+    const u = scope.run(() => useImportUpload())
+    let signal = null
+    globalThis.api.imports.uploadFile = vi.fn((_file, _pid, _onProgress, options) => {
+      signal = options.signal
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("已取消", "AbortError")), { once: true })
+      })
+    })
+    const pending = u.upload(makeFile(), "p1")
+    await vi.waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
+    scope.stop()
+    await expect(pending).resolves.toBe(false)
+    expect(signal.aborted).toBe(true)
+    expect(globalThis.toast).not.toHaveBeenCalledWith("已取消", "error")
   })
 })

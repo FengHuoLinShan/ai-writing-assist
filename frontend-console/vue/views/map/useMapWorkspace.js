@@ -321,7 +321,7 @@ export function useMapWorkspace(props) {
   }
 
   async function loadDynamic({ force = false } = {}) {
-    if (!activeMapId.value) return false
+    if (disposed || !activeMapId.value) return false
     if (!force && dynamicSummary.loaded && !dynamicSummary.error) return true
     const token = ++dynamicGeneration.value
     const mapId = activeMapId.value
@@ -384,6 +384,7 @@ export function useMapWorkspace(props) {
     if (map) { saveRecentMap(projectId, map); recentRevision.value += 1 }
     resetDynamic()
     await navigateRoute({}, options.replace === true)
+    if (disposed) return true
     await loadDynamic({ force: true })
     return true
   }
@@ -614,6 +615,87 @@ export function useMapWorkspace(props) {
   }
   async function restoreMap(map, rootName) { try { await api.world.restoreMap(map.id, { root_name: rootName || map.name }, projectId); await reloadCatalog(); toast("地图子树已恢复", "success"); return true } catch (error) { toast(`恢复失败：${error.message || "未知错误"}`, "error"); return false } }
 
+  async function showVisualHistory() {
+    if (!activeMapId.value || editingState.dirty) {
+      toast("请先应用或撤销当前地图草稿，再查看编辑历史", "warning")
+      return false
+    }
+    let response
+    try {
+      response = await api.world.listMapVisualRevisions(activeMapId.value, projectId, {
+        limit: 50,
+      })
+    } catch (error) {
+      toast(`编辑历史加载失败：${error.message || "未知错误"}`, "warning")
+      return false
+    }
+    const items = listItems(response)
+    if (!items.length) {
+      toast("这张地图还没有已提交的编辑历史", "info")
+      return false
+    }
+    const currentRevision = Math.max(...items.map((item) => Number(item.revision_number || 0)))
+    const restorable = items.filter((item) => Number(item.revision_number) < currentRevision)
+    if (!restorable.length) {
+      toast("这张地图还没有可恢复的较早版本", "info")
+      return false
+    }
+    const operationLabel = (operation) => ({
+      baseline: "初始状态",
+      editor_apply: "地图编辑",
+      revision_restore: "历史恢复",
+      marker_archive: "归档标记",
+      marker_restore: "恢复标记",
+      terrain_layer_archive: "归档地形图层",
+      terrain_layer_restore: "恢复地形图层",
+      config_update: "地图设置",
+      legacy_edit: "地图调整",
+    })[operation] || "地图调整"
+    const rows = restorable.map((item, index) => {
+      const changed = Array.isArray(item.forward_changes) ? item.forward_changes.length : 0
+      const createdAt = item.created_at ? new Date(item.created_at).toLocaleString() : "时间未知"
+      return `<label class="map-archived-row"><input type="radio" name="map-visual-revision" value="${esc(item.revision_number)}" ${index === 0 ? "checked" : ""} /><span><strong>版本 ${esc(item.revision_number)} · ${esc(operationLabel(item.operation))}</strong><small>${esc(createdAt)} · ${changed} 项变更</small></span></label>`
+    }).join("")
+    showModalHtml(
+      "地图编辑历史",
+      `<p class="map-muted-text">恢复会把画布回到所选版本，并保留当前版本，之后仍可再次恢复。</p><div class="map-archived-list">${rows}</div>`,
+      [{
+        text: "恢复所选版本",
+        class: "btn-primary",
+        handler: async () => {
+          const selected = document.querySelector('input[name="map-visual-revision"]:checked')?.value
+          if (selected == null) {
+            toast("请选择要恢复的版本", "warning")
+            return false
+          }
+          try {
+            await api.world.restoreMapVisualRevision(
+              activeMapId.value,
+              Number(selected),
+              currentRevision,
+              projectId,
+            )
+            closeModal()
+            await reloadCatalog()
+            await viewport.value?.remount?.()
+            await loadDynamic({ force: true })
+            toast(`地图已恢复到版本 ${selected}，当前版本已保留`, "success")
+            return true
+          } catch (error) {
+            if (error?.status === 409) {
+              toast("地图已有新版本，请重新打开编辑历史后再恢复", "warning")
+            } else {
+              toast(`恢复失败：${error.message || "未知错误"}`, "error")
+            }
+            return false
+          }
+        },
+      }],
+      { size: "large" },
+    )
+    return true
+  }
+
   async function focusInspector(item) {
     focusedDynamicItemId.value = itemId(item)
     if (item.target_entity_id) focusEntityId.value = item.target_entity_id
@@ -626,7 +708,8 @@ export function useMapWorkspace(props) {
     focusEntityId.value = entityId
     focusedDynamicItemId.value = null
     viewMode.value = "lens"
-    navigateRoute({ focusEntityId: entityId, mode: "lens" }, true)
+    await navigateRoute({ focusEntityId: entityId, mode: "lens" }, true)
+    if (disposed) return true
     await loadDynamic({ force: true })
     if (owned()) toast("已进入该对象的叙事透镜", "info")
     return owned()
@@ -635,7 +718,8 @@ export function useMapWorkspace(props) {
     if (!activeMapId.value) return false
     focusEntityId.value = null
     focusedDynamicItemId.value = null
-    navigateRoute({ focusEntityId: null, mode: viewMode.value }, true)
+    await navigateRoute({ focusEntityId: null, mode: viewMode.value }, true)
+    if (disposed) return true
     await loadDynamic({ force: true })
     return owned()
   }
@@ -760,7 +844,7 @@ export function useMapWorkspace(props) {
       return openMap(mapId, { viewMode: "live" })
     },
     onBackOverview: returnOverview,
-    onSceneChange: (sceneId) => { activeSceneId.value = sceneId || null; navigateRoute({ sceneId: activeSceneId.value }, true); loadDynamic({ force: true }) },
+    onSceneChange: async (sceneId) => { activeSceneId.value = sceneId || null; await navigateRoute({ sceneId: activeSceneId.value }, true); if (disposed) return true; return loadDynamic({ force: true }) },
     onLayerFocusChange: (id) => { focusLayerNodeId.value = id || null; navigateRoute({ focusLayerNodeId: focusLayerNodeId.value }, true) },
     onOpenEntity: (id) => { appState.selectedItem = id; router?.navigate?.("world", "objects") },
     onFocusEntity: focusEntityInLens,
@@ -786,14 +870,14 @@ export function useMapWorkspace(props) {
   })
 
   return {
-    activeMap, activeMapId, activeQueue, activeSceneLabel, archiveMap, archivedPage, archivedPageCount,
+    activeMap, activeMapId, activeQueue, activeSceneId, activeSceneLabel, archiveMap, archivedPage, archivedPageCount,
     archivedMaps, batchReview, confirmObservation, currentTimelineScene, dashboardQueue,
     clearLensFocus, consumePendingObservationEditor, continuityEvidence, continuityExplain, continuityFocus, currentLiveFacts, dynamicEditor, dynamicSummary, editingState, enrichment, factById, focusEntityId, focusEntityInLens, historyQueue, ignoreInbox, ignoreObservation,
     inbox, inboxItems, layers, lensContextItems, lensFocusableItems, lensHasFocus, loadDynamic, loadInbox, locations, lowMotion, mapByParent,
     maps, message, modalController, mode, openLocation, openMap, openRecent, playback,
     projectId, quickCreate, recentMap, reloadCatalog, returnOverview, searchQuery, searchResults,
     setLayer, setLowMotion, setTimelineCandidates, setTimelinePosition, setTimelineTrack,
-    setViewMode, showArchived, showHistory, startPlayback, startTimeline, stepTimeline,
+    setViewMode, showArchived, showHistory, showVisualHistory, startPlayback, startTimeline, stepTimeline,
     stopPlayback, stopTimeline, timeline, timelineProjection, toggleHistory, updateFact,
     viewMode, viewport, viewportContext, visibleArchivedMaps,
   }

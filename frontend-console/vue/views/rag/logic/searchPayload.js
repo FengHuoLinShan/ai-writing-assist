@@ -7,7 +7,8 @@ import { RAG_RESULT_FETCH_LIMIT } from "./routeState.js"
 /**
  * 对应 _buildEvidencePayload：由表单状态构造证据检索 payload。
  * @param {object} form - {query, searchKind, contentMode, visibilityMode, chapterFrom,
- *   chapterTo, cutoffChapter, cutoffSceneId, cutoffOffset, characterId, scopes, includePending}
+ *   chapterTo, cutoffChapter, cutoffSceneId, cutoffOffset, characterId, scopes, includePending,
+ *   currentSceneId}
  * @param {string} projectId
  * @returns {{payload?: object, error?: string}} 校验失败返回 error 文案（warning）
  */
@@ -51,6 +52,7 @@ export function buildEvidencePayload(form, projectId) {
       include_pending_objects: Boolean(form.includePending),
       chapter_from: integer(form.chapterFrom),
       chapter_to: integer(form.chapterTo),
+      context_scene_id: mode === "author" ? (form.currentSceneId || null) : null,
       top_k: RAG_RESULT_FETCH_LIMIT,
     },
   }
@@ -65,11 +67,27 @@ export function normalizeEvidenceHit(item = {}) {
     snippet: item.snippet || item.text || item.summary || item.content || "",
     score: item.score ?? item.similarity ?? null,
     scene_refs: item.scene_refs || [],
+    parent_scene_contexts: item.parent_scene_contexts || item.scene_refs || [],
     object_refs: item.object_refs || [],
     index_fresh: item.index_fresh !== false,
     match_count: Number(item.match_count) > 0 ? Number(item.match_count) : 1,
     match_basis: item.match_basis === "occurrence" ? "occurrence" : "chunk",
+    writing_relevance: item.writing_relevance || {},
   }
+}
+
+export function parentSceneContexts(hit = {}) {
+  return (hit.parent_scene_contexts || hit.scene_refs || []).filter((ref) => (
+    ref?.target_type === "outline_scene" && ref.scene_index != null
+  ))
+}
+
+export function parentSceneLabel(ref = {}) {
+  const index = ref.scene_index ?? "-"
+  const title = ref.scene_title || ref.target_name
+  return title && title !== `Scene ${index}`
+    ? `Scene ${index} · ${title}`
+    : `Scene ${index}`
 }
 
 const SCOPE_LABELS = { manuscript: "正文", world: "世界对象", outline: "结构" }

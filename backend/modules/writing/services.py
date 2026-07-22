@@ -57,7 +57,6 @@ from modules.writing.repositories import (
     public_conflict_summary,
 )
 from modules.writing.schemas import (
-    ChapterSplitResponse,
     ChapterSummaryItem,
     DraftListItem,
     VersionHistoryResponse,
@@ -83,7 +82,6 @@ WRITING_GENERATION_TIMEOUT_SECONDS = 1800
 
 logger = logging.getLogger(__name__)
 
-SceneChunkSplitProvider = Callable[..., Awaitable[list[dict[str, Any]]]]
 SceneContractLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
 
 
@@ -154,33 +152,6 @@ _CONTINUATION_WRITING_SYSTEM_PROMPT = (
 )
 
 
-async def _default_split_scene_chunk_to_new_chapter(
-    db: AsyncSession,
-    novel_id: str,
-    *,
-    source_scene_id: str,
-    source_chapter_id: str,
-    source_chapter_index: int,
-    new_chapter_id: str,
-    new_chapter_index: int,
-    split_pos: int,
-    new_chapter_length: int,
-) -> list[dict[str, Any]]:
-    from modules.outline.facade import split_scene_chunk_to_new_chapter
-
-    return await split_scene_chunk_to_new_chapter(
-        db,
-        novel_id,
-        source_scene_id=source_scene_id,
-        source_chapter_id=source_chapter_id,
-        source_chapter_index=source_chapter_index,
-        new_chapter_id=new_chapter_id,
-        new_chapter_index=new_chapter_index,
-        split_pos=split_pos,
-        new_chapter_length=new_chapter_length,
-    )
-
-
 async def _default_scene_contract_loader(
     db: AsyncSession,
     novel_id: str,
@@ -221,12 +192,8 @@ class WritingDraftService:
     def __init__(
         self,
         repo: WritingDraftRepository | None = None,
-        split_scene_chunk_to_new_chapter: SceneChunkSplitProvider | None = None,
     ) -> None:
         self._repo = repo or WritingDraftRepository()
-        self._split_scene_chunk_to_new_chapter = (
-            split_scene_chunk_to_new_chapter or _default_split_scene_chunk_to_new_chapter
-        )
 
     async def create_draft(
         self,
@@ -391,6 +358,14 @@ class WritingDraftService:
         """Adopt one AI suggestion into the ordinary working-draft lifecycle."""
         did = _parse_uuid(draft_id, "draft")
         nid = _parse_uuid(novel_id, "novel")
+        draft = await self._repo.get(db, did)
+        if draft is None or draft.novel_id != nid:
+            raise NotFoundError(f"Draft {draft_id} not found")
+        await self._repo.lock_version_chapters_for_revalidation(
+            db,
+            draft.novel_id,
+            [draft.chapter_index],
+        )
         draft = await self._repo.get_for_update(db, did)
         if draft is None or draft.novel_id != nid:
             raise NotFoundError(f"Draft {draft_id} not found")
@@ -706,6 +681,14 @@ class WritingDraftService:
         draft = await self._repo.get(db, did)
         if draft is None or str(draft.novel_id) != str(nid):
             raise NotFoundError(f"Draft {draft_id} not found")
+        await self._repo.lock_version_chapters_for_revalidation(
+            db,
+            draft.novel_id,
+            [draft.chapter_index],
+        )
+        draft = await self._repo.get_for_update(db, did)
+        if draft is None or draft.novel_id != nid:
+            raise NotFoundError(f"Draft {draft_id} not found")
 
         was_candidate = draft.status == "candidate"
 
@@ -983,77 +966,6 @@ class WritingDraftService:
             )
             for novel_id in parsed_ids
         }
-
-    async def split_chapter_at_offset(
-        self,
-        db: AsyncSession,
-        *,
-        novel_id: str,
-        chapter_index: int,
-        split_pos: int,
-        source_scene_id: str | None,
-    ) -> ChapterSplitResponse:
-        nid = _parse_uuid(novel_id, "novel")
-        latest = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
-        if latest is None:
-            raise NotFoundError(f"No draft found for chapter {chapter_index}")
-        if await self._repo.has_published_from(db, nid, chapter_index):
-            raise ValidationError(
-                "Cannot split across published chapters because published source "
-                "positions are immutable; create a new working chapter layout first",
-                status_code=409,
-            )
-        content = latest.content or ""
-        if not (0 < split_pos < len(content)):
-            raise ValidationError(
-                "split_pos must be inside the chapter content",
-                status_code=422,
-            )
-
-        head = content[:split_pos]
-        tail = content[split_pos:]
-        new_chapter_index = chapter_index + 1
-
-        await self._repo.shift_chapter_indices_from(db, nid, new_chapter_index)
-        source = await self._repo.update_latest_content(
-            db,
-            nid,
-            chapter_index,
-            title=latest.title,
-            content=head,
-        )
-        new_draft = await self._repo.create(
-            db,
-            WritingDraftCreate(
-                novel_id=novel_id,
-                chapter_index=new_chapter_index,
-                title=f"第{new_chapter_index}章",
-                content=tail,
-            ),
-        )
-
-        scenes: list[dict] = []
-        if source_scene_id:
-            scenes = await self._split_scene_chunk_to_new_chapter(
-                db,
-                novel_id,
-                source_scene_id=source_scene_id,
-                source_chapter_id=str(chapter_index),
-                source_chapter_index=chapter_index,
-                new_chapter_id=str(new_chapter_index),
-                new_chapter_index=new_chapter_index,
-                split_pos=split_pos,
-                new_chapter_length=len(tail),
-            )
-
-        return ChapterSplitResponse(
-            source_chapter_index=chapter_index,
-            new_chapter_index=new_chapter_index,
-            source_draft=WritingDraftResponse.model_validate(source),
-            new_draft=WritingDraftResponse.model_validate(new_draft),
-            scenes=scenes,
-        )
-
 
 class WritingConflictCheckService:
     """Rule-based Scene conflict checks for the writing workbench."""
@@ -1352,8 +1264,11 @@ class WritingConflictCheckService:
     async def _load_scene(self, db: AsyncSession, novel_id: str, scene_id: str):
         try:
             return await self._scene_contract_loader(db, novel_id, scene_id)
-        except Exception:
-            logger.exception("Failed to load scene for conflict check")
+        except Exception as exc:
+            logger.warning(
+                "Failed to load scene for conflict check: %s",
+                redact_diagnostic(exc, limit=500),
+            )
             return None
 
     def _scene_rule_items(self, scene: object, content: str) -> list[dict]:
@@ -1444,8 +1359,11 @@ class WritingConflictCheckService:
                 scene_id,
                 include_candidates=include_candidates,
             )
-        except Exception:
-            logger.exception("Failed to load map summary for conflict check")
+        except Exception as exc:
+            logger.warning(
+                "Failed to load map summary for conflict check: %s",
+                redact_diagnostic(exc, limit=500),
+            )
             return [], ["world.map"], None
 
         degraded = []
@@ -1531,8 +1449,11 @@ class WritingConflictCheckService:
                 current_location_id=current_location_id,
                 current_location_name=current_label,
             )
-        except Exception:
-            logger.exception("Failed to load memory evidence for conflict check")
+        except Exception as exc:
+            logger.warning(
+                "Failed to load memory evidence for conflict check: %s",
+                redact_diagnostic(exc, limit=500),
+            )
             return [], ["memory"]
 
         if evidence is None:
@@ -2207,6 +2128,7 @@ class WritingGenerationService:
         draft = await self._repo.create_with_status(db, candidate, status="candidate")
         await bind_confirmed_action_result(
             db,
+            novel_id=plan.novel_id,
             confirmation_id=plan.context_confirmation_id,
             result_type="writing_draft",
             result_id=str(draft.id),

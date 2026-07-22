@@ -11,7 +11,11 @@ import pytest
 from pydantic import BaseModel, Field
 
 from infrastructure.llm.client import LLMClient
-from infrastructure.llm.errors import LLMInvalidResponseError, LLMTimeoutError
+from infrastructure.llm.errors import (
+    LLMAuthError,
+    LLMInvalidResponseError,
+    LLMTimeoutError,
+)
 from infrastructure.llm.limits import (
     LLMCircuitBreakerOpenError,
     get_llm_limiter,
@@ -181,6 +185,32 @@ def test_resolve_llm_profile_invalid_overrides_fall_back(monkeypatch) -> None:
     assert profile.max_tokens == 12_000
     assert profile.sources["timeout"] == "default"
     assert profile.sources["max_tokens"] == "default"
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid", "expected"),
+    [
+        ("temperature", "nan", 0.3),
+        ("temperature", "inf", 0.3),
+        ("temperature", 2.1, 0.3),
+        ("top_p", "-inf", None),
+        ("top_p", 1.1, None),
+        ("timeout", True, 180),
+        ("timeout", 3601, 180),
+        ("max_tokens", 200_001, 12_000),
+    ],
+)
+def test_resolve_llm_profile_rejects_invalid_numeric_values(
+    field: str,
+    invalid: object,
+    expected: object,
+) -> None:
+    profile = resolve_llm_profile(
+        {"llm": {field: invalid}},
+    )
+
+    assert getattr(profile, field) == expected
+    assert profile.sources[field] == "default"
 
 
 def test_resolve_llm_profile_sanitized_summary_redacts_api_key() -> None:
@@ -430,6 +460,36 @@ async def test_limiter_breaker_counts_only_after_retry_exhaustion(monkeypatch) -
     assert calls == 2
     assert "raw prompt" not in str(exc_info.value)
     assert "Authorization" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_limiter_breaker_ignores_project_auth_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=30.0),
+    )
+    client = LLMClient()
+    calls = 0
+
+    class FakeProvider:
+        name = "fake"
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            nonlocal calls
+            assert request.model == "fake"
+            calls += 1
+            if calls == 1:
+                raise LLMAuthError("project key rejected", provider="fake")
+            return LLMCallResponse(content="ok", model="fake", provider="fake")
+
+    client._provider = FakeProvider()  # type: ignore[assignment]
+
+    with pytest.raises(LLMAuthError):
+        await client.generate(LLMCallRequest(model="fake"))
+
+    response = await client.generate(LLMCallRequest(model="fake"))
+    assert response.content == "ok"
+    assert calls == 2
 
 
 @pytest.mark.asyncio

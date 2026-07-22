@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.outline.generation.context_builder import (
     PlotStructureContext,
@@ -331,7 +332,9 @@ class PlotStructureGenerator:
             )
         except Exception as exc:
             if snapshot_id is not None:
-                await self._mark_structure_snapshot_failed(db, snapshot_id, exc)
+                await self._mark_structure_snapshot_failed(
+                    db, novel_id, snapshot_id, exc
+                )
                 await db.commit()
             raise
 
@@ -341,6 +344,7 @@ class PlotStructureGenerator:
 
                 await fail_context_snapshot(
                     db,
+                    novel_id=novel_id,
                     snapshot_id=snapshot_id,
                     error_kind="empty_output",
                     error_message="LLM returned empty structure output",
@@ -390,6 +394,7 @@ class PlotStructureGenerator:
 
                 await succeed_context_snapshot(
                     db,
+                    novel_id=novel_id,
                     snapshot_id=snapshot_id,
                     result_refs=[],
                 )
@@ -436,6 +441,7 @@ class PlotStructureGenerator:
 
                 await succeed_context_snapshot(
                     db,
+                    novel_id=novel_id,
                     snapshot_id=snapshot_id,
                     result_refs=refs,
                 )
@@ -451,7 +457,9 @@ class PlotStructureGenerator:
                 )
         except Exception as exc:
             if snapshot_id is not None:
-                await self._mark_structure_snapshot_failed(db, snapshot_id, exc)
+                await self._mark_structure_snapshot_failed(
+                    db, novel_id, snapshot_id, exc
+                )
                 await db.commit()
             raise
         return data
@@ -802,6 +810,7 @@ class PlotStructureGenerator:
     @staticmethod
     async def _mark_structure_snapshot_failed(
         db: AsyncSession,
+        novel_id: str,
         snapshot_id: str,
         exc: Exception,
     ) -> None:
@@ -809,9 +818,10 @@ class PlotStructureGenerator:
 
         await fail_context_snapshot(
             db,
+            novel_id=novel_id,
             snapshot_id=snapshot_id,
             error_kind=exc.__class__.__name__,
-            error_message=str(exc)[:300],
+            error_message=redact_diagnostic(exc, limit=300),
         )
 
     @staticmethod

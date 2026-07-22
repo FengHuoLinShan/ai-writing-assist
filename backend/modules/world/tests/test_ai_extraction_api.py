@@ -187,6 +187,7 @@ async def test_promoting_extracted_candidate_marks_confirmation_needs_review(
     confirmation_id = confirmation_resp.json()["id"]
     await attach_result_ref(
         db_session,
+        novel_id=novel_id,
         confirmation_id=confirmation_id,
         result_type="world_entity",
         result_id=entity_id,

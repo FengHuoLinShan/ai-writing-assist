@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,7 @@ from shared.target_ref import TargetRef, normalize_target_ref
 
 _PRELOADED_SOURCE_UNSET = object()
 _SEARCH_SNIPPET_CHARS = 500
+_SCENE_CONTEXT_SUMMARY_CHARS = 320
 _QUERY_NGRAM_MAX_CHARS = 8
 _QUERY_SNIPPET_STOP_TERMS = {
     "之后",
@@ -107,6 +108,8 @@ class ManuscriptCandidateReadBatch:
     drop_reason_by_chunk_id: dict[str, str]
     visibility: VisibilityContextContract
     warnings: tuple[str, ...] = ()
+    scene_span_cache: dict[tuple[int, str], list] = field(default_factory=dict)
+    scene_contract_cache: dict[str, object | None] = field(default_factory=dict)
 
 
 class NovelEvidenceService:
@@ -127,6 +130,7 @@ class NovelEvidenceService:
         skip: int = 0,
         limit: int = 20,
         group_by_chapter: bool = False,
+        context_scene_id: str | None = None,
     ) -> dict:
         from modules.writing.facade import grep_manuscript
 
@@ -155,10 +159,39 @@ class NovelEvidenceService:
             group_by_chapter=group_by_chapter,
         )
         result: list[EvidenceHitContract] = []
+        scene_span_cache: dict[tuple[int, str], list] = {}
+        scene_contract_cache: dict[str, object | None] = {}
+        current_scene = await self._author_context_scene(
+            db,
+            novel_id=novel_id,
+            visibility=visibility,
+            context_scene_id=context_scene_id,
+        )
         for hit in hits:
             if not _source_visible(asdict(hit.source_ref), visibility):
                 continue
-            scene_refs = await self._scene_refs(db, novel_id, hit.source_ref)
+            scene_refs = await self._scene_refs(
+                db,
+                novel_id,
+                hit.source_ref,
+                include_author_context=visibility.mode == "author",
+                scene_span_cache=scene_span_cache,
+                scene_contract_cache=scene_contract_cache,
+            )
+            parent_scene_contexts = scene_refs
+            for represented_ref in hit.source_refs or []:
+                represented_scene_refs = await self._scene_refs(
+                    db,
+                    novel_id,
+                    represented_ref,
+                    include_author_context=visibility.mode == "author",
+                    scene_span_cache=scene_span_cache,
+                    scene_contract_cache=scene_contract_cache,
+                )
+                parent_scene_contexts = _merge_scene_contexts(
+                    parent_scene_contexts,
+                    represented_scene_refs,
+                )
             object_refs = await self._object_refs_for_source(db, novel_id, hit.source_ref)
             result.append(
                 EvidenceHitContract(
@@ -168,10 +201,16 @@ class NovelEvidenceService:
                     source_ref=asdict(hit.source_ref),
                     chapter_index=hit.source_ref.chapter_index,
                     scene_refs=scene_refs,
+                    parent_scene_contexts=parent_scene_contexts,
                     object_refs=object_refs,
                     visibility_decision=_visibility_decision(visibility),
                     match_count=hit.match_count,
                     match_basis="occurrence",
+                    writing_relevance=_writing_relevance(
+                        parent_scene_contexts,
+                        current_scene=current_scene,
+                        author_mode=visibility.mode == "author",
+                    ),
                 )
             )
         warnings = list(visibility_warnings)
@@ -198,6 +237,7 @@ class NovelEvidenceService:
         chapter_from: int | None = None,
         chapter_to: int | None = None,
         top_k: int = 100,
+        context_scene_id: str | None = None,
     ) -> dict:
         self._require_visibility(visibility)
         visibility, visibility_warnings = await self._resolve_visibility_cursor(
@@ -223,6 +263,7 @@ class NovelEvidenceService:
                 chapter_from=chapter_from,
                 chapter_to=chapter_to,
                 top_k=top_k,
+                context_scene_id=context_scene_id,
             )
             hits.extend(manuscript)
             warnings.extend(manuscript_warnings)
@@ -358,6 +399,8 @@ class NovelEvidenceService:
         )
         reads: dict[str, dict] = {}
         drops: dict[str, str] = {}
+        scene_span_cache: dict[tuple[int, str], list] = {}
+        scene_contract_cache: dict[str, object | None] = {}
         for chunk in chunks:
             chunk_id = str(chunk.id)
             source = current_by_chapter.get(chunk.chapter_index or 0)
@@ -402,6 +445,8 @@ class NovelEvidenceService:
                     visibility_warnings=combined_visibility_warnings,
                     before=0,
                     after=0,
+                    scene_span_cache=scene_span_cache,
+                    scene_contract_cache=scene_contract_cache,
                 )
             except (NotFoundError, ValidationError, ValueError) as exc:
                 drops[chunk_id] = _candidate_read_drop_reason(exc)
@@ -410,6 +455,8 @@ class NovelEvidenceService:
             drop_reason_by_chunk_id=drops,
             visibility=visibility,
             warnings=combined_visibility_warnings,
+            scene_span_cache=scene_span_cache,
+            scene_contract_cache=scene_contract_cache,
         )
 
     async def _read_visible_source_ref(
@@ -422,6 +469,8 @@ class NovelEvidenceService:
         visibility_warnings: Sequence[str],
         before: int,
         after: int,
+        scene_span_cache: dict[tuple[int, str], list] | None = None,
+        scene_contract_cache: dict[str, object | None] | None = None,
     ) -> dict:
         from modules.writing.facade import read_manuscript_range
 
@@ -444,7 +493,14 @@ class NovelEvidenceService:
             "text": item.text,
             "highlight_start": item.highlight_start,
             "highlight_end": item.highlight_end,
-            "scene_refs": await self._scene_refs(db, novel_id, item.source_ref),
+            "scene_refs": await self._scene_refs(
+                db,
+                novel_id,
+                item.source_ref,
+                include_author_context=visibility.mode == "author",
+                scene_span_cache=scene_span_cache,
+                scene_contract_cache=scene_contract_cache,
+            ),
             "object_refs": await self._object_refs_for_source(
                 db, novel_id, item.source_ref
             ),
@@ -884,6 +940,12 @@ class NovelEvidenceService:
 
         visibility = kwargs["visibility"]
         requested_top_k = kwargs["top_k"]
+        current_scene = await self._author_context_scene(
+            db,
+            novel_id=kwargs["novel_id"],
+            visibility=visibility,
+            context_scene_id=kwargs.get("context_scene_id"),
+        )
         result = await retrieve(
             db,
             kwargs["novel_id"],
@@ -957,8 +1019,14 @@ class NovelEvidenceService:
                     chapter_index=source_ref.chapter_index,
                     score=chunk.score,
                     scene_refs=read["scene_refs"],
+                    parent_scene_contexts=read["scene_refs"],
                     object_refs=read["object_refs"],
                     visibility_decision=_visibility_decision(visibility),
+                    writing_relevance=_writing_relevance(
+                        read["scene_refs"],
+                        current_scene=current_scene,
+                        author_mode=visibility.mode == "author",
+                    ),
                 )
             )
 
@@ -970,13 +1038,32 @@ class NovelEvidenceService:
         for hit in hits:
             chapter_index = hit.chapter_index or 0
             chunk_counts[chapter_index] = chunk_counts.get(chapter_index, 0) + 1
-            if chapter_index not in grouped:
+            existing = grouped.get(chapter_index)
+            if existing is None:
                 grouped[chapter_index] = hit
                 chapter_rank[chapter_index] = len(chapter_rank)
-        hits = [
-            replace(hit, match_count=chunk_counts[chapter_index], match_basis="chunk")
+                continue
+            parent_scene_contexts = _merge_scene_contexts(
+                existing.parent_scene_contexts,
+                hit.parent_scene_contexts,
+            )
+            grouped[chapter_index] = replace(
+                existing,
+                parent_scene_contexts=parent_scene_contexts,
+                writing_relevance=_writing_relevance(
+                    parent_scene_contexts,
+                    current_scene=current_scene,
+                    author_mode=visibility.mode == "author",
+                ),
+            )
+        grouped = {
+            chapter_index: replace(
+                hit,
+                match_count=chunk_counts[chapter_index],
+                match_basis="chunk",
+            )
             for chapter_index, hit in grouped.items()
-        ]
+        }
 
         # Exact occurrences complement semantic retrieval with chapter
         # coverage. This keeps a protagonist query from being dominated by
@@ -1005,6 +1092,33 @@ class NovelEvidenceService:
             existing = grouped.get(chapter_index)
             if chapter_index not in chapter_rank:
                 chapter_rank[chapter_index] = len(chapter_rank)
+            literal_scene_refs = await self._scene_refs(
+                db,
+                kwargs["novel_id"],
+                literal.source_ref,
+                include_author_context=visibility.mode == "author",
+                scene_span_cache=hydrated.scene_span_cache,
+                scene_contract_cache=hydrated.scene_contract_cache,
+            )
+            literal_parent_contexts = literal_scene_refs
+            for represented_ref in literal.source_refs or []:
+                represented_scene_refs = await self._scene_refs(
+                    db,
+                    kwargs["novel_id"],
+                    represented_ref,
+                    include_author_context=visibility.mode == "author",
+                    scene_span_cache=hydrated.scene_span_cache,
+                    scene_contract_cache=hydrated.scene_contract_cache,
+                )
+                literal_parent_contexts = _merge_scene_contexts(
+                    literal_parent_contexts,
+                    represented_scene_refs,
+                )
+            if existing:
+                literal_parent_contexts = _merge_scene_contexts(
+                    existing.parent_scene_contexts,
+                    literal_parent_contexts,
+                )
             literal_hit = EvidenceHitContract(
                 kind="manuscript",
                 title=literal.title or f"第 {chapter_index} 章",
@@ -1012,11 +1126,17 @@ class NovelEvidenceService:
                 source_ref=asdict(literal.source_ref),
                 chapter_index=chapter_index,
                 score=max(1.0, existing.score or 0.0) if existing else 1.0,
-                scene_refs=(existing.scene_refs if existing else []),
+                scene_refs=literal_scene_refs,
+                parent_scene_contexts=literal_parent_contexts,
                 object_refs=(existing.object_refs if existing else []),
                 visibility_decision=_visibility_decision(visibility),
                 match_count=literal.match_count,
                 match_basis="occurrence",
+                writing_relevance=_writing_relevance(
+                    literal_parent_contexts,
+                    current_scene=current_scene,
+                    author_mode=visibility.mode == "author",
+                ),
             )
             grouped[chapter_index] = literal_hit
 
@@ -1400,16 +1520,50 @@ class NovelEvidenceService:
         if visibility.mode == "character" and not visibility.character_id:
             raise ValueError("character 视角必须提供人物 ID")
 
-    async def _scene_refs(self, db, novel_id, source_ref):
-        from modules.outline.facade import get_scene_spans_by_chapter
+    async def _author_context_scene(
+        self,
+        db,
+        *,
+        novel_id: str,
+        visibility: VisibilityContextContract,
+        context_scene_id: str | None,
+    ):
+        if visibility.mode != "author" or not context_scene_id:
+            return None
+        from modules.outline.facade import get_scene_contract
 
-        spans = await get_scene_spans_by_chapter(
-            db,
-            novel_id,
-            source_ref.chapter_index,
-            content_mode=source_ref.content_mode,
+        try:
+            return await get_scene_contract(db, novel_id, context_scene_id)
+        except (ValidationError, ValueError):
+            return None
+
+    async def _scene_refs(
+        self,
+        db,
+        novel_id,
+        source_ref,
+        *,
+        include_author_context: bool = False,
+        scene_span_cache: dict[tuple[int, str], list] | None = None,
+        scene_contract_cache: dict[str, object | None] | None = None,
+    ):
+        from modules.outline.facade import (
+            get_scene_contract,
+            get_scene_spans_by_chapter,
         )
-        return [
+
+        span_key = (source_ref.chapter_index, source_ref.content_mode)
+        spans = (scene_span_cache or {}).get(span_key)
+        if spans is None:
+            spans = await get_scene_spans_by_chapter(
+                db,
+                novel_id,
+                source_ref.chapter_index,
+                content_mode=source_ref.content_mode,
+            )
+            if scene_span_cache is not None:
+                scene_span_cache[span_key] = spans
+        refs = [
             {
                 "target_type": "outline_scene",
                 "target_id": span.scene_id,
@@ -1425,6 +1579,31 @@ class NovelEvidenceService:
             and source_ref.start_offset < span.end_offset
             and source_ref.end_offset > span.start_offset
         ]
+        if not include_author_context:
+            return refs
+
+        enriched = []
+        for ref in refs:
+            scene_id = ref["target_id"]
+            if scene_contract_cache is not None and scene_id in scene_contract_cache:
+                scene = scene_contract_cache[scene_id]
+            else:
+                scene = await get_scene_contract(db, novel_id, scene_id)
+                if scene_contract_cache is not None:
+                    scene_contract_cache[scene_id] = scene
+            if scene is None:
+                enriched.append(ref)
+                continue
+            enriched.append(
+                {
+                    **ref,
+                    "target_name": scene.title,
+                    "scene_index": scene.scene_index,
+                    "scene_title": scene.title,
+                    "context_summary": _scene_context_summary(scene),
+                }
+            )
+        return enriched
 
     async def _object_refs_for_source(self, db, novel_id, source_ref):
         links = await self._evidence_repo.list_for_source_chapter(
@@ -1443,6 +1622,91 @@ class NovelEvidenceService:
                 continue
             result.append(dict(link.target_ref or {}))
         return result
+
+
+def _scene_context_summary(scene) -> str:
+    parts = []
+    for label, value in (
+        ("目标", scene.goal),
+        ("冲突", scene.core_conflict),
+        ("情绪", scene.emotional_beat),
+    ):
+        normalized = " ".join(str(value or "").split())
+        if normalized:
+            parts.append(f"{label}：{normalized}")
+    summary = "；".join(parts)
+    if len(summary) <= _SCENE_CONTEXT_SUMMARY_CHARS:
+        return summary
+    return f"{summary[: _SCENE_CONTEXT_SUMMARY_CHARS - 1]}…"
+
+
+def _merge_scene_contexts(*groups: Sequence[dict]) -> list[dict]:
+    merged: dict[str, dict] = {}
+    for group in groups:
+        for ref in group:
+            key = str(ref.get("target_id") or ref.get("scene_span_id") or "")
+            if not key:
+                continue
+            existing = merged.get(key, {})
+            merged[key] = {
+                **existing,
+                **{name: value for name, value in ref.items() if value is not None},
+            }
+    return list(merged.values())
+
+
+def _writing_relevance(
+    scene_refs: Sequence[dict],
+    *,
+    current_scene,
+    author_mode: bool,
+) -> dict:
+    """Explain chronology without asking an LLM to invent causal relevance."""
+
+    if not author_mode:
+        return {}
+    mapped_refs = [ref for ref in scene_refs if ref.get("scene_index") is not None]
+    if not mapped_refs:
+        return {
+            "kind": "unmapped",
+            "label": "尚未建立父 Scene 映射；当前只能确认它来自本章原文。",
+        }
+    if current_scene is None:
+        return {
+            "kind": "mapped",
+            "label": "已定位到所属 Scene，可结合命中原文核对当前创作。",
+        }
+
+    current_index = int(current_scene.scene_index)
+    parent_indices = [int(ref["scene_index"]) for ref in mapped_refs]
+    relation = {
+        "current_scene_id": str(current_scene.id),
+        "current_scene_index": current_index,
+        "current_scene_title": current_scene.title,
+    }
+    if current_index in parent_indices:
+        return {
+            **relation,
+            "kind": "current_scene",
+            "label": "当前正在写的 Scene：这段原文可直接核对本 Scene 的设定与措辞。",
+        }
+    if all(index < current_index for index in parent_indices):
+        return {
+            **relation,
+            "kind": "previous_scene",
+            "label": "前序 Scene：可用于核对当前 Scene 的剧情承接与已发生事实。",
+        }
+    if all(index > current_index for index in parent_indices):
+        return {
+            **relation,
+            "kind": "later_scene",
+            "label": "后续 Scene：仅供作者检查后续呼应，引用时请注意时间顺序。",
+        }
+    return {
+        **relation,
+        "kind": "other_scene",
+        "label": "跨越当前 Scene 前后的剧情资料：引用前请先核对时间顺序。",
+    }
 
 
 def _effective_chapter_to(

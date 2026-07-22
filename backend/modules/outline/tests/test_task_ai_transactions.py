@@ -224,6 +224,7 @@ async def test_analyze_task_restores_frozen_profile_and_waits_without_transactio
     client.close.assert_awaited_once()
     attached.assert_awaited_once_with(
         db,
+        novel_id="11111111-1111-1111-1111-111111111111",
         confirmation_id="confirmation-1",
         result_type="outline_analysis",
         result_id="task-1",
@@ -821,6 +822,7 @@ async def test_outline_generate_handler_closes_confirmation_on_terminal_failure(
     db.commit.assert_awaited_once_with()
     attach_result_ref.assert_awaited_once_with(
         db,
+        novel_id="11111111-1111-1111-1111-111111111111",
         confirmation_id="22222222-2222-2222-2222-222222222222",
         result_type="task",
         result_id="task-1",

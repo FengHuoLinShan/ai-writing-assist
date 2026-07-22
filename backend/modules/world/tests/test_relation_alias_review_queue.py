@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
@@ -88,6 +89,72 @@ def test_review_batch_schemas_reject_unconfirmed_duplicate_and_blank_values() ->
                 ],
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_relation_review_batch_propagates_database_failures(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relation_id = str(uuid.uuid4())
+    service = EntityRelationService()
+
+    async def fail_write(*_args, **_kwargs):
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(service, "_apply_review_decision", fail_write)
+    request = EntityRelationReviewBatchRequest.model_validate(
+        {
+            "confirmed": True,
+            "decisions": [
+                {
+                    "client_decision_id": "db-failure",
+                    "action": "accept",
+                    "group_id": "group-db-failure",
+                    "member_relation_ids": [relation_id],
+                    "primary_relation_id": relation_id,
+                    "expected_execution_fingerprint": "f" * 64,
+                    "source_id": str(uuid.uuid4()),
+                    "target_id": str(uuid.uuid4()),
+                    "relation_type": "friend_of",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(SQLAlchemyError, match="database unavailable"):
+        await service.review_batch(db_session, uuid.uuid4().hex, request)
+
+
+@pytest.mark.asyncio
+async def test_alias_review_batch_propagates_database_failures(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = EntityAliasService()
+
+    async def fail_write(*_args, **_kwargs):
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(service, "_apply_review_decision", fail_write)
+    request = EntityAliasReviewBatchRequest.model_validate(
+        {
+            "confirmed": True,
+            "decisions": [
+                {
+                    "client_decision_id": "db-failure",
+                    "action": "accept",
+                    "entity_id": str(uuid.uuid4()),
+                    "original_alias": "待处理别名",
+                    "expected_execution_fingerprint": "a" * 64,
+                    "alias_type": "alias",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(SQLAlchemyError, match="database unavailable"):
+        await service.review_batch(db_session, uuid.uuid4().hex, request)
 
 
 @pytest.mark.asyncio

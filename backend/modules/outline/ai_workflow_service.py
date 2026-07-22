@@ -227,6 +227,7 @@ class OutlineAIWorkflowService:
         )
         await context_facade.attach_result_ref(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_type="outline_structure_preview",
             result_id=task_id,
@@ -310,6 +311,7 @@ class OutlineAIWorkflowService:
         result = generation.task_result(plan, output, task_id=task_id)
         await context_facade.attach_result_ref(
             db,
+            novel_id=data.novel_id,
             confirmation_id=data.context_confirmation_id,
             result_type="outline_layer_preview",
             result_id=task_id,
@@ -538,6 +540,7 @@ class OutlineAIWorkflowService:
         await cls._require_confirmed_task_prompt_fresh(db, plan)
         await context_facade.attach_result_ref(
             db,
+            novel_id=plan.novel_id,
             confirmation_id=plan.confirmation_id,
             result_type=result_type,
             result_id=result_id,
@@ -670,6 +673,7 @@ class OutlineAIWorkflowService:
 
         await context_facade.attach_result_ref(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_type="outline_analysis",
             result_id=task_id,
@@ -713,6 +717,7 @@ class OutlineAIWorkflowService:
         )
         await context_facade.attach_result_ref(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_type="outline_structure_preview",
             result_id=task_id,
@@ -816,6 +821,7 @@ class OutlineAIWorkflowService:
         applied_result = {"status": "applied", **result}
         await context_facade.attach_result_refs(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_refs=generator.result_refs(result),
             status="done",

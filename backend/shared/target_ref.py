@@ -33,10 +33,10 @@ class TargetRef(BaseModel):
             )
         return ".".join(parts)
 
-    @field_validator("target_type", "target_id")
+    @field_validator("target_type", "target_id", mode="before")
     @classmethod
-    def normalize_text(cls, value: str) -> str:
-        return value.strip()
+    def normalize_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
     def canonical_dict(self) -> dict[str, str]:
         return {

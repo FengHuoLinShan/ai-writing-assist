@@ -16,34 +16,6 @@ from core.errors import ValidationError as DomainValidationError
 
 logger = logging.getLogger(__name__)
 
-_SECRET_PATTERNS = (
-    (
-        re.compile(r"(?i)\b(authorization\s*[:=]\s*bearer\s+)[^\s,\"';}]+"),
-        r"\1[REDACTED]",
-    ),
-    (re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1[REDACTED]"),
-    (
-        re.compile(
-            r"(?i)([\"']?(?:api[_-]?key|token|secret|access[_-]?token|"
-            r"refresh[_-]?token)[\"']?\s*[:=]\s*[\"']?)[^\"'\s,;}]+",
-        ),
-        r"\1[REDACTED]",
-    ),
-    (re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"), "[REDACTED]"),
-)
-
-
-def _redact_sensitive_text(text: str) -> str:
-    redacted = text
-    for pattern, replacement in _SECRET_PATTERNS:
-        redacted = pattern.sub(replacement, redacted)
-    return redacted
-
-
-def _redacted_preview(text: str, limit: int) -> str:
-    return _redact_sensitive_text(text)[:limit]
-
-
 def parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
     """将字符串 ID 解析为 UUID，格式错误时抛出 422
 
@@ -104,8 +76,7 @@ def parse_llm_json(content: str, label: str = "LLM response") -> dict:
     """
     text = content.strip()
     if not text:
-        preview = _redacted_preview(content, 200) if content else "<empty>"
-        logger.warning("%s is empty or whitespace-only. preview=%r", label, preview)
+        logger.warning("%s is empty or whitespace-only", label)
         raise ValueError(f"{label} is empty")
 
     # 1. 尝试直接解析
@@ -175,6 +146,5 @@ def parse_llm_json(content: str, label: str = "LLM response") -> dict:
                 except json.JSONDecodeError:
                     continue
 
-    preview = _redacted_preview(text, 500)
-    logger.warning("%s JSON parse failed. preview=%r", label, preview)
+    logger.warning("%s JSON parse failed (length=%d)", label, len(text))
     raise ValueError(f"{label} is not valid JSON")

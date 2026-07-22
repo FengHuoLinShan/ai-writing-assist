@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.registry import task_handler
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 async def _mark_confirmation_task_terminal(
     db,
     *,
+    novel_id: str,
     confirmation_id: str,
     task_id: str,
     status: str,
@@ -22,16 +24,18 @@ async def _mark_confirmation_task_terminal(
 
         await attach_result_ref(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             result_type="task",
             result_id=task_id,
             status=status,
         )
         await db.commit()
-    except Exception:
+    except Exception as exc:
         await db.rollback()
-        logger.exception(
-            "Failed to close outline context confirmation after task terminal state"
+        logger.error(
+            "Failed to close outline context confirmation after task terminal state: %s",
+            redact_diagnostic(exc, limit=300),
         )
 
 
@@ -293,6 +297,7 @@ async def handle_outline_generate(db, task):
     except asyncio.CancelledError:
         await _mark_confirmation_task_terminal(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             task_id=str(task.id),
             status="cancelled",
@@ -301,6 +306,7 @@ async def handle_outline_generate(db, task):
     except Exception:
         await _mark_confirmation_task_terminal(
             db,
+            novel_id=novel_id,
             confirmation_id=confirmation_id,
             task_id=str(task.id),
             status="failed",

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from core.config import get_settings
 from infrastructure.embedding.cache import EmbeddingCache
 from infrastructure.embedding.worker import BgeOnnxWorker
+from infrastructure.llm.redaction import redact_diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,11 @@ class BgeEmbeddingClient(EmbeddingProvider):
                 is_query=is_query,
             )
         except Exception as exc:
-            logger.exception("BGE batch encoding failed for %d texts", batch_size)
+            logger.error(
+                "BGE batch encoding failed for %d texts: %s",
+                batch_size,
+                redact_diagnostic(exc, limit=500),
+            )
             self._fail_requests(batch, exc)
             return
 
@@ -394,8 +399,12 @@ class BgeEmbeddingClient(EmbeddingProvider):
                     uncached_texts,
                     is_query=is_query,
                 )
-            except Exception:
-                logger.exception("BGE encoding failed for %d texts", len(uncached_texts))
+            except Exception as exc:
+                logger.error(
+                    "BGE encoding failed for %d texts: %s",
+                    len(uncached_texts),
+                    redact_diagnostic(exc, limit=500),
+                )
                 raise
 
             for text, idx, emb in zip(uncached_texts, uncached_indices, embeddings):
@@ -440,7 +449,7 @@ async def prewarm_embedding_worker() -> dict:
             "embedding_dim": None,
             "latency_ms": latency_ms,
             "cache_stats": {},
-            "warning": str(exc)[:500],
+            "warning": redact_diagnostic(exc, limit=500),
         }
         _last_prewarm = result.copy()
         raise RuntimeError("embedding worker prewarm failed") from exc
