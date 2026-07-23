@@ -104,6 +104,8 @@ contract 消费它们。
 
 ## 5. 状态、采用与隔离
 
+- **Account / Owner**：`accounts` 是公开浏览器身份根；每个项目只有一个
+  `owner_id → accounts.id`。邮箱与 Authing 微信是互斥主身份，不自动绑定或合并。
 - **作者展示状态**：结构化资产统一投影为 `display_state = review / active / archived`，界面分别显示“待处理 / 已采用 / 历史”。`display_state` 是领域派生语义，不替代兼容期原始 `status` 字段。
 - **正文成熟度**：正文使用“工作稿 / 已发布”；Scene 等确有编辑生命周期的内容可显示工作稿。未采用的 AI 正文是待处理建议，不是普通工作稿。
 - **来源与注意原因**：`source`、`attention_reasons` 和 `suggested_action` 与生命周期分离。`conflicted`、低置信、POV 风险、`needs_review` 是注意原因，不是新的主状态。
@@ -124,14 +126,15 @@ contract 消费它们。
 - orchestrator 负责阶段顺序、并发、恢复、降级和写入；step 不自主选择工具或跨模块编排。
 - 运行时 Prompt、调用方和输出契约以 `docs/prompts/Prompt体系设计.md` 为准，不在本文件
   固定 Prompt 数量或旧文件清单。
-- 项目级 LLM Profile 位于 `projects.settings.llm`，全局默认和作者偏好位于 settings 模块。
-  有效业务配置按项目 → 全局 → 系统默认物化；业务 provider 字段不从 `LLM_*` 环境变量
+- 项目级 LLM Profile 位于 `projects.settings.llm`，账号全局默认和作者偏好位于 settings
+  模块。有效业务配置按项目 → 同 owner 全局 → 系统默认物化；业务 provider 字段不从 `LLM_*` 环境变量
   继承，显式测试 override 仅用于测试路径。
 
 ## 7. 模块边界与文档使用
 
-当前业务模块为 `project`、`world`、`memory`、`outline`、`rag`、`context`、`writing`、
-`imports`、`settings`；`map` 是 world 子系统，`infrastructure/tasks` 是共享基础设施。
+当前业务模块为 `account`、`project`、`world`、`memory`、`outline`、`rag`、`context`、
+`writing`、`imports`、`settings`；`map` 是 world 子系统，`infrastructure/tasks`
+是共享基础设施。
 
 生产业务代码只能跨模块依赖 `contracts.py`、`facade.py` 或已注册 DI port。应用组合根、
 测试 fixture 与 migration 的模型导入是受限例外，不可据此在业务层直接依赖其他模块内部

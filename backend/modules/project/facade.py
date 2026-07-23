@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -46,7 +46,24 @@ async def get_project_context(
 
     from modules.settings.facade import materialize_effective_project_settings
 
-    settings = await materialize_effective_project_settings(db, context.settings)
+    raw_owner_id = getattr(context, "owner_id", None)
+    owner_id = None
+    if isinstance(raw_owner_id, uuid.UUID):
+        owner_id = raw_owner_id
+    elif isinstance(raw_owner_id, str) and raw_owner_id:
+        try:
+            owner_id = uuid.UUID(raw_owner_id)
+        except ValueError:
+            owner_id = None
+    settings = (
+        await materialize_effective_project_settings(
+            db,
+            context.settings,
+            owner_id=owner_id,
+        )
+        if owner_id is not None
+        else await materialize_effective_project_settings(db, context.settings)
+    )
     return context.model_copy(update={"settings": settings})
 
 
@@ -78,7 +95,14 @@ async def get_project_by_id(
 ) -> Project | None:
     """根据 ID 获取未删除项目（供其他模块读取项目 settings 等）。"""
     pid = project_id if isinstance(project_id, uuid.UUID) else uuid.UUID(str(project_id))
-    return await _repo.get(db, pid)
+    from modules.account.facade import current_owner_id_or_system_none
+
+    owner_id = current_owner_id_or_system_none()
+    return await _repo.get(
+        db,
+        pid,
+        owner_id,
+    )
 
 
 async def list_active_projects(db: AsyncSession) -> list[Project]:
@@ -87,7 +111,15 @@ async def list_active_projects(db: AsyncSession) -> list[Project]:
     仅供跨模块聚合（如 settings 默认继承统计）。返回 ORM 对象，调用方
     只应读取属性，不应在本模块之外修改。
     """
-    items, _ = await _repo.list(db, skip=0, limit=100000)
+    from modules.account.facade import current_owner_id_or_system_none
+
+    owner_id = current_owner_id_or_system_none()
+    items, _ = await _repo.list(
+        db,
+        skip=0,
+        limit=100000,
+        owner_id=owner_id,
+    )
     return items
 
 
@@ -103,7 +135,12 @@ async def list_active_project_summaries(
     ``exclude_project_ids`` lets caller-owned modules provide a DB-side project-id
     subquery without importing project internals.
     """
+    from modules.account.facade import current_owner_id_or_system_none
+
     conditions = [Project.deleted_at.is_(None)]
+    owner_id = current_owner_id_or_system_none()
+    if owner_id is not None:
+        conditions.append(Project.owner_id == owner_id)
     if exclude_project_ids is not None:
         conditions.append(Project.id.not_in(exclude_project_ids))
 
@@ -120,3 +157,30 @@ async def list_active_project_summaries(
     result = await db.execute(stmt)
     items = [ProjectSummary(project_id=row.id, title=row.title) for row in result.all()]
     return items, total
+
+
+async def list_project_ids_for_owner(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+) -> list[uuid.UUID]:
+    """Return only project IDs for account lifecycle task fencing."""
+    result = await db.execute(select(Project.id).where(Project.owner_id == owner_id))
+    return list(result.scalars().all())
+
+
+async def purge_projects_for_owner(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+) -> int:
+    """Permanently remove every owner project after account purge becomes due."""
+    from infrastructure.tasks.facade import delete_tasks_for_novels
+
+    project_ids = await list_project_ids_for_owner(db, owner_id)
+    if project_ids:
+        await delete_tasks_for_novels(
+            db,
+            novel_ids=[str(project_id) for project_id in project_ids],
+        )
+    result = await db.execute(delete(Project).where(Project.owner_id == owner_id))
+    await db.flush()
+    return result.rowcount or 0

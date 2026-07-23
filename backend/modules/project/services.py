@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.llm.egress import validate_user_llm_base_url
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
     LLM_API_KEYS_BY_PROVIDER_FIELD,
@@ -23,6 +24,11 @@ from infrastructure.tasks.facade import (
     cancel_unfinished_tasks_for_novel,
     delete_tasks_for_novel,
     delete_tasks_for_novels,
+)
+from modules.account.facade import (
+    current_account_id,
+    current_owner_id_or_system_none,
+    require_account_active,
 )
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
@@ -77,6 +83,7 @@ class ProjectService:
         task_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novel,
         tasks_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novels,
     ) -> None:
+        self._uses_default_repo = repo is None
         self._repo = repo or ProjectRepository()
         self._writing_stats_provider = writing_stats_provider or (
             get_project_writing_stats if repo is None else _empty_project_writing_stats
@@ -100,12 +107,23 @@ class ProjectService:
             update_shape = ProjectUpdate(settings=data.settings)
             encrypted = self._encrypt_project_settings_update(update_shape)
             data = data.model_copy(update={"settings": encrypted.settings})
-        project = await self._repo.create(db, data)
+        owner_id = current_account_id()
+        await require_account_active(db, owner_id)
+        project = (
+            await self._repo.create(db, data, owner_id=owner_id)
+            if self._uses_default_repo
+            else await self._repo.create(db, data)
+        )
         return await self._response_with_stats(db, project)
 
     async def get_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         pid = _parse_uuid(project_id, "project_id")
-        project = await self._repo.get(db, pid)
+        owner_id = self._request_owner_id()
+        project = (
+            await self._repo.get(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.get(db, pid)
+        )
         if project is None:
             raise NotFoundError(f"Project {project_id} not found")
         return await self._response_with_stats(db, project)
@@ -117,7 +135,13 @@ class ProjectService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> ProjectListResponse:
         limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._repo.list(db, skip=skip, limit=limit)
+        owner_id = self._request_owner_id()
+        if owner_id is None:
+            items, total = await self._repo.list(db, skip=skip, limit=limit)
+        else:
+            items, total = await self._repo.list(
+                db, skip=skip, limit=limit, owner_id=owner_id
+            )
         stats_by_project_id = await self._writing_stats_batch_provider(
             db,
             [str(project.id) for project in items],
@@ -141,7 +165,12 @@ class ProjectService:
     ) -> ProjectResponse:
         pid = _parse_uuid(project_id, "project_id")
         data = self._encrypt_project_settings_update(data)
-        project = await self._repo.update(db, pid, data)
+        owner_id = self._request_owner_id()
+        project = (
+            await self._repo.update(db, pid, data, owner_id=owner_id)
+            if owner_id is not None
+            else await self._repo.update(db, pid, data)
+        )
         if project is None:
             raise NotFoundError(f"Project {project_id} not found")
         return await self._response_with_stats(db, project)
@@ -184,7 +213,10 @@ class ProjectService:
         if data.label is not None:
             next_profile["label"] = data.label
         if data.base_url is not None and data.base_url != "":
-            next_profile["base_url"] = data.base_url
+            try:
+                next_profile["base_url"] = validate_user_llm_base_url(data.base_url)
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
         if data.model is not None and data.model != "":
             next_profile["model"] = data.model
         if data.timeout is not None:
@@ -242,6 +274,13 @@ class ProjectService:
         if not isinstance(llm, dict):
             return data
         next_llm = dict(llm)
+        if next_llm.get("base_url"):
+            try:
+                next_llm["base_url"] = validate_user_llm_base_url(
+                    str(next_llm["base_url"])
+                )
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
         if next_llm.get(LLM_API_KEY_FIELD):
             next_llm[LLM_API_KEY_FIELD] = ProjectService._encrypt_llm_secret(
                 next_llm[LLM_API_KEY_FIELD]
@@ -296,7 +335,12 @@ class ProjectService:
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:
         """软删除项目，并在同一事务取消其未完成任务。"""
         pid = _parse_uuid(project_id, "project_id")
-        deleted = await self._repo.soft_delete(db, pid)
+        owner_id = self._request_owner_id()
+        deleted = (
+            await self._repo.soft_delete(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.soft_delete(db, pid)
+        )
         if not deleted:
             raise NotFoundError(f"Project {project_id} not found or already deleted")
         await self._task_canceller(
@@ -308,10 +352,19 @@ class ProjectService:
     async def restore_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         """从回收站恢复项目"""
         pid = _parse_uuid(project_id, "project_id")
-        restored = await self._repo.restore(db, pid)
+        owner_id = self._request_owner_id()
+        restored = (
+            await self._repo.restore(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.restore(db, pid)
+        )
         if not restored:
             raise NotFoundError(f"Project {project_id} not found in recycle bin")
-        project = await self._repo.get(db, pid)
+        project = (
+            await self._repo.get(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.get(db, pid)
+        )
         if project is None:
             raise NotFoundError(f"Project {project_id} not found after restore")
         return await self._response_with_stats(db, project)
@@ -327,7 +380,12 @@ class ProjectService:
         if not confirmed:
             raise ValidationError("permanent delete requires confirmed=true")
         pid = _parse_uuid(project_id, "project_id")
-        deleted = await self._repo.permanent_delete(db, pid)
+        owner_id = self._request_owner_id()
+        deleted = (
+            await self._repo.permanent_delete(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.permanent_delete(db, pid)
+        )
         if not deleted:
             raise NotFoundError(f"Project {project_id} not found in recycle bin")
         await self._task_deleter(db, novel_id=str(pid))
@@ -345,7 +403,12 @@ class ProjectService:
 
         parsed_ids = [_parse_uuid(project_id, "project_id") for project_id in project_ids]
         unique_ids = list(dict.fromkeys(parsed_ids))
-        deleted_ids = await self._repo.list_deleted_ids(db, unique_ids)
+        owner_id = self._request_owner_id()
+        deleted_ids = (
+            await self._repo.list_deleted_ids(db, unique_ids, owner_id)
+            if owner_id is not None
+            else await self._repo.list_deleted_ids(db, unique_ids)
+        )
         missing_ids = [
             project_id for project_id in unique_ids if project_id not in deleted_ids
         ]
@@ -353,7 +416,11 @@ class ProjectService:
             missing = ", ".join(str(project_id) for project_id in missing_ids)
             raise NotFoundError(f"Projects not found in recycle bin: {missing}")
 
-        deleted_count = await self._repo.permanent_delete_many(db, unique_ids)
+        deleted_count = (
+            await self._repo.permanent_delete_many(db, unique_ids, owner_id)
+            if owner_id is not None
+            else await self._repo.permanent_delete_many(db, unique_ids)
+        )
         if deleted_count != len(unique_ids):
             raise ConflictError(
                 "Recycle bin changed during bulk permanent delete; "
@@ -376,7 +443,13 @@ class ProjectService:
     ) -> ProjectListResponse:
         """列出回收站中的项目"""
         limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._repo.list_deleted(db, skip=skip, limit=limit)
+        owner_id = self._request_owner_id()
+        if owner_id is None:
+            items, total = await self._repo.list_deleted(db, skip=skip, limit=limit)
+        else:
+            items, total = await self._repo.list_deleted(
+                db, skip=skip, limit=limit, owner_id=owner_id
+            )
         return ProjectListResponse(
             items=[await self._response_with_stats(db, p) for p in items],
             total=total,
@@ -388,11 +461,19 @@ class ProjectService:
         novel_id: str,
     ) -> ProjectContext | None:
         pid = _parse_uuid(novel_id, "novel_id")
-        project = await self._repo.get(db, pid)
+        owner_id = self._request_owner_id()
+        project = (
+            await self._repo.get(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.get(db, pid)
+        )
         if project is None:
             return None
+        if self._uses_default_repo:
+            await require_account_active(db, project.owner_id)
         return ProjectContext(
             novel_id=str(project.id),
+            owner_id=str(project.owner_id) if project.owner_id is not None else None,
             title=project.title,
             genre=project.genre,
             tone=project.tone,
@@ -410,9 +491,16 @@ class ProjectService:
     ) -> None:
         """Hold a shared project row lock for the caller's transaction."""
         pid = _parse_uuid(novel_id, "novel_id")
-        project = await self._repo.get_active_for_share(db, pid)
+        owner_id = self._request_owner_id()
+        project = (
+            await self._repo.get_active_for_share(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.get_active_for_share(db, pid)
+        )
         if project is None:
             raise NotFoundError(f"Project {novel_id} not found")
+        if self._uses_default_repo:
+            await require_account_active(db, project.owner_id)
 
     async def require_active_project_exclusive(
         self,
@@ -421,16 +509,33 @@ class ProjectService:
     ) -> None:
         """Hold a short exclusive project lock for source-sensitive finalizers."""
         pid = _parse_uuid(novel_id, "novel_id")
-        project = await self._repo.get_active_for_update(db, pid)
+        owner_id = self._request_owner_id()
+        project = (
+            await self._repo.get_active_for_update(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.get_active_for_update(db, pid)
+        )
         if project is None:
             raise NotFoundError(f"Project {novel_id} not found")
+        if self._uses_default_repo:
+            await require_account_active(db, project.owner_id)
 
     async def _get_existing_project(self, db: AsyncSession, project_id: str):
         pid = _parse_uuid(project_id, "project_id")
-        project = await self._repo.get(db, pid)
+        owner_id = self._request_owner_id()
+        project = (
+            await self._repo.get(db, pid, owner_id)
+            if owner_id is not None
+            else await self._repo.get(db, pid)
+        )
         if project is None:
             raise NotFoundError(f"Project {project_id} not found")
         return project
+
+    @staticmethod
+    def _request_owner_id() -> uuid.UUID | None:
+        """Return the browser owner; public worker calls alone may return None."""
+        return current_owner_id_or_system_none()
 
     async def _response_with_stats(
         self,

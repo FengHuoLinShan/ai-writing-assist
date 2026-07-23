@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+from core.config import get_settings
 from infrastructure.llm.health import LLMHealthChecker, LLMHealthResult
 
 
@@ -99,3 +100,56 @@ def test_health_error_message_redacts_secrets() -> None:
     assert "sk-another-secret" not in result.message
     assert "Bearer" not in result.message
     assert "[REDACTED]" in result.message
+
+
+@pytest.mark.asyncio
+async def test_public_health_rejects_private_dns_before_sending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTH_MODE", "public")
+    monkeypatch.setenv("LLM_PROXY_URL", "")
+    get_settings.cache_clear()
+    checker = LLMHealthChecker(
+        api_key="test-key",
+        base_url="https://api.deepseek.com/v1",
+        model="deepseek-chat",
+    )
+    checker._resolve_host = AsyncMock(return_value=["10.0.0.5"])  # type: ignore[method-assign]
+    checker._check_models = AsyncMock()  # type: ignore[method-assign]
+    checker._check_chat = AsyncMock()  # type: ignore[method-assign]
+    try:
+        result = await checker.check()
+    finally:
+        get_settings.cache_clear()
+
+    assert result.ok is False
+    assert result.error_kind == "dns_private_ip"
+    checker._check_models.assert_not_awaited()
+    checker._check_chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_public_health_custom_host_requires_explicit_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTH_MODE", "public")
+    monkeypatch.setenv("LLM_PROXY_URL", "")
+    get_settings.cache_clear()
+    checker = LLMHealthChecker(
+        api_key="test-key",
+        base_url="https://attacker-controlled.example/v1",
+        model="model",
+    )
+    checker._resolve_host = AsyncMock(return_value=["8.8.8.8"])  # type: ignore[method-assign]
+    checker._check_models = AsyncMock()  # type: ignore[method-assign]
+    checker._check_chat = AsyncMock()  # type: ignore[method-assign]
+    try:
+        result = await checker.check()
+    finally:
+        get_settings.cache_clear()
+
+    assert result.ok is False
+    assert result.error_kind == "configuration_error"
+    checker._resolve_host.assert_not_awaited()
+    checker._check_models.assert_not_awaited()
+    checker._check_chat.assert_not_awaited()

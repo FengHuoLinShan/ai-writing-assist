@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.project.contracts import ProjectContext
 from modules.project.facade import (
     get_project_context,
@@ -586,7 +587,11 @@ class TestProjectService:
         result = await service.delete_project(db, project_id)
 
         assert result is None
-        repo.soft_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
+        repo.soft_delete.assert_awaited_once_with(
+            db,
+            uuid.UUID(project_id),
+            BOOTSTRAP_ACCOUNT_ID,
+        )
         task_canceller.assert_awaited_once_with(
             db,
             novel_id=project_id,
@@ -608,7 +613,11 @@ class TestProjectService:
 
         assert resp.id == project_id
         assert resp.deleted_at is None
-        repo.restore.assert_awaited_once_with(db, uuid.UUID(project_id))
+        repo.restore.assert_awaited_once_with(
+            db,
+            uuid.UUID(project_id),
+            BOOTSTRAP_ACCOUNT_ID,
+        )
 
     @pytest.mark.asyncio
     async def test_list_deleted_projects(self) -> None:
@@ -641,7 +650,11 @@ class TestProjectService:
         )
 
         assert result is None
-        repo.permanent_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
+        repo.permanent_delete.assert_awaited_once_with(
+            db,
+            uuid.UUID(project_id),
+            BOOTSTRAP_ACCOUNT_ID,
+        )
         task_deleter.assert_awaited_once_with(db, novel_id=project_id)
 
     @pytest.mark.asyncio
@@ -663,7 +676,11 @@ class TestProjectService:
 
         assert result.deleted_count == 2
         assert result.deleted_ids == [str(project_id) for project_id in project_ids]
-        repo.permanent_delete_many.assert_awaited_once_with(db, project_ids)
+        repo.permanent_delete_many.assert_awaited_once_with(
+            db,
+            project_ids,
+            BOOTSTRAP_ACCOUNT_ID,
+        )
         tasks_deleter.assert_awaited_once_with(
             db,
             novel_ids=[str(project_id) for project_id in project_ids],

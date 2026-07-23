@@ -11,6 +11,7 @@ from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Strin
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 
 
 class Project(Base, UUIDMixin, TimestampMixin):
@@ -18,6 +19,14 @@ class Project(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "projects"
 
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: BOOTSTRAP_ACCOUNT_ID,
+        index=True,
+        comment="项目唯一所有者；不通过业务响应暴露",
+    )
     title: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

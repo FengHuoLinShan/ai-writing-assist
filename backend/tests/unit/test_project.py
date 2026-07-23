@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.project.contracts import ProjectContext
 from modules.project.facade import get_project_context
 from modules.project.models import Project
@@ -392,6 +393,7 @@ class TestGetProjectContextFacade:
         mock_materialize_settings.return_value = {"llm": {"provider_id": "deepseek"}}
         mock_get.return_value = Project(
             id=uid,
+            owner_id=BOOTSTRAP_ACCOUNT_ID,
             title="测试小说",
             genre="玄幻",
             language="zh",

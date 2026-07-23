@@ -17,11 +17,19 @@ from modules.project.schemas import ProjectCreate, ProjectUpdate
 class ProjectRepository:
     """项目数据访问层"""
 
-    async def get(self, db: AsyncSession, project_id: uuid.UUID) -> Project | None:
-        stmt = select(Project).where(
+    async def get(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
+    ) -> Project | None:
+        conditions = [
             Project.id == project_id,
             Project.deleted_at.is_(None),
-        )
+        ]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = select(Project).where(*conditions)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -29,6 +37,7 @@ class ProjectRepository:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
     ) -> Project | None:
         """Lock an active project against deletion for the caller transaction.
 
@@ -36,14 +45,10 @@ class ProjectRepository:
         remain compatible, while updates to ``deleted_at`` wait until the
         guarded business transaction commits or rolls back.
         """
-        stmt = (
-            select(Project)
-            .where(
-                Project.id == project_id,
-                Project.deleted_at.is_(None),
-            )
-            .with_for_update(read=True)
-        )
+        conditions = [Project.id == project_id, Project.deleted_at.is_(None)]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = select(Project).where(*conditions).with_for_update(read=True)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -51,20 +56,17 @@ class ProjectRepository:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
     ) -> Project | None:
         """Exclusively lock one active project for a short finalizer.
 
         This is intentionally separate from the normal ``FOR SHARE`` guard:
         callers must not hold this lock across provider or other network I/O.
         """
-        stmt = (
-            select(Project)
-            .where(
-                Project.id == project_id,
-                Project.deleted_at.is_(None),
-            )
-            .with_for_update()
-        )
+        conditions = [Project.id == project_id, Project.deleted_at.is_(None)]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = select(Project).where(*conditions).with_for_update()
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -73,13 +75,17 @@ class ProjectRepository:
         db: AsyncSession,
         skip: int = 0,
         limit: int = 20,
+        owner_id: uuid.UUID | None = None,
     ) -> tuple[list[Project], int]:
-        count_stmt = select(func.count(Project.id)).where(Project.deleted_at.is_(None))
+        conditions = [Project.deleted_at.is_(None)]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        count_stmt = select(func.count(Project.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
         stmt = (
             select(Project)
-            .where(Project.deleted_at.is_(None))
+            .where(*conditions)
             .offset(skip)
             .limit(limit)
             .order_by(Project.created_at.desc(), Project.id.desc())
@@ -88,8 +94,13 @@ class ProjectRepository:
         items = list(result.scalars().all())
         return items, total
 
-    async def create(self, db: AsyncSession, data: ProjectCreate) -> Project:
-        project = Project(
+    async def create(
+        self,
+        db: AsyncSession,
+        data: ProjectCreate,
+        owner_id: uuid.UUID | None = None,
+    ) -> Project:
+        values = dict(
             title=data.title,
             genre=data.genre,
             tone=data.tone,
@@ -99,6 +110,9 @@ class ProjectRepository:
             default_reveal_policy=data.default_reveal_policy or "author_safe",
             settings=data.settings or {},
         )
+        if owner_id is not None:
+            values["owner_id"] = owner_id
+        project = Project(**values)
         db.add(project)
         await db.flush()
         return project
@@ -108,9 +122,14 @@ class ProjectRepository:
         db: AsyncSession,
         project_or_id: Project | uuid.UUID,
         data: ProjectUpdate,
+        owner_id: uuid.UUID | None = None,
     ) -> Project | None:
         project = (
-            await self.get(db, project_or_id)
+            (
+                await self.get(db, project_or_id, owner_id)
+                if owner_id is not None
+                else await self.get(db, project_or_id)
+            )
             if isinstance(project_or_id, uuid.UUID)
             else project_or_id
         )
@@ -145,32 +164,44 @@ class ProjectRepository:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
     ) -> Project | None:
-        stmt = select(Project).where(
+        conditions = [
             Project.id == project_id,
             Project.deleted_at.isnot(None),
-        )
+        ]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = select(Project).where(*conditions)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def soft_delete(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
+    async def soft_delete(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
+    ) -> bool:
         """标记项目为软删除（设置 deleted_at）"""
-        stmt = (
-            update(Project)
-            .where(Project.id == project_id, Project.deleted_at.is_(None))
-            .values(deleted_at=datetime.now(UTC))
-        )
+        conditions = [Project.id == project_id, Project.deleted_at.is_(None)]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = update(Project).where(*conditions).values(deleted_at=datetime.now(UTC))
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
 
-    async def restore(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
+    async def restore(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
+    ) -> bool:
         """恢复已删除项目（清除 deleted_at）"""
-        stmt = (
-            update(Project)
-            .where(Project.id == project_id, Project.deleted_at.isnot(None))
-            .values(deleted_at=None)
-        )
+        conditions = [Project.id == project_id, Project.deleted_at.isnot(None)]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = update(Project).where(*conditions).values(deleted_at=None)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
@@ -180,14 +211,17 @@ class ProjectRepository:
         db: AsyncSession,
         skip: int = 0,
         limit: int = 20,
+        owner_id: uuid.UUID | None = None,
     ) -> tuple[list[Project], int]:
         """列出回收站中的项目"""
-        base_cond = Project.deleted_at.isnot(None)
-        count_stmt = select(func.count(Project.id)).where(base_cond)
+        conditions = [Project.deleted_at.isnot(None)]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        count_stmt = select(func.count(Project.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         stmt = (
             select(Project)
-            .where(base_cond)
+            .where(*conditions)
             .offset(skip)
             .limit(limit)
             .order_by(Project.deleted_at.desc(), Project.id.desc())
@@ -199,12 +233,13 @@ class ProjectRepository:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
     ) -> bool:
         """永久删除项目（硬删除，数据库 CASCADE 处理关联数据）"""
-        stmt = delete(Project).where(
-            Project.id == project_id,
-            Project.deleted_at.isnot(None),
-        )
+        conditions = [Project.id == project_id, Project.deleted_at.isnot(None)]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = delete(Project).where(*conditions)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
@@ -213,14 +248,18 @@ class ProjectRepository:
         self,
         db: AsyncSession,
         project_ids: list[uuid.UUID],
+        owner_id: uuid.UUID | None = None,
     ) -> set[uuid.UUID]:
         """返回指定 ID 中当前确实在回收站的项目。"""
         if not project_ids:
             return set()
-        stmt = select(Project.id).where(
+        conditions = [
             Project.id.in_(project_ids),
             Project.deleted_at.isnot(None),
-        )
+        ]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = select(Project.id).where(*conditions)
         result = await db.execute(stmt)
         return set(result.scalars().all())
 
@@ -228,14 +267,18 @@ class ProjectRepository:
         self,
         db: AsyncSession,
         project_ids: list[uuid.UUID],
+        owner_id: uuid.UUID | None = None,
     ) -> int:
         """批量硬删除回收站项目，由数据库 CASCADE 清理关联数据。"""
         if not project_ids:
             return 0
-        stmt = delete(Project).where(
+        conditions = [
             Project.id.in_(project_ids),
             Project.deleted_at.isnot(None),
-        )
+        ]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        stmt = delete(Project).where(*conditions)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount or 0

@@ -28,6 +28,10 @@ from openai import (
 )
 
 from core.config import get_settings
+from infrastructure.llm.egress import (
+    build_public_llm_request_guard,
+    validate_user_llm_base_url,
+)
 from infrastructure.llm.errors import (
     LLMAuthError,
     LLMConnectionError,
@@ -87,7 +91,10 @@ class OpenAIProvider:
         settings = get_settings()
         defaults = default_llm_profile()
         self._api_key = api_key or ""
-        self._base_url = base_url or str(defaults["base_url"])
+        self._base_url = validate_user_llm_base_url(
+            base_url or str(defaults["base_url"]),
+            settings=settings,
+        )
         self._default_model = default_model or str(defaults["model"])
         self._timeout = timeout or settings.llm_timeout
         self._trust_env = settings.llm_trust_env if trust_env is None else trust_env
@@ -163,6 +170,13 @@ class OpenAIProvider:
         kwargs: dict[str, Any] = {
             "timeout": self._timeout,
             "trust_env": self._trust_env,
+            "event_hooks": {
+                "request": [
+                    build_public_llm_request_guard(
+                        resolve_dns=not bool(self._proxy_url),
+                    )
+                ]
+            },
         }
         if self._proxy_url:
             kwargs["proxy"] = self._proxy_url

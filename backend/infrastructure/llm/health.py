@@ -18,6 +18,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 from core.config import get_settings
+from infrastructure.llm.egress import (
+    build_public_llm_request_guard,
+    validate_user_llm_base_url,
+)
 from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.redaction import redact_diagnostic
 
@@ -51,6 +55,7 @@ class LLMHealthChecker:
     async def check(self) -> LLMHealthResult:
         start = time.monotonic()
         host = urlparse(self.base_url).hostname or ""
+        settings = get_settings()
         if not self.api_key:
             return self._result(
                 ok=False,
@@ -58,20 +63,43 @@ class LLMHealthChecker:
                 error_kind="auth_error",
                 message="Project LLM API key is not configured",
             )
-
         try:
-            ips = await self._resolve_host(host)
-        except Exception as exc:
+            validate_user_llm_base_url(self.base_url, settings=settings)
+        except ValueError as exc:
             return self._result(
                 ok=False,
                 host=host,
-                error_kind="dns_error",
+                error_kind="configuration_error",
                 message=str(exc),
-                latency_ms=self._elapsed_ms(start),
             )
 
+        ips: list[str] = []
+        if not (settings.auth_mode == "public" and self.proxy_url):
+            try:
+                ips = await self._resolve_host(host)
+            except Exception as exc:
+                return self._result(
+                    ok=False,
+                    host=host,
+                    error_kind="dns_error",
+                    message=str(exc),
+                    latency_ms=self._elapsed_ms(start),
+                )
+
         dns_fake_ip = any(_is_fake_ip(ip) for ip in ips)
-        if dns_fake_ip and not self.trust_env and not self.proxy_url:
+        if settings.auth_mode == "public" and any(
+            not _is_public_ip(ip) for ip in ips
+        ):
+            return self._result(
+                ok=False,
+                host=host,
+                error_kind="dns_private_ip",
+                message="Public LLM host did not resolve to a public destination",
+                resolved_ips=ips,
+                dns_fake_ip=dns_fake_ip,
+                latency_ms=self._elapsed_ms(start),
+            )
+        if dns_fake_ip and not self.proxy_url:
             return self._result(
                 ok=False,
                 host=host,
@@ -144,6 +172,13 @@ class LLMHealthChecker:
         kwargs: dict[str, Any] = {
             "timeout": self.timeout,
             "trust_env": self.trust_env,
+            "event_hooks": {
+                "request": [
+                    build_public_llm_request_guard(
+                        resolve_dns=not bool(self.proxy_url),
+                    )
+                ]
+            },
         }
         if self.proxy_url:
             kwargs["proxy"] = self.proxy_url
@@ -239,6 +274,13 @@ def _is_fake_ip(value: str) -> bool:
     except ValueError:
         return False
     return ip in ipaddress.ip_network("198.18.0.0/15")
+
+
+def _is_public_ip(value: str) -> bool:
+    try:
+        return ipaddress.ip_address(value).is_global
+    except ValueError:
+        return False
 
 
 def _classify_http_status(status_code: int) -> str:

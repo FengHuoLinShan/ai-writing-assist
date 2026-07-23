@@ -24,6 +24,8 @@ pip install -e ".[dev]"          # Install dependencies
 python scripts/dev_server.py     # Process-level auto-reload (port 8000)
 python run_worker.py --reload    # Task worker with auto-reload
 python scripts/check_llm.py      # Sanitized LLM connectivity check
+python scripts/manage_accounts.py smtp-smoke --to test@example.com  # SMTP smoke
+python scripts/manage_accounts.py claim-legacy --email test@example.com  # 认领存量数据
 
 # Frontend
 cd frontend-console

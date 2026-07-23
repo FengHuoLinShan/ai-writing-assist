@@ -156,6 +156,7 @@ class ProjectContext(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     novel_id: str
+    owner_id: str | None = None
     title: str
     genre: str | None = None
     tone: str | None = None

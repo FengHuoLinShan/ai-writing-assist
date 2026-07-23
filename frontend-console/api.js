@@ -5,6 +5,8 @@
  * 所有函数返回 Promise<Object>。
  */
 
+import { forceAccountSafeReload } from "./shared/accountStorage.js"
+
 const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api"
 const API_TIMEOUT = 15000
 const API_CACHE_TTL = 30000
@@ -13,6 +15,15 @@ const API_CACHE_MAX_ENTRIES = 128
 // bearer credential 暴露在可枚举、可跨页面生命周期读取的 Web Storage 中。
 let _accessToken = ""
 let _accessTokenRequestPromise = null
+let _authMode = "closed_test"
+
+function _cookieValue(name) {
+  if (typeof document === "undefined") return ""
+  const prefix = `${name}=`
+  const item = document.cookie.split(";").map((value) => value.trim())
+    .find((value) => value.startsWith(prefix))
+  return item ? decodeURIComponent(item.slice(prefix.length)) : ""
+}
 
 function _setAccessToken(token) {
   _accessToken = typeof token === "string" ? token.trim() : ""
@@ -21,6 +32,14 @@ function _setAccessToken(token) {
 
 function _clearAccessToken() {
   _accessToken = ""
+}
+
+function _handleUnauthorizedResponse({ invalidateAccount = true } = {}) {
+  _clearAccessToken()
+  if (!invalidateAccount || _authMode !== "public") return
+  _apiCache.clear()
+  _pendingRequests.clear()
+  forceAccountSafeReload({ reason: "public-unauthorized" })
 }
 
 function _requestAccessToken() {
@@ -239,7 +258,13 @@ function _formatErrorDetail(rawDetail) {
  * @returns {Promise<any>}
  */
 async function request(path, options = {}) {
-  const { timeout, signal: externalSignal, _retriedAuth, ...fetchOptions } = options
+  const {
+    timeout,
+    signal: externalSignal,
+    _retriedAuth,
+    _suppressAccountInvalidation = false,
+    ...fetchOptions
+  } = options
   const url = `${API_BASE_URL}${path}`
   const controller = new AbortController()
   const timeoutMs = timeout || API_TIMEOUT
@@ -278,6 +303,8 @@ async function request(path, options = {}) {
   const isFormData = fetchOptions.body instanceof FormData
   if (method !== "GET" && method !== "HEAD") {
     headers["X-Requested-With"] = "XMLHttpRequest"
+    const csrfToken = _cookieValue("aaw_csrf")
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken
   }
   if (method !== "GET" && method !== "DELETE" && !isFormData) {
     headers["Content-Type"] = "application/json"
@@ -311,6 +338,7 @@ async function request(path, options = {}) {
     try {
       const resp = await fetch(url, {
         ...fetchOptions,
+        credentials: fetchOptions.credentials || "include",
         headers: _authorizationHeaders({ ...headers, ...fetchOptions.headers }),
         signal,
       })
@@ -323,8 +351,12 @@ async function request(path, options = {}) {
       }
 
       if (!resp.ok) {
-        if (resp.status === 401) _clearAccessToken()
-        if (resp.status === 401 && !_retriedAuth) {
+        if (resp.status === 401) {
+          _handleUnauthorizedResponse({
+            invalidateAccount: !_suppressAccountInvalidation,
+          })
+        }
+        if (resp.status === 401 && !_retriedAuth && _authMode === "closed_test") {
           const token = await _requestAccessToken()
           if (_setAccessToken(token)) {
             // 首次 GET 仍登记在 pending map 中；认证重试必须绕过该条目，
@@ -484,7 +516,7 @@ function uploadImportFile(file, novelId, onProgress = null, options = {}) {
         }
         return
       }
-      if (xhr.status === 401) _clearAccessToken()
+      if (xhr.status === 401) _handleUnauthorizedResponse()
       try {
         const error = JSON.parse(xhr.responseText)
         reject(new Error(error.detail || "上传失败"))
@@ -501,7 +533,10 @@ function uploadImportFile(file, novelId, onProgress = null, options = {}) {
       reject(new DOMException("上传已取消", "AbortError"))
     }
     xhr.open("POST", `${API_BASE_URL}/imports/upload`)
+    xhr.withCredentials = true
     xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
+    const csrfToken = _cookieValue("aaw_csrf")
+    if (csrfToken) xhr.setRequestHeader("X-CSRF-Token", csrfToken)
     if (_accessToken) xhr.setRequestHeader("Authorization", `Bearer ${_accessToken}`)
     xhr.send(formData)
   })
@@ -511,6 +546,7 @@ function reportFrontendError(payload) {
   if (typeof fetch !== "function") return Promise.resolve()
   return fetch(`${API_BASE_URL}/debug/frontend-errors`, {
     method: "POST",
+    credentials: "include",
     headers: _authorizationHeaders({
       "Content-Type": "application/json",
       "Accept": "application/json",
@@ -519,7 +555,7 @@ function reportFrontendError(payload) {
     body: JSON.stringify(_redactDiagnosticValue(payload)),
     keepalive: true,
   }).then((response) => {
-    if (response.status === 401) _clearAccessToken()
+    if (response.status === 401) _handleUnauthorizedResponse()
     return response
   })
 }
@@ -561,6 +597,40 @@ const api = {
   setAccessToken: _setAccessToken,
   clearAccessToken: _clearAccessToken,
   reportFrontendError,
+  auth: {
+    async config() {
+      const config = await request("/auth/config", { cache: "no-store" })
+      _authMode = config.auth_mode || "local"
+      return config
+    },
+    me: () => request("/auth/me", {
+      cache: "no-store",
+      _suppressAccountInvalidation: true,
+    }),
+    requestEmailCode: (email) =>
+      post("/auth/email/request-code", { email }, { cache: "no-store" }),
+    verifyEmail: (payload) =>
+      post("/auth/email/verify", payload, { cache: "no-store" }),
+    requestReauthEmailCode: (email) =>
+      post("/auth/reauth/email/request-code", { email }, { cache: "no-store" }),
+    verifyReauthEmail: (payload) =>
+      post("/auth/reauth/email/verify", payload, { cache: "no-store" }),
+    logout: () => post("/auth/logout", undefined, {
+      cache: "no-store",
+      _suppressAccountInvalidation: true,
+    }),
+    deletion: () => request("/account/deletion", { cache: "no-store" }),
+    requestDeletion: () =>
+      post("/account/deletion", undefined, { cache: "no-store" }),
+    cancelDeletion: () =>
+      request("/account/deletion", { method: "DELETE", cache: "no-store" }),
+    wechatStartUrl(config, purpose = "login") {
+      const host = API_BASE_URL.slice(0, -4)
+      if (purpose === "reauth") return `${host}/api/auth/reauth/wechat/start`
+      const query = buildQueryString({ accept_terms: true, accept_privacy: true })
+      return `${host}/api/auth/wechat/start${query}`
+    },
+  },
 
   // ============================================================
   // 项目

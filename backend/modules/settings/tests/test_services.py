@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from core.config import get_settings
 from modules.settings.constants import (
     SOURCE_GLOBAL,
     SOURCE_PROJECT,
@@ -30,6 +31,23 @@ async def test_upsert_global_llm_defaults_rejects_api_key(db_session):
     assert (
         "api_key" in str(excinfo.value).lower() or "extra" in str(excinfo.value).lower()
     )
+
+
+@pytest.mark.asyncio
+async def test_public_global_llm_defaults_reject_non_public_base_url(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("AUTH_MODE", "public")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="must use https"):
+            await SettingsService().upsert_global_llm_defaults(
+                db_session,
+                {"base_url": "http://127.0.0.1:9000/v1"},
+            )
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

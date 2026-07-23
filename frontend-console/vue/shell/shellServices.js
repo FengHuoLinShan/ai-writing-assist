@@ -4,6 +4,8 @@
  * imperative writing/workspace seams stays centralized here.
  */
 
+import { forceAccountSafeReload } from "../../shared/accountStorage.js"
+
 function fallbackRoute(name) {
   return { title: name || "项目", subViews: [] }
 }
@@ -16,6 +18,11 @@ export function createShellServices(overrides = {}) {
   const toast = overrides.toast ?? globalThis.toast ?? (() => {})
   const closeModal = overrides.closeModal ?? globalThis.closeModal ?? (() => true)
   const subscribeState = overrides.subscribeState ?? globalThis.onStateChange
+  const reload = overrides.reload ?? (() => globalThis.location.reload())
+  const invalidateAccount = (reason = "account-invalidated") => {
+    api.clearCache?.()
+    return forceAccountSafeReload({ reason, reload })
+  }
 
   return {
     state,
@@ -44,6 +51,19 @@ export function createShellServices(overrides = {}) {
     },
     health: {
       check() { return api.healthCheck?.() ?? false },
+    },
+    account: {
+      visible: globalThis.accountAuthConfig?.auth_mode === "public",
+      current: globalThis.currentAccount ?? null,
+      config: globalThis.accountAuthConfig ?? { auth_mode: "local", wechat_enabled: false },
+      invalidate: invalidateAccount,
+      async logout() {
+        try {
+          await api.auth?.logout?.()
+        } finally {
+          invalidateAccount("logout")
+        }
+      },
     },
     workspace: {
       triggerAction(action, host) {

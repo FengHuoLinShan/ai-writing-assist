@@ -28,6 +28,7 @@ from core import container
 from core.config import (
     get_settings,
     validate_app_access_token_config,
+    validate_auth_config,
     validate_cors_origins,
     validate_http_rate_limit_config,
     validate_llm_rate_limit_config,
@@ -68,6 +69,7 @@ def _configure_application_logging(log_level: str) -> None:
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.INFO)
+
 
 _REQUEST_PATH_LOG_MAX_LENGTH = 160
 _UUID_PATH_SEGMENT_RE = re.compile(
@@ -214,6 +216,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # --- 初始化数据库 ---
     manager = get_manager()
     manager.init()
+    if getattr(settings, "auth_mode", "local") == "public":
+        from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
+        from modules.account.models import Account
+
+        async with manager.session() as session:
+            bootstrap = await session.get(Account, BOOTSTRAP_ACCOUNT_ID)
+            if bootstrap is None or bootstrap.legacy_claimed_at is None:
+                raise RuntimeError(
+                    "Public auth requires claim-legacy before application startup"
+                )
 
     # --- 检查 pgvector ---
     try:
@@ -299,6 +311,8 @@ async def _shutdown_application_resources(
 # 应用实例
 # ---------------------------------------------------------------------------
 
+_initial_settings = get_settings()
+_public_mode = _initial_settings.auth_mode.strip().lower() == "public"
 app = FastAPI(
     title="AI 长篇小说结构化创作引擎",
     description=(
@@ -309,9 +323,9 @@ app = FastAPI(
     version=get_settings().app_version,
     debug=get_settings().debug,
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url=None if _public_mode else "/api/docs",
+    redoc_url=None if _public_mode else "/api/redoc",
+    openapi_url=None if _public_mode else "/api/openapi.json",
 )
 
 
@@ -442,7 +456,11 @@ class _ApiSecurityMiddleware:
         }
         settings = get_settings()
 
-        if settings.app_access_token and path not in _API_SECURITY_EXEMPT_PATHS:
+        if (
+            settings.auth_mode == "closed_test"
+            and settings.app_access_token
+            and path not in _API_SECURITY_EXEMPT_PATHS
+        ):
             expected = f"Bearer {settings.app_access_token}"
             supplied = headers.get("authorization", "")
             if not hmac.compare_digest(supplied, expected):
@@ -469,13 +487,19 @@ class _ApiSecurityMiddleware:
 
 app.add_middleware(_ApiSecurityMiddleware)
 
+from modules.account.middleware import AccountAuthMiddleware  # noqa: E402
+
+app.add_middleware(AccountAuthMiddleware)
+
 
 # CORS 配置：开发环境允许前端本地文件 + localhost
 # 生产环境请通过 ALLOWED_ORIGINS 环境变量设置具体域名
 _settings = get_settings()
 _origins = _settings.allowed_origins
 validate_cors_origins(_settings.app_env, _origins)
-validate_app_access_token_config(_settings.app_env, _settings.app_access_token)
+validate_auth_config(_settings)
+if _settings.auth_mode == "closed_test":
+    validate_app_access_token_config(_settings.app_env, _settings.app_access_token)
 validate_http_rate_limit_config(
     _settings.app_env,
     _settings.http_rate_limit_per_minute,
@@ -653,8 +677,8 @@ async def root():
         "name": settings.app_name,
         "version": settings.app_version,
         "description": "AI 长篇小说结构化创作引擎",
-        "docs": "/api/docs",
-        "openapi": "/api/openapi.json",
+        "docs": None if _public_mode else "/api/docs",
+        "openapi": None if _public_mode else "/api/openapi.json",
         "modules": [
             "projects",
             "world",
@@ -683,6 +707,13 @@ import modules.world.tasks  # noqa: F401, E402 — 注册世界模块任务处�
 import modules.writing.tasks  # noqa: F401, E402 — 注册章节发布任务处理器
 from app import debug_api  # noqa: E402
 from infrastructure.tasks import api as tasks_api  # noqa: E402
+from modules.account.api import account_router  # noqa: E402
+from modules.account.api import router as account_auth_router  # noqa: E402
+from modules.account.legal import router as legal_router  # noqa: E402
+from modules.account.oidc import (  # noqa: E402
+    reauth_router as account_oidc_reauth_router,
+)
+from modules.account.oidc import router as account_oidc_router  # noqa: E402
 from modules.context import api as context_api  # noqa: E402
 
 # geo/review — 已从 minimal-core 移除
@@ -698,6 +729,11 @@ from modules.world import map_api as world_map_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
 
 app.include_router(project_router)
+app.include_router(account_auth_router)
+app.include_router(account_router)
+app.include_router(account_oidc_router)
+app.include_router(account_oidc_reauth_router)
+app.include_router(legal_router)
 app.include_router(imports_api.router)
 app.include_router(world_api.router)
 app.include_router(world_map_api.router)
@@ -707,7 +743,8 @@ app.include_router(rag_api.router)
 app.include_router(context_api.router)
 app.include_router(writing_api.router)
 app.include_router(tasks_api.router)
-app.include_router(debug_api.router)
+if not _public_mode:
+    app.include_router(debug_api.router)
 app.include_router(settings_router)
 
 

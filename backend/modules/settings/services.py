@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
+from infrastructure.llm.egress import validate_user_llm_base_url
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
     LLM_API_KEYS_BY_PROVIDER_FIELD,
@@ -23,7 +24,6 @@ from modules.settings.constants import (
     AUTHOR_PREFS_FIELDS,
     LLM_DEFAULTS_SYSTEM,
     LLM_INHERITABLE_FIELDS,
-    LOCAL_OWNER_ID,
     SOURCE_GLOBAL,
     SOURCE_PROJECT,
     SOURCE_SYSTEM,
@@ -49,9 +49,13 @@ from modules.settings.schemas import (
 from shared.deep_import_settings import DEEP_IMPORT_SETTINGS_KEY
 
 
-def _current_owner_id() -> uuid.UUID:
-    """Demo 阶段固定 local。未来注入 authorizer。"""
-    return LOCAL_OWNER_ID
+def _current_owner_id(owner_id: uuid.UUID | None = None) -> uuid.UUID:
+    """Resolve a browser owner while preserving the local bootstrap identity."""
+    if owner_id is not None:
+        return owner_id
+    from modules.account.facade import current_account_id
+
+    return current_account_id()
 
 
 class SettingsService:
@@ -88,6 +92,8 @@ class SettingsService:
         if "api_key" in payload or "api_key_configured" in payload:
             raise ValueError("global LLM defaults must not contain api_key")
         data = {k: v for k, v in payload.items() if k in LLM_INHERITABLE_FIELDS}
+        if data.get("base_url"):
+            data["base_url"] = validate_user_llm_base_url(str(data["base_url"]))
         data["owner_id"] = _current_owner_id()
         row = await self._llm_repo.upsert(db, data)
         return GlobalLLMDefaultsResponse(
@@ -207,12 +213,15 @@ class SettingsService:
         )
 
     async def get_effective_llm_settings_for_project_settings(
-        self, db: AsyncSession, project_settings: dict | None
+        self,
+        db: AsyncSession,
+        project_settings: dict | None,
+        owner_id: uuid.UUID | None = None,
     ) -> EffectiveLLMSettingsResponse:
         proj_profile = get_llm_profile(project_settings)
         # deep_import 是 settings 顶层 sibling，不在 settings["llm"] 内（D6 atomic）
         proj_deep_import = (project_settings or {}).get(DEEP_IMPORT_SETTINGS_KEY)
-        glob_row = await self._llm_repo.get(db, _current_owner_id())
+        glob_row = await self._llm_repo.get(db, _current_owner_id(owner_id))
         glob_profile = (
             {f: getattr(glob_row, f) for f in LLM_INHERITABLE_FIELDS} if glob_row else {}
         )
@@ -271,13 +280,16 @@ class SettingsService:
         )
 
     async def materialize_effective_project_settings(
-        self, db: AsyncSession, project_settings: dict | None
+        self,
+        db: AsyncSession,
+        project_settings: dict | None,
+        owner_id: uuid.UUID | None = None,
     ) -> dict:
         """Materialize runtime settings from raw project settings JSON."""
         settings = dict(project_settings or {})
         raw_llm = get_runtime_llm_profile(settings)
         effective = await self.get_effective_llm_settings_for_project_settings(
-            db, settings
+            db, settings, owner_id
         )
         llm_profile: dict[str, object] = {}
         for field_name in LLM_INHERITABLE_FIELDS:

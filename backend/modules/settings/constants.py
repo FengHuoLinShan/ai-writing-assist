@@ -7,13 +7,13 @@ D4: 字段级 DELETE 服务端硬白名单。
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from shared.constants import DEFAULT_LLM_MAX_TOKENS
 
 # Demo owner 占位：nil UUID
-LOCAL_OWNER_ID: uuid.UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
+LOCAL_OWNER_ID = BOOTSTRAP_ACCOUNT_ID
 LOCAL_OWNER_LABEL: str = "local"
 
 # D12 全局作者偏好硬编码默认（global 行不存在或字段 NULL 时回退）

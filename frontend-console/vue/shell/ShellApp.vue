@@ -2,7 +2,7 @@
   <div class="vue-shell-root" @pointerdown.capture="dismissTransientUi">
     <Topbar :project-title="projectTitle" :module-title="moduleTitle" :submodule-title="submoduleTitle" :view-note="viewNote"
       :connected="health.connected.value" :theme="theme.current.value" :wordcount="wordcount.dashboard" :wordcount-visible="wordcountVisible"
-      @select-theme="theme.apply" />
+      :account-visible="accountService.visible" @select-theme="theme.apply" @manage-account="accountOpen = true" />
     <div id="main-layout">
       <Sidebar ref="sidebar" :current-view="shellState.currentView" @navigate="navigate" @show-help="showHelp" />
       <WorkspaceHost ref="workspace" @ready="setRouteHost" />
@@ -11,12 +11,15 @@
     <CommandPalette ref="commandPalette" :services="services" />
     <ShortcutHelp :open="helpOpen" @close="hideHelp" />
     <ServiceHosts :services="services" />
+    <AccountDialog :open="accountOpen" :account="accountService.current" :config="accountService.config"
+      @close="accountOpen = false" @logout="logout" @account-invalidated="accountService.invalidate('account-deletion')" />
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch } from "vue"
 import CommandPalette from "./components/CommandPalette.vue"
+import AccountDialog from "./components/AccountDialog.vue"
 import ServiceHosts from "./components/ServiceHosts.vue"
 import ShortcutHelp from "./components/ShortcutHelp.vue"
 import Sidebar from "./components/Sidebar.vue"
@@ -35,11 +38,19 @@ const props = defineProps({
 })
 
 const services = props.services
+const accountService = services.account ?? {
+  visible: false,
+  current: null,
+  config: { auth_mode: "local", wechat_enabled: false },
+  invalidate: () => {},
+  logout: async () => {},
+}
 const shellState = useShellState(services)
 const theme = useTheme(services)
 const health = useHealthPolling(services, { intervalMs: props.healthIntervalMs })
 const wordcount = useWordcountDashboard()
 const helpOpen = ref(false)
+const accountOpen = ref(new URLSearchParams(location.search).get("auth") === "reauthenticated")
 const commandPalette = ref(null)
 const workspace = ref(null)
 const sidebar = ref(null)
@@ -76,6 +87,10 @@ async function navigate(view) {
 }
 function showHelp() { helpOpen.value = true }
 function hideHelp() { helpOpen.value = false }
+async function logout() {
+  try { await accountService.logout() }
+  catch (err) { services.toast(`退出失败：${err?.message || "未知错误"}`, "error") }
+}
 function focusSidebar() {
   const root = sidebar.value?.$el
   const target = root?.querySelector?.(`.nav-item.active[data-view]`) || root?.querySelector?.(`.nav-item[data-view]`)

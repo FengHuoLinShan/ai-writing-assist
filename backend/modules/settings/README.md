@@ -5,8 +5,12 @@
 ## 关键约束
 
 - **API Key 永远项目级**：`global_llm_defaults` 表不存 Key，`GlobalLLMDefaultsUpdate` schema `extra="forbid"` 硬拒 `api_key` 字段；PUT 接口和 service 层都对此双重防御。
-- **`owner_id` demo 阶段用 nil UUID**（`LOCAL_OWNER_ID = 00000000-0000-0000-0000-000000000000`）；UI 显示 `local` 字样。未来账户接入后路由层加 authorizer，DB 无需改 schema。
-- **项目级表不带 `owner_id`**：靠 `project → owner` 关系未来追加，避免双写冗余。
+- **全局默认按账号 owner 隔离**：`owner_id → accounts.id`；worker 由项目上下文显式携带
+  owner，不能回退到其他用户的全局设置。
+- **本地与封闭测试使用 bootstrap owner**：`LOCAL_OWNER_ID` 仅标识固定 bootstrap
+  账号；公开模式必须先认领该账号，不能把 nil UUID 当作绕过 owner 门禁的系统主体。
+- **项目级作者偏好沿项目 owner 隔离**：项目自身持有非空 `owner_id`，设置查询先验证项目
+  归属；不会在项目设置表重复写 owner。
 - **项目作者偏好所有字段允许 NULL**：NULL = 继承全局（D2）。`UNIQUE(project_id)` 保证每个项目最多一行。
 - **字段级 DELETE 硬白名单**：`AUTHOR_PREFS_FIELDS`（作者偏好）、`LLM_INHERITABLE_FIELDS`（LLM 字段，不含 `api_key`）。非白名单返回 400，不拼列名、不拼 JSON path。
 - **全局 `deep_import` 本期永不写入**（D9）：`global_llm_defaults.deep_import` 列存在但保持 NULL；全局页不渲染 40+ 深度导入字段，避免臃肿。未来需要全局默认时单独开 issue。

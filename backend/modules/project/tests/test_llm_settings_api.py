@@ -16,10 +16,34 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
+from core.errors import ValidationError
 from modules.project.facade import get_project_context
 from modules.project.models import Project
+from modules.project.schemas import ProjectUpdate
+from modules.project.services import ProjectService
 
 XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
+
+
+def test_public_generic_project_settings_reject_non_public_base_url(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AUTH_MODE", "public")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValidationError, match="must use https"):
+            ProjectService._encrypt_project_settings_update(
+                ProjectUpdate(
+                    settings={
+                        "llm": {
+                            "base_url": "http://127.0.0.1:9000/v1",
+                        }
+                    }
+                )
+            )
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest_asyncio.fixture

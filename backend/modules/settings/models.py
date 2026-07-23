@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, TimestampMixin, UUIDMixin
+from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
 
 
 class GlobalLLMDefaults(Base, UUIDMixin, TimestampMixin):
@@ -20,6 +20,8 @@ class GlobalLLMDefaults(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "global_llm_defaults"
 
     owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
         index=True,
@@ -44,6 +46,8 @@ class GlobalAuthorPreferences(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "global_author_preferences"
 
     owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
         index=True,

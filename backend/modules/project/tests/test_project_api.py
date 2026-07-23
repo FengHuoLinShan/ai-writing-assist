@@ -8,6 +8,7 @@ Project API 层测试
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -15,7 +16,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from infrastructure.tasks.models import AsyncTask
+from modules.account.models import Account
+from modules.project.models import Project
 
 
 @pytest_asyncio.fixture
@@ -81,6 +85,145 @@ async def test_get_project_not_found(async_client: AsyncClient) -> None:
     fake_id = str(uuid.uuid4())
     resp = await async_client.get(f"/api/projects/{fake_id}")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_local_browser_cannot_access_foreign_owner_projects(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    foreign_owner_id = uuid.uuid4()
+    foreign_project_id = uuid.uuid4()
+    db_session.add(
+        Account(
+            id=foreign_owner_id,
+            status="active",
+            support_code="FOREIGN-OWNER",
+        )
+    )
+    db_session.add(
+        Project(
+            id=foreign_project_id,
+            owner_id=foreign_owner_id,
+            title="foreign private project",
+            language="zh",
+            default_reveal_policy="author_safe",
+            settings={},
+        )
+    )
+    await db_session.flush()
+
+    detail = await async_client.get(f"/api/projects/{foreign_project_id}")
+    listing = await async_client.get("/api/projects")
+    update = await async_client.put(
+        f"/api/projects/{foreign_project_id}",
+        json={"title": "cross-owner update"},
+    )
+    soft_delete = await async_client.delete(f"/api/projects/{foreign_project_id}")
+
+    assert detail.status_code == 404
+    assert all(
+        item["id"] != str(foreign_project_id) for item in listing.json()["items"]
+    )
+    assert update.status_code == 404
+    assert soft_delete.status_code == 404
+    stored = await db_session.get(Project, foreign_project_id)
+    assert stored is not None
+    assert stored.title == "foreign private project"
+    assert stored.deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_local_browser_cannot_permanently_delete_foreign_owner_project(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    foreign_owner_id = uuid.uuid4()
+    foreign_project_id = uuid.uuid4()
+    db_session.add(
+        Account(
+            id=foreign_owner_id,
+            status="active",
+            support_code="FOREIGN-PURGE",
+        )
+    )
+    db_session.add(
+        Project(
+            id=foreign_project_id,
+            owner_id=foreign_owner_id,
+            title="foreign deleted project",
+            language="zh",
+            default_reveal_policy="author_safe",
+            settings={},
+            deleted_at=datetime.now(UTC),
+        )
+    )
+    await db_session.flush()
+
+    response = await async_client.delete(
+        f"/api/projects/{foreign_project_id}/permanent",
+        params={"confirmed": "true"},
+    )
+
+    assert response.status_code == 404
+    assert await db_session.get(Project, foreign_project_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_closed_test_token_is_still_scoped_to_bootstrap_owner(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    foreign_owner_id = uuid.uuid4()
+    foreign_project_id = uuid.uuid4()
+    db_session.add(
+        Account(
+            id=foreign_owner_id,
+            status="active",
+            support_code="FOREIGN-CLOSED-TEST",
+        )
+    )
+    db_session.add(
+        Project(
+            id=foreign_project_id,
+            owner_id=foreign_owner_id,
+            title="closed test foreign project",
+            language="zh",
+            default_reveal_policy="author_safe",
+            settings={},
+            deleted_at=datetime.now(UTC),
+        )
+    )
+    await db_session.flush()
+    monkeypatch.setenv("AUTH_MODE", "closed_test")
+    monkeypatch.setenv("APP_ACCESS_TOKEN", "shared-closed-test-token")
+    get_settings.cache_clear()
+    headers = {"Authorization": "Bearer shared-closed-test-token"}
+    try:
+        detail = await async_client.get(
+            f"/api/projects/{foreign_project_id}",
+            headers=headers,
+        )
+        recycle_bin = await async_client.get(
+            "/api/projects/recycle-bin",
+            headers=headers,
+        )
+        permanent_delete = await async_client.delete(
+            f"/api/projects/{foreign_project_id}/permanent",
+            params={"confirmed": "true"},
+            headers=headers,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert detail.status_code == 404
+    assert all(
+        item["id"] != str(foreign_project_id)
+        for item in recycle_bin.json()["items"]
+    )
+    assert permanent_delete.status_code == 404
+    assert await db_session.get(Project, foreign_project_id) is not None
 
 
 @pytest.mark.asyncio

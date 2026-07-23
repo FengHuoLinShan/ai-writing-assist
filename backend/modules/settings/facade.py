@@ -40,6 +40,7 @@ async def get_effective_llm_settings(
     return await _service.get_effective_llm_settings_for_project_settings(
         db,
         project.settings,
+        project.owner_id,
     )
 
 
@@ -61,19 +62,24 @@ async def get_effective_author_prefs(
 async def materialize_effective_project_settings(
     db: AsyncSession,
     project_settings: dict | None,
+    owner_id: uuid.UUID | None = None,
 ) -> dict:
     """把项目 raw settings 转为运行时 effective settings。"""
-    return await _service.materialize_effective_project_settings(db, project_settings)
+    return await _service.materialize_effective_project_settings(
+        db, project_settings, owner_id
+    )
 
 
 async def resolve_effective_llm_settings_for_project_settings(
     db: AsyncSession,
     project_settings: dict | None,
+    owner_id: uuid.UUID | None = None,
 ) -> EffectiveLLMSettingsResponse:
     """Resolve field values and provenance for project-owned raw settings."""
     return await _service.get_effective_llm_settings_for_project_settings(
         db,
         project_settings,
+        owner_id,
     )
 
 

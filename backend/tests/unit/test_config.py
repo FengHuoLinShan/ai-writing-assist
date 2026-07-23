@@ -19,6 +19,7 @@ from core.config import (
     get_settings,
     load_env_file,
     validate_app_access_token_config,
+    validate_auth_config,
     validate_cors_origins,
     validate_http_rate_limit_config,
     validate_llm_rate_limit_config,
@@ -333,6 +334,121 @@ class TestAppAccessTokenValidation:
 
     def test_non_local_env_accepts_token(self):
         validate_app_access_token_config("production", "secret")
+
+
+class TestAuthConfigValidation:
+    @staticmethod
+    def _public_settings(**overrides):
+        values = {
+            "app_env": "development",
+            "auth_mode": "public",
+            "auth_secret_key": "x" * 32,
+            "smtp_host": "smtp.example.test",
+            "smtp_username": "sender",
+            "smtp_password": "secret",
+            "smtp_from": "sender@example.test",
+            "support_email": "support@example.test",
+            **overrides,
+        }
+        return Settings(**values)
+
+    def test_public_requires_long_hmac_secret(self):
+        with pytest.raises(RuntimeError, match="AUTH_SECRET_KEY"):
+            validate_auth_config(
+                Settings(
+                    app_env="development",
+                    auth_mode="public",
+                    auth_secret_key="short",
+                )
+            )
+
+    def test_public_accepts_complete_smtp_config(self):
+        validate_auth_config(self._public_settings())
+
+    def test_public_http_base_url_is_limited_to_local_loopback(self):
+        with pytest.raises(RuntimeError, match="PUBLIC_BASE_URL"):
+            validate_auth_config(
+                self._public_settings(public_base_url="http://192.168.1.50:8000")
+            )
+
+    def test_public_rejects_debug_in_local_environment(self):
+        with pytest.raises(RuntimeError, match="DEBUG"):
+            validate_auth_config(self._public_settings(debug=True))
+
+    def test_wechat_flag_requires_oidc_configuration(self):
+        with pytest.raises(RuntimeError, match="AUTHING_ISSUER"):
+            validate_auth_config(
+                Settings(
+                    app_env="development",
+                    auth_mode="public",
+                    auth_secret_key="x" * 32,
+                    smtp_host="smtp.example.test",
+                    smtp_username="sender",
+                    smtp_password="secret",
+                    smtp_from="sender@example.test",
+                    support_email="support@example.test",
+                    authing_wechat_enabled=True,
+                )
+            )
+
+    def test_wechat_accepts_https_oidc_urls(self):
+        validate_auth_config(
+            self._public_settings(
+                authing_wechat_enabled=True,
+                authing_issuer="https://issuer.example",
+                authing_client_id="client-id",
+                authing_client_secret="client-secret",
+                authing_redirect_uri="https://app.example/api/auth/wechat/callback",
+            )
+        )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("authing_issuer", "http://issuer.example"),
+            (
+                "authing_redirect_uri",
+                "http://app.example/api/auth/wechat/callback",
+            ),
+        ],
+    )
+    def test_wechat_rejects_non_https_external_urls(self, field, value):
+        config = {
+            "authing_wechat_enabled": True,
+            "authing_issuer": "https://issuer.example",
+            "authing_client_id": "client-id",
+            "authing_client_secret": "client-secret",
+            "authing_redirect_uri": "https://app.example/api/auth/wechat/callback",
+            field: value,
+        }
+
+        with pytest.raises(RuntimeError, match=field.upper()):
+            validate_auth_config(self._public_settings(**config))
+
+    def test_wechat_allows_http_loopback_urls_in_local_environment(self):
+        validate_auth_config(
+            self._public_settings(
+                authing_wechat_enabled=True,
+                authing_issuer="http://127.0.0.1:9000",
+                authing_client_id="client-id",
+                authing_client_secret="client-secret",
+                authing_redirect_uri="http://localhost:8000/api/auth/wechat/callback",
+            )
+        )
+
+    def test_wechat_rejects_http_loopback_urls_outside_local_environment(self):
+        with pytest.raises(RuntimeError, match="AUTHING_ISSUER"):
+            validate_auth_config(
+                self._public_settings(
+                    app_env="production",
+                    public_base_url="https://app.example",
+                    authing_wechat_enabled=True,
+                    authing_issuer="http://127.0.0.1:9000",
+                    authing_client_id="client-id",
+                    authing_client_secret="client-secret",
+                    authing_redirect_uri="https://app.example/api/auth/wechat/callback",
+                )
+            )
 
 
 class TestHttpRateLimitValidation:

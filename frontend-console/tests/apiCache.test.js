@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { ACCOUNT_INVALIDATED_EVENT } from "../shared/accountStorage.js"
 import "../apiContracts.js"
 import "../api.js"
 
@@ -77,6 +78,7 @@ describe("api.js cache behavior", () => {
     vi.clearAllMocks()
     window.api.clearCache()
     window.api.clearAccessToken()
+    localStorage.clear()
     sessionStorage.clear()
   })
 
@@ -713,6 +715,62 @@ describe("api.js request headers", () => {
     mockJsonResponse({ ok: true })
     await window.api.request("/projects/after-rejection", { cache: "no-store" })
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
+  })
+
+  it("invalidates public account state on a protected API 401", async () => {
+    const onInvalidated = vi.fn((event) => event.preventDefault())
+    window.addEventListener(ACCOUNT_INVALIDATED_EVENT, onInvalidated)
+    try {
+      mockJsonResponse({ auth_mode: "public" })
+      await window.api.auth.config()
+      localStorage.setItem("novel_accountId", "account-1")
+      localStorage.setItem("draft_backup_project-1_1", "private")
+      localStorage.setItem("novel_theme", "dark")
+      sessionStorage.setItem("workflow-progress-card:task-1", "open")
+      globalThis.fetch = vi.fn(() => Promise.resolve({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ detail: "Authentication required" }),
+      }))
+
+      await expect(window.api.request("/projects/private", { cache: "no-store" }))
+        .rejects.toMatchObject({ status: 401 })
+
+      expect(onInvalidated).toHaveBeenCalledTimes(1)
+      expect(onInvalidated.mock.calls[0][0].detail.reason).toBe("public-unauthorized")
+      expect(localStorage.getItem("novel_accountId")).toBeNull()
+      expect(localStorage.getItem("draft_backup_project-1_1")).toBeNull()
+      expect(sessionStorage.getItem("workflow-progress-card:task-1")).toBeNull()
+      expect(localStorage.getItem("novel_theme")).toBe("dark")
+    } finally {
+      window.removeEventListener(ACCOUNT_INVALIDATED_EVENT, onInvalidated)
+      mockJsonResponse({ auth_mode: "closed_test" })
+      await window.api.auth.config()
+    }
+  })
+
+  it("does not invalidate the expected unauthenticated auth.me bootstrap probe", async () => {
+    const onInvalidated = vi.fn((event) => event.preventDefault())
+    window.addEventListener(ACCOUNT_INVALIDATED_EVENT, onInvalidated)
+    try {
+      mockJsonResponse({ auth_mode: "public" })
+      await window.api.auth.config()
+      localStorage.setItem("draft_backup_legacy_1", "private")
+      globalThis.fetch = vi.fn(() => Promise.resolve({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ detail: "Authentication required" }),
+      }))
+
+      await expect(window.api.auth.me()).rejects.toMatchObject({ status: 401 })
+
+      expect(onInvalidated).not.toHaveBeenCalled()
+      expect(localStorage.getItem("draft_backup_legacy_1")).toBe("private")
+    } finally {
+      window.removeEventListener(ACCOUNT_INVALIDATED_EVENT, onInvalidated)
+      mockJsonResponse({ auth_mode: "closed_test" })
+      await window.api.auth.config()
+    }
   })
 
   it("uses the same in-memory token for upload XHR without exposing a getter", async () => {

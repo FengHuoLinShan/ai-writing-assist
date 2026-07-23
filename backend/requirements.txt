@@ -3,6 +3,9 @@
 
 # --- Web 框架 ---
 fastapi>=0.110.0
+authlib>=1.7.0,<1.8
+email-validator>=2.0.0,<3.0
+itsdangerous>=2.2.0,<2.3
 uvicorn[standard]>=0.27.0
 
 # --- 数据库 ---

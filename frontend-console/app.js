@@ -6,7 +6,14 @@
  */
 
 import { createSmartDedupManager } from "./shared/smartDedup.js"
+import {
+  ACCOUNT_INVALIDATED_EVENT,
+  ACCOUNT_MARKER_KEY,
+  forceAccountSafeReload,
+  scopeBrowserStorageToAccount,
+} from "./shared/accountStorage.js"
 import { mountShell } from "./vue/shell/mountShell.js"
+import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
 
 // 已迁移的 Vue island 在 router 初始化前完成注册。
 import "./vue/settingsIslands.js"
@@ -21,18 +28,47 @@ import "./vue/mapIsland.js"
 const App = {
   _initialized: false,
   _shell: null,
+  _authGate: null,
   _smartDedup: null,
   _unbindNavigate: null,
   _workspace: null,
   _workspaceClickHandler: null,
   _workspaceRenderedHandler: null,
+  _accountInvalidatedHandler: null,
+  _accountStorageHandler: null,
+  _accountBoundaryInvalidated: false,
+  _authGateLogoutPending: false,
   _mountShell: mountShell,
+  _reload: () => globalThis.location.reload(),
 
   async init() {
+    this._bindAccountSecurityEvents()
     if (this._initialized) return this._shell
+    this._accountBoundaryInvalidated = false
     this._initialized = true
 
     try {
+      const authConfig = typeof api.auth?.config === "function"
+        ? await api.auth.config()
+        : { auth_mode: "local", wechat_enabled: false }
+      globalThis.accountAuthConfig = authConfig
+      if (authConfig.auth_mode === "public") {
+        let account = null
+        try { account = await api.auth.me() } catch (error) {
+          if (error?.status !== 401) throw error
+        }
+        if (!account || account.status === "pending_deletion") {
+          this._authGate = mountAuthGate({
+            config: authConfig,
+            account,
+            onAuthenticated: (nextAccount) => this._resumeAfterAuthentication(nextAccount),
+            onLogout: () => this._logoutFromAuthGate(),
+          })
+          return this._authGate
+        }
+        this._scopeBrowserState(account.id)
+        globalThis.currentAccount = account
+      }
       globalThis.installStateGlobalListeners?.()
       this._restoreProjectState()
 
@@ -71,7 +107,7 @@ const App = {
       this._shell = null
       globalThis.disposeStateGlobalListeners?.()
       this._initialized = false
-      this._showBootstrapError(error)
+      if (!this._accountBoundaryInvalidated) this._showBootstrapError(error)
       throw error
     }
   },
@@ -84,8 +120,107 @@ const App = {
     this._smartDedup = null
     this._shell?.unmount?.()
     this._shell = null
+    this._authGate?.unmount?.()
+    this._authGate = null
+    this._unbindAccountSecurityEvents()
     globalThis.disposeStateGlobalListeners?.()
     this._initialized = false
+  },
+
+  async _resumeAfterAuthentication(account) {
+    this._scopeBrowserState(account?.id)
+    globalThis.currentAccount = account
+    this._authGate?.unmount?.()
+    this._authGate = null
+    this._initialized = false
+    await this.init()
+  },
+
+  _scopeBrowserState(accountId) {
+    if (scopeBrowserStorageToAccount(accountId)) api.clearCache()
+  },
+
+  async _logoutFromAuthGate() {
+    if (this._authGateLogoutPending) return
+    this._authGateLogoutPending = true
+    try {
+      await api.auth?.logout?.()
+    } finally {
+      this._authGateLogoutPending = false
+      api.clearCache?.()
+      forceAccountSafeReload({
+        reason: "pending-deletion-logout",
+        reload: this._reload,
+      })
+    }
+  },
+
+  _bindAccountSecurityEvents() {
+    if (this._accountInvalidatedHandler || typeof globalThis.addEventListener !== "function") return
+    this._accountInvalidatedHandler = (event) => this._enterSafeAccountBoundary(event)
+    this._accountStorageHandler = (event) => {
+      if (event?.key !== ACCOUNT_MARKER_KEY) return
+      const currentAccountId = globalThis.currentAccount?.id
+        ? String(globalThis.currentAccount.id)
+        : null
+      if (currentAccountId && event.newValue === currentAccountId) return
+      forceAccountSafeReload({
+        reason: "account-marker-changed",
+        preserveAccountMarker: true,
+        reload: this._reload,
+      })
+    }
+    globalThis.addEventListener(ACCOUNT_INVALIDATED_EVENT, this._accountInvalidatedHandler)
+    globalThis.addEventListener("storage", this._accountStorageHandler)
+  },
+
+  _unbindAccountSecurityEvents() {
+    if (typeof globalThis.removeEventListener === "function") {
+      if (this._accountInvalidatedHandler) {
+        globalThis.removeEventListener(ACCOUNT_INVALIDATED_EVENT, this._accountInvalidatedHandler)
+      }
+      if (this._accountStorageHandler) {
+        globalThis.removeEventListener("storage", this._accountStorageHandler)
+      }
+    }
+    this._accountInvalidatedHandler = null
+    this._accountStorageHandler = null
+  },
+
+  _enterSafeAccountBoundary(event) {
+    event?.preventDefault?.()
+    if (this._accountBoundaryInvalidated) return
+    this._accountBoundaryInvalidated = true
+    const reload = this._reload
+
+    try {
+      try { this.dispose() } catch {}
+      globalThis.currentAccount = null
+      try {
+        state.currentProjectId = null
+        state.currentProject = null
+        state.projects = []
+        state.selectedItem = null
+        state.selectedItems = []
+        state.viewStates = {}
+        state.cache = {}
+      } catch {}
+
+      const root = document.querySelector("#app")
+      if (root) {
+        const boundary = document.createElement("main")
+        boundary.className = "empty-state"
+        boundary.setAttribute("role", "status")
+        const title = document.createElement("p")
+        title.textContent = "账号状态已变化"
+        const detail = document.createElement("p")
+        detail.textContent = "正在安全刷新，请稍候。"
+        boundary.append(title, detail)
+        root.replaceChildren(boundary)
+      }
+    } finally {
+      reload()
+    }
   },
 
   _bindGlobalActions() {

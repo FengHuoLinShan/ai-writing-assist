@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from copy import deepcopy
@@ -52,10 +53,14 @@ async def _resolve_project_runtime_profile(
     if context is None:
         raise NotFoundError(f"Project {novel_id} not found")
 
-    materialized = await materialize_effective_project_settings(db, context.settings)
+    owner_id = uuid.UUID(context.owner_id) if context.owner_id else None
+    materialized = await materialize_effective_project_settings(
+        db, context.settings, owner_id=owner_id
+    )
     effective = await resolve_effective_llm_settings_for_project_settings(
         db,
         context.settings,
+        owner_id=owner_id,
     )
     profile = resolve_llm_profile(materialized)
     sources = {

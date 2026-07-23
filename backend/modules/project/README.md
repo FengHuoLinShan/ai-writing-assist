@@ -33,6 +33,9 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 
 ### projects 表字段
 
+`owner_id → accounts.id` 为非空唯一所有者边界。项目 API、回收站、项目上下文和 worker
+提交门禁都验证 owner；跨账号访问统一返回 404，业务响应不暴露 `owner_id`。
+
 - `id` — UUID 主键
 - `title` — 项目标题（必填）
 - `genre` — 题材（如：玄幻、科幻、悬疑）
@@ -189,6 +192,10 @@ execution fingerprint，再逐组使用独立 savepoint 原子执行；因此前
   绑定到当前项目的对应模板，回切模板会恢复该模板已保存的 Key
 - managed step journal 只记录 `novel_id`、profile source 和脱敏
   `profile_summary`；不记录 Key、完整 Base URL query 或正文
+- 公开模式下，无显式 `LLM_PROXY_URL` 时只允许内置供应商的 HTTPS 域名，并在运行时
+  复核 DNS，不接受用户控制 DNS 的自定义目标。自定义 OpenAI-compatible Base URL 必须
+  经过运维显式配置的出站代理，由代理承担私网阻断和域名解析边界；`LLM_TRUST_ENV`
+  不等价于该显式代理。`local / closed_test` 继续允许本机 Ollama 等 HTTP loopback。
 
 ## 测试方式
 

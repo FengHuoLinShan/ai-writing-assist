@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import logging
+import socket
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
+from core.config import Settings, get_settings
+from infrastructure.llm.egress import (
+    build_public_llm_request_guard,
+    validate_user_llm_base_url,
+)
 from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
@@ -55,7 +62,98 @@ def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
     kwargs = http_client_cls.call_args.kwargs
     assert kwargs["trust_env"] is False
     assert "proxy" not in kwargs
+    assert len(kwargs["event_hooks"]["request"]) == 1
     assert openai_cls.call_args.kwargs["http_client"] is http_client
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://provider.example/v1",
+        "https://127.0.0.1/v1",
+        "https://[::1]/v1",
+        "https://service.internal/v1",
+        "https://user:password@provider.example/v1",
+        "https://provider.example/v1#fragment",
+    ],
+)
+def test_public_llm_base_url_rejects_unsafe_destinations(base_url: str) -> None:
+    settings = Settings(auth_mode="public")
+    with pytest.raises(ValueError):
+        validate_user_llm_base_url(base_url, settings=settings)
+
+
+def test_public_llm_base_url_allows_builtin_provider_hostname() -> None:
+    settings = Settings(auth_mode="public")
+    assert (
+        validate_user_llm_base_url(
+            "https://api.deepseek.com/v1",
+            settings=settings,
+        )
+        == "https://api.deepseek.com/v1"
+    )
+
+
+def test_public_custom_llm_base_url_requires_explicit_proxy() -> None:
+    with pytest.raises(ValueError, match="LLM_PROXY_URL"):
+        validate_user_llm_base_url(
+            "https://gateway.example.com/openai/v1",
+            settings=Settings(auth_mode="public", llm_proxy_url=""),
+        )
+    assert (
+        validate_user_llm_base_url(
+            "https://gateway.example.com/openai/v1",
+            settings=Settings(
+                auth_mode="public",
+                llm_proxy_url="http://egress-proxy.internal:8080",
+            ),
+        )
+        == "https://gateway.example.com/openai/v1"
+    )
+
+
+def test_local_llm_base_url_preserves_loopback_http() -> None:
+    settings = Settings(auth_mode="local")
+    assert (
+        validate_user_llm_base_url(
+            "http://127.0.0.1:11434/v1",
+            settings=settings,
+        )
+        == "http://127.0.0.1:11434/v1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_public_request_guard_rejects_private_dns_result(monkeypatch) -> None:
+    monkeypatch.setenv("AUTH_MODE", "public")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.8", 443))
+        ],
+    )
+    request = httpx.Request("POST", "https://api.deepseek.com/v1")
+    with pytest.raises(httpx.ConnectError, match="public destination"):
+        await build_public_llm_request_guard(resolve_dns=True)(request)
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_public_request_guard_allows_public_dns_result(monkeypatch) -> None:
+    monkeypatch.setenv("AUTH_MODE", "public")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))
+        ],
+    )
+    request = httpx.Request("POST", "https://api.deepseek.com/v1")
+    await build_public_llm_request_guard(resolve_dns=True)(request)
     get_settings.cache_clear()
 
 

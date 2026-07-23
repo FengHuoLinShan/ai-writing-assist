@@ -134,7 +134,8 @@ frontend-console/
 ├── editorial-theme.css     # 全站编辑档案主题覆层（浅色 / 暖色 / 暗色）
 ├── state.js                # Proxy 状态、持久化与订阅；不直接投影 shell DOM
 ├── stateSlices.js          # 状态副作用与 listener 通知 helper
-├── api.js                  # API 封装（projects/world/rag/context/writing/imports/tasks）
+├── api.js                  # API 封装（auth/projects/world/rag/context/writing/imports/tasks）
+├── shared/accountStorage.js # 账号切换/退出时清理项目级浏览器缓存并保留主题
 ├── apiContracts.js         # 共享 API 契约注册表（高风险 wrapper 子集）
 ├── router.js               # Hash router 与 #workspace-content route-host 生命周期
 ├── commands.js             # 命令系统（全中文帮助）

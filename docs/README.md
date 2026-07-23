@@ -59,6 +59,7 @@
 10. `modules/14_frontend.md` — 前端控制台
 11. `modules/15_map.md` — 动态地图子系统（world 模块子系统）
 12. `modules/16_settings.md` — 设置模块（全局 LLM 默认、作者偏好与项目覆盖）
+13. `modules/17_account.md` — 公开浏览器账号、身份、会话与延期删除
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
@@ -75,6 +76,7 @@
 - [`adr/0006-world-bible-context-activation-ownership.md`](adr/0006-world-bible-context-activation-ownership.md) — 世界书资料、页面模板与 Context Activation Profile 的所有权边界
 - [`adr/0007-world-generation-center-consolidation.md`](adr/0007-world-generation-center-consolidation.md) — 世界设定 AI 全量进入生成中心、整页建议与工作稿应用边界
 - [`adr/0008-plot-thread-information-progression.md`](adr/0008-plot-thread-information-progression.md) — P20 三个大纲页的当前层 AI 创作、PlotThread 信息推进聚合及伏笔/揭示投影边界
+- [`adr/0010-public-browser-account-system.md`](adr/0010-public-browser-account-system.md) — 公开账号、本地会话、邮箱 OTP、Authing 微信与 owner 隔离
 
 ## 参考与历史资料
 
@@ -139,7 +141,8 @@
 
 ## 当前状态
 
-当前代码注册 9 个业务模块：`project` / `imports` / `world` / `memory` / `outline` / `rag` / `context` / `writing` / `settings`。
+当前代码注册 10 个业务模块：`account` / `project` / `imports` / `world` /
+`memory` / `outline` / `rag` / `context` / `writing` / `settings`。
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
 - 动态地图是 `world` 的子系统，API 前缀为 `/api/world/maps`
