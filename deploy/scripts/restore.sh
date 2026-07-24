@@ -65,7 +65,7 @@ if [ "$CONFIRMATION" != "RESTORE_PRODUCTION_BACKUP" ]; then
 fi
 
 compose stop api worker frontend >/dev/null 2>&1 || true
-SAFETY_BACKUP=$("$SCRIPT_DIR/backup.sh")
+SAFETY_BACKUP=$(bash "$SCRIPT_DIR/backup.sh")
 POSTGRES_USER=$(env_value POSTGRES_USER)
 POSTGRES_DB=$(env_value POSTGRES_DB)
 

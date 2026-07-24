@@ -8,4 +8,4 @@ ConditionPathExists=/opt/ai-writing-assist/deploy/.env.production
 Type=oneshot
 WorkingDirectory=/opt/ai-writing-assist
 Environment=ENV_FILE=/opt/ai-writing-assist/deploy/.env.production
-ExecStart=/opt/ai-writing-assist/deploy/scripts/backup.sh
+ExecStart=/bin/bash /opt/ai-writing-assist/deploy/scripts/backup.sh

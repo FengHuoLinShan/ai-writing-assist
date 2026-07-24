@@ -68,7 +68,7 @@ tag 镜像、启动 PostgreSQL、创建并验证 custom-format 备份、运行 A
 模式 bootstrap 认领、启动应用并进行容器内健康检查。
 
 ```bash
-deploy/scripts/release.sh <full-40-character-commit-sha>
+bash deploy/scripts/release.sh <full-40-character-commit-sha>
 ```
 
 首次发布前先在 1Panel 创建 `zhh.se` 网站并申请证书，将其容器内证书路径填入环境
@@ -84,7 +84,7 @@ python3 deploy/scripts/render_openresty.py \
 配置测试后再 reload。最后验证公网链路：
 
 ```bash
-deploy/scripts/verify_public.sh
+bash deploy/scripts/verify_public.sh
 ```
 
 `release.sh` 的成功只代表容器、数据库和内部健康检查通过；只有
@@ -95,7 +95,7 @@ deploy/scripts/verify_public.sh
 每次发布继续使用固定 commit：
 
 ```bash
-deploy/scripts/release.sh <new-full-commit-sha>
+bash deploy/scripts/release.sh <new-full-commit-sha>
 ```
 
 脚本在 migration 前保存备份并把当前/前一 commit、镜像 tag 和备份路径记录在
@@ -107,7 +107,7 @@ deploy/scripts/release.sh <new-full-commit-sha>
 手动备份：
 
 ```bash
-deploy/scripts/backup.sh
+bash deploy/scripts/backup.sh
 ```
 
 备份写入 `deploy/backups/`，使用 `pg_restore --list` 验证并生成 SHA-256，然后由
@@ -132,7 +132,7 @@ restic init
 恢复是破坏性操作，要求明确输入确认短语，并在覆盖前再创建一份安全备份：
 
 ```bash
-deploy/scripts/restore.sh \
+bash deploy/scripts/restore.sh \
   deploy/backups/<timestamp>.dump \
   <matching-full-commit-sha>
 ```

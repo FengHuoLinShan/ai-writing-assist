@@ -74,7 +74,7 @@ if ! compose run --rm api python scripts/check_embedding.py; then
     exit 1
 fi
 
-BACKUP_PATH=$("$SCRIPT_DIR/backup.sh")
+BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
 
 if ! compose --profile ops run --rm migrate; then
     echo "Migration failed. Database backup: $BACKUP_PATH" >&2
