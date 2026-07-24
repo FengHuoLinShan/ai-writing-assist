@@ -12,7 +12,7 @@
           <label>登录邮箱<input v-model.trim="email" type="email" autocomplete="email"></label>
           <div class="account-code-row">
             <input v-model.trim="code" inputmode="numeric" maxlength="6" placeholder="6 位验证码">
-            <button type="button" class="secondary" :disabled="busy" @click="requestCode">发送验证码</button>
+            <button type="button" class="secondary" :disabled="busy || !canResend" @click="requestCode">{{ resendLabel }}</button>
           </div>
           <button type="button" class="danger" :disabled="busy || !challengeId || code.length !== 6" @click="verifyAndDelete">验证并申请删除</button>
         </template>
@@ -29,6 +29,7 @@
 <script setup>
 import { computed, ref } from "vue"
 import { getApi } from "../../bridge/index.js"
+import { useResendCountdown } from "../../composables/useResendCountdown.js"
 
 const props = defineProps({
   open: Boolean,
@@ -45,6 +46,7 @@ const challengeId = ref("")
 const busy = ref(false)
 const message = ref("")
 const error = ref(false)
+const { canResend, resendLabel, start: startResendCountdown } = useResendCountdown()
 const reauthenticated = computed(() => new URLSearchParams(location.search).get("auth") === "reauthenticated")
 
 async function run(action) {
@@ -59,6 +61,7 @@ async function requestCode() {
   const result = await run(() => api.auth.requestReauthEmailCode(email.value))
   if (result) {
     challengeId.value = result.challenge_id
+    startResendCountdown(result.resend_after)
     message.value = "验证码已发送"
   }
 }

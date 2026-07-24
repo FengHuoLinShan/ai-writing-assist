@@ -18,7 +18,7 @@ function config(overrides = {}) {
 
 beforeEach(() => {
   authApi = {
-    requestEmailCode: vi.fn().mockResolvedValue({ challenge_id: "challenge-1" }),
+    requestEmailCode: vi.fn().mockResolvedValue({ challenge_id: "challenge-1", resend_after: 60 }),
     verifyEmail: vi.fn().mockResolvedValue({
       id: "account-1",
       status: "active",
@@ -32,6 +32,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   resetBridgeOverrides()
 })
 
@@ -54,6 +55,27 @@ describe("AuthGate", () => {
       accept_privacy: true,
     })
     expect(wrapper.emitted("authenticated")?.[0]?.[0]?.id).toBe("account-1")
+  })
+
+  it("prevents another code request during the server-provided resend interval", async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AuthGate, { props: { config: config() } })
+    await wrapper.find('input[type="email"]').setValue("writer@example.com")
+    const sendButton = wrapper.findAll("button")
+      .find((button) => button.text() === "发送验证码")
+
+    await sendButton.trigger("click")
+
+    expect(sendButton.attributes("disabled")).toBeDefined()
+    expect(sendButton.text()).toBe("重新发送（60秒）")
+
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(sendButton.text()).toBe("重新发送（1秒）")
+    expect(sendButton.attributes("disabled")).toBeDefined()
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(sendButton.text()).toBe("发送验证码")
+    expect(sendButton.attributes("disabled")).toBeUndefined()
   })
 
   it("shows the restricted recovery state for pending deletion", () => {

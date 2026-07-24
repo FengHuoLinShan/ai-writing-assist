@@ -9,7 +9,7 @@
           <label>登录邮箱<input v-model.trim="email" type="email" autocomplete="email"></label>
           <div class="code-row">
             <input v-model.trim="code" inputmode="numeric" maxlength="6" placeholder="6 位验证码">
-            <button type="button" class="secondary" :disabled="busy" @click="requestCode('reauth')">发送验证码</button>
+            <button type="button" class="secondary" :disabled="busy || !canResend" @click="requestCode('reauth')">{{ resendLabel }}</button>
           </div>
           <button type="button" :disabled="busy || !challengeId || code.length !== 6" @click="reauthAndRestore">验证并撤销删除</button>
         </template>
@@ -24,7 +24,7 @@
         <label>邮箱<input v-model.trim="email" type="email" autocomplete="email" placeholder="name@example.com"></label>
         <div class="code-row">
           <input v-model.trim="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码">
-          <button type="button" class="secondary" :disabled="busy || !email" @click="requestCode('login')">发送验证码</button>
+          <button type="button" class="secondary" :disabled="busy || !email || !canResend" @click="requestCode('login')">{{ resendLabel }}</button>
         </div>
         <label class="consent"><input v-model="accepted" type="checkbox">我已阅读并同意
           <a :href="config.terms_url" target="_blank">用户协议</a>和
@@ -41,6 +41,7 @@
 <script setup>
 import { computed, ref } from "vue"
 import { getApi } from "../bridge/index.js"
+import { useResendCountdown } from "../composables/useResendCountdown.js"
 
 const props = defineProps({
   config: { type: Object, required: true },
@@ -56,6 +57,7 @@ const challengeId = ref("")
 const busy = ref(false)
 const message = ref("")
 const error = ref(false)
+const { canResend, resendLabel, start: startResendCountdown } = useResendCountdown()
 const reauthenticated = computed(() => new URLSearchParams(location.search).get("auth") === "reauthenticated")
 const purgeDate = computed(() => account.value?.purge_after
   ? new Date(account.value.purge_after).toLocaleDateString()
@@ -78,6 +80,7 @@ async function requestCode(purpose) {
     : api.auth.requestEmailCode(email.value))
   if (!result) return
   challengeId.value = result.challenge_id
+  startResendCountdown(result.resend_after)
   show("验证码已发送，5 分钟内有效")
 }
 async function verify() {

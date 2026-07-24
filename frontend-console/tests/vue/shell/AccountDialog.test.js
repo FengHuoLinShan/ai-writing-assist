@@ -8,7 +8,7 @@ let authApi
 
 beforeEach(() => {
   authApi = {
-    requestReauthEmailCode: vi.fn(async () => ({ challenge_id: "challenge-1" })),
+    requestReauthEmailCode: vi.fn(async () => ({ challenge_id: "challenge-1", resend_after: 60 })),
     verifyReauthEmail: vi.fn(async () => ({ reauthenticated: true })),
     requestDeletion: vi.fn(async () => ({ status: "pending_deletion" })),
     wechatStartUrl: vi.fn(() => "/api/auth/reauth/wechat/start"),
@@ -17,6 +17,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   resetBridgeOverrides()
 })
 
@@ -43,5 +44,28 @@ describe("AccountDialog", () => {
 
     expect(authApi.requestDeletion).toHaveBeenCalledTimes(1)
     expect(wrapper.emitted("account-invalidated")).toHaveLength(1)
+  })
+
+  it("disables reauth code resend for 60 seconds", async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(AccountDialog, {
+      props: {
+        open: true,
+        account: { id: "account-1", identity_type: "email" },
+        config: { auth_mode: "public", wechat_enabled: false },
+      },
+    })
+    const sendButton = wrapper.findAll("button")
+      .find((button) => button.text() === "发送验证码")
+
+    await sendButton.trigger("click")
+    await flushPromises()
+
+    expect(sendButton.attributes("disabled")).toBeDefined()
+    expect(sendButton.text()).toBe("重新发送（60秒）")
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(sendButton.text()).toBe("发送验证码")
+    expect(sendButton.attributes("disabled")).toBeUndefined()
   })
 })
