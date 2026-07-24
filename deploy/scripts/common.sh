@@ -61,7 +61,7 @@ ensure_public_bootstrap() {
             bootstrap_email=$(env_value BOOTSTRAP_OWNER_EMAIL)
             compose run --rm api \
                 python scripts/manage_accounts.py claim-legacy \
-                "$bootstrap_email"
+                --email "$bootstrap_email"
             ;;
         *"identity=email"*)
             ;;
