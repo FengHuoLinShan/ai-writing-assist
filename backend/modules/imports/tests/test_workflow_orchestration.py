@@ -18,6 +18,7 @@ from modules.imports.adoption_policy import build_authorization_snapshot
 from modules.imports.llm_schemas import (
     SceneChunk,
 )
+from modules.imports.models import ImportWorkflowRun
 from modules.imports.orchestrator import (
     DeepImportOrchestrator,
     DeepImportWorkflowFailedError,
@@ -346,9 +347,46 @@ async def _create_recoverable_deep_import_task(
             **recovery_flags,
         },
         progress=0.5,
+        recovery_policy=(
+            "manual_resume"
+            if task_type
+            in {
+                "deep_import",
+                "scene_auto_extraction",
+                "world_object_auto_extraction",
+                "plot_structure_auto_extraction",
+            }
+            else "restart_origin"
+        ),
     )
     db_session.add(task)
     await db_session.flush()
+    if task_type in {
+        "deep_import",
+        "scene_auto_extraction",
+        "world_object_auto_extraction",
+        "plot_structure_auto_extraction",
+    }:
+        db_session.add(
+            ImportWorkflowRun(
+                id=task.id,
+                task_id=task.id,
+                novel_id=uuid.UUID(novel_id),
+                workflow_type=task_type,
+                stage=None,
+                start_chapter=1,
+                end_chapter=3,
+                status="failed",
+                generation=1,
+                recovery_required=recovery_required,
+                authorization_snapshot={},
+                llm_execution_snapshot={},
+                prepare_checkpoint={},
+                checkpoints={},
+                progress=dict(task.result or {}),
+            )
+        )
+        await db_session.flush()
     return task
 
 
@@ -511,6 +549,28 @@ class TestDeepImportOrchestrator:
             },
         )
         db_session.add(active)
+        await db_session.flush()
+        db_session.add(
+            ImportWorkflowRun(
+                id=active.id,
+                task_id=active.id,
+                novel_id=uuid.UUID(novel_id),
+                workflow_type="deep_import",
+                stage=None,
+                start_chapter=1,
+                end_chapter=3,
+                status="pending",
+                generation=1,
+                recovery_required=False,
+                authorization_snapshot=dict(
+                    active.meta["authorization_snapshot"]
+                ),
+                llm_execution_snapshot={},
+                prepare_checkpoint={},
+                checkpoints={},
+                progress={},
+            )
+        )
         await db_session.flush()
         orchestrator = DeepImportOrchestrator(
             snapshot_builder=AsyncMock(side_effect=AssertionError("must reuse task")),

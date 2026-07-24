@@ -71,6 +71,16 @@ _JSON_OBJECT_OUTPUT_INSTRUCTION = (
     "Return exactly one valid JSON object matching the requested schema."
 )
 
+_OPENAI_PROVIDER_ERRORS = (
+    APITimeoutError,
+    RateLimitError,
+    AuthenticationError,
+    BadRequestError,
+    ContentFilterFinishReasonError,
+    APIConnectionError,
+    APIError,
+)
+
 
 class OpenAIProvider:
     """OpenAI-compatible API Provider
@@ -111,11 +121,12 @@ class OpenAIProvider:
         # 独立的 embedding 客户端：当配置了 EMBEDDING_BASE_URL 时使用独立端点
         _emb_base_url = settings.embedding_base_url
         _emb_api_key = settings.embedding_api_key or self._api_key
+        self._embedding_base_url = str(_emb_base_url or self._base_url)
         if _emb_base_url:
             self._embedding_http_client = self._build_http_client()
             self._embedding_client = self._build_sdk_client(
                 api_key=_emb_api_key,
-                base_url=_emb_base_url,
+                base_url=self._embedding_base_url,
                 http_client=self._embedding_http_client,
             )
         else:
@@ -194,56 +205,8 @@ class OpenAIProvider:
             response = await self._client.chat.completions.create(
                 **kwargs,
             )  # type: ignore[arg-type]
-        except APITimeoutError as e:
-            raise LLMTimeoutError(
-                f"OpenAI API timeout after {self._timeout}s",
-                provider=self.name,
-                model=model,
-                timeout=self._timeout,
-            ) from e
-        except RateLimitError as e:
-            retry_after = (
-                float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
-            )
-            raise LLMRateLimitError(
-                f"OpenAI rate limit: {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-                retry_after=retry_after,
-            ) from e
-        except AuthenticationError as e:
-            raise LLMAuthError(
-                f"OpenAI auth failed: {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-            ) from e
-        except BadRequestError as e:
-            raise LLMInvalidResponseError(
-                f"OpenAI bad request: {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-            ) from e
-        except ContentFilterFinishReasonError as e:
-            raise LLMContentFilterError(
-                "Content filter triggered",
-                provider=self.name,
-                model=model,
-                filter_reason=redact_diagnostic(e, limit=300),
-            ) from e
-        except APIConnectionError as e:
-            kind = _classify_connection_error(e)
-            raise LLMConnectionError(
-                f"OpenAI connection failed ({kind}): {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-                error_kind=kind,
-            ) from e
-        except APIError as e:
-            raise LLMError(
-                f"OpenAI API error: {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-            ) from e
+        except _OPENAI_PROVIDER_ERRORS as error:
+            raise self._map_provider_error(error, model=model) from error
 
         elapsed_ms = (time.monotonic() - start_time) * 1000
 
@@ -271,7 +234,7 @@ class OpenAIProvider:
         self,
         request: LLMCallRequest,
     ) -> AsyncIterator[LLMStreamChunk]:
-        """流式调用 LLM，逐个 chunk 返回"""
+        """建立流式调用并返回负责迭代期错误映射的 iterator。"""
         model = request.model or self._default_model
         kwargs = self._build_kwargs(request, model)
         kwargs["stream"] = True
@@ -282,62 +245,33 @@ class OpenAIProvider:
             stream = await self._client.chat.completions.create(
                 **kwargs,
             )  # type: ignore[arg-type]
-        except APITimeoutError as e:
-            raise LLMTimeoutError(
-                f"OpenAI API timeout after {self._timeout}s",
-                provider=self.name,
-                model=model,
-                timeout=self._timeout,
-            ) from e
-        except RateLimitError as e:
-            retry_after = (
-                float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
-            )
-            raise LLMRateLimitError(
-                f"OpenAI rate limit: {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-                retry_after=retry_after,
-            ) from e
-        except AuthenticationError as e:
-            raise LLMAuthError(
-                f"OpenAI auth failed: {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-            ) from e
-        except APIConnectionError as e:
-            kind = _classify_connection_error(e)
-            raise LLMConnectionError(
-                f"OpenAI connection failed ({kind}): {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-                error_kind=kind,
-            ) from e
-        except APIError as e:
-            raise LLMError(
-                f"OpenAI API error: {redact_diagnostic(e)}",
-                provider=self.name,
-                model=model,
-            ) from e
+        except _OPENAI_PROVIDER_ERRORS as error:
+            raise self._map_provider_error(error, model=model) from error
 
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            content = delta.content or "" if delta else ""
-            finish = chunk.choices[0].finish_reason if chunk.choices else None
+        async def iterate_stream() -> AsyncIterator[LLMStreamChunk]:
+            try:
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    content = delta.content or "" if delta else ""
+                    finish = chunk.choices[0].finish_reason if chunk.choices else None
 
-            usage = None
-            if chunk.usage:
-                usage = LLMUsage(
-                    prompt_tokens=chunk.usage.prompt_tokens or 0,
-                    completion_tokens=chunk.usage.completion_tokens or 0,
-                    total_tokens=chunk.usage.total_tokens or 0,
-                )
+                    usage = None
+                    if chunk.usage:
+                        usage = LLMUsage(
+                            prompt_tokens=chunk.usage.prompt_tokens or 0,
+                            completion_tokens=chunk.usage.completion_tokens or 0,
+                            total_tokens=chunk.usage.total_tokens or 0,
+                        )
 
-            yield LLMStreamChunk(
-                content=content,
-                finish_reason=finish,
-                usage=usage,
-            )
+                    yield LLMStreamChunk(
+                        content=content,
+                        finish_reason=finish,
+                        usage=usage,
+                    )
+            except _OPENAI_PROVIDER_ERRORS as error:
+                raise self._map_provider_error(error, model=model) from error
+
+        return iterate_stream()
 
     async def generate_embedding(
         self,
@@ -368,10 +302,13 @@ class OpenAIProvider:
 
         model_name = model or get_settings().embedding_model
 
-        response = await self._embedding_client.embeddings.create(
-            model=model_name,
-            input=text,
-        )
+        try:
+            response = await self._embedding_client.embeddings.create(
+                model=model_name,
+                input=text,
+            )
+        except _OPENAI_PROVIDER_ERRORS as error:
+            raise self._map_provider_error(error, model=model_name) from error
 
         embeddings = [item.embedding for item in response.data]
 
@@ -379,15 +316,65 @@ class OpenAIProvider:
             return embeddings[0]
         return embeddings
 
+    def _map_provider_error(self, error: Exception, *, model: str) -> LLMError:
+        """Translate SDK failures at every transport phase into stable errors."""
+        if isinstance(error, APITimeoutError):
+            return LLMTimeoutError(
+                f"OpenAI API timeout after {self._timeout}s",
+                provider=self.name,
+                model=model,
+                timeout=self._timeout,
+            )
+        if isinstance(error, RateLimitError):
+            retry_after = (
+                float(error.response.headers.get("retry-after", "5"))
+                if error.response
+                else 5.0
+            )
+            return LLMRateLimitError(
+                f"OpenAI rate limit: {redact_diagnostic(error)}",
+                provider=self.name,
+                model=model,
+                retry_after=retry_after,
+            )
+        if isinstance(error, AuthenticationError):
+            return LLMAuthError(
+                f"OpenAI auth failed: {redact_diagnostic(error)}",
+                provider=self.name,
+                model=model,
+            )
+        if isinstance(error, BadRequestError):
+            return LLMInvalidResponseError(
+                f"OpenAI bad request: {redact_diagnostic(error)}",
+                provider=self.name,
+                model=model,
+            )
+        if isinstance(error, ContentFilterFinishReasonError):
+            return LLMContentFilterError(
+                "Content filter triggered",
+                provider=self.name,
+                model=model,
+                filter_reason=redact_diagnostic(error, limit=300),
+            )
+        if isinstance(error, APIConnectionError):
+            kind = _classify_connection_error(error)
+            return LLMConnectionError(
+                f"OpenAI connection failed ({kind}): {redact_diagnostic(error)}",
+                provider=self.name,
+                model=model,
+                error_kind=kind,
+            )
+        return LLMError(
+            f"OpenAI API error: {redact_diagnostic(error)}",
+            provider=self.name,
+            model=model,
+        )
+
     def _build_kwargs(self, request: LLMCallRequest, model: str) -> dict[str, Any]:
         """构建 OpenAI SDK 调用参数"""
         messages = [m.model_dump() for m in request.messages]
-        if (
-            request.response_format == {"type": "json_object"}
-            and not any(
-                "json" in str(message.get("content") or "").casefold()
-                for message in messages
-            )
+        if request.response_format == {"type": "json_object"} and not any(
+            "json" in str(message.get("content") or "").casefold() for message in messages
         ):
             system_message = next(
                 (message for message in messages if message.get("role") == "system"),

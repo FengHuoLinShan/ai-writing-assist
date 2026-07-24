@@ -94,11 +94,17 @@ def _validate_worker_config() -> None:
 
 async def main() -> None:
     from infrastructure.tasks.worker import TaskWorker
+    from modules.imports.facade import reconcile_workflow_task_owners
+    from modules.rag.facade import reconcile_index_task_owners
 
     _configure_worker_process()
     worker = TaskWorker(
         task_preflight=_require_active_task_project,
         task_commit_guard=_guard_active_task_project_finalize,
+        startup_reconcilers=(
+            reconcile_workflow_task_owners,
+            reconcile_index_task_owners,
+        ),
     )
     await worker.run_forever()
 

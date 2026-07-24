@@ -27,10 +27,11 @@ infrastructure/tasks/
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
   `outline_generate`
-- rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`
+- rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
+  `rag_reannotate_entities`
 - writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
-  `plot_structure_auto_extraction`
+  `plot_structure_auto_extraction`、`map_observation_enrichment`
 
 实际注册名以各模块 `tasks.py` 的 `@task_handler(...)` 为准；不要从旧计划或示例中的
 任务名推断当前可执行处理器。
@@ -72,6 +73,34 @@ await worker.run_once()      # 单次执行
   清理任务历史。
 
 业务模块不得直接依赖 `AsyncTask` ORM 执行这些跨模块操作。
+
+## Keyed coalescing
+
+需要数据库级任务合并的业务模块使用 `facade.enqueue_coalesced_task()` 和
+`get_latest_coalesced_task()`，不查询或构造 `AsyncTask`。内部 key 是
+`novel_id + task_type + ordered scope + version=1` 的 canonical JSON SHA-256；
+UUID 先规范化，JSON 固定使用 ASCII、紧凑分隔符和键排序。scope 只能包含稳定、无 secret
+的领域身份，不得包含 API Key、credential、完整 prompt 或用户隐私正文。摘要本身也不进入
+公开响应、错误和日志。
+
+数据库部分唯一索引分别保证同一 key 最多一个 `pending` 和一个 `running`：
+
+- `reuse_active` 复用 pending 或 running，适合章节索引和页面投影；
+- `one_pending_follower` 复用 pending，但 running 时允许一个后继，适合运行期间仍可能收到
+  新失效通知的 RAG entity reannotation。
+
+并发 query 后的 insert 仍可能冲突，facade 在 savepoint 内 flush 并读取胜出 task；正确性
+依赖数据库唯一约束，不依赖进程内锁。done/failed/cancelled 保留历史且不占活动唯一约束。
+当前固定 scope 为：
+
+- imports：`("imports_pipeline",)`，五种 task type 仍分别进入 key；
+- World projection：`("page_projection", page_id, projection_type)`；
+- RAG chapter：`("chapter_index", chapter_index, content_mode)`；
+- RAG reannotation：`("entity_activity",)`。
+
+keyed coalescing 只拥有排队收敛，不拥有领域新鲜度。World 仍以 page/source version/hash
+CAS 决定 projection 是否可晋升；RAG 以 `rag_index_state.active_task_id + generation`
+fence 旧 attempt；imports 以自己的 workflow run 保存 generation、owner 与 checkpoint。
 
 ## 任务领取
 
@@ -134,6 +163,11 @@ handler 注册时声明四种冻结策略：
 - `restart_origin`：不证明安全重放，由前端引导回业务来源重新发起。
 - `never_retry`：明确不可重试。
 
+worker 启动先执行通用 stale-task recovery，再在同一独立事务调用组合根注入的领域
+reconciler。当前 RAG 会清理/补排失活 index owner，imports 会把 run 与 task 的
+pending/running/terminal/manual-resume 状态收敛并同步或清空 attempt/lease owner；任一
+reconciler 失败则启动恢复事务回滚，不以半套 owner 状态继续工作。
+
 `GET /api/tasks/{task_id}` 加性返回 `attempt / max_attempts / stale / lifecycle /
 available_actions`。前端只渲染后端返回的固定 action，不根据 heartbeat 或 task type
 自行推测恢复方式。`result` 顶层以下划线开头的键是 worker 私有 checkpoint：数据库与
@@ -165,6 +199,7 @@ provider 前 checkpoint，等待期间不持有数据库事务，finalize/apply 
 未完成 v1 task fail closed；完成的 v1 preview 只保留旧 apply 兼容。
 
 本轮已收敛或新增的跨模块 lifecycle 操作只通过 `contracts.py` 和 `facade.py`
-读取投影，不新增对 `models.py` 或 `lifecycle.py` 的依赖。deep-import orchestrator
-和 World Bible projection coalescing 仍有已登记的直接 ORM 边界债务；它们需要后续
-状态机/coalescing 设计迁移，不得作为新增调用的先例。
+读取投影，不新增对 `models.py` 或 `lifecycle.py` 的依赖。deep-import 的可恢复状态已迁到
+imports-owned workflow run；World Bible projection 和 RAG 的重复入队已迁到数据库唯一的
+keyed coalescing。新增任务仍需独立证明 scope、合并模式和领域新鲜度 fence，不能把现有 key
+复制为通用默认。

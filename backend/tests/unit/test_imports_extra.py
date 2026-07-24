@@ -69,23 +69,49 @@ async def _create_recoverable_deep_import_task(
     result: dict | None = None,
 ) -> AsyncTask:
     """Create a recoverable deep_import task for facade compatibility tests."""
+    from modules.imports.workflow_runs import ImportWorkflowRunService
+    from modules.project.models import Project
+
     recovery_flags = {
         "interrupted": True,
         "recoverable": True,
         "recovery_required": True,
     }
+    task_meta = (
+        meta if meta is not None else {"novel_id": str(uuid.uuid4()), **recovery_flags}
+    )
+    novel_id = str(task_meta["novel_id"])
+    db_session.add(
+        Project(
+            id=uuid.UUID(novel_id),
+            title="recoverable imports fixture",
+            settings={},
+        )
+    )
     task = AsyncTask(
         id=uuid.uuid4(),
         task_type=task_type,
         status=status,
-        meta=(
-            meta
-            if meta is not None
-            else {"novel_id": str(uuid.uuid4()), **recovery_flags}
-        ),
+        recovery_policy="manual_resume",
+        meta=task_meta,
         result=result if result is not None else dict(recovery_flags),
     )
     db_session.add(task)
+    await db_session.flush()
+    run = await ImportWorkflowRunService().create_pending(
+        db_session,
+        task_id=str(task.id),
+        novel_id=novel_id,
+        workflow_type=task_type,
+        stage=None,
+        start_chapter=int(task_meta.get("start_chapter", 1)),
+        end_chapter=int(task_meta.get("end_chapter", 5)),
+        authorization_snapshot={},
+        llm_execution_snapshot={},
+        initial_progress=dict(task.result or {}),
+    )
+    run.status = status
+    run.recovery_required = status == "failed"
     await db_session.flush()
     return task
 
@@ -1312,70 +1338,25 @@ class TestImportTaskHandlers:
 @pytest.mark.asyncio
 async def test_run_submitted_scene_stage_inline_uses_worker_workflow_path() -> None:
     import uuid
-    from unittest.mock import AsyncMock
 
-    from infrastructure.tasks.models import AsyncTask
-    from modules.imports.adoption_policy import build_authorization_snapshot
     from modules.imports.orchestrator import DeepImportOrchestrator
 
-    novel_id = "11111111-1111-1111-1111-111111111111"
-    authorization = build_authorization_snapshot(
-        novel_id=novel_id,
-        start_chapter=1,
-        end_chapter=2,
-        adoption_policy="user_authorized_pipeline",
-        authorization_confirmed=True,
-        stage="scenes",
-    )
-    task = AsyncTask(
-        id=uuid.uuid4(),
-        task_type="scene_auto_extraction",
-        status="pending",
-        meta={
-            "novel_id": novel_id,
-            "start_chapter": 1,
-            "end_chapter": 2,
-            "stage": "scenes",
-            "authorization_snapshot": authorization,
-        },
-        result={
-            "authorization_snapshot": authorization,
-            "adoption_policy": "user_authorized_pipeline",
-        },
-    )
+    db = MagicMock()
+    task_id = str(uuid.uuid4())
+    with patch(
+        "infrastructure.tasks.facade.run_task_inline",
+        autospec=True,
+        return_value={"phase": "completed"},
+    ) as run_inline:
+        result = await DeepImportOrchestrator().run_submitted_stage_inline(
+            db,
+            task_id,
+            stage="scenes",
+        )
 
-    class FakeWorkflow:
-        calls = 0
-
-        async def run_step(self, _db, **kwargs):
-            self.calls += 1
-            progress = kwargs["progress"]
-            progress.phase = "completed"
-            progress.message = "fixture complete"
-            return progress
-
-    workflow = FakeWorkflow()
-    db = AsyncMock()
-    db.get.return_value = task
-
-    async def _empty_snapshot(_db, novel_id):
-        return {"test_snapshot": True, "novel_id": novel_id}
-
-    async def _restore_snapshot(_db, _novel_id, _snapshot):
-        return None
-
-    result = await DeepImportOrchestrator(
-        workflow=workflow,
-        snapshot_builder=_empty_snapshot,
-        snapshot_restorer=_restore_snapshot,
-    ).run_submitted_stage_inline(
-        db,
-        str(task.id),
-        stage="scenes",
-    )
-
-    assert workflow.calls == 1
     assert result["phase"] == "completed"
-    assert task.status == "done"
-    assert task.progress == 1.0
-    db.flush.assert_awaited()
+    run_inline.assert_awaited_once_with(
+        db,
+        task_id=task_id,
+        expected_task_type="scene_auto_extraction",
+    )

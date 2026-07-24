@@ -8,16 +8,130 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.contracts import (
+    CoalescedTaskContract,
     CompletedTaskPayloadContract,
+    TaskCoalescingMode,
     TaskLifecycleContract,
     TaskOwnerContract,
+)
+from infrastructure.tasks.enqueuer import (
+    enqueue_coalesced_task as _enqueue_coalesced_task,
+)
+from infrastructure.tasks.enqueuer import (
+    get_latest_coalesced_task as _get_latest_coalesced_task,
 )
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 
 
+async def enqueue_coalesced_task(
+    db: AsyncSession,
+    *,
+    task_type: str,
+    novel_id: str,
+    scope: tuple[str, ...],
+    meta: dict[str, Any] | None = None,
+    mode: TaskCoalescingMode = "reuse_active",
+) -> CoalescedTaskContract:
+    """Create/reuse one novel-scoped task without exposing its internal key."""
+    return await _enqueue_coalesced_task(
+        db,
+        task_type=task_type,
+        novel_id=novel_id,
+        scope=scope,
+        meta=meta,
+        mode=mode,
+    )
+
+
+async def get_latest_coalesced_task(
+    db: AsyncSession,
+    *,
+    task_type: str,
+    novel_id: str,
+    scope: tuple[str, ...],
+) -> CoalescedTaskContract | None:
+    return await _get_latest_coalesced_task(
+        db,
+        task_type=task_type,
+        novel_id=novel_id,
+        scope=scope,
+    )
+
+
+async def update_task_projection(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    task_type: str,
+    novel_id: str,
+    result: dict[str, Any] | None = None,
+    meta_patch: dict[str, Any] | None = None,
+    progress: float | None = None,
+) -> bool:
+    """Maintain one task API projection from its domain-owned workflow state."""
+    return await TaskLifecycleService().update_projection(
+        db,
+        task_id=task_id,
+        task_type=task_type,
+        novel_id=novel_id,
+        result=result,
+        meta_patch=meta_patch,
+        progress=progress,
+    )
+
+
+async def resume_manual_task(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    task_types: set[str],
+    novel_id: str,
+) -> TaskLifecycleContract:
+    return await TaskLifecycleService().resume_manual(
+        db,
+        task_id=task_id,
+        task_types=task_types,
+        novel_id=novel_id,
+    )
+
+
+async def cancel_recoverable_task(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    task_types: set[str],
+    novel_id: str,
+) -> TaskLifecycleContract:
+    return await TaskLifecycleService().cancel_recoverable(
+        db,
+        task_id=task_id,
+        task_types=task_types,
+        novel_id=novel_id,
+    )
+
+
+async def run_task_inline(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    expected_task_type: str,
+) -> dict[str, Any]:
+    """Execute one exact pending task without exposing its ORM to the caller."""
+    from infrastructure.tasks.inline import run_task_inline as _run_task_inline
+
+    return await _run_task_inline(
+        db,
+        task_id=task_id,
+        expected_task_type=expected_task_type,
+    )
+
+
 def require_task_checkpoint_session(db: AsyncSession) -> None:
     """Reject commit-owning task seams outside a fenced handler session."""
-    if getattr(db, "task_checkpoint_enabled", False) is not True:
+    if (
+        getattr(db, "task_checkpoint_enabled", False) is not True
+        and getattr(db, "task_inline_execution_enabled", False) is not True
+    ):
         raise RuntimeError(
             "task checkpoint operation requires a fenced TaskWorker handler session"
         )

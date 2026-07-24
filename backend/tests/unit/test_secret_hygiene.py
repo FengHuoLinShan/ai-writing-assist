@@ -15,6 +15,10 @@ def test_sensitive_path_rule_rejects_runtime_env_files_but_allows_templates() ->
     assert sensitive_path_rule("backend/.env.local") == "tracked_env_file"
     assert sensitive_path_rule("backend/.env.production") == "tracked_env_file"
     assert sensitive_path_rule("backend/.env.example") is None
+    assert sensitive_path_rule("deploy/.env.production.example") is None
+    assert sensitive_path_rule("deploy/.env.local.sample") is None
+    assert sensitive_path_rule("deploy/.env.staging.template") is None
+    assert sensitive_path_rule("deploy/.env.example.production") == "tracked_env_file"
     assert sensitive_path_rule("backend/.ENV.TEMPLATE") is None
     assert sensitive_path_rule(r"backend\.env.production") == "tracked_env_file"
     assert sensitive_path_rule("backend/.envrc") is None
@@ -47,6 +51,15 @@ def test_scan_text_allows_explicit_test_placeholder_only_in_fixture_context() ->
     assert scan_text("backend/tests/unit/test_client.py", placeholder) == []
     assert scan_text("docs/provider-example.md", placeholder) == []
     assert scan_text("backend/app/main.py", placeholder)
+
+
+def test_scan_text_treats_environment_templates_as_placeholder_context() -> None:
+    placeholder = "sk-example-placeholder-value"
+    credential = "sk-" + "R" * 24
+
+    assert scan_text("deploy/.env.production.example", placeholder) == []
+    findings = scan_text("deploy/.env.production.example", credential)
+    assert [finding.rule for finding in findings] == ["openai_compatible_key"]
 
 
 def test_placeholder_marker_must_be_a_delimited_explicit_marker() -> None:

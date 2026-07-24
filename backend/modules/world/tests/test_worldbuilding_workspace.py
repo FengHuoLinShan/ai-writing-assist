@@ -244,6 +244,103 @@ async def test_projection_refresh_task_lifecycle_conflict(
 
 
 @pytest.mark.asyncio
+async def test_projection_force_refresh_queues_only_one_follower(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    from infrastructure.tasks.lifecycle import TaskLifecycleService
+
+    service = WorldBibleService()
+    page = await service.create_page(
+        db_session,
+        WorldBiblePageCreate(
+            novel_id=project_novel_id,
+            title="并发刷新页",
+            free_text="稳定世界观。",
+        ),
+    )
+    owner_id, _, _ = await service.refresh_projection_task(
+        db_session,
+        project_novel_id,
+        page.id,
+        projection_type="context_brief",
+    )
+    owner = await db_session.get(AsyncTask, uuid.UUID(owner_id))
+    assert owner is not None
+    owner.mark_running()
+    await db_session.flush()
+
+    follower_id, status, existing = await service.refresh_projection_task(
+        db_session,
+        project_novel_id,
+        page.id,
+        projection_type="context_brief",
+        force=True,
+    )
+    duplicate_id, duplicate_status, duplicate_existing = (
+        await service.refresh_projection_task(
+            db_session,
+            project_novel_id,
+            page.id,
+            projection_type="context_brief",
+            force=True,
+        )
+    )
+
+    assert follower_id != owner_id
+    assert status == "pending"
+    assert existing is False
+    assert duplicate_id == follower_id
+    assert duplicate_status == "pending"
+    assert duplicate_existing is True
+    assert await TaskLifecycleService().claim_next(db_session) is None
+
+
+@pytest.mark.asyncio
+async def test_projection_lookup_is_not_bounded_by_global_recent_tasks(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    service = WorldBibleService()
+    page = await service.create_page(
+        db_session,
+        WorldBiblePageCreate(
+            novel_id=project_novel_id,
+            title="精确任务定位页",
+            free_text="世界背景。",
+        ),
+    )
+    task_id, _, _ = await service.refresh_projection_task(
+        db_session,
+        project_novel_id,
+        page.id,
+    )
+    task = await db_session.get(AsyncTask, uuid.UUID(task_id))
+    assert task is not None
+    task.mark_done()
+    db_session.add_all(
+        [
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="unrelated",
+                status="done",
+                meta={"novel_id": project_novel_id},
+            )
+            for _ in range(60)
+        ]
+    )
+    await db_session.flush()
+
+    with pytest.raises(ProjectionRefreshConflictError) as exc_info:
+        await service.refresh_projection_task(
+            db_session,
+            project_novel_id,
+            page.id,
+        )
+    assert exc_info.value.task_id == task_id
+
+
+@pytest.mark.asyncio
 async def test_projection_refresh_locks_page_and_bounds_redacted_failure(
     db_session,
     project_novel_id: str,

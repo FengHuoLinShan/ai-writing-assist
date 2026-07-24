@@ -140,6 +140,12 @@ World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity
 复用同一内容 hash、draft identity 和更新时间比较；`WorldBibleService` 只保留页面查询与
 projection 任务编排，激活解析不再调用它的私有 hash helper。
 
+页面 projection refresh 以
+`("page_projection", page_id, projection_type)` 调用 tasks facade 的数据库级 keyed
+coalescing，不再扫描最近一批全局 task。并发提交在部分唯一索引上收敛到同一个
+pending/running task，终态仍保留历史。该 key 只解决排队重复；projection 的 page version、
+source hash 与提交 CAS 仍是领域新鲜度和旧结果不得覆盖新页面的权威边界。
+
 世界观简介优先以已发布页面为综合主干，再用结构化对象和关系补充校验。输入仅保留约
 50 万字符的异常安全栏，单页可使用约 20 万字符，不按常规短上下文压缩；输出导航上限约
 4000 词元，避免因旧 1200 词元限制截掉作者页面后半部分。provider 超限时任务显式失败，

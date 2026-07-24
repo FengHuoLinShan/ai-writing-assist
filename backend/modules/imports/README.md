@@ -13,11 +13,13 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 按章节模式（第X章、Chapter X、卷X 等）自动分章
 - 将解析结果写入 writing_drafts（每章一个已发布正文版本），上传响应返回已保存章节摘要
 - 记录导入历史
-- 提交并编排深度导入任务（基于 async_tasks）
+- 提交并编排深度导入任务（`async_tasks` 负责调度/lease，
+  `import_workflow_runs` 负责领域恢复事实）
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
-- 完整/分阶段提交在现有 project exclusive 短事务锁内检查同项目任务；若已有
-  `pending/running` 或 `failed + recovery_required` 的 imports task，则返回原
-  `task_id/workflow_type`，不重复入队。该锁不跨 provider I/O，仅覆盖 DB 检查与提交
+- 完整、分阶段和地图补充提交在 project exclusive 短事务锁内检查同项目 run；
+  `import_workflow_runs` 另以 partial unique index 保证同项目最多一个
+  `pending/running` 或 recovery-required run。已有 owner 时返回原
+  `task_id/workflow_type`，不重复入队；该锁不跨 provider I/O
 - 对已经完成深度导入、但地图时间事实不足的项目，提交独立
   `map_observation_enrichment` 任务；该任务只读取既有 active Scene 与正文来源，
   不执行 Phase 0/1/2/3，不新建或改写 Scene、世界对象、关系和结构资产
@@ -94,7 +96,9 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 ## 数据表
 
 - import_records：导入操作记录（元信息，不存正文）
-- async_tasks：深度导入任务载体，运行中写入 progress/result 供前端轮询
+- import_workflow_runs：授权/LLM 快照、prepare/checkpoint、权威进度及
+  `task_id + generation + owner attempt/lease` 所有权
+- async_tasks：队列调度、lease 与任务 API 兼容投影；progress/result 继续供前端轮询
 
 `context_snapshots` 由 context 模块拥有。imports 只通过 facade 创建、标记成功/失败和回写 result refs，不直接访问 context 内部表或 repository。
 
@@ -115,7 +119,7 @@ Phase 2 的存量对象去重通过 `world.facade.get_world_context(..., include
 - `adoption_policy="user_authorized_pipeline"`（当前唯一受支持策略）；
 - `authorization_confirmed=true`（必填且必须为 true）。
 
-facade/orchestrator 默认不授权；缺少显式 `authorization_confirmed=True` 会在入队前拒绝。新任务把带 `authorized_at`、novel/章节/stage scope、`provenance_required`、以及 `rollback.mode=workflow_owned_soft_deprecate` 的 `authorization_snapshot` 同时写入 `async_tasks.meta` 与初始 `result`；worker 进度和最终结果继续保留该快照。worker 恢复同样 fail closed：快照缺失、未确认、策略不受支持或 scope 与 task meta 不一致时，直接拒绝执行，不对历史任务补默认授权。
+facade/orchestrator 默认不授权；缺少显式 `authorization_confirmed=True` 会在入队前拒绝。新任务把带 `authorized_at`、novel/章节/stage scope、`provenance_required`、以及 `rollback.mode=workflow_owned_soft_deprecate` 的 `authorization_snapshot` 写入 `import_workflow_runs`，并投影到 `async_tasks.meta/result` 保持现有 wire。worker 进度和最终结果继续保留该快照；恢复同样 fail closed：快照缺失、未确认、策略不受支持或 scope 与 run 范围不一致时，直接拒绝执行。
 
 新提交的 `deep_import` 和三个 stage task 还会在入队前生成
 secret-free `llm_execution_snapshot`，同时写入 task meta 和初始 result。
@@ -172,8 +176,8 @@ LLM health、Phase 1a/1b 与高质量 Phase 1c 等待期间不持有数据库事
 provider 结果提交前按 project 优先锁序重验项目、snapshot、来源向量和
 当前 task type/novel/lease/attempt。PostgreSQL 上还会按章节升序取 writing
 version advisory lock，与正文版本创建和原地内容修改串行化。正式 Scene、
-融合建议、RAG 入队与 task progress/checkpoint/result 只在同一个最终
-fenced transaction 中持久化；最终 fence 拒绝、空结果或覆盖不完整时整体回滚。
+融合建议、RAG 入队、run checkpoint 与 task progress/result 投影只在同一个最终
+fenced transaction 中持久化；完整 owner token 任一字段失配、空结果或覆盖不完整时整体回滚。
 provider 在最终
 commit 前崩溃时允许 at-least-once 重试，正式资产依靠 provenance key 与原子
 checkpoint 保持幂等。该 seam 不改变普通 deep import、world-object 或
@@ -182,7 +186,13 @@ plot-structure stage 的现有执行路径。
 worker 启动时会检测 stale 的 deep-import/stage task，清空旧 lease 并收敛为
 `failed + recovery_required`，但不会自动继续。前端只在任务 `available_actions`
 包含 `resume + abandon` 时展示恢复操作；resume 校验 failed 与双份 recovery flag 后，
-复用原 task 转回 pending，不伪装成仍在 running。
+在同一事务复用原 task、递增 run generation 并转回 pending，不伪装成仍在 running。
+没有人工恢复入口的 map enrichment 保持 `auto_requeue`：部署 migration 遇到遗留 running
+记录时清除旧 lease 并转回 pending，不创建会永久占用项目 owner 的 recovery-required run。
+启动恢复和提交/恢复请求的懒恢复都会通过 tasks lifecycle contract 对账孤儿 owner：
+missing/cancelled 收敛 cancelled，terminal 清 owner，running 同步 attempt/lease；通用 task
+retry 把 terminal map task 转回 pending 时，同样恢复其 run owner，但不得夺取项目中更新的
+deep-import/stage owner。
 前端通过 `GET /api/tasks/{task_id}?novel_id=...` 展示 `recovery_required` / `recovery_summary`，
 用户点击继续后调用 `POST /api/imports/deep/resume` 复用原 task；放弃恢复调用
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
@@ -204,6 +214,8 @@ window / Scene 的 `completed / total` 线性估算，该值不是精确剩余�
 ## 深度导入内部结构
 
 `DeepImportOrchestrator` 负责重复导入策略、任务提交、恢复和放弃清理；
+task handler 先把队列 claim 转成不可变 workflow-attempt DTO；orchestrator
+不查询或更新 `AsyncTask` ORM。`workflow_runs.py` 负责 run 锁、generation 与 CAS；
 `DeepImportWorkflow` 只保留 worker 执行入口和 `DeepImportWorkflowRuntime`
 要求的活跃 phase runner seam；旧 Scene prefetch / reinforcement /
 single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码已从

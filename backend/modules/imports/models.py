@@ -7,8 +7,9 @@ Import ORM 模型
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -122,4 +123,106 @@ class ImportedChapter(Base, UUIDMixin, TimestampMixin):
         return (
             f"<ImportedChapter id={self.id} index={self.chapter_index} "
             f"title={self.title!r}>"
+        )
+
+
+class ImportWorkflowRun(Base, UUIDMixin, TimestampMixin):
+    """Imports-owned durable workflow state and attempt ownership.
+
+    ``async_tasks`` remains the queue/lease projection.  This row owns the
+    recoverable domain checkpoint and fences every write-capable workflow
+    attempt with ``task_id + generation + owner_attempt + owner_lease_id``.
+    """
+
+    __tablename__ = "import_workflow_runs"
+    __table_args__ = (
+        Index(
+            "uq_import_workflow_runs_active_novel",
+            "novel_id",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('pending', 'running') OR recovery_required = true"
+            ),
+            sqlite_where=text(
+                "status IN ('pending', 'running') OR recovery_required = 1"
+            ),
+        ),
+        Index(
+            "ix_import_workflow_runs_task_generation",
+            "task_id",
+            "generation",
+        ),
+        {"comment": "imports-owned deep-import/map enrichment workflow state"},
+    )
+
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("async_tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workflow_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    stage: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    start_chapter: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_chapter: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        index=True,
+    )
+    generation: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+    )
+    owner_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("async_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    owner_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    owner_lease_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    recovery_required: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    authorization_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    llm_execution_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    prepare_checkpoint: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    checkpoints: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    progress: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ImportWorkflowRun id={self.id} task={self.task_id} "
+            f"type={self.workflow_type} status={self.status} "
+            f"generation={self.generation}>"
         )

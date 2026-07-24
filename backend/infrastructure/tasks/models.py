@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, String, Text
+from sqlalchemy import JSON, DateTime, Float, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin
@@ -23,6 +23,31 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
     """
 
     __tablename__ = "async_tasks"
+    __table_args__ = (
+        Index(
+            "uq_async_tasks_coalescing_pending",
+            "coalescing_key",
+            unique=True,
+            postgresql_where=text(
+                "coalescing_key IS NOT NULL AND status = 'pending'"
+            ),
+            sqlite_where=text("coalescing_key IS NOT NULL AND status = 'pending'"),
+        ),
+        Index(
+            "uq_async_tasks_coalescing_running",
+            "coalescing_key",
+            unique=True,
+            postgresql_where=text(
+                "coalescing_key IS NOT NULL AND status = 'running'"
+            ),
+            sqlite_where=text("coalescing_key IS NOT NULL AND status = 'running'"),
+        ),
+        Index(
+            "ix_async_tasks_coalescing_created",
+            "coalescing_key",
+            "created_at",
+        ),
+    )
 
     task_type: Mapped[str] = mapped_column(
         String(64),
@@ -104,6 +129,12 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
         String(64),
         default=None,
         nullable=True,
+    )
+    coalescing_key: Mapped[str | None] = mapped_column(
+        String(64),
+        default=None,
+        nullable=True,
+        comment="内部 keyed-coalescing identity 的 SHA-256；不得进入公开响应或日志",
     )
 
     def __repr__(self) -> str:

@@ -50,8 +50,6 @@ async def test_index_state_coalesces_requests_and_requeues_latest_source(
     db_session: AsyncSession,
     test_project_id: str,  # noqa: F811
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     from modules.rag.contracts import RagIndexReport
     from modules.rag.index_state import RagIndexStateService
     from modules.writing.facade import create_draft_only
@@ -63,65 +61,524 @@ async def test_index_state_coalesces_requests_and_requeues_latest_source(
         content="第一个工作稿",
     )
     service = RagIndexStateService()
-    enqueue = MagicMock(side_effect=["task-1", "task-2"])
-    with patch(
-        "modules.rag.index_state.enqueue_task",
-        autospec=True,
-        side_effect=enqueue,
-    ):
-        first = await service.request(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=19,
-            content_mode="working",
-        )
-        duplicate = await service.request(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=19,
-            content_mode="working",
-        )
+    first = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=19,
+        content_mode="working",
+    )
+    duplicate = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=19,
+        content_mode="working",
+    )
+    assert duplicate["task_id"] == first["task_id"]
 
-        assert first["task_id"] == "task-1"
-        assert duplicate["task_id"] is None
-        assert enqueue.call_count == 1
+    from infrastructure.tasks.models import AsyncTask
 
-        await service.mark_running(
-            db_session,
-            novel_id=test_project_id,
+    owner = await db_session.get(AsyncTask, uuid.UUID(first["task_id"]))
+    assert owner is not None
+    owner.mark_running()
+    await service.mark_running(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=19,
+        content_mode="working",
+    )
+    second_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        19,
+        content="执行中又产生的最新工作稿",
+    )
+    refreshed = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=19,
+        content_mode="working",
+    )
+    assert refreshed["task_id"] != first["task_id"]
+    assert refreshed["requested_source_id"] == second_source.id
+
+    requeued = await service.finish(
+        db_session,
+        novel_id=test_project_id,
+        report=RagIndexReport(
             chapter_index=19,
             content_mode="working",
-        )
-        second_source = await create_draft_only(
-            db_session,
-            test_project_id,
-            19,
-            content="执行中又产生的最新工作稿",
-        )
-        refreshed = await service.request(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=19,
-            content_mode="working",
-        )
-        assert refreshed["task_id"] is None
-        assert refreshed["requested_source_id"] == second_source.id
-        assert enqueue.call_count == 1
+            source_draft_id=first_source.id,
+            source_content_hash=first_source.content_hash,
+            chunks_created=1,
+        ),
+    )
 
-        requeued = await service.finish(
+    assert requeued == refreshed["task_id"]
+
+
+@pytest.mark.asyncio
+async def test_source_change_after_domain_finish_creates_pending_follower(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.contracts import RagIndexReport
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    first_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        20,
+        content="已完成但 task 尚未 finalize 的正文",
+    )
+    service = RagIndexStateService()
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=20,
+        content_mode="working",
+    )
+    owner_task = await db_session.get(AsyncTask, uuid.UUID(requested["task_id"]))
+    assert owner_task is not None
+    owner_task.mark_running()
+    token = await service.claim_task_owner(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=20,
+        content_mode="working",
+        task_id=str(owner_task.id),
+    )
+    assert token is not None
+    assert (
+        await service.finish(
             db_session,
             novel_id=test_project_id,
             report=RagIndexReport(
-                chapter_index=19,
+                chapter_index=20,
                 content_mode="working",
                 source_draft_id=first_source.id,
                 source_content_hash=first_source.content_hash,
-                chunks_created=1,
             ),
+            owner_token=token,
         )
+        is None
+    )
+    latest_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        20,
+        content="finish 后、task finalize 前的新正文",
+    )
 
-    assert requeued == "task-2"
-    assert enqueue.call_count == 2
+    follower = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=20,
+        content_mode="working",
+    )
+
+    assert follower["task_id"] != str(owner_task.id)
+    assert follower["requested_source_id"] == latest_source.id
+    follower_task = await db_session.get(
+        AsyncTask,
+        uuid.UUID(follower["task_id"]),
+    )
+    assert follower_task is not None
+    assert follower_task.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_unchanged_request_reuses_running_owner_without_follower(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from sqlalchemy import func, select
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    await create_draft_only(
+        db_session,
+        test_project_id,
+        34,
+        content="运行期间没有变化的正文",
+    )
+    service = RagIndexStateService()
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=34,
+        content_mode="working",
+    )
+    owner_task = await db_session.get(AsyncTask, uuid.UUID(requested["task_id"]))
+    assert owner_task is not None
+    owner_task.mark_running()
+    token = await service.claim_task_owner(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=34,
+        content_mode="working",
+        task_id=requested["task_id"],
+    )
+    assert token is not None
+
+    duplicate = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=34,
+        content_mode="working",
+    )
+
+    assert duplicate["task_id"] == requested["task_id"]
+    assert duplicate["status"] == "running"
+    stored = await service._get(  # noqa: SLF001
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=34,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert stored.generation == token.generation
+    assert stored.status == "running"
+    pending_count = await db_session.scalar(
+        select(func.count())
+        .select_from(AsyncTask)
+        .where(
+            AsyncTask.task_type == "rag_index_chapter",
+            AsyncTask.meta["novel_id"].as_string() == test_project_id,
+            AsyncTask.status == "pending",
+        )
+    )
+    assert pending_count == 0
+
+
+@pytest.mark.asyncio
+async def test_project_reindex_cannot_steal_newer_pending_chapter_owner(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    await create_draft_only(
+        db_session,
+        test_project_id,
+        35,
+        content="等待章节级 owner 的正文",
+    )
+    service = RagIndexStateService()
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=35,
+        content_mode="working",
+    )
+
+    claimed = await service.claim_task_owner(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=35,
+        content_mode="working",
+        task_id=str(uuid.uuid4()),
+    )
+
+    assert claimed is None
+    stored = await service._get(  # noqa: SLF001
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=35,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert str(stored.active_task_id) == requested["task_id"]
+
+
+@pytest.mark.asyncio
+async def test_running_publish_task_can_take_over_pending_chapter_owner(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    await create_draft_only(
+        db_session,
+        test_project_id,
+        36,
+        content="发布任务应立即索引的正文",
+    )
+    service = RagIndexStateService()
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=36,
+        content_mode="working",
+    )
+    publish_task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="publish_chapter",
+        status="running",
+        meta={"novel_id": test_project_id, "chapter_index": 36},
+        attempt=1,
+        max_attempts=1,
+        recovery_policy="restart_origin",
+        lease_id=str(uuid.uuid4()),
+    )
+    db_session.add(publish_task)
+    await db_session.flush()
+
+    claimed = await service.claim_task_owner(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=36,
+        content_mode="working",
+        task_id=str(publish_task.id),
+        allow_pending_owner_takeover=True,
+    )
+
+    assert claimed is not None
+    assert claimed.task_id == str(publish_task.id)
+    stored = await service._get(  # noqa: SLF001
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=36,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert str(stored.active_task_id) == str(publish_task.id)
+    assert str(stored.active_task_id) != requested["task_id"]
+
+
+@pytest.mark.asyncio
+async def test_unchanged_request_reuses_live_owner_from_other_workflow(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from sqlalchemy import func, select
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.index_state import RagIndexStateService
+    from modules.rag.models import RagIndexState
+    from modules.writing.facade import create_draft_only
+
+    source = await create_draft_only(
+        db_session,
+        test_project_id,
+        37,
+        content="由发布工作流正在索引的正文",
+    )
+    publish_task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="publish_chapter",
+        status="running",
+        meta={"novel_id": test_project_id, "chapter_index": 37},
+        attempt=1,
+        max_attempts=1,
+        recovery_policy="restart_origin",
+        lease_id=str(uuid.uuid4()),
+    )
+    state = RagIndexState(
+        novel_id=uuid.UUID(test_project_id),
+        chapter_index=37,
+        content_mode="working",
+        requested_source_id=uuid.UUID(source.id),
+        requested_hash=source.content_hash,
+        status="running",
+        active_task_id=publish_task.id,
+        generation=2,
+    )
+    db_session.add_all((publish_task, state))
+    await db_session.flush()
+
+    requested = await RagIndexStateService().request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=37,
+        content_mode="working",
+    )
+
+    assert requested["task_id"] == str(publish_task.id)
+    assert requested["status"] == "running"
+    rag_task_count = await db_session.scalar(
+        select(func.count())
+        .select_from(AsyncTask)
+        .where(
+            AsyncTask.task_type == "rag_index_chapter",
+            AsyncTask.meta["novel_id"].as_string() == test_project_id,
+        )
+    )
+    assert rag_task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_new_owner_fences_old_task_finish_and_failure(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.contracts import RagIndexReport
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    first_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        21,
+        content="旧 owner 的正文",
+    )
+    service = RagIndexStateService()
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="working",
+    )
+    owner_task = await db_session.get(AsyncTask, uuid.UUID(requested["task_id"]))
+    assert owner_task is not None
+    owner_task.mark_running()
+    token = await service.claim_task_owner(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="working",
+        task_id=str(owner_task.id),
+    )
+    assert token is not None
+
+    latest_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        21,
+        content="新 owner 的正文",
+    )
+    follower = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="working",
+    )
+    assert follower["task_id"] != str(owner_task.id)
+
+    assert (
+        await service.finish(
+            db_session,
+            novel_id=test_project_id,
+            report=RagIndexReport(
+                chapter_index=21,
+                content_mode="working",
+                source_draft_id=first_source.id,
+                source_content_hash=first_source.content_hash,
+            ),
+            owner_token=token,
+        )
+        is None
+    )
+    assert not await service.fail(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="working",
+        error="stale owner failed",
+        owner_token=token,
+    )
+    stored = await service._get(  # noqa: SLF001
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert stored.status == "pending"
+    assert str(stored.active_task_id) == follower["task_id"]
+    assert stored.requested_hash == latest_source.content_hash
+    assert stored.indexed_hash is None
+    assert stored.error_message is None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_replaces_terminal_rag_owner(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    await create_draft_only(
+        db_session,
+        test_project_id,
+        22,
+        content="需要启动恢复的正文",
+    )
+    service = RagIndexStateService()
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=22,
+        content_mode="working",
+    )
+    failed_task = await db_session.get(AsyncTask, uuid.UUID(requested["task_id"]))
+    assert failed_task is not None
+    failed_task.mark_failed("worker stopped")
+    await db_session.flush()
+
+    assert await service.reconcile_owners(db_session) == 1
+
+    stored = await service._get(  # noqa: SLF001
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=22,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert stored.status == "pending"
+    assert stored.active_task_id is not None
+    assert str(stored.active_task_id) != requested["task_id"]
+    replacement = await db_session.get(AsyncTask, stored.active_task_id)
+    assert replacement is not None
+    assert replacement.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_repairs_pending_state_after_owner_fk_is_cleared(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.rag.models import RagIndexState
+    from modules.writing.facade import create_draft_only
+
+    source = await create_draft_only(
+        db_session,
+        test_project_id,
+        24,
+        content="owner task 已清理但 state 保留",
+    )
+    state = RagIndexState(
+        novel_id=uuid.UUID(test_project_id),
+        chapter_index=24,
+        content_mode="working",
+        requested_source_id=uuid.UUID(source.id),
+        requested_hash=source.content_hash,
+        status="pending",
+        active_task_id=None,
+        generation=3,
+    )
+    db_session.add(state)
+    await db_session.flush()
+
+    assert await RagIndexStateService().reconcile_owners(db_session) == 1
+    assert state.active_task_id is not None
+    assert state.generation == 4
+    assert state.status == "pending"
 
 
 @pytest.mark.asyncio
@@ -129,8 +586,6 @@ async def test_queued_index_claim_refreshes_source_changed_before_execution(
     db_session: AsyncSession,
     test_project_id: str,  # noqa: F811
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     from modules.rag.contracts import RagIndexReport
     from modules.rag.index_state import RagIndexStateService
     from modules.writing.facade import create_draft_only
@@ -142,67 +597,58 @@ async def test_queued_index_claim_refreshes_source_changed_before_execution(
         content="入队时的工作稿",
     )
     service = RagIndexStateService()
-    enqueue = MagicMock(return_value="task-1")
-    with patch(
-        "modules.rag.index_state.enqueue_task",
-        autospec=True,
-        side_effect=enqueue,
-    ):
-        requested = await service.request(
-            db_session,
-            novel_id=test_project_id,
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=23,
+        content_mode="working",
+    )
+    assert requested["requested_source_id"] == first_source.id
+
+    latest_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        23,
+        content="执行前已经切换的工作稿",
+    )
+    assert await service.mark_running(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=23,
+        content_mode="working",
+    )
+
+    stored = await service._get(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=23,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert str(stored.requested_source_id) == latest_source.id
+    assert stored.requested_hash == latest_source.content_hash
+
+    followup = await service.finish(
+        db_session,
+        novel_id=test_project_id,
+        report=RagIndexReport(
             chapter_index=23,
             content_mode="working",
-        )
-        assert requested["requested_source_id"] == first_source.id
-
-        latest_source = await create_draft_only(
-            db_session,
-            test_project_id,
-            23,
-            content="执行前已经切换的工作稿",
-        )
-        assert await service.mark_running(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=23,
-            content_mode="working",
-        )
-
-        stored = await service._get(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=23,
-            content_mode="working",
-            lock=False,
-        )
-        assert stored is not None
-        assert str(stored.requested_source_id) == latest_source.id
-        assert stored.requested_hash == latest_source.content_hash
-
-        followup = await service.finish(
-            db_session,
-            novel_id=test_project_id,
-            report=RagIndexReport(
-                chapter_index=23,
-                content_mode="working",
-                source_draft_id=latest_source.id,
-                source_content_hash=latest_source.content_hash,
-                chunks_created=1,
-            ),
-        )
+            source_draft_id=latest_source.id,
+            source_content_hash=latest_source.content_hash,
+            chunks_created=1,
+        ),
+    )
 
     assert followup is None
-    assert enqueue.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_mark_index_dirty_records_publish_source_without_extra_task(
+async def test_mark_index_dirty_records_publish_source_and_task_owner(
     db_session: AsyncSession,
     test_project_id: str,  # noqa: F811
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     from modules.rag.index_state import RagIndexStateService
     from modules.writing.facade import create_published_draft_only
 
@@ -212,23 +658,17 @@ async def test_mark_index_dirty_records_publish_source_without_extra_task(
         20,
         content="新发布正文",
     )
-    enqueue = MagicMock()
-    with patch(
-        "modules.rag.index_state.enqueue_task",
-        autospec=True,
-        side_effect=enqueue,
-    ):
-        state = await RagIndexStateService().mark_dirty(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=20,
-            content_mode="canonical",
-        )
+    state = await RagIndexStateService().mark_dirty(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=20,
+        content_mode="canonical",
+    )
 
     assert state["status"] == "pending"
     assert state["requested_source_id"] == source.id
     assert state["requested_hash"] == source.content_hash
-    enqueue.assert_not_called()
+    assert state["task_id"]
 
 
 @pytest.mark.asyncio
@@ -421,49 +861,47 @@ async def test_failed_index_state_can_be_requeued(
         content="失败状态必须允许后续重试。",
     )
     service = RagIndexStateService()
-    enqueue = MagicMock(side_effect=["task-1", "task-2"])
-    with patch(
-        "modules.rag.index_state.enqueue_task",
-        autospec=True,
-        side_effect=enqueue,
-    ):
-        first = await service.request(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=28,
-            content_mode="working",
-        )
-        await service.fail(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=28,
-            content_mode="working",
-            error="provider unavailable",
-            expected_source_id=source.id,
-            expected_source_hash=source.content_hash,
-            match_expected_source=True,
-        )
-        failed = await service._get(  # noqa: SLF001 - verify retry transition
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=28,
-            content_mode="working",
-            lock=False,
-        )
-        assert failed is not None
-        assert failed.status == "failed"
+    first = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=28,
+        content_mode="working",
+    )
+    await service.fail(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=28,
+        content_mode="working",
+        error="provider unavailable",
+        expected_source_id=source.id,
+        expected_source_hash=source.content_hash,
+        match_expected_source=True,
+    )
+    from infrastructure.tasks.models import AsyncTask
 
-        retried = await service.request(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=28,
-            content_mode="working",
-        )
+    first_task = await db_session.get(AsyncTask, uuid.UUID(first["task_id"]))
+    assert first_task is not None
+    first_task.mark_failed("provider unavailable")
+    await db_session.flush()
+    failed = await service._get(  # noqa: SLF001 - verify retry transition
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=28,
+        content_mode="working",
+        lock=False,
+    )
+    assert failed is not None
+    assert failed.status == "failed"
 
-    assert first["task_id"] == "task-1"
-    assert retried["task_id"] == "task-2"
+    retried = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=28,
+        content_mode="working",
+    )
+
+    assert retried["task_id"] != first["task_id"]
     assert retried["status"] == "pending"
-    assert enqueue.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -503,7 +941,7 @@ async def test_legacy_direct_index_failure_transitions_running_to_failed(
         lock=False,
     )
 
-    assert claimed is True
+    assert claimed is not None
     assert changed is True
     assert stored is not None
     assert stored.status == "failed"
@@ -587,29 +1025,24 @@ async def test_old_failure_cannot_overwrite_new_source_pending(
         content="旧源",
     )
     service = RagIndexStateService()
-    with patch(
-        "modules.rag.index_state.enqueue_task",
-        autospec=True,
-        return_value="task-1",
-    ):
-        await service.request(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=31,
-            content_mode="working",
-        )
-        new_source = await create_draft_only(
-            db_session,
-            test_project_id,
-            31,
-            content="新源",
-        )
-        await service.request(
-            db_session,
-            novel_id=test_project_id,
-            chapter_index=31,
-            content_mode="working",
-        )
+    await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=31,
+        content_mode="working",
+    )
+    new_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        31,
+        content="新源",
+    )
+    await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=31,
+        content_mode="working",
+    )
 
     changed = await service.fail(
         db_session,
@@ -982,6 +1415,91 @@ async def test_task_index_uses_project_first_lock_order_and_two_checkpoints() ->
 
 
 @pytest.mark.asyncio
+async def test_task_index_rechecks_lease_after_embedding_before_domain_write() -> None:
+    from modules.rag.index_state import RagIndexOwnerToken
+    from modules.rag.indexing import (
+        EmbeddingWriteResult,
+        IndexingService,
+        _ChapterIndexPlan,
+    )
+
+    novel_id = uuid.uuid4()
+    task_id = str(uuid.uuid4())
+    plan = _ChapterIndexPlan(
+        chapter_index=36,
+        content_mode="canonical",
+        source_draft_id=str(uuid.uuid4()),
+        source_content_hash="d" * 64,
+        items=[],
+    )
+    db = AsyncMock()
+    db.task_checkpoint_enabled = True
+    db.expire_all = MagicMock()
+    fence_calls = 0
+
+    async def _fence(*_args, **_kwargs) -> None:
+        nonlocal fence_calls
+        fence_calls += 1
+        if fence_calls == 2:
+            raise asyncio.CancelledError
+
+    service = IndexingService(repo=MagicMock(spec=RagChunkRepository))
+    with (
+        patch(
+            "modules.project.facade.require_active_project",
+            autospec=True,
+        ),
+        patch(
+            "infrastructure.tasks.facade.require_running_task_attempt",
+            autospec=True,
+            side_effect=_fence,
+        ),
+        patch(
+            "modules.rag.index_state.RagIndexStateService",
+            autospec=True,
+        ) as state_class,
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            return_value=plan,
+        ),
+        patch.object(
+            IndexingService,
+            "_embed_plan",
+            autospec=True,
+            return_value=([], EmbeddingWriteResult()),
+        ),
+        patch.object(
+            IndexingService,
+            "_persist_preembedded_plan",
+            autospec=True,
+        ) as persist,
+    ):
+        state = state_class.return_value
+        state.preflight_prepared = AsyncMock(return_value="ready")
+        state.claim_task_owner = AsyncMock(
+            return_value=RagIndexOwnerToken(task_id=task_id, generation=1)
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await service.index_chapter_for_task(
+                db,
+                novel_id,
+                36,
+                task_id=task_id,
+                task_type="rag_index_chapter",
+                task_attempt=1,
+                task_lease_id=str(uuid.uuid4()),
+            )
+
+    assert fence_calls == 2
+    state.begin_prepared.assert_not_awaited()
+    state.fail.assert_not_awaited()
+    persist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_task_index_skips_embedding_when_prepared_source_is_fresh() -> None:
     from modules.rag.indexing import IndexingService, _ChapterIndexPlan
 
@@ -1023,8 +1541,8 @@ async def test_task_index_skips_embedding_when_prepared_source_is_fresh() -> Non
         outcome = await service.index_chapter_for_task(db, novel_id, 27)
 
     assert outcome.status == "coalesced"
-    db.commit.assert_awaited_once_with()
-    db.expire_all.assert_called_once_with()
+    db.rollback.assert_awaited_once_with()
+    db.expire_all.assert_not_called()
     embed_plan.assert_not_awaited()
     state_class.return_value.begin_prepared.assert_not_awaited()
 

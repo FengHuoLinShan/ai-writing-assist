@@ -190,6 +190,9 @@ class TaskWorker:
         | None = None,
         task_commit_guard: Callable[[AsyncSession, AsyncTask], Awaitable[bool]]
         | None = None,
+        startup_reconcilers: Sequence[
+            Callable[[AsyncSession], Awaitable[int]]
+        ] = (),
     ) -> None:
         self._db_manager = db_manager or get_manager()
         self._registry = TaskRegistry()
@@ -199,6 +202,7 @@ class TaskWorker:
         self._max_heartbeat_gap = max_heartbeat_gap
         self._task_preflight = task_preflight
         self._task_commit_guard = task_commit_guard
+        self._startup_reconcilers = tuple(startup_reconcilers)
         self._max_concurrent_tasks = max(
             1,
             int(get_settings().task_worker_max_concurrent_tasks),
@@ -248,9 +252,10 @@ class TaskWorker:
         try:
             try:
                 await self._maybe_recover_stale_tasks(force=True)
+                await self._run_startup_reconcilers()
             except Exception as e:
                 logger.error(
-                    "TaskWorker startup stale scan failed: %s",
+                    "TaskWorker startup recovery failed: %s",
                     _task_error_for_log(e),
                 )
 
@@ -669,3 +674,14 @@ class TaskWorker:
                     counts["manual_resume"],
                 )
             return recovered
+
+    async def _run_startup_reconcilers(self) -> None:
+        if not self._startup_reconcilers:
+            return
+        async with self._db_manager.session_factory() as session:
+            repaired = 0
+            for reconciler in self._startup_reconcilers:
+                repaired += int(await reconciler(session))
+            await session.commit()
+        if repaired:
+            logger.info("Reconciled %d domain task owners", repaired)

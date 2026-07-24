@@ -32,7 +32,8 @@ RAG P@5/MRR/R@10 语义质量评测。
 ## 数据表
 
 - `rag_chunks` — 可删除重建的检索块；正文块指向具体 writing draft
-- `rag_index_state` — 按 novel/chapter/content mode 保存请求源与已索引源的 ID/hash 和状态
+- `rag_index_state` — 按 novel/chapter/content mode 保存请求源与已索引源的 ID/hash、状态，
+  以及当前 `active_task_id + generation`
 - `rag_entity_appearances` — 从当前正文 chunk 派生的对象出场索引；按 Scene 去重，无法精确映射时按章去重，可删除重建
 
 对象出场索引只服务列表热点排序，不覆盖 `CoreEntity.importance`，不进入 RAG
@@ -57,9 +58,16 @@ identity map，再生成 embedding；入库前重新取 project lock，并在同
 校验 source ID/hash。成功替换 chunk 和
 完成 index state 后立即 fenced commit，不把 state/chunk 锁带入下一章或 memory 阶段。
 预计算期间若产生新 source，旧计划不入库，最多重新读取 3 次；同一 source 的
-重复任务在入库前合并；最终索引延迟统计包含同一任务中废弃计划的重读与
+重复任务先按 `("chapter_index", chapter_index, content_mode)` 通过 tasks facade 和数据库
+部分唯一索引合并；RAG state 再以 `active_task_id + generation` 领取 owner。claim、
+checkpoint 与 finalize 都必须匹配同一 owner token，旧 attempt、旧 task 或已被重排的
+结果不能覆盖新 state。最终索引延迟统计包含同一任务中废弃计划的重读与
 embedding 时间。这只改变内部事务切分，不改变 RAG API、chunk schema、
 `novel_id` 隔离或 source hash 契约。
+
+worker 启动时 reconciliation 会锁定仍有 owner 的 index state：owner task 不再活跃时清除
+旧 owner、递增 generation，并按当前 requested source 确保一个新的 keyed task。该修复只
+恢复排队与 owner，不把过期 source 伪装成 fresh；真正入库仍重验 source ID/hash。
 
 ## 检索类型
 
@@ -176,10 +184,12 @@ TaskWorker commit hook，普通 session 会直接拒绝。Deletion test：让 ta
 读事务；反向替换普通入口则会破坏调用方的事务所有权。
 
 `rag.request_entity_activity_reannotation` 是组合根 DI port，由 world 在对象词典变化后
-调用。请求会先清除项目词典缓存，并复用同项目已有 pending 重标注任务；若已有任务正在运行，
-则只追加一个 pending 后继任务，后续变化继续合并到该后继，避免运行中捕获的旧词典遗漏更新。worker
-执行时不修改 embedding。删除该 seam 会让 world 必须读取 RAG 实现或遗漏历史正文的术语
-重标注，因此它承载跨模块失效通知而不是 pass-through API。
+调用。请求会先清除项目词典缓存，并以 `("entity_activity",)` 调用 tasks keyed
+coalescing 的 `one_pending_follower`：复用同项目 pending；若已有任务正在运行，则数据库
+最多允许一个 pending 后继，后续变化继续合并到该后继，避免旧词典遗漏更新。worker 执行时
+不修改 embedding。删除该 seam 会让 world 必须读取 RAG 实现或遗漏历史正文的术语重标注；
+删除数据库 coalescing key 后，并发通知会再次产生多个 follower。因此它承载跨模块失效通知
+和可证明的排队收敛，不是 pass-through API。
 
 ## API 路由
 

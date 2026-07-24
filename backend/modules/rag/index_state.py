@@ -3,20 +3,165 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.tasks.enqueuer import enqueue_task
+from infrastructure.tasks.facade import (
+    enqueue_coalesced_task,
+    list_task_lifecycle_contracts,
+)
 from modules.rag.contracts import RagIndexReport
 from modules.rag.models import RagIndexState
+from shared.constants import TASK_MAX_HEARTBEAT_GAP
 
-PreparedIndexClaim = Literal["claimed", "source_changed", "fresh"]
+PreparedIndexClaim = Literal["claimed", "source_changed", "fresh", "superseded"]
 PreparedIndexPreflight = Literal["ready", "source_changed", "fresh"]
 
 
+@dataclass(frozen=True)
+class RagIndexOwnerToken:
+    task_id: str | None
+    generation: int
+
+
+def _task_scope(chapter_index: int, content_mode: str) -> tuple[str, ...]:
+    return ("chapter_index", str(chapter_index), content_mode)
+
+
 class RagIndexStateService:
+    async def reconcile_owners(self, db: AsyncSession) -> int:
+        """Repair orphaned task owners at worker startup."""
+        state_keys = list(
+            (
+                await db.execute(
+                    select(
+                        RagIndexState.novel_id,
+                        RagIndexState.chapter_index,
+                        RagIndexState.content_mode,
+                    ).where(
+                        (
+                            RagIndexState.active_task_id.is_not(None)
+                            | RagIndexState.status.in_(("pending", "running"))
+                        )
+                    )
+                )
+            )
+            .all()
+        )
+        repaired = 0
+        for novel_id, chapter_index, content_mode in state_keys:
+            await self._lock_state_key(
+                db,
+                novel_id=str(novel_id),
+                chapter_index=int(chapter_index),
+                content_mode=str(content_mode),
+            )
+            state = await self._get(
+                db,
+                novel_id=str(novel_id),
+                chapter_index=int(chapter_index),
+                content_mode=str(content_mode),
+                lock=True,
+            )
+            if state is None:
+                continue
+            if state.active_task_id is not None:
+                task_id = str(state.active_task_id)
+                if await self._owner_is_live(
+                    db,
+                    novel_id=str(state.novel_id),
+                    task_id=task_id,
+                ):
+                    continue
+            if (
+                state.status == "succeeded"
+                and state.indexed_hash == state.requested_hash
+                and state.indexed_source_id == state.requested_source_id
+            ):
+                state.active_task_id = None
+                repaired += 1
+                continue
+            enqueued = await enqueue_coalesced_task(
+                db,
+                task_type="rag_index_chapter",
+                novel_id=str(state.novel_id),
+                scope=_task_scope(state.chapter_index, state.content_mode),
+                meta={
+                    "novel_id": str(state.novel_id),
+                    "chapter_index": state.chapter_index,
+                    "content_mode": state.content_mode,
+                },
+                mode="reuse_active",
+            )
+            state.active_task_id = uuid.UUID(enqueued.task_id)
+            state.generation = int(state.generation or 0) + 1
+            state.status = "pending"
+            state.error_message = None
+            repaired += 1
+        if repaired:
+            await db.flush()
+        return repaired
+
+    async def claim_task_owner(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        content_mode: str,
+        task_id: str,
+        allow_pending_owner_takeover: bool = False,
+    ) -> RagIndexOwnerToken | None:
+        """Claim one state for a task unless a newer live task owns it."""
+        await self._lock_state_key(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+        )
+        state = await self._get(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+            lock=True,
+        )
+        parsed_task_id = uuid.UUID(str(task_id))
+        if state is None:
+            state = RagIndexState(
+                novel_id=uuid.UUID(str(novel_id)),
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+                active_task_id=parsed_task_id,
+                generation=1,
+            )
+            db.add(state)
+        elif state.active_task_id is not None and state.active_task_id != parsed_task_id:
+            owner_status = await self._owner_status(
+                db,
+                novel_id=novel_id,
+                task_id=str(state.active_task_id),
+            )
+            if owner_status == "running" or (
+                owner_status == "pending" and not allow_pending_owner_takeover
+            ):
+                return None
+            state.active_task_id = parsed_task_id
+            state.generation = int(state.generation or 0) + 1
+        elif state.active_task_id is None:
+            state.active_task_id = parsed_task_id
+            state.generation = int(state.generation or 0) + 1
+        state.status = "running"
+        state.error_message = None
+        await db.flush()
+        return RagIndexOwnerToken(
+            task_id=str(parsed_task_id),
+            generation=int(state.generation or 0),
+        )
+
     async def preflight_prepared(
         self,
         db: AsyncSession,
@@ -75,6 +220,7 @@ class RagIndexStateService:
         source_draft_id: str | None,
         source_content_hash: str | None,
         force: bool = False,
+        owner_token: RagIndexOwnerToken | None = None,
     ) -> PreparedIndexClaim:
         """Claim a precomputed index only while its source is still current.
 
@@ -108,6 +254,10 @@ class RagIndexStateService:
             content_mode=content_mode,
             lock=True,
         )
+        if owner_token is not None and (
+            state is None or not self._owns(state, owner_token)
+        ):
+            return "superseded"
         if state is None:
             state = RagIndexState(
                 novel_id=uuid.UUID(str(novel_id)),
@@ -162,6 +312,13 @@ class RagIndexStateService:
             content_mode=content_mode,
             lock=True,
         )
+        previous_source_id = state.requested_source_id if state is not None else None
+        previous_source_hash = state.requested_hash if state is not None else None
+        source_id = uuid.UUID(str(source.id)) if source and source.id else None
+        source_hash = source.content_hash if source else None
+        source_changed = (
+            previous_source_id != source_id or previous_source_hash != source_hash
+        )
         if state is None:
             state = RagIndexState(
                 novel_id=uuid.UUID(str(novel_id)),
@@ -170,15 +327,39 @@ class RagIndexStateService:
                 status="pending",
             )
             db.add(state)
-        state.requested_source_id = (
-            uuid.UUID(str(source.id)) if source and source.id else None
-        )
-        state.requested_hash = source.content_hash if source else None
+        state.requested_source_id = source_id
+        state.requested_hash = source_hash
         state.error_message = None
-        if state.status != "running":
-            state.status = "pending"
+        if (
+            not source_changed
+            and state.active_task_id is not None
+            and await self._owner_is_live(
+                db,
+                novel_id=novel_id,
+                task_id=str(state.active_task_id),
+            )
+        ):
+            await db.flush()
+            return self._state_dict(state, task_id=str(state.active_task_id))
+        enqueued = await enqueue_coalesced_task(
+            db,
+            task_type="rag_index_chapter",
+            novel_id=str(novel_id),
+            scope=_task_scope(chapter_index, content_mode),
+            meta={
+                "novel_id": str(novel_id),
+                "chapter_index": chapter_index,
+                "content_mode": content_mode,
+            },
+            mode="one_pending_follower" if source_changed else "reuse_active",
+        )
+        parsed_task_id = uuid.UUID(enqueued.task_id)
+        if state.active_task_id != parsed_task_id:
+            state.active_task_id = parsed_task_id
+            state.generation = int(state.generation or 0) + 1
+        state.status = enqueued.status
         await db.flush()
-        return self._state_dict(state, task_id=None)
+        return self._state_dict(state, task_id=enqueued.task_id)
 
     async def begin_direct(
         self,
@@ -188,7 +369,7 @@ class RagIndexStateService:
         chapter_index: int,
         content_mode: str,
         force: bool = False,
-    ) -> bool:
+    ) -> RagIndexOwnerToken | None:
         """Claim synchronous indexing unless another/latest execution owns it."""
         await self._lock_state_key(
             db,
@@ -217,7 +398,7 @@ class RagIndexStateService:
             )
             db.add(state)
         elif state.status == "running":
-            return False
+            return None
         elif (
             not force
             and source is not None
@@ -225,15 +406,20 @@ class RagIndexStateService:
             and state.indexed_hash == source.content_hash
             and state.indexed_source_id == uuid.UUID(str(source.id))
         ):
-            return False
+            return None
         state.requested_source_id = (
             uuid.UUID(str(source.id)) if source and source.id else None
         )
         state.requested_hash = source.content_hash if source else None
         state.status = "running"
+        state.active_task_id = None
+        state.generation = int(state.generation or 0) + 1
         state.error_message = None
         await db.flush()
-        return True
+        return RagIndexOwnerToken(
+            task_id=None,
+            generation=int(state.generation or 0),
+        )
 
     async def request(
         self,
@@ -271,8 +457,15 @@ class RagIndexStateService:
             )
             db.add(state)
             await db.flush()
-        state.requested_source_id = uuid.UUID(source.id) if source and source.id else None
-        state.requested_hash = source.content_hash if source else None
+        previous_source_id = state.requested_source_id
+        previous_source_hash = state.requested_hash
+        source_id = uuid.UUID(str(source.id)) if source and source.id else None
+        source_hash = source.content_hash if source else None
+        source_changed = (
+            previous_source_id != source_id or previous_source_hash != source_hash
+        )
+        state.requested_source_id = source_id
+        state.requested_hash = source_hash
         state.error_message = None
         if (
             source is not None
@@ -282,18 +475,38 @@ class RagIndexStateService:
             state.status = "succeeded"
             await db.flush()
             return self._state_dict(state, task_id=None)
-        task_id = None
-        if state.status not in {"pending", "running"}:
-            state.status = "pending"
-            task_id = enqueue_task(
+        if (
+            not source_changed
+            and state.active_task_id is not None
+            and await self._owner_is_live(
                 db,
-                "rag_index_chapter",
-                meta={
-                    "novel_id": novel_id,
-                    "chapter_index": chapter_index,
-                    "content_mode": content_mode,
-                },
+                novel_id=novel_id,
+                task_id=str(state.active_task_id),
             )
+        ):
+            await db.flush()
+            return self._state_dict(state, task_id=str(state.active_task_id))
+        enqueued = await enqueue_coalesced_task(
+            db,
+            task_type="rag_index_chapter",
+            novel_id=str(novel_id),
+            scope=_task_scope(chapter_index, content_mode),
+            meta={
+                "novel_id": novel_id,
+                "chapter_index": chapter_index,
+                "content_mode": content_mode,
+            },
+            # A task may have committed the domain result but not yet finalized
+            # its queue row. Always asking for one pending follower closes that
+            # result-commit -> task-finalize window without creating duplicates.
+            mode="one_pending_follower" if source_changed else "reuse_active",
+        )
+        task_id = enqueued.task_id
+        parsed_task_id = uuid.UUID(task_id)
+        if state.active_task_id != parsed_task_id:
+            state.active_task_id = parsed_task_id
+            state.generation = int(state.generation or 0) + 1
+        state.status = enqueued.status
         await db.flush()
         return self._state_dict(state, task_id=task_id)
 
@@ -368,6 +581,7 @@ class RagIndexStateService:
         *,
         novel_id: str,
         report: RagIndexReport,
+        owner_token: RagIndexOwnerToken | None = None,
     ) -> str | None:
         state = await self._get(
             db,
@@ -378,6 +592,8 @@ class RagIndexStateService:
         )
         if state is None:
             return None
+        if owner_token is not None and not self._owns(state, owner_token):
+            return None
         state.indexed_source_id = (
             uuid.UUID(report.source_draft_id) if report.source_draft_id else None
         )
@@ -386,22 +602,32 @@ class RagIndexStateService:
         state.error_message = None
         if report.source_content_hash is None:
             state.status = "missing_source"
+            state.active_task_id = None
             await db.flush()
             return None
         if state.requested_hash != report.source_content_hash:
             state.status = "pending"
-            task_id = enqueue_task(
+            enqueued = await enqueue_coalesced_task(
                 db,
-                "rag_index_chapter",
+                task_type="rag_index_chapter",
+                novel_id=str(novel_id),
+                scope=_task_scope(report.chapter_index, report.content_mode),
                 meta={
                     "novel_id": novel_id,
                     "chapter_index": report.chapter_index,
                     "content_mode": report.content_mode,
                 },
+                mode="one_pending_follower",
             )
+            task_id = enqueued.task_id
+            parsed_task_id = uuid.UUID(task_id)
+            if state.active_task_id != parsed_task_id:
+                state.active_task_id = parsed_task_id
+                state.generation = int(state.generation or 0) + 1
             await db.flush()
             return task_id
         state.status = "succeeded"
+        state.active_task_id = None
         await db.flush()
         return None
 
@@ -416,6 +642,7 @@ class RagIndexStateService:
         expected_source_id: str | None = None,
         expected_source_hash: str | None = None,
         match_expected_source: bool = False,
+        owner_token: RagIndexOwnerToken | None = None,
     ) -> bool:
         """Mark only the still-current failed attempt.
 
@@ -447,6 +674,12 @@ class RagIndexStateService:
         current_source_id = str(source.id) if source and source.id else None
         current_hash = source.content_hash if source else None
         normalized_expected_id = str(expected_source_id) if expected_source_id else None
+        if (
+            owner_token is not None
+            and state is not None
+            and not self._owns(state, owner_token)
+        ):
+            return False
         if match_expected_source and (
             current_source_id != normalized_expected_id
             or current_hash != expected_source_hash
@@ -491,8 +724,55 @@ class RagIndexStateService:
             state.requested_hash = source.content_hash if source else None
         state.status = "failed"
         state.error_message = error[:1000]
+        if owner_token is not None:
+            state.active_task_id = None
         await db.flush()
         return True
+
+    @staticmethod
+    def _owns(
+        state: RagIndexState,
+        owner_token: RagIndexOwnerToken,
+    ) -> bool:
+        expected_task_id = (
+            uuid.UUID(owner_token.task_id) if owner_token.task_id is not None else None
+        )
+        return bool(
+            state.active_task_id == expected_task_id
+            and int(state.generation or 0) == int(owner_token.generation)
+        )
+
+    @staticmethod
+    async def _owner_is_live(
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_id: str,
+    ) -> bool:
+        return (
+            await RagIndexStateService._owner_status(
+                db,
+                novel_id=novel_id,
+                task_id=task_id,
+            )
+            in {"pending", "running"}
+        )
+
+    @staticmethod
+    async def _owner_status(
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_id: str,
+    ) -> str | None:
+        contracts = await list_task_lifecycle_contracts(
+            db,
+            task_ids=[task_id],
+            novel_id=novel_id,
+            max_heartbeat_gap=TASK_MAX_HEARTBEAT_GAP,
+        )
+        contract = contracts.get(task_id)
+        return str(contract.status) if contract is not None else None
 
     async def summary(self, db: AsyncSession, novel_id: str) -> dict:
         stmt = select(RagIndexState).where(

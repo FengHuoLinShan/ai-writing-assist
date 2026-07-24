@@ -13,15 +13,20 @@ from pydantic import BaseModel, Field
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import (
     LLMAuthError,
+    LLMContentFilterError,
     LLMInvalidResponseError,
+    LLMRateLimitError,
     LLMTimeoutError,
 )
 from infrastructure.llm.limits import (
     LLMCircuitBreakerOpenError,
+    LLMLimiterScope,
+    LLMProcessLimiter,
     get_llm_limiter,
     reset_llm_limiter_for_tests,
 )
 from infrastructure.llm.profiles import resolve_llm_profile
+from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.llm.schemas import (
     LLMCallRequest,
     LLMCallResponse,
@@ -273,6 +278,50 @@ def test_from_project_settings_uses_project_profile_defaults() -> None:
 
 
 @pytest.mark.asyncio
+async def test_switch_provider_refreshes_limiter_endpoint_and_safe_summary(
+    monkeypatch,
+) -> None:
+    client = LLMClient(base_url="https://old.example/v1")
+
+    class OldProvider:
+        async def close(self) -> None:
+            return None
+
+    class NewProvider:
+        name = "openai"
+        _api_key = "private-key-value"
+        _base_url = "https://new.example/v2/?token=private-query"
+        _embedding_base_url = "https://embedding.example/v1/?token=private-embedding"
+        _timeout = 45
+
+    client._provider = OldProvider()  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_provider",
+        lambda *_args, **_kwargs: NewProvider(),
+    )
+
+    await client.switch_provider(
+        "openai",
+        api_key="private-key-value",
+        base_url="https://new.example/v2/?token=private-query",
+        default_model="new-model",
+        timeout=45,
+    )
+
+    scope = client._limiter_scope("chat")
+    embedding_scope = client._limiter_scope("embedding")
+    assert scope.endpoint == "https://new.example/v2"
+    assert embedding_scope.endpoint == "https://embedding.example/v1"
+    assert client.profile_summary["provider_id"] == "openai"
+    assert client.profile_summary["label"] == "OpenAI"
+    assert client.profile_summary["model"] == "new-model"
+    assert client.profile_summary["base_url_host"] == "new.example"
+    assert "private" not in repr(scope)
+    assert "private" not in repr(embedding_scope)
+    assert "private" not in str(client.profile_summary)
+
+
+@pytest.mark.asyncio
 async def test_generate_embedding_bge_error_does_not_call_remote_provider(
     monkeypatch,
 ) -> None:
@@ -321,6 +370,137 @@ async def test_generate_embedding_bge_error_does_not_call_remote_provider(
 
 
 @pytest.mark.asyncio
+async def test_remote_embedding_uses_embedding_limiter_scope(monkeypatch) -> None:
+    client = LLMClient(base_url="https://chat.example/v1")
+    client._limiter_embedding_base_url = "https://embedding.example/v1"
+    client._settings = _retry_settings(base_delay=0.0, max_delay=0.0)
+    captured_scopes: list[LLMLimiterScope] = []
+
+    class RemoteProvider:
+        name = "remote"
+
+        async def generate_embedding(
+            self,
+            text: str | list[str],
+            model: str | None = None,
+        ) -> list[float]:
+            assert text == "测试文本"
+            return [0.1, 0.2]
+
+    class CapturingLimiter:
+        async def run(self, fn, *, limiter_scope=None):
+            captured_scopes.append(limiter_scope)
+            return await fn()
+
+    client._provider = RemoteProvider()  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_settings",
+        lambda: SimpleNamespace(embedding_provider="openai"),
+    )
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: CapturingLimiter(),
+    )
+
+    result = await client.generate_embedding("测试文本")
+
+    assert result == [0.1, 0.2]
+    assert len(captured_scopes) == 1
+    assert captured_scopes[0].operation_kind == "embedding"
+    assert captured_scopes[0].owner == "system"
+    assert captured_scopes[0].endpoint == "https://embedding.example/v1"
+
+
+@pytest.mark.asyncio
+async def test_project_remote_embedding_routes_once_with_project_scope(
+    monkeypatch,
+) -> None:
+    settings = SimpleNamespace(
+        embedding_provider="openai",
+        llm_retry_max_attempts=1,
+        llm_retry_base_delay=0.0,
+        llm_retry_max_delay=0.0,
+    )
+    providers = []
+    captured_scopes: list[LLMLimiterScope] = []
+
+    class RemoteProvider:
+        name = "openai"
+        _api_key = ""
+        _base_url = "https://chat.example/v1"
+        _embedding_base_url = "https://embedding.example/v1"
+        _timeout = 30
+
+        def __init__(self) -> None:
+            self.embedding_calls = 0
+
+        async def generate_embedding(self, text, model=None):
+            self.embedding_calls += 1
+            assert text == "project text"
+            return [0.1, 0.2]
+
+        async def close(self) -> None:
+            return None
+
+    class CapturingLimiter:
+        async def run(self, fn, *, limiter_scope=None):
+            captured_scopes.append(limiter_scope)
+            return await fn()
+
+    def make_provider(*_args, **_kwargs):
+        provider = RemoteProvider()
+        providers.append(provider)
+        return provider
+
+    monkeypatch.setattr("infrastructure.llm.client.get_settings", lambda: settings)
+    monkeypatch.setattr("infrastructure.llm.client.get_provider", make_provider)
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: CapturingLimiter(),
+    )
+    client = LLMClient(base_url="https://project-chat.example/v1")
+    client.bind_runtime_scope(novel_id="project-a", profile_source="project")
+
+    result = await client.generate_embedding("project text")
+
+    assert result == [0.1, 0.2]
+    assert len(providers) == 2
+    assert providers[0].embedding_calls == 0
+    assert providers[1].embedding_calls == 1
+    assert captured_scopes == [
+        LLMLimiterScope.for_call(
+            novel_id="project-a",
+            operation_kind="embedding",
+            base_url="https://embedding.example/v1",
+            provider_id="openai",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_usage_stats_omit_complete_endpoint_and_credentials() -> None:
+    client = LLMClient.__new__(LLMClient)
+    client._provider = SimpleNamespace(
+        name="openai",
+        _base_url=(
+            "https://user:private-password@example.test/v1"
+            "?api_key=private-query#private-fragment"
+        ),
+    )
+    client._default_model = "test-model"
+    client._profile_summary = {"base_url_host": "example.test"}
+
+    stats = await client.get_usage_stats()
+
+    assert stats == {
+        "provider": "openai",
+        "default_model": "test-model",
+        "base_url_host": "example.test",
+    }
+    assert "private" not in str(stats)
+
+
+@pytest.mark.asyncio
 async def test_project_chat_profile_cannot_override_remote_embedding_client(
     monkeypatch,
 ) -> None:
@@ -343,12 +523,24 @@ async def test_project_chat_profile_cannot_override_remote_embedding_client(
     class IndependentEmbeddingClient:
         def __init__(self) -> None:
             self._runtime_scope = {"profile_source": "system"}
+            self._uses_system_embedding_profile = False
             self.closed = False
+
+        def bind_runtime_scope(self, *, novel_id, profile_source):
+            self._runtime_scope = {
+                "novel_id": novel_id,
+                "profile_source": profile_source,
+            }
 
         async def generate_embedding(self, text, model=None, *, is_query=False):
             assert text == "独立 embedding"
             assert model == "embedding-model"
             assert is_query is True
+            assert self._runtime_scope == {
+                "novel_id": "project-a",
+                "profile_source": "system",
+            }
+            assert self._uses_system_embedding_profile is True
             return [0.1, 0.2]
 
         async def close(self) -> None:
@@ -373,6 +565,7 @@ async def test_project_chat_profile_cannot_override_remote_embedding_client(
 
     assert result == [0.1, 0.2]
     assert project_provider_calls == 0
+    assert independent._runtime_scope["novel_id"] == "project-a"
     assert independent.closed is True
 
 
@@ -382,7 +575,10 @@ async def test_generate_uses_process_concurrency_limiter(monkeypatch) -> None:
         "infrastructure.llm.limits.get_settings",
         lambda: _limit_settings(max_concurrent_requests=1),
     )
-    client = LLMClient()
+    first_client = LLMClient()
+    second_client = LLMClient()
+    first_client.bind_runtime_scope(novel_id="novel-a", profile_source="project")
+    second_client.bind_runtime_scope(novel_id="novel-b", profile_source="project")
     active = 0
     max_active = 0
     release_first = asyncio.Event()
@@ -402,11 +598,13 @@ async def test_generate_uses_process_concurrency_limiter(monkeypatch) -> None:
             active -= 1
             return LLMCallResponse(content="ok", model="fake", provider="fake")
 
-    client._provider = FakeProvider()  # type: ignore[assignment]
+    provider = FakeProvider()
+    first_client._provider = provider  # type: ignore[assignment]
+    second_client._provider = provider  # type: ignore[assignment]
 
-    first = asyncio.create_task(client.generate(LLMCallRequest(model="fake")))
+    first = asyncio.create_task(first_client.generate(LLMCallRequest(model="fake")))
     await first_started.wait()
-    second = asyncio.create_task(client.generate(LLMCallRequest(model="fake")))
+    second = asyncio.create_task(second_client.generate(LLMCallRequest(model="fake")))
     await asyncio.sleep(0)
 
     assert max_active == 1
@@ -493,6 +691,408 @@ async def test_limiter_breaker_ignores_project_auth_failure(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_limiter_breaker_isolates_projects_on_same_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=30.0),
+    )
+    first = LLMClient(base_url="https://shared.example/v1")
+    second = LLMClient(base_url="https://shared.example/v1/")
+    first.bind_runtime_scope(novel_id="novel-a", profile_source="project")
+    second.bind_runtime_scope(novel_id="novel-b", profile_source="project")
+    first._settings = _retry_settings(base_delay=0.0, max_delay=0.0)
+    second_calls = 0
+
+    class FailingProvider:
+        name = "fake"
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            raise LLMRateLimitError("project A exhausted its quota", provider="fake")
+
+    class HealthyProvider:
+        name = "fake"
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            nonlocal second_calls
+            second_calls += 1
+            return LLMCallResponse(content="ok", model="fake", provider="fake")
+
+    first._provider = FailingProvider()  # type: ignore[assignment]
+    second._provider = HealthyProvider()  # type: ignore[assignment]
+
+    with pytest.raises(LLMRateLimitError):
+        await first.generate(LLMCallRequest(model="fake"))
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await first.generate(LLMCallRequest(model="fake"))
+
+    response = await second.generate(LLMCallRequest(model="fake"))
+    assert response.content == "ok"
+    assert second_calls == 1
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await first.generate(LLMCallRequest(model="fake"))
+
+
+@pytest.mark.asyncio
+async def test_limiter_breaker_isolates_endpoints_within_project(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=30.0),
+    )
+    limiter = LLMProcessLimiter()
+    failed_scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://down.example/v1",
+        provider_id="custom",
+    )
+    healthy_scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://healthy.example/v1",
+        provider_id="custom",
+    )
+    await limiter.run(_async_noop, limiter_scope=failed_scope)
+    await limiter.record_failure(failed_scope)
+
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await limiter.run(_async_noop, limiter_scope=failed_scope)
+    await limiter.run(_async_noop, limiter_scope=healthy_scope)
+
+
+def test_limiter_scope_normalizes_endpoint_without_secrets() -> None:
+    first = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="CHAT",
+        base_url=(
+            "HTTPS://user:private-value@Example.COM:443/v1/"
+            "?api_key=private-query#private-fragment"
+        ),
+        provider_id="custom",
+    )
+    second = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://example.com/v1",
+        provider_id="other-model",
+    )
+
+    assert first == second
+    assert first.endpoint == "https://example.com/v1"
+    assert "private" not in repr(first)
+    assert "api_key" not in repr(first)
+
+
+@pytest.mark.asyncio
+async def test_limiter_separates_system_chat_and_embedding(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=30.0),
+    )
+    limiter = LLMProcessLimiter()
+    chat_scope = LLMLimiterScope.for_call(
+        novel_id=None,
+        operation_kind="chat",
+        base_url="https://shared.example/v1",
+        provider_id="custom",
+    )
+    embedding_scope = LLMLimiterScope.for_call(
+        novel_id=None,
+        operation_kind="embedding",
+        base_url="https://shared.example/v1",
+        provider_id="custom",
+    )
+    await limiter.run(_async_noop, limiter_scope=chat_scope)
+    await limiter.record_failure(chat_scope)
+
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await limiter.run(_async_noop, limiter_scope=chat_scope)
+    await limiter.run(_async_noop, limiter_scope=embedding_scope)
+
+
+@pytest.mark.asyncio
+async def test_limiter_allows_one_half_open_probe(monkeypatch) -> None:
+    now = 100.0
+    monkeypatch.setattr("infrastructure.llm.limits.monotonic", lambda: now)
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=10.0),
+    )
+    limiter = LLMProcessLimiter()
+    scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://provider.example/v1",
+        provider_id="custom",
+    )
+    await limiter.run(_async_noop, limiter_scope=scope)
+    await limiter.record_failure(scope)
+    now = 111.0
+    probe_started = asyncio.Event()
+    release_probe = asyncio.Event()
+
+    async def probe() -> None:
+        probe_started.set()
+        await release_probe.wait()
+
+    first_probe = asyncio.create_task(limiter.run(probe, limiter_scope=scope))
+    await probe_started.wait()
+    with pytest.raises(LLMCircuitBreakerOpenError) as exc_info:
+        await limiter.run(_async_noop, limiter_scope=scope)
+    assert exc_info.value.retry_after == 1.0
+
+    release_probe.set()
+    await first_probe
+    await limiter.run(_async_noop, limiter_scope=scope)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_error",
+    [
+        LLMAuthError("project key rejected", provider="fake"),
+        LLMContentFilterError("content filtered", provider="fake"),
+        LLMInvalidResponseError("schema rejected", provider="fake"),
+    ],
+)
+async def test_non_availability_half_open_response_closes_bucket(
+    monkeypatch,
+    provider_error,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr("infrastructure.llm.limits.monotonic", lambda: now)
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=10.0),
+    )
+    limiter = LLMProcessLimiter()
+    scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://provider.example/v1",
+        provider_id="custom",
+    )
+    await limiter.run(_async_noop, limiter_scope=scope)
+    await limiter.record_failure(scope)
+    now = 111.0
+
+    async def deterministic_failure() -> None:
+        raise provider_error
+
+    with pytest.raises(type(provider_error)):
+        await limiter.run(deterministic_failure, limiter_scope=scope)
+    await limiter.run(_async_noop, limiter_scope=scope)
+
+
+@pytest.mark.asyncio
+async def test_limiter_half_open_failure_reopens_and_cancellation_releases(
+    monkeypatch,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr("infrastructure.llm.limits.monotonic", lambda: now)
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=10.0),
+    )
+    limiter = LLMProcessLimiter()
+    scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://provider.example/v1",
+        provider_id="custom",
+    )
+    await limiter.run(_async_noop, limiter_scope=scope)
+    await limiter.record_failure(scope)
+    now = 111.0
+
+    async def failing_probe() -> None:
+        raise LLMTimeoutError("probe timeout", provider="fake")
+
+    with pytest.raises(LLMTimeoutError):
+        await limiter.run(failing_probe, limiter_scope=scope)
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await limiter.run(_async_noop, limiter_scope=scope)
+
+    now = 122.0
+    probe_started = asyncio.Event()
+
+    async def cancelled_probe() -> None:
+        probe_started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(limiter.run(cancelled_probe, limiter_scope=scope))
+    await probe_started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await limiter.run(_async_noop, limiter_scope=scope)
+
+
+@pytest.mark.asyncio
+async def test_open_breaker_does_not_consume_global_admission_capacity(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(
+            max_concurrent_requests=1,
+            rate_limit_per_minute=60,
+            failure_threshold=1,
+            reset_seconds=30.0,
+        ),
+    )
+    limiter = LLMProcessLimiter()
+    scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://provider.example/v1",
+        provider_id="custom",
+    )
+    await limiter.run(_async_noop, limiter_scope=scope)
+    await limiter.record_failure(scope)
+    limiter._tokens = 1.0
+    semaphore = limiter._semaphore
+    assert semaphore is not None
+
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await limiter.run(_async_noop, limiter_scope=scope)
+
+    assert limiter._tokens == 1.0
+    assert semaphore._value == 1
+
+
+@pytest.mark.asyncio
+async def test_breaker_registry_is_bounded_and_keeps_active_probe(monkeypatch) -> None:
+    now = 100.0
+    monkeypatch.setattr("infrastructure.llm.limits.monotonic", lambda: now)
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=10.0),
+    )
+    limiter = LLMProcessLimiter()
+    protected_scope = LLMLimiterScope.for_call(
+        novel_id="protected",
+        operation_kind="chat",
+        base_url="https://protected.example/v1",
+        provider_id="custom",
+    )
+    await limiter.run(_async_noop, limiter_scope=protected_scope)
+    await limiter.record_failure(protected_scope)
+    now = 111.0
+    probe_started = asyncio.Event()
+    release_probe = asyncio.Event()
+
+    async def probe() -> None:
+        probe_started.set()
+        await release_probe.wait()
+
+    active_probe = asyncio.create_task(limiter.run(probe, limiter_scope=protected_scope))
+    await probe_started.wait()
+    for index in range(300):
+        scope = LLMLimiterScope.for_call(
+            novel_id=f"novel-{index}",
+            operation_kind="chat",
+            base_url=f"https://provider-{index}.example/v1",
+            provider_id="custom",
+        )
+        await limiter.record_failure(scope)
+
+    assert len(limiter._breakers) == 256
+    assert protected_scope in limiter._breakers
+    release_probe.set()
+    await active_probe
+
+
+@pytest.mark.asyncio
+async def test_breaker_registry_fails_open_when_all_buckets_are_active_probes(
+    monkeypatch,
+    caplog,
+) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=10.0),
+    )
+    limiter = LLMProcessLimiter()
+    await limiter.run(_async_noop)
+    for index in range(256):
+        scope = LLMLimiterScope.for_call(
+            novel_id=f"novel-{index}",
+            operation_kind="chat",
+            base_url=f"https://provider-{index}.example/v1",
+            provider_id="custom",
+        )
+        await limiter.record_failure(scope)
+    for state in limiter._breakers.values():
+        state.half_open_probe = True
+
+    secret = "private-endpoint-value"
+    overflow_scope = LLMLimiterScope.for_call(
+        novel_id="overflow-project",
+        operation_kind="chat",
+        base_url=f"https://user:{secret}@overflow.example/v1?api_key={secret}",
+        provider_id="custom",
+    )
+    await limiter.record_failure(overflow_scope)
+
+    assert len(limiter._breakers) == 256
+    assert overflow_scope not in limiter._breakers
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "saturated with active probes" in messages
+    assert secret not in messages
+
+
+@pytest.mark.asyncio
+async def test_different_scopes_share_global_rpm_bucket(monkeypatch) -> None:
+    now = 100.0
+    monkeypatch.setattr("infrastructure.llm.limits.monotonic", lambda: now)
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(rate_limit_per_minute=2),
+    )
+    limiter = LLMProcessLimiter()
+    first_scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://first.example/v1",
+        provider_id="custom",
+    )
+    second_scope = LLMLimiterScope.for_call(
+        novel_id="novel-b",
+        operation_kind="chat",
+        base_url="https://second.example/v1",
+        provider_id="custom",
+    )
+
+    await limiter.run(_async_noop, limiter_scope=first_scope)
+    assert limiter._tokens == 1.0
+    await limiter.run(_async_noop, limiter_scope=second_scope)
+    assert limiter._tokens == 0.0
+
+
+@pytest.mark.asyncio
+async def test_breaker_state_is_process_local(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=30.0),
+    )
+    first_process = LLMProcessLimiter()
+    second_process = LLMProcessLimiter()
+    scope = LLMLimiterScope.for_call(
+        novel_id="novel-a",
+        operation_kind="chat",
+        base_url="https://provider.example/v1",
+        provider_id="custom",
+    )
+    await first_process.run(_async_noop, limiter_scope=scope)
+    await second_process.run(_async_noop, limiter_scope=scope)
+    await first_process.record_failure(scope)
+
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await first_process.run(_async_noop, limiter_scope=scope)
+    await second_process.run(_async_noop, limiter_scope=scope)
+
+
+@pytest.mark.asyncio
 async def test_generate_stream_holds_limiter_until_stream_consumed(monkeypatch) -> None:
     monkeypatch.setattr(
         "infrastructure.llm.limits.get_settings",
@@ -541,6 +1141,61 @@ async def test_generate_stream_holds_limiter_until_stream_consumed(monkeypatch) 
     release_first_stream.set()
     await asyncio.gather(first, second)
     assert max_active_streams == 1
+
+
+@pytest.mark.asyncio
+async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(max_concurrent_requests=1),
+    )
+
+    class SDKStream:
+        def __init__(self) -> None:
+            self._sent = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._sent:
+                raise StopAsyncIteration
+            self._sent = True
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="real-provider-chunk"),
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            )
+
+    class Completions:
+        async def create(self, **_kwargs):
+            return SDKStream()
+
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    provider._default_model = "test-model"
+    provider._timeout = 15
+
+    client = LLMClient.__new__(LLMClient)
+    client._provider = provider
+    client._settings = _retry_settings(base_delay=0.0, max_delay=0.0)
+    client._default_max_tokens = 12_000
+    client._runtime_scope = {"profile_source": "system"}
+    client._limiter_provider_id = "openai"
+    client._limiter_base_url = "https://chat.example/v1"
+
+    chunks = [
+        chunk
+        async for chunk in client.generate_stream(
+            LLMCallRequest(model="test-model"),
+        )
+    ]
+
+    assert [chunk.content for chunk in chunks] == ["real-provider-chunk"]
 
 
 @pytest.mark.asyncio
@@ -843,8 +1498,9 @@ async def test_generate_structured_direct_provider_path_uses_limiter(monkeypatch
 
     client._provider = FakeProvider()  # type: ignore[assignment]
     limiter = get_llm_limiter()
-    await limiter.run(lambda: _async_noop())
-    await limiter.record_failure()
+    limiter_scope = client._limiter_scope("chat")
+    await limiter.run(lambda: _async_noop(), limiter_scope=limiter_scope)
+    await limiter.record_failure(limiter_scope)
 
     with pytest.raises(LLMCircuitBreakerOpenError):
         await client.generate_structured(

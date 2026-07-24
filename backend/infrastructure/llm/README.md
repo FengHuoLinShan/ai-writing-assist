@@ -108,11 +108,20 @@ async with open_project_llm_client(db, novel_id) as client:
 只允许项目级配置。代理、重试和 health gate 等运行参数仍由 `core.config.Settings`
 管理。
 
-所有 `LLMClient` 实例共享进程级并发、RPM 与熔断状态。所有环境均可将
+所有 `LLMClient` 实例共享进程级并发 semaphore 与 RPM token bucket。所有环境均可将
 `LLM_RATE_LIMIT_PER_MINUTE` 设为 `0` 关闭额外 RPM 限制，也可按 provider
 配额显式配置正值。该配额按进程执行，部署多个 API/worker 实例时必须按实例数核算
 总吞吐；代码不替 provider 选择固定生产 RPM。关闭 RPM 时仍应保留并发上限以保护
 服务器资源。
+
+availability circuit breaker 不跨项目共享：它按
+`project/system + chat/embedding + normalized endpoint` 建立进程内桶。endpoint identity
+只包含 scheme、host、有效端口和 base path，不包含 userinfo、query、fragment、API Key
+或 model。已打开的桶在消耗 RPM token 或等待 semaphore 前失败；cooldown 后只允许一个
+half-open probe。同一项目切换 endpoint 会使用新桶，不同项目即使使用同一 endpoint
+也不会互相熔断。remote embedding 使用实际 `EMBEDDING_BASE_URL` identity，同时继续保留
+全局 embedding 配置与项目 chat profile 的凭据边界。registry 最多保留 256 个失败桶并按
+LRU 回收；API 与 worker 进程之间不共享 breaker 状态。
 
 封闭测试服可配置 `APP_ACCESS_TOKEN` 作为单一访问令牌；配置后前端请求通过
 `Authorization: Bearer ...` 访问 `/api/*`，本地 `development/test/local` 默认不启用。

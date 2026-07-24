@@ -103,6 +103,13 @@ async def request_entity_activity_reannotation(
     return await EntityActivityService(_repo).request_reannotation(db, novel_id)
 
 
+async def reconcile_index_task_owners(db: AsyncSession) -> int:
+    """Repair RAG owner pointers after generic task stale recovery."""
+    from modules.rag.index_state import RagIndexStateService
+
+    return await RagIndexStateService().reconcile_owners(db)
+
+
 async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     """获取 RAG 索引诊断状态。"""
     from core.config import get_settings

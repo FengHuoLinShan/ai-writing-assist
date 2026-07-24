@@ -22,6 +22,7 @@ TaskAction = Literal[
     "restart_origin",
     "dismiss",
 ]
+TaskCoalescingMode = Literal["reuse_active", "one_pending_follower"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,15 @@ class TaskDefinition:
     recovery_policy: RecoveryPolicy = "restart_origin"
     max_attempts: int = 1
     generic_submit_schema: type[BaseModel] | None = None
+
+
+@dataclass(frozen=True)
+class CoalescedTaskContract:
+    """Secret-free result of one keyed enqueue/lookup operation."""
+
+    task_id: str
+    status: str
+    reused: bool
 
 
 @dataclass(frozen=True)

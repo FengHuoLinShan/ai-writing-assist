@@ -8,8 +8,9 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from infrastructure.tasks.contracts import (
     CompletedTaskPayloadContract,
@@ -17,12 +18,154 @@ from infrastructure.tasks.contracts import (
     TaskLifecycleContract,
     TaskOwnerContract,
 )
+from infrastructure.tasks.enqueuer import lock_task_coalescing_key
 from infrastructure.tasks.models import AsyncTask
 
 _INVALID_TASK_META = object()
 
 
 class TaskLifecycleService:
+    async def update_projection(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        task_type: str,
+        novel_id: str,
+        result: dict[str, Any] | None = None,
+        meta_patch: dict[str, Any] | None = None,
+        progress: float | None = None,
+    ) -> bool:
+        """Update the compatibility projection for one exactly scoped task."""
+        try:
+            parsed_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError):
+            return False
+        task = (
+            await db.execute(
+                select(AsyncTask)
+                .where(
+                    AsyncTask.id == parsed_id,
+                    AsyncTask.task_type == task_type,
+                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                    AsyncTask.status.in_(("pending", "running")),
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            return False
+        if result is not None:
+            task.result = deepcopy(result)
+        if meta_patch:
+            task.meta = {**dict(task.meta or {}), **deepcopy(meta_patch)}
+        if progress is not None:
+            task.progress = max(0.0, min(1.0, float(progress)))
+        await db.flush()
+        return True
+
+    async def resume_manual(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        task_types: set[str],
+        novel_id: str,
+    ) -> TaskLifecycleContract:
+        """Requeue one exactly scoped manual-resume task."""
+        try:
+            parsed_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("task_id must be a UUID") from exc
+        task = (
+            await db.execute(
+                select(AsyncTask)
+                .where(
+                    AsyncTask.id == parsed_id,
+                    AsyncTask.task_type.in_(sorted(task_types)),
+                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            raise ValueError("task not found")
+        contract = lifecycle_contract(task, max_heartbeat_gap=0)
+        if (
+            task.status != "failed"
+            or task.recovery_policy != "manual_resume"
+            or not contract.recovery_required
+        ):
+            raise ValueError("task does not require manual recovery")
+        if await self._has_pending_follower(db, task):
+            result_data = dict(task.result or {})
+            meta_data = dict(task.meta or {})
+            for payload in (result_data, meta_data):
+                payload["interrupted"] = False
+                payload["recovery_required"] = False
+                payload["recoverable"] = False
+            lifecycle = dict(result_data.get("lifecycle") or {})
+            lifecycle["reason"] = "superseded"
+            lifecycle["recovery_required"] = False
+            result_data["lifecycle"] = lifecycle
+            task.result = result_data
+            task.meta = meta_data
+            task.mark_cancelled()
+            task.transition_reason = "superseded"
+            await db.flush()
+            return lifecycle_contract(task, max_heartbeat_gap=0)
+        result_data = dict(task.result or {})
+        meta_data = dict(task.meta or {})
+        for payload in (result_data, meta_data):
+            payload["interrupted"] = False
+            payload["recovery_required"] = False
+            payload["recoverable"] = False
+        lifecycle = dict(result_data.get("lifecycle") or {})
+        lifecycle["reason"] = "manual_resume"
+        lifecycle["recovery_required"] = False
+        result_data["lifecycle"] = lifecycle
+        task.result = result_data
+        task.meta = meta_data
+        task.status = "pending"
+        task.finished_at = None
+        task.heartbeat_at = None
+        task.lease_id = None
+        task.transition_reason = "manual_resume"
+        task.error_message = None
+        await db.flush()
+        return lifecycle_contract(task, max_heartbeat_gap=0)
+
+    async def cancel_recoverable(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        task_types: set[str],
+        novel_id: str,
+    ) -> TaskLifecycleContract:
+        """Cancel one exactly scoped task after domain-owned cleanup."""
+        try:
+            parsed_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("task_id must be a UUID") from exc
+        task = (
+            await db.execute(
+                select(AsyncTask)
+                .where(
+                    AsyncTask.id == parsed_id,
+                    AsyncTask.task_type.in_(sorted(task_types)),
+                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            raise ValueError("task not found")
+        task.mark_cancelled()
+        task.transition_reason = "recovery_abandoned"
+        await db.flush()
+        return lifecycle_contract(task, max_heartbeat_gap=0)
+
     async def list_running_types_for_novel(
         self,
         db: AsyncSession,
@@ -345,9 +488,21 @@ class TaskLifecycleService:
         }
 
     async def claim_next(self, db: AsyncSession) -> AsyncTask | None:
+        running = aliased(AsyncTask)
         stmt = (
             select(AsyncTask)
-            .where(AsyncTask.status == "pending")
+            .where(
+                AsyncTask.status == "pending",
+                or_(
+                    AsyncTask.coalescing_key.is_(None),
+                    ~exists(
+                        select(running.id).where(
+                            running.coalescing_key == AsyncTask.coalescing_key,
+                            running.status == "running",
+                        )
+                    ),
+                ),
+            )
             .order_by(AsyncTask.created_at)
             .limit(1)
             .with_for_update(skip_locked=True)
@@ -355,6 +510,65 @@ class TaskLifecycleService:
         result = await db.execute(stmt)
         task = result.scalar_one_or_none()
         if task is None:
+            return None
+        coalescing_key = (
+            task.coalescing_key if isinstance(task.coalescing_key, str) else None
+        )
+        await lock_task_coalescing_key(
+            db,
+            coalescing_key=coalescing_key,
+        )
+        if coalescing_key and await db.scalar(
+            select(
+                exists().where(
+                    AsyncTask.coalescing_key == coalescing_key,
+                    AsyncTask.status == "running",
+                    AsyncTask.id != task.id,
+                )
+            )
+        ):
+            return None
+        task.mark_running(lease_id=str(uuid.uuid4()))
+        await db.commit()
+        return task
+
+    async def claim_exact(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: uuid.UUID,
+        task_type: str,
+    ) -> AsyncTask | None:
+        """Claim one exact pending task with the same keyed gate as workers."""
+        task = (
+            await db.execute(
+                select(AsyncTask)
+                .where(
+                    AsyncTask.id == task_id,
+                    AsyncTask.task_type == task_type,
+                    AsyncTask.status == "pending",
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            return None
+        coalescing_key = (
+            task.coalescing_key if isinstance(task.coalescing_key, str) else None
+        )
+        await lock_task_coalescing_key(
+            db,
+            coalescing_key=coalescing_key,
+        )
+        if coalescing_key and await db.scalar(
+            select(
+                exists().where(
+                    AsyncTask.coalescing_key == coalescing_key,
+                    AsyncTask.status == "running",
+                    AsyncTask.id != task.id,
+                )
+            )
+        ):
             return None
         task.mark_running(lease_id=str(uuid.uuid4()))
         await db.commit()
@@ -445,6 +659,11 @@ class TaskLifecycleService:
             raise ValueError("task recovery policy does not allow retry")
         if int(task.attempt or 0) >= int(task.max_attempts or 1):
             raise ValueError("task retry attempts exhausted")
+        if await self._has_pending_follower(db, task):
+            task.mark_cancelled()
+            task.transition_reason = "superseded"
+            await db.flush()
+            return
         task.status = "pending"
         task.finished_at = None
         task.heartbeat_at = None
@@ -481,7 +700,12 @@ class TaskLifecycleService:
         tasks = list((await db.execute(stmt)).scalars().all())
         counts = {"auto_requeued": 0, "failed": 0, "manual_resume": 0}
         for task in tasks:
-            self._transition_stale(task, now=now)
+            if await self._has_pending_follower(db, task):
+                task.mark_cancelled()
+                task.stale_detected_at = now
+                task.transition_reason = "superseded"
+            else:
+                self._transition_stale(task, now=now)
             if task.status == "pending":
                 counts["auto_requeued"] += 1
             else:
@@ -491,6 +715,24 @@ class TaskLifecycleService:
         if tasks:
             await db.commit()
         return counts
+
+    @staticmethod
+    async def _has_pending_follower(
+        db: AsyncSession,
+        task: AsyncTask,
+    ) -> bool:
+        key = getattr(task, "coalescing_key", None)
+        if not isinstance(key, str) or not key:
+            return False
+        await lock_task_coalescing_key(db, coalescing_key=key)
+        stmt = select(
+            exists().where(
+                AsyncTask.coalescing_key == key,
+                AsyncTask.status == "pending",
+                AsyncTask.id != task.id,
+            )
+        )
+        return bool(await db.scalar(stmt))
 
     @staticmethod
     def _transition_stale(task: AsyncTask, *, now: datetime) -> None:

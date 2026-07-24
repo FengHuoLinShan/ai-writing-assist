@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -39,6 +40,26 @@ _MAP_ENRICHMENT_STATE_KEY = "_map_observation_enrichment_v1"
 
 _extracted_proposal_adapter = TypeAdapter(ExtractedMapObservationProposal)
 logger = logging.getLogger(__name__)
+MapTaskProjection = Callable[[dict[str, Any], float], Awaitable[None]]
+
+
+class _MapWorkflowTaskView:
+    """Local task API projection backed by an immutable workflow attempt."""
+
+    def __init__(self, attempt, project: MapTaskProjection) -> None:
+        self.id = attempt.task_id
+        self.task_type = attempt.workflow_type
+        self.status = "running"
+        self.attempt = attempt.owner.attempt
+        self.lease_id = attempt.owner.lease_id
+        self.meta = attempt.meta_projection()
+        self.result = attempt.progress_projection()
+        self.progress = 0.0
+        self.workflow_owner = attempt.owner
+        self.project = project
+
+    def update_progress(self, value: float) -> None:
+        self.progress = min(1.0, max(float(self.progress or 0.0), float(value)))
 
 
 async def submit_map_observation_enrichment(
@@ -52,17 +73,19 @@ async def submit_map_observation_enrichment(
     authorization_confirmed: bool = False,
 ) -> dict[str, Any]:
     """Queue map-only enrichment without invoking any deep-import stage."""
-    from infrastructure.tasks.enqueuer import enqueue_task
-    from infrastructure.tasks.models import AsyncTask
+    from infrastructure.tasks.facade import (
+        enqueue_coalesced_task,
+        update_task_projection,
+    )
+    from modules.imports.workflow_runs import ImportWorkflowRunService
     from modules.project.facade import (
         build_project_llm_execution_snapshot,
-        require_active_project,
+        require_active_project_exclusive,
     )
-    from shared.utils import parse_uuid
 
     if start_chapter < 1 or end_chapter < start_chapter:
         raise ValueError("invalid map enrichment chapter range")
-    await require_active_project(db, novel_id)
+    await require_active_project_exclusive(db, novel_id)
     authorization_snapshot = build_authorization_snapshot(
         novel_id=novel_id,
         start_chapter=start_chapter,
@@ -71,33 +94,78 @@ async def submit_map_observation_enrichment(
         authorization_confirmed=authorization_confirmed,
         stage=MAP_OBSERVATION_ENRICHMENT_STAGE,
     )
-    llm_execution_snapshot = await build_project_llm_execution_snapshot(db, novel_id)
-    task_id = enqueue_task(
+    runs = ImportWorkflowRunService()
+    await runs.reconcile_scoped_task_owners(
         db,
-        MAP_OBSERVATION_ENRICHMENT_TASK_TYPE,
+        novel_id=novel_id,
+    )
+    active = await runs.get_active_for_novel(db, novel_id=novel_id)
+    if active is not None:
+        return {
+            "workflow_id": str(active.id),
+            "task_id": str(active.task_id),
+            "workflow_type": str(active.workflow_type),
+            "stage": active.stage,
+            "status": str(active.status),
+            "requires_confirmation": False,
+            "reused_task": True,
+            "authorization_snapshot": dict(active.authorization_snapshot or {}),
+            "message": "已有自动提取任务仍在执行或等待恢复，已连接到原任务",
+        }
+    llm_execution_snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    task_meta = {
+        "novel_id": novel_id,
+        "start_chapter": start_chapter,
+        "end_chapter": end_chapter,
+        "high_quality": high_quality,
+        "stage": MAP_OBSERVATION_ENRICHMENT_STAGE,
+        "adoption_policy": adoption_policy,
+        "authorization_confirmed": True,
+        "authorization_snapshot": authorization_snapshot,
+        "llm_execution_snapshot": llm_execution_snapshot,
+    }
+    queued = await enqueue_coalesced_task(
+        db,
+        task_type=MAP_OBSERVATION_ENRICHMENT_TASK_TYPE,
+        novel_id=novel_id,
+        scope=("imports_pipeline",),
+        mode="reuse_active",
         meta={
-            "novel_id": novel_id,
-            "start_chapter": start_chapter,
-            "end_chapter": end_chapter,
-            "high_quality": high_quality,
-            "stage": MAP_OBSERVATION_ENRICHMENT_STAGE,
-            "adoption_policy": adoption_policy,
-            "authorization_confirmed": True,
-            "authorization_snapshot": authorization_snapshot,
-            "llm_execution_snapshot": llm_execution_snapshot,
+            **task_meta,
         },
     )
-    task = await db.get(AsyncTask, parse_uuid(str(task_id)))
-    if task is not None:
-        task.result = {
-            "workflow_type": MAP_OBSERVATION_ENRICHMENT_TASK_TYPE,
-            "authorization_snapshot": authorization_snapshot,
-            "llm_execution_snapshot": llm_execution_snapshot,
-        }
+    initial_result = {
+        "workflow_type": MAP_OBSERVATION_ENRICHMENT_TASK_TYPE,
+        "stage": MAP_OBSERVATION_ENRICHMENT_STAGE,
+        "authorization_snapshot": authorization_snapshot,
+        "llm_execution_snapshot": llm_execution_snapshot,
+    }
+    existing = await runs.get_by_task(db, task_id=queued.task_id)
+    if existing is None:
+        await runs.create_pending(
+            db,
+            task_id=queued.task_id,
+            novel_id=novel_id,
+            workflow_type=MAP_OBSERVATION_ENRICHMENT_TASK_TYPE,
+            stage=MAP_OBSERVATION_ENRICHMENT_STAGE,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            authorization_snapshot=authorization_snapshot,
+            llm_execution_snapshot=llm_execution_snapshot,
+            high_quality=high_quality,
+            initial_progress=initial_result,
+        )
+        await update_task_projection(
+            db,
+            task_id=queued.task_id,
+            task_type=MAP_OBSERVATION_ENRICHMENT_TASK_TYPE,
+            novel_id=novel_id,
+            result=initial_result,
+        )
     await db.flush()
     return {
-        "workflow_id": str(task_id),
-        "task_id": str(task_id),
+        "workflow_id": queued.task_id,
+        "task_id": queued.task_id,
         "workflow_type": MAP_OBSERVATION_ENRICHMENT_TASK_TYPE,
         "stage": MAP_OBSERVATION_ENRICHMENT_STAGE,
         "status": "pending",
@@ -123,6 +191,17 @@ async def _commit_map_enrichment_checkpoint(
     task.result = result
     task.update_progress(progress)
     try:
+        owner = getattr(task, "workflow_owner", None)
+        if owner is not None:
+            from modules.imports.workflow_runs import ImportWorkflowRunService
+
+            await ImportWorkflowRunService().checkpoint(
+                db,
+                owner=owner,
+                progress=result,
+                checkpoints=dict(result.get(_MAP_ENRICHMENT_STATE_KEY) or {}),
+            )
+            await task.project(dict(result), float(progress))
         await db.commit()
     except BaseException:
         task.result = previous_result
@@ -174,6 +253,25 @@ def _validate_map_enrichment_task(task: Any) -> dict[str, Any]:
 
 class MapObservationEnrichmentTaskOrchestrator:
     """Own task checkpoints and fences around the map enrichment workflow."""
+
+    async def run_attempt(
+        self,
+        db: AsyncSession,
+        attempt,
+        *,
+        project: MapTaskProjection,
+    ) -> dict[str, Any]:
+        from modules.imports.workflow_runs import ImportWorkflowRunService
+
+        task = _MapWorkflowTaskView(attempt, project)
+        result = await self.run_task(db, task)
+        await ImportWorkflowRunService().complete(
+            db,
+            owner=attempt.owner,
+            progress=result,
+        )
+        await project(result, 1.0)
+        return result
 
     async def run_task(self, db: AsyncSession, task: Any) -> dict[str, Any]:
         from infrastructure.tasks.facade import (

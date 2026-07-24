@@ -11,7 +11,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-_ALLOWED_ENV_FILENAMES = {".env.example", ".env.sample", ".env.template"}
+_ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template")
 _PRIVATE_KEY_FILENAMES = {"id_dsa", "id_ecdsa", "id_ed25519", "id_rsa"}
 _FIXTURE_PATH_PARTS = {"fixtures", "test", "testdata", "tests"}
 _PLACEHOLDER_PATTERN = re.compile(
@@ -100,12 +100,14 @@ def _safe_display_path(path: str) -> str:
     return quoted.encode("utf-8", errors="backslashreplace").decode("utf-8")
 
 
+def _is_env_template_name(name: str) -> bool:
+    return name.startswith(".env.") and name.endswith(_ENV_TEMPLATE_SUFFIXES)
+
+
 def sensitive_path_rule(path: str) -> str | None:
     normalized = _normalize_path(path)
     name = normalized.name.lower()
-    if (name == ".env" or name.startswith(".env.")) and name not in (
-        _ALLOWED_ENV_FILENAMES
-    ):
+    if (name == ".env" or name.startswith(".env.")) and not _is_env_template_name(name):
         return "tracked_env_file"
     if name in _PRIVATE_KEY_FILENAMES:
         return "tracked_private_key_file"
@@ -120,7 +122,7 @@ def _allows_placeholder(path: str, value: str) -> bool:
         bool(_FIXTURE_PATH_PARTS & parts)
         or name.startswith("test_")
         or name.endswith((".md", ".rst"))
-        or name in _ALLOWED_ENV_FILENAMES
+        or _is_env_template_name(name)
     )
     return fixture_like and _PLACEHOLDER_PATTERN.search(value) is not None
 

@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import logging
 import socket
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from openai import APIConnectionError, APITimeoutError, RateLimitError
 
 from core.config import Settings, get_settings
 from infrastructure.llm.egress import (
     build_public_llm_request_guard,
     validate_user_llm_base_url,
+)
+from infrastructure.llm.errors import (
+    LLMConnectionError,
+    LLMRateLimitError,
+    LLMTimeoutError,
 )
 from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -35,6 +42,103 @@ def test_provider_initialization_log_omits_base_url_query_secret(caplog) -> None
     assert "base_url_host=gateway.example.test" in messages
     assert query_secret not in messages
     assert "token=" not in messages
+
+
+def test_provider_tracks_independent_embedding_endpoint_identity(monkeypatch) -> None:
+    settings = Settings(
+        auth_mode="local",
+        embedding_base_url=(
+            "https://embedding.example.test/v1?api_key=embedding-query-secret"
+        ),
+    )
+    monkeypatch.setattr("infrastructure.llm.providers.get_settings", lambda: settings)
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
+    ):
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://chat.example.test/v1",
+            default_model="test-model",
+        )
+
+    assert provider._base_url == "https://chat.example.test/v1"
+    assert provider._embedding_base_url == (
+        "https://embedding.example.test/v1?api_key=embedding-query-secret"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("sdk_error", "expected_error"),
+    [
+        (
+            APITimeoutError(httpx.Request("POST", "https://provider.example/v1")),
+            LLMTimeoutError,
+        ),
+        (
+            APIConnectionError(
+                request=httpx.Request("POST", "https://provider.example/v1")
+            ),
+            LLMConnectionError,
+        ),
+        (
+            RateLimitError(
+                "rate limited",
+                response=httpx.Response(
+                    429,
+                    request=httpx.Request(
+                        "POST",
+                        "https://provider.example/v1",
+                    ),
+                    headers={"retry-after": "2"},
+                ),
+                body=None,
+            ),
+            LLMRateLimitError,
+        ),
+    ],
+)
+async def test_provider_maps_mid_stream_availability_errors(
+    sdk_error,
+    expected_error,
+) -> None:
+    class FailingStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise sdk_error
+
+    class Completions:
+        async def create(self, **_kwargs):
+            return FailingStream()
+
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    provider._default_model = "test-model"
+    provider._timeout = 15
+
+    stream = await provider.generate_stream(LLMCallRequest(model="test-model"))
+    with pytest.raises(expected_error):
+        async for _chunk in stream:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_provider_maps_remote_embedding_availability_error() -> None:
+    request = httpx.Request("POST", "https://embedding.example/v1")
+
+    class Embeddings:
+        async def create(self, **_kwargs):
+            raise APIConnectionError(request=request)
+
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._embedding_client = SimpleNamespace(embeddings=Embeddings())
+    provider._timeout = 15
+
+    with pytest.raises(LLMConnectionError):
+        await provider.generate_embedding("text", model="embedding-model")
 
 
 def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
@@ -286,9 +390,7 @@ def test_provider_does_not_duplicate_existing_json_object_instruction() -> None:
         "deepseek-v4-flash",
     )
 
-    assert kwargs["messages"] == [
-        {"role": "user", "content": "Return a JSON object."}
-    ]
+    assert kwargs["messages"] == [{"role": "user", "content": "Return a JSON object."}]
 
 
 def test_provider_sends_thinking_through_extra_body() -> None:

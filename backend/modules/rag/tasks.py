@@ -11,6 +11,26 @@ from infrastructure.tasks.registry import task_handler
 logger = logging.getLogger(__name__)
 
 
+def _task_identity_kwargs(task) -> dict[str, object]:
+    task_id = getattr(task, "id", None)
+    task_type = getattr(task, "task_type", None)
+    task_attempt = getattr(task, "attempt", None)
+    task_lease_id = getattr(task, "lease_id", None)
+    if (
+        task_id is None
+        or not task_type
+        or task_attempt is None
+        or not task_lease_id
+    ):
+        return {}
+    return {
+        "task_id": str(task_id),
+        "task_type": str(task_type),
+        "task_attempt": int(task_attempt),
+        "task_lease_id": str(task_lease_id),
+    }
+
+
 @task_handler("rag_index_chapter", recovery_policy="auto_requeue", max_attempts=2)
 async def handle_rag_index_chapter(db, task):
     """处理 RAG 章节索引任务
@@ -37,6 +57,7 @@ async def handle_rag_index_chapter(db, task):
         novel_id,
         chapter_index,
         content_mode=content_mode,
+        **_task_identity_kwargs(task),
     )
     report = outcome.report
     if outcome.status == "coalesced":
@@ -113,6 +134,7 @@ async def handle_rag_reindex_novel(db, task):
             chapter_index,
             content_mode=content_mode,
             force=True,
+            **_task_identity_kwargs(task),
         )
         report = outcome.report
         if outcome.status == "coalesced":

@@ -307,3 +307,16 @@ class RagIndexState(Base, UUIDMixin, TimestampMixin):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     warnings: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    active_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("async_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="当前有权提交索引结果的异步任务",
+    )
+    generation: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="索引 owner 代次；owner 变化时递增",
+    )

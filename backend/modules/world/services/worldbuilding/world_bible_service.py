@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
-from infrastructure.tasks.enqueuer import enqueue_task
-from infrastructure.tasks.models import AsyncTask
+from infrastructure.tasks.facade import (
+    enqueue_coalesced_task,
+    get_latest_coalesced_task,
+)
 from modules.world.models import (
     WorldBiblePage,
     WorldBiblePageProjection,
@@ -94,22 +96,31 @@ class WorldBibleService:
         force: bool = False,
     ) -> tuple[str, str, bool]:
         page = await self._get_page_model(db, novel_id, page_id)
-        existing = await self._find_projection_task(db, page, projection_type)
-        if existing and existing.status in {"pending", "running"} and not force:
-            return str(existing.id), existing.status, True
-        if existing and existing.status in {"done", "failed"} and not force:
-            raise ProjectionRefreshConflictError(str(existing.id), existing.status)
-        task_id = enqueue_task(
+        scope = ("page_projection", str(page.id), projection_type)
+        latest = await get_latest_coalesced_task(
             db,
-            "world_bible_projection_refresh",
+            task_type="world_bible_projection_refresh",
+            novel_id=str(page.novel_id),
+            scope=scope,
+        )
+        if latest and latest.status in {"pending", "running"} and not force:
+            return latest.task_id, latest.status, True
+        if latest and latest.status in {"done", "failed"} and not force:
+            raise ProjectionRefreshConflictError(latest.task_id, latest.status)
+        enqueued = await enqueue_coalesced_task(
+            db,
+            task_type="world_bible_projection_refresh",
+            novel_id=str(page.novel_id),
+            scope=scope,
             meta={
                 "novel_id": str(page.novel_id),
                 "page_id": str(page.id),
                 "projection_type": projection_type,
             },
+            mode="one_pending_follower" if force else "reuse_active",
         )
         await db.flush()
-        return task_id, "pending", False
+        return enqueued.task_id, enqueued.status, enqueued.reused
 
     async def refresh_projection_now(
         self,
@@ -192,28 +203,6 @@ class WorldBibleService:
             )
         )
         return result.scalar_one_or_none()
-
-    async def _find_projection_task(
-        self,
-        db: AsyncSession,
-        page: WorldBiblePage,
-        projection_type: str,
-    ) -> AsyncTask | None:
-        result = await db.execute(
-            select(AsyncTask)
-            .where(AsyncTask.task_type == "world_bible_projection_refresh")
-            .order_by(AsyncTask.created_at.desc())
-            .limit(50)
-        )
-        for task in result.scalars().all():
-            meta = task.meta or {}
-            if (
-                str(meta.get("novel_id")) == str(page.novel_id)
-                and str(meta.get("page_id")) == str(page.id)
-                and str(meta.get("projection_type")) == projection_type
-            ):
-                return task
-        return None
 
     def _build_projection_content(
         self,

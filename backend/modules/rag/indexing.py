@@ -128,6 +128,10 @@ class IndexingService:
         *,
         content_mode: str = "canonical",
         force: bool = False,
+        task_id: str | None = None,
+        task_type: str | None = None,
+        task_attempt: int | None = None,
+        task_lease_id: str | None = None,
     ) -> RagTaskIndexOutcome:
         """Index a chapter without holding a DB transaction during embedding.
 
@@ -138,14 +142,24 @@ class IndexingService:
         persistence transaction, so a concurrent publish cannot install stale
         chunks as fresh.
         """
-        from infrastructure.tasks.facade import require_task_checkpoint_session
+        from infrastructure.tasks.facade import (
+            require_running_task_attempt,
+            require_task_checkpoint_session,
+        )
         from modules.project.facade import require_active_project
-        from modules.rag.index_state import RagIndexStateService
+        from modules.rag.index_state import RagIndexOwnerToken, RagIndexStateService
 
         require_task_checkpoint_session(db)
         normalized_novel_id = uuid.UUID(str(novel_id))
+        if task_id is not None and (
+            not task_type or task_attempt is None or not task_lease_id
+        ):
+            raise ValueError(
+                "task type, attempt, and lease are required with task_id"
+            )
         state_service = RagIndexStateService()
         started_at = time.monotonic()
+        owner_token: RagIndexOwnerToken | None = None
 
         async def _mark_failed(
             error: str,
@@ -153,6 +167,15 @@ class IndexingService:
         ) -> None:
             await db.rollback()
             await require_active_project(db, str(normalized_novel_id))
+            if task_id is not None:
+                await require_running_task_attempt(
+                    db,
+                    task_id=task_id,
+                    task_type=str(task_type),
+                    novel_id=str(normalized_novel_id),
+                    lease_id=str(task_lease_id),
+                    attempt=int(task_attempt),
+                )
             await state_service.fail(
                 db,
                 novel_id=str(normalized_novel_id),
@@ -166,15 +189,25 @@ class IndexingService:
                     expected_plan.source_content_hash if expected_plan else None
                 ),
                 match_expected_source=expected_plan is not None,
+                **({"owner_token": owner_token} if owner_token is not None else {}),
             )
             await db.commit()
 
         last_plan: _ChapterIndexPlan | None = None
         for _attempt in range(_MAX_PREPARED_SOURCE_ATTEMPTS):
             try:
-                # Keep deletion lock order project -> domain in every short
-                # transaction, including source/span preparation.
+                # Keep lock order project -> task attempt -> domain in every
+                # short transaction, including source/span preparation.
                 await require_active_project(db, str(normalized_novel_id))
+                if task_id is not None:
+                    await require_running_task_attempt(
+                        db,
+                        task_id=task_id,
+                        task_type=task_type,
+                        novel_id=str(normalized_novel_id),
+                        lease_id=task_lease_id,
+                        attempt=task_attempt,
+                    )
                 plan = await self._prepare_chapter_index(
                     db,
                     normalized_novel_id,
@@ -194,6 +227,22 @@ class IndexingService:
                 if preflight == "source_changed":
                     await db.rollback()
                     continue
+                if preflight == "fresh":
+                    await db.rollback()
+                    return self._coalesced_outcome(plan)
+                if task_id is not None:
+                    owner_token = await state_service.claim_task_owner(
+                        db,
+                        novel_id=str(normalized_novel_id),
+                        chapter_index=chapter_index,
+                        content_mode=content_mode,
+                        task_id=task_id,
+                        allow_pending_owner_takeover=task_type
+                        == "publish_chapter",
+                    )
+                    if owner_token is None:
+                        await db.rollback()
+                        return self._coalesced_outcome(plan)
 
                 # A task-session commit passes the project/lease fence and
                 # releases all source/state locks before provider queue waits.
@@ -204,11 +253,18 @@ class IndexingService:
                 # Outline, or World rows after the provider wait. ``plan`` is
                 # detached scalar/Pydantic DTO data and remains safe to use.
                 db.expire_all()
-                if preflight == "fresh":
-                    return self._coalesced_outcome(plan)
                 targets, embedding_result = await self._embed_plan(plan)
 
                 await require_active_project(db, str(normalized_novel_id))
+                if task_id is not None:
+                    await require_running_task_attempt(
+                        db,
+                        task_id=task_id,
+                        task_type=str(task_type),
+                        novel_id=str(normalized_novel_id),
+                        lease_id=str(task_lease_id),
+                        attempt=int(task_attempt),
+                    )
                 claim = await state_service.begin_prepared(
                     db,
                     novel_id=str(normalized_novel_id),
@@ -217,6 +273,11 @@ class IndexingService:
                     source_draft_id=plan.source_draft_id,
                     source_content_hash=plan.source_content_hash,
                     force=force,
+                    **(
+                        {"owner_token": owner_token}
+                        if owner_token is not None
+                        else {}
+                    ),
                 )
                 if claim == "source_changed":
                     await db.rollback()
@@ -237,6 +298,11 @@ class IndexingService:
                     db,
                     novel_id=str(normalized_novel_id),
                     report=report,
+                    **(
+                        {"owner_token": owner_token}
+                        if owner_token is not None
+                        else {}
+                    ),
                 )
                 # Release state/chunk locks before publish starts memory or a
                 # rebuild advances to the next chapter.

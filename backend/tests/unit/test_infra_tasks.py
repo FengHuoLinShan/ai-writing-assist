@@ -1711,6 +1711,34 @@ class TestTaskWorkerRunOnce:
         assert result is None
 
 
+class TestTaskWorkerStartupReconcilers:
+    """TaskWorker startup domain-owner reconciliation tests."""
+
+    @pytest.mark.asyncio
+    async def test_reconcilers_share_one_committed_session(self) -> None:
+        from infrastructure.tasks.worker import TaskWorker
+
+        db_session = AsyncMock()
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+        first = AsyncMock(return_value=2)
+        second = AsyncMock(return_value=3)
+        worker = TaskWorker(
+            db_manager=db_manager,
+            startup_reconcilers=(first, second),
+        )
+
+        await worker._run_startup_reconcilers()
+
+        first.assert_awaited_once_with(db_session)
+        second.assert_awaited_once_with(db_session)
+        db_session.commit.assert_awaited_once_with()
+
+
 class TestTaskWorkerRunForever:
     """TaskWorker.run_forever 并发调度测试"""
 

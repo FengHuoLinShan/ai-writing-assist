@@ -16,7 +16,15 @@ LLM 调用的目标是有界并发和可观测失败，而不是修改业务默�
 
 - 进程级并发使用 semaphore，避免业务模块各自创建无界执行池。
 - 速率限制使用 token bucket 或等价机制，provider 差异通过配置调优。
-- 熔断器记录连续失败并短时拒绝新请求，防止故障 provider 被持续打满。
+- 并发 semaphore 与 RPM token bucket 继续由同一进程内全部项目共享，作为服务器和
+  provider 总吞吐保护；不得按项目拆分后放大总请求量。
+- availability 熔断状态按“项目或 system + chat/embedding + 规范化 endpoint”分桶。
+  endpoint identity 不包含 userinfo、query、fragment、API Key 或 model。
+- 熔断门禁先于全局 RPM/semaphore；已打开的桶不消耗其他项目的 admission capacity。
+- cooldown 到期后进入单探针 half-open；成功或明确的认证、内容、schema 响应只关闭当前
+  桶，availability 失败只重新打开当前桶。
+- breaker registry 仅保留失败状态，使用 256 项进程内 LRU 上限；它不跨 API/worker
+  进程协调。
 - 日志和测试应能观察排队、超时、熔断和恢复。
 
 ## 不变项
@@ -25,6 +33,13 @@ LLM 调用的目标是有界并发和可观测失败，而不是修改业务默�
 
 业务模块不得绕过统一 LLM 客户端或 limiter 直接调用 provider。
 
-## 后续
+## 实施状态
 
-如未来为不同 provider 增加独立 limiter profile，应更新本索引和既有 ADR 的配置说明，并补充 provider 级测试。
+2026-07-24 已按上述规则实施。普通 generate、stream、structured direct provider、
+structured format repair 与远程 embedding 均通过同一个深层 limiter module；只向其传递
+secret-free availability scope。远程 embedding 使用实际 `EMBEDDING_BASE_URL` identity，
+项目配置仅提供 breaker owner，不覆盖 system embedding 凭据。项目 A 的 timeout、
+connection failure 或 429 不再打开项目 B 的桶，同一进程的并发和 RPM 仍保持统一。
+
+未来若要把 RPM、并发或 breaker 扩展为跨进程/分布式配额，属于新的运行时架构决定，必须
+另行评审；不得把当前 process-local registry 误当作全部署共享状态。

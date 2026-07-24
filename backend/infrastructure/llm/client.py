@@ -24,7 +24,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
-from infrastructure.llm.limits import get_llm_limiter
+from infrastructure.llm.limits import LLMLimiterScope, get_llm_limiter
 from infrastructure.llm.profiles import (
     ResolvedLLMProfile,
     default_llm_profile,
@@ -353,6 +353,7 @@ class LLMClient:
         runtime_profile = resolve_llm_profile(
             test_overrides={
                 "provider_id": provider_name,
+                "label": "OpenAI",
                 "api_key": getattr(self._provider, "_api_key", ""),
                 "base_url": getattr(self._provider, "_base_url", ""),
                 "model": self._default_model,
@@ -361,6 +362,14 @@ class LLMClient:
             }
         )
         self._profile_summary = runtime_profile.sanitized_summary()
+        self._limiter_provider_id = runtime_profile.provider_id
+        self._limiter_base_url = runtime_profile.base_url
+        self._limiter_embedding_base_url = getattr(
+            self._provider,
+            "_embedding_base_url",
+            runtime_profile.base_url,
+        )
+        self._uses_system_embedding_profile = False
         self._runtime_scope: dict[str, Any] = {"profile_source": "system"}
 
     @classmethod
@@ -392,6 +401,8 @@ class LLMClient:
         }
         client = cls(provider_name="openai", **merged_kwargs)
         client._profile_summary = profile.sanitized_summary()
+        client._limiter_provider_id = profile.provider_id
+        client._limiter_base_url = profile.base_url
         return client
 
     def bind_runtime_scope(
@@ -430,6 +441,25 @@ class LLMClient:
         )
         provider_kwargs["default_model"] = self._default_model
         self._provider = get_provider(provider_name, **provider_kwargs)
+        runtime_profile = resolve_llm_profile(
+            test_overrides={
+                "provider_id": provider_name,
+                "label": "OpenAI",
+                "api_key": getattr(self._provider, "_api_key", ""),
+                "base_url": getattr(self._provider, "_base_url", ""),
+                "model": self._default_model,
+                "timeout": getattr(self._provider, "_timeout", None),
+                "max_tokens": self._default_max_tokens,
+            }
+        )
+        self._profile_summary = runtime_profile.sanitized_summary()
+        self._limiter_provider_id = runtime_profile.provider_id
+        self._limiter_base_url = runtime_profile.base_url
+        self._limiter_embedding_base_url = getattr(
+            self._provider,
+            "_embedding_base_url",
+            runtime_profile.base_url,
+        )
 
     @property
     def provider(self) -> str:
@@ -458,6 +488,20 @@ class LLMClient:
             resolved.max_tokens = self._default_max_tokens
         return resolved
 
+    def _limiter_scope(self, operation_kind: str) -> LLMLimiterScope:
+        """Return the secret-free availability bucket for this client call."""
+        base_url = (
+            self._limiter_embedding_base_url
+            if operation_kind == "embedding"
+            else self._limiter_base_url
+        )
+        return LLMLimiterScope.for_call(
+            novel_id=self._runtime_scope.get("novel_id"),
+            operation_kind=operation_kind,
+            base_url=base_url,
+            provider_id=self._limiter_provider_id,
+        )
+
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 
@@ -479,7 +523,8 @@ class LLMClient:
                 base_delay=self._settings.llm_retry_base_delay,
                 max_delay=self._settings.llm_retry_max_delay,
                 request=resolved_request,
-            )
+            ),
+            limiter_scope=self._limiter_scope("chat"),
         )
 
     async def generate_stream(
@@ -498,7 +543,7 @@ class LLMClient:
         # 一旦流开始后断掉，由上层处理
         resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
-        async with limiter.scope():
+        async with limiter.scope(limiter_scope=self._limiter_scope("chat")):
             stream = await retry_with_backoff(
                 self._provider.generate_stream,
                 max_attempts=self._settings.llm_retry_max_attempts,
@@ -562,7 +607,8 @@ class LLMClient:
                     response = await self.generate(req)
                 else:
                     response = await get_llm_limiter().run(
-                        lambda: self._provider.generate(req)
+                        lambda: self._provider.generate(req),
+                        limiter_scope=self._limiter_scope("chat"),
                     )
                 finish_reason = getattr(response, "finish_reason", "")
                 completion_tokens = getattr(response.usage, "completion_tokens", 0)
@@ -802,7 +848,8 @@ class LLMClient:
                     response = await self.generate(repair_req)
                 else:
                     response = await get_llm_limiter().run(
-                        lambda: self._provider.generate(repair_req)
+                        lambda: self._provider.generate(repair_req),
+                        limiter_scope=self._limiter_scope("chat"),
                     )
                 last_raw_response = redact_diagnostic(response.content)
                 truncated_like = _looks_truncated_response(
@@ -930,8 +977,17 @@ class LLMClient:
         # A novel-scoped client owns chat/structured-generation credentials only.
         # Remote embeddings must still resolve exclusively through EMBEDDING_*;
         # never let a project chat profile become an implicit embedding profile.
-        if self._runtime_scope.get("novel_id"):
+        if self._runtime_scope.get("novel_id") and not getattr(
+            self,
+            "_uses_system_embedding_profile",
+            False,
+        ):
             embedding_client = LLMClient()
+            embedding_client._uses_system_embedding_profile = True
+            embedding_client.bind_runtime_scope(
+                novel_id=str(self._runtime_scope["novel_id"]),
+                profile_source="system",
+            )
             try:
                 return await embedding_client.generate_embedding(
                     text,
@@ -950,7 +1006,8 @@ class LLMClient:
                 max_delay=self._settings.llm_retry_max_delay,
                 text=text,
                 model=model,
-            )
+            ),
+            limiter_scope=self._limiter_scope("embedding"),
         )
 
     async def get_usage_stats(self) -> dict[str, Any]:
@@ -962,5 +1019,5 @@ class LLMClient:
         return {
             "provider": self._provider.name,
             "default_model": self._default_model,
-            "base_url": getattr(self._provider, "_base_url", ""),
+            "base_url_host": str(self._profile_summary.get("base_url_host") or ""),
         }

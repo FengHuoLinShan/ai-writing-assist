@@ -17,6 +17,14 @@ branch_labels = None
 depends_on = None
 
 BOOTSTRAP_ID = "00000000-0000-0000-0000-000000000000"
+_ACCOUNT_TABLES = {
+    "accounts",
+    "account_identities",
+    "web_sessions",
+    "email_login_challenges",
+    "account_security_events",
+    "account_consents",
+}
 
 
 def _uuid_type():
@@ -40,7 +48,48 @@ def _timestamps() -> tuple[sa.Column, sa.Column]:
     )
 
 
+def _ensure_bootstrap_account() -> None:
+    op.execute(
+        sa.text(
+            "INSERT INTO accounts "
+            "(id, status, support_code, created_at, updated_at) "
+            "VALUES (:id, 'active', 'LEGACY-000000', CURRENT_TIMESTAMP, "
+            "CURRENT_TIMESTAMP) "
+            "ON CONFLICT (id) DO NOTHING"
+        ).bindparams(id=BOOTSTRAP_ID)
+    )
+
+
+def _already_matches_dynamic_baseline() -> bool:
+    """Accept the former live-ORM baseline only when its whole shape is present."""
+    inspector = sa.inspect(op.get_bind())
+    tables = set(inspector.get_table_names())
+    if "accounts" not in tables:
+        return False
+
+    missing_tables = sorted(_ACCOUNT_TABLES - tables)
+    project_columns = {
+        column["name"] for column in inspector.get_columns("projects")
+    }
+    if missing_tables or "owner_id" not in project_columns:
+        details = []
+        if missing_tables:
+            details.append(f"missing tables: {', '.join(missing_tables)}")
+        if "owner_id" not in project_columns:
+            details.append("missing projects.owner_id")
+        raise RuntimeError(
+            "Partial account schema exists; refusing ambiguous migration: "
+            + "; ".join(details)
+        )
+
+    _ensure_bootstrap_account()
+    return True
+
+
 def upgrade() -> None:
+    if _already_matches_dynamic_baseline():
+        return
+
     guid = _uuid_type()
     op.create_table(
         "accounts",
@@ -61,14 +110,7 @@ def upgrade() -> None:
     op.create_index("ix_accounts_status", "accounts", ["status"])
     op.create_index("ix_accounts_support_code", "accounts", ["support_code"], unique=True)
     op.create_index("ix_accounts_purge_after", "accounts", ["purge_after"])
-    op.execute(
-        sa.text(
-            "INSERT INTO accounts "
-            "(id, status, support_code, created_at, updated_at) "
-            "VALUES (:id, 'active', 'LEGACY-000000', CURRENT_TIMESTAMP, "
-            "CURRENT_TIMESTAMP)"
-        ).bindparams(id=BOOTSTRAP_ID)
-    )
+    _ensure_bootstrap_account()
 
     op.create_table(
         "account_identities",

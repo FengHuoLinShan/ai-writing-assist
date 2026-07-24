@@ -91,6 +91,23 @@ async def handle_publish_chapter(db, task):
                 novel_id,
                 chapter_index,
                 content_mode="canonical",
+                **(
+                    {
+                        "task_id": str(task.id),
+                        "task_type": str(task.task_type),
+                        "task_attempt": int(task.attempt or 0),
+                        "task_lease_id": str(task.lease_id),
+                    }
+                    if all(
+                        (
+                            getattr(task, "id", None),
+                            getattr(task, "task_type", None),
+                            getattr(task, "attempt", None) is not None,
+                            getattr(task, "lease_id", None),
+                        )
+                    )
+                    else {}
+                ),
             )
             report = outcome.report
             results["rag_chunks"] = report.chunks_created

@@ -8,15 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.tasks.models import AsyncTask
 from modules.imports.adoption_policy import (
     DEFAULT_ADOPTION_POLICY,
     SUPPORTED_ADOPTION_POLICIES,
@@ -27,11 +26,16 @@ from modules.imports.adoption_policy import (
 from modules.imports.contracts import TaskNotFoundError
 from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.workflow import DeepImportWorkflow
+from modules.imports.workflow_runs import (
+    ImportWorkflowAttempt,
+    ImportWorkflowOwnerToken,
+    ImportWorkflowRun,
+    ImportWorkflowRunService,
+)
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
-from shared.constants import TASK_HEARTBEAT_INTERVAL
-from shared.utils import parse_uuid as _parse_uuid
 
 ProgressObserver = Callable[[DeepImportProgress, float, Any], Awaitable[None]]
+TaskProjectionCallback = Callable[[dict[str, Any], float], Awaitable[None]]
 SnapshotBuilder = Callable[[AsyncSession, str], Awaitable[dict[str, Any]]]
 SnapshotRestorer = Callable[
     [AsyncSession, str, dict[str, Any]],
@@ -63,13 +67,33 @@ class SceneStageInputDriftError(RuntimeError):
     """Frozen Scene-stage business inputs changed before formal persistence."""
 
 
-def _requires_manual_recovery(task: AsyncTask) -> bool:
-    result_data = task.result if isinstance(task.result, dict) else {}
-    meta_data = task.meta if isinstance(task.meta, dict) else {}
-    return bool(
-        result_data.get("recovery_required") is True
-        and meta_data.get("recovery_required") is True
-    )
+@dataclass(frozen=True)
+class _WorkflowEnqueueResult:
+    task_id: str
+    reused: bool
+
+
+class _WorkflowTaskView:
+    """Local compatibility view; never exposes the queue ORM to the orchestrator."""
+
+    def __init__(
+        self,
+        attempt: ImportWorkflowAttempt,
+        project: TaskProjectionCallback,
+    ) -> None:
+        self.id = attempt.task_id
+        self.task_type = attempt.workflow_type
+        self.status = "running"
+        self.attempt = attempt.owner.attempt
+        self.lease_id = attempt.owner.lease_id
+        self.meta = attempt.meta_projection()
+        self.result = attempt.progress_projection()
+        self.progress = 0.0
+        self.workflow_owner = attempt.owner
+        self.project = project
+
+    def update_progress(self, value: float) -> None:
+        self.progress = min(1.0, max(float(self.progress or 0.0), float(value)))
 
 
 class DeepImportOrchestrator:
@@ -89,6 +113,48 @@ class DeepImportOrchestrator:
         self._snapshot_builder = snapshot_builder
         self._snapshot_restorer = snapshot_restorer
         self._phase1a_context_builder = phase1a_context_builder
+        self._runs = ImportWorkflowRunService()
+
+    async def run_attempt(
+        self,
+        db: AsyncSession,
+        attempt: ImportWorkflowAttempt,
+        *,
+        project: TaskProjectionCallback,
+    ) -> dict[str, Any]:
+        """Run one immutable owner attempt and leave terminal CAS to worker commit."""
+        task = _WorkflowTaskView(attempt, project)
+        if attempt.stage is None and attempt.workflow_type == "deep_import":
+            result = await self.run_task(db, task)
+        else:
+            if attempt.stage not in STAGE_TASK_TYPES:
+                raise ValueError(f"unsupported deep import stage: {attempt.stage}")
+            result = await self.run_stage_task(db, task, stage=str(attempt.stage))
+        await self._runs.complete(
+            db,
+            owner=attempt.owner,
+            progress=result,
+        )
+        await project(result, 1.0)
+        return result
+
+    async def _checkpoint_owned_task(
+        self,
+        db: AsyncSession,
+        task: Any,
+    ) -> None:
+        owner = getattr(task, "workflow_owner", None)
+        if not isinstance(owner, ImportWorkflowOwnerToken):
+            return
+        result = dict(task.result or {})
+        await self._runs.checkpoint(
+            db,
+            owner=owner,
+            progress=result,
+            prepare_checkpoint=dict(task.meta or {}),
+            checkpoints=dict(result.get("checkpoints") or {}),
+        )
+        await task.project(result, self._task_progress_value(task))
 
     async def start(
         self,
@@ -140,12 +206,21 @@ class DeepImportOrchestrator:
             authorization_snapshot=authorization_snapshot,
             llm_execution_snapshot=llm_execution_snapshot,
         )
-        await self._initialize_task_result(
-            db,
-            task_id,
-            authorization_snapshot,
-            llm_execution_snapshot,
-        )
+        if inspect.isawaitable(task_id):
+            task_id = await task_id
+        if isinstance(task_id, _WorkflowEnqueueResult):
+            enqueue_result = task_id
+            task_id = enqueue_result.task_id
+            if enqueue_result.reused:
+                submitted_run = await self._runs.get_by_task(
+                    db,
+                    task_id=str(task_id),
+                )
+                if submitted_run is not None:
+                    return self._existing_task_response(
+                        submitted_run,
+                        authorization_snapshot,
+                    )
         await db.flush()
         return {
             "workflow_id": str(task_id),
@@ -215,12 +290,21 @@ class DeepImportOrchestrator:
             authorization_snapshot=authorization_snapshot,
             llm_execution_snapshot=llm_execution_snapshot,
         )
-        await self._initialize_task_result(
-            db,
-            task_id,
-            authorization_snapshot,
-            llm_execution_snapshot,
-        )
+        if inspect.isawaitable(task_id):
+            task_id = await task_id
+        if isinstance(task_id, _WorkflowEnqueueResult):
+            enqueue_result = task_id
+            task_id = enqueue_result.task_id
+            if enqueue_result.reused:
+                submitted_run = await self._runs.get_by_task(
+                    db,
+                    task_id=str(task_id),
+                )
+                if submitted_run is not None:
+                    return self._existing_task_response(
+                        submitted_run,
+                        authorization_snapshot,
+                    )
         await db.flush()
         return {
             "workflow_id": str(task_id),
@@ -262,6 +346,7 @@ class DeepImportOrchestrator:
             updated.asset_summary = build_asset_summary(updated.quality_stats)
             task.result = updated.model_dump(mode="json")
             persisted_value = self._update_task_progress(task, progress_value)
+            await self._checkpoint_owned_task(db, task)
             await db.commit()
             if self.progress_observer is not None:
                 await self.progress_observer(updated, persisted_value, task)
@@ -305,7 +390,11 @@ class DeepImportOrchestrator:
         replace_existing = bool(meta.get("replace_existing", False))
         if not novel_id:
             raise ValueError(f"novel_id is required for {task.task_type}")
-        if stage == "scenes" and getattr(db, "task_checkpoint_enabled", False) is True:
+        fenced_session = bool(
+            getattr(db, "task_checkpoint_enabled", False) is True
+            or getattr(db, "task_inline_execution_enabled", False) is True
+        )
+        if stage == "scenes" and fenced_session:
             return await self._run_fenced_scene_stage_task(
                 db,
                 task,
@@ -343,6 +432,7 @@ class DeepImportOrchestrator:
                 else progress_value
             )
             persisted_value = self._update_task_progress(task, stage_progress)
+            await self._checkpoint_owned_task(db, task)
             await db.commit()
             if self.progress_observer is not None:
                 await self.progress_observer(updated, persisted_value, task)
@@ -462,6 +552,7 @@ class DeepImportOrchestrator:
         progress.asset_summary = build_asset_summary(progress.quality_stats)
         task.result = progress.model_dump(mode="json")
         self._update_task_progress(task, 0.0)
+        await self._checkpoint_owned_task(db, task)
 
         # This is the only durable checkpoint before health/provider I/O.  The
         # TaskHandlerSession hook atomically persists detached meta/result and
@@ -497,6 +588,7 @@ class DeepImportOrchestrator:
             if terminal_scene_commit and not scene_commit_checkpointed:
                 # Formal Scene rows, suggestions, RAG enqueue, and this task
                 # progress/result become durable under the same worker CAS.
+                await self._checkpoint_owned_task(db, task)
                 await db.commit()
                 scene_commit_checkpointed = True
                 db.expire_all()
@@ -511,6 +603,13 @@ class DeepImportOrchestrator:
                 raise RuntimeError(
                     "scene_auto_extraction progress opened a provider transaction"
                 )
+            elif isinstance(
+                getattr(task, "workflow_owner", None),
+                ImportWorkflowOwnerToken,
+            ):
+                await self._checkpoint_owned_task(db, task)
+                await db.commit()
+                db.expire_all()
             elif getattr(db, "task_progress_checkpoint_enabled", False) is True:
                 # Provider work intentionally runs without the domain transaction.
                 # Persist user-visible progress through the worker's independent,
@@ -743,19 +842,34 @@ class DeepImportOrchestrator:
                 "Scene-stage Phase 1a reference context changed during generation"
             )
 
-        current_task = await db.scalar(
-            select(AsyncTask)
-            .where(AsyncTask.id == _parse_uuid(str(task.id)))
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if current_task is None:
-            raise asyncio.CancelledError
+        from infrastructure.tasks.facade import require_running_task_attempt
+
+        owner = getattr(task, "workflow_owner", None)
+        if isinstance(owner, ImportWorkflowOwnerToken):
+            await require_running_task_attempt(
+                db,
+                task_id=str(task.id),
+                task_type="scene_auto_extraction",
+                novel_id=novel_id,
+                lease_id=str(task.lease_id or ""),
+                attempt=int(task.attempt or 0),
+            )
+            await self._runs.require_owner(db, owner)
+        elif hasattr(db, "execute"):
+            await require_running_task_attempt(
+                db,
+                task_id=str(task.id),
+                task_type="scene_auto_extraction",
+                novel_id=novel_id,
+                lease_id=str(task.lease_id or ""),
+                attempt=int(task.attempt or 0),
+            )
+        current_task = getattr(db, "current_task", task)
         current_meta = dict(current_task.meta or {})
         current_prepare = current_meta.get(SCENE_STAGE_TASK_PREPARE_KEY)
         current_snapshot = current_meta.get("llm_execution_snapshot")
         fence_valid = bool(
-            current_task.status == "running"
+            str(current_task.status or "") == "running"
             and str(current_task.lease_id or "") == str(task.lease_id or "")
             and int(current_task.attempt or 0) == int(task.attempt or 0)
             and current_task.task_type == "scene_auto_extraction"
@@ -905,81 +1019,20 @@ class DeepImportOrchestrator:
         *,
         stage: str,
     ) -> dict[str, Any]:
-        """Execute one already-authorized stage task without a worker process.
-
-        This is intended for isolated evaluation/manual harnesses that cannot run
-        a background worker. It invokes the registered handler logic and mirrors
-        worker status/provenance handling inside the caller's transaction.
-        """
+        """Execute one already-authorized stage through the worker lifecycle."""
         if stage not in STAGE_TASK_TYPES:
             raise ValueError(f"unsupported deep import stage: {stage}")
-        task = await db.get(AsyncTask, _parse_uuid(task_id))
-        if task is None:
-            raise TaskNotFoundError(task_id)
         expected_type = STAGE_TASK_TYPES[stage]
-        if task.task_type != expected_type:
-            raise ValueError(f"task type {task.task_type} does not match stage {stage}")
-        from infrastructure.llm.agent_step_harness import (
-            managed_llm_provenance_scope,
-            merge_managed_llm_provenance,
+        from infrastructure.tasks.facade import run_task_inline
+
+        result = await run_task_inline(
+            db,
+            task_id=task_id,
+            expected_task_type=expected_type,
         )
-        from infrastructure.llm.redaction import redact_diagnostic
-
-        with managed_llm_provenance_scope() as managed_llm_steps:
-            heartbeat_task: asyncio.Task[None] | None = None
-            try:
-                task.mark_running()
-                await db.flush()
-                heartbeat_task = asyncio.create_task(self._inline_heartbeat_loop(task.id))
-                result = await self.run_stage_task(db, task, stage=stage)
-                if managed_llm_steps:
-                    result = merge_managed_llm_provenance(
-                        result,
-                        managed_llm_steps,
-                    )
-                task.mark_done(result)
-                await db.flush()
-                return result
-            except asyncio.CancelledError:
-                task.mark_cancelled()
-                await db.flush()
-                raise
-            except Exception as exc:
-                task.mark_failed(
-                    redact_diagnostic(
-                        f"{type(exc).__name__}: {exc}",
-                        limit=1000,
-                    )
-                )
-                await db.flush()
-                raise
-            finally:
-                if heartbeat_task is not None:
-                    heartbeat_task.cancel()
-                    try:
-                        await heartbeat_task
-                    except asyncio.CancelledError:
-                        pass
-
-    @staticmethod
-    async def _inline_heartbeat_loop(task_id: Any) -> None:
-        """Keep inline eval/manual tasks out of the worker stale-task scanner."""
-        from core.database import get_manager
-
-        while True:
-            await asyncio.sleep(TASK_HEARTBEAT_INTERVAL)
-            try:
-                async with get_manager().session_factory() as session:
-                    await session.execute(
-                        update(AsyncTask)
-                        .where(AsyncTask.id == task_id)
-                        .values(heartbeat_at=datetime.now(UTC))
-                    )
-                    await session.commit()
-            except Exception:
-                # The primary workflow owns the result. A transient heartbeat
-                # failure must not mask or cancel that work.
-                return
+        if result is None:
+            raise TaskNotFoundError(task_id)
+        return result
 
     def _progress_from_task(self, task: Any) -> DeepImportProgress:
         result_data = task.result if isinstance(task.result, dict) else {}
@@ -1136,33 +1189,19 @@ class DeepImportOrchestrator:
         task.update_progress(persisted)
         return persisted
 
-    @staticmethod
-    async def _initialize_task_result(
-        db: AsyncSession,
-        task_id: str,
-        authorization_snapshot: dict[str, Any],
-        llm_execution_snapshot: dict[str, Any] | None = None,
-    ) -> None:
-        task = await db.get(AsyncTask, _parse_uuid(str(task_id)))
-        if task is None:
-            return
-        task.result = {
-            "adoption_policy": authorization_snapshot["adoption_policy"],
-            "authorization_snapshot": authorization_snapshot,
-            "llm_execution_snapshot": llm_execution_snapshot or {},
-            "asset_summary": empty_asset_summary(),
-        }
-
     async def resume_interrupted(
         self,
         db: AsyncSession,
         task_id: str,
     ) -> dict[str, Any]:
-        task = await self._get_recoverable_deep_import_task(db, task_id)
+        from infrastructure.tasks.facade import (
+            resume_manual_task,
+            update_task_projection,
+        )
 
-        result_data = dict(task.result or {})
-        meta_data = dict(task.meta or {})
-        for payload in (result_data, meta_data):
+        run = await self._get_recoverable_deep_import_run(db, task_id)
+        result_data = dict(run.progress or {})
+        for payload in (result_data,):
             payload["interrupted"] = False
             payload["recovery_required"] = False
             payload["recoverable"] = False
@@ -1171,20 +1210,31 @@ class DeepImportOrchestrator:
         lifecycle["recovery_required"] = False
         result_data["lifecycle"] = lifecycle
 
-        task.result = result_data
-        task.meta = meta_data
-        task.status = "pending"
-        task.finished_at = None
-        task.heartbeat_at = None
-        task.lease_id = None
-        task.transition_reason = "manual_resume"
-        task.error_message = None
-        await db.flush()
+        run.progress = result_data
+        resumed = await resume_manual_task(
+            db,
+            task_id=task_id,
+            task_types=IMPORT_TASK_TYPES,
+            novel_id=str(run.novel_id),
+        )
+        await self._runs.resume(db, task_id=task_id)
+        await update_task_projection(
+            db,
+            task_id=task_id,
+            task_type=str(run.workflow_type),
+            novel_id=str(run.novel_id),
+            result=result_data,
+            meta_patch={
+                "interrupted": False,
+                "recovery_required": False,
+                "recoverable": False,
+            },
+        )
 
         return {
-            "workflow_id": str(task.id),
-            "task_id": str(task.id),
-            "status": "pending",
+            "workflow_id": str(run.id),
+            "task_id": str(run.task_id),
+            "status": resumed.status,
             "message": "深度导入恢复任务已重新入队",
         }
 
@@ -1193,18 +1243,24 @@ class DeepImportOrchestrator:
         db: AsyncSession,
         task_id: str,
     ) -> dict[str, Any]:
-        task = await self._get_recoverable_deep_import_task(db, task_id)
-        meta = task.meta or {}
-        novel_id = meta.get("novel_id", "")
-        workflow_id = str(task.id)
+        from infrastructure.tasks.facade import cancel_recoverable_task
+
+        run = await self._get_recoverable_deep_import_run(db, task_id)
+        novel_id = str(run.novel_id)
+        workflow_id = str(run.id)
 
         cleanup_summary = await self.cleanup_workflow_assets(db, novel_id, workflow_id)
-        task.mark_cancelled()
-        await db.flush()
+        await cancel_recoverable_task(
+            db,
+            task_id=task_id,
+            task_types=IMPORT_TASK_TYPES,
+            novel_id=novel_id,
+        )
+        await self._runs.abandon(db, task_id=task_id)
 
         return {
             "workflow_id": workflow_id,
-            "task_id": str(task.id),
+            "task_id": str(run.task_id),
             "status": "cancelled",
             "cleanup_summary": cleanup_summary,
             "message": "深度导入恢复已放弃",
@@ -1286,27 +1342,48 @@ class DeepImportOrchestrator:
             "cleanup_todo": None,
         }
 
-    async def _get_recoverable_deep_import_task(
+    async def _get_recoverable_deep_import_run(
         self,
         db: AsyncSession,
         task_id: str,
-    ) -> AsyncTask:
-        stmt = select(AsyncTask).where(AsyncTask.id == _parse_uuid(task_id))
-        result = await db.execute(stmt)
-        task = result.scalar_one_or_none()
-        if task is None:
+    ) -> ImportWorkflowRun:
+        # Lazy convergence closes the small window between TaskWorker terminal
+        # finalization and the next startup reconciliation pass.
+        await self._runs.reconcile_scoped_task_owners(
+            db,
+            task_id=task_id,
+        )
+        run = await self._runs.get_by_task(db, task_id=task_id, for_update=True)
+        if run is None:
+            from infrastructure.tasks.facade import (
+                get_task_owner,
+                list_task_lifecycle_contracts,
+            )
+
+            owner = await get_task_owner(db, task_id=task_id)
+            if owner is not None:
+                contracts = await list_task_lifecycle_contracts(
+                    db,
+                    task_ids=[task_id],
+                    novel_id=owner.novel_id,
+                    max_heartbeat_gap=0.0,
+                )
+                contract = contracts.get(task_id)
+                if contract is not None and contract.task_type not in IMPORT_TASK_TYPES:
+                    raise ValueError(
+                        "task_id must reference a deep_import or "
+                        "deep import stage task"
+                    )
             raise TaskNotFoundError(task_id)
-        allowed_task_types = {"deep_import", *STAGE_TASK_TYPES.values()}
-        if task.task_type not in allowed_task_types:
+        if run.workflow_type not in IMPORT_TASK_TYPES:
             raise ValueError(
                 "task_id must reference a deep_import or deep import stage task"
             )
-        if task.status != "failed":
+        if run.status != "failed":
             raise ValueError("only failed interrupted deep import tasks can recover")
-
-        if not _requires_manual_recovery(task):
+        if not run.recovery_required:
             raise ValueError("deep import task does not require recovery")
-        return task
+        return run
 
     async def _check_duplicate_import(
         self,
@@ -1357,48 +1434,42 @@ class DeepImportOrchestrator:
     async def _find_active_import_task(
         db: AsyncSession,
         novel_id: str,
-    ) -> AsyncTask | None:
-        """Return the newest import task that still owns this project's pipeline.
-
-        The API acquires the project's existing exclusive DB fence before this
-        query, so concurrent tabs/processes serialize the absence check and
-        enqueue without introducing a task-schema-specific uniqueness column.
-        """
-        stmt = (
-            select(AsyncTask)
-            .where(
-                AsyncTask.task_type.in_(sorted(IMPORT_TASK_TYPES)),
-                AsyncTask.status.in_(("pending", "running", "failed")),
-                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
-            )
-            .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+    ) -> ImportWorkflowRun | None:
+        """Return the imports-owned run that still owns this project pipeline."""
+        service = ImportWorkflowRunService()
+        await service.reconcile_scoped_task_owners(
+            db,
+            novel_id=novel_id,
         )
-        tasks = list((await db.execute(stmt)).scalars().all())
-        for task in tasks:
-            if task.status in {"pending", "running"}:
-                return task
-            if task.status == "failed" and _requires_manual_recovery(task):
-                return task
-        return None
+        return await service.get_active_for_novel(
+            db,
+            novel_id=novel_id,
+        )
 
     @staticmethod
     def _existing_task_response(
-        task: AsyncTask,
+        task: ImportWorkflowRun,
         fallback_authorization_snapshot: dict[str, Any],
     ) -> dict[str, Any]:
-        meta = task.meta if isinstance(task.meta, dict) else {}
-        authorization_snapshot = meta.get("authorization_snapshot")
+        meta = getattr(task, "meta", None)
+        meta = meta if isinstance(meta, dict) else {}
+        authorization_snapshot = getattr(task, "authorization_snapshot", None)
+        if not isinstance(authorization_snapshot, dict):
+            authorization_snapshot = meta.get("authorization_snapshot")
         if not isinstance(authorization_snapshot, dict):
             authorization_snapshot = fallback_authorization_snapshot
-        task_id = str(task.id)
+        task_id = str(getattr(task, "task_id", None) or task.id)
         return {
-            "workflow_id": task_id,
+            "workflow_id": str(task.id),
             "task_id": task_id,
             "status": str(task.status or "pending"),
             "requires_confirmation": False,
             "reused_task": True,
-            "workflow_type": str(task.task_type),
-            "stage": meta.get("stage"),
+            "workflow_type": str(
+                getattr(task, "workflow_type", None)
+                or getattr(task, "task_type", "deep_import")
+            ),
+            "stage": getattr(task, "stage", None) or meta.get("stage"),
             "adoption_policy": authorization_snapshot.get(
                 "adoption_policy",
                 DEFAULT_ADOPTION_POLICY,
@@ -1407,8 +1478,8 @@ class DeepImportOrchestrator:
             "message": "已有自动提取任务仍在执行或等待恢复，已连接到原任务",
         }
 
-    @staticmethod
-    def _enqueue_deep_import(
+    async def _enqueue_deep_import(
+        self,
         db: AsyncSession,
         novel_id: str,
         start_chapter: int,
@@ -1420,31 +1491,128 @@ class DeepImportOrchestrator:
         replace_existing: bool = False,
         authorization_snapshot: dict[str, Any],
         llm_execution_snapshot: dict[str, Any] | None = None,
-    ):
-        from infrastructure.tasks.enqueuer import enqueue_task
-
-        return enqueue_task(
+    ) -> _WorkflowEnqueueResult:
+        return await self._enqueue_workflow(
             db,
-            "deep_import",
-            meta={
-                "novel_id": novel_id,
-                "start_chapter": start_chapter,
-                "end_chapter": end_chapter,
-                "context_mode": context_mode,
-                "include_pending_objects": include_pending_objects,
-                "high_quality": high_quality,
-                "replace_existing": replace_existing,
-                "adoption_policy": authorization_snapshot["adoption_policy"],
-                "authorization_confirmed": authorization_snapshot[
-                    "authorization_confirmed"
-                ],
-                "authorization_snapshot": authorization_snapshot,
-                "llm_execution_snapshot": llm_execution_snapshot or {},
-            },
+            task_type="deep_import",
+            stage=None,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
+            high_quality=high_quality,
+            replace_existing=replace_existing,
+            authorization_snapshot=authorization_snapshot,
+            llm_execution_snapshot=llm_execution_snapshot or {},
         )
 
-    @staticmethod
-    def _enqueue_stage_task(
+    async def _enqueue_workflow(
+        self,
+        db: AsyncSession,
+        *,
+        task_type: str,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        stage: str | None,
+        context_mode: str,
+        include_pending_objects: bool,
+        high_quality: bool,
+        replace_existing: bool,
+        authorization_snapshot: dict[str, Any],
+        llm_execution_snapshot: dict[str, Any],
+    ) -> _WorkflowEnqueueResult:
+        from infrastructure.tasks.facade import (
+            enqueue_coalesced_task,
+            update_task_projection,
+        )
+        from modules.project.facade import require_active_project_exclusive
+
+        # All imports task types share one project-owned pipeline even though
+        # their queue coalescing keys include task_type. Recheck under the
+        # project row lock so direct facade/internal callers cannot race a
+        # different task type into an orphan queue row.
+        await require_active_project_exclusive(db, novel_id)
+        await self._runs.reconcile_scoped_task_owners(
+            db,
+            novel_id=novel_id,
+        )
+        active = await self._runs.get_active_for_novel(
+            db,
+            novel_id=novel_id,
+            for_update=True,
+        )
+        if active is not None:
+            return _WorkflowEnqueueResult(
+                task_id=str(active.task_id),
+                reused=True,
+            )
+
+        task_meta = {
+            "novel_id": novel_id,
+            "start_chapter": start_chapter,
+            "end_chapter": end_chapter,
+            "stage": stage,
+            "context_mode": context_mode,
+            "include_pending_objects": include_pending_objects,
+            "high_quality": high_quality,
+            "replace_existing": replace_existing,
+            "adoption_policy": authorization_snapshot["adoption_policy"],
+            "authorization_confirmed": authorization_snapshot[
+                "authorization_confirmed"
+            ],
+            "authorization_snapshot": authorization_snapshot,
+            "llm_execution_snapshot": llm_execution_snapshot,
+        }
+        queued = await enqueue_coalesced_task(
+            db,
+            task_type=task_type,
+            novel_id=novel_id,
+            scope=("imports_pipeline",),
+            meta=task_meta,
+            mode="reuse_active",
+        )
+        existing = await self._runs.get_by_task(db, task_id=queued.task_id)
+        initial_result = {
+            "workflow_type": task_type,
+            "stage": stage,
+            "adoption_policy": authorization_snapshot["adoption_policy"],
+            "authorization_snapshot": authorization_snapshot,
+            "llm_execution_snapshot": llm_execution_snapshot,
+            "asset_summary": empty_asset_summary(),
+        }
+        if existing is None:
+            await self._runs.create_pending(
+                db,
+                task_id=queued.task_id,
+                novel_id=novel_id,
+                workflow_type=task_type,
+                stage=stage,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                authorization_snapshot=authorization_snapshot,
+                llm_execution_snapshot=llm_execution_snapshot,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+                high_quality=high_quality,
+                replace_existing=replace_existing,
+                initial_progress=initial_result,
+            )
+            await update_task_projection(
+                db,
+                task_id=queued.task_id,
+                task_type=task_type,
+                novel_id=novel_id,
+                result=initial_result,
+            )
+        return _WorkflowEnqueueResult(
+            task_id=queued.task_id,
+            reused=bool(queued.reused or existing is not None),
+        )
+
+    async def _enqueue_stage_task(
+        self,
         db: AsyncSession,
         *,
         task_type: str,
@@ -1458,28 +1626,20 @@ class DeepImportOrchestrator:
         replace_existing: bool = False,
         authorization_snapshot: dict[str, Any],
         llm_execution_snapshot: dict[str, Any] | None = None,
-    ):
-        from infrastructure.tasks.enqueuer import enqueue_task
-
-        return enqueue_task(
+    ) -> _WorkflowEnqueueResult:
+        return await self._enqueue_workflow(
             db,
-            task_type,
-            meta={
-                "novel_id": novel_id,
-                "start_chapter": start_chapter,
-                "end_chapter": end_chapter,
-                "stage": stage,
-                "context_mode": context_mode,
-                "include_pending_objects": include_pending_objects,
-                "high_quality": high_quality,
-                "replace_existing": replace_existing,
-                "adoption_policy": authorization_snapshot["adoption_policy"],
-                "authorization_confirmed": authorization_snapshot[
-                    "authorization_confirmed"
-                ],
-                "authorization_snapshot": authorization_snapshot,
-                "llm_execution_snapshot": llm_execution_snapshot or {},
-            },
+            task_type=task_type,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            stage=stage,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
+            high_quality=high_quality,
+            replace_existing=replace_existing,
+            authorization_snapshot=authorization_snapshot,
+            llm_execution_snapshot=llm_execution_snapshot or {},
         )
 
     @staticmethod

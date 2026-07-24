@@ -6,12 +6,10 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
-from infrastructure.tasks.enqueuer import enqueue_task
-from infrastructure.tasks.models import AsyncTask
+from infrastructure.tasks.facade import enqueue_coalesced_task
 from modules.rag.contracts import (
     RagEntityActivityBundleContract,
     RagEntityActivityStatContract,
@@ -101,30 +99,15 @@ class EntityActivityService:
         """Invalidate term matching and coalesce one project reannotation task."""
         nid = uuid.UUID(str(novel_id))
         clear_project_terms_cache(nid)
-        active = list(
-            (
-                await db.execute(
-                    select(AsyncTask).where(
-                        AsyncTask.task_type == "rag_reannotate_entities",
-                        AsyncTask.status.in_(("pending", "running")),
-                        AsyncTask.meta["novel_id"].as_string() == str(nid),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for task in active:
-            if task.status == "pending":
-                return str(task.id)
-        # A running task may already have captured an older term snapshot.
-        # Queue exactly one pending follower so mutations during execution are
-        # never lost; subsequent requests coalesce into that pending row.
-        return enqueue_task(
+        task = await enqueue_coalesced_task(
             db,
-            "rag_reannotate_entities",
+            task_type="rag_reannotate_entities",
+            novel_id=str(nid),
+            scope=("entity_activity",),
             meta={"novel_id": str(nid)},
+            mode="one_pending_follower",
         )
+        return task.task_id
 
     async def reannotate_project(
         self,

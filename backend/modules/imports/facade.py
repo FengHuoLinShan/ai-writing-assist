@@ -138,3 +138,10 @@ async def abandon_deep_import(
     """放弃被中断的 deep_import 任务，并返回清理摘要。"""
     _parse_uuid(task_id)
     return await _orchestrator.abandon_recovery(db, task_id)
+
+
+async def reconcile_workflow_task_owners(db: AsyncSession) -> int:
+    """Converge imports-owned owners after queue startup recovery."""
+    from modules.imports.workflow_runs import ImportWorkflowRunService
+
+    return await ImportWorkflowRunService().reconcile_task_owners(db)
