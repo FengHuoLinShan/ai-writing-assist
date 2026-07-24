@@ -101,6 +101,18 @@ bash deploy/scripts/verify_public.sh
 bash deploy/scripts/release.sh <new-full-commit-sha>
 ```
 
+### 分支与发布规则
+
+- 本地开发从最新 `origin/main` 创建 `codex/<slug>` 主题分支，不直接在 `main`
+  提交；验证和评审完成后再合入 `main`。
+- `main` 是唯一发布主干，不维护长期“生产分支”。历史部署实现分支不能代表当前线上版本。
+- 生产只接受 `origin/main` 可达的完整 40 位 commit SHA。`release.sh` 会先 fetch
+  `origin` 并拒绝主题分支独有、本地未推送或无法解析为精确 SHA 的提交。
+- 服务器 checkout 在发布后保持 detached；当前线上版本以
+  `deploy/.state/current-commit` 为准，不以服务器当前分支名或本地工作树状态推断。
+- 回滚同样选择一个仍可达 `origin/main` 的已知良好 SHA，并继续走备份、迁移和健康检查，
+  不把生产机切回某个长期分支。
+
 脚本在 migration 前保存备份并把当前/前一 commit、镜像 tag 和备份路径记录在
 `deploy/.state/`。健康检查失败时 API、worker 和 frontend 会停止，数据库及备份保留，
 不会把失败发布继续对外提供。

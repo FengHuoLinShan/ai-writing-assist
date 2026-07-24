@@ -67,6 +67,13 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 - 并行开发使用独立 worktree/分支；不同 Agent 不同时改同一模块。共享层修改在 PR 标注冲突
   风险。涉及分支、PR 或 Issue 协调时，尽力检查远端分支、`ready-for-agent` Issue 和本地
   改动；网络不可用时记录限制。小修、静态审查和文档审查无需远端检查。
+- 本地实现不得直接提交到 `main`：从最新 `origin/main` 创建 `codex/<slug>` 主题分支，
+  经受影响测试、lint、文档同步和评审后再合入 `main`。`main` 是唯一发布主干，不维护会与
+  实际部署漂移的长期“生产分支”。
+- 生产只允许通过 `deploy/scripts/release.sh <full-40-character-sha>` 部署
+  `origin/main` 可达的固定 commit；服务器 checkout 保持 detached，发布状态以
+  `deploy/.state/current-commit` 为准。主题分支、脏工作树、本地未推送 commit 和分支名
+  均不得直接作为生产部署输入。
 - Issue/PR 用 `gh` 管理；标签见 `docs/agents/triage-labels.md`。常规上下文放 Issue/PR，重大
   长期决策放 ADR；不要把 Agent 交接写进代码注释。
 - 冲突优先级：用户指令（受安全例外限制）→ 本文件 → ADR → 模块稳定接口 → Spec → 自行判断。
