@@ -45,6 +45,7 @@ backend/data/dedup_training/*.jsonl
 .claude/agent-memory/
 .playwright-mcp/
 .worktrees/
+/output/
 
 # Session/debug artifacts
 .test-logs/
