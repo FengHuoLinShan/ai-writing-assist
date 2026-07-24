@@ -5,8 +5,11 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const frontendPort = Number.parseInt(process.env.FRONTEND_PORT || "8080", 10)
+const backendPort = Number.parseInt(process.env.BACKEND_PORT || "8000", 10)
 const frontendRoot = dirname(fileURLToPath(import.meta.url))
 const isProductionBuild = process.argv.includes("build")
+const apiProxyTarget = process.env.API_PROXY_TARGET
+  || `http://127.0.0.1:${Number.isNaN(backendPort) ? 8000 : backendPort}`
 const legacyRuntimeAssets = [
   "shared/esc.js",
   "ui/toast.js",
@@ -58,6 +61,12 @@ export default defineConfig({
     port: Number.isNaN(frontendPort) ? 8080 : frontendPort,
     strictPort: true,
     headers: frontendSecurityHeaders,
+    proxy: {
+      "^/api(?:/|$)": {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+    },
     watch: {
       // Test sources and Playwright artifacts are not application inputs.
       // Watching them can reload a page while an E2E flow is still running.

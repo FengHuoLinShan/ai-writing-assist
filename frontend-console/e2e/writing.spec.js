@@ -21,8 +21,8 @@ function writingChapter(page, chapter) {
 
 async function selectWritingChapter(page, chapter) {
   const rail = page.locator(".writing-tree-rail")
-  if (await rail.count() && !(await rail.evaluate((element) => element.open))) {
-    await rail.locator(":scope > summary").click()
+  if (await rail.count() && await rail.evaluate((element) => element.classList.contains("is-collapsed"))) {
+    await page.getByLabel("展开章节").click()
   }
   await writingChapter(page, chapter).click()
 }
@@ -477,8 +477,8 @@ test.describe("写作台模块", () => {
     expect(before).not.toBeNull()
     expect(before.editorWidth / before.contentWidth).toBeGreaterThanOrEqual(0.63)
 
-    await page.locator(".writing-panel-rail > summary").click()
-    await expect(page.locator(".writing-panel-rail")).not.toHaveAttribute("open", "")
+    await page.getByLabel("收起写作副驾驶").click()
+    await expect(page.locator(".writing-panel-rail")).toHaveClass(/is-collapsed/)
     const collapsedWidth = await page.locator("#writing-editor-container").evaluate((node) => node.getBoundingClientRect().width)
     expect(collapsedWidth).toBeGreaterThan(before.editorWidth)
   })
@@ -855,7 +855,7 @@ test.describe("写作台模块", () => {
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
     const chapterRail = page.locator(".writing-tree-rail")
-    if (!(await chapterRail.evaluate((element) => element.open))) {
+    if (await chapterRail.evaluate((element) => element.classList.contains("is-collapsed"))) {
       await page.getByLabel("展开章节").click()
     }
     await page.getByRole("button", { name: /打开第 1 章/ }).click()

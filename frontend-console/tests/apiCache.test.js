@@ -119,6 +119,16 @@ describe("api.js cache behavior", () => {
     })
   })
 
+  it("network failures do not incorrectly assert that the backend is stopped", async () => {
+    globalThis.fetch = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")))
+
+    await expect(window.api.request("/projects/network-failure", {
+      cache: "no-store",
+    })).rejects.toThrow(
+      "无法访问 API 服务，请检查开发代理、浏览器网络策略或后端状态",
+    )
+  })
+
   it("omits request bodies and redacts secrets from failed-request diagnostics", async () => {
     const previousErrorLog = window.errorLog
     window.errorLog = { _lastApiError: null }
@@ -190,8 +200,8 @@ describe("api.js cache behavior", () => {
 
     const urls = globalThis.fetch.mock.calls.map((call) => call[0])
     expect(urls[0]).not.toBe(urls[1])
-    expect(new URL(urls[0]).searchParams.has("_ts")).toBe(true)
-    expect(new URL(urls[1]).searchParams.has("_ts")).toBe(true)
+    expect(new URL(urls[0], "http://localhost").searchParams.has("_ts")).toBe(true)
+    expect(new URL(urls[1], "http://localhost").searchParams.has("_ts")).toBe(true)
   })
 
   it("projects.get forwards cancellation and cache policy through the contract wrapper", async () => {

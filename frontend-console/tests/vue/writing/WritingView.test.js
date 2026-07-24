@@ -18,6 +18,14 @@ function props(overrides = {}) {
   }
 }
 
+async function expandWritingCopilot(wrapper) {
+  const toggle = wrapper.find('[aria-label="展开写作副驾驶"]')
+  if (toggle.exists()) {
+    await toggle.trigger("click")
+    await flushPromises()
+  }
+}
+
 describe("WritingView", () => {
   let confirmMock
   let confirmActionMock
@@ -86,7 +94,7 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
-  it("不把 rail 响应式默认值误存为用户选择", async () => {
+  it("内层标题直接控制 rail，并按项目记住用户选择", async () => {
     const wrapper = mount(WritingView, {
       props: props({ requestedLocation: null }),
       attachTo: document.body,
@@ -95,12 +103,20 @@ describe("WritingView", () => {
 
     const rail = wrapper.get(".writing-tree-rail")
     const key = "workspace-rail:p1:writing:chapters"
-    await rail.trigger("toggle")
     expect(sessionStorage.getItem(key)).toBeNull()
+    expect(rail.element.tagName).toBe("ASIDE")
+    expect(wrapper.findAll(".workspace-rail__summary")).toHaveLength(0)
+    expect(wrapper.get(".chapter-tree-title .writing-rail-heading-label").text()).toBe("章节（1）")
+    expect(wrapper.get(".writing-rail-heading-label--copilot").text()).toBe("写作副驾驶")
+    expect(wrapper.text()).not.toContain("写作参考")
 
-    rail.element.open = !rail.element.open
-    await rail.trigger("toggle")
-    expect(sessionStorage.getItem(key)).toBe(rail.element.open ? "open" : "closed")
+    await wrapper.get('[aria-label="收起章节"]').trigger("click")
+    expect(rail.classes()).toContain("is-collapsed")
+    expect(sessionStorage.getItem(key)).toBe("closed")
+
+    await wrapper.get('[aria-label="展开章节"]').trigger("click")
+    expect(rail.classes()).not.toContain("is-collapsed")
+    expect(sessionStorage.getItem(key)).toBe("open")
     wrapper.unmount()
   })
 
@@ -203,6 +219,7 @@ describe("WritingView", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null)
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
+    await expandWritingCopilot(wrapper)
     await wrapper.findAll("button").find((button) => button.text() === "地图").trigger("click")
     await wrapper.find(".writing-map-summary button").trigger("click")
 
@@ -426,6 +443,7 @@ describe("WritingView", () => {
     globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [check] })
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
+    await expandWritingCopilot(wrapper)
     await wrapper.findAll("button").find((button) => button.text() === "警报").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "查看最近校验").trigger("click")
     const dialog = wrapper.get('[aria-label="剧情设定冲突检查"]')

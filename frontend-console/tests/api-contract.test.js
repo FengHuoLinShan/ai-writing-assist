@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 
 import "../apiContracts.js"
 import "../api.js"
+import { resolveApiBaseUrl } from "../shared/apiBaseUrl.js"
 import {
   applyMapEditor as applyMapEditorForE2E,
   listMaps as listMapsForE2E,
@@ -190,6 +191,14 @@ function formatMissingApiMethods(used, defined) {
 }
 
 describe("前后端 API 契约", () => {
+  it("API 基址默认同源并规范化显式 API_HOST", () => {
+    expect(resolveApiBaseUrl()).toBe("/api")
+    expect(resolveApiBaseUrl("")).toBe("/api")
+    expect(resolveApiBaseUrl(" http://localhost:8000/ ")).toBe("http://localhost:8000/api")
+    expect(resolveApiBaseUrl("http://localhost:8000/api")).toBe("http://localhost:8000/api")
+    expect(resolveApiBaseUrl("http://localhost:8000/api/")).toBe("http://localhost:8000/api")
+  })
+
   it("index.html 在 api.js 之前加载 apiContracts.js", () => {
     const html = readFileSync(join(projectRoot, "index.html"), "utf8")
     const scripts = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((match) => match[1])

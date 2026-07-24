@@ -23,32 +23,28 @@
   />
 
   <div v-else class="writing-workspace-layout">
-    <details
+    <aside
       class="workspace-rail writing-tree-rail workspace-rail--left"
-      :open="leftRailOpen"
-      @toggle="saveRail($event, 'chapters')"
+      :class="{ 'is-collapsed': !leftRailOpen }"
+      aria-label="章节"
     >
-      <summary class="workspace-rail__summary" :aria-label="`${leftRailOpen ? '收起' : '展开'}章节`">
-        <span class="workspace-rail__title">章节</span>
-        <span class="workspace-rail__chevron" aria-hidden="true">⌄</span>
-      </summary>
-      <div class="workspace-rail__body">
-        <div id="writing-tree-container">
-          <ChapterTree
-            :chapter-list="vm.chapterList.value"
-            :chapters="vm.chapters"
-            :scenes="vm.scenes.value"
-            :selected-chapter="vm.selectedChapter.value"
-            :selected-scene-id="vm.selectedSceneId.value"
-            :load-error="vm.chapterLoadError.value"
-            @select="vm.selectChapter"
-            @select-scene="selectScene"
-            @create="vm.createChapter"
-            @delete-selected="vm.deleteChapters"
-          />
-        </div>
+      <div id="writing-tree-container">
+        <ChapterTree
+          :chapter-list="vm.chapterList.value"
+          :chapters="vm.chapters"
+          :scenes="vm.scenes.value"
+          :selected-chapter="vm.selectedChapter.value"
+          :selected-scene-id="vm.selectedSceneId.value"
+          :load-error="vm.chapterLoadError.value"
+          :collapsed="!leftRailOpen"
+          @select="vm.selectChapter"
+          @select-scene="selectScene"
+          @create="vm.createChapter"
+          @delete-selected="vm.deleteChapters"
+          @toggle-collapse="toggleRail('chapters')"
+        />
       </div>
-    </details>
+    </aside>
 
     <main id="writing-editor-container">
       <WritingEditor
@@ -136,38 +132,34 @@
       />
     </main>
 
-    <details
+    <aside
       class="workspace-rail writing-panel-rail workspace-rail--right"
-      :open="rightRailOpen"
-      @toggle="saveRail($event, 'reference')"
+      :class="{ 'is-collapsed': !rightRailOpen }"
+      aria-label="写作副驾驶"
     >
-      <summary class="workspace-rail__summary" :aria-label="`${rightRailOpen ? '收起' : '展开'}写作参考`">
-        <span class="workspace-rail__title">写作参考</span>
-        <span class="workspace-rail__chevron" aria-hidden="true">⌄</span>
-      </summary>
-      <div class="workspace-rail__body">
-        <div id="writing-panel-container">
-          <SceneCockpit
-            :project-id="projectId"
-            :chapter="vm.selectedChapter.value"
-            :scene="vm.currentScene.value"
-            :loading="vm.sceneState.loading"
-            :map-summary="vm.sceneState.mapSummary"
-            :error="vm.sceneState.error"
-            :alert-error="vm.conflictState.error"
-            :alerts="vm.sceneState.alerts"
-            :people="vm.sceneState.people"
-            :location="vm.sceneState.location"
-            :conflict="vm.conflictState"
-            @open-map="vm.openMap"
-            @run-conflict="vm.requestConflictCheck"
-            @open-conflict="vm.openConflictDialog"
-            @insert-text="vm.insertText"
-            @organize="vm.navigateSceneWorkbench"
-          />
-        </div>
+      <div id="writing-panel-container">
+        <SceneCockpit
+          :project-id="projectId"
+          :chapter="vm.selectedChapter.value"
+          :scene="vm.currentScene.value"
+          :loading="vm.sceneState.loading"
+          :map-summary="vm.sceneState.mapSummary"
+          :error="vm.sceneState.error"
+          :alert-error="vm.conflictState.error"
+          :alerts="vm.sceneState.alerts"
+          :people="vm.sceneState.people"
+          :location="vm.sceneState.location"
+          :conflict="vm.conflictState"
+          :rail-collapsed="!rightRailOpen"
+          @open-map="vm.openMap"
+          @run-conflict="vm.requestConflictCheck"
+          @open-conflict="vm.openConflictDialog"
+          @insert-text="vm.insertText"
+          @organize="vm.navigateSceneWorkbench"
+          @toggle-collapse="toggleRail('reference')"
+        />
       </div>
-    </details>
+    </aside>
   </div>
 
   <OutlineFloat
@@ -242,15 +234,10 @@ const stored = (rail, fallback) => {
 const leftRailOpen = ref(stored("chapters", typeof window === "undefined" || window.innerWidth > 760))
 const rightRailOpen = ref(stored("reference", typeof window === "undefined" || window.innerWidth > 1099))
 
-function saveRail(event, rail) {
-  const open = Boolean(event.target?.open)
+function toggleRail(rail) {
   const current = rail === "chapters" ? leftRailOpen : rightRailOpen
-  // Vue applies the initial `open` property after mount, which also emits a
-  // native toggle event. Only persist a state that differs from the model so
-  // responsive defaults do not become an accidental user preference.
-  if (current.value === open) return
-  current.value = open
-  try { sessionStorage.setItem(`workspace-rail:${props.projectId}:writing:${rail}`, open ? "open" : "closed") } catch { /* noop */ }
+  current.value = !current.value
+  try { sessionStorage.setItem(`workspace-rail:${props.projectId}:writing:${rail}`, current.value ? "open" : "closed") } catch { /* noop */ }
 }
 
 async function selectScene(sceneId) {

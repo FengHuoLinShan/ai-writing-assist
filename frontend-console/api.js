@@ -6,8 +6,11 @@
  */
 
 import { forceAccountSafeReload } from "./shared/accountStorage.js"
+import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
 
-const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api"
+const API_BASE_URL = resolveApiBaseUrl(
+  typeof API_HOST !== "undefined" ? API_HOST : "",
+)
 const API_TIMEOUT = 15000
 const API_CACHE_TTL = 30000
 const API_CACHE_MAX_ENTRIES = 128
@@ -426,7 +429,7 @@ async function request(path, options = {}) {
       }
 
       if (!err.status && (err.message === "Failed to fetch" || err.message.includes("fetch"))) {
-        throw new Error("无法连接到后端服务，请确认后端已启动")
+        throw new Error("无法访问 API 服务，请检查开发代理、浏览器网络策略或后端状态")
       }
 
       throw err

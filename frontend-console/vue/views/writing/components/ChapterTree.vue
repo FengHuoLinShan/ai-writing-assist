@@ -1,23 +1,32 @@
 <template>
-  <div class="card chapter-tree-card">
+  <div class="card chapter-tree-card" :class="{ 'is-collapsed': collapsed }">
     <div class="chapter-tree-header">
-      <span class="chapter-tree-title">章节（{{ chapterList.length }}）</span>
-      <div class="chapter-tree-actions">
+      <button
+        type="button"
+        class="chapter-tree-title writing-rail-heading-toggle"
+        :aria-label="`${collapsed ? '展开' : '收起'}章节`"
+        :aria-expanded="!collapsed"
+        @click="$emit('toggle-collapse')"
+      >
+        <span class="writing-rail-heading-label">{{ collapsed ? "章节" : `章节（${chapterList.length}）` }}</span>
+        <span aria-hidden="true">{{ collapsed ? "›" : "‹" }}</span>
+      </button>
+      <div v-if="!collapsed" class="chapter-tree-actions">
         <button class="btn btn-sm" title="上一章" :disabled="!previousChapter" @click="$emit('select', previousChapter)">←</button>
         <button class="btn btn-sm" title="下一章" :disabled="!nextChapter" @click="$emit('select', nextChapter)">→</button>
         <button class="btn btn-sm" @click="$emit('create')">+ 新建</button>
       </div>
     </div>
 
-    <div v-if="loadError" class="empty-state writing-empty-icon--warning" role="alert">
+    <div v-if="!collapsed && loadError" class="empty-state writing-empty-icon--warning" role="alert">
       <p>章节列表加载失败</p>
       <p class="writing-empty-hint">{{ loadError }}</p>
     </div>
-    <div v-else-if="chapterList.length === 0" class="empty-state">
+    <div v-else-if="!collapsed && chapterList.length === 0" class="empty-state">
       <p>尚无章节</p>
       <button class="btn btn-primary" @click="$emit('create')">创建第一章</button>
     </div>
-    <div v-else class="chapter-tree-list">
+    <div v-else-if="!collapsed" class="chapter-tree-list">
       <template v-for="group in groups" :key="group.id">
         <div v-if="group.scene" class="scene-tree-node">
           <div class="scene-tree-scene" :class="{ 'scene-tree-scene--current': group.scene.id === selectedSceneId }">
@@ -67,10 +76,10 @@
         </template>
       </template>
     </div>
-    <div class="chapter-tree-bulk-toggle">
+    <div v-if="!collapsed" class="chapter-tree-bulk-toggle">
       <button class="btn btn-sm btn-ghost" @click="manage = !manage">{{ manage ? '收起管理 ▴' : '管理 ▾' }}</button>
     </div>
-    <div v-if="manage" class="row-actions chapter-tree-bulk-toolbar">
+    <div v-if="!collapsed && manage" class="row-actions chapter-tree-bulk-toolbar">
       <button class="btn btn-sm" :disabled="!chapterList.length" @click="toggleAll">{{ selectedBulk.size === chapterList.length ? '取消全选' : '全选当前章节' }}</button>
       <button class="btn btn-sm btn-danger" :disabled="!selectedBulk.size" @click="removeSelected">批量删除章节 ({{ selectedBulk.size }})</button>
       <span class="writing-empty-hint">只删除当前可见章节</span>
@@ -88,8 +97,9 @@ const props = defineProps({
   selectedChapter: { type: Number, default: null },
   selectedSceneId: { type: String, default: null },
   loadError: { type: String, default: null },
+  collapsed: { type: Boolean, default: false },
 })
-const emit = defineEmits(["select", "select-scene", "create", "delete-selected"])
+const emit = defineEmits(["select", "select-scene", "create", "delete-selected", "toggle-collapse"])
 
 const ChapterRow = defineComponent({
   props: { chapter: Number, meta: Object, selected: Boolean, manage: Boolean, bulkSelected: Boolean },

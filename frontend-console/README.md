@@ -38,9 +38,13 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 
 ## 后端连接
 
-前端默认连接 `http://localhost:8000/api`。
+前端默认请求同源 `/api`。开发时 Vite 将 `/api` 代理到
+`http://127.0.0.1:${BACKEND_PORT:-8000}`；生产环境由静态托管层或反向代理将同源
+`/api` 转发到后端。浏览器不需要直接访问后端端口。
 
-如需修改后端地址，可在页面加载前注入全局 `API_HOST`，或调整 `api.js` 中的默认地址。
+远程调试或特殊测试环境可在页面加载前显式注入全局 `API_HOST`，支持
+`http://localhost:8000` 或 `http://localhost:8000/api`。本地代理目标也可通过
+`BACKEND_PORT` 或完整的 `API_PROXY_TARGET` 覆盖。
 
 ## E2E 测试
 

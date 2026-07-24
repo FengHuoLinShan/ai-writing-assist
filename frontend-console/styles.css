@@ -1823,15 +1823,15 @@ html, body {
   align-items: start;
 }
 
-.writing-workspace-layout:has(.writing-tree-rail:not([open])) {
+.writing-workspace-layout:has(.writing-tree-rail.is-collapsed) {
   grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 82fr) minmax(var(--workspace-rail-right-min), var(--workspace-side-share));
 }
 
-.writing-workspace-layout:has(.writing-panel-rail:not([open])) {
+.writing-workspace-layout:has(.writing-panel-rail.is-collapsed) {
   grid-template-columns: minmax(var(--workspace-rail-left-min), var(--workspace-side-share)) minmax(0, 82fr) var(--workspace-rail-collapsed);
 }
 
-.writing-workspace-layout:has(.writing-tree-rail:not([open])):has(.writing-panel-rail:not([open])) {
+.writing-workspace-layout:has(.writing-tree-rail.is-collapsed):has(.writing-panel-rail.is-collapsed) {
   grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr) var(--workspace-rail-collapsed);
 }
 
@@ -1847,7 +1847,7 @@ html, body {
   align-self: start;
 }
 
-.writing-panel-rail[open] .workspace-rail__body {
+.writing-panel-rail:not(.is-collapsed) #writing-panel-container {
   max-height: calc(100dvh - 200px - var(--space-3));
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -5841,9 +5841,9 @@ kbd {
 /* ===== 响应式 ===== */
 @media (min-width: 761px) and (max-width: 1099px) {
   .writing-workspace-layout,
-  .writing-workspace-layout:has(.writing-tree-rail:not([open])),
-  .writing-workspace-layout:has(.writing-panel-rail:not([open])),
-  .writing-workspace-layout:has(.writing-tree-rail:not([open])):has(.writing-panel-rail:not([open])) {
+  .writing-workspace-layout:has(.writing-tree-rail.is-collapsed),
+  .writing-workspace-layout:has(.writing-panel-rail.is-collapsed),
+  .writing-workspace-layout:has(.writing-tree-rail.is-collapsed):has(.writing-panel-rail.is-collapsed) {
     grid-template-columns: minmax(176px, 24fr) minmax(0, 76fr);
   }
 
@@ -5924,9 +5924,9 @@ kbd {
   }
 
   .writing-workspace-layout,
-  .writing-workspace-layout:has(.writing-tree-rail:not([open])),
-  .writing-workspace-layout:has(.writing-panel-rail:not([open])),
-  .writing-workspace-layout:has(.writing-tree-rail:not([open])):has(.writing-panel-rail:not([open])),
+  .writing-workspace-layout:has(.writing-tree-rail.is-collapsed),
+  .writing-workspace-layout:has(.writing-panel-rail.is-collapsed),
+  .writing-workspace-layout:has(.writing-tree-rail.is-collapsed):has(.writing-panel-rail.is-collapsed),
   .world-bible-layout,
   .world-bible-layout:has(.world-bible-nav-rail:not([open])),
   .map-workspace-body,

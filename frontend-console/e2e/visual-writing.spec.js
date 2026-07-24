@@ -125,8 +125,8 @@ test.describe("writing 视觉基线", () => {
     await waitWritingReady(page)
 
     const chapterRail = page.locator(SEL.writingTreeRail)
-    if (!(await chapterRail.evaluate((element) => element.open))) {
-      await chapterRail.locator(":scope > summary").click()
+    if (await chapterRail.evaluate((element) => element.classList.contains("is-collapsed"))) {
+      await page.getByLabel("展开章节").click()
     }
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await expect(page.locator(SEL.mobileQuickNote)).toBeVisible()

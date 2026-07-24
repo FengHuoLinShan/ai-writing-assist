@@ -10,3 +10,13 @@ describe("frontend response security headers", () => {
     expect(viteConfig.preview.headers).toBe(frontendSecurityHeaders)
   })
 })
+
+describe("frontend development API proxy", () => {
+  it("forwards only /api routes without intercepting the frontend api.js module", () => {
+    expect(viteConfig.server.proxy["^/api(?:/|$)"]).toMatchObject({
+      target: "http://127.0.0.1:8000",
+      changeOrigin: true,
+    })
+    expect(viteConfig.server.proxy).not.toHaveProperty("/api")
+  })
+})

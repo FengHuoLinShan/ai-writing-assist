@@ -72,4 +72,15 @@ describe("SceneCockpit", () => {
     expect(wrapper.findAll("[data-cockpit-module]")[0].attributes("data-cockpit-module")).toBe("goal")
     expect(JSON.parse(localStorage.getItem("writing_scene_cockpit_order:p1"))[0]).toBe("goal")
   })
+
+  it("由写作副驾驶内层标题发出 rail 折叠请求", async () => {
+    const wrapper = mountCockpit()
+    await wrapper.get('[aria-label="收起写作副驾驶"]').trigger("click")
+    expect(wrapper.emitted("toggle-collapse")).toHaveLength(1)
+
+    await wrapper.setProps({ railCollapsed: true })
+    expect(wrapper.classes()).toContain("is-collapsed")
+    expect(wrapper.find(".cockpit-tabs").exists()).toBe(false)
+    expect(wrapper.get('[aria-label="展开写作副驾驶"]').attributes("aria-expanded")).toBe("false")
+  })
 })

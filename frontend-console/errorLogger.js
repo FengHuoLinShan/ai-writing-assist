@@ -1,3 +1,5 @@
+import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
+
 /**
  * 错误日志系统
  *
@@ -137,8 +139,10 @@
   }
 
   function _debugApiBaseUrl() {
-    const host = typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000"
-    return `${host}/api/debug`
+    const apiBaseUrl = resolveApiBaseUrl(
+      typeof API_HOST !== "undefined" ? API_HOST : "",
+    )
+    return `${apiBaseUrl}/debug`
   }
 
   function _syncToBackend(entry) {

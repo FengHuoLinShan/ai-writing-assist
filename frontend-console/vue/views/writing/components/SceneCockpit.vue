@@ -1,24 +1,32 @@
 <template>
-  <div v-if="!chapter" class="empty-state writing-scene-panel-empty">
-    <strong>写作参考</strong>
-    <p>请先从左侧选择章节，再查看对应 Scene、人物和地图参考。</p>
-  </div>
-  <div v-else class="scene-cockpit" :data-scene-cockpit-project="projectId || ''">
+  <div class="scene-cockpit" :class="{ 'is-collapsed': railCollapsed }" :data-scene-cockpit-project="projectId || ''">
     <div class="scene-cockpit__title">
-      <span>写作副驾驶</span>
-      <button class="btn btn-sm scene-cockpit-organize" @click="$emit('organize')">整理</button>
+      <button
+        type="button"
+        class="writing-rail-heading-toggle"
+        :aria-label="`${railCollapsed ? '展开' : '收起'}写作副驾驶`"
+        :aria-expanded="!railCollapsed"
+        @click="$emit('toggle-collapse')"
+      >
+        <span class="writing-rail-heading-label writing-rail-heading-label--copilot">写作副驾驶</span>
+        <span aria-hidden="true">{{ railCollapsed ? "‹" : "›" }}</span>
+      </button>
+      <button v-if="!railCollapsed && chapter" class="btn btn-sm scene-cockpit-organize" @click="$emit('organize')">整理</button>
     </div>
 
-    <div v-if="scene" class="scene-alert-summary" :class="`scene-alert-summary--${alertSummary.highest}`" aria-live="polite">
+    <div v-if="!railCollapsed && !chapter" class="empty-state writing-scene-panel-empty">
+      <p>请先从左侧选择章节，再查看对应 Scene、人物和地图参考。</p>
+    </div>
+    <div v-else-if="!railCollapsed && scene" class="scene-alert-summary" :class="`scene-alert-summary--${alertSummary.highest}`" aria-live="polite">
       <span v-if="loading">警报加载中…</span>
       <span v-else-if="alertSummary.actionable">
         {{ alertSummary.actionable }} 项警报 · 最高{{ severityLabel(alertSummary.highest) }}严重度{{ alertSummary.stale ? ' · 最近校验已过期' : '' }}
       </span>
       <span v-else>✓ 当前未发现确定性警报</span>
     </div>
-    <div v-if="!scene" class="scene-cockpit-empty">当前章节未关联 Scene。请从左侧选择 Scene 或到场景工作台整理。</div>
+    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">当前章节未关联 Scene。请从左侧选择 Scene 或到场景工作台整理。</div>
 
-    <template v-else>
+    <template v-if="!railCollapsed && chapter && scene">
       <div class="cockpit-tabs" role="tablist" aria-label="Scene 参考">
         <button v-for="tab in tabs" :key="tab.key" class="cockpit-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.label }}</button>
       </div>
@@ -126,8 +134,9 @@ const props = defineProps({
   people: { type: Array, default: () => [] },
   location: { type: [Object, String], default: null },
   conflict: { type: Object, default: () => ({ latest: null }) },
+  railCollapsed: { type: Boolean, default: false },
 })
-defineEmits(["open-map", "run-conflict", "open-conflict", "insert-text", "organize"])
+defineEmits(["open-map", "run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse"])
 
 const tabs = [
   { key: "alerts", label: "警报" }, { key: "people", label: "人物" }, { key: "place", label: "地点" },
