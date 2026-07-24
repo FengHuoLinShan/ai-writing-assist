@@ -34,7 +34,7 @@ frontend 只绑定宿主机 loopback，不对公网开放；PostgreSQL、worker 
 | 待填写 | `TLS_CERTIFICATE_PATH*` | 1Panel 创建 `zhh.se` 站点并签发证书后的容器内路径 |
 | 待填写 | `AUTH_SECRET_KEY` | 新生成至少 32 字符 |
 | 已确认 | `BOOTSTRAP_OWNER_EMAIL` | 新库 bootstrap 账号归属 `948620502@qq.com` |
-| 待填写 | `SMTP_PASSWORD` | QQ 邮箱授权码，只写入服务器 `0600` 环境文件 |
+| 待填写 | `SMTP_PASSWORD` | 网易邮箱客户端授权码，只写入服务器 `0600` 环境文件 |
 | 待开通 | `B2_*`、`RESTIC_*` | 私有 Backblaze B2 bucket、限定 bucket 的 key、restic 密码 |
 | 待开通 | `HEALTHCHECKS_*_PING_URL` | 两个检查，邮件通知发到 `948620502@qq.com` |
 
