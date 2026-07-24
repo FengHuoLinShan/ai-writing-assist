@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +8,7 @@ from run_worker import (
     _configure_worker_process,
     _guard_active_task_project_finalize,
     _require_active_task_project,
+    _validate_worker_config,
 )
 
 
@@ -53,31 +50,11 @@ def test_configure_worker_validates_llm_rate_limit_before_registration() -> None
     register_services.assert_not_called()
 
 
-@pytest.mark.parametrize("args", [[], ["--reload"]], ids=["worker", "reload-supervisor"])
-def test_non_local_worker_process_rejects_disabled_llm_limiter(
-    args: list[str],
-) -> None:
-    backend_root = Path(__file__).resolve().parents[2]
-    env = os.environ.copy()
-    env.update(
-        {
-            "APP_ENV": "production",
-            "LLM_RATE_LIMIT_PER_MINUTE": "0",
-        }
-    )
+def test_non_local_worker_config_allows_disabled_llm_limiter() -> None:
+    settings = MagicMock(app_env="production", llm_rate_limit_per_minute=0)
 
-    result = subprocess.run(
-        [sys.executable, "run_worker.py", *args],
-        cwd=backend_root,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
-
-    assert result.returncode != 0
-    assert "LLM_RATE_LIMIT_PER_MINUTE must be positive" in result.stderr
+    with patch("run_worker.get_settings", autospec=True, return_value=settings):
+        _validate_worker_config()
 
 
 @pytest.mark.asyncio

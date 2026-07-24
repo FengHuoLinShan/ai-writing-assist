@@ -1,7 +1,22 @@
 import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
+import { copyFile, mkdir } from "node:fs/promises"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const frontendPort = Number.parseInt(process.env.FRONTEND_PORT || "8080", 10)
+const frontendRoot = dirname(fileURLToPath(import.meta.url))
+const isProductionBuild = process.argv.includes("build")
+const legacyRuntimeAssets = [
+  "shared/esc.js",
+  "ui/toast.js",
+  "ui/modal.js",
+  "stateSlices.js",
+  "state.js",
+  "apiContracts.js",
+  "router.js",
+  "commands.js",
+]
 const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self' https://unpkg.com",
@@ -18,8 +33,26 @@ export const frontendSecurityHeaders = Object.freeze({
   "X-Frame-Options": "DENY",
 })
 
+function copyLegacyRuntimeAssets() {
+  return {
+    name: "copy-legacy-runtime-assets",
+    apply: "build",
+    async writeBundle(outputOptions) {
+      const outputRoot = resolve(frontendRoot, outputOptions.dir || "dist")
+      await Promise.all(legacyRuntimeAssets.map(async (assetPath) => {
+        const destination = resolve(outputRoot, assetPath)
+        await mkdir(dirname(destination), { recursive: true })
+        await copyFile(resolve(frontendRoot, assetPath), destination)
+      }))
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [vue()],
+  // Production is served through the same OpenResty origin as /api. Development
+  // keeps the existing localhost fallback in api.js.
+  define: isProductionBuild ? { API_HOST: JSON.stringify("") } : {},
+  plugins: [vue(), copyLegacyRuntimeAssets()],
   server: {
     host: "0.0.0.0",
     port: Number.isNaN(frontendPort) ? 8080 : frontendPort,

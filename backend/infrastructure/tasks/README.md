@@ -112,8 +112,8 @@ handler checkpoint 和 finalize 的 project/lease fence。preflight 期间不允
 带 ORM 待写状态的显式 `flush()` 也会失败。SQLAlchemy Core/driver DML 不会进入
 `new / dirty / deleted`，因此不能仅凭 ORM 状态标记 attempt 失败；正常返回时
 边界 rollback 仍会丢弃这类 DML。preflight 实现不得使用 Core/driver 写入。
-`run_worker.py` 还会在注册 handler 前校验 LLM 运行配置；非
-`development/test/local` 环境必须设置正的 `LLM_RATE_LIMIT_PER_MINUTE`。`--reload`
+`run_worker.py` 还会在注册 handler 前校验 LLM 运行配置；
+`LLM_RATE_LIMIT_PER_MINUTE=0` 表示关闭额外的进程级 RPM 限制；`--reload`
 模式会在启动 watchfiles 监督进程前先执行同一校验，并由每个重载后的子进程再次校验，
 避免配置错误时只退出子进程而留下空转的监督进程。
 worker 的 handler 前检查是非锁定活跃性读取，不在长时间 attempt 中持有

@@ -96,6 +96,7 @@
 
 ## 代码邻近文档与运行记录
 
+- 根目录 `deploy/README.md` 是 `zy` 的生产拓扑、决策门禁、发布、备份与恢复入口。
 - `backend/modules/*/README.md`、模块级 `CLAUDE.md` 与 `backend/infrastructure/*/README.md`
   是代码邻近的模块接口/实现说明，随相应代码维护。
 - `backend/prompts/` 是运行时 Prompt 模板；其清单与调用契约由

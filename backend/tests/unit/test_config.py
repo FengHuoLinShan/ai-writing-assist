@@ -490,14 +490,12 @@ class TestHttpRateLimitValidation:
 
 
 class TestLlmRateLimitValidation:
-    @pytest.mark.parametrize("app_env", ["development", "test", "local", " TEST "])
-    def test_local_env_allows_disabled_limiter(self, app_env):
+    @pytest.mark.parametrize(
+        "app_env",
+        ["development", "test", "local", " TEST ", "production", "prod", "staging"],
+    )
+    def test_all_envs_allow_disabled_limiter(self, app_env):
         validate_llm_rate_limit_config(app_env, 0)
-
-    @pytest.mark.parametrize("app_env", ["production", "prod", "staging"])
-    def test_non_local_env_requires_positive_rate(self, app_env):
-        with pytest.raises(RuntimeError, match="LLM_RATE_LIMIT_PER_MINUTE"):
-            validate_llm_rate_limit_config(app_env, 0)
 
     def test_non_local_env_accepts_positive_rate(self):
         validate_llm_rate_limit_config("production", 60)
@@ -506,7 +504,7 @@ class TestLlmRateLimitValidation:
         with pytest.raises(RuntimeError, match="LLM_RATE_LIMIT_PER_MINUTE"):
             validate_llm_rate_limit_config("development", -1)
 
-    def test_non_local_api_process_rejects_disabled_limiter(self):
+    def test_non_local_api_process_allows_disabled_limiter(self):
         backend_root = Path(__file__).resolve().parents[2]
         env = os.environ.copy()
         env.update(
@@ -529,8 +527,7 @@ class TestLlmRateLimitValidation:
             check=False,
         )
 
-        assert result.returncode != 0
-        assert "LLM_RATE_LIMIT_PER_MINUTE must be positive" in result.stderr
+        assert result.returncode == 0, result.stderr
 
 
 class TestSettingsFrozen:

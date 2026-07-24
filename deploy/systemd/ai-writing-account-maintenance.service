@@ -1,0 +1,11 @@
+[Unit]
+Description=AI Writing Assist due-account purge
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/opt/ai-writing-assist/deploy/.env.production
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ai-writing-assist
+Environment=ENV_FILE=/opt/ai-writing-assist/deploy/.env.production
+ExecStart=/opt/ai-writing-assist/deploy/scripts/account_maintenance.sh

@@ -1,6 +1,9 @@
 # Environment
 .env
 backend/.env
+deploy/.env.production
+deploy/.state/
+deploy/backups/
 
 # Python
 __pycache__/

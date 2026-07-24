@@ -234,14 +234,9 @@ def validate_http_rate_limit_config(
 
 
 def validate_llm_rate_limit_config(app_env: str, requests_per_minute: int) -> None:
-    """Require a positive process-local LLM limiter outside local runtimes."""
+    """Validate the optional process-local LLM request limiter."""
     if requests_per_minute < 0:
         raise RuntimeError("LLM_RATE_LIMIT_PER_MINUTE must be non-negative")
-    if app_env.strip().lower() not in _LOCAL_ENVS and requests_per_minute == 0:
-        raise RuntimeError(
-            "LLM_RATE_LIMIT_PER_MINUTE must be positive outside "
-            "development, test, or local"
-        )
 
 
 @dataclass(frozen=True)

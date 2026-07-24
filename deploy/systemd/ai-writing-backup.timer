@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up AI Writing Assist PostgreSQL every day
+
+[Timer]
+OnCalendar=*-*-* 02:17:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=ai-writing-backup.service
+
+[Install]
+WantedBy=timers.target

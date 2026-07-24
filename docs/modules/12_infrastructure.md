@@ -124,7 +124,9 @@ DeepSeek：`https://api.deepseek.com` + `deepseek-v4-flash`。
 - `LLM_HEALTH_REQUIRED`：深度导入启动前是否要求 LLM health 通过，默认 `true`
 - `LLM_RETRY_MAX_ATTEMPTS` / `LLM_RETRY_BASE_DELAY` / `LLM_RETRY_MAX_DELAY`：LLM 重试预算
 - `LLM_MAX_CONCURRENT_REQUESTS`：单进程共享的 LLM 并发上限
-- `LLM_RATE_LIMIT_PER_MINUTE`：单进程共享的 provider RPM；本地/测试可为 `0`
+- `LLM_RATE_LIMIT_PER_MINUTE`：单进程共享的 provider RPM；所有环境均可设为 `0`
+  关闭额外 RPM 门禁。公开部署若由用户在项目设置中提供自己的 LLM 配置，可依赖各
+  provider 的账户配额而不叠加全局 RPM，但仍应保留并发上限保护服务器资源。
 
 `development/test/local` 可将 LLM RPM 设为 `0`；其他环境必须按实际 provider 配额
 显式配置正值，否则 API、普通 task worker 和 `worker --reload` 监督进程均拒绝启动。
