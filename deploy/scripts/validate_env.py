@@ -211,14 +211,21 @@ def validate(values: dict[str, str]) -> list[str]:
         errors.append("EMBEDDING_DIM must remain 768 for the current pgvector schema")
 
     loopback_ports: list[int] = []
-    for name in ("API_LOOPBACK_PORT", "FRONTEND_LOOPBACK_PORT"):
+    for name in (
+        "API_LOOPBACK_PORT",
+        "FRONTEND_LOOPBACK_PORT",
+        "OPENRESTY_TUNNEL_PORT",
+    ):
         port = positive_int(name)
         if port is not None:
             if port > 65535:
                 errors.append(f"{name} must be at most 65535")
             loopback_ports.append(port)
-    if len(loopback_ports) == 2 and loopback_ports[0] == loopback_ports[1]:
-        errors.append("API_LOOPBACK_PORT and FRONTEND_LOOPBACK_PORT must differ")
+    if len(loopback_ports) == 3 and len(set(loopback_ports)) != 3:
+        errors.append(
+            "API_LOOPBACK_PORT, FRONTEND_LOOPBACK_PORT, and "
+            "OPENRESTY_TUNNEL_PORT must differ"
+        )
 
     if require("OFFSITE_BACKUP_PROVIDER") != "backblaze_b2":
         errors.append("OFFSITE_BACKUP_PROVIDER must be backblaze_b2")
@@ -237,11 +244,6 @@ def validate(values: dict[str, str]) -> list[str]:
             parsed_ping = urlsplit(ping_url)
             if parsed_ping.scheme != "https" or parsed_ping.hostname != "hc-ping.com":
                 errors.append(f"{name} must be an HTTPS hc-ping.com URL")
-
-    for name in ("TLS_CERTIFICATE_PATH", "TLS_CERTIFICATE_KEY_PATH"):
-        value = require(name)
-        if not is_missing(value) and not value.startswith("/"):
-            errors.append(f"{name} must be an absolute path inside OpenResty")
 
     if values.get("LLM_TRUST_ENV", "false").lower() not in {"0", "false", "no", "off"}:
         errors.append("LLM_TRUST_ENV must remain false in production")

@@ -31,8 +31,7 @@ def main() -> int:
     rendered = args.template.read_text(encoding="utf-8")
     replacements = {
         "__DEPLOY_DOMAIN__": values["DEPLOY_DOMAIN"],
-        "__TLS_CERTIFICATE_PATH__": values["TLS_CERTIFICATE_PATH"],
-        "__TLS_CERTIFICATE_KEY_PATH__": values["TLS_CERTIFICATE_KEY_PATH"],
+        "__OPENRESTY_TUNNEL_PORT__": values["OPENRESTY_TUNNEL_PORT"],
         "__API_LOOPBACK_PORT__": values["API_LOOPBACK_PORT"],
         "__FRONTEND_LOOPBACK_PORT__": values["FRONTEND_LOOPBACK_PORT"],
     }

@@ -51,8 +51,7 @@ def _valid_values() -> dict[str, str]:
         "EMBEDDING_MAX_CONCURRENT_REQUESTS": "16",
         "API_LOOPBACK_PORT": "18000",
         "FRONTEND_LOOPBACK_PORT": "18080",
-        "TLS_CERTIFICATE_PATH": "/etc/ssl/example/fullchain.pem",
-        "TLS_CERTIFICATE_KEY_PATH": "/etc/ssl/example/privkey.pem",
+        "OPENRESTY_TUNNEL_PORT": "3259",
         "OPENRESTY_CONTAINER": "OpenResty",
         "LLM_TRUST_ENV": "false",
         "OFFSITE_BACKUP_PROVIDER": "backblaze_b2",
@@ -96,6 +95,15 @@ def test_negative_global_llm_rpm_is_rejected() -> None:
     errors = validator.validate(values)
 
     assert any("LLM_RATE_LIMIT_PER_MINUTE" in error for error in errors)
+
+
+def test_openresty_tunnel_port_must_not_overlap_application_ports() -> None:
+    values = _valid_values()
+    values["OPENRESTY_TUNNEL_PORT"] = values["API_LOOPBACK_PORT"]
+
+    errors = validator.validate(values)
+
+    assert any("OPENRESTY_TUNNEL_PORT must differ" in error for error in errors)
 
 
 def test_public_mode_requires_smtp_and_auth_secret() -> None:

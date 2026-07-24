@@ -7,7 +7,9 @@
 
 ```text
 Internet
-  -> 1Panel OpenResty (TLS, security headers, 50 MiB upload boundary)
+  -> Cloudflare Tunnel (public HTTPS)
+    -> 127.0.0.1:3259
+      -> 1Panel OpenResty (security headers, 50 MiB upload boundary)
        -> 127.0.0.1:18080 (frontend)
        -> 127.0.0.1:18000 (API)
             -> PostgreSQL private data network
@@ -26,12 +28,12 @@ frontend 只绑定宿主机 loopback，不对公网开放；PostgreSQL、worker 
 
 | 状态 | 配置 | 说明 |
 |---|---|---|
-| 已确认 | `DEPLOY_DOMAIN=zhh.se` | Cloudflare DNS 必须先指向 `zy` |
+| 已确认 | `DEPLOY_DOMAIN=zhh.se` | 现有 Cloudflare Tunnel 的公共主机名 |
+| 已确认 | `OPENRESTY_TUNNEL_PORT=3259` | Tunnel 的 loopback HTTP 源站端口 |
 | 已确认 | `AUTH_MODE=public` | 首发即启用邮箱账号体系 |
 | 已确认 | `DATABASE_MODE=fresh` | 首次发布若发现已有 public 表会拒绝继续 |
 | 已确认 | `LLM_RATE_LIMIT_PER_MINUTE=0` | 用户使用项目 LLM 配置；仍保留并发上限 |
 | 已确认 | `EMBEDDING_*` | zy 本机 CPU TEI + `BAAI/bge-base-zh-v1.5`，768 维 |
-| 待填写 | `TLS_CERTIFICATE_PATH*` | 1Panel 创建 `zhh.se` 站点并签发证书后的容器内路径 |
 | 待填写 | `AUTH_SECRET_KEY` | 新生成至少 32 字符 |
 | 已确认 | `BOOTSTRAP_OWNER_EMAIL` | 新库 bootstrap 账号归属 `948620502@qq.com` |
 | 待填写 | `SMTP_PASSWORD` | 网易邮箱客户端授权码，只写入服务器 `0600` 环境文件 |
@@ -71,8 +73,9 @@ tag 镜像、启动 PostgreSQL、创建并验证 custom-format 备份、运行 A
 bash deploy/scripts/release.sh <full-40-character-commit-sha>
 ```
 
-首次发布前先在 1Panel 创建 `zhh.se` 网站并申请证书，将其容器内证书路径填入环境
-文件。发布完成后渲染与 1Panel host 网络兼容的站点配置：
+Cloudflare Tunnel 的 `zhh.se` 公共主机名应使用 HTTP 源站
+`http://127.0.0.1:3259`。公网 TLS 由 Cloudflare 终止，OpenResty 只监听 loopback，
+不占用宿主机的 80/443。发布完成后渲染与 1Panel host 网络兼容的站点配置：
 
 ```bash
 python3 deploy/scripts/render_openresty.py \
