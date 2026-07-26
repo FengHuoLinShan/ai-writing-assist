@@ -65,7 +65,7 @@ README、ORM 模型与 Alembic migration。
 | 记忆事件 / 快照 | `memory_events` / `memory_scene_checkpoints` / `memory_scene_snapshots` / `memory_snapshots` | Scene 是唯一基础阶段；stage0 是空初始状态，每个 Scene 有分维度轻量 checkpoint，stage0/周期/章末/latest 才保存稀疏全量快照。历史状态只由带 Scene 锚点的 MemoryEvent 与 confirmed MapFact 确定性重放，禁止用当前 World 补历史。 |
 | 字段差分 | `delta_log` | memory 拥有的结构化 before/after 记录；不替代 TextArchive。 |
 | RAG 分块 | `rag_chunks` | 文字、来源、offset、Scene/Span、可见性、索引版本和 embedding 状态。 |
-| AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择和结果引用。 |
+| AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择、结果引用与 `compile_options` 摘要。跨章 Scene 可将 `chapter_index` 用作末章检索锚点，同时以 `requested_chapter_index` 固定作者确认的目标章节；写作任务按后者校验，旧记录才回退前者。 |
 | 自动上下文快照 | `context_snapshots` | 真实 LLM 调用的审计记录，保存摘要、hash、预算、资产选择与结果引用；完整 rendered context 仅显式保留。 |
 | 编译上下文 | CompiledContext | context 模块按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
 | 地图观察 | `map_observations` | 带时间/空间锚点和证据的观察层；尚未转化为 Fact 的可操作 observation 在作者界面显示为待处理。 |

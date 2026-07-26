@@ -64,4 +64,28 @@ describe("writingCommandController", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("未保存"), "warning")
   })
 
+  it("空工作稿不会提交续写任务", async () => {
+    const { api, editor, toast, controller } = setup()
+    editor.getContent.mockReturnValue("  \n")
+    editor.getLoadedContent.mockReturnValue("  \n")
+    await controller.generateContinuation()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("正文为空"), "warning")
+  })
+
+  it("正文生成进行中时拒绝重复提交", async () => {
+    let resolveGeneration
+    const { api, toast, controller } = setup()
+    api.writing.generate.mockReturnValue(new Promise((resolve) => { resolveGeneration = resolve }))
+
+    const first = controller.generateContinuation()
+    await vi.waitFor(() => expect(api.writing.generate).toHaveBeenCalledTimes(1))
+    await controller.generateContinuation()
+
+    expect(api.writing.generate).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("正在生成"), "warning")
+    resolveGeneration({ draft_id: "candidate-1" })
+    await first
+  })
+
 })

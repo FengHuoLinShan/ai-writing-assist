@@ -256,6 +256,36 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("空工作稿禁用 AI 续写入口", async () => {
+    globalThis.api.writing.get.mockResolvedValue({
+      id: "d1",
+      novel_id: "p1",
+      title: "第一章",
+      content: "",
+      version_number: 1,
+      status: "draft",
+    })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+
+    const continuation = wrapper.findAll("button").find((button) => button.text() === "AI 续写")
+    expect(continuation.attributes("disabled")).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it("正文生成期间禁用所有生成入口", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    wrapper.vm.$.setupState.vm.generationLoading.value = true
+    await flushPromises()
+
+    const buttons = wrapper.findAll("button")
+    expect(buttons.find((button) => button.text() === "生成中…").attributes("disabled")).toBeDefined()
+    expect(buttons.find((button) => button.text() === "AI 正文建议").attributes("disabled")).toBeDefined()
+    expect(buttons.find((button) => button.text() === "AI 角色视角建议").attributes("disabled")).toBeDefined()
+    wrapper.unmount()
+  })
+
   it("组件卸载后丢弃 Scene 晚到响应", async () => {
     let resolveSummary
     globalThis.api.world.getMapSceneSummary.mockReturnValue(new Promise((resolve) => { resolveSummary = resolve }))

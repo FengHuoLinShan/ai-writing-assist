@@ -167,6 +167,9 @@ POST /api/writing/generate                        → 从已确认 context 生�
 Scene 只作为结构上下文，不把跨章 Scene 错当成输出范围。`generation_mode=continue`
 则锁定同章 active working/published/canonical base draft，将模型输出确定性追加到
 原文末尾，原文逐字不变；base 内容或确认上下文漂移时失败关闭，不静默续写旧版本。
+确认记录的 `compile_options.requested_chapter_index` 是生成目标章的校验依据；跨章 Scene 的
+`chapter_index` 可以是用于相关性检索的末章锚点，不能据此把 confirmation 复用到其他章节。
+只有旧 confirmation 缺少前者时才兼容回退到 `chapter_index`。
 确认上下文同时包含
 当前活跃剧情线及与 Scene、篇章、剧情线或 RAG 证据关联的人物和物品。
 人物超出预算时取 Top 6，相关世界对象超出预算时取 Top 16。输出仍只是

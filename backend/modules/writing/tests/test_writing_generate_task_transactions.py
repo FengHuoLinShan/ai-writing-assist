@@ -221,6 +221,40 @@ async def test_generation_wait_parse_and_sanitize_run_without_transaction(
     bound.assert_awaited_once()
 
 
+async def test_generation_uses_requested_chapter_when_scene_anchor_differs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _CheckpointSession()
+    confirmed = _confirmed("scene-spanning context")
+    confirmed.compile_options.update(
+        {
+            "chapter_index": 4,
+            "requested_chapter_index": 3,
+            "scene_id": "scene-spanning-chapters",
+        }
+    )
+    repo = _repo()
+    _patch_facades(monkeypatch, confirmed, copy.deepcopy(confirmed))
+    client = _Client(db)
+
+    result = await WritingGenerationService(
+        repo=repo,
+        llm_client=client,
+    ).generate_candidate_for_task(
+        db,
+        novel_id="11111111-1111-1111-1111-111111111111",
+        chapter_index=3,
+        title=None,
+        instruction=None,
+        context_confirmation_id="33333333-3333-3333-3333-333333333333",
+        source_task_id="task-1",
+        llm_execution_snapshot=_snapshot(),
+    )
+
+    assert result.chapter_index == 3
+    assert len(client.requests) == 1
+
+
 @pytest.mark.parametrize("drift", ["rendered", "evidence"])
 async def test_generation_discards_context_and_evidence_drift(
     monkeypatch: pytest.MonkeyPatch,

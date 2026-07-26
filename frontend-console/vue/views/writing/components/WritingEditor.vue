@@ -17,14 +17,14 @@
           <button id="btn-publish" class="btn btn-primary btn-sm" :disabled="!hasChapter || state.readonly || !state.content.trim()" @click="$emit('publish')">发布</button>
         </div>
         <div class="writing-editor-buttons__group" role="group" aria-label="AI 助手">
-          <button class="btn btn-sm btn-ghost" :disabled="!hasChapter || state.readonly" title="基于当前已锁定正文生成续写建议" @click="$emit('generate-continuation')">AI 续写</button>
+          <button class="btn btn-sm btn-ghost" :disabled="!hasChapter || state.readonly || !state.content.trim() || generationLoading" title="基于当前已锁定正文生成续写建议" @click="$emit('generate-continuation')">{{ generationLoading ? '生成中…' : 'AI 续写' }}</button>
           <details v-if="hasChapters" class="writing-tools-menu">
             <summary class="btn btn-sm">AI 工具</summary>
             <div class="writing-tools-menu__body">
               <div class="writing-tools-menu__group">
                 <strong>生成</strong>
-                <button class="btn btn-sm" :disabled="!hasChapter || state.readonly" @click="$emit('generate-draft')">AI 正文建议</button>
-                <button class="btn btn-sm" :disabled="!hasChapter || state.readonly" @click="$emit('generate-pov')">AI 角色视角建议</button>
+                <button class="btn btn-sm" :disabled="!hasChapter || state.readonly || generationLoading" @click="$emit('generate-draft')">AI 正文建议</button>
+                <button class="btn btn-sm" :disabled="!hasChapter || state.readonly || generationLoading" @click="$emit('generate-pov')">AI 角色视角建议</button>
               </div>
               <div class="writing-tools-menu__group">
                 <strong>提取</strong>
@@ -111,6 +111,7 @@ const props = defineProps({
   editorFont: { type: String, default: "system" },
   dailyGoal: { type: Number, default: null },
   focusMode: { type: Boolean, default: false },
+  generationLoading: { type: Boolean, default: false },
   conflictLoading: { type: Boolean, default: false },
   hasChapters: { type: Boolean, default: false },
   attach: { type: Function, required: true },

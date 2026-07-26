@@ -198,6 +198,28 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
 
 
 @pytest.mark.asyncio
+async def test_llm_settings_validation_error_omits_api_key_input(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    marker = "provider-key-without-known-prefix-" + ("x" * 4096)
+
+    resp = await async_client.put(
+        f"/api/projects/{sample_project['id']}/llm-settings",
+        headers=XHR_HEADERS,
+        json={"provider_id": "deepseek", "api_key": marker},
+    )
+
+    assert resp.status_code == 422
+    assert marker not in resp.text
+    detail = resp.json()["detail"]
+    api_key_error = next(item for item in detail if item["loc"] == ["body", "api_key"])
+    assert "input" not in api_key_error
+    assert api_key_error["type"] == "string_too_long"
+    assert api_key_error["msg"]
+
+
+@pytest.mark.asyncio
 async def test_update_project_settings_encrypts_generic_llm_api_key(
     async_client: AsyncClient,
     db_session: AsyncSession,

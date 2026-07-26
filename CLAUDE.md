@@ -8,7 +8,8 @@
 ### 开始前
 
 1. 读目标模块 README、稳定接口和测试；跨模块任务读调用方/被调用方接口。
-2. 检查 `novel_id`、schema、API Key、用户确认、模块边界与 API/schema/wire contract 风险。
+2. 检查 `novel_id`、公开模式下的 account/owner、schema、API Key、用户确认、模块边界与
+   API/schema/wire contract 风险。
 3. 涉及架构、数据库、共享层或 ADR 时，补读 `CONTEXT.md`、`docs/00_整体设计.md`、
    `docs/01_数据库设计.md`、migration 和相关 ADR。
 
@@ -32,8 +33,9 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 | 辅助层 | imports, rag, context, writing, settings | 导入、检索、上下文、正文、配置 |
 
 `infrastructure/llm` 与 `infrastructure/tasks` 是共享基础层；`map` 是 `world` 子系统。
-当前业务模块共 9 个：`project`、`imports`、`world`、`memory`、`outline`、`rag`、`context`、
-`writing`、`settings`。`geo`、`review`、`character`、`timeline` 已移除或合并，不再作为模块
+当前业务模块共 10 个：`account`、`project`、`imports`、`world`、`memory`、`outline`、`rag`、
+`context`、`writing`、`settings`。`account` 是公开身份与 owner 边界，不属于小说创作资产层；
+`geo`、`review`、`character`、`timeline` 已移除或合并，不再作为模块
 依赖目标。
 
 - Backend API：`backend/app/main.py`；worker：`backend/run_worker.py`；前端：

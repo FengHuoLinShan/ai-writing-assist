@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: SPA console (vanilla JS 外壳 + Vue 3 视图岛渐进迁移，ADR-0009).
+AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: Vue 3 SFC console with the existing hash router retained as a narrow route-host seam (ADR-0009).
 
 ## Commands
 
@@ -181,7 +181,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - **中文优先**: All UI text in Chinese. No engineering jargon.
 - **命令行风格但易用**: Buttons + keyboard shortcuts + command bar in parallel.
 - **纯文字为主**: Tables, tree views, cards, collapsible panels, ASCII maps.
-- **低依赖**: Vanilla JS by default；Vue 3 渐进迁移经 ADR-0009 批准，按 island 模式推进（`vue/mountIsland.js` + `vue/bridge/`）。Other new frontend stack or heavy component libraries require user/ADR approval.
+- **低依赖**: Vue 3 SFC 是当前前端栈；通过 `vue/mountIsland.js` + `vue/bridge/` 接入既有 hash router 与基础设施。不得另引入第二套前端栈或重型组件库，除非获得用户确认或 ADR。
 - **易用性**: Every workflow needs clear empty/error states and danger confirmation. Copy/export/undo are added only where the workflow naturally needs them.
 - **XSS防护**: Never write unescaped user/AI/API dynamic content into `innerHTML`; static templates and `esc()`-escaped dynamic content are acceptable.
 

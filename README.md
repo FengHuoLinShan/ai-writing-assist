@@ -1,14 +1,15 @@
 # AI 长篇小说结构化创作引擎
 
-> FastAPI 后端 · 零框架前端 · PostgreSQL + pgvector · 异步任务队列
+> FastAPI 后端 · Vue 3 SFC 控制台 · PostgreSQL + pgvector · 异步任务队列
 
 AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记忆与剧情组织 → 检索增强 → 上下文编译 → 正文写作 → 地图工作台**的全链路支持。
 
 ## 架构总览
 
-![模块架构图](docs/architecture/module-architecture.html)
+[模块架构图（Draw.io 可编辑源）](docs/architecture/module-architecture.drawio) ·
+[浏览器交互预览](docs/architecture/module-architecture.html)
 
-**三层结构：**
+**三层创作架构：**
 
 | 层级 | 模块 | 职责 |
 |------|------|------|
@@ -16,13 +17,19 @@ AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记�
 | **结构层** | `outline` | 剧情线、篇章纲、Scene、伏笔与揭示计划 |
 | **辅助层** | `imports` · `rag` · `context` · `writing` · `settings` | 文件导入、检索增强、上下文编译、正文写作、LLM/作者偏好覆盖 |
 
-> 详细交互图 → [`docs/architecture/module-architecture.html`](docs/architecture/module-architecture.html)（浏览器打开，支持导出 PNG/PDF）
+`account` 是三层之外的公开身份与项目 owner 边界；`infrastructure/tasks` 与
+`infrastructure/llm` 是共享基础设施，均不作为创作资产模块归类。`map` 是 `world`
+子系统，不单独计为业务模块。
+
+> 图中箭头表示主要调用或资料流，不是生产代码 import 图。分层、边界和维护规则见
+> [`docs/architecture/README.md`](docs/architecture/README.md)。
 
 ## 模块清单
 
 | 模块 | 核心能力 |
 |------|---------|
-| **project** | 小说项目 CRUD、novel_id 全局隔离（零跨模块依赖） |
+| **account** | 邮箱/可选 Authing 微信身份、单浏览器会话、重新认证与延期删除；项目通过 owner 隔离 |
+| **project** | 小说项目根聚合、owner 门禁与 novel_id 项目隔离 |
 | **world** | 核心实体、人物、事件、关系、动态地图、待处理建议与作者展示状态投影 |
 | **memory** | `memory_events` 事件溯源与 `memory_snapshots` 全景快照 |
 | **outline** | 剧情线、篇章纲、Scene、伏笔计划、揭示计划 |

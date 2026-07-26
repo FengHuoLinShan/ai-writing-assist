@@ -2223,6 +2223,15 @@ class TestContextConfirmation:
         assert data["selected_asset_ids"]["context_sections"] == [
             section["key"] for section in data["sections"]
         ]
+        from modules.context.models import ContextConfirmation
+
+        confirmation = await db_session.get(
+            ContextConfirmation,
+            uuid.UUID(data["id"]),
+        )
+        assert confirmation is not None
+        assert confirmation.compile_options["chapter_index"] == 1
+        assert confirmation.compile_options["requested_chapter_index"] == 1
 
     @pytest.mark.asyncio
     async def test_excluding_context_section_removes_non_p0_section(

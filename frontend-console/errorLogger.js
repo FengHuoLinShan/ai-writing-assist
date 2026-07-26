@@ -41,6 +41,11 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
       )
   }
 
+  function _hasSensitiveLogLocation(value) {
+    return Array.isArray(value?.loc)
+      && value.loc.some((segment) => _isSensitiveLogKey(segment))
+  }
+
   function _redactLogValue(value, seen = new WeakSet()) {
     if (typeof value === "string") return _redactLogText(value)
     if (value == null || typeof value !== "object") return value
@@ -49,8 +54,21 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     if (Array.isArray(value)) return value.map((item) => _redactLogValue(item, seen))
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [
       key,
-      _isSensitiveLogKey(key) ? "[REDACTED]" : _redactLogValue(item, seen),
+      _isSensitiveLogKey(key)
+        || (key === "input" && _hasSensitiveLogLocation(value))
+        ? "[REDACTED]"
+        : _redactLogValue(item, seen),
     ]))
+  }
+
+  function _safeResponseDiagnostic(response) {
+    if (typeof response !== "string") return _redactLogValue(response)
+    if (!response) return response
+    try {
+      return JSON.stringify(_redactLogValue(JSON.parse(response)))
+    } catch {
+      return "[REDACTED]"
+    }
   }
 
   function _safeRequestContext(request) {
@@ -58,7 +76,10 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     const safe = _redactLogValue(request)
     return Object.fromEntries(["method", "url", "status", "response"]
       .filter((key) => safe[key] !== undefined)
-      .map((key) => [key, safe[key]]))
+      .map((key) => [
+        key,
+        key === "response" ? _safeResponseDiagnostic(request.response) : safe[key],
+      ]))
   }
 
   function _sanitizeLogEntry(entry) {

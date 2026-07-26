@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.repositories import RagChunkRepository
@@ -44,6 +45,7 @@ def _new_task_handler_session(
 
     session.set_task_commit_hook(checkpoint)
     return session
+
 
 @pytest.mark.asyncio
 async def test_index_state_coalesces_requests_and_requeues_latest_source(
@@ -545,6 +547,64 @@ async def test_reconcile_replaces_terminal_rag_owner(
     replacement = await db_session.get(AsyncTask, stored.active_task_id)
     assert replacement is not None
     assert replacement.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_does_not_requeue_terminal_owner_for_deleted_project(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from infrastructure.tasks.models import AsyncTask
+    from modules.project.repositories import ProjectRepository
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    await create_draft_only(
+        db_session,
+        test_project_id,
+        35,
+        content="回收站项目不应继续补排索引",
+    )
+    service = RagIndexStateService()
+    requested = await service.request(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=35,
+        content_mode="working",
+    )
+    failed_task = await db_session.get(AsyncTask, uuid.UUID(requested["task_id"]))
+    assert failed_task is not None
+    failed_task.mark_failed("project moved to recycle bin")
+    assert await ProjectRepository().soft_delete(
+        db_session,
+        uuid.UUID(test_project_id),
+    )
+    await db_session.flush()
+
+    assert await service.reconcile_owners(db_session) == 0
+
+    stored = await service._get(  # noqa: SLF001
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=35,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert str(stored.active_task_id) == requested["task_id"]
+    tasks = list(
+        (
+            await db_session.execute(
+                select(AsyncTask).where(
+                    AsyncTask.meta["novel_id"].as_string() == test_project_id,
+                    AsyncTask.task_type == "rag_index_chapter",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [str(task.id) for task in tasks] == [requested["task_id"]]
 
 
 @pytest.mark.asyncio
@@ -1153,6 +1213,51 @@ async def test_task_index_releases_transaction_before_embedding(
 
 
 @pytest.mark.asyncio
+async def test_task_index_empty_draft_converges_without_source_change_retry(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+    repo: RagChunkRepository,
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.rag.indexing import IndexingService
+    from modules.writing.facade import create_draft_only
+
+    draft = await create_draft_only(
+        db_session,
+        test_project_id,
+        33,
+        content="",
+    )
+    task_session = _new_task_handler_session(db_session)
+
+    try:
+        outcome = await IndexingService(repo=repo).index_chapter_for_task(
+            task_session,
+            uuid.UUID(test_project_id),
+            33,
+            content_mode="working",
+        )
+        state = await RagIndexStateService()._get(  # noqa: SLF001
+            task_session,
+            novel_id=test_project_id,
+            chapter_index=33,
+            content_mode="working",
+            lock=False,
+        )
+
+        assert outcome.status == "indexed"
+        assert outcome.report.source_draft_id == draft.id
+        assert outcome.report.source_content_hash == draft.content_hash
+        assert outcome.report.chunks_created == 0
+        assert state is not None
+        assert state.status == "succeeded"
+        assert str(state.indexed_source_id) == draft.id
+        assert state.indexed_hash == draft.content_hash
+    finally:
+        await task_session.close()
+
+
+@pytest.mark.asyncio
 async def test_task_index_revalidates_same_source_row_after_embedding_checkpoint(
     tmp_path: Path,
 ) -> None:
@@ -1734,9 +1839,7 @@ async def test_embedding_writer_redacts_persisted_provider_diagnostics() -> None
 
     class FailingLLM:
         async def generate_embedding(self, _value):  # type: ignore[no-untyped-def]
-            raise RuntimeError(
-                f"Authorization: Bearer {secret} api_key={secret}"
-            )
+            raise RuntimeError(f"Authorization: Bearer {secret} api_key={secret}")
 
     chunk = SimpleNamespace(
         id=uuid.uuid4(),

@@ -142,6 +142,31 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       return
     }
     const projectId = state.currentProjectId
+    const rawStartChapter = String(form?.start ?? "").trim()
+    const rawEndChapter = String(form?.end ?? "").trim()
+    let chapterRange = null
+    if (rawStartChapter || rawEndChapter) {
+      if (!rawStartChapter || !rawEndChapter) {
+        toast("请同时填写起始章节和结束章节", "warning")
+        return false
+      }
+      const startChapter = Number(rawStartChapter)
+      const endChapter = Number(rawEndChapter)
+      if (
+        !Number.isInteger(startChapter)
+        || !Number.isInteger(endChapter)
+        || startChapter < 1
+        || endChapter < 1
+      ) {
+        toast("章节范围必须是大于等于 1 的整数", "warning")
+        return false
+      }
+      if (startChapter > endChapter) {
+        toast("结束章节不能小于起始章节", "warning")
+        return false
+      }
+      chapterRange = { startChapter, endChapter }
+    }
     const submission = beginMaintenanceSubmission()
     if (!submission) {
       toast("索引维护任务正在处理", "info")
@@ -151,11 +176,9 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       toast("正在重建索引...", "info")
       const payload = { novel_id: projectId }
       if (form?.contentMode) payload.content_mode = form.contentMode
-      const startChapter = Number(form?.start)
-      const endChapter = Number(form?.end)
-      if (!Number.isNaN(startChapter) && !Number.isNaN(endChapter) && startChapter >= 1 && endChapter >= 1 && startChapter <= endChapter) {
-        payload.start_chapter = startChapter
-        payload.end_chapter = endChapter
+      if (chapterRange) {
+        payload.start_chapter = chapterRange.startChapter
+        payload.end_chapter = chapterRange.endChapter
       }
       const result = await getApi().rag.rebuild(payload, { signal: ensureAbortController().signal })
       getApi().clearCache()

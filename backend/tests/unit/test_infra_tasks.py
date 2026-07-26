@@ -886,8 +886,7 @@ class TestTaskWorkerExecuteTask:
         secret = "private-token-value"
         handler = AsyncMock(
             return_value=(
-                "simple_string_result "
-                f"Authorization: Bearer {secret} api_key={secret}"
+                f"simple_string_result Authorization: Bearer {secret} api_key={secret}"
             )
         )
 
@@ -905,9 +904,7 @@ class TestTaskWorkerExecuteTask:
         assert finalize_kwargs["task_id"] == task_mock.id
         assert finalize_kwargs["lease_id"] == str(task_mock.lease_id or "")
         assert finalize_kwargs["status"] == "done"
-        assert finalize_kwargs["result_data"]["result"].startswith(
-            "simple_string_result"
-        )
+        assert finalize_kwargs["result_data"]["result"].startswith("simple_string_result")
         assert secret not in finalize_kwargs["result_data"]["result"]
 
     @pytest.mark.asyncio
@@ -1451,6 +1448,42 @@ class TestTaskWorkerHeartbeat:
 
 class TestTaskWorkerRecoverStale:
     """TaskWorker.recover_stale_tasks 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_final_stale_failure_reruns_domain_owner_reconcilers(self) -> None:
+        """宽限期后才终态的 owner 必须在同轮扫描中完成领域收敛。"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        recovery_session = AsyncMock()
+        reconcile_session = AsyncMock()
+        recovery_context = AsyncMock()
+        recovery_context.__aenter__ = AsyncMock(return_value=recovery_session)
+        recovery_context.__aexit__ = AsyncMock()
+        reconcile_context = AsyncMock()
+        reconcile_context.__aenter__ = AsyncMock(return_value=reconcile_session)
+        reconcile_context.__aexit__ = AsyncMock()
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(
+            side_effect=[recovery_context, reconcile_context]
+        )
+        reconciler = AsyncMock(return_value=1)
+        worker = TaskWorker(
+            db_manager=db_manager,
+            startup_reconcilers=(reconciler,),
+        )
+        worker._lifecycle.recover_stale = AsyncMock(
+            return_value={
+                "auto_requeued": 0,
+                "failed": 1,
+                "manual_resume": 0,
+            }
+        )
+
+        recovered = await worker.recover_stale_tasks()
+
+        assert recovered == 0
+        reconciler.assert_awaited_once_with(reconcile_session)
+        reconcile_session.commit.assert_awaited_once_with()
 
     @pytest.mark.asyncio
     async def test_recover_stale_tasks_marks_deep_import_recovery_required(

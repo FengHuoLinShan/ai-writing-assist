@@ -26,6 +26,8 @@ class CompileOptions:
     retrieval_purpose: str = "generic_context"
     """确定性检索用途；未知调用方使用 generic_context"""
     chapter_index: int | None = None
+    requested_chapter_index: int | None = None
+    """调用方确认的目标章节；Scene 可另行覆盖 chapter_index 作为检索锚点"""
     visible_until_chapter: int | None = None
     """RAG 读者进度上界；None 表示不启用未来章节硬过滤"""
     visible_until_scene_id: str | None = None

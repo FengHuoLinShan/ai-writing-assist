@@ -124,6 +124,50 @@ describe("errorLogger scoped buckets", () => {
     }
   })
 
+  it("redacts validation input using the sensitive field location", () => {
+    const marker = "provider-key-without-known-prefix"
+    window.errorLog._lastApiError = {
+      method: "PUT",
+      url: "/projects/project-a/llm-settings",
+      status: 422,
+      response: JSON.stringify({
+        detail: [{
+          type: "string_too_long",
+          loc: ["body", "api_key"],
+          msg: "String should have at most 4096 characters",
+          input: marker,
+        }],
+      }),
+    }
+
+    recordToastError("数据格式校验失败")
+
+    const stored = localStorage.getItem("_errorLog:global")
+    const uploaded = JSON.stringify(api.reportFrontendError.mock.calls[0][0])
+    expect(stored).toContain("[REDACTED]")
+    expect(uploaded).toContain("[REDACTED]")
+    expect(stored).not.toContain(marker)
+    expect(uploaded).not.toContain(marker)
+  })
+
+  it("drops malformed response diagnostics instead of retaining unknown input", () => {
+    const marker = "provider-key-in-truncated-json"
+    window.errorLog._lastApiError = {
+      method: "PUT",
+      url: "/projects/project-a/llm-settings",
+      status: 422,
+      response: `{"detail":[{"loc":["body","api_key"],"input":"${marker}`,
+    }
+
+    recordToastError("数据格式校验失败")
+
+    const entry = window.errorLog.getAll()[0]
+    const uploaded = JSON.stringify(api.reportFrontendError.mock.calls[0][0])
+    expect(entry.request.response).toBe("[REDACTED]")
+    expect(JSON.stringify(entry)).not.toContain(marker)
+    expect(uploaded).not.toContain(marker)
+  })
+
   it("clears only the current project bucket", () => {
     state.currentProjectId = "project-a"
     recordToastError("A")

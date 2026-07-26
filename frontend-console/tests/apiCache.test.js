@@ -178,6 +178,39 @@ describe("api.js cache behavior", () => {
     }
   })
 
+  it("redacts Pydantic validation input when its location is sensitive", async () => {
+    const previousErrorLog = window.errorLog
+    const marker = "provider-key-without-known-prefix"
+    window.errorLog = { _lastApiError: null }
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({
+        detail: [{
+          type: "string_too_long",
+          loc: ["body", "api_key"],
+          msg: "String should have at most 4096 characters",
+          input: marker,
+        }],
+      }),
+    }))
+
+    try {
+      await expect(window.api.request("/projects/project-a/llm-settings", {
+        method: "PUT",
+        body: JSON.stringify({ api_key: marker }),
+      })).rejects.toMatchObject({ status: 422 })
+
+      const diagnostic = window.errorLog._lastApiError
+      expect(diagnostic.response).toContain('"input":"[REDACTED]"')
+      expect(diagnostic.response).toContain('"msg":"String should have at most 4096 characters"')
+      expect(JSON.stringify(diagnostic)).not.toContain(marker)
+    } finally {
+      if (previousErrorLog === undefined) delete window.errorLog
+      else window.errorLog = previousErrorLog
+    }
+  })
+
   it("health check requests bypass cache by using unique _ts", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true,

@@ -151,6 +151,7 @@ export function useWritingWorkspace(props) {
   const autoExtraction = reactive({ open: false, stage: "scenes", start: 1, end: 1, highQuality: false, busy: false })
   const outlineFloat = reactive({ open: false, loading: false, threads: [], error: null })
   const versionDialog = reactive({ open: false, diffOpen: false, leftId: null, rightId: null, diff: null, loading: false, error: null })
+  const generationLoading = ref(false)
   const focusMode = ref(Boolean(props.authorPreferences?.defaultFocusMode))
   const forceDesktop = ref(false)
   const isNarrow = ref(typeof window !== "undefined" && window.innerWidth < 600)
@@ -264,6 +265,7 @@ export function useWritingWorkspace(props) {
     getScenes: () => scenes.value,
     editor,
     onResult: applyCommandResult,
+    onLoadingChange: (value) => { generationLoading.value = Boolean(value) },
   })
 
   function syncLegacyState() {
@@ -1168,6 +1170,7 @@ export function useWritingWorkspace(props) {
     selectedSceneId,
     currentScene,
     editorState,
+    generationLoading,
     publishProgress,
     conflictState,
     conflictOptions,

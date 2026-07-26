@@ -90,6 +90,9 @@ deep-import/stage task 转为 `failed + recovery_required`，由用户从冻结 
 worker 启动在通用 stale scan 后另做 imports/RAG owner reconciliation，覆盖迁移后的未来
 crash 窗口。imports 的 novel/task-scoped 懒恢复还会识别通用 retry 重新置为 pending 的
 terminal map run；若项目已有更新的 active/recovery run，则旧 map task 不得夺取 owner。
+当重启发生在 heartbeat 宽限期内，启动扫描尚不能判定旧 lease 已失活；因此后续 stale scan
+实际转换 task 状态后，必须再次运行同一组领域 owner reconciliation，不能把“只在进程启动时
+调用一次”当作 crash-window 正确性前提。
 
 ## 结果与非目标
 

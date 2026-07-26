@@ -59,9 +59,7 @@ class _TaskHandlerSession(AsyncSession):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._task_commit_hook: Callable[[], Awaitable[bool]] | None = None
-        self._task_progress_checkpoint_hook: Callable[[], Awaitable[bool]] | None = (
-            None
-        )
+        self._task_progress_checkpoint_hook: Callable[[], Awaitable[bool]] | None = None
         self._task_preflight_active = False
 
     def set_task_commit_hook(
@@ -190,9 +188,7 @@ class TaskWorker:
         | None = None,
         task_commit_guard: Callable[[AsyncSession, AsyncTask], Awaitable[bool]]
         | None = None,
-        startup_reconcilers: Sequence[
-            Callable[[AsyncSession], Awaitable[int]]
-        ] = (),
+        startup_reconcilers: Sequence[Callable[[AsyncSession], Awaitable[int]]] = (),
     ) -> None:
         self._db_manager = db_manager or get_manager()
         self._registry = TaskRegistry()
@@ -655,7 +651,9 @@ class TaskWorker:
         """处理超时未心跳的任务。
 
         deep_import 任务只标记为可恢复，由用户显式继续；其他任务沿用
-        自动恢复为 pending 的行为。
+        自动恢复为 pending 的行为。任何实际 stale 转换完成后都会重新
+        运行领域 owner reconciler，覆盖 worker 在心跳宽限期内重启、
+        直到后续扫描才确认旧 owner 已终态的时间窗。
 
         Returns:
             自动恢复为 pending 的任务数量，不包含 stale deep_import
@@ -673,7 +671,9 @@ class TaskWorker:
                     "Marked %d stale import tasks recoverable",
                     counts["manual_resume"],
                 )
-            return recovered
+        if counts["auto_requeued"] or counts["failed"]:
+            await self._run_startup_reconcilers()
+        return recovered
 
     async def _run_startup_reconcilers(self) -> None:
         if not self._startup_reconcilers:

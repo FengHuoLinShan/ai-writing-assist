@@ -123,6 +123,9 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 关键参数：
 
 - `context_mode`：`canonical` / `working`
+- `chapter_index`：实际检索锚点；跨章 Scene 可由编译器改为 Scene 的末章
+- `requested_chapter_index`：确认记录固定的作者目标章节。创建 confirmation 时由 context
+  从请求章节写入，writing 等消费者以此校验任务目标；仅旧确认记录缺失时才回退锚点
 - `include_pending_objects`：是否允许待处理对象进入本次上下文，默认关闭
 - `excluded_asset_ids`：显式排除的资产
 - `user_note`：用户对本次 AI 操作的补充提醒
@@ -136,6 +139,9 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
 
 `POST /api/context/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections` 和 `budget_events` 供前端展示。这些展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
+其中 `compile_options.chapter_index` 是实际检索锚点，而 `requested_chapter_index` 是作者确认的
+目标章节；两者在普通单章确认中相同。跨章 Scene 使用末章提高相关性时，必须保留后者，避免
+writing 将同一确认错误复用于锚点章节。
 结果引用回写使用行锁并刷新当前 ORM 快照，因此并发任务入队和产物 finalize
 不会用旧 `result_refs` 相互覆盖。
 

@@ -1583,9 +1583,12 @@ class WritingGenerationService:
         if not task_refs or task_refs[-1] != str(source_task_id):
             raise ValidationError("Writing generation task was superseded")
 
-        confirmed_chapter = dict(
+        compile_options = dict(
             getattr(confirmed_context, "compile_options", None) or {}
-        ).get("chapter_index")
+        )
+        confirmed_chapter = compile_options.get("requested_chapter_index")
+        if confirmed_chapter is None:
+            confirmed_chapter = compile_options.get("chapter_index")
         if confirmed_chapter is not None:
             try:
                 normalized_chapter = int(confirmed_chapter)

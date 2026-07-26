@@ -176,6 +176,11 @@ function _redactDiagnosticText(value) {
     )
 }
 
+function _hasSensitiveDiagnosticLocation(value) {
+  return Array.isArray(value?.loc)
+    && value.loc.some((segment) => _isSensitiveDiagnosticKey(segment))
+}
+
 function _redactDiagnosticValue(value, seen = new WeakSet()) {
   if (typeof value === "string") return _redactDiagnosticText(value)
   if (value == null || typeof value !== "object") return value
@@ -186,7 +191,10 @@ function _redactDiagnosticValue(value, seen = new WeakSet()) {
   }
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [
     key,
-    _isSensitiveDiagnosticKey(key) ? "[REDACTED]" : _redactDiagnosticValue(item, seen),
+    _isSensitiveDiagnosticKey(key)
+      || (key === "input" && _hasSensitiveDiagnosticLocation(value))
+      ? "[REDACTED]"
+      : _redactDiagnosticValue(item, seen),
   ]))
 }
 
@@ -380,9 +388,10 @@ async function request(path, options = {}) {
         let detail = "", responseBody = "", errorBody = null, rawDetail = ""
         try {
           errorBody = await resp.json()
+          errorBody = _redactDiagnosticValue(errorBody)
           rawDetail = errorBody.detail || errorBody.message || ""
           responseBody = _stringifyDiagnostic(errorBody)
-          detail = _formatErrorDetail(_redactDiagnosticValue(rawDetail))
+          detail = _formatErrorDetail(rawDetail)
         } catch (e) { console.warn("解析错误响应失败", e) }
 
         const msg = errorMap[resp.status] || `请求失败 (${resp.status})`

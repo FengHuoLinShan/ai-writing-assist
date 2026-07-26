@@ -32,9 +32,9 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 
 ### 架构与代码
 
-- 默认栈为 FastAPI、PostgreSQL async task queue；前端为 Vanilla JS → Vue 3 渐进迁移中
-  （ADR-0009）：迁移后的视图用 Vue SFC，经 `vue/mountIsland.js` 注册进既有 vanilla router，
-  组件只能经 `vue/bridge/index.js` 访问 vanilla 基建（禁裸全局）。新增基础设施、前端栈、
+- 默认栈为 FastAPI、PostgreSQL async task queue 与 Vue 3 SFC 前端（ADR-0009）。既有 hash
+  router 仍是窄的 route-host seam；业务页经 `vue/mountIsland.js` 注册，组件只能经
+  `vue/bridge/index.js` 访问 API、state、router、toast 等既有基建（禁裸全局）。新增基础设施、前端栈、
   数据库/队列/向量存储或强制类型门禁，须用户确认或 ADR。
 - 生产业务代码跨模块只能依赖 `contracts.py`、`facade.py` 或已注册 DI port；不得直接依赖
   其他模块的 `models.py`、`repositories.py`、`services.py`。测试、Alembic、ORM metadata
@@ -49,6 +49,9 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 ### 数据与安全
 
 - 所有业务读写保持 `novel_id` 隔离；API、LLM 输出和入库必须经过 Pydantic/调用方 schema。
+- 公开浏览器路径还必须同时遵守当前 account principal 与项目 `owner_id` 门禁；不得接受调用方
+  指定的 owner，也不得用 worker/system 身份绕过用户请求的 owner 校验。owner 边界不替代
+  `novel_id` 过滤。
 - 已采用对象默认不硬删除，优先历史状态；项目永久删除除外。上传仅允许
   `.txt .epub .html .htm .mobi .azw3`，且不超过 50MB。
 - 实体抽取只保留长期创作资产；别名附着已有对象，不创建重复实体。

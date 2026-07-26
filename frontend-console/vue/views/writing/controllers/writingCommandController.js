@@ -11,8 +11,10 @@ export function createWritingCommandController({
   getScenes,
   editor,
   onResult,
+  onLoadingChange = () => {},
 }) {
   let generation = 0
+  let generating = false
   let disposed = false
   let waitTimer = null
 
@@ -69,8 +71,16 @@ export function createWritingCommandController({
       toast("请先选择章节", "warning")
       return null
     }
+    if (generating) {
+      toast("正文建议正在生成，请稍候", "warning")
+      return null
+    }
     if (editor.isReadonly()) {
       toast("当前内容只读；待处理建议不会作为工作稿参考", "warning")
+      return null
+    }
+    if (mode === "continue" && !editor.getContent().trim()) {
+      toast("当前正文为空，请先写入并暂存正文，再续写", "warning")
       return null
     }
     if (mode === "continue" && (!editor.getDraftId() || editor.getContent() !== editor.getLoadedContent())) {
@@ -81,6 +91,8 @@ export function createWritingCommandController({
       toast(scene ? "当前 Scene 未设置 POV 角色" : "当前章节未关联 Scene", "warning")
       return null
     }
+    generating = true
+    onLoadingChange(true)
     const token = ++generation
     try {
       const pov = mode === "pov"
@@ -121,12 +133,19 @@ export function createWritingCommandController({
       if (String(err?.message || "").includes("取消")) return null
       toast(err?.message || "正文建议生成失败", "error")
       return null
+    } finally {
+      if (token === generation) {
+        generating = false
+        onLoadingChange(false)
+      }
     }
   }
 
   function dispose() {
     disposed = true
     generation += 1
+    generating = false
+    onLoadingChange(false)
     if (waitTimer) clearTimeout(waitTimer)
     waitTimer = null
   }

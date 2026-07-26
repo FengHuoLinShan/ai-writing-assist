@@ -166,6 +166,10 @@ revision/source/block hash、section/token metadata 和后续产物引用。
 `budget_events` 记录预算执行过程，包含 `section_key`、`event_type`、`reason`、`before_tokens`、`after_tokens`、`tier`。被 evict 的 section 不再返回正文，但会通过 `budget_events` 告知前端“已移除”；被 truncate 的 section 保留裁剪后的正文和裁剪原因。
 
 `context_confirmations` 仍只持久化摘要字段：`selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等。`sections` 和 `budget_events` 是本次编译的实时展示结果，不写入确认记录。
+当 Scene 跨章且编译器用 Scene 的末章作为相关性检索锚点时，
+`compile_options.chapter_index` 记录该有效锚点，
+`compile_options.requested_chapter_index` 保留用户确认的目标章节，供 writing 等消费方
+校验本次确认没有被复用于其他章节。
 任务 finalize 需要消费当前 confirmation owner 时可使用 `for_update=True`；
 结果引用绑定本身也会锁定该行并刷新 identity map，避免并发 task/candidate
 回写相互覆盖 `result_refs`。
@@ -387,6 +391,8 @@ POST /api/context/snapshots/maintenance
 | `scene_id` | Scene-centric 编译入口 |
 | `context_mode` | `canonical` 或 `working` |
 | `content_mode` | 正文事实源和 RAG 索引视图：`canonical` / `working` |
+| `chapter_index` | 实际检索锚点；跨章 Scene 可使用 Scene 的末章 |
+| `requested_chapter_index` | confirmation 固定的作者目标章节；writing 等消费方优先用它校验任务目标，旧记录缺失时才回退 `chapter_index` |
 | `include_pending_objects` | 是否显式纳入未采用/review 对象；默认 false |
 | `reveal_mode` | `author_safe / author_full / reader / character` |
 | `visible_until_chapter` | RAG 读者进度上界；为空时单章上下文默认使用 `chapter_index` |

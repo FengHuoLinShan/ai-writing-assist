@@ -167,6 +167,10 @@ worker 启动先执行通用 stale-task recovery，再在同一独立事务调�
 reconciler。当前 RAG 会清理/补排失活 index owner，imports 会把 run 与 task 的
 pending/running/terminal/manual-resume 状态收敛并同步或清空 attempt/lease owner；任一
 reconciler 失败则启动恢复事务回滚，不以半套 owner 状态继续工作。
+如果 worker 在旧心跳仍处于宽限期时重启，启动扫描可能暂时保留旧 running owner；后续 stale
+scanner 一旦实际把 task 自动重排或终态化，会立即再运行同一组领域 reconciler。这样最终
+heartbeat timeout 不会让 RAG/imports 领域状态继续指向 failed task，且 keyed 唯一约束与领域
+generation fence 仍负责多 worker 收敛。
 
 `GET /api/tasks/{task_id}` 加性返回 `attempt / max_attempts / stale / lifecycle /
 available_actions`。前端只渲染后端返回的固定 action，不根据 heartbeat 或 task type

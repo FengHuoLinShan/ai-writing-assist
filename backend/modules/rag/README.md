@@ -57,6 +57,8 @@ source，通过 lease/project fence checkpoint 释放读事务并立即过期 se
 identity map，再生成 embedding；入库前重新取 project lock，并在同一索引状态锁下
 校验 source ID/hash。成功替换 chunk 和
 完成 index state 后立即 fenced commit，不把 state/chunk 锁带入下一章或 memory 阶段。
+存在但正文为空的 draft 仍是具体版本源：保留其 source ID/hash，以 0 chunk 正常完成并清除旧
+chunk；只有确实不存在 draft 才使用空 source。这样空章也能收敛为 fresh，不会被误判为并发改稿。
 预计算期间若产生新 source，旧计划不入库，最多重新读取 3 次；同一 source 的
 重复任务先按 `("chapter_index", chapter_index, content_mode)` 通过 tasks facade 和数据库
 部分唯一索引合并；RAG state 再以 `active_task_id + generation` 领取 owner。claim、
@@ -68,6 +70,9 @@ embedding 时间。这只改变内部事务切分，不改变 RAG API、chunk sc
 worker 启动时 reconciliation 会锁定仍有 owner 的 index state：owner task 不再活跃时清除
 旧 owner、递增 generation，并按当前 requested source 确保一个新的 keyed task。该修复只
 恢复排队与 owner，不把过期 source 伪装成 fresh；真正入库仍重验 source ID/hash。
+reconciliation 只处理 active project；项目进入回收站后保留可重建 state/chunk，但不再为已取消
+或终态 owner 补排任务，避免与 worker 的 active-project 门禁形成 timeout/重排循环。项目恢复后
+由后续索引请求或 worker reconciliation 重新接管 stale state。
 
 ## 检索类型
 

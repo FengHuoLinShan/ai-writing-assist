@@ -54,6 +54,7 @@
         :editor-font="authorPreferences.editorFont"
         :daily-goal="authorPreferences.dailyGoal"
         :focus-mode="vm.focusMode.value"
+        :generation-loading="vm.generationLoading.value"
         :conflict-loading="vm.conflictState.loading"
         :attach="vm.attachEditor"
         :detach="vm.detachEditor"

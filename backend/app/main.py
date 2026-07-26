@@ -19,6 +19,8 @@ from contextlib import asynccontextmanager
 from app.bootstrap import register_container_services
 from app.http_rate_limit import HttpRateLimitMiddleware
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.errors import ServerErrorMiddleware
@@ -531,6 +533,31 @@ else:
 # ---------------------------------------------------------------------------
 # 异常处理器
 # ---------------------------------------------------------------------------
+
+
+def _omit_validation_error_input(value: object) -> object:
+    """Remove request values from validation diagnostics before serialization."""
+    if isinstance(value, dict):
+        return {
+            key: _omit_validation_error_input(item)
+            for key, item in value.items()
+            if key != "input"
+        }
+    if isinstance(value, list | tuple):
+        return [_omit_validation_error_input(item) for item in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    _request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    """Return useful validation metadata without echoing submitted values."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(_omit_validation_error_input(exc.errors()))},
+    )
 
 
 @app.exception_handler(DomainError)

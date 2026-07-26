@@ -34,6 +34,9 @@ def _task_scope(chapter_index: int, content_mode: str) -> tuple[str, ...]:
 class RagIndexStateService:
     async def reconcile_owners(self, db: AsyncSession) -> int:
         """Repair orphaned task owners at worker startup."""
+        from modules.project.facade import list_active_projects
+
+        active_novel_ids = {str(project.id) for project in await list_active_projects(db)}
         state_keys = list(
             (
                 await db.execute(
@@ -48,11 +51,16 @@ class RagIndexStateService:
                         )
                     )
                 )
-            )
-            .all()
+            ).all()
         )
         repaired = 0
         for novel_id, chapter_index, content_mode in state_keys:
+            if str(novel_id) not in active_novel_ids:
+                # Project soft deletion already cancels active tasks. Keep the
+                # rebuildable index state for a possible restore, but never
+                # create background work that the worker project gate must
+                # reject while the project remains in the recycle bin.
+                continue
             await self._lock_state_key(
                 db,
                 novel_id=str(novel_id),
@@ -749,14 +757,11 @@ class RagIndexStateService:
         novel_id: str,
         task_id: str,
     ) -> bool:
-        return (
-            await RagIndexStateService._owner_status(
-                db,
-                novel_id=novel_id,
-                task_id=task_id,
-            )
-            in {"pending", "running"}
-        )
+        return await RagIndexStateService._owner_status(
+            db,
+            novel_id=novel_id,
+            task_id=task_id,
+        ) in {"pending", "running"}
 
     @staticmethod
     async def _owner_status(

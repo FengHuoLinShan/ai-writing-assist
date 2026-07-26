@@ -124,6 +124,10 @@ AI 能力是显式追加流程，不替代规则层结果：
 `POST /api/writing/generate` 只创建作者可见的正文建议。兼容期底层仍保存为
 `status="candidate"`，但它不会进入 latest working、项目正文统计、原文 grep 或 RAG
 working 来源，也不会自动发布。
+生成任务会把确认记录的 `compile_options.requested_chapter_index` 与请求目标章作失败关闭的
+一致性校验。跨章 Scene 为提高检索相关性可把 `chapter_index` 改为 Scene 末章锚点；它不改变
+作者此次要生成的章节，也不能让该 confirmation 复用于锚点章节。仅历史 confirmation
+缺少 `requested_chapter_index` 时兼容读取 `chapter_index`。
 入队会固定 secret-free 项目 LLM execution snapshot。worker 在有 lease fence 的
 prepare 中冻结 prompt、确认上下文/证据指纹和 POV hidden guard，提交后才等待
 provider；finalize 会按 project-first 顺序重验 profile、上下文与当前最新 running task owner。

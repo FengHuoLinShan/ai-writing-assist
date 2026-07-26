@@ -2,11 +2,16 @@
 
 ## 定位
 
-project 模块是系统的根聚合。所有其他模块通过 novel_id 关联到项目。
+project 模块是每部小说的根聚合。所有小说业务模块通过 `novel_id` 关联到项目；公开身份与
+浏览器会话由 `account` 拥有，project 只通过 account facade 执行 owner 门禁。
 
 ## 数据表
 
-- `projects` — id / title / genre / tone / language / target_length / current_stage / default_reveal_policy / settings / deleted_at
+- `projects` — id / owner_id / title / genre / tone / language / target_length / current_stage / default_reveal_policy / settings / deleted_at
+
+`owner_id → accounts.id` 非空。项目 API、回收站、项目上下文和 worker 提交门禁均按当前
+owner 过滤；跨账号访问返回 404，业务响应不返回 `owner_id`。owner 门禁不替代任何
+`novel_id` 查询条件。
 
 ### settings 字段
 

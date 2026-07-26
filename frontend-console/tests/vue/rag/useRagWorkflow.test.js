@@ -65,15 +65,33 @@ describe("rebuildIndex", () => {
     scope.stop()
   })
 
-  it("章节区间不完整时不写入范围", async () => {
+  it("章节区间不完整时拒绝提交，避免静默退化为全量重建", async () => {
     globalThis.api.rag.rebuild = vi.fn(async () => ({ task_id: "t1" }))
     const scope = effectScope()
     const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
-    await workflow.rebuildIndex({ contentMode: "canonical", start: "", end: "3" })
-    expect(globalThis.api.rag.rebuild).toHaveBeenCalledWith(
-      expect.not.objectContaining({ start_chapter: expect.anything() }),
-      expect.any(Object),
-    )
+    expect(await workflow.rebuildIndex({ contentMode: "canonical", start: "", end: "3" })).toBe(false)
+    expect(globalThis.api.rag.rebuild).not.toHaveBeenCalled()
+    expect(globalThis.toast).toHaveBeenCalledWith("请同时填写起始章节和结束章节", "warning")
+    scope.stop()
+  })
+
+  it("章节区间反向时拒绝提交，避免静默退化为全量重建", async () => {
+    globalThis.api.rag.rebuild = vi.fn(async () => ({ task_id: "t1" }))
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
+    expect(await workflow.rebuildIndex({ contentMode: "working", start: "62", end: "61" })).toBe(false)
+    expect(globalThis.api.rag.rebuild).not.toHaveBeenCalled()
+    expect(globalThis.toast).toHaveBeenCalledWith("结束章节不能小于起始章节", "warning")
+    scope.stop()
+  })
+
+  it("章节区间不是正整数时拒绝提交", async () => {
+    globalThis.api.rag.rebuild = vi.fn(async () => ({ task_id: "t1" }))
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
+    expect(await workflow.rebuildIndex({ contentMode: "working", start: "0", end: "1.5" })).toBe(false)
+    expect(globalThis.api.rag.rebuild).not.toHaveBeenCalled()
+    expect(globalThis.toast).toHaveBeenCalledWith("章节范围必须是大于等于 1 的整数", "warning")
     scope.stop()
   })
 

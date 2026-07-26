@@ -53,28 +53,38 @@ async def collect_chapter_sources(
         content_mode=content_mode,
     )
     draft = drafts[0] if drafts else None
-    if not draft or not draft.content:
+    if not draft:
         return None
 
-    (
-        scenes_for_chapter_value,
-        scene_spans_for_chapter_value,
-        project_terms,
-        entity_importance_map,
-    ) = await collect_annotation_sources(
-        db,
-        novel_id,
-        chapter_index,
-        content_mode=content_mode,
-        draft=draft,
-    )
+    if draft.content:
+        (
+            scenes_for_chapter_value,
+            scene_spans_for_chapter_value,
+            project_terms,
+            entity_importance_map,
+        ) = await collect_annotation_sources(
+            db,
+            novel_id,
+            chapter_index,
+            content_mode=content_mode,
+            draft=draft,
+        )
+    else:
+        # An empty draft is still a concrete, versioned manuscript source.
+        # Retaining its identity lets task preflight agree with the writing
+        # source fence, remove any stale chunks, and mark the empty version
+        # fresh instead of retrying forever as an apparent source change.
+        scenes_for_chapter_value = []
+        scene_spans_for_chapter_value = []
+        project_terms = []
+        entity_importance_map = {}
 
     return ChapterIndexSources(
         source_draft_id=str(draft.id),
         source_version_number=draft.version_number,
         source_content_hash=draft.content_hash,
         content_mode=content_mode,
-        content=draft.content,
+        content=draft.content or "",
         scenes_for_chapter=scenes_for_chapter_value,
         scene_spans_for_chapter=scene_spans_for_chapter_value,
         project_terms=project_terms,

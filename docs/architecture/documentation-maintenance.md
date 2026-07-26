@@ -33,7 +33,7 @@ README（若其中描述了被重排的实现），无需更新总览。
 
 | 变更事实 | 必查文档 | 何时更新 |
 |---|---|---|
-| 模块清单、职责、依赖方向、技术拓扑 | `docs/00_整体设计.md`、`docs/architecture/module-architecture.html`、`docs/architecture/README.md` | 模块或跨模块边界改变时 |
+| 模块清单、职责、依赖方向、技术拓扑 | `docs/00_整体设计.md`、`docs/architecture/module-architecture.drawio`、`docs/architecture/module-architecture.html`、`docs/architecture/README.md` | 模块或跨模块边界改变时；Draw.io 是可编辑图源，HTML 是兼容预览 |
 | 稳定接口、领域职责、路由、依赖、测试入口 | 对应 `backend/modules/<name>/README.md`；必要时 `docs/modules/<nn>_<name>.md` | 对外能力或本模块契约改变时 |
 | 领域词汇、状态投影、资产归属、采用/可见性语义 | `CONTEXT.md` | 作者或跨模块消费者对概念的理解改变时 |
 | 表、外键、索引、唯一约束、派生/事实边界 | `docs/01_数据库设计.md`、对应模块 README | ORM 或 Alembic 改变时 |
@@ -90,11 +90,13 @@ rg -n "<已移除模块或旧术语>" docs CONTEXT.md backend/modules
 再按改动运行受影响模块测试和 lint。涉及 schema 时，将 Alembic head、模型注册和对应测试
 作为证据；涉及 API/wire 时，将 API 或前端测试作为证据；涉及 Prompt 时运行
 `make prompt-contracts`（若该契约系统覆盖本次变更）。不要把“文档已写”当作实现正确的证据。
+修改 Draw.io 图源时，还要验证 XML 可解析、无悬空边或重复 ID，并核对图中的模块数量、
+分层和箭头标签与整体设计及稳定接口一致；HTML 预览至少同步模块清单、边界说明和已移除术语。
 
 ### E. 合并后的轻量复核
 
 合并或一批 PR 落地后，由该轮负责人只做一次 10 分钟复核：确认索引链接有效、当前文档
-没有指向已删除文件、架构图仍显示正确模块数与边界。发现跨 PR 漂移时，立即建立一个
+没有指向已删除文件、Draw.io 图源与 HTML 预览仍显示正确模块数与边界。发现跨 PR 漂移时，立即建立一个
 范围明确的文档修复项并标注 owner；不得把未完成的当前文档修复藏进长期 backlog。
 
 ## 5. PR / 开发轮记录模板

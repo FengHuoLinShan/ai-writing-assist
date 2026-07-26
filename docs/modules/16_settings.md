@@ -13,8 +13,9 @@ settings 模块拥有全局 LLM 默认、全局作者偏好和项目级作者偏
 | `global_author_preferences` | owner | 每个 `owner_id` 最多一行的作者偏好默认。 |
 | `project_author_preferences` | project | 每个 `project_id` 最多一行的覆盖值；NULL 表示继承全局。 |
 
-demo 阶段使用 `LOCAL_OWNER_ID`（nil UUID）代表本地 owner。后续加入账户系统时由鉴权
-层替换 owner 解析，不需要改变以上表的隔离形状。
+`LOCAL_OWNER_ID` 是 bootstrap account 的 nil UUID 别名，不再是未接入账户系统的占位。
+本地和封闭测试会自动解析为该账号；公开浏览器请求必须从当前 account principal 解析 owner，
+不得由请求参数指定。worker 通过项目上下文携带 owner，不能回退读取其他账号的全局默认。
 
 ## 安全与继承规则
 
