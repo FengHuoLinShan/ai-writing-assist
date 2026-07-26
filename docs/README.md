@@ -42,8 +42,9 @@
   记录的分类。`superpowers/plans/` 中的旧计划不是当前需求或架构契约，维护时只更新分类，
   不回写历史计划正文。
 - `audit/`、`archive/maintenance/document-update-log.md` 和已完成验收报告是时间点记录，不作为当前状态判断依据。
-- [`architecture/README.md`](architecture/README.md) 分类架构图：只有模块架构图维护当前
-  模块清单；`diagrams/` 下的旧图仅作历史视觉参考。
+- [`architecture/README.md`](architecture/README.md) 分类架构图：当前模块图以
+  `module-architecture.drawio` 为可编辑图源、HTML 为兼容预览；`diagrams/` 下的旧图仅作
+  历史视觉参考。
 
 ## 子模块文档
 

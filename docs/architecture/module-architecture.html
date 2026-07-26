@@ -67,7 +67,13 @@
       padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit;
       font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap;
     }
-    .toolbar-actions button:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    .toolbar-actions a {
+      background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8;
+      padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit;
+      font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+      text-decoration: none;
+    }
+    .toolbar-actions button:hover, .toolbar-actions a:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
     @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
   </style>
 </head>
@@ -79,6 +85,7 @@
       <h1>AI 小说创作系统 — 模块架构图</h1>
       <div class="toolbar">
         <div class="toolbar-actions">
+          <a href="module-architecture.drawio" download>✏️ Draw.io</a>
           <button onclick="copyAsImage(this)">📋 Copy</button>
           <button onclick="downloadPNG(this)">🖼️ PNG</button>
           <button onclick="downloadPDF(this)">📄 PDF</button>
@@ -86,7 +93,7 @@
         <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
       </div>
     </div>
-    <p class="subtitle">FastAPI 后端 · 9 个业务模块 · 三层架构 · PostgreSQL 异步任务队列</p>
+    <p class="subtitle">浏览器兼容预览 · 10 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
   </div>
 
   <div class="diagram-container">
@@ -151,21 +158,17 @@
       <path d="M 240 530 Q 240 490 435 470" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
       <text x="300" y="503" fill="#22d3ee" font-size="7">generate_plot</text>
 
-      <!-- A9: world → rag (entity extraction uses rag chunks) -->
+      <!-- A9: world → rag (entity terms) -->
       <path d="M 330 280 Q 550 240 770 280" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
-      <text x="550" y="253" fill="#fbbf24" font-size="7" text-anchor="middle">chapter_chunks</text>
+      <text x="550" y="253" fill="#fbbf24" font-size="7" text-anchor="middle">entity_terms</text>
 
-      <!-- A10: memory → world (snapshot needs full world state) -->
-      <path d="M 410 310 L 330 310" fill="none" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-      <text x="370" y="303" fill="#fb923c" font-size="7" text-anchor="middle">get_full_state</text>
-
-      <!-- A11: rag → world (term matching) -->
+      <!-- A11: rag → world (activity projection) -->
       <path d="M 770 310 L 330 310" fill="none" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-      <text x="550" y="303" fill="#fb923c" font-size="7" text-anchor="middle">entity_terms</text>
+      <text x="550" y="303" fill="#fb923c" font-size="7" text-anchor="middle">activity_stats</text>
 
-      <!-- A12: rag → writing (re-index needs drafts) -->
+      <!-- A12: rag → writing (index source read) -->
       <path d="M 940 355 L 940 530" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-      <text x="960" y="445" fill="#34d399" font-size="7" text-anchor="start">re-index</text>
+      <text x="960" y="445" fill="#34d399" font-size="7" text-anchor="start">source read</text>
 
       <!-- A13: outline → context (bidirectional) -->
       <path d="M 550 470 L 550 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
@@ -173,55 +176,64 @@
 
       <!-- A14: context → outline (bidirectional) -->
       <path d="M 560 530 L 560 470" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="570" y="503" fill="#a78bfa" font-size="7" text-anchor="start">arc/threads</text>
+      <text x="570" y="503" fill="#a78bfa" font-size="7" text-anchor="start">confirmation</text>
 
       <!-- A15: imports → writing (list_chapter_indices) -->
       <path d="M 350 600 L 770 600" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
       <text x="560" y="593" fill="#22d3ee" font-size="7" text-anchor="middle">list_chapters</text>
 
-      <!-- ===== TIER 1: CORE LAYER ===== -->
+      <!-- A16: account → project (owner gate) -->
+      <path d="M 280 130 L 310 130" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="295" y="122" fill="#fbbf24" font-size="7" text-anchor="middle">owner</text>
+
+      <!-- ===== PLATFORM BOUNDARY ===== -->
       <rect x="40" y="60" width="1020" height="125" rx="10" fill="rgba(120, 53, 15, 0.08)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="55" y="78" fill="#fbbf24" font-size="10" font-weight="600">核心层 Core Layer — 管理 / 调度</text>
+      <text x="55" y="78" fill="#fbbf24" font-size="10" font-weight="600">平台边界 Platform — 身份 / 项目 / 配置 / 调度</text>
+
+      <!-- account box -->
+      <rect x="60" y="95" width="220" height="70" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="60" y="95" width="220" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="170" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">account 账号</text>
+      <text x="170" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">身份 · 会话 · owner 门禁</text>
 
       <!-- project box -->
-      <rect x="120" y="95" width="280" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="120" y="95" width="280" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="260" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">project 项目管理</text>
-      <text x="260" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">Project CRUD · novel_id 全局隔离</text>
+      <rect x="310" y="95" width="220" height="70" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="310" y="95" width="220" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="420" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">project 项目管理</text>
+      <text x="420" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">Project CRUD · owner + novel scope</text>
 
       <!-- settings box -->
-      <rect x="470" y="95" width="280" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="470" y="95" width="280" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="610" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">settings 设置</text>
-      <text x="610" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">全局默认 · 作者偏好 · 项目覆盖</text>
-      <text x="260" y="152" fill="#fbbf24" font-size="8" text-anchor="middle">零跨模块依赖 — 根聚合</text>
+      <rect x="560" y="95" width="220" height="70" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="560" y="95" width="220" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="670" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">settings 设置</text>
+      <text x="670" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">全局默认 · 作者偏好 · 项目覆盖</text>
 
-      <!-- tasks box -->
-      <rect x="700" y="95" width="280" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="700" y="95" width="280" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="840" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">tasks 异步任务调度</text>
-      <text x="840" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">enqueuer → worker · PostgreSQL 队列</text>
-      <text x="840" y="152" fill="#fbbf24" font-size="8" text-anchor="middle">@infrastructure/tasks</text>
+      <!-- shared infrastructure box -->
+      <rect x="810" y="95" width="220" height="70" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="810" y="95" width="220" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="920" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">tasks / llm 共享基础设施</text>
+      <text x="920" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">任务队列 · worker · 受控 LLM step</text>
+      <text x="920" y="152" fill="#fbbf24" font-size="8" text-anchor="middle">@infrastructure</text>
 
-      <!-- ===== TIER 2: DATA LAYER ===== -->
+      <!-- ===== FACTS + DERIVED RETRIEVAL ===== -->
       <rect x="40" y="210" width="1020" height="175" rx="10" fill="rgba(76, 29, 149, 0.08)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="55" y="228" fill="#a78bfa" font-size="10" font-weight="600">数据层 Data Layer — 数据存储 / 处理</text>
+      <text x="55" y="228" fill="#a78bfa" font-size="10" font-weight="600">事实层 + 派生检索 Facts + Derived Retrieval</text>
 
       <!-- world box -->
       <rect x="60" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="60" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
       <text x="190" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">world 世界观引擎</text>
       <text x="190" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">实体 / 人物 / 事件 / 关系</text>
-      <text x="190" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">AI 实体抽取 · 状态组装</text>
-      <text x="190" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">→ writing（正文）→ rag（分块）</text>
+      <text x="190" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">世界书 · map 子系统</text>
+      <text x="190" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">事实持久化 · 受控采用</text>
 
       <!-- memory box -->
       <rect x="420" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="420" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
       <text x="550" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">memory 记忆系统</text>
-      <text x="550" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">事件记录 · 全景快照</text>
-      <text x="550" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">按章节组织</text>
-      <text x="550" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">→ world（全状态）</text>
+      <text x="550" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">MemoryEvent · DeltaLog</text>
+      <text x="550" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">Scene checkpoint / snapshot</text>
+      <text x="550" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">确定性历史重放</text>
 
       <!-- rag box -->
       <rect x="780" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
@@ -231,18 +243,18 @@
       <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">向量 + 关键词 + 项目词典 + 关系 + 重要性</text>
       <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">→ world（术语）→ writing（正文）</text>
 
-      <!-- ===== TIER 3: OUTLINE ===== -->
+      <!-- ===== STRUCTURE LAYER ===== -->
       <rect x="100" y="400" width="900" height="75" rx="8" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="115" y="416" fill="#22d3ee" font-size="10" font-weight="600">剧情结构 Outline — 剧情规划</text>
+      <text x="115" y="416" fill="#22d3ee" font-size="10" font-weight="600">结构层 Outline — 剧情规划</text>
 
       <rect x="400" y="418" width="300" height="45" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="400" y="418" width="300" height="45" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
       <text x="550" y="438" fill="white" font-size="12" font-weight="600" text-anchor="middle">outline 剧情结构</text>
-      <text x="550" y="453" fill="#94a3b8" font-size="8" text-anchor="middle">剧情线 CRUD · 篇章纲 · AI 生成</text>
+      <text x="550" y="453" fill="#94a3b8" font-size="8" text-anchor="middle">StoryOutline · PlotThread / Arc · Scene</text>
 
-      <!-- ===== TIER 4: APPLICATION LAYER ===== -->
+      <!-- ===== SUPPORTING WORKFLOWS ===== -->
       <rect x="40" y="500" width="1020" height="165" rx="10" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="55" y="518" fill="#34d399" font-size="10" font-weight="600">应用层 Application Layer — 业务编排</text>
+      <text x="55" y="518" fill="#34d399" font-size="10" font-weight="600">辅助层 Supporting Workflows — 导入 / 上下文 / 写作</text>
 
       <!-- imports box -->
       <rect x="60" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
@@ -258,7 +270,7 @@
       <text x="550" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">context 上下文编译</text>
       <text x="550" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">结构化 LLM 上下文</text>
       <text x="550" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">拉取 project/world/memory/rag/outline</text>
-      <text x="550" y="614" fill="#34d399" font-size="8" text-anchor="middle">终极消费者 · Markdown 渲染</text>
+      <text x="550" y="614" fill="#34d399" font-size="8" text-anchor="middle">确认 · snapshot · provenance</text>
 
       <!-- writing box -->
       <rect x="780" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
@@ -266,7 +278,7 @@
       <text x="910" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">writing 写作核心</text>
       <text x="910" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">草稿 CRUD</text>
       <text x="910" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">publish → rag（索引）+ memory（快照）</text>
-      <text x="910" y="614" fill="#34d399" font-size="8" text-anchor="middle">内容消费链起点</text>
+      <text x="910" y="614" fill="#34d399" font-size="8" text-anchor="middle">正文事实源</text>
 
       <!-- ===== LEGEND ===== -->
       <rect x="60" y="690" width="980" height="72" rx="6" fill="rgba(15, 23, 42, 0.6)" stroke="#1e293b" stroke-width="1"/>
@@ -274,16 +286,16 @@
 
       <!-- Legend items in two rows -->
       <rect x="75" y="718" width="14" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
-      <text x="94" y="726" fill="#94a3b8" font-size="8">核心层</text>
+      <text x="94" y="726" fill="#94a3b8" font-size="8">平台/共享</text>
 
       <rect x="145" y="718" width="14" height="10" rx="2" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1"/>
-      <text x="164" y="726" fill="#94a3b8" font-size="8">数据层</text>
+      <text x="164" y="726" fill="#94a3b8" font-size="8">事实/检索</text>
 
       <rect x="215" y="718" width="14" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
-      <text x="234" y="726" fill="#94a3b8" font-size="8">剧情结构</text>
+      <text x="234" y="726" fill="#94a3b8" font-size="8">结构层</text>
 
       <rect x="300" y="718" width="14" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
-      <text x="319" y="726" fill="#94a3b8" font-size="8">应用层</text>
+      <text x="319" y="726" fill="#94a3b8" font-size="8">辅助层</text>
 
       <line x1="385" y1="723" x2="410" y2="723" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
       <text x="415" y="726" fill="#94a3b8" font-size="8">数据→上下文</text>
@@ -298,7 +310,7 @@
       <text x="740" y="726" fill="#94a3b8" font-size="8">层内调用</text>
 
       <line x1="810" y1="723" x2="835" y2="723" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-      <text x="840" y="726" fill="#94a3b8" font-size="8">逆向依赖</text>
+      <text x="840" y="726" fill="#94a3b8" font-size="8">回读/消费</text>
 
       <line x1="915" y1="723" x2="940" y2="723" stroke="#a78bfa" stroke-width="1.5"/>
       <polygon points="940,719 948,723 940,727" fill="#a78bfa"/>
@@ -313,8 +325,8 @@
         <h3>模块数量</h3>
       </div>
       <ul>
-        <li>• 9 个活动业务模块（project / settings / imports / world / memory / outline / rag / context / writing）</li>
-        <li>• map 是 world 子系统；infrastructure/tasks 是共享基础设施，不是业务模块</li>
+        <li>• 10 个活动业务模块（account / project / settings / imports / world / memory / outline / rag / context / writing）</li>
+        <li>• account 是公开身份与项目 owner 边界；map 是 world 子系统；tasks / llm 是共享基础设施</li>
         <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
       </ul>
     </div>
@@ -333,18 +345,18 @@
     <div class="card">
       <div class="card-header">
         <div class="card-dot cyan"></div>
-        <h3>循环依赖风险</h3>
+        <h3>边界与读图</h3>
       </div>
       <ul>
-        <li>• 循环A: writing → rag → world → writing（publish → 索引 → 抽取 → publish）</li>
-        <li>• 循环B: writing → memory → world → writing（publish → 快照 → 抽取 → publish）</li>
-        <li>• 缓解: 懒加载 + 任务队列 + 独立 DB session</li>
-        <li>• 残余: 运行时同步调用链未消除，测试需 mock 整条链</li>
+        <li>• 公开请求同时受 account owner 与 project novel_id 门禁，两者互不替代</li>
+        <li>• map 是 world 子系统；tasks / llm 是共享基础设施</li>
+        <li>• 箭头表示主要调用或资料流，不是生产代码 import 图</li>
+        <li>• 当前分层与可编辑图源以 module-architecture.drawio 为准</li>
       </ul>
     </div>
   </div>
 
-  <p class="footer">AI 小说创作系统 · minimal-core 分支 · FastAPI + SQLAlchemy + PostgreSQL · 2026-06-03</p>
+  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-07-25</p>
 </div>
 
 <script>
