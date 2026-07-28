@@ -7,6 +7,7 @@ from modules.account import email_sender
 class _FakeSmtpClient:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.messages = []
 
     def __enter__(self):
         return self
@@ -29,6 +30,7 @@ class _FakeSmtpClient:
     def send_message(self, message) -> None:
         assert message["To"] == "reader@example.com"
         self.calls.append("send")
+        self.messages.append(message)
 
 
 def _settings(mode: str) -> Settings:
@@ -91,6 +93,14 @@ def test_sender_uses_starttls_for_starttls_mode(monkeypatch) -> None:
     )
 
     assert client.calls == ["ehlo", "starttls", "ehlo", "login", "send"]
+    assert str(client.messages[0]["From"]) == (
+        "NovalCraft <sender@example.com>"
+    )
+    assert client.messages[0].get_content() == (
+        "验证码：123456。\n\n"
+        "有效期：5 分钟。\n"
+        "请勿转发。如果不是你本人操作，可以忽略此邮件。\n"
+    )
 
 
 def test_sender_uses_implicit_tls_for_ssl_mode(monkeypatch) -> None:
