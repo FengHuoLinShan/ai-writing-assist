@@ -12,6 +12,8 @@
    API/schema/wire contract 风险。
 3. 涉及架构、数据库、共享层或 ADR 时，补读 `CONTEXT.md`、`docs/00_整体设计.md`、
    `docs/01_数据库设计.md`、migration 和相关 ADR。
+4. 涉及用户可见功能时，补读 `docs/product/user-personas.md`，在计划与 Review 中写明目标
+   画像、用户会喜欢的理由、前端舒适度判断、主要摩擦和验证方式。
 
 ### 完成前
 
@@ -20,6 +22,8 @@
    `docs/architecture/documentation-maintenance.md` 判断影响与记录证据。
 3. 合并前确认：稳定接口仍正确、隔离与安全规则未破坏、LLM 输出仍满足待处理/授权语义，
    且危险操作仍需确认。
+4. 用户可见功能确认主操作、状态、下一步和错误反馈使用用户语言；高频路径不暴露 raw ID、
+   JSON、Prompt/token 或内部状态，适用的空态、恢复、窄屏与草稿保护已验证。
 
 Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 triage。ADR 优先于 Spec，
 安全与本仓库硬约束优先于二者。
@@ -44,6 +48,8 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
   不为形式建立空接口。
 - 领域真相、状态投影、Scene、alias、RAG/context 分工与受控 LLM 语义见 `CONTEXT.md`；
   Prompt 清单和契约见 `docs/prompts/Prompt体系设计.md`。
+- 用户画像、双入口产品方向和功能/前端体验判断门禁见
+  `docs/product/user-personas.md`。
 
 ## 实现检查
 

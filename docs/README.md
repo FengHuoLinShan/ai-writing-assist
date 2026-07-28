@@ -20,10 +20,11 @@
 
 ## 当前设计与契约
 
-1. [`00_整体设计.md`](00_整体设计.md) — 项目定位、核心原则、三层架构、模块职责
-2. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
-3. [`AI开发规则.md`](AI开发规则.md) — 历史设计说明；Agent 运行时以根目录 `AGENTS.md` 为准
-4. [`核心业务场景与预期行为.md`](核心业务场景与预期行为.md) — 用户可感知业务流程
+1. [`product/user-personas.md`](product/user-personas.md) — 两类核心用户、双入口产品方向，以及“用户会喜欢吗 / 前端舒服吗”判断门禁
+2. [`00_整体设计.md`](00_整体设计.md) — 项目定位、核心原则、三层架构、模块职责
+3. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
+4. [`AI开发规则.md`](AI开发规则.md) — 历史设计说明；Agent 运行时以根目录 `AGENTS.md` 为准
+5. [`核心业务场景与预期行为.md`](核心业务场景与预期行为.md) — 用户可感知业务流程
 
 ## 指导文件分工
 
@@ -115,16 +116,18 @@
 ## 推荐阅读顺序
 
 如果要理解全局：
-1. `00_整体设计.md`
-2. `01_数据库设计.md`
-3. `AGENTS.md`
-4. `CLAUDE.md`
+1. `product/user-personas.md`
+2. `00_整体设计.md`
+3. `01_数据库设计.md`
+4. `AGENTS.md`
+5. `CLAUDE.md`
 
 如果要开发某个模块：
 1. 先读根目录 `CLAUDE.md` 或 `AGENTS.md`
-2. 再读 `development-guide.md` 和 `testing-guide.md`
-3. 继续读对应 `modules/<模块>.md` 与模块 README
-4. 最后读 `01_数据库设计.md` 中该模块相关表
+2. 用户可见功能加读 `product/user-personas.md`
+3. 再读 `development-guide.md` 和 `testing-guide.md`
+4. 继续读对应 `modules/<模块>.md` 与模块 README
+5. 最后读 `01_数据库设计.md` 中该模块相关表
 
 ## 代码审计
 

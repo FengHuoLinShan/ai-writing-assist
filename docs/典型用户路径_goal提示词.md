@@ -1,20 +1,26 @@
 # 典型用户路径 /goal 提示词
 
-> 用途：给后续编码 Agent 直接复制为 `/goal` 的任务提示词。每条提示词对应一条典型网络小说作者使用路径，要求 Agent 按项目现有架构实现、补测或修复到可验收状态。
+> 用途：给后续编码 Agent 直接复制为 `/goal` 的任务提示词。每条提示词对应一条典型长篇创作
+> 或世界探索路径，要求 Agent 按项目现有架构实现、补测或修复到可验收状态。
 >
-> 来源：`docs/核心业务场景与预期行为.md`、`frontend-console/e2e/scenario-coverage.md`、各模块文档。
+> 来源：`docs/product/user-personas.md`、`docs/核心业务场景与预期行为.md`、
+> `frontend-console/e2e/scenario-coverage.md`、各模块文档。
 
 ## 通用执行约束
 
 所有 `/goal` 都必须遵守：
 
 - 开始前读取 `AGENTS.md`、`CLAUDE.md`、`development-guide.md`、`testing-guide.md`，再读目标模块 README / contracts / facade。
+- 用户可见功能必须读取 `docs/product/user-personas.md`，明确目标画像、用户任务、喜欢它的
+  理由、前端舒适度、主要摩擦和验证方式；功能可以只服务一类画像。
 - 不跨模块 import 其他模块的 `models.py` / `repositories.py` / `services.py`；跨模块只走 contracts / facade / DI port。
 - API 层保持薄层；复杂业务逻辑放在 service 或已有编排层。
 - 所有写入必须受 `novel_id` 限定；危险操作必须保留二次确认。
 - 用户/AI/API 动态内容不得未经 `esc()` 或 DOM API 处理后写入 `innerHTML`。
 - LLM 输出必须经 Pydantic schema 校验；不得 `eval` / `exec` LLM 输出。
 - 受影响模块测试必须通过；公共契约、用户可见行为或数据模型变化必须同步权威文档。
+- 验收不能只证明接口成功；适用时覆盖首次进入、空态、加载、失败/冲突、保存反馈、离开恢复、
+  误操作保护和窄屏，默认界面不暴露 raw ID、JSON、Prompt/token 或内部状态。
 - 涉及真实 LLM 调用的验收路径，必须使用数据库中《诡秘之主 第一部》项目的第 1-3 章真实内容，不使用 mock 替代真实调用。若本地库没有该项目或章节，先通过现有测试种子/导入能力创建同名项目与 1-3 章数据，再执行验收。
 
 ---

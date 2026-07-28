@@ -10,6 +10,21 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 命令式 DOM seam，不拥有 route-host 页面 DOM。Writing 只通过 `mapQuickCreateBridge` 调用
 `mapQuickCreateView`，并复用 `sceneAlerts` / `versionDiff` 纯 helper，没有其他旧视图运行时依赖。
 
+用户体验的目标画像、双入口方向和功能判断门禁以
+[`../product/user-personas.md`](../product/user-personas.md) 为准。前端正确性不仅指请求与状态
+正确，还包括目标用户能否无需技术或专业写作知识理解当前状态、完成高频任务并安心返回。
+
+## 用户体验基线
+
+- 每项用户可见能力明确服务作家、深度读者或两者；不要求所有页面同时服务所有画像。
+- 作者路径提供完整控制、证据、版本和专业整理能力；深度读者路径提供人物/地点/事件/地图/
+  自然语言入口和渐进引导，不先暴露完整作者后台。
+- 首屏围绕当前任务，只保留做决定所需信息；主操作、当前状态和下一步无需阅读说明即可理解。
+- 使用用户语言呈现。raw ID、JSON、Prompt/token、内部枚举和诊断字段不得成为默认工作流。
+- 高频查看与回顾就地完成；跨页时保护草稿、筛选、滚动、选择和长任务进度。
+- 首次进入、空态、加载、失败/冲突、保存成功、撤销/回滚和窄屏不是装饰状态，而是适用功能
+  的验收面。
+
 ## 架构
 
 - 入口：`index.html`
