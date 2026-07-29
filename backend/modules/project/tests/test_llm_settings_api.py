@@ -1,9 +1,9 @@
 """
 Project LLM settings API tests.
 
-These tests pin the user-facing contract: provider templates are exposed for the
-console, while stored API keys are write-only and never echoed in project
-responses.
+These tests pin the transition contract: project settings retain deep-import
+overrides, while account connections are the only provider/model/key runtime
+source.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ async def sample_project(async_client: AsyncClient) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_llm_provider_templates_include_common_suppliers(
+async def test_llm_provider_templates_only_expose_supported_account_connections(
     async_client: AsyncClient,
 ) -> None:
     resp = await async_client.get("/api/projects/llm/provider-templates")
@@ -62,27 +62,11 @@ async def test_llm_provider_templates_include_common_suppliers(
     assert resp.status_code == 200
     items = resp.json()["items"]
     ids = {item["id"] for item in items}
-    assert {
-        "deepseek",
-        "kimi",
-        "qwen-dashscope",
-        "zhipu",
-        "baichuan",
-        "minimax",
-        "hunyuan",
-        "qianfan",
-        "stepfun",
-        "yi",
-        "mimo",
-        "openrouter",
-        "siliconflow",
-        "volcengine-ark",
-        "openai-compatible",
-    }.issubset(ids)
+    assert ids == {"deepseek", "kimi"}
     by_id = {item["id"]: item for item in items}
     assert by_id["deepseek"]["default_model"] == "deepseek-v4-flash"
     assert by_id["deepseek"]["base_url"] == "https://api.deepseek.com"
-    assert by_id["qwen-dashscope"]["default_parameters"]["timeout"] == 180
+    assert by_id["kimi"]["default_model"] == "kimi-k3"
     assert all("api_key" not in item for item in items)
 
 
@@ -129,7 +113,7 @@ async def test_update_project_llm_settings_requires_xhr_header(
 
 
 @pytest.mark.asyncio
-async def test_update_and_get_project_llm_settings_masks_api_key(
+async def test_project_llm_settings_keep_deep_import_but_not_connection_secrets(
     async_client: AsyncClient,
     db_session: AsyncSession,
     sample_project: dict,
@@ -152,12 +136,10 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
                 "phase0": {"max_tokens_per_input_char": 0.36},
                 "phase1a": {"scene_slicing_timeout_seconds": 1200},
             },
-            "api_key": "sk-secret-value",
         },
     )
 
     assert resp.status_code == 200
-    assert "sk-secret-value" not in resp.text
     data = resp.json()
     assert data["provider_id"] == "deepseek"
     assert data["base_url"] == "https://api.deepseek.com/v1"
@@ -170,30 +152,25 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
     assert data["deep_import"]["phase0"]["max_tokens_per_input_char"] == 0.36
     assert data["deep_import"]["phase1a"]["scene_slicing_timeout_seconds"] == 1200
     assert data["deep_import"]["phase2"]["batch_size_scenes"] == 12
-    assert data["api_key_configured"] is True
+    assert data["api_key_configured"] is False
     assert "api_key" not in data
 
     stored = (
         await db_session.execute(select(Project).where(Project.id == uuid.UUID(pid)))
     ).scalar_one()
-    stored_api_key = stored.settings["llm"]["api_key"]
-    assert stored_api_key != "sk-secret-value"
-    assert stored_api_key["encrypted"] is True
-    assert stored_api_key["version"] == "fernet-v1"
-    assert "sk-secret-value" not in str(stored.settings)
+    assert "api_key" not in stored.settings["llm"]
+    assert "api_keys_by_provider" not in stored.settings["llm"]
 
     resp = await async_client.get(f"/api/projects/{pid}/llm-settings")
     assert resp.status_code == 200
-    assert "sk-secret-value" not in resp.text
-    assert resp.json()["api_key_configured"] is True
+    assert resp.json()["api_key_configured"] is False
     assert resp.json()["deep_import"]["phase0"]["max_tokens_per_input_char"] == 0.36
 
     project_resp = await async_client.get(f"/api/projects/{pid}")
     assert project_resp.status_code == 200
-    assert "sk-secret-value" not in project_resp.text
     llm_settings = project_resp.json()["settings"]["llm"]
     assert llm_settings["provider_id"] == "deepseek"
-    assert llm_settings["api_key_configured"] is True
+    assert llm_settings["api_key_configured"] is False
     assert "api_key" not in llm_settings
 
 
@@ -220,7 +197,7 @@ async def test_llm_settings_validation_error_omits_api_key_input(
 
 
 @pytest.mark.asyncio
-async def test_update_project_settings_encrypts_generic_llm_api_key(
+async def test_generic_project_update_rejects_llm_api_key(
     async_client: AsyncClient,
     db_session: AsyncSession,
     sample_project: dict,
@@ -232,160 +209,76 @@ async def test_update_project_settings_encrypts_generic_llm_api_key(
         json={"settings": {"llm": {"provider_id": "deepseek", "api_key": "sk-generic"}}},
     )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 400
     assert "sk-generic" not in resp.text
     stored = (
         await db_session.execute(select(Project).where(Project.id == uuid.UUID(pid)))
     ).scalar_one()
-    stored_api_key = stored.settings["llm"]["api_key"]
-    assert stored_api_key["encrypted"] is True
-    assert "sk-generic" not in str(stored.settings)
+    assert "llm" not in stored.settings
 
 
 @pytest.mark.asyncio
-async def test_update_project_llm_settings_preserves_existing_key_when_empty(
+async def test_project_llm_endpoint_rejects_key_and_points_to_account_settings(
     async_client: AsyncClient,
     sample_project: dict,
 ) -> None:
     pid = sample_project["id"]
-    first = await async_client.put(
+    response = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
         headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
-            "base_url": "https://api.deepseek.com/v1",
-            "model": "deepseek-chat",
             "api_key": "sk-secret-value",
         },
     )
-    assert first.status_code == 200
-
-    second = await async_client.put(
-        f"/api/projects/{pid}/llm-settings",
-        headers=XHR_HEADERS,
-        json={
-            "provider_id": "kimi",
-            "base_url": "https://api.moonshot.cn/v1",
-            "model": "moonshot-v1-8k",
-            "api_key": "",
-        },
-    )
-
-    assert second.status_code == 200
-    assert "sk-secret-value" not in second.text
-    data = second.json()
-    assert data["provider_id"] == "kimi"
-    assert data["api_key_configured"] is False
-    assert data["api_key_configured_providers"] == ["deepseek"]
+    assert response.status_code == 400
+    assert response.json()["detail"] == "API Key 只能在账户设置中配置"
+    assert "sk-secret-value" not in response.text
 
 
 @pytest.mark.asyncio
-async def test_project_keeps_api_keys_per_provider_template(
+async def test_nonsecret_project_settings_update_removes_legacy_key_fields(
     async_client: AsyncClient,
     db_session: AsyncSession,
     sample_project: dict,
 ) -> None:
     pid = sample_project["id"]
-    for provider_id, base_url, model, api_key in (
-        ("deepseek", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds"),
-        ("kimi", "https://api.moonshot.cn/v1", "kimi-k2.6", "sk-kimi"),
-    ):
-        response = await async_client.put(
-            f"/api/projects/{pid}/llm-settings",
-            headers=XHR_HEADERS,
-            json={
-                "provider_id": provider_id,
-                "base_url": base_url,
-                "model": model,
-                "api_key": api_key,
-            },
-        )
-        assert response.status_code == 200
-        assert api_key not in response.text
-
-    switched_back = await async_client.put(
-        f"/api/projects/{pid}/llm-settings",
-        headers=XHR_HEADERS,
-        json={
-            "provider_id": "deepseek",
-            "base_url": "https://api.deepseek.com",
-            "model": "deepseek-v4-flash",
-            "api_key": "",
-        },
-    )
-    body = switched_back.json()
-    assert body["api_key_configured"] is True
-    assert body["api_key_configured_providers"] == ["deepseek", "kimi"]
-    assert "sk-ds" not in switched_back.text
-    assert "sk-kimi" not in switched_back.text
-
     stored = (
         await db_session.execute(select(Project).where(Project.id == uuid.UUID(pid)))
     ).scalar_one()
-    profile = stored.settings["llm"]
-    assert profile["api_key"] == profile["api_keys_by_provider"]["deepseek"]
-    assert profile["api_keys_by_provider"]["deepseek"]["encrypted"] is True
-    assert profile["api_keys_by_provider"]["kimi"]["encrypted"] is True
+    stored.settings = {
+        "llm": {
+            "provider_id": "deepseek",
+            "api_key": {"encrypted": True, "version": "legacy", "value": "x"},
+            "api_keys_by_provider": {"deepseek": {"value": "x"}},
+        }
+    }
+    await db_session.flush()
 
-    project_response = await async_client.get(f"/api/projects/{pid}")
-    assert "api_keys_by_provider" not in project_response.text
-
-    cleared = await async_client.put(
+    response = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
         headers=XHR_HEADERS,
-        json={"clear_all_api_keys": True},
+        json={
+            "deep_import": {"global": {"structured_max_fix_attempts": 3}},
+        },
     )
-    assert cleared.status_code == 200
-    assert cleared.json()["api_key_configured"] is False
-    assert cleared.json()["api_key_configured_providers"] == []
+    assert response.status_code == 200
+    await db_session.refresh(stored)
+    assert "api_key" not in stored.settings["llm"]
+    assert "api_keys_by_provider" not in stored.settings["llm"]
 
 
 @pytest.mark.asyncio
-async def test_update_llm_key_reports_missing_encryption_configuration(
-    async_client: AsyncClient,
-    sample_project: dict,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("LLM_SETTINGS_ENCRYPTION_KEY", raising=False)
-    response = await async_client.put(
-        f"/api/projects/{sample_project['id']}/llm-settings",
-        headers=XHR_HEADERS,
-        json={"provider_id": "deepseek", "api_key": "test-key-not-real"},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == (
-        "LLM API Key encryption is not configured; set "
-        "LLM_SETTINGS_ENCRYPTION_KEY and restart the backend"
-    )
-    assert "test-key-not-real" not in response.text
-
-
-@pytest.mark.asyncio
-async def test_project_update_response_sanitizes_llm_key(
-    async_client: AsyncClient,
-    sample_project: dict,
-) -> None:
-    pid = sample_project["id"]
-
-    resp = await async_client.put(
-        f"/api/projects/{pid}",
-        json={"settings": {"llm": {"api_key": "sk-from-generic-update"}}},
-    )
-
-    assert resp.status_code == 200
-    assert "sk-from-generic-update" not in resp.text
-    assert resp.json()["settings"]["llm"]["api_key_configured"] is True
-
-
-@pytest.mark.asyncio
-async def test_effective_llm_settings_all_system_when_no_config(async_client, factory):
+async def test_effective_llm_settings_use_account_template_when_unconnected(
+    async_client,
+    factory,
+):
     pid = await factory.create_project()
     r = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     assert r.status_code == 200
     body = r.json()
     for f in ("provider_id", "base_url", "model", "timeout", "max_tokens", "temperature"):
-        assert body[f]["source"] == "system"
+        assert body[f]["source"] == "global"
     assert body["provider_id"]["value"] == "deepseek"
     assert body["base_url"]["value"] == "https://api.deepseek.com"
     assert body["model"]["value"] == "deepseek-v4-flash"
@@ -428,9 +321,12 @@ async def test_effective_llm_settings_deleted_project_returns_404(
 
 
 @pytest.mark.asyncio
-async def test_effective_llm_settings_global_then_project(async_client, factory):
+async def test_project_connection_fields_cannot_override_account_template(
+    async_client,
+    factory,
+):
     pid = await factory.create_project()
-    await async_client.put(
+    rejected = await async_client.put(
         "/api/settings/llm-defaults",
         headers=XHR_HEADERS,
         json={
@@ -439,6 +335,7 @@ async def test_effective_llm_settings_global_then_project(async_client, factory)
             "model": "deepseek-v4-flash",
         },
     )
+    assert rejected.status_code == 400
     r = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     body = r.json()
     assert body["provider_id"]["source"] == "global"
@@ -454,19 +351,14 @@ async def test_effective_llm_settings_global_then_project(async_client, factory)
     )
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     body2 = r2.json()
-    assert body2["model"]["source"] == "project"
-    assert body2["model"]["value"] == "deepseek-chat"
-    assert body2["provider_id"]["source"] == "project"
+    assert body2["model"]["source"] == "global"
+    assert body2["model"]["value"] == "deepseek-v4-flash"
+    assert body2["provider_id"]["source"] == "global"
 
 
 @pytest.mark.asyncio
-async def test_reset_llm_field_restores_global(async_client, factory):
+async def test_reset_legacy_llm_field_keeps_account_template(async_client, factory):
     pid = await factory.create_project()
-    await async_client.put(
-        "/api/settings/llm-defaults",
-        headers=XHR_HEADERS,
-        json={"provider_id": "openai-compatible"},
-    )
     await async_client.put(
         f"/api/projects/{pid}/llm-settings",
         headers=XHR_HEADERS,
@@ -483,7 +375,7 @@ async def test_reset_llm_field_restores_global(async_client, factory):
     assert r.status_code == 200
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     assert r2.json()["provider_id"]["source"] == "global"
-    assert r2.json()["provider_id"]["value"] == "openai-compatible"
+    assert r2.json()["provider_id"]["value"] == "deepseek"
 
 
 @pytest.mark.asyncio
@@ -497,10 +389,12 @@ async def test_reset_llm_field_rejects_unknown(async_client, factory):
 
 
 @pytest.mark.asyncio
-async def test_put_llm_settings_with_nulls_inherits_global(async_client, factory):
-    """D3: 项目 PUT 缺失字段（null）应继承全局默认，而非写入空字符串。"""
+async def test_put_project_model_does_not_change_effective_account_model(
+    async_client,
+    factory,
+):
     pid = await factory.create_project()
-    await async_client.put(
+    rejected = await async_client.put(
         "/api/settings/llm-defaults",
         headers=XHR_HEADERS,
         json={
@@ -509,6 +403,7 @@ async def test_put_llm_settings_with_nulls_inherits_global(async_client, factory
             "model": "deepseek-v4-flash",
         },
     )
+    assert rejected.status_code == 400
     r = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
         headers=XHR_HEADERS,
@@ -521,8 +416,8 @@ async def test_put_llm_settings_with_nulls_inherits_global(async_client, factory
     assert r.status_code == 200
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     body = r2.json()
-    assert body["model"]["source"] == "project"
-    assert body["model"]["value"] == "custom-model"
+    assert body["model"]["source"] == "global"
+    assert body["model"]["value"] == "deepseek-v4-flash"
     assert body["provider_id"]["source"] == "global"
     assert body["base_url"]["source"] == "global"
 
@@ -628,6 +523,7 @@ async def test_project_context_materializes_effective_llm_without_env(
     factory,
     monkeypatch,
 ):
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
     monkeypatch.setenv("LLM_BASE_URL", "https://env.example/v1")
     monkeypatch.setenv("LLM_MODEL", "env-model")
     pid = await factory.create_project()
@@ -639,7 +535,7 @@ async def test_project_context_materializes_effective_llm_without_env(
     assert context.settings["llm"]["base_url"] == "https://api.deepseek.com"
     assert context.settings["llm"]["model"] == "deepseek-v4-flash"
 
-    await async_client.put(
+    rejected = await async_client.put(
         "/api/settings/llm-defaults",
         headers=XHR_HEADERS,
         json={
@@ -648,8 +544,9 @@ async def test_project_context_materializes_effective_llm_without_env(
             "model": "kimi-k2.6",
         },
     )
+    assert rejected.status_code == 400
     context_with_global = await get_project_context(db_session, str(pid))
 
-    assert context_with_global.settings["llm"]["provider_id"] == "kimi"
-    assert context_with_global.settings["llm"]["base_url"] == "https://api.moonshot.cn/v1"
-    assert context_with_global.settings["llm"]["model"] == "kimi-k2.6"
+    assert context_with_global.settings["llm"]["provider_id"] == "deepseek"
+    assert context_with_global.settings["llm"]["base_url"] == "https://api.deepseek.com"
+    assert context_with_global.settings["llm"]["model"] == "deepseek-v4-flash"

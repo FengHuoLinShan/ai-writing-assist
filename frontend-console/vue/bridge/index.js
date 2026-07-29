@@ -46,6 +46,14 @@ export function getConfirm() {
   return typeof confirmFn === "function" ? (message) => confirmFn(message) : () => true
 }
 
+/** prompt(message, defaultValue) — 仅用于必须逐字确认的危险操作。 */
+export function getPrompt() {
+  const promptFn = _overrides.prompt ?? globalThis.prompt
+  return typeof promptFn === "function"
+    ? (message, defaultValue = "") => promptFn(message, defaultValue)
+    : () => null
+}
+
 /**
  * showModalHtml(title, htmlString, buttons, options) — 外壳全局模态框。
  * 内容 HTML 必须先用 esc() 处理动态片段（README「安全与契约」既有豁免模式，

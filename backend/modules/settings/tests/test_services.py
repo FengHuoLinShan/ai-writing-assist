@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -34,14 +35,14 @@ async def test_upsert_global_llm_defaults_rejects_api_key(db_session):
 
 
 @pytest.mark.asyncio
-async def test_public_global_llm_defaults_reject_non_public_base_url(
+async def test_legacy_global_defaults_cannot_bypass_account_connection_entry(
     db_session,
     monkeypatch,
 ):
     monkeypatch.setenv("AUTH_MODE", "public")
     get_settings.cache_clear()
     try:
-        with pytest.raises(ValueError, match="must use https"):
+        with pytest.raises(ValueError, match="账户模型连接入口"):
             await SettingsService().upsert_global_llm_defaults(
                 db_session,
                 {"base_url": "http://127.0.0.1:9000/v1"},
@@ -98,19 +99,21 @@ async def test_get_effective_author_prefs_layering(db_session, factory):
 
 
 @pytest.mark.asyncio
-async def test_get_effective_llm_settings_for_raw_project_settings_layers_values(
+async def test_effective_llm_settings_ignore_legacy_project_connection_fields(
     db_session,
+    monkeypatch,
 ):
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
     svc = SettingsService()
-    await svc.upsert_global_llm_defaults(
-        db_session,
-        {
-            "provider_id": "kimi",
-            "base_url": "https://api.moonshot.cn/v1",
-            "model": "kimi-k2.6",
-            "top_p": 0.7,
-        },
-    )
+    with patch(
+        "modules.settings.services._validate_account_llm_connection",
+        autospec=True,
+    ):
+        await svc.connect_account_llm_provider(
+            db_session,
+            "kimi",
+            "test-account-key",
+        )
 
     resp = await svc.get_effective_llm_settings_for_project_settings(
         db_session,
@@ -125,31 +128,34 @@ async def test_get_effective_llm_settings_for_raw_project_settings_layers_values
 
     assert resp.provider_id.source == SOURCE_GLOBAL
     assert resp.provider_id.value == "kimi"
-    assert resp.model.source == SOURCE_PROJECT
-    assert resp.model.value == "project-model"
-    assert resp.max_tokens.source == SOURCE_SYSTEM
+    assert resp.model.source == SOURCE_GLOBAL
+    assert resp.model.value == "kimi-k3"
+    assert resp.max_tokens.source == SOURCE_GLOBAL
     assert resp.max_tokens.value == 12_000
     assert resp.top_p.source == SOURCE_GLOBAL
-    assert resp.top_p.value == 0.7
-    assert resp.api_key_configured.source == SOURCE_PROJECT
+    assert resp.top_p.value is None
+    assert resp.api_key_configured.source != SOURCE_PROJECT
     assert resp.api_key_configured.value is True
     assert resp.deep_import.source == SOURCE_PROJECT
     assert resp.deep_import.value["global"]["structured_max_fix_attempts"] == 7
 
 
 @pytest.mark.asyncio
-async def test_materialize_effective_project_settings_keeps_project_api_key(
+async def test_materialize_effective_project_settings_drops_project_api_key(
     db_session,
+    monkeypatch,
 ):
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
     svc = SettingsService()
-    await svc.upsert_global_llm_defaults(
-        db_session,
-        {
-            "provider_id": "kimi",
-            "base_url": "https://api.moonshot.cn/v1",
-            "model": "kimi-k2.6",
-        },
-    )
+    with patch(
+        "modules.settings.services._validate_account_llm_connection",
+        autospec=True,
+    ):
+        await svc.connect_account_llm_provider(
+            db_session,
+            "kimi",
+            "test-account-key",
+        )
 
     settings = await svc.materialize_effective_project_settings(
         db_session,
@@ -158,8 +164,8 @@ async def test_materialize_effective_project_settings_keeps_project_api_key(
 
     assert settings["llm"]["provider_id"] == "kimi"
     assert settings["llm"]["base_url"] == "https://api.moonshot.cn/v1"
-    assert settings["llm"]["model"] == "kimi-k2.6"
-    assert settings["llm"]["api_key"] == "sk-secret"
+    assert settings["llm"]["model"] == "kimi-k3"
+    assert settings["llm"]["api_key"] == "test-account-key"
     assert "deep_import" not in settings["llm"]
 
 

@@ -53,11 +53,21 @@ Three layers:
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map-perf` | Fixed 24×18 and 200×200 map telemetry profiles | Dedicated PostgreSQL; Chromium 1280×720; workers=1; retries=0 |
 | `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
+| `RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi` | Paid Kimi K3 account connection, balance, RP streaming/branch/summary, provider hot-switch, and fail-closed recovery gate | Explicit temporary Kimi Open Platform and DeepSeek keys; Kimi remains disabled outside the test process |
+| `RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context` | Paid Kimi usage-token calibration at seven sizes plus a real PostgreSQL 530K emergency-summary journey | Explicit cost approval, current official context limit, temporary Kimi key, and dedicated PostgreSQL at Alembic head |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, dedicated PostgreSQL, and configured provider credentials |
 
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
 local corpus. Neither may enter the default fast layer.
+
+The Kimi targets fail before collection when any required flag, key, cost
+approval, context-limit value, or dedicated database URL is absent. They do not
+silently skip, retry an ordinary story request, or enable Kimi for the normal
+application process. The long-context calibration records only numeric
+provider/model/usage/latency evidence in the ignored
+`backend/.test-artifacts/kimi-context-calibration.json`; it never records the
+synthetic prompt or story output.
 
 PostgreSQL E2E additionally installs a function-loop-scoped global
 `DatabaseManager` that is bound to the same explicit `E2E_DATABASE_URL` as the

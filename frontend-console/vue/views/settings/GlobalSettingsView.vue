@@ -1,66 +1,134 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue"
-import LlmFormFields from "./components/LlmFormFields.vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import { getApi, getConfirm, getRouter, getToast, useStateKey } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
-import { buildLlmPayload, llmFormFromDefaults, validateLLMPayload } from "./logic/llmForm.js"
+import { normalizeRpReturnTarget } from "../../shell/navigation.js"
 import {
   authorFormFromDefaults,
   buildAuthorPrefsPayload,
   validateAuthorPreferences,
 } from "./logic/authorPreferences.js"
 
-/**
- * 全局设置页 — #/settings 入口（无需选项目）。
- * 数据由 island 的 load() 预取并以 props 传入（对应 vanilla onEnter → render 节奏）。
- */
 const props = defineProps({
-  llmDefaults: { type: Object, default: null },
+  llmConnections: { type: Object, default: null },
+  llmBalances: { type: Object, default: () => ({ items: [] }) },
   authorPrefs: { type: Object, default: () => ({}) },
-  templates: { type: Array, default: () => [] },
-  projectsUsingDefaults: {
-    type: Object,
-    default: () => ({ items: [], total: 0, truncated: false }),
-  },
 })
 
 const currentProjectId = useStateKey("currentProjectId")
-
-const llmForm = ref(llmFormFromDefaults(props.llmDefaults))
+const connections = ref(props.llmConnections || {
+  active_provider_id: "deepseek",
+  providers: [],
+})
+const balances = ref(props.llmBalances?.items || [])
+const selectedProviderId = ref(connections.value.active_provider_id || "deepseek")
+const apiKey = ref("")
+const balanceLoading = ref(false)
 const authorForm = ref(authorFormFromDefaults(props.authorPrefs))
-const llmBaseline = ref(JSON.stringify(llmForm.value))
 const authorBaseline = ref(JSON.stringify(authorForm.value))
-
-const llmButton = useSaveButton()
+const connectionButton = useSaveButton()
 const authorButton = useSaveButton()
+const returnTarget = normalizeRpReturnTarget(
+  getRouter()?.getCurrentQuery?.()?.get?.("return_to"),
+)
+const returningToRp = Boolean(returnTarget)
+
+const providers = computed(() => connections.value?.providers || [])
+const selectedProvider = computed(() => (
+  providers.value.find((item) => item.provider_id === selectedProviderId.value)
+  || providers.value[0]
+  || null
+))
+
+function selectProvider(providerId) {
+  selectedProviderId.value = providerId
+  apiKey.value = ""
+}
+
+function balanceFor(providerId) {
+  return balances.value.find((item) => item.provider_id === providerId) || null
+}
 
 function gotoRecentProject() {
   if (currentProjectId.value) getRouter().navigate("project-settings")
 }
 
-async function saveLLM() {
-  const toast = getToast()
-  const submittedForm = JSON.stringify(llmForm.value)
-  const { payload } = buildLlmPayload(llmForm.value)
-  const validation = validateLLMPayload(payload)
-  if (!validation.ok) return toast(validation.message, "warning")
-  llmButton.saving.value = true
+async function returnAfterConnection() {
+  if (!returnTarget) return
+  if (returnTarget === "journeys") {
+    await getRouter().navigate("journeys")
+    return
+  }
+  if (returnTarget === "journeys:new") {
+    await getRouter().navigate("journeys", "new")
+    return
+  }
+  const journeyId = returnTarget.slice("interaction:".length)
+  await getRouter().navigate("interaction", journeyId)
+}
+
+async function refreshBalances() {
+  balanceLoading.value = true
   try {
-    const clean = { ...payload }
-    delete clean.api_key
-    delete clean.clear_api_key
-    await getApi().settings.updateGlobalLLMDefaults(clean)
-    if (JSON.stringify(llmForm.value) === submittedForm) {
-      llmBaseline.value = submittedForm
-    }
-    toast("LLM 全局默认已保存", "success")
-  } catch (err) {
-    toast(err.message || "保存失败", "error")
-    llmButton.flashError()
+    const response = await getApi().settings.listLLMBalances()
+    balances.value = response?.items || []
+  } catch {
+    balances.value = providers.value
+      .filter((provider) => provider.connected)
+      .map((provider) => ({
+        provider_id: provider.provider_id,
+        status: "unavailable",
+      }))
   } finally {
-    llmButton.saving.value = false
+    balanceLoading.value = false
+  }
+}
+
+async function saveConnection() {
+  const provider = selectedProvider.value
+  if (!provider) return
+  const key = apiKey.value.trim()
+  if (!key && !provider.connected) {
+    getToast()("请先填写 API Key", "warning")
+    return
+  }
+
+  connectionButton.saving.value = true
+  try {
+    const response = key
+      ? await getApi().settings.connectLLMProvider(provider.provider_id, key)
+      : await getApi().settings.activateLLMProvider(provider.provider_id)
+    if (response?.providers) connections.value = response
+    apiKey.value = ""
+    getToast()(`已启用 ${provider.label}，之后的新生成会使用此模型`, "success")
+    await refreshBalances()
+    await returnAfterConnection()
+  } catch (err) {
+    getToast()(err.message || "模型连接验证失败", "error")
+    connectionButton.flashError()
+  } finally {
+    connectionButton.saving.value = false
+  }
+}
+
+async function clearConnection() {
+  const provider = selectedProvider.value
+  if (!provider?.connected) return
+  if (!getConfirm()(
+    `清除 ${provider.label} 的 API Key？已有内容不会受影响；重新连接前，作者创作与 RP 的新生成都会暂停。`,
+  )) return
+  try {
+    const response = await getApi().settings.clearLLMProvider(provider.provider_id)
+    if (response?.providers) connections.value = response
+    apiKey.value = ""
+    balances.value = balances.value.filter(
+      (item) => item.provider_id !== provider.provider_id,
+    )
+    getToast()(`${provider.label} 已断开`, "success")
+  } catch (err) {
+    getToast()(err.message || "断开失败", "error")
   }
 }
 
@@ -85,57 +153,14 @@ async function saveAuthor() {
   }
 }
 
-async function runManualMigration() {
-  const toast = getToast()
-  const api = getApi()
-  toast("迁移中…", "info")
-  const keys = Object.keys(localStorage).filter((key) => key.startsWith("novel_author_preferences:"))
-  let migrated = 0
-  for (const key of keys) {
-    const projectId = key.split(":")[1]
-    if (!projectId || projectId === "global") continue
-    let parsed
-    try {
-      parsed = JSON.parse(localStorage.getItem(key) || "{}")
-    } catch {
-      continue
-    }
-    try {
-      const existing = await api.settings.getProjectAuthorPrefs(projectId)
-      if (
-        existing &&
-        (existing.daily_goal !== null || existing.editor_font !== null || existing.default_focus_mode !== null)
-      ) {
-        localStorage.removeItem(key)
-        continue
-      }
-    } catch {
-      continue
-    }
-    const payload = {
-      daily_goal: parsed.dailyGoal ?? null,
-      editor_font: parsed.editorFont ?? null,
-      default_focus_mode: Boolean(parsed.defaultFocusMode ?? false),
-    }
-    try {
-      await api.settings.updateProjectAuthorPrefs(projectId, payload)
-      localStorage.removeItem(key)
-      migrated += 1
-    } catch (err) {
-      console.error(`迁移 ${projectId} 失败:`, err)
-    }
-  }
-  toast(`已迁移 ${migrated} 个项目，余 ${keys.length - migrated} 个`, migrated ? "success" : "info")
-}
-
 function hasUnsavedChanges() {
-  return JSON.stringify(llmForm.value) !== llmBaseline.value
+  return Boolean(apiKey.value)
     || JSON.stringify(authorForm.value) !== authorBaseline.value
 }
 
 useLeaveGuard(() => (
   !hasUnsavedChanges()
-  || getConfirm()("全局设置有未保存修改，确定放弃并离开吗？")
+  || getConfirm()("账户设置有未保存修改，确定放弃并离开吗？")
 ))
 
 function beforeUnload(event) {
@@ -149,67 +174,127 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
 </script>
 
 <template>
-  <div class="global-settings-view">
+  <div class="global-settings-view account-settings-view">
     <div class="view-header section-header">
-      <h2 class="view-header__title">
-        全局设置
-        <span class="view-header__project">owner: local（demo 占位）</span>
-      </h2>
-      <div class="view-header__actions llm-global-actions">
+      <div class="view-header__title account-settings-title">
         <button
-          class="btn btn-sm btn-link"
+          v-if="returningToRp"
+          class="rp-icon-button"
+          type="button"
+          aria-label="返回旅程"
+          @click="returnAfterConnection"
+        >‹</button>
+        <h2>账户设置</h2>
+      </div>
+      <div class="view-header__actions">
+        <button
+          v-if="!returningToRp"
           id="goto-recent-project-btn"
+          class="btn btn-sm btn-link"
           :disabled="!currentProjectId"
           @click="gotoRecentProject"
         >进入当前项目 →</button>
       </div>
     </div>
 
-    <section class="settings-section">
-      <h3>LLM 全局默认</h3>
-      <p class="settings-section-hint">不存 API Key；项目级才配置 Key。</p>
-      <LlmFormFields v-model="llmForm" :templates="props.templates" :with-api-key="false" />
+    <section class="settings-section account-connection-section">
+      <h3>模型连接</h3>
+      <p class="settings-section-hint">
+        作者创作和 RP 旅程共用这里选择的模型，只影响之后的新生成。
+        <template v-if="returnTarget">连接成功后会回到刚才的旅程位置。</template>
+      </p>
+
+      <div class="account-provider-options" role="radiogroup" aria-label="模型模板">
+        <button
+          v-for="provider in providers"
+          :key="provider.provider_id"
+          type="button"
+          class="account-provider-card"
+          :class="{
+            selected: selectedProviderId === provider.provider_id,
+            active: provider.active,
+          }"
+          role="radio"
+          :aria-checked="selectedProviderId === provider.provider_id"
+          @click="selectProvider(provider.provider_id)"
+        >
+          <span class="account-provider-card__name">{{ provider.label }}</span>
+          <span class="account-provider-card__model">{{ provider.model }}</span>
+          <span class="account-provider-card__status">
+            {{ provider.connected ? "已连接" : "未连接" }}
+            <template v-if="provider.active"> · 当前使用</template>
+          </span>
+          <span
+            v-if="provider.connected"
+            class="account-provider-card__balance"
+          >
+            <template v-if="balanceFor(provider.provider_id)?.status === 'available'">
+              余额 {{ balanceFor(provider.provider_id).amount }}
+              {{ balanceFor(provider.provider_id).currency }}
+            </template>
+            <template v-else-if="balanceLoading">正在查询余额…</template>
+            <template v-else>余额暂时无法获取</template>
+            <small>余额可能有延迟</small>
+          </span>
+        </button>
+      </div>
+
+      <label class="form-group account-key-field">
+        <span>API Key</span>
+        <input
+          id="account-llm-api-key"
+          v-model="apiKey"
+          class="form-input"
+          type="password"
+          autocomplete="new-password"
+          :placeholder="selectedProvider?.connected ? '留空可直接切换到已验证连接' : '请先填写 Key'"
+        />
+      </label>
+      <p class="settings-section-hint">
+        Key 只在服务端加密保存。首次填写或更换 Key 时会做一次极小的真实生成验证，可能产生少量费用。
+      </p>
+
       <div class="settings-actions">
         <button
+          id="account-llm-save"
           class="btn btn-primary"
-          id="global-llm-save"
-          :class="{ 'settings-btn-loading': llmButton.saving.value, 'settings-btn-error': llmButton.error.value }"
-          :disabled="llmButton.saving.value"
-          @click="saveLLM"
-        >保存 LLM 全局默认</button>
+          :class="{
+            'settings-btn-loading': connectionButton.saving.value,
+            'settings-btn-error': connectionButton.error.value,
+          }"
+          :disabled="connectionButton.saving.value || !selectedProvider"
+          @click="saveConnection"
+        >{{ selectedProvider?.connected && !apiKey ? "切换并使用" : "验证、保存并使用" }}</button>
+        <button
+          v-if="selectedProvider?.connected"
+          id="account-llm-clear"
+          class="btn btn-link"
+          :disabled="connectionButton.saving.value"
+          @click="clearConnection"
+        >清除这个 Key</button>
+        <button
+          id="account-balance-refresh"
+          class="btn btn-link"
+          :disabled="balanceLoading"
+          @click="refreshBalances"
+        >刷新余额</button>
       </div>
     </section>
 
-    <section class="settings-section">
-      <h3>作者偏好全局默认</h3>
+    <section v-if="!returningToRp" class="settings-section">
+      <h3>作者偏好</h3>
       <AuthorPreferencesForm v-model="authorForm" />
       <div class="settings-actions">
         <button
-          class="btn btn-primary"
           id="global-author-save"
-          :class="{ 'settings-btn-loading': authorButton.saving.value, 'settings-btn-error': authorButton.error.value }"
+          class="btn btn-primary"
+          :class="{
+            'settings-btn-loading': authorButton.saving.value,
+            'settings-btn-error': authorButton.error.value,
+          }"
           :disabled="authorButton.saving.value"
           @click="saveAuthor"
         >保存作者偏好</button>
-      </div>
-    </section>
-
-    <section class="settings-section">
-      <h3>引用此默认的项目（只读）</h3>
-      <p v-if="!props.projectsUsingDefaults?.items?.length" class="empty-hint">没有项目继承全局默认</p>
-      <template v-else>
-        <ul class="projects-using-list">
-          <li v-for="item in props.projectsUsingDefaults.items" :key="item.project_id">{{ item.title || "" }} ({{ item.project_id || "" }})</li>
-        </ul>
-        <p v-if="props.projectsUsingDefaults.truncated" class="settings-section-hint">还有更多项目省略…</p>
-      </template>
-    </section>
-
-    <section class="settings-section">
-      <h3>本地迁移</h3>
-      <p class="settings-section-hint">将浏览器 localStorage 中的旧作者偏好一次性迁入后端。</p>
-      <div class="settings-actions">
-        <button class="btn btn-secondary" id="manual-migrate-btn" @click="runManualMigration">手动迁移所有项目本地偏好</button>
       </div>
     </section>
   </div>

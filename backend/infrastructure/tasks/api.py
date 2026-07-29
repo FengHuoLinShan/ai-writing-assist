@@ -57,6 +57,8 @@ async def _require_active_project(db: DbSession, novel_id: str) -> None:
 
 _MODULE_API_ONLY_TASK_TYPES = {
     "smart_dedup_scan",
+    "interaction_story_generate",
+    "interaction_summary_refresh",
     "deep_import",
     "deep_import_resume",
     "scene_auto_extraction",

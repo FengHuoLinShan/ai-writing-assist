@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 # 必须在所有项目 import 之前设置，防止 lru_cache 缓存 bge_onnx 默认值
+import hashlib
 import os
 import uuid
+from datetime import UTC, datetime
 
 os.environ.setdefault("EMBEDDING_PROVIDER", "openai")
 os.environ.setdefault("LLM_HEALTH_REQUIRED", "false")
@@ -159,6 +161,50 @@ async def test_project_id(project_factory) -> str:  # noqa: ANN001
         current_stage="世界构建中",
     )
     return str(project_id)
+
+
+@pytest_asyncio.fixture
+async def account_llm_connection(db_session: AsyncSession):  # noqa: ANN201
+    """Seed the default owner's verified DeepSeek connection without network I/O.
+
+    Tests that exercise a business LLM entry point request this fixture
+    explicitly. Negative tests intentionally omit it so the account-level
+    "not connected" boundary remains covered.
+    """
+    from infrastructure.llm.secret_store import encrypt_secret
+    from modules.settings.constants import (
+        ACCOUNT_LLM_PROVIDER_TEMPLATES,
+        LOCAL_OWNER_ID,
+    )
+    from modules.settings.repositories import (
+        AccountLLMCredentialRepository,
+        GlobalLLMDefaultsRepository,
+    )
+
+    api_key = "unit-test-account-key"
+    await AccountLLMCredentialRepository().upsert(
+        db_session,
+        {
+            "owner_id": LOCAL_OWNER_ID,
+            "provider_id": "deepseek",
+            "encrypted_api_key": encrypt_secret(api_key),
+            "key_fingerprint": hashlib.sha256(api_key.encode()).hexdigest(),
+            "verified_at": datetime.now(UTC),
+        },
+    )
+    await GlobalLLMDefaultsRepository().upsert(
+        db_session,
+        {
+            "owner_id": LOCAL_OWNER_ID,
+            **ACCOUNT_LLM_PROVIDER_TEMPLATES["deepseek"],
+        },
+    )
+    return {
+        "owner_id": LOCAL_OWNER_ID,
+        "provider_id": "deepseek",
+        "api_key": api_key,
+        **ACCOUNT_LLM_PROVIDER_TEMPLATES["deepseek"],
+    }
 
 
 @pytest_asyncio.fixture

@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-manual test-frontend test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-frontend test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -6,9 +6,11 @@ FRONTEND_DIR := $(ROOT_DIR)frontend-console
 BACKEND_FAST_TESTS := modules infrastructure tests/unit tests/integration tests/modules tests/prompt_contracts tests/test_api.py tests/test_outline_api.py tests/test_world_testonly_route.py
 BACKEND_COVERAGE_PACKAGES := app core shared infrastructure modules
 BACKEND_COVERAGE_ARGS := $(addprefix --cov=,$(BACKEND_COVERAGE_PACKAGES))
-BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/writing/tests/test_conflict_checks_real_llm.py tests/integration/test_extraction_pipeline.py
+BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/writing/tests/test_conflict_checks_real_llm.py modules/interaction/tests/test_real_llm.py tests/integration/test_extraction_pipeline.py
+BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
+BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
-BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_map_editor_revision_concurrency.py tests/e2e/test_map_observation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_writing_version_concurrency.py
+BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_map_editor_revision_concurrency.py tests/e2e/test_map_observation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_writing_version_concurrency.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 
@@ -66,10 +68,26 @@ test-postgresql-critical:  ## Run the serial PostgreSQL merge-gate contract subs
 	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 pytest $(BACKEND_POSTGRESQL_CRITICAL_TESTS) -m "not real_llm and not external_data" --timeout=120 --junitxml=.test-artifacts/postgresql-critical.junit.xml $(ARGS)
 
 test-real-llm:  ## Run SQLite real-LLM acceptance tests explicitly
-	cd $(BACKEND_DIR) && RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_REAL_LLM_TESTS) -m real_llm $(ARGS)
+	cd $(BACKEND_DIR) && RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_REAL_LLM_TESTS) -m real_llm $(ARGS)
+
+test-real-kimi:  ## Run the explicit paid Kimi K3 compatibility gate
+	@test "$$RUN_INTERACTION_REAL_KIMI" = "1" || (echo "RUN_INTERACTION_REAL_KIMI=1 is required" >&2; exit 2)
+	@test -n "$$KIMI_API_KEY" || (echo "KIMI_API_KEY must be provided in the process environment" >&2; exit 2)
+	@test -n "$$DEEPSEEK_API_KEY" || (echo "DEEPSEEK_API_KEY is required for the hot-switch gate" >&2; exit 2)
+	cd $(BACKEND_DIR) && pytest infrastructure/llm/test_balance.py::test_kimi_balance_uses_open_platform_available_balance modules/settings/tests/test_llm_connections.py::test_balance_failure_is_auxiliary_and_does_not_disconnect modules/project/tests/test_llm_runtime.py::test_snapshot_provider_survives_active_template_hot_switch modules/project/tests/test_llm_runtime.py::test_snapshot_fails_when_original_provider_connection_was_cleared modules/interaction/tests/test_services.py::test_manual_overview_epoch_rejects_late_automatic_summary modules/interaction/tests/test_tasks.py::test_story_handler_checkpoints_by_size_and_flushes_tail -m "not real_llm and not external_data"
+	cd $(BACKEND_DIR) && ENABLE_ACCOUNT_KIMI_K3=1 RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_REAL_KIMI_TESTS) -m real_llm --maxfail=1 $(ARGS)
+
+test-interaction-long-context:  ## Run paid Kimi token calibration and PostgreSQL long-journey gate
+	@test "$$RUN_INTERACTION_LONG_CONTEXT_CALIBRATION" = "1" || (echo "RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 is required" >&2; exit 2)
+	@test "$$KIMI_LONG_CONTEXT_COST_APPROVED" = "1" || (echo "KIMI_LONG_CONTEXT_COST_APPROVED=1 is required" >&2; exit 2)
+	@test -n "$$KIMI_API_KEY" || (echo "KIMI_API_KEY must be provided in the process environment" >&2; exit 2)
+	@test -n "$$KIMI_CONTEXT_LIMIT_TOKENS" || (echo "KIMI_CONTEXT_LIMIT_TOKENS must match the current official model contract" >&2; exit 2)
+	@test -n "$$E2E_DATABASE_URL" || (echo "E2E_DATABASE_URL must target a dedicated PostgreSQL test database" >&2; exit 2)
+	cd $(BACKEND_DIR) && pytest modules/interaction/tests/test_services.py -k "extended_context_uses_full_selected_path_without_forced_summary or emergency_summary_resumes_same_story_attempt_without_losing_path or hard_context_budget_fails_closed_and_preserves_selected_path" -m "not real_llm and not external_data" --timeout=120
+	cd $(BACKEND_DIR) && ENABLE_ACCOUNT_KIMI_K3=1 RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_INTERACTION_LONG_CONTEXT_TESTS) -m "e2e and real_llm" --maxfail=1 $(ARGS)
 
 test-manual:  ## Run real-source and PostgreSQL/real-LLM acceptance tests explicitly
-	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_MANUAL_TESTS) -m "real_llm or external_data" $(ARGS)
+	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_MANUAL_TESTS) -m "real_llm or external_data" $(ARGS)
 
 test-frontend:  ## Run frontend tests
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)

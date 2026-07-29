@@ -260,8 +260,8 @@ pytest modules/writing/tests/ -v
 
 测试使用 SQLite 内存数据库，无需真实 PostgreSQL。
 
-真实 LLM 写作冲突检查验收默认跳过，不进入常规 CI。需要先在项目设置页配置
-项目级 LLM API Key / Base URL / 模型后手动运行：
+真实 LLM 写作冲突检查验收默认跳过，不进入常规 CI。需要先在账户设置页连接并激活
+可用模型后手动运行：
 
 ```bash
 RUN_REAL_LLM_TESTS=1 pytest modules/writing/tests/test_conflict_checks_real_llm.py -m real_llm -q -s

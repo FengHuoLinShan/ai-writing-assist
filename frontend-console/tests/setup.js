@@ -375,6 +375,31 @@ globalThis.api = {
   settings: {
     listGlobalLLMDefaults: vi.fn(async () => null),
     updateGlobalLLMDefaults: vi.fn(async (payload) => payload),
+    listLLMConnections: vi.fn(async () => ({
+      active_provider_id: "deepseek",
+      providers: [
+        {
+          provider_id: "deepseek",
+          label: "DeepSeek",
+          model: "deepseek-v4-flash",
+          connected: false,
+          active: true,
+          verified_at: null,
+        },
+        {
+          provider_id: "kimi",
+          label: "Kimi",
+          model: "kimi-k3",
+          connected: false,
+          active: false,
+          verified_at: null,
+        },
+      ],
+    })),
+    connectLLMProvider: vi.fn(async () => ({})),
+    activateLLMProvider: vi.fn(async () => ({})),
+    clearLLMProvider: vi.fn(async () => ({})),
+    listLLMBalances: vi.fn(async () => ({ items: [] })),
     listGlobalAuthorPrefs: vi.fn(async () => null),
     updateGlobalAuthorPrefs: vi.fn(async (payload) => payload),
     listProjectsUsingDefaults: vi.fn(async () => ({ items: [], total: 0, truncated: false })),

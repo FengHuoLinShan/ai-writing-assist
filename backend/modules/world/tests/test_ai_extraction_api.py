@@ -42,6 +42,7 @@ async def test_world_alias_relation_extract_rejects_invalid_context_confirmation
 async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmation(
     async_client: AsyncClient,
     db_session: AsyncSession,
+    account_llm_connection: dict,
 ) -> None:
     project_resp = await async_client.post(
         "/api/projects",

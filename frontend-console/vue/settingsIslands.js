@@ -18,34 +18,25 @@ import {
   tryMigrateLocalAuthorPreferences,
 } from "./bridge/index.js"
 
-function normalizeTemplates(templates) {
-  return Array.isArray(templates) ? templates : templates?.items || []
-}
-
 async function loadGlobalSettings() {
   const api = getApi()
-  try {
-    const [llm, prefs, projects, templates] = await Promise.all([
-      api.settings.listGlobalLLMDefaults(),
-      api.settings.listGlobalAuthorPrefs(),
-      api.settings.listProjectsUsingDefaults({ limit: 50 }),
-      api.projects.listLlmProviderTemplates(),
-    ])
-    return {
-      llmDefaults: llm,
-      authorPrefs: prefs || {},
-      projectsUsingDefaults: projects || { items: [], total: 0, truncated: false },
-      templates: normalizeTemplates(templates),
-    }
-  } catch (err) {
-    console.error("加载全局设置失败:", err)
+  const [connections, balances, prefs] = await Promise.allSettled([
+    api.settings.listLLMConnections(),
+    api.settings.listLLMBalances(),
+    api.settings.listGlobalAuthorPrefs(),
+  ])
+  if (connections.status === "rejected") {
+    console.error("加载模型连接失败:", connections.reason)
     getToast()("加载全局设置失败", "error")
-    return {
-      llmDefaults: null,
-      authorPrefs: {},
-      projectsUsingDefaults: { items: [], total: 0, truncated: false },
-      templates: [],
-    }
+  }
+  return {
+    llmConnections: connections.status === "fulfilled"
+      ? connections.value
+      : null,
+    llmBalances: balances.status === "fulfilled"
+      ? balances.value
+      : { items: [] },
+    authorPrefs: prefs.status === "fulfilled" ? prefs.value || {} : {},
   }
 }
 
@@ -57,17 +48,15 @@ async function loadProjectSettings() {
   const api = getApi()
   const projectTitle = state?.currentProject?.title || projectId
   try {
-    const [llm, prefs, templates] = await Promise.all([
+    const [llm, prefs] = await Promise.all([
       api.settings.getEffectiveLLMSettings(projectId),
       api.settings.getEffectiveAuthorPrefs(projectId),
-      api.projects.listLlmProviderTemplates(),
     ])
     return {
       projectId,
       projectTitle,
       effectiveLLM: llm,
       effectivePrefs: prefs,
-      templates: normalizeTemplates(templates),
     }
   } catch (err) {
     console.error("加载项目设置失败:", err)
@@ -77,7 +66,6 @@ async function loadProjectSettings() {
       projectTitle,
       effectiveLLM: null,
       effectivePrefs: null,
-      templates: [],
     }
   }
 }

@@ -73,6 +73,19 @@ class LLMRateLimitError(LLMError):
         super().__init__(message, provider=provider, model=model)
 
 
+class LLMQuotaError(LLMError):
+    """LLM 账户额度不足 — 不可通过自动重试恢复"""
+
+    def __init__(
+        self,
+        message: str = "LLM account quota exhausted",
+        *,
+        provider: str = "",
+        model: str = "",
+    ) -> None:
+        super().__init__(message, provider=provider, model=model)
+
+
 class LLMInvalidResponseError(LLMError):
     """LLM 返回了非法响应（格式错误、校验失败等）— 通常不可重试"""
 

@@ -137,8 +137,33 @@ describe("GenerateView Vue behavior matrix", () => {
 
     resolveChat({ reply: "聊天完成" })
     await flushPromises()
-    expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(false)
+    expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-action="generate-world-suggestion"]').element.disabled).toBe(false)
+    await wrapper.get("#generate-chat-input").setValue("下一条")
+    expect(wrapper.get('[data-action="send-chat-message"]').element.disabled).toBe(false)
+  })
+
+  it("keeps send beside the composer and supports IME-safe Cmd/Ctrl+Enter", async () => {
+    api.generate.worldChat.mockResolvedValue({ reply: "继续完善" })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    const input = wrapper.get("#generate-chat-input")
+    const send = wrapper.get('[data-action="send-chat-message"]')
+
+    expect(send.element.closest(".generate-composer")).not.toBeNull()
+    expect(wrapper.find(".generate-toolbar [data-action='send-chat-message']").exists()).toBe(false)
+    await input.setValue("")
+    expect(send.element.disabled).toBe(true)
+
+    await input.setValue("用快捷键发送")
+    await input.trigger("keydown", { key: "Enter", metaKey: true, isComposing: true })
+    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    await input.trigger("compositionstart")
+    await input.trigger("keydown", { key: "Enter", ctrlKey: true, isComposing: false })
+    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    await input.trigger("compositionend")
+    await input.trigger("keydown", { key: "Enter", ctrlKey: true, isComposing: false })
+    await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(document.activeElement).toBe(input.element))
   })
 
   it("aborts an in-flight world request and rejects its late response after unmount", async () => {

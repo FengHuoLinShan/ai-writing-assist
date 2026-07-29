@@ -100,17 +100,16 @@ export async function createProject(payload) {
   throw lastError || new Error(`Project ${project.id} was not visible after creation`)
 }
 
-export async function updateProjectLLMSettings(projectId, payload) {
-  return request(`/projects/${projectId}/llm-settings`, {
+export async function connectAccountLLMProvider(providerId, apiKey) {
+  return request(`/settings/llm-connections/${providerId}`, {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ api_key: apiKey }),
   })
 }
 
-export async function clearProjectLLMApiKeys(projectId) {
-  return request(`/projects/${projectId}/llm-settings`, {
-    method: "PUT",
-    body: JSON.stringify({ clear_all_api_keys: true }),
+export async function clearAccountLLMProvider(providerId) {
+  return request(`/settings/llm-connections/${providerId}`, {
+    method: "DELETE",
   })
 }
 

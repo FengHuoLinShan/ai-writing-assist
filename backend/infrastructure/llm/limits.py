@@ -19,6 +19,7 @@ from infrastructure.llm.errors import (
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
+    LLMQuotaError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
@@ -304,7 +305,12 @@ def _counts_toward_circuit_breaker(exc: Exception) -> bool:
     """Count provider availability failures, not deterministic request errors."""
     if isinstance(
         exc,
-        (LLMAuthError, LLMContentFilterError, LLMInvalidResponseError),
+        (
+            LLMAuthError,
+            LLMContentFilterError,
+            LLMInvalidResponseError,
+            LLMQuotaError,
+        ),
     ):
         return False
     return isinstance(
@@ -316,7 +322,12 @@ def _counts_toward_circuit_breaker(exc: Exception) -> bool:
 def _proves_provider_available(exc: Exception) -> bool:
     return isinstance(
         exc,
-        (LLMAuthError, LLMContentFilterError, LLMInvalidResponseError),
+        (
+            LLMAuthError,
+            LLMContentFilterError,
+            LLMInvalidResponseError,
+            LLMQuotaError,
+        ),
     )
 
 

@@ -22,6 +22,14 @@ class ProjectSummary:
     title: str
 
 
+@dataclass(frozen=True)
+class InteractionProjectContract:
+    """Hidden interaction project created for exactly one RP journey."""
+
+    novel_id: str
+    owner_id: uuid.UUID
+
+
 class ProjectLLMConfigurationError(ValidationError):
     """The requested project has no usable business LLM profile."""
 

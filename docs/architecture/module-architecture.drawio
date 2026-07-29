@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="drawio" modified="2026-07-25T00:00:00.000Z" agent="Codex drawio-skill" version="26.0.0" type="device">
+<mxfile host="drawio" modified="2026-07-29T00:00:00.000Z" agent="Codex drawio-skill" version="26.0.0" type="device">
   <diagram id="module-architecture" name="模块架构">
     <mxGraphModel dx="1600" dy="1120" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1120" math="0" shadow="0" background="#f8fafc">
       <root>
@@ -8,27 +8,30 @@
         <mxCell id="2" value="AI 长篇小说结构化创作引擎 — 模块架构" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
           <mxGeometry x="40" y="20" width="740" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="3" value="10 个业务模块 · 创作三层 + 身份边界 + 共享基础设施 · 箭头表示主要调用或资料流" style="text;html=1;align=right;verticalAlign=middle;fontSize=13;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="3" value="11 个业务模块 · 作者创作三层 + 独立 RP 领域 + 身份边界 + 共享基础设施" style="text;html=1;align=right;verticalAlign=middle;fontSize=13;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="800" y="25" width="760" height="30" as="geometry" />
         </mxCell>
 
-        <mxCell id="4" value="创作三层之外：身份边界与共享基础设施" style="swimlane;startSize=34;horizontal=1;rounded=1;html=1;container=1;pointerEvents=0;collapsible=0;fillColor=#f3e8ff;swimlaneFillColor=#faf5ff;strokeColor=#8b5cf6;fontColor=#6b21a8;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+        <mxCell id="4" value="创作三层之外：身份边界、RP 互动领域与共享基础设施" style="swimlane;startSize=34;horizontal=1;rounded=1;html=1;container=1;pointerEvents=0;collapsible=0;fillColor=#f3e8ff;swimlaneFillColor=#faf5ff;strokeColor=#8b5cf6;fontColor=#6b21a8;fontSize=14;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="80" width="1520" height="160" as="geometry" />
         </mxCell>
         <mxCell id="5" value="account 账号&#xa;身份 · 会话 · principal / owner 边界" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=14;fontStyle=1;spacing=8;" vertex="1" parent="4">
-          <mxGeometry x="40" y="55" width="340" height="75" as="geometry" />
+          <mxGeometry x="30" y="55" width="300" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="35" value="interaction RP 互动旅程&#xa;不可变选中历史 · 流式故事 · 回顾 / 看海&#xa;不读取或写回作者创作资产" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
+          <mxGeometry x="410" y="55" width="300" height="75" as="geometry" />
         </mxCell>
         <mxCell id="6" value="infrastructure/tasks&#xa;PostgreSQL async_tasks · enqueuer → worker&#xa;业务 handler 在所属模块注册" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#713f12;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
-          <mxGeometry x="590" y="55" width="340" height="75" as="geometry" />
+          <mxGeometry x="790" y="55" width="300" height="75" as="geometry" />
         </mxCell>
         <mxCell id="7" value="infrastructure/llm&#xa;受控 ManagedLLMStep · schema / budget / timeout&#xa;不承载业务编排" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#713f12;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
-          <mxGeometry x="1140" y="55" width="340" height="75" as="geometry" />
+          <mxGeometry x="1170" y="55" width="300" height="75" as="geometry" />
         </mxCell>
 
         <mxCell id="8" value="事实层 Facts — 项目根、当前正史与历史状态" style="swimlane;startSize=34;horizontal=1;rounded=1;html=1;container=1;pointerEvents=0;collapsible=0;fillColor=#dbeafe;swimlaneFillColor=#eff6ff;strokeColor=#3b82f6;fontColor=#1e3a8a;fontSize=14;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="280" width="1520" height="180" as="geometry" />
         </mxCell>
-        <mxCell id="9" value="project 项目根&#xa;owner 门禁 · novel_id 隔离&#xa;项目上下文 · 有效 LLM profile / snapshot seam" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#172554;fontSize=14;fontStyle=1;spacing=8;" vertex="1" parent="8">
+        <mxCell id="9" value="project 隔离根&#xa;owner · novel_id · author / interaction kind 门禁&#xa;账户 LLM client / secret-free snapshot seam" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#172554;fontSize=14;fontStyle=1;spacing=8;" vertex="1" parent="8">
           <mxGeometry x="40" y="50" width="360" height="100" as="geometry" />
         </mxCell>
         <mxCell id="10" value="world 世界事实&#xa;CoreEntity · 人物 · 事件 · 关系 · 世界书&#xa;map 是本模块子系统" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#172554;fontSize=14;fontStyle=1;spacing=8;" vertex="1" parent="8">
@@ -60,7 +63,7 @@
         <mxCell id="18" value="writing&#xa;正文工作稿 / 已发布版本&#xa;发布后触发索引与记忆更新" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="915" y="50" width="250" height="95" as="geometry" />
         </mxCell>
-        <mxCell id="19" value="settings&#xa;owner 级全局默认 / 偏好&#xa;供 project 继承；API Key 始终项目级" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
+        <mxCell id="19" value="settings&#xa;owner 级模型连接 / 余额 / 作者偏好&#xa;API Key 按账户 + provider 加密保存" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="1210" y="50" width="250" height="95" as="geometry" />
         </mxCell>
 
@@ -70,7 +73,7 @@
         <mxCell id="21" value="跨模块只依赖 contracts.py / facade.py / 已注册 DI port；API 与 facade 保持薄层。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">
           <mxGeometry x="30" y="42" width="710" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="22" value="公开请求同时通过 account principal / owner 与 project novel_id 门禁；两者互不替代。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">
+        <mxCell id="22" value="公开请求同时通过 account owner、project novel_id 与 author / interaction kind 门禁；三者互不替代。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">
           <mxGeometry x="770" y="42" width="710" height="30" as="geometry" />
         </mxCell>
         <mxCell id="23" value="普通 LLM 输出只进入建议或预览；只有持久化授权且可回滚的自动流水线可写允许的派生/已采用资产。" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#334155;" vertex="1" parent="20">

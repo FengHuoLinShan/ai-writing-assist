@@ -16,17 +16,14 @@ owner 过滤；跨账号访问返回 404，业务响应不返回 `owner_id`。ow
 ### settings 字段
 
 JSONB 配置字段，存储项目级可调参数，如 `temporary_entity_expiry_chapters` 等。
-其中 `settings.llm` 是项目级业务 LLM Profile；业务调用只使用项目/全局数据库配置
-和代码内置默认，不从旧版 `LLM_*` 环境变量继承供应商、模型、Base URL 或 API Key。
-典型字段：
+业务 LLM 的 provider/model/API Key 不再由项目拥有：Key 按 owner 加密保存在
+`account_llm_credentials`，当前 DeepSeek/Kimi 模板由 settings 模块统一解析。
+`settings.llm` 只保留旧项目的非 secret 兼容字段，`settings.deep_import` 继续承载项目级
+深度导入参数；任何项目创建、通用更新或兼容 LLM 设置接口中的 Key 写入都会被拒绝。
 
-- `provider_id` / `label`：供应商模板标识与显示名
-- `base_url` / `model`：OpenAI-compatible API 地址与默认模型
-- `timeout` / `max_tokens` / `temperature` / `top_p` / `extra`：业务调用参数
-- `api_key`：写入式字段；API 响应只返回 `api_key_configured`
-
-更新 LLM Profile 时，空 `api_key` 表示保留旧密钥；只有 `clear_api_key=true`
-才清除已保存密钥。所有项目详情、列表和 LLM 设置响应都不得回显 API Key。
+可恢复任务由 project facade 生成不含 secret 的执行快照，冻结提交时的
+provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 provider 的当前账户 Key，
+因此轮换 Key 不要求重建既有任务，也不会把密钥写进任务 API、日志或项目详情。
 
 ### deleted_at 字段
 
@@ -62,9 +59,9 @@ GET    /api/projects/{id}                      # 项目详情
 PUT    /api/projects/{id}                      # 更新项目
 DELETE /api/projects/{id}                      # 软删除（移至回收站）
 GET    /api/projects/recycle-bin               # 回收站列表
-GET    /api/projects/llm/provider-templates     # LLM 供应商模板
-GET    /api/projects/{id}/llm-settings          # 项目级 LLM 配置（不回显 API Key）
-PUT    /api/projects/{id}/llm-settings          # 更新项目级 LLM 配置
+GET    /api/projects/llm/provider-templates     # 兼容的供应商模板清单
+GET    /api/projects/{id}/llm-settings          # 读取项目非 secret 兼容设置
+PUT    /api/projects/{id}/llm-settings          # 更新非 secret 兼容设置；拒绝 Key
 POST   /api/projects/{id}/smart-dedup/scan      # 提交跨模块去重建议扫描
 POST   /api/projects/{id}/smart-dedup/apply     # 应用已确认的去重建议
 POST   /api/projects/{id}/restore              # 恢复项目

@@ -32,6 +32,7 @@ infrastructure/tasks/
 - writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
   `plot_structure_auto_extraction`、`map_observation_enrichment`
+- interaction：`interaction_story_generate`、`interaction_summary_refresh`
 
 实际注册名以各模块 `tasks.py` 的 `@task_handler(...)` 为准；不要从旧计划或示例中的
 任务名推断当前可执行处理器。
@@ -64,6 +65,8 @@ await worker.run_once()      # 单次执行
   preview / scan 来源，不直接导入 tasks ORM。
 - `cancel_unfinished_tasks_for_novel()` 仅取消指定 `novel_id` 的
   `pending/running` 任务，不自行提交事务。
+- `cancel_exact_task()` 供领域按 `task_id + task_type + novel_id` 取消一个
+  确切的 pending/running attempt；重复调用返回当前终态，不暴露 task ORM。
 - `list_running_task_types_for_novel()` 只返回指定项目、指定类型集中的
   running task type，并必须显式排除当前 task id；它不加载 meta/result。
   `require_running_task_attempt()` 则以
@@ -165,12 +168,14 @@ handler 注册时声明四种冻结策略：
 
 worker 启动先执行通用 stale-task recovery，再在同一独立事务调用组合根注入的领域
 reconciler。当前 RAG 会清理/补排失活 index owner，imports 会把 run 与 task 的
-pending/running/terminal/manual-resume 状态收敛并同步或清空 attempt/lease owner；任一
+pending/running/terminal/manual-resume 状态收敛并同步或清空 attempt/lease owner，
+interaction 会把已经失去活跃 task owner 的生成 attempt 收敛为明确 failed；已有可见正文
+留在失败记录中供用户显式保留或重新生成，reconciler 不自动提升为 selected partial。任一
 reconciler 失败则启动恢复事务回滚，不以半套 owner 状态继续工作。
 如果 worker 在旧心跳仍处于宽限期时重启，启动扫描可能暂时保留旧 running owner；后续 stale
 scanner 一旦实际把 task 自动重排或终态化，会立即再运行同一组领域 reconciler。这样最终
-heartbeat timeout 不会让 RAG/imports 领域状态继续指向 failed task，且 keyed 唯一约束与领域
-generation fence 仍负责多 worker 收敛。
+heartbeat timeout 不会让 RAG/imports/interaction 领域状态继续指向 failed task，且 keyed
+唯一约束与领域 generation fence 仍负责多 worker 收敛。
 
 `GET /api/tasks/{task_id}` 加性返回 `attempt / max_attempts / stale / lifecycle /
 available_actions`。前端只渲染后端返回的固定 action，不根据 heartbeat 或 task type

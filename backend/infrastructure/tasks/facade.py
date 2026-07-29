@@ -17,10 +17,28 @@ from infrastructure.tasks.contracts import (
 from infrastructure.tasks.enqueuer import (
     enqueue_coalesced_task as _enqueue_coalesced_task,
 )
+from infrastructure.tasks.enqueuer import enqueue_task as _enqueue_task
 from infrastructure.tasks.enqueuer import (
     get_latest_coalesced_task as _get_latest_coalesced_task,
 )
 from infrastructure.tasks.lifecycle import TaskLifecycleService
+
+
+def enqueue_task(
+    db: AsyncSession,
+    task_type: str,
+    meta: dict[str, Any] | None = None,
+    status: str = "pending",
+    progress: float = 0.0,
+) -> str:
+    """Create one ordinary task without exposing task persistence internals."""
+    return _enqueue_task(
+        db,
+        task_type,
+        meta=meta,
+        status=status,
+        progress=progress,
+    )
 
 
 async def enqueue_coalesced_task(
@@ -107,6 +125,24 @@ async def cancel_recoverable_task(
         task_id=task_id,
         task_types=task_types,
         novel_id=novel_id,
+    )
+
+
+async def cancel_exact_task(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    task_types: set[str],
+    novel_id: str,
+    transition_reason: str,
+) -> TaskLifecycleContract:
+    """Cancel one exact active task without exposing the task ORM."""
+    return await TaskLifecycleService().cancel_exact(
+        db,
+        task_id=task_id,
+        task_types=task_types,
+        novel_id=novel_id,
+        transition_reason=transition_reason,
     )
 
 

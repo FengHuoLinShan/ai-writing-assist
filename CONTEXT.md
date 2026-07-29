@@ -117,7 +117,27 @@ contract 消费它们。
 - **Schema guard**：API、LLM 结构化输出和入库都必须经过 Pydantic/调用方校验；不得
   `eval`、`exec` 或直接持久化未校验的 LLM 文本。
 
-## 6. 受控 LLM 工作流
+## 6. RP 互动旅程
+
+`interaction` 是独立于作者创作资产三层的私人故事领域。它不读取或写入 World、Outline、
+RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interaction` 项目作为
+`novel_id + owner_id` 隔离根。
+
+| 概念 | 当前承载 | 含义 |
+|---|---|---|
+| 互动旅程 | `interaction_journeys` | RP 故事容器，保存标题、旅程级开关、当前选中叶、selection epoch、回顾 head 和活动状态。 |
+| 消息节点 | `interaction_message_nodes` | 不可变的用户/模型内容节点；修改、重新生成和其他分支通过新 sibling 表达，不原地改写历史。 |
+| 分支选择 | `interaction_branch_selections` | 每个分岔父节点唯一的当前选中子节点；只有代码计算出的选中路径进入 Prompt、回顾和默认导出。 |
+| 生成 attempt | `interaction_generation_attempts` | 排队、上下文准备、流式缓冲、停止、失败和完成的领域状态；任务 transport 终态不能替代它。 |
+| 分段概要 | `interaction_summary_segments` | 按 token 规模压缩已选故事的不可变记忆段，记录覆盖锚点和脱敏 producer provenance。 |
+| 总回顾 | `interaction_overview_revisions` | 世界与起点、玩家角色、当前局面、人物势力、转折、未决事项和必须记住内容的活动总概要；revision 不可变，journey head 选择当前版。 |
+| 看海模式 | interaction 确定性循环 | 用户留在故事页且开关开启时，逐段提交有界 story attempt；不是自治 Agent，也不让模型自行调用工具。 |
+
+旅程“正史”只表示当前代码级选中路径，不等于原作品正史。未选 sibling、失败残段和模型训练
+先验都不自动成为已经发生的历史；用户明确修正优先，并由后续回顾收敛。RP 第一版背景来自
+用户开场、模型训练知识、选中历史和有效总回顾，不支持原作导入或按章节分叉。
+
+## 7. 受控 LLM 工作流
 
 项目不构建自治或多 Agent 运行时。`infrastructure.llm.agent_step_harness` 提供
 `ManagedLLMStep`、schema/output guard、预算、超时、journal 和错误分类：
@@ -126,15 +146,24 @@ contract 消费它们。
 - orchestrator 负责阶段顺序、并发、恢复、降级和写入；step 不自主选择工具或跨模块编排。
 - 运行时 Prompt、调用方和输出契约以 `docs/prompts/Prompt体系设计.md` 为准，不在本文件
   固定 Prompt 数量或旧文件清单。
-- 项目级 LLM Profile 位于 `projects.settings.llm`，账号全局默认和作者偏好位于 settings
-  模块。有效业务配置按项目 → 同 owner 全局 → 系统默认物化；业务 provider 字段不从 `LLM_*` 环境变量
-  继承，显式测试 override 仅用于测试路径。
+- 账号级模型连接由 settings 的 `account_llm_credentials` 承载每个 provider 的加密 Key，
+  并复用 owner 唯一的 `global_llm_defaults.provider_id` 选择当前 provider。新业务调用的
+  provider、model 与 Key 只来自项目 owner 的已验证账号连接及固定 provider 模板；
+  DeepSeek `deepseek-v4-flash` 是默认模板，Kimi `kimi-k3` 在真实兼容门禁通过并显式启用前
+  不可达。
+- `projects.settings.llm` 只保留非 secret 的项目工作流兼容设置，不能覆盖账号连接的
+  provider/model/Key。可恢复任务的 project snapshot 冻结提交时的 provider/model、
+  非 secret 参数和项目工作流设置，但不保存 Key；恢复时使用同 provider 当前轮换后的
+  账号 Key，provider 已清除时 fail-closed。
+- 旧 `global_llm_defaults` 继续提供非 secret 兼容默认/展示字段，不是运行时凭据真相源。
+  业务 provider 字段不从 `LLM_*` 环境变量继承，显式测试 override 仅用于测试路径。
 
-## 7. 模块边界与文档使用
+## 8. 模块边界与文档使用
 
 当前业务模块为 `account`、`project`、`world`、`memory`、`outline`、`rag`、`context`、
-`writing`、`imports`、`settings`；`map` 是 world 子系统，`infrastructure/tasks`
-是共享基础设施。
+`writing`、`imports`、`settings`、`interaction`；`map` 是 world 子系统，
+`infrastructure/tasks` 是共享基础设施。`interaction` 是 RP 私人故事领域，不属于作者
+创作资产的事实层、结构层或辅助层。
 
 生产业务代码只能跨模块依赖 `contracts.py`、`facade.py` 或已注册 DI port。应用组合根、
 测试 fixture 与 migration 的模型导入是受限例外，不可据此在业务层直接依赖其他模块内部

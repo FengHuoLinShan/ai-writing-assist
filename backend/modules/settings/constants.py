@@ -7,6 +7,7 @@ D4: 字段级 DELETE 服务端硬白名单。
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
@@ -37,6 +38,56 @@ LLM_DEFAULTS_SYSTEM: dict[str, Any] = {
     "creative_mode": None,
     "deep_import": None,  # D9 本期永远 NULL
 }
+
+ACCOUNT_LLM_PROVIDER_TEMPLATES: dict[str, dict[str, Any]] = {
+    "deepseek": {
+        "provider_id": "deepseek",
+        "label": "DeepSeek",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+        "timeout": 180,
+        "max_tokens": DEFAULT_LLM_MAX_TOKENS,
+        "temperature": 0.3,
+        "top_p": None,
+        "extra": {},
+    },
+    "kimi": {
+        "provider_id": "kimi",
+        "label": "Kimi",
+        "base_url": "https://api.moonshot.cn/v1",
+        "model": "kimi-k3",
+        "timeout": 180,
+        "max_tokens": DEFAULT_LLM_MAX_TOKENS,
+        "temperature": 0.3,
+        "top_p": None,
+        "extra": {},
+    },
+}
+
+ACCOUNT_LLM_PROVIDER_ORDER: tuple[str, ...] = ("deepseek", "kimi")
+
+
+def account_llm_provider_enabled(provider_id: str) -> bool:
+    """Keep unverified account templates unreachable until their real gate passes."""
+
+    if provider_id == "deepseek":
+        return True
+    if provider_id == "kimi":
+        return os.getenv("ENABLE_ACCOUNT_KIMI_K3", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    return False
+
+
+def enabled_account_llm_provider_order() -> tuple[str, ...]:
+    return tuple(
+        provider_id
+        for provider_id in ACCOUNT_LLM_PROVIDER_ORDER
+        if account_llm_provider_enabled(provider_id)
+    )
 
 # 字段级 DELETE 白名单
 AUTHOR_PREFS_FIELDS: frozenset[str] = frozenset(

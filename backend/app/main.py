@@ -727,6 +727,7 @@ async def root():
 # 如需版本控制，未来可统一改为 prefix="/api/v1" + 移除模块内 prefix。
 
 import modules.imports.tasks  # noqa: F401, E402 — 注册深度导入任务处理器
+import modules.interaction.tasks  # noqa: F401, E402 — 注册 RP 互动任务处理器
 import modules.outline.tasks  # noqa: F401, E402 — 注册剧情结构生成任务处理器
 import modules.project.tasks  # noqa: F401, E402 — 注册项目级任务处理器
 import modules.rag.tasks  # noqa: F401, E402 — 注册 RAG 索引/重建任务处理器
@@ -746,6 +747,7 @@ from modules.context import api as context_api  # noqa: E402
 # geo/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api；模块已删除
 from modules.imports import api as imports_api  # noqa: E402
+from modules.interaction import api as interaction_api  # noqa: E402
 from modules.memory import api as memory_api  # noqa: E402
 from modules.outline import api as outline_api  # noqa: E402
 from modules.project.api import router as project_router  # noqa: E402
@@ -762,6 +764,7 @@ app.include_router(account_oidc_router)
 app.include_router(account_oidc_reauth_router)
 app.include_router(legal_router)
 app.include_router(imports_api.router)
+app.include_router(interaction_api.router)
 app.include_router(world_api.router)
 app.include_router(world_map_api.router)
 app.include_router(memory_api.router)

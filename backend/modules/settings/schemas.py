@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -131,3 +132,64 @@ class ProjectsUsingDefaultsResponse(BaseModel):
     items: list[ProjectsUsingDefaultsItem]
     total: int
     truncated: bool = False
+
+
+class AccountLLMConnectionUpdate(BaseModel):
+    """Write-only account provider connection input."""
+
+    model_config = {"extra": "forbid"}
+    api_key: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("api_key")
+    @classmethod
+    def strip_api_key(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("API Key 不能为空")
+        return stripped
+
+
+class AccountLLMProviderState(BaseModel):
+    model_config = {"extra": "forbid"}
+    provider_id: str
+    label: str
+    model: str
+    connected: bool
+    active: bool
+    verified_at: datetime | None = None
+
+
+class AccountLLMConnectionsResponse(BaseModel):
+    model_config = {"extra": "forbid"}
+    active_provider_id: str
+    providers: list[AccountLLMProviderState]
+
+
+class AccountLLMRuntimeProfile(BaseModel):
+    """Internal stable shape returned across the settings facade."""
+
+    model_config = {"extra": "forbid"}
+    provider_id: str
+    label: str
+    api_key: str
+    base_url: str
+    model: str
+    timeout: int
+    max_tokens: int
+    temperature: float | None = None
+    top_p: float | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class AccountLLMBalanceItem(BaseModel):
+    model_config = {"extra": "forbid"}
+    provider_id: str
+    status: str
+    amount: str | None = None
+    currency: str | None = None
+    queried_at: datetime
+
+
+class AccountLLMBalancesResponse(BaseModel):
+    model_config = {"extra": "forbid"}
+    items: list[AccountLLMBalanceItem]

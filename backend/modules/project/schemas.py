@@ -157,6 +157,7 @@ class ProjectContext(BaseModel):
 
     novel_id: str
     owner_id: str | None = None
+    project_kind: str = "author"
     title: str
     genre: str | None = None
     tone: str | None = None
@@ -188,10 +189,10 @@ class LLMProviderTemplateListResponse(BaseModel):
 
 
 class ProjectLLMSettingsUpdate(BaseModel):
-    """Project-level LLM settings update.
+    """Compatibility update for project-owned non-secret LLM/workflow fields.
 
-    api_key is write-only. Empty api_key preserves an existing key unless
-    clear_api_key is true.
+    Secret fields remain in the wire shape for old clients, but the service rejects
+    any attempt to write or clear them. Keys are account-scoped.
     """
 
     provider_id: str | None = Field(default=None, max_length=64)

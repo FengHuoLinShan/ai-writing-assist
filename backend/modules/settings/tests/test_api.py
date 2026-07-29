@@ -57,21 +57,20 @@ async def test_put_global_llm_defaults_round_trip(async_client: AsyncClient):
         "/api/settings/llm-defaults",
         headers=XHR_HEADERS,
         json={
-            "provider_id": "deepseek",
-            "base_url": "https://api.deepseek.com/v1",
-            "model": "deepseek-v4-flash",
             "max_tokens": 8192,
         },
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["provider_id"] == "deepseek"
+    assert body["provider_id"] is None
+    assert body["max_tokens"] == 8192
     assert body["deep_import"] is None
     assert "api_key" not in body
 
     r2 = await async_client.get("/api/settings/llm-defaults")
     assert r2.status_code == 200
-    assert r2.json()["provider_id"] == "deepseek"
+    assert r2.json()["provider_id"] is None
+    assert r2.json()["max_tokens"] == 8192
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.settings.schemas import (
+    AccountLLMBalancesResponse,
+    AccountLLMConnectionsResponse,
+    AccountLLMConnectionUpdate,
     GlobalAuthorPrefsResponse,
     GlobalAuthorPrefsUpdate,
     GlobalLLMDefaultsResponse,
@@ -19,6 +22,80 @@ from modules.settings.services import SettingsService
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 _service = SettingsService()
+
+
+def _bad_request(exc: ValueError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get(
+    "/llm-connections",
+    response_model=AccountLLMConnectionsResponse,
+)
+async def api_get_account_llm_connections(
+    db: DbSession,
+) -> AccountLLMConnectionsResponse:
+    return await _service.get_account_llm_connections(db)
+
+
+@router.put(
+    "/llm-connections/{provider_id}",
+    response_model=AccountLLMConnectionsResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_connect_account_llm_provider(
+    db: DbSession,
+    provider_id: str,
+    data: AccountLLMConnectionUpdate,
+) -> AccountLLMConnectionsResponse:
+    try:
+        return await _service.connect_account_llm_provider(
+            db,
+            provider_id,
+            data.api_key,
+        )
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.post(
+    "/llm-connections/{provider_id}/activate",
+    response_model=AccountLLMConnectionsResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_activate_account_llm_provider(
+    db: DbSession,
+    provider_id: str,
+) -> AccountLLMConnectionsResponse:
+    try:
+        return await _service.activate_account_llm_provider(db, provider_id)
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.delete(
+    "/llm-connections/{provider_id}",
+    response_model=AccountLLMConnectionsResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_clear_account_llm_provider(
+    db: DbSession,
+    provider_id: str,
+) -> AccountLLMConnectionsResponse:
+    try:
+        return await _service.clear_account_llm_provider(db, provider_id)
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.get(
+    "/llm-balances",
+    response_model=AccountLLMBalancesResponse,
+)
+async def api_get_account_llm_balances(
+    db: DbSession,
+) -> AccountLLMBalancesResponse:
+    return await _service.get_account_llm_balances(db)
 
 
 async def _require_active_project(db: DbSession, project_id: str) -> None:

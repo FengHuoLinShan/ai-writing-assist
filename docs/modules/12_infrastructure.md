@@ -81,21 +81,17 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 
 ### 配置与健康检查
 
-业务调用的项目级 LLM 配置由 `modules.project.facade.open_project_llm_client()`
-加载，先按字段物化 effective settings，再使用
-`infrastructure.llm.profiles.resolve_llm_profile()` 构造 profile。生产字段来源
-优先级固定为：
-
-```text
-project settings.llm > global settings.llm > system default
-```
+业务调用由 `modules.project.facade.open_project_llm_client()` 根据项目 owner 加载当前
+已验证的账户 provider/model/Key，再使用
+`infrastructure.llm.profiles.resolve_llm_profile()` 构造 profile。项目设置只叠加
+非 secret 工作流参数，不能覆盖账户连接。
 
 `test override` 只用于显式测试注入，不是生产项目之间的回退来源。
 
 新增带 `novel_id` 的业务 LLM 服务必须使用 project facade 的 runtime seam，不能直接
 构造 `LLMClient`、调用 `from_project_settings()` 或自行解析 profile。静态门禁会扫描
 生产业务模块，并只允许已登记的 project runtime / project snapshot / 独立 embedding
-窄例外；因此后续服务默认继承数据库全局 LLM 设置，而不会悄然回退成模块私有配置。
+窄例外；因此后续服务使用同一账户连接，不会悄然回退成模块私有配置。
 
 resolver 返回 effective api_key / base_url / model / timeout / max_tokens /
 temperature / top_p / extra，并保留字段来源。日志、JSONL、health check 和前端响应
@@ -110,14 +106,14 @@ task worker 对异常先执行 `redact_diagnostic`再写入 task status API 与
 
 可恢复任务不把 effective API Key 或完整 endpoint 写入 task meta。
 project facade 在提交时生成 secret-free execution snapshot，冻结
-model/非 secret 参数/字段来源和领域设置；deep-import 的
-项目值、环境覆盖与代码默认也在此时物化为显式值。恢复时读取当前 Key，
-允许 Key 轮换，但 endpoint 或 provider-specific extra 的 hash 变化会
-fail closed。
+provider/model/非 secret 参数/字段来源和领域设置；deep-import 的
+项目值、环境覆盖与代码默认也在此时物化为显式值。恢复时读取 snapshot 原 provider
+当前轮换后的账户 Key；账户切到其他模板不要求重建任务，但原 provider Key 被清除、
+endpoint 或 provider-specific extra 的 hash 变化时 fail closed。
 
-业务供应商 profile 不再从 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 等环境变量
-继承。项目上下文会物化项目 > 全局默认 > 系统默认的 LLM 设置；系统默认是官方
-DeepSeek：`https://api.deepseek.com` + `deepseek-v4-flash`。
+业务供应商 profile 不从 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 等环境变量
+继承。当前账户模板默认是官方 DeepSeek：
+`https://api.deepseek.com` + `deepseek-v4-flash`；没有已验证 Key 时 fail closed。
 
 - `LLM_TRUST_ENV`：是否允许 httpx/OpenAI SDK 读取系统代理环境，默认 `false`
 - `LLM_PROXY_URL`：显式代理地址，默认空
@@ -125,7 +121,7 @@ DeepSeek：`https://api.deepseek.com` + `deepseek-v4-flash`。
 - `LLM_RETRY_MAX_ATTEMPTS` / `LLM_RETRY_BASE_DELAY` / `LLM_RETRY_MAX_DELAY`：LLM 重试预算
 - `LLM_MAX_CONCURRENT_REQUESTS`：单进程共享的 LLM 并发上限
 - `LLM_RATE_LIMIT_PER_MINUTE`：单进程共享的 provider RPM；所有环境均可设为 `0`
-  关闭额外 RPM 门禁。公开部署若由用户在项目设置中提供自己的 LLM 配置，可依赖各
+  关闭额外 RPM 门禁。公开部署若由用户在账户设置中提供自己的 LLM 连接，可依赖各
   provider 的账户配额而不叠加全局 RPM，但仍应保留并发上限保护服务器资源。
 
 `development/test/local` 可将 LLM RPM 设为 `0`；其他环境必须按实际 provider 配额

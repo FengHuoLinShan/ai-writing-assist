@@ -21,11 +21,11 @@ import { fileURLToPath } from "node:url"
 import { SEL } from "./helpers/selectors.js"
 import { openProjectView, openWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
-  clearProjectLLMApiKeys,
+  clearAccountLLMProvider,
   cleanupProjectStrict,
+  connectAccountLLMProvider,
   createProject,
   getTask,
-  updateProjectLLMSettings,
   waitForBackend,
 } from "./helpers/api-client.js"
 import { createPersistentBrowserProfile } from "./helpers/persistent-browser.js"
@@ -111,6 +111,7 @@ async function waitForTaskDone(taskId, novelId, timeoutMs = TASK_TIMEOUT_MS) {
 test.describe("深度导入异步 Worker 受理", () => {
   let testProjectId = null
   let testProject = null
+  let accountConnectionTouched = false
 
   test.beforeAll(async () => {
     await waitForBackend(60_000)
@@ -125,24 +126,24 @@ test.describe("深度导入异步 Worker 受理", () => {
     testProjectId = project.id
     testProject = project
 
-    await updateProjectLLMSettings(testProjectId, {
-      provider_id: process.env.WORKER_E2E_LLM_PROVIDER_ID || "deepseek",
-      base_url: process.env.WORKER_E2E_LLM_BASE_URL || "https://api.deepseek.com",
-      model: process.env.WORKER_E2E_LLM_MODEL || "deepseek-v4-flash",
-      api_key: process.env.WORKER_E2E_LLM_API_KEY,
-    })
+    await connectAccountLLMProvider(
+      "deepseek",
+      process.env.WORKER_E2E_LLM_API_KEY,
+    )
+    accountConnectionTouched = true
   })
 
   test.afterEach(async () => {
     const projectId = testProjectId
+    const shouldClearConnection = accountConnectionTouched
     testProjectId = null
     testProject = null
-    if (!projectId) return
+    accountConnectionTouched = false
 
     try {
-      await clearProjectLLMApiKeys(projectId)
+      if (shouldClearConnection) await clearAccountLLMProvider("deepseek")
     } finally {
-      await cleanupProjectStrict(projectId)
+      if (projectId) await cleanupProjectStrict(projectId)
     }
   })
 

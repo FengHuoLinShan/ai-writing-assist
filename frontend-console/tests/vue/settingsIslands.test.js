@@ -39,18 +39,21 @@ describe("settings island（全局设置）", () => {
     vi.clearAllMocks()
   })
 
-  it("onEnter 预取四路数据，onRendered 挂载 GlobalSettingsView", async () => {
-    globalThis.api.settings.listGlobalLLMDefaults.mockResolvedValue({
-      base_url: "https://api.deepseek.com",
-      model: "deepseek-v4-flash",
+  it("onEnter 预取连接、余额和偏好并挂载账户设置", async () => {
+    globalThis.api.settings.listLLMConnections.mockResolvedValue({
+      active_provider_id: "deepseek",
+      providers: [
+        {
+          provider_id: "deepseek",
+          label: "DeepSeek",
+          model: "deepseek-v4-flash",
+          connected: true,
+          active: true,
+        },
+      ],
     })
+    globalThis.api.settings.listLLMBalances.mockResolvedValue({ items: [] })
     globalThis.api.settings.listGlobalAuthorPrefs.mockResolvedValue({ daily_goal: 800 })
-    globalThis.api.settings.listProjectsUsingDefaults.mockResolvedValue({
-      items: [{ project_id: "p1", title: "项目一" }],
-      total: 1,
-      truncated: false,
-    })
-    globalThis.api.projects.listLlmProviderTemplates.mockResolvedValue({ items: [] })
 
     const island = views.settings
     await island.onEnter()
@@ -59,16 +62,16 @@ describe("settings island（全局设置）", () => {
     await island.onRendered()
 
     expect(content.querySelector(".global-settings-view")).toBeTruthy()
-    expect(content.querySelector("#global-llm-save")).toBeTruthy()
-    expect(content.querySelector(".projects-using-list li")?.textContent).toContain("项目一")
+    expect(content.querySelector("#account-llm-save")).toBeTruthy()
+    expect(content.querySelector(".account-provider-card")?.textContent)
+      .toContain("DeepSeek")
     island.onLeave()
   })
 
   it("预取失败时降级为空数据并 toast，不阻断渲染", async () => {
-    globalThis.api.settings.listGlobalLLMDefaults.mockRejectedValue(new Error("网络错误"))
+    globalThis.api.settings.listLLMConnections.mockRejectedValue(new Error("网络错误"))
+    globalThis.api.settings.listLLMBalances.mockRejectedValue(new Error("网络错误"))
     globalThis.api.settings.listGlobalAuthorPrefs.mockRejectedValue(new Error("网络错误"))
-    globalThis.api.settings.listProjectsUsingDefaults.mockRejectedValue(new Error("网络错误"))
-    globalThis.api.projects.listLlmProviderTemplates.mockRejectedValue(new Error("网络错误"))
 
     const island = views.settings
     await island.onEnter()
@@ -78,7 +81,41 @@ describe("settings island（全局设置）", () => {
 
     expect(globalThis.toast).toHaveBeenCalledWith("加载全局设置失败", "error")
     expect(content.querySelector(".global-settings-view")).toBeTruthy()
-    expect(content.textContent).toContain("没有项目继承全局默认")
+    expect(content.textContent).toContain("模型连接")
+    island.onLeave()
+  })
+
+  it("余额或作者偏好失败时仍保留模型连接卡片", async () => {
+    globalThis.api.settings.listLLMConnections.mockResolvedValue({
+      active_provider_id: "deepseek",
+      providers: [{
+        provider_id: "deepseek",
+        label: "DeepSeek",
+        model: "deepseek-v4-flash",
+        connected: true,
+        active: true,
+      }],
+    })
+    globalThis.api.settings.listLLMBalances.mockRejectedValue(
+      new Error("余额服务超时"),
+    )
+    globalThis.api.settings.listGlobalAuthorPrefs.mockRejectedValue(
+      new Error("偏好暂时不可用"),
+    )
+
+    const island = views.settings
+    await island.onEnter()
+    const content = setupWorkspace()
+    content.innerHTML = island.render()
+    await island.onRendered()
+
+    expect(content.querySelector(".account-provider-card")?.textContent)
+      .toContain("DeepSeek")
+    expect(content.querySelector("#account-llm-save")).toBeTruthy()
+    expect(globalThis.toast).not.toHaveBeenCalledWith(
+      "加载全局设置失败",
+      "error",
+    )
     island.onLeave()
   })
 })
@@ -101,7 +138,7 @@ describe("project-settings island（项目设置）", () => {
     island.onLeave()
   })
 
-  it("有项目时预取 effective 数据并挂载三个 Tab", async () => {
+  it("有项目时预取 effective 数据并挂载两个项目 Tab", async () => {
     setBridgeOverrides({
       state: { currentProjectId: "p1", currentProject: { title: "测试项目" } },
       tryMigrateLocalAuthorPreferences: vi.fn(),
@@ -125,7 +162,6 @@ describe("project-settings island（项目设置）", () => {
       editor_font: { value: "system", source: "system" },
       default_focus_mode: { value: false, source: "system" },
     })
-    globalThis.api.projects.listLlmProviderTemplates.mockResolvedValue({ items: [] })
 
     const island = views["project-settings"]
     await island.onEnter()
@@ -135,7 +171,7 @@ describe("project-settings island（项目设置）", () => {
 
     expect(content.querySelector(".project-settings-view")).toBeTruthy()
     expect(content.textContent).toContain("测试项目")
-    expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(3)
+    expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(2)
     island.onLeave()
   })
 })

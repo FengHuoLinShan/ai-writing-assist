@@ -341,15 +341,25 @@ function _toastHandlerError(err) {
 
 /**
  * 关闭模态框。
- * @param {{force?: boolean}|Event} options - 内部成功 action 可强制关闭；DOM 事件参数不会绕过保护
+ * @param {{force?: boolean, reason?: "project-navigation"}|Event} options
+ * 内部成功 action 可强制关闭；DOM 事件参数不会绕过保护。项目导航使用专用 reason，
+ * 以复用未保存确认且拒绝在任何 modal action 尚未完成时切换项目。
  * @returns {boolean} 是否已关闭
  */
 function closeModal(options = {}) {
+  const isDomEvent = _isDomEvent(options)
+  const isExplicitlyForced = options?.force === true
+  const isProjectNavigation = !isDomEvent && options?.reason === "project-navigation"
+  if (isProjectNavigation && _activeActionGenerations.size > 0) {
+    if (typeof toast === "function") {
+      toast("当前操作仍在处理中，请完成后再切换项目", "warning")
+    }
+    return false
+  }
+
   const overlay = document.getElementById("modal-overlay")
   if (!overlay || overlay.classList.contains("hidden")) return true
 
-  const isDomEvent = _isDomEvent(options)
-  const isExplicitlyForced = options?.force === true
   const currentActionIsActive = _activeActionGenerations.has(_modalGeneration)
   if (
     !isDomEvent

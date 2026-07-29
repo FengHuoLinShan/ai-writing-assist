@@ -23,7 +23,10 @@ from modules.project.tasks import handle_smart_dedup_scan
 pytestmark = [pytest.mark.asyncio]
 
 
-async def test_smart_dedup_scan_api_enqueues_task(async_client: AsyncClient) -> None:
+async def test_smart_dedup_scan_api_enqueues_task(
+    async_client: AsyncClient,
+    account_llm_connection: dict,
+) -> None:
     created = await async_client.post("/api/projects", json={"title": "去重测试"})
     assert created.status_code == 201
     project_id = created.json()["id"]

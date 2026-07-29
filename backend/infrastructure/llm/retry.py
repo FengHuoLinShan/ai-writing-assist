@@ -19,6 +19,7 @@ from infrastructure.llm.errors import (
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
+    LLMQuotaError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
@@ -45,7 +46,15 @@ def _is_retryable(error: Exception) -> bool:
     """
     if isinstance(error, (LLMTimeoutError, LLMRateLimitError)):
         return True
-    if isinstance(error, (LLMAuthError, LLMContentFilterError, LLMInvalidResponseError)):
+    if isinstance(
+        error,
+        (
+            LLMAuthError,
+            LLMContentFilterError,
+            LLMInvalidResponseError,
+            LLMQuotaError,
+        ),
+    ):
         return False
     # LLMError 可重试（通用 API 错误）
     if isinstance(error, LLMError):

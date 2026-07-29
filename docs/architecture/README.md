@@ -17,11 +17,12 @@
 
 ## 当前读图约定
 
-- 业务模块共 10 个：`account`、`project`、`world`、`memory`、`outline`、`imports`、
-  `rag`、`context`、`writing`、`settings`。
+- 业务模块共 11 个：`account`、`project`、`world`、`memory`、`outline`、`imports`、
+  `rag`、`context`、`writing`、`settings`、`interaction`。
 - 创作三层为事实层（`project/world/memory`）、结构层（`outline`）和辅助层
   （`imports/rag/context/writing/settings`）。`account` 是三层之外的公开身份与 owner
-  边界；`infrastructure/tasks`、`infrastructure/llm` 是共享基础设施。
+  边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、
+  `infrastructure/llm` 是共享基础设施。
 - `map` 是 `world` 子系统；`geo/review/character/timeline` 已移除或并入现有模块。
 - 箭头表达主要调用或资料流，标签说明具体语义；完整生产依赖仍以
   `contracts.py`、`facade.py`、组合根 DI 注册和当前代码为准。

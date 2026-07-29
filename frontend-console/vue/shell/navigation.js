@@ -10,6 +10,16 @@ export const SHELL_NAV_ITEMS = Object.freeze([
   { view: "project-settings", label: "项目设置", title: "项目设置", icon: "project-settings" },
 ])
 
+const INTERACTION_RETURN_TARGET = (
+  /^interaction:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+)
+
+export function normalizeRpReturnTarget(value) {
+  const target = String(value || "")
+  if (target === "journeys" || target === "journeys:new") return target
+  return INTERACTION_RETURN_TARGET.test(target) ? target : ""
+}
+
 export function navDestination(services, view) {
   const route = services.router.getRoute(view)
   return services.router.getLastSubView(view)

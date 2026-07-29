@@ -1,10 +1,19 @@
 # Settings Module
 
-管理全局 LLM 默认、全局作者偏好、项目级作者偏好覆盖。
+管理账户级模型连接、只读余额、全局作者偏好和项目级作者偏好覆盖。
 
 ## 关键约束
 
-- **API Key 永远项目级**：`global_llm_defaults` 表不存 Key，`GlobalLLMDefaultsUpdate` schema `extra="forbid"` 硬拒 `api_key` 字段；PUT 接口和 service 层都对此双重防御。
+- **API Key 永远账户级**：`account_llm_credentials` 按
+  `(owner_id, provider_id)` 唯一加密保存。项目设置、任务 meta、execution snapshot、响应和
+  日志都不保存或回显 Key；遗留项目 Key 由 migration 清除。
+- **连接编辑只有模板和 Key**：第一版固定 DeepSeek `deepseek-v4-flash` 与 Kimi
+  `kimi-k3` 两个代码模板；DeepSeek 默认可用，Kimi 在真实兼容门禁通过并显式启用前不进入
+  API 响应，也不能被选择。
+- **连接先验证再原子激活**：新 Key 先做真实最小调用，成功后才加密保存并切换当前模板；
+  相同已验证 Key 重存不重复验证。没有可用 Key 时业务调用 fail-closed，不暗降级到其他模型。
+- **当前模板按 owner 保存**：复用 `global_llm_defaults` 的 owner 唯一行记录模板字段；
+  该表不含 Key，也不再构成可任意编辑的运行时 provider/profile 平面。
 - **全局默认按账号 owner 隔离**：`owner_id → accounts.id`；worker 由项目上下文显式携带
   owner，不能回退到其他用户的全局设置。
 - **本地与封闭测试使用 bootstrap owner**：`LOCAL_OWNER_ID` 仅标识固定 bootstrap
@@ -12,18 +21,22 @@
 - **项目级作者偏好沿项目 owner 隔离**：项目自身持有非空 `owner_id`，设置查询先验证项目
   归属；不会在项目设置表重复写 owner。
 - **项目作者偏好所有字段允许 NULL**：NULL = 继承全局（D2）。`UNIQUE(project_id)` 保证每个项目最多一行。
-- **字段级 DELETE 硬白名单**：`AUTHOR_PREFS_FIELDS`（作者偏好）、`LLM_INHERITABLE_FIELDS`（LLM 字段，不含 `api_key`）。非白名单返回 400，不拼列名、不拼 JSON path。
+- **字段级 DELETE 硬白名单**：`AUTHOR_PREFS_FIELDS`（作者偏好）和兼容
+  `LLM_INHERITABLE_FIELDS`（不含 `api_key`）。非白名单返回 400，不拼列名、不拼 JSON path。
 - **全局 `deep_import` 本期永不写入**（D9）：`global_llm_defaults.deep_import` 列存在但保持 NULL；全局页不渲染 40+ 深度导入字段，避免臃肿。未来需要全局默认时单独开 issue。
-- **通用输出上限默认 `12000`**：项目未覆盖时按项目 → 全局 → 系统顺序解析；深度导入不继承该值，继续使用自己的阶段预算。
+- **余额是非阻塞只读辅助**：只查询已连接且已启用的 provider，原币种返回总可用额；
+  失败统一为 unavailable，不影响连接状态或故事生成。前端标注“可能有延迟”，不轮询、
+  不拆分余额、不显示充值入口。
+- **通用输出上限默认 `12000`**：由固定账户模板提供；深度导入继续使用自己的阶段预算。
 
 ## effective 响应结构（契约）
 
 ```json
 {
   "provider_id": { "value": "deepseek", "source": "global" },
-  "base_url":    { "value": "https://api.deepseek.com/v1", "source": "global" },
-  "model":       { "value": "deepseek-chat", "source": "project" },
-  "api_key_configured": { "value": true, "source": "project" },
+  "base_url":    { "value": "https://api.deepseek.com", "source": "global" },
+  "model":       { "value": "deepseek-v4-flash", "source": "global" },
+  "api_key_configured": { "value": true, "source": "global" },
   "deep_import": { "value": {...}, "source": "project" },
   "temperature": { "value": 0.3, "source": "system" }
 }
@@ -33,17 +46,22 @@
 
 | source | 含义 |
 |--------|------|
-| `project` | 项目字段有值（覆盖） |
-| `global` | 项目 NULL，全局有值（继承） |
-| `system` | 项目与全局都 NULL，回退代码内置默认（官方 DeepSeek） |
-| `unset` | 项目与全局都 NULL，且无内置默认（如 Key、`daily_goal` 空时） |
+| `project` | 项目拥有的非 secret 工作流字段有值，例如 `deep_import` |
+| `global` | 当前账户模板或账户凭据提供 |
+| `system` | 没有显式值时使用代码默认 |
+| `unset` | 没有适用值，例如账户尚未连接 Key |
 
-`api_key_configured` 永远只返回 bool 不返回明文；`source` 永远 `project` 或 `unset`（Key 永远项目独有，不参与继承）。
+`api_key_configured` 永远只返回 bool，不返回明文；运行时 provider/model/Key 不接受项目覆盖。
 
 ## 接口
 
 详见 `api.py`。路由前缀 `/api/settings/`：
 
+- `GET /api/settings/llm-connections` — 当前账户可用模板、连接状态和当前模板
+- `PUT /api/settings/llm-connections/{provider_id}` — 验证、加密保存 Key 并激活模板
+- `POST /api/settings/llm-connections/{provider_id}/activate` — 切到已有连接，不重复验证
+- `DELETE /api/settings/llm-connections/{provider_id}` — 清除该 provider 的账户 Key
+- `GET /api/settings/llm-balances` — 非阻塞查询已连接 provider 的原币种余额
 - `GET/PUT /api/settings/llm-defaults` — 全局 LLM 默认
 - `GET/PUT /api/settings/author-preferences` — 全局作者偏好
 - `GET /api/settings/projects-using-defaults` — 引用此默认的项目聚合（D18: 任一字段 NULL 即列出）
@@ -55,19 +73,23 @@
 回收站时统一返回 404。全局 LLM 默认、全局作者偏好、默认继承聚合和
 refresh 不绑定单个项目，不使用该门禁。
 
-项目级 effective 接口仍走 `/api/projects/<id>/...`（位于 `modules/project/`）：
+项目级兼容/effective 接口仍走 `/api/projects/<id>/...`（位于 `modules/project/`）：
 
 - `GET /api/projects/{id}/effective-llm-settings` — 合并视图
 - `GET /api/projects/{id}/effective-author-preferences` — 合并视图
-- `DELETE /api/projects/{id}/llm-settings/field/{field_name}` — LLM 字段恢复继承
+- `DELETE /api/projects/{id}/llm-settings/field/{field_name}` — 清理兼容项目字段
 
 上述 effective 接口同样以 active project 为边界；项目不存在或已进入回收站时返回
 标准 DomainError 404，不回退到系统默认，也不暴露普通 Python 异常。
 
 ## 跨模块边界
 
-- `modules.settings.services` 拥有 effective settings 计算规则，接收 raw project settings dict，不直接读取 project 模块。
-- `modules.settings.facade` 暴露 `get_effective_llm_settings` / `get_effective_author_prefs` / `materialize_effective_project_settings` 供 `modules.project` 调用。
+- `modules.settings.services` 拥有账户连接、凭据加密、模板启用门禁、余额和 effective
+  settings 规则，不直接读取 project 模块。
+- `modules.settings.facade` 暴露 `resolve_account_llm_runtime_profile`、
+  `get_effective_llm_settings` / `get_effective_author_prefs` /
+  `materialize_effective_project_settings` 供 `modules.project` 调用；业务模块不得绕过
+  project facade 直接取凭据。
 - 跨模块聚合（如 `/api/settings/projects-using-defaults`）只在 `modules.settings.facade` 薄编排：通过 `modules.project.facade` 读取项目摘要，再委托 settings service 组装 response。
 - 不允许直接 import 对方模块的 `services.py` / `repositories.py` / `models.py`。
 

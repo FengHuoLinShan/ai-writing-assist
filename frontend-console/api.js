@@ -317,7 +317,7 @@ async function request(path, options = {}) {
     const csrfToken = _cookieValue("aaw_csrf")
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken
   }
-  if (method !== "GET" && method !== "DELETE" && !isFormData) {
+  if (method !== "GET" && method !== "HEAD" && !isFormData) {
     headers["Content-Type"] = "application/json"
   }
 
@@ -601,6 +601,59 @@ function contractJson(name, params = {}, query = {}, payload, options = {}) {
   return request(contractRequest.path, contractRequest.options)
 }
 
+async function* streamSse(path, { signal } = {}) {
+  const resp = await fetch(`${API_BASE_URL}${path}`, {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+    headers: _authorizationHeaders({
+      "Accept": "text/event-stream",
+    }),
+    signal,
+  })
+  if (!resp.ok) {
+    if (resp.status === 401) _handleUnauthorizedResponse()
+    let detail = ""
+    try {
+      const body = _redactDiagnosticValue(await resp.json())
+      detail = _formatErrorDetail(body?.detail || body?.message || "")
+    } catch {}
+    const error = new Error(detail || `流式连接失败 (${resp.status})`)
+    error.status = resp.status
+    throw error
+  }
+  if (!resp.body?.getReader) throw new Error("当前浏览器不支持流式故事")
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+      const frames = buffer.split(/\r?\n\r?\n/)
+      buffer = frames.pop() || ""
+      for (const frame of frames) {
+        let event = "message"
+        let id = null
+        const data = []
+        for (const line of frame.split(/\r?\n/)) {
+          if (line.startsWith(":")) continue
+          if (line.startsWith("event:")) event = line.slice(6).trim()
+          else if (line.startsWith("id:")) id = line.slice(3).trim()
+          else if (line.startsWith("data:")) data.push(line.slice(5).trimStart())
+        }
+        if (!data.length) continue
+        let payload = data.join("\n")
+        try { payload = JSON.parse(payload) } catch {}
+        yield { event, id, data: payload }
+      }
+      if (done) break
+    }
+  } finally {
+    reader.releaseLock?.()
+  }
+}
+
 // ============================================================
 // API 对象
 // ============================================================
@@ -696,6 +749,256 @@ const api = {
     },
     async applySmartDedup(id, payload) {
       return post(`/projects/${id}/smart-dedup/apply`, payload)
+    },
+  },
+
+  interactions: {
+    listJourneys(params = {}) {
+      return contractFetch("interactions.listJourneys", {}, params, {
+        cache: "no-store",
+      })
+    },
+    createJourney(payload) {
+      return contractJson("interactions.createJourney", {}, {}, payload)
+    },
+    getJourney(journeyId, options = {}) {
+      return contractFetch(
+        "interactions.getJourney",
+        { journeyId },
+        {},
+        { cache: "no-store", ...options },
+      )
+    },
+    getMessages(journeyId, params = {}) {
+      return contractFetch(
+        "interactions.getMessages",
+        { journeyId },
+        params,
+        { cache: "no-store" },
+      )
+    },
+    getPathIndex(journeyId) {
+      return contractFetch(
+        "interactions.getPathIndex",
+        { journeyId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    sendMessage(journeyId, payload) {
+      return contractJson(
+        "interactions.sendMessage",
+        { journeyId },
+        {},
+        payload,
+      )
+    },
+    continueFromNode(journeyId, nodeId, payload) {
+      return contractJson(
+        "interactions.continueFromNode",
+        { journeyId, nodeId },
+        {},
+        payload,
+      )
+    },
+    regenerate(journeyId, nodeId, payload) {
+      return contractJson(
+        "interactions.regenerate",
+        { journeyId, nodeId },
+        {},
+        payload,
+      )
+    },
+    editUserMessage(journeyId, nodeId, payload) {
+      return contractJson(
+        "interactions.editUserMessage",
+        { journeyId, nodeId },
+        {},
+        payload,
+      )
+    },
+    selectBranch(journeyId, nodeId, payload) {
+      return contractJson(
+        "interactions.selectBranch",
+        { journeyId, nodeId },
+        {},
+        payload,
+      )
+    },
+    listBranches(journeyId, nodeId) {
+      return contractFetch(
+        "interactions.listBranches",
+        { journeyId, nodeId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    getTree(journeyId) {
+      return contractFetch(
+        "interactions.getTree",
+        { journeyId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    getAttempt(journeyId, attemptId) {
+      return contractFetch(
+        "interactions.getAttempt",
+        { journeyId, attemptId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    streamAttempt(journeyId, attemptId, offset = 0, options = {}) {
+      return streamSse(contractPath(
+        "interactions.streamAttempt",
+        { journeyId, attemptId },
+        { offset },
+      ), options)
+    },
+    stopAttempt(journeyId, attemptId, payload) {
+      return contractJson(
+        "interactions.stopAttempt",
+        { journeyId, attemptId },
+        {},
+        payload,
+      )
+    },
+    keepAttempt(journeyId, attemptId, payload) {
+      return contractJson(
+        "interactions.keepAttempt",
+        { journeyId, attemptId },
+        {},
+        payload,
+      )
+    },
+    continueAttempt(journeyId, attemptId, payload) {
+      return contractJson(
+        "interactions.continueAttempt",
+        { journeyId, attemptId },
+        {},
+        payload,
+      )
+    },
+    retryAttempt(journeyId, attemptId, payload) {
+      return contractJson(
+        "interactions.retryAttempt",
+        { journeyId, attemptId },
+        {},
+        payload,
+      )
+    },
+    updateModes(journeyId, payload) {
+      return contractJson(
+        "interactions.updateModes",
+        { journeyId },
+        {},
+        payload,
+      )
+    },
+    heartbeat(journeyId) {
+      return contractFetch(
+        "interactions.heartbeat",
+        { journeyId },
+        {},
+        { method: "POST", cache: "no-store" },
+      )
+    },
+    leaveJourney(journeyId) {
+      return contractFetch(
+        "interactions.leaveJourney",
+        { journeyId },
+        {},
+        { method: "POST", cache: "no-store" },
+      )
+    },
+    updateTitle(journeyId, payload) {
+      return contractJson(
+        "interactions.updateTitle",
+        { journeyId },
+        {},
+        payload,
+      )
+    },
+    getOverview(journeyId) {
+      return contractFetch(
+        "interactions.getOverview",
+        { journeyId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    updateOverview(journeyId, payload) {
+      return contractJson(
+        "interactions.updateOverview",
+        { journeyId },
+        {},
+        payload,
+      )
+    },
+    retryOverview(journeyId) {
+      return contractFetch(
+        "interactions.retryOverview",
+        { journeyId },
+        {},
+        { method: "POST", cache: "no-store" },
+      )
+    },
+    listGenerationRecords(journeyId) {
+      return contractFetch(
+        "interactions.listGenerationRecords",
+        { journeyId },
+        {},
+        { cache: "no-store" },
+      )
+    },
+    archiveJourney(journeyId) {
+      return contractJson(
+        "interactions.archiveJourney",
+        { journeyId },
+        {},
+        { confirmed: true },
+      )
+    },
+    getPreferences() {
+      return contractFetch(
+        "interactions.getPreferences",
+        {},
+        {},
+        { cache: "no-store" },
+      )
+    },
+    acknowledgeSeeSeaNotice() {
+      return contractFetch(
+        "interactions.acknowledgeSeeSeaNotice",
+        {},
+        {},
+        { method: "POST", cache: "no-store" },
+      )
+    },
+    restoreJourney(journeyId) {
+      return contractFetch(
+        "interactions.restoreJourney",
+        { journeyId },
+        {},
+        { method: "POST" },
+      )
+    },
+    deleteJourney(journeyId, titleConfirmation) {
+      return contractJson(
+        "interactions.deleteJourney",
+        { journeyId },
+        {},
+        { title_confirmation: titleConfirmation },
+      )
+    },
+    exportJourney(journeyId, params = {}) {
+      return contractFetch(
+        "interactions.exportJourney",
+        { journeyId },
+        params,
+        { cache: "no-store" },
+      )
     },
   },
 
@@ -1958,6 +2261,19 @@ const settingsApi = {
   listGlobalLLMDefaults: () => contractFetch("settings.listGlobalLLMDefaults"),
   updateGlobalLLMDefaults: (payload) =>
     contractJson("settings.updateGlobalLLMDefaults", {}, {}, payload),
+  listLLMConnections: () => contractFetch("settings.listLLMConnections"),
+  connectLLMProvider: (providerId, apiKey) =>
+    contractJson(
+      "settings.connectLLMProvider",
+      { providerId },
+      {},
+      { api_key: apiKey },
+    ),
+  activateLLMProvider: (providerId) =>
+    contractFetch("settings.activateLLMProvider", { providerId }),
+  clearLLMProvider: (providerId) =>
+    deleteRequest(`/settings/llm-connections/${providerId}`),
+  listLLMBalances: () => contractFetch("settings.listLLMBalances"),
 
   // 全局作者偏好
   listGlobalAuthorPrefs: () => request("/settings/author-preferences"),

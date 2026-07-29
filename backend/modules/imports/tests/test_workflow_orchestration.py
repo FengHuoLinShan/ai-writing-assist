@@ -1226,27 +1226,13 @@ class TestDeepImportOrchestrator:
         assert method.await_args.kwargs["project_settings"] is None
 
     @pytest.mark.asyncio
-    async def test_stage_task_reuses_frozen_profile_after_project_model_change(
+    async def test_stage_task_reuses_frozen_profile_after_account_key_rotation(
         self,
         db_session,
         test_project_id,
+        account_llm_connection,
     ):
-        from modules.project.models import Project
-
         novel_id = test_project_id
-        project = (
-            await db_session.execute(
-                select(Project).where(Project.id == uuid.UUID(novel_id))
-            )
-        ).scalar_one()
-        project.settings = {
-            "llm": {
-                "api_key": "sk-frozen-task",
-                "base_url": "https://frozen.example.test/v1",
-                "model": "frozen-model",
-            }
-        }
-        await db_session.flush()
 
         orchestrator = DeepImportOrchestrator()
         submitted = await orchestrator.start_stage(
@@ -1261,14 +1247,23 @@ class TestDeepImportOrchestrator:
         assert task is not None
         original_snapshot = dict(task.meta["llm_execution_snapshot"])
 
-        project.settings = {
-            "llm": {
-                "api_key": "sk-rotated-task",
-                "base_url": "https://frozen.example.test/v1",
-                "model": "new-model",
-            }
-        }
-        await db_session.flush()
+        import hashlib
+        from datetime import UTC, datetime
+
+        from infrastructure.llm.secret_store import encrypt_secret
+        from modules.settings.repositories import AccountLLMCredentialRepository
+
+        rotated_key = "unit-test-rotated-account-key"
+        await AccountLLMCredentialRepository().upsert(
+            db_session,
+            {
+                "owner_id": account_llm_connection["owner_id"],
+                "provider_id": account_llm_connection["provider_id"],
+                "encrypted_api_key": encrypt_secret(rotated_key),
+                "key_fingerprint": hashlib.sha256(rotated_key.encode()).hexdigest(),
+                "verified_at": datetime.now(UTC),
+            },
+        )
         completed = DeepImportProgress(phase="done")
         orchestrator.workflow.run_entity_extraction_only = AsyncMock(
             return_value=completed
@@ -1281,7 +1276,11 @@ class TestDeepImportOrchestrator:
         )
 
         kwargs = orchestrator.workflow.run_entity_extraction_only.await_args.kwargs
-        assert kwargs["project_settings"]["llm"]["model"] == "frozen-model"
+        assert (
+            kwargs["project_settings"]["llm"]["model"]
+            == account_llm_connection["model"]
+        )
+        assert kwargs["project_settings"]["llm"]["api_key"] == rotated_key
         assert task.meta["llm_execution_snapshot"] == original_snapshot
 
     @pytest.mark.asyncio

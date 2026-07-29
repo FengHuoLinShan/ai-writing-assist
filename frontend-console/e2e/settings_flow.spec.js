@@ -31,14 +31,14 @@ test.describe("设置流程", () => {
     }
   })
 
-  test("全局页可直达且渲染作者偏好区", async ({ page }) => {
+  test("账户页可直达并同时提供模型连接与作者偏好", async ({ page }) => {
     await page.goto("/#settings")
     // hash-only goto 在 SPA 中偶发不触发重新渲染，reload 强制 initRouter 按 URL hash 渲染（确定性）
     await page.reload()
     // 限定 workspace-content，避免与顶部栏模块标题冲突
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "全局设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("heading", { name: "作者偏好全局默认" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("heading", { name: "LLM 全局默认" })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("heading", { name: "作者偏好" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("heading", { name: "模型连接" })).toBeVisible({ timeout: 10000 })
   })
 
   test("项目设置页深链 + Tab 切换", async ({ page }) => {
@@ -47,13 +47,9 @@ test.describe("设置流程", () => {
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("button", { name: "主配置" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("button", { name: "深度导入" })).toBeVisible()
     await expect(page.getByRole("button", { name: "作者偏好" })).toBeVisible()
-    await expect(page.getByText("默认输出上限（tokens）")).toBeVisible()
-    await expect(page.locator("#llm-max-tokens")).toHaveValue("12000")
-    await page.getByRole("button", { name: "深度导入" }).click()
-    await expect(page.getByText(/深度导入不继承“默认输出上限”/)).toBeVisible()
+    await expect(page.getByText(/模型与 Key 由账户设置统一管理/)).toBeVisible()
     await expect(page.getByText(/Phase 0/)).toBeVisible()
     await page.getByRole("button", { name: "作者偏好" }).click()
     await expect(page.getByText(/日更目标/)).toBeVisible()
@@ -93,27 +89,17 @@ test.describe("设置流程", () => {
     await expect(page.locator("#author-editor-font")).toHaveValue("mono")
   })
 
-  test("字段 source 标签：继承 → 覆盖", async ({ page }) => {
-    const proj = await createProject({ title: "Source Label", language: "zh" })
+  test("项目设置不再提供项目级模型与 Key", async ({ page }) => {
+    const proj = await createProject({ title: "Account Model Notice", language: "zh" })
     testProjectId = proj.id
-    const ctx = await request.newContext()
-    await ctx.put(`${apiBase}/settings/llm-defaults`, {
-      headers: xhrHeaders,
-      data: {
-        provider_id: "openai-compatible",
-        base_url: "https://api.openai.com/v1",
-        model: "gpt-4o",
-      },
-    })
-    await ctx.dispose()
 
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByText("继承全局").first()).toBeVisible({ timeout: 10000 })
-    await page.fill("#llm-base-url", "https://custom.example.com/v1")
-    await page.getByRole("button", { name: "保存项目 LLM 配置" }).click()
-    await expect(page.getByText("已覆盖").first()).toBeVisible()
+    await expect(page.getByText(/当前模型：/)).toBeVisible()
+    await expect(page.locator("#llm-api-key")).toHaveCount(0)
+    await expect(page.locator("#llm-provider")).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "到账户设置管理" })).toBeVisible()
   })
 
   test("深度导入字段越界校验 toast", async ({ page }) => {
@@ -122,8 +108,7 @@ test.describe("设置流程", () => {
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     // reload 强制 initRouter 按 URL hash 同步 currentProjectId，规避空态竞态
     await page.reload()
-    await expect(page.getByRole("button", { name: "主配置" })).toBeVisible({ timeout: 10000 })
-    await page.getByRole("button", { name: "深度导入" }).click()
+    await expect(page.getByRole("button", { name: "深度导入" })).toBeVisible({ timeout: 10000 })
     await page.fill("#deep-import-phase0-target-input-chars", "10")
     await page.getByRole("button", { name: "保存深度导入参数" }).click()
     await expect(page.getByText(/必须是/).first()).toBeVisible({ timeout: 5000 })
@@ -143,6 +128,6 @@ test.describe("设置流程", () => {
     await page.goto("/#llm")
     await page.waitForURL(/#settings/, { timeout: 5000 })
     await expect(page).toHaveURL(/#settings/)
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "全局设置" })).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 5000 })
   })
 })

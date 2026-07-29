@@ -11,7 +11,10 @@
  * @type {Object<string, {title:string, subViews:string[], requiresProject?: boolean, defaultSubView?: string, dynamicSubView?: boolean}>}
  */
 const routes = {
+  home: { title: "选择使用方式", subViews: [], requiresProject: false },
   project: { title: "项目", subViews: [], requiresProject: false },
+  journeys: { title: "跑团模式", subViews: [], requiresProject: false, dynamicSubView: true },
+  interaction: { title: "互动旅程", subViews: [], requiresProject: false, dynamicSubView: true },
   world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "待处理", "review-objects": "待处理 · 对象", "review-aliases": "待处理 · 别名", "review-relations": "待处理 · 关系", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
   rag: { title: "小说检索", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "检索", status: "索引维护" } },
   outline: { title: "大纲", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "小说总纲", arcs: "篇章纲", threads: "剧情线", scenes: "场景工作台" } },
@@ -130,13 +133,65 @@ function _showRouteLoadingSkeleton(content) {
   content.replaceChildren(status)
 }
 
+function _showProjectLoadFailure(content, failure) {
+  const inaccessible = failure?.kind === "inaccessible"
+  const stateEl = document.createElement("div")
+  stateEl.className = "empty-state project-route-failure"
+  stateEl.setAttribute("role", "alert")
+
+  const icon = document.createElement("div")
+  icon.className = "empty-icon"
+  icon.textContent = inaccessible ? "×" : "!"
+
+  const title = document.createElement("h2")
+  title.className = "project-route-failure__title"
+  title.tabIndex = -1
+  title.textContent = inaccessible ? "无法打开这个项目" : "项目暂时加载失败"
+
+  const message = document.createElement("p")
+  message.className = "project-route-failure__message"
+  message.textContent = inaccessible
+    ? "项目不存在，或你没有访问权限。"
+    : "当前页面没有加载完成，可以重试或返回项目列表。"
+
+  const actions = document.createElement("div")
+  actions.className = "actions project-route-failure__actions"
+
+  if (!inaccessible) {
+    const retry = document.createElement("button")
+    retry.type = "button"
+    retry.className = "btn btn-primary"
+    retry.dataset.action = "retry-project-route"
+    retry.textContent = "重试"
+    retry.addEventListener("click", () => {
+      void _retryFailedProjectRoute(failure)
+    })
+    actions.append(retry)
+  }
+
+  const back = document.createElement("button")
+  back.type = "button"
+  back.className = inaccessible ? "btn btn-primary" : "btn"
+  back.dataset.action = "return-project-list"
+  back.textContent = "返回项目列表"
+  back.addEventListener("click", () => {
+    void _returnFromFailedProjectRoute(failure)
+  })
+  actions.append(back)
+
+  stateEl.append(icon, title, message, actions)
+  content.replaceChildren(stateEl)
+  title.focus()
+}
+
 /**
  * 渲染当前视图
  */
-let _prevView = null
-let _prevRenderedView = null
-let _prevRenderedSubView = null
-let _prevRenderedProjectId = null
+let _mountedRoute = null
+let _pendingRoute = null
+let _failureRoute = null
+let _renderingRoute = null
+let _routeTransitionGeneration = 0
 
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
 const _lastSubViewMap = {}
@@ -201,7 +256,7 @@ function _parseHash(hash) {
   }
   return {
     projectId: null,
-    viewName: parts[0] || "project",
+    viewName: parts[0] || "home",
     subView: parts[1] || null,
     query,
   }
@@ -298,34 +353,86 @@ function _hashForRoute(routeState) {
   return "#" + _buildHash(routeState.viewName, routeState.subView, routeState.query, routeState.projectId)
 }
 
-function _renderedRouteState() {
-  const renderedMatchesState = _prevRenderedView === state.currentView
+function _copyRouteState(routeState) {
   return {
-    projectId: renderedMatchesState
-      ? _prevRenderedProjectId
-      : (state.currentProjectId || null),
-    viewName: renderedMatchesState
-      ? _prevRenderedView
-      : state.currentView,
-    subView: renderedMatchesState
-      ? (_prevRenderedSubView || null)
-      : (state.currentSubView || null),
-    query: _currentQuery,
+    projectId: routeState?.projectId || null,
+    viewName: routeState?.viewName || "project",
+    subView: routeState?.subView || null,
+    query: new URLSearchParams(routeState?.query?.toString?.() || ""),
+    redirectedToProject: Boolean(routeState?.redirectedToProject),
   }
 }
 
-function _isRouteTransition(routeState) {
-  const current = _renderedRouteState()
-  return current.viewName !== routeState.viewName
-    || current.subView !== (routeState.subView || null)
-    || current.projectId !== (routeState.projectId || null)
-    || current.query.toString() !== (routeState.query || new URLSearchParams()).toString()
+function _routeStateFromAppState() {
+  const viewName = state.currentView || "project"
+  return {
+    projectId: routes[viewName]?.requiresProject
+      ? (state.currentProjectId || null)
+      : null,
+    viewName,
+    subView: state.currentSubView || null,
+    query: new URLSearchParams(_currentQuery.toString()),
+    redirectedToProject: false,
+  }
 }
 
-function _canLeaveCurrentRoute(routeState) {
+function _sameRoute(left, right) {
+  if (!left || !right) return false
+  return left.viewName === right.viewName
+    && (left.subView || null) === (right.subView || null)
+    && (left.projectId || null) === (right.projectId || null)
+    && (left.query || new URLSearchParams()).toString()
+      === (right.query || new URLSearchParams()).toString()
+}
+
+function _currentMountedRoute() {
+  if (!_mountedRoute) return null
+  const content = document.getElementById("workspace-content")
+  if (
+    !_mountedRoute.host?.isConnected
+    || !content
+    || _mountedRoute.host !== content
+  ) {
+    _mountedRoute = null
+    return null
+  }
+  return _mountedRoute
+}
+
+function _currentFailureRoute() {
+  if (!_failureRoute) return null
+  const content = document.getElementById("workspace-content")
+  if (
+    _failureRoute.host
+    && (!_failureRoute.host.isConnected || _failureRoute.host !== content)
+  ) {
+    _failureRoute = null
+    return null
+  }
+  return _failureRoute
+}
+
+function _representedRouteState() {
+  const mounted = _currentMountedRoute()
+  if (mounted) return _copyRouteState(mounted.route)
+  const failure = _currentFailureRoute()
+  if (failure) return _copyRouteState(failure.route)
+  if (_pendingRoute) return _copyRouteState(_pendingRoute.route)
+  return _routeStateFromAppState()
+}
+
+function _isRouteTransition(routeState) {
+  return !_sameRoute(_representedRouteState(), routeState)
+}
+
+function _canLeaveMountedRoute(routeState) {
   if (!_isRouteTransition(routeState)) return true
-  const current = _renderedRouteState()
-  const renderer = viewRenderers[current.viewName]
+  const mounted = _currentMountedRoute()
+  const renderer = mounted?.renderer || (
+    !_pendingRoute && !_currentFailureRoute()
+      ? viewRenderers[state.currentView]
+      : null
+  )
   if (!renderer?.canLeave) return true
   try {
     return renderer.canLeave() !== false
@@ -335,8 +442,30 @@ function _canLeaveCurrentRoute(routeState) {
   }
 }
 
-function _restoreRenderedRouteHash() {
-  const current = _renderedRouteState()
+function _isProjectOwnershipBoundary(routeState) {
+  const sourceProjectId = _currentMountedRoute()?.route?.projectId || null
+  return Boolean(
+    sourceProjectId
+    && sourceProjectId !== (routeState.projectId || null),
+  )
+}
+
+function _prepareRouteTransition(routeState) {
+  if (!_canLeaveMountedRoute(routeState)) return false
+  if (!_isProjectOwnershipBoundary(routeState)) return true
+  if (typeof closeModal !== "function") return true
+  try {
+    return closeModal({ reason: "project-navigation" }) !== false
+  } catch (err) {
+    console.error(err)
+    return false
+  }
+}
+
+function _restoreMountedRouteHash() {
+  const mounted = _currentMountedRoute()
+  if (!mounted) return
+  const current = mounted.route
   const hash = _hashForRoute(current)
   if (window.location.hash === hash) return
   window.history.pushState({
@@ -346,12 +475,138 @@ function _restoreRenderedRouteHash() {
   }, "", hash)
 }
 
-async function _applyRoute(routeState) {
-  const isCurrent = await _syncCurrentProject(routeState.projectId)
-  if (!isCurrent) return false
+function _callRendererOnLeave(renderer) {
+  if (!renderer?.onLeave) return
+  try {
+    renderer.onLeave()
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+function _disposeMountedRoute({ invalidateRender = true } = {}) {
+  const mounted = _currentMountedRoute()
+  if (!mounted) return false
+
+  // 先清 owner 再调用外部 cleanup，避免 cleanup 重入或快速 A→B→C 时重复 onLeave。
+  _mountedRoute = null
+  if (_renderingRoute?.renderer === mounted.renderer) {
+    _renderingRoute = null
+  }
+  if (invalidateRender) _renderGeneration += 1
+  _callRendererOnLeave(mounted.renderer)
+  return true
+}
+
+function _disposeRenderingRoute({ invalidateRender = true } = {}) {
+  const rendering = _renderingRoute
+  if (!rendering) return false
+
+  // force refresh / 同 renderer 重入时，mounted 与 rendering 共享同一个资源 owner；
+  // 统一交给 mounted cleanup，避免对同一实例执行两次 onLeave。
+  const mounted = _currentMountedRoute()
+  if (mounted?.renderer === rendering.renderer) {
+    return _disposeMountedRoute({ invalidateRender })
+  }
+
+  _renderingRoute = null
+  if (invalidateRender) _renderGeneration += 1
+  _callRendererOnLeave(rendering.renderer)
+  return true
+}
+
+function _showProjectTransition(routeState) {
+  const content = document.getElementById("workspace-content")
+  if (!content) return
+  state.loading = true
+  content.dataset.workspaceView = "loading"
+  content.dataset.workspaceSubview = "project-transition"
+  _showRouteLoadingSkeleton(content)
+}
+
+function _beginProjectScopeTransition(routeState) {
+  if (!_isProjectOwnershipBoundary(routeState)) return false
+
+  // preflight 已确认。onLeave 必须在旧 project state 和旧 DOM 仍存在时完成，
+  // 之后才能提交中性 loading host 并切换 state.currentProjectId。
+  const mounted = _currentMountedRoute()
+  const sourceProjectId = mounted?.route?.projectId || null
+  if (sourceProjectId) {
+    state.currentProjectId = sourceProjectId
+    if (mounted.project?.id === sourceProjectId) {
+      state.currentProject = mounted.project
+    }
+  }
+  _disposeMountedRoute()
+  _failureRoute = null
+  state.selectedItem = null
+  state.selectedItems = []
+  _showProjectTransition(routeState)
+  return true
+}
+
+function _projectSyncFailureKind(error) {
+  const status = Number(error?.status || error?.statusCode || 0)
+  if (status === 401) return "account"
+  if (
+    status === 0
+    || status === 408
+    || status === 425
+    || status === 429
+    || status >= 500
+  ) {
+    return "temporary"
+  }
+  if (status >= 400 && status < 500) return "inaccessible"
+  return "temporary"
+}
+
+async function _applyRoute(routeState, { forceProject = false, showNeutral = false } = {}) {
+  const route = _copyRouteState(routeState)
+  const transitionGeneration = ++_routeTransitionGeneration
+  const crossedProjectBoundary = _beginProjectScopeTransition(route)
+  const interruptedRenderer = _disposeRenderingRoute()
+  if ((showNeutral || interruptedRenderer) && !crossedProjectBoundary) {
+    _failureRoute = null
+    _showProjectTransition(route)
+  }
+  _pendingRoute = {
+    generation: transitionGeneration,
+    route,
+  }
+
+  const outcome = await _syncCurrentProject(route.projectId, {
+    force: forceProject,
+    preserveCurrentOnTemporary: false,
+  })
+  if (
+    transitionGeneration !== _routeTransitionGeneration
+    || _pendingRoute?.generation !== transitionGeneration
+    || outcome.status === "stale"
+  ) {
+    return false
+  }
+
+  _pendingRoute = null
+  if (outcome.status === "account") return false
+
   state.currentView = routeState.viewName
   state.currentSubView = routeState.subView
   _currentQuery = routeState.query || new URLSearchParams()
+
+  if (outcome.status === "temporary" || outcome.status === "inaccessible") {
+    _failureRoute = {
+      generation: transitionGeneration,
+      route,
+      kind: outcome.status,
+      host: null,
+    }
+    if (outcome.status === "temporary") {
+      toast("项目信息加载失败，可稍后重试", "warning")
+    }
+  } else {
+    _failureRoute = null
+  }
   return true
 }
 
@@ -374,7 +629,10 @@ function _rememberSubView(viewName, subView) {
  * 同步当前项目状态：当 projectId 变化时加载项目元数据。
  * 避免面包屑/标题显示旧项目名或为空。
  */
-async function _syncCurrentProject(projectId, force) {
+async function _syncCurrentProject(
+  projectId,
+  { force = false, preserveCurrentOnTemporary = false } = {},
+) {
   const generation = ++_projectSyncGeneration
   if (_projectSyncController) {
     _projectSyncController.abort()
@@ -383,10 +641,11 @@ async function _syncCurrentProject(projectId, force) {
 
   // 无 projectId 时保留当前选择（例如项目列表视图），不要清空 localStorage 恢复的状态
   if (!projectId) {
-    return true
+    return { status: "ok" }
   }
 
   const changed = state.currentProjectId !== projectId
+  const previousProject = state.currentProject
   if (changed) {
     state.currentProjectId = projectId
     state.currentProject = null
@@ -398,7 +657,7 @@ async function _syncCurrentProject(projectId, force) {
 
   // 当前项目对象已存在且 ID 一致时避免重复请求，refresh() 可通过 force 强制刷新
   if (!changed && hasCompleteProject && !force) {
-    return true
+    return { status: "ok" }
   }
 
   const controller = new AbortController()
@@ -408,15 +667,37 @@ async function _syncCurrentProject(projectId, force) {
       signal: controller.signal,
       cache: "no-store",
     })
-    if (generation !== _projectSyncGeneration || state.currentProjectId !== projectId) return false
+    if (generation !== _projectSyncGeneration || state.currentProjectId !== projectId) {
+      return { status: "stale" }
+    }
     state.currentProject = project
-    return true
+    return { status: "ok" }
   } catch (err) {
-    if (controller.signal.aborted || generation !== _projectSyncGeneration) return false
+    if (controller.signal.aborted || generation !== _projectSyncGeneration) {
+      return { status: "stale" }
+    }
     console.warn("加载项目信息失败:", err)
-    state.currentProject = null
-    toast("项目信息加载失败，可稍后重试", "warning")
-    return true
+    const kind = _projectSyncFailureKind(err)
+    if (kind === "temporary") {
+      if (
+        preserveCurrentOnTemporary
+        && !changed
+        && previousProject?.id === projectId
+      ) {
+        state.currentProject = previousProject
+      } else {
+        state.currentProject = null
+      }
+      return { status: "temporary", error: err }
+    }
+    if (kind === "inaccessible") {
+      if (state.currentProjectId === projectId) {
+        state.currentProjectId = null
+        state.currentProject = null
+      }
+      return { status: "inaccessible", error: err }
+    }
+    return { status: "account", error: err }
   } finally {
     if (_projectSyncController === controller) {
       _projectSyncController = null
@@ -428,56 +709,121 @@ async function _syncCurrentProject(projectId, force) {
 let _forceRefresh = false
 let _renderGeneration = 0
 
+function _notifyRouteSettled(viewName, subView) {
+  for (const listener of _navListeners) {
+    try {
+      listener(viewName, subView)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+}
+
+function _renderGenericFailure(content) {
+  const stateEl = document.createElement("div")
+  stateEl.className = "empty-state"
+  stateEl.setAttribute("role", "alert")
+
+  const icon = document.createElement("div")
+  icon.className = "empty-icon"
+  icon.style.color = "var(--danger)"
+  icon.textContent = "!"
+
+  const title = document.createElement("p")
+  title.style.color = "var(--danger)"
+  title.textContent = "页面加载失败"
+
+  const message = document.createElement("p")
+  message.style.cssText = "color:var(--text-dim);font-size:12px;"
+  message.textContent = "请稍后重试；你的项目内容没有受到影响。"
+
+  stateEl.append(icon, title, message)
+  content.replaceChildren(stateEl)
+}
+
 async function renderCurrentView() {
-  const renderGeneration = ++_renderGeneration
-  const viewName = state.currentView
-  const subView = state.currentSubView || ""
   const content = document.getElementById("workspace-content")
   if (!content) return
+  const failure = _currentFailureRoute()
+  const routeState = failure
+    ? _copyRouteState(failure.route)
+    : _routeStateFromAppState()
+  const viewName = routeState.viewName
+  const subView = routeState.subView || ""
+  const renderer = viewRenderers[viewName]
+  const mounted = _currentMountedRoute()
+
+  // 视图或项目 owner 变化时统一走同一个 cleanup seam。项目边界通常已经在
+  // _applyRoute 的同步阶段卸载；这里同时保护直接 renderCurrentView 的兼容调用。
+  if (
+    mounted
+    && (
+      mounted.route.viewName !== viewName
+      || (mounted.route.projectId || null) !== (routeState.projectId || null)
+    )
+  ) {
+    _disposeMountedRoute()
+  }
+  // 兼容直接、可重入的 renderCurrentView 调用；新 render 必须先使旧的半启动 renderer 失效。
+  _disposeRenderingRoute()
+
+  const renderGeneration = ++_renderGeneration
   // Keep visual scoping independent from rendered copy and business data. The
   // editorial theme uses these route markers to tune dense workspaces without
   // changing their DOM contracts or interaction handlers.
-  content.dataset.workspaceView = viewName || "unknown"
-  content.dataset.workspaceSubview = subView || "root"
+  content.dataset.workspaceView = failure ? "project-error" : (viewName || "unknown")
+  content.dataset.workspaceSubview = failure ? failure.kind : (subView || "root")
   const isCurrentRender = () => (
     renderGeneration === _renderGeneration
     && state.currentView === viewName
     && (state.currentSubView || "") === subView
+    && (!failure || _failureRoute === failure)
   )
-
-  // 离开旧视图
-  if (_prevView && _prevView !== viewName) {
-    const prevRenderer = viewRenderers[_prevView]
-    if (prevRenderer?.onLeave) {
-      try { prevRenderer.onLeave() } catch (e) { console.error(e) }
-    }
-  }
-  _prevView = viewName
+  const ownsRenderingRoute = () => (
+    _renderingRoute?.generation === renderGeneration
+  )
 
   const forceRefresh = _forceRefresh
   _forceRefresh = false
-  const currentProjectId = state.currentProjectId || null
+  const currentMounted = _currentMountedRoute()
   const isSameRender = !forceRefresh
-    && _prevRenderedView === viewName
-    && _prevRenderedSubView === (state.currentSubView || "")
-    && _prevRenderedProjectId === currentProjectId
-  const renderer = viewRenderers[viewName]
+    && !failure
+    && _sameRoute(currentMounted?.route, routeState)
 
   state.loading = true
   if (!isSameRender) _showRouteLoadingSkeleton(content)
+  if (!failure && renderer) {
+    _renderingRoute = {
+      generation: renderGeneration,
+      renderer,
+      route: _copyRouteState(routeState),
+    }
+  }
 
   try {
-    if (renderer) {
+    if (failure) {
+      // metadata 失败页不拥有业务 renderer；任何仍存在的 mounted owner 都必须先退出。
+      if (_currentMountedRoute()) _disposeMountedRoute({ invalidateRender: false })
+      failure.host = content
+      _showProjectLoadFailure(content, failure)
+    } else if (renderer) {
       if (!isSameRender && renderer.onEnter) {
         await renderer.onEnter()
-        if (!isCurrentRender()) return false
+        if (!isCurrentRender() || !ownsRenderingRoute()) return false
       }
       const html = await renderer.render()
-      if (!isCurrentRender()) return false
+      if (!isCurrentRender() || !ownsRenderingRoute()) return false
       content.innerHTML = html
       if (renderer.onRendered) {
         await renderer.onRendered()
-        if (!isCurrentRender()) return false
+        if (!isCurrentRender() || !ownsRenderingRoute()) return false
+      }
+      _renderingRoute = null
+      _mountedRoute = {
+        host: content,
+        renderer,
+        route: _copyRouteState(routeState),
+        project: routeState.projectId ? state.currentProject : null,
       }
     } else {
       if (!isCurrentRender()) return false
@@ -489,37 +835,37 @@ async function renderCurrentView() {
           <p style="color:var(--text-dim);font-size:12px;">此模块正在开发中，敬请期待</p>
         </div>
       `
+      _mountedRoute = {
+        host: content,
+        renderer: null,
+        route: _copyRouteState(routeState),
+        project: routeState.projectId ? state.currentProject : null,
+      }
     }
   } catch (err) {
     if (!isCurrentRender()) return false
     console.error("View render error:", err)
-    const stateEl = document.createElement("div")
-    stateEl.className = "empty-state"
-    const icon = document.createElement("div")
-    icon.className = "empty-icon"
-    icon.style.color = "var(--danger)"
-    icon.textContent = "!"
-    const title = document.createElement("p")
-    title.style.color = "var(--danger)"
-    title.textContent = "页面加载失败"
-    const message = document.createElement("p")
-    message.style.cssText = "color:var(--text-dim);font-size:12px;"
-    message.textContent = err.message || ""
-    stateEl.append(icon, title, message)
-    content.replaceChildren(stateEl)
+    const activeMounted = _currentMountedRoute()
+    if (activeMounted?.renderer === renderer) {
+      _disposeMountedRoute({ invalidateRender: false })
+    } else if (ownsRenderingRoute()) {
+      _disposeRenderingRoute({ invalidateRender: false })
+    } else {
+      _callRendererOnLeave(renderer)
+    }
+    _mountedRoute = null
+    _renderGenericFailure(content)
   } finally {
+    if (ownsRenderingRoute() && !isCurrentRender()) {
+      _disposeRenderingRoute({ invalidateRender: false })
+    }
     if (isCurrentRender()) {
       state.loading = false
-      _prevRenderedView = viewName
-      _prevRenderedSubView = subView
-      _prevRenderedProjectId = currentProjectId
     }
   }
 
   if (!isCurrentRender()) return false
-  for (const listener of _navListeners) {
-    try { listener(viewName, state.currentSubView) } catch (e) { console.error(e) }
-  }
+  _notifyRouteSettled(viewName, state.currentSubView)
   return true
 }
 
@@ -535,20 +881,26 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
     toast("请先选择项目后再进入该页面", "warning")
   }
 
-  if (!_canLeaveCurrentRoute(routeState)) return false
+  const sourceRoute = _representedRouteState()
+  if (!_prepareRouteTransition(routeState)) return false
   _queueMapTelemetry(routeState)
 
-  if (state.currentView) {
-    if (state.currentView !== routeState.viewName || state.currentSubView !== routeState.subView) {
-      _rememberSubView(state.currentView, state.currentSubView)
+  if (sourceRoute.viewName) {
+    if (
+      sourceRoute.viewName !== routeState.viewName
+      || sourceRoute.subView !== routeState.subView
+    ) {
+      _rememberSubView(sourceRoute.viewName, sourceRoute.subView)
     }
   }
 
-  const isSameView = state.currentView === routeState.viewName
   const isCurrent = await _applyRoute(routeState)
   if (!isCurrent) return false
 
-  if (!isSameView) {
+  if (
+    sourceRoute.viewName !== routeState.viewName
+    || (sourceRoute.projectId || null) !== (routeState.projectId || null)
+  ) {
     state.selectedItem = null
     state.selectedItems = []
   }
@@ -567,8 +919,7 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
   }
 
   // 渲染
-  await renderCurrentView()
-  return true
+  return (await renderCurrentView()) !== false
 }
 
 async function navigate(viewName, subView = null, pushHistory = true, query = null) {
@@ -589,28 +940,92 @@ async function replace(viewName, subView = null, query = null) {
   )
 }
 
+async function _retryFailedProjectRoute(failure) {
+  if (
+    _currentFailureRoute() !== failure
+    || failure?.kind !== "temporary"
+  ) {
+    return false
+  }
+  const isCurrent = await _applyRoute(failure.route, {
+    forceProject: true,
+    showNeutral: true,
+  })
+  if (!isCurrent) return false
+  return (await renderCurrentView()) !== false
+}
+
+async function _returnFromFailedProjectRoute(failure) {
+  if (_currentFailureRoute() !== failure) return false
+  const failedProjectId = failure?.route?.projectId || null
+  if (failedProjectId && state.currentProjectId === failedProjectId) {
+    state.currentProjectId = null
+    state.currentProject = null
+  }
+  _failureRoute = null
+  return navigate("project")
+}
+
 /**
  * 强制刷新当前视图：重新执行 onEnter()（重新拉取数据）并重渲染。
  * 用于增删改操作后刷新列表 —— navigate 到当前位置会因 isSameRender 跳过 onEnter，
  * 导致界面显示旧数据，refresh 绕过该优化。
  */
 async function refresh() {
-  const isCurrent = await _syncCurrentProject(state.currentProjectId, true)
-  if (!isCurrent) return false
+  const activeFailure = _currentFailureRoute()
+  if (activeFailure) return false
+
+  const routeBeforeRefresh = _copyRouteState(
+    _currentMountedRoute()?.route || _routeStateFromAppState(),
+  )
+  const outcome = await _syncCurrentProject(state.currentProjectId, {
+    force: true,
+    preserveCurrentOnTemporary: true,
+  })
+  if (outcome.status === "stale" || outcome.status === "account") return false
+
+  if (outcome.status === "temporary") {
+    toast("项目信息加载失败，当前页面已保留，可稍后重试", "warning")
+    return false
+  }
+
+  if (outcome.status === "inaccessible" && routeBeforeRefresh.projectId) {
+    if (typeof closeModal === "function") {
+      try {
+        closeModal({ force: true })
+      } catch (err) {
+        console.error(err)
+      }
+    }
+    _disposeMountedRoute()
+    const failure = {
+      generation: ++_routeTransitionGeneration,
+      route: routeBeforeRefresh,
+      kind: "inaccessible",
+      host: null,
+    }
+    _failureRoute = failure
+    await renderCurrentView()
+    return false
+  }
+
+  // 无项目页面即使选中的项目刚失效，也只需清除选择并正常重载页面本身。
+  _failureRoute = null
   _forceRefresh = true
-  await renderCurrentView()
-  return true
+  const rendered = await renderCurrentView()
+  return outcome.status === "ok" && rendered !== false
 }
 
 let _popstateBound = false
 
 async function _handlePopState() {
   try {
-    const hash = window.location.hash.slice(1) || "project"
+    const hash = window.location.hash.slice(1) || "home"
     const parsed = _parseHash(hash)
     const routeState = _normalizeRoute(parsed)
-    if (!_canLeaveCurrentRoute(routeState)) {
-      _restoreRenderedRouteHash()
+    const sourceRoute = _representedRouteState()
+    if (!_prepareRouteTransition(routeState)) {
+      _restoreMountedRouteHash()
       return false
     }
     _queueMapTelemetry(routeState)
@@ -619,11 +1034,19 @@ async function _handlePopState() {
       window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
     }
     const isCurrent = await _applyRoute(routeState)
-    if (!isCurrent) return
-    await renderCurrentView()
+    if (!isCurrent) return false
+    if (
+      sourceRoute.viewName !== routeState.viewName
+      || (sourceRoute.projectId || null) !== (routeState.projectId || null)
+    ) {
+      state.selectedItem = null
+      state.selectedItems = []
+    }
+    return (await renderCurrentView()) !== false
   } catch (err) {
     console.warn("路由切换失败", err)
-    if (typeof toast === "function") toast(`路由切换失败：${err.message || "未知错误"}`, "error")
+    if (typeof toast === "function") toast("路由切换失败，请重试", "error")
+    return false
   }
 }
 
@@ -638,9 +1061,13 @@ async function initRouter() {
     _popstateBound = true
   }
 
-  let hash = window.location.hash.slice(1) || "project"
+  let hash = window.location.hash.slice(1) || "home"
   let parsed = _parseHash(hash)
   let routeState = _normalizeRoute(parsed)
+  if (!_prepareRouteTransition(routeState)) {
+    _restoreMountedRouteHash()
+    return false
+  }
   _queueMapTelemetry(routeState)
   let canonicalHash = _hashForRoute(routeState)
   if (window.location.hash !== canonicalHash) {
@@ -649,8 +1076,7 @@ async function initRouter() {
   const isCurrent = await _applyRoute(routeState)
   if (!isCurrent) return false
 
-  await renderCurrentView()
-  return true
+  return (await renderCurrentView()) !== false
 }
 
 // 导出

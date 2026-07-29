@@ -2,17 +2,18 @@
 
 ## 定位
 
-project 模块负责小说项目基础元信息，是其他所有模块的根。
-其他模块通过 `novel_id` 引用项目，并通过 `facade.get_project_context()` 获取项目配置。
+project 模块负责统一项目隔离根。作者项目使用 `project_kind=author`；每个 RP 旅程另有一个
+不出现在作者项目列表/回收站的 `project_kind=interaction` 隐藏项目。
+其他模块通过 `novel_id` 引用项目，并通过 kind-aware facade 获取项目配置或门禁。
 
 ## 职责
 
-- 创建小说项目
+- 创建作者项目和供 interaction 使用的隐藏隔离项目
 - 管理标题、题材、风格、语言
 - 管理目标规模（字数/章节数）和当前创作阶段
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
-- 提供项目级 LLM Profile（供应商、Base URL、模型、按供应商模板隔离的写入式 API Key）
+- 根据项目 owner 打开账户级 LLM 连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 
 ## 边界
@@ -23,6 +24,7 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 - 大纲管理 → outline 模块
 - RAG 检索 → rag 模块
 - 正文生成 → writing 模块
+- RP 旅程、消息树与回顾 → interaction 模块
 
 ## 数据表
 
@@ -37,6 +39,7 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 提交门禁都验证 owner；跨账号访问统一返回 404，业务响应不暴露 `owner_id`。
 
 - `id` — UUID 主键
+- `project_kind` — `author` 或 `interaction`；普通项目 API 默认只接受 `author`
 - `title` — 项目标题（必填）
 - `genre` — 题材（如：玄幻、科幻、悬疑）
 - `tone` — 风格基调（如：严肃、轻松、黑暗）
@@ -51,16 +54,10 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 ## 对外契约（contracts.py）
 
 ```python
-class ProjectContract:
-    """其他模块可依赖的项目契约"""
+class InteractionProjectContract:
+    """interaction 创建隐藏隔离根后得到的窄契约"""
     novel_id: str
-    title: str
-    genre: str | None
-    tone: str | None
-    language: str
-    target_length: str | None
-    current_stage: str | None
-    default_reveal_policy: str
+    owner_id: UUID
 ```
 
 ## Facade（facade.py）
@@ -71,6 +68,10 @@ async def get_project_context(db, novel_id: str) -> ProjectContext: ...
 async def require_active_project(db, novel_id: str) -> None: ...
 
 async def require_active_project_exclusive(db, novel_id: str) -> None: ...
+
+async def create_interaction_project(db, *, title: str) -> InteractionProjectContract: ...
+
+async def require_interaction_project(db, novel_id: str) -> None: ...
 
 @asynccontextmanager
 async def open_project_llm_client(
@@ -106,9 +107,9 @@ task finalizer 需要一个项目级短临界区。它在 PostgreSQL 上使用 `
 只允许在无 provider/网络 I/O 的最终 DB 事务中持有；普通请求和长工作流
 不得以它取代 `require_active_project()`。
 所有带 `novel_id` 的业务文本/结构化 LLM 调用通过
-`open_project_llm_client()` 获取 effective project profile。该 seam 统一执行
-项目存在性、Key/Base URL/模型 fail-closed 校验、字段来源物化、脱敏 runtime
-metadata 和成功/异常/取消时的 client 关闭；调用方不能传 provider/Key 绕过设置。
+`open_project_llm_client()` 获取项目 owner 当前已验证的账户连接。该 seam 统一执行
+项目存在性、owner、Key/Base URL/模型 fail-closed 校验、脱敏 runtime metadata 和
+成功/异常/取消时的 client 关闭；调用方不能传 provider/Key 绕过账户设置。
 普通业务请求不填写 `LLMCallRequest.max_tokens` 时，由 client 物化项目有效默认值；
 当前系统默认是 `12000`。只有深度导入阶段预算和健康检查可以显式覆盖该值。
 新增业务 LLM 服务必须复用此 seam，不得直接构造 `LLMClient` 或调用
@@ -121,10 +122,11 @@ fail-closed 校验；传入 `novel_id` 时同时绑定脱敏的
 client。
 
 `build_project_llm_execution_snapshot()` 用于可恢复任务的提交时冻结：
-只持久化 provider/model/非 secret 参数、字段来源、deep-import 设置、
+只持久化账户 provider/model/非 secret 参数、字段来源、deep-import 设置、
 Base URL/extra 的 hash 和脱敏摘要，不保存 API Key、完整 URL/query
-或 extra values。`restore_project_llm_execution_settings()` 允许调用时使用
-当前轮换后的 Key，但会拒绝 provider、endpoint 或 provider-specific extra 漂移，
+或 extra values。`restore_project_llm_execution_settings()` 允许调用时使用同 provider
+当前轮换后的账户 Key；即使账户切换到另一模板，旧任务仍按 snapshot 的 provider 恢复。
+原 provider 凭据被清除时 fail-closed，并拒绝 endpoint 或 provider-specific extra 漂移，
 并继续使用任务提交时的 model/参数/字段来源。
 deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 物化成显式字段，因此恢复期间的 env/default 变化不会改写已提交任务。
@@ -140,8 +142,8 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站）并取消未完成任务 |
 | GET | `/api/projects/recycle-bin` | 回收站列表 |
 | GET | `/api/projects/llm/provider-templates` | LLM 供应商模板 |
-| GET | `/api/projects/{project_id}/llm-settings` | 项目级 LLM 配置（不回显 API Key） |
-| PUT | `/api/projects/{project_id}/llm-settings` | 更新项目级 LLM 配置 |
+| GET | `/api/projects/{project_id}/llm-settings` | 兼容读取项目非 secret LLM/深度导入设置 |
+| PUT | `/api/projects/{project_id}/llm-settings` | 兼容更新非 secret 项目设置；Key 写入被拒绝 |
 | POST | `/api/projects/{project_id}/smart-dedup/scan` | 提交项目级智能去重扫描任务 |
 | POST | `/api/projects/{project_id}/smart-dedup/apply` | 应用用户确认的智能去重建议 |
 | POST | `/api/projects/{project_id}/restore` | 恢复项目 |
@@ -183,13 +185,12 @@ execution fingerprint，再逐组使用独立 savepoint 原子执行；因此前
 
 ### LLM 配置安全规则
 
-- 当前模板使用的 `settings.llm.api_key` 与项目内按模板保存的 Key 均为加密写入字段；
-  `ProjectResponse` 和专用 LLM 设置响应只返回 `api_key_configured` 以及不含密钥的
-  `api_key_configured_providers`
-- 写入密钥需要配置 `LLM_SETTINGS_ENCRYPTION_KEY`；旧明文值可兼容读取，并会在后续保存时转为密文
-- 前端空提交 `api_key` 会保留已有密钥；`clear_api_key=true` 才清除
-- 供应商模板切换会预填该模板的常用 Base URL、默认模型、显示名称和参数；保存时 Key
-  绑定到当前项目的对应模板，回切模板会恢复该模板已保存的 Key
+- provider、model 和 Key 的运行时真相源是项目 owner 的账户级连接；项目 LLM API 不得再
+  写入 Key，migration 会不可逆清除 `api_key` / `api_keys_by_provider` 遗留字段
+- 账户凭据按 owner/provider 唯一并使用 `LLM_SETTINGS_ENCRYPTION_KEY` 加密；project
+  contract、response、task meta、snapshot、日志和 producer provenance 均不返回密钥
+- 项目内遗留的 provider/model/Base URL 字段仅为兼容读取或工作流配置，不能覆盖账户模板
+- 切换账户模板只影响新任务；已持久化 snapshot 按原 provider 增量恢复，不重建已有资产
 - managed step journal 只记录 `novel_id`、profile source 和脱敏
   `profile_summary`；不记录 Key、完整 Base URL query 或正文
 - 公开模式下，无显式 `LLM_PROXY_URL` 时只允许内置供应商的 HTTPS 域名，并在运行时
@@ -215,7 +216,6 @@ python -m pytest modules/project/tests/ -v
 
 ## 当前范围
 
-除 CRUD 和项目上下文外，project 当前还拥有 effective LLM profile
-物化、novel-scoped client lifecycle、可恢复任务的 secret-free execution
-snapshot 和项目级智能去重聚合入口。它不拥有各业务模块的生成、
-去重或采用规则。
+除 CRUD 和项目上下文外，project 当前还拥有 author/interaction kind 门禁、隐藏互动项目
+生命周期、账户连接解析、novel-scoped client lifecycle、可恢复任务的 secret-free
+execution snapshot 和项目级智能去重聚合入口。它不拥有各业务模块的生成、去重或采用规则。

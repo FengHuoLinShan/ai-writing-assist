@@ -8,6 +8,8 @@ import "../router.js"
 beforeEach(() => {
   vi.clearAllMocks()
   api.projects.get.mockReset()
+  closeModal.mockReset()
+  closeModal.mockReturnValue(true)
   document.body.replaceChildren()
   localStorage.clear()
   window.history.replaceState(null, "", "#")
@@ -117,7 +119,7 @@ describe("renderCurrentView error handling", () => {
     expect(content.querySelector("#rendered-action")).not.toBeNull()
   })
 
-  it("escapes renderer error messages in the fallback UI", async () => {
+  it("does not expose renderer diagnostics in the fallback UI", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
     document.body.append(content)
@@ -137,7 +139,8 @@ describe("renderCurrentView error handling", () => {
     errorSpy.mockRestore()
 
     expect(content.querySelector("img")).toBeNull()
-    expect(content.textContent).toContain(maliciousMessage)
+    expect(content.textContent).not.toContain(maliciousMessage)
+    expect(content.textContent).toContain("你的项目内容没有受到影响")
   })
 
   it("shows a visible warning when project metadata cannot be loaded", async () => {
@@ -147,7 +150,7 @@ describe("renderCurrentView error handling", () => {
 
     window.router.registerView("writing", { async render() { return "<p>写作台</p>" } })
     api.projects.get.mockRejectedValue(new Error("offline"))
-    window.location.hash = "#workbench/p1/writing"
+    window.history.replaceState(null, "", "#workbench/p1/writing")
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
     await window.router.initRouter()
@@ -155,6 +158,341 @@ describe("renderCurrentView error handling", () => {
 
     expect(toast).toHaveBeenCalledWith("项目信息加载失败，可稍后重试", "warning")
     expect(state.currentProject).toBeNull()
+  })
+
+  it("removes the old project before awaiting cross-project metadata", async () => {
+    const content = addWorkspace()
+    let resolveProject
+    const onLeave = vi.fn()
+    window.router.registerView("world", {
+      onLeave,
+      async render() {
+        return `<p data-project-copy="${state.currentProjectId}">${state.currentProjectId}</p>`
+      },
+    })
+
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "world"
+    state.currentSubView = "objects"
+    await window.router.renderCurrentView()
+    expect(content.textContent).toContain("project-a")
+
+    api.projects.get.mockImplementation(() => new Promise((resolve) => {
+      resolveProject = resolve
+    }))
+    window.history.replaceState(null, "", "#workbench/project-b/world/objects")
+    const switching = window.router.initRouter()
+    await vi.waitFor(() => expect(resolveProject).toBeTypeOf("function"))
+
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(content.textContent).not.toContain("project-a")
+    expect(content.querySelector(".loading-skeleton")).not.toBeNull()
+    expect(content.dataset.workspaceView).toBe("loading")
+    expect(content.dataset.workspaceSubview).toBe("project-transition")
+
+    resolveProject({ id: "project-b", title: "项目 B" })
+    await switching
+
+    expect(content.textContent).toContain("project-b")
+    expect(content.textContent).not.toContain("project-a")
+  })
+
+  it("runs onLeave against the mounted project when programmatic state already points at the target", async () => {
+    const content = addWorkspace()
+    const leaveSnapshots = []
+    window.router.registerView("writing", {
+      onLeave() {
+        leaveSnapshots.push({
+          projectId: state.currentProjectId,
+          project: state.currentProject?.id,
+        })
+      },
+      async render() {
+        return `<p>${state.currentProjectId}</p>`
+      },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "writing"
+    await window.router.renderCurrentView()
+
+    state.currentProjectId = "project-b"
+    state.currentProject = { id: "project-b", title: "项目 B 的预选摘要" }
+    api.projects.get.mockResolvedValue({ id: "project-b", title: "项目 B" })
+
+    await window.router.navigate("writing", null, false)
+
+    expect(leaveSnapshots).toEqual([{
+      projectId: "project-a",
+      project: "project-a",
+    }])
+    expect(state.currentProjectId).toBe("project-b")
+    expect(state.currentProject).toEqual({ id: "project-b", title: "项目 B" })
+    expect(content.textContent).toContain("project-b")
+  })
+
+  it.each([403, 404, 422])(
+    "shows an inaccessible project recovery page for status %i without rendering the target workbench",
+    async (status) => {
+    const content = addWorkspace()
+    const render = vi.fn(async () => (
+      `<p data-project-copy="${state.currentProjectId}">${state.currentProjectId}</p>`
+    ))
+    const onLeave = vi.fn()
+    window.router.registerView("writing", { render, onLeave })
+
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "writing"
+    await window.router.renderCurrentView()
+    expect(render).toHaveBeenCalledTimes(1)
+
+    const error = new Error("not found")
+    error.status = status
+    api.projects.get.mockRejectedValue(error)
+    window.history.replaceState(null, "", "#workbench/project-b/writing")
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await window.router.initRouter()
+    warnSpy.mockRestore()
+
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(render).toHaveBeenCalledTimes(1)
+    expect(content.textContent).not.toContain("project-a")
+    expect(content.textContent).toContain("无法打开这个项目")
+    expect(content.textContent).toContain("项目不存在，或你没有访问权限。")
+    expect(content.querySelector('[data-action="retry-project-route"]')).toBeNull()
+    expect(content.querySelector('[data-action="return-project-list"]')).not.toBeNull()
+    expect(state.currentProjectId).toBeNull()
+    expect(state.currentProject).toBeNull()
+    expect(toast).not.toHaveBeenCalledWith(
+      "项目信息加载失败，可稍后重试",
+      "warning",
+    )
+    },
+  )
+
+  it("retries a temporary project metadata failure without restoring old project content", async () => {
+    const content = addWorkspace()
+    window.router.registerView("writing", {
+      async render() {
+        return `<p data-project-copy="${state.currentProjectId}">${state.currentProjectId}</p>`
+      },
+    })
+
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "writing"
+    await window.router.renderCurrentView()
+
+    api.projects.get
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ id: "project-b", title: "项目 B" })
+    window.history.replaceState(null, "", "#workbench/project-b/writing")
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await window.router.initRouter()
+    warnSpy.mockRestore()
+
+    expect(content.textContent).toContain("项目暂时加载失败")
+    expect(content.textContent).not.toContain("project-a")
+    content.querySelector('[data-action="retry-project-route"]').click()
+
+    await vi.waitFor(() => expect(content.textContent).toContain("project-b"))
+    expect(content.textContent).not.toContain("project-a")
+    expect(api.projects.get).toHaveBeenCalledTimes(2)
+  })
+
+  it("abandons a temporary failed target when returning to the project list", async () => {
+    const content = addWorkspace()
+    window.router.registerView("writing", {
+      async render() { return `<p>${state.currentProjectId}</p>` },
+    })
+    window.router.registerView("project", {
+      async render() { return '<p id="returned-project-list">项目列表</p>' },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "writing"
+    await window.router.renderCurrentView()
+    api.projects.get.mockRejectedValue(new Error("offline"))
+
+    window.history.replaceState(null, "", "#workbench/project-b/writing")
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await window.router.initRouter()
+    warnSpy.mockRestore()
+    content.querySelector('[data-action="return-project-list"]').click()
+
+    await vi.waitFor(() => expect(content.querySelector("#returned-project-list")).not.toBeNull())
+    expect(state.currentProjectId).toBeNull()
+    expect(state.currentProject).toBeNull()
+    expect(window.location.hash).toBe("#project")
+  })
+
+  it("disposes the source exactly once across a rapid A to B to C switch", async () => {
+    const content = addWorkspace()
+    const onLeave = vi.fn()
+    window.router.registerView("world", {
+      onLeave,
+      async render() {
+        return `<p data-project-copy="${state.currentProjectId}">${state.currentProjectId}</p>`
+      },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "world"
+    state.currentSubView = "objects"
+    window.history.replaceState(null, "", "#workbench/project-a/world/objects")
+    await window.router.renderCurrentView()
+
+    const pending = []
+    api.projects.get.mockImplementation((projectId, options) => new Promise((resolve, reject) => {
+      pending.push({ projectId, resolve, signal: options.signal })
+      options.signal.addEventListener("abort", () => {
+        const error = new Error("aborted")
+        error.name = "AbortError"
+        reject(error)
+      }, { once: true })
+    }))
+
+    window.history.replaceState(null, "", "#workbench/project-b/world/objects")
+    const projectB = window.router.initRouter()
+    await vi.waitFor(() => expect(pending).toHaveLength(1))
+
+    window.history.replaceState(null, "", "#workbench/project-c/world/objects")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
+
+    expect(pending[0].signal.aborted).toBe(true)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(closeModal).toHaveBeenCalledTimes(1)
+    expect(content.textContent).not.toContain("project-a")
+
+    pending[1].resolve({ id: "project-c", title: "项目 C" })
+    await vi.waitFor(() => expect(content.textContent).toContain("project-c"))
+    await expect(projectB).resolves.toBe(false)
+
+    expect(state.currentProjectId).toBe("project-c")
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(content.textContent).not.toContain("project-a")
+    expect(content.textContent).not.toContain("project-b")
+  })
+
+  it("cancels a partially entered B renderer before C metadata settles", async () => {
+    const content = addWorkspace()
+    let releaseProjectBEnter
+    const leaveOwners = []
+    const renderOwners = []
+    window.router.registerView("world", {
+      onEnter() {
+        if (state.currentProjectId !== "project-b") return Promise.resolve()
+        return new Promise((resolve) => {
+          releaseProjectBEnter = resolve
+        })
+      },
+      onLeave() {
+        leaveOwners.push(state.currentProjectId)
+      },
+      async render() {
+        renderOwners.push(state.currentProjectId)
+        return `<p data-project-copy="${state.currentProjectId}">${state.currentProjectId}</p>`
+      },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "world"
+    state.currentSubView = "objects"
+    window.history.replaceState(null, "", "#workbench/project-a/world/objects")
+    await window.router.renderCurrentView()
+
+    api.projects.get.mockImplementation(async (projectId) => ({
+      id: projectId,
+      title: projectId,
+    }))
+    window.history.replaceState(null, "", "#workbench/project-b/world/objects")
+    const projectB = window.router.initRouter()
+    await vi.waitFor(() => expect(releaseProjectBEnter).toBeTypeOf("function"))
+
+    window.history.replaceState(null, "", "#workbench/project-c/world/objects")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await vi.waitFor(() => expect(content.textContent).toContain("project-c"))
+
+    releaseProjectBEnter()
+    await expect(projectB).resolves.toBe(false)
+
+    expect(leaveOwners).toEqual(["project-a", "project-b"])
+    expect(renderOwners).toEqual(["project-a", "project-c"])
+    expect(content.textContent).toContain("project-c")
+    expect(content.textContent).not.toContain("project-b")
+  })
+
+  it("clears global selection as soon as a same-view project boundary is committed", async () => {
+    const content = addWorkspace()
+    let resolveProject
+    window.router.registerView("writing", {
+      onLeave: vi.fn(),
+      async render() {
+        return `<p>${state.currentProjectId}</p>`
+      },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "writing"
+    state.selectedItem = { id: "old-row" }
+    state.selectedItems = [{ id: "old-row" }]
+    await window.router.renderCurrentView()
+
+    api.projects.get.mockImplementation(() => new Promise((resolve) => {
+      resolveProject = resolve
+    }))
+    window.history.replaceState(null, "", "#workbench/project-b/writing")
+    const switching = window.router.initRouter()
+    await vi.waitFor(() => expect(resolveProject).toBeTypeOf("function"))
+
+    expect(state.selectedItem).toBeNull()
+    expect(state.selectedItems).toEqual([])
+    expect(content.querySelector(".loading-skeleton")).not.toBeNull()
+
+    resolveProject({ id: "project-b", title: "项目 B" })
+    await switching
+  })
+
+  it("cleans a partially entered target renderer when rendering fails", async () => {
+    const content = addWorkspace()
+    const sourceLeave = vi.fn()
+    const targetLeave = vi.fn()
+    window.router.registerView("world", {
+      onLeave: sourceLeave,
+      async render() { return "<p>项目 A 世界</p>" },
+    })
+    window.router.registerView("writing", {
+      async onEnter() {
+        throw new Error("target load failed")
+      },
+      onLeave: targetLeave,
+      async render() { return "<p>不应渲染</p>" },
+    })
+    window.router.registerView("project", {
+      async render() { return "<p>项目列表</p>" },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "world"
+    state.currentSubView = "objects"
+    await window.router.renderCurrentView()
+
+    api.projects.get.mockResolvedValue({ id: "project-b", title: "项目 B" })
+    window.history.replaceState(null, "", "#workbench/project-b/writing")
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    await window.router.initRouter()
+    errorSpy.mockRestore()
+
+    expect(sourceLeave).toHaveBeenCalledTimes(1)
+    expect(targetLeave).toHaveBeenCalledTimes(1)
+    expect(content.textContent).toContain("页面加载失败")
+    expect(content.textContent).not.toContain("不应渲染")
+
+    await window.router.navigate("project", null, false)
+    expect(targetLeave).toHaveBeenCalledTimes(1)
   })
 
   it("re-enters writing instead of reusing DOM across projects", async () => {
@@ -243,11 +581,40 @@ describe("subview memory", () => {
 })
 
 describe("route guard and normalization", () => {
+  it("uses the two-entry home as the empty-hash landing page", async () => {
+    const content = addWorkspace()
+    registerBasicView("home")
+    window.history.replaceState(null, "", "#")
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("home")
+    expect(state.currentSubView).toBeNull()
+    expect(content.textContent).toContain("home:")
+  })
+
+  it("preserves the dynamic new-journey subview without requiring an author project", async () => {
+    const content = addWorkspace()
+    registerBasicView("journeys")
+    window.history.replaceState(null, "", "#journeys/new")
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("journeys")
+    expect(state.currentSubView).toBe("new")
+    expect(state.currentProjectId).toBeNull()
+    expect(content.textContent).toContain("journeys:new")
+  })
+
   it("首次进入 legacy map 深链时以 replace 收敛到 canonical live", async () => {
     addWorkspace()
     registerBasicView("map")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.location.hash = "#workbench/p1/map?map_id=m1&scene_id=s1&mode=map"
+    window.history.replaceState(
+      null,
+      "",
+      "#workbench/p1/map?map_id=m1&scene_id=s1&mode=map",
+    )
     const beforeLength = window.history.length
 
     await window.router.initRouter()
@@ -326,6 +693,85 @@ describe("route guard and normalization", () => {
     expect(state.currentView).toBe("map")
   })
 
+  it("keeps old project content when a cross-project popstate is rejected by the leave guard", async () => {
+    const content = addWorkspace()
+    const canLeave = vi.fn(() => false)
+    window.router.registerView("world", {
+      canLeave,
+      async render() { return `<p id="guarded-project">${state.currentProjectId}</p>` },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "world"
+    state.currentSubView = "objects"
+    window.history.replaceState(null, "", "#workbench/project-a/world/objects")
+    await window.router.initRouter()
+
+    window.history.replaceState(null, "", "#workbench/project-b/world/objects")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await vi.waitFor(() => expect(canLeave).toHaveBeenCalledTimes(1))
+
+    expect(window.location.hash).toBe("#workbench/project-a/world/objects")
+    expect(content.querySelector("#guarded-project")?.textContent).toBe("project-a")
+    expect(content.querySelector(".loading-skeleton")).toBeNull()
+    expect(api.projects.get).not.toHaveBeenCalled()
+  })
+
+  it("keeps the source route intact when its project modal rejects navigation", async () => {
+    const content = addWorkspace()
+    const canLeave = vi.fn(() => true)
+    const onLeave = vi.fn()
+    window.router.registerView("world", {
+      canLeave,
+      onLeave,
+      async render() { return `<p id="modal-guarded-project">${state.currentProjectId}</p>` },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "world"
+    state.currentSubView = "objects"
+    window.history.replaceState(null, "", "#workbench/project-a/world/objects")
+    await window.router.renderCurrentView()
+    closeModal.mockReturnValue(false)
+
+    window.history.replaceState(null, "", "#workbench/project-b/world/objects")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await vi.waitFor(() => expect(closeModal).toHaveBeenCalledTimes(1))
+
+    expect(canLeave).toHaveBeenCalledTimes(1)
+    expect(closeModal).toHaveBeenCalledWith({ reason: "project-navigation" })
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(api.projects.get).not.toHaveBeenCalled()
+    expect(state.currentProjectId).toBe("project-a")
+    expect(window.location.hash).toBe("#workbench/project-a/world/objects")
+    expect(content.querySelector("#modal-guarded-project")?.textContent).toBe("project-a")
+    expect(content.querySelector(".loading-skeleton")).toBeNull()
+  })
+
+  it("does not apply project-modal blocking when entering from the unscoped project catalog", async () => {
+    const content = addWorkspace()
+    window.router.registerView("project", {
+      async render() { return "<p>项目列表</p>" },
+    })
+    window.router.registerView("writing", {
+      async render() { return `<p id="catalog-opened-project">${state.currentProjectId}</p>` },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "project"
+    await window.router.renderCurrentView()
+    closeModal.mockReturnValue(false)
+
+    // ProjectView 的既有流程会先提交刚创建/选中的完整项目，再进入写作台。
+    state.currentProjectId = "project-b"
+    state.currentProject = { id: "project-b", title: "项目 B" }
+    const result = await window.router.navigate("writing", null, false)
+
+    expect(result).toBe(true)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(content.querySelector("#catalog-opened-project")?.textContent).toBe("project-b")
+  })
+
   it("redirects active project-scoped navigation to projects when no project is selected", async () => {
     addWorkspace()
     registerBasicView("project")
@@ -359,7 +805,7 @@ describe("route guard and normalization", () => {
     addWorkspace()
     registerBasicView("world")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.location.hash = "#workbench/p1/world/not-real"
+    window.history.replaceState(null, "", "#workbench/p1/world/not-real")
 
     await window.router.initRouter()
 
@@ -373,7 +819,7 @@ describe("route guard and normalization", () => {
     addWorkspace()
     registerBasicView("outline")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.location.hash = "#workbench/p1/outline"
+    window.history.replaceState(null, "", "#workbench/p1/outline")
 
     await window.router.initRouter()
 
@@ -387,7 +833,7 @@ describe("route guard and normalization", () => {
     addWorkspace()
     registerBasicView("outline")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.location.hash = "#workbench/p1/scene/s1"
+    window.history.replaceState(null, "", "#workbench/p1/scene/s1")
 
     await window.router.initRouter()
 
@@ -403,7 +849,11 @@ describe("route guard and normalization", () => {
       addWorkspace()
       registerBasicView("outline")
       api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-      window.location.hash = `#workbench/p1/outline/${legacySubView}`
+      window.history.replaceState(
+        null,
+        "",
+        `#workbench/p1/outline/${legacySubView}`,
+      )
 
       await window.router.initRouter()
 
@@ -420,7 +870,7 @@ describe("route guard and normalization", () => {
     addWorkspace()
     registerBasicView("project")
     registerBasicView("generate")
-    window.location.hash = "#context"
+    window.history.replaceState(null, "", "#context")
 
     await window.router.initRouter()
 
@@ -435,7 +885,7 @@ describe("route guard and normalization", () => {
     addWorkspace()
     registerBasicView("generate")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.location.hash = "#workbench/p1/context"
+    window.history.replaceState(null, "", "#workbench/p1/context")
     await window.router.initRouter()
 
     expect(state.currentView).toBe("generate")
@@ -448,7 +898,7 @@ describe("route guard and normalization", () => {
     addWorkspace()
     registerBasicView("settings")
     registerBasicView("project-settings")
-    window.location.hash = "#llm"
+    window.history.replaceState(null, "", "#llm")
 
     await window.router.initRouter()
 
@@ -457,7 +907,7 @@ describe("route guard and normalization", () => {
     expect(window.location.hash).toBe("#settings")
 
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.location.hash = "#workbench/p1/llm"
+    window.history.replaceState(null, "", "#workbench/p1/llm")
     await window.router.initRouter()
 
     expect(state.currentProjectId).toBe("p1")
@@ -470,7 +920,7 @@ describe("route guard and normalization", () => {
     addWorkspace()
     registerBasicView("world")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.location.hash = "#workbench/p1/world/candidates"
+    window.history.replaceState(null, "", "#workbench/p1/world/candidates")
 
     await window.router.initRouter()
 
@@ -484,7 +934,7 @@ describe("route guard and normalization", () => {
     registerBasicView("writing")
     state.currentProjectId = "p1"
     state.currentProject = { id: "p1", title: "项目一" }
-    window.location.hash = "#writing"
+    window.history.replaceState(null, "", "#writing")
 
     await window.router.initRouter()
 
@@ -528,6 +978,63 @@ describe("refresh forces project sync", () => {
     expect(state.currentProject.title).toBe("New")
   })
 
+  it("keeps the mounted page and metadata when same-project refresh fails temporarily", async () => {
+    const content = addWorkspace()
+    const onLeave = vi.fn()
+    window.router.registerView("writing", {
+      onLeave,
+      async render() { return '<p id="retained-writing">未保存正文仍在</p>' },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "writing"
+    await window.router.renderCurrentView()
+    api.projects.get.mockRejectedValue(new Error("offline"))
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const result = await window.router.refresh()
+    warnSpy.mockRestore()
+
+    expect(result).toBe(false)
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(state.currentProject).toEqual({ id: "project-a", title: "项目 A" })
+    expect(content.querySelector("#retained-writing")?.textContent).toBe("未保存正文仍在")
+    expect(content.textContent).not.toContain("项目暂时加载失败")
+    expect(toast).toHaveBeenCalledWith(
+      "项目信息加载失败，当前页面已保留，可稍后重试",
+      "warning",
+    )
+  })
+
+  it("fails closed when same-project refresh discovers that access is gone", async () => {
+    const content = addWorkspace()
+    const onLeave = vi.fn()
+    window.router.registerView("writing", {
+      onLeave,
+      async render() { return '<p id="revoked-writing">旧授权正文</p>' },
+    })
+    state.currentProjectId = "project-a"
+    state.currentProject = { id: "project-a", title: "项目 A" }
+    state.currentView = "writing"
+    await window.router.renderCurrentView()
+    const forbidden = new Error("forbidden")
+    forbidden.status = 403
+    api.projects.get.mockRejectedValue(forbidden)
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const result = await window.router.refresh()
+    warnSpy.mockRestore()
+
+    expect(result).toBe(false)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(closeModal).toHaveBeenCalledWith({ force: true })
+    expect(state.currentProjectId).toBeNull()
+    expect(state.currentProject).toBeNull()
+    expect(content.querySelector("#revoked-writing")).toBeNull()
+    expect(content.textContent).toContain("无法打开这个项目")
+    expect(content.querySelector('[data-action="retry-project-route"]')).toBeNull()
+  })
+
   it("re-fetches full project metadata after restoring a legacy project object summary", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
@@ -536,7 +1043,7 @@ describe("refresh forces project sync", () => {
     localStorage.clear()
     state.currentProjectId = null
     state.currentProject = null
-    window.location.hash = "#workbench/p1/writing"
+    window.history.replaceState(null, "", "#workbench/p1/writing")
     localStorage.setItem("novel_currentProjectId", "p1")
     localStorage.setItem("novel_currentProject", JSON.stringify({
       id: "p1",

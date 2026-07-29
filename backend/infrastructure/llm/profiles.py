@@ -96,8 +96,9 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
         "Kimi / Moonshot",
         "https://api.moonshot.cn/v1",
         "Moonshot Kimi OpenAI-compatible API",
-        default_model="kimi-k2.6",
+        default_model="kimi-k3",
         models=[
+            "kimi-k3",
             "kimi-k2.7-code",
             "kimi-k2.7-code-highspeed",
             "kimi-k2.6",
@@ -260,6 +261,8 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
     ),
 ]
 
+_ACCOUNT_PROVIDER_IDS = frozenset({"deepseek", "kimi"})
+
 
 @dataclass(frozen=True)
 class ResolvedLLMProfile:
@@ -322,6 +325,16 @@ class ResolvedLLMProfile:
 def list_provider_templates() -> list[dict[str, Any]]:
     """Return a defensive copy of user-facing provider presets."""
     return deepcopy(PROVIDER_TEMPLATES)
+
+
+def list_account_provider_templates() -> list[dict[str, Any]]:
+    """Return the two product-supported account connection templates."""
+
+    return [
+        template
+        for template in list_provider_templates()
+        if template.get("id") in _ACCOUNT_PROVIDER_IDS
+    ]
 
 
 def default_llm_profile() -> dict[str, Any]:

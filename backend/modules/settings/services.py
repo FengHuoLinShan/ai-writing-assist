@@ -2,40 +2,56 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from infrastructure.llm.egress import validate_user_llm_base_url
+from core.config import get_settings
+from infrastructure.llm.balance import (
+    ProviderBalanceError,
+    query_provider_balance,
+)
+from infrastructure.llm.health import LLMHealthChecker
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
-    LLM_API_KEYS_BY_PROVIDER_FIELD,
     LLM_SETTINGS_KEY,
-    get_llm_profile,
-    get_runtime_llm_profile,
 )
-from infrastructure.llm.secret_store import secret_configured
+from infrastructure.llm.secret_store import (
+    decrypt_secret,
+    encrypt_secret,
+)
 from modules.project.contracts import ProjectSummary
 from modules.settings.constants import (
+    ACCOUNT_LLM_PROVIDER_TEMPLATES,
     AUTHOR_PREFS_DEFAULTS,
     AUTHOR_PREFS_FIELDS,
-    LLM_DEFAULTS_SYSTEM,
     LLM_INHERITABLE_FIELDS,
     SOURCE_GLOBAL,
     SOURCE_PROJECT,
     SOURCE_SYSTEM,
     SOURCE_UNSET,
+    account_llm_provider_enabled,
+    enabled_account_llm_provider_order,
 )
 from modules.settings.models import ProjectAuthorPreferences
 from modules.settings.repositories import (
+    AccountLLMCredentialRepository,
     GlobalAuthorPrefsRepository,
     GlobalLLMDefaultsRepository,
     ProjectAuthorPrefsRepository,
 )
 from modules.settings.schemas import (
+    AccountLLMBalanceItem,
+    AccountLLMBalancesResponse,
+    AccountLLMConnectionsResponse,
+    AccountLLMProviderState,
+    AccountLLMRuntimeProfile,
     EffectiveAuthorPrefsResponse,
     EffectiveLLMSettingsResponse,
     FieldResetResponse,
@@ -58,11 +74,251 @@ def _current_owner_id(owner_id: uuid.UUID | None = None) -> uuid.UUID:
     return current_account_id()
 
 
+async def _validate_account_llm_connection(
+    provider_id: str,
+    api_key: str,
+) -> None:
+    """Perform the required minimal real generation before accepting a key."""
+
+    template = ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id]
+    settings = get_settings()
+    checker = LLMHealthChecker(
+        api_key=api_key,
+        base_url=str(template["base_url"]),
+        model=str(template["model"]),
+        trust_env=settings.llm_trust_env,
+        proxy_url=settings.llm_proxy_url,
+        timeout=30,
+    )
+    result = await checker.check()
+    if result.ok:
+        return
+    if result.error_kind == "auth_error":
+        message = "API Key 无效或没有使用该模型的权限"
+    elif result.error_kind == "rate_limit":
+        message = "模型请求过于频繁或当前额度不可用"
+    else:
+        message = "暂时无法验证模型连接，请稍后重试"
+    raise ValueError(message)
+
+
 class SettingsService:
     def __init__(self) -> None:
         self._llm_repo = GlobalLLMDefaultsRepository()
+        self._credential_repo = AccountLLMCredentialRepository()
         self._g_prefs_repo = GlobalAuthorPrefsRepository()
         self._p_prefs_repo = ProjectAuthorPrefsRepository()
+
+    # ----- account LLM connections -----
+    @staticmethod
+    def _require_account_provider(provider_id: str) -> dict:
+        template = ACCOUNT_LLM_PROVIDER_TEMPLATES.get(provider_id)
+        if template is None:
+            raise ValueError("仅支持 DeepSeek 和 Kimi")
+        if not account_llm_provider_enabled(provider_id):
+            raise ValueError("Kimi K3 仍在兼容验证中，暂不可用")
+        return template
+
+    async def get_account_llm_connections(
+        self,
+        db: AsyncSession,
+        owner_id: uuid.UUID | None = None,
+    ) -> AccountLLMConnectionsResponse:
+        resolved_owner = _current_owner_id(owner_id)
+        defaults = await self._llm_repo.get(db, resolved_owner)
+        enabled_order = enabled_account_llm_provider_order()
+        active_provider = (
+            defaults.provider_id
+            if defaults is not None
+            and account_llm_provider_enabled(defaults.provider_id)
+            else enabled_order[0]
+        )
+        rows = await self._credential_repo.list_for_owner(db, resolved_owner)
+        by_provider = {row.provider_id: row for row in rows}
+        providers = []
+        for provider_id in enabled_order:
+            template = ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id]
+            row = by_provider.get(provider_id)
+            providers.append(
+                AccountLLMProviderState(
+                    provider_id=provider_id,
+                    label=str(template["label"]),
+                    model=str(template["model"]),
+                    connected=row is not None,
+                    active=provider_id == active_provider,
+                    verified_at=row.verified_at if row is not None else None,
+                )
+            )
+        return AccountLLMConnectionsResponse(
+            active_provider_id=active_provider,
+            providers=providers,
+        )
+
+    async def connect_account_llm_provider(
+        self,
+        db: AsyncSession,
+        provider_id: str,
+        api_key: str,
+    ) -> AccountLLMConnectionsResponse:
+        template = self._require_account_provider(provider_id)
+        owner_id = _current_owner_id()
+        fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+        await self._credential_repo.lock_owner_provider(
+            db,
+            owner_id,
+            provider_id,
+        )
+        await self._llm_repo.lock_owner_head(db, owner_id)
+        existing = await self._credential_repo.get(db, owner_id, provider_id)
+        unchanged_verified = (
+            existing is not None
+            and existing.key_fingerprint == fingerprint
+            and existing.verified_at is not None
+        )
+        if not unchanged_verified:
+            await _validate_account_llm_connection(provider_id, api_key)
+        now = datetime.now(UTC)
+        if unchanged_verified:
+            encrypted_api_key = existing.encrypted_api_key
+            verified_at = existing.verified_at
+        else:
+            encrypted_api_key = encrypt_secret(api_key)
+            verified_at = now
+        await self._credential_repo.upsert(
+            db,
+            {
+                "owner_id": owner_id,
+                "provider_id": provider_id,
+                "encrypted_api_key": encrypted_api_key,
+                "key_fingerprint": fingerprint,
+                "verified_at": verified_at,
+            },
+        )
+        await self._llm_repo.upsert(
+            db,
+            {
+                "owner_id": owner_id,
+                **template,
+                "creative_mode": None,
+                "deep_import": None,
+            },
+        )
+        return await self.get_account_llm_connections(db, owner_id)
+
+    async def activate_account_llm_provider(
+        self,
+        db: AsyncSession,
+        provider_id: str,
+    ) -> AccountLLMConnectionsResponse:
+        template = self._require_account_provider(provider_id)
+        owner_id = _current_owner_id()
+        await self._credential_repo.lock_owner_provider(
+            db,
+            owner_id,
+            provider_id,
+        )
+        await self._llm_repo.lock_owner_head(db, owner_id)
+        credential = await self._credential_repo.get(db, owner_id, provider_id)
+        if credential is None:
+            raise ValueError("请先填写并验证 API Key")
+        await self._llm_repo.upsert(
+            db,
+            {
+                "owner_id": owner_id,
+                **template,
+                "creative_mode": None,
+                "deep_import": None,
+            },
+        )
+        return await self.get_account_llm_connections(db, owner_id)
+
+    async def clear_account_llm_provider(
+        self,
+        db: AsyncSession,
+        provider_id: str,
+    ) -> AccountLLMConnectionsResponse:
+        self._require_account_provider(provider_id)
+        owner_id = _current_owner_id()
+        await self._credential_repo.lock_owner_provider(
+            db,
+            owner_id,
+            provider_id,
+        )
+        await self._llm_repo.lock_owner_head(db, owner_id)
+        await self._credential_repo.delete(db, owner_id, provider_id)
+        return await self.get_account_llm_connections(db, owner_id)
+
+    async def resolve_account_llm_runtime_profile(
+        self,
+        db: AsyncSession,
+        *,
+        owner_id: uuid.UUID | None = None,
+        provider_id: str | None = None,
+    ) -> AccountLLMRuntimeProfile:
+        resolved_owner = _current_owner_id(owner_id)
+        if provider_id is None:
+            defaults = await self._llm_repo.get(db, resolved_owner)
+            provider_id = (
+                defaults.provider_id
+                if defaults is not None
+                and account_llm_provider_enabled(defaults.provider_id)
+                else enabled_account_llm_provider_order()[0]
+            )
+        template = self._require_account_provider(provider_id)
+        credential = await self._credential_repo.get(
+            db,
+            resolved_owner,
+            provider_id,
+        )
+        if credential is None:
+            raise ValueError("账户模型尚未连接，请先在账户设置中填写 API Key")
+        try:
+            api_key = decrypt_secret(credential.encrypted_api_key)
+        except ValueError as exc:
+            raise ValueError("账户模型连接无法读取，请重新填写 API Key") from exc
+        if not api_key:
+            raise ValueError("账户模型尚未连接，请先在账户设置中填写 API Key")
+        return AccountLLMRuntimeProfile(api_key=api_key, **template)
+
+    async def get_account_llm_balances(
+        self,
+        db: AsyncSession,
+    ) -> AccountLLMBalancesResponse:
+        owner_id = _current_owner_id()
+        credentials = {
+            row.provider_id: row
+            for row in await self._credential_repo.list_for_owner(db, owner_id)
+            if row.provider_id in ACCOUNT_LLM_PROVIDER_TEMPLATES
+        }
+
+        async def query(provider_id: str) -> AccountLLMBalanceItem:
+            queried_at = datetime.now(UTC)
+            row = credentials[provider_id]
+            try:
+                api_key = decrypt_secret(row.encrypted_api_key)
+                balance = await query_provider_balance(provider_id, api_key)
+            except (ProviderBalanceError, ValueError, RuntimeError):
+                return AccountLLMBalanceItem(
+                    provider_id=provider_id,
+                    status="unavailable",
+                    queried_at=queried_at,
+                )
+            return AccountLLMBalanceItem(
+                provider_id=provider_id,
+                status="available",
+                amount=format(balance.amount, "f"),
+                currency=balance.currency,
+                queried_at=queried_at,
+            )
+
+        items = await asyncio.gather(
+            *(
+                query(provider_id)
+                for provider_id in enabled_account_llm_provider_order()
+                if provider_id in credentials
+            )
+        )
+        return AccountLLMBalancesResponse(items=list(items))
 
     # ----- global LLM defaults -----
     async def get_global_llm_defaults(
@@ -91,10 +347,13 @@ class SettingsService:
         # D8 硬拒绝 api_key
         if "api_key" in payload or "api_key_configured" in payload:
             raise ValueError("global LLM defaults must not contain api_key")
+        connection_fields = {"provider_id", "label", "base_url", "model"}
+        if connection_fields & payload.keys():
+            raise ValueError("模型连接只能在账户模型连接入口中切换")
         data = {k: v for k, v in payload.items() if k in LLM_INHERITABLE_FIELDS}
-        if data.get("base_url"):
-            data["base_url"] = validate_user_llm_base_url(str(data["base_url"]))
-        data["owner_id"] = _current_owner_id()
+        owner_id = _current_owner_id()
+        await self._llm_repo.lock_owner_head(db, owner_id)
+        data["owner_id"] = owner_id
         row = await self._llm_repo.upsert(db, data)
         return GlobalLLMDefaultsResponse(
             provider_id=row.provider_id,
@@ -218,60 +477,52 @@ class SettingsService:
         project_settings: dict | None,
         owner_id: uuid.UUID | None = None,
     ) -> EffectiveLLMSettingsResponse:
-        proj_profile = get_llm_profile(project_settings)
-        # deep_import 是 settings 顶层 sibling，不在 settings["llm"] 内（D6 atomic）
+        resolved_owner = _current_owner_id(owner_id)
         proj_deep_import = (project_settings or {}).get(DEEP_IMPORT_SETTINGS_KEY)
-        glob_row = await self._llm_repo.get(db, _current_owner_id(owner_id))
-        glob_profile = (
-            {f: getattr(glob_row, f) for f in LLM_INHERITABLE_FIELDS} if glob_row else {}
+        glob_row = await self._llm_repo.get(db, resolved_owner)
+        provider_id = (
+            glob_row.provider_id
+            if glob_row is not None
+            and account_llm_provider_enabled(glob_row.provider_id)
+            else enabled_account_llm_provider_order()[0]
+        )
+        template = ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id]
+        credentials = await self._credential_repo.list_for_owner(db, resolved_owner)
+        configured_providers = sorted(
+            row.provider_id
+            for row in credentials
+            if account_llm_provider_enabled(row.provider_id)
         )
 
-        def pack(
-            field_name: str, *, default_val, allow_unset: bool = False
-        ) -> FieldValueSource:
-            proj_v = proj_profile.get(field_name)
-            if proj_v is not None and proj_v != "":
-                return FieldValueSource(value=proj_v, source=SOURCE_PROJECT)
-            glob_v = glob_profile.get(field_name)
-            if glob_v is not None:
-                return FieldValueSource(value=glob_v, source=SOURCE_GLOBAL)
-            sys_v = default_val
-            if sys_v is None and allow_unset:
-                return FieldValueSource(value=None, source=SOURCE_UNSET)
-            return FieldValueSource(value=sys_v, source=SOURCE_SYSTEM)
+        def account_value(field_name: str) -> FieldValueSource:
+            return FieldValueSource(
+                value=template.get(field_name),
+                source=SOURCE_GLOBAL,
+            )
 
         return EffectiveLLMSettingsResponse(
-            provider_id=pack(
-                "provider_id", default_val=LLM_DEFAULTS_SYSTEM["provider_id"]
-            ),
-            label=pack(
-                "label", default_val=LLM_DEFAULTS_SYSTEM["label"], allow_unset=True
-            ),
-            base_url=pack("base_url", default_val=LLM_DEFAULTS_SYSTEM["base_url"]),
-            model=pack("model", default_val=LLM_DEFAULTS_SYSTEM["model"]),
-            timeout=pack("timeout", default_val=LLM_DEFAULTS_SYSTEM["timeout"]),
-            max_tokens=pack("max_tokens", default_val=LLM_DEFAULTS_SYSTEM["max_tokens"]),
-            temperature=pack(
-                "temperature", default_val=LLM_DEFAULTS_SYSTEM["temperature"]
-            ),
-            top_p=pack(
-                "top_p", default_val=LLM_DEFAULTS_SYSTEM["top_p"], allow_unset=True
-            ),
-            extra=pack("extra", default_val=LLM_DEFAULTS_SYSTEM["extra"]),
-            creative_mode=pack(
-                "creative_mode",
-                default_val=LLM_DEFAULTS_SYSTEM["creative_mode"],
-                allow_unset=True,
+            provider_id=account_value("provider_id"),
+            label=account_value("label"),
+            base_url=account_value("base_url"),
+            model=account_value("model"),
+            timeout=account_value("timeout"),
+            max_tokens=account_value("max_tokens"),
+            temperature=account_value("temperature"),
+            top_p=account_value("top_p"),
+            extra=account_value("extra"),
+            creative_mode=FieldValueSource(
+                value=None,
+                source=SOURCE_UNSET,
             ),
             api_key_configured=FieldValueSource(
-                value=secret_configured(proj_profile.get("api_key")),
-                source=SOURCE_PROJECT
-                if secret_configured(proj_profile.get("api_key"))
+                value=provider_id in configured_providers,
+                source=SOURCE_GLOBAL
+                if provider_id in configured_providers
                 else SOURCE_UNSET,
             ),
             api_key_configured_providers=FieldValueSource(
-                value=self._configured_llm_provider_ids(proj_profile),
-                source=SOURCE_PROJECT,
+                value=configured_providers,
+                source=SOURCE_GLOBAL,
             ),
             deep_import=FieldValueSource(
                 value=proj_deep_import,
@@ -285,44 +536,32 @@ class SettingsService:
         project_settings: dict | None,
         owner_id: uuid.UUID | None = None,
     ) -> dict:
-        """Materialize runtime settings from raw project settings JSON."""
+        """Materialize account connection plus project-owned non-secret settings."""
         settings = dict(project_settings or {})
-        raw_llm = get_runtime_llm_profile(settings)
-        effective = await self.get_effective_llm_settings_for_project_settings(
-            db, settings, owner_id
+        settings.pop(LLM_SETTINGS_KEY, None)
+        resolved_owner = _current_owner_id(owner_id)
+        glob_row = await self._llm_repo.get(db, resolved_owner)
+        provider_id = (
+            glob_row.provider_id
+            if glob_row is not None
+            and account_llm_provider_enabled(glob_row.provider_id)
+            else enabled_account_llm_provider_order()[0]
         )
-        llm_profile: dict[str, object] = {}
-        for field_name in LLM_INHERITABLE_FIELDS:
-            if field_name == DEEP_IMPORT_SETTINGS_KEY:
-                continue
-            field = getattr(effective, field_name, None)
-            if field is not None and field.value is not None and field.value != "":
-                llm_profile[field_name] = field.value
-        if raw_llm.get(LLM_API_KEY_FIELD):
-            llm_profile[LLM_API_KEY_FIELD] = raw_llm[LLM_API_KEY_FIELD]
-        raw_profile = get_llm_profile(settings)
-        if raw_profile.get(LLM_API_KEYS_BY_PROVIDER_FIELD):
-            llm_profile[LLM_API_KEYS_BY_PROVIDER_FIELD] = raw_profile[
-                LLM_API_KEYS_BY_PROVIDER_FIELD
-            ]
-        if llm_profile:
-            settings[LLM_SETTINGS_KEY] = llm_profile
+        llm_profile = dict(ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id])
+        credential = await self._credential_repo.get(
+            db,
+            resolved_owner,
+            provider_id,
+        )
+        if credential is not None:
+            try:
+                api_key = decrypt_secret(credential.encrypted_api_key)
+            except ValueError:
+                api_key = ""
+            if api_key:
+                llm_profile[LLM_API_KEY_FIELD] = api_key
+        settings[LLM_SETTINGS_KEY] = llm_profile
         return settings
-
-    @staticmethod
-    def _configured_llm_provider_ids(profile: dict) -> list[str]:
-        keys = profile.get(LLM_API_KEYS_BY_PROVIDER_FIELD)
-        configured = {
-            provider_id
-            for provider_id, secret in (keys.items() if isinstance(keys, dict) else [])
-            if isinstance(provider_id, str) and secret_configured(secret)
-        }
-        provider_id = profile.get("provider_id")
-        if secret_configured(profile.get(LLM_API_KEY_FIELD)) and isinstance(
-            provider_id, str
-        ):
-            configured.add(provider_id)
-        return sorted(configured)
 
     # ----- aggregation -----
     def fully_overridden_project_ids_subquery(self) -> Select[tuple[uuid.UUID]]:

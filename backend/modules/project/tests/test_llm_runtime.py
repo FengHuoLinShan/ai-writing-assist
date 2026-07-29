@@ -1,17 +1,18 @@
-"""Tests for the project-owned business LLM runtime seam."""
+"""Tests for the project-owned, account-configured business LLM runtime seam."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.secret_store import encrypt_secret
 from modules.project import llm_runtime
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
@@ -21,116 +22,104 @@ from modules.project.facade import (
     restore_project_llm_execution_settings,
 )
 from modules.project.models import Project
-from modules.settings.services import SettingsService
+from modules.settings.constants import ACCOUNT_LLM_PROVIDER_TEMPLATES, LOCAL_OWNER_ID
+from modules.settings.repositories import (
+    AccountLLMCredentialRepository,
+    GlobalLLMDefaultsRepository,
+)
 from shared.deep_import_settings import (
     DEEP_IMPORT_FROZEN_SETTINGS_KEY,
     deep_import_int_setting,
 )
 
 
-async def _set_llm_profile(
+async def _set_legacy_project_profile(
     db: AsyncSession,
     project_id: str,
     profile: dict,
+    *,
+    deep_import: dict | None = None,
 ) -> None:
     project = (
         await db.execute(select(Project).where(Project.id == uuid.UUID(project_id)))
     ).scalar_one()
     project.settings = {"llm": profile}
+    if deep_import is not None:
+        project.settings["deep_import"] = deep_import
     await db.flush()
 
 
+async def _seed_account_connection(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID = LOCAL_OWNER_ID,
+    provider_id: str = "deepseek",
+    api_key: str = "unit-test-account-key",
+    activate: bool = True,
+) -> None:
+    await AccountLLMCredentialRepository().upsert(
+        db,
+        {
+            "owner_id": owner_id,
+            "provider_id": provider_id,
+            "encrypted_api_key": encrypt_secret(api_key),
+            "key_fingerprint": hashlib.sha256(api_key.encode()).hexdigest(),
+            "verified_at": datetime.now(UTC),
+        },
+    )
+    if activate:
+        await GlobalLLMDefaultsRepository().upsert(
+            db,
+            {
+                "owner_id": owner_id,
+                **ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id],
+            },
+        )
+
+
 @pytest.mark.asyncio
-async def test_open_project_llm_client_uses_sanitized_effective_profile(
+async def test_runtime_uses_account_profile_and_ignores_legacy_project_connection(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    await _set_llm_profile(
+    await _seed_account_connection(
+        db_session,
+        api_key="unit-test-account-runtime-key",
+    )
+    await _set_legacy_project_profile(
         db_session,
         test_project_id,
         {
             "provider_id": "openai-compatible",
-            "label": "Test Gateway",
-            "api_key": "sk-runtime-secret",
-            "base_url": "https://gateway.example.test/v1?token=hidden",
-            "model": "project-model",
-            "timeout": 41,
-            "max_tokens": 8123,
+            "api_key": "legacy-project-key-must-not-run",
+            "base_url": "https://legacy.example.test/v1?token=hidden",
+            "model": "legacy-project-model",
         },
     )
 
     async with open_project_llm_client(db_session, test_project_id) as client:
         summary = client.profile_summary
-        assert client.model_name == "project-model"
-        assert summary["provider_id"] == "openai-compatible"
-        assert summary["base_url_host"] == "gateway.example.test"
+        assert client.model_name == "deepseek-v4-flash"
+        assert summary["provider_id"] == "deepseek"
+        assert summary["base_url_host"] == "api.deepseek.com"
         assert summary["api_key_configured"] is True
-        assert summary["sources"]["model"] == "project"
-        assert summary["sources"]["temperature"] == "system"
+        assert summary["sources"]["model"] == "account"
+        assert summary["sources"]["api_key"] == "account"
         assert client.runtime_scope == {
             "novel_id": test_project_id,
-            "profile_source": "project",
+            "profile_source": "account",
         }
-        assert "sk-runtime-secret" not in str(summary)
+        assert "unit-test-account-runtime-key" not in str(summary)
+        assert "legacy-project-key-must-not-run" not in str(summary)
         assert "token=hidden" not in str(summary)
 
 
 @pytest.mark.asyncio
-async def test_open_project_llm_client_inherits_global_defaults_before_system(
+async def test_runtime_closes_on_workflow_failure(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    await SettingsService().upsert_global_llm_defaults(
-        db_session,
-        {
-            "provider_id": "openai-compatible",
-            "label": "Global Gateway",
-            "base_url": "https://global.example.test/v1",
-            "model": "global-model",
-            "timeout": 77,
-            "max_tokens": 6789,
-        },
-    )
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {"api_key": "sk-project-only-secret"},
-    )
-
-    async with open_project_llm_client(db_session, test_project_id) as client:
-        summary = client.profile_summary
-        assert client.model_name == "global-model"
-        assert summary["base_url_host"] == "global.example.test"
-        assert summary["timeout"] == 77
-        assert summary["max_tokens"] == 6789
-        assert summary["sources"]["provider_id"] == "global"
-        assert summary["sources"]["base_url"] == "global"
-        assert summary["sources"]["model"] == "global"
-        assert summary["sources"]["api_key"] == "project"
-
-    snapshot = await build_project_llm_execution_snapshot(
-        db_session,
-        test_project_id,
-    )
-    assert snapshot["profile"]["max_tokens"] == 6789
-    assert snapshot["deep_import"]["phase1c"]["decision_max_tokens"] == 6789
-    assert snapshot["deep_import"]["phase1c"]["timeout_seconds"] == 1200
-
-
-@pytest.mark.asyncio
-async def test_open_project_llm_client_closes_on_workflow_failure(
-    db_session: AsyncSession,
-    test_project_id: str,
-) -> None:
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {
-            "api_key": "sk-close-test",
-            "base_url": "https://gateway.example.test/v1",
-            "model": "project-model",
-        },
-    )
+    await _seed_account_connection(db_session)
     close = AsyncMock()
 
     with pytest.raises(RuntimeError, match="workflow failed"):
@@ -142,19 +131,11 @@ async def test_open_project_llm_client_closes_on_workflow_failure(
 
 
 @pytest.mark.asyncio
-async def test_open_project_llm_client_closes_on_cancellation(
+async def test_runtime_closes_on_cancellation(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {
-            "api_key": "sk-cancel-test",
-            "base_url": "https://gateway.example.test/v1",
-            "model": "project-model",
-        },
-    )
+    await _seed_account_connection(db_session)
     entered = asyncio.Event()
     close = AsyncMock()
 
@@ -174,23 +155,26 @@ async def test_open_project_llm_client_closes_on_cancellation(
 
 
 @pytest.mark.asyncio
-async def test_open_project_llm_client_fails_closed_without_project_key(
+async def test_runtime_fails_closed_without_account_key(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    with pytest.raises(
-        ProjectLLMConfigurationError,
-        match="API key is not configured",
-    ):
+    await _set_legacy_project_profile(
+        db_session,
+        test_project_id,
+        {"api_key": "legacy-key-cannot-rescue-runtime"},
+    )
+    with pytest.raises(ProjectLLMConfigurationError, match="账户模型尚未连接"):
         async with open_project_llm_client(db_session, test_project_id):
             pass
 
 
 @pytest.mark.asyncio
-async def test_open_project_llm_client_rejects_soft_deleted_project(
+async def test_runtime_rejects_soft_deleted_or_missing_project(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
+    await _seed_account_connection(db_session)
     project = (
         await db_session.execute(
             select(Project).where(Project.id == uuid.UUID(test_project_id))
@@ -202,19 +186,13 @@ async def test_open_project_llm_client_rejects_soft_deleted_project(
     with pytest.raises(Exception, match="not found"):
         async with open_project_llm_client(db_session, test_project_id):
             pass
-
-
-@pytest.mark.asyncio
-async def test_open_project_llm_client_rejects_missing_project(
-    db_session: AsyncSession,
-) -> None:
     with pytest.raises(Exception, match="not found"):
         async with open_project_llm_client(db_session, str(uuid.uuid4())):
             pass
 
 
 @pytest.mark.asyncio
-async def test_open_project_llm_client_rejects_unbounded_timeout_override(
+async def test_runtime_rejects_unbounded_timeout_override(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
@@ -228,11 +206,11 @@ async def test_open_project_llm_client_rejects_unbounded_timeout_override(
 
 
 @pytest.mark.asyncio
-async def test_project_snapshot_client_uses_same_fail_closed_runtime_rules() -> None:
+async def test_snapshot_client_keeps_same_fail_closed_rules() -> None:
     client = create_project_snapshot_llm_client(
         {
             "llm": {
-                "api_key": "sk-snapshot-secret",
+                "api_key": "unit-test-snapshot-key",
                 "base_url": "https://snapshot.example.test/v1?token=hidden",
                 "model": "snapshot-model",
             }
@@ -244,13 +222,12 @@ async def test_project_snapshot_client_uses_same_fail_closed_runtime_rules() -> 
         assert client.model_name == "snapshot-model"
         assert client.profile_summary["base_url_host"] == "snapshot.example.test"
         assert client.profile_summary["timeout"] == 99
-        assert client.profile_summary["sources"]["timeout"] == "timeout_override"
-        assert "sk-snapshot-secret" not in str(client.profile_summary)
-        assert "token=hidden" not in str(client.profile_summary)
         assert client.runtime_scope == {
             "novel_id": "snapshot-novel-id",
             "profile_source": "project_snapshot",
         }
+        assert "unit-test-snapshot-key" not in str(client.profile_summary)
+        assert "token=hidden" not in str(client.profile_summary)
     finally:
         await client.close()
 
@@ -259,97 +236,92 @@ async def test_project_snapshot_client_uses_same_fail_closed_runtime_rules() -> 
 
 
 @pytest.mark.asyncio
-async def test_execution_snapshot_is_secret_free_and_restores_frozen_profile(
+async def test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    await _set_llm_profile(
+    await _seed_account_connection(
         db_session,
-        test_project_id,
-        {
-            "provider_id": "openai-compatible",
-            "api_key": "sk-execution-secret",
-            "base_url": "https://snapshot.example.test/v1?token=hidden",
-            "model": "snapshot-model",
-            "timeout": 77,
-            "extra": {"reasoning_effort": "medium"},
-        },
+        api_key="unit-test-before-rotation",
     )
-
     snapshot = await build_project_llm_execution_snapshot(
         db_session,
         test_project_id,
     )
 
     serialized = str(snapshot)
-    assert "sk-execution-secret" not in serialized
-    assert "token=hidden" not in serialized
-    assert "reasoning_effort': 'medium" not in serialized
-    assert snapshot["profile"]["base_url_host"] == "snapshot.example.test"
-    assert snapshot["sources"]["model"] == "project"
+    assert "unit-test-before-rotation" not in serialized
+    assert snapshot["profile"]["provider_id"] == "deepseek"
+    assert snapshot["profile"]["model"] == "deepseek-v4-flash"
+    assert snapshot["sources"]["model"] == "account"
 
+    await _seed_account_connection(
+        db_session,
+        api_key="unit-test-after-rotation",
+    )
     restored = await restore_project_llm_execution_settings(
         db_session,
         test_project_id,
         snapshot,
     )
-    client = create_project_snapshot_llm_client(
-        restored,
-        novel_id=test_project_id,
-    )
-    try:
-        assert client.model_name == "snapshot-model"
-        assert client.profile_summary["sources"]["model"] == "project"
-        assert client.profile_summary["base_url_host"] == "snapshot.example.test"
-    finally:
-        await client.close()
+
+    assert restored["llm"]["model"] == "deepseek-v4-flash"
+    assert restored["llm"]["api_key"] == "unit-test-after-rotation"
+    assert restored["llm"]["api_key"] != "unit-test-before-rotation"
 
 
 @pytest.mark.asyncio
-async def test_execution_snapshot_freezes_model_and_rejects_endpoint_drift(
+async def test_snapshot_provider_survives_active_template_hot_switch(
     db_session: AsyncSession,
     test_project_id: str,
+    monkeypatch,
 ) -> None:
-    await _set_llm_profile(
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
+    await _seed_account_connection(
         db_session,
-        test_project_id,
-        {
-            "api_key": "sk-first",
-            "base_url": "https://first.example.test/v1",
-            "model": "first-model",
-        },
+        provider_id="deepseek",
+        api_key="unit-test-deepseek-key",
     )
     snapshot = await build_project_llm_execution_snapshot(
         db_session,
         test_project_id,
     )
-
-    await _set_llm_profile(
+    await _seed_account_connection(
         db_session,
-        test_project_id,
-        {
-            "api_key": "sk-rotated",
-            "base_url": "https://first.example.test/v1",
-            "model": "new-model-that-must-not-leak-into-the-task",
-        },
+        provider_id="kimi",
+        api_key="unit-test-kimi-key",
     )
+
+    async with open_project_llm_client(db_session, test_project_id) as current:
+        assert current.model_name == "kimi-k3"
+
     restored = await restore_project_llm_execution_settings(
         db_session,
         test_project_id,
         snapshot,
     )
-    assert restored["llm"]["model"] == "first-model"
+    assert restored["llm"]["provider_id"] == "deepseek"
+    assert restored["llm"]["model"] == "deepseek-v4-flash"
+    assert restored["llm"]["api_key"] == "unit-test-deepseek-key"
 
-    await _set_llm_profile(
+
+@pytest.mark.asyncio
+async def test_snapshot_fails_when_original_provider_connection_was_cleared(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    await _seed_account_connection(db_session)
+    snapshot = await build_project_llm_execution_snapshot(
         db_session,
         test_project_id,
-        {
-            "api_key": "sk-rotated",
-            "base_url": "https://changed.example.test/v1",
-            "model": "first-model",
-        },
     )
-    with pytest.raises(ProjectLLMConfigurationError, match="base_url changed"):
+    await AccountLLMCredentialRepository().delete(
+        db_session,
+        LOCAL_OWNER_ID,
+        "deepseek",
+    )
+
+    with pytest.raises(ProjectLLMConfigurationError, match="尚未连接"):
         await restore_project_llm_execution_settings(
             db_session,
             test_project_id,
@@ -358,115 +330,10 @@ async def test_execution_snapshot_freezes_model_and_rejects_endpoint_drift(
 
 
 @pytest.mark.asyncio
-async def test_execution_snapshot_rejects_provider_drift(
+async def test_snapshot_rejects_missing_original_key_before_db_lookup(
     db_session: AsyncSession,
     test_project_id: str,
-) -> None:
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {
-            "provider_id": "openai-compatible",
-            "api_key": "sk-first",
-            "base_url": "https://same-endpoint.example.test/v1",
-            "model": "snapshot-model",
-        },
-    )
-    snapshot = await build_project_llm_execution_snapshot(
-        db_session,
-        test_project_id,
-    )
-
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {
-            "provider_id": "anthropic",
-            "api_key": "sk-rotated",
-            "base_url": "https://same-endpoint.example.test/v1",
-            "model": "snapshot-model",
-        },
-    )
-
-    with pytest.raises(ProjectLLMConfigurationError, match="provider changed"):
-        await restore_project_llm_execution_settings(
-            db_session,
-            test_project_id,
-            snapshot,
-        )
-
-
-@pytest.mark.asyncio
-async def test_execution_snapshot_checks_effective_inherited_provider(
-    db_session: AsyncSession,
-    test_project_id: str,
-) -> None:
-    initial_test_key = "unit-test-placeholder-before-key-rotation"
-    rotated_test_key = "unit-test-placeholder-after-key-rotation"
-    service = SettingsService()
-    await service.upsert_global_llm_defaults(
-        db_session,
-        {
-            "provider_id": "openai-compatible",
-            "base_url": "https://inherited.example.test/v1",
-            "model": "inherited-model",
-        },
-    )
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {"api_key": initial_test_key},
-    )
-    snapshot = await build_project_llm_execution_snapshot(
-        db_session,
-        test_project_id,
-    )
-    assert snapshot["profile"]["provider_id"] == "openai-compatible"
-    assert snapshot["sources"]["provider_id"] == "global"
-
-    await service.upsert_global_llm_defaults(
-        db_session,
-        {
-            "provider_id": "openai-compatible",
-            "base_url": "https://inherited.example.test/v1",
-            "model": "new-global-model",
-        },
-    )
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {"api_key": rotated_test_key},
-    )
-    restored = await restore_project_llm_execution_settings(
-        db_session,
-        test_project_id,
-        snapshot,
-    )
-    assert restored["llm"]["provider_id"] == "openai-compatible"
-    assert restored["llm"]["model"] == "inherited-model"
-    assert restored["llm"]["api_key"] == rotated_test_key
-    assert restored["llm"]["api_key"] != initial_test_key
-
-    await service.upsert_global_llm_defaults(
-        db_session,
-        {
-            "provider_id": "kimi",
-            "base_url": "https://inherited.example.test/v1",
-            "model": "inherited-model",
-        },
-    )
-    with pytest.raises(ProjectLLMConfigurationError, match="provider changed"):
-        await restore_project_llm_execution_settings(
-            db_session,
-            test_project_id,
-            snapshot,
-        )
-
-
-@pytest.mark.asyncio
-async def test_execution_snapshot_rejects_missing_original_key_before_db_lookup(
-    db_session: AsyncSession,
-    test_project_id: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
         "version": llm_runtime.PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION,
@@ -480,49 +347,35 @@ async def test_execution_snapshot_rejects_missing_original_key_before_db_lookup(
         "deep_import": {},
     }
     payload["profile_hash"] = llm_runtime._stable_hash(payload)
+    resolve = AsyncMock(side_effect=AssertionError("must not query project"))
+    monkeypatch.setattr(
+        "modules.project.llm_runtime._resolve_project_runtime_profile",
+        resolve,
+    )
 
-    with (
-        patch(
-            "modules.project.llm_runtime._resolve_project_runtime_profile",
-            autospec=True,
-            side_effect=AssertionError("must not query project"),
-        ),
-        pytest.raises(ProjectLLMConfigurationError, match="was not configured"),
-    ):
+    with pytest.raises(ProjectLLMConfigurationError, match="was not configured"):
         await restore_project_llm_execution_settings(
             db_session,
             test_project_id,
             payload,
         )
+    resolve.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_execution_snapshot_freezes_effective_deep_import_env_settings(
+async def test_snapshot_freezes_effective_deep_import_settings(
     db_session: AsyncSession,
     test_project_id: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {
-            "api_key": "sk-deep-import",
-            "base_url": "https://snapshot.example.test/v1",
-            "model": "snapshot-model",
-        },
-    )
+    await _seed_account_connection(db_session)
     monkeypatch.setenv("PHASE2_BATCH_CONCURRENCY", "7")
     snapshot = await build_project_llm_execution_snapshot(
         db_session,
         test_project_id,
     )
     assert snapshot["deep_import"]["phase2"]["batch_concurrency"] == 7
-    assert snapshot["deep_import"]["phase0"]["target_input_chars"] == 72_000
-    assert snapshot["deep_import"]["phase1b"]["enrich_max_tokens"] == 32_768
     assert snapshot["deep_import"]["phase1c"]["decision_max_tokens"] == 12_000
-    assert snapshot["deep_import"]["phase1c"]["timeout_seconds"] == 1200
-    assert snapshot["deep_import"]["phase2"]["world_min_max_tokens"] == 32_768
-    assert snapshot["deep_import"]["phase3"]["structure_max_tokens"] == 32_768
 
     monkeypatch.setenv("PHASE2_BATCH_CONCURRENCY", "19")
     restored = await restore_project_llm_execution_settings(
@@ -545,130 +398,59 @@ async def test_execution_snapshot_freezes_effective_deep_import_env_settings(
 
 
 @pytest.mark.asyncio
-async def test_open_project_llm_clients_keep_two_project_profiles_isolated(
+async def test_same_owner_projects_share_account_profile_not_legacy_profiles(
     db_session: AsyncSession,
     test_project_id: str,
     factory,
 ) -> None:
-    second_id = str(await factory.create_project(title="Second LLM Project"))
-    await _set_llm_profile(
+    second_id = str(await factory.create_project(title="Second Project"))
+    await _seed_account_connection(db_session)
+    await _set_legacy_project_profile(
         db_session,
         test_project_id,
-        {
-            "api_key": "sk-first-secret",
-            "base_url": "https://first.example.test/v1",
-            "model": "first-model",
-        },
+        {"model": "legacy-first", "api_key": "legacy-first-key"},
     )
-    await _set_llm_profile(
+    await _set_legacy_project_profile(
         db_session,
         second_id,
-        {
-            "api_key": "sk-second-secret",
-            "base_url": "https://second.example.test/v1",
-            "model": "second-model",
-        },
+        {"model": "legacy-second", "api_key": "legacy-second-key"},
     )
 
     async with open_project_llm_client(db_session, test_project_id) as first:
         async with open_project_llm_client(db_session, second_id) as second:
-            assert first.model_name == "first-model"
-            assert first.profile_summary["base_url_host"] == "first.example.test"
-            assert second.model_name == "second-model"
-            assert second.profile_summary["base_url_host"] == "second.example.test"
-            assert "second" not in str(first.profile_summary)
-            assert "first" not in str(second.profile_summary)
-
-    await _set_llm_profile(
-        db_session,
-        test_project_id,
-        {
-            "api_key": "sk-first-secret-updated",
-            "base_url": "https://first-updated.example.test/v1",
-            "model": "first-model-updated",
-        },
-    )
-    async with open_project_llm_client(db_session, test_project_id) as first:
-        async with open_project_llm_client(db_session, second_id) as second:
-            assert first.model_name == "first-model-updated"
-            assert first.profile_summary["base_url_host"] == (
-                "first-updated.example.test"
-            )
-            assert second.model_name == "second-model"
-            assert second.profile_summary["base_url_host"] == "second.example.test"
+            assert first.model_name == "deepseek-v4-flash"
+            assert second.model_name == "deepseek-v4-flash"
+            assert first.profile_summary == second.profile_summary
 
 
 @pytest.mark.asyncio
-async def test_two_projects_generate_concurrently_without_profile_or_result_crossover(
+async def test_browser_runtime_cannot_open_another_owners_project(
     db_session: AsyncSession,
     test_project_id: str,
     factory,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    second_id = str(await factory.create_project(title="Concurrent LLM Project"))
-    await _set_llm_profile(
+    owner_b = uuid.uuid4()
+    second_id = str(
+        await factory.create_project(
+            title="Other Owner Project",
+            owner_id=owner_b,
+        )
+    )
+    await _seed_account_connection(
         db_session,
-        test_project_id,
-        {
-            "api_key": "sk-concurrent-first",
-            "base_url": "https://first.example.test/v1",
-            "model": "first-model",
-        },
+        owner_id=LOCAL_OWNER_ID,
+        provider_id="deepseek",
+        api_key="unit-test-owner-a-key",
     )
-    await _set_llm_profile(
+    await _seed_account_connection(
         db_session,
-        second_id,
-        {
-            "api_key": "sk-concurrent-second",
-            "base_url": "https://second.example.test/v1",
-            "model": "second-model",
-        },
+        owner_id=owner_b,
+        provider_id="kimi",
+        api_key="unit-test-owner-b-key",
     )
-    constructed: list[tuple[str, str]] = []
+    async with open_project_llm_client(db_session, test_project_id) as first:
+        assert first.model_name == "deepseek-v4-flash"
 
-    class FakeClient:
-        def __init__(self, profile):
-            self.model_name = profile.model
-            self.profile_summary = profile.sanitized_summary()
-            self.runtime_scope = {}
-            self._api_key = profile.api_key
-            self.close = AsyncMock()
-            constructed.append((profile.model, profile.api_key))
-
-        def bind_runtime_scope(self, *, novel_id, profile_source):
-            self.runtime_scope = {
-                "novel_id": novel_id,
-                "profile_source": profile_source,
-            }
-
-        async def generate(self, _request):
-            await asyncio.sleep(0)
-            return SimpleNamespace(content=self.model_name, model=self.model_name)
-
-    monkeypatch.setattr(
-        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
-        lambda profile: FakeClient(profile),
-    )
-
-    async def run(novel_id: str) -> tuple[str, dict]:
-        async with open_project_llm_client(db_session, novel_id) as client:
-            response = await client.generate(object())
-            return response.content, client.runtime_scope
-
-    first, second = await asyncio.gather(
-        run(test_project_id),
-        run(second_id),
-    )
-
-    assert constructed == [
-        ("first-model", "sk-concurrent-first"),
-        ("second-model", "sk-concurrent-second"),
-    ]
-    assert first == (
-        "first-model",
-        {"novel_id": test_project_id, "profile_source": "project"},
-    )
-    assert second == (
-        "second-model",
-        {"novel_id": second_id, "profile_source": "project"},
-    )
+    with pytest.raises(Exception, match="not found"):
+        async with open_project_llm_client(db_session, second_id):
+            pass

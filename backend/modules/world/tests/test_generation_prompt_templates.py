@@ -12,6 +12,8 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
     TEMPLATE_ENTITY_TYPES,
 )
 
+pytestmark = pytest.mark.usefixtures("account_llm_connection")
+
 
 class _FakeLLMClient:
     provider = "fake-provider"
@@ -45,17 +47,7 @@ class _FakeLLMClient:
 async def _create_project(async_client: AsyncClient, title: str = "模板项目") -> str:
     response = await async_client.post(
         "/api/projects",
-        json={
-            "title": title,
-            "settings": {
-                "llm": {
-                    "provider_id": "openai-compatible",
-                    "api_key": "sk-test-only",
-                    "base_url": "https://llm.test/v1",
-                    "model": "test-model",
-                }
-            },
-        },
+        json={"title": title},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]

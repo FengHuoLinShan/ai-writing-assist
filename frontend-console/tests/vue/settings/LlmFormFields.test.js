@@ -59,10 +59,10 @@ describe("渲染契约", () => {
     expect(wrapper.findAll(".llm-preset-item")).toHaveLength(4)
   })
 
-  it("withApiKey=false 隐藏 Key 区并显示全局提示", () => {
+  it("withApiKey=false 隐藏 Key 区并显示账户连接提示", () => {
     const wrapper = mountFields({ withApiKey: false })
     expect(wrapper.find("#llm-api-key").exists()).toBe(false)
-    expect(wrapper.find(".llm-global-hint").text()).toContain("全局默认不存 API Key")
+    expect(wrapper.find(".llm-global-hint").text()).toContain("账户级模型连接")
   })
 
   it("无模板时供应商下拉禁用且回退 DeepSeek 占位", () => {

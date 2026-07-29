@@ -22,6 +22,7 @@ class ProjectRepository:
         db: AsyncSession,
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
+        project_kind: str | None = "author",
     ) -> Project | None:
         conditions = [
             Project.id == project_id,
@@ -29,6 +30,8 @@ class ProjectRepository:
         ]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        if project_kind is not None:
+            conditions.append(Project.project_kind == project_kind)
         stmt = select(Project).where(*conditions)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -38,6 +41,7 @@ class ProjectRepository:
         db: AsyncSession,
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
+        project_kind: str | None = "author",
     ) -> Project | None:
         """Lock an active project against deletion for the caller transaction.
 
@@ -48,6 +52,8 @@ class ProjectRepository:
         conditions = [Project.id == project_id, Project.deleted_at.is_(None)]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        if project_kind is not None:
+            conditions.append(Project.project_kind == project_kind)
         stmt = select(Project).where(*conditions).with_for_update(read=True)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -57,6 +63,7 @@ class ProjectRepository:
         db: AsyncSession,
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
+        project_kind: str | None = "author",
     ) -> Project | None:
         """Exclusively lock one active project for a short finalizer.
 
@@ -66,6 +73,8 @@ class ProjectRepository:
         conditions = [Project.id == project_id, Project.deleted_at.is_(None)]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        if project_kind is not None:
+            conditions.append(Project.project_kind == project_kind)
         stmt = select(Project).where(*conditions).with_for_update()
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -76,10 +85,12 @@ class ProjectRepository:
         skip: int = 0,
         limit: int = 20,
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> tuple[list[Project], int]:
         conditions = [Project.deleted_at.is_(None)]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         count_stmt = select(func.count(Project.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
@@ -99,6 +110,7 @@ class ProjectRepository:
         db: AsyncSession,
         data: ProjectCreate,
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> Project:
         values = dict(
             title=data.title,
@@ -109,6 +121,7 @@ class ProjectRepository:
             current_stage=data.current_stage,
             default_reveal_policy=data.default_reveal_policy or "author_safe",
             settings=data.settings or {},
+            project_kind=project_kind,
         )
         if owner_id is not None:
             values["owner_id"] = owner_id
@@ -165,6 +178,7 @@ class ProjectRepository:
         db: AsyncSession,
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> Project | None:
         conditions = [
             Project.id == project_id,
@@ -172,6 +186,7 @@ class ProjectRepository:
         ]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         stmt = select(Project).where(*conditions)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -181,11 +196,13 @@ class ProjectRepository:
         db: AsyncSession,
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> bool:
         """标记项目为软删除（设置 deleted_at）"""
         conditions = [Project.id == project_id, Project.deleted_at.is_(None)]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         stmt = update(Project).where(*conditions).values(deleted_at=datetime.now(UTC))
         result = await db.execute(stmt)
         await db.flush()
@@ -196,11 +213,13 @@ class ProjectRepository:
         db: AsyncSession,
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> bool:
         """恢复已删除项目（清除 deleted_at）"""
         conditions = [Project.id == project_id, Project.deleted_at.isnot(None)]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         stmt = update(Project).where(*conditions).values(deleted_at=None)
         result = await db.execute(stmt)
         await db.flush()
@@ -212,11 +231,13 @@ class ProjectRepository:
         skip: int = 0,
         limit: int = 20,
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> tuple[list[Project], int]:
         """列出回收站中的项目"""
         conditions = [Project.deleted_at.isnot(None)]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         count_stmt = select(func.count(Project.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         stmt = (
@@ -234,11 +255,13 @@ class ProjectRepository:
         db: AsyncSession,
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> bool:
         """永久删除项目（硬删除，数据库 CASCADE 处理关联数据）"""
         conditions = [Project.id == project_id, Project.deleted_at.isnot(None)]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         stmt = delete(Project).where(*conditions)
         result = await db.execute(stmt)
         await db.flush()
@@ -249,6 +272,7 @@ class ProjectRepository:
         db: AsyncSession,
         project_ids: list[uuid.UUID],
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> set[uuid.UUID]:
         """返回指定 ID 中当前确实在回收站的项目。"""
         if not project_ids:
@@ -259,6 +283,7 @@ class ProjectRepository:
         ]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         stmt = select(Project.id).where(*conditions)
         result = await db.execute(stmt)
         return set(result.scalars().all())
@@ -268,6 +293,7 @@ class ProjectRepository:
         db: AsyncSession,
         project_ids: list[uuid.UUID],
         owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
     ) -> int:
         """批量硬删除回收站项目，由数据库 CASCADE 清理关联数据。"""
         if not project_ids:
@@ -278,6 +304,7 @@ class ProjectRepository:
         ]
         if owner_id is not None:
             conditions.append(Project.owner_id == owner_id)
+        conditions.append(Project.project_kind == project_kind)
         stmt = delete(Project).where(*conditions)
         result = await db.execute(stmt)
         await db.flush()

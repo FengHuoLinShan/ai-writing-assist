@@ -11,7 +11,8 @@ infrastructure/llm/
 ├── README.md
 ├── __init__.py
 ├── client.py       # LLMClient 主入口
-├── profiles.py     # 项目级 LLM Profile + 前端供应商模板
+├── profiles.py     # 解析、校验与脱敏 LLM Profile
+├── balance.py      # DeepSeek/Kimi 窄余额查询适配
 ├── providers.py    # Provider 抽象基类 + OpenAI 实现
 ├── schemas.py      # Pydantic 入参/出参 schema
 ├── errors.py       # 自定义异常
@@ -26,7 +27,7 @@ infrastructure/llm/
 - 支持流式输出
 - 支持重试
 - 支持结构化输出修复
-- 支持项目级 OpenAI-compatible LLM Profile
+- 支持由上层 project facade 解析的账户级 OpenAI-compatible LLM Profile
 - 记录 token 和调用耗时
 - 提供受控 LLM step harness，用于 text / structured generation 的统一
   envelope、journal、timeout 和错误分类
@@ -64,6 +65,11 @@ result = await client.generate_structured(
 text = await client.generate_simple(system, user)
 ```
 
+OpenAI-compatible SDK 的内建重试固定关闭；普通调用、流式建连和 embedding 的重试均由
+`LLMClient` 的显式退避策略统一拥有。需要避免重复付费或不可解释 sibling 的业务流可对
+`generate_stream(..., transport_retries=False)` 关闭建连重试；流开始后的中断始终交给上层
+按业务状态恢复，不自动重放。
+
 ### 受控 LLM Step
 
 业务模块的 text / structured generation 应优先通过
@@ -79,20 +85,16 @@ text = await client.generate_simple(system, user)
 request messages。需要主动裁剪上下文时，应显式使用 `ContextBudgetGuard`。
 本 harness 不实现自治 agent loop、工具自主选择或跨模块业务编排。
 
-### 项目级 LLM Profile
+### 账户连接与 novel-scoped client
 
-前端可通过 project 模块维护 `projects.settings.llm`，字段包括：
+前端通过 settings 模块维护账户连接。第一版 provider 模板固定为：
 
-- `provider_id` — 供应商模板 ID，如 `deepseek` / `kimi` / `openrouter`
-- `label` — 前端显示名称
-- `base_url` — OpenAI-compatible Base URL
-- `model` — 默认模型名
-- `api_key` — 写入字段；存储时使用 `LLM_SETTINGS_ENCRYPTION_KEY` 加密，
-  API 响应必须脱敏，不得回显
+- DeepSeek `deepseek-v4-flash`
+- Kimi `kimi-k3`（真实兼容门禁通过并显式启用前不可达）
 
 带 `novel_id` 的业务模块不得自行读取项目配置或直接构造客户端，必须使用 project
-模块的稳定 facade。该入口会先物化项目覆盖，再继承数据库全局默认，最后回退系统默认，
-并统一处理密钥校验、脱敏 metadata 与 client 关闭：
+模块的稳定 facade。该入口根据项目 owner 解析当前已验证的账户 provider/model/Key，
+并统一处理项目 kind/owner、密钥校验、脱敏 metadata 与 client 关闭：
 
 ```python
 from modules.project.facade import open_project_llm_client
@@ -102,11 +104,15 @@ async with open_project_llm_client(db, novel_id) as client:
 ```
 
 可恢复任务使用 project snapshot seam；业务代码不得调用
-`LLMClient.from_project_settings()` 或自行拼装 provider/profile。缺失字段会回退到数据库
-全局默认或代码内置 DeepSeek 默认。业务 LLM Profile
-不会从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 等环境变量继承；API Key
-只允许项目级配置。代理、重试和 health gate 等运行参数仍由 `core.config.Settings`
-管理。
+`LLMClient.from_project_settings()` 或自行拼装 provider/profile。snapshot 只保存
+provider/model、非 secret 参数、endpoint/extra hash 和项目工作流设置，恢复时读取原 provider
+当前轮换后的账户 Key。没有已验证连接、原 provider Key 已清除或 endpoint 漂移时
+fail-closed。业务 LLM Profile 不从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 等环境变量
+继承；代理、重试和 health gate 等运行参数仍由 `core.config.Settings` 管理。
+
+`balance.py` 只提供 DeepSeek `/user/balance` 与 Kimi `/v1/users/me/balance` 的窄 schema
+适配，返回 provider 原币种总可用额。它不持久化余额、不轮询、不换算、不拆分，也不构成
+账务系统；失败必须映射为不含响应正文或 Key 的安全不可用状态。
 
 所有 `LLMClient` 实例共享进程级并发 semaphore 与 RPM token bucket。所有环境均可将
 `LLM_RATE_LIMIT_PER_MINUTE` 设为 `0` 关闭额外 RPM 限制，也可按 provider

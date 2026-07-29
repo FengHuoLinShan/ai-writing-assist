@@ -27,6 +27,7 @@ import modules.account.models  # noqa: E402, F401
 # character 模块已删除，模型在 modules.world.models
 import modules.context.models  # noqa: E402, F401
 import modules.imports.models  # noqa: E402, F401
+import modules.interaction.models  # noqa: E402, F401
 import modules.memory.models  # noqa: E402, F401
 import modules.outline.models  # noqa: E402, F401
 

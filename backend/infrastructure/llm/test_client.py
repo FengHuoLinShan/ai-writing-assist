@@ -1144,6 +1144,46 @@ async def test_generate_stream_holds_limiter_until_stream_consumed(monkeypatch) 
 
 
 @pytest.mark.asyncio
+async def test_generate_stream_can_bypass_transport_retries(monkeypatch) -> None:
+    client = LLMClient()
+    requests: list[LLMCallRequest] = []
+
+    class FakeProvider:
+        name = "fake"
+
+        async def generate_stream(
+            self,
+            request: LLMCallRequest,
+        ) -> AsyncIterator[LLMStreamChunk]:
+            requests.append(request.model_copy(deep=True))
+
+            async def stream() -> AsyncIterator[LLMStreamChunk]:
+                yield LLMStreamChunk(content="single-call")
+
+            return stream()
+
+    async def forbidden_retry(*_args, **_kwargs):
+        raise AssertionError("transport retry helper should be bypassed")
+
+    client._provider = FakeProvider()  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "infrastructure.llm.client.retry_with_backoff",
+        forbidden_retry,
+    )
+
+    chunks = [
+        chunk
+        async for chunk in client.generate_stream(
+            LLMCallRequest(model="fake"),
+            transport_retries=False,
+        )
+    ]
+
+    assert [chunk.content for chunk in chunks] == ["single-call"]
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
 async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) -> None:
     monkeypatch.setattr(
         "infrastructure.llm.limits.get_settings",

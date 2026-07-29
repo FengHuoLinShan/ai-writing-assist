@@ -62,6 +62,8 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # S
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"  # Map observation row-lock race
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' python -m pytest tests/e2e/test_map_subsystem_reset_postgresql.py -m "not real_llm and not external_data"  # Map reset dry-run/restore drill
 make test-real-llm               # Explicit SQLite real-model acceptance
+RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi  # Explicit paid Kimi K3 compatibility gate; enabled only in the test process
+RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context  # Paid usage calibration + PostgreSQL 530K journey gate
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make test-all                    # Fast backend layer, then frontend tests
@@ -144,7 +146,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 ## Core Infrastructure
 
 - **`core/`**: Config (`config.py`, frozen dataclass, `get_settings()` singleton), Database lifecycle (`database.py`, `DatabaseManager`, `get_db()` dependency), ORM base (`base.py`, UUID/Timestamp/Status mixins), Dependency injection (`container.py` process singleton/transient scopes and shutdown, `dependencies.py` `DbSession`/`AppSettings` type aliases)
-- **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, project-level profile helpers, inherited general request budgets (`max_tokens=None` resolves from the client profile; system default `12000`), explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, and sanitized health checks (`GET /api/health/llm`)
+- **`infrastructure/llm/`**: LLM client with OpenAI-compatible providers, account-template runtime profiles opened through the project facade, secret-free resumable snapshots, inherited general request budgets (`max_tokens=None` resolves from the client profile; system default `12000`), explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, balance adapters, and sanitized health checks (`GET /api/health/llm`)
 - **`infrastructure/tasks/`**: Async task system with `@task_handler` registry, status tracking, heartbeat, FOR UPDATE SKIP LOCKED for worker safety
 - **`shared/`**: Global enums (`enums.py`), constants (`constants.py`), types (`types.py`), utilities (`utils.py`)
 

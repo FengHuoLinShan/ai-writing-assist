@@ -380,9 +380,9 @@ class LLMClient:
     ) -> LLMClient:
         """Build an OpenAI-compatible client from ``project.settings["llm"]``.
 
-        Project-level settings override code defaults only when set. Business
-        LLM provider fields intentionally do not fall back to ``LLM_*`` env
-        vars; API keys are project-level.
+        This compatibility constructor only resolves a supplied non-secret
+        profile. Business workflows must obtain account credentials through
+        the project facade and pass a resolved, provenance-bearing profile.
         """
         profile = resolve_llm_profile(project_settings)
         return cls.from_resolved_profile(profile, **provider_kwargs)
@@ -530,11 +530,14 @@ class LLMClient:
     async def generate_stream(
         self,
         request: LLMCallRequest,
+        *,
+        transport_retries: bool = True,
     ) -> AsyncIterator[LLMStreamChunk]:
-        """流式调用 LLM（带自动重试）
+        """流式调用 LLM。
 
         Args:
             request: 调用请求参数
+            transport_retries: 是否在流建立前自动重试传输错误
 
         Yields:
             LLMStreamChunk: 流式输出片段
@@ -544,13 +547,18 @@ class LLMClient:
         resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
         async with limiter.scope(limiter_scope=self._limiter_scope("chat")):
-            stream = await retry_with_backoff(
-                self._provider.generate_stream,
-                max_attempts=self._settings.llm_retry_max_attempts,
-                base_delay=self._settings.llm_retry_base_delay,
-                max_delay=self._settings.llm_retry_max_delay,
-                request=resolved_request,
-            )
+            if transport_retries:
+                stream = await retry_with_backoff(
+                    self._provider.generate_stream,
+                    max_attempts=self._settings.llm_retry_max_attempts,
+                    base_delay=self._settings.llm_retry_base_delay,
+                    max_delay=self._settings.llm_retry_max_delay,
+                    request=resolved_request,
+                )
+            else:
+                stream = await self._provider.generate_stream(
+                    request=resolved_request,
+                )
             async for chunk in stream:
                 yield chunk
 

@@ -20,7 +20,7 @@
 
 ## 当前设计与契约
 
-1. [`product/user-personas.md`](product/user-personas.md) — 两类核心用户、双入口产品方向，以及“用户会喜欢吗 / 前端舒服吗”判断门禁
+1. [`product/user-personas.md`](product/user-personas.md) — 两类核心用户、当前双入口，以及“用户会喜欢吗 / 前端舒服吗”判断门禁
 2. [`00_整体设计.md`](00_整体设计.md) — 项目定位、核心原则、三层架构、模块职责
 3. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
 4. [`AI开发规则.md`](AI开发规则.md) — 历史设计说明；Agent 运行时以根目录 `AGENTS.md` 为准
@@ -60,8 +60,9 @@
 9. `modules/12_infrastructure.md` — 基础设施模块（LLM + PostgreSQL 任务队列）
 10. `modules/14_frontend.md` — 前端控制台
 11. `modules/15_map.md` — 动态地图子系统（world 模块子系统）
-12. `modules/16_settings.md` — 设置模块（全局 LLM 默认、作者偏好与项目覆盖）
+12. `modules/16_settings.md` — 设置模块（账户模型连接、余额、作者偏好与项目覆盖）
 13. `modules/17_account.md` — 公开浏览器账号、身份、会话与延期删除
+14. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
@@ -147,10 +148,12 @@
 
 ## 当前状态
 
-当前代码注册 10 个业务模块：`account` / `project` / `imports` / `world` /
-`memory` / `outline` / `rag` / `context` / `writing` / `settings`。
+当前代码注册 11 个业务模块：`account` / `project` / `imports` / `world` /
+`memory` / `outline` / `rag` / `context` / `writing` / `settings` / `interaction`。
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
 - 动态地图是 `world` 的子系统，API 前缀为 `/api/world/maps`
-- 前端注册视图为 `project / world / rag / outline / scene / writing / map / generate / llm / settings / project-settings`；主导航不显示兼容 `llm` 路由
+- 前端注册视图包括 `home / project / journeys / interaction` 以及
+  `world / rag / outline / scene / writing / map / generate / llm / settings / project-settings`；
+  主导航不显示兼容 `llm` 路由
 - `world/map` 旧入口只做兼容跳转

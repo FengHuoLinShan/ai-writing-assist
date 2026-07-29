@@ -45,7 +45,23 @@
           </div>
         </div>
         <div class="generate-composer">
-          <textarea id="generate-chat-input" v-model="composer" class="generate-chat-input" rows="4" placeholder="说明你想创造、推敲或重构的世界设定。AI 会同时关注创意与逻辑。" />
+          <textarea
+            id="generate-chat-input"
+            v-model="composer"
+            class="generate-chat-input"
+            rows="4"
+            placeholder="说明你想创造、推敲或重构的世界设定。AI 会同时关注创意与逻辑。"
+            @compositionstart="composing = true"
+            @compositionend="composing = false"
+            @keydown="onComposerKeydown"
+          />
+          <button
+            class="btn btn-sm generate-composer-send"
+            data-action="send-chat-message"
+            type="button"
+            :disabled="busy || !composer.trim()"
+            @click="$emit('send-chat')"
+          >{{ chatPending ? "发送中…" : "发送" }}</button>
         </div>
       </div>
     </div>
@@ -95,9 +111,9 @@ const props = defineProps({
   projectId: String, sourcePageId: String, targetKind: String, sourcePage: Object, sourceDraft: Object,
   warning: String, templates: Array, activationProfiles: Array, categories: Array, pageTemplates: Array,
   scenes: Array, threads: Array, characters: Array, entities: Array, result: Object,
-  chatContextUsage: Object, entityContextUsage: Object, busy: Boolean, loadingResult: Boolean, resultError: String,
+  chatContextUsage: Object, entityContextUsage: Object, busy: Boolean, chatPending: Boolean, loadingResult: Boolean, resultError: String,
 })
-defineEmits(["select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "clear-result", "open-review", "view-context"])
+const emit = defineEmits(["send-chat", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "clear-result", "open-review", "view-context"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })
 const messages = defineModel("messages", { type: Array, required: true })
 const composer = defineModel("composer", { type: String, required: true })
@@ -120,7 +136,16 @@ const chapterSummary = computed(() => selectedChapters.value.length ? `已附带
 const generateLabel = computed(() => ({ core_entity: "生成世界对象建议", world_bible_page: "生成整页提案", world_bible_new_page: "生成新页提案" })[props.targetKind] || "生成建议")
 const railKey = computed(() => `workspace-rail:${props.projectId || "global"}:generate:assistant`)
 const railOpen = ref(readRail())
+const composing = ref(false)
 function readRail() { try { return sessionStorage.getItem(`workspace-rail:${props.projectId || "global"}:generate:assistant`) !== "closed" } catch { return true } }
 function onRailToggle(event) { railOpen.value = event.target.open; try { sessionStorage.setItem(railKey.value, railOpen.value ? "open" : "closed") } catch {} }
 async function focusComposer() { await nextTick(); document.getElementById("generate-chat-input")?.focus() }
+function onComposerKeydown(event) {
+  if (composing.value || event.isComposing) return
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault()
+    if (!props.busy && composer.value.trim()) emit("send-chat")
+  }
+}
+defineExpose({ focusComposer })
 </script>
