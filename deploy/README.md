@@ -90,8 +90,10 @@ python3 deploy/scripts/render_openresty.py \
 bash deploy/scripts/verify_public.sh
 ```
 
-`release.sh` 的成功只代表容器、数据库和内部健康检查通过；只有
-`verify_public.sh` 通过才代表 DNS、TLS、OpenResty、前端和 API 的完整公网链路通过。
+`release.sh` 会同时检查 API、前端入口及入口声明的稳定运行时脚本，避免容器仅因
+`/healthz` 可达而掩盖静态文件权限或缺失问题。`verify_public.sh` 还会从公网入口解析并
+逐一请求当前 HTML 声明的脚本和样式，校验成功状态与内容类型。只有该脚本通过，才代表
+DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网链路通过。
 
 ## 日常更新
 

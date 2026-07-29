@@ -32,6 +32,8 @@ npm run test:all
 ```
 
 `npm run build`（vite build）可作 Vue 构建链冒烟验证；无独立 lint/format 依赖，前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
+构建会把仍由 `index.html` 直接加载的兼容运行时脚本复制为 `0644`；生产镜像还会统一保证
+静态目录可遍历、文件可读，避免发布机的私有 `umask` 被继承为 Nginx 403。
 
 Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancestors 'none'` / `X-Frame-Options: DENY`
 禁止第三方页面嵌入控制台。部署 `dist/` 时，静态托管层必须保留 `vite.config.js` 中

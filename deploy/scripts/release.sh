@@ -41,7 +41,12 @@ if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$TARGET_COMMIT" origin/main; 
 fi
 
 PREVIOUS_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
-git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"
+(
+    # Keep secrets, backups, and release state private without making checked-out
+    # application files unreadable to non-root container processes.
+    umask 022
+    git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"
+)
 
 RELEASE_ID=$(printf '%s' "$TARGET_COMMIT" | cut -c1-12)
 export RELEASE_ID
@@ -84,12 +89,29 @@ fi
 ensure_public_bootstrap
 compose up -d api worker frontend
 
+frontend_runtime_healthy() {
+    compose exec -T frontend sh -ec '
+        for asset in \
+            / \
+            /shared/esc.js \
+            /ui/toast.js \
+            /ui/modal.js \
+            /stateSlices.js \
+            /state.js \
+            /apiContracts.js \
+            /router.js \
+            /commands.js
+        do
+            wget -q -O /dev/null "http://127.0.0.1:8080$asset"
+        done
+    ' >/dev/null 2>&1
+}
+
 attempt=0
 until compose exec -T api python -c \
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" \
     >/dev/null 2>&1 \
-    && compose exec -T frontend wget -q -O /dev/null \
-        http://127.0.0.1:8080/healthz; do
+    && frontend_runtime_healthy; do
     attempt=$((attempt + 1))
     if [ "$attempt" -ge 40 ]; then
         compose stop api worker frontend >/dev/null 2>&1 || true

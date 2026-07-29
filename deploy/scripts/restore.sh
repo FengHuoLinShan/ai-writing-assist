@@ -52,7 +52,10 @@ fi
 RELEASE_ID=$(printf '%s' "$TARGET_COMMIT" | cut -c1-12)
 export RELEASE_ID
 
-git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"
+(
+    umask 022
+    git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"
+)
 compose build api frontend
 compose exec -T postgres pg_restore --list <"$BACKUP_PATH" >/dev/null
 
