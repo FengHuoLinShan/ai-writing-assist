@@ -35,7 +35,7 @@
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `outline/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | outline 手动大纲分析 |
-| `interaction/prompts.py` | 内联 `interaction-story-v1`：模型知识 RP 故事正文与可选隐藏尾部元数据 | interaction 故事任务 |
+| `interaction/prompts.py` | 内联 `interaction-story-v2`：模型知识 RP 故事正文与可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v1` / `interaction-summary-output-v1`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
 
 ## 3. Prompt Contract System
@@ -420,10 +420,12 @@ interaction Prompt 由 `modules/interaction/prompts.py` 代码组装，不进入
 也不把模型固定称为 DM。它只消费用户开场、代码级选中路径和当前有效总回顾；未选 sibling、
 失败残段、隐藏项目 ID 和作者资产不会进入普通故事上下文。
 
-`interaction-story-v1` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
+`interaction-story-v2` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
 尾块，承载 `response_kind / suggested_title / branch_hint / story_ended /
 action_suggestions`。framing parser 在流式过程中隔离尾块；尾块缺失、截断或 schema 无效时
-只丢弃附加信息，不判废已经生成的正文。模型只建议标题、发展提示和 0～3 个行动选项；
+只丢弃附加信息，不判废已经生成的正文。行动选项开启且当前情境适合时，模型尽量提供
+1～3 个自然、具体、不剧透且有实质差异的建议；无法可靠提出时仍可返回 0 个，不自动补写、
+修复或重试。模型只建议标题、发展提示和行动选项；
 selection epoch、节点创建、分支选择、看海循环、停止、任务终态和 owner/novel 隔离全部由
 代码决定。
 

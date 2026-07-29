@@ -13,7 +13,7 @@ HARD_INPUT_TOKENS = 750_000
 STORY_OUTPUT_TOKENS = 8192
 SEE_SEA_OUTPUT_TOKENS = 4096
 SUMMARY_OUTPUT_TOKENS = 12_000
-STORY_PROMPT_VERSION = "interaction-story-v1"
+STORY_PROMPT_VERSION = "interaction-story-v2"
 SUMMARY_PROMPT_VERSION = "interaction-summary-v1"
 SUMMARY_SCHEMA_VERSION = "interaction-summary-output-v1"
 
@@ -96,7 +96,9 @@ def story_system_prompt(
         )
     )
     options = (
-        "正文结束后给出 0 到 3 个适合下一步的行动建议。"
+        "如果当前情境存在自然、具体且不剧透的下一步，请在正文后的内部尾块 "
+        "`action_suggestions` 中尽量给出 1 到 3 个有实质差异的行动建议；"
+        "只有无法可靠提出时才使用空列表或省略尾块，不能为了凑数编造剧透或无意义行动。"
         if action_options_enabled and not see_sea_enabled
         else "不要给出行动建议。"
     )

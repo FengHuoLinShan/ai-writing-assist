@@ -3077,6 +3077,7 @@ async def test_extended_context_uses_full_selected_path_without_forced_summary(
     assert refreshed_attempt.status == "running"
     assert refreshed_attempt.usage["context_tier"] == "extended"
     assert refreshed_attempt.usage["estimated_input_tokens"] == 300_000
+    assert refreshed_attempt.usage["prompt_version"] == "interaction-story-v2"
 
 
 async def test_emergency_summary_resumes_same_story_attempt_without_losing_path(

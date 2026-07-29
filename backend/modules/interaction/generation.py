@@ -36,6 +36,7 @@ from modules.interaction.prompts import (
     NORMAL_INPUT_TOKENS,
     SEE_SEA_OUTPUT_TOKENS,
     STORY_OUTPUT_TOKENS,
+    STORY_PROMPT_VERSION,
     SUMMARY_OUTPUT_TOKENS,
     SUMMARY_PROMPT_VERSION,
     SUMMARY_SCHEMA_VERSION,
@@ -228,6 +229,7 @@ class InteractionGenerationWorkflow:
                 **dict(attempt.usage or {}),
                 "context_tier": "emergency_summary",
                 "estimated_input_tokens": estimated_input_tokens,
+                "prompt_version": STORY_PROMPT_VERSION,
             }
             task.update_progress(0.04)
             await db.commit()
@@ -249,6 +251,7 @@ class InteractionGenerationWorkflow:
                 "extended" if estimated_input_tokens > NORMAL_INPUT_TOKENS else "normal"
             ),
             "estimated_input_tokens": estimated_input_tokens,
+            "prompt_version": STORY_PROMPT_VERSION,
         }
         attempt.last_checkpoint_at = datetime.now(UTC)
         prepared_journey_id = str(journey.id)
