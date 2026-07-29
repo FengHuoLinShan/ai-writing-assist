@@ -16,9 +16,9 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 ## 用户体验基线
 
-- 每项用户可见能力明确服务作家、深度读者或两者；不要求所有页面同时服务所有画像。
-- 作者路径提供完整控制、证据、版本和专业整理能力；深度读者路径提供人物/地点/事件/地图/
-  自然语言入口和渐进引导，不先暴露完整作者后台。
+- 每项用户可见能力明确服务作家、RP 用户或两者；不要求所有页面同时服务所有画像。
+- 作者路径提供完整控制、证据、版本和专业整理能力；RP 路径提供自然语言开场、故事、分支、
+  回顾和持续观看，不先暴露完整作者后台。
 - 首屏围绕当前任务，只保留做决定所需信息；主操作、当前状态和下一步无需阅读说明即可理解。
 - 使用用户语言呈现。raw ID、JSON、Prompt/token、内部枚举和诊断字段不得成为默认工作流。
 - 高频查看与回顾就地完成；跨页时保护草稿、筛选、滚动、选择和长任务进度。
@@ -47,7 +47,10 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 当前 router 识别的 hash 名称为：
 
+- `home`
 - `project`
+- `journeys`
+- `interaction`
 - `writing`
 - `world`
 - `map`
@@ -59,7 +62,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - `project-settings`
 - `llm`（兼容重定向，按当前项目状态跳转到项目设置或全局设置）
 
-除上述两个无业务 DOM 的兼容重定向外，9 个实际路由目标的主 DOM 全部由 Vue SFC 拥有。
+除上述两个无业务 DOM 的兼容重定向外，12 个实际路由目标的主 DOM 全部由 Vue SFC 拥有。
 
 旧 `context` hash 不再作为一级页面注册；路由初始化或浏览器前进/后退遇到它时，会重定向到 `generate?tab=task`。
 
@@ -67,6 +70,9 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 | 视图 | 当前职责 |
 |------|----------|
+| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由；只显示 `我是作家` 与 `我是 RP 用户` 两个大框 |
+| `vue/views/interaction/JourneyListView.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档入口和按需搜索 |
+| `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口 |
 | `vue/views/writing/WritingView.vue` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene Cockpit；版本历史/恢复、发布、冲突检查、授权深度导入与地图下一步均由 Vue 页编排；只剩 quick-create bridge 和 Scene alert/version diff 纯 helper |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
@@ -76,21 +82,33 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
 | `vue/views/generate/GenerateView.vue` | 生成中心：world 共创对话、来源与上下文选择、结构化预览和工作稿应用；同时承担上下文任务预览/编译、POV、模板与既有领域流程 |
-| `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
-| `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承；通用输出上限与深度导入阶段预算分开说明 |
+| `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理账户级 DeepSeek/Kimi 模板与 Key、只读余额和全局作者偏好 |
+| `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；只管理深度导入参数和项目作者偏好，不提供项目级 provider/model/Key |
 
 ## 路由与状态特性
 
 - `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
+- `home/journeys/interaction` 使用独立 RP 壳，不显示作者 sidebar；合法深链不要求先选择
+  author 项目。RP 草稿按旅程保存在本地，服务端流式 buffer/分支/回顾负责跨刷新恢复。
 - `outline` 的规范默认子视图是 `story-outline`，导航层级为“小说总纲 → 篇章纲 → 剧情线 → 场景工作台”。旧 `scene` 路由重定向到 `outline/scenes`；旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
 - router 不再保留 KeepAlive/DocumentFragment 缓存；所有视图离开时卸载。写作快照、Outline/Scene workflow 与滚动位置采用显式项目隔离 session 恢复，详见 [ADR-0009 附录 A](../adr/0009-appendix-a-keep-alive-policy.md)
 - 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
 - Scene 工作台的筛选、详情和复核状态由 `useSceneWorkbench` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
-- `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
+- `settings` 是无项目也可访问的账户设置页；`project-settings` 依赖当前作者项目，未进入项目
+  时显示空态并提供返回账户设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
-- Vue 视图生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点 div → `onRendered` 挂载（同视图 forceRefresh 先卸载残留实例）→ `onLeave` 卸载。`mountIsland` 为异步 `load()` 维护代次；新加载或 `onLeave` 会使旧请求失效，防止晚到数据覆盖当前 props。9 个实际页面均使用该契约，兼容路由只重定向；不再有另一套 KeepAlive 生命周期
+- Vue 视图生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点
+  div → `onRendered` 挂载（同视图 forceRefresh 先卸载残留实例）→ `onLeave` 卸载。
+  `mountIsland` 为异步 `load()` 维护代次；新加载或 `onLeave` 会使旧请求失效，防止晚到数据
+  覆盖当前 props。实际页面均使用该契约，兼容路由只重定向；不再有另一套 KeepAlive 生命周期
+- 跨项目导航采用“同步预检 → 立即退出旧项目 → 中性过渡 → 目标提交”：`canLeave` 和有修改
+  modal 任一拒绝都保持原 state/DOM/hash 且不请求目标；通过后在旧项目上下文中恰好执行一次
+  `onLeave`，目标元数据返回前旧内容与操作已经移除。router 分开记录 mounted、pending 和
+  failure；只有 `onEnter → render → onRendered` 全部成功才标记 mounted，快速切换与晚到结果
+  由 abort + generation 丢弃。临时跨项目失败可重试目标或返回项目列表；同项目临时 refresh
+  保留编辑页，权限或项目失效则立即退出。完整契约见 [ADR-0009 附录 A](../adr/0009-appendix-a-keep-alive-policy.md)
 - 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
 
 ## 对象引用交互契约

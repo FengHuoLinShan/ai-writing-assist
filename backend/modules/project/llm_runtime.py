@@ -18,10 +18,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.profiles import LLM_API_KEY_FIELD, resolve_llm_profile
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.services import ProjectService
-from modules.settings.facade import (
-    materialize_effective_project_settings,
-    resolve_effective_llm_settings_for_project_settings,
-)
+from modules.settings.facade import resolve_account_llm_runtime_profile
 from shared.deep_import_settings import (
     DEEP_IMPORT_FROZEN_SETTINGS_KEY,
     materialize_effective_deep_import_settings,
@@ -48,23 +45,31 @@ def _stable_hash(value: Any) -> str:
 async def _resolve_project_runtime_profile(
     db: AsyncSession,
     novel_id: str,
+    *,
+    provider_id: str | None = None,
 ) -> tuple[dict[str, Any], Any, dict[str, str]]:
-    context = await _service.get_project_context(db, novel_id)
+    context = await _service.get_project_context(
+        db,
+        novel_id,
+        project_kind=None,
+    )
     if context is None:
         raise NotFoundError(f"Project {novel_id} not found")
 
     owner_id = uuid.UUID(context.owner_id) if context.owner_id else None
-    materialized = await materialize_effective_project_settings(
-        db, context.settings, owner_id=owner_id
-    )
-    effective = await resolve_effective_llm_settings_for_project_settings(
-        db,
-        context.settings,
-        owner_id=owner_id,
-    )
+    try:
+        account_profile = await resolve_account_llm_runtime_profile(
+            db,
+            owner_id=owner_id,
+            provider_id=provider_id,
+        )
+    except ValueError as exc:
+        raise ProjectLLMConfigurationError(str(exc)) from exc
+    materialized = deepcopy(context.settings or {})
+    materialized["llm"] = account_profile.model_dump()
     profile = resolve_llm_profile(materialized)
     sources = {
-        field_name: getattr(effective, field_name).source
+        field_name: "account"
         for field_name in (
             "provider_id",
             "label",
@@ -76,10 +81,9 @@ async def _resolve_project_runtime_profile(
             "top_p",
             "extra",
             "creative_mode",
-            "api_key_configured",
+            LLM_API_KEY_FIELD,
         )
     }
-    sources[LLM_API_KEY_FIELD] = sources.pop("api_key_configured")
     return materialized, replace(profile, sources=sources), sources
 
 
@@ -160,19 +164,17 @@ async def restore_project_llm_execution_settings(
     if not public_profile.get("model") or not public_profile.get("base_url_hash"):
         raise ProjectLLMConfigurationError("Project LLM base_url and model are required")
 
-    (
-        materialized,
-        current_profile,
-        _current_sources,
-    ) = await _resolve_project_runtime_profile(db, novel_id)
+    materialized, current_profile, _current_sources = (
+        await _resolve_project_runtime_profile(
+            db,
+            novel_id,
+            provider_id=str(public_profile.get("provider_id") or ""),
+        )
+    )
     if not current_profile.api_key:
         raise ProjectLLMConfigurationError("Project LLM API key is not configured")
     if not current_profile.base_url or not public_profile.get("model"):
         raise ProjectLLMConfigurationError("Project LLM base_url and model are required")
-    if current_profile.provider_id != public_profile.get("provider_id"):
-        raise ProjectLLMConfigurationError(
-            "Project LLM provider changed after the task started"
-        )
     if _stable_hash(current_profile.base_url) != public_profile.get("base_url_hash"):
         raise ProjectLLMConfigurationError(
             "Project LLM base_url changed after the task started"
@@ -262,9 +264,9 @@ async def open_project_llm_client(
 ) -> AsyncIterator[LLMClient]:
     """Open one managed client for a novel-scoped business LLM workflow.
 
-    Provider connection fields and secrets always come from effective project
-    settings. Callers may only narrow or extend the request timeout within the
-    bounded override accepted here.
+    Provider connection fields and secrets always come from the project's owner
+    account. ``novel_id`` remains the isolation and ownership gate. Callers may
+    only narrow or extend the request timeout within the bounded override.
     """
     if timeout_override is not None and not (
         1 <= timeout_override <= MAX_LLM_TIMEOUT_OVERRIDE_SECONDS

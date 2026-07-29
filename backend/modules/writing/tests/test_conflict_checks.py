@@ -29,6 +29,8 @@ from modules.writing.repositories import (
 from modules.writing.schemas import WritingConflictCheckCreate
 from modules.writing.services import WritingConflictCheckService
 
+pytestmark = pytest.mark.usefixtures("account_llm_connection")
+
 
 async def _create_project(async_client: AsyncClient, title: str = "冲突检查项目") -> str:
     resp = await async_client.post("/api/projects", json={"title": title})
@@ -102,17 +104,6 @@ async def _create_context_confirmation(
     scene_id: str | None = None,
     include_pending_objects: bool = False,
 ) -> str:
-    if action.startswith("writing.conflict_check.ai_"):
-        settings_response = await async_client.put(
-            f"/api/projects/{novel_id}/llm-settings",
-            json={
-                "provider_id": "openai-compatible",
-                "base_url": "https://llm.test/v1",
-                "model": "test-model",
-                "api_key": "sk-test-only",
-            },
-        )
-        assert settings_response.status_code == 200, settings_response.text
     payload = {
         "novel_id": novel_id,
         "action": action,

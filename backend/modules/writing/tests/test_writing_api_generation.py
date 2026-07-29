@@ -1040,6 +1040,7 @@ async def test_writing_generation_sanitizes_candidate_html(
 async def test_writing_generate_task_records_task_provenance(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
+    account_llm_connection: dict,
 ) -> None:
     """AI 正文生成任务创建的候选稿可追踪到确认记录与任务。"""
     from modules.context.facade import bind_confirmed_action_result, confirm_context
@@ -1058,13 +1059,7 @@ async def test_writing_generate_task_records_task_provenance(
         Project(
             id=uuid.UUID(novel_id),
             title="任务来源测试",
-            settings={
-                "llm": {
-                    "api_key": "sk-test-only",
-                    "base_url": "https://llm.test/v1",
-                    "model": "test-model",
-                }
-            },
+            settings={},
         )
     )
     await db_session.flush()

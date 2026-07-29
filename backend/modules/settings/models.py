@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
@@ -38,6 +48,33 @@ class GlobalLLMDefaults(Base, UUIDMixin, TimestampMixin):
     extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     creative_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     deep_import: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class AccountLLMCredential(Base, UUIDMixin, TimestampMixin):
+    """One verified, encrypted provider credential owned by one account."""
+
+    __tablename__ = "account_llm_credentials"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "provider_id",
+            name="uq_account_llm_credential_owner_provider",
+        ),
+    )
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    encrypted_api_key: Mapped[dict] = mapped_column(JSON, nullable=False)
+    key_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
 
 
 class GlobalAuthorPreferences(Base, UUIDMixin, TimestampMixin):

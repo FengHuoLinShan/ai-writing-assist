@@ -160,4 +160,33 @@ describe("ShellApp", () => {
     await Promise.resolve()
     expect(services.state.backendConnected).toBe(false)
   })
+
+  it("只对合法 RP 返回目标隐藏作者壳", () => {
+    const invalidServices = createShellTestServices({
+      state: { currentView: "settings" },
+    })
+    invalidServices.router.getCurrentQuery = vi.fn(
+      () => new URLSearchParams({ return_to: "interaction:bad" }),
+    )
+    const invalid = mount(ShellApp, {
+      props: { services: invalidServices, healthIntervalMs: 60_000 },
+    })
+    expect(invalid.find("#topbar").exists()).toBe(true)
+    expect(invalid.find("#sidebar").exists()).toBe(true)
+    invalid.unmount()
+
+    const validServices = createShellTestServices({
+      state: { currentView: "settings" },
+    })
+    validServices.router.getCurrentQuery = vi.fn(
+      () => new URLSearchParams({
+        return_to: "interaction:11111111-1111-4111-8111-111111111111",
+      }),
+    )
+    const valid = mount(ShellApp, {
+      props: { services: validServices, healthIntervalMs: 60_000 },
+    })
+    expect(valid.find("#topbar").exists()).toBe(false)
+    expect(valid.find("#sidebar").exists()).toBe(false)
+  })
 })

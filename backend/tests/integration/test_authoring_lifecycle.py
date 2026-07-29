@@ -100,6 +100,7 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     async_client: AsyncClient,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
+    account_llm_connection: dict,
 ) -> None:
     """Imported canon can continue through generated prose into searchable canon."""
     from core.config import get_settings
@@ -125,21 +126,9 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
         _deterministic_embedding,
     )
 
-    test_api_key = "sk-test-only"
-    test_base_url = "https://llm.test/v1"
-
     project = await async_client.post(
         "/api/projects",
-        json={
-            "title": "串行创作生命周期",
-            "settings": {
-                "llm": {
-                    "api_key": test_api_key,
-                    "base_url": test_base_url,
-                    "model": "test-model",
-                }
-            },
-        },
+        json={"title": "串行创作生命周期"},
     )
     assert project.status_code == 201, project.text
     novel_id = project.json()["id"]
@@ -256,8 +245,8 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     generation_prompt = writing_client.requests[0].messages[-1].content
     assert "柳青带着旧钥匙与林舟会合" in generation_prompt
     assert "异项目禁入标记" not in generation_prompt
-    assert test_api_key not in generation_prompt
-    assert test_base_url not in generation_prompt
+    assert account_llm_connection["api_key"] not in generation_prompt
+    assert account_llm_connection["base_url"] not in generation_prompt
     assert "api_key" not in generation_prompt
 
     adopted = await async_client.post(

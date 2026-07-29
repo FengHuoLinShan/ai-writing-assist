@@ -44,6 +44,11 @@ export function createE2EConfig({
     webServer: [
       {
         command: `cd ../backend && APP_ENV=test python -m alembic upgrade head && APP_ENV=test python -m uvicorn app.main:app --host 0.0.0.0 --port ${backendPort}`,
+        env: {
+          ...process.env,
+          ALLOWED_ORIGINS: frontendBase,
+          PUBLIC_BASE_URL: frontendBase,
+        },
         url: `${apiBase}/health`,
         timeout: 60000,
         reuseExistingServer: false,

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
 from modules.settings.schemas import (
+    AccountLLMRuntimeProfile,
     EffectiveAuthorPrefsResponse,
     EffectiveLLMSettingsResponse,
     ProjectsUsingDefaultsResponse,
@@ -20,6 +21,21 @@ from modules.settings.schemas import (
 from modules.settings.services import SettingsService
 
 _service = SettingsService()
+
+
+async def resolve_account_llm_runtime_profile(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID | None = None,
+    provider_id: str | None = None,
+) -> AccountLLMRuntimeProfile:
+    """Resolve one verified account connection without exposing storage details."""
+
+    return await _service.resolve_account_llm_runtime_profile(
+        db,
+        owner_id=owner_id,
+        provider_id=provider_id,
+    )
 
 
 async def get_effective_llm_settings(

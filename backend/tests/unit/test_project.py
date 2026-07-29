@@ -326,7 +326,6 @@ class TestProjectService:
                 provider_id="deepseek",
                 base_url="https://api.deepseek.com/v1",
                 model="deepseek-chat",
-                api_key="sk-secret-value",
             ),
         )
 

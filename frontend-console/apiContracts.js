@@ -105,8 +105,137 @@
       hasBody: true,
     }),
 
+    "interactions.listJourneys": define("GET", () => "/interactions/journeys"),
+    "interactions.createJourney": define("POST", () => "/interactions/journeys", {
+      hasBody: true,
+      requiredBody: ["opening_text", "idempotency_key"],
+    }),
+    "interactions.getJourney": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getJourney")}`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.getMessages": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getMessages")}/messages`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.getPathIndex": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getPathIndex")}/path-index`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.sendMessage": define("POST", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.sendMessage")}/messages`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["content", "expected_selection_epoch", "idempotency_key"],
+    }),
+    "interactions.continueFromNode": define("POST", ({ journeyId, nodeId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.continueFromNode")}/nodes/${required(nodeId, "nodeId", "interactions.continueFromNode")}/continue-from-here`, {
+      requiredParams: ["journeyId", "nodeId"],
+      hasBody: true,
+      requiredBody: ["content", "expected_selection_epoch", "idempotency_key"],
+    }),
+    "interactions.regenerate": define("POST", ({ journeyId, nodeId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.regenerate")}/nodes/${required(nodeId, "nodeId", "interactions.regenerate")}/regenerate`, {
+      requiredParams: ["journeyId", "nodeId"],
+      hasBody: true,
+      requiredBody: ["expected_selection_epoch", "idempotency_key"],
+    }),
+    "interactions.editUserMessage": define("POST", ({ journeyId, nodeId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.editUserMessage")}/nodes/${required(nodeId, "nodeId", "interactions.editUserMessage")}/edit`, {
+      requiredParams: ["journeyId", "nodeId"],
+      hasBody: true,
+      requiredBody: ["content", "expected_selection_epoch", "idempotency_key"],
+    }),
+    "interactions.selectBranch": define("POST", ({ journeyId, nodeId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.selectBranch")}/nodes/${required(nodeId, "nodeId", "interactions.selectBranch")}/select`, {
+      requiredParams: ["journeyId", "nodeId"],
+      hasBody: true,
+      requiredBody: ["expected_selection_epoch"],
+    }),
+    "interactions.listBranches": define("GET", ({ journeyId, nodeId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.listBranches")}/nodes/${required(nodeId, "nodeId", "interactions.listBranches")}/branches`, {
+      requiredParams: ["journeyId", "nodeId"],
+    }),
+    "interactions.getTree": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getTree")}/tree`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.getAttempt": define("GET", ({ journeyId, attemptId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getAttempt")}/attempts/${required(attemptId, "attemptId", "interactions.getAttempt")}`, {
+      requiredParams: ["journeyId", "attemptId"],
+    }),
+    "interactions.listGenerationRecords": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.listGenerationRecords")}/generation-records`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.streamAttempt": define("GET", ({ journeyId, attemptId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.streamAttempt")}/attempts/${required(attemptId, "attemptId", "interactions.streamAttempt")}/events`, {
+      requiredParams: ["journeyId", "attemptId"],
+    }),
+    "interactions.stopAttempt": define("POST", ({ journeyId, attemptId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.stopAttempt")}/attempts/${required(attemptId, "attemptId", "interactions.stopAttempt")}/stop`, {
+      requiredParams: ["journeyId", "attemptId"],
+      hasBody: true,
+      requiredBody: ["expected_selection_epoch"],
+    }),
+    "interactions.keepAttempt": define("POST", ({ journeyId, attemptId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.keepAttempt")}/attempts/${required(attemptId, "attemptId", "interactions.keepAttempt")}/keep`, {
+      requiredParams: ["journeyId", "attemptId"],
+      hasBody: true,
+      requiredBody: ["expected_selection_epoch"],
+    }),
+    "interactions.continueAttempt": define("POST", ({ journeyId, attemptId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.continueAttempt")}/attempts/${required(attemptId, "attemptId", "interactions.continueAttempt")}/continue`, {
+      requiredParams: ["journeyId", "attemptId"],
+      hasBody: true,
+      requiredBody: ["expected_selection_epoch", "idempotency_key"],
+    }),
+    "interactions.retryAttempt": define("POST", ({ journeyId, attemptId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.retryAttempt")}/attempts/${required(attemptId, "attemptId", "interactions.retryAttempt")}/retry`, {
+      requiredParams: ["journeyId", "attemptId"],
+      hasBody: true,
+      requiredBody: ["expected_selection_epoch", "idempotency_key"],
+    }),
+    "interactions.updateModes": define("PATCH", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.updateModes")}/modes`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["expected_selection_epoch"],
+    }),
+    "interactions.heartbeat": define("POST", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.heartbeat")}/heartbeat`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.leaveJourney": define("POST", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.leaveJourney")}/leave`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.updateTitle": define("PATCH", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.updateTitle")}/title`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["title"],
+    }),
+    "interactions.getOverview": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.getOverview")}/overview`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.updateOverview": define("PUT", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.updateOverview")}/overview`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["sections", "expected_overview_epoch", "expected_selection_epoch", "base_revision_id", "base_selected_leaf_node_id", "base_selected_path_hash"],
+    }),
+    "interactions.retryOverview": define("POST", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.retryOverview")}/overview/retry`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.archiveJourney": define("POST", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.archiveJourney")}/archive`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["confirmed"],
+    }),
+    "interactions.restoreJourney": define("POST", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.restoreJourney")}/restore`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.deleteJourney": define("DELETE", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.deleteJourney")}`, {
+      requiredParams: ["journeyId"],
+      hasBody: true,
+      requiredBody: ["title_confirmation"],
+    }),
+    "interactions.exportJourney": define("GET", ({ journeyId }) => `/interactions/journeys/${required(journeyId, "journeyId", "interactions.exportJourney")}/export`, {
+      requiredParams: ["journeyId"],
+    }),
+    "interactions.getPreferences": define("GET", () => "/interactions/preferences"),
+    "interactions.acknowledgeSeeSeaNotice": define("POST", () => "/interactions/preferences/see-sea-notice"),
+
     "settings.listGlobalLLMDefaults": define("GET", () => "/settings/llm-defaults"),
     "settings.updateGlobalLLMDefaults": define("PUT", () => "/settings/llm-defaults", { hasBody: true }),
+    "settings.listLLMConnections": define("GET", () => "/settings/llm-connections"),
+    "settings.connectLLMProvider": define("PUT", ({ providerId }) => `/settings/llm-connections/${required(providerId, "providerId", "settings.connectLLMProvider")}`, {
+      requiredParams: ["providerId"],
+      hasBody: true,
+    }),
+    "settings.activateLLMProvider": define("POST", ({ providerId }) => `/settings/llm-connections/${required(providerId, "providerId", "settings.activateLLMProvider")}/activate`, {
+      requiredParams: ["providerId"],
+    }),
+    "settings.listLLMBalances": define("GET", () => "/settings/llm-balances"),
     "settings.getEffectiveLLMSettings": define("GET", ({ projectId }) => `/projects/${required(projectId, "projectId", "settings.getEffectiveLLMSettings")}/effective-llm-settings`, {
       requiredParams: ["projectId"],
     }),

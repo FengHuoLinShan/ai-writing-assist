@@ -27,6 +27,7 @@ RELOAD_DIRS = (
 )
 TASK_HANDLER_MODULES = (
     "modules.imports.tasks",
+    "modules.interaction.tasks",
     "modules.outline.tasks",
     "modules.project.tasks",
     "modules.rag.tasks",
@@ -50,9 +51,17 @@ async def _require_active_task_project(db, task) -> None:
         return
 
     from core.errors import NotFoundError
-    from modules.project.facade import get_project_context
+    if str(getattr(task, "task_type", "")).startswith("interaction_"):
+        from modules.project.facade import get_any_project_context
 
-    if await get_project_context(db, novel_id) is None:
+        context = await get_any_project_context(db, novel_id)
+        if context is not None and context.project_kind != "interaction":
+            context = None
+    else:
+        from modules.project.facade import get_project_context
+
+        context = await get_project_context(db, novel_id)
+    if context is None:
         raise NotFoundError(f"Project {novel_id} not found")
 
 
@@ -63,10 +72,15 @@ async def _guard_active_task_project_finalize(db, task) -> bool:
         return True
 
     from core.errors import NotFoundError
-    from modules.project.facade import require_active_project
-
     try:
-        await require_active_project(db, novel_id)
+        if str(getattr(task, "task_type", "")).startswith("interaction_"):
+            from modules.project.facade import require_interaction_project
+
+            await require_interaction_project(db, novel_id)
+        else:
+            from modules.project.facade import require_active_project
+
+            await require_active_project(db, novel_id)
     except NotFoundError:
         return False
     return True
@@ -95,6 +109,7 @@ def _validate_worker_config() -> None:
 async def main() -> None:
     from infrastructure.tasks.worker import TaskWorker
     from modules.imports.facade import reconcile_workflow_task_owners
+    from modules.interaction.facade import reconcile_interaction_task_owners
     from modules.rag.facade import reconcile_index_task_owners
 
     _configure_worker_process()
@@ -103,6 +118,7 @@ async def main() -> None:
         task_commit_guard=_guard_active_task_project_finalize,
         startup_reconcilers=(
             reconcile_workflow_task_owners,
+            reconcile_interaction_task_owners,
             reconcile_index_task_owners,
         ),
     )

@@ -20,6 +20,8 @@ from modules.world.llm_schemas import (
 )
 from modules.world.models import CoreEntity, CreationSuggestion, WorldBiblePage
 
+pytestmark = pytest.mark.usefixtures("account_llm_connection")
+
 
 class _FakeWorldGenerationClient:
     provider = "fake-provider"
@@ -133,17 +135,7 @@ class _FakeWorldGenerationClient:
 async def _create_llm_project(async_client: AsyncClient, title: str) -> str:
     response = await async_client.post(
         "/api/projects",
-        json={
-            "title": title,
-            "settings": {
-                "llm": {
-                    "provider_id": "openai-compatible",
-                    "api_key": "sk-test-only",
-                    "base_url": "https://llm.test/v1",
-                    "model": "test-model",
-                }
-            },
-        },
+        json={"title": title},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]

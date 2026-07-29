@@ -16,10 +16,9 @@ from infrastructure.llm.profiles import (
     LLM_API_KEYS_BY_PROVIDER_FIELD,
     LLM_SETTINGS_KEY,
     get_llm_profile,
-    list_provider_templates,
+    list_account_provider_templates,
     sanitize_llm_profile,
 )
-from infrastructure.llm.secret_store import ensure_encrypted_secret, secret_configured
 from infrastructure.tasks.facade import (
     cancel_unfinished_tasks_for_novel,
     delete_tasks_for_novel,
@@ -30,6 +29,7 @@ from modules.account.facade import (
     current_owner_id_or_system_none,
     require_account_active,
 )
+from modules.project.contracts import InteractionProjectContract
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     LLMFieldResetResponse,
@@ -98,7 +98,9 @@ class ProjectService:
         self._tasks_deleter = tasks_deleter
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
-        return LLMProviderTemplateListResponse(items=list_provider_templates())
+        return LLMProviderTemplateListResponse(
+            items=list_account_provider_templates()
+        )
 
     async def create_project(
         self, db: AsyncSession, data: ProjectCreate
@@ -115,6 +117,33 @@ class ProjectService:
             else await self._repo.create(db, data)
         )
         return await self._response_with_stats(db, project)
+
+    async def create_interaction_project(
+        self,
+        db: AsyncSession,
+        *,
+        title: str,
+    ) -> InteractionProjectContract:
+        """Create one hidden project root for an RP journey.
+
+        This is intentionally not exposed by the public project API.
+        """
+        owner_id = current_account_id()
+        await require_account_active(db, owner_id)
+        project = await self._repo.create(
+            db,
+            ProjectCreate(
+                title=title,
+                current_stage="interaction",
+                settings={},
+            ),
+            owner_id=owner_id,
+            project_kind="interaction",
+        )
+        return InteractionProjectContract(
+            novel_id=str(project.id),
+            owner_id=owner_id,
+        )
 
     async def get_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         pid = _parse_uuid(project_id, "project_id")
@@ -196,18 +225,14 @@ class ProjectService:
         project = await self._get_existing_project(db, project_id)
         settings = dict(project.settings or {})
         existing_profile = get_llm_profile(settings)
-        existing_provider = str(existing_profile.get("provider_id") or "").strip()
-        target_provider = str(data.provider_id or existing_provider).strip()
-        stored_keys = existing_profile.get(LLM_API_KEYS_BY_PROVIDER_FIELD)
-        keyring = dict(stored_keys) if isinstance(stored_keys, dict) else {}
-        existing_active_key = existing_profile.get(LLM_API_KEY_FIELD)
-        if existing_provider and existing_active_key:
-            keyring.setdefault(
-                existing_provider,
-                self._encrypt_llm_secret(existing_active_key),
-            )
+        if data.api_key or data.clear_api_key or data.clear_all_api_keys:
+            raise ValidationError("API Key 只能在账户设置中配置")
 
-        next_profile: dict[str, object] = {}
+        next_profile: dict[str, object] = {
+            key: value
+            for key, value in existing_profile.items()
+            if key not in {LLM_API_KEY_FIELD, LLM_API_KEYS_BY_PROVIDER_FIELD}
+        }
         if data.provider_id is not None and data.provider_id != "":
             next_profile["provider_id"] = data.provider_id
         if data.label is not None:
@@ -229,19 +254,6 @@ class ProjectService:
             next_profile["top_p"] = data.top_p
         if data.extra:
             next_profile["extra"] = data.extra
-
-        if data.clear_all_api_keys:
-            keyring = {}
-        elif data.clear_api_key and target_provider:
-            keyring.pop(target_provider, None)
-        elif data.api_key and target_provider:
-            keyring[target_provider] = self._encrypt_llm_secret(data.api_key)
-
-        if keyring:
-            next_profile[LLM_API_KEYS_BY_PROVIDER_FIELD] = keyring
-        selected_key = keyring.get(target_provider) if target_provider else None
-        if selected_key:
-            next_profile[LLM_API_KEY_FIELD] = self._encrypt_llm_secret(selected_key)
 
         if next_profile:
             settings[LLM_SETTINGS_KEY] = next_profile
@@ -274,6 +286,11 @@ class ProjectService:
         if not isinstance(llm, dict):
             return data
         next_llm = dict(llm)
+        if (
+            LLM_API_KEY_FIELD in next_llm
+            or LLM_API_KEYS_BY_PROVIDER_FIELD in next_llm
+        ):
+            raise ValidationError("API Key 只能在账户设置中配置")
         if next_llm.get("base_url"):
             try:
                 next_llm["base_url"] = validate_user_llm_base_url(
@@ -281,29 +298,8 @@ class ProjectService:
                 )
             except ValueError as exc:
                 raise ValidationError(str(exc)) from exc
-        if next_llm.get(LLM_API_KEY_FIELD):
-            next_llm[LLM_API_KEY_FIELD] = ProjectService._encrypt_llm_secret(
-                next_llm[LLM_API_KEY_FIELD]
-            )
-        keys = next_llm.get(LLM_API_KEYS_BY_PROVIDER_FIELD)
-        if isinstance(keys, dict):
-            next_llm[LLM_API_KEYS_BY_PROVIDER_FIELD] = {
-                provider_id: ProjectService._encrypt_llm_secret(secret)
-                for provider_id, secret in keys.items()
-                if isinstance(provider_id, str) and secret_configured(secret)
-            }
         settings[LLM_SETTINGS_KEY] = next_llm
         return data.model_copy(update={"settings": settings})
-
-    @staticmethod
-    def _encrypt_llm_secret(value: object) -> object:
-        try:
-            return ensure_encrypted_secret(value)
-        except (RuntimeError, ValueError) as exc:
-            raise ValidationError(
-                "LLM API Key encryption is not configured; set "
-                "LLM_SETTINGS_ENCRYPTION_KEY and restart the backend"
-            ) from exc
 
     async def reset_llm_settings_field(
         self,
@@ -459,21 +455,33 @@ class ProjectService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        project_kind: str | None = "author",
     ) -> ProjectContext | None:
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
         project = (
-            await self._repo.get(db, pid, owner_id)
+            await self._repo.get(
+                db,
+                pid,
+                owner_id,
+                project_kind=project_kind,
+            )
             if owner_id is not None
-            else await self._repo.get(db, pid)
+            else await self._repo.get(db, pid, project_kind=project_kind)
         )
         if project is None:
             return None
         if self._uses_default_repo:
             await require_account_active(db, project.owner_id)
+        raw_project_kind = getattr(project, "project_kind", "author")
+        resolved_project_kind = (
+            raw_project_kind if isinstance(raw_project_kind, str) else "author"
+        )
         return ProjectContext(
             novel_id=str(project.id),
             owner_id=str(project.owner_id) if project.owner_id is not None else None,
+            project_kind=resolved_project_kind,
             title=project.title,
             genre=project.genre,
             tone=project.tone,
@@ -488,14 +496,25 @@ class ProjectService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        project_kind: str | None = "author",
     ) -> None:
         """Hold a shared project row lock for the caller's transaction."""
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
         project = (
-            await self._repo.get_active_for_share(db, pid, owner_id)
+            await self._repo.get_active_for_share(
+                db,
+                pid,
+                owner_id,
+                project_kind=project_kind,
+            )
             if owner_id is not None
-            else await self._repo.get_active_for_share(db, pid)
+            else await self._repo.get_active_for_share(
+                db,
+                pid,
+                project_kind=project_kind,
+            )
         )
         if project is None:
             raise NotFoundError(f"Project {novel_id} not found")
@@ -506,19 +525,84 @@ class ProjectService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        project_kind: str | None = "author",
     ) -> None:
         """Hold a short exclusive project lock for source-sensitive finalizers."""
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
         project = (
-            await self._repo.get_active_for_update(db, pid, owner_id)
+            await self._repo.get_active_for_update(
+                db,
+                pid,
+                owner_id,
+                project_kind=project_kind,
+            )
             if owner_id is not None
-            else await self._repo.get_active_for_update(db, pid)
+            else await self._repo.get_active_for_update(
+                db,
+                pid,
+                project_kind=project_kind,
+            )
         )
         if project is None:
             raise NotFoundError(f"Project {novel_id} not found")
         if self._uses_default_repo:
             await require_account_active(db, project.owner_id)
+
+    async def archive_interaction_project(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        pid = _parse_uuid(novel_id, "novel_id")
+        owner_id = self._request_owner_id()
+        deleted = await self._repo.soft_delete(
+            db,
+            pid,
+            owner_id,
+            project_kind="interaction",
+        )
+        if not deleted:
+            raise NotFoundError(f"Interaction journey {novel_id} not found")
+        await self._task_canceller(
+            db,
+            novel_id=str(pid),
+            transition_reason="interaction_archived",
+        )
+
+    async def restore_interaction_project(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        pid = _parse_uuid(novel_id, "novel_id")
+        owner_id = self._request_owner_id()
+        restored = await self._repo.restore(
+            db,
+            pid,
+            owner_id,
+            project_kind="interaction",
+        )
+        if not restored:
+            raise NotFoundError(f"Archived interaction journey {novel_id} not found")
+
+    async def permanently_delete_interaction_project(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        pid = _parse_uuid(novel_id, "novel_id")
+        owner_id = self._request_owner_id()
+        deleted = await self._repo.permanent_delete(
+            db,
+            pid,
+            owner_id,
+            project_kind="interaction",
+        )
+        if not deleted:
+            raise NotFoundError(f"Archived interaction journey {novel_id} not found")
+        await self._task_deleter(db, novel_id=str(pid))
 
     async def _get_existing_project(self, db: AsyncSession, project_id: str):
         pid = _parse_uuid(project_id, "project_id")

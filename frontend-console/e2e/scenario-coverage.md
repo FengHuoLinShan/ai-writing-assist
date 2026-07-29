@@ -1,7 +1,7 @@
 # 场景覆盖矩阵
 
 > 本文档基于 `docs/核心业务场景与预期行为.md` 中的场景覆盖矩阵，结合当前 E2E 测试实际状态维护。
-> 更新日期：2026-07-22（深度导入 worker / workbench 恢复闭环补齐后）
+> 更新日期：2026-07-29（RP 互动旅程首轮浏览器覆盖补齐后）
 
 ## 图例
 
@@ -19,6 +19,7 @@
 | 场景 6 大纲与结构管理 | R4 | `outline`, `context` | Vue 大纲视图 | outline 单测 + outline E2E | 🟡 部分覆盖 |
 | A1 RAG 混合检索 | R6 | `rag` | Vue RAG 视图 | rag 单测 + rag E2E | 🟡 部分覆盖 |
 | A2 上下文编译 | R6 | `context`, `world`, `outline`, `rag` | Vue 生成中心 | context 单测 + context E2E | 🟡 部分覆盖 |
+| B1 RP 互动旅程 | R7 | `interaction`, `settings`, `project` | RP 首页、列表、故事页 | interaction 单测 + RP 路由/390px E2E | 🟡 部分覆盖 |
 
 ## E2E 文件与场景映射
 
@@ -43,6 +44,7 @@
 | `outline-foreshadowing-reveal.spec.js` | 场景 6 | 旧路由归并、同一 movement 的伏笔/揭示时间线、未归类计划分配 |
 | `rag.spec.js` | A1 | 索引状态页面、搜索子标签、搜索空结果、真实 RAG chunk UI 召回、embedding 降级元数据与 warning、重建索引按钮；5/5 通过 |
 | `generate.spec.js` | A2 | 生成中心页面、自由聊天/草稿/模板，以及上下文编译、预览与人物视角提交契约 |
+| `interaction.spec.js` | B1 | 双入口进入 RP、旅程列表到故事页深链、独立壳、390px composer/定位轨/底部操作面板与横向溢出 |
 
 ## 覆盖状态详细说明
 
@@ -66,6 +68,7 @@
 - **RAG 父子检索**：真实 chunk UI 召回与 embedding 降级 warning 已覆盖；父子检索补齐父 Scene 元数据和 Delta 摘要仍待实现/验收。
 - **上下文人物视角隐藏真相转换**：前端已覆盖 `reveal_mode=character` 与 `viewpoint_character_id` 提交契约；真实数据下不同 `reveal_mode` 的内容差异主要由后端 context 测试覆盖，浏览器端仍未完整断言预算裁剪和 hidden_truth 差异。
 - **RAG/Context chaos 待实现项**：降级检索 warning、揭示模式切换不泄露隐藏真相、激进预算裁剪可观察且不崩溃。仅保留在矩阵中，未实现前不进入 Playwright 收集。
+- **RP 长时运行**：当前浏览器 E2E 覆盖真实路由、独立壳与 390px 布局；分支、看海循环、断线续流、回顾纠正和 worker 崩溃恢复以 Vue/后端自动化为主，仍需在独立测试账户与真实 provider 环境完成长时浏览器验收。
 
 ## 验证命令与结果
 

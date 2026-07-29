@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from openai import APIConnectionError, APITimeoutError, RateLimitError
+from openai import APIConnectionError, APITimeoutError, BadRequestError, RateLimitError
 
 from core.config import Settings, get_settings
 from infrastructure.llm.egress import (
@@ -18,6 +18,7 @@ from infrastructure.llm.egress import (
 )
 from infrastructure.llm.errors import (
     LLMConnectionError,
+    LLMQuotaError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
@@ -125,6 +126,45 @@ async def test_provider_maps_mid_stream_availability_errors(
             pass
 
 
+@pytest.mark.parametrize(
+    "sdk_error",
+    [
+        BadRequestError(
+            "balance unavailable",
+            response=httpx.Response(
+                400,
+                request=httpx.Request("POST", "https://provider.example/v1"),
+            ),
+            body={"error": {"code": "insufficient_balance"}},
+        ),
+        RateLimitError(
+            "quota unavailable",
+            response=httpx.Response(
+                429,
+                request=httpx.Request("POST", "https://provider.example/v1"),
+            ),
+            body={"error": {"code": "insufficient_quota"}},
+        ),
+        BadRequestError(
+            "payment required",
+            response=httpx.Response(
+                402,
+                request=httpx.Request("POST", "https://provider.example/v1"),
+            ),
+            body=None,
+        ),
+    ],
+)
+def test_provider_maps_quota_shapes_to_stable_error(sdk_error) -> None:
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._timeout = 15
+
+    mapped = provider._map_provider_error(sdk_error, model="test-model")
+
+    assert isinstance(mapped, LLMQuotaError)
+    assert "insufficient" not in str(mapped).lower()
+
+
 @pytest.mark.asyncio
 async def test_provider_maps_remote_embedding_availability_error() -> None:
     request = httpx.Request("POST", "https://embedding.example/v1")
@@ -168,6 +208,7 @@ def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
     assert "proxy" not in kwargs
     assert len(kwargs["event_hooks"]["request"]) == 1
     assert openai_cls.call_args.kwargs["http_client"] is http_client
+    assert openai_cls.call_args.kwargs["max_retries"] == 0
     get_settings.cache_clear()
 
 

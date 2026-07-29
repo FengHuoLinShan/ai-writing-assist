@@ -99,7 +99,7 @@ async def api_get_project_llm_settings(
     db: DbSession,
     project_id: str,
 ) -> ProjectLLMSettingsResponse:
-    """获取项目级 LLM 配置（不返回 API Key）"""
+    """读取兼容的项目级非 secret LLM/工作流配置。"""
     return await _service.get_llm_settings(db, project_id)
 
 
@@ -113,7 +113,7 @@ async def api_update_project_llm_settings(
     project_id: str,
     data: ProjectLLMSettingsUpdate,
 ) -> ProjectLLMSettingsResponse:
-    """更新项目级 LLM 配置；api_key 为写入字段，响应中不会回显"""
+    """更新兼容的项目级非 secret 配置；任何 Key 写入都会被拒绝。"""
     return await _service.update_llm_settings(db, project_id, data)
 
 
@@ -125,7 +125,7 @@ async def api_get_effective_llm_settings(
     db: DbSession,
     project_id: str,
 ) -> EffectiveLLMSettingsResponse:
-    """获取项目级 LLM 配置的 effective 视图（项目 > 全局 > 系统）"""
+    """读取账户连接与项目工作流设置合成的 effective 视图。"""
     from modules.settings.facade import get_effective_llm_settings
 
     return await get_effective_llm_settings(db, project_id)

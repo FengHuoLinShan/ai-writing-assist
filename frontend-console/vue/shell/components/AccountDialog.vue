@@ -4,6 +4,7 @@
       <button class="account-close" type="button" aria-label="关闭" @click="$emit('close')">×</button>
       <h2 id="account-title">账号</h2>
       <p>支持码：{{ account?.support_code || "—" }}</p>
+      <button type="button" class="secondary" @click="$emit('switch-mode')">切换使用方式</button>
       <button type="button" class="secondary" @click="$emit('logout')">退出登录</button>
       <details>
         <summary>删除账号</summary>
@@ -36,7 +37,7 @@ const props = defineProps({
   account: { type: Object, default: null },
   config: { type: Object, required: true },
 })
-const emit = defineEmits(["close", "logout", "account-invalidated"])
+const emit = defineEmits(["close", "logout", "account-invalidated", "switch-mode"])
 const api = getApi()
 const account = props.account
 const config = props.config

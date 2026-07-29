@@ -38,6 +38,7 @@ from infrastructure.llm.errors import (
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
+    LLMQuotaError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
@@ -80,6 +81,33 @@ _OPENAI_PROVIDER_ERRORS = (
     APIConnectionError,
     APIError,
 )
+
+_QUOTA_ERROR_MARKERS = (
+    "insufficient_quota",
+    "insufficient balance",
+    "insufficient_balance",
+    "balance_not_enough",
+    "billing_not_active",
+    "credit_balance_too_low",
+    "quota_exhausted",
+    "余额不足",
+    "额度不足",
+)
+
+
+def _is_quota_error(error: Exception) -> bool:
+    response = getattr(error, "response", None)
+    status_code = getattr(error, "status_code", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    if status_code == 402:
+        return True
+    body = getattr(error, "body", None)
+    diagnostic = redact_diagnostic(
+        body if body is not None else error,
+        limit=1000,
+    ).casefold()
+    return any(marker in diagnostic for marker in _QUOTA_ERROR_MARKERS)
 
 
 class OpenAIProvider:
@@ -151,6 +179,10 @@ class OpenAIProvider:
             "base_url": base_url,
             "timeout": self._timeout,
             "http_client": http_client,
+            # Retry ownership belongs to LLMClient so individual business
+            # workflows can explicitly forbid replay. Leaving the SDK default
+            # enabled would silently retry even when transport_retries=False.
+            "max_retries": 0,
         }
         if (
             not api_key
@@ -324,6 +356,12 @@ class OpenAIProvider:
                 provider=self.name,
                 model=model,
                 timeout=self._timeout,
+            )
+        if _is_quota_error(error):
+            return LLMQuotaError(
+                "OpenAI-compatible account quota exhausted",
+                provider=self.name,
+                model=model,
             )
         if isinstance(error, RateLimitError):
             retry_after = (

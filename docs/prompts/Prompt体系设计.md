@@ -35,6 +35,8 @@
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `outline/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | outline 手动大纲分析 |
+| `interaction/prompts.py` | 内联 `interaction-story-v1`：模型知识 RP 故事正文与可选隐藏尾部元数据 | interaction 故事任务 |
+| `interaction/prompts.py` | 内联 `interaction-summary-v1` / `interaction-summary-output-v1`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
 
 ## 3. Prompt Contract System
 
@@ -411,6 +413,40 @@ sections / linked_asset_keys`。Prompt 不设置固定篇幅、必填创作维�
 现有结构化输出仍确定性映射为 `concept`；这只是采用前的临时分类，不是对创作内容
 的强制归类，作者可在采用前调整类型。模板不覆盖结构化 system scaffold，
 不声明 JSON、数据库字段、状态或采用操作；这些边界继续由确定性代码与 schema 负责。
+
+### RP 互动故事与回顾
+
+interaction Prompt 由 `modules/interaction/prompts.py` 代码组装，不进入作者可编辑模板，
+也不把模型固定称为 DM。它只消费用户开场、代码级选中路径和当前有效总回顾；未选 sibling、
+失败残段、隐藏项目 ID 和作者资产不会进入普通故事上下文。
+
+`interaction-story-v1` 直接输出可见故事。正文之后可以有一个带固定边界标记的可选 JSON
+尾块，承载 `response_kind / suggested_title / branch_hint / story_ended /
+action_suggestions`。framing parser 在流式过程中隔离尾块；尾块缺失、截断或 schema 无效时
+只丢弃附加信息，不判废已经生成的正文。模型只建议标题、发展提示和 0～3 个行动选项；
+selection epoch、节点创建、分支选择、看海循环、停止、任务终态和 owner/novel 隔离全部由
+代码决定。
+
+普通模式保护用户角色的关键行动控制权；看海模式允许模型在保持人物性格、能力、关系和因果
+一致的前提下自主推进。两者只切换少量静态 Prompt 规则。看海每一步仍由确定性工作流提交，
+模型不能自行请求下一步、调用工具或跨模块写入。重新生成会加入有界的已拒绝发展作为
+“不得当作历史、只避免机械重复”的参考。
+
+`interaction-summary-v1` 一次返回：
+
+- `segment_summary`：只概括本次新增的已选故事；
+- `overview`：更新后的世界与起点、我的角色、当前局面、重要人物与势力、关键转折、
+  正在发展的事情、必须继续记住七个自然语言分区。
+
+重要性规则来自现有小说资产实践，但不读取或绑定 World 数据库实体：重点保留身份、能力、
+物品、状态、关系、阵营、地点、关键选择、因果、承诺、代价、未决线索、明确纠正与长期偏好；
+压缩重复描写和无后果细节。传闻、误解和局部认知必须保留不确定性，不得利用模型训练知识
+提前补出用户尚未体验的幕后答案。已有手工总回顾是活动基线，旧原文不能越过它复活被删改
+说法。
+
+interaction 的故事与回顾 Prompt 都有显式版本；producer provenance 只记录脱敏
+provider/model、Prompt/schema 版本、估算/完成 token 与调用次数，不记录 Key、完整
+execution snapshot 或故事正文。
 
 ## 6. 通用约束的归属
 

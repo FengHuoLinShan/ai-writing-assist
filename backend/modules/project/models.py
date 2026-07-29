@@ -18,6 +18,12 @@ class Project(Base, UUIDMixin, TimestampMixin):
     """小说项目 — 系统的根聚合"""
 
     __tablename__ = "projects"
+    __table_args__ = (
+        CheckConstraint(
+            "project_kind IN ('author', 'interaction')",
+            name="ck_projects_project_kind",
+        ),
+    )
 
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
@@ -26,6 +32,13 @@ class Project(Base, UUIDMixin, TimestampMixin):
         default=lambda: BOOTSTRAP_ACCOUNT_ID,
         index=True,
         comment="项目唯一所有者；不通过业务响应暴露",
+    )
+    project_kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="author",
+        index=True,
+        comment="内部项目类型：author / interaction；不接受公共 API 写入",
     )
     title: Mapped[str] = mapped_column(
         String(255),

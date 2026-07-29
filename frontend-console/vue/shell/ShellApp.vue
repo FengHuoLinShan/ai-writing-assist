@@ -1,10 +1,14 @@
 <template>
-  <div class="vue-shell-root" @pointerdown.capture="dismissTransientUi">
-    <Topbar :project-title="projectTitle" :module-title="moduleTitle" :submodule-title="submoduleTitle" :view-note="viewNote"
+  <div
+    class="vue-shell-root"
+    @pointerdown.capture="dismissTransientUi"
+    @shell-theme-request="theme.apply($event.detail)"
+  >
+    <Topbar v-if="showAuthorChrome" :project-title="projectTitle" :module-title="moduleTitle" :submodule-title="submoduleTitle" :view-note="viewNote"
       :connected="health.connected.value" :theme="theme.current.value" :wordcount="wordcount.dashboard" :wordcount-visible="wordcountVisible"
-      :account-visible="accountService.visible" @select-theme="theme.apply" @manage-account="accountOpen = true" />
-    <div id="main-layout">
-      <Sidebar ref="sidebar" :current-view="shellState.currentView" @navigate="navigate" @show-help="showHelp" />
+      @select-theme="theme.apply" @manage-account="accountOpen = true" />
+    <div id="main-layout" :class="{ 'main-layout--immersive': !showAuthorChrome }">
+      <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" @navigate="navigate" @show-help="showHelp" />
       <WorkspaceHost ref="workspace" @ready="setRouteHost" />
       <aside id="contextual-notes"></aside>
     </div>
@@ -12,7 +16,8 @@
     <ShortcutHelp :open="helpOpen" @close="hideHelp" />
     <ServiceHosts :services="services" />
     <AccountDialog :open="accountOpen" :account="accountService.current" :config="accountService.config"
-      @close="accountOpen = false" @logout="logout" @account-invalidated="accountService.invalidate('account-deletion')" />
+      @close="accountOpen = false" @logout="logout" @account-invalidated="accountService.invalidate('account-deletion')"
+      @switch-mode="accountOpen = false; navigate('home')" />
   </div>
 </template>
 
@@ -30,7 +35,7 @@ import { useShellShortcuts } from "./composables/useShellShortcuts.js"
 import { useShellState } from "./composables/useShellState.js"
 import { useTheme } from "./composables/useTheme.js"
 import { useWordcountDashboard } from "./composables/useWordcountDashboard.js"
-import { navDestination } from "./navigation.js"
+import { navDestination, normalizeRpReturnTarget } from "./navigation.js"
 
 const props = defineProps({
   services: { type: Object, required: true },
@@ -55,6 +60,16 @@ const commandPalette = ref(null)
 const workspace = ref(null)
 const sidebar = ref(null)
 const routeHost = ref(null)
+const showAuthorChrome = computed(() => {
+  if (["home", "journeys", "interaction"].includes(shellState.currentView)) {
+    return false
+  }
+  if (shellState.currentView === "settings") {
+    const returnTarget = services.router.getCurrentQuery?.()?.get?.("return_to") || ""
+    if (normalizeRpReturnTarget(returnTarget)) return false
+  }
+  return true
+})
 
 const projectTitle = computed(() => shellState.currentProject?.title || shellState.currentProject?.name || "")
 const moduleTitle = computed(() => services.router.getRoute(shellState.currentView)?.title || shellState.currentView || "项目")

@@ -152,23 +152,11 @@ async def test_adopt_candidate_route_returns_new_working_draft(
 async def test_generate_enqueues_domain_task_after_context_confirmation(
     async_client: AsyncClient,
     db_session: AsyncSession,
+    account_llm_connection: dict,
 ) -> None:
-    api_secret = "sk-writing-generate-secret"
-    query_secret = "writing-query-secret"
-    extra_secret = "writing-extra-secret"
     project_resp = await async_client.post(
         "/api/projects",
-        json={
-            "title": "AI 生成入队项目",
-            "settings": {
-                "llm": {
-                    "api_key": api_secret,
-                    "base_url": f"https://llm.test/v1?token={query_secret}",
-                    "model": "frozen-writing-model",
-                    "extra": {"private_token": extra_secret},
-                }
-            },
-        },
+        json={"title": "AI 生成入队项目"},
     )
     assert project_resp.status_code == 201
     novel_id = project_resp.json()["id"]
@@ -214,11 +202,12 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     assert task.meta["base_draft_id"] is None
     snapshot = task.meta["llm_execution_snapshot"]
     assert snapshot["novel_id"] == novel_id
-    assert snapshot["profile"]["model"] == "frozen-writing-model"
+    assert snapshot["profile"]["model"] == account_llm_connection["model"]
     assert snapshot["profile_hash"]
     serialized_snapshot = json.dumps(snapshot, ensure_ascii=False)
-    for secret in (api_secret, query_secret, extra_secret):
-        assert secret not in serialized_snapshot
+    assert account_llm_connection["api_key"] not in serialized_snapshot
+    assert "api_key" not in snapshot["profile"]
+    assert snapshot["sources"]["api_key"] == "account"
 
     confirmation_result = await db_session.execute(
         select(ContextConfirmation).where(

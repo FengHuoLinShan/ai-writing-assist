@@ -13,9 +13,13 @@
 
 [在线体验](https://novel.zhh.se) · [30 秒了解项目](#30-秒了解项目) · [为谁而做](#为谁而做) · [系统架构](#系统架构) · [核心时序](#核心时序) · [五分钟项目导览](#五分钟项目导览) · [开发者快速开始](#开发者快速开始)
 
-NovelCraft 是一个已上线的 AI 长篇小说创作 Alpha：它把正文版本、Scene、世界事实、剧情结构、检索证据和 AI 建议放进同一条可追踪的工作流。当前完整主链服务专业/业余作者；同一套结构化世界资产也将支撑阅读型创作者低门槛进入和探索幻想世界。
+NovelCraft 是一个 AI 长篇小说创作 Alpha：作者路径把正文版本、Scene、世界事实、剧情结构、
+检索证据和 AI 建议放进同一条可追踪工作流；RP 路径让用户用自然语言进入熟悉的幻想世界，
+并用不可变分支、流式恢复和持续回顾保存私人互动故事。
 
-> 在线环境需注册；模型调用需要在项目中配置 OpenAI-compatible LLM。项目不提供公共共享账号，也不包含真实稿件、密钥或个人联系方式。
+> 在线环境需注册；模型调用需要在账户设置中连接自己的 API Key。仓库中的当前实现不代表
+> 线上部署已同步，发布状态以固定 commit 的 release 记录为准。项目不提供公共共享账号，
+> 也不包含真实稿件、密钥或个人联系方式。
 
 ---
 
@@ -26,7 +30,7 @@ NovelCraft 是一个已上线的 AI 长篇小说创作 Alpha：它把正文版�
 | 它解决什么问题？ | 长篇小说持续数十万字后，人物设定、时间线、伏笔和章节结构很容易失控；普通 Chat 或简单 RAG 只能生成文本，难以管理长期状态和写回副作用。 |
 | 它怎么解决？ | 用版本化正文和 Scene 作为证据锚点，建立世界事实与剧情结构，再由 RAG 召回候选、Context 编译可见上下文，最后让 LLM 生成可审查的候选内容。 |
 | 核心差异是什么？ | AI 输出默认不是正式事实。候选必须带来源、经过校验，并由作者编辑或采用后，才进入工作稿或已采用资产。 |
-| 当前做到哪一步？ | 已公开部署的 Alpha / 工程验证系统，具备导入、写作、世界设定、大纲、检索、上下文编译、异步任务和项目级模型配置等完整主链路；不包装为成熟商业产品。 |
+| 当前做到哪一步？ | 当前仓库具备双入口、作者导入/写作/世界设定/大纲/检索主链，以及模型知识 RP 旅程、分支、流式恢复、自动回顾和看海循环；仍是工程验证系统。 |
 | 个人职责是什么？ | 负责产品构思、用户流程、需求拆解、架构与安全约束、AI Coding 编排、代码 Diff Review、测试验收和持续迭代；大规模实现主要由 AI Coding 工具完成。 |
 
 **项目角色：产品负责人 + AI 应用工程编排者｜能力方向：AI 产品与 AI 应用开发。** 这个项目重点证明的不是“调用过一个模型”，而是能否把不稳定的模型能力约束成可解释、可恢复、可验收的产品系统。
@@ -37,16 +41,17 @@ NovelCraft 以两类核心用户作为产品判断基线：
 
 - **长期创作的专业或业余作家**：需要工具长期记住幻想设定、故事历史、事件、人物、物品和
   关系，并能用时间、地图、Scene、来源和版本直观回顾整理，再安心继续写作。
-- **想进入优秀作品世界的深度读者**：技术与写作技巧不是前提；他们阅读量大，希望从人物、
-  地点、事件或世界规则出发，用自然语言探索“如果……”，既可以只使用世界观架构，也可以在
-  拥有必要权利的原故事基础上进行私人整理、推演或再创作。
+- **想进入优秀作品世界的 RP 用户**：技术与写作技巧不是前提；只需说明世界、身份和开场
+  愿望，就能用自然语言行动、纠正、重新生成、切换分支或持续观看故事。
 
-两类用户共享世界事实、历史、关系、检索和可追踪 AI 能力，但不应共享一套高复杂度首屏：
-作者获得完整控制，阅读型用户获得低门槛的世界入口与渐进引导。今后的功能规划与 Review
+两类用户共享账号级模型连接和可追踪 AI 基础设施，但不共享一套高复杂度首屏：首页只有
+`我是作家` 与 `我是 RP 用户` 两个大框。作者获得完整控制，RP 用户获得低门槛开场与纯故事
+交互。今后的功能规划与 Review
 都必须回答两个问题：**目标用户会喜欢并再次使用吗？前端是否自然、清楚、舒服？**
 
-当前 Alpha 的完整页面链路仍以作者工作台为主；面向深度读者的低门槛探索入口是明确产品
-方向，不能把现有结构化底座误写成已经完成的读者体验。
+RP 第一版只使用用户开场、模型训练知识、代码级选中历史和有效回顾，不依赖作者项目的
+World、Outline、RAG、writing 或 memory。原作文件导入、按第 N 章分叉、项目共享和公开发布
+仍不在当前范围。用户是否真正喜欢并长期使用仍是待验证产品假设。
 
 完整画像、双入口方向、内容权利边界和功能判断模板见
 [`docs/product/user-personas.md`](docs/product/user-personas.md)。
@@ -121,7 +126,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    User["作者 / 浏览器"] --> UI["Vue 3 SFC 前端"]
+    User["作者 / RP 用户"] --> UI["Vue 3 SFC 双入口"]
     UI --> API["FastAPI API"]
 
     subgraph Identity["三层之外：身份边界"]
@@ -146,11 +151,17 @@ flowchart TB
             RAG["rag<br/>分块、向量、召回"]
             Context["context<br/>选择、裁剪、确认、证据链"]
             Writing["writing<br/>正文版本与写作候选"]
-            Settings["settings<br/>全局 / 项目模型配置"]
+            Settings["settings<br/>账户模型连接与作者偏好"]
         end
     end
 
+    subgraph RP["独立 RP 领域"]
+        Interaction["interaction<br/>不可变分支、流式故事、回顾与看海"]
+    end
+
     Account -->|"owner 校验"| Project
+    Account -->|"owner 校验"| Interaction
+    Interaction -->|"隐藏 interaction 项目"| Project
     Project --> World
     Project --> Memory
     Project --> Outline
@@ -164,11 +175,11 @@ flowchart TB
     Imports -->|"经稳定接口生成候选资产"| World
     Imports -->|"经稳定接口生成结构"| Outline
     Imports -->|"导入正文"| Writing
-    Settings -->|"继承有效配置"| Project
+    Settings -->|"账户 provider / model / Key"| Project
 
     subgraph Platform["共享受控基础设施"]
         Tasks["PostgreSQL 异步任务<br/>lease、checkpoint、恢复"]
-        LLM["LLM gateway<br/>项目配置、schema、预算、超时、日志"]
+        LLM["LLM gateway<br/>账户连接、schema、预算、超时、日志"]
         DB[("PostgreSQL 17<br/>pgvector")]
     end
 
@@ -176,6 +187,7 @@ flowchart TB
     Imports --> Tasks
     RAG --> Tasks
     Writing --> Tasks
+    Interaction --> Tasks
     Project -->|"project client / execution snapshot"| LLM
     API --> DB
     Tasks --> DB
@@ -194,7 +206,8 @@ flowchart TB
 | `rag` | 正文分块、embedding、向量召回和候选证据。 |
 | `context` | 上下文选择、可见性、token 预算、确认快照和证据链。 |
 | `writing` | 当前正文、版本、发布状态、写作生成与候选内容。 |
-| `settings` | 全局默认与项目覆盖的 LLM provider / profile 配置。 |
+| `settings` | 账户级 DeepSeek/Kimi 模型连接、只读余额和作者偏好。 |
+| `interaction` | 私人 RP 旅程、不可变选中历史、流式正文恢复、回顾和看海循环。 |
 
 可继续深挖：
 
@@ -220,7 +233,7 @@ sequenceDiagram
 
     Author->>API: 上传文本并持久化授权深度导入
     API->>API: 校验 account owner + novel_id
-    API->>Queue: 写入任务与项目配置快照
+    API->>Queue: 写入任务与 secret-free 执行快照
     Queue->>Imports: claim lease，恢复 checkpoint
     Imports->>Imports: Phase 0 确定性解析、章节与基础 Scene
     Imports->>LLM: Phase 1a 切分 Scene 并生成逐字边界 anchor
@@ -282,10 +295,10 @@ sequenceDiagram
 
 | 能力 | 工程做法 | 可深入讨论 |
 | --- | --- | --- |
-| 受控 LLM 工作流 | 业务代码确定步骤，统一注入项目级模型配置，并对输出做 schema、预算、超时和日志约束。 | 为什么不做自由 ReAct Agent？如何处理 provider 切换和任务恢复？ |
+| 受控 LLM 工作流 | 业务代码确定步骤，统一解析账户级模型连接，并对输出做 schema、预算、超时和日志约束。 | 为什么不做自由 ReAct Agent？如何处理 provider 切换和任务恢复？ |
 | 证据绑定 | AI 结论携带原文 quote、字符区间、source hash 和 workflow 来源；正文变化后可以识别陈旧资产。 | 如何防止模型引用不存在的原文？offset 和 hash 各解决什么问题？ |
 | RAG / Context 分离 | RAG 只负责候选召回；Context 负责可见性、token 预算、优先级、确认快照和证据追踪。 | 如何避免未来 Scene 泄漏？为什么检索结果不能直接进 prompt？ |
-| PostgreSQL 可恢复任务 | 任务使用 lease、checkpoint、幂等边界和项目配置快照，API 重启后仍可恢复。 | 为什么现阶段不用 Redis / Kafka？如何防止重复消费和晚到写回？ |
+| PostgreSQL 可恢复任务 | 任务使用 lease、checkpoint、幂等边界和 secret-free 执行快照，API 重启后仍可恢复。 | 为什么现阶段不用 Redis / Kafka？如何防止重复消费和晚到写回？ |
 | 双重租户隔离 | 公开浏览器请求同时校验当前 account 对项目的 `owner_id`，所有业务读写仍显式过滤 `novel_id`。 | owner 边界为什么不能代替 `novel_id`？worker 如何避免绕过用户权限？ |
 | 建议与正式资产分离 | 普通模型输出进入候选或预览；只有作者采用，或有持久化授权的可回滚流水线，才能写入允许的资产。 | 如何设计人工确认、撤销、冲突和低置信回退？ |
 | Vue 渐进迁移 | 保留现有 hash route-host seam，业务页以 Vue 3 SFC island 接入统一 bridge。 | 为什么不一次性重写前端？如何在迁移期保持 API、state 和路由一致？ |
@@ -382,12 +395,15 @@ OpenResty 与应用服务位于受控网络边界内；数据库不直接暴露�
 
 ## 当前边界与下一阶段
 
-这是一个**已部署的 Alpha / 工程验证系统**，不是成熟商业产品。当前边界包括：
+这是一个**Alpha / 工程验证系统**，不是成熟商业产品。线上部署可能落后于当前仓库；
+当前边界包括：
 
 - 尚未通过正式用户研究证明留存、付费意愿和真实创作效率提升。
 - 不宣称实体抽取准确率、生成采纳率或 P95 延迟达到某个未经持续评测的数字。
 - 当前架构以单作者项目和可控并发为主，多人实时协作与大规模容量验证不在现阶段完成范围内。
 - 视觉基线与自动化测试能证明主要路径可回归，但不能替代真实作者的长期创作反馈。
+- RP 第一版不导入原作、不按章节分叉、不依赖作者结构化资产，也不提供项目共享；模型对作品
+  知识和人物质感的稳定性仍需真实旅程样本验证。
 
 下一阶段优先级：
 

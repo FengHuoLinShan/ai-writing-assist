@@ -336,9 +336,11 @@ class TestDeepImportWorkflowNewPipeline:
 
 
 @pytest_asyncio.fixture
-async def novel_with_drafts(db_session: AsyncSession):
+async def novel_with_drafts(
+    db_session: AsyncSession,
+    account_llm_connection: dict,
+):
     """创建一个项目并在第 1、2 章写入 draft，供集成测试使用。"""
-    from modules.project.models import Project
     from modules.project.schemas import ProjectCreate
     from modules.project.services import ProjectService
     from modules.writing.facade import create_draft_only
@@ -347,14 +349,6 @@ async def novel_with_drafts(db_session: AsyncSession):
         db_session,
         ProjectCreate(title="Deep Import Test", language="zh"),
     )
-    project_row = await db_session.get(Project, uuid.UUID(project.id))
-    project_row.settings = {
-        "llm": {
-            "api_key": "sk-import-integration-test",
-            "base_url": "https://example.test/v1",
-            "model": "test-model",
-        }
-    }
     novel_id = str(project.id)
     await create_draft_only(
         db_session, novel_id, chapter_index=1, title="第一章", content="第一章内容。"
@@ -561,7 +555,6 @@ class TestDuplicateImportAndDeprecation:
         """novel A 的派生数据不应影响 novel B 的重复检测。"""
         from modules.imports.facade import start_deep_import
         from modules.outline.facade import create_scene
-        from modules.project.models import Project
         from modules.project.schemas import ProjectCreate
         from modules.project.services import ProjectService
 
@@ -569,14 +562,6 @@ class TestDuplicateImportAndDeprecation:
             db_session,
             ProjectCreate(title="Other Novel", language="zh"),
         )
-        other_project_row = await db_session.get(Project, uuid.UUID(other_project.id))
-        other_project_row.settings = {
-            "llm": {
-                "api_key": "sk-other-import-test",
-                "base_url": "https://example.test/v1",
-                "model": "test-model",
-            }
-        }
         other_novel_id = str(other_project.id)
 
         await create_scene(

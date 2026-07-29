@@ -166,6 +166,40 @@ class TaskLifecycleService:
         await db.flush()
         return lifecycle_contract(task, max_heartbeat_gap=0)
 
+    async def cancel_exact(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        task_types: set[str],
+        novel_id: str,
+        transition_reason: str,
+    ) -> TaskLifecycleContract:
+        """Cancel one pending/running task in an exact domain-owned scope."""
+        try:
+            parsed_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("task_id must be a UUID") from exc
+        task = (
+            await db.execute(
+                select(AsyncTask)
+                .where(
+                    AsyncTask.id == parsed_id,
+                    AsyncTask.task_type.in_(sorted(task_types)),
+                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            raise ValueError("task not found")
+        if task.status not in {"pending", "running"}:
+            return lifecycle_contract(task, max_heartbeat_gap=0)
+        task.mark_cancelled()
+        task.transition_reason = str(transition_reason)[:64]
+        await db.flush()
+        return lifecycle_contract(task, max_heartbeat_gap=0)
+
     async def list_running_types_for_novel(
         self,
         db: AsyncSession,

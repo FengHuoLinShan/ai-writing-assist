@@ -110,6 +110,44 @@ async def test_project_preflight_rejects_deleted_project_without_row_lock() -> N
 
 
 @pytest.mark.asyncio
+async def test_interaction_preflight_rejects_author_project_kind() -> None:
+    from core.errors import NotFoundError
+
+    db = AsyncMock()
+    task = MagicMock()
+    task.task_type = "interaction_story_generate"
+    task.meta = {"novel_id": "novel-1"}
+
+    with (
+        patch(
+            "modules.project.facade.get_any_project_context",
+            autospec=True,
+            return_value=MagicMock(project_kind="author"),
+        ) as get_context,
+        pytest.raises(NotFoundError),
+    ):
+        await _require_active_task_project(db, task)
+
+    get_context.assert_awaited_once_with(db, "novel-1")
+
+
+@pytest.mark.asyncio
+async def test_interaction_finalize_guard_requires_interaction_kind() -> None:
+    db = AsyncMock()
+    task = MagicMock()
+    task.task_type = "interaction_summary_refresh"
+    task.meta = {"novel_id": "novel-1"}
+
+    with patch(
+        "modules.project.facade.require_interaction_project",
+        autospec=True,
+    ) as require_interaction:
+        assert await _guard_active_task_project_finalize(db, task) is True
+
+    require_interaction.assert_awaited_once_with(db, "novel-1")
+
+
+@pytest.mark.asyncio
 async def test_finalize_guard_allows_active_or_global_task() -> None:
     db = AsyncMock()
     global_task = MagicMock()

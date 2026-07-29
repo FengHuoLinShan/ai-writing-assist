@@ -24,6 +24,7 @@ from infrastructure.llm.errors import (
     LLMConnectionError,
     LLMError,
     LLMInvalidResponseError,
+    LLMQuotaError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "LLMError",
     "LLMConnectionError",
     "LLMTimeoutError",
+    "LLMQuotaError",
     "LLMRateLimitError",
     "LLMInvalidResponseError",
     "estimate_token_count",

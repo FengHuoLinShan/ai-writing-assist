@@ -130,6 +130,7 @@ async def test_outline_ai_apis_reject_missing_context_confirmation(
 async def test_outline_ai_apis_enqueue_domain_tasks_after_confirmation(
     async_client: AsyncClient,
     db_session: AsyncSession,
+    account_llm_connection: dict,
     path: str,
     action: str,
     task_type: str,

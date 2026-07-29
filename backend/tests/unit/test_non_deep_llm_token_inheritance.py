@@ -8,8 +8,12 @@ from tests.support.inventory import module_python_files, python_ast
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MODULES_ROOT = BACKEND_ROOT / "modules"
 
-_EXPLICIT_BUDGET_ALLOWLIST = {
+_DEEP_IMPORT_BUDGET_ALLOWLIST = {
     "modules/outline/generation/parser.py",
+}
+_EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
+    *_DEEP_IMPORT_BUDGET_ALLOWLIST,
+    "modules/interaction/generation.py",
 }
 
 
@@ -35,7 +39,7 @@ def _llm_request_calls(path: Path) -> list[tuple[int, bool]]:
     return calls
 
 
-def test_only_deep_import_requests_set_explicit_max_tokens() -> None:
+def test_only_approved_workflows_set_explicit_max_tokens() -> None:
     violations: list[str] = []
     for path in module_python_files():
         relative = path.relative_to(BACKEND_ROOT).as_posix()
@@ -43,7 +47,7 @@ def test_only_deep_import_requests_set_explicit_max_tokens() -> None:
             continue
         if relative.startswith("modules/imports/"):
             continue
-        if relative in _EXPLICIT_BUDGET_ALLOWLIST:
+        if relative in _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST:
             continue
         for lineno, has_explicit_budget in _llm_request_calls(path):
             if has_explicit_budget:
@@ -58,7 +62,9 @@ def test_every_deep_import_request_keeps_an_explicit_stage_budget() -> None:
         for path in module_python_files()
         if path.is_relative_to(MODULES_ROOT / "imports")
     ]
-    deep_import_paths.extend(BACKEND_ROOT / path for path in _EXPLICIT_BUDGET_ALLOWLIST)
+    deep_import_paths.extend(
+        BACKEND_ROOT / path for path in _DEEP_IMPORT_BUDGET_ALLOWLIST
+    )
 
     requests: list[str] = []
     missing_budgets: list[str] = []

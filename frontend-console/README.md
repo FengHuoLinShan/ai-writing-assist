@@ -1,6 +1,7 @@
 # 小说结构化创作控制台 — 前端
 
-面向中文作者的**小说结构化创作控制台**。全站采用“编辑档案”视觉系统：米白纸张、深蓝结构线、朱红功能索引和克制的几何编排，同时支持暖色与暗色主题。
+同时提供作者结构化创作工作台和 RP 私人互动故事。作者路径采用“编辑档案”视觉系统；
+RP 路径使用独立、纯白、低干扰的故事壳，同时支持暖色与暗色主题。
 
 ## 快速启动
 
@@ -76,11 +77,11 @@ DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
 `APP_ENV=test` 只切换应用模式与测试路由，不会自动改写 `DATABASE_URL`。
 worker profile 会随 Playwright 启动连接同一独立 E2E 数据库的真实 worker，并等待
 `TaskWorker started` readiness 日志后才运行用例。它用 `WORKER_E2E_LLM_API_KEY` 写入当次
-临时项目的项目级配置；响应、trace 和日志不回显 key，teardown 会先清除全部项目级 key，
+专用测试账户的 DeepSeek 连接；响应、trace 和日志不回显 key，teardown 会先清除该账户连接，
 再严格永久删除测试项目。用例使用持久 Chromium profile，真实关闭并重启浏览器进程，且在
 无页面期间从 task API 观察到 worker 状态或心跳推进后才允许继续。
-可用 `WORKER_E2E_LLM_PROVIDER_ID / WORKER_E2E_LLM_BASE_URL / WORKER_E2E_LLM_MODEL`
-覆盖默认 DeepSeek 配置；`WORKER_E2E_TEST_TIMEOUT_MS` 与
+该真实 Worker 门禁固定验证第一版 DeepSeek 模板，不接受自定义 provider/base URL/model；
+`WORKER_E2E_TEST_TIMEOUT_MS` 与
 `WORKER_E2E_TASK_TIMEOUT_MS` 可覆盖专用长任务预算。若本机同时运行开发 worker，应确保它不
 连接同一个 E2E 数据库，避免抢占 E2E 创建的任务。
 `scripts/e2e-servers.sh` 使用同一 fail-closed guard，会先校验并迁移当前 `DATABASE_URL` 再启动
@@ -158,7 +159,7 @@ frontend-console/
 │   ├── components/         #   跨视图组件（WorkflowProgressCard 等）
 │   ├── composables/        #   跨视图组合式函数（上传/轮询/保存按钮）
 │   ├── *Island.js          #   各一级路由注册与首屏数据预取
-│   └── views/              #   project/rag/settings/world/outline/scene/generate/writing/map SFC
+│   └── views/              #   home/interaction 与作者 project/rag/world/outline/... SFC
 ├── views/                  # Vue 页之下的限定兼容 seam（不再注册页面 renderer）
 │   ├── mapView.js          # 唯一地图 DOM seam：Leaflet/Canvas viewport controller
 │   ├── mapState.js         # mapView seam 内部的可观察会话状态
@@ -212,7 +213,22 @@ frontend-console/
 ## 路由与设置
 
 - 项目回收站支持单个恢复、单个永久删除、批量恢复和批量永久删除；永久删除必须二次确认，批量删除使用后端原子接口，不做部分成功。回收站每页 20 条，桌面端大模态框用双列完整展示当前页，并提供上一页、下一页和总数。
-- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`rag`、`generate`、`settings`、`project-settings`；`outline` 默认进入层级最高的 `story-outline`，子导航依次进入篇章纲、剧情线和场景工作台。旧 `scene` 路由跳转到 `outline/scenes`，旧伏笔/揭示路由跳转到剧情线的信息推进区域。快速切换项目或初始化期间使用浏览器前进/后退时，晚到的项目元数据或 island 加载请求不会继续提交旧路由和页面，也不会覆盖当前工作区。新鲜渲染由路由提交 view 返回的挂载点后再调用 `onRendered()`；需要访问新 DOM 的 controller 绑定应放在该生命周期中，不要用零延时定时器猜测 DOM 提交时机。router 不再缓存活 DOM；`outline` 离开时停止 workflow 轮询并从持久化记录恢复，`writing` 使用项目隔离的显式 session snapshot 恢复作者编辑态。
+- 根路由 `home` 只展示 `我是作家` 与 `我是 RP 用户` 两个大框；RP 使用 `journeys` 列表与
+  `interaction/{journey_id}` 故事路由。作者一级路由包含 `project`、`writing`、`world`、
+  `map`、`outline`、`rag`、`generate`、`settings`、`project-settings`。`outline` 默认进入
+  层级最高的 `story-outline`，旧 `scene` 路由跳转到 `outline/scenes`。快速切换或初始化期间
+  使用浏览器前进/后退时，晚到请求不会提交旧路由或覆盖当前页面。router 不缓存活 DOM；
+  `outline` 离开时停止 workflow 轮询并从持久化记录恢复，`writing` 使用项目隔离的显式
+  session snapshot 恢复作者编辑态。
+- 作者项目边界统一由 router 事务化处理：先运行当前页 `canLeave` 与项目导航 modal 预检；
+  通过后在旧项目 state/DOM 仍有效时恰好调用一次 `onLeave`，立即切到不含保存、发布或 AI
+  操作的中性骨架，再以 abort + generation 同步目标项目。mounted route、pending target 和
+  failure route 分开保存，目标只有完成 `onEnter → render → onRendered` 才成为 mounted；
+  半挂载失败会执行 `onLeave` 清理。临时跨项目失败只能重试目标或返回项目列表，不恢复旧项目
+  DOM；同项目临时 refresh 保留编辑页，403/404/422 等项目失效则 fail-closed。
+- RP 旅程列表默认折叠搜索；开场输入以淡字提示世界、身份、时间地点和愿望。故事页支持
+  流式重连、草稿、重新生成/其他分支、行动选项填入、简单分支树、总回顾、看海开关与右侧
+  生成段落定位轨。移动端定位轨降级，composer 固定在可视底部；390×844 不横向溢出。
 - 地图 hash 使用 `overview` / `recent` / `dashboard` / `live` / `lens` 规范模式；旧
   `mode=map` 首次读取后使用 replace 规范为 `mode=live`。跨地图/返回总览使用
   history push，同地图的模式、Scene 和聚焦变更使用 replace。
@@ -262,7 +278,10 @@ frontend-console/
   前进/后退会恢复并重新检索；显示游标和证据抽屉不写 URL。新查询会 abort 旧请求，并以
   project/lifecycle generation 拒绝晚到响应。证据抽屉另有独立 abort/generation/project/drawer
   门禁，关闭抽屉或切换项目后的旧正文、引用和导航结果不能覆盖当前抽屉。
-- `settings` 是无项目也可访问的全局设置页；`project-settings` 管理当前项目的 LLM 主配置、深度导入参数和作者偏好。主配置中的“默认输出上限”由非深度导入业务调用继承，系统默认 `12000`；深度导入继续显示并使用自己的阶段预算。两个设置页在存在未保存输入时都会拦截路由离开和浏览器关闭。
+- `settings` 是无项目也可访问的账户设置页：模型连接只显示固定模板和 Key 输入，并只读显示
+  余额（可能有延迟，无充值入口）。DeepSeek 默认模板是 `deepseek-v4-flash`；Kimi K3 在
+  后端真实兼容门禁通过前不会出现。`project-settings` 只管理深度导入参数和作者偏好，
+  不再提供项目级 provider/model/Key。两个设置页在存在未保存输入时都会拦截离开。
 - 旧 `llm` 入口会按当前项目状态跳转到 `project-settings` 或 `settings`。
 - 旧 `context` hash 不再是一级页面，路由层会重定向到 `generate?tab=task`。
 

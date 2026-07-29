@@ -29,6 +29,23 @@ renderer 内存与另一个项目的 DOM 重新组合。缓存的是“活 DOM�
 5. 所有异步提交继续使用 project owner + lifecycle generation。卸载、项目切换或新请求后，
    旧响应不得写回新页面。
 
+## 项目边界事务（WORLD-009）
+
+作者工作台的项目页共享同一条 route-host 生命周期。项目边界不是“先加载目标、成功后替换
+旧页”，而是一次有明确提交点的事务：
+
+| 阶段 | 顺序与提交规则 |
+|------|----------------|
+| 退出预检 | 先规范化目标路由，再依次执行当前 renderer 的同步 `canLeave` 与 `closeModal({ reason: "project-navigation" })`。任一拒绝时不改 state、不卸载、不请求目标项目；`popstate` 还原来源 hash。项目列表等不依赖项目的 route host 不拥有当前项目，不能因列表中有选中项目而触发该弹窗门禁。 |
+| 提交边界 | router 原子取走 `_mountedRoute`，在旧项目 state 与 DOM 仍有效时恰好调用一次 `onLeave`，随后清空宿主、显示无项目业务操作的中性骨架、清理全局选择，再切换 `currentProjectId`。从这一刻起，失败或重试都不能恢复旧项目的活 DOM。 |
+| 同步目标 | 取消上一项目请求，并用 route transition generation 获取目标元数据。晚到、已取消或被更新导航取代的结果不得修改 state、URL、DOM、history 或失败态。程序化导航只在当前目标仍有效时写 history；pending/stale 阶段不触发 `onNavigate`。 |
+| 目标提交 | 目标 renderer 必须完整完成 `onEnter → render → onRendered` 后才能成为新的 `_mountedRoute`。任一步失败都调用该 renderer 的 `onLeave` 清理半启动资源，再进入不含业务操作的失败页；骨架与失败页都不是 mounted route。 |
+| 恢复与重入 | 跨项目临时失败只允许重试同一目标或返回项目列表；不可访问项目清除无效选择。同项目 refresh 遇网络、408、429 或 5xx 时保留当前编辑页，遇 403、404、422 等不可重试 4xx 时立即退出。A→B 尚未完成又转向 C 时取消 B 并复用中性态，A 的 `onLeave` 仍只执行一次，B 不得短暂挂载。 |
+
+Router 分开保存 mounted route、pending target 与 failure route，不得再根据历史 view 字段或全局
+失败标记互相推断。项目所有权只来自已经挂载且 `requiresProject` 的路由；项目 ID 变化时即使
+view 名相同，也必须清除跨页全局选择。401 继续由账户安全刷新边界接管。
+
 ## 显式重建表
 
 | 能力 | 重建方式 |

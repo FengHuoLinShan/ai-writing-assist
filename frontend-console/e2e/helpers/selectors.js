@@ -20,6 +20,7 @@ export const SEL = {
   // 空态 / 加载
   emptyState: ".empty-state",
   loading: ".loading",
+  loadingSkeleton: ".loading-skeleton",
 
   // 数据表格
   dataTable: ".data-table",
@@ -74,6 +75,14 @@ export const SEL = {
   writingToolsMenu: "details.writing-tools-menu > summary",
   deepImportProgress: "#writing-deep-import-bar-container",
   deepImportMapNext: '[data-action="deep-import-map-next"]',
+
+  // 世界书
+  worldBibleWorkspace: ".world-bible-workspace",
+  worldBibleNewPage: '[data-action="bible-new-page"]',
+  worldBibleCreateTitle: "#bible-create-title",
+  worldBibleSavePage: '[data-action="bible-save-page"]',
+  worldBiblePublishPage: '[data-action="bible-publish-page"]',
+  worldBibleImproveWithAi: '[data-action="bible-improve-with-ai"]',
 
   // 地图
   mapBreadcrumb: ".map-breadcrumb",

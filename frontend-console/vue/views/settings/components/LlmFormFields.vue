@@ -78,7 +78,7 @@ function presetSummary(presetId, preset) {
 
 <template>
   <div class="llm-main-form">
-    <p v-if="!withApiKey" class="llm-global-hint">全局默认不存 API Key；Key 仅项目级。</p>
+    <p v-if="!withApiKey" class="llm-global-hint">模型 Key 在账户级模型连接中统一管理。</p>
     <div class="form-row">
       <div class="form-group">
         <label for="llm-provider">供应商模板</label>

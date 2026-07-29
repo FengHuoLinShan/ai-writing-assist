@@ -510,6 +510,79 @@ describe("shared modal accessibility", () => {
     await Promise.resolve()
   })
 
+  it("lets project navigation close an unchanged modal through the normal protection path", () => {
+    const opener = document.getElementById("opener")
+    const input = document.createElement("input")
+    opener.focus()
+    showModal("查看项目资料", input)
+
+    const closed = closeModal({ reason: "project-navigation" })
+
+    expect(closed).toBe(true)
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it("keeps a dirty modal open when project navigation discard is rejected", () => {
+    const confirmSpy = stubConfirm(false)
+    const input = document.createElement("input")
+    input.value = "项目 A"
+    showModal("编辑项目资料", input)
+    input.value = "尚未保存"
+
+    const closed = closeModal({ reason: "project-navigation" })
+
+    expect(closed).toBe(false)
+    expect(confirmSpy).toHaveBeenCalledOnce()
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+    expect(input.value).toBe("尚未保存")
+  })
+
+  it("blocks project navigation while any modal action is still running", async () => {
+    let resolveSave
+    const save = new Promise((resolve) => { resolveSave = resolve })
+    const input = document.createElement("input")
+    showModal("保存项目资料", input, [{ text: "保存", handler: () => save }])
+    document.querySelector("#modal-footer button").click()
+
+    const closed = closeModal({ reason: "project-navigation" })
+
+    expect(closed).toBe(false)
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+    expect(toast).toHaveBeenCalledWith(
+      "当前操作仍在处理中，请完成后再切换项目",
+      "warning",
+    )
+    resolveSave(false)
+    await Promise.resolve()
+  })
+
+  it("blocks project navigation after a pending action force-closes its modal", async () => {
+    let resolveSave
+    const save = new Promise((resolve) => { resolveSave = resolve })
+    showModal("保存项目资料", "正在保存", [{
+      text: "保存",
+      handler: () => {
+        closeModal({ force: true })
+        return save
+      },
+    }])
+    document.querySelector("#modal-footer button").click()
+    await vi.waitFor(() => {
+      expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
+    })
+
+    const closed = closeModal({ reason: "project-navigation" })
+
+    expect(closed).toBe(false)
+    expect(toast).toHaveBeenCalledWith(
+      "当前操作仍在处理中，请完成后再切换项目",
+      "warning",
+    )
+    resolveSave(false)
+    await Promise.resolve()
+  })
+
   it("does not let a cancel handler bypass protection while an async action is pending", async () => {
     const confirmSpy = stubConfirm(false)
     let resolveSave

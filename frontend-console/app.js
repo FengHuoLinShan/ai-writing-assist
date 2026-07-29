@@ -16,6 +16,7 @@ import { mountShell } from "./vue/shell/mountShell.js"
 import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
 
 // 已迁移的 Vue island 在 router 初始化前完成注册。
+import "./vue/interactionIsland.js"
 import "./vue/settingsIslands.js"
 import "./vue/projectIsland.js"
 import "./vue/ragIsland.js"

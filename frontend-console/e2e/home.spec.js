@@ -7,17 +7,25 @@ test.describe("首页与导航", () => {
     await waitForBackend(60000)
   })
 
-  test("应用加载并显示项目视图", async ({ page }) => {
+  async function enterAuthor(page) {
+    await page.getByRole("button", { name: /我是作家/ }).click()
+    await expect(page.locator(SEL.sidebar)).toBeVisible()
+  }
+
+  test("应用加载并显示两个清晰的身份入口", async ({ page }) => {
     await page.goto("/")
 
-    await expect(page.locator(SEL.topbarTitle)).toContainText("NovelCraft")
-    await expect(page.locator(SEL.sidebar)).toBeVisible()
+    await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" }))
+      .toBeVisible()
+    await expect(page.getByRole("button", { name: /我是作家/ })).toBeVisible()
+    await expect(page.getByRole("button", { name: /我是 RP/ })).toBeVisible()
+    await expect(page.locator(SEL.sidebar)).toHaveCount(0)
     await expect(page.locator(SEL.workspace)).toBeVisible()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
   })
 
   test("侧边栏导航项可见", async ({ page }) => {
     await page.goto("/")
+    await enterAuthor(page)
 
     const navItems = [
       "project",
@@ -39,6 +47,7 @@ test.describe("首页与导航", () => {
 
   test("点击导航切换视图", async ({ page }) => {
     await page.goto("/")
+    await enterAuthor(page)
 
     await page.locator(SEL.navItem("world")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
@@ -59,6 +68,7 @@ test.describe("首页与导航", () => {
 
   test("后端连接状态显示", async ({ page }) => {
     await page.goto("/")
+    await enterAuthor(page)
 
     const status = page.locator(SEL.topbarStatus)
     await expect(status).toContainText("已连接", { timeout: 10000 })
@@ -66,6 +76,7 @@ test.describe("首页与导航", () => {
 
   test("快捷键帮助弹窗", async ({ page }) => {
     await page.goto("/")
+    await enterAuthor(page)
 
     await page.keyboard.press("?")
     await expect(page.locator(SEL.helpOverlay)).toBeVisible()
@@ -77,6 +88,7 @@ test.describe("首页与导航", () => {
 
   test("命令栏聚焦与失焦", async ({ page }) => {
     await page.goto("/")
+    await enterAuthor(page)
 
     await page.keyboard.press(":")
     const input = page.locator(SEL.commandInput)

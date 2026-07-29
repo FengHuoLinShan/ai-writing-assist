@@ -25,20 +25,13 @@ from modules.project.models import Project
 
 
 @pytest_asyncio.fixture
-async def sample_project(async_client: AsyncClient, db_session):
+async def sample_project(
+    async_client: AsyncClient,
+    account_llm_connection: dict,
+):
     resp = await async_client.post("/api/projects", json={"title": "导入 API 测试小说"})
     assert resp.status_code == 201
-    data = resp.json()
-    project = await db_session.get(Project, uuid.UUID(data["id"]))
-    project.settings = {
-        "llm": {
-            "api_key": "sk-import-api-test",
-            "base_url": "https://example.test/v1",
-            "model": "test-model",
-        }
-    }
-    await db_session.flush()
-    return data
+    return resp.json()
 
 
 @pytest.mark.asyncio
@@ -540,7 +533,7 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
     assert task.result["llm_execution_snapshot"] == llm_snapshot
     assert llm_snapshot["novel_id"] == novel_id
     assert llm_snapshot["profile"]["base_url_host"]
-    assert llm_snapshot["sources"]["model"] in {"project", "global", "system"}
+    assert llm_snapshot["sources"]["model"] == "account"
     assert "api_key" not in llm_snapshot["profile"]
     assert "base_url" not in llm_snapshot["profile"]
     assert task.result["asset_summary"]["adopted"] == 0
@@ -599,7 +592,8 @@ async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
     )
 
     assert resp.status_code == 400
-    assert "API key" in resp.json()["detail"]
+    assert "API Key" in resp.json()["detail"]
+    assert "账户设置" in resp.json()["detail"]
     result = await db_session.execute(
         select(AsyncTask).where(AsyncTask.meta["novel_id"].as_string() == novel_id)
     )

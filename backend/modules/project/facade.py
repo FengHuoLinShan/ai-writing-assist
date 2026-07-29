@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from core.logging_context import bind_validated_novel_id
-from modules.project.contracts import ProjectSummary
+from modules.project.contracts import InteractionProjectContract, ProjectSummary
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext
@@ -67,6 +67,21 @@ async def get_project_context(
     return context.model_copy(update={"settings": settings})
 
 
+async def get_any_project_context(
+    db: AsyncSession,
+    novel_id: str,
+) -> ProjectContext | None:
+    """Task composition-root lookup for either internal project kind."""
+    context = await _service.get_project_context(
+        db,
+        novel_id,
+        project_kind=None,
+    )
+    if context is not None:
+        bind_validated_novel_id(novel_id)
+    return context
+
+
 async def require_active_project(
     db: AsyncSession,
     novel_id: str,
@@ -74,6 +89,55 @@ async def require_active_project(
     """Require an active project, hiding missing and recycled projects as 404."""
     await _service.require_active_project(db, novel_id)
     bind_validated_novel_id(novel_id)
+
+
+async def require_interaction_project(
+    db: AsyncSession,
+    novel_id: str,
+) -> None:
+    """Require the current owner's active hidden interaction project."""
+    await _service.require_active_project(
+        db,
+        novel_id,
+        project_kind="interaction",
+    )
+    bind_validated_novel_id(novel_id)
+
+
+async def require_any_active_project(
+    db: AsyncSession,
+    novel_id: str,
+) -> None:
+    """Infrastructure-only guard for either project kind."""
+    await _service.require_active_project(
+        db,
+        novel_id,
+        project_kind=None,
+    )
+    bind_validated_novel_id(novel_id)
+
+
+async def create_interaction_project(
+    db: AsyncSession,
+    *,
+    title: str,
+) -> InteractionProjectContract:
+    return await _service.create_interaction_project(db, title=title)
+
+
+async def archive_interaction_project(db: AsyncSession, novel_id: str) -> None:
+    await _service.archive_interaction_project(db, novel_id)
+
+
+async def restore_interaction_project(db: AsyncSession, novel_id: str) -> None:
+    await _service.restore_interaction_project(db, novel_id)
+
+
+async def permanently_delete_interaction_project(
+    db: AsyncSession,
+    novel_id: str,
+) -> None:
+    await _service.permanently_delete_interaction_project(db, novel_id)
 
 
 async def require_active_project_exclusive(
@@ -137,7 +201,10 @@ async def list_active_project_summaries(
     """
     from modules.account.facade import current_owner_id_or_system_none
 
-    conditions = [Project.deleted_at.is_(None)]
+    conditions = [
+        Project.deleted_at.is_(None),
+        Project.project_kind == "author",
+    ]
     owner_id = current_owner_id_or_system_none()
     if owner_id is not None:
         conditions.append(Project.owner_id == owner_id)
