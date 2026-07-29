@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const indexHtml = readFileSync(resolve(__dirname, "../index.html"), "utf8")
+const styles = readFileSync(resolve(__dirname, "../styles.css"), "utf8")
 const theme = readFileSync(resolve(__dirname, "../editorial-theme.css"), "utf8")
 
 describe("editorial archive theme", () => {
@@ -67,6 +68,12 @@ describe("editorial archive theme", () => {
     }
     expect(theme).toContain('#workspace-content:not([data-workspace-view="project"])::before')
     expect(theme).toContain('#workspace-content[data-workspace-view="project"]::before')
+  })
+
+  it("removes author folio decorations from full-screen home and RP routes", () => {
+    expect(styles).toMatch(
+      /#main-layout\.main-layout--immersive #workspace-content::before,\s*#main-layout\.main-layout--immersive #workspace-content::after\s*\{[^}]*display:\s*none;[^}]*content:\s*none;/s,
+    )
   })
 
   it("uses the art direction on low-risk presentation surfaces", () => {

@@ -212,6 +212,55 @@ describe("RP 故事页", () => {
     expect(api.interactions.sendMessage).not.toHaveBeenCalled()
   })
 
+  it("安全显示模型 Markdown，并让完整行动建议只填入输入框", async () => {
+    const longAction = "我先放慢脚步，完整观察门缝里的影子，再决定是否推门进入。"
+    const markdown = "## 门后的钟声\n\n**克莱恩**听见了第二次敲击。"
+    const initialJourney = journey({
+      messages: [
+        message("u2", "user", "我继续向前。"),
+        message("a2", "assistant", markdown, {
+          action_suggestions: [{
+            label: "谨慎观察",
+            text: longAction,
+          }],
+        }),
+      ],
+    })
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney,
+        llmConnections: connected(),
+      },
+    })
+    const assistantMessage = wrapper.get("[data-rp-message-id='a2']")
+
+    expect(assistantMessage.get("h2").text()).toBe("门后的钟声")
+    expect(assistantMessage.get("strong").text()).toBe("克莱恩")
+    expect(assistantMessage.get(".rp-action-card__label").text()).toBe("谨慎观察")
+    expect(assistantMessage.get(".rp-action-card__text").text()).toBe(longAction)
+
+    const actions = assistantMessage.findAll(".rp-message__actions button")
+    const copyIndex = actions.findIndex((button) => button.text() === "复制")
+    expect(copyIndex).toBeGreaterThanOrEqual(0)
+    expect(actions[copyIndex + 1].text()).toBe("重新生成")
+    expect(actions[copyIndex].classes()).toContain("rp-message-action-button")
+    expect(actions[copyIndex + 1].classes()).toContain("rp-message-action-button")
+
+    await actions[copyIndex].trigger("click")
+    expect(writeText).toHaveBeenCalledWith(markdown)
+
+    await assistantMessage.get(".rp-action-card").trigger("click")
+    expect(wrapper.get("textarea[aria-label='继续旅程']").element.value).toBe(longAction)
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(api.interactions.sendMessage).not.toHaveBeenCalled()
+    expect(api.interactions.regenerate).not.toHaveBeenCalled()
+  })
+
   it("只在真实分岔时显示位置并用完整行动文本，切换时保留草稿并淡提示", async () => {
     api = makeApi({
       listBranches: vi.fn(async () => ({
@@ -253,7 +302,7 @@ describe("RP 故事页", () => {
     })
     await flushPromises()
 
-    expect(wrapper.get(".rp-action-options button").text())
+    expect(wrapper.get(".rp-action-card__text").text())
       .toBe("我立刻追上去。")
     const branchButton = wrapper.findAll(".rp-message__actions button")
       .find((button) => button.text() === "其他分支 2/2")

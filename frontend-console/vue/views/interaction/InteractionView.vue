@@ -31,6 +31,7 @@ import {
   SHELL_THEMES,
 } from "../../shell/composables/useTheme.js"
 import { safeInteractionError } from "./interactionErrors.js"
+import RpMarkdownContent from "./RpMarkdownContent.vue"
 
 const props = defineProps({
   initialJourney: { type: Object, default: null },
@@ -1607,7 +1608,12 @@ onBeforeUnmount(() => {
           <div class="rp-message__label">
             {{ message.role === "user" ? "你" : "开场说明" }}
           </div>
-          <div class="rp-message__text">{{ message.content }}</div>
+          <RpMarkdownContent
+            v-if="message.role === 'assistant'"
+            class="rp-message__text"
+            :source="message.content"
+          />
+          <div v-else class="rp-message__text">{{ message.content }}</div>
           <div v-if="message.role === 'user'" class="rp-message__actions">
             <button type="button" @click="editUser(message)">修改开场</button>
           </div>
@@ -1629,24 +1635,33 @@ onBeforeUnmount(() => {
         :data-rp-message-id="message.id"
       >
         <div class="rp-message__label">{{ message.role === "user" ? "你" : "故事" }}</div>
-        <div class="rp-message__text">{{ message.content }}</div>
+        <RpMarkdownContent
+          v-if="message.role === 'assistant'"
+          class="rp-message__text"
+          :source="message.content"
+        />
+        <div v-else class="rp-message__text">{{ message.content }}</div>
         <p v-if="message.completion_state === 'partial'" class="rp-partial-note">保留的未完整片段</p>
         <div class="rp-message__actions">
-          <button class="rp-copy-action" type="button" @click="copyMessage(message)">复制</button>
-          <button v-if="message.role === 'user'" type="button" @click="editUser(message)">修改这一步</button>
-          <template v-else-if="message.id === lastStoryMessageId">
-            <button type="button" @click="regenerate(message)">重新生成</button>
+          <template v-if="message.role === 'user'">
+            <button type="button" @click="editUser(message)">修改这一步</button>
+            <button class="rp-message-action-button" type="button" @click="copyMessage(message)">复制</button>
+          </template>
+          <template v-else>
+            <button class="rp-message-action-button" type="button" @click="copyMessage(message)">复制</button>
             <button
-              v-if="branchPosition(message.id)"
+              v-if="message.id === lastStoryMessageId"
+              class="rp-message-action-button"
+              type="button"
+              @click="regenerate(message)"
+            >重新生成</button>
+            <button
+              v-if="message.id === lastStoryMessageId && branchPosition(message.id)"
               type="button"
               @click="toggleBranches(message)"
             >其他分支 {{ branchPosition(message.id) }}</button>
           </template>
         </div>
-        <details class="rp-message-more">
-          <summary aria-label="更多消息操作">•••</summary>
-          <div><button type="button" @click="copyMessage(message)">复制</button></div>
-        </details>
         <div v-if="branchOpenNode === message.id" class="rp-branch-popover">
           <button
             v-for="variant in recentVariants(message.id)"
@@ -1674,13 +1689,18 @@ onBeforeUnmount(() => {
             && !journey.see_sea_enabled
           "
           class="rp-action-options"
+          aria-label="行动建议"
         >
           <button
-            v-for="option in message.action_suggestions"
-            :key="`${message.id}-${option.label}`"
+            v-for="(option, optionIndex) in message.action_suggestions"
+            :key="`${message.id}-${option.label}-${optionIndex}`"
+            class="rp-action-card"
             type="button"
             @click="fillAction(option.text)"
-          >{{ option.text }}</button>
+          >
+            <span class="rp-action-card__label">{{ option.label || `行动建议 ${optionIndex + 1}` }}</span>
+            <span class="rp-action-card__text">{{ option.text }}</span>
+          </button>
         </div>
       </article>
 
@@ -1689,7 +1709,11 @@ onBeforeUnmount(() => {
         <p v-if="currentAttempt?.status === 'preparing_context'" class="rp-stream-status">
           正在整理最近剧情…
         </p>
-        <div v-if="streamText" class="rp-message__text">{{ streamText }}</div>
+        <RpMarkdownContent
+          v-if="streamText"
+          class="rp-message__text"
+          :source="streamText"
+        />
         <div v-else class="rp-stream-wait"><i></i><i></i><i></i></div>
         <p v-if="streamError" class="rp-stream-status">{{ streamError }}</p>
       </article>
