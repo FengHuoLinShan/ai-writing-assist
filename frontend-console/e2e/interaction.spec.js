@@ -28,7 +28,7 @@ async function expectFillsViewportWidth(locator) {
   expect(Math.abs(box.width - viewportWidth)).toBeLessThanOrEqual(1)
 }
 
-async function mockRpApis(page) {
+async function mockRpApis(page, { seeSeaNoticeAcknowledged = true } = {}) {
   const journey = {
     id: journeyId,
     title: "雾港钟楼",
@@ -79,7 +79,9 @@ async function mockRpApis(page) {
   }))
   await page.route("**/api/interactions/preferences", (route) => route.fulfill({
     contentType: "application/json",
-    body: JSON.stringify({ see_sea_notice_acknowledged: true }),
+    body: JSON.stringify({
+      see_sea_notice_acknowledged: seeSeaNoticeAcknowledged,
+    }),
   }))
   await page.route(`**/api/interactions/journeys/${journeyId}/path-index`, (route) => (
     route.fulfill({
@@ -228,6 +230,35 @@ test.describe("RP 路由与窄屏故事页", () => {
       document.documentElement.scrollWidth - window.innerWidth
     ))
     expect(overflow).toBeLessThanOrEqual(0)
+    expect(browserErrors).toEqual([])
+  })
+
+  test("底部看海确认按可视视口自动向上弹出且不被裁剪", async ({
+    page,
+    browserErrors,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 520 })
+    await mockRpApis(page, { seeSeaNoticeAcknowledged: false })
+    await page.goto(`/#interaction/${journeyId}`)
+
+    const seaButton = page.getByRole("button", { name: "看海模式" })
+    await seaButton.click()
+    const confirmation = page.locator(".rp-adaptive-confirm")
+    await expect(confirmation).toBeVisible()
+    await expect(confirmation).toHaveAttribute("data-placement", "top")
+    await expect(confirmation.getByRole("alertdialog")).toContainText(
+      "会持续使用你的模型额度",
+    )
+    await expect(seaButton).toHaveAttribute("aria-expanded", "true")
+
+    const box = await confirmation.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+    expect(box.y + box.height).toBeLessThanOrEqual(520)
+    expect(await confirmation.evaluate((element) => element.parentElement === document.body))
+      .toBe(true)
     expect(browserErrors).toEqual([])
   })
 })

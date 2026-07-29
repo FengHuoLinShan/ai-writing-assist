@@ -30,6 +30,7 @@ import {
   normalizeTheme,
   SHELL_THEMES,
 } from "../../shell/composables/useTheme.js"
+import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
 import { safeInteractionError } from "./interactionErrors.js"
 import RpMarkdownContent from "./RpMarkdownContent.vue"
 
@@ -98,6 +99,8 @@ const newContent = ref(false)
 const newContentCount = ref(0)
 const stopAfterCurrentNotice = ref(false)
 const seeSeaNoticeOpen = ref(false)
+const seeSeaButton = ref(null)
+const seeSeaConfirming = ref(false)
 const seeSeaNoticeAcknowledged = ref(
   props.preferences?.see_sea_notice_acknowledged === true,
 )
@@ -1199,6 +1202,8 @@ function requestModeToggle(field) {
 }
 
 async function confirmSeeSea() {
+  if (seeSeaConfirming.value) return
+  seeSeaConfirming.value = true
   try {
     await getApi().interactions.acknowledgeSeeSeaNotice()
     seeSeaNoticeAcknowledged.value = true
@@ -1206,6 +1211,8 @@ async function confirmSeeSea() {
     await toggleMode("see_sea_enabled")
   } catch {
     getToast()("暂时无法保存提示状态，请重试。", "error")
+  } finally {
+    seeSeaConfirming.value = false
   }
 }
 
@@ -1857,10 +1864,14 @@ onBeforeUnmount(() => {
           @click="openOverview"
         >回顾</button>
         <button
+          ref="seeSeaButton"
           type="button"
           class="rp-mode-toggle"
           :class="{ active: journey.see_sea_enabled }"
           :aria-pressed="journey.see_sea_enabled"
+          aria-haspopup="dialog"
+          :aria-expanded="seeSeaNoticeOpen"
+          aria-controls="rp-story-see-sea-confirm"
           @click="requestModeToggle('see_sea_enabled')"
         >看海模式</button>
         <button
@@ -1881,11 +1892,16 @@ onBeforeUnmount(() => {
             )
         }}</span>
       </div>
-      <div v-if="seeSeaNoticeOpen" class="rp-sea-notice">
-        <span>看海模式会持续使用你的模型额度；离开页面或关闭开关后会停止。</span>
-        <button type="button" @click="seeSeaNoticeOpen = false">取消</button>
-        <button class="primary" type="button" @click="confirmSeeSea">开始看海</button>
-      </div>
+      <RpAdaptiveConfirmPopover
+        id="rp-story-see-sea-confirm"
+        :anchor="seeSeaButton"
+        :busy="seeSeaConfirming"
+        confirm-text="开始看海"
+        message="看海模式会持续使用你的模型额度；离开页面或关闭开关后会停止。"
+        :open="seeSeaNoticeOpen"
+        @close="seeSeaNoticeOpen = false"
+        @confirm="confirmSeeSea"
+      />
     </footer>
 
     <aside v-if="overviewOpen" class="rp-drawer" aria-label="当前回顾">

@@ -13,6 +13,7 @@ import {
   readOpeningDraft,
   writeOpeningDraft,
 } from "./interactionSession.js"
+import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
 import { safeInteractionError } from "./interactionErrors.js"
 
 const props = defineProps({
@@ -45,6 +46,8 @@ const createErrorAction = ref("")
 const searching = ref(false)
 const loadingMore = ref(false)
 const seeSeaNoticeOpen = ref(false)
+const seeSeaButton = ref(null)
+const seeSeaConfirming = ref(false)
 const seeSeaNoticeAcknowledged = ref(
   props.preferences?.see_sea_notice_acknowledged === true,
 )
@@ -210,6 +213,8 @@ function requestSeeSea() {
 }
 
 async function confirmSeeSea() {
+  if (seeSeaConfirming.value) return
+  seeSeaConfirming.value = true
   try {
     await getApi().interactions.acknowledgeSeeSeaNotice()
     seeSeaNoticeAcknowledged.value = true
@@ -217,6 +222,8 @@ async function confirmSeeSea() {
     seeSea.value = true
   } catch {
     getToast()("暂时无法保存提示状态，请重试。", "error")
+  } finally {
+    seeSeaConfirming.value = false
   }
 }
 
@@ -355,10 +362,14 @@ onMounted(() => {
       </p>
       <div class="rp-mode-row">
         <button
+          ref="seeSeaButton"
           type="button"
           class="rp-mode-toggle"
           :class="{ active: seeSea }"
           :aria-pressed="seeSea"
+          aria-haspopup="dialog"
+          :aria-expanded="seeSeaNoticeOpen"
+          aria-controls="rp-new-journey-see-sea-confirm"
           @click="requestSeeSea"
         >看海模式</button>
         <button
@@ -370,11 +381,16 @@ onMounted(() => {
         >行动选项</button>
         <span>{{ seeSea ? "故事会持续自主发展，直到你关闭" : "关键行动由你决定" }}</span>
       </div>
-      <div v-if="seeSeaNoticeOpen" class="rp-sea-notice">
-        <span>看海模式会持续使用你的模型额度；离开页面或关闭开关后会停止。</span>
-        <button type="button" @click="seeSeaNoticeOpen = false">取消</button>
-        <button class="primary" type="button" @click="confirmSeeSea">开始看海</button>
-      </div>
+      <RpAdaptiveConfirmPopover
+        id="rp-new-journey-see-sea-confirm"
+        :anchor="seeSeaButton"
+        :busy="seeSeaConfirming"
+        confirm-text="开始看海"
+        message="看海模式会持续使用你的模型额度；离开页面或关闭开关后会停止。"
+        :open="seeSeaNoticeOpen"
+        @close="seeSeaNoticeOpen = false"
+        @confirm="confirmSeeSea"
+      />
       <p v-if="createError" class="rp-inline-error" role="alert">
         {{ createError }}
         <button

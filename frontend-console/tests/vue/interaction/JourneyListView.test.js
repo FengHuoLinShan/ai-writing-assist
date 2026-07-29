@@ -177,9 +177,10 @@ describe("RP 旅程列表与开场", () => {
       .find((button) => button.text() === "看海模式")
     await sea.trigger("click")
     expect(sea.attributes("aria-pressed")).toBe("false")
-    await wrapper.findAll(".rp-sea-notice button")
-      .find((button) => button.text() === "开始看海")
-      .trigger("click")
+    const confirmButton = [...document.querySelectorAll(".rp-sea-notice button")]
+      .find((button) => button.textContent === "开始看海")
+    confirmButton.click()
+    confirmButton.click()
     await flushPromises()
 
     expect(api.interactions.acknowledgeSeeSeaNotice).toHaveBeenCalledTimes(1)

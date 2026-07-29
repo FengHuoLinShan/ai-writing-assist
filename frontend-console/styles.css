@@ -240,6 +240,7 @@ html, body {
 #app {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -13794,6 +13795,7 @@ button.rp-journey-card__main:hover {
     left: 0;
     width: auto;
     max-height: min(70vh, 540px);
+    max-height: min(70dvh, 540px);
     margin: 0;
     padding: 12px 12px max(14px, env(safe-area-inset-bottom));
     overflow: auto;
@@ -13879,5 +13881,119 @@ button.rp-journey-card__main:hover {
     right: 10px;
     bottom: 165px;
     left: 10px;
+  }
+}
+
+/* RP 低频确认：脱离滚动/输入容器，并按 visual viewport 智能选择上下方向。 */
+.rp-adaptive-confirm {
+  --rp-confirm-accent: #2466d1;
+  --rp-confirm-accent-soft: #eef4ff;
+  --rp-confirm-border: #d8e4f8;
+  --rp-confirm-muted: #717987;
+  --rp-confirm-panel: #fff;
+  position: fixed;
+  z-index: 110;
+  width: min(360px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  margin: 0;
+}
+
+.rp-adaptive-confirm__surface.rp-sea-notice {
+  display: grid;
+  max-height: inherit;
+  align-items: stretch;
+  gap: 9px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border-color: var(--rp-confirm-border);
+  background: var(--rp-confirm-accent-soft);
+  box-shadow: 0 14px 34px rgba(24, 42, 70, 0.18);
+  color: var(--rp-confirm-muted);
+  overscroll-behavior: contain;
+}
+
+[data-theme="dark"] .rp-adaptive-confirm {
+  --rp-confirm-accent: var(--accent);
+  --rp-confirm-accent-soft: var(--bg-active);
+  --rp-confirm-border: var(--text-quaternary);
+  --rp-confirm-muted: var(--text-secondary);
+  --rp-confirm-panel: var(--bg-panel);
+}
+
+[data-theme="warm"] .rp-adaptive-confirm {
+  --rp-confirm-accent: var(--accent);
+  --rp-confirm-accent-soft: var(--accent-soft);
+  --rp-confirm-border: var(--text-quaternary);
+  --rp-confirm-muted: var(--text-secondary);
+  --rp-confirm-panel: var(--bg-panel);
+}
+
+.rp-adaptive-confirm__surface strong {
+  color: var(--rp-confirm-muted);
+  font-size: 12px;
+}
+
+.rp-adaptive-confirm__surface p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.rp-adaptive-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rp-adaptive-confirm__surface.rp-sea-notice button {
+  min-height: 36px;
+  background: var(--rp-confirm-panel);
+  color: var(--rp-confirm-muted);
+}
+
+.rp-adaptive-confirm__surface.rp-sea-notice .primary {
+  background: var(--rp-confirm-accent);
+  color: #fff;
+}
+
+.rp-adaptive-confirm__surface button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.rp-adaptive-confirm__arrow {
+  position: absolute;
+  z-index: 1;
+  left: var(--rp-popover-arrow-x);
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--rp-confirm-border, #d8e4f8);
+  background: var(--rp-confirm-accent-soft, #eef4ff);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.rp-adaptive-confirm[data-placement="bottom"] .rp-adaptive-confirm__arrow {
+  top: -5px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.rp-adaptive-confirm[data-placement="top"] .rp-adaptive-confirm__arrow {
+  bottom: -5px;
+  border-top: 0;
+  border-left: 0;
+}
+
+@media (max-width: 720px) {
+  .rp-adaptive-confirm {
+    max-width: calc(100vw - 20px);
+  }
+
+  .rp-adaptive-confirm__surface.rp-sea-notice {
+    padding: 13px;
+  }
+
+  .rp-adaptive-confirm__surface.rp-sea-notice button {
+    min-height: 44px;
   }
 }
