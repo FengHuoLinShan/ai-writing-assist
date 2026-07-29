@@ -106,7 +106,8 @@ Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后
 PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
 零重试规则执行 fresh migration 与高风险事务契约，并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
-PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，不包含真实 LLM 或外部数据。
+PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，显式安装与服务端同主版本的
+PostgreSQL 17 客户端以覆盖备份恢复演练，不包含真实 LLM 或外部数据。
 Frontend job 使用 `frontend-console/package-lock.json` 执行 `npm ci`、完整 Vitest 和生产 build；
 Playwright 功能验收仍不进入默认 CI。
 secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、
