@@ -54,6 +54,32 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /etc/os-release
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          curl --fail --silent --show-error \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            --output "$key_file"
+          fingerprint="$(
+            gpg --show-keys --with-colons "$key_file" \
+              | awk -F: '$1 == "fpr" { print $10; exit }'
+          )"
+          test "$fingerprint" = "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8"
+          sudo gpg --batch --yes --dearmor \
+            --output /usr/share/keyrings/postgresql.gpg \
+            "$key_file"
+          echo \
+            "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
       - name: Install locked backend dependencies
         run: uv sync --locked --extra ci
 
