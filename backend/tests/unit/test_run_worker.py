@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -61,31 +61,31 @@ def test_non_local_worker_config_allows_disabled_llm_limiter() -> None:
 
 
 def test_reload_worker_waits_for_schema_before_starting() -> None:
-    parent = MagicMock()
-    worker_coro = object()
-    mocked_main = MagicMock(return_value=worker_coro)
-    parent.attach_mock(mocked_main, "main")
+    calls: list[str] = []
+
+    def schema_ready() -> None:
+        calls.append("schema_ready")
+
+    def worker_started(worker_coro: object) -> None:
+        calls.append("worker_started")
+        worker_coro.close()
+
     with (
         patch("run_worker.setup_logging", autospec=True),
         patch(
             "run_worker.wait_for_schema_current",
             autospec=True,
-            side_effect=parent.schema_ready,
+            side_effect=schema_ready,
         ),
         patch(
             "run_worker.asyncio.run",
             autospec=True,
-            side_effect=parent.worker_started,
+            side_effect=worker_started,
         ),
-        patch("run_worker.main", new=mocked_main),
     ):
         _run_sync()
 
-    assert parent.mock_calls[:3] == [
-        call.schema_ready(),
-        call.main(),
-        call.worker_started(worker_coro),
-    ]
+    assert calls == ["schema_ready", "worker_started"]
 
 
 def test_reload_worker_watches_migrations() -> None:
