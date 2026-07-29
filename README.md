@@ -1,6 +1,6 @@
-# NovelCraft｜AI 长篇小说结构化创作引擎
+# NovelCraft｜AI 长篇创作与私人故事引擎
 
-> 让大模型参与长篇创作，但不让它直接污染作品事实。
+> 让大模型参与长篇创作与私人故事，但不让状态、权限和历史失控。
 >
 > FastAPI 后端 · Vue 3 SFC 控制台 · PostgreSQL + pgvector · 异步任务队列
 
@@ -11,15 +11,15 @@
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2B%20pgvector-4169E1?logo=postgresql&logoColor=white)
 
-[在线体验](https://novel.zhh.se) · [30 秒了解项目](#30-秒了解项目) · [为谁而做](#为谁而做) · [系统架构](#系统架构) · [核心时序](#核心时序) · [五分钟项目导览](#五分钟项目导览) · [开发者快速开始](#开发者快速开始)
+[线上入口](https://novel.zhh.se) · [30 秒了解项目](#30-秒了解项目) · [为谁而做](#为谁而做) · [系统架构](#系统架构) · [核心时序](#核心时序) · [五分钟项目导览](#五分钟项目导览) · [开发者快速开始](#开发者快速开始)
 
 NovelCraft 是一个 AI 长篇小说创作 Alpha：作者路径把正文版本、Scene、世界事实、剧情结构、
 检索证据和 AI 建议放进同一条可追踪工作流；RP 路径让用户用自然语言进入熟悉的幻想世界，
 并用不可变分支、流式恢复和持续回顾保存私人互动故事。
 
-> 在线环境需注册；模型调用需要在账户设置中连接自己的 API Key。仓库中的当前实现不代表
-> 线上部署已同步，发布状态以固定 commit 的 release 记录为准。项目不提供公共共享账号，
-> 也不包含真实稿件、密钥或个人联系方式。
+> 线上入口需注册；模型调用需要在账户设置中连接自己的 API Key。入口可用性以
+> `/api/health` 为准；RP 首版已包含在当前固定 release 中，后续仓库改动是否上线仍以 release
+> 记录为准。项目不提供公共共享账号，也不包含真实稿件、密钥或个人联系方式。
 
 ---
 
@@ -27,9 +27,9 @@ NovelCraft 是一个 AI 长篇小说创作 Alpha：作者路径把正文版本�
 
 | 核心问题 | 回答 |
 | --- | --- |
-| 它解决什么问题？ | 长篇小说持续数十万字后，人物设定、时间线、伏笔和章节结构很容易失控；普通 Chat 或简单 RAG 只能生成文本，难以管理长期状态和写回副作用。 |
-| 它怎么解决？ | 用版本化正文和 Scene 作为证据锚点，建立世界事实与剧情结构，再由 RAG 召回候选、Context 编译可见上下文，最后让 LLM 生成可审查的候选内容。 |
-| 核心差异是什么？ | AI 输出默认不是正式事实。候选必须带来源、经过校验，并由作者编辑或采用后，才进入工作稿或已采用资产。 |
+| 它解决什么问题？ | 长篇内容持续数十万字后，人物设定、时间线、伏笔、章节结构和对话历史很容易失控；普通 Chat 或简单 RAG 只能生成文本，难以管理长期状态、分支选择和写回副作用。 |
+| 它怎么解决？ | 作者路径用版本化正文和 Scene 锚定世界事实与剧情结构，再由 RAG、Context 和受控 LLM 生成可审查候选；RP 路径用不可变消息树、显式选中分支、流式 checkpoint 和回顾维持私人故事连续性。 |
+| 核心差异是什么？ | 两条路径都不把“模型刚刚输出的内容”当作无条件真相：作者路径区分候选与正式资产；RP 路径只让代码级选中历史进入后续上下文，未选分支不会悄悄影响故事。 |
 | 当前做到哪一步？ | 当前仓库具备双入口、作者导入/写作/世界设定/大纲/检索主链，以及模型知识 RP 旅程、分支、流式恢复、自动回顾和看海循环；仍是工程验证系统。 |
 | 个人职责是什么？ | 负责产品构思、用户流程、需求拆解、架构与安全约束、AI Coding 编排、代码 Diff Review、测试验收和持续迭代；大规模实现主要由 AI Coding 工具完成。 |
 
@@ -59,6 +59,7 @@ World、Outline、RAG、writing 或 memory。原作文件导入、按第 N 章�
 ## 产品界面
 
 以下画面来自仓库内受版本控制的 warm 主题视觉回归基线，使用脱敏 Fixture 数据，不复制生产数据。
+当前基线覆盖作者主链；RP 交互仍在补充独立视觉基线，因此不使用合成界面冒充真实产品截图。
 
 <table>
   <tr>
@@ -104,6 +105,8 @@ World、Outline、RAG、writing 或 memory。原作文件导入、按第 N 章�
 
 ## 产品闭环
 
+### 作者路径：证据驱动的创作资产闭环
+
 ```mermaid
 flowchart TB
     A["导入作品或创建项目"] --> B["Writing：版本化正文"]
@@ -121,6 +124,27 @@ flowchart TB
 ```
 
 闭环中的关键设计是：**AI 输出先成为候选，作者采用后才成为正式资产**。系统允许自动化，但自动化必须有持久化授权范围、可回滚标记和冲突处理；低置信或无法消歧的结果仍回到待处理区。
+
+### RP 路径：只让选中的故事继续生长
+
+```mermaid
+flowchart LR
+    A["自然语言说明世界、身份和开场"] --> B["创建私人旅程"]
+    B --> C["模型知识 + 用户设定 + 选中历史 + 有效回顾"]
+    C --> D["流式生成不可变故事节点"]
+    D --> E{"这段故事是否继续？"}
+    E -- "继续" --> F["选中当前节点并推进"]
+    E -- "重新生成 / 编辑" --> G["创建同级分支"]
+    E -- "切换分支" --> H["更新代码级选中路径"]
+    F --> I["自动回顾选中历史"]
+    G --> H
+    H --> I
+    I --> C
+```
+
+RP 路径不复用作者项目的 World、Outline、RAG、writing 或 memory。它把“故事版本控制”收敛为
+不可变节点和显式选中分支：重新生成不会覆盖旧内容，未选中的兄弟节点不会进入未来 Prompt、
+导出或回顾。
 
 ## 系统架构
 
@@ -175,7 +199,7 @@ flowchart TB
     Imports -->|"经稳定接口生成候选资产"| World
     Imports -->|"经稳定接口生成结构"| Outline
     Imports -->|"导入正文"| Writing
-    Settings -->|"账户 provider / model / Key"| Project
+    Settings -->|"作者偏好 / 非 secret 工作流设置"| Project
 
     subgraph Platform["共享受控基础设施"]
         Tasks["PostgreSQL 异步任务<br/>lease、checkpoint、恢复"]
@@ -188,6 +212,7 @@ flowchart TB
     RAG --> Tasks
     Writing --> Tasks
     Interaction --> Tasks
+    Settings -->|"账户级已验证 provider / model / Key"| LLM
     Project -->|"project client / execution snapshot"| LLM
     API --> DB
     Tasks --> DB
@@ -198,7 +223,7 @@ flowchart TB
 | 模块 | 领域职责 |
 | --- | --- |
 | `account` | 邮箱 / 可选 Authing 微信身份、单浏览器会话、重新认证与延期删除；位于三层创作架构之外。 |
-| `project` | 项目聚合根、项目级配置和 `owner_id + novel_id` 双重边界。 |
+| `project` | 作者 / interaction 项目聚合根、非 secret 工作流设置和 `owner_id + novel_id` 双重边界。 |
 | `imports` | 文件解析、确定性 Phase 0 和可恢复的深度导入工作流。 |
 | `world` | 人物、地点、关系、时间线、事件与地图子系统等长期世界事实。 |
 | `memory` | 带来源的记忆、状态快照与可追踪上下文资产。 |
@@ -206,7 +231,7 @@ flowchart TB
 | `rag` | 正文分块、embedding、向量召回和候选证据。 |
 | `context` | 上下文选择、可见性、token 预算、确认快照和证据链。 |
 | `writing` | 当前正文、版本、发布状态、写作生成与候选内容。 |
-| `settings` | 账户级 DeepSeek/Kimi 模型连接、只读余额和作者偏好。 |
+| `settings` | 账户级模型连接、只读余额、全局作者偏好和非 secret 项目级继承。 |
 | `interaction` | 私人 RP 旅程、不可变选中历史、流式正文恢复、回顾和看海循环。 |
 
 可继续深挖：
@@ -291,14 +316,59 @@ sequenceDiagram
 
 这里解决的是典型异步竞态：用户等待模型时仍可能继续编辑。如果只在任务开始前检查一次版本，晚到结果就会覆盖新正文；因此系统在 LLM 返回后再次验证来源哈希、任务 lease 和确认指纹，只允许 fresh 结果落为候选。
 
+### 3. RP 生成：不可变分支、流式恢复与晚到隔离
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as RP 用户
+    participant UI as Vue 交互页
+    participant API as FastAPI
+    participant Interaction as Interaction
+    participant Queue as PostgreSQL 任务队列
+    participant LLM as 账户连接的 LLM
+    participant DB as PostgreSQL
+
+    User->>UI: 创建旅程并描述世界、身份与开场
+    UI->>API: 创建当前账号私有 journey
+    API->>Interaction: 校验 owner，创建隐藏 interaction 项目
+    User->>UI: 继续 / 编辑 / 重新生成 / 选择分支
+    UI->>API: 提交动作和当前 selection epoch
+    API->>Interaction: 拒绝未解决 attempt，写入不可变用户节点
+    Interaction->>Queue: 入队 + secret-free 执行快照
+    Queue->>Interaction: claim lease，编译选中路径与有效回顾
+    Interaction->>LLM: 事务外流式生成
+    loop 可调的字符 / 时间阈值
+        LLM-->>Interaction: 增量正文
+        Interaction->>DB: checkpoint 可见缓冲与 offset
+        UI->>API: SSE 按 offset 恢复
+        API-->>UI: 已持久化增量
+    end
+    Interaction->>Interaction: 重验 owner、project、lease、selection epoch、选中路径和 provider 快照
+    alt 所有边界仍 fresh
+        Interaction->>DB: 写入不可变模型节点并更新选中分支
+        Interaction->>Queue: 仅基于选中路径刷新回顾
+        Interaction-->>UI: 完成；兄弟分支仍保留但不进入上下文
+    else 选择已变、任务取消或 provider 漂移
+        Interaction->>DB: 保留 attempt / 部分结果，不推进选中历史
+        Interaction-->>UI: 由用户决定保留部分结果、重试或放弃
+    end
+```
+
+“看海”是前端有界续写循环，不是自治 Agent：每轮仍经过同一任务、并发、权限和选中路径门禁，
+用户离开会显式取消。流式 checkpoint 的时间与字符阈值是可调整实现参数，不是延迟承诺。
+
 ## 技术亮点
 
 | 能力 | 工程做法 | 可深入讨论 |
 | --- | --- | --- |
-| 受控 LLM 工作流 | 业务代码确定步骤，统一解析账户级模型连接，并对输出做 schema、预算、超时和日志约束。 | 为什么不做自由 ReAct Agent？如何处理 provider 切换和任务恢复？ |
+| 账户级模型连接 | API Key 先经最小真实调用验证，再加密并原子激活；项目只保存非 secret 工作流偏好，可恢复任务用 secret-free 快照固定 provider/model，再读取同 provider 的当前轮换 Key。 | 为什么密钥不再属于项目？Key 轮换、provider 移除或配置漂移时如何 fail closed？ |
+| 受控 LLM 工作流 | 业务代码确定步骤，统一解析账户级模型连接，并对输出做 schema、预算、超时和日志约束。 | 为什么不做自由 ReAct Agent？DeepSeek 默认与 Kimi 门禁如何区分“可配置”和“已验证”？ |
 | 证据绑定 | AI 结论携带原文 quote、字符区间、source hash 和 workflow 来源；正文变化后可以识别陈旧资产。 | 如何防止模型引用不存在的原文？offset 和 hash 各解决什么问题？ |
 | RAG / Context 分离 | RAG 只负责候选召回；Context 负责可见性、token 预算、优先级、确认快照和证据追踪。 | 如何避免未来 Scene 泄漏？为什么检索结果不能直接进 prompt？ |
 | PostgreSQL 可恢复任务 | 任务使用 lease、checkpoint、幂等边界和 secret-free 执行快照，API 重启后仍可恢复。 | 为什么现阶段不用 Redis / Kafka？如何防止重复消费和晚到写回？ |
+| 不可变 RP 分支 | 编辑、重生成和切换都创建或选择节点，不原地重写历史；selection epoch 和选中路径在提交前复验。 | 为什么不能只在 Prompt 里说“忽略旧分支”？晚到流如何避免重新选中已放弃的故事？ |
+| 可恢复流式正文 | 服务端持久化可见缓冲和 offset，SSE 可从断点恢复；技术失败的部分结果不会自动成为故事历史。 | 为什么网络 / provider 错误不自动重放？如何在成本、重复兄弟节点和恢复体验之间取舍？ |
 | 双重租户隔离 | 公开浏览器请求同时校验当前 account 对项目的 `owner_id`，所有业务读写仍显式过滤 `novel_id`。 | owner 边界为什么不能代替 `novel_id`？worker 如何避免绕过用户权限？ |
 | 建议与正式资产分离 | 普通模型输出进入候选或预览；只有作者采用，或有持久化授权的可回滚流水线，才能写入允许的资产。 | 如何设计人工确认、撤销、冲突和低置信回退？ |
 | Vue 渐进迁移 | 保留现有 hash route-host seam，业务页以 Vue 3 SFC island 接入统一 bridge。 | 为什么不一次性重写前端？如何在迁移期保持 API、state 和路由一致？ |
@@ -312,6 +382,8 @@ sequenceDiagram
 | 立即引入图数据库 / 全量 GraphRAG | PostgreSQL 关系模型 + pgvector + 明确的领域关系 | 现阶段查询模式可以由关系表和向量召回覆盖；先验证关系价值，再为真实瓶颈增加基础设施。 |
 | 一次性重写旧前端 | Vue 3 SFC 渐进迁移，复用 route host 与 bridge | 降低大爆炸式迁移风险，让产品功能与架构改造可以并行演进。 |
 | 让 AI 自动改正式设定和已发布正文 | 候选、待处理、采用和发布状态分离 | 模型不确定性不能被包装成数据库中的确定事实，作者必须保留最终控制权。 |
+| 把 RP 强塞进作者 World / RAG / memory | 独立 interaction 领域 + 隐藏项目隔离根 | RP 用户需要低摩擦故事交互；复用作者资产会暴露后台复杂度，也会混淆原作事实、私人分支和授权边界。 |
+| 把连续续写包装成自治 Agent | 前端有界“看海”循环 + 服务端逐轮确定性门禁 | 保留沉浸感，同时限制并发、成本、离开后的后台续写和跨分支污染。 |
 
 这些选择不是“永远不用”，而是按当前产品阶段控制复杂度。只有当吞吐量、查询模式、多人协作或运营数据证明现有边界成为瓶颈时，才升级基础设施。
 
@@ -350,7 +422,8 @@ sequenceDiagram
 | PostgreSQL critical | 从空库执行 migration，并验证关键 PostgreSQL 并发与任务契约。 |
 | Frontend unit quality | 前端单元测试和生产构建。 |
 | PostgreSQL full E2E | 独立工作流按夜间或手动触发，运行更完整的 PostgreSQL 端到端验证。 |
-| 视觉回归 | Playwright 基线覆盖写作、世界设定、检索、大纲等核心页面。 |
+| RP 并发与恢复 | 定向测试覆盖单旅程活动 attempt、账号并发上限、selection epoch、流式 offset、取消和部分结果保留。 |
+| 视觉回归 | Playwright 基线覆盖写作、世界设定、检索、大纲等作者页面；RP 独立视觉基线仍待补齐。 |
 
 README 使用实时 CI Badge，而不是把某一天的静态测试数量当作长期质量结论。
 
@@ -383,11 +456,11 @@ OpenResty 与应用服务位于受控网络边界内；数据库不直接暴露�
 
 ## 五分钟项目导览
 
-1. **第 0–1 分钟：建立问题。** 打开在线首页并创建项目，说明为什么长篇创作不是“一次生成”，而是长期状态管理。
-2. **第 1–2 分钟：展示事实与结构。** 进入世界对象待处理和大纲工作台，演示 AI 结果如何保留证据、等待作者采用。
-3. **第 2–3 分钟：展示检索与 Context。** 用小说检索找到正文片段，说明 RAG 只召回候选，Context 还要处理 Scene 可见性、预算和确认。
-4. **第 3–4 分钟：展示受控生成。** 从写作台发起一次候选生成，解释 source hash、确认指纹和晚到结果防护。
-5. **第 4–5 分钟：回到工程。** 展示本 README 的架构图、时序图和 CI，回答“为什么这样设计、失败后如何恢复、AI Coding 如何验收”。
+1. **第 0–1 分钟：建立双入口。** 打开首页，说明作者要管理长期创作资产，而 RP 用户只想自然进入故事；两类需求共享账号和 LLM 基础设施，但不共享复杂首屏。
+2. **第 1–2 分钟：展示作者闭环。** 进入世界对象待处理和大纲工作台，演示 AI 结果如何保留证据、等待作者采用。
+3. **第 2–3 分钟：展示 RAG 与 Context。** 用小说检索找到正文片段，说明“召回候选”与“本轮有权使用”为什么必须分开。
+4. **第 3–4 分钟：选择一条生成链路。** 线上版本已包含 RP 首版；在账户设置连接 DeepSeek 后，可展示重新生成、分支选择与断流恢复，也可选择作者候选生成。
+5. **第 4–5 分钟：回到工程。** 展示架构图、作者 / RP 时序和 CI，说明账户模型连接、晚到结果防护、用户授权与 AI Coding 验收边界。
 
 建议按以下路径深入了解：
 
@@ -404,13 +477,19 @@ OpenResty 与应用服务位于受控网络边界内；数据库不直接暴露�
 - 视觉基线与自动化测试能证明主要路径可回归，但不能替代真实作者的长期创作反馈。
 - RP 第一版不导入原作、不按章节分叉、不依赖作者结构化资产，也不提供项目共享；模型对作品
   知识和人物质感的稳定性仍需真实旅程样本验证。
+- RP 与账户模型连接已随 [PR #26](https://github.com/FengHuoLinShan/ai-writing-assist/pull/26)
+  合入 `origin/main`，并以固定 release `4a0797c7…` 通过健康检查上线。现有账号仍需在账户设置
+  连接自己的 DeepSeek Key；旧项目 Key 不迁移且不再生效。Kimi 与长上下文能力仍以显式真实
+  门禁结果为准，不承诺 1M 上下文。
 
 下一阶段优先级：
 
 1. 建立脱敏的长篇小说评测集，分别量化 Scene 边界、实体 / 关系抽取、证据有效率和跨章一致性。
 2. 记录“候选 → 编辑 → 采用 / 拒绝”的产品漏斗，用真实采纳行为校准模型和交互。
-3. 增强任务耗时、LLM 成本、重试、stale 结果和证据失效的可观测性。
-4. 在真实负载证明需要后，再评估队列拆分、缓存、图查询或多人协作基础设施。
+3. 为 RP 建立首段生成耗时、重复使用、继续 / 重生成 / 分支选择、断流恢复 / 放弃和人工纠正率，
+   验证“低门槛私人故事”是否真的带来持续使用。
+4. 增强任务耗时、LLM 成本、重试、stale 结果、provider 漂移和证据失效的可观测性。
+5. 在真实负载证明需要后，再评估队列拆分、缓存、图查询或多人协作基础设施。
 
 ## 开发者快速开始
 
@@ -452,12 +531,15 @@ make test
 | --- | --- |
 | 项目术语与跨模块边界 | [CONTEXT.md](CONTEXT.md) |
 | 整体产品与技术设计 | [docs/00_整体设计.md](docs/00_整体设计.md) |
+| 目标用户与双入口边界 | [docs/product/user-personas.md](docs/product/user-personas.md) |
 | 架构图与阅读约定 | [docs/architecture/README.md](docs/architecture/README.md) |
 | 各模块稳定接口 | [backend/modules/](backend/modules/)（各模块 `README.md`、`contracts.py` 与 `facade.py`） |
+| 私人 RP 旅程与分支语义 | [backend/modules/interaction/README.md](backend/modules/interaction/README.md) |
 | Prompt 与运行时调用契约 | [docs/prompts/Prompt体系设计.md](docs/prompts/Prompt体系设计.md) |
 | 开发、测试与发布 | [development-guide.md](development-guide.md) · [testing-guide.md](testing-guide.md) · [deploy/README.md](deploy/README.md) |
 | ADR 与长期架构决策 | [docs/adr/](docs/adr/) |
 
 ---
 
-如果只记住一句话：**NovelCraft 不是让 AI 替作者写完一本书，而是把 AI 放进一个有证据、有权限、有版本、可回滚的长篇创作系统。**
+如果只记住一句话：**NovelCraft 不是让 AI 无边界地续写，而是让作者拥有可审查的创作资产，
+让 RP 用户拥有可选择的私人故事，并让两条路径都保持权限、版本和恢复边界。**
