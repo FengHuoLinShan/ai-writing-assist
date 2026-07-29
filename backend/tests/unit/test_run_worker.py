@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
 from run_worker import (
+    BACKEND_ROOT,
     _configure_worker_process,
+    _existing_reload_dirs,
     _guard_active_task_project_finalize,
     _require_active_task_project,
+    _run_sync,
     _validate_worker_config,
 )
 
@@ -55,6 +58,38 @@ def test_non_local_worker_config_allows_disabled_llm_limiter() -> None:
 
     with patch("run_worker.get_settings", autospec=True, return_value=settings):
         _validate_worker_config()
+
+
+def test_reload_worker_waits_for_schema_before_starting() -> None:
+    parent = MagicMock()
+    worker_coro = object()
+    mocked_main = MagicMock(return_value=worker_coro)
+    parent.attach_mock(mocked_main, "main")
+    with (
+        patch("run_worker.setup_logging", autospec=True),
+        patch(
+            "run_worker.wait_for_schema_current",
+            autospec=True,
+            side_effect=parent.schema_ready,
+        ),
+        patch(
+            "run_worker.asyncio.run",
+            autospec=True,
+            side_effect=parent.worker_started,
+        ),
+        patch("run_worker.main", new=mocked_main),
+    ):
+        _run_sync()
+
+    assert parent.mock_calls[:3] == [
+        call.schema_ready(),
+        call.main(),
+        call.worker_started(worker_coro),
+    ]
+
+
+def test_reload_worker_watches_migrations() -> None:
+    assert str(BACKEND_ROOT / "alembic") in _existing_reload_dirs()
 
 
 @pytest.mark.asyncio

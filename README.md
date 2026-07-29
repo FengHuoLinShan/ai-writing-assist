@@ -513,6 +513,9 @@ make dev
 ```
 
 后端与前端会分别启动；实际端口和环境变量以 `.env.example`、`development-guide.md` 与终端输出为准。
+`make dev` 会先只读检查数据库是否位于当前 Alembic head；若代码含有尚未应用的 migration，
+应用进程不会启动，并提示显式执行 `make migrate`。长驻开发服务检测到新 migration 时也会暂停
+backend/worker，迁移完成后自动恢复，不会自行修改数据库。
 
 ### 自检与测试
 

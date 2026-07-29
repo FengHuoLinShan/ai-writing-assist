@@ -15,9 +15,11 @@ import sys
 from pathlib import Path
 
 from core.config import get_settings, validate_llm_rate_limit_config
+from scripts.dev_schema_guard import wait_for_schema_current
 
 BACKEND_ROOT = Path(__file__).resolve().parent
 RELOAD_DIRS = (
+    "alembic",
     "app",
     "core",
     "shared",
@@ -51,6 +53,7 @@ async def _require_active_task_project(db, task) -> None:
         return
 
     from core.errors import NotFoundError
+
     if str(getattr(task, "task_type", "")).startswith("interaction_"):
         from modules.project.facade import get_any_project_context
 
@@ -72,6 +75,7 @@ async def _guard_active_task_project_finalize(db, task) -> bool:
         return True
 
     from core.errors import NotFoundError
+
     try:
         if str(getattr(task, "task_type", "")).startswith("interaction_"):
             from modules.project.facade import require_interaction_project
@@ -128,6 +132,7 @@ async def main() -> None:
 def _run_sync() -> None:
     """同步包装器（给 watchfiles.run_process 使用）"""
     setup_logging()
+    wait_for_schema_current()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

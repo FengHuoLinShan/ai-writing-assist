@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import uvicorn
 from watchfiles import Change, PythonFilter, run_process
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from scripts.dev_schema_guard import wait_for_schema_current  # noqa: E402
+
 DEFAULT_RELOAD_DIRS = (
+    "alembic",
     "app",
     "core",
     "shared",
@@ -29,6 +36,7 @@ def _existing_reload_dirs() -> list[str]:
 
 def _serve(host: str, port: int) -> None:
     """Run one backend process without a nested reload supervisor."""
+    wait_for_schema_current()
     uvicorn.run(
         "app.main:app",
         host=host,

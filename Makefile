@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-frontend test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-frontend test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -37,6 +37,9 @@ db:  ## Start PostgreSQL (idempotent)
 
 migrate:  ## Run database migrations
 	cd $(BACKEND_DIR) && alembic upgrade head
+
+schema-check:  ## Fail unless the local database is at the Alembic head
+	cd $(BACKEND_DIR) && python -m scripts.dev_schema_guard
 
 # ─── Testing & Linting ──────────────────────────────
 

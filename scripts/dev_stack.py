@@ -275,7 +275,9 @@ def _is_repo_dev_process(pid: int) -> bool:
 def stop_apps(*, fallback: bool = True, remove_pidfile: bool = True) -> None:
     data = _read_pidfile()
     processes = data.get("processes") if isinstance(data, dict) else {}
-    pidfile_matches_root = data.get("root") == str(ROOT) if isinstance(data, dict) else False
+    pidfile_matches_root = (
+        data.get("root") == str(ROOT) if isinstance(data, dict) else False
+    )
     if pidfile_matches_root and isinstance(processes, dict):
         for name, raw_pid in processes.items():
             try:
@@ -361,6 +363,27 @@ def start_db(*, cancelled: Callable[[], bool] | None = None) -> bool:
     return False
 
 
+def check_schema_current(
+    *,
+    cancelled: Callable[[], bool] | None = None,
+) -> bool:
+    """Require an explicit migration before local app processes start."""
+    try:
+        result = _run(
+            [
+                sys.executable,
+                "-m",
+                "scripts.dev_schema_guard",
+            ],
+            cwd=BACKEND,
+            check=False,
+            cancelled=cancelled,
+        )
+    except _RunCancelledError:
+        return False
+    return result.returncode == 0
+
+
 def stop_db() -> None:
     inspect = _run(["docker", "inspect", DB_CONTAINER], check=False, capture=True)
     if inspect.returncode != 0:
@@ -424,6 +447,8 @@ def start_stack() -> int:
         return signal_exit_code
     if not start_db(cancelled=lambda: signal_exit_code is not None):
         return signal_exit_code or 1
+    if not check_schema_current(cancelled=lambda: signal_exit_code is not None):
+        return signal_exit_code or 2
 
     frontend_env = os.environ.copy()
     frontend_env["FRONTEND_PORT"] = str(FRONTEND_PORT)

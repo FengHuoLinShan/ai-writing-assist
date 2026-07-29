@@ -9,7 +9,7 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 ### One-command dev start
 
 ```bash
-make dev                         # Kill old → DB → backend reload + worker reload + Vite frontend HMR
+make dev                         # Kill old → DB → Alembic head guard → backend/worker/Vite
 make kill                        # Stop app services and PostgreSQL
 make kill-apps                   # Stop backend, worker, frontend; keep PostgreSQL running
 make help                        # List all targets
@@ -42,6 +42,7 @@ npm run test:all                 # Vitest, then Playwright
 # Database
 make db                          # docker compose up -d
 make migrate                     # alembic upgrade head (demo schema 历史已压缩；旧开发库可重建)
+make schema-check                # Read-only fail-fast check: current DB must be at every Alembic head
 ./scripts/dev_migrate_worldbuilding_v1.py  # 补齐 Worldbuilding Workspace v1 dev schema
 
 # Local diagnostics
@@ -86,10 +87,19 @@ GitHub Actions 的后端门禁、前端 Vitest job、等价本地命令和显式
 [`testing-guide.md`](testing-guide.md#continuous-integration)。
 
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
-and `prompts/`. Each Python or prompt Markdown change stops the complete Uvicorn
-process before starting a new one. During that short restart window port 8000 is
-closed instead of being held by a stale reload parent; wait for `/api/health` to
-return before judging the frontend/backend connection.
+`prompts/`, and `alembic/`; worker reload watches the same schema-sensitive paths.
+`make dev` compares the database's current Alembic revision set with the migration
+script heads after PostgreSQL becomes healthy, and refuses to start app processes
+when the local database is behind. If a new migration appears while the reload
+supervisors are already running, backend and worker children pause before importing
+business runtime state, print the `make migrate` action, and resume automatically
+after the database reaches head. The guard is read-only and never creates a version
+table, changes its capacity, or applies migrations automatically.
+
+Each Python or prompt Markdown change stops the complete Uvicorn process before
+starting a new one. During that short restart window port 8000 is closed instead
+of being held by a stale reload parent; wait for `/api/health` to return before
+judging the frontend/backend connection.
 
 ## Three-Layer Architecture
 

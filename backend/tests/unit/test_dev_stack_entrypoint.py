@@ -246,6 +246,54 @@ def test_signal_during_database_health_wait_cancels_before_app_spawn(
     assert any("-f" in cmd for cmd in commands)
 
 
+def test_schema_check_delegates_to_read_only_backend_guard(monkeypatch) -> None:
+    dev_stack = _load_dev_stack()
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def run(
+        cmd: list[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(dev_stack, "_run", run)
+
+    assert dev_stack.check_schema_current() is True
+    assert calls == [
+        (
+            [
+                sys.executable,
+                "-m",
+                "scripts.dev_schema_guard",
+            ],
+            {
+                "cwd": dev_stack.BACKEND,
+                "check": False,
+                "cancelled": None,
+            },
+        )
+    ]
+
+
+def test_managed_stack_stops_before_app_spawn_when_schema_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dev_stack = _load_dev_stack()
+
+    monkeypatch.setattr(dev_stack, "stop_apps", lambda **_kwargs: None)
+    monkeypatch.setattr(dev_stack, "start_db", lambda **_kwargs: True)
+    monkeypatch.setattr(dev_stack, "check_schema_current", lambda **_kwargs: False)
+    monkeypatch.setattr(dev_stack.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(
+        dev_stack,
+        "_spawn",
+        lambda *_args, **_kwargs: pytest.fail("stale schema must not spawn apps"),
+    )
+
+    assert dev_stack.start_stack() == 2
+
+
 def test_managed_stack_spawns_backend_worker_and_frontend_without_real_services(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -254,6 +302,7 @@ def test_managed_stack_spawns_backend_worker_and_frontend_without_real_services(
 
     monkeypatch.setattr(dev_stack, "stop_apps", lambda **_kwargs: None)
     monkeypatch.setattr(dev_stack, "start_db", lambda **_kwargs: True)
+    monkeypatch.setattr(dev_stack, "check_schema_current", lambda **_kwargs: True)
     monkeypatch.setattr(dev_stack, "_write_pidfile", lambda _processes: None)
     monkeypatch.setattr(dev_stack.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(dev_stack.atexit, "register", lambda *_args: None)
@@ -329,6 +378,7 @@ def test_managed_stack_ctrl_c_cleans_up_and_returns_standard_signal_code(
 
     monkeypatch.setattr(dev_stack, "stop_apps", stop_apps)
     monkeypatch.setattr(dev_stack, "start_db", lambda **_kwargs: True)
+    monkeypatch.setattr(dev_stack, "check_schema_current", lambda **_kwargs: True)
     monkeypatch.setattr(dev_stack, "_spawn", spawn)
     monkeypatch.setattr(dev_stack, "_write_pidfile", lambda _processes: None)
     monkeypatch.setattr(dev_stack.signal, "signal", register_handler)
@@ -375,6 +425,7 @@ def test_parent_signal_during_child_poll_takes_priority_over_child_exit_code(
 
     monkeypatch.setattr(dev_stack, "stop_apps", stop_apps)
     monkeypatch.setattr(dev_stack, "start_db", lambda **_kwargs: True)
+    monkeypatch.setattr(dev_stack, "check_schema_current", lambda **_kwargs: True)
     monkeypatch.setattr(dev_stack, "_spawn", spawn)
     monkeypatch.setattr(dev_stack, "_write_pidfile", lambda _processes: None)
     monkeypatch.setattr(
@@ -421,6 +472,7 @@ def test_sigterm_during_partial_startup_rolls_back_known_processes(
 
     monkeypatch.setattr(dev_stack, "stop_apps", stop_apps)
     monkeypatch.setattr(dev_stack, "start_db", lambda **_kwargs: True)
+    monkeypatch.setattr(dev_stack, "check_schema_current", lambda **_kwargs: True)
     monkeypatch.setattr(dev_stack, "_spawn", spawn)
     monkeypatch.setattr(dev_stack, "_terminate_pid", terminated.append)
     monkeypatch.setattr(dev_stack, "PIDFILE", tmp_path / "dev-stack.pid")
@@ -448,6 +500,7 @@ def test_managed_stack_normalizes_child_signal_exit_code(
 
     monkeypatch.setattr(dev_stack, "stop_apps", lambda **_kwargs: None)
     monkeypatch.setattr(dev_stack, "start_db", lambda **_kwargs: True)
+    monkeypatch.setattr(dev_stack, "check_schema_current", lambda **_kwargs: True)
     monkeypatch.setattr(dev_stack, "_write_pidfile", lambda _processes: None)
     monkeypatch.setattr(dev_stack.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(dev_stack.atexit, "register", lambda *_args: None)
@@ -472,6 +525,7 @@ def test_managed_stack_rolls_back_every_partially_started_process(
 
     monkeypatch.setattr(dev_stack, "stop_apps", lambda **_kwargs: None)
     monkeypatch.setattr(dev_stack, "start_db", lambda **_kwargs: True)
+    monkeypatch.setattr(dev_stack, "check_schema_current", lambda **_kwargs: True)
     monkeypatch.setattr(dev_stack, "PIDFILE", tmp_path / "dev-stack.pid")
     monkeypatch.setattr(dev_stack, "_terminate_pid", terminated.append)
 

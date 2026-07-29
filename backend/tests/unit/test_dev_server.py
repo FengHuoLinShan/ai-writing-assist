@@ -7,9 +7,17 @@ from scripts import dev_server
 
 
 def test_serve_runs_uvicorn_without_nested_reload_supervisor() -> None:
-    with patch.object(dev_server.uvicorn, "run", autospec=True) as run:
+    with (
+        patch.object(
+            dev_server,
+            "wait_for_schema_current",
+            autospec=True,
+        ) as wait_for_schema,
+        patch.object(dev_server.uvicorn, "run", autospec=True) as run,
+    ):
         dev_server._serve("127.0.0.1", 8123)
 
+    wait_for_schema.assert_called_once_with()
     run.assert_called_once_with(
         "app.main:app",
         host="127.0.0.1",
@@ -60,6 +68,7 @@ def test_existing_reload_dirs_are_absolute_and_present() -> None:
     assert reload_dirs
     assert all(Path(path).is_absolute() for path in reload_dirs)
     assert all(Path(path).exists() for path in reload_dirs)
+    assert str(dev_server.BACKEND_ROOT / "alembic") in reload_dirs
 
 
 def test_log_reload_reports_the_changed_backend_paths(capsys) -> None:
