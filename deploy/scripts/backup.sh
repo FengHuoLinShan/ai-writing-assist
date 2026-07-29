@@ -6,7 +6,9 @@ umask 077
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$SCRIPT_DIR/common.sh"
 
-validate_environment
+# Callers capture stdout as the machine-readable backup path. Keep validation
+# diagnostics visible without contaminating that command-substitution contract.
+validate_environment >&2
 
 POSTGRES_USER=$(env_value POSTGRES_USER)
 POSTGRES_DB=$(env_value POSTGRES_DB)
