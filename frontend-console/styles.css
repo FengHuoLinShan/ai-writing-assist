@@ -12059,6 +12059,12 @@ kbd {
   padding: 0;
 }
 
+#main-layout.main-layout--immersive #workspace-content::before,
+#main-layout.main-layout--immersive #workspace-content::after {
+  display: none;
+  content: none;
+}
+
 .main-layout--immersive #workspace-content > .vue-island {
   display: flex;
   flex: 1 1 auto;
@@ -12953,8 +12959,117 @@ button.rp-journey-card__main:hover {
   overflow-wrap: anywhere;
 }
 
+.rp-markdown-content {
+  white-space: normal;
+}
+
+.rp-markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.rp-markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.rp-markdown-content p {
+  margin: 0 0 0.9em;
+  white-space: pre-wrap;
+}
+
+.rp-markdown-content h1,
+.rp-markdown-content h2,
+.rp-markdown-content h3,
+.rp-markdown-content h4,
+.rp-markdown-content h5,
+.rp-markdown-content h6 {
+  margin: 1.15em 0 0.45em;
+  color: var(--rp-heading);
+  font-family: var(--font-body);
+  line-height: 1.45;
+}
+
+.rp-markdown-content h1 {
+  font-size: 1.35em;
+}
+
+.rp-markdown-content h2 {
+  font-size: 1.22em;
+}
+
+.rp-markdown-content h3 {
+  font-size: 1.12em;
+}
+
+.rp-markdown-content h4,
+.rp-markdown-content h5,
+.rp-markdown-content h6 {
+  font-size: 1em;
+}
+
+.rp-markdown-content ul,
+.rp-markdown-content ol {
+  margin: 0.7em 0 0.9em;
+  padding-left: 1.5em;
+}
+
+.rp-markdown-content li + li {
+  margin-top: 0.2em;
+}
+
+.rp-markdown-content blockquote {
+  margin: 0.8em 0;
+  padding: 0.15em 0 0.15em 0.9em;
+  border-left: 3px solid var(--rp-border);
+  color: var(--rp-muted);
+}
+
+.rp-markdown-content blockquote p {
+  margin-bottom: 0.45em;
+}
+
+.rp-markdown-content code {
+  padding: 0.12em 0.32em;
+  border-radius: 5px;
+  background: var(--rp-soft);
+  font: 0.88em/1.5 var(--font-mono);
+}
+
+.rp-markdown-content pre {
+  max-width: 100%;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--rp-border);
+  border-radius: 10px;
+  background: var(--rp-soft);
+  white-space: pre;
+}
+
+.rp-markdown-content pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.rp-markdown-content a {
+  color: var(--rp-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.rp-markdown-content hr {
+  margin: 1.2em 0;
+  border: 0;
+  border-top: 1px solid var(--rp-border);
+}
+
+.rp-markdown-image-alt,
+.rp-markdown-link--blocked {
+  color: var(--rp-muted);
+}
+
 .rp-message__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin-top: 9px;
   opacity: 0;
@@ -12973,8 +13088,14 @@ button.rp-journey-card__main:hover {
   font-size: 11px;
 }
 
-.rp-message-more {
-  display: none;
+.rp-message__actions .rp-message-action-button {
+  border: 1px solid var(--rp-border);
+  background: var(--rp-panel);
+}
+
+.rp-message__actions .rp-message-action-button:hover {
+  border-color: #cbd4e1;
+  background: var(--rp-soft);
 }
 
 .rp-partial-note,
@@ -13023,20 +13144,37 @@ button.rp-journey-card__main:hover {
 }
 
 .rp-action-options button {
+  display: grid;
   width: 100%;
-  padding: 8px 12px;
+  gap: 3px;
+  overflow: visible;
+  padding: 10px 12px;
   border: 1px solid var(--rp-border);
   border-radius: 10px;
   background: var(--rp-panel);
-  color: var(--rp-accent);
-  font-size: 13px;
+  color: var(--rp-text);
+  font-size: inherit;
   line-height: 1.55;
   text-align: left;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .rp-action-options button:hover {
   border-color: #8faee0;
   background: var(--rp-accent-soft);
+}
+
+.rp-action-card__label {
+  color: var(--rp-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rp-action-card__text {
+  color: var(--rp-muted);
+  font-size: 13px;
 }
 
 .rp-branch-popover {
@@ -13701,53 +13839,6 @@ button.rp-journey-card__main:hover {
 
   .rp-message__actions {
     opacity: 1;
-  }
-
-  .rp-message__actions .rp-copy-action {
-    display: none;
-  }
-
-  .rp-message-more {
-    position: absolute;
-    top: -5px;
-    right: 0;
-    display: block;
-  }
-
-  .rp-message-more > summary {
-    width: 36px;
-    min-height: 36px;
-    padding: 7px;
-    border-radius: 9px;
-    color: var(--rp-dim);
-    cursor: pointer;
-    list-style: none;
-    text-align: center;
-  }
-
-  .rp-message-more > summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .rp-message-more > div {
-    position: absolute;
-    z-index: 28;
-    top: 34px;
-    right: 0;
-    min-width: 96px;
-    padding: 5px;
-    border: 1px solid var(--rp-border);
-    border-radius: 10px;
-    background: var(--rp-panel);
-    box-shadow: 0 8px 22px rgba(27, 44, 73, 0.14);
-  }
-
-  .rp-message-more button {
-    width: 100%;
-    min-height: 40px;
-    padding: 8px 10px;
-    color: var(--rp-muted);
-    text-align: left;
   }
 
   .rp-composer-dock {

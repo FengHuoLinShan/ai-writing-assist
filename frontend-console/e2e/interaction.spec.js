@@ -3,7 +3,7 @@ import { waitForBackend } from "./helpers/api-client.js"
 
 const journeyId = "11111111-1111-4111-8111-111111111111"
 
-function storyMessage(id, role, content) {
+function storyMessage(id, role, content, overrides = {}) {
   return {
     id,
     parent_node_id: null,
@@ -16,7 +16,16 @@ function storyMessage(id, role, content) {
     story_ended: false,
     action_suggestions: [],
     created_at: "2026-07-29T00:00:00Z",
+    ...overrides,
   }
+}
+
+async function expectFillsViewportWidth(locator) {
+  const box = await locator.boundingBox()
+  expect(box).not.toBeNull()
+  const viewportWidth = await locator.evaluate(() => window.innerWidth)
+  expect(Math.abs(box.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(box.width - viewportWidth)).toBeLessThanOrEqual(1)
 }
 
 async function mockRpApis(page) {
@@ -40,7 +49,17 @@ async function mockRpApis(page) {
       storyMessage("a1", "assistant", "钟楼的铜门在海风里缓缓打开。"),
       storyMessage("u2", "user", "我点亮提灯。"),
       storyMessage("a2", "assistant", "提灯照出齿轮间的一封旧信。"),
-      storyMessage("a3", "assistant", "信纸上的墨迹正在重新浮现。"),
+      storyMessage(
+        "a3",
+        "assistant",
+        "## 墨迹重现\n\n信纸上的**墨迹**正在重新浮现。",
+        {
+          action_suggestions: [{
+            label: "谨慎观察",
+            text: "我先完整观察信纸边缘的痕迹，再决定是否触碰正在浮现的文字。",
+          }],
+        },
+      ),
     ],
     has_older_messages: false,
     active_attempt: null,
@@ -130,10 +149,39 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(page.getByRole("heading", { name: "跑团模式" })).toBeVisible()
     await expect(page.getByText("雾港钟楼")).toBeVisible()
     await expect(page.locator("#sidebar")).toHaveCount(0)
+    await expectFillsViewportWidth(page.locator(".rp-list-page"))
 
     await page.getByRole("button", { name: /雾港钟楼/ }).click()
     await expect(page).toHaveURL(new RegExp(`#interaction/${journeyId}`))
-    await expect(page.getByText("信纸上的墨迹正在重新浮现。")).toBeVisible()
+    await expect(page.getByRole("heading", { name: "墨迹重现" })).toBeVisible()
+    await expect(page.locator(".rp-message__text strong")).toHaveText("墨迹")
+    const actionCard = page.getByRole("button", { name: /谨慎观察/ })
+    await expect(actionCard).toContainText(
+      "我先完整观察信纸边缘的痕迹，再决定是否触碰正在浮现的文字。",
+    )
+    const actionCardStyle = await actionCard.evaluate((element) => ({
+      overflow: getComputedStyle(element).overflow,
+      textOverflow: getComputedStyle(element).textOverflow,
+      whiteSpace: getComputedStyle(element).whiteSpace,
+    }))
+    expect(actionCardStyle).toEqual({
+      overflow: "visible",
+      textOverflow: "clip",
+      whiteSpace: "normal",
+    })
+
+    const messageActions = page.locator(
+      '[data-rp-message-id="a3"] .rp-message__actions button',
+    )
+    await expect(messageActions.nth(0)).toHaveText("复制")
+    await expect(messageActions.nth(1)).toHaveText("重新生成")
+    await expect(messageActions.nth(0)).toHaveClass(/rp-message-action-button/)
+    await expect(messageActions.nth(1)).toHaveClass(/rp-message-action-button/)
+
+    await actionCard.click()
+    await expect(page.getByRole("textbox", { name: "继续旅程" })).toHaveValue(
+      "我先完整观察信纸边缘的痕迹，再决定是否触碰正在浮现的文字。",
+    )
     await expect(page.locator(".rp-composer-dock")).toBeVisible()
     expect(browserErrors).toEqual([])
   })
@@ -149,6 +197,8 @@ test.describe("RP 路由与窄屏故事页", () => {
     await expect(page.locator(".rp-story-title")).toHaveJSProperty("tagName", "DIV")
     await expect(page.locator(".rp-locator-rail")).toBeVisible()
     await expect(page.locator(".rp-composer-dock")).toBeVisible()
+    await expect(page.locator("#sidebar")).toHaveCount(0)
+    await expectFillsViewportWidth(page.locator(".rp-story-page"))
 
     const toolStyle = await page.locator(".rp-composer-tools").evaluate((element) => ({
       flexWrap: getComputedStyle(element).flexWrap,
