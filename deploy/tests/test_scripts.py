@@ -26,6 +26,27 @@ def test_release_only_accepts_commits_reachable_from_origin_main() -> None:
         'git -C "$REPO_ROOT" merge-base --is-ancestor '
         '"$TARGET_COMMIT" origin/main'
     ) in release_script
+    assert "umask 022" in release_script
+
+
+def test_release_checks_frontend_runtime_assets() -> None:
+    release_script = (DEPLOY_ROOT / "scripts" / "release.sh").read_text()
+    restore_script = (DEPLOY_ROOT / "scripts" / "restore.sh").read_text()
+    dockerfile = (DEPLOY_ROOT.parent / "frontend-console" / "Dockerfile").read_text()
+
+    assert "chmod -R a+rX /usr/share/nginx/html" in dockerfile
+    assert "umask 022" in restore_script
+    assert "frontend_runtime_healthy" in release_script
+    for asset in ("/ui/modal.js", "/apiContracts.js", "/router.js"):
+        assert asset in release_script
+
+
+def test_public_verification_fetches_declared_frontend_assets() -> None:
+    verification_script = (DEPLOY_ROOT / "scripts" / "verify_public.sh").read_text()
+
+    assert "FrontendAssetParser" in verification_script
+    assert "frontend-assets.tsv" in verification_script
+    assert "--write-out '%{content_type}'" in verification_script
 
 
 def test_public_bootstrap_passes_named_email_argument() -> None:

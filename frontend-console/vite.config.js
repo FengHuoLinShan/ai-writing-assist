@@ -1,6 +1,6 @@
 import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
-import { copyFile, mkdir } from "node:fs/promises"
+import { chmod, copyFile, mkdir } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -36,6 +36,12 @@ export const frontendSecurityHeaders = Object.freeze({
   "X-Frame-Options": "DENY",
 })
 
+export async function copyReadableRuntimeFile(source, destination) {
+  await mkdir(dirname(destination), { recursive: true })
+  await copyFile(source, destination)
+  await chmod(destination, 0o644)
+}
+
 function copyLegacyRuntimeAssets() {
   return {
     name: "copy-legacy-runtime-assets",
@@ -44,8 +50,7 @@ function copyLegacyRuntimeAssets() {
       const outputRoot = resolve(frontendRoot, outputOptions.dir || "dist")
       await Promise.all(legacyRuntimeAssets.map(async (assetPath) => {
         const destination = resolve(outputRoot, assetPath)
-        await mkdir(dirname(destination), { recursive: true })
-        await copyFile(resolve(frontendRoot, assetPath), destination)
+        await copyReadableRuntimeFile(resolve(frontendRoot, assetPath), destination)
       }))
     },
   }
