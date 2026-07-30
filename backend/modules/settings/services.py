@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import Select
 
 from core.config import get_settings
 from infrastructure.llm.balance import (
@@ -18,10 +17,6 @@ from infrastructure.llm.balance import (
     query_provider_balance,
 )
 from infrastructure.llm.health import LLMHealthChecker
-from infrastructure.llm.profiles import (
-    LLM_API_KEY_FIELD,
-    LLM_SETTINGS_KEY,
-)
 from infrastructure.llm.secret_store import (
     decrypt_secret,
     encrypt_secret,
@@ -530,47 +525,25 @@ class SettingsService:
             ),
         )
 
-    async def materialize_effective_project_settings(
+    # ----- aggregation -----
+    async def list_fully_overridden_project_ids(
         self,
         db: AsyncSession,
-        project_settings: dict | None,
-        owner_id: uuid.UUID | None = None,
-    ) -> dict:
-        """Materialize account connection plus project-owned non-secret settings."""
-        settings = dict(project_settings or {})
-        settings.pop(LLM_SETTINGS_KEY, None)
-        resolved_owner = _current_owner_id(owner_id)
-        glob_row = await self._llm_repo.get(db, resolved_owner)
-        provider_id = (
-            glob_row.provider_id
-            if glob_row is not None
-            and account_llm_provider_enabled(glob_row.provider_id)
-            else enabled_account_llm_provider_order()[0]
+        project_ids: Sequence[uuid.UUID],
+    ) -> list[uuid.UUID]:
+        """Return overridden IDs within an already owner-scoped project set."""
+        scoped_ids = tuple(project_ids)
+        if not scoped_ids:
+            return []
+        result = await db.execute(
+            select(ProjectAuthorPreferences.project_id).where(
+                ProjectAuthorPreferences.project_id.in_(scoped_ids),
+                ProjectAuthorPreferences.daily_goal.is_not(None),
+                ProjectAuthorPreferences.editor_font.is_not(None),
+                ProjectAuthorPreferences.default_focus_mode.is_not(None),
+            )
         )
-        llm_profile = dict(ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id])
-        credential = await self._credential_repo.get(
-            db,
-            resolved_owner,
-            provider_id,
-        )
-        if credential is not None:
-            try:
-                api_key = decrypt_secret(credential.encrypted_api_key)
-            except ValueError:
-                api_key = ""
-            if api_key:
-                llm_profile[LLM_API_KEY_FIELD] = api_key
-        settings[LLM_SETTINGS_KEY] = llm_profile
-        return settings
-
-    # ----- aggregation -----
-    def fully_overridden_project_ids_subquery(self) -> Select[tuple[uuid.UUID]]:
-        """D18: 仅统计作者偏好默认；任一字段为 NULL 或行不存在即视为继承默认。"""
-        return select(ProjectAuthorPreferences.project_id).where(
-            ProjectAuthorPreferences.daily_goal.is_not(None),
-            ProjectAuthorPreferences.editor_font.is_not(None),
-            ProjectAuthorPreferences.default_focus_mode.is_not(None),
-        )
+        return list(result.scalars().all())
 
     def build_projects_using_defaults_response(
         self,

@@ -82,6 +82,8 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 1/2/3 的 snapshot client 统一由 project runtime seam 构造；主 workflow
   与 Phase 2 并发 adapter 都传递当前 `novel_id` 供 managed-step journal 聚合；
   structured call 在成功和异常路径均通过 `finally` 关闭 client
+- 非 task 的内部兼容调用也会临时构建 secret-free execution snapshot，再经 project
+  runtime 恢复当前 Key；不再从通用 `ProjectContext.settings` 取得运行时凭据
 - Phase 2a/2b context snapshot 使用与活跃 adapter 相同的 profile resolver，
   记录脱敏 model/provider/base-url host/字段来源，不保存 API Key 或 URL query
 - 深度导入 Phase 1/2/3 prompt、Pydantic schema、关键字段映射和目标表列通过 `make prompt-contracts` 做开发期漂移检查；该检查不调用真实 LLM、不访问数据库

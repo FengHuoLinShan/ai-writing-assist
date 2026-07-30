@@ -279,13 +279,13 @@ async def _project_settings_for_novel(
 ) -> dict[str, Any] | None:
     if db is None:
         return None
-    from modules.project.facade import get_project_context
+    from modules.project.facade import (
+        build_project_llm_execution_snapshot,
+        restore_project_llm_execution_settings,
+    )
 
-    context = await get_project_context(db, novel_id)
-    if context is None:
-        return None
-    settings = getattr(context, "settings", None)
-    return settings if isinstance(settings, dict) else None
+    snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    return await restore_project_llm_execution_settings(db, novel_id, snapshot)
 
 
 def _llm_client_for_profile(

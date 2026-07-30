@@ -27,7 +27,6 @@ from modules.project.facade import (
     list_active_project_summaries,
     require_active_project,
 )
-from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     ProjectCreate,
@@ -847,7 +846,7 @@ class TestProjectFacade:
 
         items, total = await list_active_project_summaries(
             db_session,
-            exclude_project_ids=select(Project.id).where(Project.id == old.id),
+            exclude_project_ids=[old.id],
         )
 
         assert total == 1

@@ -380,16 +380,11 @@ class TestGetProjectContextFacade:
     """get_project_context——供其他模块使用的项目上下文"""
 
     @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
-    @patch(
-        "modules.settings.facade.materialize_effective_project_settings", autospec=True
-    )
     async def test_found_returns_context(
         self,
-        mock_materialize_settings: MagicMock,
         mock_get: MagicMock,
     ) -> None:
         uid = uuid.uuid4()
-        mock_materialize_settings.return_value = {"llm": {"provider_id": "deepseek"}}
         mock_get.return_value = Project(
             id=uid,
             owner_id=BOOTSTRAP_ACCOUNT_ID,
@@ -397,14 +392,26 @@ class TestGetProjectContextFacade:
             genre="玄幻",
             language="zh",
             default_reveal_policy="author_safe",
-            settings={},
+            settings={
+                "temporary_entity_expiry_chapters": 12,
+                "llm": {
+                    "provider_id": "legacy-project-provider",
+                    "api_key": "legacy-project-key",
+                    "extra": {"api_key": "nested-legacy-key"},
+                },
+            },
         )
         ctx = await get_project_context(AsyncMock(spec=AsyncSession), str(uid))
         assert isinstance(ctx, ProjectContext)
         assert ctx.novel_id == str(uid)
         assert ctx.title == "测试小说"
         assert ctx.genre == "玄幻"
-        assert ctx.settings == {"llm": {"provider_id": "deepseek"}}
+        assert ctx.settings["temporary_entity_expiry_chapters"] == 12
+        assert ctx.settings["llm"]["provider_id"] == "legacy-project-provider"
+        assert "api_key" not in ctx.settings["llm"]
+        assert "api_key_configured" not in ctx.settings["llm"]
+        assert ctx.settings["llm"]["extra"] == {}
+        assert "legacy-project-key" not in str(ctx.model_dump())
 
     @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
     async def test_not_found_returns_none(

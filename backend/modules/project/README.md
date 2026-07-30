@@ -94,7 +94,9 @@ def create_project_snapshot_llm_client(
 ): ...
 ```
 
-供其他模块获取项目上下文信息，包含项目基本元信息和策略配置。
+供其他模块获取项目上下文信息，包含项目基本元信息和项目拥有的非 secret
+策略配置。该 interface 不解析账户运行时 provider/model/Key，也会防御性移除遗留
+`api_key` / `api_keys_by_provider`；需要 LLM 的调用方必须使用下方 client/snapshot seam。
 `require_active_project()` 是所有项目级业务入口的稳定门禁：项目不存在或已软删除
 均返回同样的 404，调用方不得绕过该 seam 自行读取 project 内部实现。
 该门禁在 PostgreSQL 上对活跃项目持有 `FOR SHARE` 行锁直到调用方事务结束：
@@ -188,7 +190,7 @@ execution fingerprint，再逐组使用独立 savepoint 原子执行；因此前
 - provider、model 和 Key 的运行时真相源是项目 owner 的账户级连接；项目 LLM API 不得再
   写入 Key，migration 会不可逆清除 `api_key` / `api_keys_by_provider` 遗留字段
 - 账户凭据按 owner/provider 唯一并使用 `LLM_SETTINGS_ENCRYPTION_KEY` 加密；project
-  contract、response、task meta、snapshot、日志和 producer provenance 均不返回密钥
+  context/contract、response、task meta、snapshot、日志和 producer provenance 均不返回密钥
 - 项目内遗留的 provider/model/Base URL 字段仅为兼容读取或工作流配置，不能覆盖账户模板
 - 切换账户模板只影响新任务；已持久化 snapshot 按原 provider 增量恢复，不重建已有资产
 - managed step journal 只记录 `novel_id`、profile source 和脱敏

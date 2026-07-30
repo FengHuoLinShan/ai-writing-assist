@@ -9,6 +9,7 @@ source.
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -517,36 +518,44 @@ async def test_put_llm_settings_empty_deep_import_clears_key(async_client, facto
 
 
 @pytest.mark.asyncio
-async def test_project_context_materializes_effective_llm_without_env(
+async def test_project_context_keeps_only_project_owned_nonsecret_settings(
     async_client,
     db_session,
     factory,
     monkeypatch,
 ):
     monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
-    monkeypatch.setenv("LLM_BASE_URL", "https://env.example/v1")
-    monkeypatch.setenv("LLM_MODEL", "env-model")
-    pid = await factory.create_project()
+    pid = await factory.create_project(
+        settings={
+            "temporary_entity_expiry_chapters": 18,
+            "deep_import": {"global": {"structured_max_fix_attempts": 4}},
+            "llm": {
+                "provider_id": "legacy-project-provider",
+                "api_key": "legacy-project-key",
+            },
+        }
+    )
 
     context = await get_project_context(db_session, str(pid))
 
     assert context is not None
-    assert context.settings["llm"]["provider_id"] == "deepseek"
-    assert context.settings["llm"]["base_url"] == "https://api.deepseek.com"
-    assert context.settings["llm"]["model"] == "deepseek-v4-flash"
+    assert context.settings["temporary_entity_expiry_chapters"] == 18
+    assert context.settings["deep_import"]["global"]["structured_max_fix_attempts"] == 4
+    assert context.settings["llm"]["provider_id"] == "legacy-project-provider"
+    assert "api_key" not in context.settings["llm"]
 
-    rejected = await async_client.put(
-        "/api/settings/llm-defaults",
-        headers=XHR_HEADERS,
-        json={
-            "provider_id": "kimi",
-            "base_url": "https://api.moonshot.cn/v1",
-            "model": "kimi-k2.6",
-        },
+    monkeypatch.setattr(
+        "modules.settings.services._validate_account_llm_connection",
+        AsyncMock(),
     )
-    assert rejected.status_code == 400
+    connected = await async_client.put(
+        "/api/settings/llm-connections/kimi",
+        headers=XHR_HEADERS,
+        json={"api_key": "account-runtime-key"},
+    )
+    assert connected.status_code == 200
     context_with_global = await get_project_context(db_session, str(pid))
 
-    assert context_with_global.settings["llm"]["provider_id"] == "deepseek"
-    assert context_with_global.settings["llm"]["base_url"] == "https://api.deepseek.com"
-    assert context_with_global.settings["llm"]["model"] == "deepseek-v4-flash"
+    assert context_with_global is not None
+    assert context_with_global.settings == context.settings
+    assert "account-runtime-key" not in str(context_with_global.model_dump())

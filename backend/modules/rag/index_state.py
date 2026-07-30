@@ -34,9 +34,13 @@ def _task_scope(chapter_index: int, content_mode: str) -> tuple[str, ...]:
 class RagIndexStateService:
     async def reconcile_owners(self, db: AsyncSession) -> int:
         """Repair orphaned task owners at worker startup."""
-        from modules.project.facade import list_active_projects
+        from modules.project.facade import list_active_project_summaries
 
-        active_novel_ids = {str(project.id) for project in await list_active_projects(db)}
+        projects, _total = await list_active_project_summaries(
+            db,
+            limit=100_000,
+        )
+        active_novel_ids = {str(project.project_id) for project in projects}
         state_keys = list(
             (
                 await db.execute(

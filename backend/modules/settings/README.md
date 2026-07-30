@@ -86,11 +86,15 @@ refresh 不绑定单个项目，不使用该门禁。
 
 - `modules.settings.services` 拥有账户连接、凭据加密、模板启用门禁、余额和 effective
   settings 规则，不直接读取 project 模块。
-- `modules.settings.facade` 暴露 `resolve_account_llm_runtime_profile`、
-  `get_effective_llm_settings` / `get_effective_author_prefs` /
-  `materialize_effective_project_settings` 供 `modules.project` 调用；业务模块不得绕过
-  project facade 直接取凭据。
-- 跨模块聚合（如 `/api/settings/projects-using-defaults`）只在 `modules.settings.facade` 薄编排：通过 `modules.project.facade` 读取项目摘要，再委托 settings service 组装 response。
+- `modules.settings.contracts` 暴露 project API 使用的 effective response 类型和
+  非 secret 字段白名单；`modules.settings.facade` 暴露
+  `resolve_account_llm_runtime_profile`、`get_effective_llm_settings` /
+  `get_effective_author_prefs` 供 `modules.project` 调用。业务模块不得绕过
+  project 的 client/snapshot seam 直接取得明文凭据。
+- 跨模块聚合（如 `/api/settings/projects-using-defaults`）只在
+  `modules.settings.facade` 薄编排：先从 project 取得 owner-scoped 项目摘要，
+  settings 再把该集合中的覆盖记录投影为普通 project ID；不得跨 owner 扫描，也不得把
+  SQLAlchemy subquery 作为跨模块 interface。
 - 不允许直接 import 对方模块的 `services.py` / `repositories.py` / `models.py`。
 
 ## D 决策索引

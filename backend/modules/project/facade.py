@@ -7,11 +7,10 @@ Project Facade — 对外入口
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from collections.abc import Collection
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import Select
 
 from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
@@ -38,33 +37,12 @@ async def get_project_context(
     db: AsyncSession,
     novel_id: str,
 ) -> ProjectContext | None:
-    """获取项目上下文（供其他模块使用）"""
+    """Return a secret-free project context for cross-module consumers."""
     context = await _service.get_project_context(db, novel_id)
     if context is None:
         return None
     bind_validated_novel_id(novel_id)
-
-    from modules.settings.facade import materialize_effective_project_settings
-
-    raw_owner_id = getattr(context, "owner_id", None)
-    owner_id = None
-    if isinstance(raw_owner_id, uuid.UUID):
-        owner_id = raw_owner_id
-    elif isinstance(raw_owner_id, str) and raw_owner_id:
-        try:
-            owner_id = uuid.UUID(raw_owner_id)
-        except ValueError:
-            owner_id = None
-    settings = (
-        await materialize_effective_project_settings(
-            db,
-            context.settings,
-            owner_id=owner_id,
-        )
-        if owner_id is not None
-        else await materialize_effective_project_settings(db, context.settings)
-    )
-    return context.model_copy(update={"settings": settings})
+    return context
 
 
 async def get_any_project_context(
@@ -153,51 +131,17 @@ async def require_active_project_exclusive(
     bind_validated_novel_id(novel_id)
 
 
-async def get_project_by_id(
-    db: AsyncSession,
-    project_id: uuid.UUID | str,
-) -> Project | None:
-    """根据 ID 获取未删除项目（供其他模块读取项目 settings 等）。"""
-    pid = project_id if isinstance(project_id, uuid.UUID) else uuid.UUID(str(project_id))
-    from modules.account.facade import current_owner_id_or_system_none
-
-    owner_id = current_owner_id_or_system_none()
-    return await _repo.get(
-        db,
-        pid,
-        owner_id,
-    )
-
-
-async def list_active_projects(db: AsyncSession) -> list[Project]:
-    """列出所有未软删项目，按 created_at desc / id desc 排序。
-
-    仅供跨模块聚合（如 settings 默认继承统计）。返回 ORM 对象，调用方
-    只应读取属性，不应在本模块之外修改。
-    """
-    from modules.account.facade import current_owner_id_or_system_none
-
-    owner_id = current_owner_id_or_system_none()
-    items, _ = await _repo.list(
-        db,
-        skip=0,
-        limit=100000,
-        owner_id=owner_id,
-    )
-    return items
-
-
 async def list_active_project_summaries(
     db: AsyncSession,
     *,
     limit: int = 50,
     offset: int = 0,
-    exclude_project_ids: Select[tuple[Any, ...]] | None = None,
+    exclude_project_ids: Collection[uuid.UUID] | None = None,
 ) -> tuple[list[ProjectSummary], int]:
     """List active project summaries with project-owned filtering and sorting.
 
-    ``exclude_project_ids`` lets caller-owned modules provide a DB-side project-id
-    subquery without importing project internals.
+    Cross-module callers may pass plain project IDs, but never a caller-owned
+    SQLAlchemy expression.
     """
     from modules.account.facade import current_owner_id_or_system_none
 
@@ -208,8 +152,9 @@ async def list_active_project_summaries(
     owner_id = current_owner_id_or_system_none()
     if owner_id is not None:
         conditions.append(Project.owner_id == owner_id)
-    if exclude_project_ids is not None:
-        conditions.append(Project.id.not_in(exclude_project_ids))
+    excluded_ids = tuple(exclude_project_ids or ())
+    if excluded_ids:
+        conditions.append(Project.id.not_in(excluded_ids))
 
     count_stmt = select(func.count(Project.id)).where(*conditions)
     total = (await db.execute(count_stmt)).scalar() or 0

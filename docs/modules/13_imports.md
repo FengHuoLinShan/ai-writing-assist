@@ -134,6 +134,10 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
   profile/deep-import 设置；不包含 Key、完整 URL/query 或 extra values
 - asset_summary：互斥的 `adopted / review / not_adopted` 总数及 Scene、实体、关系、别名、结构分项
 
+主 task 从持久化的 `llm_execution_snapshot` 恢复当前 provider Key。非 task 的内部兼容
+调用也先临时构建 secret-free snapshot，再经 project runtime 恢复；通用
+`ProjectContext.settings` 只承载项目拥有的非 secret 设置，不再作为 LLM 凭据来源。
+
 当任务能跑完但 Phase 2/3 未生成关键 AI 资产时，`phase` 仍可为 `done`，但
 `quality_status="partial"` 且 `degraded=true`。前端应把它显示为“部分完成”，
 验收脚本不得只凭 `phase="done"` 判定真实 LLM 导入成功。

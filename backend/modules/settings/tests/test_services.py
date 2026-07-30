@@ -141,35 +141,6 @@ async def test_effective_llm_settings_ignore_legacy_project_connection_fields(
 
 
 @pytest.mark.asyncio
-async def test_materialize_effective_project_settings_drops_project_api_key(
-    db_session,
-    monkeypatch,
-):
-    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
-    svc = SettingsService()
-    with patch(
-        "modules.settings.services._validate_account_llm_connection",
-        autospec=True,
-    ):
-        await svc.connect_account_llm_provider(
-            db_session,
-            "kimi",
-            "test-account-key",
-        )
-
-    settings = await svc.materialize_effective_project_settings(
-        db_session,
-        {"llm": {"api_key": "sk-secret"}},
-    )
-
-    assert settings["llm"]["provider_id"] == "kimi"
-    assert settings["llm"]["base_url"] == "https://api.moonshot.cn/v1"
-    assert settings["llm"]["model"] == "kimi-k3"
-    assert settings["llm"]["api_key"] == "test-account-key"
-    assert "deep_import" not in settings["llm"]
-
-
-@pytest.mark.asyncio
 async def test_reset_field_rejects_unknown_field(db_session, factory):
     svc = SettingsService()
     pid = await factory.create_project()
@@ -210,6 +181,39 @@ async def test_projects_using_defaults_excludes_fully_overridden(db_session, fac
     resp = await list_projects_using_defaults(db_session)
     titles = [item.title for item in resp.items]
     assert "fully-own" not in titles
+
+
+@pytest.mark.asyncio
+async def test_fully_overridden_project_ids_are_plain_contract_values(
+    db_session,
+    factory,
+):
+    svc = SettingsService()
+    project_id = await factory.create_project(title="fully-own-contract")
+    other_project_id = await factory.create_project(title="outside-contract-scope")
+    await svc.upsert_project_author_prefs(
+        db_session,
+        project_id,
+        {
+            "daily_goal": 1000,
+            "editor_font": "serif",
+            "default_focus_mode": True,
+        },
+    )
+    await svc.upsert_project_author_prefs(
+        db_session,
+        other_project_id,
+        {
+            "daily_goal": 2000,
+            "editor_font": "mono",
+            "default_focus_mode": False,
+        },
+    )
+
+    assert await svc.list_fully_overridden_project_ids(
+        db_session,
+        [project_id],
+    ) == [project_id]
 
 
 @pytest.mark.asyncio

@@ -59,6 +59,9 @@ writing draft，`source_content_hash` 记录其 hash。canonical/working 索引�
 autosave/publish 调用 `request_chapter_index()` 幂等标脏状态；对同一状态键仅保留
 一个 pending/running 任务，执行时重读最新 requested source。RAG 文本仅用于候选召回，
 证据输出必须由 writing 重读原文并校验 hash，过期 chunk 丢弃并告警。
+worker 启动 reconciliation 只为 active author project 修复失效 owner；active ID
+通过 project facade 的 `ProjectSummary` contract 获取，不读取 project ORM。回收站项目
+保留可重建 state，但不会被后台补排。
 
 ### Facade
 

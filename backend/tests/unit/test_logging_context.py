@@ -151,21 +151,13 @@ async def test_project_context_lookup_binds_only_after_project_is_found() -> Non
 
     novel_id = str(uuid.uuid4())
     project_context = MagicMock(settings={})
-    project_context.model_copy.return_value = project_context
 
     with novel_log_scope():
-        with (
-            patch.object(
-                facade._service,
-                "get_project_context",
-                autospec=True,
-                return_value=project_context,
-            ),
-            patch(
-                "modules.settings.facade.materialize_effective_project_settings",
-                autospec=True,
-                return_value={},
-            ),
+        with patch.object(
+            facade._service,
+            "get_project_context",
+            autospec=True,
+            return_value=project_context,
         ):
             assert await facade.get_project_context(object(), novel_id) is project_context
         assert current_novel_id_for_log() == novel_id

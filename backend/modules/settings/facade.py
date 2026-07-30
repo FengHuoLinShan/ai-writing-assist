@@ -47,16 +47,17 @@ async def get_effective_llm_settings(
     供 project 模块在 GET /api/projects/{id}/effective-llm-settings 路由
     中委托调用。
     """
-    from modules.project.facade import get_project_by_id, require_active_project
+    from modules.project.facade import get_project_context, require_active_project
 
     await require_active_project(db, str(project_id))
-    project = await get_project_by_id(db, project_id)
-    if project is None:
+    context = await get_project_context(db, str(project_id))
+    if context is None:
         raise NotFoundError(f"Project {project_id} not found")
+    owner_id = uuid.UUID(context.owner_id) if context.owner_id else None
     return await _service.get_effective_llm_settings_for_project_settings(
         db,
-        project.settings,
-        project.owner_id,
+        context.settings,
+        owner_id,
     )
 
 
@@ -73,17 +74,6 @@ async def get_effective_author_prefs(
 
     await require_active_project(db, str(project_id))
     return await _service.get_effective_author_prefs(db, project_id)
-
-
-async def materialize_effective_project_settings(
-    db: AsyncSession,
-    project_settings: dict | None,
-    owner_id: uuid.UUID | None = None,
-) -> dict:
-    """把项目 raw settings 转为运行时 effective settings。"""
-    return await _service.materialize_effective_project_settings(
-        db, project_settings, owner_id
-    )
 
 
 async def resolve_effective_llm_settings_for_project_settings(
@@ -107,10 +97,18 @@ async def list_projects_using_defaults(
     """列出继承任一作者偏好默认值的项目。"""
     from modules.project.facade import list_active_project_summaries
 
+    active_projects, _active_total = await list_active_project_summaries(
+        db,
+        limit=100_000,
+    )
+    excluded_ids = await _service.list_fully_overridden_project_ids(
+        db,
+        [project.project_id for project in active_projects],
+    )
     projects, total = await list_active_project_summaries(
         db,
         limit=limit,
         offset=offset,
-        exclude_project_ids=_service.fully_overridden_project_ids_subquery(),
+        exclude_project_ids=excluded_ids,
     )
     return _service.build_projects_using_defaults_response(projects, total)

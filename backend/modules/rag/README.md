@@ -72,7 +72,8 @@ worker 启动时 reconciliation 会锁定仍有 owner 的 index state：owner ta
 恢复排队与 owner，不把过期 source 伪装成 fresh；真正入库仍重验 source ID/hash。
 reconciliation 只处理 active project；项目进入回收站后保留可重建 state/chunk，但不再为已取消
 或终态 owner 补排任务，避免与 worker 的 active-project 门禁形成 timeout/重排循环。项目恢复后
-由后续索引请求或 worker reconciliation 重新接管 stale state。
+由后续索引请求或 worker reconciliation 重新接管 stale state。active project 集合通过
+project facade 的 `ProjectSummary` 窄投影读取，不再跨模块消费 `Project` ORM。
 
 ## 检索类型
 

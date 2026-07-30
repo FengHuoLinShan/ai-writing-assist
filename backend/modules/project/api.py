@@ -27,7 +27,7 @@ from modules.project.schemas import (
 )
 from modules.project.services import ProjectService
 from modules.project.smart_dedup import SmartDedupService
-from modules.settings.schemas import (
+from modules.settings.contracts import (
     EffectiveAuthorPrefsResponse,
     EffectiveLLMSettingsResponse,
 )

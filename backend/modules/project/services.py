@@ -61,6 +61,36 @@ def _parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
     return _shared_parse_uuid(value, field_name)
 
 
+def _secret_free_project_context_settings(
+    settings: dict | None,
+) -> dict:
+    """Copy project-owned settings without exposing legacy credential metadata."""
+    secret_fields = {LLM_API_KEY_FIELD, LLM_API_KEYS_BY_PROVIDER_FIELD}
+
+    def strip_secret_fields(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: strip_secret_fields(item)
+                for key, item in value.items()
+                if key not in secret_fields
+            }
+        if isinstance(value, list):
+            return [strip_secret_fields(item) for item in value]
+        return value
+
+    cleaned = strip_secret_fields(settings or {})
+    if not isinstance(cleaned, dict):
+        return {}
+    llm = cleaned.get(LLM_SETTINGS_KEY)
+    if isinstance(llm, dict):
+        for field_name in (
+            "api_key_configured",
+            "api_key_configured_providers",
+        ):
+            llm.pop(field_name, None)
+    return cleaned
+
+
 class ProjectService:
     """业务服务层 — project 为根聚合，只做 response 转换与 404 抛错"""
 
@@ -307,7 +337,7 @@ class ProjectService:
         project_id: str,
         field_name: str,
     ) -> LLMFieldResetResponse:
-        from modules.settings.constants import LLM_INHERITABLE_FIELDS
+        from modules.settings.contracts import LLM_INHERITABLE_FIELDS
 
         if field_name not in LLM_INHERITABLE_FIELDS:
             raise ValueError(f"unknown llm field: {field_name}")
@@ -489,7 +519,7 @@ class ProjectService:
             target_length=project.target_length,
             current_stage=project.current_stage,
             default_reveal_policy=project.default_reveal_policy,
-            settings=dict(project.settings or {}),
+            settings=_secret_free_project_context_settings(project.settings),
         )
 
     async def require_active_project(

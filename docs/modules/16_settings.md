@@ -64,8 +64,10 @@ settings 模块拥有账户级模型连接、只读余额、全局作者偏好�
 
 - `modules.settings.services` 拥有 credential、连接验证、模板门禁、余额与 effective 规则，
   不能直接读取 project 的内部 models/repositories/services。
-- `modules.settings.facade` 只向 project 暴露 account runtime profile/effective 设置函数；
-  需要项目列表的聚合通过 `modules.project.facade` 获取项目摘要。
+- `modules.settings.contracts` 向 project 暴露 effective response 类型和非 secret
+  字段白名单；facade 只暴露 account runtime profile/effective 设置函数。
+- 需要项目列表的聚合先通过 project facade 取得 owner-scoped 摘要，settings 只在该集合
+  中查询覆盖记录并返回普通 project ID；跨模块 interface 不传 ORM 或 SQLAlchemy query。
 - 其他业务模块只能通过 project facade 消费已经解析的 client/snapshot，不得直接读取
   `account_llm_credentials` 或 `global_*` 表。
 
