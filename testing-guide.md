@@ -103,8 +103,8 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 ### Continuous integration
 
 GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
-`PostgreSQL critical`、`Frontend unit quality` 和 `Production image contract`，全部使用
-`ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
+`PostgreSQL critical`、`Frontend unit quality`、`Frontend browser smoke` 和
+`Production image contract`，全部使用 `ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
 secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
@@ -126,7 +126,12 @@ text collection metrics with an isolated local Codex evaluator. Frontend job fir
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.0`) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
-build; Playwright functional acceptance is still outside default CI. The backend
+build. `Frontend browser smoke` is an automated four-domain author smoke (home, project,
+imports, writing): it starts fresh dedicated PostgreSQL and Chromium for every run,
+uses workers=1 and retries=0, and retains `frontend-console/test-results` failure
+diagnostics for 14 days. Complete functional, map, visual and real-LLM Playwright
+suites remain explicit/manual acceptance runs rather than being folded into this smoke
+job. The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
 data; both complement rather than replace builds and tests, and a passing audit is
 not proof of zero dependency or supply-chain risk.
