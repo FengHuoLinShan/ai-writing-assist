@@ -10,7 +10,10 @@ import yaml
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 CODEQL_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/codeql.yml"
 DEPENDABOT_CONFIG = REPOSITORY_ROOT / ".github/dependabot.yml"
+BACKEND_CI_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/backend-ci.yml"
 CHECKOUT_SHA = "9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"
+TRIVY_ACTION_SHA = "ed142fd0673e97e23eac54620cfb913e5ce36c25"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 CODEQL_SHA = "d1ba80a13dd99fba24a470575428917156a28b43"
 CODEQL_SCHEDULE = "17 2 * * 0"
 DEPENDABOT_SCHEDULES = {
@@ -36,11 +39,7 @@ def _workflow_uses(workflow: dict[str, object]) -> list[str]:
     assert isinstance(analyze, dict)
     steps = analyze["steps"]
     assert isinstance(steps, list)
-    return [
-        step["uses"]
-        for step in steps
-        if isinstance(step, dict) and "uses" in step
-    ]
+    return [step["uses"] for step in steps if isinstance(step, dict) and "uses" in step]
 
 
 def test_codeql_workflow_uses_least_privilege_matrix_analysis() -> None:
@@ -106,9 +105,14 @@ def test_codeql_workflow_uses_least_privilege_matrix_analysis() -> None:
         f"uses: github/codeql-action/analyze@{CODEQL_SHA} # v4.37.5",
     ]
     for expected_line in expected_action_lines:
-        assert len(
-            re.findall(rf"^\s*{re.escape(expected_line)}$", workflow_text, re.MULTILINE)
-        ) == 1
+        assert (
+            len(
+                re.findall(
+                    rf"^\s*{re.escape(expected_line)}$", workflow_text, re.MULTILINE
+                )
+            )
+            == 1
+        )
 
     steps = analyze["steps"]
     assert isinstance(steps, list)
@@ -161,3 +165,147 @@ def test_dependabot_updates_are_scoped_staggered_and_reviewable() -> None:
         }
 
     assert len(observed_times) == len(DEPENDABOT_SCHEDULES)
+
+
+def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> None:
+    workflow = _load_yaml(BACKEND_CI_WORKFLOW)
+
+    assert workflow["permissions"] == {"contents": "read"}
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    job = jobs["production-image-contract"]
+    assert isinstance(job, dict)
+    assert job["name"] == "Production image contract"
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert job["timeout-minutes"] == "40"
+    assert "permissions" not in job
+    assert "continue-on-error" not in job
+
+    steps = job["steps"]
+    assert isinstance(steps, list)
+    by_name = {
+        step["name"]: step
+        for step in steps
+        if isinstance(step, dict) and isinstance(step.get("name"), str)
+    }
+    ordered_names = [step["name"] for step in steps if isinstance(step, dict)]
+    assert ordered_names == [
+        "Check out repository",
+        "Build and smoke-test production images",
+        "Create container SBOM artifact directory",
+        "Generate backend image CycloneDX SBOM",
+        "Generate frontend image CycloneDX SBOM",
+        "Validate generated CycloneDX SBOMs",
+        "Upload production image SBOMs",
+        "Gate backend image fixable high and critical vulnerabilities",
+        "Gate frontend image fixable high and critical vulnerabilities",
+    ]
+    assert by_name["Build and smoke-test production images"]["run"] == (
+        "make test-production-images"
+    )
+    assert by_name["Create container SBOM artifact directory"]["run"] == (
+        "mkdir -p .test-artifacts/container-sbom"
+    )
+
+    trivy_steps = [
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and step.get("uses") == f"aquasecurity/trivy-action@{TRIVY_ACTION_SHA}"
+    ]
+    assert len(trivy_steps) == 4
+    observed_trivy_uses = [
+        step["uses"]
+        for step in steps
+        if isinstance(step, dict)
+        and isinstance(step.get("uses"), str)
+        and step["uses"].startswith("aquasecurity/trivy-action@")
+    ]
+    assert (
+        observed_trivy_uses
+        == [
+            f"aquasecurity/trivy-action@{TRIVY_ACTION_SHA}",
+        ]
+        * 4
+    )
+    assert all(
+        "continue-on-error" not in step for step in steps if isinstance(step, dict)
+    )
+
+    expected_sboms = (
+        (
+            "contract-smoke-backend:fixed-toolchain",
+            ".test-artifacts/container-sbom/backend.cdx.json",
+            {"version": "v0.73.0"},
+        ),
+        (
+            "contract-smoke-frontend:fixed-toolchain",
+            ".test-artifacts/container-sbom/frontend.cdx.json",
+            {"skip-setup-trivy": "true"},
+        ),
+    )
+    for step, (image_ref, output, setup) in zip(
+        trivy_steps[:2], expected_sboms, strict=True
+    ):
+        assert step["with"] == {
+            **setup,
+            "scan-type": "image",
+            "image-ref": image_ref,
+            "format": "cyclonedx",
+            "output": output,
+            "scanners": "vuln",
+            "vuln-type": "os,library",
+            "exit-code": "0",
+            "timeout": "10m",
+        }
+
+    for step, image_ref in zip(
+        trivy_steps[2:],
+        (
+            "contract-smoke-backend:fixed-toolchain",
+            "contract-smoke-frontend:fixed-toolchain",
+        ),
+        strict=True,
+    ):
+        assert step["with"] == {
+            "skip-setup-trivy": "true",
+            "scan-type": "image",
+            "image-ref": image_ref,
+            "format": "table",
+            "scanners": "vuln",
+            "vuln-type": "os,library",
+            "severity": "HIGH,CRITICAL",
+            "ignore-unfixed": "true",
+            "exit-code": "1",
+            "timeout": "10m",
+        }
+
+    validator = by_name["Validate generated CycloneDX SBOMs"]
+    validator_script = validator["run"]
+    assert "import json" in validator_script
+    assert "backend.cdx.json" in validator_script
+    assert "frontend.cdx.json" in validator_script
+    assert 'document.get("bomFormat") != "CycloneDX"' in validator_script
+    assert "not isinstance(components, list) or not components" in validator_script
+
+    upload = by_name["Upload production image SBOMs"]
+    assert upload["uses"] == f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}"
+    assert upload["with"] == {
+        "name": "production-image-sboms",
+        "path": (
+            ".test-artifacts/container-sbom/backend.cdx.json\n"
+            ".test-artifacts/container-sbom/frontend.cdx.json\n"
+        ),
+        "if-no-files-found": "error",
+        "include-hidden-files": "true",
+        "retention-days": "14",
+    }
+
+    workflow_text = BACKEND_CI_WORKFLOW.read_text(encoding="utf-8")
+    production_job_text = workflow_text.split(
+        "\n  production-image-contract:\n", maxsplit=1
+    )[1]
+    trivy_action = f"uses: aquasecurity/trivy-action@{TRIVY_ACTION_SHA} # v0.36.0"
+    upload_action = f"uses: actions/upload-artifact@{UPLOAD_ARTIFACT_SHA} # v6.0.0"
+    assert production_job_text.count(trivy_action) == 4
+    assert production_job_text.count(upload_action) == 1

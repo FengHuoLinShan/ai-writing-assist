@@ -157,6 +157,10 @@ LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fas
 frontend 的 nginx 配置和入口资产都可用。它不归入本地 `make test-ci`，因为实际镜像拉取和构建
 远重于默认快速门禁。tag 与 digest 必须成对评审和轮换；固定输入提高可复查性，但不同 Docker
 builder 的层输出不承诺逐字节相同。
+该 CI job 在 smoke 后为两份本地镜像生成 CycloneDX SBOM，验证 JSON 后作为 14 天 artifact
+上传，再扫描并只阻断可修复的 HIGH/CRITICAL OS 或 library 漏洞。SBOM 仍保留未修复和低严重度
+发现，便于审查；扫描通过并不证明镜像或供应链零风险。本地 `make test-production-images` 不运行
+这些 CI SBOM/漏洞步骤。
 
 `make test-deploy` 只验证部署文件、环境校验与 CLI 的静态合同，不启动 Compose、不会连接
 外部服务，也不等同于真实发布或备份恢复演练。本地等价聚合入口是

@@ -130,6 +130,10 @@ the Dockerfile, production/example PostgreSQL declarations, relevant CI service 
 and the associated contract tests in one change. `make test-production-images` is
 intentionally outside `make test-ci`: it downloads/builds production images and is too
 slow for the normal local fast gate, while GitHub runs it as a separate required job.
+That local target remains build/smoke only. The CI job additionally emits and retains
+14-day CycloneDX SBOM artifacts for both OS and library inventories, including unfixed
+and lower-severity findings, then blocks only fixable HIGH/CRITICAL vulnerabilities.
+A passing vulnerability gate is not proof of zero image or supply-chain risk.
 
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
 `prompts/`, and `alembic/`; worker reload watches the same schema-sensitive paths.

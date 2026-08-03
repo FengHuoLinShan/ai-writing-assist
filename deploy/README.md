@@ -136,6 +136,11 @@ smoke checks：backend 必须以非 root 运行、没有构建期 uv、且可导
 因此不放入日常 `make test-ci`，但 GitHub Actions 会以独立 `Production image contract` job
 执行。
 
+本地 smoke target 只构建并验证镜像运行时合同；CI 在其后对两份本地镜像生成 CycloneDX
+SBOM（OS 与 library 清单），先验证并上传为保留 14 天的 artifact，再执行门禁扫描。SBOM
+保留未修复与低严重度发现以便审查；门禁只阻断可修复的 HIGH/CRITICAL 漏洞。通过扫描不代表
+镜像或供应链不存在任何风险。
+
 镜像轮换必须把新上游 tag 和 digest 一起复核，并在同一次改动中更新 Dockerfile、生产 Compose/
 示例环境文件、CI service image 和合同测试；不可仅改 tag 或仅改 digest。该过程不改变 API、
 数据库 schema、前端 wire 形状或正常用户操作，所有作者与读者画像只会获得更一致的发布结果。
