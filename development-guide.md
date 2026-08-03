@@ -135,6 +135,17 @@ That local target remains build/smoke only. The CI job additionally emits and re
 and lower-severity findings, then blocks only fixable HIGH/CRITICAL vulnerabilities.
 A passing vulnerability gate is not proof of zero image or supply-chain risk.
 
+Production Compose applies its read-only root, dropped capabilities and no-new-privileges
+policy only to the five first-party services: `api`, `worker`, `frontend`, `migrate` and
+`account-maintenance`. Backend services receive only `/tmp` tmpfs; frontend receives only
+nginx-owned `/run` and `/var/cache/nginx` tmpfs. PostgreSQL and embedding are deliberate
+non-goals until separately validated. `make test-production-images` runs both images with
+those restrictions and verifies effective UID, zero capabilities, no-new-privileges,
+immutable application/static paths, a backend tempfile and live nginx health/assets. This
+reduces a container's write and privilege surface; it does not eliminate application,
+image, daemon or host compromise risk. Roll back an undeclared write-path failure through
+the fixed-SHA release flow, rather than making a production root filesystem writable.
+
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
 `prompts/`, and `alembic/`; worker reload watches the same schema-sensitive paths.
 `make dev` compares the database's current Alembic revision set with the migration

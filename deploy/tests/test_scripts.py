@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 DEPLOY_ROOT = Path(__file__).parents[1]
 COMMON_SCRIPT = DEPLOY_ROOT / "scripts" / "common.sh"
 FRONTEND_ASSET_VALIDATOR = DEPLOY_ROOT / "scripts" / "validate_frontend_assets.py"
@@ -221,6 +223,53 @@ def test_compose_uses_one_bounded_logging_extension_for_every_service() -> None:
         )
         service_section = services[service_start:service_end]
         assert "logging: *bounded-logging" in service_section
+
+
+def test_first_party_services_use_the_shared_read_only_runtime_policy() -> None:
+    compose_path = DEPLOY_ROOT / "compose.production.yml"
+    compose_text = compose_path.read_text(encoding="utf-8")
+    compose = yaml.safe_load(compose_text)
+    assert isinstance(compose, dict)
+
+    expected_policy = {
+        "read_only": True,
+        "cap_drop": ["ALL"],
+        "security_opt": ["no-new-privileges:true"],
+    }
+    assert compose["x-first-party-runtime-hardening"] == expected_policy
+    services = compose["services"]
+    assert isinstance(services, dict)
+    first_party_services = (
+        "api",
+        "worker",
+        "frontend",
+        "migrate",
+        "account-maintenance",
+    )
+    backend_services = ("api", "worker", "migrate", "account-maintenance")
+
+    assert compose_text.count("&first-party-runtime-hardening") == 1
+    assert compose_text.count("<<: *first-party-runtime-hardening") == len(
+        first_party_services
+    )
+    for service_name in first_party_services:
+        service = services[service_name]
+        assert isinstance(service, dict)
+        assert {key: service[key] for key in expected_policy} == expected_policy
+        assert "privileged" not in service
+
+    for service_name in backend_services:
+        assert services[service_name]["tmpfs"] == ["/tmp:mode=1777"]
+    assert services["frontend"]["tmpfs"] == [
+        "/run:mode=0755,uid=101,gid=101",
+        "/var/cache/nginx:mode=0755,uid=101,gid=101",
+    ]
+
+    for service_name in ("postgres", "embedding"):
+        service = services[service_name]
+        assert isinstance(service, dict)
+        assert not set(expected_policy) & set(service)
+        assert "tmpfs" not in service
 
 
 def test_production_database_image_is_explicitly_tagged_and_digest_pinned() -> None:

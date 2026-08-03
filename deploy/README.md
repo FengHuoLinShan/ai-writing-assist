@@ -136,6 +136,17 @@ smoke checks：backend 必须以非 root 运行、没有构建期 uv、且可导
 因此不放入日常 `make test-ci`，但 GitHub Actions 会以独立 `Production image contract` job
 执行。
 
+生产 Compose 只对第一方 `api`、`worker`、`frontend`、`migrate` 和
+`account-maintenance` 施加只读根文件系统、移除全部 Linux capabilities 与
+`no-new-privileges`。backend 进程仅通过 `/tmp` tmpfs 写入临时解析文件；frontend 仅通过
+nginx 用户拥有的 `/run` 和 `/var/cache/nginx` tmpfs 写入。PostgreSQL 与 embedding 不继承这套
+未经各自验证的策略。镜像合同 smoke 在相同受限 flags 下检查有效 UID、零 `CapEff`、`NoNewPrivs: 1`、
+不可写应用/静态目录、backend tempfile，以及实际 nginx health/asset 请求。
+
+这些限制降低第一方容器内的意外写入和提权面，但不会消除应用漏洞、Docker daemon、宿主机或
+依赖镜像风险。若生产出现未声明写路径，保留日志并通过既有固定 SHA 发布流程回滚本次聚焦提交；
+不得为临时修复把根文件系统改回可写。
+
 本地 smoke target 只构建并验证镜像运行时合同；CI 在其后对两份本地镜像生成 CycloneDX
 SBOM（OS 与 library 清单），先验证并上传为保留 14 天的 artifact，再执行门禁扫描。SBOM
 保留未修复与低严重度发现以便审查；门禁只阻断可修复的 HIGH/CRITICAL 漏洞。通过扫描不代表

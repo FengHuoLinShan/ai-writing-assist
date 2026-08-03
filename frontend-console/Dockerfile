@@ -19,7 +19,10 @@ RUN set -eu; \
       test -r "/usr/share/nginx/html/$asset"; \
     done; \
     chmod -R a+rX /usr/share/nginx/html; \
+    chown nginx:nginx /run /var/cache/nginx; \
     nginx -t
+
+USER nginx
 
 EXPOSE 8080
 

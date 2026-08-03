@@ -162,6 +162,15 @@ builder 的层输出不承诺逐字节相同。
 发现，便于审查；扫描通过并不证明镜像或供应链零风险。本地 `make test-production-images` 不运行
 这些 CI SBOM/漏洞步骤。
 
+生产 Compose 的容器收敛只覆盖第一方 `api`、`worker`、`frontend`、`migrate` 和
+`account-maintenance`：它们使用只读根、`cap_drop: ALL` 与 `no-new-privileges`。backend
+服务的唯一声明写路径是 `/tmp` tmpfs；frontend 的是 nginx-owned `/run` 与
+`/var/cache/nginx` tmpfs。PostgreSQL 和 embedding 不继承这些尚未单独验证的设置。
+`make test-production-images` 在同一受限运行时检查 UID、`CapEff` 为零、`NoNewPrivs: 1`、
+只读应用/静态路径、backend tempfile 及真实 nginx health/asset 请求。该边界降低容器内
+写入和提权面，并不消除应用、镜像、daemon 或宿主机风险；若发现未声明写路径，应保留证据并通过
+固定-SHA 发布流程回滚，不得以放宽根文件系统作为临时修复。
+
 `make test-deploy` 只验证部署文件、环境校验与 CLI 的静态合同，不启动 Compose、不会连接
 外部服务，也不等同于真实发布或备份恢复演练。本地等价聚合入口是
 `make test-ci TEST_WORKERS=2`；它不包含上述显式验收层。

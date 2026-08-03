@@ -20,6 +20,8 @@ from tests.support.inventory import (
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MODULES_ROOT = BACKEND_ROOT / "modules"
+
+
 def _fixture_names(path: Path) -> set[str]:
     tree = python_ast(path)
     names: set[str] = set()
@@ -381,10 +383,11 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     assert "name: Audit locked backend dependencies" in workflow
     assert "make audit-backend-deps" in workflow
     assert "run: make audit-backend-deps" in workflow
-    assert workflow.index("Install uv and Python") < workflow.index(
-        "name: Audit locked backend dependencies"
-    ) < workflow.index("Install locked backend dependencies") < workflow.index(
-        "name: Lint backend"
+    assert (
+        workflow.index("Install uv and Python")
+        < workflow.index("name: Audit locked backend dependencies")
+        < workflow.index("Install locked backend dependencies")
+        < workflow.index("name: Lint backend")
     )
     assert "make test-fast-coverage TEST_WORKERS=2" in workflow
     assert 'ARGS="-W error::RuntimeWarning"' in workflow
@@ -394,9 +397,11 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     assert "name: Audit frontend dependency lockfile" in workflow
     assert "run: npm audit --package-lock-only --audit-level=high" in workflow
     assert "run: npm test" in workflow
-    assert workflow.index("run: npm ci") < workflow.index(
-        "name: Audit frontend dependency lockfile"
-    ) < workflow.index("run: npm test")
+    assert (
+        workflow.index("run: npm ci")
+        < workflow.index("name: Audit frontend dependency lockfile")
+        < workflow.index("run: npm test")
+    )
     assert "test-ci:" in makefile
     assert "make test-deploy" in workflow
 
@@ -538,13 +543,18 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert backend_dockerfile.count(f"FROM {python_image}") == 2
     assert "AS build" in backend_dockerfile
     assert "AS runtime" in backend_dockerfile
-    assert 'ARG UV_VERSION=0.11.28' in backend_dockerfile
+    assert "ARG UV_VERSION=0.11.28" in backend_dockerfile
     assert "USER app" in backend_dockerfile
     assert "COPY --from=build --chown=app:app /app /app" in backend_dockerfile
     assert f"FROM {node_image} AS build" in frontend_dockerfile
     assert f"FROM {nginx_image}" in frontend_dockerfile
     assert "asset-manifest.json asset-inventory.txt index.html" in frontend_dockerfile
     assert "nginx -t" in frontend_dockerfile
+    assert "chown nginx:nginx /run /var/cache/nginx" in frontend_dockerfile
+    assert frontend_dockerfile.rstrip().endswith(
+        "CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"
+    )
+    assert "USER nginx\n\nEXPOSE 8080" in frontend_dockerfile
 
     assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.12.13\n"
     assert (repo_root / "frontend-console/.node-version").read_text(
@@ -563,10 +573,34 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     command = _make_dry_run("test-production-images")
     assert command.count("docker build") == 2
     assert command.count("docker run --rm") == 2
-    assert "contract-smoke-backend:fixed-toolchain" in command
-    assert "contract-smoke-frontend:fixed-toolchain" in command
-    assert '! command -v uv' in command
-    assert 'from app.main import app' in command
+    docker_run_lines = [
+        line for line in command.splitlines() if line.startswith("docker run --rm")
+    ]
+    assert len(docker_run_lines) == 2
+    backend_run, frontend_run = docker_run_lines
+    assert "--entrypoint sh contract-smoke-backend:fixed-toolchain -ec" in backend_run
+    assert "--entrypoint" not in frontend_run
+    assert "contract-smoke-frontend:fixed-toolchain sh -ec" in frontend_run
+    assert command.count("--read-only") == 2
+    assert command.count("--cap-drop ALL") == 2
+    assert command.count("--security-opt no-new-privileges=true") == 2
+    assert "--tmpfs /tmp:mode=1777" in command
+    assert "--tmpfs /run:mode=0755,uid=101,gid=101" in command
+    assert "--tmpfs /var/cache/nginx:mode=0755,uid=101,gid=101" in command
+    assert 'test "$(id -u)" -ne 0' in command
+    assert 'test "$(id -u)" -eq 101' in command
+    assert "CapEff:" in command
+    assert "0000000000000000" in command
+    assert "NoNewPrivs:" in command
+    assert "test ! -w /app" in command
+    assert "test ! -w /usr/share/nginx/html" in command
+    assert "! command -v uv" in command
+    assert "from app.main import app" in command
+    assert "NamedTemporaryFile" in command
+    assert 'Path(\\"/tmp\\")' in command
     assert "nginx -t" in command
+    assert 'nginx -g "daemon off;" &' in command
+    assert "/healthz" in command
+    assert "/asset-inventory.txt" in command
     assert "production-image-contract:" in workflow
     assert "run: make test-production-images" in workflow

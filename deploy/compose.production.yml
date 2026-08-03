@@ -6,6 +6,11 @@ x-bounded-logging: &bounded-logging
     max-size: "10m"
     max-file: "10"
 
+x-first-party-runtime-hardening: &first-party-runtime-hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+
 x-runtime-environment: &runtime-environment
   APP_ENV: production
   DEBUG: "false"
@@ -109,6 +114,7 @@ services:
       - egress
 
   api:
+    <<: *first-party-runtime-hardening
     image: ai-writing-assist-backend:${RELEASE_ID:-local}
     build:
       context: ..
@@ -134,6 +140,8 @@ services:
       start_period: 20s
       retries: 8
     stop_grace_period: 30s
+    tmpfs:
+      - /tmp:mode=1777
     ports:
       - "127.0.0.1:${API_LOOPBACK_PORT:-18000}:8000"
     networks:
@@ -141,6 +149,7 @@ services:
       egress:
 
   worker:
+    <<: *first-party-runtime-hardening
     image: ai-writing-assist-backend:${RELEASE_ID:-local}
     build:
       context: ..
@@ -167,21 +176,28 @@ services:
       start_period: 20s
       retries: 8
     stop_grace_period: 2m
+    tmpfs:
+      - /tmp:mode=1777
     networks:
       - data
       - egress
 
   frontend:
+    <<: *first-party-runtime-hardening
     image: ai-writing-assist-frontend:${RELEASE_ID:-local}
     build:
       context: ..
       dockerfile: frontend-console/Dockerfile
     restart: unless-stopped
     logging: *bounded-logging
+    tmpfs:
+      - /run:mode=0755,uid=101,gid=101
+      - /var/cache/nginx:mode=0755,uid=101,gid=101
     ports:
       - "127.0.0.1:${FRONTEND_LOOPBACK_PORT:-18080}:8080"
 
   migrate:
+    <<: *first-party-runtime-hardening
     profiles: ["ops"]
     image: ai-writing-assist-backend:${RELEASE_ID:-local}
     build:
@@ -194,11 +210,14 @@ services:
         condition: service_healthy
     restart: "no"
     logging: *bounded-logging
+    tmpfs:
+      - /tmp:mode=1777
     networks:
       - data
       - egress
 
   account-maintenance:
+    <<: *first-party-runtime-hardening
     profiles: ["ops"]
     image: ai-writing-assist-backend:${RELEASE_ID:-local}
     command: ["python", "scripts/manage_accounts.py", "purge-due", "--execute"]
@@ -208,6 +227,8 @@ services:
         condition: service_healthy
     restart: "no"
     logging: *bounded-logging
+    tmpfs:
+      - /tmp:mode=1777
     networks:
       - data
       - egress
