@@ -97,18 +97,10 @@ async def list_projects_using_defaults(
     """列出继承任一作者偏好默认值的项目。"""
     from modules.project.facade import list_active_project_summaries
 
-    active_projects, _active_total = await list_active_project_summaries(
-        db,
-        limit=100_000,
-    )
-    excluded_ids = await _service.list_fully_overridden_project_ids(
-        db,
-        [project.project_id for project in active_projects],
-    )
     projects, total = await list_active_project_summaries(
         db,
         limit=limit,
         offset=offset,
-        exclude_project_ids=excluded_ids,
+        exclude_project_ids=_service.fully_overridden_project_ids_subquery(),
     )
     return _service.build_projects_using_defaults_response(projects, total)

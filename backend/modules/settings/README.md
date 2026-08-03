@@ -92,9 +92,9 @@ refresh 不绑定单个项目，不使用该门禁。
   `get_effective_author_prefs` 供 `modules.project` 调用。业务模块不得绕过
   project 的 client/snapshot seam 直接取得明文凭据。
 - 跨模块聚合（如 `/api/settings/projects-using-defaults`）只在
-  `modules.settings.facade` 薄编排：先从 project 取得 owner-scoped 项目摘要，
-  settings 再把该集合中的覆盖记录投影为普通 project ID；不得跨 owner 扫描，也不得把
-  SQLAlchemy subquery 作为跨模块 interface。
+  `modules.settings.facade` 薄编排：settings 提供“完全覆盖作者偏好”的 ID subquery，
+  project facade 在自身的 active/author/owner 条件、排序和分页查询中应用排除；不得跨 owner
+  扫描或把 project ORM 实现泄漏给 settings。
 - 不允许直接 import 对方模块的 `services.py` / `repositories.py` / `models.py`。
 
 ## D 决策索引

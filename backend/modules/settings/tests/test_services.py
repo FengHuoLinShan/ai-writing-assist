@@ -184,7 +184,7 @@ async def test_projects_using_defaults_excludes_fully_overridden(db_session, fac
 
 
 @pytest.mark.asyncio
-async def test_fully_overridden_project_ids_are_plain_contract_values(
+async def test_fully_overridden_project_ids_are_database_subquery(
     db_session,
     factory,
 ):
@@ -210,10 +210,8 @@ async def test_fully_overridden_project_ids_are_plain_contract_values(
         },
     )
 
-    assert await svc.list_fully_overridden_project_ids(
-        db_session,
-        [project_id],
-    ) == [project_id]
+    result = await db_session.execute(svc.fully_overridden_project_ids_subquery())
+    assert set(result.scalars()) == {project_id, other_project_id}
 
 
 @pytest.mark.asyncio

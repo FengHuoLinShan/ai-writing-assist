@@ -8,6 +8,7 @@ Project 模块测试
 from __future__ import annotations
 
 import uuid
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -726,6 +727,69 @@ class TestProjectService:
         assert ctx.target_length == "novel"
         assert ctx.current_stage == "world_building"
         assert ctx.default_reveal_policy == "author_safe"
+
+    @pytest.mark.asyncio
+    async def test_get_project_context_recursively_strips_llm_credential_metadata(
+        self,
+    ) -> None:
+        project_id = str(uuid.uuid4())
+        settings = {
+            "llm": {
+                "provider_id": "deepseek",
+                "api_key": "legacy-root-key",
+                "api_keys_by_provider": {"deepseek": "legacy-provider-key"},
+                "api_key_configured": True,
+                "api_key_configured_providers": ["deepseek"],
+                "nested": [
+                    {
+                        "api_key": "legacy-list-key",
+                        "api_keys_by_provider": {"kimi": "legacy-kimi-key"},
+                        "api_key_configured": True,
+                        "api_key_configured_providers": ["kimi"],
+                    }
+                ],
+            },
+            "workflow": {
+                "api_key_configured": False,
+                "api_key_configured_providers": ["workflow-provider"],
+                "nested": {
+                    "api_key": "legacy-nested-key",
+                    "api_keys_by_provider": {"deepseek": "legacy-nested-provider-key"},
+                    "api_key_configured": True,
+                    "api_key_configured_providers": ["nested-workflow-provider"],
+                },
+            },
+        }
+        original_settings = deepcopy(settings)
+        project = _make_project(
+            id=uuid.UUID(project_id),
+            owner_id=uuid.uuid4(),
+            settings=settings,
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=project)
+
+        context = await ProjectService(repo=repo).get_project_context(
+            MagicMock(),
+            project_id,
+        )
+
+        assert context is not None
+        assert context.settings == {
+            "llm": {
+                "provider_id": "deepseek",
+                "nested": [{}],
+            },
+            "workflow": {
+                "api_key_configured": False,
+                "api_key_configured_providers": ["workflow-provider"],
+                "nested": {
+                    "api_key_configured": True,
+                    "api_key_configured_providers": ["nested-workflow-provider"],
+                },
+            },
+        }
+        assert settings == original_settings
 
     @pytest.mark.asyncio
     async def test_get_project_context_not_found(self) -> None:

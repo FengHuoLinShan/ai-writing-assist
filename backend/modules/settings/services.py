@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 from core.config import get_settings
 from infrastructure.llm.balance import (
@@ -124,8 +125,7 @@ class SettingsService:
         enabled_order = enabled_account_llm_provider_order()
         active_provider = (
             defaults.provider_id
-            if defaults is not None
-            and account_llm_provider_enabled(defaults.provider_id)
+            if defaults is not None and account_llm_provider_enabled(defaults.provider_id)
             else enabled_order[0]
         )
         rows = await self._credential_repo.list_for_owner(db, resolved_owner)
@@ -477,8 +477,7 @@ class SettingsService:
         glob_row = await self._llm_repo.get(db, resolved_owner)
         provider_id = (
             glob_row.provider_id
-            if glob_row is not None
-            and account_llm_provider_enabled(glob_row.provider_id)
+            if glob_row is not None and account_llm_provider_enabled(glob_row.provider_id)
             else enabled_account_llm_provider_order()[0]
         )
         template = ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id]
@@ -526,24 +525,13 @@ class SettingsService:
         )
 
     # ----- aggregation -----
-    async def list_fully_overridden_project_ids(
-        self,
-        db: AsyncSession,
-        project_ids: Sequence[uuid.UUID],
-    ) -> list[uuid.UUID]:
-        """Return overridden IDs within an already owner-scoped project set."""
-        scoped_ids = tuple(project_ids)
-        if not scoped_ids:
-            return []
-        result = await db.execute(
-            select(ProjectAuthorPreferences.project_id).where(
-                ProjectAuthorPreferences.project_id.in_(scoped_ids),
-                ProjectAuthorPreferences.daily_goal.is_not(None),
-                ProjectAuthorPreferences.editor_font.is_not(None),
-                ProjectAuthorPreferences.default_focus_mode.is_not(None),
-            )
+    def fully_overridden_project_ids_subquery(self) -> Select[tuple[uuid.UUID]]:
+        """D18: projects with every preference overridden, for DB-side exclusion."""
+        return select(ProjectAuthorPreferences.project_id).where(
+            ProjectAuthorPreferences.daily_goal.is_not(None),
+            ProjectAuthorPreferences.editor_font.is_not(None),
+            ProjectAuthorPreferences.default_focus_mode.is_not(None),
         )
-        return list(result.scalars().all())
 
     def build_projects_using_defaults_response(
         self,

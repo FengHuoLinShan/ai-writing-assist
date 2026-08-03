@@ -18,6 +18,7 @@ from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
+    get_project_context,
     open_project_llm_client,
     restore_project_llm_execution_settings,
 )
@@ -248,9 +249,12 @@ async def test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key(
         db_session,
         test_project_id,
     )
+    context_before_rotation = await get_project_context(db_session, test_project_id)
 
     serialized = str(snapshot)
     assert "unit-test-before-rotation" not in serialized
+    assert context_before_rotation is not None
+    assert "unit-test-before-rotation" not in str(context_before_rotation.settings)
     assert snapshot["profile"]["provider_id"] == "deepseek"
     assert snapshot["profile"]["model"] == "deepseek-v4-flash"
     assert snapshot["sources"]["model"] == "account"
@@ -264,10 +268,14 @@ async def test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key(
         test_project_id,
         snapshot,
     )
+    context_after_rotation = await get_project_context(db_session, test_project_id)
 
     assert restored["llm"]["model"] == "deepseek-v4-flash"
     assert restored["llm"]["api_key"] == "unit-test-after-rotation"
     assert restored["llm"]["api_key"] != "unit-test-before-rotation"
+    assert context_after_rotation is not None
+    assert "unit-test-after-rotation" not in str(context_after_rotation.settings)
+    assert "unit-test-after-rotation" not in serialized
 
 
 @pytest.mark.asyncio

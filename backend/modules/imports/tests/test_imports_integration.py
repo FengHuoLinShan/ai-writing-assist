@@ -219,6 +219,11 @@ class TestDeepImportWorkflowNewPipeline:
         progress = DeepImportProgress()
 
         with (
+            mock.patch(
+                "modules.imports.workflow._project_settings_for_novel",
+                autospec=True,
+                return_value={},
+            ),
             mock.patch.object(
                 workflow,
                 "_run_phase0_plan",
@@ -284,6 +289,11 @@ class TestDeepImportWorkflowNewPipeline:
         progress = DeepImportProgress()
 
         with (
+            mock.patch(
+                "modules.imports.workflow._project_settings_for_novel",
+                autospec=True,
+                return_value={},
+            ),
             mock.patch.object(
                 workflow,
                 "_run_phase0_plan",

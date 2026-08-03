@@ -66,29 +66,40 @@ def _secret_free_project_context_settings(
 ) -> dict:
     """Copy project-owned settings without exposing legacy credential metadata."""
     secret_fields = {LLM_API_KEY_FIELD, LLM_API_KEYS_BY_PROVIDER_FIELD}
+    llm_metadata_fields = {
+        "api_key_configured",
+        "api_key_configured_providers",
+    }
 
-    def strip_secret_fields(value: object) -> object:
+    def strip_secret_fields(
+        value: object,
+        *,
+        in_llm_metadata: bool,
+    ) -> object:
         if isinstance(value, dict):
             return {
-                key: strip_secret_fields(item)
+                key: strip_secret_fields(item, in_llm_metadata=in_llm_metadata)
                 for key, item in value.items()
                 if key not in secret_fields
+                and (not in_llm_metadata or key not in llm_metadata_fields)
             }
         if isinstance(value, list):
-            return [strip_secret_fields(item) for item in value]
+            return [
+                strip_secret_fields(item, in_llm_metadata=in_llm_metadata)
+                for item in value
+            ]
         return value
 
-    cleaned = strip_secret_fields(settings or {})
-    if not isinstance(cleaned, dict):
+    if not isinstance(settings, dict):
         return {}
-    llm = cleaned.get(LLM_SETTINGS_KEY)
-    if isinstance(llm, dict):
-        for field_name in (
-            "api_key_configured",
-            "api_key_configured_providers",
-        ):
-            llm.pop(field_name, None)
-    return cleaned
+    return {
+        key: strip_secret_fields(
+            value,
+            in_llm_metadata=key == LLM_SETTINGS_KEY,
+        )
+        for key, value in settings.items()
+        if key not in secret_fields
+    }
 
 
 class ProjectService:
@@ -128,9 +139,7 @@ class ProjectService:
         self._tasks_deleter = tasks_deleter
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
-        return LLMProviderTemplateListResponse(
-            items=list_account_provider_templates()
-        )
+        return LLMProviderTemplateListResponse(items=list_account_provider_templates())
 
     async def create_project(
         self, db: AsyncSession, data: ProjectCreate
@@ -316,10 +325,7 @@ class ProjectService:
         if not isinstance(llm, dict):
             return data
         next_llm = dict(llm)
-        if (
-            LLM_API_KEY_FIELD in next_llm
-            or LLM_API_KEYS_BY_PROVIDER_FIELD in next_llm
-        ):
+        if LLM_API_KEY_FIELD in next_llm or LLM_API_KEYS_BY_PROVIDER_FIELD in next_llm:
             raise ValidationError("API Key 只能在账户设置中配置")
         if next_llm.get("base_url"):
             try:

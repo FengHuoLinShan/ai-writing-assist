@@ -7,10 +7,11 @@ Project Facade — 对外入口
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection
+from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
@@ -136,12 +137,12 @@ async def list_active_project_summaries(
     *,
     limit: int = 50,
     offset: int = 0,
-    exclude_project_ids: Collection[uuid.UUID] | None = None,
+    exclude_project_ids: Select[tuple[Any, ...]] | None = None,
 ) -> tuple[list[ProjectSummary], int]:
     """List active project summaries with project-owned filtering and sorting.
 
-    Cross-module callers may pass plain project IDs, but never a caller-owned
-    SQLAlchemy expression.
+    ``exclude_project_ids`` lets caller-owned modules provide a DB-side project-id
+    subquery without importing project internals.
     """
     from modules.account.facade import current_owner_id_or_system_none
 
@@ -152,9 +153,8 @@ async def list_active_project_summaries(
     owner_id = current_owner_id_or_system_none()
     if owner_id is not None:
         conditions.append(Project.owner_id == owner_id)
-    excluded_ids = tuple(exclude_project_ids or ())
-    if excluded_ids:
-        conditions.append(Project.id.not_in(excluded_ids))
+    if exclude_project_ids is not None:
+        conditions.append(Project.id.not_in(exclude_project_ids))
 
     count_stmt = select(func.count(Project.id)).where(*conditions)
     total = (await db.execute(count_stmt)).scalar() or 0
