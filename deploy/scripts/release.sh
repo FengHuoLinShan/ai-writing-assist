@@ -89,45 +89,20 @@ fi
 ensure_public_bootstrap
 compose up -d api worker frontend
 
-frontend_runtime_healthy() {
-    compose exec -T frontend sh -ec '
-        for asset in \
-            / \
-            /shared/esc.js \
-            /ui/toast.js \
-            /ui/modal.js \
-            /stateSlices.js \
-            /state.js \
-            /apiContracts.js \
-            /router.js \
-            /commands.js
-        do
-            wget -q -O /dev/null "http://127.0.0.1:8080$asset"
-        done
-    ' >/dev/null 2>&1
-}
+if ! wait_for_application_health; then
+    compose stop api worker frontend >/dev/null 2>&1 || true
+    echo "Release health check failed; application services were stopped." >&2
+    echo "Target commit: $TARGET_COMMIT" >&2
+    echo "Previous commit: $PREVIOUS_COMMIT" >&2
+    echo "Pre-migration backup: $BACKUP_PATH" >&2
+    exit 1
+fi
 
-attempt=0
-until compose exec -T api python -c \
-    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" \
-    >/dev/null 2>&1 \
-    && frontend_runtime_healthy; do
-    attempt=$((attempt + 1))
-    if [ "$attempt" -ge 40 ]; then
-        compose stop api worker frontend >/dev/null 2>&1 || true
-        echo "Release health check failed; application services were stopped." >&2
-        echo "Previous commit: $PREVIOUS_COMMIT" >&2
-        echo "Pre-migration backup: $BACKUP_PATH" >&2
-        exit 1
-    fi
-    sleep 3
-done
-
-mkdir -p "$STATE_DIR"
-printf '%s\n' "$PREVIOUS_COMMIT" >"$STATE_DIR/previous-release"
-printf '%s\n' "$TARGET_COMMIT" >"$STATE_DIR/current-commit"
-printf '%s\n' "$RELEASE_ID" >"$STATE_DIR/current-release"
-printf '%s\n' "$BACKUP_PATH" >"$STATE_DIR/current-backup"
+write_state_file "$STATE_DIR/previous-release" "$PREVIOUS_COMMIT"
+write_state_file "$STATE_DIR/current-commit" "$TARGET_COMMIT"
+write_state_file "$STATE_DIR/current-backup" "$BACKUP_PATH"
+# current-release is the final commit marker for a fully healthy deployment.
+write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"
 
 echo "Release healthy: $TARGET_COMMIT"
 echo "Database backup: $BACKUP_PATH"

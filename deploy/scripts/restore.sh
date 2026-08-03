@@ -28,6 +28,10 @@ if [ ! -s "$BACKUP_PATH" ]; then
     echo "Backup does not exist or is empty." >&2
     exit 1
 fi
+if ! verify_backup_checksum "$BACKUP_PATH"; then
+    echo "Restore refused before confirmation because backup integrity verification failed." >&2
+    exit 1
+fi
 case "$TARGET_REF" in
     *[!0-9a-f]*)
         echo "Target ref must be a lowercase hexadecimal commit SHA." >&2
@@ -51,6 +55,10 @@ if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$TARGET_COMMIT" origin/main; 
 fi
 RELEASE_ID=$(printf '%s' "$TARGET_COMMIT" | cut -c1-12)
 export RELEASE_ID
+PREVIOUS_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
+if [ -f "$STATE_DIR/current-commit" ]; then
+    PREVIOUS_COMMIT=$(sed -n '1p' "$STATE_DIR/current-commit")
+fi
 
 (
     umask 022
@@ -64,6 +72,11 @@ printf 'Type RESTORE_PRODUCTION_BACKUP to continue: '
 read -r CONFIRMATION
 if [ "$CONFIRMATION" != "RESTORE_PRODUCTION_BACKUP" ]; then
     echo "Restore cancelled."
+    exit 1
+fi
+
+if ! verify_backup_checksum "$BACKUP_PATH"; then
+    echo "Restore refused after confirmation because backup integrity verification failed." >&2
     exit 1
 fi
 
@@ -89,10 +102,20 @@ compose --profile ops run --rm migrate
 ensure_public_bootstrap
 compose up -d api worker frontend
 
-mkdir -p "$STATE_DIR"
-printf '%s\n' "$TARGET_COMMIT" >"$STATE_DIR/current-commit"
-printf '%s\n' "$RELEASE_ID" >"$STATE_DIR/current-release"
-printf '%s\n' "$BACKUP_PATH" >"$STATE_DIR/current-backup"
+if ! wait_for_application_health; then
+    compose stop api worker frontend >/dev/null 2>&1 || true
+    echo "Restore health check failed; application services were stopped." >&2
+    echo "Target commit: $TARGET_COMMIT" >&2
+    echo "Restored backup: $BACKUP_PATH" >&2
+    echo "Safety backup: $SAFETY_BACKUP" >&2
+    exit 1
+fi
 
-echo "Restore started with release: $TARGET_COMMIT"
+write_state_file "$STATE_DIR/previous-release" "$PREVIOUS_COMMIT"
+write_state_file "$STATE_DIR/current-commit" "$TARGET_COMMIT"
+write_state_file "$STATE_DIR/current-backup" "$BACKUP_PATH"
+# current-release is the final commit marker for a fully healthy restoration.
+write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"
+
+echo "Restore healthy with release: $TARGET_COMMIT"
 echo "Safety backup of replaced state: $SAFETY_BACKUP"

@@ -144,6 +144,18 @@ services:
         condition: service_healthy
       embedding:
         condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from pathlib import Path; import sys; sys.exit(0 if b'run_worker.py' in Path('/proc/1/cmdline').read_bytes() else 1)",
+        ]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
     stop_grace_period: 2m
     networks:
       - data

@@ -62,11 +62,8 @@ fi
 compose exec -T postgres pg_restore --list <"$PARTIAL_PATH" >/dev/null
 mv "$PARTIAL_PATH" "$BACKUP_PATH"
 
-if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$BACKUP_PATH" >"${BACKUP_PATH}.sha256"
-else
-    shasum -a 256 "$BACKUP_PATH" >"${BACKUP_PATH}.sha256"
-fi
+BACKUP_DIGEST=$(sha256_digest "$BACKUP_PATH")
+printf '%s  %s\n' "$BACKUP_DIGEST" "$BACKUP_PATH" >"${BACKUP_PATH}.sha256"
 
 if ! command -v restic >/dev/null 2>&1; then
     echo "restic is required for encrypted off-site backups." >&2

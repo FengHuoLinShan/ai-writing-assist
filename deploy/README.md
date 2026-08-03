@@ -90,8 +90,9 @@ python3 deploy/scripts/render_openresty.py \
 bash deploy/scripts/verify_public.sh
 ```
 
-`release.sh` 会同时检查 API、前端入口及入口声明的稳定运行时脚本，避免容器仅因
-`/healthz` 可达而掩盖静态文件权限或缺失问题。`verify_public.sh` 还会从公网入口解析并
+`release.sh` 与 `restore.sh` 会共同检查 API `/api/health`、前端入口及既有稳定运行时脚本，
+并确认 worker 容器的 PID 1 仍在运行 `run_worker.py`；三项都通过才会写入成功发布状态，
+避免容器仅因 `/healthz` 可达而掩盖静态文件权限、缺失或 worker 退出问题。`verify_public.sh` 还会从公网入口解析并
 逐一请求当前 HTML 声明的脚本和样式，校验成功状态与内容类型。只有该脚本通过，才代表
 DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网链路通过。
 
@@ -112,7 +113,8 @@ make test-deploy
 ```
 
 该目标执行 `deploy/tests` 的静态/CLI 合同测试，并已作为后端 CI 与本地
-`make test-ci` 的门禁。它不启动 Compose、不访问外部服务，也不替代真实发布、
+`make test-ci` 的门禁。它会对本地 shell helper 做摘要/健康组合行为验证，并对脚本
+顺序与 Compose 声明做静态合同检查；它不启动 Compose、不访问外部服务，也不替代真实发布、
 公网验证或备份恢复演练。
 
 ### 分支与发布规则
@@ -129,7 +131,8 @@ make test-deploy
 
 脚本在 migration 前保存备份并把当前/前一 commit、镜像 tag 和备份路径记录在
 `deploy/.state/`。健康检查失败时 API、worker 和 frontend 会停止，数据库及备份保留，
-不会把失败发布继续对外提供。
+不会把失败发布继续对外提供。状态文件以同目录临时文件加原子替换写入，且
+`current-release` 始终最后更新，表示对应三服务已健康。
 
 ## 备份、恢复和账号清理
 
@@ -139,7 +142,7 @@ make test-deploy
 bash deploy/scripts/backup.sh
 ```
 
-备份写入 `deploy/backups/`，使用 `pg_restore --list` 验证并生成 SHA-256，然后由
+备份写入 `deploy/backups/`，使用 `pg_restore --list` 验证并生成 SHA-256 sidecar，然后由
 restic 加密、去重后上传私有 Backblaze B2。保留 7 个 daily、4 个 weekly 和 6 个
 monthly 快照；超过 `BACKUP_RETENTION_DAYS` 的本地备份会自动清理。脚本在开始、成功
 或失败时 ping Healthchecks.io，由其向 `948620502@qq.com` 发告警。
@@ -158,7 +161,10 @@ restic init
 上线前必须完成一次临时库恢复演练。Backblaze 和 Healthchecks 的真实 key/URL
 只放在 `deploy/.env.production`，不进入 systemd unit 或 Git。
 
-恢复是破坏性操作，要求明确输入确认短语，并在覆盖前再创建一份安全备份：
+恢复是破坏性操作，要求明确输入确认短语，并在覆盖前再创建一份安全备份。恢复会先要求
+同名 `.dump.sha256` 为非空普通文件（不能是 symlink），其中只能有一条小写 64 位 SHA-256
+记录；脚本直接重算所选 `.dump` 的摘要而不信任 sidecar 中的文件名。缺失、格式错误或不匹配
+都会在确认和数据库写操作前拒绝继续：
 
 ```bash
 bash deploy/scripts/restore.sh \
