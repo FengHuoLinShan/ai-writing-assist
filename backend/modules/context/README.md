@@ -40,6 +40,7 @@ RAG 负责“找”，context 负责“选、裁、确认、追踪”。
 async def compile_structure_context(...) -> StructureContextBundle
 async def compile_with_tiers(...) -> CompiledContext
 async def render_compiled_context_markdown(...) -> str
+async def compile_generation_background(...) -> dict
 async def confirm_context(...) -> ContextConfirmationContract
 async def require_confirmation(...) -> ContextConfirmationContract
 async def require_fresh_confirmation(...) -> ContextConfirmationContract
@@ -261,7 +262,17 @@ author_known_state` 不进入 character reveal section。
 generation center snapshot 保存 consumer action、Prompt 名称、来源页面/工作稿 hash、简介
 revision、Activation Profile revision、实际纳入的剧情线/Scene/人物/对象和裁剪原因。用户
 聊天正文不复制进 `compile_options`，只保存 focus hash；页面正文也由 world 在服务器端重载，
-context 只消费经边界校验的来源投影。生成快照使用 context-owned durable transaction：
+context 只消费经边界校验的来源投影。
+
+`GenerationBackgroundService` 是这条能力的深模块：它在一个请求对象内拥有 focus
+规范化、`CompileOptions` 建立、tier 编译、Markdown 渲染、usage 投影和 snapshot request
+组装；facade 只保留既有 keyword contract 并委托。snapshot 的 `included_asset_ids` 只把
+预算执行后完整保留在最终 section 中的工作稿、简介 revision、activation target 和 section
+sources 记为实际纳入；请求过但被裁剪的内容仍可由 `compile_options` / budget events 审计，
+不冒充已发送给模型。成功解析的 Activation Profile 即使没有保留对应资料 section，仍可作为
+独立控制 provenance 保留；未解析的 Profile 不计入 `included_asset_ids`。
+
+生成快照使用 context-owned durable transaction：
 `compile_generation_background()` 独立持久化 running 状态，调用方通过
 `succeed_generation_context_snapshot()` / `fail_generation_context_snapshot()` 独立收尾，
 不会提交或回滚调用方的业务事务。

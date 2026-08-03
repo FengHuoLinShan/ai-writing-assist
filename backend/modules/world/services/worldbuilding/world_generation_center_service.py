@@ -868,34 +868,52 @@ class WorldGenerationCenterService:
         assets = await self._asset_catalog(db, data, source)
         await self._validate_explicit_context(db, data)
         page_catalog, _total = await self._bible.list_pages(db, data.novel_id)
-        background = await self._compile_generation_background(
-            db,
-            data,
-            operation=operation,
-            focus_text=self._focus_text(data, object_template),
-            assets=assets,
-            source_snapshot=source["source_snapshot"],
-        )
-        source_refs = self._source_refs(data, source, chapters, assets, background)
-        return {
-            **source,
-            "request_target": data.target,
-            "object_template": object_template,
-            "page_template": page_template,
-            "allowed_page_types": allowed_page_types,
-            "chapters": chapters,
-            "assets": assets,
-            "background": background,
-            "source_refs": source_refs,
-            "page_catalog": [
-                {
-                    "title": item.title,
-                    "page_type": item.page_type,
-                    "overview": item.free_text,
-                }
-                for item in page_catalog
-            ],
-        }
+        background: dict[str, Any] | None = None
+        try:
+            background = await self._compile_generation_background(
+                db,
+                data,
+                operation=operation,
+                focus_text=self._focus_text(data, object_template),
+                assets=assets,
+                source_snapshot=source["source_snapshot"],
+            )
+            source_refs = self._source_refs(
+                data,
+                source,
+                chapters,
+                assets,
+                background,
+            )
+            prepared = {
+                **source,
+                "request_target": data.target,
+                "object_template": object_template,
+                "page_template": page_template,
+                "allowed_page_types": allowed_page_types,
+                "chapters": chapters,
+                "assets": assets,
+                "background": background,
+                "source_refs": source_refs,
+                "page_catalog": [
+                    {
+                        "title": item.title,
+                        "page_type": item.page_type,
+                        "overview": item.free_text,
+                    }
+                    for item in page_catalog
+                ],
+            }
+        except Exception as exc:
+            if background is not None:
+                await self._finish_context_snapshot(
+                    db,
+                    data.novel_id,
+                    background,
+                    error=exc,
+                )
+            raise
+        return prepared
 
     @staticmethod
     async def _validate_explicit_context(

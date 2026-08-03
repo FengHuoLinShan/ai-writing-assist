@@ -174,6 +174,14 @@ V1 复用 `excluded_asset_ids`，新增约定：
 - `context_snapshots` 不替代 `context_confirmations`，也不替代 `memory_snapshots`。
 - 生成中心的对象聊天/建议会为实际编译的世界观背景建立快照，保存实际 synopsis revision/source/block hash、section/token metadata 和产物引用。
 
+生成中心背景由 context 内部深模块 `GenerationBackgroundService` 完整拥有：它把 focus
+规范化、tier 编译、渲染、usage/provenance 投影和 durable snapshot request 组装保持在同一
+局部；公开 facade 只适配原有 keyword contract。内容型 `included_asset_ids`（工作稿、
+synopsis revision、activation target 和 section sources）只表达预算执行后完整留在最终
+section 的内容；仅请求过但被裁剪的内容只留在 compile options 与 budget events 中，不能
+记作实际发送给模型。成功解析的 Activation Profile 即使没有保留对应资料 section，仍可作为
+独立控制 provenance 保留；未解析的 Profile 不计入 `included_asset_ids`。
+
 生产调用使用 `ContextSnapshotRequest` + lifecycle facade：
 
 - `open_context_snapshot()`：创建 `running` 快照。

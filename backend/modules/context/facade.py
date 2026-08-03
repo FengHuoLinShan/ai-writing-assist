@@ -7,9 +7,6 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
-import hashlib
-from typing import Any
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import (
@@ -38,6 +35,10 @@ from modules.context.services import (
 )
 from modules.context.services.compiled_context import CompiledContext
 from modules.context.services.confirmed_ai_action import ConfirmedAIActionService
+from modules.context.services.generation_background import (
+    GenerationBackgroundRequest,
+    GenerationBackgroundService,
+)
 from modules.context.services.hidden_guard import HiddenGuardBuilder, HiddenGuardTerm
 
 _compiler = ContextCompiler()
@@ -45,6 +46,11 @@ _confirmation_service = ContextConfirmationService()
 _confirmed_ai_action_service = ConfirmedAIActionService(_confirmation_service)
 _snapshot_service = ContextSnapshotService()
 _durable_snapshot_service = DurableContextSnapshotService(_snapshot_service)
+_generation_background_service = GenerationBackgroundService(
+    compiler=_compiler,
+    renderer=_render_compiled_context,
+    snapshot_writer=_durable_snapshot_service,
+)
 _hidden_guard_builder = HiddenGuardBuilder()
 
 
@@ -333,173 +339,29 @@ async def compile_generation_background(
     source_snapshot: dict | None = None,
 ) -> dict:
     """Compile the actual author-only background consumed by generation center."""
-    is_world_generation = operation in {
-        "world.generation.chat",
-        "world.generation.core_entity",
-        "world.generation.world_bible_page",
-    }
-    normalized_focus = " ".join((focus_text or "").split())[:4000]
-    compile_task = f"{task}：{normalized_focus}" if normalized_focus else task
-    options = CompileOptions(
-        novel_id=novel_id,
-        task=compile_task,
-        scope="generation_center" if is_world_generation else "world",
-        reveal_mode="author_safe",
-        retrieval_purpose=("world_generation" if is_world_generation else "world_fusion"),
-        consumer_action=operation,
-        chapter_index=reference_chapter_index,
-        scene_id=scene_id,
-        thread_ids=thread_ids,
-        character_ids=character_ids,
-        entity_ids=entity_ids,
-        include_world_synopsis=include_world_synopsis,
-        selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
-        activation_profile_id=activation_profile_id,
-        activation_profile_version=activation_profile_version,
-        budget_tokens=4000,
-    )
-    compiled = await _compiler.compile_with_tiers(
+    return await _generation_background_service.compile(
         db,
-        options,
-        budget_tokens=options.budget_tokens,
-    )
-    rendered = _render_compiled_context(compiled)
-    synopsis = next(
-        (
-            section
-            for section in compiled.sections
-            if section.key == "world_bible_synopsis"
-        ),
-        None,
-    )
-    metadata = dict(synopsis.retrieval_metadata or {}) if synopsis else {}
-    total_tokens = sum(section.token_count for section in compiled.sections)
-    usage = {
-        "included": bool(compiled.sections),
-        "section_key": (
-            "generation_background" if is_world_generation else "world_bible_synopsis"
-        ),
-        "revision_id": metadata.get("revision_id"),
-        "source_hash": metadata.get("source_hash"),
-        "block_hash": metadata.get("block_hash"),
-        "token_count": total_tokens
-        if is_world_generation
-        else (synopsis.token_count if synopsis else 0),
-        "stale": bool(metadata.get("stale")),
-        "fallback": bool(metadata.get("fallback")),
-        "status": (
-            "included"
-            if compiled.sections
-            else "not_requested"
-            if not include_world_synopsis
-            else "unavailable"
-        ),
-        "warnings": list(compiled.warnings),
-        "activation_profile_id": options.activation_profile_id,
-        "activation_profile_version": options.activation_profile_version,
-        "activation_rule_hash": options.activation_profile_rule_hash,
-        "activation_source_hashes": list(options.activation_source_hashes),
-    }
-    included_asset_ids = {
-        "world_bible_draft": list(options.selected_world_bible_draft_ids),
-        "world_bible_synopsis_revision": (
-            [str(options.world_synopsis_revision_id)]
-            if options.world_synopsis_revision_id
-            else []
-        ),
-        "activation_profile": (
-            [options.activation_profile_id] if options.activation_profile_id else []
-        ),
-        "activation_target_hash": list(options.activation_included_target_hashes),
-    }
-    for section in compiled.sections:
-        for source in section.sources:
-            source_type = str(source.get("type") or "context_source")
-            source_id = str(source.get("id") or "").strip()
-            if source_id:
-                included_asset_ids.setdefault(source_type, []).append(source_id)
-    included_asset_ids = {
-        key: list(dict.fromkeys(values)) for key, values in included_asset_ids.items()
-    }
-    section_metadata = {
-        section.key: {
-            "tier": int(section.tier),
-            "status": section.status,
-            "token_count": section.token_count,
-            "source_count": len(section.sources),
-            "retrieval_metadata": dict(section.retrieval_metadata or {}),
-            "truncated_reason": section.truncated_reason,
-        }
-        for section in compiled.sections
-    }
-    snapshot = await _create_generation_context_snapshot(
-        db,
-        novel_id=novel_id,
-        phase="generation_background",
-        operation=operation,
-        context_mode="canonical",
-        include_pending_objects=False,
-        prompt_name=prompt_name,
-        model=model,
-        compile_options={
-            "novel_id": options.novel_id,
-            "task": task,
-            "focus_hash": (
-                hashlib.sha256(normalized_focus.encode("utf-8")).hexdigest()
-                if normalized_focus
-                else None
+        GenerationBackgroundRequest(
+            novel_id=novel_id,
+            task=task,
+            include_world_synopsis=include_world_synopsis,
+            selected_world_bible_draft_ids=tuple(selected_world_bible_draft_ids or ()),
+            activation_profile_id=activation_profile_id,
+            activation_profile_version=activation_profile_version,
+            operation=operation,
+            prompt_name=prompt_name,
+            model=model,
+            focus_text=focus_text,
+            reference_chapter_index=reference_chapter_index,
+            scene_id=scene_id,
+            thread_ids=tuple(thread_ids) if thread_ids is not None else None,
+            character_ids=(
+                tuple(character_ids) if character_ids is not None else None
             ),
-            "scope": options.scope,
-            "reveal_mode": options.reveal_mode,
-            "retrieval_purpose": options.retrieval_purpose,
-            "consumer_action": options.consumer_action,
-            "reference_chapter_index": reference_chapter_index,
-            "effective_chapter_index": options.chapter_index,
-            "scene_id": options.scene_id,
-            "requested_thread_ids": list(options.thread_ids or []),
-            "requested_character_ids": list(options.character_ids or []),
-            "requested_entity_ids": list(options.entity_ids or []),
-            "source_snapshot": dict(source_snapshot or {}),
-            "budget_tokens": options.budget_tokens,
-            "include_world_synopsis": options.include_world_synopsis,
-            "selected_world_bible_draft_ids": list(
-                options.selected_world_bible_draft_ids
-            ),
-            "world_synopsis_revision_id": options.world_synopsis_revision_id,
-            "world_synopsis_source_hash": options.world_synopsis_source_hash,
-            "world_synopsis_block_hash": options.world_synopsis_block_hash,
-            "activation_profile_id": options.activation_profile_id,
-            "activation_profile_version": options.activation_profile_version,
-            "activation_profile_rule_hash": options.activation_profile_rule_hash,
-            "activation_source_hashes": list(options.activation_source_hashes),
-            "activation_included_target_hashes": list(
-                options.activation_included_target_hashes
-            ),
-        },
-        included_asset_ids=included_asset_ids,
-        context_summary={
-            "section_keys": [section.key for section in compiled.sections],
-            "warning_count": len(compiled.warnings),
-            "warnings": list(compiled.warnings),
-            "evicted_keys": list(compiled.evicted_keys),
-            "truncated_keys": list(compiled.truncated_keys),
-            "budget_events": [
-                item.model_dump(mode="json") for item in compiled.budget_events
-            ],
-            "actual_included_asset_ids": included_asset_ids,
-            "generation_selection": dict(compiled.selection_trace),
-            "synopsis": usage,
-            "activation": dict(compiled.activation_trace),
-        },
-        section_metadata=section_metadata,
-        token_metadata={
-            "budget_tokens": options.budget_tokens,
-            "used_tokens": sum(section.token_count for section in compiled.sections),
-        },
-        rendered_context=rendered,
+            entity_ids=tuple(entity_ids) if entity_ids is not None else None,
+            source_snapshot=dict(source_snapshot or {}),
+        ),
     )
-    usage["context_snapshot_id"] = snapshot.id
-    return {"rendered_context": rendered, "context_usage": usage}
 
 
 async def preview_activation(
@@ -1097,17 +959,6 @@ async def create_context_snapshot(
             rendered_context=rendered_context,
             retain_rendered_context=retain_rendered_context,
         ),
-    )
-
-
-async def _create_generation_context_snapshot(
-    db: AsyncSession,
-    **request_fields: Any,
-) -> ContextSnapshotContract:
-    """Open a generation snapshot in a context-owned transaction."""
-    return await open_generation_context_snapshot(
-        db,
-        ContextSnapshotRequest(**request_fields),
     )
 
 

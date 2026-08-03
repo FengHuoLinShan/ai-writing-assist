@@ -316,6 +316,84 @@ async def test_generation_center_llm_failure_keeps_failed_snapshot(
     assert snapshot.error_kind == "RuntimeError"
 
 
+async def test_pre_llm_projection_failure_closes_opened_context_snapshot(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "背景投影失败收尾")
+    from modules.world import api as world_api
+
+    def fail_source_refs(*_args, **_kwargs):
+        raise RuntimeError("source projection failed")
+
+    monkeypatch.setattr(
+        world_api._world_generation_service,
+        "_source_refs",
+        fail_source_refs,
+    )
+
+    with pytest.raises(RuntimeError, match="source projection failed"):
+        await async_client.post(
+            "/api/world/generation-center/chat",
+            json=_project_source_payload(novel_id),
+        )
+
+    snapshot = await db_session.scalar(
+        select(ContextSnapshot)
+        .where(ContextSnapshot.novel_id == uuid.UUID(novel_id))
+        .order_by(ContextSnapshot.created_at.desc())
+    )
+    assert snapshot is not None
+    assert snapshot.status == "failed"
+    assert snapshot.error_kind == "RuntimeError"
+    assert fake.requests == []
+
+
+async def test_page_catalog_projection_failure_closes_opened_context_snapshot(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "目录投影失败收尾")
+    from modules.world import api as world_api
+
+    class _BrokenCatalogPage:
+        title = "会在来源引用之后才失败"
+        page_type = "background"
+
+        @property
+        def free_text(self):
+            raise RuntimeError("page catalog projection failed")
+
+    async def list_broken_catalog(*_args, **_kwargs):
+        return [_BrokenCatalogPage()], 1
+
+    monkeypatch.setattr(
+        world_api._world_generation_service._bible,
+        "list_pages",
+        list_broken_catalog,
+    )
+
+    with pytest.raises(RuntimeError, match="page catalog projection failed"):
+        await async_client.post(
+            "/api/world/generation-center/chat",
+            json=_project_source_payload(novel_id),
+        )
+
+    snapshot = await db_session.scalar(
+        select(ContextSnapshot)
+        .where(ContextSnapshot.novel_id == uuid.UUID(novel_id))
+        .order_by(ContextSnapshot.created_at.desc())
+    )
+    assert snapshot is not None
+    assert snapshot.status == "failed"
+    assert snapshot.error_kind == "RuntimeError"
+    assert fake.requests == []
+
+
 @pytest.mark.asyncio
 async def test_generation_center_snapshot_success_failure_falls_back_to_failed(
     async_client: AsyncClient,
