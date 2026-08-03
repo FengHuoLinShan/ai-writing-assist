@@ -384,6 +384,7 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     assert "run: npm ci" in workflow
     assert "run: npm test" in workflow
     assert "test-ci:" in makefile
+    assert "make test-deploy" in workflow
 
 
 def _make_dry_run(target: str, *variables: str) -> str:
@@ -432,6 +433,13 @@ def test_aggregate_targets_reuse_existing_backend_and_frontend_targets() -> None
     assert "test-ci: secret-hygiene lint" in makefile
     assert "$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS)" in makefile
     assert 'ARGS="$(ARGS) -W error::RuntimeWarning"' in makefile
+
+
+def test_deployment_contract_tests_are_a_required_ci_gate() -> None:
+    makefile = (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
+
+    assert "test-ci: secret-hygiene lint test-deploy" in makefile
+    assert "pytest ../deploy/tests" in _make_dry_run("test-deploy")
 
 
 def test_timeout_is_not_forced_onto_explicit_acceptance_layers() -> None:

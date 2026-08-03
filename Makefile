@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-frontend test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -92,6 +92,9 @@ test-interaction-long-context:  ## Run paid Kimi token calibration and PostgreSQ
 test-manual:  ## Run real-source and PostgreSQL/real-LLM acceptance tests explicitly
 	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_MANUAL_TESTS) -m "real_llm or external_data" $(ARGS)
 
+test-deploy:  ## Run deployment static and CLI contract tests
+	cd $(BACKEND_DIR) && pytest ../deploy/tests
+
 test-frontend:  ## Run frontend tests
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
 
@@ -99,7 +102,7 @@ test-all:  ## Run backend tests, then frontend tests
 	$(MAKE) test-fast ARGS="$(BACKEND_ARGS)"
 	$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"
 
-test-ci: secret-hygiene lint  ## Run the local equivalent of required CI quality jobs
+test-ci: secret-hygiene lint test-deploy  ## Run the local equivalent of required CI quality jobs
 	$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS) ARGS="$(ARGS) -W error::RuntimeWarning"
 	$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"
 

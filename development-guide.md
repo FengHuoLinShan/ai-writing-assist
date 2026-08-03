@@ -66,9 +66,10 @@ make test-real-llm               # Explicit SQLite real-model acceptance
 RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi  # Explicit paid Kimi K3 compatibility gate; enabled only in the test process
 RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context  # Paid usage calibration + PostgreSQL 530K journey gate
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
+make test-deploy                 # Deployment static/CLI contracts; no Compose or recovery drill
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make test-all                    # Fast backend layer, then frontend tests
-make test-ci TEST_WORKERS=2     # Secret + Ruff + coverage/RuntimeWarning + Vitest
+make test-ci TEST_WORKERS=2     # Secret + Ruff + deploy contracts + coverage/RuntimeWarning + Vitest
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
 make lint                        # ruff check
 make lint-fix                    # ruff --fix

@@ -103,6 +103,18 @@ DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网�
 bash deploy/scripts/release.sh <new-full-commit-sha>
 ```
 
+### 部署合同测试
+
+提交前可在现有后端 pytest 环境运行：
+
+```bash
+make test-deploy
+```
+
+该目标执行 `deploy/tests` 的静态/CLI 合同测试，并已作为后端 CI 与本地
+`make test-ci` 的门禁。它不启动 Compose、不访问外部服务，也不替代真实发布、
+公网验证或备份恢复演练。
+
 ### 分支与发布规则
 
 - 本地开发从最新 `origin/main` 创建 `codex/<slug>` 主题分支，不直接在 `main`

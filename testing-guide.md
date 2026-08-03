@@ -42,7 +42,8 @@ Three layers:
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, Ruff, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies |
+| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies |
+| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests` | Existing backend pytest environment; no external service |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
@@ -101,8 +102,8 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
 `PostgreSQL critical` 和 `Frontend unit quality`。后端快速 job checkout 后先用
 系统 Python 执行零依赖的 repository secret hygiene gate，再通过 `backend/uv.lock` 安装
-Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后依次执行 `make lint` 与
-`make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
+Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后依次执行 `make lint`、
+`make test-deploy` 与 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
 PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
 零重试规则执行 fresh migration 与高风险事务契约，并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
@@ -120,7 +121,9 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
 后，应把 `Backend quality` 和 `Frontend unit quality` 设为合并前必需状态检查。
-本地等价聚合入口是 `make test-ci TEST_WORKERS=2`；它不包含上述显式验收层。
+`make test-deploy` 只验证部署文件、环境校验与 CLI 的静态合同，不启动 Compose、不会连接
+外部服务，也不等同于真实发布或备份恢复演练。本地等价聚合入口是
+`make test-ci TEST_WORKERS=2`；它不包含上述显式验收层。
 
 `make format` 暂未纳入 CI：当前仓库仍有历史格式债务，应先在独立机械变更中形成干净
 基线，避免新门禁因无关存量文件持续失败。
