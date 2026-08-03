@@ -31,7 +31,10 @@ npm run test:e2e:worker
 npm run test:all
 ```
 
-`npm run build`（vite build）可作 Vue 构建链冒烟验证；无独立 lint/format 依赖，前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
+`npm run build`（vite build）可作 Vue 构建链冒烟验证；它会生成根级
+`asset-manifest.json`，并在校验所有入口、动态一级路由和生成资源后写出
+`asset-inventory.txt`。inventory 是发布时完整静态资源的受限合同，必须随构建产物一同交付。
+无独立 lint/format 依赖，前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
 构建会把仍由 `index.html` 直接加载的兼容运行时脚本复制为 `0644`；生产镜像还会统一保证
 静态目录可遍历、文件可读，避免发布机的私有 `umask` 被继承为 Nginx 403。
 
@@ -192,7 +195,7 @@ frontend-console/
 - Leaflet/Canvas 只通过 Vue `MapViewportAdapter` 下的 `mapView` seam 运行；Writing 仅保留
   `mapQuickCreateView` bridge 以及 `sceneAlerts` / `versionDiff` 纯 helper
 - Vue 视图经 `vue/mountIsland.js` 注册进 hash router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；异步 `load()` 使用代次守卫，新加载或 `onLeave` 后的旧响应不得回写当前 island；动态内容依赖模板自动转义，禁止 `v-html`
-- `vue/viewLoaders.js` 仅在启动时向 router 注册一级路由的动态 import 函数；认证门禁和未访问的业务页面不会下载 island。router 会复用同一路由的 pending import，模块必须经既有 `registerView()` 自注册；失败显示通用安全提示与原位“重试”，成功页的路由、生命周期、HTTP API、数据库 schema 与 wire shape 均不变。
+- `vue/viewLoaders.js` 仅在启动时向 router 注册一级路由的动态 import 函数；认证门禁和未访问的业务页面不会下载 island。router 会复用同一路由的 pending import，模块必须经既有 `registerView()` 自注册；失败显示通用安全提示与原位“重试”。若重试仍失败，用户可以选择“刷新应用”，并会先看到未保存输入可能丢失的确认；不会自动刷新或中断正常创作。成功页的路由、生命周期、HTTP API、数据库 schema 与 wire shape 均不变。
 - 上述变更只调整前端内部所有权；HTTP API、数据库 schema 和前端 wire shape 保持不变
 - 地图视口按需加载 Leaflet（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。

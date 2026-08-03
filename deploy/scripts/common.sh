@@ -131,9 +131,63 @@ healthcheck_ping() {
 }
 
 frontend_runtime_healthy() {
+    contract_marker="$REPO_ROOT/deploy/frontend-asset-contract.version"
+    if [ ! -e "$contract_marker" ] && [ ! -L "$contract_marker" ]; then
+        frontend_asset_contract=legacy
+    else
+        if [ ! -f "$contract_marker" ] || [ -L "$contract_marker" ] \
+            || [ "$(wc -l <"$contract_marker")" -ne 1 ] \
+            || [ "$(cat "$contract_marker")" != "1" ]; then
+            echo "Invalid frontend asset contract marker." >&2
+            return 1
+        fi
+        frontend_asset_contract=1
+    fi
+
+    if [ "$frontend_asset_contract" = legacy ]; then
+        compose exec -T frontend sh -ec '
+            output_root=/usr/share/nginx/html
+            for asset in \
+                / \
+                /shared/esc.js \
+                /ui/toast.js \
+                /ui/modal.js \
+                /stateSlices.js \
+                /state.js \
+                /apiContracts.js \
+                /router.js \
+                /commands.js
+            do
+                case "$asset" in
+                    /) asset_file="$output_root/index.html" ;;
+                    *) asset_file="$output_root$asset" ;;
+                esac
+                if [ ! -f "$asset_file" ] || [ -L "$asset_file" ]; then exit 1; fi
+                wget -q -O /dev/null "http://127.0.0.1:8080$asset"
+            done
+        ' >/dev/null 2>&1
+        return
+    fi
+
     compose exec -T frontend sh -ec '
-        for asset in \
+        output_root=/usr/share/nginx/html
+        inventory="$output_root/asset-inventory.txt"
+        if [ ! -f "$inventory" ] || [ -L "$inventory" ]; then exit 1; fi
+        record_count=$(awk "END { print NR }" "$inventory")
+        if [ "$(wc -c <"$inventory")" -gt 65536 ] \
+            || [ "$record_count" -gt 512 ]; then exit 1; fi
+        allowed_inventory_bytes="
+/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+        invalid_byte_count=$(LC_ALL=C tr -d "$allowed_inventory_bytes" <"$inventory" | wc -c)
+        if [ "$invalid_byte_count" -ne 0 ]; then exit 1; fi
+        if grep -q "$(printf "\\r")" "$inventory"; then exit 1; fi
+        if sort "$inventory" | uniq -d | grep -q .; then exit 1; fi
+
+        for required in \
             / \
+            /index.html \
+            /asset-manifest.json \
+            /asset-inventory.txt \
             /shared/esc.js \
             /ui/toast.js \
             /ui/modal.js \
@@ -143,8 +197,22 @@ frontend_runtime_healthy() {
             /router.js \
             /commands.js
         do
-            wget -q -O /dev/null "http://127.0.0.1:8080$asset"
+            grep -Fqx "$required" "$inventory"
         done
+        grep -Eq "^/assets/[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*\\.js$" "$inventory"
+
+        while IFS= read -r asset || [ -n "$asset" ]; do
+            case "$asset" in
+                /) ;;
+                *) printf "%s\\n" "$asset" | grep -Eq "^/[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$" ;;
+            esac
+            case "$asset" in
+                /) asset_file="$output_root/index.html" ;;
+                *) asset_file="$output_root$asset" ;;
+            esac
+            if [ ! -f "$asset_file" ] || [ -L "$asset_file" ]; then exit 1; fi
+            wget -q -O /dev/null "http://127.0.0.1:8080$asset"
+        done <"$inventory"
     ' >/dev/null 2>&1
 }
 

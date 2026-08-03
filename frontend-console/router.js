@@ -781,7 +781,7 @@ function _renderGenericFailure(content) {
 
   const message = document.createElement("p")
   message.style.cssText = "color:var(--text-dim);font-size:12px;"
-  message.textContent = "请稍后重试；你的项目内容没有受到影响。"
+  message.textContent = "你的项目内容没有受到影响。请先重试；若仍无法打开，可刷新应用。未保存的输入可能会丢失。"
 
   const retry = document.createElement("button")
   retry.type = "button"
@@ -792,7 +792,21 @@ function _renderGenericFailure(content) {
     void _retryCurrentRouteRender()
   })
 
-  stateEl.append(icon, title, message, retry)
+  const refresh = document.createElement("button")
+  refresh.type = "button"
+  refresh.className = "btn"
+  refresh.dataset.action = "refresh-application"
+  refresh.textContent = "刷新应用"
+  refresh.addEventListener("click", () => {
+    if (globalThis.confirm("刷新会丢失未保存的输入。确定要刷新应用吗？")) {
+      globalThis.location.reload()
+    }
+  })
+
+  const actions = document.createElement("div")
+  actions.className = "actions"
+  actions.append(retry, refresh)
+  stateEl.append(icon, title, message, actions)
   content.replaceChildren(stateEl)
 }
 

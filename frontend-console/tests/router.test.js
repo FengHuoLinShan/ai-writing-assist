@@ -129,6 +129,34 @@ describe("renderCurrentView error handling", () => {
     expect(loader).toHaveBeenCalledTimes(2)
   })
 
+  it("offers a guarded application refresh only in the route load failure state", async () => {
+    const content = addWorkspace()
+    window.router.registerViewLoader("refresh-failure-test", async () => {
+      throw new Error("offline")
+    })
+    state.currentView = "refresh-failure-test"
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const confirmSpy = vi.fn(() => false)
+    vi.stubGlobal("confirm", confirmSpy)
+    const reloadSpy = vi.spyOn(globalThis.location, "reload").mockImplementation(() => {})
+
+    await window.router.renderCurrentView()
+
+    const refresh = content.querySelector('[data-action="refresh-application"]')
+    expect(refresh).not.toBeNull()
+    expect(content.textContent).toContain("未保存的输入可能会丢失")
+    refresh.click()
+    expect(confirmSpy).toHaveBeenCalledOnce()
+    expect(reloadSpy).not.toHaveBeenCalled()
+
+    confirmSpy.mockReturnValue(true)
+    refresh.click()
+    expect(reloadSpy).toHaveBeenCalledOnce()
+    errorSpy.mockRestore()
+    vi.unstubAllGlobals()
+    reloadSpy.mockRestore()
+  })
+
   it("fails a configured loader that resolves without self-registering", async () => {
     const content = addWorkspace()
     window.router.registerViewLoader("unregistered-loader-test", async () => {})

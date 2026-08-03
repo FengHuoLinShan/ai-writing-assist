@@ -61,6 +61,7 @@ export default defineConfig({
   // keeps the existing localhost fallback in api.js.
   define: isProductionBuild ? { API_HOST: JSON.stringify("") } : {},
   plugins: [vue(), copyLegacyRuntimeAssets()],
+  build: isProductionBuild ? { manifest: "asset-manifest.json" } : undefined,
   server: {
     host: "0.0.0.0",
     port: Number.isNaN(frontendPort) ? 8080 : frontendPort,

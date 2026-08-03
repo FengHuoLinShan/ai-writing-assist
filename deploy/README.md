@@ -98,8 +98,9 @@ bash deploy/scripts/verify_public.sh
 
 `release.sh` 与 `restore.sh` 会共同检查 API `/api/health`、前端入口及既有稳定运行时脚本，
 并确认 worker 容器的 PID 1 仍在运行 `run_worker.py`；三项都通过才会写入成功发布状态，
-避免容器仅因 `/healthz` 可达而掩盖静态文件权限、缺失或 worker 退出问题。`verify_public.sh` 还会从公网入口解析并
-逐一请求当前 HTML 声明的脚本和样式，校验成功状态与内容类型。只有该脚本通过，才代表
+避免容器仅因 `/healthz` 可达而掩盖静态文件权限、缺失或 worker 退出问题。带有
+`deploy/frontend-asset-contract.version`（当前值为 `1`）的提交还必须提供由生产构建验证器生成的
+`asset-inventory.txt`：容器内和公网验证都会逐项请求清单中的全部资源，并校验内容类型。没有该 marker 的历史提交继续使用稳定脚本检查，以保证回滚不会被新合同阻断；但带 marker 的提交缺少或提供无效清单会直接失败，绝不静默降级。`verify_public.sh` 还会从公网入口确认 HTML 声明资源属于清单。只有该脚本通过，才代表
 DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网链路通过。
 
 ## 日常更新
