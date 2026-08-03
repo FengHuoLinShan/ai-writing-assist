@@ -99,6 +99,7 @@ globalThis.router = {
   }),
   refresh: vi.fn(),
   registerView: vi.fn(),
+  registerViewLoader: vi.fn(),
   getCurrentView: vi.fn(() => state.currentView),
   getCurrentQuery: vi.fn(() => _currentQuery),
   onNavigate: vi.fn(),

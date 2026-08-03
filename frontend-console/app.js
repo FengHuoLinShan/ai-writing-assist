@@ -14,17 +14,10 @@ import {
 } from "./shared/accountStorage.js"
 import { mountShell } from "./vue/shell/mountShell.js"
 import { mountAuthGate } from "./vue/auth/mountAuthGate.js"
+import { registerViewLoaders } from "./vue/viewLoaders.js"
 
-// 已迁移的 Vue island 在 router 初始化前完成注册。
-import "./vue/interactionIsland.js"
-import "./vue/settingsIslands.js"
-import "./vue/projectIsland.js"
-import "./vue/ragIsland.js"
-import "./vue/worldIsland.js"
-import "./vue/outlineIsland.js"
-import "./vue/generateIsland.js"
-import "./vue/writingIsland.js"
-import "./vue/mapIsland.js"
+// 只注册按路由加载的 island import 函数；不会在应用启动或认证门禁期间加载业务模块。
+registerViewLoaders()
 
 const App = {
   _initialized: false,

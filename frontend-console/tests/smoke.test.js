@@ -63,6 +63,23 @@ describe("application bootstrap", () => {
     expect(App._initialized).toBe(false)
   })
 
+  it("keeps unauthenticated public bootstrap behind the auth gate before routing", async () => {
+    api.auth = {
+      config: vi.fn().mockResolvedValue({ auth_mode: "public", wechat_enabled: false }),
+      me: vi.fn(),
+    }
+    const unauthorized = new Error("not signed in")
+    unauthorized.status = 401
+    api.auth.me.mockRejectedValue(unauthorized)
+
+    await App.init()
+
+    expect(App._authGate).not.toBeNull()
+    expect(App._mountShell).not.toHaveBeenCalled()
+    expect(router.initRouter).not.toHaveBeenCalled()
+    delete api.auth
+  })
+
   it("renders a text-only visible boundary when shell bootstrap fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     App._mountShell.mockRejectedValue(new Error('<img src=x onerror="boom">'))

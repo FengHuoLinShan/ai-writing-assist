@@ -37,6 +37,171 @@ function registerBasicView(name) {
 }
 
 describe("renderCurrentView error handling", () => {
+  it("keeps an already registered renderer ahead of its lazy loader", async () => {
+    const content = addWorkspace()
+    const loader = vi.fn()
+    window.router.registerViewLoader("eager-renderer-wins", loader)
+    window.router.registerView("eager-renderer-wins", {
+      async render() { return '<p id="eager-wins">ready</p>' },
+    })
+    state.currentView = "eager-renderer-wins"
+
+    await window.router.renderCurrentView()
+
+    expect(loader).not.toHaveBeenCalled()
+    expect(content.querySelector("#eager-wins")?.textContent).toBe("ready")
+  })
+
+  it("deduplicates a pending route loader", async () => {
+    const content = addWorkspace()
+    let resolveLoader
+    const loader = vi.fn(() => new Promise((resolve) => { resolveLoader = resolve }))
+    window.router.registerViewLoader("dedupe-loader-test", loader)
+    state.currentView = "dedupe-loader-test"
+
+    const first = window.router.renderCurrentView()
+    await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(1))
+    const second = window.router.renderCurrentView()
+    window.router.registerView("dedupe-loader-test", {
+      async render() { return '<p id="dedupe-loaded">loaded</p>' },
+    })
+    resolveLoader()
+
+    await expect(first).resolves.toBe(false)
+    await expect(second).resolves.toBe(true)
+    expect(loader).toHaveBeenCalledTimes(1)
+    expect(content.querySelector("#dedupe-loaded")).not.toBeNull()
+  })
+
+  it("does not mount a late loader after navigating from A to B", async () => {
+    const content = addWorkspace()
+    let resolveA
+    const renderA = vi.fn(async () => '<p id="late-a">A</p>')
+    window.router.registerViewLoader("late-loader-a", () => new Promise((resolve) => {
+      resolveA = () => {
+        window.router.registerView("late-loader-a", { render: renderA })
+        resolve()
+      }
+    }))
+    window.router.registerViewLoader("late-loader-b", async () => {
+      window.router.registerView("late-loader-b", {
+        async render() { return '<p id="late-b">B</p>' },
+      })
+    })
+
+    state.currentView = "late-loader-a"
+    const loadingA = window.router.renderCurrentView()
+    await vi.waitFor(() => expect(resolveA).toBeTypeOf("function"))
+    state.currentView = "late-loader-b"
+    await window.router.renderCurrentView()
+    resolveA()
+
+    await expect(loadingA).resolves.toBe(false)
+    expect(renderA).not.toHaveBeenCalled()
+    expect(content.querySelector("#late-b")).not.toBeNull()
+    expect(content.querySelector("#late-a")).toBeNull()
+  })
+
+  it("shows a safe retry for a rejected loader and retries from a cleared pending slot", async () => {
+    const content = addWorkspace()
+    const secret = '<img src=x onerror=alert("loader")>'
+    const loader = vi.fn()
+      .mockRejectedValueOnce(new Error(secret))
+      .mockImplementationOnce(async () => {
+        window.router.registerView("retry-loader-test", {
+          async render() { return '<p id="retry-loaded">recovered</p>' },
+        })
+      })
+    window.router.registerViewLoader("retry-loader-test", loader)
+    state.currentView = "retry-loader-test"
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    await window.router.renderCurrentView()
+
+    expect(content.querySelector('[data-action="retry-route-render"]')).not.toBeNull()
+    expect(content.textContent).toContain("页面加载失败")
+    expect(content.textContent).not.toContain(secret)
+    expect(content.textContent).not.toContain("此模块正在开发中")
+    content.querySelector('[data-action="retry-route-render"]').click()
+    await vi.waitFor(() => expect(content.querySelector("#retry-loaded")).not.toBeNull())
+    errorSpy.mockRestore()
+
+    expect(loader).toHaveBeenCalledTimes(2)
+  })
+
+  it("fails a configured loader that resolves without self-registering", async () => {
+    const content = addWorkspace()
+    window.router.registerViewLoader("unregistered-loader-test", async () => {})
+    state.currentView = "unregistered-loader-test"
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    await window.router.renderCurrentView()
+    errorSpy.mockRestore()
+
+    expect(content.textContent).toContain("页面加载失败")
+    expect(content.textContent).not.toContain("此模块正在开发中")
+  })
+
+  it("ignores a loader that resolves after its workspace host is detached", async () => {
+    const content = addWorkspace()
+    let resolveLoader
+    const render = vi.fn(async () => '<p id="detached-late">late</p>')
+    window.router.registerViewLoader("detached-loader-test", () => new Promise((resolve) => {
+      resolveLoader = () => {
+        window.router.registerView("detached-loader-test", { render })
+        resolve()
+      }
+    }))
+    state.currentView = "detached-loader-test"
+
+    const rendering = window.router.renderCurrentView()
+    await vi.waitFor(() => expect(resolveLoader).toBeTypeOf("function"))
+    content.remove()
+    resolveLoader()
+
+    await expect(rendering).resolves.toBe(false)
+    expect(render).not.toHaveBeenCalled()
+  })
+
+  it("keeps the mounted lifecycle cleanup exact after a lazy route loads", async () => {
+    const content = addWorkspace()
+    const onLeave = vi.fn()
+    window.router.registerViewLoader("lazy-lifecycle-a", async () => {
+      window.router.registerView("lazy-lifecycle-a", {
+        onLeave,
+        async render() { return '<p id="lazy-lifecycle-a">A</p>' },
+      })
+    })
+    window.router.registerView("lazy-lifecycle-b", {
+      async render() { return '<p id="lazy-lifecycle-b">B</p>' },
+    })
+    state.currentView = "lazy-lifecycle-a"
+    await window.router.renderCurrentView()
+    state.currentView = "lazy-lifecycle-b"
+
+    await window.router.renderCurrentView()
+
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(content.querySelector("#lazy-lifecycle-b")).not.toBeNull()
+  })
+
+  it("normalizes the legacy llm route before invoking the settings loader", async () => {
+    const content = addWorkspace()
+    const settingsLoader = vi.fn(async () => {
+      window.router.registerView("settings", {
+        async render() { return '<p id="lazy-settings">settings</p>' },
+      })
+    })
+    window.router.registerViewLoader("settings", settingsLoader)
+    window.history.replaceState(null, "", "#llm")
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("settings")
+    expect(settingsLoader).toHaveBeenCalledTimes(1)
+    expect(content.querySelector("#lazy-settings")).not.toBeNull()
+  })
+
   it("stamps route markers for view-scoped presentation without changing rendered markup", async () => {
     const content = addWorkspace()
     registerBasicView("world")

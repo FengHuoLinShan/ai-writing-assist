@@ -35,12 +35,58 @@ const routes = {
 const viewRenderers = {}
 
 /**
+ * Route-level module loaders. A loaded module self-registers its renderer via
+ * registerView(), preserving the existing island registration contract.
+ * @type {Object<string, () => Promise<unknown>>}
+ */
+const viewLoaders = {}
+
+/** @type {Object<string, Promise<Object>>} */
+const pendingViewLoaders = {}
+
+/**
  * 注册视图渲染器
  * @param {string} name - 视图名称
  * @param {Object} renderer - { render(), onEnter?(), onRendered?(), canLeave?(), onLeave?() }
  */
 function registerView(name, renderer) {
   viewRenderers[name] = renderer
+}
+
+/**
+ * Register a route module loader. Existing renderers always take precedence,
+ * so this remains backward compatible for eager/legacy registrations.
+ * @param {string} name - normalized route name
+ * @param {() => Promise<unknown>} loader - module import which self-registers the renderer
+ */
+function registerViewLoader(name, loader) {
+  if (typeof loader !== "function") return
+  viewLoaders[name] = loader
+}
+
+function _loadViewRenderer(viewName) {
+  if (viewRenderers[viewName]) return Promise.resolve(viewRenderers[viewName])
+  const loader = viewLoaders[viewName]
+  if (!loader) return Promise.resolve(null)
+
+  let pending = pendingViewLoaders[viewName]
+  if (!pending) {
+    pending = Promise.resolve()
+      .then(() => loader())
+      .then(() => {
+        const renderer = viewRenderers[viewName]
+        if (!renderer) {
+          throw new Error(`Route module did not register renderer: ${viewName}`)
+        }
+        return renderer
+      })
+    pendingViewLoaders[viewName] = pending
+    const clearPending = () => {
+      if (pendingViewLoaders[viewName] === pending) delete pendingViewLoaders[viewName]
+    }
+    pending.then(clearPending, clearPending)
+  }
+  return pending
 }
 
 /**
@@ -737,7 +783,16 @@ function _renderGenericFailure(content) {
   message.style.cssText = "color:var(--text-dim);font-size:12px;"
   message.textContent = "请稍后重试；你的项目内容没有受到影响。"
 
-  stateEl.append(icon, title, message)
+  const retry = document.createElement("button")
+  retry.type = "button"
+  retry.className = "btn btn-primary"
+  retry.dataset.action = "retry-route-render"
+  retry.textContent = "重试"
+  retry.addEventListener("click", () => {
+    void _retryCurrentRouteRender()
+  })
+
+  stateEl.append(icon, title, message, retry)
   content.replaceChildren(stateEl)
 }
 
@@ -750,7 +805,7 @@ async function renderCurrentView() {
     : _routeStateFromAppState()
   const viewName = routeState.viewName
   const subView = routeState.subView || ""
-  const renderer = viewRenderers[viewName]
+  let renderer = viewRenderers[viewName]
   const mounted = _currentMountedRoute()
 
   // 视图或项目 owner 变化时统一走同一个 cleanup seam。项目边界通常已经在
@@ -777,6 +832,8 @@ async function renderCurrentView() {
     renderGeneration === _renderGeneration
     && state.currentView === viewName
     && (state.currentSubView || "") === subView
+    && content.isConnected
+    && document.getElementById("workspace-content") === content
     && (!failure || _failureRoute === failure)
   )
   const ownsRenderingRoute = () => (
@@ -792,13 +849,6 @@ async function renderCurrentView() {
 
   state.loading = true
   if (!isSameRender) _showRouteLoadingSkeleton(content)
-  if (!failure && renderer) {
-    _renderingRoute = {
-      generation: renderGeneration,
-      renderer,
-      route: _copyRouteState(routeState),
-    }
-  }
 
   try {
     if (failure) {
@@ -806,40 +856,54 @@ async function renderCurrentView() {
       if (_currentMountedRoute()) _disposeMountedRoute({ invalidateRender: false })
       failure.host = content
       _showProjectLoadFailure(content, failure)
-    } else if (renderer) {
-      if (!isSameRender && renderer.onEnter) {
-        await renderer.onEnter()
-        if (!isCurrentRender() || !ownsRenderingRoute()) return false
-      }
-      const html = await renderer.render()
-      if (!isCurrentRender() || !ownsRenderingRoute()) return false
-      content.innerHTML = html
-      if (renderer.onRendered) {
-        await renderer.onRendered()
-        if (!isCurrentRender() || !ownsRenderingRoute()) return false
-      }
-      _renderingRoute = null
-      _mountedRoute = {
-        host: content,
-        renderer,
-        route: _copyRouteState(routeState),
-        project: routeState.projectId ? state.currentProject : null,
-      }
     } else {
-      if (!isCurrentRender()) return false
-      const route = routes[viewName]
-      content.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">&#9744;</div>
-          <p>${route ? route.title : viewName} 页面</p>
-          <p style="color:var(--text-dim);font-size:12px;">此模块正在开发中，敬请期待</p>
-        </div>
-      `
-      _mountedRoute = {
-        host: content,
-        renderer: null,
-        route: _copyRouteState(routeState),
-        project: routeState.projectId ? state.currentProject : null,
+      // A configured loader is only invoked for an actually rendered route.
+      // Pending calls are shared; rejected calls are cleared for a later retry.
+      if (!renderer && viewLoaders[viewName]) {
+        renderer = await _loadViewRenderer(viewName)
+        if (!isCurrentRender()) return false
+      }
+
+      if (renderer) {
+        _renderingRoute = {
+          generation: renderGeneration,
+          renderer,
+          route: _copyRouteState(routeState),
+        }
+        if (!isSameRender && renderer.onEnter) {
+          await renderer.onEnter()
+          if (!isCurrentRender() || !ownsRenderingRoute()) return false
+        }
+        const html = await renderer.render()
+        if (!isCurrentRender() || !ownsRenderingRoute()) return false
+        content.innerHTML = html
+        if (renderer.onRendered) {
+          await renderer.onRendered()
+          if (!isCurrentRender() || !ownsRenderingRoute()) return false
+        }
+        _renderingRoute = null
+        _mountedRoute = {
+          host: content,
+          renderer,
+          route: _copyRouteState(routeState),
+          project: routeState.projectId ? state.currentProject : null,
+        }
+      } else {
+        if (!isCurrentRender()) return false
+        const route = routes[viewName]
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">&#9744;</div>
+            <p>${route ? route.title : viewName} 页面</p>
+            <p style="color:var(--text-dim);font-size:12px;">此模块正在开发中，敬请期待</p>
+          </div>
+        `
+        _mountedRoute = {
+          host: content,
+          renderer: null,
+          route: _copyRouteState(routeState),
+          project: routeState.projectId ? state.currentProject : null,
+        }
       }
     }
   } catch (err) {
@@ -867,6 +931,10 @@ async function renderCurrentView() {
   if (!isCurrentRender()) return false
   _notifyRouteSettled(viewName, state.currentSubView)
   return true
+}
+
+async function _retryCurrentRouteRender() {
+  return (await renderCurrentView()) !== false
 }
 
 async function _navigateWithHistory(viewName, subView, query, historyMode) {
@@ -1080,4 +1148,4 @@ async function initRouter() {
 }
 
 // 导出
-window.router = { navigate, replace, refresh, getCurrentView, getRoute, getSubViewTitle, registerView, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }
+window.router = { navigate, replace, refresh, getCurrentView, getRoute, getSubViewTitle, registerView, registerViewLoader, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }

@@ -158,6 +158,7 @@ frontend-console/
 │   ├── shell/              #   topbar/sidebar/命令栏/主题/快捷键/service hosts
 │   ├── bridge/             #   组件访问稳定基建的唯一入口（可 DI 替身）
 │   ├── mountIsland.js      #   Vue 根组件 → hash router 视图契约适配器
+│   ├── viewLoaders.js      #   一级路由 → 按需 island import 注册表（不主动加载业务模块）
 │   ├── components/         #   跨视图组件（WorkflowProgressCard 等）
 │   ├── composables/        #   跨视图组合式函数（上传/轮询/保存按钮）
 │   ├── *Island.js          #   各一级路由注册与首屏数据预取
@@ -191,6 +192,7 @@ frontend-console/
 - Leaflet/Canvas 只通过 Vue `MapViewportAdapter` 下的 `mapView` seam 运行；Writing 仅保留
   `mapQuickCreateView` bridge 以及 `sceneAlerts` / `versionDiff` 纯 helper
 - Vue 视图经 `vue/mountIsland.js` 注册进 hash router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；异步 `load()` 使用代次守卫，新加载或 `onLeave` 后的旧响应不得回写当前 island；动态内容依赖模板自动转义，禁止 `v-html`
+- `vue/viewLoaders.js` 仅在启动时向 router 注册一级路由的动态 import 函数；认证门禁和未访问的业务页面不会下载 island。router 会复用同一路由的 pending import，模块必须经既有 `registerView()` 自注册；失败显示通用安全提示与原位“重试”，成功页的路由、生命周期、HTTP API、数据库 schema 与 wire shape 均不变。
 - 上述变更只调整前端内部所有权；HTTP API、数据库 schema 和前端 wire shape 保持不变
 - 地图视口按需加载 Leaflet（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。
@@ -222,6 +224,9 @@ frontend-console/
   使用浏览器前进/后退时，晚到请求不会提交旧路由或覆盖当前页面。router 不缓存活 DOM；
   `outline` 离开时停止 workflow 轮询并从持久化记录恢复，`writing` 使用项目隔离的显式
   session snapshot 恢复作者编辑态。
+- 路由模块加载期间继续使用可访问的工作区骨架；快速导航、账号边界或 host 卸载后晚到的模块
+  只可为未来访问完成注册，不能挂载或覆盖当前页面。已注册 renderer 优先于 loader；加载模块未
+  自注册会进入安全失败态而非错误显示“正在开发中”，失败后的“重试”仅重跑当前路由渲染。
 - 作者项目边界统一由 router 事务化处理：先运行当前页 `canLeave` 与项目导航 modal 预检；
   通过后在旧项目 state/DOM 仍有效时恰好调用一次 `onLeave`，立即切到不含保存、发布或 AI
   操作的中性骨架，再以 abort + generation 同步目标项目。mounted route、pending target 和
