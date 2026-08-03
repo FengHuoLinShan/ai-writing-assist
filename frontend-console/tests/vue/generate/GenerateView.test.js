@@ -183,6 +183,78 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("不应回写"), expect.anything())
   })
 
+  it("marks the snapshot interrupted before browser unload can report a navigation fetch failure", async () => {
+    let reject
+    api.generate.worldChat.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail }))
+    const key = generateSessionKey("p1")
+    const wrapper = mount(GenerateView, { props: baseProps({ sessionKey: key }), attachTo: document.body })
+    await wrapper.get("#generate-chat-input").setValue("刷新前的问题")
+    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+    const signal = api.generate.worldChat.mock.calls[0][1].signal
+
+    window.dispatchEvent(new Event("beforeunload"))
+    expect(signal.aborted).toBe(true)
+    reject(new Error("无法访问 API 服务"))
+    await flushPromises()
+
+    const messages = readGenerateSession(key).messages
+    expect(messages.at(-1)).toEqual(expect.objectContaining({ role: "assistant", error: true, interrupted: true }))
+    expect(messages.at(-1).content).toContain("上次回复在离开或刷新时尚未返回")
+    expect(messages.at(-1).content).not.toContain("无法访问 API 服务")
+    wrapper.unmount()
+  })
+
+  it("disarms the unload listener after a settled world chat", async () => {
+    api.generate.worldChat
+      .mockResolvedValueOnce({ reply: "第一条回复" })
+      .mockResolvedValueOnce({ reply: "第二条回复" })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get("#generate-chat-input").setValue("第一条")
+    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("第一条回复"))
+
+    window.dispatchEvent(new Event("beforeunload"))
+    await wrapper.get("#generate-chat-input").setValue("第二条")
+    await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("第二条回复"))
+    expect(api.generate.worldChat).toHaveBeenCalledTimes(2)
+  })
+
+  it("recovers an interrupted chat as a terminal local message and leaves the composer usable", async () => {
+    let resolve
+    api.generate.worldChat.mockImplementation(() => new Promise((done) => { resolve = done }))
+    const key = generateSessionKey("p1")
+    const first = mount(GenerateView, { props: baseProps({ sessionKey: key }), attachTo: document.body })
+    await first.get("#generate-chat-input").setValue("离开前的问题")
+    await first.get('[data-action="send-chat-message"]').trigger("click")
+
+    expect(first.get("#generate-chat-messages").text()).toContain("正在思考...")
+    const interruptedSnapshot = readGenerateSession(key).messages
+    expect(interruptedSnapshot).toEqual([
+      { role: "user", content: "离开前的问题" },
+      expect.objectContaining({ role: "assistant", error: true, interrupted: true }),
+    ])
+    expect(interruptedSnapshot.at(-1)).not.toHaveProperty("pending")
+    const signal = api.generate.worldChat.mock.calls[0][1].signal
+    first.unmount()
+    expect(signal.aborted).toBe(true)
+
+    resolve({ reply: "迟到回复" })
+    await flushPromises()
+    expect(readGenerateSession(key).messages.at(-1)).toEqual(expect.objectContaining({ error: true, interrupted: true }))
+    expect(readGenerateSession(key).messages.at(-1).content).not.toContain("迟到回复")
+
+    const second = mount(GenerateView, {
+      props: baseProps({ sessionKey: key, initialSession: readGenerateSession(key) }),
+      attachTo: document.body,
+    })
+    expect(second.get("#generate-chat-messages").text()).toContain("离开前的问题")
+    expect(second.get("#generate-chat-messages").text()).toContain("上次回复在离开或刷新时尚未返回")
+    await second.get("#generate-chat-input").setValue("确认后重试")
+    expect(second.get('[data-action="send-chat-message"]').element.disabled).toBe(false)
+    expect(api.generate.worldChat).toHaveBeenCalledTimes(1)
+  })
+
   it("keeps silent preview errors inline and does not toast", async () => {
     api.context.compile.mockRejectedValue(new Error("compile down"))
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "task" }), attachTo: document.body })

@@ -167,15 +167,19 @@ async function ensurePov() {
 async function switchTab(tab) { if (!tabs.some((item) => item.key === tab) || tab === activeTab.value) return; if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换标签吗？")) return; activeTab.value = tab; if (tab === "world") await ensureWorld(); if (tab === "pov_prose") await ensurePov() }
 function currentWorldPayload() { return buildWorldPayload({ ...session, projectId: props.projectId, sourcePageId: props.sourcePageId, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, templates: templates.value, activationProfiles: activationProfiles.value, worldPageTemplates: world.pageTemplates }) }
 function captureComposer() { const text = composer.value.trim(); if (!text) return false; session.messages.push({ role: "user", content: text }); composer.value = ""; return true }
+function beforeUnload() { persist(); owner.dispose() }
+function armBeforeUnload() { window.addEventListener("beforeunload", beforeUnload) }
+function disarmBeforeUnload() { window.removeEventListener("beforeunload", beforeUnload) }
 
 async function sendChat() {
   if (worldBusy.value) return false
   if (!composer.value.trim()) return toast("请输入要聊的内容", "warning")
-  captureComposer(); const pending = reactive({ role: "assistant", content: "正在思考...", pending: true }); session.messages.push(pending); chatPending.value = true; const scope = owner.begin()
-  try { const response = await api.generate.worldChat(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false }
-  catch (err) { if (!owner.isActive(scope)) return; pending.content = `聊天失败：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; toast(pending.content, "error") }
+  captureComposer(); const pending = reactive({ role: "assistant", content: "正在思考...", pending: true }); session.messages.push(pending); persist(); const scope = owner.begin(); armBeforeUnload(); chatPending.value = true
+  try { const response = await api.generate.worldChat(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false; persist() }
+  catch (err) { if (!owner.isActive(scope)) return; pending.content = `聊天失败：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast(pending.content, "error") }
   finally {
     owner.finish(scope)
+    disarmBeforeUnload()
     chatPending.value = false
     await nextTick()
     worldWorkspaceRef.value?.focusComposer?.()
@@ -238,7 +242,7 @@ async function runInBatches(items, size, fn) { const output = []; for (let index
 async function openChapterPicker() { const scope = owner.begin(); try { const data = await api.writing.listChapters(props.projectId); const summaries = data?.chapters || []; if (!summaries.length) return toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成建议", "info"); const previews = await runInBatches(summaries, 5, async (item) => { try { const draft = item.id ? await api.writing.get(item.id, props.projectId) : await api.writing.getDraft(item.chapter_index, props.projectId); return { chapter_index: item.chapter_index, title: draft.title || item.title || `第${item.chapter_index}章`, excerpt: String(draft.content || "").replace(/\s+/g, " ").trim().slice(0, 120) } } catch { return { chapter_index: item.chapter_index, title: item.title || `第${item.chapter_index}章`, excerpt: "" } } }); if (!owner.isActive(scope)) return; const selected = new Set(session.selectedChapters.map((item) => item.chapter_index)); const body = `<div class="generate-chapter-list">${previews.map((item) => `<label class="generate-chapter-card"><input id="generate-chapter-${esc(item.chapter_index)}" type="checkbox" ${selected.has(item.chapter_index) ? "checked" : ""}/><span><span class="generate-chapter-title">第 ${esc(item.chapter_index)} 章 · ${esc(item.title)}</span><span class="generate-chapter-excerpt">${esc(item.excerpt || "暂无正文摘录")}</span></span></label>`).join("")}</div>`; openOwnedModal("选择附带正文", body, [{ text: "取消", class: "btn-ghost", handler: closeModal }, { text: "确认选择", class: "btn-primary", handler: () => { const next = previews.filter((item) => document.getElementById(`generate-chapter-${item.chapter_index}`)?.checked); if (next.length > AI_SELECTED_CHAPTER_LIMIT) return toast(`每次最多附带 ${AI_SELECTED_CHAPTER_LIMIT} 章正文`, "warning"), false; session.selectedChapters = next; closeModal() } }]) } catch (err) { if (owner.isActive(scope)) toast(`加载章节失败：${err?.message || "未知错误"}`, "error") } finally { owner.finish(scope) } }
 function viewGenerationContext(kind) { const usage = kind === "chat" ? chatContextUsage.value : entityContextUsage.value; if (!usage) return toast("本次生成没有返回可审计的上下文记录", "warning"); const body = `<div class="generate-context-header"><span class="generate-context-stat">${esc(usage.section_key || "world_bible_synopsis")}</span><span class="generate-context-meta">状态：${esc(usage.status || "unknown")}</span><span class="generate-context-meta">Tokens：${esc(usage.token_count || 0)}</span></div><table class="data-table"><tbody><tr><th>Revision</th><td>${esc(usage.revision_id || "确定性降级/未包含")}</td></tr><tr><th>Source hash</th><td>${esc(usage.source_hash || "-")}</td></tr><tr><th>Block hash</th><td>${esc(usage.block_hash || "-")}</td></tr><tr><th>Context snapshot</th><td>${esc(usage.context_snapshot_id || "-")}</td></tr><tr><th>Stale</th><td>${usage.stale ? "是" : "否"}</td></tr><tr><th>Fallback</th><td>${usage.fallback ? "是" : "否"}</td></tr></tbody></table>`; openOwnedModal("本次实际使用的上下文", body, [], { size: "large" }) }
 
-onBeforeUnmount(() => { persist(); owner.dispose(); if (ownedModal) closeModal() })
+onBeforeUnmount(() => { disarmBeforeUnload(); persist(); owner.dispose(); if (ownedModal) closeModal() })
 </script>
 
 <style>

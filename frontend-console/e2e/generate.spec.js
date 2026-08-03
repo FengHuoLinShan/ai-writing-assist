@@ -267,6 +267,46 @@ test.describe("生成中心模块", () => {
     await expect(page.locator(SEL.modalTitle)).not.toHaveText("AI 参考资料")
   })
 
+  test("刷新中断聊天后恢复确定的本地终态，不重复或接受迟到回复", async ({ page }) => {
+    const chatRoute = "**/api/world/generation-center/chat"
+    let releaseRoute
+    let chatRequests = 0
+    let completeRoute
+    const routeFinished = new Promise((resolve) => { completeRoute = resolve })
+    const delayedChatHandler = async (route) => {
+      chatRequests += 1
+      await new Promise((resolve) => { releaseRoute = resolve })
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ reply: "不应显示的迟到回复" }),
+        })
+      } catch {} finally { completeRoute() }
+    }
+    await page.route(chatRoute, delayedChatHandler)
+
+    try {
+      await page.locator("#generate-chat-input").fill("刷新前的问题")
+      await page.getByRole("button", { name: "发送" }).click()
+      await expect(page.locator("#generate-chat-messages")).toContainText("正在思考...")
+      await expect.poll(() => chatRequests).toBe(1)
+
+      await page.reload({ waitUntil: "domcontentloaded" })
+      await expect(page.locator("#generate-chat-messages")).toContainText("刷新前的问题")
+      await expect(page.locator("#generate-chat-messages")).toContainText("上次回复在离开或刷新时尚未返回")
+      releaseRoute()
+      await routeFinished
+      await expect(page.locator("#generate-chat-messages")).not.toContainText("不应显示的迟到回复")
+      await page.locator("#generate-chat-input").fill("确认后再试")
+      await expect(page.getByRole("button", { name: "发送" })).toBeEnabled()
+      expect(chatRequests).toBe(1)
+    } finally {
+      releaseRoute?.()
+      if (!page.isClosed()) await page.unroute(chatRoute, delayedChatHandler)
+    }
+  })
+
   test("粘贴外部对话后生成世界对象建议", async ({ page }) => {
     await page.locator("#generate-chat-input").fill("外部 Chatbox：反派不是纯恶人。")
     await page.locator("#generate-quality-pro").check()

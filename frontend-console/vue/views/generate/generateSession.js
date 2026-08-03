@@ -4,6 +4,7 @@ import { normalizePageProposalDraft } from "./pageProposalSession.js"
 export const GENERATE_STATE_STORAGE_PREFIX = "generate_world_workspace_state_v2_"
 export const GENERATE_STATE_MAX_PROJECTS = 5
 export const GENERATE_STATE_MAX_BYTES = 512 * 1024
+export const GENERATE_INTERRUPTED_CHAT_MESSAGE = "上次回复在离开或刷新时尚未返回，本页已停止等待。请确认后再重试，避免重复请求。"
 const composerDrafts = new Map()
 const contextPreviews = new Map()
 
@@ -68,7 +69,12 @@ function persistedShape(value) {
   return {
     savedAt: Date.now(),
     selectedTemplateId: value.selectedTemplateId || "builtin:none",
-    messages: (value.messages || []).filter((item) => !item.pending),
+    // A live pending bubble remains pending in the mounted UI. Its snapshot is
+    // deliberately terminal so a reload cannot leave the author's last user
+    // message looking unanswered or cause an implicit retry.
+    messages: (value.messages || []).map((item) => item.pending
+      ? { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true }
+      : item),
     selectedChapters: (value.selectedChapters || []).slice(0, AI_SELECTED_CHAPTER_LIMIT),
     qualityMode: value.qualityMode || "fast",
     includeWorldSynopsis: value.includeWorldSynopsis !== false,

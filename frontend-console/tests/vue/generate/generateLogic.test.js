@@ -19,6 +19,24 @@ describe("generate Vue pure contracts", () => {
     expect(payload).toEqual(expect.objectContaining({ scene_id: "scene-1", thread_ids: ["thread-1"], character_ids: ["character-1"], entity_ids: ["entity-1"] }))
   })
 
+  it("excludes interrupted local recovery entries from subsequent world-chat payloads", () => {
+    const payload = buildWorldPayload({
+      projectId: "p1", sourcePageId: null, targetKind: "core_entity", sourcePage: null, sourceDraft: null,
+      templates: [], selectedTemplateId: "builtin:none", activationProfiles: [], activationProfileId: null, worldPageTemplates: [],
+      messages: [
+        { role: "user", content: "继续完善" },
+        { role: "assistant", content: "中断说明", error: true, interrupted: true },
+        { role: "assistant", content: "可继续参考的历史回复" },
+      ],
+      selectedChapters: [], qualityMode: "fast", includeWorldSynopsis: true,
+    })
+
+    expect(payload.messages).toEqual([
+      { role: "user", content: "继续完善" },
+      { role: "assistant", content: "可继续参考的历史回复" },
+    ])
+  })
+
   it("keeps viewpoint separate, adds it to character context, and suppresses synopsis", () => {
     const payload = buildTaskPayload("p1", { task: "写场景", scope: "chapter", reveal_mode: "character", budget_tokens: 0, entity_ids: [], character_ids: ["related"], viewpoint_character_id: "pov", chapter_index: 2, scene_id: "scene-2", include_world_synopsis: true })
     expect(validateTaskPayload(payload)).toBeNull()

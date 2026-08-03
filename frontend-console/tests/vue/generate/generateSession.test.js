@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  GENERATE_INTERRUPTED_CHAT_MESSAGE,
   generateSessionKey,
   readGenerateContextPreview,
   readGenerateSession,
@@ -35,6 +36,28 @@ describe("generate Vue bounded session", () => {
 
     localStorage.setItem(generateSessionKey("old"), JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧会话" }] }))
     expect(readGenerateSession(generateSessionKey("old"))).toMatchObject({ messages: [{ role: "user", content: "旧会话" }], pageProposalDraft: null })
+  })
+
+  it("serializes a pending assistant as an interruption without mutating the live message", () => {
+    const pending = { role: "assistant", content: "正在思考...", pending: true }
+    const completed = { role: "assistant", content: "真实回复" }
+    const result = serializeGenerateSession({ messages: [{ role: "user", content: "上一条" }, pending, completed] })
+
+    expect(pending).toEqual({ role: "assistant", content: "正在思考...", pending: true })
+    expect(JSON.parse(result.serialized).messages).toEqual([
+      { role: "user", content: "上一条" },
+      { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true },
+      completed,
+    ])
+  })
+
+  it("keeps the same byte bound when a large pending bubble is converted to interruption", () => {
+    const result = serializeGenerateSession({ messages: [{ role: "assistant", content: "界".repeat(180_000), pending: true }] })
+
+    expect(result.serialized).not.toBeNull()
+    expect(JSON.parse(result.serialized).messages).toEqual([
+      { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true },
+    ])
   })
 
   it("drops only a malformed proposal draft and keeps the rest of the session with one warning", () => {

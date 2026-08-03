@@ -174,7 +174,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   会逐个展示摘要和跳转入口。读者/角色视角不显示这些作者专用元数据，
   不将“因可见性被隐藏”误报为“未关联 Scene”。
 - 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。
-- 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。来源页面正文与服务器工作稿始终由服务器重载；本地 v2 会话按项目 + 来源页 + target 隔离，只缓存对话、选择项、suggestion ID，以及 schemaVersion=1、精确绑定当前 pending suggestion 的作者未应用提案编辑。该版本化 working copy 受 512 KiB / 最多 5 个会话边界约束，不代表 canonical 或服务器工作稿；匹配 suggestion 才恢复，成功应用或作者确认放弃后清理。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
+- 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。来源页面正文与服务器工作稿始终由服务器重载；本地 v2 会话按项目 + 来源页 + target 隔离，只缓存对话、选择项、suggestion ID，以及 schemaVersion=1、精确绑定当前 pending suggestion 的作者未应用提案编辑。刷新或离开时仍在等待的聊天助手气泡仅在本地副本转为可见的中断终态，不自动重试且不进入后续聊天请求。该版本化 working copy 受 512 KiB / 最多 5 个会话边界约束，不代表 canonical 或服务器工作稿；匹配 suggestion 才恢复，成功应用或作者确认放弃后清理。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
 - 生成中心任务页签选择章节后，Scene 选择器先展示该章的可用 Scene，同时仍可按名称搜索项目内其他活跃 Scene。
 - 世界书、生成中心和通用 AI 参考弹窗只列出已发布 Activation Profile；只有作者显式选择后才随请求发送。世界书规则编辑器提供受限表单和 dry-run trace，不提供 raw JSON、regex 或 Prompt 插槽。世界书存在未保存修改时，“用 AI 完善此页”必须先保存成功再跳转；生成中心页面 apply 只写工作稿，成功后带页面/工作稿 ID 返回世界书。中等宽度把第三栏下移，窄屏改为单栏且不得产生页面级横向溢出。
 - 世界书编辑器把“保存并发布”作为始终可见的主操作；只有“保存工作稿”不会改变正式页。
