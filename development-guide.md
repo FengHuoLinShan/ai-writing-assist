@@ -97,6 +97,16 @@ text-only local Codex evaluator, but the eval extra remains trusted/offline-only
 makes the gate fail again. An audit pass does not prove zero dependency or
 supply-chain risk.
 
+Repository security maintenance: CodeQL runs `security-extended` analysis for
+GitHub Actions, frontend JavaScript/TypeScript and backend Python on pull requests,
+`main` pushes, a weekly scheduled run and manual dispatch. Its findings need
+triage: the extended suite intentionally includes lower-precision patterns and is
+not proof of an exploitable vulnerability. Dependabot opens only version-update PRs
+on staggered weekly schedules; minor and patch updates are grouped, while majors
+remain independently reviewable. Review coordinated digest/lockfile updates with
+the affected tests and image contracts. This config does not enable Dependabot
+alerts or security updates: those remain separate remote repository settings.
+
 `python -m scripts.reset_map_subsystem` 是地图子系统的开发管理预检工具。它只提供
 dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数据库 fingerprint，
 会校验 16 张 `map_*` 表、FK、活跃引用和运行任务。当前 CLI 没有

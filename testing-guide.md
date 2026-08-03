@@ -130,6 +130,16 @@ build; Playwright functional acceptance is still outside default CI. The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
 data; both complement rather than replace builds and tests, and a passing audit is
 not proof of zero dependency or supply-chain risk.
+CodeQL separately analyzes GitHub Actions, JavaScript/TypeScript and Python with the
+`security-extended` query suite on PRs, `main` pushes, weekly schedule and manual
+dispatch. Its extended rules intentionally trade some precision for wider coverage:
+a finding requires normal exploitability and reachability triage, not automatic
+confirmation. Dependabot configuration opens staggered weekly version-update PRs
+for workflow actions, backend uv, frontend npm and production Docker manifests;
+minor/patch updates are grouped but majors stay independent. Coordinated manifest,
+digest and lockfile changes still need the affected tests and image-contract review.
+Dependabot alerts and security updates are separate remote repository settings and
+are not enabled merely by this version-update configuration.
 secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、
 常见私钥文件名、私钥块与高置信服务凭据；测试/文档中的显式占位值仅在受控路径豁免。
 失败日志只包含安全化路径、规则名和不可逆短指纹，不输出凭据原文。等价本地入口是
@@ -139,8 +149,9 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 `app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
-后，应把 `Backend quality`、`Frontend unit quality` 和 `Production image contract`
-设为合并前必需状态检查。
+后，应把 `Backend quality`、`Frontend unit quality`、`Production image contract`、
+`CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前
+必需状态检查。
 `Production image contract` 独立执行 `make test-production-images`：它从固定 tag+digest
 构建 backend/frontend 镜像，并在容器内确认 backend 非 root、没有 uv、可导入 app，以及
 frontend 的 nginx 配置和入口资产都可用。它不归入本地 `make test-ci`，因为实际镜像拉取和构建
