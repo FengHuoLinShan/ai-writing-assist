@@ -205,6 +205,76 @@ describe("GenerateView Vue behavior matrix", () => {
     await vi.waitFor(() => expect(document.activeElement).toBe(input.element))
   })
 
+  it("shows loading before a lazy POV load can confirm the project has no chapters", async () => {
+    let resolveChapters
+    let resolveCharacters
+    api.writing.listChapters.mockImplementation(() => new Promise((resolve) => { resolveChapters = resolve }))
+    api.world.listCharacters.mockImplementation(() => new Promise((resolve) => { resolveCharacters = resolve }))
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+
+    await wrapper.get("#generate-mode-tab-pov_prose").trigger("click")
+    expect(wrapper.text()).toContain("正在加载章节和角色信息")
+    expect(wrapper.text()).not.toContain("角色视角正文需要先准备章节")
+    expect(wrapper.find('[data-action="generate-pov-prose"]').exists()).toBe(false)
+
+    resolveChapters({ chapters: [] })
+    resolveCharacters({ items: [] })
+    await vi.waitFor(() => expect(wrapper.text()).toContain("角色视角正文需要先准备章节"))
+  })
+
+  it("offers zero-chapter POV prerequisites and routes without starting a generation", async () => {
+    const wrapper = mount(GenerateView, { props: baseProps({ tab: "pov_prose" }), attachTo: document.body })
+
+    expect(wrapper.text()).toContain("角色视角正文需要先准备章节")
+    expect(wrapper.text()).toContain("至少一个章节，再补充 Scene 和视角角色")
+    expect(wrapper.find("#generate-pov-chapter").exists()).toBe(false)
+    expect(wrapper.find("#generate-pov-scene").exists()).toBe(false)
+    expect(wrapper.find("#generate-pov-instruction").exists()).toBe(false)
+    expect(wrapper.find("#generate-pov-result").exists()).toBe(false)
+    expect(wrapper.find('[data-action="generate-pov-prose"]').exists()).toBe(false)
+
+    await wrapper.get('[data-action="open-writing-from-pov-empty"]').trigger("click")
+    expect(router.navigate).toHaveBeenCalledWith("writing")
+    await wrapper.get('[data-action="return-world-from-pov-empty"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find("#generate-mode-panel-world").exists()).toBe(true))
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+  })
+
+  it("shows the POV load warning instead of an empty-project prerequisite", () => {
+    const wrapper = mount(GenerateView, {
+      props: baseProps({ tab: "pov_prose", povLoadWarning: "加载章节或角色失败：网络暂不可用" }),
+      attachTo: document.body,
+    })
+
+    expect(wrapper.text()).toContain("加载章节或角色失败：网络暂不可用")
+    expect(wrapper.text()).not.toContain("角色视角正文需要先准备章节")
+    expect(wrapper.find("#generate-pov-chapter").exists()).toBe(false)
+    expect(wrapper.find('[data-action="generate-pov-prose"]').exists()).toBe(false)
+  })
+
+  it("keeps the POV form and generation action available when Scene loading warns", async () => {
+    api.outline.listScenesByChapter.mockRejectedValue(new Error("Scene 暂不可用"))
+    const wrapper = mount(GenerateView, {
+      props: baseProps({
+        tab: "pov_prose",
+        povChapters: [{ chapter_index: 1, title: "旧怨" }],
+        povCharacters: [{ entity_id: "char-1", name: "秦岚" }],
+      }),
+      attachTo: document.body,
+    })
+
+    await wrapper.get("#generate-pov-chapter").setValue("1")
+    await vi.waitFor(() => expect(wrapper.text()).toContain("加载 Scene 失败：Scene 暂不可用"))
+    expect(wrapper.find("#generate-pov-chapter").exists()).toBe(true)
+    expect(wrapper.find("#generate-pov-scene").exists()).toBe(true)
+    expect(wrapper.find("#generate-pov-character").exists()).toBe(true)
+    expect(wrapper.find('[data-action="generate-pov-prose"]').exists()).toBe(true)
+    expect(wrapper.get("#generate-pov-chapter").attributes("disabled")).toBeUndefined()
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+  })
+
   it("aborts an in-flight world request and rejects its late response after unmount", async () => {
     let resolve
     api.generate.worldChat.mockImplementation((_payload, options) => new Promise((done) => { resolve = done; expect(options.signal.aborted).toBe(false) }))

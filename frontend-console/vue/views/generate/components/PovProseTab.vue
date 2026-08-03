@@ -1,5 +1,18 @@
 <template>
-  <div class="generate-pov-workspace">
+  <div v-if="loading" class="generate-pov-workspace">
+    <div class="card generate-pov-form"><div class="loading">正在加载章节和角色信息…</div></div>
+  </div>
+  <div v-else-if="warning && !chapters.length" class="generate-pov-workspace">
+    <div class="card generate-pov-form"><div class="generate-template-warning">{{ warning }}</div></div>
+  </div>
+  <div v-else-if="!chapters.length" class="generate-pov-workspace">
+    <div class="card generate-pov-form">
+      <div class="card-title">角色视角正文需要先准备章节</div>
+      <p class="generate-empty-copy">先创建至少一个章节，再补充 Scene 和视角角色，才能生成符合角色知识边界的正文建议。</p>
+      <div class="generate-result-actions"><button type="button" class="btn btn-sm btn-primary" data-action="open-writing-from-pov-empty" @click="$emit('open-writing')">去写作台创建第一章</button><button type="button" class="btn btn-sm" data-action="return-world-from-pov-empty" @click="$emit('return-world')">先完善世界设定</button></div>
+    </div>
+  </div>
+  <div v-else class="generate-pov-workspace">
     <div class="card generate-pov-form">
       <div v-if="warning" class="generate-template-warning">{{ warning }}</div>
       <div class="generate-form-grid">
@@ -38,8 +51,8 @@
 <script setup>
 import { computed } from "vue"
 import { characterId } from "../logic/generateLogic.js"
-const props = defineProps({ chapters: { type: Array, default: () => [] }, scenes: { type: Array, default: () => [] }, characters: { type: Array, default: () => [] }, warning: String, submission: Object, pending: Boolean, progress: Number, error: String })
-defineEmits(["change-chapter", "change-scene", "open-result"])
+const props = defineProps({ loading: Boolean, chapters: { type: Array, default: () => [] }, scenes: { type: Array, default: () => [] }, characters: { type: Array, default: () => [] }, warning: String, submission: Object, pending: Boolean, progress: Number, error: String })
+defineEmits(["change-chapter", "change-scene", "open-result", "open-writing", "return-world"])
 const form = defineModel("form", { type: Object, required: true })
 const selectedScene = computed(() => props.scenes.find((item) => item.id === form.value.sceneId) || null)
 const selectedRole = computed(() => props.characters.find((item) => characterId(item) === form.value.viewpointCharacterId) || null)

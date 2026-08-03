@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
+import { expectNoPageOverflow } from "./helpers/responsive.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import {
   createProject,
@@ -257,6 +258,20 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#workspace-content")).toContainText("任务")
     await expect(page.locator("#workspace-content")).toContainText("上下文预览")
     await expect(page.locator("#workspace-content")).not.toContainText("粘贴已有对话")
+  })
+
+  test("零章节项目在角色视角正文给出前置条件并前往写作台", async ({ page }) => {
+    await page.getByRole("tab", { name: "角色视角正文" }).click()
+    await expect(page.getByText("角色视角正文需要先准备章节")).toBeVisible()
+    await expect(page.getByRole("button", { name: "生成角色视角正文" })).toHaveCount(0)
+    await expect(page.locator("#generate-pov-chapter")).toHaveCount(0)
+    await expect(page.locator("#generate-pov-scene")).toHaveCount(0)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectNoPageOverflow(page)
+    await page.getByRole("button", { name: "去写作台创建第一章" }).click()
+    await expect(page.locator("#topbar-module")).toContainText("写作台")
+    await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
   })
 
   test("生成中心模式与高级任务控件可用键盘和名称访问", async ({ page }) => {

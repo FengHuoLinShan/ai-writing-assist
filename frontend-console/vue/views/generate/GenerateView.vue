@@ -11,7 +11,7 @@
         <span class="generate-suggestion-note">对象建议会一并参考输入框中尚未发送的内容</span>
         <button class="btn btn-sm btn-primary" data-action="generate-world-suggestion" :disabled="worldBusy" @click="generateWorldSuggestion">{{ generateLabel }}</button>
       </template>
-      <button v-else-if="activeTab === 'pov_prose'" class="btn btn-sm btn-primary" data-action="generate-pov-prose" :disabled="povPending" @click="generatePov">生成角色视角正文</button>
+      <button v-else-if="activeTab === 'pov_prose' && !pov.loading && pov.chapters.length" class="btn btn-sm btn-primary" data-action="generate-pov-prose" :disabled="povPending" @click="generatePov">生成角色视角正文</button>
       <template v-else-if="activeTab === 'task'">
         <button class="btn btn-sm btn-primary" data-action="run-task" :disabled="taskPending" @click="compileTask(false)">编译上下文</button>
         <button class="btn btn-sm" data-action="preview-task-context" :disabled="taskPending" @click="compileTask(true)">预览上下文</button>
@@ -36,7 +36,7 @@
       @send-chat="sendChat" @apply-page="applyWorldPage" @proposal-dirty="pageProposalDirty = $event" @proposal-edit="capturePageProposalEdit" @clear-result="clearWorldResult" @open-review="openReview" @view-context="viewGenerationContext" />
   </div>
   <div v-else-if="activeTab === 'pov_prose'" :id="tabPanelId('pov_prose')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('pov_prose')">
-    <PovProseTab v-model:form="povForm" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @open-result="openPovResult" />
+    <PovProseTab v-model:form="povForm" :loading="pov.loading" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @open-result="openPovResult" @open-writing="openPovWriting" @return-world="switchTab('world')" />
   </div>
   <div v-else-if="activeTab === 'task'" :id="tabPanelId('task')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('task')">
     <TaskContextTab v-model:form="taskForm" :project-id="projectId" :preset="taskPreset" :bundle="lastContextBundle" :markdown="lastContextMarkdown" :pending="taskPending" :error="taskError" @select-preset="selectTaskPreset" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" />
@@ -101,7 +101,7 @@ const taskPending = ref(false); const taskError = ref("")
 const chatPending = ref(false); const suggestionPending = ref(false); const applyPending = ref(false)
 const worldWorkspaceRef = ref(null)
 const world = reactive({ sourcePage: props.sourcePage, sourceDraft: props.sourceDraft, categories: props.worldCategories, pageTemplates: props.worldPageTemplates, scenes: props.worldScenes, threads: props.worldThreads, characters: props.worldCharacters, entities: props.worldEntities, warning: props.worldWorkspaceWarning, loaded: props.tab === "world" })
-const pov = reactive({ chapters: props.povChapters, scenes: [], characters: props.povCharacters, warning: props.povLoadWarning, loaded: props.tab === "pov_prose" })
+const pov = reactive({ chapters: props.povChapters, scenes: [], characters: props.povCharacters, warning: props.povLoadWarning, loaded: props.tab === "pov_prose", loading: false })
 const povForm = ref({ chapterIndex: null, sceneId: "", viewpointCharacterId: "", instruction: "" })
 const povSubmission = ref(null); const povPending = ref(false); const povProgress = ref(null); const povError = ref("")
 let ownedModal = false
@@ -168,10 +168,11 @@ async function ensureWorld() {
   } catch (err) { if (owner.isActive(scope)) world.warning = `生成上下文加载不完整：${err?.message || "未知错误"}` } finally { owner.finish(scope) }
 }
 async function ensurePov() {
-  if (pov.loaded) return
+  if (pov.loaded || pov.loading) return
+  pov.loading = true
   const scope = owner.begin()
   try { const [chapters, characters] = await Promise.all([api.writing.listChapters(props.projectId), loadAll((skip) => api.world.listCharacters({ novel_id: props.projectId, skip, limit: PAGE_SIZE }))]); if (!owner.isActive(scope)) return; pov.chapters = chapters?.chapters || []; pov.characters = characters; pov.warning = null; pov.loaded = true }
-  catch (err) { if (owner.isActive(scope)) pov.warning = `加载章节或角色失败：${err?.message || "未知错误"}` } finally { owner.finish(scope) }
+  catch (err) { if (owner.isActive(scope)) pov.warning = `加载章节或角色失败：${err?.message || "未知错误"}` } finally { owner.finish(scope); pov.loading = false }
 }
 
 async function switchTab(tab) { if (!tabs.some((item) => item.key === tab) || tab === activeTab.value) return; if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换标签吗？")) return; activeTab.value = tab; if (tab === "world") await ensureWorld(); if (tab === "pov_prose") await ensurePov() }
@@ -241,6 +242,7 @@ async function generatePov() {
   finally { owner.finish(scope); povPending.value = false }
 }
 function openPovResult(submission) { const draftId = submission?.result?.draft_id || submission?.result?.draft?.id || ""; appState.viewStates.writing = { projectId: props.projectId, currentChapter: submission.chapterIndex, currentDraftId: draftId || null, isReadonly: Boolean(draftId) }; const query = new URLSearchParams({ chapter_index: String(submission.chapterIndex) }); if (draftId) query.set("draft_id", draftId); router.navigate("writing", null, true, query) }
+function openPovWriting() { router.navigate("writing") }
 
 function selectTaskPreset(key) { if (!TASK_PRESETS[key]) return; taskPreset.value = key; taskForm.value = applyTaskPreset(taskForm.value, key) }
 async function compileTask(silent) { if (taskPending.value) return false; const payload = buildTaskPayload(props.projectId, taskForm.value); const error = validateTaskPayload(payload); if (error) return toast(error, "warning"); lastContextRequest.value = payload; lastContextSource.value = "task"; lastContextMarkdown.value = ""; taskPending.value = true; taskError.value = ""; const scope = owner.begin(); try { const data = await api.context.compile(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; lastContextBundle.value = data; activeTab.value = "preview" } catch (err) { if (!owner.isActive(scope)) return; taskError.value = `编译失败：${err?.message || "未知错误"}`; if (!silent) toast(taskError.value, "error") } finally { owner.finish(scope); taskPending.value = false } }
