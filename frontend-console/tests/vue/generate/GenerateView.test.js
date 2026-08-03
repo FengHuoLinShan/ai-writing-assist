@@ -73,6 +73,43 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.html()).not.toContain("v-html")
   })
 
+  it("exposes linked tabs and panels while roving focus does not activate a mode", async () => {
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    const worldTab = wrapper.get("#generate-mode-tab-world")
+    const povTab = wrapper.get("#generate-mode-tab-pov_prose")
+    const taskTab = wrapper.get("#generate-mode-tab-task")
+    const previewTab = wrapper.get("#generate-mode-tab-preview")
+
+    for (const tab of [worldTab, povTab, taskTab, previewTab]) {
+      expect(tab.attributes()).toMatchObject({ type: "button", role: "tab" })
+      expect(tab.attributes("aria-controls")).toBe(`generate-mode-panel-${tab.attributes("id").replace("generate-mode-tab-", "")}`)
+    }
+    expect(worldTab.attributes()).toMatchObject({ "aria-selected": "true", tabindex: "0" })
+    expect(taskTab.attributes()).toMatchObject({ "aria-selected": "false", tabindex: "-1" })
+    expect(wrapper.get("#generate-mode-panel-world").attributes()).toMatchObject({ role: "tabpanel", "aria-labelledby": "generate-mode-tab-world" })
+
+    await worldTab.trigger("keydown", { key: "ArrowRight" })
+    expect(document.activeElement).toBe(povTab.element)
+    expect(worldTab.attributes("aria-selected")).toBe("true")
+    expect(wrapper.find("#generate-mode-panel-pov_prose").exists()).toBe(false)
+    await povTab.trigger("keydown", { key: "End" })
+    expect(document.activeElement).toBe(previewTab.element)
+    await previewTab.trigger("keydown", { key: "Home" })
+    expect(document.activeElement).toBe(worldTab.element)
+
+    await taskTab.trigger("click")
+    expect(taskTab.attributes()).toMatchObject({ "aria-selected": "true", tabindex: "0" })
+    expect(wrapper.get("#generate-mode-panel-task").attributes()).toMatchObject({ role: "tabpanel", "aria-labelledby": "generate-mode-tab-task" })
+    expect(wrapper.find("#generate-mode-panel-world").exists()).toBe(false)
+  })
+
+  it("marks exclusive world targets and object templates as pressed", () => {
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    expect(wrapper.get('[data-action="select-world-target"]:first-child').attributes()).toMatchObject({ type: "button", "aria-pressed": "true" })
+    expect(wrapper.get('[data-action="select-world-target"]:last-child').attributes("aria-pressed")).toBe("false")
+    expect(wrapper.get('[data-action="select-object-template"]').attributes()).toMatchObject({ type: "button", "aria-pressed": "true" })
+  })
+
   it("turns pasted composer text into a project-scoped pending world suggestion", async () => {
     api.generate.generateWorldSuggestion.mockResolvedValue({
       result: {

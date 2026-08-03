@@ -1,22 +1,22 @@
 <template>
   <div class="generate-task-workspace">
-    <div class="generate-task-cards">
-      <button v-for="(item, key) in TASK_PRESETS" :key="key" class="generate-task-card" :class="{ active: preset === key }" :data-preset="key" data-action="select-task-preset" @click="$emit('select-preset', key)">
+    <div class="generate-task-cards" role="group" aria-label="任务预设">
+      <button v-for="(item, key) in TASK_PRESETS" :key="key" class="generate-task-card" :class="{ active: preset === key }" type="button" :aria-pressed="preset === key" :data-preset="key" data-action="select-task-preset" @click="$emit('select-preset', key)">
         <h4>{{ item.label }}</h4><p>{{ item.task || '填写自定义任务描述' }}</p>
       </button>
     </div>
     <div class="generate-task-form">
       <div class="card">
         <div class="card-title">任务参数</div>
-        <div class="form-group"><label>任务描述 *</label><textarea id="gen-task" v-model="form.task" class="form-textarea" rows="2" placeholder="如：为旧档案缺页篇生成 10 章章节卡" /></div>
+        <div class="form-group"><label for="gen-task">任务描述 *</label><textarea id="gen-task" v-model="form.task" class="form-textarea" rows="2" placeholder="如：为旧档案缺页篇生成 10 章章节卡" /></div>
         <details class="gen-form-section generate-task-section"><summary>高级设置</summary>
-          <div class="form-group"><label>范围</label><select id="gen-scope" v-model="form.scope" class="form-select"><option v-for="item in SCOPE_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
+          <div class="form-group"><label for="gen-scope">范围</label><select id="gen-scope" v-model="form.scope" class="form-select"><option v-for="item in SCOPE_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
           <div class="form-group"><label>相关对象</label><ReferencePickerAdapter id="gen-entities-picker" v-model="form.entity_ids" :project-id="projectId" :sources="[entitySource]" mode="multiple" :max-items="20" placeholder="按名称搜索世界对象" /><input id="gen-entities" type="hidden" :value="form.entity_ids.join(',')" /></div>
           <div class="form-group"><label>相关人物</label><ReferencePickerAdapter id="gen-characters-picker" v-model="form.character_ids" :project-id="projectId" :sources="[characterSource]" mode="multiple" :max-items="20" placeholder="按姓名或别名搜索人物" /><input id="gen-characters" type="hidden" :value="form.character_ids.join(',')" /></div>
-          <div class="form-group"><label>章节索引</label><input id="gen-chapter" v-model.number="form.chapter_index" class="form-input" type="number" min="1" placeholder="当前章节（可选）" @change="clearScene" /></div>
+          <div class="form-group"><label for="gen-chapter">章节索引</label><input id="gen-chapter" v-model.number="form.chapter_index" class="form-input" type="number" min="1" placeholder="当前章节（可选）" @change="clearScene" /></div>
           <div class="form-group"><label>当前 Scene</label><ReferencePickerAdapter id="gen-scene-picker" v-model="sceneIds" :project-id="projectId" :sources="[sceneSource]" placeholder="按标题、目标或冲突搜索 Scene" /><input id="gen-scene" type="hidden" :value="form.scene_id || ''" /></div>
-          <div class="form-group"><label>上下文预算 (tokens)</label><input id="gen-budget" v-model.number="form.budget_tokens" class="form-input" type="number" min="0" max="1000000" /><p class="generate-form-hint">0 表示不做应用层裁剪；由实际模型上下文窗口决定上限。</p></div>
-          <div class="form-group"><label>揭示模式</label><select id="gen-reveal" v-model="form.reveal_mode" class="form-select" @change="syncReveal"><option v-for="item in REVEAL_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
+          <div class="form-group"><label for="gen-budget">上下文预算 (tokens)</label><input id="gen-budget" v-model.number="form.budget_tokens" class="form-input" type="number" min="0" max="1000000" aria-describedby="gen-budget-hint" /><p id="gen-budget-hint" class="generate-form-hint">0 表示不做应用层裁剪；由实际模型上下文窗口决定上限。</p></div>
+          <div class="form-group"><label for="gen-reveal">揭示模式</label><select id="gen-reveal" v-model="form.reveal_mode" class="form-select" @change="syncReveal"><option v-for="item in REVEAL_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
           <label class="generate-quality-toggle"><input id="gen-include-world-synopsis" v-model="form.include_world_synopsis" type="checkbox" :disabled="synopsisDisabled" /><span>在作者模式中加入世界观简介</span></label>
           <p id="gen-world-synopsis-visibility-hint" class="generate-form-hint" :hidden="!synopsisDisabled">读者/角色模式强制排除作者全知简介。</p>
           <div v-show="form.reveal_mode === 'character'" id="gen-viewpoint-character-group" class="form-group"><label>视角人物 *</label><ReferencePickerAdapter id="gen-viewpoint-character-picker" v-model="viewpointIds" :project-id="projectId" :sources="[characterSource]" placeholder="选择视角人物" /><input id="gen-viewpoint-character" type="hidden" :value="form.viewpoint_character_id || ''" /><p class="generate-form-hint">视角人物与“相关人物”独立选择，提交时仍使用稳定内部引用。</p></div>

@@ -84,4 +84,19 @@ describe("task context reference search", () => {
     })
     expect(api.outline.listScenesByChapter).toHaveBeenCalledWith("p1", 3)
   })
+
+  it("exposes task presets and native task controls with stable accessible names", () => {
+    const presetGroup = wrapper.get('[role="group"][aria-label="任务预设"]')
+    expect(presetGroup.get('[data-preset="custom"]').attributes()).toMatchObject({ type: "button", "aria-pressed": "true" })
+    expect(presetGroup.get('[data-preset="plot"]').attributes("aria-pressed")).toBe("false")
+
+    for (const [controlId, labelText] of [["gen-task", "任务描述 *"], ["gen-scope", "范围"], ["gen-chapter", "章节索引"], ["gen-budget", "上下文预算 (tokens)"], ["gen-reveal", "揭示模式"]]) {
+      const control = wrapper.get(`#${controlId}`).element
+      const label = wrapper.get(`label[for="${controlId}"]`).element
+      expect(label.textContent).toBe(labelText)
+      expect(label.htmlFor).toBe(control.id)
+    }
+    expect(wrapper.get("#gen-budget").attributes("aria-describedby")).toBe("gen-budget-hint")
+    expect(wrapper.get("#gen-budget-hint").text()).toContain("0 表示不做应用层裁剪")
+  })
 })

@@ -9,14 +9,14 @@
   </div>
   <div v-if="warning" class="generate-template-warning">{{ warning }}</div>
   <div class="generate-world-targets" role="group" aria-label="生成目标">
-    <button class="generate-world-target" :class="{ active: targetKind === 'core_entity' }" data-action="select-world-target" @click="$emit('select-target', 'core_entity')">世界对象</button>
-    <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_page' }" :disabled="!sourcePageId" data-action="select-world-target" @click="$emit('select-target', 'world_bible_page')">完善当前页</button>
-    <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_new_page' }" data-action="select-world-target" @click="$emit('select-target', 'world_bible_new_page')">新建世界书页</button>
+    <button class="generate-world-target" :class="{ active: targetKind === 'core_entity' }" type="button" :aria-pressed="targetKind === 'core_entity'" data-action="select-world-target" @click="$emit('select-target', 'core_entity')">世界对象</button>
+    <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_page' }" type="button" :aria-pressed="targetKind === 'world_bible_page'" :disabled="!sourcePageId" data-action="select-world-target" @click="$emit('select-target', 'world_bible_page')">完善当前页</button>
+    <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_new_page' }" type="button" :aria-pressed="targetKind === 'world_bible_new_page'" data-action="select-world-target" @click="$emit('select-target', 'world_bible_new_page')">新建世界书页</button>
   </div>
 
   <div v-if="targetKind === 'core_entity'" id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
     <button v-for="template in templates" :key="template.value" class="generate-template-btn" :class="{ active: selectedTemplateId === template.value }"
-      data-action="select-object-template" :title="template.hint || template.prompt || ''" @click="selectedTemplateId = template.value">{{ template.label }}</button>
+      type="button" :aria-pressed="selectedTemplateId === template.value" data-action="select-object-template" :title="template.hint || template.prompt || ''" @click="selectedTemplateId = template.value">{{ template.label }}</button>
     <button class="btn btn-sm" data-action="edit-object-templates" @click="$emit('edit-templates')">编辑对象模板</button>
   </div>
   <div v-else-if="targetKind === 'world_bible_page'" class="generate-world-config">将以当前服务器工作稿优先，生成一份完整的整页重构提案。</div>

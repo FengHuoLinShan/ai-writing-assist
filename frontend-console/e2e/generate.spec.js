@@ -259,6 +259,26 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#workspace-content")).not.toContainText("粘贴已有对话")
   })
 
+  test("生成中心模式与高级任务控件可用键盘和名称访问", async ({ page }) => {
+    const worldTab = page.getByRole("tab", { name: "世界设定" })
+    const povTab = page.getByRole("tab", { name: "角色视角正文" })
+    const taskTab = page.getByRole("tab", { name: "任务" })
+    await expect(worldTab).toHaveAttribute("aria-selected", "true")
+    await worldTab.focus()
+    await page.keyboard.press("ArrowRight")
+    await expect(povTab).toBeFocused()
+    await expect(worldTab).toHaveAttribute("aria-selected", "true")
+
+    await taskTab.click()
+    await expect(taskTab).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByRole("tabpanel", { name: "任务" })).toBeVisible()
+    await page.getByText("高级设置", { exact: true }).click()
+    await expect(page.getByLabel("范围")).toBeVisible()
+    await expect(page.getByLabel("章节索引")).toBeVisible()
+    await expect(page.getByLabel("上下文预算 (tokens)")).toBeVisible()
+    await expect(page.getByLabel("揭示模式")).toBeVisible()
+  })
+
   test("世界共创聊天不会打开 AI 参考资料确认", async ({ page }) => {
     await page.locator("#generate-chat-input").fill("帮我设计一个反派")
     await page.getByRole("button", { name: "发送" }).click()
@@ -489,7 +509,7 @@ test.describe("生成中心模块", () => {
   })
 
   test("任务标签可执行上下文编译", async ({ page }) => {
-    await page.getByRole("button", { name: "任务" }).click()
+    await page.getByRole("tab", { name: "任务" }).click()
     await page.locator("#gen-task").fill("生成剧情线")
 
     await page.getByRole("button", { name: "编译上下文" }).click()
@@ -499,12 +519,12 @@ test.describe("生成中心模块", () => {
   })
 
   test("上下文预览标签展示最近一次编译结果", async ({ page }) => {
-    await page.getByRole("button", { name: "任务" }).click()
+    await page.getByRole("tab", { name: "任务" }).click()
     await page.locator('[data-preset="plot"]').click()
     await page.getByRole("button", { name: "编译上下文" }).click()
     await expect(page.locator("#gen-task-output")).toContainText("已加载 2 段上下文", { timeout: 15000 })
 
-    await page.getByRole("button", { name: "上下文预览" }).click()
+    await page.getByRole("tab", { name: "上下文预览" }).click()
 
     await expect(page.locator("#workspace-content")).toContainText("上下文预览")
     await expect(page.locator("#workspace-content")).toContainText("任务：生成剧情线")
@@ -523,7 +543,7 @@ test.describe("生成中心模块", () => {
       await route.fulfill({ status: 500, body: JSON.stringify({ detail: "should not call" }) })
     })
 
-    await page.getByRole("button", { name: "任务" }).click()
+    await page.getByRole("tab", { name: "任务" }).click()
     await page.locator(".gen-form-section summary").click()
     await page.locator("#gen-reveal").selectOption("character")
     await page.locator("#gen-task").fill("写角色视角场景")
@@ -580,7 +600,7 @@ test.describe("生成中心模块", () => {
       })
     })
 
-    await page.getByRole("button", { name: "任务" }).click()
+    await page.getByRole("tab", { name: "任务" }).click()
     await page.locator(".gen-form-section summary").click()
     await page.locator("#gen-reveal").selectOption("character")
 
