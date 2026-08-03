@@ -272,9 +272,17 @@ export function sanitizeTaskErrorMessage(message, workflowType = "task") {
     "UPDATE async_tasks",
     "Traceback",
   ]
-  if (technicalMarkers.some((marker) => text.includes(marker))) {
+  const importTechnicalMarkers = ["psycopg", "stack trace"]
+  const isImportTechnicalError = workflowType === "import"
+    && [...technicalMarkers, ...importTechnicalMarkers].some(
+      (marker) => text.toLowerCase().includes(marker.toLowerCase()),
+    )
+  if (technicalMarkers.some((marker) => text.includes(marker)) || isImportTechnicalError) {
     if (workflowType === "publish_chapter") {
       return "发布失败。工作稿已保存，请稍后重试。"
+    }
+    if (workflowType === "import") {
+      return "导入失败，请检查文件后重试。"
     }
     return "后台任务失败，请稍后重试。"
   }

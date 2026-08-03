@@ -78,6 +78,57 @@ describe("ImportDrawer", () => {
     expect(wrapper.text()).toContain("暂无导入记录。")
   })
 
+  it("只为失败导入显示经转义的失败原因", async () => {
+    globalThis.api.imports.list = vi.fn(async () => ({
+      items: [
+        {
+          id: "failed",
+          file_name: "空文件.txt",
+          status: "failed",
+          error_message: "文件中未检测到有效章节",
+        },
+        {
+          id: "escaped",
+          file_name: "异常文件.txt",
+          status: "failed",
+          error_message: "<img src=x onerror=alert(1)>",
+        },
+        {
+          id: "done",
+          file_name: "已完成.txt",
+          status: "done",
+          error_message: "完成记录不应显示的错误",
+        },
+      ],
+    }))
+    const harness = makeState()
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+
+    await vi.waitFor(() => {
+      expect(wrapper.find(".project-import-list__item-error").exists()).toBe(true)
+    })
+
+    expect(wrapper.find(".project-import-list__item-error").text()).toContain("失败原因：文件中未检测到有效章节")
+    expect(wrapper.findAll(".project-import-list__item-error")).toHaveLength(2)
+    expect(wrapper.find("img").exists()).toBe(false)
+    expect(wrapper.text()).toContain("<img src=x onerror=alert(1)>")
+    expect(wrapper.text()).not.toContain("完成记录不应显示的错误")
+  })
+
+  it("失败记录没有可用原因时显示作者可读回退", async () => {
+    globalThis.api.imports.list = vi.fn(async () => ({
+      items: [{ id: "failed", file_name: "未知文件.txt", status: "failed", error_message: "   " }],
+    }))
+    const harness = makeState()
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain("导入失败，请检查文件后重试。")
+    })
+  })
+
   it("项目切换后丢弃旧项目晚到的导入历史", async () => {
     let resolveOld
     let resolveCurrent

@@ -3,7 +3,13 @@ import { computed, onBeforeUnmount, ref, watch } from "vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import { useImportUpload } from "../../../composables/useImportUpload.js"
 import { getApi, getToast, useStateKey } from "../../../bridge/index.js"
-import { importStatusDot, importStatusLabel, importStatusPill, importTimeText } from "../logic/importHistory.js"
+import {
+  importFailureMessage,
+  importStatusDot,
+  importStatusLabel,
+  importStatusPill,
+  importTimeText,
+} from "../logic/importHistory.js"
 
 /**
  * 导入抽屉 — 对应 vanilla _renderImportSection + _renderImportHistory + _uploadFile。
@@ -128,11 +134,16 @@ async function uploadFile() {
         <p v-if="!historyLoaded || historyLoading" class="project-import-list__status">加载中...</p>
         <p v-else-if="importRecords.length === 0" class="project-import-list__empty">暂无导入记录。</p>
         <div v-else class="import-list-item" v-for="record in importRecords" :key="record.id || record.file_name + record.created_at">
-          <span class="status-dot" :class="importStatusDot(record.status)"></span>
-          <span class="project-import-list__item-name">{{ record.file_name }}</span>
-          <span class="pill" :class="importStatusPill(record.status)">{{ importStatusLabel(record.status) }}</span>
-          <span class="project-import-list__item-chapters">成功 {{ record.imported_chapters || 0 }} / 共 {{ record.total_chapters || 0 }} 章</span>
-          <span class="project-import-list__item-time">{{ importTimeText(record) }}</span>
+          <div class="project-import-list__item-summary">
+            <span class="status-dot" :class="importStatusDot(record.status)"></span>
+            <span class="project-import-list__item-name">{{ record.file_name }}</span>
+            <span class="pill" :class="importStatusPill(record.status)">{{ importStatusLabel(record.status) }}</span>
+            <span class="project-import-list__item-chapters">成功 {{ record.imported_chapters || 0 }} / 共 {{ record.total_chapters || 0 }} 章</span>
+            <span class="project-import-list__item-time">{{ importTimeText(record) }}</span>
+          </div>
+          <p v-if="record.status === 'failed'" class="project-import-list__item-error">
+            <strong>失败原因：</strong>{{ importFailureMessage(record) }}
+          </p>
         </div>
       </div>
     </div>
