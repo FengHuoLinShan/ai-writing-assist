@@ -11,11 +11,12 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
-from authlib.jose import JsonWebToken
 from authlib.oidc.core import CodeIDToken
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from joserfc import jwt
+from joserfc.jwk import KeySet
 
 from core.config import get_settings
 from core.dependencies import DbSession
@@ -27,6 +28,7 @@ from modules.account.services import LoginResult, service
 router = APIRouter(prefix="/api/auth/wechat", tags=["auth"])
 reauth_router = APIRouter(prefix="/api/auth/reauth/wechat", tags=["auth"])
 _STATE_COOKIE = "aaw_oidc_state"
+_ID_TOKEN_ALGORITHMS = ("RS256", "ES256")
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -87,6 +89,40 @@ async def _discovery() -> dict[str, Any]:
     if not isinstance(document, dict):
         raise ValidationError("OIDC discovery 配置无效")
     return _validate_discovery_document(document, issuer)
+
+
+def _decode_id_token(
+    id_token: str,
+    jwks: dict[str, Any],
+    *,
+    issuer: str,
+    client_id: str,
+    nonce: Any,
+    access_token: str | None,
+) -> CodeIDToken:
+    """Verify a signed Authing ID token before applying OIDC claim semantics."""
+    token = jwt.decode(
+        id_token,
+        KeySet.import_key_set(jwks),
+        algorithms=_ID_TOKEN_ALGORITHMS,
+    )
+    claims = CodeIDToken(
+        token.claims,
+        token.header,
+        options={
+            "iss": {"essential": True, "value": issuer},
+            "aud": {"essential": True, "value": client_id},
+            "exp": {"essential": True},
+            "sub": {"essential": True},
+        },
+        params={
+            "client_id": client_id,
+            "nonce": nonce,
+            "access_token": access_token,
+        },
+    )
+    claims.validate(leeway=60)
+    return claims
 
 
 async def _start_wechat(
@@ -207,24 +243,14 @@ async def wechat_callback(
         jwks_response = await http.get(document["jwks_uri"])
         jwks_response.raise_for_status()
         jwks = jwks_response.json()
-    jwt = JsonWebToken(["RS256", "ES256"])
-    claims = jwt.decode(
+    claims = _decode_id_token(
         id_token,
         jwks,
-        claims_cls=CodeIDToken,
-        claims_options={
-            "iss": {"essential": True, "value": document["issuer"]},
-            "aud": {"essential": True, "value": settings.authing_client_id},
-            "exp": {"essential": True},
-            "sub": {"essential": True},
-        },
-        claims_params={
-            "client_id": settings.authing_client_id,
-            "nonce": payload["nonce"],
-            "access_token": token.get("access_token"),
-        },
+        issuer=str(document["issuer"]),
+        client_id=settings.authing_client_id,
+        nonce=payload["nonce"],
+        access_token=token.get("access_token"),
     )
-    claims.validate(leeway=60)
     purpose = payload["purpose"]
     account_id = uuid.UUID(payload["account_id"]) if payload.get("account_id") else None
     result = await service.login_oidc(

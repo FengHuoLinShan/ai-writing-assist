@@ -18,4 +18,6 @@ Authing 微信由 `AUTHING_WECHAT_ENABLED` 控制。关闭时所有微信入口�
 必须完成 Authing、微信开放平台和真实扫码验证。公开模式禁止 `DEBUG=true`，SMTP 只允许
 `starttls` 或 `ssl`。Authing issuer 与 redirect URI 必须使用 HTTPS（本地环境仅允许 HTTP
 loopback）；discovery 的 authorization、token 与 JWKS 端点必须使用 HTTPS，且与 issuer
-保持相同 hostname/port。
+保持相同 hostname/port。回调从 JWKS 验证 ID token 签名，只允许 `RS256` 或 `ES256`；
+随后要求 `iss`、`aud`、`exp`、`iat`、`sub`，校验 nonce，并以 60 秒 leeway 验证 OIDC
+claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也会校验二者匹配。

@@ -52,6 +52,7 @@ dependencies = [
     "tiktoken>=0.6.0",
     "rapidfuzz>=3.0",
     "itsdangerous>=2.2.0,<2.3",
+    "joserfc>=1.7.4,<2.0",
     "pypinyin>=0.50",
 ]
 
@@ -126,6 +127,7 @@ addopts = [
 python_files = ["tests.py", "*_test.py", "test_*.py"]
 filterwarnings = [
     "ignore::DeprecationWarning",
+    "error::authlib.deprecate.AuthlibDeprecationWarning",
 ]
 markers = [
     "api: API layer tests",
