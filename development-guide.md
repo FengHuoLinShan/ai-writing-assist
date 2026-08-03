@@ -67,6 +67,7 @@ RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<te
 RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context  # Paid usage calibration + PostgreSQL 530K journey gate
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-deploy                 # Deployment static/CLI contracts; no Compose or recovery drill
+make test-production-images      # Build pinned production Dockerfiles and run independent image smoke checks
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
@@ -79,7 +80,7 @@ make format                      # ruff format --check
 make format-fix                  # ruff format
 ```
 
-Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证，生产构建部署不在当前阶段。
+Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证；`make test-production-images` 才会实际构建两份生产镜像并检查运行时合同。
 `make audit-frontend-deps` uses npm registry/advisory data to check the committed
 lockfile and fails only on high/critical findings. It complements, rather than
 replaces, the production build and tests; a passing audit does not mean zero risk.
@@ -103,6 +104,22 @@ dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数�
 
 GitHub Actions 的后端门禁、前端 Vitest job、等价本地命令和显式验收层边界见
 [`testing-guide.md`](testing-guide.md#continuous-integration)。
+
+## Pinned production toolchains
+
+Production Dockerfiles and PostgreSQL service declarations use reviewed image tags plus
+immutable SHA-256 digests. The backend image uses Python `3.12.13`, uv `0.11.28`, and
+the frontend build uses Node `24.18.0`; `backend/.python-version` and
+`frontend-console/.node-version` record the matching local-tooling versions. CI runs on
+`ubuntu-24.04` and installs those exact interpreter/tool versions before its relevant
+jobs. These pins make build inputs reviewable and repeatable, but do not promise
+byte-for-byte identical layers across Docker builders.
+
+Rotate an image only by reviewing a new upstream tag and digest together, then update
+the Dockerfile, production/example PostgreSQL declarations, relevant CI service image,
+and the associated contract tests in one change. `make test-production-images` is
+intentionally outside `make test-ci`: it downloads/builds production images and is too
+slow for the normal local fast gate, while GitHub runs it as a separate required job.
 
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
 `prompts/`, and `alembic/`; worker reload watches the same schema-sensitive paths.

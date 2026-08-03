@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend audit-backend-deps audit-frontend-deps test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images audit-backend-deps audit-frontend-deps test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -97,6 +97,12 @@ test-deploy:  ## Run deployment static and CLI contract tests
 
 test-frontend:  ## Run frontend tests
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
+
+test-production-images:  ## Build and smoke-test the pinned production Docker images
+	docker build --file backend/Dockerfile --tag contract-smoke-backend:fixed-toolchain .
+	docker run --rm --entrypoint sh contract-smoke-backend:fixed-toolchain -ec 'test "$$(id -u)" -ne 0; ! command -v uv; python -c "from app.main import app"'
+	docker build --file frontend-console/Dockerfile --tag contract-smoke-frontend:fixed-toolchain .
+	docker run --rm --entrypoint sh contract-smoke-frontend:fixed-toolchain -ec 'nginx -t; for asset in asset-manifest.json asset-inventory.txt index.html; do path="/usr/share/nginx/html/$$asset"; test -f "$$path"; test ! -L "$$path"; test -r "$$path"; done'
 
 audit-backend-deps:  ## Audit every locked backend dependency for known advisories
 	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.12 --python-platform x86_64-unknown-linux-gnu --ignore-until-fixed GHSA-w8v5-vhqr-4h9v --ignore-until-fixed GHSA-95ww-475f-pr4f

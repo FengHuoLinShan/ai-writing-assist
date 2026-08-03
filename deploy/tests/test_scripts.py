@@ -223,6 +223,18 @@ def test_compose_uses_one_bounded_logging_extension_for_every_service() -> None:
         assert "logging: *bounded-logging" in service_section
 
 
+def test_production_database_image_is_explicitly_tagged_and_digest_pinned() -> None:
+    compose = (DEPLOY_ROOT / "compose.production.yml").read_text(encoding="utf-8")
+    example = (DEPLOY_ROOT / ".env.production.example").read_text(encoding="utf-8")
+    expected = (
+        "docker.m.daocloud.io/pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
+        "7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+    )
+
+    assert f"image: ${{POSTGRES_IMAGE:-{expected}}}" in compose
+    assert f"POSTGRES_IMAGE={expected}" in example
+
+
 def test_release_only_accepts_commits_reachable_from_origin_main() -> None:
     release_script = (DEPLOY_ROOT / "scripts" / "release.sh").read_text()
 

@@ -16,7 +16,7 @@ concurrency:
 jobs:
   backend-quality:
     name: Backend quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -30,7 +30,7 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.11.28"
-          python-version: "3.12"
+          python-version: "3.12.13"
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
@@ -54,7 +54,7 @@ jobs:
 
   postgresql-critical:
     name: PostgreSQL critical
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     defaults:
@@ -63,7 +63,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:0.8.2-pg17-bookworm
+        image: pgvector/pgvector:0.8.6-pg17-bookworm@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38
         env:
           POSTGRES_DB: ai_writing_ci_test
           POSTGRES_USER: postgres
@@ -89,7 +89,7 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.11.28"
-          python-version: "3.12"
+          python-version: "3.12.13"
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
@@ -128,7 +128,7 @@ jobs:
 
   frontend-unit-quality:
     name: Frontend unit quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     defaults:
@@ -138,6 +138,13 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v7.0.0
+        with:
+          node-version-file: frontend-console/.node-version
+          cache: npm
+          cache-dependency-path: frontend-console/package-lock.json
 
       - name: Install locked frontend dependencies
         run: npm ci
@@ -150,3 +157,15 @@ jobs:
 
       - name: Build frontend production bundle
         run: npm run build
+
+  production-image-contract:
+    name: Production image contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and smoke-test production images
+        run: make test-production-images

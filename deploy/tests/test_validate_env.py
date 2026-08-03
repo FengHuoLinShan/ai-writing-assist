@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 def _load_validator() -> ModuleType:
     module_path = Path(__file__).parents[1] / "scripts" / "validate_env.py"
@@ -28,6 +30,10 @@ def _valid_values() -> dict[str, str]:
         "ALLOWED_ORIGINS": "https://novel.example.com",
         "POSTGRES_DB": "ai_writing_assist",
         "POSTGRES_USER": "ai_writing_assist",
+        "POSTGRES_IMAGE": (
+            "docker.m.daocloud.io/pgvector/pgvector:0.8.6-pg17-bookworm"
+            "@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+        ),
         "DATABASE_MODE": "fresh",
         "POSTGRES_PASSWORD": "a_secure_database_password_123",
         "AUTH_MODE": "closed_test",
@@ -98,6 +104,91 @@ def test_negative_global_llm_rpm_is_rejected() -> None:
     errors = validator.validate(values)
 
     assert any("LLM_RATE_LIMIT_PER_MINUTE" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "image",
+    (
+        "",
+        "pgvector/pgvector",
+        "pgvector/pgvector@sha256:" + "a" * 64,
+        "pgvector/pgvector:0.8.6-pg17-bookworm",
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:" + "a" * 63,
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:" + "A" * 64,
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:" + "g" * 64,
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:" + "a" * 64 + "@junk",
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:" + "a" * 64 + " ",
+        "https://registry.example/repo:tag@sha256:" + "a" * 64,
+        "/registry.example/repo:tag@sha256:" + "a" * 64,
+        "registry.example//repo:tag@sha256:" + "a" * 64,
+        "registry.example/repo/:tag@sha256:" + "a" * 64,
+        "registry.example/repo:tag:again@sha256:" + "a" * 64,
+        "registry.example/Repo:tag@sha256:" + "a" * 64,
+        "registry.example/repo:tag@sha256:" + "a" * 64 + "?query=1",
+        "registry.example/repo:tag@sha256:" + "a" * 64 + "#fragment",
+        "registry.example:port/repo:tag@sha256:" + "a" * 64,
+        "registry.example:１２３/repo:tag@sha256:" + "a" * 64,
+        "registry.example:١٢٣/repo:tag@sha256:" + "a" * 64,
+        "registry.example:65536/repo:tag@sha256:" + "a" * 64,
+    )
+)
+def test_pinned_image_reference_rejects_malformed_oci_named_references(
+    image: str,
+) -> None:
+    assert not validator.is_pinned_image_reference(image)
+
+
+def test_container_images_require_a_tag_and_exact_lowercase_digest() -> None:
+    malformed = (
+        "",
+        "pgvector/pgvector",
+        "pgvector/pgvector@sha256:" + "a" * 64,
+        "pgvector/pgvector:0.8.6-pg17-bookworm",
+        "registry.example/repo:tag:again@sha256:" + "a" * 64,
+        "https://registry.example/repo:tag@sha256:" + "a" * 64,
+    )
+
+    for image in malformed:
+        values = _valid_values()
+        values["POSTGRES_IMAGE"] = image
+        values["EMBEDDING_IMAGE"] = image
+
+        errors = validator.validate(values)
+
+        assert any("POSTGRES_IMAGE" in error for error in errors), image
+        assert any("EMBEDDING_IMAGE" in error for error in errors), image
+
+
+def test_invalid_image_reference_errors_describe_the_full_supported_contract() -> None:
+    values = _valid_values()
+    values["POSTGRES_IMAGE"] = "https://registry.example/repo:tag@sha256:" + "a" * 64
+    values["EMBEDDING_IMAGE"] = "registry.example/Repo:tag@sha256:" + "a" * 64
+
+    assert validator.validate(values) == [
+        "POSTGRES_IMAGE must use a supported lowercase repository, explicit tag, "
+        "and lowercase sha256 digest",
+        "EMBEDDING_IMAGE must use a supported lowercase repository, explicit tag, "
+        "and lowercase sha256 digest",
+    ]
+
+
+@pytest.mark.parametrize(
+    "image",
+    (
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:" + "a" * 64,
+        "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:"
+        + "b" * 64,
+        "docker.m.daocloud.io/pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
+        + "c" * 64,
+        "registry.example:5443/team/postgres:17.4-bookworm@sha256:" + "d" * 64,
+        "registry.example:05443/team/postgres:17.4-bookworm@sha256:" + "e" * 64,
+        "localhost:5000/team/postgres:17.4-bookworm@sha256:" + "f" * 64,
+    ),
+)
+def test_pinned_image_reference_allows_reviewed_oci_named_references(
+    image: str,
+) -> None:
+    assert validator.is_pinned_image_reference(image)
 
 
 def test_openresty_tunnel_port_must_not_overlap_application_ports() -> None:

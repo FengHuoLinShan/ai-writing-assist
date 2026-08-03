@@ -504,3 +504,69 @@ def test_timeout_is_not_forced_onto_explicit_acceptance_layers() -> None:
         command = _make_dry_run(target)
         assert "--timeout" not in command
         assert "--cov" not in command
+
+
+def test_production_toolchain_contract_is_pinned_everywhere() -> None:
+    repo_root = BACKEND_ROOT.parent
+    backend_dockerfile = (BACKEND_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    frontend_dockerfile = (repo_root / "frontend-console" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    workflow = (repo_root / ".github/workflows/backend-ci.yml").read_text(
+        encoding="utf-8"
+    )
+    e2e_workflow = (repo_root / ".github/workflows/backend-postgresql-e2e.yml").read_text(
+        encoding="utf-8"
+    )
+    python_image = (
+        "python:3.12.13-slim-bookworm@sha256:"
+        "d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b"
+    )
+    node_image = (
+        "node:24.18.0-alpine3.23@sha256:"
+        "595398b0081eacda8e1c4c5b97b76cd1020e4d58a8ebcb4843b9bca1e79e7436"
+    )
+    nginx_image = (
+        "nginx:1.30.4-alpine@sha256:"
+        "97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46"
+    )
+    postgres_image = (
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
+        "7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+    )
+
+    assert backend_dockerfile.count(f"FROM {python_image}") == 2
+    assert "AS build" in backend_dockerfile
+    assert "AS runtime" in backend_dockerfile
+    assert 'ARG UV_VERSION=0.11.28' in backend_dockerfile
+    assert "USER app" in backend_dockerfile
+    assert "COPY --from=build --chown=app:app /app /app" in backend_dockerfile
+    assert f"FROM {node_image} AS build" in frontend_dockerfile
+    assert f"FROM {nginx_image}" in frontend_dockerfile
+    assert "asset-manifest.json asset-inventory.txt index.html" in frontend_dockerfile
+    assert "nginx -t" in frontend_dockerfile
+
+    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.12.13\n"
+    assert (repo_root / "frontend-console/.node-version").read_text(
+        encoding="utf-8"
+    ) == "24.18.0\n"
+    assert workflow.count("runs-on: ubuntu-24.04") == 4
+    assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
+    assert workflow.count('python-version: "3.12.13"') == 2
+    assert e2e_workflow.count('python-version: "3.12.13"') == 1
+    assert "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38" in workflow
+    assert "node-version-file: frontend-console/.node-version" in workflow
+    assert "cache-dependency-path: frontend-console/package-lock.json" in workflow
+    assert workflow.count(f"image: {postgres_image}") == 1
+    assert e2e_workflow.count(f"image: {postgres_image}") == 1
+
+    command = _make_dry_run("test-production-images")
+    assert command.count("docker build") == 2
+    assert command.count("docker run --rm") == 2
+    assert "contract-smoke-backend:fixed-toolchain" in command
+    assert "contract-smoke-frontend:fixed-toolchain" in command
+    assert '! command -v uv' in command
+    assert 'from app.main import app' in command
+    assert "nginx -t" in command
+    assert "production-image-contract:" in workflow
+    assert "run: make test-production-images" in workflow

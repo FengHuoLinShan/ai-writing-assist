@@ -61,6 +61,10 @@ python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 ```
 
 `POSTGRES_PASSWORD` 只允许 URL-safe 字符，以便 Compose 安全构造 asyncpg URL。
+`POSTGRES_IMAGE` 与 `EMBEDDING_IMAGE` 都必须写为显式 tag 加小写 64 位 SHA-256 digest；
+校验器拒绝可变 tag、缺 tag、截断/大写 digest 与附加字符。生产 PostgreSQL 当前固定为
+`pgvector 0.8.6-pg17-bookworm` 的已审查 digest。固定 digest 使发布输入可复查，并不承诺
+不同 Docker builder 的镜像层逐字节一致。
 真实 `.env.production`、备份和发布状态均已加入 `.gitignore`。校验器会强制生产
 env 文件不是 symlink、归当前有效用户所有、且权限精确为 `0600`；不满足时即使使用
 `--get` 读取单个值也会拒绝。
@@ -123,6 +127,18 @@ make test-deploy
 `make test-ci` 的门禁。它会对本地 shell helper 做摘要/健康组合行为验证，并对脚本
 顺序与 Compose 声明做静态合同检查；它不启动 Compose、不访问外部服务，也不替代真实发布、
 公网验证或备份恢复演练。
+
+### Production image contract
+
+`make test-production-images` 单独构建 backend 与 frontend 生产 Dockerfile，并运行容器级
+smoke checks：backend 必须以非 root 运行、没有构建期 uv、且可导入应用；frontend 必须通过
+`nginx -t` 且入口、manifest 和资产清单是可读普通文件。它需要 Docker daemon 和镜像仓库访问，
+因此不放入日常 `make test-ci`，但 GitHub Actions 会以独立 `Production image contract` job
+执行。
+
+镜像轮换必须把新上游 tag 和 digest 一起复核，并在同一次改动中更新 Dockerfile、生产 Compose/
+示例环境文件、CI service image 和合同测试；不可仅改 tag 或仅改 digest。该过程不改变 API、
+数据库 schema、前端 wire 形状或正常用户操作，所有作者与读者画像只会获得更一致的发布结果。
 
 ### 分支与发布规则
 

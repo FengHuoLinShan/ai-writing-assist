@@ -44,6 +44,7 @@ Three layers:
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
 | `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, backend and frontend dependency audits, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies; OSV data for backend audit and npm registry/advisory data for frontend audit |
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests` | Existing backend pytest environment; no external service |
+| `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.12/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
@@ -102,8 +103,9 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 ### Continuous integration
 
 GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
-`PostgreSQL critical` 和 `Frontend unit quality`。后端快速 job checkout 后先用
-系统 Python 执行零依赖的 repository secret hygiene gate，再安装 uv 与 Python 3.12，
+`PostgreSQL critical`、`Frontend unit quality` 和 `Production image contract`，全部使用
+`ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
+secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
@@ -120,8 +122,9 @@ deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
 (`GHSA-95ww-475f-pr4f`). They are not permanent ignores: `--ignore-until-fixed`
 causes a published fix to fail the gate again. Production does not install `eval`,
 and the extra remains trusted/offline-only even though this project's adapter uses
-text collection metrics with an isolated local Codex evaluator. Frontend job uses
-`frontend-console/package-lock.json` to run `npm ci`, then
+text collection metrics with an isolated local Codex evaluator. Frontend job first uses
+the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.0`) and
+the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
 build; Playwright functional acceptance is still outside default CI. The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
@@ -136,7 +139,14 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 `app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
-后，应把 `Backend quality` 和 `Frontend unit quality` 设为合并前必需状态检查。
+后，应把 `Backend quality`、`Frontend unit quality` 和 `Production image contract`
+设为合并前必需状态检查。
+`Production image contract` 独立执行 `make test-production-images`：它从固定 tag+digest
+构建 backend/frontend 镜像，并在容器内确认 backend 非 root、没有 uv、可导入 app，以及
+frontend 的 nginx 配置和入口资产都可用。它不归入本地 `make test-ci`，因为实际镜像拉取和构建
+远重于默认快速门禁。tag 与 digest 必须成对评审和轮换；固定输入提高可复查性，但不同 Docker
+builder 的层输出不承诺逐字节相同。
+
 `make test-deploy` 只验证部署文件、环境校验与 CLI 的静态合同，不启动 Compose、不会连接
 外部服务，也不等同于真实发布或备份恢复演练。本地等价聚合入口是
 `make test-ci TEST_WORKERS=2`；它不包含上述显式验收层。

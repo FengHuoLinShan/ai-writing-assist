@@ -18,6 +18,10 @@ DOMAIN_RE = re.compile(
     r"[a-zA-Z]{2,63}$"
 )
 URL_SAFE_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+IMAGE_PATH_COMPONENT_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+IMAGE_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+REGISTRY_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 def validate_env_file_metadata(
@@ -73,6 +77,62 @@ def parse_env(path: Path) -> dict[str, str]:
 
 def is_missing(value: str | None) -> bool:
     return not value or PLACEHOLDER_PREFIX in value.upper()
+
+
+def is_pinned_image_reference(value: str) -> bool:
+    """Validate the conservative Docker/OCI named-reference subset used here."""
+    if not value or any(character.isspace() for character in value):
+        return False
+
+    image_name_and_tag, separator, digest = value.partition("@")
+    if separator != "@" or "@" in digest or not SHA256_DIGEST_RE.fullmatch(digest):
+        return False
+
+    path_components = image_name_and_tag.split("/")
+    if not path_components or any(not component for component in path_components):
+        return False
+
+    final_component = path_components[-1]
+    if final_component.count(":") != 1:
+        return False
+    image_name, tag = final_component.split(":", maxsplit=1)
+    if not IMAGE_PATH_COMPONENT_RE.fullmatch(image_name):
+        return False
+    if not IMAGE_TAG_RE.fullmatch(tag):
+        return False
+
+    first_component = path_components[0]
+    has_registry = len(path_components) > 1 and (
+        first_component == "localhost"
+        or first_component.startswith("localhost:")
+        or "." in first_component
+        or ":" in first_component
+    )
+    repository_components = path_components[1:-1] if has_registry else path_components[:-1]
+    if any(
+        not IMAGE_PATH_COMPONENT_RE.fullmatch(component)
+        for component in repository_components
+    ):
+        return False
+    if not has_registry:
+        return True
+
+    registry_host, registry_separator, registry_port = first_component.partition(":")
+    if registry_separator:
+        if not registry_port or any(
+            character < "0" or character > "9" for character in registry_port
+        ):
+            return False
+        port = int(registry_port)
+        if not 1 <= port <= 65535:
+            return False
+    if registry_host == "localhost":
+        return True
+    return bool(
+        registry_host
+        and all(REGISTRY_LABEL_RE.fullmatch(label) for label in registry_host.split("."))
+        and "." in registry_host
+    )
 
 
 def validate(values: dict[str, str]) -> list[str]:
@@ -137,6 +197,12 @@ def validate(values: dict[str, str]) -> list[str]:
 
     require("POSTGRES_DB")
     require("POSTGRES_USER")
+    postgres_image = require("POSTGRES_IMAGE")
+    if not is_missing(postgres_image) and not is_pinned_image_reference(postgres_image):
+        errors.append(
+            "POSTGRES_IMAGE must use a supported lowercase repository, explicit tag, "
+            "and lowercase sha256 digest"
+        )
     if require("DATABASE_MODE") != "fresh":
         errors.append("DATABASE_MODE must be fresh for this first deployment")
     database_password = require("POSTGRES_PASSWORD")
@@ -216,8 +282,11 @@ def validate(values: dict[str, str]) -> list[str]:
     embedding_model = require("EMBEDDING_MODEL")
     embedding_model_id = require("EMBEDDING_MODEL_ID")
     embedding_image = require("EMBEDDING_IMAGE")
-    if not is_missing(embedding_image) and "@sha256:" not in embedding_image:
-        errors.append("EMBEDDING_IMAGE must be pinned by sha256 digest")
+    if not is_missing(embedding_image) and not is_pinned_image_reference(embedding_image):
+        errors.append(
+            "EMBEDDING_IMAGE must use a supported lowercase repository, explicit tag, "
+            "and lowercase sha256 digest"
+        )
     embedding_base_url = require("EMBEDDING_BASE_URL")
     if not is_missing(embedding_base_url):
         parsed_embedding_url = urlsplit(embedding_base_url)

@@ -15,7 +15,7 @@ concurrency:
 jobs:
   postgresql-e2e:
     name: PostgreSQL full E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     defaults:
@@ -24,7 +24,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:0.8.2-pg17-bookworm
+        image: pgvector/pgvector:0.8.6-pg17-bookworm@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38
         env:
           POSTGRES_DB: ai_writing_nightly_test
           POSTGRES_USER: postgres
@@ -50,7 +50,7 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.11.28"
-          python-version: "3.12"
+          python-version: "3.12.13"
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
