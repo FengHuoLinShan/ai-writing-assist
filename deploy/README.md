@@ -61,7 +61,13 @@ python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 ```
 
 `POSTGRES_PASSWORD` 只允许 URL-safe 字符，以便 Compose 安全构造 asyncpg URL。
-真实 `.env.production`、备份和发布状态均已加入 `.gitignore`。
+真实 `.env.production`、备份和发布状态均已加入 `.gitignore`。校验器会强制生产
+env 文件不是 symlink、归当前有效用户所有、且权限精确为 `0600`；不满足时即使使用
+`--get` 读取单个值也会拒绝。
+
+容器 stdout/stderr 使用 Docker `local` logging driver 滚动保存。每个服务最多约
+100 MiB（10 个各 10 MiB 的文件）；这不是 30 天的时间保留，也不替代 OpenResty/1Panel
+外部访问日志或集中日志。OpenResty 访问日志仍按下文的 30 天策略保留。
 
 ## 首次发布
 

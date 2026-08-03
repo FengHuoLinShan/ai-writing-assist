@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import os
 import re
+import stat
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -16,6 +18,33 @@ DOMAIN_RE = re.compile(
     r"[a-zA-Z]{2,63}$"
 )
 URL_SAFE_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def validate_env_file_metadata(
+    path: Path,
+    *,
+    expected_uid: int | None = None,
+) -> list[str]:
+    """Return fail-closed errors for the production dotenv file itself."""
+    try:
+        file_stat = path.lstat()
+    except FileNotFoundError:
+        return [f"Production env file does not exist: {path}"]
+    except OSError:
+        return [f"Unable to inspect production env file metadata: {path}"]
+
+    if stat.S_ISLNK(file_stat.st_mode):
+        return [f"Production env file must not be a symlink: {path}"]
+    if not stat.S_ISREG(file_stat.st_mode):
+        return [f"Production env file must be a regular file: {path}"]
+
+    owner_uid = os.geteuid() if expected_uid is None else expected_uid
+    if file_stat.st_uid != owner_uid:
+        return [f"Production env file must be owned by the current user: {path}"]
+    if stat.S_IMODE(file_stat.st_mode) != 0o600:
+        return [f"Production env file permissions must be exactly 0600: {path}"]
+
+    return []
 
 
 def parse_env(path: Path) -> dict[str, str]:
@@ -263,8 +292,11 @@ def main() -> int:
     parser.add_argument("--get", metavar="KEY")
     args = parser.parse_args()
 
-    if not args.env.is_file():
-        print(f"Production env file does not exist: {args.env}")
+    metadata_errors = validate_env_file_metadata(args.env)
+    if metadata_errors:
+        print("Invalid production env file:")
+        for error in metadata_errors:
+            print(f"- {error}")
         return 1
     try:
         values = parse_env(args.env)

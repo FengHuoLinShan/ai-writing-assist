@@ -174,6 +174,37 @@ def test_runtime_auth_mode_is_shared_by_api_and_worker() -> None:
     assert "environment: *runtime-environment" in api_and_services
 
 
+def test_compose_uses_one_bounded_logging_extension_for_every_service() -> None:
+    compose = (DEPLOY_ROOT / "compose.production.yml").read_text()
+    extension, services_and_below = compose.split("x-runtime-environment:", maxsplit=1)
+    services, _ = services_and_below.split("\nvolumes:", maxsplit=1)
+
+    assert "x-bounded-logging: &bounded-logging" in extension
+    assert "driver: local" in extension
+    assert 'max-size: "10m"' in extension
+    assert 'max-file: "10"' in extension
+
+    service_names = (
+        "postgres",
+        "embedding",
+        "api",
+        "worker",
+        "frontend",
+        "migrate",
+        "account-maintenance",
+    )
+    assert compose.count("logging: *bounded-logging") == len(service_names)
+    for index, service_name in enumerate(service_names):
+        service_start = services.index(f"  {service_name}:\n")
+        service_end = (
+            services.index(f"  {service_names[index + 1]}:\n", service_start + 1)
+            if index + 1 < len(service_names)
+            else len(services)
+        )
+        service_section = services[service_start:service_end]
+        assert "logging: *bounded-logging" in service_section
+
+
 def test_release_only_accepts_commits_reachable_from_origin_main() -> None:
     release_script = (DEPLOY_ROOT / "scripts" / "release.sh").read_text()
 

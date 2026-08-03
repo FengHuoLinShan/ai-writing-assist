@@ -1,5 +1,11 @@
 name: ai-writing-assist
 
+x-bounded-logging: &bounded-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "10"
+
 x-runtime-environment: &runtime-environment
   APP_ENV: production
   DEBUG: "false"
@@ -67,6 +73,7 @@ services:
   postgres:
     image: ${POSTGRES_IMAGE:-docker.m.daocloud.io/pgvector/pgvector:pg17}
     restart: unless-stopped
+    logging: *bounded-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
@@ -86,6 +93,7 @@ services:
     image: ${EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:c26a226262ad4ff3330fb30b76653c1bb65da2fcf413b92284545a010e0a8a48}
     platform: linux/amd64
     restart: unless-stopped
+    logging: *bounded-logging
     command:
       [
         "--model-id",
@@ -106,6 +114,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    logging: *bounded-logging
     environment: *api-environment
     depends_on:
       postgres:
@@ -137,6 +146,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    logging: *bounded-logging
     command: ["python", "run_worker.py"]
     environment: *runtime-environment
     depends_on:
@@ -167,6 +177,7 @@ services:
       context: ..
       dockerfile: frontend-console/Dockerfile
     restart: unless-stopped
+    logging: *bounded-logging
     ports:
       - "127.0.0.1:${FRONTEND_LOOPBACK_PORT:-18080}:8080"
 
@@ -182,6 +193,7 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
+    logging: *bounded-logging
     networks:
       - data
       - egress
@@ -195,6 +207,7 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
+    logging: *bounded-logging
     networks:
       - data
       - egress

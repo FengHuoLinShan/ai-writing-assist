@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -115,3 +118,112 @@ def test_public_mode_requires_smtp_and_auth_secret() -> None:
 
     assert any("AUTH_SECRET_KEY" in error for error in errors)
     assert any("SMTP_HOST" in error for error in errors)
+
+
+def test_env_file_metadata_accepts_current_owner_with_exact_mode(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.production"
+    env_file.write_text("EXAMPLE_KEY=fixture-value\n")
+    env_file.chmod(0o600)
+
+    assert validator.validate_env_file_metadata(env_file) == []
+
+
+def test_env_file_metadata_rejects_a_missing_file(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.production"
+
+    errors = validator.validate_env_file_metadata(env_file)
+
+    assert errors == [f"Production env file does not exist: {env_file}"]
+
+
+def test_env_file_metadata_rejects_modes_other_than_exact_0600(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.production"
+    env_file.write_text("EXAMPLE_KEY=fixture-value\n")
+
+    for mode in (0o644, 0o640, 0o400):
+        env_file.chmod(mode)
+
+        errors = validator.validate_env_file_metadata(env_file)
+
+        assert errors == [
+            f"Production env file permissions must be exactly 0600: {env_file}"
+        ]
+
+
+def test_env_file_metadata_rejects_symlink_even_when_target_is_safe(tmp_path: Path) -> None:
+    target = tmp_path / "safe-target.env"
+    target.write_text("EXAMPLE_KEY=fixture-value\n")
+    target.chmod(0o600)
+    env_file = tmp_path / ".env.production"
+    env_file.symlink_to(target)
+
+    errors = validator.validate_env_file_metadata(env_file)
+
+    assert errors == [f"Production env file must not be a symlink: {env_file}"]
+
+
+def test_env_file_metadata_rejects_non_regular_files(tmp_path: Path) -> None:
+    errors = validator.validate_env_file_metadata(tmp_path)
+
+    assert errors == [f"Production env file must be a regular file: {tmp_path}"]
+
+
+def test_env_file_metadata_rejects_a_different_owner_without_chown(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.production"
+    env_file.write_text("EXAMPLE_KEY=fixture-value\n")
+    env_file.chmod(0o600)
+
+    errors = validator.validate_env_file_metadata(
+        env_file,
+        expected_uid=os.geteuid() + 1,
+    )
+
+    assert errors == [
+        f"Production env file must be owned by the current user: {env_file}"
+    ]
+
+
+def test_get_refuses_unsafe_file_without_printing_value(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.production"
+    secret_value = "must-not-be-printed"
+    env_file.write_text(f"EXAMPLE_KEY={secret_value}\n")
+    env_file.chmod(0o644)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(validator.__file__)),
+            "--env",
+            str(env_file),
+            "--get",
+            "EXAMPLE_KEY",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert secret_value not in result.stdout
+    assert "permissions must be exactly 0600" in result.stdout
+
+
+def test_get_preserves_output_for_safe_file(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.production"
+    env_file.write_text("EXAMPLE_KEY=fixture-value\n")
+    env_file.chmod(0o600)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(validator.__file__)),
+            "--env",
+            str(env_file),
+            "--get",
+            "EXAMPLE_KEY",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout == "fixture-value\n"
