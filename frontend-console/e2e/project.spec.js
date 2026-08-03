@@ -2,8 +2,19 @@ import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
+async function enterAuthorProjects(page) {
+  await page.getByRole("button", { name: /我是作家/ }).click()
+  await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+}
+
 test.describe("项目模块", () => {
-  let testProjectId = null
+  let testProjectIds = new Set()
+
+  function trackProject(project) {
+    const projectId = typeof project === "string" ? project : project.id
+    testProjectIds.add(projectId)
+    return project
+  }
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -13,27 +24,21 @@ test.describe("项目模块", () => {
     await page.goto("/")
     await page.evaluate(() => localStorage.clear())
     await page.reload()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+    await enterAuthorProjects(page)
   })
 
   test.afterEach(async () => {
-    if (testProjectId) {
+    for (const projectId of testProjectIds) {
       try {
-        await cleanupProject(testProjectId)
+        await cleanupProject(projectId)
       } catch {}
-      testProjectId = null
     }
+    testProjectIds = new Set()
   })
 
   test("空项目状态显示新建按钮", async ({ page }) => {
-    const emptyState = page.locator(SEL.emptyState)
-    const grid = page.locator(SEL.projectGrid)
-    if (await emptyState.isVisible().catch(() => false)) {
-      await expect(page.locator('[data-action="new"]').first()).toBeVisible()
-    } else {
-      await expect(grid).toBeVisible()
-      await expect(page.locator('[data-action="new"]').first()).toBeVisible()
-    }
+    await expect(page.getByRole("heading", { name: "开始你的第一部小说" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "新建项目", exact: true }).first()).toBeVisible()
   })
 
   test("创建项目并自动切换到写作视图", async ({ page }) => {
@@ -48,15 +53,17 @@ test.describe("项目模块", () => {
     const modalFooter = page.locator(SEL.modalFooter)
     await modalFooter.locator(SEL.btnPrimary).click()
 
+    let projectId = null
+    await expect.poll(async () => {
+      projectId = await page.evaluate(() => localStorage.getItem("novel_currentProjectId"))
+      return projectId
+    }).toBeTruthy()
+    trackProject(projectId)
+
     // 创建成功后应切换到写作视图
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
     await expect(page).toHaveURL(/#workbench\/[^/]+\/writing/)
     await expect(page.locator(SEL.topbarProject)).toContainText("E2E 测试小说")
-
-    // 记录项目ID用于清理
-    const projectId = await page.evaluate(() => localStorage.getItem("novel_currentProjectId"))
-    testProjectId = projectId
-    expect(projectId).toBeTruthy()
   })
 
   test("创建的项目出现在列表中", async ({ page }) => {
@@ -66,7 +73,7 @@ test.describe("项目模块", () => {
       tone: "赛博朋克",
       language: "zh",
     })
-    testProjectId = project.id
+    trackProject(project)
 
     await page.reload()
     await expect(page.locator(SEL.projectGrid)).toBeVisible()
@@ -80,7 +87,7 @@ test.describe("项目模块", () => {
       genre: "mystery",
       language: "zh",
     })
-    testProjectId = project.id
+    trackProject(project)
 
     await page.reload()
     await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
@@ -118,7 +125,7 @@ test.describe("项目模块", () => {
       genre: "romance",
       language: "zh",
     })
-    testProjectId = project.id
+    trackProject(project)
 
     await page.reload()
     await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
@@ -152,7 +159,7 @@ test.describe("项目模块", () => {
       genre: "wuxia",
       language: "zh",
     })
-    testProjectId = project.id
+    trackProject(project)
 
     await page.reload()
     await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
@@ -179,11 +186,13 @@ test.describe("项目模块", () => {
       genre: "scifi",
       language: "zh",
     })
-    testProjectId = projectB.id
+    trackProject(projectA)
+    trackProject(projectB)
 
     await page.goto("/")
     await page.evaluate(() => localStorage.clear())
     await page.reload()
+    await enterAuthorProjects(page)
 
     await page.locator(SEL.projectCard(projectA.id)).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
@@ -203,7 +212,7 @@ test.describe("项目模块", () => {
       genre: "mystery",
       language: "zh",
     })
-    testProjectId = project.id
+    trackProject(project)
 
     await page.goto("/")
     await page.evaluate(() => localStorage.clear())

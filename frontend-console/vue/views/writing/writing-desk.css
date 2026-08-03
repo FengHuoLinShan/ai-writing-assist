@@ -588,6 +588,7 @@
 
   .writing-tree-rail.is-collapsed .writing-rail-heading-toggle,
   .writing-panel-rail.is-collapsed .writing-rail-heading-toggle {
+    min-height: 44px;
     flex-direction: row;
   }
 
