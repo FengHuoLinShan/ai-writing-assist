@@ -382,7 +382,12 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     assert "name: Frontend unit quality" in workflow
     assert "working-directory: frontend-console" in workflow
     assert "run: npm ci" in workflow
+    assert "name: Audit frontend dependency lockfile" in workflow
+    assert "run: npm audit --package-lock-only --audit-level=high" in workflow
     assert "run: npm test" in workflow
+    assert workflow.index("run: npm ci") < workflow.index(
+        "name: Audit frontend dependency lockfile"
+    ) < workflow.index("run: npm test")
     assert "test-ci:" in makefile
     assert "make test-deploy" in workflow
 
@@ -430,15 +435,22 @@ def test_aggregate_targets_reuse_existing_backend_and_frontend_targets() -> None
 
     assert '$(MAKE) test-fast ARGS="$(BACKEND_ARGS)"' in makefile
     assert '$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"' in makefile
-    assert "test-ci: secret-hygiene lint" in makefile
+    assert "audit-frontend-deps:" in makefile
+    assert "test-ci: secret-hygiene lint test-deploy audit-frontend-deps" in makefile
     assert "$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS)" in makefile
     assert 'ARGS="$(ARGS) -W error::RuntimeWarning"' in makefile
+
+
+def test_frontend_dependency_audit_target_uses_high_lockfile_gate() -> None:
+    command = _make_dry_run("audit-frontend-deps")
+
+    assert "npm audit --package-lock-only --audit-level=high" in command
 
 
 def test_deployment_contract_tests_are_a_required_ci_gate() -> None:
     makefile = (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
 
-    assert "test-ci: secret-hygiene lint test-deploy" in makefile
+    assert "test-ci: secret-hygiene lint test-deploy audit-frontend-deps" in makefile
     assert "pytest ../deploy/tests" in _make_dry_run("test-deploy")
 
 

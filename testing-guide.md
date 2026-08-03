@@ -42,9 +42,10 @@ Three layers:
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies |
+| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, frontend lockfile high-severity audit, and frontend Vitest CI jobs | Locked backend/frontend dependencies; npm registry/advisory data for the audit |
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests` | Existing backend pytest environment; no external service |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
+| `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
@@ -109,8 +110,11 @@ PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service 
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
 PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，显式安装与服务端同主版本的
 PostgreSQL 17 客户端以覆盖备份恢复演练，不包含真实 LLM 或外部数据。
-Frontend job 使用 `frontend-console/package-lock.json` 执行 `npm ci`、完整 Vitest 和生产 build；
+Frontend job 使用 `frontend-console/package-lock.json` 执行 `npm ci`，然后运行
+`npm audit --package-lock-only --audit-level=high`、完整 Vitest 和生产 build；
 Playwright 功能验收仍不进入默认 CI。
+audit 使用 registry/advisory 数据，且只会因 high/critical 发现而失败。它不替代生产 build
+或测试门禁；audit 通过也不代表依赖或供应链风险为零。
 secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、
 常见私钥文件名、私钥块与高置信服务凭据；测试/文档中的显式占位值仅在受控路径豁免。
 失败日志只包含安全化路径、规则名和不可逆短指纹，不输出凭据原文。等价本地入口是

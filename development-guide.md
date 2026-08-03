@@ -68,8 +68,9 @@ RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIM
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-deploy                 # Deployment static/CLI contracts; no Compose or recovery drill
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
+make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
 make test-all                    # Fast backend layer, then frontend tests
-make test-ci TEST_WORKERS=2     # Secret + Ruff + deploy contracts + coverage/RuntimeWarning + Vitest
+make test-ci TEST_WORKERS=2     # Secret + Ruff + deploy contracts + coverage/RuntimeWarning + frontend audit + Vitest
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
@@ -78,6 +79,9 @@ make format-fix                  # ruff format
 ```
 
 Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证，生产构建部署不在当前阶段。
+`make audit-frontend-deps` uses npm registry/advisory data to check the committed
+lockfile and fails only on high/critical findings. It complements, rather than
+replaces, the production build and tests; a passing audit does not mean zero risk.
 
 `python -m scripts.reset_map_subsystem` 是地图子系统的开发管理预检工具。它只提供
 dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数据库 fingerprint，
