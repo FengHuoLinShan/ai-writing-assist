@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import shlex
 import subprocess
 import tomllib
 from pathlib import Path
@@ -377,6 +378,14 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     assert workflow.index("Check repository secret hygiene") < workflow.index(
         "Install uv and Python"
     )
+    assert "name: Audit locked backend dependencies" in workflow
+    assert "make audit-backend-deps" in workflow
+    assert "run: make audit-backend-deps" in workflow
+    assert workflow.index("Install uv and Python") < workflow.index(
+        "name: Audit locked backend dependencies"
+    ) < workflow.index("Install locked backend dependencies") < workflow.index(
+        "name: Lint backend"
+    )
     assert "make test-fast-coverage TEST_WORKERS=2" in workflow
     assert 'ARGS="-W error::RuntimeWarning"' in workflow
     assert "name: Frontend unit quality" in workflow
@@ -435,8 +444,12 @@ def test_aggregate_targets_reuse_existing_backend_and_frontend_targets() -> None
 
     assert '$(MAKE) test-fast ARGS="$(BACKEND_ARGS)"' in makefile
     assert '$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"' in makefile
+    assert "audit-backend-deps:" in makefile
     assert "audit-frontend-deps:" in makefile
-    assert "test-ci: secret-hygiene lint test-deploy audit-frontend-deps" in makefile
+    assert (
+        "test-ci: secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps"
+        in makefile
+    )
     assert "$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS)" in makefile
     assert 'ARGS="$(ARGS) -W error::RuntimeWarning"' in makefile
 
@@ -447,10 +460,42 @@ def test_frontend_dependency_audit_target_uses_high_lockfile_gate() -> None:
     assert "npm audit --package-lock-only --audit-level=high" in command
 
 
+def test_backend_dependency_audit_target_covers_the_entire_lockfile() -> None:
+    command = _make_dry_run("audit-backend-deps")
+    tokens = shlex.split(command)
+
+    assert tokens[:2] == ["cd", str(BACKEND_ROOT)]
+    assert tokens[2:5] == ["&&", "uv", "audit"]
+    assert "--locked" in tokens
+    assert "--no-build" in tokens
+    assert tokens[tokens.index("--preview-features") + 1] == "audit"
+    assert tokens[tokens.index("--python-version") + 1] == "3.12"
+    assert tokens[tokens.index("--python-platform") + 1] == "x86_64-unknown-linux-gnu"
+    ignored_until_fixed = {
+        tokens[index + 1]
+        for index, token in enumerate(tokens)
+        if token == "--ignore-until-fixed"
+    }
+    assert ignored_until_fixed == {"GHSA-w8v5-vhqr-4h9v", "GHSA-95ww-475f-pr4f"}
+    assert tokens.count("--ignore-until-fixed") == 2
+    assert not any(
+        token == "--ignore" or token.startswith("--ignore=") for token in tokens
+    )
+    assert not any(
+        token == "--no-extra" or token.startswith("--no-extra=") for token in tokens
+    )
+    assert not any(
+        token == "--exclude" or token.startswith("--exclude=") for token in tokens
+    )
+
+
 def test_deployment_contract_tests_are_a_required_ci_gate() -> None:
     makefile = (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
 
-    assert "test-ci: secret-hygiene lint test-deploy audit-frontend-deps" in makefile
+    assert (
+        "test-ci: secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps"
+        in makefile
+    )
     assert "pytest ../deploy/tests" in _make_dry_run("test-deploy")
 
 

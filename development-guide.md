@@ -68,9 +68,10 @@ RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIM
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-deploy                 # Deployment static/CLI contracts; no Compose or recovery drill
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
+make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
 make test-all                    # Fast backend layer, then frontend tests
-make test-ci TEST_WORKERS=2     # Secret + Ruff + deploy contracts + coverage/RuntimeWarning + frontend audit + Vitest
+make test-ci TEST_WORKERS=2     # Secret + backend/frontend audit + Ruff + deploy contracts + coverage/RuntimeWarning + Vitest
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
@@ -82,6 +83,18 @@ Frontend has no independent lint/format dependency in `frontend-console/package.
 `make audit-frontend-deps` uses npm registry/advisory data to check the committed
 lockfile and fails only on high/critical findings. It complements, rather than
 replaces, the production build and tests; a passing audit does not mean zero risk.
+
+`make audit-backend-deps` uses OSV advisory data against every package in
+`backend/uv.lock`, including optional extras. It pins the audit to Python 3.12 on
+Linux so local and CI results agree, and uses `--no-build` so metadata-only audit
+does not build source distributions. Two eval-only advisories without published
+fixes are temporarily marked `--ignore-until-fixed`: DiskCache unsafe pickle
+deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
+(`GHSA-95ww-475f-pr4f`). The latter is not in production and this project uses the
+text-only local Codex evaluator, but the eval extra remains trusted/offline-only.
+`--ignore-until-fixed` is deliberately not a permanent ignore: a published fix
+makes the gate fail again. An audit pass does not prove zero dependency or
+supply-chain risk.
 
 `python -m scripts.reset_map_subsystem` 是地图子系统的开发管理预检工具。它只提供
 dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数据库 fingerprint，

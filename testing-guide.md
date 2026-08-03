@@ -42,9 +42,10 @@ Three layers:
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, frontend lockfile high-severity audit, and frontend Vitest CI jobs | Locked backend/frontend dependencies; npm registry/advisory data for the audit |
+| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, backend and frontend dependency audits, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies; OSV data for backend audit and npm registry/advisory data for frontend audit |
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests` | Existing backend pytest environment; no external service |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
+| `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.12/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
@@ -102,19 +103,30 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 
 GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
 `PostgreSQL critical` 和 `Frontend unit quality`。后端快速 job checkout 后先用
-系统 Python 执行零依赖的 repository secret hygiene gate，再通过 `backend/uv.lock` 安装
-Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后依次执行 `make lint`、
-`make test-deploy` 与 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
+系统 Python 执行零依赖的 repository secret hygiene gate，再安装 uv 与 Python 3.12，
+先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
+（不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
+`make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
 PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
 零重试规则执行 fresh migration 与高风险事务契约，并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
 PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，显式安装与服务端同主版本的
 PostgreSQL 17 客户端以覆盖备份恢复演练，不包含真实 LLM 或外部数据。
-Frontend job 使用 `frontend-console/package-lock.json` 执行 `npm ci`，然后运行
-`npm audit --package-lock-only --audit-level=high`、完整 Vitest 和生产 build；
-Playwright 功能验收仍不进入默认 CI。
-audit 使用 registry/advisory 数据，且只会因 high/critical 发现而失败。它不替代生产 build
-或测试门禁；audit 通过也不代表依赖或供应链风险为零。
+Backend audit reads OSV advisory data for the complete lockfile, including the
+optional `eval` extra. It uses `--no-build`, so the standalone audit does not build
+source distributions just to read metadata. The only current fix-aware exceptions are the two
+eval-only advisories with no published fixes: DiskCache unsafe pickle
+deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
+(`GHSA-95ww-475f-pr4f`). They are not permanent ignores: `--ignore-until-fixed`
+causes a published fix to fail the gate again. Production does not install `eval`,
+and the extra remains trusted/offline-only even though this project's adapter uses
+text collection metrics with an isolated local Codex evaluator. Frontend job uses
+`frontend-console/package-lock.json` to run `npm ci`, then
+`npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
+build; Playwright functional acceptance is still outside default CI. The backend
+audit depends on OSV network data and the frontend audit on npm registry/advisory
+data; both complement rather than replace builds and tests, and a passing audit is
+not proof of zero dependency or supply-chain risk.
 secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、
 常见私钥文件名、私钥块与高置信服务凭据；测试/文档中的显式占位值仅在受控路径豁免。
 失败日志只包含安全化路径、规则名和不可逆短指纹，不输出凭据原文。等价本地入口是
