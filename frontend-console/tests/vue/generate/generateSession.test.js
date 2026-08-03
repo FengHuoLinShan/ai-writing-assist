@@ -8,6 +8,12 @@ import {
   writeGenerateSession,
 } from "../../../vue/views/generate/generateSession.js"
 
+const pageProposalDraft = {
+  schemaVersion: 1,
+  suggestionId: "suggestion-1",
+  editor: { title: "作者标题", pageType: "custom", freeText: "概览", sectionsText: "[{\"title\":\"章节\"}]", assetsText: "[]" },
+}
+
 beforeEach(() => localStorage.clear())
 
 describe("generate Vue bounded session", () => {
@@ -22,12 +28,40 @@ describe("generate Vue bounded session", () => {
     expect(readGenerateContextPreview("p2")).toEqual({ bundle: null, markdown: "", source: null, request: null })
   })
 
+  it("round-trips a suggestion-bound page proposal draft while old v2 sessions remain compatible", () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    expect(writeGenerateSession(key, { ...readGenerateSession(key), suggestionId: "suggestion-1", pageProposalDraft })).toBe(true)
+    expect(readGenerateSession(key).pageProposalDraft).toEqual(pageProposalDraft)
+
+    localStorage.setItem(generateSessionKey("old"), JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧会话" }] }))
+    expect(readGenerateSession(generateSessionKey("old"))).toMatchObject({ messages: [{ role: "user", content: "旧会话" }], pageProposalDraft: null })
+  })
+
+  it("drops only a malformed proposal draft and keeps the rest of the session with one warning", () => {
+    const key = generateSessionKey("p1")
+    localStorage.setItem(key, JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "保留的对话" }], suggestionId: "suggestion-1", pageProposalDraft: { schemaVersion: 9 } }))
+    const notify = vi.fn()
+
+    expect(readGenerateSession(key, { notify })).toMatchObject({ messages: [{ role: "user", content: "保留的对话" }], suggestionId: "suggestion-1", pageProposalDraft: null })
+    expect(notify).toHaveBeenCalledWith("invalid-page-proposal-draft", expect.stringContaining("无法恢复"))
+    expect(JSON.parse(localStorage.getItem(key)).pageProposalDraft).toBeNull()
+  })
+
   it("uses UTF-8 bytes and never overwrites a valid snapshot with oversized data", () => {
     const key = generateSessionKey("p1")
     localStorage.setItem(key, JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧" }] }))
     expect(serializeGenerateSession({ messages: [{ role: "user", content: "界".repeat(180_000) }] }).serialized).toBeNull()
     expect(writeGenerateSession(key, { messages: [{ role: "user", content: "界".repeat(180_000) }] })).toBe(false)
     expect(localStorage.getItem(key)).toContain("旧")
+  })
+
+  it("does not overwrite a valid snapshot when the proposal draft alone exceeds the bound", () => {
+    const key = generateSessionKey("p1")
+    localStorage.setItem(key, JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧快照" }] }))
+    const tooLargeDraft = { ...pageProposalDraft, editor: { ...pageProposalDraft.editor, sectionsText: "界".repeat(180_000) } }
+
+    expect(writeGenerateSession(key, { messages: [], pageProposalDraft: tooLargeDraft })).toBe(false)
+    expect(localStorage.getItem(key)).toContain("旧快照")
   })
 
   it("drops corrupted state and reports a visible warning", () => {

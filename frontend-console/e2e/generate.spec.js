@@ -9,6 +9,7 @@ import {
   createEntity,
   createScene,
   getWorldBiblePage,
+  listWorldBibleDrafts,
   waitForBackend,
 } from "./helpers/api-client.js"
 
@@ -296,6 +297,110 @@ test.describe("生成中心模块", () => {
       page_type: expect.any(String),
     }))
     expect(pageDraftApplyRequests.at(-1).page.title).toBe("作者修订·龙息潮汐纪")
+  })
+
+  test("整页提案刷新后恢复同一 pending suggestion 的作者编辑，并只写服务器工作稿", async ({ page }) => {
+    const sourcePage = await createWorldBiblePage(testProjectId, {
+      page_type: "background",
+      title: "北境旧规则",
+      free_text: "canonical 基线内容。",
+      sections_json: [],
+    })
+    const before = await getWorldBiblePage(testProjectId, sourcePage.id)
+    const generationUrl = `${new URL(page.url()).origin}/#workbench/${testProjectId}/generate?tab=world&source_page_id=${sourcePage.id}&target=world_bible_page`
+    const editedSectionsText = '[{"section_id":"author-rule","section_type":"markdown","title":"作者规则","body_markdown":"作者确认的九日潮汐因果。","sort_order":0,"linked_asset_ref_hashes":[],"projection_policy":"eligible","sensitivity_hint":"author_safe"}]'
+    const restoredPayload = {
+      operation: "replace_existing",
+      target_page_id: sourcePage.id,
+      design_rationale: "同时强化创意核心和规则因果。",
+      review_notes: ["作者可继续调整细节"],
+      page: {
+        title: "重构后的北境规则",
+        page_type: "background",
+        free_text: "北境的交易与通行规则。",
+        sections_json: [{
+          section_id: "trade-rules",
+          section_type: "markdown",
+          title: "运作逻辑",
+          body_markdown: "龙息潮每九日回流，并为势力资源争夺提供可验证的因果链。",
+          sort_order: 0,
+          linked_asset_ref_hashes: [],
+          projection_policy: "eligible",
+          sensitivity_hint: "author_safe",
+        }],
+        linked_asset_refs_json: [],
+      },
+    }
+    const suggestionRoute = "**/api/world/suggestions?*"
+    await page.route(suggestionRoute, async (route) => {
+      const url = new URL(route.request().url())
+      if (
+        url.searchParams.get("novel_id") !== testProjectId
+        || url.searchParams.get("status") !== "pending"
+        || url.searchParams.get("review_group") !== "generation_center"
+      ) {
+        await route.fallback()
+        return
+      }
+      expect(route.request().method()).toBe("GET")
+      expect(url.searchParams.get("novel_id")).toBe(testProjectId)
+      expect(url.searchParams.get("status")).toBe("pending")
+      expect(url.searchParams.get("review_group")).toBe("generation_center")
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [{
+            id: "suggestion-existing-page-e2e",
+            novel_id: testProjectId,
+            source_module: "world",
+            review_group: "generation_center",
+            target_type: "world_bible_page_draft",
+            status: "pending",
+            payload_json: restoredPayload,
+          }],
+          total: 1,
+        }),
+      })
+    })
+
+    try {
+      await page.goto(generationUrl)
+      await page.reload()
+      await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+      await expect(page.locator(".generate-world-source-bar")).toContainText("北境旧规则")
+      await expect(page.getByRole("button", { name: "生成整页提案" })).toBeVisible()
+      await page.locator("#generate-chat-input").fill("增加交易机制并检查因果闭环")
+      await page.getByRole("button", { name: "生成整页提案" }).click()
+      await expect(page.locator("#generate-result")).toContainText("重构后的北境规则", { timeout: 15000 })
+      await page.locator("#generate-page-title").fill("作者恢复后的标题")
+      await page.locator("#generate-page-free-text").fill("作者恢复后的概览与 Unicode：潮汐 🐉")
+      await page.locator('[data-section="advanced-page-data"] summary').click()
+      await page.locator("#generate-page-sections").fill(editedSectionsText)
+
+      await page.reload()
+      await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+      await expect(page.locator('[data-state="recovered-page-proposal"]')).toContainText("已恢复上次未应用的提案编辑")
+      await expect(page.locator("#generate-page-title")).toHaveValue("作者恢复后的标题")
+      await expect(page.locator("#generate-page-free-text")).toHaveValue("作者恢复后的概览与 Unicode：潮汐 🐉")
+      await expect(page.locator("#generate-page-sections")).toHaveValue(editedSectionsText)
+      await expect(page.locator('[data-section="advanced-page-data"]')).not.toHaveJSProperty("open", true)
+
+      await page.getByRole("button", { name: "应用到工作稿" }).click()
+      await expect(page.locator(".world-bible-workspace")).toContainText("作者恢复后的标题", { timeout: 15000 })
+      const drafts = await listWorldBibleDrafts(testProjectId)
+      const appliedDraft = drafts.items.find((draft) => draft.page_id === sourcePage.id)
+      expect(appliedDraft).toEqual(expect.objectContaining({
+        title: "作者恢复后的标题",
+        free_text: "作者恢复后的概览与 Unicode：潮汐 🐉",
+        sections_json: JSON.parse(editedSectionsText),
+      }))
+      const after = await getWorldBiblePage(testProjectId, sourcePage.id)
+      expect(after.title).toBe(before.title)
+      expect(after.free_text).toBe(before.free_text)
+    } finally {
+      if (!page.isClosed()) await page.unroute(suggestionRoute)
+    }
   })
 
   test("完善现有页时保留 canonical，并按页面与目标隔离对话", async ({ page }) => {

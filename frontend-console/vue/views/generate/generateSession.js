@@ -1,4 +1,5 @@
 import { AI_MESSAGE_LIMIT, AI_SELECTED_CHAPTER_LIMIT } from "./logic/generateLogic.js"
+import { normalizePageProposalDraft } from "./pageProposalSession.js"
 
 export const GENERATE_STATE_STORAGE_PREFIX = "generate_world_workspace_state_v2_"
 export const GENERATE_STATE_MAX_PROJECTS = 5
@@ -59,6 +60,7 @@ export function emptyGenerateSession() {
     newPageType: "custom",
     newPageTemplateKey: "",
     suggestionId: null,
+    pageProposalDraft: null,
   }
 }
 
@@ -78,6 +80,7 @@ function persistedShape(value) {
     newPageType: value.newPageType || "custom",
     newPageTemplateKey: value.newPageTemplateKey || "",
     suggestionId: value.suggestionId || null,
+    pageProposalDraft: normalizePageProposalDraft(value.pageProposalDraft),
   }
 }
 
@@ -115,7 +118,12 @@ export function readGenerateSession(key, { storage = globalThis.localStorage, no
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !isArrayShape(parsed)) {
       throw new Error("invalid local state")
     }
-    return { ...fallback, ...parsed, messages: parsed.messages || [], selectedChapters: (parsed.selectedChapters || []).slice(0, AI_SELECTED_CHAPTER_LIMIT) }
+    const pageProposalDraft = "pageProposalDraft" in parsed ? normalizePageProposalDraft(parsed.pageProposalDraft) : null
+    if ("pageProposalDraft" in parsed && !pageProposalDraft && parsed.pageProposalDraft !== null) {
+      try { storage?.setItem(key, JSON.stringify({ ...parsed, pageProposalDraft: null })) } catch {}
+      notify("invalid-page-proposal-draft", "上次未应用的提案编辑无法恢复，已忽略该本地副本；当前数据库内容不受影响。")
+    }
+    return { ...fallback, ...parsed, pageProposalDraft, messages: parsed.messages || [], selectedChapters: (parsed.selectedChapters || []).slice(0, AI_SELECTED_CHAPTER_LIMIT) }
   } catch {
     try { storage?.removeItem(key) } catch {}
     notify("invalid-state", "生成中心本地会话已损坏，已忽略该缓存；当前数据库内容不受影响。")

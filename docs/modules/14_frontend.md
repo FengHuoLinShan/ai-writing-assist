@@ -81,7 +81,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；`OutlineStoryTab` 管理小说总纲，`OutlineArcsTab` / `OutlineThreadsTab` 管理篇章纲和剧情线，并提供当前层 AI 创作。伏笔/揭示作为剧情线的信息推进时间线与未归类区展示，不再是顶层子标签 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
-| `vue/views/generate/GenerateView.vue` | 生成中心：world 共创对话、来源与上下文选择、结构化预览和工作稿应用；同时承担上下文任务预览/编译、POV、模板与既有领域流程 |
+| `vue/views/generate/GenerateView.vue` | 生成中心：world 共创对话、来源与上下文选择、结构化预览和工作稿应用；同时承担 suggestion-bound 未应用提案编辑的恢复、上下文任务预览/编译、POV、模板与既有领域流程 |
 | `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理账户级 DeepSeek/Kimi 模板与 Key、只读余额和全局作者偏好 |
 | `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；只管理深度导入参数和项目作者偏好，不提供项目级 provider/model/Key |
 
@@ -174,7 +174,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   会逐个展示摘要和跳转入口。读者/角色视角不显示这些作者专用元数据，
   不将“因可见性被隐藏”误报为“未关联 Scene”。
 - 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。
-- 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。来源页面正文始终由服务器重载，本地 v2 会话只缓存对话、选择项和 suggestion ID，并按项目 + 来源页 + target 隔离。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
+- 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。来源页面正文与服务器工作稿始终由服务器重载；本地 v2 会话按项目 + 来源页 + target 隔离，只缓存对话、选择项、suggestion ID，以及 schemaVersion=1、精确绑定当前 pending suggestion 的作者未应用提案编辑。该版本化 working copy 受 512 KiB / 最多 5 个会话边界约束，不代表 canonical 或服务器工作稿；匹配 suggestion 才恢复，成功应用或作者确认放弃后清理。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
 - 生成中心任务页签选择章节后，Scene 选择器先展示该章的可用 Scene，同时仍可按名称搜索项目内其他活跃 Scene。
 - 世界书、生成中心和通用 AI 参考弹窗只列出已发布 Activation Profile；只有作者显式选择后才随请求发送。世界书规则编辑器提供受限表单和 dry-run trace，不提供 raw JSON、regex 或 Prompt 插槽。世界书存在未保存修改时，“用 AI 完善此页”必须先保存成功再跳转；生成中心页面 apply 只写工作稿，成功后带页面/工作稿 ID 返回世界书。中等宽度把第三栏下移，窄屏改为单栏且不得产生页面级横向溢出。
 - 世界书编辑器把“保存并发布”作为始终可见的主操作；只有“保存工作稿”不会改变正式页。

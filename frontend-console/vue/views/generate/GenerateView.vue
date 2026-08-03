@@ -22,7 +22,7 @@
   <WorldWorkspace v-if="activeTab === 'world'" ref="worldWorkspaceRef"
     :project-id="projectId" :source-page-id="sourcePageId" :target-kind="targetKind" :source-page="world.sourcePage" :source-draft="world.sourceDraft"
     :warning="world.warning" :templates="templates" :activation-profiles="activationProfiles" :categories="world.categories" :page-templates="world.pageTemplates"
-    :scenes="world.scenes" :threads="world.threads" :characters="world.characters" :entities="world.entities" :result="worldResult"
+    :scenes="world.scenes" :threads="world.threads" :characters="world.characters" :entities="world.entities" :result="worldResult" :proposal-draft="session.pageProposalDraft" :proposal-reset-token="pageProposalEditorResetToken" :recovered-page-proposal="recoveredPageProposal"
     :chat-context-usage="chatContextUsage" :entity-context-usage="entityContextUsage" :busy="worldBusy" :chat-pending="chatPending" :loading-result="suggestionPending" :result-error="worldError"
     v-model:selected-template-id="session.selectedTemplateId" v-model:messages="session.messages" v-model:composer="composer"
     v-model:quality-mode="session.qualityMode" v-model:include-world-synopsis="session.includeWorldSynopsis" v-model:activation-profile-id="session.activationProfileId"
@@ -30,7 +30,7 @@
     v-model:selected-character-ids="session.selectedCharacterIds" v-model:selected-entity-ids="session.selectedEntityIds"
     v-model:new-page-type="session.newPageType" v-model:new-page-template-key="session.newPageTemplateKey"
     @select-target="selectTarget" @edit-templates="openTemplateEditor" @return-world-bible="returnToWorldBible" @select-chapters="openChapterPicker"
-    @send-chat="sendChat" @apply-page="applyWorldPage" @proposal-dirty="pageProposalDirty = $event" @clear-result="clearWorldResult" @open-review="openReview" @view-context="viewGenerationContext" />
+    @send-chat="sendChat" @apply-page="applyWorldPage" @proposal-dirty="pageProposalDirty = $event" @proposal-edit="capturePageProposalEdit" @clear-result="clearWorldResult" @open-review="openReview" @view-context="viewGenerationContext" />
   <PovProseTab v-else-if="activeTab === 'pov_prose'" v-model:form="povForm" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @open-result="openPovResult" />
   <TaskContextTab v-else-if="activeTab === 'task'" v-model:form="taskForm" :project-id="projectId" :preset="taskPreset" :bundle="lastContextBundle" :markdown="lastContextMarkdown" :pending="taskPending" :error="taskError" @select-preset="selectTaskPreset" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" />
   <ContextPreviewTab v-else :bundle="lastContextBundle" :markdown="lastContextMarkdown" :source-text="contextSourceText" :busy="taskPending" @render-markdown="renderTaskMarkdown" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" @return="switchTab(lastContextSource === 'world' ? 'world' : 'task')" />
@@ -53,6 +53,7 @@ import {
   writeGenerateContextPreview,
   writeGenerateSession,
 } from "./generateSession.js"
+import { pageProposalDraftMatches } from "./pageProposalSession.js"
 import {
   AI_SELECTED_CHAPTER_LIMIT, OBJECT_TEMPLATES, PAGE_SIZE, TASK_PRESETS, applyTaskPreset,
   buildPovInstruction, buildTaskPayload, buildWorldPayload, characterId, createDefaultTaskForm,
@@ -81,9 +82,12 @@ const taskPreset = ref(TASK_PRESETS[props.preset] ? props.preset : "custom")
 const taskForm = ref(applyTaskPreset(createDefaultTaskForm(), taskPreset.value))
 const restoredContext = readGenerateContextPreview(props.projectId)
 const lastContextBundle = ref(restoredContext.bundle); const lastContextMarkdown = ref(restoredContext.markdown); const lastContextSource = ref(restoredContext.source); const lastContextRequest = ref(restoredContext.request)
-const taskPending = ref(false); const taskError = ref("")
-const pageProposalDirty = ref(false)
 const worldResult = ref(props.restoredWorldResult); const chatContextUsage = ref(null); const entityContextUsage = ref(null); const worldError = ref("")
+const initialPageProposalDraft = pageProposalDraftMatches(worldResult.value, session.pageProposalDraft)
+const pageProposalDirty = ref(Boolean(initialPageProposalDraft))
+const recoveredPageProposal = ref(Boolean(initialPageProposalDraft))
+const pageProposalEditorResetToken = ref(0)
+const taskPending = ref(false); const taskError = ref("")
 const chatPending = ref(false); const suggestionPending = ref(false); const applyPending = ref(false)
 const worldWorkspaceRef = ref(null)
 const world = reactive({ sourcePage: props.sourcePage, sourceDraft: props.sourceDraft, categories: props.worldCategories, pageTemplates: props.worldPageTemplates, scenes: props.worldScenes, threads: props.worldThreads, characters: props.worldCharacters, entities: props.worldEntities, warning: props.worldWorkspaceWarning, loaded: props.tab === "world" })
@@ -112,13 +116,26 @@ function persist() {
   return writeGenerateSession(props.sessionKey, session, { notify: notifyOnce })
 }
 watch(session, persist, { deep: true }); watch(composer, (value) => writeGenerateComposerDraft(props.sessionKey, value))
+watch(worldResult, (result) => {
+  if (!session.pageProposalDraft) return
+  if (!result) return
+  if (!pageProposalDraftMatches(result, session.pageProposalDraft)) discardPageProposalDraft()
+  else pageProposalDirty.value = true
+}, { immediate: true })
 watch(
   [lastContextBundle, lastContextMarkdown, lastContextSource, lastContextRequest],
   persistContextPreview,
   { deep: true },
 )
 
-function confirmDiscard(message) { if (!pageProposalDirty.value) return true; const accepted = confirm(message); if (accepted) pageProposalDirty.value = false; return accepted }
+function discardPageProposalDraft() {
+  session.pageProposalDraft = null
+  pageProposalDirty.value = false
+  recoveredPageProposal.value = false
+  pageProposalEditorResetToken.value += 1
+}
+function capturePageProposalEdit(draft) { session.pageProposalDraft = draft; pageProposalDirty.value = Boolean(draft) }
+function confirmDiscard(message) { if (!pageProposalDirty.value) return true; const accepted = confirm(message); if (accepted) { discardPageProposalDraft(); persist() } return accepted }
 useLeaveGuard(() => confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并离开吗？"))
 
 async function loadAll(fetchPage) { const output = []; let skip = 0; while (true) { const data = await fetchPage(skip); const page = data?.items || []; output.push(...page); const total = Number(data?.total); if (page.length < PAGE_SIZE || (Number.isFinite(total) && output.length >= total) || !page.length) return output; skip += page.length } }
@@ -169,7 +186,7 @@ async function generateWorldSuggestion() {
   if (!session.messages.length && !composer.value.trim()) return toast("请先聊天或粘贴已有对话到输入框", "warning")
   if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃并重新生成吗？")) return
   captureComposer(); suggestionPending.value = true; worldError.value = ""; const scope = owner.begin()
-  try { const response = await api.generate.generateWorldSuggestion(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; worldResult.value = response?.result || null; session.suggestionId = response?.result?.suggestion?.id || null; entityContextUsage.value = response?.context_usage || null; pageProposalDirty.value = false; toast(worldResult.value?.kind === "core_entity" ? "世界对象建议已进入待处理" : "世界书整页提案已进入待处理", "success") }
+  try { const response = await api.generate.generateWorldSuggestion(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; worldResult.value = response?.result || null; session.suggestionId = response?.result?.suggestion?.id || null; discardPageProposalDraft(); entityContextUsage.value = response?.context_usage || null; toast(worldResult.value?.kind === "core_entity" ? "世界对象建议已进入待处理" : "世界书整页提案已进入待处理", "success") }
   catch (err) { if (!owner.isActive(scope)) return; worldError.value = `生成失败：${err?.message || "未知错误"}`; toast(worldError.value, "error") }
   finally { owner.finish(scope); suggestionPending.value = false }
 }
@@ -177,13 +194,13 @@ async function applyWorldPage(payload) {
   if (worldBusy.value) return false
   const suggestionId = worldResult.value?.suggestion?.id || session.suggestionId; if (!suggestionId || worldResult.value?.kind === "core_entity") return
   applyPending.value = true; const scope = owner.begin()
-  try { const response = await api.generate.applyWorldPageDraft(suggestionId, payload, props.projectId, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; pageProposalDirty.value = false; toast("提案已应用到工作稿，尚未发布", "success"); const query = new URLSearchParams({ draft_id: response.draft.id }); if (response.draft.page_id) query.set("page_id", response.draft.page_id); router.navigate("world", "bible", true, query) }
+  try { const response = await api.generate.applyWorldPageDraft(suggestionId, payload, props.projectId, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; discardPageProposalDraft(); persist(); toast("提案已应用到工作稿，尚未发布", "success"); const query = new URLSearchParams({ draft_id: response.draft.id }); if (response.draft.page_id) query.set("page_id", response.draft.page_id); router.navigate("world", "bible", true, query) }
   catch (err) { if (!owner.isActive(scope)) return; toast(err?.status === 409 ? "来源工作稿已变更，本次提案未覆盖新修改。请重新生成。" : `应用失败：${err?.message || "未知错误"}`, err?.status === 409 ? "warning" : "error") }
   finally { owner.finish(scope); applyPending.value = false }
 }
-function clearWorldResult() { if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃并清空结果吗？")) return; worldResult.value = null; session.suggestionId = null; entityContextUsage.value = null; worldError.value = "" }
+function clearWorldResult() { if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃并清空结果吗？")) return; discardPageProposalDraft(); worldResult.value = null; session.suggestionId = null; entityContextUsage.value = null; worldError.value = ""; persist() }
 function selectTarget(kind) { if (kind === props.targetKind) return; if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并切换目标吗？")) return; persist(); const query = new URLSearchParams({ tab: "world", target: kind }); if (props.sourcePageId) query.set("source_page_id", props.sourcePageId); router.navigate("generate", null, true, query) }
-function returnToWorldBible() { const query = new URLSearchParams(); if (props.sourcePageId) query.set("page_id", props.sourcePageId); router.navigate("world", "bible", true, query) }
+function returnToWorldBible() { if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并离开吗？")) return; persist(); const query = new URLSearchParams(); if (props.sourcePageId) query.set("page_id", props.sourcePageId); router.navigate("world", "bible", true, query) }
 function openReview() { router.navigate("world", "review-objects", true) }
 
 async function changePovChapter(value) { povForm.value = { ...povForm.value, chapterIndex: value ? Number(value) : null, sceneId: "", viewpointCharacterId: "" }; povSubmission.value = null; pov.scenes = []; if (!value) return; const scope = owner.begin(); try { const data = await api.outline.listScenesByChapter(props.projectId, Number(value)); if (owner.isActive(scope)) pov.scenes = Array.isArray(data) ? data : data?.items || [] } catch (err) { if (owner.isActive(scope)) pov.warning = `加载 Scene 失败：${err?.message || "未知错误"}` } finally { owner.finish(scope) } }

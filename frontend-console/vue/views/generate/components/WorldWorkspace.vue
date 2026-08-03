@@ -93,9 +93,11 @@
         </div>
         <div class="card"><div class="card-title">结果</div><div id="generate-result" class="generate-result">
           <div v-if="loadingResult" class="loading">正在{{ generateLabel }}...</div>
-          <p v-else-if="resultError" class="generate-error-text">{{ resultError }}</p>
-          <WorldResult v-else :result="result" :baseline="sourceDraft || sourcePage" :categories="categories" :context-usage="entityContextUsage" :busy="busy"
-            @apply="$emit('apply-page', $event)" @dirty="$emit('proposal-dirty', $event)" @clear="$emit('clear-result')" @continue-chat="focusComposer" @open-review="$emit('open-review')" @view-context="$emit('view-context', 'entity')" />
+          <template v-else>
+            <p v-if="resultError" class="generate-error-text">{{ resultError }}</p>
+            <WorldResult v-if="result || !resultError" :result="result" :baseline="sourceDraft || sourcePage" :categories="categories" :context-usage="entityContextUsage" :proposal-draft="proposalDraft" :proposal-reset-token="proposalResetToken" :recovered="recoveredPageProposal" :busy="busy"
+              @apply="$emit('apply-page', $event)" @dirty="$emit('proposal-dirty', $event)" @proposal-edit="$emit('proposal-edit', $event)" @clear="$emit('clear-result')" @continue-chat="focusComposer" @open-review="$emit('open-review')" @view-context="$emit('view-context', 'entity')" />
+          </template>
         </div></div>
       </div></div>
     </details>
@@ -111,9 +113,9 @@ const props = defineProps({
   projectId: String, sourcePageId: String, targetKind: String, sourcePage: Object, sourceDraft: Object,
   warning: String, templates: Array, activationProfiles: Array, categories: Array, pageTemplates: Array,
   scenes: Array, threads: Array, characters: Array, entities: Array, result: Object,
-  chatContextUsage: Object, entityContextUsage: Object, busy: Boolean, chatPending: Boolean, loadingResult: Boolean, resultError: String,
+  chatContextUsage: Object, entityContextUsage: Object, proposalDraft: Object, proposalResetToken: Number, recoveredPageProposal: Boolean, busy: Boolean, chatPending: Boolean, loadingResult: Boolean, resultError: String,
 })
-const emit = defineEmits(["send-chat", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "clear-result", "open-review", "view-context"])
+const emit = defineEmits(["send-chat", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })
 const messages = defineModel("messages", { type: Array, required: true })
 const composer = defineModel("composer", { type: String, required: true })

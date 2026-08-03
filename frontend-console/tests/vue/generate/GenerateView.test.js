@@ -11,6 +11,8 @@ import GenerateView from "../../../vue/views/generate/GenerateView.vue"
 import {
   emptyGenerateSession,
   generateSessionKey,
+  readGenerateSession,
+  writeGenerateSession,
   writeGenerateContextPreview,
 } from "../../../vue/views/generate/generateSession.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
@@ -538,5 +540,224 @@ describe("GenerateView Vue behavior matrix", () => {
     await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("未覆盖新修改"), "warning"))
     expect(wrapper.get("#generate-page-title").element.value).toBe("尚未应用的作者修订")
     expect(router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("syncs exact page proposal fields and restores them only for the matching pending suggestion", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-recover", status: "pending" },
+      proposal: { operation: "replace_existing", page: { title: "初始", page_type: "custom", free_text: "初始概览", sections_json: [{ title: "原始" }], linked_asset_refs_json: [] } },
+    }
+    const first = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-recover" }, restoredWorldResult: result,
+    }), attachTo: document.body })
+    await first.get("#generate-page-title").setValue("作者修订")
+    await first.get("#generate-page-type").setValue("custom")
+    await first.get("#generate-page-free-text").setValue("保留的概览 🐉")
+    await first.get("#generate-page-sections").setValue('[{"title":"嵌套","body":{"name":"黎明"}}]')
+    await first.get("#generate-page-assets").setValue('[{"asset_id":"潮汐"}]')
+    await flushPromises()
+    expect(first.find('[data-state="recovered-page-proposal"]').exists()).toBe(false)
+    first.unmount()
+
+    let allowDiscard = false
+    const restoredConfirm = vi.fn(() => allowDiscard)
+    setBridgeOverrides({ confirm: restoredConfirm })
+    const second = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: readGenerateSession(key), restoredWorldResult: result,
+    }), attachTo: document.body })
+    expect(second.get('[data-state="recovered-page-proposal"]').text()).toContain("已恢复")
+    expect(second.get("#generate-page-title").element.value).toBe("作者修订")
+    expect(second.get("#generate-page-free-text").element.value).toBe("保留的概览 🐉")
+    expect(second.get("#generate-page-sections").element.value).toBe('[{"title":"嵌套","body":{"name":"黎明"}}]')
+    expect(second.get('[data-section="advanced-page-data"]').attributes("open")).toBeUndefined()
+    await second.get('[data-subtab="task"]').trigger("click")
+    expect(restoredConfirm).toHaveBeenCalledOnce()
+    expect(second.get("#generate-page-title").exists()).toBe(true)
+    expect(readGenerateSession(key).pageProposalDraft?.editor.title).toBe("作者修订")
+    allowDiscard = true
+    await second.get('[data-subtab="task"]').trigger("click")
+    expect(readGenerateSession(key).pageProposalDraft).toBeNull()
+
+    second.unmount()
+    const mismatch = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: readGenerateSession(key), restoredWorldResult: { ...result, suggestion: { id: "another-suggestion" } },
+    }), attachTo: document.body })
+    expect(mismatch.find('[data-state="recovered-page-proposal"]').exists()).toBe(false)
+    expect(mismatch.get("#generate-page-title").element.value).toBe("初始")
+  })
+
+  it("clears the stored working copy after a successful apply but retains it on 409", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-apply" },
+      proposal: { operation: "replace_existing", page: { title: "初始", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    api.generate.applyWorldPageDraft.mockRejectedValueOnce(Object.assign(new Error("conflict"), { status: 409 }))
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-apply" }, restoredWorldResult: result,
+    }), attachTo: document.body })
+    await wrapper.get("#generate-page-title").setValue("冲突仍保留")
+    await wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
+    await flushPromises()
+    expect(readGenerateSession(key).pageProposalDraft?.editor.title).toBe("冲突仍保留")
+
+    api.generate.applyWorldPageDraft.mockResolvedValueOnce({ draft: { id: "draft-1", page_id: "page-1" } })
+    await wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
+    await vi.waitFor(() => expect(router.navigate).toHaveBeenCalled())
+    expect(readGenerateSession(key).pageProposalDraft).toBeNull()
+  })
+
+  it("clears an explicitly abandoned proposal, but keeps it when the author rejects the confirmation", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-discard" },
+      proposal: { operation: "replace_existing", page: { title: "初始", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    let acceptsDiscard = false
+    const confirmDiscard = vi.fn(() => acceptsDiscard)
+    setBridgeOverrides({ confirm: confirmDiscard })
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-discard" }, restoredWorldResult: result,
+    }), attachTo: document.body })
+    await wrapper.get("#generate-page-title").setValue("先别放弃")
+    await wrapper.get('[data-action="generate-another"]').trigger("click")
+    expect(readGenerateSession(key).pageProposalDraft?.editor.title).toBe("先别放弃")
+
+    acceptsDiscard = true
+    await wrapper.get('[data-action="generate-another"]').trigger("click")
+    expect(readGenerateSession(key).pageProposalDraft).toBeNull()
+    expect(wrapper.find("#generate-page-title").exists()).toBe(false)
+  })
+
+  it("does not let a newly generated suggestion inherit the previous proposal working copy", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const oldResult = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-old" },
+      proposal: { operation: "replace_existing", page: { title: "旧提案", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    const newResult = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-new" },
+      proposal: { operation: "replace_existing", page: { title: "新提案", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    api.generate.generateWorldSuggestion.mockResolvedValue({ result: newResult })
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-old" }, restoredWorldResult: oldResult,
+    }), attachTo: document.body })
+    await wrapper.get("#generate-page-title").setValue("旧编辑不应复活")
+    await wrapper.get("#generate-chat-input").setValue("重新生成")
+    await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.get("#generate-page-title").element.value).toBe("新提案"))
+    expect(readGenerateSession(key)).toMatchObject({ suggestionId: "suggestion-new", pageProposalDraft: null })
+  })
+
+  it("keeps a stored proposal invisible and non-dirty while result restoration is unavailable", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const initialSession = {
+      ...emptyGenerateSession(), suggestionId: "suggestion-unavailable",
+      pageProposalDraft: { schemaVersion: 1, suggestionId: "suggestion-unavailable", editor: { title: "等待恢复的标题", pageType: "custom", freeText: "", sectionsText: "[]", assetsText: "[]" } },
+    }
+    writeGenerateSession(key, initialSession)
+    const confirmDiscard = vi.fn(() => false)
+    setBridgeOverrides({ confirm: confirmDiscard })
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: readGenerateSession(key), restoredWorldResult: null,
+    }), attachTo: document.body })
+
+    expect(readGenerateSession(key).pageProposalDraft?.editor.title).toBe("等待恢复的标题")
+    expect(wrapper.find('[data-state="recovered-page-proposal"]').exists()).toBe(false)
+    expect(wrapper.find("#generate-page-title").exists()).toBe(false)
+    await wrapper.get('[data-subtab="task"]').trigger("click")
+    expect(confirmDiscard).not.toHaveBeenCalled()
+  })
+
+  it("clears a stored proposal when a concrete pending result has another suggestion ID", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const initialSession = {
+      ...emptyGenerateSession(), suggestionId: "suggestion-old",
+      pageProposalDraft: { schemaVersion: 1, suggestionId: "suggestion-old", editor: { title: "旧编辑", pageType: "custom", freeText: "", sectionsText: "[]", assetsText: "[]" } },
+    }
+    writeGenerateSession(key, initialSession)
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: readGenerateSession(key),
+      restoredWorldResult: { kind: "world_bible_page", suggestion: { id: "suggestion-new", status: "pending" }, proposal: { operation: "replace_existing", page: { title: "新提案", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } } },
+    }), attachTo: document.body })
+
+    await flushPromises()
+    expect(readGenerateSession(key).pageProposalDraft).toBeNull()
+    expect(wrapper.find('[data-state="recovered-page-proposal"]').exists()).toBe(false)
+    expect(wrapper.get("#generate-page-title").element.value).toBe("新提案")
+  })
+
+  it("resets visible proposal fields after confirmed regeneration fails, without leaving a dirty guard", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-regenerate", status: "pending" },
+      proposal: { operation: "replace_existing", page: { title: "原提案", page_type: "custom", sections_json: [{ title: "原始分区" }], linked_asset_refs_json: [] } },
+    }
+    const confirmDiscard = vi.fn(() => true)
+    api.generate.generateWorldSuggestion.mockRejectedValue(new Error("generation down"))
+    setBridgeOverrides({ confirm: confirmDiscard })
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-regenerate" }, restoredWorldResult: result,
+    }), attachTo: document.body })
+    await wrapper.get("#generate-page-title").setValue("放弃的标题")
+    await wrapper.get("#generate-page-sections").setValue('[{"title":"放弃的分区"}]')
+    await wrapper.get("#generate-chat-input").setValue("再生成一次")
+    await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("generation down"), "error"))
+
+    expect(wrapper.get("#generate-page-title").element.value).toBe("原提案")
+    expect(wrapper.get("#generate-page-sections").element.value).toBe(JSON.stringify([{ title: "原始分区" }], null, 2))
+    expect(readGenerateSession(key).pageProposalDraft).toBeNull()
+    await wrapper.get('[data-subtab="task"]').trigger("click")
+    expect(confirmDiscard).toHaveBeenCalledOnce()
+  })
+
+  it("keeps visible fields and the dirty guard when regeneration discard is rejected", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-reject-regenerate", status: "pending" },
+      proposal: { operation: "replace_existing", page: { title: "原提案", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    const confirmDiscard = vi.fn(() => false)
+    setBridgeOverrides({ confirm: confirmDiscard })
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-reject-regenerate" }, restoredWorldResult: result,
+    }), attachTo: document.body })
+    await wrapper.get("#generate-page-title").setValue("仍保留的标题")
+    await wrapper.get("#generate-chat-input").setValue("尝试重新生成")
+    await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
+    expect(wrapper.get("#generate-page-title").element.value).toBe("仍保留的标题")
+    expect(readGenerateSession(key).pageProposalDraft?.editor.title).toBe("仍保留的标题")
+    await wrapper.get('[data-subtab="task"]').trigger("click")
+    expect(confirmDiscard).toHaveBeenCalledTimes(2)
+    expect(wrapper.get("#generate-page-title").exists()).toBe(true)
+  })
+
+  it("does not send an apply request for recovered invalid JSON", async () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-invalid-json", status: "pending" },
+      proposal: { operation: "replace_existing", page: { title: "初始", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    const initialSession = {
+      ...emptyGenerateSession(), suggestionId: "suggestion-invalid-json",
+      pageProposalDraft: { schemaVersion: 1, suggestionId: "suggestion-invalid-json", editor: { title: "仍可编辑", pageType: "custom", freeText: "", sectionsText: "{broken", assetsText: "[]" } },
+    }
+    const wrapper = mount(GenerateView, { props: baseProps({ targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key, initialSession, restoredWorldResult: result }), attachTo: document.body })
+    await wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
+    expect(wrapper.text()).toContain("不是有效 JSON")
+    expect(api.generate.applyWorldPageDraft).not.toHaveBeenCalled()
   })
 })
