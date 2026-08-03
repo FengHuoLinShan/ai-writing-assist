@@ -25,6 +25,12 @@ const fileInput = ref(null)
 const importRecords = ref([])
 const historyLoaded = ref(false)
 const historyLoading = ref(false)
+const historyLoadFailed = ref(false)
+const historyFailureCopy = computed(() => (
+  historyLoaded.value
+    ? "导入记录刷新失败，当前显示上次加载的内容。"
+    : "导入记录暂时无法加载，请重试。"
+))
 let historyLoadGeneration = 0
 
 const { uploading, percent, progress, upload } = useImportUpload()
@@ -46,32 +52,38 @@ const uploadCardProgress = computed(() => {
 async function loadImportHistory() {
   const projectId = currentProjectId.value
   const generation = ++historyLoadGeneration
-  if (!projectId) {
-    importRecords.value = []
-    historyLoaded.value = true
-    historyLoading.value = false
-    return
-  }
+  if (!projectId) return
   historyLoading.value = true
   try {
     const data = await getApi().imports.list({ novel_id: projectId })
     if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
     importRecords.value = data.items || []
+    historyLoaded.value = true
+    historyLoadFailed.value = false
   } catch {
     if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
-    importRecords.value = []
+    historyLoadFailed.value = true
   } finally {
     if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
     historyLoading.value = false
-    historyLoaded.value = true
   }
+}
+
+function retryImportHistory() {
+  if (historyLoading.value || !currentProjectId.value) return
+  void loadImportHistory()
 }
 
 // 抽屉挂载（打开）时加载一次；项目切换后重载
 watch(currentProjectId, () => {
+  historyLoadGeneration += 1
+  importRecords.value = []
   historyLoaded.value = false
+  historyLoadFailed.value = false
+  historyLoading.value = false
+  if (!currentProjectId.value) return
   void loadImportHistory()
-}, { immediate: true })
+}, { immediate: true, flush: "sync" })
 
 onBeforeUnmount(() => {
   historyLoadGeneration += 1
@@ -102,7 +114,7 @@ async function uploadFile() {
     </div>
     <div class="project-import-panel__form">
       <div class="project-import-panel__field">
-        <label class="project-import-panel__label">选择文件（txt/epub/html/mobi）</label>
+        <label class="project-import-panel__label" for="pv-import-file">选择文件（txt/epub/html/mobi）</label>
         <input
           type="file"
           id="pv-import-file"
@@ -130,10 +142,18 @@ async function uploadFile() {
     </div>
     <div class="project-import-panel__history">
       <div class="project-import-panel__history-header">导入记录</div>
-      <div id="import-list-body" class="project-import-panel__history-list">
-        <p v-if="!historyLoaded || historyLoading" class="project-import-list__status">加载中...</p>
-        <p v-else-if="importRecords.length === 0" class="project-import-list__empty">暂无导入记录。</p>
-        <div v-else class="import-list-item" v-for="record in importRecords" :key="record.id || record.file_name + record.created_at">
+      <div id="import-list-body" class="project-import-panel__history-list" role="region" aria-label="导入记录" :aria-busy="historyLoading">
+        <p v-if="!hasProject" class="project-import-list__status" role="status" aria-live="polite">选择项目后查看导入记录。</p>
+        <template v-else>
+          <p v-if="historyLoading && !historyLoaded && !historyLoadFailed" class="project-import-list__status" role="status" aria-live="polite">加载中...</p>
+          <div v-if="historyLoadFailed" class="alert alert-warning project-import-list__failure" role="alert">
+            <span>{{ historyFailureCopy }}</span>
+            <button type="button" class="btn btn-sm" data-action="retry-import-history" :disabled="historyLoading" @click="retryImportHistory">{{ historyLoading ? "正在重试..." : "重试" }}</button>
+          </div>
+          <p v-if="historyLoading && historyLoaded && !historyLoadFailed" class="project-import-list__status" role="status" aria-live="polite">正在刷新导入记录...</p>
+          <p v-if="historyLoaded && !historyLoading && !historyLoadFailed && importRecords.length === 0" class="project-import-list__empty">暂无导入记录。</p>
+        </template>
+        <div v-for="record in importRecords" :key="record.id || record.file_name + record.created_at" class="import-list-item">
           <div class="project-import-list__item-summary">
             <span class="status-dot" :class="importStatusDot(record.status)"></span>
             <span class="project-import-list__item-name">{{ record.file_name }}</span>

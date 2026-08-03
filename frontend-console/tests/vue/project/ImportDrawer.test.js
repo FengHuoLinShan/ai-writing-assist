@@ -65,6 +65,10 @@ describe("ImportDrawer", () => {
     expect(wrapper.find("#pv-import-file").attributes("disabled")).toBeDefined()
     expect(wrapper.find('[data-action="upload-file"]').attributes("disabled")).toBeDefined()
     expect(wrapper.text()).toContain("请先点击项目行选择项目")
+    expect(wrapper.text()).toContain("选择项目后查看导入记录。")
+    expect(wrapper.text()).not.toContain("暂无导入记录。")
+    expect(globalThis.api.imports.list).not.toHaveBeenCalled()
+    expect(wrapper.find('label[for="pv-import-file"]').exists()).toBe(true)
   })
 
   it("历史为空时显示暂无导入记录", async () => {
@@ -76,6 +80,78 @@ describe("ImportDrawer", () => {
       expect(wrapper.find(".project-import-list__empty").exists()).toBe(true)
     })
     expect(wrapper.text()).toContain("暂无导入记录。")
+  })
+
+  it("首次加载失败显示固定提示和重试，不泄露诊断或伪装为空记录", async () => {
+    globalThis.api.imports.list = vi.fn(async () => {
+      throw new Error("diagnostic-marker: connection reset")
+    })
+    const harness = makeState()
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+    })
+
+    expect(wrapper.text()).toContain("导入记录暂时无法加载，请重试。")
+    expect(wrapper.text()).not.toContain("diagnostic-marker")
+    expect(wrapper.text()).not.toContain("暂无导入记录。")
+    expect(wrapper.find('[data-action="retry-import-history"]').text()).toBe("重试")
+    expect(wrapper.find("#import-list-body").attributes("aria-busy")).toBe("false")
+  })
+
+  it("重试期间保留失败上下文并在成功后显示真实空记录", async () => {
+    let resolveRetry
+    globalThis.api.imports.list = vi.fn()
+      .mockRejectedValueOnce(new Error("initial diagnostic"))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRetry = resolve }))
+    const harness = makeState()
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+
+    await vi.waitFor(() => expect(wrapper.find('[data-action="retry-import-history"]').exists()).toBe(true))
+    await wrapper.find('[data-action="retry-import-history"]').trigger("click")
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-action="retry-import-history"]').attributes("disabled")).toBeDefined()
+    })
+    expect(wrapper.find('[data-action="retry-import-history"]').text()).toBe("正在重试...")
+    expect(wrapper.text()).toContain("导入记录暂时无法加载，请重试。")
+
+    resolveRetry({ items: [] })
+    await vi.waitFor(() => {
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      expect(wrapper.find(".project-import-list__empty").exists()).toBe(true)
+    })
+    expect(wrapper.text()).toContain("暂无导入记录。")
+  })
+
+  it("同一项目上传后的刷新失败保留上次成功记录", async () => {
+    let rejectRefresh
+    globalThis.api.imports.list = vi.fn()
+      .mockResolvedValueOnce({
+        items: [{ id: "last-known", file_name: "上次成功.txt", status: "done" }],
+      })
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRefresh = reject }))
+    globalThis.api.imports.uploadFile = vi.fn(async () => ({ total_chapters: 0, imported_chapters: 0 }))
+    const harness = makeState()
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain("上次成功.txt"))
+    Object.defineProperty(wrapper.find("#pv-import-file").element, "files", {
+      configurable: true,
+      value: [{ name: "刷新触发.txt", size: 1 }],
+    })
+    await wrapper.find('[data-action="upload-file"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.text()).toContain("正在刷新导入记录..."))
+    expect(wrapper.text()).toContain("上次成功.txt")
+
+    rejectRefresh(new Error("refresh diagnostic"))
+    await vi.waitFor(() => expect(wrapper.find('[role="alert"]').exists()).toBe(true))
+    expect(wrapper.text()).toContain("导入记录刷新失败，当前显示上次加载的内容。")
+    expect(wrapper.text()).toContain("上次成功.txt")
+    expect(wrapper.text()).not.toContain("refresh diagnostic")
   })
 
   it("只为失败导入显示经转义的失败原因", async () => {
@@ -151,6 +227,28 @@ describe("ImportDrawer", () => {
     await flushPromises()
     expect(wrapper.text()).toContain("当前稿.txt")
     expect(wrapper.text()).not.toContain("旧项目稿.txt")
+  })
+
+  it("切换项目时立即清空已经显示的旧项目记录", async () => {
+    let resolveCurrent
+    globalThis.api.imports.list = vi.fn(({ novel_id: projectId }) => {
+      if (projectId === "p-old") {
+        return Promise.resolve({ items: [{ id: "old", file_name: "旧项目稿.txt", status: "done" }] })
+      }
+      return new Promise((resolve) => { resolveCurrent = resolve })
+    })
+    const harness = makeState("p-old", { title: "旧项目" })
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+    await vi.waitFor(() => expect(wrapper.text()).toContain("旧项目稿.txt"))
+
+    harness.emit("currentProjectId", "p-current")
+    harness.emit("currentProject", { title: "当前项目" })
+    await vi.waitFor(() => expect(globalThis.api.imports.list).toHaveBeenCalledWith({ novel_id: "p-current" }))
+    expect(wrapper.text()).not.toContain("旧项目稿.txt")
+
+    resolveCurrent({ items: [{ id: "current", file_name: "当前项目稿.txt", status: "done" }] })
+    await vi.waitFor(() => expect(wrapper.text()).toContain("当前项目稿.txt"))
   })
 
   it("未选择文件点击上传给出警告", async () => {

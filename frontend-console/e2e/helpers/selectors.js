@@ -33,6 +33,8 @@ export const SEL = {
   projectImportToggle: '[data-action="toggle-import"]',
   projectImportFile: "#pv-import-file",
   projectImportSubmit: '[data-action="upload-file"]',
+  projectImportHistory: "#import-list-body",
+  projectImportHistoryRetry: '[data-action="retry-import-history"]',
 
   // 按钮
   btnPrimary: ".btn-primary",

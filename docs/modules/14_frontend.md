@@ -73,7 +73,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 | `vue/views/interaction/HomeChoiceView.vue` | `home` 路由；只显示 `我是作家` 与 `我是 RP 用户` 两个大框 |
 | `vue/views/interaction/JourneyListView.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档入口和按需搜索 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位 |
-| `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口；导入历史只在失败记录中显示经清洗、限长的作者可读失败原因 |
+| `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口；导入历史只在失败记录中显示经清洗、限长的作者可读失败原因，并在加载失败时保留同项目已成功记录和提供安全重试 |
 | `vue/views/writing/WritingView.vue` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene Cockpit；版本历史/恢复、发布、冲突检查、授权深度导入与地图下一步均由 Vue 页编排；只剩 quick-create bridge 和 Scene alert/version diff 纯 helper |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | 地图一级工作台，总览、最近地图、地图树、收件箱、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查 |

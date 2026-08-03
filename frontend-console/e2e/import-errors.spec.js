@@ -64,6 +64,32 @@ test.describe("导入异常流", () => {
     }
   })
 
+  test("导入记录首次加载失败后可安全重试", async ({ page }) => {
+    let importListRequests = 0
+    await page.route("**/api/imports?**", async (route) => {
+      importListRequests += 1
+      if (importListRequests === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "import-history-diagnostic-marker" }),
+        })
+        return
+      }
+      await route.fallback()
+    })
+
+    await page.locator(SEL.projectImportToggle).click()
+    await expect(page.getByRole("alert")).toContainText("导入记录暂时无法加载，请重试。")
+    await expect(page.getByRole("alert")).not.toContainText("import-history-diagnostic-marker")
+    await expect(page.locator(SEL.projectImportHistory)).not.toContainText("暂无导入记录。")
+
+    await expect(page.locator(SEL.projectImportHistoryRetry)).toHaveText("重试")
+    await page.locator(SEL.projectImportHistoryRetry).click()
+    await expect(page.locator(SEL.projectImportHistory)).toContainText("暂无导入记录。")
+    await expect(page.locator(SEL.projectImportHistory)).not.toContainText("import-history-diagnostic-marker")
+  })
+
   test("上传空文件标记导入失败且不创建章节", async ({ page }) => {
     await page.locator('[data-action="toggle-import"]').click()
     await expect(page.locator("#pv-import-file")).toBeVisible()
