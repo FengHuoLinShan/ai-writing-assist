@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { enableAutoUnmount, mount } from "@vue/test-utils"
 import ProjectView from "../../../vue/views/project/ProjectView.vue"
+import ImportDrawer from "../../../vue/views/project/components/ImportDrawer.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { PROJECT_CARDS_SCOPE, projectSession } from "../../../vue/views/project/projectSession.js"
 import { getBulkSelection } from "../../../shared/bulkSelection.js"
@@ -103,6 +104,49 @@ describe("渲染状态", () => {
     expect(cards[0].classes()).toContain("current")
     expect(wrapper.find(".project-current-badge").exists()).toBe(true)
     expect(wrapper.find(".project-archive-hero__current b").text()).toBe("项目p2")
+  })
+
+  it("导入抽屉将选中的同一 File 转交项目导入确认", async () => {
+    const confirmAction = vi.fn()
+    const { wrapper } = mountView({ projects: [makeProject("p1")] })
+    setBridgeOverrides({ confirmAction })
+    projectSession.importSectionOpen = true
+    await wrapper.vm.$nextTick()
+    const selectedFile = new File(["正文"], "抽屉转交.txt", { type: "text/plain" })
+    const createSpy = vi.spyOn(document, "createElement")
+
+    try {
+      wrapper.findComponent(ImportDrawer).vm.$emit("import-new-project", selectedFile)
+      await wrapper.vm.$nextTick()
+
+      expect(confirmAction).toHaveBeenCalledWith(
+        "将创建新项目「抽屉转交」并导入文件「抽屉转交.txt」。是否继续？",
+        expect.any(Function),
+        "创建并导入",
+      )
+      expect(createSpy).not.toHaveBeenCalled()
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
+
+  it("首开导入按钮明确走无参 chooser 路径，不把 click 事件当作 File", async () => {
+    const { wrapper } = mountView()
+    const createElement = document.createElement.bind(document)
+    let chooser = null
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+      const element = createElement(tagName, options)
+      if (String(tagName).toLowerCase() === "input") chooser = element
+      return element
+    })
+    try {
+      await wrapper.find('[data-action="import"]').trigger("click")
+
+      expect(chooser?.type).toBe("file")
+      expect(chooser?.accept).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+    } finally {
+      createSpy.mockRestore()
+    }
   })
 })
 

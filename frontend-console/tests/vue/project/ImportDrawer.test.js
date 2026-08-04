@@ -69,6 +69,33 @@ describe("ImportDrawer", () => {
     expect(wrapper.text()).not.toContain("暂无导入记录。")
     expect(globalThis.api.imports.list).not.toHaveBeenCalled()
     expect(wrapper.find('label[for="pv-import-file"]').exists()).toBe(true)
+    expect(wrapper.find('label[for="pv-import-file"]').text()).toBe("选择文件（支持 txt、epub、html、htm、mobi、azw3，最大 50MB）")
+    expect(wrapper.find("#pv-import-file").attributes("accept")).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+  })
+
+  it("选择文件后导入为新项目 emit 同一 File", async () => {
+    const harness = makeState()
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+    const selectedFile = new File(["正文"], "复用文件.txt", { type: "text/plain" })
+    Object.defineProperty(wrapper.find("#pv-import-file").element, "files", {
+      configurable: true,
+      value: [selectedFile],
+    })
+
+    await wrapper.find('[data-action="import"]').trigger("click")
+
+    expect(wrapper.emitted("import-new-project")).toEqual([[selectedFile]])
+  })
+
+  it("未选择文件时导入为新项目 emit null，保留父级 chooser 路径", async () => {
+    const harness = makeState()
+    setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
+    const wrapper = mount(ImportDrawer)
+
+    await wrapper.find('[data-action="import"]').trigger("click")
+
+    expect(wrapper.emitted("import-new-project")).toEqual([[null]])
   })
 
   it("历史为空时显示暂无导入记录", async () => {

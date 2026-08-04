@@ -103,6 +103,10 @@ async function uploadFile() {
     },
   })
 }
+
+function importAsNewProject() {
+  emit("import-new-project", fileInput.value?.files?.[0] || null)
+}
 </script>
 
 <template>
@@ -114,7 +118,7 @@ async function uploadFile() {
     </div>
     <div class="project-import-panel__form">
       <div class="project-import-panel__field">
-        <label class="project-import-panel__label" for="pv-import-file">选择文件（txt/epub/html/mobi）</label>
+        <label class="project-import-panel__label" for="pv-import-file">选择文件（支持 txt、epub、html、htm、mobi、azw3，最大 50MB）</label>
         <input
           type="file"
           id="pv-import-file"
@@ -130,7 +134,7 @@ async function uploadFile() {
         :disabled="uploading || !hasProject"
         @click="uploadFile"
       >{{ uploading ? `上传中 ${percent}%` : "上传并导入" }}</button>
-      <button class="btn btn-ghost" data-action="import" @click="emit('import-new-project')">导入为新项目</button>
+      <button type="button" class="btn btn-ghost" data-action="import" @click="importAsNewProject">导入为新项目</button>
     </div>
     <div id="pv-upload-progress" class="project-import-panel__progress">
       <WorkflowProgressCard

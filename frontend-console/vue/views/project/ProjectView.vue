@@ -124,6 +124,10 @@ function deleteProject(id) {
   deleteProjectModal(id, { clearCurrentProjectSelection })
 }
 
+function importSelectedFileAsNewProject(file) {
+  importAsNewProject(file)
+}
+
 async function retryProjects() {
   await loadProjectsIntoState()
   await getRouter().refresh()
@@ -188,14 +192,14 @@ async function retryProjects() {
         <p>从一页空白开始，或导入已有正文，让人物、世界与剧情在同一处继续生长。</p>
         <div class="actions">
           <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建项目</button>
-          <button class="btn btn-ghost" data-action="import" @click="importAsNewProject">导入小说</button>
+          <button class="btn btn-ghost" data-action="import" @click="importAsNewProject()">导入小说</button>
         </div>
       </div>
     </div>
 
     <template v-else>
       <div v-if="session.importSectionOpen" class="project-import-drawer">
-        <ImportDrawer @import-new-project="importAsNewProject" />
+        <ImportDrawer @import-new-project="importSelectedFileAsNewProject" />
       </div>
       <div v-if="props.loadError" class="alert alert-warning" role="alert">
         <span>项目列表刷新失败，当前显示上次已加载的内容。</span>

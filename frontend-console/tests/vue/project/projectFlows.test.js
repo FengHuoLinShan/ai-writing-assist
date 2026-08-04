@@ -346,6 +346,72 @@ describe("项目 modal 流程", () => {
     }
   })
 
+  it("传入已有 File 时不创建 chooser，并复用同一文件完成创建上传", async () => {
+    const state = makeState()
+    let confirmImport = null
+    setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
+    globalThis.api.projects.create.mockResolvedValue({ id: "p-direct", title: "直传文件" })
+    globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-direct", title: "直传文件" }] })
+    globalThis.api.imports.upload.mockResolvedValue({ total_chapters: 2, imported_chapters: 2 })
+    const createSpy = vi.spyOn(document, "createElement")
+    const file = new File(["正文"], "直传文件.txt", { type: "text/plain" })
+
+    try {
+      importAsNewProject(file)
+
+      expect(createSpy).not.toHaveBeenCalled()
+      expect(confirmImport).toBeTypeOf("function")
+      await confirmImport()
+      expect(globalThis.api.projects.create).toHaveBeenCalledWith(expect.objectContaining({ title: "直传文件" }))
+      expect(globalThis.api.imports.upload).toHaveBeenCalledWith("p-direct", file)
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
+
+  it("无参导入只打开一次既有 chooser", () => {
+    const createElement = document.createElement.bind(document)
+    let chooser = null
+    let chooserClick = null
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+      const element = createElement(tagName, options)
+      if (String(tagName).toLowerCase() === "input") {
+        chooser = element
+        chooserClick = vi.spyOn(element, "click")
+      }
+      return element
+    })
+    try {
+      importAsNewProject()
+
+      expect(chooser).not.toBeNull()
+      expect(chooser.accept).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+      expect(chooserClick).toHaveBeenCalledTimes(1)
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
+
+  it("传入无效 File 时仅显示既有校验错误，不打开 chooser或创建项目", () => {
+    const confirmAction = vi.fn()
+    setBridgeOverrides({ confirmAction })
+    const createSpy = vi.spyOn(document, "createElement")
+    const invalidFile = new File(["正文"], "不支持.pdf", { type: "application/pdf" })
+    try {
+      importAsNewProject(invalidFile)
+
+      expect(createSpy).not.toHaveBeenCalled()
+      expect(globalThis.toast).toHaveBeenCalledWith(
+        "不支持的文件格式，请选择 txt、epub、html、htm、mobi 或 azw3 文件",
+        "error",
+      )
+      expect(confirmAction).not.toHaveBeenCalled()
+      expect(globalThis.api.projects.create).not.toHaveBeenCalled()
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
+
   it("上传前拦截不支持的格式且不创建项目", async () => {
     const state = makeState()
     const confirmAction = vi.fn()
