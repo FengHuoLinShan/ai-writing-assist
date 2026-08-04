@@ -1,10 +1,10 @@
 <template>
   <div class="outline-scene-layout">
     <div class="subnav">
-      <span class="subnav-item" data-action="nav-story-outline" @click="navigateOutline('story-outline')">小说总纲</span>
-      <span class="subnav-item" data-action="nav-arcs" @click="navigateOutline('arcs')">篇章纲</span>
-      <span class="subnav-item" data-action="nav-threads" @click="navigateOutline('threads')">剧情线</span>
-      <span class="subnav-item active" data-action="nav-scenes">场景工作台</span>
+      <button type="button" class="subnav-item" data-action="nav-story-outline" @click="navigateOutline('story-outline')">小说总纲</button>
+      <button type="button" class="subnav-item" data-action="nav-arcs" @click="navigateOutline('arcs')">篇章纲</button>
+      <button type="button" class="subnav-item" data-action="nav-threads" @click="navigateOutline('threads')">剧情线</button>
+      <span class="subnav-item active" aria-current="page" data-action="nav-scenes">场景工作台</span>
       <div class="scene-workbench-actions" aria-label="Scene 工作台操作">
         <span class="scene-view-mode-toggle" aria-label="Scene 检索模式">
           <button class="btn btn-sm" :class="{ 'btn-primary': viewMode === 'normal' }" data-action="set-scene-view-mode" data-mode="normal" @click="setViewMode('normal')">普通</button>

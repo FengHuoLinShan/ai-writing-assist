@@ -51,6 +51,17 @@ describe("ragIsland", () => {
     await views.rag.onRendered()
     // 默认进入 search 子视图（state.currentSubView 未设置）
     expect(content.querySelector("#rag-search-input")).toBeTruthy()
+    const search = content.querySelector('[data-action="nav-search"]')
+    const status = content.querySelector('[data-action="nav-status"]')
+    expect(search.tagName).toBe("BUTTON")
+    expect(search.type).toBe("button")
+    expect(search.getAttribute("aria-current")).toBe("page")
+    expect(status.tagName).toBe("BUTTON")
+    expect(status.type).toBe("button")
+    expect(status.hasAttribute("aria-current")).toBe(false)
+    globalThis.router.navigate.mockClear()
+    status.click()
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("rag", "status")
     views.rag.onLeave()
   })
 

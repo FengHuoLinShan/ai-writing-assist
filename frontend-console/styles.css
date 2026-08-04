@@ -3921,15 +3921,24 @@ kbd {
 }
 
 .subnav-item {
+  appearance: none;
   flex: 0 0 auto;
+  margin: 0;
   padding: var(--space-2) var(--space-5);
   font-size: var(--text-sm);
   font-family: var(--font-ui);
   color: var(--text-tertiary);
   cursor: pointer;
+  background: transparent;
+  border: 0;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
   transition: all 0.15s;
+}
+
+.subnav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .subnav-item:hover {
@@ -3940,6 +3949,14 @@ kbd {
 .subnav-item.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+.subnav-item.active:not(button) {
+  cursor: default;
+}
+
+.subnav-item.active:not(button):hover {
+  background: transparent;
 }
 
 /* ===== 编辑器区域 ===== */

@@ -120,6 +120,25 @@ describe("SceneWorkbenchView", () => {
     expect(wrapper.find('.scene-workbench-row[data-id="s1"] img').exists()).toBe(false)
   })
 
+  it("keeps Scene current marker non-interactive while sibling navigation uses buttons", async () => {
+    createWrapper()
+    for (const action of ["nav-story-outline", "nav-arcs", "nav-threads"]) {
+      const item = wrapper.find(`[data-action="${action}"]`)
+      expect(item.element.tagName).toBe("BUTTON")
+      expect(item.attributes("type")).toBe("button")
+      expect(item.attributes("aria-current")).toBeUndefined()
+    }
+    const current = wrapper.find('[data-action="nav-scenes"]')
+    expect(current.element.tagName).toBe("SPAN")
+    expect(current.attributes("aria-current")).toBe("page")
+
+    router.navigate.mockClear()
+    await wrapper.find('[data-action="nav-threads"]').trigger("click")
+    expect(router.navigate).toHaveBeenCalledWith("outline", "threads")
+    await current.trigger("click")
+    expect(router.navigate).toHaveBeenCalledTimes(1)
+  })
+
   it("selects and bulk-selects in place without rerouting or resetting scroll", async () => {
     createWrapper()
     const organize = wrapper.find(".scene-workbench__organize").element

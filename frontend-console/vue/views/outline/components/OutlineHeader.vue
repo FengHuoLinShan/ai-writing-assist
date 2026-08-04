@@ -6,10 +6,10 @@
 <template>
   <div class="view-header view-header--with-tabs outline-toolbar">
     <div class="subnav">
-      <span class="subnav-item" :class="{ active: subView === 'story-outline' }" data-action="nav-story-outline" @click="navigateSub('story-outline')">小说总纲</span>
-      <span class="subnav-item" :class="{ active: subView === 'arcs' }" data-action="nav-arcs" @click="navigateSub('arcs')">篇章纲</span>
-      <span class="subnav-item" :class="{ active: subView === 'threads' }" data-action="nav-threads" @click="navigateSub('threads')">剧情线</span>
-      <span class="subnav-item" :class="{ active: subView === 'scenes' }" data-action="nav-scenes" @click="navigateSub('scenes')">场景工作台</span>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'story-outline' }" :aria-current="subView === 'story-outline' ? 'page' : undefined" data-action="nav-story-outline" @click="navigateSub('story-outline')">小说总纲</button>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'arcs' }" :aria-current="subView === 'arcs' ? 'page' : undefined" data-action="nav-arcs" @click="navigateSub('arcs')">篇章纲</button>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'threads' }" :aria-current="subView === 'threads' ? 'page' : undefined" data-action="nav-threads" @click="navigateSub('threads')">剧情线</button>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'scenes' }" :aria-current="subView === 'scenes' ? 'page' : undefined" data-action="nav-scenes" @click="navigateSub('scenes')">场景工作台</button>
     </div>
     <div class="view-header__tail">
       <span class="view-header__title">

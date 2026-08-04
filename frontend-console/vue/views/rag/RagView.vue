@@ -117,8 +117,8 @@ onMounted(async () => {
 <template>
   <div class="view-header view-header--with-tabs">
     <div class="subnav">
-      <span class="subnav-item" :class="{ active: subView === 'search' }" data-action="nav-search" @click="navigateSub('search')">检索</span>
-      <span class="subnav-item" :class="{ active: subView === 'status' }" data-action="nav-status" @click="navigateSub('status')">索引维护</span>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'search' }" :aria-current="subView === 'search' ? 'page' : undefined" data-action="nav-search" @click="navigateSub('search')">检索</button>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'status' }" :aria-current="subView === 'status' ? 'page' : undefined" data-action="nav-status" @click="navigateSub('status')">索引维护</button>
     </div>
     <div class="view-header__actions">
       <template v-if="subView === 'status'">

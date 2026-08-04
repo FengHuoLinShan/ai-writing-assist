@@ -36,11 +36,30 @@ test.describe("RAG 检索模块", () => {
     await expect(page.locator(SEL.viewTitle)).toHaveText("小说检索")
   })
 
-  test("切换到搜索子标签", async ({ page }) => {
-    await page.locator('.subnav-item[data-action="nav-search"]').click()
-    await expect(page.locator('.subnav-item[data-action="nav-search"]')).toHaveClass(/active/)
-    // 只验证搜索输入框存在
+  test("键盘切换搜索子标签并公开当前页", async ({ page }) => {
+    const status = page.locator('.subnav-item[data-action="nav-status"]')
+    const search = page.locator('.subnav-item[data-action="nav-search"]')
+    await expect(status).toHaveAttribute("type", "button")
+    await expect(status).toHaveAttribute("aria-current", "page")
+    await expect(search).toHaveAttribute("type", "button")
+    await expect(search).not.toHaveAttribute("aria-current", /.+/)
+
+    await search.focus()
+    await search.press("Enter")
     await expect(page.locator("#rag-search-input")).toBeVisible()
+    await expect(search).toHaveAttribute("aria-current", "page")
+    await expect(status).not.toHaveAttribute("aria-current", /.+/)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectNoPageOverflow(page)
+    await expectWithinViewport(search)
+    await expectWithinViewport(status)
+
+    await status.focus()
+    await status.press(" ")
+    await expect(page.locator('[data-action="rebuild-index"]')).toBeVisible()
+    await expect(status).toHaveAttribute("aria-current", "page")
+    await expect(search).not.toHaveAttribute("aria-current", /.+/)
   })
 
   test("390px 下检索输入和主操作可见且无水平溢出", async ({ page }) => {

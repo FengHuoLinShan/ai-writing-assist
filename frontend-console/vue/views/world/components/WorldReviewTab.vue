@@ -8,9 +8,9 @@
   <div>
     <!-- 二级 tab 导航（vanilla _renderReviewQueue 822-836） -->
     <div class="subnav subnav-secondary" style="margin-bottom:12px;">
-      <span class="subnav-item" :class="{ active: tab === 'review-objects' }" data-action="nav-review-objects" @click="navigateSub('review-objects')">对象 ({{ reviewCounts.objects || 0 }})</span>
-      <span class="subnav-item" :class="{ active: tab === 'review-aliases' }" data-action="nav-review-aliases" @click="navigateSub('review-aliases')">别名 ({{ reviewCounts.aliases || 0 }})</span>
-      <span class="subnav-item" :class="{ active: tab === 'review-relations' }" data-action="nav-review-relations" @click="navigateSub('review-relations')">关系 ({{ reviewCounts.relations || 0 }})</span>
+      <button type="button" class="subnav-item" :class="{ active: tab === 'review-objects' }" :aria-current="tab === 'review-objects' ? 'page' : undefined" data-action="nav-review-objects" @click="navigateSub('review-objects')">对象 ({{ reviewCounts.objects || 0 }})</button>
+      <button type="button" class="subnav-item" :class="{ active: tab === 'review-aliases' }" :aria-current="tab === 'review-aliases' ? 'page' : undefined" data-action="nav-review-aliases" @click="navigateSub('review-aliases')">别名 ({{ reviewCounts.aliases || 0 }})</button>
+      <button type="button" class="subnav-item" :class="{ active: tab === 'review-relations' }" :aria-current="tab === 'review-relations' ? 'page' : undefined" data-action="nav-review-relations" @click="navigateSub('review-relations')">关系 ({{ reviewCounts.relations || 0 }})</button>
     </div>
 
     <!-- ==================== review-objects ==================== -->

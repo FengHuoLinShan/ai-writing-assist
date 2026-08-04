@@ -8,12 +8,12 @@
   <div ref="rootEl" class="world-view">
     <div class="view-header view-header--with-tabs world-toolbar">
       <div class="subnav">
-        <span class="subnav-item" :class="{ active: subView === 'objects' }" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">对象库</span>
-        <span class="subnav-item" :class="{ active: !!reviewSubView }" data-subview="review-objects" data-action="nav-review" @click="navigateSub('review-objects')">待处理 ({{ reviewTotal }})</span>
-        <span class="subnav-item" :class="{ active: subView === 'relations' }" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</span>
-        <span class="subnav-item" :class="{ active: subView === 'aliases' }" data-subview="aliases" data-action="nav-aliases" @click="navigateSub('aliases')">别名</span>
-        <span class="subnav-item" :class="{ active: subView === 'bible' }" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界书</span>
-        <span class="subnav-item" :class="{ active: subView === 'map' }" data-subview="map" data-action="nav-map" @click="navigateMap">地图</span>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' }" :aria-current="subView === 'objects' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">对象库</button>
+        <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" data-subview="review-objects" data-action="nav-review" @click="navigateSub('review-objects')">待处理 ({{ reviewTotal }})</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'aliases' }" :aria-current="subView === 'aliases' ? 'page' : undefined" data-subview="aliases" data-action="nav-aliases" @click="navigateSub('aliases')">别名</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界书</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'map' }" :aria-current="subView === 'map' ? 'page' : undefined" data-subview="map" data-action="nav-map" @click="navigateMap">地图</button>
       </div>
       <div class="view-header__tail">
         <span v-if="headerTitle" class="view-header__title">

@@ -30,10 +30,27 @@ test.describe("Outline View — 场景工作台", () => {
   })
 
   test("从大纲其他子标签返回场景工作台", async ({ page }) => {
-    await page.locator('[data-action="nav-threads"]').click()
-    await page.locator('.subnav-item[data-action="nav-scenes"]').click()
+    const sceneCurrent = page.locator('.subnav-item[data-action="nav-scenes"]')
+    const threads = page.locator('.subnav-item[data-action="nav-threads"]')
+    await expect(sceneCurrent).toHaveJSProperty("tagName", "SPAN")
+    await expect(sceneCurrent).toHaveAttribute("aria-current", "page")
+    await expect(threads).toHaveAttribute("type", "button")
+    await expect(threads).not.toHaveAttribute("aria-current", /.+/)
+
+    await threads.focus()
+    await threads.press("Enter")
+    await expect(page).toHaveURL(/#workbench\/[^/]+\/outline\/threads/)
+    await expect(threads).toHaveAttribute("aria-current", "page")
+
+    const headerScenes = page.locator('.subnav-item[data-action="nav-scenes"]')
+    await expect(headerScenes).toHaveAttribute("type", "button")
+    await headerScenes.focus()
+    await headerScenes.press(" ")
 
     await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
+    await expect(page).toHaveURL(/#workbench\/[^/]+\/outline\/scenes/)
+    await expect(sceneCurrent).toHaveJSProperty("tagName", "SPAN")
+    await expect(sceneCurrent).toHaveAttribute("aria-current", "page")
     await expect(page.locator('[aria-label="Scene 管理筛选"]')).toBeVisible()
   })
 
