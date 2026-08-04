@@ -11,12 +11,12 @@
         <button class="btn btn-sm btn-primary" data-action="map-quick-create" @click="quickCreate.open()">快速创建</button>
         <button class="btn btn-sm" data-action="map-create-world" @click="modalController.showCreateWorld()">创建世界地图</button>
         <button class="btn btn-sm" data-action="map-toggle-archived" @click="showArchived = !showArchived">{{ showArchived ? '返回当前地图' : `归档地图 ${archivedMaps.length}` }}</button>
-        <input v-model="searchQuery" class="form-input map-overview-search" placeholder="搜索地图或地点" />
+        <input v-model="searchQuery" class="form-input map-overview-search" placeholder="搜索地图或地点" aria-label="搜索地图或地点" />
       </div>
       <div v-else class="view-header__actions">
         <button class="btn btn-sm btn-primary" data-action="map-quick-create" :disabled="editingState.dirty" @click="quickCreate.open()">快速创建</button>
         <button class="btn btn-sm" data-action="map-visual-history" :disabled="editingState.dirty" @click="showVisualHistory">编辑历史</button>
-        <div class="map-view-controls" role="group" aria-label="地图视图"><button v-for="[value, label] in VIEW_MODES" :key="value" class="btn btn-sm map-view-mode" :class="{ 'is-active': viewMode === value }" @click="setViewMode(value)">{{ label }}</button><label class="map-low-motion-toggle"><input type="checkbox" :checked="lowMotion" @change="setLowMotion($event.target.checked)" />低动效</label></div>
+        <div class="map-view-controls" role="group" aria-label="地图视图"><button v-for="[value, label] in VIEW_MODES" :key="value" class="btn btn-sm map-view-mode" :class="{ 'is-active': viewMode === value }" :aria-pressed="viewMode === value" @click="setViewMode(value)">{{ label }}</button><label class="map-low-motion-toggle"><input type="checkbox" :checked="lowMotion" @change="setLowMotion($event.target.checked)" />低动效</label></div>
         <label v-for="(label, key) in MAP_LAYER_LABELS" :key="key" class="map-layer-toggle"><input type="checkbox" :checked="layers[key]" :disabled="editingState.dirty" @change="setLayer(key, $event.target.checked)" />{{ label }}</label>
       </div>
     </div>

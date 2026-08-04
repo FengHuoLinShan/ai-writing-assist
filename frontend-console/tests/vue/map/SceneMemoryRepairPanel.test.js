@@ -21,6 +21,18 @@ function checkpoint(overrides = {}) {
   }
 }
 
+function checkpointSet(items = [checkpoint()]) {
+  return {
+    novel_id: "p1",
+    scene_id: "s1",
+    scene_index: 2,
+    scene_title: "雾港封锁",
+    coverage_status: "manual_required",
+    items,
+    missing_dimensions: [],
+  }
+}
+
 describe("SceneMemoryRepairPanel", () => {
   let api
   let toast
@@ -29,15 +41,7 @@ describe("SceneMemoryRepairPanel", () => {
   beforeEach(() => {
     api = {
       memory: {
-        ensureSceneCheckpoints: vi.fn(async () => ({
-          novel_id: "p1",
-          scene_id: "s1",
-          scene_index: 2,
-          scene_title: "雾港封锁",
-          coverage_status: "manual_required",
-          items: [checkpoint()],
-          missing_dimensions: [],
-        })),
+        ensureSceneCheckpoints: vi.fn(async () => checkpointSet()),
         repairSceneCheckpoint: vi.fn(async () => ({ checkpoint: checkpoint({ status: "ready", source: "manual" }) })),
       },
     }
@@ -64,6 +68,8 @@ describe("SceneMemoryRepairPanel", () => {
   })
 
   it("submits a plain-language repair and confirmation", async () => {
+    let resolveRepair
+    api.memory.repairSceneCheckpoint.mockImplementationOnce(() => new Promise((resolve) => { resolveRepair = resolve }))
     wrapper = mount(SceneMemoryRepairPanel, { props: { projectId: "p1", sceneId: "s1" } })
     await vi.waitFor(() => expect(wrapper.text()).toContain("需要判断"))
     await wrapper.find('input[value="replace_with_summary"]').setValue(true)
@@ -72,6 +78,8 @@ describe("SceneMemoryRepairPanel", () => {
     await wrapper.find("form").trigger("submit")
 
     await vi.waitFor(() => expect(api.memory.repairSceneCheckpoint).toHaveBeenCalled())
+    expect(wrapper.get('[data-testid="scene-memory-repair"]').attributes("aria-busy")).toBe("true")
+    expect(wrapper.get('button[type="submit"]').element.disabled).toBe(true)
     expect(api.memory.repairSceneCheckpoint).toHaveBeenCalledWith("p1", {
       scene_id: "s1",
       dimension: "map",
@@ -81,6 +89,45 @@ describe("SceneMemoryRepairPanel", () => {
       replacement_summary: "人物仍在旧港，北门保持封锁",
       confirmed: true,
     })
+    resolveRepair({ checkpoint: checkpoint({ status: "ready", source: "manual" }) })
+    await vi.waitFor(() => expect(wrapper.get('[data-testid="scene-memory-repair"]').attributes("aria-busy")).toBe("false"))
+  })
+
+  it("exposes repair dimensions, inputs, and asynchronous status programmatically", async () => {
+    let resolveCheckpoints
+    api.memory.ensureSceneCheckpoints.mockImplementationOnce(() => new Promise((resolve) => { resolveCheckpoints = resolve }))
+    wrapper = mount(SceneMemoryRepairPanel, { props: { projectId: "p1", sceneId: "s1" } })
+
+    const repairPanel = wrapper.get('[data-testid="scene-memory-repair"]')
+    expect(repairPanel.attributes("aria-busy")).toBe("true")
+    expect(wrapper.get('[role="status"]').text()).toBe("正在核对阶段状态...")
+    resolveCheckpoints(checkpointSet([
+      checkpoint(),
+      checkpoint({ id: "cp-knowledge", dimension: "knowledge", status: "ready", display_summary: "尚未越过知识边界", gap_reason: null, evidence_refs: [] }),
+    ]))
+    await vi.waitFor(() => expect(repairPanel.attributes("aria-busy")).toBe("false"))
+
+    const dimensions = wrapper.get('[role="group"][aria-label="阶段状态维度"]')
+    const map = dimensions.get("button:first-child")
+    const knowledge = dimensions.get("button:nth-child(2)")
+    expect(map.text()).toContain("地图事实")
+    expect(map.attributes("aria-pressed")).toBe("true")
+    expect(knowledge.attributes("aria-pressed")).toBe("false")
+    await knowledge.trigger("click")
+    expect(map.attributes("aria-pressed")).toBe("false")
+    expect(knowledge.attributes("aria-pressed")).toBe("true")
+    await map.trigger("click")
+    expect(wrapper.get('[aria-label="说明判断依据"]')).toBeTruthy()
+    await wrapper.find('input[value="replace_with_summary"]').setValue(true)
+    expect(wrapper.get('[aria-label="填写正确的阶段事实"]')).toBeTruthy()
+  })
+
+  it("announces repair loading failures as alerts", async () => {
+    api.memory.ensureSceneCheckpoints.mockRejectedValueOnce(new Error("阶段状态加载失败"))
+    wrapper = mount(SceneMemoryRepairPanel, { props: { projectId: "p1", sceneId: "s1" } })
+
+    await vi.waitFor(() => expect(wrapper.get('[role="alert"]').text()).toContain("阶段状态加载失败"))
+    expect(wrapper.get('[data-testid="scene-memory-repair"]').attributes("aria-busy")).toBe("false")
   })
 
   it("reloads current facts when the checkpoint changed before confirmation", async () => {

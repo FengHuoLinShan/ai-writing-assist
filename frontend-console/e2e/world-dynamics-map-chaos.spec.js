@@ -346,6 +346,7 @@ test.describe("世界动态地图混乱路径", () => {
     await openMapWorkspace(page, fixture.project, fixture.map)
     const viewModeGroup = page.getByRole("group", { name: "地图视图" })
     await expect(viewModeGroup).toBeVisible()
+    await expect(viewModeGroup.getByRole("button", { name: "世界动态总控台", exact: true })).toHaveAttribute("aria-pressed", "true")
     for (const mode of [
       ["live", "活地图", "只播放已采用事实"],
       ["lens", "叙事透镜", "从地图开始聚焦"],
@@ -354,6 +355,10 @@ test.describe("世界动态地图混乱路径", () => {
       const modeButton = viewModeGroup.getByRole("button", { name: mode[1], exact: true })
       await modeButton.click()
       await expect(modeButton).toHaveClass(/is-active/)
+      await expect(modeButton).toHaveAttribute("aria-pressed", "true")
+      for (const otherMode of ["世界动态总控台", "活地图", "叙事透镜"].filter((label) => label !== mode[1])) {
+        await expect(viewModeGroup.getByRole("button", { name: otherMode, exact: true })).toHaveAttribute("aria-pressed", "false")
+      }
       await expect.poll(() => new URLSearchParams(new URL(page.url()).hash.split("?")[1] || "").get("mode"))
         .toBe(mode[0])
       await expect(page.locator(".map-dynamic-panel")).toContainText(mode[2])

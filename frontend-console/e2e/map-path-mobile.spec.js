@@ -256,8 +256,13 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
       name: "世界动态总控台",
       exact: true,
     })
+    const liveButton = viewModeGroup.getByRole("button", { name: "活地图", exact: true })
+    await expect(liveButton).toHaveAttribute("aria-pressed", "true")
+    await expect(dashboardButton).toHaveAttribute("aria-pressed", "false")
     await dashboardButton.click()
     await expect(dashboardButton).toHaveClass(/is-active/)
+    await expect(dashboardButton).toHaveAttribute("aria-pressed", "true")
+    await expect(liveButton).toHaveAttribute("aria-pressed", "false")
     await page.locator('summary[aria-label="展开动态摘要"]').click()
     const dynamicQueue = page.locator(".map-dynamic-section").filter({
       has: page.getByRole("heading", { name: "动态队列", exact: true }),

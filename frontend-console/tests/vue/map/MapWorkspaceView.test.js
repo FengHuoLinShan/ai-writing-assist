@@ -158,11 +158,32 @@ describe("MapWorkspaceView", () => {
         inbox: { items: [{ id: "i1", target_name: "<img src=x>", source: "manual", updated_at: "r1", eligibility: { can_confirm: false } }], total: 1, filters: {} },
       },
     })
+    expect(wrapper.get('[aria-label="搜索地图或地点"]').attributes("placeholder")).toBe("搜索地图或地点")
     await wrapper.find(".map-overview-search").setValue("script")
     expect(wrapper.find(".map-project-inbox").exists()).toBe(true)
     expect(wrapper.find("#map-search-results").text()).toContain("<script>alert(1)</script>")
     expect(wrapper.find("script").exists()).toBe(false)
     expect(wrapper.find("img").exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("exposes the selected map view mode and updates it through the existing control", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const viewModes = wrapper.get('[role="group"][aria-label="地图视图"]')
+    const dashboard = viewModes.get("button:first-child")
+    const live = viewModes.get("button:nth-child(2)")
+    const lens = viewModes.get("button:nth-child(3)")
+
+    expect(dashboard.attributes("aria-pressed")).toBe("false")
+    expect(live.attributes("aria-pressed")).toBe("true")
+    expect(lens.attributes("aria-pressed")).toBe("false")
+    await dashboard.trigger("click")
+    expect(dashboard.attributes("aria-pressed")).toBe("true")
+    expect(live.attributes("aria-pressed")).toBe("false")
+    expect(lens.attributes("aria-pressed")).toBe("false")
     wrapper.unmount()
   })
 

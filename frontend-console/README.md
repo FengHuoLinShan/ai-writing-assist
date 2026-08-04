@@ -113,6 +113,7 @@ Scene 阶段状态修复台复用地图动态侧栏、卡片、警示与主按�
 “来源证据 → 当前事实 → 作者决定”，不向作者暴露 checkpoint JSON、内部 ID 或重建参数。
 组件 DOM 基线由 `tests/vue/map/SceneMemoryRepairPanel.test.js` snapshot 固定，确保三段层级、
 单一主操作和技术字段隐藏不被回归。
+地图总览搜索及阶段修复输入提供程序化名称；地图视图模式和修复维度公开当前选中状态，不改变既有路由或 API 契约。
 
 地图功能回归使用 `npm run test:e2e:map`；专用性能采样使用
 `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf`。

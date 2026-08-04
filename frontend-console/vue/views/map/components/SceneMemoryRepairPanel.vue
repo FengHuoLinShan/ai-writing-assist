@@ -1,14 +1,14 @@
 <template>
-  <section v-if="sceneId" class="map-dynamic-section scene-memory-repair" data-testid="scene-memory-repair">
+  <section v-if="sceneId" class="map-dynamic-section scene-memory-repair" data-testid="scene-memory-repair" :aria-busy="loading || saving">
     <div class="scene-memory-heading">
       <div><h4>阶段状态</h4><p>{{ sceneTitle }} · 只使用此 Scene 及之前的已确认事实</p></div>
       <span class="badge" :class="{ 'is-warning': needsRepair }">{{ statusLabel }}</span>
     </div>
-    <p v-if="loading" class="map-muted-text">正在核对阶段状态...</p>
-    <div v-else-if="error" class="alert alert-warning"><span>{{ error }}</span><button class="btn btn-sm" @click="load">重试</button></div>
+    <p v-if="loading" class="map-muted-text" role="status">正在核对阶段状态...</p>
+    <div v-else-if="error" class="alert alert-warning" role="alert"><span>{{ error }}</span><button class="btn btn-sm" @click="load">重试</button></div>
     <template v-else-if="checkpointSet">
-      <div class="scene-memory-dimensions" aria-label="阶段状态维度">
-        <button v-for="item in checkpointSet.items" :key="item.dimension" class="scene-memory-dimension" :class="{ 'is-active': selected?.dimension === item.dimension, 'needs-attention': item.status !== 'ready' }" @click="selectedDimension = item.dimension">
+      <div class="scene-memory-dimensions" role="group" aria-label="阶段状态维度">
+        <button v-for="item in checkpointSet.items" :key="item.dimension" class="scene-memory-dimension" :class="{ 'is-active': selected?.dimension === item.dimension, 'needs-attention': item.status !== 'ready' }" :aria-pressed="selected?.dimension === item.dimension" @click="selectedDimension = item.dimension">
           <span>{{ dimensionLabel(item.dimension) }}</span><small>{{ item.status === "ready" ? "完整" : "待修复" }}</small>
         </button>
       </div>
@@ -21,9 +21,9 @@
         <div class="scene-memory-kicker">你的决定</div>
         <label><input v-model="decision" type="radio" value="keep_current" /> 当前事实正确，直接采用</label>
         <label><input v-model="decision" type="radio" value="replace_with_summary" /> 用我填写的正确内容替换</label>
-        <textarea v-if="decision === 'replace_with_summary'" v-model="replacementSummary" class="form-textarea" rows="4" placeholder="用自然语言写清这一阶段的正确事实；无需填写 ID 或技术字段。" />
+        <textarea v-if="decision === 'replace_with_summary'" v-model="replacementSummary" class="form-textarea" rows="4" placeholder="用自然语言写清这一阶段的正确事实；无需填写 ID 或技术字段。" aria-label="填写正确的阶段事实" />
         <label><input v-model="decision" type="radio" value="confirm_empty" /> 这一阶段确实没有此类事实</label>
-        <textarea v-model="decisionSummary" class="form-textarea" rows="2" placeholder="简要说明判断依据，便于以后回看。" />
+        <textarea v-model="decisionSummary" class="form-textarea" rows="2" placeholder="简要说明判断依据，便于以后回看。" aria-label="说明判断依据" />
         <button class="btn btn-primary scene-memory-primary" type="submit" :disabled="saving">{{ saving ? "正在修复并重建..." : "确认修复并重建后续阶段" }}</button>
         <p class="map-muted-text">只替换当前 Scene 的系统结果；人工确认内容会保留，后续阶段自动重建。</p>
       </form>
