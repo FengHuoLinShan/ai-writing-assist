@@ -39,6 +39,13 @@ test.describe("设置流程", () => {
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("heading", { name: "作者偏好" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("heading", { name: "模型连接" })).toBeVisible({ timeout: 10000 })
+    const providerGroup = page.getByRole("radiogroup", { name: "模型模板" })
+    const providers = providerGroup.getByRole("radio")
+    const selectedProvider = providerGroup.locator('[role="radio"][aria-checked="true"]')
+    await selectedProvider.focus()
+    await page.keyboard.press("End")
+    await expect(providers.last()).toBeFocused()
+    await expect(providers.last()).toHaveAttribute("aria-checked", "true")
   })
 
   test("项目设置页深链 + Tab 切换", async ({ page }) => {
@@ -51,7 +58,21 @@ test.describe("设置流程", () => {
     await expect(page.getByRole("tab", { name: "作者偏好" })).toBeVisible()
     await expect(page.getByText(/模型与 Key 由账户设置统一管理/)).toBeVisible()
     await expect(page.getByText(/Phase 0/)).toBeVisible()
-    await page.getByRole("tab", { name: "作者偏好" }).click()
+    const deepTab = page.getByRole("tab", { name: "深度导入" })
+    const authorTab = page.getByRole("tab", { name: "作者偏好" })
+    await expect(deepTab).toHaveAttribute("aria-controls", "project-settings-tab-panel")
+    await expect(page.locator("#project-settings-tab-panel")).toHaveAttribute(
+      "aria-labelledby",
+      await deepTab.getAttribute("id"),
+    )
+    await deepTab.focus()
+    await page.keyboard.press("End")
+    await expect(authorTab).toBeFocused()
+    await expect(authorTab).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator("#project-settings-tab-panel")).toHaveAttribute(
+      "aria-labelledby",
+      await authorTab.getAttribute("id"),
+    )
     await expect(page.getByText(/日更目标/)).toBeVisible()
   })
 

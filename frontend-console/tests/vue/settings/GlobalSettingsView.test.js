@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import GlobalSettingsView from "../../../vue/views/settings/GlobalSettingsView.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
@@ -54,6 +54,12 @@ function overrideProjectId(projectId) {
   })
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
@@ -94,6 +100,71 @@ describe("账户模型连接", () => {
 
     expect(globalThis.toast).toHaveBeenCalledWith("请先填写 API Key", "warning")
     expect(globalThis.api.settings.connectLLMProvider).not.toHaveBeenCalled()
+  })
+
+  it("模型模板单选组按标准键盘行为选择并移动焦点", async () => {
+    const wrapper = mount(GlobalSettingsView, {
+      attachTo: document.body,
+      props: makeProps(),
+    })
+    const providers = wrapper.findAll(".account-provider-card")
+    await wrapper.find("#account-llm-api-key").setValue("will-be-cleared")
+    providers[0].element.focus()
+
+    await providers[0].trigger("keydown", { key: "Home" })
+    await vi.waitFor(() => expect(document.activeElement).toBe(providers[0].element))
+    expect(wrapper.find("#account-llm-api-key").element.value).toBe("will-be-cleared")
+
+    await providers[0].trigger("keydown", { key: "ArrowRight" })
+    await vi.waitFor(() => {
+      expect(providers[1].attributes("aria-checked")).toBe("true")
+      expect(providers[1].attributes("tabindex")).toBe("0")
+      expect(document.activeElement).toBe(providers[1].element)
+    })
+    expect(providers[0].attributes("tabindex")).toBe("-1")
+    expect(wrapper.find("#account-llm-api-key").element.value).toBe("")
+
+    await providers[1].trigger("keydown", { key: "Home" })
+    await vi.waitFor(() => expect(document.activeElement).toBe(providers[0].element))
+    expect(providers[0].attributes("aria-checked")).toBe("true")
+
+    await providers[0].trigger("keydown", { key: "End" })
+    await vi.waitFor(() => expect(document.activeElement).toBe(providers[1].element))
+    expect(providers[1].attributes("aria-checked")).toBe("true")
+    wrapper.unmount()
+  })
+
+  it("连接、余额和作者保存期间公开现有忙碌状态", async () => {
+    const connection = deferred()
+    const balances = deferred()
+    const author = deferred()
+    globalThis.api.settings.activateLLMProvider.mockReturnValue(connection.promise)
+    globalThis.api.settings.listLLMBalances.mockReturnValueOnce(balances.promise)
+    globalThis.api.settings.updateGlobalAuthorPrefs.mockReturnValue(author.promise)
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    const connectionSection = wrapper.get(".account-connection-section")
+
+    void wrapper.find("#account-llm-save").trigger("click")
+    await Promise.resolve()
+    expect(connectionSection.attributes("aria-busy")).toBe("true")
+    expect(wrapper.get("#account-llm-save").attributes("aria-busy")).toBe("true")
+    connection.resolve(makeConnections())
+    await vi.waitFor(() => {
+      expect(wrapper.get("#account-balance-refresh").attributes("aria-busy")).toBe("true")
+    })
+    balances.resolve({ items: [] })
+    await flushPromises()
+    expect(connectionSection.attributes("aria-busy")).toBe("false")
+
+    void wrapper.find("#global-author-save").trigger("click")
+    await Promise.resolve()
+    const authorSection = wrapper.findAll(".settings-section")
+      .find((section) => section.text().includes("作者偏好"))
+    expect(authorSection.attributes("aria-busy")).toBe("true")
+    expect(wrapper.get("#global-author-save").attributes("aria-busy")).toBe("true")
+    author.resolve()
+    await flushPromises()
+    expect(authorSection.attributes("aria-busy")).toBe("false")
   })
 
   it("填写 Key 后验证、保存并激活，Key 不进入本地存储", async () => {

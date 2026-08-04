@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import ProjectSettingsView from "../../../vue/views/settings/ProjectSettingsView.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
@@ -33,6 +33,12 @@ function makeProps(overrides = {}) {
     effectivePrefs: makeEffectivePrefs(),
     ...overrides,
   }
+}
+
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
 }
 
 beforeEach(() => {
@@ -85,6 +91,54 @@ describe("结构与导航", () => {
     expect(second.find(".author-prefs-tab").exists()).toBe(true)
     expect(second.findAll(".settings-tab-nav .tab-btn")[1].attributes("aria-selected"))
       .toBe("true")
+  })
+
+  it("Tab 提供稳定关联并用键盘选择、回焦与持久化", async () => {
+    const wrapper = mount(ProjectSettingsView, {
+      attachTo: document.body,
+      props: makeProps(),
+    })
+    const tabs = wrapper.findAll(".settings-tab-nav .tab-btn")
+    const panel = wrapper.get("#project-settings-tab-panel")
+    expect(tabs[0].attributes("id")).toBe("project-settings-tab-deep")
+    expect(tabs[0].attributes("aria-controls")).toBe("project-settings-tab-panel")
+    expect(tabs[0].attributes("tabindex")).toBe("0")
+    expect(tabs[1].attributes("tabindex")).toBe("-1")
+    expect(panel.attributes("aria-labelledby")).toBe("project-settings-tab-deep")
+
+    tabs[0].element.focus()
+    await tabs[0].trigger("keydown", { key: "ArrowRight" })
+    await vi.waitFor(() => expect(document.activeElement).toBe(tabs[1].element))
+    expect(tabs[1].attributes("aria-selected")).toBe("true")
+    expect(panel.attributes("aria-labelledby")).toBe("project-settings-tab-author")
+    expect(projectSettingsSession.tab).toBe("author")
+
+    await tabs[1].trigger("keydown", { key: "Home" })
+    await vi.waitFor(() => expect(document.activeElement).toBe(tabs[0].element))
+    expect(tabs[0].attributes("aria-selected")).toBe("true")
+    wrapper.unmount()
+  })
+
+  it("面板在数据未就绪和保存期间公开真实忙碌状态", async () => {
+    const pending = mount(ProjectSettingsView, {
+      props: makeProps({ effectiveLLM: null, effectivePrefs: null }),
+    })
+    expect(pending.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("true")
+    expect(pending.get("#project-settings-tab-panel [role='status']").text()).toBe("加载中…")
+    pending.unmount()
+
+    const save = deferred()
+    globalThis.api.projects.updateLlmSettings.mockReturnValue(save.promise)
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    void wrapper.find("#deep-import-tab-save").trigger("click")
+    await Promise.resolve()
+    expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("true")
+    expect(wrapper.get("#deep-import-tab-save").attributes("aria-busy")).toBe("true")
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("false")
+    save.resolve()
+    await flushPromises()
+    expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("false")
   })
 })
 

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
 import SourceLabel from "./components/SourceLabel.vue"
@@ -35,6 +35,7 @@ const initialTab = TABS.some((item) => item.key === projectSettingsSession.tab)
   ? projectSettingsSession.tab
   : "deep"
 const tab = ref(initialTab)
+const tabButtons = ref([])
 watch(tab, (value) => {
   projectSettingsSession.tab = value
 })
@@ -61,6 +62,45 @@ const activeModelLabel = computed(() => {
 
 const deepImportButton = useSaveButton()
 const authorButton = useSaveButton()
+const activeTabSaving = computed(() => (
+  tab.value === "deep"
+    ? deepImportButton.saving.value
+    : authorButton.saving.value
+))
+
+function tabId(key) {
+  return `project-settings-tab-${key}`
+}
+
+function focusTab(key) {
+  void nextTick(() => {
+    tabButtons.value
+      .find((button) => button?.dataset?.tab === key)
+      ?.focus()
+  })
+}
+
+function onTabKeydown(event, key) {
+  const currentIndex = TABS.findIndex((item) => item.key === key)
+  if (currentIndex < 0) return
+  let nextIndex = currentIndex
+  if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
+    nextIndex = (currentIndex - 1 + TABS.length) % TABS.length
+  } else if (["ArrowRight", "ArrowDown"].includes(event.key)) {
+    nextIndex = (currentIndex + 1) % TABS.length
+  } else if (event.key === "Home") {
+    nextIndex = 0
+  } else if (event.key === "End") {
+    nextIndex = TABS.length - 1
+  } else {
+    return
+  }
+  event.preventDefault()
+  const nextKey = TABS[nextIndex]?.key
+  if (!nextKey) return
+  tab.value = nextKey
+  focusTab(nextKey)
+}
 
 function gotoGlobalSettings() {
   getRouter().navigate("settings")
@@ -208,9 +248,14 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
           class="tab-btn"
           :class="{ active: tab === item.key }"
           :data-tab="item.key"
+          :id="tabId(item.key)"
+          ref="tabButtons"
           role="tab"
           :aria-selected="tab === item.key"
+          aria-controls="project-settings-tab-panel"
+          :tabindex="tab === item.key ? 0 : -1"
           @click="tab = item.key"
+          @keydown="onTabKeydown($event, item.key)"
         >{{ item.label }}</button>
       </nav>
     </div>
@@ -224,7 +269,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
       >到账户设置管理</button>
     </aside>
 
-    <div class="settings-tab-content">
+    <div
+      id="project-settings-tab-panel"
+      class="settings-tab-content"
+      role="tabpanel"
+      :aria-labelledby="tabId(tab)"
+      :aria-busy="!dataReady || activeTabSaving"
+    >
       <template v-if="dataReady">
         <div v-if="tab === 'deep'" class="deep-import-tab">
           <p class="settings-section-hint">
@@ -247,6 +298,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
                 'settings-btn-error': deepImportButton.error.value,
               }"
               :disabled="deepImportButton.saving.value"
+              :aria-busy="deepImportButton.saving.value"
               @click="saveDeepImport"
             >保存深度导入参数</button>
             <button
@@ -273,12 +325,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
                 'settings-btn-error': authorButton.error.value,
               }"
               :disabled="authorButton.saving.value"
+              :aria-busy="authorButton.saving.value"
               @click="saveAuthorPrefs"
             >保存作者偏好</button>
           </div>
         </div>
       </template>
-      <template v-else>加载中…</template>
+      <template v-else><p role="status">加载中…</p></template>
     </div>
   </div>
 </template>

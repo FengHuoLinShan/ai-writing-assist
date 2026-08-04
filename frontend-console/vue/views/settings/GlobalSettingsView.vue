@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import { getApi, getConfirm, getRouter, getToast, useStateKey } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
@@ -24,6 +24,7 @@ const connections = ref(props.llmConnections || {
 })
 const balances = ref(props.llmBalances?.items || [])
 const selectedProviderId = ref(connections.value.active_provider_id || "deepseek")
+const providerButtons = ref([])
 const apiKey = ref("")
 const balanceLoading = ref(false)
 const authorForm = ref(authorFormFromDefaults(props.authorPrefs))
@@ -45,6 +46,42 @@ const selectedProvider = computed(() => (
 function selectProvider(providerId) {
   selectedProviderId.value = providerId
   apiKey.value = ""
+}
+
+function focusProvider(providerId) {
+  void nextTick(() => {
+    providerButtons.value
+      .find((button) => button?.dataset?.providerId === providerId)
+      ?.focus()
+  })
+}
+
+function onProviderKeydown(event, providerId) {
+  const currentIndex = providers.value.findIndex(
+    (provider) => provider.provider_id === providerId,
+  )
+  if (currentIndex < 0) return
+  let nextIndex = currentIndex
+  if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
+    nextIndex = (currentIndex - 1 + providers.value.length) % providers.value.length
+  } else if (["ArrowRight", "ArrowDown"].includes(event.key)) {
+    nextIndex = (currentIndex + 1) % providers.value.length
+  } else if (event.key === "Home") {
+    nextIndex = 0
+  } else if (event.key === "End") {
+    nextIndex = providers.value.length - 1
+  } else {
+    return
+  }
+  event.preventDefault()
+  const nextProviderId = providers.value[nextIndex]?.provider_id
+  if (!nextProviderId) return
+  if (nextProviderId === selectedProviderId.value) {
+    focusProvider(nextProviderId)
+    return
+  }
+  selectProvider(nextProviderId)
+  focusProvider(nextProviderId)
 }
 
 function balanceFor(providerId) {
@@ -197,7 +234,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
       </div>
     </div>
 
-    <section class="settings-section account-connection-section">
+    <section class="settings-section account-connection-section" :aria-busy="connectionButton.saving.value || balanceLoading">
       <h3>模型连接</h3>
       <p class="settings-section-hint">
         作者创作和 RP 旅程共用这里选择的模型，只影响之后的新生成。
@@ -214,9 +251,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
             selected: selectedProviderId === provider.provider_id,
             active: provider.active,
           }"
+          ref="providerButtons"
+          :data-provider-id="provider.provider_id"
           role="radio"
           :aria-checked="selectedProviderId === provider.provider_id"
+          :tabindex="selectedProviderId === provider.provider_id ? 0 : -1"
           @click="selectProvider(provider.provider_id)"
+          @keydown="onProviderKeydown($event, provider.provider_id)"
         >
           <span class="account-provider-card__name">{{ provider.label }}</span>
           <span class="account-provider-card__model">{{ provider.model }}</span>
@@ -263,6 +304,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
             'settings-btn-error': connectionButton.error.value,
           }"
           :disabled="connectionButton.saving.value || !selectedProvider"
+          :aria-busy="connectionButton.saving.value"
           @click="saveConnection"
         >{{ selectedProvider?.connected && !apiKey ? "切换并使用" : "验证、保存并使用" }}</button>
         <button
@@ -276,12 +318,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
           id="account-balance-refresh"
           class="btn btn-link"
           :disabled="balanceLoading"
+          :aria-busy="balanceLoading"
           @click="refreshBalances"
         >刷新余额</button>
       </div>
     </section>
 
-    <section v-if="!returningToRp" class="settings-section">
+    <section v-if="!returningToRp" class="settings-section" :aria-busy="authorButton.saving.value">
       <h3>作者偏好</h3>
       <AuthorPreferencesForm v-model="authorForm" />
       <div class="settings-actions">
@@ -293,6 +336,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
             'settings-btn-error': authorButton.error.value,
           }"
           :disabled="authorButton.saving.value"
+          :aria-busy="authorButton.saving.value"
           @click="saveAuthor"
         >保存作者偏好</button>
       </div>
