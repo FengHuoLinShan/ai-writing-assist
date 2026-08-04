@@ -16,6 +16,7 @@ export const SEL = {
   workspace: "#workspace",
   workspaceContent: "#workspace-content",
   viewTitle: "#topbar-module",
+  projectCreateTitle: "#create-title",
   errorLogBadge: "#error-log-badge",
   errorLogPanel: "#error-log-panel",
 

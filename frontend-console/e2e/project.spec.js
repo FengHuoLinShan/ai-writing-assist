@@ -42,6 +42,17 @@ test.describe("项目模块", () => {
     await expect(page.getByRole("button", { name: "新建项目", exact: true }).first()).toBeVisible()
   })
 
+  test("单键新建项目不会把触发字符写入项目名称", async ({ page }) => {
+    await expect(page.getByRole("button", { name: "新建项目", exact: true }).first()).toBeVisible()
+    await page.keyboard.press("n")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
+    const title = page.locator(SEL.projectCreateTitle)
+    await expect(title).toBeFocused()
+    await expect(title).toHaveValue("")
+    await page.keyboard.press("Escape")
+    await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+  })
+
   test("创建项目并自动切换到写作视图", async ({ page }) => {
     await page.locator('[data-action="new"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)

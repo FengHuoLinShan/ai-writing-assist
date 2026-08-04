@@ -68,7 +68,9 @@ export function useShellShortcuts({
         Promise.resolve(services.router.navigate(shellState.currentView, null)).catch(report("导航失败"))
       }
     } else if (["n", "e", "g", "x"].includes(actionKey)) {
-      trigger(({ n: "new", e: "edit", g: "generate", x: "delete" })[actionKey])
+      if (trigger(({ n: "new", e: "edit", g: "generate", x: "delete" })[actionKey])) {
+        event.preventDefault()
+      }
     } else if (actionKey === "s") {
       if (!services.workspace.autosave(getRouteHost()) && !trigger("save")) services.toast("没有可保存的内容", "info")
     } else if (actionKey === "j" || actionKey === "k") {

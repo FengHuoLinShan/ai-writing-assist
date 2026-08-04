@@ -120,6 +120,29 @@ describe("ShellApp", () => {
     expect(document.getElementById("help-overlay")).toBeNull()
   })
 
+  it("consumes handled single-key actions but leaves unavailable actions to the browser", () => {
+    const services = createShellTestServices()
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
+    const titleInput = document.createElement("input")
+    const newButton = document.createElement("button")
+    newButton.dataset.action = "new"
+    newButton.addEventListener("click", () => titleInput.focus())
+    wrapper.get("#workspace-content").element.append(newButton, titleInput)
+
+    const handled = new KeyboardEvent("keydown", { key: "n", bubbles: true, cancelable: true })
+    document.dispatchEvent(handled)
+    expect(services.workspace.triggerAction).toHaveBeenCalledWith("new", wrapper.get("#workspace-content").element)
+    expect(handled.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(titleInput)
+
+    titleInput.blur()
+    expect(document.activeElement).not.toBe(titleInput)
+    const unavailable = new KeyboardEvent("keydown", { key: "e", bubbles: true, cancelable: true })
+    document.dispatchEvent(unavailable)
+    expect(services.workspace.triggerAction).toHaveBeenLastCalledWith("edit", wrapper.get("#workspace-content").element)
+    expect(unavailable.defaultPrevented).toBe(false)
+  })
+
   it("blocks background workspace shortcuts while a modal is open but keeps Escape", () => {
     const services = createShellTestServices()
     services.modal.isOpen.mockReturnValue(true)
