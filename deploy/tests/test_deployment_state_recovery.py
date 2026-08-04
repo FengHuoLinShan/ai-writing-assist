@@ -121,6 +121,135 @@ def test_release_failure_restores_the_finalized_checkout_not_drifted_head(
     assert " stop api worker frontend" not in docker_log.read_text(encoding="utf-8")
 
 
+def test_release_checkout_disables_local_git_hooks(tmp_path: Path) -> None:
+    repo_root, commit_a, commit_b, environment, _docker_log = _deployment_repo(tmp_path)
+    hook_marker = tmp_path / "post-checkout-ran"
+    hook_path = repo_root / ".git" / "hooks" / "post-checkout"
+    hook_path.write_text(f"#!/bin/sh\nprintf hook >{hook_marker}\n")
+    hook_path.chmod(0o755)
+
+    result = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment | {"FAKE_DOCKER_BUILD_STATUS": "1"},
+    )
+
+    assert result.returncode != 0
+    assert not hook_marker.exists()
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+
+
+def test_release_and_restore_precheckout_guard_rejects_untracked_source(
+    tmp_path: Path,
+) -> None:
+    for script_name in ("release.sh", "restore.sh"):
+        repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(
+            tmp_path / script_name
+        )
+        untracked_source = repo_root / "backend" / "untracked.py"
+        untracked_source.parent.mkdir()
+        untracked_source.write_text("untracked\n")
+
+        arguments = [commit_b]
+        if script_name == "restore.sh":
+            arguments.insert(0, str(repo_root / "deploy" / "backups" / "missing.dump"))
+        result = _run_script(repo_root, script_name, arguments, environment)
+
+        assert result.returncode != 0
+        assert "Deployment checkout is unsafe" in result.stderr
+        assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+        _assert_healthy_state(repo_root, commit_a)
+        assert not docker_log.exists()
+
+
+def test_release_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    fake_bin = Path(environment["PATH"].split(os.pathsep, maxsplit=1)[0])
+    real_git = shutil.which("git")
+    assert real_git is not None
+    drift_path = repo_root / ".target-time-drift"
+    (repo_root / ".git" / "info" / "exclude").write_text(".target-time-drift\n")
+    (fake_bin / "git").write_text(
+        "#!/bin/sh\n"
+        "checkout=false\n"
+        "for argument in \"$@\"; do\n"
+        "  test \"$argument\" = checkout && checkout=true\n"
+        "done\n"
+        "\"$FAKE_REAL_GIT\" \"$@\"\n"
+        "status=$?\n"
+        "if test \"$status\" -eq 0 && test \"$checkout\" = true; then\n"
+        "  printf target-drift >\"$FAKE_GIT_DRIFT_PATH\"\n"
+        "fi\n"
+        "exit \"$status\"\n"
+    )
+    (fake_bin / "git").chmod(0o755)
+
+    result = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment
+        | {
+            "FAKE_REAL_GIT": real_git,
+            "FAKE_GIT_DRIFT_PATH": str(drift_path),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "Deployment checkout is unsafe" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+    assert not docker_log.exists()
+
+
+def test_restore_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    backup_path = repo_root / "deploy" / "backups" / "fixture.dump"
+    backup_path.parent.mkdir()
+    backup_path.write_bytes(b"fixture backup")
+    Path(f"{backup_path}.sha256").write_text(
+        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
+    )
+    fake_bin = Path(environment["PATH"].split(os.pathsep, maxsplit=1)[0])
+    real_git = shutil.which("git")
+    assert real_git is not None
+    drift_path = repo_root / ".target-time-drift"
+    (repo_root / ".git" / "info" / "exclude").write_text(".target-time-drift\n")
+    (fake_bin / "git").write_text(
+        "#!/bin/sh\n"
+        "checkout=false\n"
+        "for argument in \"$@\"; do\n"
+        "  test \"$argument\" = checkout && checkout=true\n"
+        "done\n"
+        "\"$FAKE_REAL_GIT\" \"$@\"\n"
+        "status=$?\n"
+        "if test \"$status\" -eq 0 && test \"$checkout\" = true; then\n"
+        "  printf target-drift >\"$FAKE_GIT_DRIFT_PATH\"\n"
+        "fi\n"
+        "exit \"$status\"\n"
+    )
+    (fake_bin / "git").chmod(0o755)
+
+    result = _run_script(
+        repo_root,
+        "restore.sh",
+        [str(backup_path), commit_b],
+        environment
+        | {
+            "FAKE_REAL_GIT": real_git,
+            "FAKE_GIT_DRIFT_PATH": str(drift_path),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "Deployment checkout is unsafe" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+    assert not docker_log.exists()
+
+
 def test_restore_cancellation_restores_finalized_checkout_without_replacing_database(
     tmp_path: Path,
 ) -> None:

@@ -221,6 +221,16 @@ restore 在 fetch/check-out 前先用当前 checkout 的 validator fail fast；�
 该 target 校验失败时，既有 cleanup 只会恢复 finalized checkout/state，且不会执行 Docker 操作或进入 downtime。
 这描述仓库脚本合同，不表示生产环境已经实际验证。
 
+release 与 restore 在 fetch 前及 target checkout 后各执行一次严格 deployment-checkout guard；任何 tracked、
+staged 或 unmerged 路径都会拒绝。仅 untracked/ignored 运行时数据可使用 `deploy/.env.production`、
+`deploy/.state`（及其 descendants）与 `deploy/backups`（及其 descendants）这一精确 allowlist；这些路径绝不允许
+被 Git 跟踪。两次 checkout 均以本次 Git
+调用禁用 hooks，避免主机本地 hook 在 guard 前执行。target validator 通过后，脚本从目标 40 位 commit 的 tracked
+Git tree 以 `git archive` 创建私有临时 build snapshot，并用临时 Compose override 将所有第一方 build context 定向到
+该 snapshot；`.env.production`、state、backups、ignored cache 和其他 worktree 内容不会进入 Docker context。override
+与 snapshot 会持续到本次 release/restore 结束后清理。它保证固定 source provenance，不承诺基础镜像、网络、工具链或
+Docker builder 输出逐字节相同；本说明不表示外部生产环境已验证。
+
 release 在 target preflight 与 target API/frontend build 完成后、pre-migration backup 前进入有界
 maintenance window：先停止 API、frontend 与 worker（worker 依既有 2 分钟 grace drain），再 reconcile
 target PostgreSQL 与 embedding，随后执行首次 fresh database guard、embedding contract check、snapshot、

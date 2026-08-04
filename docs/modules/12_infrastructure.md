@@ -188,6 +188,16 @@ image build、archive list、确认提示、quiesce 或数据库工作前重新�
 既有 cleanup 只恢复 finalized checkout/state，不执行 Docker 操作或进入 maintenance window。该合同不表示
 生产环境已经实际验证。
 
+release/restore 在 fetch 前及 target checkout 后都执行 strict deployment-checkout guard：任一 tracked/staged/
+unmerged 路径都会 fail closed。只有 untracked/ignored operational data 可使用 `deploy/.env.production`、
+`deploy/.state`（及 descendants）和 `deploy/backups`（及 descendants）这一 exact allowlist，且这些路径绝不允许被
+Git 跟踪。两次 checkout 以 invocation-scoped Git hooks
+禁用，避免本地 hook 先于 guard 执行。target validator 后，脚本用 `git archive` 从固定 40 位目标 commit 的 tracked
+tree materialize 私有临时 build snapshot，并以临时 Compose override 让所有第一方 build context 指向它；runtime env、
+state、backups、ignored cache 与其他 worktree 文件不进入 Docker context。snapshot/override 在本次操作结束后清理。
+这只固定 source provenance，不保证 base image、build network、toolchain 或 Docker builder 的 byte-identical 输出，
+也不表示外部生产环境已经验证。
+
 release 在 target preflight 与 API/frontend build 后、pre-migration snapshot 前先停止 API/frontend/worker
 （worker 按既有 2 分钟 grace drain），然后才 reconcile target PostgreSQL 与 embedding，并执行 fresh database
 guard、embedding contract check、snapshot、migration 和新服务启动。Docker Compose 在依赖镜像或配置变更时可能

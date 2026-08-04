@@ -428,7 +428,7 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
     assert release_script.count("validate_environment") == 2
     restore_first_validation = restore_script.index("validate_environment")
     restore_checkout = restore_script.index(
-        'git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"'
+        'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
     )
     restore_second_validation = restore_script.index(
         "validate_environment", restore_first_validation + 1
@@ -443,7 +443,7 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
     assert restore_archive_check < restore_prompt < restore_quiesce
 
     release_checkout = release_script.index(
-        'git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"'
+        'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
     )
     release_second_validation = release_script.index(
         "validate_environment", release_checkout
@@ -451,6 +451,21 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
     assert release_checkout < release_second_validation < release_script.index(
         "compose build api frontend"
     )
+
+
+def test_release_and_restore_guard_and_snapshot_the_target_checkout() -> None:
+    for script_name in ("release.sh", "restore.sh"):
+        script = (DEPLOY_ROOT / "scripts" / script_name).read_text()
+        pre_guard = script.index("verify_deployment_checkout")
+        checkout = script.index(
+            'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
+        )
+        post_guard = script.index("verify_deployment_checkout", pre_guard + 1)
+        target_validation = script.index("validate_environment", checkout)
+        snapshot = script.index("prepare_fixed_commit_build_context")
+        build = script.index("compose build api frontend")
+
+        assert pre_guard < checkout < post_guard < target_validation < snapshot < build
 
 
 def test_release_and_restore_commit_state_only_after_shared_health_gate() -> None:
@@ -480,7 +495,7 @@ def test_release_and_restore_restore_the_finalized_state_checkout_on_failure() -
             "trap cleanup_uncommitted_attempt EXIT HUP INT TERM"
         )
         checkout = script.index(
-            'git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"'
+            'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
         )
         current_release = script.index(
             'write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"'

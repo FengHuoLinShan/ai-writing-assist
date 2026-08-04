@@ -9,6 +9,9 @@ ENV_FILE=${ENV_FILE:-"$DEPLOY_DIR/.env.production"}
 COMPOSE_FILE="$DEPLOY_DIR/compose.production.yml"
 STATE_DIR="$DEPLOY_DIR/.state"
 BACKUP_DIR="$DEPLOY_DIR/backups"
+FIXED_COMMIT_BUILD_CONTEXT_ROOT=
+FIXED_COMMIT_BUILD_CONTEXT_OVERRIDE=
+FIXED_COMMIT_BUILD_CONTEXT_PREFIX=
 
 acquire_production_operation_lock() {
     lock_path="$STATE_DIR/production-operation.lock"
@@ -22,7 +25,12 @@ acquire_production_operation_lock() {
 }
 
 compose() {
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    if [ -n "$FIXED_COMMIT_BUILD_CONTEXT_OVERRIDE" ]; then
+        docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            -f "$FIXED_COMMIT_BUILD_CONTEXT_OVERRIDE" "$@"
+    else
+        docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    fi
 }
 
 env_value() {
@@ -35,6 +43,182 @@ validate_environment() {
 
 ensure_private_backup_directory() {
     python3 "$SCRIPT_DIR/ensure_private_directory.py" "$BACKUP_DIR"
+}
+
+verify_deployment_checkout() {
+    if ! python3 - "$REPO_ROOT" <<'PY'
+import subprocess
+import sys
+
+repo_root = sys.argv[1]
+commands = [
+    [
+        "git",
+        "-C",
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=no",
+        "--",
+        ".",
+    ],
+    [
+        "git",
+        "-C",
+        repo_root,
+        "ls-files",
+        "-z",
+        "--",
+        "deploy/.env.production",
+        "deploy/.state",
+        ":(glob)deploy/.state/**",
+        "deploy/backups",
+        ":(glob)deploy/backups/**",
+    ],
+    [
+        "git",
+        "-C",
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--ignored",
+        "--untracked-files=all",
+        "--",
+        ".",
+        ":(exclude)deploy/.env.production",
+        ":(exclude)deploy/.state",
+        ":(exclude)deploy/.state/**",
+        ":(exclude)deploy/backups",
+        ":(exclude)deploy/backups/**",
+    ],
+]
+try:
+    results = [
+        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        for command in commands
+    ]
+except OSError:
+    sys.exit(1)
+sys.exit(0 if all(result.returncode == 0 and not result.stdout for result in results) else 1)
+PY
+    then
+        echo "Deployment checkout is unsafe or contains unapproved paths." >&2
+        return 1
+    fi
+}
+
+cleanup_fixed_commit_build_context() {
+    cleanup_root=$FIXED_COMMIT_BUILD_CONTEXT_ROOT
+    cleanup_prefix=$FIXED_COMMIT_BUILD_CONTEXT_PREFIX
+    FIXED_COMMIT_BUILD_CONTEXT_ROOT=
+    FIXED_COMMIT_BUILD_CONTEXT_OVERRIDE=
+    FIXED_COMMIT_BUILD_CONTEXT_PREFIX=
+
+    if [ -z "$cleanup_root" ]; then
+        return 0
+    fi
+    case "$cleanup_root" in
+        "$cleanup_prefix"*) ;;
+        *)
+            echo "Warning: refusing to remove an unexpected fixed-commit build context." >&2
+            return 0
+            ;;
+    esac
+    if [ ! -d "$cleanup_root" ] || [ -L "$cleanup_root" ] \
+        || [ ! -f "$cleanup_root/.fixed-commit-build-context" ] \
+        || [ -L "$cleanup_root/.fixed-commit-build-context" ]; then
+        echo "Warning: refusing to remove an invalid fixed-commit build context." >&2
+        return 0
+    fi
+    if ! rm -rf "$cleanup_root"; then
+        echo "Warning: unable to remove fixed-commit build context." >&2
+    fi
+}
+
+prepare_fixed_commit_build_context() {
+    target_commit=$1
+    if [ -n "$FIXED_COMMIT_BUILD_CONTEXT_ROOT" ]; then
+        echo "Fixed-commit build context is already active." >&2
+        return 1
+    fi
+
+    context_parent=${TMPDIR:-/tmp}
+    context_parent=${context_parent%/}
+    FIXED_COMMIT_BUILD_CONTEXT_PREFIX="$context_parent/ai-writing-assist-build."
+    FIXED_COMMIT_BUILD_CONTEXT_ROOT=$(mktemp -d "${FIXED_COMMIT_BUILD_CONTEXT_PREFIX}XXXXXX") || {
+        echo "Unable to create fixed-commit build context." >&2
+        FIXED_COMMIT_BUILD_CONTEXT_PREFIX=
+        return 1
+    }
+    case "$FIXED_COMMIT_BUILD_CONTEXT_ROOT" in
+        "$FIXED_COMMIT_BUILD_CONTEXT_PREFIX"*) ;;
+        *)
+            echo "Fixed-commit build context path is unsafe." >&2
+            cleanup_fixed_commit_build_context
+            return 1
+            ;;
+    esac
+    if [ ! -d "$FIXED_COMMIT_BUILD_CONTEXT_ROOT" ] \
+        || [ -L "$FIXED_COMMIT_BUILD_CONTEXT_ROOT" ]; then
+        echo "Fixed-commit build context path is unsafe." >&2
+        cleanup_fixed_commit_build_context
+        return 1
+    fi
+    chmod 700 "$FIXED_COMMIT_BUILD_CONTEXT_ROOT" || {
+        echo "Unable to secure fixed-commit build context." >&2
+        cleanup_fixed_commit_build_context
+        return 1
+    }
+    if ! printf '%s\n' fixed-commit-build-context \
+        >"$FIXED_COMMIT_BUILD_CONTEXT_ROOT/.fixed-commit-build-context"; then
+        echo "Unable to initialize fixed-commit build context." >&2
+        cleanup_fixed_commit_build_context
+        return 1
+    fi
+    build_source="$FIXED_COMMIT_BUILD_CONTEXT_ROOT/source"
+    if ! mkdir -m 700 "$build_source"; then
+        echo "Unable to initialize fixed-commit build source." >&2
+        cleanup_fixed_commit_build_context
+        return 1
+    fi
+    archive_path="$FIXED_COMMIT_BUILD_CONTEXT_ROOT/source.tar"
+    if ! git -C "$REPO_ROOT" archive --format=tar "$target_commit" >"$archive_path" \
+        || ! tar -xf "$archive_path" -C "$build_source" \
+        || ! rm -f "$archive_path"; then
+        echo "Unable to materialize fixed-commit build source." >&2
+        cleanup_fixed_commit_build_context
+        return 1
+    fi
+    FIXED_COMMIT_BUILD_CONTEXT_OVERRIDE="$FIXED_COMMIT_BUILD_CONTEXT_ROOT/compose-build-context.json"
+    if ! python3 - "$FIXED_COMMIT_BUILD_CONTEXT_OVERRIDE" "$build_source" <<'PY'
+import json
+import os
+import sys
+
+override_path, source_path = sys.argv[1:]
+backend_build = {"context": source_path, "dockerfile": "backend/Dockerfile"}
+payload = {
+    "services": {
+        "api": {"build": backend_build},
+        "worker": {"build": backend_build},
+        "frontend": {
+            "build": {"context": source_path, "dockerfile": "frontend-console/Dockerfile"}
+        },
+        "migrate": {"build": backend_build},
+        "account-maintenance": {"build": backend_build},
+    }
+}
+with open(override_path, "x", encoding="utf-8") as output:
+    json.dump(payload, output, separators=(",", ":"))
+os.chmod(override_path, 0o600)
+PY
+    then
+        echo "Unable to create fixed-commit build override." >&2
+        cleanup_fixed_commit_build_context
+        return 1
+    fi
 }
 
 sha256_digest() {

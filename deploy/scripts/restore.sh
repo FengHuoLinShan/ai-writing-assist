@@ -25,6 +25,7 @@ fi
 
 acquire_production_operation_lock "$@"
 validate_environment
+verify_deployment_checkout
 ensure_private_backup_directory
 
 BACKUP_PATH=$(realpath "$BACKUP_INPUT")
@@ -72,20 +73,23 @@ cleanup_uncommitted_attempt() {
         fi
         if ! (
             umask 022
-            git -C "$REPO_ROOT" checkout --detach "$PREVIOUS_COMMIT"
+            git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$PREVIOUS_COMMIT"
         ); then
             echo "Warning: failed to restore the finalized deployment checkout." >&2
         fi
     fi
+    cleanup_fixed_commit_build_context
     exit "$status"
 }
 trap cleanup_uncommitted_attempt EXIT HUP INT TERM
 
 (
     umask 022
-    git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"
+    git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"
 )
+verify_deployment_checkout
 validate_environment
+prepare_fixed_commit_build_context "$TARGET_COMMIT"
 compose build api frontend
 compose exec -T postgres pg_restore --list <"$BACKUP_PATH" >/dev/null
 
@@ -144,6 +148,7 @@ write_state_file "$STATE_DIR/current-backup" "$BACKUP_PATH"
 # current-release is the final commit marker for a fully healthy restoration.
 write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"
 DEPLOYMENT_COMMITTED=true
+cleanup_fixed_commit_build_context
 trap - EXIT HUP INT TERM
 
 echo "Restore healthy with release: $TARGET_COMMIT"

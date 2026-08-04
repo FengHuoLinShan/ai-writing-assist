@@ -231,12 +231,6 @@ def test_symlinked_state_directory_fails_closed(tmp_path: Path) -> None:
 
 
 def test_mutating_scripts_enter_shared_lock_before_production_work() -> None:
-    scripts = {
-        "release.sh": "validate_environment\n\nif ! git",
-        "restore.sh": "ensure_private_backup_directory\n\nBACKUP_PATH=",
-        "backup.sh": "validate_environment >&2",
-        "account_maintenance.sh": "validate_environment\nload_release_id",
-    }
     common = COMMON_SCRIPT.read_text(encoding="utf-8")
 
     assert "acquire_production_operation_lock()" in common
@@ -245,10 +239,29 @@ def test_mutating_scripts_enter_shared_lock_before_production_work() -> None:
     assert 'python3 "$SCRIPT_DIR/production_operation_lock.py" verify' in common
     assert '"$lock_path" /bin/sh "$0" "$@"' in common
 
-    for script_name, first_operation in scripts.items():
+    release = (DEPLOY_ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+    release_lock = release.index('acquire_production_operation_lock "$@"')
+    release_validation = release.index("validate_environment")
+    release_guard = release.index("verify_deployment_checkout")
+    assert release_lock < release_validation < release_guard < release.index(
+        'git -C "$REPO_ROOT" fetch --prune origin'
+    )
+
+    restore = (DEPLOY_ROOT / "scripts" / "restore.sh").read_text(encoding="utf-8")
+    restore_lock = restore.index('acquire_production_operation_lock "$@"')
+    restore_validation = restore.index("validate_environment")
+    restore_guard = restore.index("verify_deployment_checkout")
+    assert restore_lock < restore_validation < restore_guard < restore.index(
+        "ensure_private_backup_directory"
+    ) < restore.index("BACKUP_PATH=$(realpath")
+
+    for script_name, validator in (
+        ("backup.sh", "validate_environment >&2"),
+        ("account_maintenance.sh", "validate_environment"),
+    ):
         script = (DEPLOY_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
         assert script.index('acquire_production_operation_lock "$@"') < script.index(
-            first_operation
+            validator
         )
 
     runtime_health = (DEPLOY_ROOT / "scripts" / "runtime_health.sh").read_text(

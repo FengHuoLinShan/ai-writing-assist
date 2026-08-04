@@ -24,11 +24,7 @@ fi
 
 acquire_production_operation_lock "$@"
 validate_environment
-
-if ! git -C "$REPO_ROOT" diff-index --quiet HEAD --; then
-    echo "Tracked working tree changes exist; refusing to release." >&2
-    exit 1
-fi
+verify_deployment_checkout
 
 git -C "$REPO_ROOT" fetch --prune origin
 TARGET_COMMIT=$(git -C "$REPO_ROOT" rev-parse "${RELEASE_REF}^{commit}")
@@ -56,11 +52,12 @@ cleanup_uncommitted_attempt() {
         fi
         if ! (
             umask 022
-            git -C "$REPO_ROOT" checkout --detach "$PREVIOUS_COMMIT"
+            git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$PREVIOUS_COMMIT"
         ); then
             echo "Warning: failed to restore the finalized deployment checkout." >&2
         fi
     fi
+    cleanup_fixed_commit_build_context
     exit "$status"
 }
 trap cleanup_uncommitted_attempt EXIT HUP INT TERM
@@ -69,8 +66,9 @@ trap cleanup_uncommitted_attempt EXIT HUP INT TERM
     # Keep secrets, backups, and release state private without making checked-out
     # application files unreadable to non-root container processes.
     umask 022
-    git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"
+    git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"
 )
+verify_deployment_checkout
 
 RELEASE_ID=$(printf '%s' "$TARGET_COMMIT" | cut -c1-12)
 export RELEASE_ID
@@ -81,6 +79,7 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 validate_environment
+prepare_fixed_commit_build_context "$TARGET_COMMIT"
 compose build api frontend
 
 if ! compose stop api worker frontend; then
@@ -135,6 +134,7 @@ write_state_file "$STATE_DIR/current-backup" "$BACKUP_PATH"
 # current-release is the final commit marker for a fully healthy deployment.
 write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"
 DEPLOYMENT_COMMITTED=true
+cleanup_fixed_commit_build_context
 trap - EXIT HUP INT TERM
 
 echo "Release healthy: $TARGET_COMMIT"
