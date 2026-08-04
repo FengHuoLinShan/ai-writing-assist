@@ -495,13 +495,22 @@ def test_backend_dependency_audit_target_covers_the_entire_lockfile() -> None:
 
 
 def test_deployment_contract_tests_are_a_required_ci_gate() -> None:
-    makefile = (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
+    workflow = (BACKEND_ROOT.parent / ".github/workflows/backend-ci.yml").read_text(
+        encoding="utf-8"
+    )
+    command = _make_dry_run("test-deploy")
 
     assert (
         "test-ci: secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps"
-        in makefile
+        in (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
     )
-    assert "pytest ../deploy/tests" in _make_dry_run("test-deploy")
+    assert "uv run --locked --extra ci --" in command
+    assert "pytest -c pyproject.toml ../deploy/tests" in command
+
+    deployment_step = workflow.split(
+        "      - name: Run deployment contract tests\n", maxsplit=1
+    )[1].split("\n      - name:", maxsplit=1)[0]
+    assert deployment_step.strip() == "run: make test-deploy"
 
 
 def test_timeout_is_not_forced_onto_explicit_acceptance_layers() -> None:

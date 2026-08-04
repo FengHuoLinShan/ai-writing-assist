@@ -93,7 +93,7 @@ test-manual:  ## Run real-source and PostgreSQL/real-LLM acceptance tests explic
 	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_MANUAL_TESTS) -m "real_llm or external_data" $(ARGS)
 
 test-deploy:  ## Run deployment static and CLI contract tests
-	cd $(BACKEND_DIR) && pytest ../deploy/tests
+	cd $(BACKEND_DIR) && uv run --locked --extra ci -- pytest -c pyproject.toml ../deploy/tests
 
 test-frontend:  ## Run frontend tests
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)

@@ -44,7 +44,7 @@ jobs:
         run: uv run --project backend --locked --extra ci -- make lint
 
       - name: Run deployment contract tests
-        run: uv run --project backend --locked --extra ci -- make test-deploy
+        run: make test-deploy
 
       - name: Run fast backend tests with coverage
         run: >-
