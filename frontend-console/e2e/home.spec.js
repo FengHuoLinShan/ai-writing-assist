@@ -100,6 +100,41 @@ test.describe("首页与导航", () => {
     await expect(input).not.toBeFocused()
   })
 
+  test("作者可用键盘选择主题而不在导航时切换", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("novel_theme", "minimal"))
+    await page.goto("/")
+    await enterAuthor(page)
+
+    const toggle = page.locator(SEL.themeToggle)
+    const minimal = page.locator(SEL.themeOption("minimal"))
+    const warm = page.locator(SEL.themeOption("warm"))
+    await toggle.focus()
+    await page.keyboard.press("Enter")
+    await expect(minimal).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await expect(warm).toBeFocused()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal")
+    await page.keyboard.press("Enter")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "warm")
+    await expect(toggle).toBeFocused()
+
+    await page.keyboard.press("Space")
+    await expect(warm).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await expect(page.locator(SEL.themeOption("dark"))).toBeFocused()
+    await page.keyboard.press("Space")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+    await expect(toggle).toBeFocused()
+
+    await page.keyboard.press("Space")
+    await expect(page.locator(SEL.themeOption("dark"))).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(toggle).toBeFocused()
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+    await page.evaluate(() => localStorage.removeItem("novel_theme"))
+  })
+
   test("错误日志徽标可在窄屏用键盘安全确认清空", async ({ page }) => {
     await page.route("**/debug/frontend-errors", (route) => route.fulfill({
       status: 204,

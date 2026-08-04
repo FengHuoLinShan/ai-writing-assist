@@ -143,6 +143,24 @@ describe("ShellApp", () => {
     expect(unavailable.defaultPrevented).toBe(false)
   })
 
+  it("keeps shell shortcuts out of the theme toggle and menu", async () => {
+    const services = createShellTestServices()
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
+    const toggle = wrapper.get("#theme-toggle")
+    const toggleEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
+    toggle.element.dispatchEvent(toggleEnter)
+    expect(toggleEnter.defaultPrevented).toBe(false)
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+
+    await toggle.trigger("click")
+    const menuItem = wrapper.get('[data-theme-value="minimal"]')
+    for (const key of ["g", "Enter", "Escape"]) {
+      menuItem.element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
+    }
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+    expect(services.router.navigate).not.toHaveBeenCalled()
+  })
+
   it("blocks background workspace shortcuts while a modal is open but keeps Escape", () => {
     const services = createShellTestServices()
     services.modal.isOpen.mockReturnValue(true)
