@@ -108,9 +108,11 @@ bash deploy/scripts/verify_public.sh
 DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网链路通过。
 
 `verify_public.sh` 无参数时保留上述完整发布验收，包含 `asset-inventory.txt` 的所有发布资源。
-`runtime_health.sh` 每轮先复用本机 API、完整内部前端资产和 worker 进程健康检查，再调用
-`verify_public.sh --runtime`；后者只校验公网 HTTPS API、入口和入口 HTML 声明的 JS/CSS，避免每
-5 分钟遍历完整资源清单。它们都不会创建或启用外部 Healthchecks 检查。
+`runtime_health.sh` 每轮先复用本机 API、完整内部前端资产和 worker 进程健康检查，再执行一个
+小型真实 embedding 向量/维度探测，最后调用 `verify_public.sh --runtime`；后者只校验公网 HTTPS API、
+入口和入口 HTML 声明的 JS/CSS，避免每 5 分钟遍历完整资源清单。embedding 探测以 45 秒总预算、
+10 秒单请求和 5 秒重试间隔运行，避免 timer 长时间挂起；它不检查外部 LLM provider 或任何 LLM
+调用，也不验证向量的语义质量。它们都不会创建或启用外部 Healthchecks 检查。
 
 ## 日常更新
 

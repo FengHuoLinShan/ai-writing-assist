@@ -23,6 +23,10 @@ trap on_exit EXIT HUP INT TERM
 
 healthcheck_ping "${HEALTHCHECK_URL}/start" || true
 wait_for_application_health
+compose exec -T api python scripts/check_embedding.py \
+    --timeout-seconds 45 \
+    --request-timeout-seconds 10 \
+    --retry-delay-seconds 5
 bash "$SCRIPT_DIR/verify_public.sh" --runtime
 healthcheck_ping "$HEALTHCHECK_URL" || true
 RUNTIME_HEALTH_SUCCEEDED=true

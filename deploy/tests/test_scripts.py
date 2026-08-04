@@ -1,10 +1,14 @@
 import hashlib
+import importlib.util
+import io
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
+import pytest
 import yaml
 
 DEPLOY_ROOT = Path(__file__).parents[1]
@@ -13,6 +17,7 @@ FRONTEND_ASSET_VALIDATOR = DEPLOY_ROOT / "scripts" / "validate_frontend_assets.p
 RUNTIME_HEALTH_SCRIPT = DEPLOY_ROOT / "scripts" / "runtime_health.sh"
 VERIFY_PUBLIC_SCRIPT = DEPLOY_ROOT / "scripts" / "verify_public.sh"
 CLOSED_TEST_ENV = DEPLOY_ROOT / "tests" / "fixtures" / "closed-test.env"
+EMBEDDING_CHECK_SCRIPT = DEPLOY_ROOT.parent / "backend" / "scripts" / "check_embedding.py"
 
 _RUNTIME_PATHS = [
     "/",
@@ -691,7 +696,10 @@ def _write_runtime_health_fakes(tmp_path: Path) -> tuple[Path, Path]:
     fake_docker.write_text(
         "#!/bin/sh\n"
         'printf "docker:%s\\n" "$*" >>"$FAKE_EVENT_LOG"\n'
-        'test "${FAKE_DOCKER_FAIL:-0}" != 1\n'
+        'case "$*" in\n'
+        '    *"scripts/check_embedding.py"*) test "${FAKE_EMBEDDING_FAIL:-0}" != 1 ;;\n'
+        '    *) test "${FAKE_DOCKER_FAIL:-0}" != 1 ;;\n'
+        "esac\n"
     )
     fake_bash = fake_bin / "bash"
     fake_bash.write_text(
@@ -710,6 +718,7 @@ def _run_runtime_health(
     tmp_path: Path,
     *,
     docker_fails: bool = False,
+    embedding_fails: bool = False,
     public_check_status: int = 0,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     env_file = _copy_safe_test_env(tmp_path)
@@ -719,6 +728,7 @@ def _run_runtime_health(
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "FAKE_EVENT_LOG": str(event_log),
         "FAKE_DOCKER_FAIL": "1" if docker_fails else "0",
+        "FAKE_EMBEDDING_FAIL": "1" if embedding_fails else "0",
         "FAKE_BASH_STATUS": str(public_check_status),
     }
     result = subprocess.run(
@@ -744,6 +754,11 @@ def test_runtime_health_script_reports_start_success_and_fail_without_masking_su
     api = next(
         index for index, event in enumerate(success_events) if "exec -T api" in event
     )
+    embedding = next(
+        index
+        for index, event in enumerate(success_events)
+        if "scripts/check_embedding.py" in event
+    )
     public = next(
         index
         for index, event in enumerate(success_events)
@@ -754,7 +769,7 @@ def test_runtime_health_script_reports_start_success_and_fail_without_masking_su
         for index, event in enumerate(success_events)
         if event.endswith("/runtime-fixture")
     )
-    assert start < api < public < completed
+    assert start < api < embedding < public < completed
     assert not any(event.endswith("/runtime-fixture/fail") for event in success_events)
 
     local_failure, local_failure_events = _run_runtime_health(
@@ -764,6 +779,19 @@ def test_runtime_health_script_reports_start_success_and_fail_without_masking_su
     assert local_failure.returncode != 0
     assert any(event.endswith("/runtime-fixture/fail") for event in local_failure_events)
     assert not any(event.startswith("bash:") for event in local_failure_events)
+
+    embedding_failure, embedding_failure_events = _run_runtime_health(
+        tmp_path / "embedding-failure", embedding_fails=True
+    )
+
+    assert embedding_failure.returncode != 0
+    assert any(
+        "scripts/check_embedding.py" in event for event in embedding_failure_events
+    )
+    assert any(
+        event.endswith("/runtime-fixture/fail") for event in embedding_failure_events
+    )
+    assert not any(event.startswith("bash:") for event in embedding_failure_events)
 
     public_failure, public_failure_events = _run_runtime_health(
         tmp_path / "public-failure", public_check_status=17
@@ -880,7 +908,12 @@ def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
     assert "HEALTHCHECKS_RUNTIME_PING_URL" in script
     assert script.index('healthcheck_ping "${HEALTHCHECK_URL}/start"') < script.index(
         "wait_for_application_health"
-    ) < script.index('bash "$SCRIPT_DIR/verify_public.sh" --runtime')
+    ) < script.index("compose exec -T api python scripts/check_embedding.py") < script.index(
+        'bash "$SCRIPT_DIR/verify_public.sh" --runtime'
+    )
+    assert (
+        "compose exec -T api python scripts/check_embedding.py \\\n    --timeout-seconds 45 \\\n    --request-timeout-seconds 10 \\\n    --retry-delay-seconds 5"
+    ) in script
     assert "RUNTIME_HEALTH_SUCCEEDED" in script
     assert 'healthcheck_ping "${HEALTHCHECK_URL}/fail" || true' in script
     assert "Requires=docker.service" in service
@@ -897,3 +930,236 @@ def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
     assert "RandomizedDelaySec=30s" in timer
     assert "Unit=ai-writing-runtime-health.service" in timer
     assert "Persistent=" not in timer
+
+
+def _load_embedding_check() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "deployment_embedding_check", EMBEDDING_CHECK_SCRIPT
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _embedding_environment(expected_dim: int = 3) -> dict[str, str]:
+    return {
+        "EMBEDDING_BASE_URL": "http://embedding:80/v1",
+        "EMBEDDING_MODEL": "bge-base-zh-v1.5",
+        "EMBEDDING_API_KEY": "test-api-key",
+        "EMBEDDING_DIM": str(expected_dim),
+    }
+
+
+def test_embedding_probe_accepts_the_expected_dimension_and_caps_request_timeout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_embedding_check()
+    clock = _FakeClock()
+    request_timeouts: list[float] = []
+
+    def urlopen(_request: object, *, timeout: float) -> io.StringIO:
+        request_timeouts.append(timeout)
+        return io.StringIO('{"data": [{"embedding": [0, 0, 0]}]}')
+
+    result = module.check_embedding(
+        timeout_seconds=5,
+        request_timeout_seconds=10,
+        retry_delay_seconds=1,
+        environment=_embedding_environment(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        urlopen=urlopen,
+    )
+
+    assert result == 0
+    assert request_timeouts == [5]
+    assert capsys.readouterr().out == "Embedding service ready (3 dimensions).\n"
+
+
+def test_embedding_probe_retries_without_sleeping_or_requesting_past_deadline(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_embedding_check()
+    clock = _FakeClock()
+    request_timeouts: list[float] = []
+
+    def urlopen(_request: object, *, timeout: float) -> io.StringIO:
+        request_timeouts.append(timeout)
+        clock.now += 8
+        raise module.urllib.error.URLError("private endpoint detail")
+
+    result = module.check_embedding(
+        timeout_seconds=10,
+        request_timeout_seconds=7,
+        retry_delay_seconds=5,
+        environment=_embedding_environment(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        urlopen=urlopen,
+    )
+
+    assert result == 1
+    assert request_timeouts == [7]
+    assert clock.sleeps == [2]
+    assert clock.now == 10
+    output = capsys.readouterr().out
+    assert output == "Embedding service did not become ready: URLError\n"
+    assert "private endpoint detail" not in output
+
+
+def test_embedding_probe_caps_later_request_timeout_to_the_remaining_budget(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_embedding_check()
+    clock = _FakeClock()
+    request_timeouts: list[float] = []
+
+    def urlopen(_request: object, *, timeout: float) -> io.StringIO:
+        request_timeouts.append(timeout)
+        clock.now += 1 if len(request_timeouts) == 1 else timeout
+        raise module.urllib.error.URLError("private endpoint detail")
+
+    result = module.check_embedding(
+        timeout_seconds=10,
+        request_timeout_seconds=8,
+        retry_delay_seconds=2,
+        environment=_embedding_environment(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        urlopen=urlopen,
+    )
+
+    assert result == 1
+    assert request_timeouts == [8, 7]
+    assert clock.sleeps == [2]
+    assert capsys.readouterr().out == "Embedding service did not become ready: URLError\n"
+
+
+def test_embedding_probe_reports_dimension_failure_without_dynamic_details(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_embedding_check()
+    clock = _FakeClock()
+
+    def urlopen(_request: object, *, timeout: float) -> io.StringIO:
+        return io.StringIO('{"data": [{"embedding": [0, 0]}]}')
+
+    result = module.check_embedding(
+        timeout_seconds=5,
+        request_timeout_seconds=5,
+        retry_delay_seconds=5,
+        environment=_embedding_environment(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        urlopen=urlopen,
+    )
+
+    assert result == 1
+    assert capsys.readouterr().out == "Embedding service did not become ready: ValueError\n"
+
+
+def test_embedding_probe_reports_malformed_json_structure_as_type_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_embedding_check()
+    clock = _FakeClock()
+
+    def urlopen(_request: object, *, timeout: float) -> io.StringIO:
+        return io.StringIO('{"data": null, "detail": "private response detail"}')
+
+    result = module.check_embedding(
+        timeout_seconds=5,
+        request_timeout_seconds=5,
+        retry_delay_seconds=5,
+        environment=_embedding_environment(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        urlopen=urlopen,
+    )
+
+    assert result == 1
+    output = capsys.readouterr().out
+    assert output == "Embedding service did not become ready: TypeError\n"
+    assert "private response detail" not in output
+
+
+def test_embedding_probe_rejects_oversized_responses_without_reading_body_details(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_embedding_check()
+    clock = _FakeClock()
+
+    class OversizedPayload:
+        def __len__(self) -> int:
+            return module.MAX_RESPONSE_BYTES + 1
+
+    class OversizedResponse:
+        def __enter__(self) -> "OversizedResponse":
+            return self
+
+        def __exit__(self, *_arguments: object) -> None:
+            return None
+
+        def read(self, limit: int) -> OversizedPayload:
+            assert limit == module.MAX_RESPONSE_BYTES + 1
+            return OversizedPayload()
+
+    def urlopen(_request: object, *, timeout: float) -> OversizedResponse:
+        return OversizedResponse()
+
+    result = module.check_embedding(
+        timeout_seconds=5,
+        request_timeout_seconds=5,
+        retry_delay_seconds=5,
+        environment=_embedding_environment(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        urlopen=urlopen,
+    )
+
+    assert result == 1
+    assert capsys.readouterr().out == "Embedding service did not become ready: ValueError\n"
+
+
+def test_embedding_probe_cli_rejects_non_positive_time_budgets() -> None:
+    module = _load_embedding_check()
+
+    for arguments in (
+        ("--timeout-seconds", "0"),
+        ("--request-timeout-seconds", "-1"),
+        ("--retry-delay-seconds", "0"),
+    ):
+        with pytest.raises(SystemExit) as error:
+            module.main(list(arguments))
+
+        assert error.value.code == 2
+
+
+def test_embedding_probe_keeps_release_defaults_and_runtime_budget_contract() -> None:
+    module = _load_embedding_check()
+    release_script = (DEPLOY_ROOT / "scripts" / "release.sh").read_text(
+        encoding="utf-8"
+    )
+    runtime_script = RUNTIME_HEALTH_SCRIPT.read_text(encoding="utf-8")
+
+    assert module.DEFAULT_TIMEOUT_SECONDS == 900
+    assert module.DEFAULT_REQUEST_TIMEOUT_SECONDS == 30
+    assert module.DEFAULT_RETRY_DELAY_SECONDS == 5
+    assert "if ! compose run --rm api python scripts/check_embedding.py; then" in release_script
+    assert (
+        "compose exec -T api python scripts/check_embedding.py \\\n    --timeout-seconds 45 \\\n    --request-timeout-seconds 10 \\\n    --retry-delay-seconds 5"
+    ) in runtime_script
