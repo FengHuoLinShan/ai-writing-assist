@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { expectNoPageOverflow } from "./helpers/responsive.js"
 
 async function enterAuthorProjects(page) {
   await page.getByRole("button", { name: /我是作家/ }).click()
@@ -66,6 +67,25 @@ test.describe("项目模块", () => {
     await expect(page.locator(SEL.topbarProject)).toContainText("E2E 测试小说")
   })
 
+  test("空白创建保留 modal、提示必填且可继续输入", async ({ page }) => {
+    await page.locator('[data-action="new"]').first().click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
+
+    await expect(page.getByLabel(/项目名称/)).toBeVisible()
+    await expect(page.getByLabel("题材")).toBeVisible()
+    await expect(page.getByLabel("语言")).toBeVisible()
+    await expect(page.getByLabel("基调")).toBeVisible()
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+
+    await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
+    await expect(page.locator(SEL.toastContainer)).toContainText("请输入项目标题")
+    await page.getByLabel(/项目名称/).fill("仍可继续输入")
+    await expect(page.getByLabel(/项目名称/)).toHaveValue("仍可继续输入")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectNoPageOverflow(page)
+  })
+
   test("创建的项目出现在列表中", async ({ page }) => {
     const project = await createProject({
       title: "列表测试项目",
@@ -117,6 +137,44 @@ test.describe("项目模块", () => {
     await card.click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("编辑后标题", { timeout: 10000 })
+  })
+
+  test("编辑保存 API 失败后保留表单内容并可取消", async ({ page }) => {
+    const project = await createProject({
+      title: "编辑失败前标题",
+      genre: "mystery",
+      tone: "原始基调",
+      language: "zh",
+    })
+    trackProject(project)
+
+    await page.reload()
+    const card = page.locator(SEL.projectCard(project.id))
+    await expect(card).toBeVisible({ timeout: 10000 })
+    await card.hover()
+    await card.locator('[data-action="edit-project"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑项目")
+
+    await page.getByLabel("项目标题").fill("失败后保留标题")
+    await page.getByLabel("题材").fill("武侠")
+    await page.getByLabel("风格基调").fill("热血")
+    await page.route(`**/api/projects/${project.id}`, async (route) => {
+      if (route.request().method() === "PUT") {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "暂时无法保存项目" }) })
+        return
+      }
+      await route.fallback()
+    })
+
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
+    await expect(page.getByLabel("项目标题")).toHaveValue("失败后保留标题")
+    await expect(page.getByLabel("题材")).toHaveValue("武侠")
+    await expect(page.getByLabel("风格基调")).toHaveValue("热血")
+
+    page.once("dialog", (dialog) => dialog.accept())
+    await page.getByRole("button", { name: "取消" }).click()
+    await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
   })
 
   test("删除项目", async ({ page }) => {

@@ -120,6 +120,29 @@ describe("项目 modal 流程", () => {
     )
   })
 
+  it("创建与编辑表单的可见 label 精确关联控件，标题为必填", () => {
+    let formHtml = ""
+    setBridgeOverrides({
+      showModalHtml: (_title, html) => { formHtml = html },
+    })
+
+    showCreateForm()
+    document.body.innerHTML = formHtml
+    for (const id of ["create-title", "create-genre", "create-language", "create-tone"]) {
+      expect(document.querySelector(`label[for="${id}"]`)).not.toBeNull()
+    }
+    expect(document.getElementById("create-title").required).toBe(true)
+
+    const state = makeState()
+    setBridgeOverrides({ state })
+    editProject("p1")
+    document.body.innerHTML = formHtml
+    for (const id of ["edit-title", "edit-genre", "edit-tone", "edit-target-length", "edit-stage"]) {
+      expect(document.querySelector(`label[for="${id}"]`)).not.toBeNull()
+    }
+    expect(document.getElementById("edit-title").required).toBe(true)
+  })
+
   it("editProject 保存回写 state 并关闭 modal", async () => {
     const state = makeState([{ id: "p1", title: "旧标题" }], "p1")
     state.currentProject = { id: "p1", title: "旧标题" }
@@ -135,7 +158,7 @@ describe("项目 modal 流程", () => {
     })
 
     editProject("p1")
-    document.getElementById("edit-title").value = "新标题"
+    document.getElementById("edit-title").value = "  新标题  "
     document.getElementById("edit-genre").value = "fantasy"
     await saveHandler()
 
@@ -146,21 +169,123 @@ describe("项目 modal 流程", () => {
     expect(closeModal).toHaveBeenCalled()
   })
 
-  it("editProject 空标题仅警告", async () => {
+  it.each(["", "   "])("editProject 标题为 %j 时保持 modal 并聚焦标题", async (title) => {
     const state = makeState()
+    let saveHandler = null
     setBridgeOverrides({
       state,
       showModalHtml: (title, html, buttons) => {
         document.body.innerHTML = `<div id="modal-body">${html}</div>`
-        globalThis.__saveHandler = buttons[0].handler
+        saveHandler = buttons[0].handler
       },
     })
     editProject("p1")
-    document.getElementById("edit-title").value = ""
-    await globalThis.__saveHandler()
+    const titleInput = document.getElementById("edit-title")
+    titleInput.value = title
+    expect(await saveHandler()).toBe(false)
     expect(globalThis.toast).toHaveBeenCalledWith("请输入项目标题", "warning")
     expect(globalThis.api.projects.update).not.toHaveBeenCalled()
-    delete globalThis.__saveHandler
+    expect(document.activeElement).toBe(titleInput)
+  })
+
+  it("editProject API 失败时保留字段和 state，且不关闭 modal", async () => {
+    const state = makeState([{ id: "p1", title: "旧标题", genre: "旧题材", tone: "旧基调" }], "p1")
+    state.currentProject = { id: "p1", title: "旧标题", genre: "旧题材", tone: "旧基调" }
+    const closeModal = vi.fn()
+    let saveHandler = null
+    setBridgeOverrides({
+      state,
+      closeModal,
+      showModalHtml: (_title, html, buttons) => {
+        document.body.innerHTML = `<div id="modal-body">${html}</div>`
+        saveHandler = buttons[0].handler
+      },
+    })
+    globalThis.api.projects.update = vi.fn(async () => { throw new Error("edit test diagnostic") })
+
+    editProject("p1")
+    document.getElementById("edit-title").value = "保留标题"
+    document.getElementById("edit-genre").value = "保留题材"
+    document.getElementById("edit-tone").value = "保留基调"
+    expect(await saveHandler()).toBe(false)
+
+    expect(globalThis.api.projects.update).toHaveBeenCalledWith("p1", expect.objectContaining({ title: "保留标题" }))
+    expect(document.getElementById("edit-title").value).toBe("保留标题")
+    expect(document.getElementById("edit-genre").value).toBe("保留题材")
+    expect(document.getElementById("edit-tone").value).toBe("保留基调")
+    expect(state.projects[0]).toMatchObject({ title: "旧标题", genre: "旧题材", tone: "旧基调" })
+    expect(state.currentProject).toMatchObject({ title: "旧标题", genre: "旧题材", tone: "旧基调" })
+    expect(closeModal).not.toHaveBeenCalled()
+  })
+
+  it.each(["", "   "])("showCreateForm 标题为 %j 时保持 modal 并聚焦标题", async (title) => {
+    const state = makeState()
+    let createHandler = null
+    setBridgeOverrides({
+      state,
+      showModalHtml: (_title, html, buttons) => {
+        document.body.innerHTML = `<div id="modal-body">${html}</div>`
+        createHandler = buttons[0].handler
+      },
+    })
+
+    showCreateForm()
+    const titleInput = document.getElementById("create-title")
+    titleInput.value = title
+    expect(await createHandler()).toBe(false)
+    expect(globalThis.toast).toHaveBeenCalledWith("请输入项目标题", "warning")
+    expect(globalThis.api.projects.create).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(titleInput)
+  })
+
+  it("showCreateForm 发送 trim 后的标题并保留成功路径", async () => {
+    const state = makeState([], null)
+    let createHandler = null
+    setBridgeOverrides({
+      state,
+      showModalHtml: (_title, html, buttons) => {
+        document.body.innerHTML = `<div id="modal-body">${html}</div>`
+        createHandler = buttons[0].handler
+      },
+    })
+    globalThis.api.projects.create = vi.fn(async (payload) => ({ id: "p-created", ...payload }))
+
+    showCreateForm()
+    document.getElementById("create-title").value = "  修剪后的标题  "
+    document.getElementById("create-genre").value = "fantasy"
+    document.getElementById("create-tone").value = "黑暗"
+    expect(await createHandler()).toBeUndefined()
+
+    expect(globalThis.api.projects.create).toHaveBeenCalledWith(expect.objectContaining({ title: "修剪后的标题" }))
+    expect(globalThis.toast).toHaveBeenCalledWith('项目 "修剪后的标题" 已创建', "success")
+    expect(state).toMatchObject({ currentProjectId: "p-created", currentProject: { title: "修剪后的标题" } })
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
+  })
+
+  it("showCreateForm API 失败时保留所有字段和原 state", async () => {
+    const state = makeState([{ id: "p-old", title: "原项目" }], "p-old")
+    state.currentProject = { id: "p-old", title: "原项目" }
+    let createHandler = null
+    setBridgeOverrides({
+      state,
+      showModalHtml: (_title, html, buttons) => {
+        document.body.innerHTML = `<div id="modal-body">${html}</div>`
+        createHandler = buttons[0].handler
+      },
+    })
+    globalThis.api.projects.create = vi.fn(async () => { throw new Error("create test diagnostic") })
+
+    showCreateForm()
+    document.getElementById("create-title").value = "保留标题"
+    document.getElementById("create-genre").value = "mystery"
+    document.getElementById("create-tone").value = "悬疑"
+    expect(await createHandler()).toBe(false)
+
+    expect(document.getElementById("create-title").value).toBe("保留标题")
+    expect(document.getElementById("create-genre").value).toBe("mystery")
+    expect(document.getElementById("create-tone").value).toBe("悬疑")
+    expect(state).toMatchObject({ currentProjectId: "p-old", currentProject: { title: "原项目" } })
+    expect(globalThis.router.navigate).not.toHaveBeenCalled()
   })
 
   it("deleteProject 确认后删除并在需要时清理当前项目", async () => {

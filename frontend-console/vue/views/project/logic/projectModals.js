@@ -31,19 +31,19 @@ export function editProject(id) {
 
   const formHtml = `
     <div class="form-group">
-      <label>项目标题</label>
-      <input class="form-input" id="edit-title" value="${esc(project.title || project.name || "")}" />
+      <label for="edit-title">项目标题</label>
+      <input class="form-input" id="edit-title" value="${esc(project.title || project.name || "")}" required />
     </div>
     <div class="form-group">
-      <label>题材</label>
+      <label for="edit-genre">题材</label>
       <input class="form-input" id="edit-genre" value="${esc(project.genre || "")}" />
     </div>
     <div class="form-group">
-      <label>风格基调</label>
+      <label for="edit-tone">风格基调</label>
       <input class="form-input" id="edit-tone" value="${esc(project.tone || "")}" placeholder="如：黑暗、幽默、写实" />
     </div>
     <div class="form-group">
-      <label>目标规模</label>
+      <label for="edit-target-length">目标规模</label>
       <select class="form-select" id="edit-target-length">
         <option value="">未设置</option>
         <option value="short" ${project.target_length === "short" ? "selected" : ""}>短篇</option>
@@ -53,7 +53,7 @@ export function editProject(id) {
       </select>
     </div>
     <div class="form-group">
-      <label>创作阶段</label>
+      <label for="edit-stage">创作阶段</label>
       <select class="form-select" id="edit-stage">
         <option value="">未设置</option>
         <option value="world_building" ${project.current_stage === "world_building" ? "selected" : ""}>世界构建中</option>
@@ -69,7 +69,8 @@ export function editProject(id) {
       text: "保存",
       class: "btn-primary",
       handler: async () => {
-        const title = document.getElementById("edit-title")?.value
+        const titleInput = document.getElementById("edit-title")
+        const title = titleInput?.value.trim() || ""
         const genre = document.getElementById("edit-genre")?.value
         const tone = document.getElementById("edit-tone")?.value
         const targetLength = document.getElementById("edit-target-length")?.value
@@ -77,7 +78,8 @@ export function editProject(id) {
 
         if (!title) {
           getToast()("请输入项目标题", "warning")
-          return
+          titleInput?.focus()
+          return false
         }
 
         const payload = {
@@ -101,6 +103,7 @@ export function editProject(id) {
           getCloseModal()()
         } catch (err) {
           getToast()(`保存失败：${err.message}`, "error")
+          return false
         }
       },
     },
@@ -135,12 +138,12 @@ export function deleteProject(id, { clearCurrentProjectSelection } = {}) {
 export function showCreateForm() {
   const formHtml = `
     <div class="form-group">
-      <label>项目名称 *</label>
-      <input class="form-input" id="create-title" placeholder="输入小说名称" />
+      <label for="create-title">项目名称 *</label>
+      <input class="form-input" id="create-title" placeholder="输入小说名称" required />
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>题材</label>
+        <label for="create-genre">题材</label>
         <select class="form-select" id="create-genre">
           <option value="">选择题材</option>
           <option value="fantasy">奇幻</option>
@@ -155,14 +158,14 @@ export function showCreateForm() {
         </select>
       </div>
       <div class="form-group">
-        <label>语言</label>
+        <label for="create-language">语言</label>
         <select class="form-select" id="create-language">
           <option value="zh" selected>中文</option>
         </select>
       </div>
     </div>
     <div class="form-group">
-      <label>基调</label>
+      <label for="create-tone">基调</label>
       <input class="form-input" id="create-tone" placeholder="如：黑暗、幽默、写实" />
     </div>
   `
@@ -172,10 +175,12 @@ export function showCreateForm() {
       text: "创建",
       class: "btn-primary",
       handler: async () => {
-        const title = document.getElementById("create-title")?.value
+        const titleInput = document.getElementById("create-title")
+        const title = titleInput?.value.trim() || ""
         if (!title) {
           getToast()("请输入项目标题", "warning")
-          return
+          titleInput?.focus()
+          return false
         }
 
         try {
@@ -194,6 +199,7 @@ export function showCreateForm() {
           getRouter().navigate("writing")
         } catch (err) {
           getToast()(`创建失败：${err.message}`, "error")
+          return false
         }
       },
     },
