@@ -217,8 +217,20 @@ frontend_runtime_healthy() {
 }
 
 worker_runtime_healthy() {
-    compose exec -T worker python -c \
-        "from pathlib import Path; import sys; sys.exit(0 if b'run_worker.py' in Path('/proc/1/cmdline').read_bytes() else 1)" \
+    worker_liveness_contract="$REPO_ROOT/deploy/worker-liveness-contract.version"
+    if [ ! -e "$worker_liveness_contract" ] && [ ! -L "$worker_liveness_contract" ]; then
+        compose exec -T worker python -c \
+            "from pathlib import Path; import sys; argv = Path('/proc/1/cmdline').read_bytes().split(b'\\0'); sys.exit(0 if any(token == b'run_worker.py' or (token.startswith(b'/') and token.endswith(b'/run_worker.py')) for token in argv) else 1)" \
+            >/dev/null 2>&1
+        return
+    fi
+    if [ ! -f "$worker_liveness_contract" ] || [ -L "$worker_liveness_contract" ] \
+        || [ "$(wc -l <"$worker_liveness_contract")" -ne 1 ] \
+        || [ "$(cat "$worker_liveness_contract")" != "1" ]; then
+        echo "Invalid worker liveness contract marker." >&2
+        return 1
+    fi
+    compose exec -T worker python infrastructure/tasks/liveness.py \
         >/dev/null 2>&1
 }
 

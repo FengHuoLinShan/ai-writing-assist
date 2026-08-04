@@ -110,14 +110,15 @@ def _validate_worker_config() -> None:
     )
 
 
-async def main() -> None:
+def _build_task_worker():
+    """Compose the generic worker with process-specific task services."""
+    from infrastructure.tasks.liveness import write_control_loop_liveness
     from infrastructure.tasks.worker import TaskWorker
     from modules.imports.facade import reconcile_workflow_task_owners
     from modules.interaction.facade import reconcile_interaction_task_owners
     from modules.rag.facade import reconcile_index_task_owners
 
-    _configure_worker_process()
-    worker = TaskWorker(
+    return TaskWorker(
         task_preflight=_require_active_task_project,
         task_commit_guard=_guard_active_task_project_finalize,
         startup_reconcilers=(
@@ -125,7 +126,13 @@ async def main() -> None:
             reconcile_interaction_task_owners,
             reconcile_index_task_owners,
         ),
+        control_loop_observer=write_control_loop_liveness,
     )
+
+
+async def main() -> None:
+    _configure_worker_process()
+    worker = _build_task_worker()
     await worker.run_forever()
 
 

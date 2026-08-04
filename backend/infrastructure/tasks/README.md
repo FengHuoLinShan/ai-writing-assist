@@ -12,6 +12,7 @@ infrastructure/tasks/
 ├── __init__.py
 ├── models.py       # AsyncTask ORM 模型
 ├── worker.py       # TaskWorker 进程内 worker
+├── liveness.py     # control-loop marker 与零输出健康检查 CLI
 ├── registry.py     # TaskRegistry 任务注册中心
 └── api.py          # FastAPI 路由（提交/查询/取消）
 ```
@@ -110,6 +111,18 @@ fence 旧 attempt；imports 以自己的 workflow run 保存 generation、owner 
 使用 `SELECT ... FOR UPDATE SKIP LOCKED` 并发安全领取。
 
 ## Lease 与恢复策略
+
+### Control-loop liveness 与 task lease heartbeat
+
+生产组合根向 `TaskWorker` 注入同步 control-loop observer。`run_forever()` 在 startup recovery
+与 reconciler 返回后、每次控制循环开始时更新 `/tmp` 中的 monotonic marker；
+`python infrastructure/tasks/liveness.py` 只在 PID 1 的独立 argv token 为 `run_worker.py` 且
+marker 不超过 30 秒时以零输出返回成功。observer 失败不会阻断 claim、执行、lease heartbeat 或
+任务状态写入，只会让 marker 自然过期。
+
+这是进程控制循环的部署健康信号，不是 per-task lease heartbeat：后者仍以
+`task_id + running + lease_id` fence 更新 task progress、驱动 stale recovery，并承担任务状态
+正确性；control-loop marker 不读取或写入数据库任务状态。
 
 每次 claim 都会物化新的 `lease_id` 并递增 `attempt`。心跳和最终状态更新都必须同时匹配
 `task_id + running + lease_id`；stale scanner 清空旧 lease 后，旧 worker 不能覆盖新 attempt。

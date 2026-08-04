@@ -180,8 +180,7 @@ def test_shared_health_wait_requires_api_frontend_and_worker(tmp_path: Path) -> 
     calls = docker_log.read_text()
     assert "exec -T api python -c" in calls
     assert "exec -T frontend sh -ec" in calls
-    assert "exec -T worker python -c" in calls
-    assert "run_worker.py" in calls
+    assert "exec -T worker python infrastructure/tasks/liveness.py" in calls
 
     failed_worker = subprocess.run(
         ["sh", "-c", '. "$0"; wait_for_application_health', str(COMMON_SCRIPT)],
@@ -191,6 +190,85 @@ def test_shared_health_wait_requires_api_frontend_and_worker(tmp_path: Path) -> 
     )
 
     assert failed_worker.returncode != 0
+
+
+def _run_worker_health_contract(
+    tmp_path: Path,
+    marker_contents: bytes | None,
+    *,
+    marker_symlink: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    repo_root = tmp_path / "repo"
+    deploy_dir = repo_root / "deploy"
+    deploy_dir.mkdir(parents=True)
+    marker = deploy_dir / "worker-liveness-contract.version"
+    if marker_contents is not None:
+        marker.write_bytes(marker_contents)
+    if marker_symlink:
+        marker_target = tmp_path / "marker-target"
+        marker_target.write_bytes(b"1\n")
+        marker.symlink_to(marker_target)
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker_log = tmp_path / "docker.log"
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$*" >>"$FAKE_DOCKER_LOG"\n'
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+    environment = os.environ | {
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "FAKE_DOCKER_LOG": str(docker_log),
+    }
+    result = subprocess.run(
+        [
+            "sh",
+            "-c",
+            '. "$1"; REPO_ROOT="$2"; worker_runtime_healthy',
+            "sh",
+            str(COMMON_SCRIPT),
+            str(repo_root),
+        ],
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    return result, docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
+
+
+def test_worker_health_contract_uses_legacy_only_when_marker_is_absent(
+    tmp_path: Path,
+) -> None:
+    legacy, legacy_calls = _run_worker_health_contract(tmp_path / "legacy", None)
+    v1, v1_calls = _run_worker_health_contract(tmp_path / "v1", b"1\n")
+
+    assert legacy.returncode == 0, legacy.stderr
+    assert "exec -T worker python -c" in legacy_calls
+    assert "argv = Path('/proc/1/cmdline').read_bytes().split" in legacy_calls
+    assert v1.returncode == 0, v1.stderr
+    assert "exec -T worker python infrastructure/tasks/liveness.py" in v1_calls
+
+
+@pytest.mark.parametrize(
+    ("marker_contents", "marker_symlink"),
+    ((b"2\n", False), (b"1\n1\n", False), (None, True)),
+)
+def test_worker_health_contract_fails_closed_for_invalid_or_symlink_marker(
+    tmp_path: Path,
+    marker_contents: bytes | None,
+    marker_symlink: bool,
+) -> None:
+    result, calls = _run_worker_health_contract(
+        tmp_path,
+        marker_contents,
+        marker_symlink=marker_symlink,
+    )
+
+    assert result.returncode != 0
+    assert calls == ""
 
 
 def test_runtime_auth_mode_is_shared_by_api_and_worker() -> None:
@@ -355,16 +433,28 @@ def test_release_and_restore_commit_state_only_after_shared_health_gate() -> Non
 
 def test_common_and_compose_declare_worker_process_health() -> None:
     common_script = COMMON_SCRIPT.read_text()
-    compose = (DEPLOY_ROOT / "compose.production.yml").read_text()
+    compose_path = DEPLOY_ROOT / "compose.production.yml"
+    compose = compose_path.read_text()
+    compose_data = yaml.safe_load(compose)
     worker_section = compose.split("  worker:", maxsplit=1)[1].split(
         "  frontend:", maxsplit=1
     )[0]
 
     assert "worker_runtime_healthy" in common_script
-    assert "Path('/proc/1/cmdline').read_bytes()" in common_script
-    assert "b'run_worker.py'" in common_script
+    marker = DEPLOY_ROOT / "worker-liveness-contract.version"
+    assert marker.is_file()
+    assert not marker.is_symlink()
+    assert marker.read_bytes() == b"1\n"
+    assert "python infrastructure/tasks/liveness.py" in common_script
+    assert "argv = Path('/proc/1/cmdline').read_bytes().split" in common_script
+    assert "b'run_worker.py' in Path('/proc/1/cmdline')" not in common_script
     assert "healthcheck:" in worker_section
-    assert "b'run_worker.py'" in worker_section
+    assert compose_data["services"]["worker"]["healthcheck"]["test"] == [
+        "CMD",
+        "python",
+        "infrastructure/tasks/liveness.py",
+    ]
+    assert "b'run_worker.py'" not in worker_section
     for setting in ("interval: 15s", "timeout: 5s", "start_period: 20s", "retries: 8"):
         assert setting in worker_section
 

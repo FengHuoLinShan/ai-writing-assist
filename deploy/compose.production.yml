@@ -168,8 +168,7 @@ services:
         [
           "CMD",
           "python",
-          "-c",
-          "from pathlib import Path; import sys; sys.exit(0 if b'run_worker.py' in Path('/proc/1/cmdline').read_bytes() else 1)",
+          "infrastructure/tasks/liveness.py",
         ]
       interval: 15s
       timeout: 5s

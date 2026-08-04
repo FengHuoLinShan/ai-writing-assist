@@ -189,6 +189,7 @@ class TaskWorker:
         task_commit_guard: Callable[[AsyncSession, AsyncTask], Awaitable[bool]]
         | None = None,
         startup_reconcilers: Sequence[Callable[[AsyncSession], Awaitable[int]]] = (),
+        control_loop_observer: Callable[[], None] | None = None,
     ) -> None:
         self._db_manager = db_manager or get_manager()
         self._registry = TaskRegistry()
@@ -199,6 +200,8 @@ class TaskWorker:
         self._task_preflight = task_preflight
         self._task_commit_guard = task_commit_guard
         self._startup_reconcilers = tuple(startup_reconcilers)
+        self._control_loop_observer = control_loop_observer
+        self._control_loop_observer_failed = False
         self._max_concurrent_tasks = max(
             1,
             int(get_settings().task_worker_max_concurrent_tasks),
@@ -220,6 +223,24 @@ class TaskWorker:
     def stats(self) -> dict[str, int]:
         """获取 worker 统计信息"""
         return dict(self._stats)
+
+    def _observe_control_loop(self) -> None:
+        """Notify an optional process observer without changing task behavior."""
+        if self._control_loop_observer is None:
+            return
+        try:
+            self._control_loop_observer()
+        except Exception as error:
+            if not self._control_loop_observer_failed:
+                logger.warning(
+                    "TaskWorker control-loop observer failed: %s",
+                    type(error).__name__,
+                )
+            self._control_loop_observer_failed = True
+        else:
+            if self._control_loop_observer_failed:
+                logger.info("TaskWorker control-loop observer recovered")
+            self._control_loop_observer_failed = False
 
     async def run_once(self) -> AsyncTask | None:
         """单次执行：领取一个任务并执行
@@ -256,6 +277,7 @@ class TaskWorker:
                 )
 
             while self._running or in_flight:
+                self._observe_control_loop()
                 try:
                     while self._running and len(in_flight) < self._max_concurrent_tasks:
                         runner = await self._claim_task_runner()

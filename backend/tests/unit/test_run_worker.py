@@ -6,6 +6,7 @@ import pytest
 
 from run_worker import (
     BACKEND_ROOT,
+    _build_task_worker,
     _configure_worker_process,
     _existing_reload_dirs,
     _guard_active_task_project_finalize,
@@ -90,6 +91,18 @@ def test_reload_worker_waits_for_schema_before_starting() -> None:
 
 def test_reload_worker_watches_migrations() -> None:
     assert str(BACKEND_ROOT / "alembic") in _existing_reload_dirs()
+
+
+def test_worker_composition_injects_control_loop_liveness_writer() -> None:
+    from infrastructure.tasks.liveness import write_control_loop_liveness
+
+    with patch("infrastructure.tasks.worker.TaskWorker", autospec=True) as worker_class:
+        _build_task_worker()
+
+    assert (
+        worker_class.call_args.kwargs["control_loop_observer"]
+        is write_control_loop_liveness
+    )
 
 
 @pytest.mark.asyncio

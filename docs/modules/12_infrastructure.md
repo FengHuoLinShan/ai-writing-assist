@@ -242,6 +242,12 @@ session 的每次显式 checkpoint commit 和最终 commit 都在同一事务内
 业务 result/meta，也不提交 handler 事务。
 这些基础设施 fence 不替代各业务任务自己的 source/profile/confirmation 校验。
 
+生产 worker 另有不触及 task 状态的 control-loop liveness：组合根在每次 `run_forever()`
+控制循环开始时原子写入 `/tmp` monotonic marker；Docker health 与 release/restore/runtime
+共享 `python infrastructure/tasks/liveness.py`，要求 PID 1 argv token 为 `run_worker.py` 且
+marker 不超过 30 秒。它只证明 worker 控制循环近期取得执行权；per-task lease heartbeat
+仍负责 task progress、lease fence 和 stale recovery，二者不可互相替代。
+
 ## 不做
 
 - 复杂分布式调度 / 优先级队列 / 任务 DAG / 定时任务系统
