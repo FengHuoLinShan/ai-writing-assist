@@ -250,9 +250,41 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     } catch {}
   }
 
-  function _hidePanel() {
+  function _focusWorkspace() {
+    const workspace = document.getElementById("workspace")
+    if (workspace instanceof HTMLElement) {
+      workspace.focus({ preventScroll: true })
+      return
+    }
+
+    const title = document.getElementById("topbar-module")
+    if (!(title instanceof HTMLElement)) return
+    const hadTabIndex = title.hasAttribute("tabindex")
+    const previousTabIndex = title.getAttribute("tabindex")
+    if (!hadTabIndex) title.setAttribute("tabindex", "-1")
+    title.focus({ preventScroll: true })
+    if (!hadTabIndex) {
+      title.addEventListener("blur", () => title.removeAttribute("tabindex"), { once: true })
+    } else if (previousTabIndex != null) {
+      title.setAttribute("tabindex", previousTabIndex)
+    }
+  }
+
+  function _setBadgeExpanded(expanded) {
+    const badge = document.getElementById("error-log-badge")
+    if (badge) badge.setAttribute("aria-expanded", String(expanded))
+  }
+
+  function _hidePanel({ restoreBadgeFocus = false, focusWorkspace = false } = {}) {
     const panel = document.getElementById("error-log-panel")
     if (panel) panel.remove()
+    _setBadgeExpanded(false)
+    const badge = document.getElementById("error-log-badge")
+    if (restoreBadgeFocus && badge instanceof HTMLElement && badge.style.display !== "none") {
+      badge.focus({ preventScroll: true })
+    } else if (focusWorkspace) {
+      _focusWorkspace()
+    }
   }
 
   function _appendText(parent, tagName, text, style = "") {
@@ -269,6 +301,9 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     const log = _read()
     const panel = document.createElement("div")
     panel.id = "error-log-panel"
+    panel.setAttribute("role", "dialog")
+    panel.setAttribute("aria-labelledby", "error-log-panel-title")
+    panel.tabIndex = -1
     panel.style.cssText =
       "position:fixed;right:12px;bottom:32px;z-index:9999;width:min(520px,calc(100vw - 24px));" +
       "max-height:min(440px,calc(100vh - 80px));overflow:auto;background:var(--bg,#fff);" +
@@ -279,7 +314,8 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     header.style.cssText =
       "position:sticky;top:0;display:flex;align-items:center;gap:8px;justify-content:space-between;" +
       "padding:10px 12px;background:var(--bg,#fff);border-bottom:1px solid var(--border,#d1d5db);"
-    _appendText(header, "strong", `错误日志（共 ${log.length} 条）`)
+    const title = _appendText(header, "strong", `错误日志（共 ${log.length} 条）`)
+    title.id = "error-log-panel-title"
 
     const actions = document.createElement("div")
     actions.style.cssText = "display:flex;gap:6px;"
@@ -287,15 +323,11 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     clearButton.type = "button"
     clearButton.textContent = "清空"
     clearButton.style.cssText = "font-size:12px;padding:4px 8px;cursor:pointer;"
-    clearButton.addEventListener("click", () => {
-      window.errorLog.clear()
-      _hidePanel()
-    })
     const closeButton = document.createElement("button")
     closeButton.type = "button"
     closeButton.textContent = "关闭"
     closeButton.style.cssText = "font-size:12px;padding:4px 8px;cursor:pointer;"
-    closeButton.addEventListener("click", _hidePanel)
+    closeButton.addEventListener("click", () => _hidePanel({ restoreBadgeFocus: true }))
     actions.append(clearButton, closeButton)
     header.appendChild(actions)
     panel.appendChild(header)
@@ -317,35 +349,89 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     }
     panel.appendChild(body)
     document.body.appendChild(panel)
+    _setBadgeExpanded(true)
+
+    let confirmingClear = false
+    function cancelClear() {
+      const confirmation = document.getElementById("error-log-clear-confirmation")
+      if (confirmation) confirmation.remove()
+      confirmingClear = false
+      clearButton.hidden = false
+      clearButton.focus({ preventScroll: true })
+    }
+    function showClearConfirmation() {
+      if (confirmingClear) return
+      confirmingClear = true
+      clearButton.hidden = true
+      const confirmation = document.createElement("section")
+      confirmation.id = "error-log-clear-confirmation"
+      confirmation.setAttribute("role", "group")
+      confirmation.setAttribute("aria-labelledby", "error-log-clear-confirmation-title")
+      confirmation.style.cssText = "padding:10px 12px;display:grid;gap:8px;border-bottom:1px solid var(--border,#d1d5db);"
+      const scopeText = _currentProjectId() ? "当前项目的错误日志" : "未关联项目的错误日志"
+      const confirmationTitle = _appendText(confirmation, "strong", `确认清空${scopeText}`)
+      confirmationTitle.id = "error-log-clear-confirmation-title"
+      _appendText(confirmation, "p", `将只清空${scopeText}中的 ${log.length} 条记录，不影响其他项目或已上报记录。`)
+      const confirmationActions = document.createElement("div")
+      confirmationActions.style.cssText = "display:flex;gap:6px;"
+      const confirmButton = document.createElement("button")
+      confirmButton.type = "button"
+      confirmButton.textContent = "确认清空"
+      confirmButton.style.cssText = "font-size:12px;padding:4px 8px;cursor:pointer;"
+      confirmButton.addEventListener("click", () => window.errorLog.clear())
+      const cancelButton = document.createElement("button")
+      cancelButton.type = "button"
+      cancelButton.textContent = "取消"
+      cancelButton.style.cssText = "font-size:12px;padding:4px 8px;cursor:pointer;"
+      cancelButton.addEventListener("click", cancelClear)
+      confirmationActions.append(confirmButton, cancelButton)
+      confirmation.appendChild(confirmationActions)
+      header.insertAdjacentElement("afterend", confirmation)
+      confirmButton.focus({ preventScroll: true })
+    }
+    clearButton.addEventListener("click", showClearConfirmation)
+    panel.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      if (confirmingClear) cancelClear()
+      else _hidePanel({ restoreBadgeFocus: true })
+    })
+    closeButton.focus({ preventScroll: true })
   }
 
   // ── 页面小 badge ──
   function _updateBadge(count) {
     let badge = document.getElementById("error-log-badge")
     if (count === 0) {
-      if (badge) badge.style.display = "none"
+      if (badge) {
+        badge.style.display = "none"
+        badge.setAttribute("aria-label", "错误日志，当前 0 条")
+        badge.setAttribute("aria-expanded", "false")
+      }
       return
     }
     if (!badge) {
-      badge = document.createElement("div")
+      badge = document.createElement("button")
       badge.id = "error-log-badge"
-      badge.title = "错误日志。引用编号通知 AI 查看详情"
+      badge.type = "button"
+      badge.title = "打开本地错误日志，查看排障详情"
+      badge.setAttribute("aria-haspopup", "dialog")
+      badge.setAttribute("aria-controls", "error-log-panel")
+      badge.setAttribute("aria-expanded", "false")
       badge.style.cssText =
         "position:fixed;bottom:4px;right:4px;z-index:9999;" +
         "background:#dc2626;color:#fff;font-size:10px;font-family:monospace;" +
-        "padding:2px 6px;border-radius:var(--radius-md);cursor:pointer;opacity:0.5;" +
+        "padding:2px 6px;border:0;border-radius:var(--radius-md);cursor:pointer;opacity:0.5;" +
         "line-height:1.4;"
       badge.addEventListener("click", () => {
         _showPanel()
-      })
-      badge.addEventListener("contextmenu", (e) => {
-        e.preventDefault()
-        window.errorLog.clear()
       })
       document.body.appendChild(badge)
     }
     badge.style.display = "block"
     badge.textContent = `⚠ ${count}`
+    badge.setAttribute("aria-label", `打开错误日志，当前 ${count} 条`)
+    if (!document.getElementById("error-log-panel")) badge.setAttribute("aria-expanded", "false")
   }
 
   // ── 记录 error toast ──
@@ -411,9 +497,10 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
     getAll() { return _read() },
     getById(id) { return _read().find((e) => e.id === id) || null },
     clear() {
+      const panelOpen = Boolean(document.getElementById("error-log-panel"))
       try { localStorage.removeItem(_storageKey()) } catch {}
       _updateBadge(0)
-      _hidePanel()
+      if (panelOpen) _hidePanel({ focusWorkspace: true })
     },
     get latestId() { return _latestId() },
     // 内部跨模块数据通道（api.js 写入请求上下文）

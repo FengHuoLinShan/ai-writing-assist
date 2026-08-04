@@ -20,6 +20,14 @@ function recordToastError(message) {
   state.toast = { type: "error", message }
 }
 
+function addWorkspace() {
+  const workspace = document.createElement("main")
+  workspace.id = "workspace"
+  workspace.tabIndex = -1
+  document.body.appendChild(workspace)
+  return workspace
+}
+
 it("migrates the legacy global error log bucket once", () => {
   expect(localStorage.getItem("_errorLog")).toBeNull()
   expect(readBucket("global")).toEqual([
@@ -200,5 +208,147 @@ describe("errorLogger scoped buckets", () => {
 
     expect(document.getElementById("error-log-badge")?.style.display).toBe("block")
     expect(document.getElementById("error-log-badge")?.textContent).toBe("⚠ 1")
+  })
+
+  it("closes for a project change without taking focus from the incoming workspace", () => {
+    state.currentProjectId = "project-a"
+    recordToastError("A")
+    state.currentProjectId = "project-b"
+    recordToastError("B")
+    state.currentProjectId = "project-a"
+    document.getElementById("error-log-badge")?.click()
+
+    const incomingWorkspace = document.createElement("button")
+    incomingWorkspace.type = "button"
+    incomingWorkspace.textContent = "新页面工作区"
+    document.body.appendChild(incomingWorkspace)
+    incomingWorkspace.focus()
+    state.currentProjectId = "project-b"
+
+    const badge = document.getElementById("error-log-badge")
+    expect(document.getElementById("error-log-panel")).toBeNull()
+    expect(badge?.style.display).toBe("block")
+    expect(badge?.textContent).toBe("⚠ 1")
+    expect(document.activeElement).toBe(incomingWorkspace)
+  })
+
+  it("uses an accessible native badge and restores its focus after closing the non-modal dialog", () => {
+    recordToastError("键盘可达错误")
+    const badge = document.getElementById("error-log-badge")
+
+    expect(badge?.tagName).toBe("BUTTON")
+    expect(badge?.getAttribute("type")).toBe("button")
+    expect(badge?.getAttribute("title")).toBe("打开本地错误日志，查看排障详情")
+    expect(badge?.getAttribute("aria-label")).toBe("打开错误日志，当前 1 条")
+    expect(badge?.getAttribute("aria-haspopup")).toBe("dialog")
+    expect(badge?.getAttribute("aria-controls")).toBe("error-log-panel")
+    expect(badge?.getAttribute("aria-expanded")).toBe("false")
+
+    badge?.click()
+    const panel = document.getElementById("error-log-panel")
+    const closeButton = panel?.querySelector("button:last-child")
+    expect(panel?.getAttribute("role")).toBe("dialog")
+    expect(panel?.getAttribute("aria-labelledby")).toBe("error-log-panel-title")
+    expect(panel?.hasAttribute("aria-modal")).toBe(false)
+    expect(document.activeElement).toBe(closeButton)
+    expect(badge?.getAttribute("aria-expanded")).toBe("true")
+    panel?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+
+    expect(document.getElementById("error-log-panel")).toBeNull()
+    expect(document.activeElement).toBe(badge)
+    expect(badge?.getAttribute("aria-expanded")).toBe("false")
+
+    badge?.click()
+    const reopenedCloseButton = document.querySelector("#error-log-panel button:last-child")
+    reopenedCloseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(document.getElementById("error-log-panel")).toBeNull()
+    expect(document.activeElement).toBe(badge)
+  })
+
+  it("does not expose right-click as a destructive clear shortcut", () => {
+    recordToastError("保留的错误")
+    const badge = document.getElementById("error-log-badge")
+    badge?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))
+
+    expect(window.errorLog.getAll().map((entry) => entry.message)).toEqual(["保留的错误"])
+    expect(document.getElementById("error-log-panel")).toBeNull()
+  })
+
+  it("requires confirmation to clear only the active bucket and handles confirmation Escape", () => {
+    const workspace = addWorkspace()
+    state.currentProjectId = "project-a"
+    recordToastError("A")
+    state.currentProjectId = "project-b"
+    recordToastError("B")
+    state.currentProjectId = "project-a"
+
+    const badge = document.getElementById("error-log-badge")
+    badge?.click()
+    const panel = document.getElementById("error-log-panel")
+    const clearButton = [...(panel?.querySelectorAll("button") || [])]
+      .find((button) => button.textContent === "清空")
+    clearButton?.click()
+
+    const confirmation = document.getElementById("error-log-clear-confirmation")
+    const confirmButton = [...(confirmation?.querySelectorAll("button") || [])]
+      .find((button) => button.textContent === "确认清空")
+    expect(readBucket("project-a").map((entry) => entry.message)).toEqual(["A"])
+    expect(confirmation?.textContent).toContain("当前项目的错误日志中的 1 条")
+    expect(document.activeElement).toBe(confirmButton)
+
+    confirmButton?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    expect(document.getElementById("error-log-clear-confirmation")).toBeNull()
+    expect(document.activeElement).toBe(clearButton)
+
+    clearButton?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    expect(document.getElementById("error-log-panel")).toBeNull()
+    expect(document.activeElement).toBe(badge)
+
+    badge?.click()
+    const reopenedPanel = document.getElementById("error-log-panel")
+    const reopenedClearButton = [...(reopenedPanel?.querySelectorAll("button") || [])]
+      .find((button) => button.textContent === "清空")
+    reopenedClearButton?.click()
+    const cancelButton = [...(document.getElementById("error-log-clear-confirmation")?.querySelectorAll("button") || [])]
+      .find((button) => button.textContent === "取消")
+    cancelButton?.click()
+    expect(document.getElementById("error-log-clear-confirmation")).toBeNull()
+    expect(document.activeElement).toBe(reopenedClearButton)
+
+    reopenedClearButton?.click()
+    const finalConfirmButton = [...(document.getElementById("error-log-clear-confirmation")?.querySelectorAll("button") || [])]
+      .find((button) => button.textContent === "确认清空")
+    finalConfirmButton?.click()
+
+    expect(readBucket("project-a")).toEqual([])
+    expect(readBucket("project-b").map((entry) => entry.message)).toEqual(["B"])
+    expect(document.getElementById("error-log-panel")).toBeNull()
+    expect(badge?.style.display).toBe("none")
+    expect(document.activeElement).toBe(workspace)
+  })
+
+  it("closes an open panel safely when the public clear API is called", () => {
+    const workspace = addWorkspace()
+    recordToastError("程序化清空")
+    const badge = document.getElementById("error-log-badge")
+    badge?.click()
+
+    window.errorLog.clear()
+
+    expect(window.errorLog.getAll()).toEqual([])
+    expect(document.getElementById("error-log-panel")).toBeNull()
+    expect(badge?.style.display).toBe("none")
+    expect(document.activeElement).toBe(workspace)
+  })
+
+  it("renders hostile logged text as text rather than DOM", () => {
+    const message = '<img src=x onerror="alert(1)">'
+    recordToastError(message)
+    document.getElementById("error-log-badge")?.click()
+
+    const panel = document.getElementById("error-log-panel")
+    expect(panel?.textContent).toContain(message)
+    expect(panel?.querySelector("img")).toBeNull()
+    expect(panel?.querySelector("script")).toBeNull()
   })
 })

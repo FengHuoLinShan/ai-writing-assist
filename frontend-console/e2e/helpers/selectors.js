@@ -16,6 +16,8 @@ export const SEL = {
   workspace: "#workspace",
   workspaceContent: "#workspace-content",
   viewTitle: "#topbar-module",
+  errorLogBadge: "#error-log-badge",
+  errorLogPanel: "#error-log-panel",
 
   // 空态 / 加载
   emptyState: ".empty-state",
