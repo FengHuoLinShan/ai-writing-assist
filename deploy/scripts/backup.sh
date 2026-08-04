@@ -19,10 +19,30 @@ HEALTHCHECK_URL=$(env_value HEALTHCHECKS_BACKUP_PING_URL)
 HEALTHCHECK_URL=${HEALTHCHECK_URL%/}
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 BACKUP_SUCCEEDED=false
+STAGING_DUMP=
+STAGING_CHECKSUM=
+BACKUP_PATH=
+CHECKSUM_PATH=
+PUBLISHING_PAIR=false
 
 on_exit() {
     status=$?
     trap - EXIT HUP INT TERM
+    if [ -n "$STAGING_DUMP" ] && [ -f "$STAGING_DUMP" ] && [ ! -L "$STAGING_DUMP" ]; then
+        rm -f "$STAGING_DUMP" || true
+    fi
+    if [ -n "$STAGING_CHECKSUM" ] && [ -f "$STAGING_CHECKSUM" ] && [ ! -L "$STAGING_CHECKSUM" ]; then
+        rm -f "$STAGING_CHECKSUM" || true
+    fi
+    if [ "$PUBLISHING_PAIR" = "true" ]; then
+        if { [ -e "$BACKUP_PATH" ] || [ -L "$BACKUP_PATH" ]; } \
+            && [ ! -e "$CHECKSUM_PATH" ] && [ ! -L "$CHECKSUM_PATH" ]; then
+            rm -f "$BACKUP_PATH" || true
+        elif [ ! -e "$BACKUP_PATH" ] && [ ! -L "$BACKUP_PATH" ] \
+            && { [ -e "$CHECKSUM_PATH" ] || [ -L "$CHECKSUM_PATH" ]; }; then
+            rm -f "$CHECKSUM_PATH" || true
+        fi
+    fi
     if [ "$BACKUP_SUCCEEDED" != "true" ]; then
         healthcheck_ping "${HEALTHCHECK_URL}/fail" || true
     fi
@@ -33,8 +53,23 @@ trap on_exit EXIT HUP INT TERM
 healthcheck_ping "${HEALTHCHECK_URL}/start" || true
 
 mkdir -p "$BACKUP_DIR"
+for stale_staging in \
+    "$BACKUP_DIR"/.backup-stage.* \
+    "$BACKUP_DIR"/.backup-checksum-stage.* \
+    "$BACKUP_DIR"/*.dump.partial; do
+    if [ -f "$stale_staging" ] && [ ! -L "$stale_staging" ]; then
+        rm -f "$stale_staging"
+    fi
+done
 BACKUP_PATH="$BACKUP_DIR/${TIMESTAMP}.dump"
-PARTIAL_PATH="${BACKUP_PATH}.partial"
+CHECKSUM_PATH="${BACKUP_PATH}.sha256"
+if [ -e "$BACKUP_PATH" ] || [ -L "$BACKUP_PATH" ] \
+    || [ -e "$CHECKSUM_PATH" ] || [ -L "$CHECKSUM_PATH" ]; then
+    echo "Backup timestamp collision; refusing to overwrite an existing backup." >&2
+    exit 1
+fi
+STAGING_DUMP=$(mktemp "$BACKUP_DIR/.backup-stage.XXXXXX")
+STAGING_CHECKSUM=$(mktemp "$BACKUP_DIR/.backup-checksum-stage.XXXXXX")
 
 compose up -d postgres >/dev/null
 
@@ -54,18 +89,27 @@ compose exec -T postgres pg_dump \
     -d "$POSTGRES_DB" \
     --format=custom \
     --no-owner \
-    --no-privileges >"$PARTIAL_PATH"
+    --no-privileges >"$STAGING_DUMP"
 
-if [ ! -s "$PARTIAL_PATH" ]; then
+if [ ! -s "$STAGING_DUMP" ]; then
     echo "Backup is empty; refusing to publish it." >&2
     exit 1
 fi
 
-compose exec -T postgres pg_restore --list <"$PARTIAL_PATH" >/dev/null
-mv "$PARTIAL_PATH" "$BACKUP_PATH"
+compose exec -T postgres pg_restore --list <"$STAGING_DUMP" >/dev/null
 
-BACKUP_DIGEST=$(sha256_digest "$BACKUP_PATH")
-printf '%s  %s\n' "$BACKUP_DIGEST" "$BACKUP_PATH" >"${BACKUP_PATH}.sha256"
+BACKUP_DIGEST=$(sha256_digest "$STAGING_DUMP")
+printf '%s  %s\n' "$BACKUP_DIGEST" "$BACKUP_PATH" >"$STAGING_CHECKSUM"
+PUBLISHING_PAIR=true
+mv "$STAGING_DUMP" "$BACKUP_PATH"
+STAGING_DUMP=
+mv "$STAGING_CHECKSUM" "$CHECKSUM_PATH"
+STAGING_CHECKSUM=
+PUBLISHING_PAIR=false
+
+find "$BACKUP_DIR" -type f \
+    \( -name "*.dump" -o -name "*.dump.sha256" \) \
+    -mtime "+$RETENTION_DAYS" -delete
 
 if ! command -v restic >/dev/null 2>&1; then
     echo "restic is required for encrypted off-site backups." >&2
@@ -95,10 +139,6 @@ restic forget \
     --keep-weekly 4 \
     --keep-monthly 6 \
     --prune >&2
-
-find "$BACKUP_DIR" -type f \
-    \( -name "*.dump" -o -name "*.dump.sha256" \) \
-    -mtime "+$RETENTION_DAYS" -delete
 
 healthcheck_ping "$HEALTHCHECK_URL" || true
 BACKUP_SUCCEEDED=true

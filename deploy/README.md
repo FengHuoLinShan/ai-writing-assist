@@ -214,6 +214,12 @@ restic 加密、去重后上传私有 Backblaze B2。保留 7 个 daily、4 个 
 monthly 快照；超过 `BACKUP_RETENTION_DAYS` 的本地备份会自动清理。脚本在开始、成功
 或失败时 ping Healthchecks.io，由其向 `948620502@qq.com` 发告警。
 
+每次备份先以两份私有唯一 staging 文件写入并校验，再发布完整的 `.dump` 与 `.sha256`；同一 UTC
+timestamp 的已发布文件或 sidecar 存在时拒绝覆盖。可捕获的失败或信号只清理当前和遗留的 staging
+文件，以及本次发布未完成的精确 half-pair，绝不删除已完成 pair。完成 local pair 后立即按现有
+本地 retention 清理，后续 restic 不可用、上传或 forget 失败仍保留新 pair；本说明不表示外部备份或
+Healthchecks 已被验证。
+
 在 zy 安装 restic、初始化仓库（密码丢失将无法恢复）：
 
 ```bash

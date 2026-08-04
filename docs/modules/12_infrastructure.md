@@ -146,6 +146,13 @@ GET /api/health/llm
 200 healthy 形状。生产 Compose 和 shared release/restore health gate 的 HTTP client timeout 是
 3 秒，因此服务端会先给出可判定的 degraded 结果；该 deadline 不适用于 `/api/health/llm`。
 
+生产 PostgreSQL 备份在 production operation lock 内以两份唯一的私有 staging 文件生成并校验，再
+发布 `.dump` 与 `.sha256` 完整 pair；同一 UTC timestamp 的既有 dump 或 sidecar（包括 symlink）
+会被拒绝，避免覆盖。可捕获的失败和信号只清理当前或遗留的 staging 文件，以及本次发布未完成的精确
+half-pair，不会删除已完成 pair。完成的 pair 一经本地完成即按既有本地 retention 清理；其后的 restic
+不可用、上传或 forget 失败仍保留新 pair。
+这些脚本合同不表示外部 restic、B2 或 Healthchecks 服务已在当前环境完成验证。
+
 ## 2. HTTP 响应边界与请求可观测性
 
 应用最外层纯 ASGI middleware 为每个 HTTP 响应统一写入且只保留一份以下响应头：
