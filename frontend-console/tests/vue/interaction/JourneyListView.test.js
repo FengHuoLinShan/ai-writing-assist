@@ -88,6 +88,10 @@ describe("RP 旅程列表与开场", () => {
     expect(wrapper.text()).toContain("廷根雨夜")
     expect(wrapper.find(".rp-opening-composer").exists()).toBe(false)
     expect(wrapper.findAll(".rp-new-journey-button")).toHaveLength(1)
+    expect(wrapper.get(".rp-journey-catalog").attributes("aria-busy")).toBe("false")
+    expect(wrapper.findAll(".rp-journey-card__actions button")
+      .find((button) => button.text() === "归档")
+      .attributes("aria-label")).toBe("归档旅程：廷根雨夜")
     expect(wrapper.find("input[aria-label='搜索旅程']").exists()).toBe(false)
     await wrapper.get(".rp-search-toggle").trigger("click")
     expect(wrapper.find("input[aria-label='搜索旅程']").exists()).toBe(true)
@@ -132,6 +136,50 @@ describe("RP 旅程列表与开场", () => {
     expect(wrapper.text()).toContain("这次输入过长，请分几次发送")
     expect(wrapper.get(".rp-send-button").element.disabled).toBe(true)
     expect(localStorage.getItem("novel_rp_opening_draft")).toBe(tooLong)
+  })
+
+  it("为归档管理操作保留旅程名称，并在创建中公开忙碌状态", async () => {
+    const creating = deferred()
+    api.interactions.createJourney.mockReturnValue(creating.promise)
+    const opening = mount(JourneyListView, {
+      props: {
+        activeJourneys: [],
+        archivedJourneys: [],
+        llmConnections: connections(),
+      },
+    })
+
+    await opening.get("textarea[aria-label='旅程开场']").setValue("我从旧城醒来。")
+    void opening.get(".rp-send-button").trigger("click")
+    await Promise.resolve()
+    expect(opening.get(".rp-opening-page").attributes("aria-busy")).toBe("true")
+
+    creating.resolve({ journey: existingJourney() })
+    await flushPromises()
+    expect(opening.get(".rp-opening-page").attributes("aria-busy")).toBe("false")
+    opening.unmount()
+
+    const archive = mount(JourneyListView, {
+      props: {
+        activeJourneys: [],
+        archivedJourneys: [{
+          ...existingJourney(),
+          id: "archived-journey",
+          title: "旧城余晖",
+          status: "archived",
+        }],
+        llmConnections: connections(),
+      },
+    })
+
+    await archive.findAll("[role='tab']")
+      .find((button) => button.text() === "已归档")
+      .trigger("click")
+    const actions = archive.findAll(".rp-journey-card__actions button")
+    expect(actions.find((button) => button.text() === "恢复").attributes("aria-label"))
+      .toBe("恢复旅程：旧城余晖")
+    expect(actions.find((button) => button.text() === "永久删除").attributes("aria-label"))
+      .toBe("永久删除旅程：旧城余晖")
   })
 
   it("全新无 Key 账户进入时先去账户连接，已有旅程仍保持可读", async () => {
@@ -295,6 +343,8 @@ describe("RP 旅程列表与开场", () => {
     await Promise.resolve()
 
     expect(api.interactions.listJourneys).toHaveBeenCalledTimes(1)
+    expect(button.attributes("aria-busy")).toBe("true")
+    expect(wrapper.get(".rp-journey-catalog").attributes("aria-busy")).toBe("true")
     nextPage.resolve({
       items: [{ ...existingJourney(), id: "journey-51", title: "唯一新页" }],
       total: 51,
@@ -336,6 +386,7 @@ describe("RP 旅程列表与开场", () => {
     const loadMoreButton = wrapper.get(".rp-load-more")
     expect(loadMoreButton.attributes("disabled")).toBeDefined()
     expect(loadMoreButton.text()).toBe("正在查找…")
+    expect(wrapper.get(".rp-journey-catalog").attributes("aria-busy")).toBe("true")
     await loadMoreButton.trigger("click")
     expect(api.interactions.listJourneys).toHaveBeenCalledTimes(2)
 
@@ -420,6 +471,7 @@ describe("RP 旅程列表与开场", () => {
     expect(wrapper.find(".rp-opening-composer").exists()).toBe(false)
     expect(wrapper.find("input[aria-label='搜索旅程']").exists()).toBe(true)
     expect(wrapper.text()).toContain("没有找到匹配旅程")
+    expect(wrapper.get(".rp-empty-list").attributes("role")).toBe("status")
   })
 
   it("归档失败时保留列表中的旅程并明确说明生成内容仍在", async () => {

@@ -309,6 +309,16 @@ describe("RP 故事页", () => {
     expect(branchButton).toBeTruthy()
     await branchButton.trigger("click")
 
+    const branchPopover = wrapper.get(".rp-branch-popover")
+    expect(branchPopover.attributes("role")).toBe("group")
+    expect(branchPopover.attributes("aria-label")).toBe("选择故事分支")
+    expect(branchPopover.findAll("button")
+      .find((button) => button.text().includes("最新的一段故事"))
+      .attributes("aria-pressed")).toBe("true")
+    expect(branchPopover.findAll("button")
+      .find((button) => button.text().includes("我留在钟楼"))
+      .attributes("aria-pressed")).toBe("false")
+
     await wrapper.get("textarea[aria-label='继续旅程']").setValue("我先检查怀表。")
     const otherBranch = wrapper.findAll(".rp-branch-popover button")
       .find((button) => button.text().includes("我留在钟楼"))
@@ -1294,6 +1304,8 @@ describe("RP 故事页", () => {
     const menu = wrapper.get(".rp-more-menu")
     menu.element.open = true
 
+    expect(menu.get(".rp-more-menu__header button").attributes("aria-label"))
+      .toBe("关闭更多操作")
     expect(menu.text()).toContain("现代极简")
     expect(menu.text()).toContain("黄金时刻")
     expect(menu.text()).toContain("午夜星河")
@@ -1347,7 +1359,14 @@ describe("RP 故事页", () => {
       branch_points: [
         { parent_node_id: "p1", label: "最早分岔", variants: [] },
         { parent_node_id: "p2", label: "中间分岔", variants: [] },
-        { parent_node_id: "p3", label: "最近分岔", variants: [] },
+        {
+          parent_node_id: "p3",
+          label: "最近分岔",
+          variants: [
+            { node_id: "a2", selected: true, excerpt: "继续追查钟楼" },
+            { node_id: "a9", selected: false, excerpt: "转向旧港口" },
+          ],
+        },
       ],
     })
     const wrapper = mount(InteractionView, {
@@ -1363,6 +1382,12 @@ describe("RP 故事页", () => {
 
     expect(wrapper.findAll(".rp-tree-branch")).toHaveLength(1)
     expect(wrapper.get(".rp-tree-branch").text()).toContain("最近分岔")
+    expect(wrapper.get(".rp-tree-branch").findAll("button")
+      .find((button) => button.text().includes("继续追查钟楼"))
+      .attributes("aria-pressed")).toBe("true")
+    expect(wrapper.get(".rp-tree-branch").findAll("button")
+      .find((button) => button.text().includes("转向旧港口"))
+      .attributes("aria-pressed")).toBe("false")
     await wrapper.get(".rp-tree-expand").trigger("click")
     expect(wrapper.findAll(".rp-tree-branch")).toHaveLength(3)
     expect(wrapper.text()).toContain("最早分岔")
@@ -1420,6 +1445,115 @@ describe("RP 故事页", () => {
       "failed-record-1",
       { expected_selection_epoch: 3 },
     )
+  })
+
+  it("为抽屉加载、失败与关闭操作公开对应的语义", async () => {
+    const overviewLoad = deferred()
+    api.interactions.getOverview.mockReturnValue(overviewLoad.promise)
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey(),
+        llmConnections: connected(),
+      },
+    })
+
+    await wrapper.findAll(".rp-composer-tools button")
+      .find((button) => button.text() === "回顾")
+      .trigger("click")
+    await Promise.resolve()
+    const overviewDrawer = wrapper.get("[aria-label='当前回顾']")
+    expect(overviewDrawer.attributes("aria-busy")).toBe("true")
+    expect(overviewDrawer.get(".rp-overview-empty").attributes("role")).toBe("status")
+    expect(overviewDrawer.get("header button").attributes("aria-label")).toBe("关闭当前回顾")
+
+    overviewLoad.resolve(await makeApi().interactions.getOverview())
+    await flushPromises()
+    expect(overviewDrawer.attributes("aria-busy")).toBe("false")
+    await overviewDrawer.get("header button").trigger("click")
+
+    await wrapper.findAll(".rp-more-menu > div > button")
+      .find((button) => button.text() === "生成记录")
+      .trigger("click")
+    await flushPromises()
+    expect(wrapper.get("[aria-label='生成记录'] header button").attributes("aria-label"))
+      .toBe("关闭生成记录")
+
+    await wrapper.findAll(".rp-more-menu > div > button")
+      .find((button) => button.text() === "查看所有分支")
+      .trigger("click")
+    await flushPromises()
+    expect(wrapper.get("[aria-label='分支历史'] header button").attributes("aria-label"))
+      .toBe("关闭分支历史")
+
+    await wrapper.findAll(".rp-more-menu > div > button")
+      .find((button) => button.text() === "内容与数据")
+      .trigger("click")
+    expect(wrapper.get("[aria-label='内容与数据'] header button").attributes("aria-label"))
+      .toBe("关闭内容与数据")
+  })
+
+  it("为准备和实际失败的故事状态公开状态角色", () => {
+    const preparing = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          active_attempt: {
+            id: "attempt-preparing",
+            journey_id: journey().id,
+            status: "preparing_context",
+            visible_text: "",
+          },
+        }),
+        llmConnections: connected(),
+      },
+    })
+    expect(preparing.get(".rp-message--streaming").attributes("aria-busy")).toBe("true")
+    expect(preparing.get(".rp-stream-status").attributes("role")).toBe("status")
+    preparing.unmount()
+
+    const failed = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          active_attempt: { id: "attempt-failed", status: "failed", error_kind: "connection" },
+        }),
+        llmConnections: connected(),
+      },
+    })
+    expect(failed.get(".rp-attempt-actions--error").attributes("role")).toBe("alert")
+  })
+
+  it("停止生成期间公开状态通告", async () => {
+    const stopRequest = deferred()
+    const streamWait = deferred()
+    api = makeApi({
+      stopAttempt: vi.fn(() => stopRequest.promise),
+      streamAttempt: vi.fn(async function* () {
+        await streamWait.promise
+      }),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          active_attempt: {
+            id: "attempt-stopping",
+            journey_id: journey().id,
+            status: "running",
+            visible_text: "",
+          },
+        }),
+        llmConnections: connected(),
+      },
+    })
+    await Promise.resolve()
+
+    void wrapper.get(".rp-stop-button").trigger("click")
+    await Promise.resolve()
+    expect(wrapper.get(".rp-composer-dock .rp-stream-status").attributes("role"))
+      .toBe("status")
+
+    stopRequest.resolve({ attempt: { id: "attempt-stopping", status: "cancelled" } })
+    streamWait.resolve()
+    await flushPromises()
   })
 
   it("归档请求失败时保留当前流连接并给出可恢复提示", async () => {

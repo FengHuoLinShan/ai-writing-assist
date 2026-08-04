@@ -212,6 +212,9 @@ const visibleTreeBranchPoints = computed(() => (
 const failedError = computed(() => safeInteractionError(
   currentAttempt.value?.error_kind || "generation_failed",
 ))
+const streamErrorRole = computed(() => (
+  streamError.value.includes("正在从已保存位置恢复") ? "status" : "alert"
+))
 
 function goConnect() {
   const query = new URLSearchParams({
@@ -1568,7 +1571,7 @@ onBeforeUnmount(() => {
         <div>
           <header class="rp-more-menu__header">
             <strong>更多操作</strong>
-            <button type="button" aria-label="关闭" @click="closeMoreMenu">×</button>
+            <button type="button" aria-label="关闭更多操作" @click="closeMoreMenu">×</button>
           </header>
           <button type="button" @click="closeMoreMenu(); renameJourney()">重命名旅程</button>
           <button type="button" @click="closeMoreMenu(); openTree()">查看所有分支</button>
@@ -1669,12 +1672,13 @@ onBeforeUnmount(() => {
             >其他分支 {{ branchPosition(message.id) }}</button>
           </template>
         </div>
-        <div v-if="branchOpenNode === message.id" class="rp-branch-popover">
+        <div v-if="branchOpenNode === message.id" class="rp-branch-popover" role="group" aria-label="选择故事分支">
           <button
             v-for="variant in recentVariants(message.id)"
             :key="variant.node_id"
             type="button"
             :class="{ active: variant.selected }"
+            :aria-pressed="variant.selected"
             :disabled="isGenerating || awaitingContinue"
             @click="selectBranch(variant.node_id)"
           >
@@ -1711,9 +1715,9 @@ onBeforeUnmount(() => {
         </div>
       </article>
 
-      <article v-if="isGenerating || streamText" class="rp-message rp-message--assistant rp-message--streaming">
+      <article v-if="isGenerating || streamText" class="rp-message rp-message--assistant rp-message--streaming" :aria-busy="isGenerating">
         <div class="rp-message__label">故事</div>
-        <p v-if="currentAttempt?.status === 'preparing_context'" class="rp-stream-status">
+        <p v-if="currentAttempt?.status === 'preparing_context'" class="rp-stream-status" role="status">
           正在整理最近剧情…
         </p>
         <RpMarkdownContent
@@ -1722,7 +1726,7 @@ onBeforeUnmount(() => {
           :source="streamText"
         />
         <div v-else class="rp-stream-wait"><i></i><i></i><i></i></div>
-        <p v-if="streamError" class="rp-stream-status">{{ streamError }}</p>
+        <p v-if="streamError" class="rp-stream-status" :role="streamErrorRole">{{ streamError }}</p>
       </article>
 
       <div v-if="awaitingContinue" class="rp-attempt-actions">
@@ -1731,7 +1735,7 @@ onBeforeUnmount(() => {
         <button type="button" @click="keepPartial">保留这段</button>
         <button type="button" @click="retryAttempt">重新生成</button>
       </div>
-      <div v-else-if="failedAttempt" class="rp-attempt-actions rp-attempt-actions--error">
+      <div v-else-if="failedAttempt" class="rp-attempt-actions rp-attempt-actions--error" role="alert">
         <p>{{ failedError.message }}</p>
         <button
           v-if="failedError.action === 'connection'"
@@ -1847,7 +1851,7 @@ onBeforeUnmount(() => {
           @click="send"
         >↑</button>
       </div>
-      <p v-if="stopping" class="rp-stream-status">正在停止…</p>
+      <p v-if="stopping" class="rp-stream-status" role="status">正在停止…</p>
       <p v-if="showComposerCount" class="rp-input-count" :class="{ error: composerTooLong }">
         {{ composer.length.toLocaleString() }} / 100,000
         <span v-if="composerTooLong">· 这次输入过长，请分几次发送</span>
@@ -1904,20 +1908,20 @@ onBeforeUnmount(() => {
       />
     </footer>
 
-    <aside v-if="overviewOpen" class="rp-drawer" aria-label="当前回顾">
+    <aside v-if="overviewOpen" class="rp-drawer" aria-label="当前回顾" :aria-busy="overviewLoading || overviewRetrying">
       <header>
         <div>
           <strong>回顾</strong>
           <span v-if="overviewLoading">正在载入…</span>
-          <span v-else-if="overview?.status === 'refreshing'">正在整理最近剧情…</span>
-          <span v-else-if="overview?.status === 'failed'">最近剧情尚未整理</span>
-          <span v-else-if="overview?.status === 'forming'">正在形成旅程回顾</span>
+          <span v-else-if="overview?.status === 'refreshing'" role="status">正在整理最近剧情…</span>
+          <span v-else-if="overview?.status === 'failed'" role="alert">最近剧情尚未整理</span>
+          <span v-else-if="overview?.status === 'forming'" role="status">正在形成旅程回顾</span>
           <span v-else>自动整理，可随时手动纠正</span>
         </div>
-        <button type="button" aria-label="关闭" @click="closeOverview">×</button>
+        <button type="button" aria-label="关闭当前回顾" @click="closeOverview">×</button>
       </header>
-      <p v-if="overviewLoading" class="rp-overview-empty">正在载入回顾…</p>
-      <p v-else-if="overviewLoadError" class="rp-overview-empty">
+      <p v-if="overviewLoading" class="rp-overview-empty" role="status">正在载入回顾…</p>
+      <p v-else-if="overviewLoadError" class="rp-overview-empty" role="alert">
         {{ overviewLoadError }}
         <button type="button" @click="openOverview">重新载入</button>
       </p>
@@ -1969,16 +1973,16 @@ onBeforeUnmount(() => {
       </footer>
     </aside>
 
-    <aside v-if="generationRecordsOpen" class="rp-drawer" aria-label="生成记录">
+    <aside v-if="generationRecordsOpen" class="rp-drawer" aria-label="生成记录" :aria-busy="generationRecordsLoading">
       <header>
         <div>
           <strong>生成记录</strong>
           <span>技术中断后尚未采用的内容</span>
         </div>
-        <button type="button" aria-label="关闭" @click="generationRecordsOpen = false">×</button>
+        <button type="button" aria-label="关闭生成记录" @click="generationRecordsOpen = false">×</button>
       </header>
       <div class="rp-generation-records">
-        <p v-if="generationRecordsLoading" class="rp-overview-empty">正在载入…</p>
+        <p v-if="generationRecordsLoading" class="rp-overview-empty" role="status">正在载入…</p>
         <article v-for="record in generationRecords" :key="record.id">
           <small>未完整 · {{ new Date(record.created_at).toLocaleString() }}</small>
           <p>{{ record.visible_text }}</p>
@@ -1992,13 +1996,13 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <aside v-if="treeOpen" class="rp-drawer" aria-label="分支历史">
+    <aside v-if="treeOpen" class="rp-drawer" aria-label="分支历史" :aria-busy="treeLoading">
       <header>
         <div><strong>分支历史</strong><span>蓝色是当前正在发生的发展</span></div>
-        <button type="button" aria-label="关闭" @click="treeOpen = false">×</button>
+        <button type="button" aria-label="关闭分支历史" @click="treeOpen = false">×</button>
       </header>
-      <p v-if="treeLoading" class="rp-overview-empty">正在载入分支历史…</p>
-      <p v-else-if="treeLoadError" class="rp-overview-empty">
+      <p v-if="treeLoading" class="rp-overview-empty" role="status">正在载入分支历史…</p>
+      <p v-else-if="treeLoadError" class="rp-overview-empty" role="alert">
         {{ treeLoadError }}
         <button type="button" @click="openTree">重新载入</button>
       </p>
@@ -2014,6 +2018,7 @@ onBeforeUnmount(() => {
             :key="variant.node_id"
             type="button"
             :class="{ active: variant.selected }"
+            :aria-pressed="variant.selected"
             :disabled="isGenerating || awaitingContinue"
             @click="selectBranch(variant.node_id); treeOpen = false"
           >
@@ -2041,7 +2046,7 @@ onBeforeUnmount(() => {
     <aside v-if="dataInfoOpen" class="rp-drawer" aria-label="内容与数据">
       <header>
         <div><strong>内容与数据</strong><span>关于这段私人旅程</span></div>
-        <button type="button" aria-label="关闭" @click="dataInfoOpen = false">×</button>
+        <button type="button" aria-label="关闭内容与数据" @click="dataInfoOpen = false">×</button>
       </header>
       <div class="rp-data-info">
         <p>你的开场、输入、当前旅程上下文和自动回顾会发送给你在账户设置中选择的模型服务，用来生成和维持故事连续性。</p>
@@ -2052,7 +2057,7 @@ onBeforeUnmount(() => {
   </main>
   <main v-else class="rp-load-failure">
     <h1>旅程暂时无法打开</h1>
-    <p>{{ props.loadError || "旅程不存在，或当前账号无法访问。" }}</p>
+    <p role="alert">{{ props.loadError || "旅程不存在，或当前账号无法访问。" }}</p>
     <button type="button" @click="getRouter().navigate('journeys')">返回旅程列表</button>
   </main>
 </template>

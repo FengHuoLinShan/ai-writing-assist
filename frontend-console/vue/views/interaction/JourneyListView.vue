@@ -327,6 +327,7 @@ onMounted(() => {
       v-else-if="showOpening"
       class="rp-opening-card rp-opening-page"
       aria-labelledby="rp-opening-title"
+      :aria-busy="creating"
     >
       <div class="rp-opening-intro">
         <h2 id="rp-opening-title">你想从哪里开始？</h2>
@@ -405,7 +406,7 @@ onMounted(() => {
       </p>
     </section>
 
-    <section v-else class="rp-journey-catalog">
+    <section v-else class="rp-journey-catalog" :aria-busy="searching || loadingMore">
       <div v-if="connectionStateKnown && !hasActiveConnection" class="rp-list-connection-note">
         <span>连接模型后可以继续故事；现有旅程仍可阅读和管理。</span>
         <button type="button" @click="goConnect('journeys')">去连接模型</button>
@@ -441,7 +442,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="visibleJourneys.length === 0" class="rp-empty-list">
+      <div v-if="visibleJourneys.length === 0" class="rp-empty-list" role="status">
         <p>{{ appliedSearch ? "没有找到匹配旅程" : (tab === "active" ? "没有进行中的旅程。" : "没有已归档的旅程。") }}</p>
       </div>
       <article
@@ -484,10 +485,10 @@ onMounted(() => {
           </small>
         </div>
         <div class="rp-journey-card__actions">
-          <button v-if="journey.status === 'active'" type="button" @click="archiveJourney(journey)">归档</button>
+          <button v-if="journey.status === 'active'" type="button" :aria-label="`归档旅程：${journey.title}`" @click="archiveJourney(journey)">归档</button>
           <template v-else>
-            <button type="button" @click="restoreJourney(journey)">恢复</button>
-            <button class="danger" type="button" @click="deleteJourney(journey)">永久删除</button>
+            <button type="button" :aria-label="`恢复旅程：${journey.title}`" @click="restoreJourney(journey)">恢复</button>
+            <button class="danger" type="button" :aria-label="`永久删除旅程：${journey.title}`" @click="deleteJourney(journey)">永久删除</button>
           </template>
         </div>
       </article>
@@ -496,6 +497,7 @@ onMounted(() => {
         class="rp-load-more"
         type="button"
         :disabled="searching || loadingMore"
+        :aria-busy="loadingMore"
         @click="loadMore"
       >{{ searching ? "正在查找…" : (loadingMore ? "加载中…" : "加载更多") }}</button>
     </section>

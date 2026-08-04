@@ -150,10 +150,12 @@ test.describe("RP 路由与窄屏故事页", () => {
 
     await expect(page.getByRole("heading", { name: "跑团模式" })).toBeVisible()
     await expect(page.getByText("雾港钟楼")).toBeVisible()
+    await expect(page.getByRole("button", { name: "归档旅程：雾港钟楼", exact: true }))
+      .toBeVisible()
     await expect(page.locator("#sidebar")).toHaveCount(0)
     await expectFillsViewportWidth(page.locator(".rp-list-page"))
 
-    await page.getByRole("button", { name: /雾港钟楼/ }).click()
+    await page.getByRole("button", { name: /^雾港钟楼/ }).click()
     await expect(page).toHaveURL(new RegExp(`#interaction/${journeyId}`))
     await expect(page.getByRole("heading", { name: "墨迹重现" })).toBeVisible()
     await expect(page.locator(".rp-message__text strong")).toHaveText("墨迹")
@@ -215,7 +217,9 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(Math.abs((menuBox.y + menuBox.height) - 844)).toBeLessThanOrEqual(2)
     await expect(page.locator(".rp-sheet-backdrop")).toBeVisible()
     await expect(page.locator(".rp-more-menu__themes")).toContainText("午夜星河")
-    await page.locator(".rp-more-menu__header").getByRole("button", { name: "关闭" }).click()
+    await page.locator(".rp-more-menu__header")
+      .getByRole("button", { name: "关闭更多操作", exact: true })
+      .click()
     await expect(page.locator(".rp-more-menu")).not.toHaveAttribute("open", "")
 
     await page.locator(".rp-more-menu summary").click()
