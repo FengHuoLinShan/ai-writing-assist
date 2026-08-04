@@ -209,6 +209,13 @@ new application services 时停止它们。cleanup trap 本身不会 reset/clean
 停止并需要人工恢复。任一状态文件缺失、损坏、不匹配或 symlink 都会 fail closed，需要人工介入后再
 运行脚本。本说明描述仓库内脚本合同，不表示生产机器或外部服务已经实际验证。
 
+runtime health 与 account maintenance 在任何 Compose 操作前也只从这份已验证的 finalized pair 导出
+本地镜像 `RELEASE_ID`（完整 commit 的前 12 位），绝不信任残留 checkout 的 HEAD。若 `.state` 存在，
+它必须是当前用户拥有、非 symlink、权限精确为 `0700` 的私有目录；不安全或不完整状态会 fail closed。
+首次发布时 `current-release` 与 `current-commit` 两个 finalized 文件都不存在则使用当前、
+`origin/main` 可达的 HEAD；若 `.state` 目录本身也不存在，只读检查不会创建它。这描述仓库脚本合同，
+不表示生产状态已经实际验证。
+
 release 在 target preflight 与 target API/frontend build 完成后、pre-migration backup 前进入有界
 maintenance window：先停止 API、frontend 与 worker（worker 依既有 2 分钟 grace drain），再 reconcile
 target PostgreSQL 与 embedding，随后执行首次 fresh database guard、embedding contract check、snapshot、

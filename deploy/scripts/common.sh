@@ -343,18 +343,16 @@ wait_for_application_health() {
     done
 }
 
-load_release_id() {
-    if [ -f "$STATE_DIR/current-release" ]; then
-        RELEASE_ID=$(sed -n '1p' "$STATE_DIR/current-release")
-    else
-        RELEASE_ID=$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)
+validate_private_state_directory_if_present() {
+    if [ -e "$STATE_DIR" ] || [ -L "$STATE_DIR" ]; then
+        python3 "$SCRIPT_DIR/ensure_private_directory.py" "$STATE_DIR"
     fi
-    case "$RELEASE_ID" in
-        *[!0-9a-f]*|"")
-            echo "Invalid stored release ID." >&2
-            exit 1
-            ;;
-    esac
+}
+
+load_release_id() {
+    validate_private_state_directory_if_present || return 1
+    active_commit=$(resolve_active_deployment_commit) || return 1
+    RELEASE_ID=$(printf '%s' "$active_commit" | cut -c1-12)
     export RELEASE_ID
 }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -272,6 +273,21 @@ def _resolve_active_commit(repo_root: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _load_release_id(repo_root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "/bin/sh",
+            "-c",
+            '. "$0"; load_release_id; printf "%s\\n" "$RELEASE_ID"',
+            "deploy/scripts/common.sh",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
 def _write_state(repo_root: Path, release: str | None, commit: str | None) -> None:
     state_dir = repo_root / "deploy" / ".state"
     for state_name in ("current-release", "current-commit"):
@@ -355,6 +371,125 @@ def test_resolve_active_deployment_commit_rejects_symlinked_state(
     release_path.symlink_to(outside)
 
     result = _resolve_active_commit(repo_root)
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+
+
+def test_load_release_id_uses_finalized_state_instead_of_drifted_head(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+
+    result = _load_release_id(repo_root)
+
+    assert result.returncode == 0, result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+    assert result.stdout == f"{commit_a[:12]}\n"
+
+
+def test_load_release_id_uses_reachable_first_release_head_without_creating_state(
+    tmp_path: Path,
+) -> None:
+    repo_root, _commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    shutil.rmtree(state_dir)
+
+    result = _load_release_id(repo_root)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{commit_b[:12]}\n"
+    assert not state_dir.exists()
+    assert not state_dir.is_symlink()
+
+
+def test_load_release_id_uses_reachable_first_release_head_with_empty_state_directory(
+    tmp_path: Path,
+) -> None:
+    repo_root, _commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    _write_state(repo_root, None, None)
+    lock_path = state_dir / "production-operation.lock"
+    lock_path.write_text("held elsewhere")
+    state_dir.chmod(0o700)
+
+    result = _load_release_id(repo_root)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{commit_b[:12]}\n"
+    assert state_dir.is_dir()
+    assert lock_path.is_file()
+    assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
+
+
+def test_load_release_id_rejects_invalid_finalized_state_pair(tmp_path: Path) -> None:
+    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    invalid_pairs = (
+        (commit_a[:12] + "\n", None),
+        ("a" * 11 + "\n", commit_a + "\n"),
+        ("0" * 12 + "\n", commit_a + "\n"),
+    )
+
+    for release, commit in invalid_pairs:
+        _write_state(repo_root, release, commit)
+
+        result = _load_release_id(repo_root)
+
+        assert result.returncode != 0
+        assert result.stdout == ""
+
+    release_path = repo_root / "deploy" / ".state" / "current-release"
+    release_path.unlink()
+    outside_release = tmp_path / "outside-release"
+    outside_release.write_text(f"{commit_a[:12]}\n")
+    release_path.symlink_to(outside_release)
+
+    symlinked_pair = _load_release_id(repo_root)
+
+    assert symlinked_pair.returncode != 0
+    assert symlinked_pair.stdout == ""
+
+
+def test_load_release_id_rejects_symlinked_state_directory(tmp_path: Path) -> None:
+    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    outside = tmp_path / "outside-state"
+    outside.mkdir(mode=0o700)
+    (outside / "current-release").write_text(f"{commit_a[:12]}\n")
+    (outside / "current-commit").write_text(f"{commit_a}\n")
+    shutil.rmtree(state_dir)
+    state_dir.symlink_to(outside, target_is_directory=True)
+
+    result = _load_release_id(repo_root)
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "Private directory is unsafe." in result.stderr
+
+
+def test_load_release_id_normalizes_present_private_state_directory(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    state_dir.chmod(0o755)
+
+    result = _load_release_id(repo_root)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{commit_a[:12]}\n"
+    assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
+
+
+def test_load_release_id_rejects_unreachable_first_release_head(tmp_path: Path) -> None:
+    repo_root = _deployment_repo(tmp_path)[0]
+    state_dir = repo_root / "deploy" / ".state"
+    shutil.rmtree(state_dir)
+    (repo_root / "revision.txt").write_text("unreachable\n")
+    _git(repo_root, "add", "revision.txt")
+    _git(repo_root, "commit", "-qm", "unreachable")
+
+    result = _load_release_id(repo_root)
 
     assert result.returncode != 0
     assert result.stdout == ""

@@ -886,6 +886,46 @@ def _write_runtime_health_fakes(tmp_path: Path) -> tuple[Path, Path]:
     return fake_bin, event_log
 
 
+def _prepare_runtime_health_repo(tmp_path: Path) -> Path:
+    repo_root = tmp_path / "repo"
+    deploy_root = repo_root / "deploy"
+    shutil.copytree(DEPLOY_ROOT, deploy_root)
+    state_dir = deploy_root / ".state"
+    if state_dir.is_symlink():
+        state_dir.unlink()
+    elif state_dir.exists():
+        shutil.rmtree(state_dir)
+
+    subprocess.run(["git", "init", "-q", str(repo_root)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "config", "user.email", "deploy-tests@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "config", "user.name", "Deployment Tests"],
+        check=True,
+    )
+    (repo_root / "revision.txt").write_text("runtime health\n")
+    subprocess.run(
+        ["git", "-C", str(repo_root), "add", "deploy", "revision.txt"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-qm", "runtime health"], check=True
+    )
+    origin_root = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(origin_root)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "remote", "add", "origin", str(origin_root)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "push", "-qu", "origin", "HEAD:main"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo_root), "fetch", "origin"], check=True)
+    return repo_root
+
+
 def _run_runtime_health(
     tmp_path: Path,
     *,
@@ -895,6 +935,7 @@ def _run_runtime_health(
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     env_file = _copy_safe_test_env(tmp_path)
     fake_bin, event_log = _write_runtime_health_fakes(tmp_path)
+    repo_root = _prepare_runtime_health_repo(tmp_path)
     environment = os.environ | {
         "ENV_FILE": str(env_file),
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
@@ -904,7 +945,8 @@ def _run_runtime_health(
         "FAKE_BASH_STATUS": str(public_check_status),
     }
     result = subprocess.run(
-        ["sh", str(RUNTIME_HEALTH_SCRIPT)],
+        ["sh", str(repo_root / "deploy" / "scripts" / "runtime_health.sh")],
+        cwd=repo_root,
         capture_output=True,
         text=True,
         env=environment,
@@ -1077,6 +1119,10 @@ def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
     assert RUNTIME_HEALTH_SCRIPT.stat().st_mode & 0o111
     assert "validate_environment" in script
     assert "load_release_id" in script
+    assert script.index("load_release_id") < script.index(
+        "compose exec -T api python scripts/check_embedding.py"
+    )
+    assert "acquire_production_operation_lock" not in script
     assert "HEALTHCHECKS_RUNTIME_PING_URL" in script
     assert script.index('healthcheck_ping "${HEALTHCHECK_URL}/start"') < script.index(
         "wait_for_application_health"
@@ -1088,6 +1134,13 @@ def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
     ) in script
     assert "RUNTIME_HEALTH_SUCCEEDED" in script
     assert 'healthcheck_ping "${HEALTHCHECK_URL}/fail" || true' in script
+
+    account_maintenance = (DEPLOY_ROOT / "scripts" / "account_maintenance.sh").read_text(
+        encoding="utf-8"
+    )
+    assert account_maintenance.index("load_release_id") < account_maintenance.index(
+        "compose --profile ops run --rm account-maintenance"
+    )
     assert "Requires=docker.service" in service
     assert "Wants=network-online.target" in service
     assert "After=network-online.target" in service
