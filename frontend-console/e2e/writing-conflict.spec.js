@@ -190,7 +190,8 @@ test.describe("写作工作台 — 版本冲突", () => {
     await expect(mapRiskItem.locator(".writing-conflict-evidence-drawer")).toContainText("依赖待处理地图观察")
 
     const popupPromise = page.waitForEvent("popup")
-    await mapRiskItem.getByRole("button", { name: "来源" }).click()
+    await expect(mapRiskItem.getByRole("button", { name: "打开来源" })).toBeEnabled()
+    await mapRiskItem.getByRole("button", { name: "打开来源" }).click()
     const popup = await popupPromise
     await popup.waitForLoadState("domcontentloaded")
     await popup.waitForFunction(() => !state.loading, { timeout: 10000 })

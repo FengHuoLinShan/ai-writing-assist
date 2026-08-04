@@ -144,14 +144,24 @@ const ConflictRows = defineComponent({
   setup(rowProps, { emit: rowEmit }) {
     const button = (label, attrs, handler) => h("button", {
       class: attrs.primary ? "btn btn-sm btn-primary" : "btn btn-sm",
-      disabled: rowProps.busy,
+      disabled: rowProps.busy || attrs.disabled,
       "data-action": attrs.action,
-      onClick: handler,
+      onClick: attrs.disabled ? undefined : handler,
     }, label)
     const itemView = (item) => {
       const location = item.location_json || {}
       const source = location.source || {}
       const target = location.open_target || {}
+      const textRange = location.text_range || location
+      const canLocate = Number.isFinite(Number(textRange.start))
+      const canOpenSource = target.kind === "text_range"
+        ? canLocate
+        : target.kind === "map_scene"
+          || target.kind === "map_object"
+          || item.source_module === "world"
+          || target.kind === "outline_scene"
+          || item.source_module === "outline"
+          || target.kind === "memory_chapter"
       const reason = humanReason(location.needs_review_reason || item.needs_review_reason)
       const suggestion = item.ai_suggestion ? parseSuggestion(item.ai_suggestion) : null
       const evidence = source.module || source.label || source.field || source.type || source.excerpt || target.kind || reason
@@ -203,8 +213,8 @@ const ConflictRows = defineComponent({
         item.llm_rationale ? h("p", { class: "writing-conflict-rationale" }, item.llm_rationale) : null,
         evidence,
         h("div", { class: "writing-conflict-actions" }, [
-          button("定位", { action: "locate-conflict" }, () => rowEmit("locate", item.id)),
-          button("来源", { action: "open-conflict-source" }, () => rowEmit("source", item.id)),
+          button(canLocate ? "定位正文" : "无正文定位", { action: "locate-conflict", disabled: !canLocate }, () => rowEmit("locate", item.id)),
+          button(canOpenSource ? "打开来源" : "无可打开来源", { action: "open-conflict-source", disabled: !canOpenSource }, () => rowEmit("source", item.id)),
           button("已处理", { action: "resolve-conflict" }, () => rowEmit("status", { itemId: item.id, status: "resolved" })),
           button("忽略", { action: "ignore-conflict" }, () => rowEmit("status", { itemId: item.id, status: "ignored" })),
           button("稍后", { action: "later-conflict" }, () => rowEmit("status", { itemId: item.id, status: "later" })),

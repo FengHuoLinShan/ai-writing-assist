@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { afterEach, describe, expect, it } from "vitest"
+import { enableAutoUnmount, mount } from "@vue/test-utils"
 import ConflictDetailDialog from "../../../vue/views/writing/components/ConflictDetailDialog.vue"
 
 function model(overrides = {}) {
@@ -22,6 +22,7 @@ function model(overrides = {}) {
           source_module: "world",
           evidence_summary: '<img src=x onerror="alert(1)">',
           location_json: {
+            text_range: { start: 7, end: 12 },
             source: { module: "world", label: "世界设定", field: "rule", type: "lore", excerpt: "禁止传送" },
             open_target: { kind: "map_object" },
             needs_review_reason: "pending_source",
@@ -53,6 +54,8 @@ function model(overrides = {}) {
 }
 
 describe("ConflictDetailDialog", () => {
+  enableAutoUnmount(afterEach)
+
   it("以 Vue 文本节点完整展示规则、AI 判断、证据和建议", () => {
     const wrapper = mount(ConflictDetailDialog, { props: { model: model() } })
     expect(wrapper.text()).toContain("规则命中")
@@ -92,5 +95,93 @@ describe("ConflictDetailDialog", () => {
     expect(wrapper.get('[aria-label="冲突来源详情"]').text()).toContain("char-1")
     await wrapper.get('[aria-label="冲突来源详情"] button').trigger("click")
     expect(wrapper.emitted("dismiss-source")).toHaveLength(1)
+  })
+
+  it("只为持久化证据支持的正文定位和来源打开动作启用导航", async () => {
+    const items = [
+      {
+        id: "nested-range",
+        kind: "forbidden_present",
+        source_module: "writing",
+        location_json: { text_range: { start: "7", end: "12" }, open_target: { kind: "text_range" } },
+      },
+      {
+        id: "legacy-range",
+        kind: "forbidden_present",
+        source_module: "writing",
+        location_json: { start: 3, end: 6 },
+      },
+      {
+        id: "map-source",
+        kind: "map_risk",
+        source_module: "world",
+        location_json: { open_target: { kind: "map_object" } },
+      },
+      {
+        id: "outline-source",
+        kind: "required_missing",
+        source_module: "outline",
+        location_json: {},
+      },
+      {
+        id: "memory-source",
+        kind: "continuity_location_mismatch",
+        source_module: "memory",
+        location_json: { open_target: { kind: "memory_chapter" } },
+      },
+      {
+        id: "broken-text-range",
+        kind: "forbidden_present",
+        source_module: "world",
+        location_json: { text_range: {}, open_target: { kind: "text_range" } },
+      },
+      {
+        id: "unknown-ai",
+        kind: "motivation_gap",
+        source_module: "ai",
+        is_ai_judgment: true,
+        location_json: {},
+      },
+    ]
+    const wrapper = mount(ConflictDetailDialog, {
+      props: { model: model({ check: { ...model().check, items } }) },
+    })
+    const navigation = (itemId, action) => wrapper.get(`[data-conflict-item-id="${itemId}"] [data-action="${action}"]`)
+
+    for (const itemId of ["nested-range", "legacy-range"]) {
+      expect(navigation(itemId, "locate-conflict").text()).toBe("定位正文")
+      expect(navigation(itemId, "locate-conflict").attributes("disabled")).toBeUndefined()
+    }
+    expect(navigation("nested-range", "open-conflict-source").text()).toBe("打开来源")
+    expect(navigation("nested-range", "open-conflict-source").attributes("disabled")).toBeUndefined()
+    expect(navigation("legacy-range", "open-conflict-source").text()).toBe("无可打开来源")
+    expect(navigation("legacy-range", "open-conflict-source").attributes("disabled")).toBeDefined()
+
+    for (const itemId of ["map-source", "outline-source", "memory-source"]) {
+      expect(navigation(itemId, "locate-conflict").text()).toBe("无正文定位")
+      expect(navigation(itemId, "locate-conflict").attributes("disabled")).toBeDefined()
+      expect(navigation(itemId, "open-conflict-source").text()).toBe("打开来源")
+      expect(navigation(itemId, "open-conflict-source").attributes("disabled")).toBeUndefined()
+    }
+    for (const itemId of ["broken-text-range", "unknown-ai"]) {
+      expect(navigation(itemId, "locate-conflict").text()).toBe("无正文定位")
+      expect(navigation(itemId, "locate-conflict").attributes("disabled")).toBeDefined()
+      expect(navigation(itemId, "open-conflict-source").text()).toBe("无可打开来源")
+      expect(navigation(itemId, "open-conflict-source").attributes("disabled")).toBeDefined()
+    }
+
+    await navigation("nested-range", "locate-conflict").trigger("click")
+    await navigation("legacy-range", "locate-conflict").trigger("click")
+    await navigation("nested-range", "open-conflict-source").trigger("click")
+    await navigation("map-source", "open-conflict-source").trigger("click")
+    await navigation("outline-source", "open-conflict-source").trigger("click")
+    await navigation("memory-source", "open-conflict-source").trigger("click")
+    for (const itemId of ["broken-text-range", "unknown-ai"]) {
+      await navigation(itemId, "locate-conflict").trigger("click")
+      await navigation(itemId, "open-conflict-source").trigger("click")
+    }
+
+    expect(wrapper.emitted("locate")).toEqual([["nested-range"], ["legacy-range"]])
+    expect(wrapper.emitted("source")).toEqual([["nested-range"], ["map-source"], ["outline-source"], ["memory-source"]])
   })
 })

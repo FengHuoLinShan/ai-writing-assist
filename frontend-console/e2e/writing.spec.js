@@ -510,6 +510,12 @@ test.describe("写作台模块", () => {
     const conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
     await expect(page.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })).toBeVisible()
     await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项缺失" })).toBeVisible()
+    const forbiddenPresent = conflictDialog.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })
+    await expect(forbiddenPresent.getByRole("button", { name: "定位正文" })).toBeEnabled()
+    await expect(forbiddenPresent.getByRole("button", { name: "打开来源" })).toBeEnabled()
+    const requiredMissing = conflictDialog.locator(".writing-conflict-item", { hasText: "必须发生项缺失" })
+    await expect(requiredMissing.getByRole("button", { name: "无正文定位" })).toBeDisabled()
+    await expect(requiredMissing.getByRole("button", { name: "打开来源" })).toBeEnabled()
 
     let aiReviewDone = false
     const mockedAiCheck = {
@@ -692,6 +698,10 @@ test.describe("写作台模块", () => {
     await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
     await expect(conflictDialog).toContainText("AI 判断", { timeout: 10000 })
     await expect(conflictDialog).toContainText("主角突然接受守卫条件")
+
+    const unavailableAi = conflictDialog.locator(".writing-conflict-item", { hasText: "主角突然接受守卫条件" })
+    await expect(unavailableAi.getByRole("button", { name: "无正文定位" })).toBeDisabled()
+    await expect(unavailableAi.getByRole("button", { name: "无可打开来源" })).toBeDisabled()
 
     await page
       .locator(".writing-conflict-item", { hasText: "主角突然接受守卫条件" })
