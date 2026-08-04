@@ -100,6 +100,33 @@ test.describe("首页与导航", () => {
     await expect(input).not.toBeFocused()
   })
 
+  test("作者可从命令栏键盘浏览建议并恢复原焦点", async ({ page }) => {
+    await page.goto("/")
+    await enterAuthor(page)
+
+    const trigger = page.getByRole("button", { name: /帮助/ })
+    const input = page.locator(SEL.commandInput)
+    await trigger.focus()
+    await page.keyboard.press(":")
+    await expect(input).toBeFocused()
+    await page.keyboard.type("he")
+    await expect(input).toHaveValue(":he")
+    await expect(input).not.toHaveAttribute("aria-activedescendant")
+    await page.keyboard.press("ArrowDown")
+    await expect(input).toBeFocused()
+    await expect(input).toHaveAttribute("aria-activedescendant", "command-suggestion-0")
+    await expect(page.locator("#command-suggestion-0")).toHaveAttribute("aria-selected", "true")
+    await page.keyboard.press("Enter")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("命令帮助")
+    await page.locator(SEL.modalClose).click()
+
+    await trigger.focus()
+    await page.keyboard.press(":")
+    await expect(input).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(trigger).toBeFocused()
+  })
+
   test("作者可用键盘选择主题而不在导航时切换", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("novel_theme", "minimal"))
     await page.goto("/")
