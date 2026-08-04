@@ -9903,6 +9903,13 @@ kbd {
   line-height: var(--leading-relaxed);
 }
 
+.rag-chapter-range-error {
+  margin: -4px 0 0;
+  color: var(--danger, #b42318);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
 .novel-search-scopes,
 .rag-result-actions,
 .novel-evidence-links {

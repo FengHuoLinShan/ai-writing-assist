@@ -98,6 +98,31 @@ describe("提交", () => {
     expect(globalThis.toast).toHaveBeenCalledWith("读者/角色视角必须设置可见截止章", "warning")
     expect(globalThis.api.context.searchEvidence).not.toHaveBeenCalled()
   })
+
+  it("倒置章节范围保留表单且不导航或检索，修正后可提交", async () => {
+    overrideRouterQuery("")
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+    const router = (await import("../../../vue/bridge/index.js")).getRouter()
+    await wrapper.find("#rag-search-input").setValue("旧塔")
+    await wrapper.find("#rag-chapter-from").setValue("10")
+    await wrapper.find("#rag-chapter-to").setValue("5")
+    await wrapper.find('[data-action="do-search"]').trigger("click")
+
+    expect(wrapper.find("#rag-chapter-range-error").text()).toBe("起始章不能大于结束章")
+    expect(wrapper.find("#rag-chapter-from").element.value).toBe("10")
+    expect(wrapper.find("#rag-chapter-to").element.value).toBe("5")
+    expect(wrapper.find("#rag-chapter-from").attributes("aria-invalid")).toBe("true")
+    expect(wrapper.find("#rag-chapter-to").attributes("aria-describedby")).toBe("rag-chapter-range-error")
+    expect(globalThis.toast).toHaveBeenCalledWith("起始章不能大于结束章", "warning")
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(globalThis.api.context.searchEvidence).not.toHaveBeenCalled()
+
+    await wrapper.find("#rag-chapter-to").setValue("10")
+    await wrapper.find('[data-action="do-search"]').trigger("click")
+    expect(wrapper.find("#rag-chapter-range-error").exists()).toBe(false)
+    expect(wrapper.find("#rag-chapter-from").attributes("aria-invalid")).toBeUndefined()
+    expect(router.navigate).toHaveBeenCalledWith("rag", "search", true, expect.any(URLSearchParams))
+  })
 })
 
 describe("路由恢复", () => {
@@ -112,6 +137,43 @@ describe("路由恢复", () => {
     expect(ragSearchSession.lastExecutedRouteSignature).toBe(
       new URLSearchParams("q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript").toString(),
     )
+  })
+
+  it("倒置章节范围的深链保持可修正且不自动检索或改写 URL", async () => {
+    const query = "q=%E6%97%A7%E5%A1%94&chapter_from=10&chapter_to=5"
+    overrideRouterQuery(query)
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+    const router = (await import("../../../vue/bridge/index.js")).getRouter()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(wrapper.find("#rag-search-input").element.value).toBe("旧塔")
+    expect(wrapper.find("#rag-chapter-from").element.value).toBe("10")
+    expect(wrapper.find("#rag-chapter-to").element.value).toBe("5")
+    expect(wrapper.find("#rag-chapter-range-error").text()).toBe("起始章不能大于结束章")
+    expect(globalThis.toast).toHaveBeenCalledWith("起始章不能大于结束章", "warning")
+    expect(globalThis.api.context.searchEvidence).not.toHaveBeenCalled()
+    expect(router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("格式错误的章节深链展开筛选并保留给作者修正", async () => {
+    const query = "q=%E6%97%A7%E5%A1%94&chapter_from=2.5"
+    overrideRouterQuery(query)
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+    const router = (await import("../../../vue/bridge/index.js")).getRouter()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(wrapper.find(".rag-advanced-filters").attributes("open")).toBeDefined()
+    expect(wrapper.find("#rag-search-input").element.value).toBe("旧塔")
+    expect(wrapper.find("#rag-chapter-from").element.value).toBe("2.5")
+    expect(wrapper.find("#rag-chapter-range-error").text()).toBe("起始章必须是大于等于 1 的整数")
+    expect(globalThis.toast).toHaveBeenCalledWith("起始章必须是大于等于 1 的整数", "warning")
+    expect(globalThis.api.context.searchEvidence).not.toHaveBeenCalled()
+    expect(router.navigate).not.toHaveBeenCalled()
+
+    await wrapper.find("#rag-chapter-from").setValue("2")
+    await wrapper.find('[data-action="do-search"]').trigger("click")
+    expect(wrapper.find("#rag-chapter-range-error").exists()).toBe(false)
+    expect(router.navigate).toHaveBeenCalledWith("rag", "search", true, expect.any(URLSearchParams))
   })
 
   it("签名未变且有结果时不重复搜索", async () => {

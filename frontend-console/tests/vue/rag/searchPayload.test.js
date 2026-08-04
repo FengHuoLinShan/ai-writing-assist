@@ -7,6 +7,7 @@ import {
   buildEvidencePayload,
   highlightParts,
   hitKindLabel,
+  normalizeChapterRange,
   normalizeEvidenceHit,
   parentSceneContexts,
   parentSceneLabel,
@@ -66,17 +67,26 @@ describe("buildEvidencePayload", () => {
     expect(error).toBe("角色视角必须选择人物")
   })
 
-  it("数值字段解析与非法回退", () => {
+  it("有效范围保持既有 payload 形状", () => {
     const { payload } = buildEvidencePayload(makeForm({
       chapterFrom: "2",
-      chapterTo: "x",
+      chapterTo: "6",
       cutoffOffset: "120",
       cutoffChapter: "4",
     }), "p1")
     expect(payload.chapter_from).toBe(2)
-    expect(payload.chapter_to).toBeNull()
+    expect(payload.chapter_to).toBe(6)
     expect(payload.visibility.cutoff_offset).toBe(120)
     expect(payload.visibility.cutoff_chapter).toBe(4)
+  })
+
+  it("非法章节范围在构造 payload 前被拒绝", () => {
+    expect(buildEvidencePayload(makeForm({ chapterFrom: "2.5" }), "p1").error)
+      .toBe("起始章必须是大于等于 1 的整数")
+    expect(buildEvidencePayload(makeForm({ chapterTo: "0" }), "p1").error)
+      .toBe("结束章必须是大于等于 1 的整数")
+    expect(buildEvidencePayload(makeForm({ chapterFrom: "10", chapterTo: "5" }), "p1").error)
+      .toBe("起始章不能大于结束章")
   })
 
   it("空 scopes 回退正文", () => {
@@ -91,6 +101,27 @@ describe("buildEvidencePayload", () => {
       visibilityMode: "reader",
       cutoffChapter: "11",
     }), "p1").payload.context_scene_id).toBeNull()
+  })
+})
+
+describe("normalizeChapterRange", () => {
+  it.each([
+    ["", "", { chapterFrom: null, chapterTo: null }],
+    ["3", "", { chapterFrom: 3, chapterTo: null }],
+    ["", "8", { chapterFrom: null, chapterTo: 8 }],
+    ["3", "8", { chapterFrom: 3, chapterTo: 8 }],
+  ])("规范有效范围 %j 到 %j", (chapterFrom, chapterTo, expected) => {
+    expect(normalizeChapterRange(chapterFrom, chapterTo)).toEqual(expected)
+  })
+
+  it.each([
+    ["x", "", "起始章必须是大于等于 1 的整数"],
+    ["0", "", "起始章必须是大于等于 1 的整数"],
+    ["2.5", "", "起始章必须是大于等于 1 的整数"],
+    ["9007199254740992", "", "起始章必须是大于等于 1 的整数"],
+    ["10", "5", "起始章不能大于结束章"],
+  ])("拒绝非法范围 %j 到 %j", (chapterFrom, chapterTo, error) => {
+    expect(normalizeChapterRange(chapterFrom, chapterTo)).toEqual({ error })
   })
 })
 

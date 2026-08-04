@@ -11,6 +11,7 @@ const form = defineModel("form", { type: Object, required: true })
 const props = defineProps({
   characters: { type: Array, default: () => [] },
   scenes: { type: Array, default: () => [] },
+  chapterRangeError: { type: String, default: "" },
 })
 
 const emit = defineEmits(["submit"])
@@ -20,10 +21,13 @@ const summary = computed(() => advancedFilterSummary(form.value, {
   scenes: props.scenes,
 }))
 
-// vanilla：摘要不为空时高级筛选默认展开，且变为非空时自动展开
-const advancedOpen = ref(summary.value.length > 0)
-watch(summary, (value) => {
-  if (value.length) advancedOpen.value = true
+// 摘要或范围错误出现时展开；错误被修正后不自动收起，保留作者的阅读位置。
+const hasAdvancedCondition = computed(() => (
+  summary.value.length > 0 || Boolean(props.chapterRangeError)
+))
+const advancedOpen = ref(hasAdvancedCondition.value)
+watch(hasAdvancedCondition, (value) => {
+  if (value) advancedOpen.value = true
 })
 
 const kindHelpText = computed(() => (
@@ -107,8 +111,8 @@ function characterIdOf(character) {
             <option value="character">角色</option>
           </select>
         </label>
-        <label>起始章 <input class="form-input" id="rag-chapter-from" data-rag-advanced-filter type="number" min="1" placeholder="可选" v-model="form.chapterFrom" /></label>
-        <label>结束章 <input class="form-input" id="rag-chapter-to" data-rag-advanced-filter type="number" min="1" placeholder="可选" v-model="form.chapterTo" /></label>
+        <label>起始章 <input class="form-input" id="rag-chapter-from" data-rag-advanced-filter type="number" min="1" placeholder="可选" v-model="form.chapterFrom" :aria-invalid="chapterRangeError ? 'true' : undefined" :aria-describedby="chapterRangeError ? 'rag-chapter-range-error' : undefined" /></label>
+        <label>结束章 <input class="form-input" id="rag-chapter-to" data-rag-advanced-filter type="number" min="1" placeholder="可选" v-model="form.chapterTo" :aria-invalid="chapterRangeError ? 'true' : undefined" :aria-describedby="chapterRangeError ? 'rag-chapter-range-error' : undefined" /></label>
         <label id="rag-cutoff-field" :hidden="form.visibilityMode === 'author'">可见截止章 <input class="form-input" id="rag-cutoff-chapter" data-rag-advanced-filter type="number" min="1" v-model="form.cutoffChapter" /></label>
         <label id="rag-cutoff-scene-field" :hidden="form.visibilityMode === 'author'">截止 Scene
           <select class="form-input" id="rag-cutoff-scene-id" data-rag-advanced-filter v-model="form.cutoffSceneId">
@@ -124,6 +128,7 @@ function characterIdOf(character) {
           </select>
         </label>
       </div>
+      <p v-if="chapterRangeError" id="rag-chapter-range-error" class="rag-chapter-range-error" role="alert">{{ chapterRangeError }}</p>
       <div class="novel-search-scopes">
         <span>检索范围</span>
         <label><input type="checkbox" data-search-scope="manuscript" data-rag-advanced-filter :checked="form.scopes.includes('manuscript')" :disabled="scopeDisabled('manuscript')" @change="toggleScope('manuscript', $event.target.checked)" /> 正文</label>

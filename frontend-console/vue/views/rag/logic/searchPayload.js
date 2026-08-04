@@ -5,6 +5,29 @@
 import { RAG_RESULT_FETCH_LIMIT } from "./routeState.js"
 
 /**
+ * 规范章节范围，供表单提交和 URL 恢复共用。空端点保持可选；非空端点必须是正整数。
+ */
+export function normalizeChapterRange(chapterFrom, chapterTo) {
+  const normalizeEndpoint = (raw, label) => {
+    const value = String(raw ?? "").trim()
+    if (!value) return { value: null }
+    const parsed = Number(value)
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(parsed) || parsed < 1) {
+      return { error: `${label}必须是大于等于 1 的整数` }
+    }
+    return { value: parsed }
+  }
+  const from = normalizeEndpoint(chapterFrom, "起始章")
+  if (from.error) return { error: from.error }
+  const to = normalizeEndpoint(chapterTo, "结束章")
+  if (to.error) return { error: to.error }
+  if (from.value != null && to.value != null && from.value > to.value) {
+    return { error: "起始章不能大于结束章" }
+  }
+  return { chapterFrom: from.value, chapterTo: to.value }
+}
+
+/**
  * 对应 _buildEvidencePayload：由表单状态构造证据检索 payload。
  * @param {object} form - {query, searchKind, contentMode, visibilityMode, chapterFrom,
  *   chapterTo, cutoffChapter, cutoffSceneId, cutoffOffset, characterId, scopes, includePending,
@@ -13,6 +36,8 @@ import { RAG_RESULT_FETCH_LIMIT } from "./routeState.js"
  * @returns {{payload?: object, error?: string}} 校验失败返回 error 文案（warning）
  */
 export function buildEvidencePayload(form, projectId) {
+  const chapterRange = normalizeChapterRange(form.chapterFrom, form.chapterTo)
+  if (chapterRange.error) return { error: chapterRange.error }
   const integer = (raw) => {
     const parsed = Number(raw)
     return Number.isInteger(parsed) && parsed >= 1 ? parsed : null
@@ -50,8 +75,8 @@ export function buildEvidencePayload(form, projectId) {
       },
       scopes: form.scopes?.length ? form.scopes : ["manuscript"],
       include_pending_objects: Boolean(form.includePending),
-      chapter_from: integer(form.chapterFrom),
-      chapter_to: integer(form.chapterTo),
+      chapter_from: chapterRange.chapterFrom,
+      chapter_to: chapterRange.chapterTo,
       context_scene_id: mode === "author" ? (form.currentSceneId || null) : null,
       top_k: RAG_RESULT_FETCH_LIMIT,
     },

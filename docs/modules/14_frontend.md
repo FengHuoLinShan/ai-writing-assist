@@ -165,7 +165,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - `npm run build`（vite build）仅作 Vue 构建链冒烟验证：`dist` 仍缺少 classic 基础设施 seam scripts，不能视为可部署产物。无独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
 - 当前已落地共享 JS API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 - 小说检索继续消费 context evidence API：单次最多取回 100 条现有命中，DOM 首批只挂载
-  20 张结果卡并按 20 条渐进加载。检索词、方式、正文版本、可见视角、章节范围和 scope
+  20 张结果卡并按 20 条渐进加载。章节范围的非整数、非正数或倒置条件会在请求前提示并保留给作者修正，不会被伪装成空结果。检索词、方式、正文版本、可见视角、章节范围和 scope
   保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。新查询
   abort 旧请求，晚到响应还需通过 project/lifecycle generation 才能回写；证据抽屉使用独立
   abort/generation/project/drawer 门禁，关闭抽屉或切换项目后不接受旧正文、引用或导航结果。

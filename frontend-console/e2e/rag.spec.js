@@ -57,6 +57,39 @@ test.describe("RAG 检索模块", () => {
     await expect(searchButton).toHaveCSS("min-height", "40px")
   })
 
+  test("倒置章节范围在请求前提示并保留条件，修正后才检索", async ({ page }) => {
+    const requests = []
+    await page.route("**/api/context/evidence/search", async (route) => {
+      requests.push(route.request().postDataJSON())
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ hits: [], total: 0, warnings: [], degraded: false }),
+      })
+    })
+
+    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.getByLabel("检索关键词").fill("旧塔")
+    await page.locator('[data-role="rag-advanced-filters"] summary').click()
+    await page.locator("#rag-chapter-from").fill("10")
+    await page.locator("#rag-chapter-to").fill("5")
+    await page.locator('[data-action="do-search"]').click()
+
+    await expect(page.locator("#rag-chapter-range-error")).toHaveText("起始章不能大于结束章")
+    await expect(page.locator("#rag-chapter-from")).toHaveValue("10")
+    await expect(page.locator("#rag-chapter-to")).toHaveValue("5")
+    expect(requests).toHaveLength(0)
+    await expect(page.locator("#rag-results")).not.toContainText("未找到匹配结果")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectNoPageOverflow(page)
+
+    await page.locator("#rag-chapter-to").fill("10")
+    await page.locator('[data-action="do-search"]').click()
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0]).toMatchObject({ chapter_from: 10, chapter_to: 10 })
+  })
+
   test("58 条证据按 20 条渐进展示并由 URL 前进后退恢复", async ({ page }) => {
     const requests = []
     await page.route("**/api/context/evidence/search", async (route) => {

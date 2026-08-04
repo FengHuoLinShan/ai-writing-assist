@@ -1,11 +1,11 @@
 <script setup>
-import { onMounted, reactive } from "vue"
+import { computed, onMounted, reactive } from "vue"
 import RagSearchPanel from "./components/RagSearchPanel.vue"
 import RagResultList from "./components/RagResultList.vue"
 import RagEvidenceDrawer from "./components/RagEvidenceDrawer.vue"
 import { getAppState, getRouter, getToast } from "../../bridge/index.js"
 import { buildRouteQuery, parseRouteQuery } from "./logic/routeState.js"
-import { buildEvidencePayload } from "./logic/searchPayload.js"
+import { buildEvidencePayload, normalizeChapterRange } from "./logic/searchPayload.js"
 import { useRagSearch } from "./useRagSearch.js"
 import { useEvidenceDrawer } from "./useEvidenceDrawer.js"
 import { ragSearchSession, resetRagSearchSession } from "./ragSearchSession.js"
@@ -21,14 +21,16 @@ const props = defineProps({
 })
 
 // 表单初值来自路由状态（vanilla 以 routeState 渲染表单）
-const initialRoute = parseRouteQuery(getRouter().getCurrentQuery?.())
+const initialRouteQuery = getRouter().getCurrentQuery?.()
+const initialRoute = parseRouteQuery(initialRouteQuery)
+const routeChapterValue = (query, name, fallback) => query?.get(name) ?? fallback ?? ""
 const form = reactive({
   query: initialRoute.query,
   searchKind: initialRoute.searchKind,
   contentMode: initialRoute.contentMode,
   visibilityMode: initialRoute.visibilityMode,
-  chapterFrom: initialRoute.chapterFrom ?? "",
-  chapterTo: initialRoute.chapterTo ?? "",
+  chapterFrom: routeChapterValue(initialRouteQuery, "chapter_from", initialRoute.chapterFrom),
+  chapterTo: routeChapterValue(initialRouteQuery, "chapter_to", initialRoute.chapterTo),
   cutoffChapter: initialRoute.cutoffChapter ?? "",
   cutoffSceneId: initialRoute.cutoffSceneId,
   cutoffOffset: initialRoute.cutoffOffset ?? "",
@@ -40,14 +42,17 @@ const form = reactive({
 const session = ragSearchSession
 const { searching, searchError, doSearch, loadMore } = useRagSearch()
 const drawer = useEvidenceDrawer()
+const chapterRangeError = computed(() => (
+  normalizeChapterRange(form.chapterFrom, form.chapterTo).error || ""
+))
 
-function routeToFormState(routeState) {
+function routeToFormState(routeState, query) {
   return {
     searchKind: routeState.searchKind,
     contentMode: routeState.contentMode,
     visibilityMode: routeState.visibilityMode,
-    chapterFrom: routeState.chapterFrom,
-    chapterTo: routeState.chapterTo,
+    chapterFrom: routeChapterValue(query, "chapter_from", routeState.chapterFrom),
+    chapterTo: routeChapterValue(query, "chapter_to", routeState.chapterTo),
     cutoffChapter: routeState.cutoffChapter,
     cutoffSceneId: routeState.cutoffSceneId,
     cutoffOffset: routeState.cutoffOffset,
@@ -96,7 +101,8 @@ function openScene(ref) {
 
 // 对应 vanilla onRendered 的 _restoreSearchFromRoute
 onMounted(() => {
-  const routeState = parseRouteQuery(getRouter().getCurrentQuery?.())
+  const routeQuery = getRouter().getCurrentQuery?.()
+  const routeState = parseRouteQuery(routeQuery)
   if (!routeState.query) {
     resetRagSearchSession()
     const state = getAppState()
@@ -105,18 +111,31 @@ onMounted(() => {
     return
   }
   if (routeState.signature === session.lastExecutedRouteSignature) return
+  if (normalizeChapterRange(
+    routeChapterValue(routeQuery, "chapter_from", routeState.chapterFrom),
+    routeChapterValue(routeQuery, "chapter_to", routeState.chapterTo),
+  ).error) {
+    getToast()(chapterRangeError.value, "warning")
+    return
+  }
   session.lastExecutedRouteSignature = routeState.signature
   const state = getAppState()
   if (state) state.searchQuery = routeState.query
   void doSearch(routeState.query, {
     routeSignature: routeState.signature,
-    formState: routeToFormState(routeState),
+    formState: routeToFormState(routeState, routeQuery),
   })
 })
 </script>
 
 <template>
-  <RagSearchPanel :form="form" :characters="characters" :scenes="scenes" @submit="submit" />
+  <RagSearchPanel
+    :form="form"
+    :characters="characters"
+    :scenes="scenes"
+    :chapter-range-error="chapterRangeError"
+    @submit="submit"
+  />
   <RagResultList
     :searching="searching"
     :search-error="searchError"
