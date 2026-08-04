@@ -165,6 +165,43 @@ describe("review-objects", () => {
 })
 
 describe("review-aliases", () => {
+  it("高级筛选使用可访问名称并保持别名筛选值与选项语义", async () => {
+    const wrapper = mountTab({
+      reviewSubView: "review-aliases",
+      aliasReviewFilters: {
+        source: "deep_import", workflow_id: "workflow-7", scene_index: "3", source_chapter_index: "2",
+        confidence_min: "0.85", type_kind: "custom", skip: 0, limit: 50,
+      },
+    })
+    const controls = [
+      ["#review-alias-source", "按来源筛选待处理别名", "deep_import"],
+      ["#review-alias-workflow", "按 Workflow ID 诊断筛选待处理别名", "workflow-7"],
+      ["#review-alias-scene", "按 Scene 序号筛选待处理别名", "3"],
+      ["#review-alias-chapter", "按章节序号筛选待处理别名", "2"],
+      ["#review-alias-confidence-min", "待处理别名最低置信度", "0.85"],
+      ["#review-alias-type-kind", "待处理别名类型范围", "custom"],
+      ["#review-alias-page-size", "待处理别名每页数量", "50"],
+    ]
+
+    for (const [selector, label, value] of controls) {
+      const control = wrapper.get(selector)
+      expect(control.attributes("aria-label")).toBe(label)
+      expect(control.element.value).toBe(value)
+    }
+    expect(wrapper.findAll("#review-alias-type-kind option").map((option) => option.element.value)).toEqual(["", "recommended", "custom"])
+    expect(wrapper.findAll("#review-alias-page-size option").map((option) => option.element.value)).toEqual(["20", "50"])
+
+    await wrapper.get("#review-alias-source").setValue("manual")
+    await wrapper.get("#review-alias-type-kind").setValue("recommended")
+    await wrapper.get("#review-alias-page-size").setValue("20")
+    await wrapper.findAll('[data-action="apply-alias-review-filters"]')[1].trigger("click")
+    const [view, subView, , query] = navigateMock.mock.calls.at(-1)
+    expect([view, subView]).toEqual(["world", "review-aliases"])
+    expect(query.get("source")).toBe("manual")
+    expect(query.get("type_kind")).toBe("recommended")
+    expect(query.get("limit")).toBeNull()
+  })
+
   it("组卡渲染：成员行、建议处理提示、编辑决策按钮", () => {
     const wrapper = mountTab({ reviewSubView: "review-aliases" })
     const card = wrapper.find('.review-group-card[data-group-id="ga1"]')
@@ -189,6 +226,42 @@ describe("review-aliases", () => {
 })
 
 describe("review-relations", () => {
+  it("高级筛选使用可访问名称并保持关系筛选值与选项语义", async () => {
+    const wrapper = mountTab({
+      reviewSubView: "review-relations",
+      relationReviewFilters: {
+        relation_type: "friend_of", scene_index: "5", source_chapter_index: "4", strength_min: "0.7",
+        type_kind: "recommended", skip: 0, limit: 50,
+      },
+    })
+    const controls = [
+      ["#review-relation-type", "按关系类型筛选待处理关系", "friend_of"],
+      ["#review-relation-scene", "按 Scene 序号筛选待处理关系", "5"],
+      ["#review-relation-source-chapter", "按章节序号筛选待处理关系", "4"],
+      ["#review-relation-strength-min", "待处理关系最低强度", "0.7"],
+      ["#review-relation-type-kind", "待处理关系类型范围", "recommended"],
+      ["#review-relation-page-size", "待处理关系每页数量", "50"],
+    ]
+
+    for (const [selector, label, value] of controls) {
+      const control = wrapper.get(selector)
+      expect(control.attributes("aria-label")).toBe(label)
+      expect(control.element.value).toBe(value)
+    }
+    expect(wrapper.findAll("#review-relation-type-kind option").map((option) => option.element.value)).toEqual(["", "recommended", "custom"])
+    expect(wrapper.findAll("#review-relation-page-size option").map((option) => option.element.value)).toEqual(["20", "50"])
+
+    await wrapper.get("#review-relation-type").setValue("ally_of")
+    await wrapper.get("#review-relation-type-kind").setValue("custom")
+    await wrapper.get("#review-relation-page-size").setValue("20")
+    await wrapper.findAll('[data-action="apply-relation-review-filters"]')[1].trigger("click")
+    const [view, subView, , query] = navigateMock.mock.calls.at(-1)
+    expect([view, subView]).toEqual(["world", "review-relations"])
+    expect(query.get("relation_type")).toBe("ally_of")
+    expect(query.get("type_kind")).toBe("custom")
+    expect(query.get("limit")).toBeNull()
+  })
+
   it("组卡渲染：标题、计数、类型变体、成员", () => {
     const wrapper = mountTab({ reviewSubView: "review-relations" })
     const card = wrapper.find('.review-group-card[data-group-id="g1"]')

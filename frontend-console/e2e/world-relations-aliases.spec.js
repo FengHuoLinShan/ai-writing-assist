@@ -133,6 +133,26 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("化名")
   })
 
+  test("待处理别名和关系高级筛选可由可访问名称发现并保留筛选语义", async ({ page }) => {
+    await reloadWorkbench(page, "world", "review-aliases")
+    await page.getByRole("button", { name: "展开筛选", exact: true }).click()
+    const aliasSource = page.getByLabel("按来源筛选待处理别名", { exact: true })
+    await expect(aliasSource).toBeVisible()
+    await aliasSource.fill("manual")
+    await page.getByLabel("待处理别名类型范围", { exact: true }).selectOption("custom")
+    await page.getByLabel("待处理别名每页数量", { exact: true }).selectOption("50")
+    await page.locator('[data-action="apply-alias-review-filters"]').last().click()
+    await expect(page).toHaveURL(/source=manual/)
+    await expect(page).toHaveURL(/type_kind=custom/)
+    await expect(page).toHaveURL(/page_size=50/)
+
+    await reloadWorkbench(page, "world", "review-relations")
+    await page.getByRole("button", { name: "展开筛选", exact: true }).click()
+    await expect(page.getByLabel("按关系类型筛选待处理关系", { exact: true })).toBeVisible()
+    await expect(page.getByLabel("待处理关系最低强度", { exact: true })).toBeVisible()
+    await expect(page.getByLabel("待处理关系每页数量", { exact: true })).toBeVisible()
+  })
+
   test("关系分组可搜索首批之外的端点并一次请求完成归并", async ({ page }) => {
     const entities = []
     for (let index = 0; index < 25; index += 1) {

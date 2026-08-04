@@ -169,20 +169,20 @@
       <WorldReviewFilterChips kind="alias" :filters="aliasReviewFilters" />
       <WorldFilterPanel panel-key="review-aliases" :has-active-filters="aliasHasActiveFilters" :project-id="projectId">
         <div class="filter-bar" style="margin-bottom:12px;">
-          <input id="review-alias-source" v-model="aliasForm.source" class="form-input" placeholder="来源" />
+          <input id="review-alias-source" v-model="aliasForm.source" class="form-input" placeholder="来源" aria-label="按来源筛选待处理别名" />
           <details class="world-diagnostic-filter" :open="Boolean(aliasReviewFilters.workflow_id)">
             <summary>诊断筛选</summary>
-            <input id="review-alias-workflow" v-model="aliasForm.workflow_id" class="form-input" data-diagnostic-field placeholder="Workflow ID" />
+            <input id="review-alias-workflow" v-model="aliasForm.workflow_id" class="form-input" data-diagnostic-field placeholder="Workflow ID" aria-label="按 Workflow ID 诊断筛选待处理别名" />
           </details>
-          <input id="review-alias-scene" v-model="aliasForm.scene_index" class="form-input" placeholder="Scene" />
-          <input id="review-alias-chapter" v-model="aliasForm.source_chapter_index" class="form-input" placeholder="章节序号" />
-          <input id="review-alias-confidence-min" v-model="aliasForm.confidence_min" class="form-input" placeholder="最低置信度" />
-          <select id="review-alias-type-kind" v-model="aliasForm.type_kind" class="form-select">
+          <input id="review-alias-scene" v-model="aliasForm.scene_index" class="form-input" placeholder="Scene" aria-label="按 Scene 序号筛选待处理别名" />
+          <input id="review-alias-chapter" v-model="aliasForm.source_chapter_index" class="form-input" placeholder="章节序号" aria-label="按章节序号筛选待处理别名" />
+          <input id="review-alias-confidence-min" v-model="aliasForm.confidence_min" class="form-input" placeholder="最低置信度" aria-label="待处理别名最低置信度" />
+          <select id="review-alias-type-kind" v-model="aliasForm.type_kind" class="form-select" aria-label="待处理别名类型范围">
             <option value="">全部类型</option>
             <option value="recommended">推荐类型</option>
             <option value="custom">自定义类型</option>
           </select>
-          <select id="review-alias-page-size" v-model.number="aliasForm.limit" class="form-select">
+          <select id="review-alias-page-size" v-model.number="aliasForm.limit" class="form-select" aria-label="待处理别名每页数量">
             <option :value="20">每页 20 组</option>
             <option :value="50">每页 50 组</option>
           </select>
@@ -274,16 +274,16 @@
       <WorldReviewFilterChips kind="relation" :filters="relationReviewFilters" />
       <WorldFilterPanel panel-key="review-relations" :has-active-filters="relationHasActiveFilters" :project-id="projectId">
         <div class="filter-bar" style="margin-bottom:12px;">
-          <input id="review-relation-type" v-model="relationForm.relation_type" class="form-input" placeholder="关系类型" />
-          <input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" placeholder="Scene 序号" />
-          <input id="review-relation-source-chapter" v-model="relationForm.source_chapter_index" class="form-input" placeholder="章节序号" />
-          <input id="review-relation-strength-min" v-model="relationForm.strength_min" class="form-input" placeholder="最低强度" />
-          <select id="review-relation-type-kind" v-model="relationForm.type_kind" class="form-select">
+          <input id="review-relation-type" v-model="relationForm.relation_type" class="form-input" placeholder="关系类型" aria-label="按关系类型筛选待处理关系" />
+          <input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" placeholder="Scene 序号" aria-label="按 Scene 序号筛选待处理关系" />
+          <input id="review-relation-source-chapter" v-model="relationForm.source_chapter_index" class="form-input" placeholder="章节序号" aria-label="按章节序号筛选待处理关系" />
+          <input id="review-relation-strength-min" v-model="relationForm.strength_min" class="form-input" placeholder="最低强度" aria-label="待处理关系最低强度" />
+          <select id="review-relation-type-kind" v-model="relationForm.type_kind" class="form-select" aria-label="待处理关系类型范围">
             <option value="">全部类型</option>
             <option value="recommended">推荐类型</option>
             <option value="custom">自定义类型</option>
           </select>
-          <select id="review-relation-page-size" v-model.number="relationForm.limit" class="form-select">
+          <select id="review-relation-page-size" v-model.number="relationForm.limit" class="form-select" aria-label="待处理关系每页数量">
             <option :value="20">每页 20 组</option>
             <option :value="50">每页 50 组</option>
           </select>
