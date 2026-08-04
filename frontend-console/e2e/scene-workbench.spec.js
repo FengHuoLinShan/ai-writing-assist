@@ -40,7 +40,7 @@ test.describe("Scene 工作台", () => {
     await createDraft(project.id, 1, "第一章", "正文")
 
     await openWorkbench(page, project, "writing")
-    await page.getByRole("button", { name: /写作联动 Scene/ }).click()
+    await page.getByRole("button", { name: "写作联动 Scene", exact: true }).click()
     await page.getByRole("button", { name: "整理" }).click()
 
     await expect(page.locator("#topbar-module")).toHaveText("大纲")
