@@ -957,41 +957,6 @@ test.describe("写作台模块", () => {
   })
 
   // ============================================================
-  // 离线恢复 (localStorage 后备)
-  // ============================================================
-
-  test("离线恢复 — localStorage 后备内容", async ({ page }) => {
-    const backupContent = "本地暂存的离线内容"
-    const backupTitle = "离线标题"
-
-    await createDraft(testProjectId, 1, "第 1 章", "")
-
-    // 模拟：编辑后未保存就离开，内容被写入 localStorage
-    await page.evaluate((projectId) => {
-      const backupKey = `draft_backup_${projectId}_1`
-      localStorage.setItem(backupKey, JSON.stringify({
-        project_id: projectId,
-        content: "本地暂存的离线内容",
-        title: "离线标题",
-        chapter_index: 1,
-        timestamp: Date.now(),
-      }))
-    }, testProjectId)
-
-    page.once("dialog", async (dialog) => {
-      expect(dialog.message()).toContain("检测到本地暂存")
-      await dialog.accept()
-    })
-    await reloadWorkbench(page, "writing")
-    await waitWritingReady(page, { chapter: 1 })
-    await selectWritingChapter(page, 1)
-
-    // 断言备份内容已恢复到编辑器
-    await expect(page.locator("#writing-editor")).toHaveValue(backupContent, { timeout: 5000 })
-    await expect(page.locator("#writing-title-input")).toHaveValue(backupTitle, { timeout: 5000 })
-  })
-
-  // ============================================================
   // 多 Tab 冲突检测
   // ============================================================
 

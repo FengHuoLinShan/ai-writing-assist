@@ -35,10 +35,12 @@
 | `p1-lifecycle-health.spec.js` | 场景 3 / A1 | 后端 action 驱动的深度导入继续/放弃入口，以及 evidence health 展示；2/2 通过 |
 | `deep-import-worker.spec.js` | 场景 3 | guarded real-provider worker E2E：真实 UI 提交，profile 等待 worker readiness，浏览器进程关闭期间断言 task 推进，两次重启后恢复进度/终态，作者关闭后才清理；需 worker E2E LLM key 与共享加密 key |
 | `deep-import-real.spec.js` | 场景 3 | 真实同步深度导入（`POST /api/imports/deep/sync`），不覆盖新版 Phase 0 / Phase 1a / Phase 1b 韧性策略 |
-| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、光标位置联动右侧 Scene 卡面板、Scene 自动提取唯一入口、离线恢复 localStorage、多 Tab 冲突检测；10/10 通过 |
+| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、光标位置联动右侧 Scene 卡面板、Scene 自动提取唯一入口、多 Tab 冲突检测 |
+| `writing-chaos.spec.js` | 场景 4 | S4-REC-001 localStorage 恢复、S4-STA-001 章节/Scene 切换隔离、S4-VAL-001 恢复空白正文后发布门禁；3 项可执行风险覆盖 |
 | `writing-conflict.spec.js` | 场景 4 | 409 冲突 — 其他会话已更新草稿版本；1/1 通过 |
 | `world.spec.js` | 场景 5 | 对象库空态、创建/编辑/删除世界对象、关系子标签、别名子标签、实体合并、实体回滚、人物知识边界；9/9 通过 |
 | `world-relations-aliases.spec.js` | 场景 5 | 创建关系、创建别名；2/2 通过 |
+| `world-outline-chaos.spec.js` | 场景 5 / 场景 6 | S5-DNG-001 取消世界对象合并/回滚、S6-STA-002 移入历史后写作台状态清理、S6-IDM-001 覆盖确认取消；3 项可执行风险覆盖 |
 | `outline-scenes.spec.js` | 场景 6 | Scene 卡创建/编辑/移入历史、重排、工作台与正文 Scene 提取入口；P20 Planned Scene 由单元与后端契约测试覆盖 |
 | `outline-threads-arcs.spec.js` | 场景 6 | 创建/编辑/删除剧情线、创建/编辑/删除篇章纲；6/6 通过 |
 | `outline-foreshadowing-reveal.spec.js` | 场景 6 | 旧路由归并、同一 movement 的伏笔/揭示时间线、未归类计划分配 |
@@ -52,7 +54,7 @@
 
 - **项目创建与管理**：`project.spec.js` 与 `project-recycle-bin.spec.js` 覆盖创建、列表选择、编辑、软删除、回收站恢复和永久删除。创建和列表选择均进入写作视图（`#/workbench/:projectId/writing`）。
 - **文件上传与基础导入**：`import.spec.js`（1/1）与 `import-errors.spec.js`（3/3）覆盖基础导入成功流、格式不支持、超大文件前端拦截、空文件导入失败且不创建章节。
-- **手工写作工作台**：`writing.spec.js`（10/10）与 `writing-conflict.spec.js`（1/1）全部通过；覆盖写作核心流程与 409 冲突检测。
+- **手工写作工作台**：`writing.spec.js`、`writing-chaos.spec.js` 与 `writing-conflict.spec.js` 覆盖写作核心流程、localStorage 恢复、Scene 切换隔离、恢复后的发布门禁与 409 冲突检测；以当前运行输出为准。
 - **世界对象管理**：`world.spec.js`（9/9）与 `world-relations-aliases.spec.js`（2/2）全部通过；覆盖对象 CRUD、关系、别名、合并、回滚、知识边界。
 
 ### 🟡 部分覆盖（功能存在但 E2E 未完整断言）
@@ -93,8 +95,8 @@ cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTI
 # 以当前运行输出为准
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:functional -- project-chaos.spec.js --reporter=list
 # 若本地 PostgreSQL 不可用，先运行 backend/scripts/doctor.py --json
-DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8011 FRONTEND_PORT=8091 npm run test:e2e:functional -- map.spec.js scene-workbench.spec.js world.spec.js project-chaos.spec.js --reporter=list
-# 使用显式专用 PostgreSQL 测试库和隔离端口；不再收集 placeholder-only spec
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8011 FRONTEND_PORT=8091 npm run test:e2e:functional -- map.spec.js scene-workbench.spec.js world.spec.js project-chaos.spec.js writing-chaos.spec.js world-outline-chaos.spec.js --reporter=list
+# 使用显式专用 PostgreSQL 测试库和隔离端口；chaos 规格均为可执行风险覆盖
 
 # Lint
 cd frontend-console && node --check app.js && node --check api.js
