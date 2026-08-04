@@ -138,6 +138,29 @@ describe("深度导入", () => {
 })
 
 describe("作者偏好", () => {
+  it("以中文显示字体选项和项目来源值，同时保留原始 select value", async () => {
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectivePrefs: makeEffectivePrefs({
+          editor_font: { value: "system", source: "project" },
+          default_focus_mode: { value: false, source: "project" },
+        }),
+      }),
+    })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+
+    const font = wrapper.find("#author-editor-font")
+    expect(font.element.value).toBe("system")
+    expect(font.findAll("option").map((option) => option.element.value)).toEqual([
+      "system", "serif", "sans", "mono",
+    ])
+    expect(font.findAll("option").map((option) => option.text())).toEqual([
+      "跟随系统", "衬线", "无衬线", "等宽",
+    ])
+    expect(wrapper.findAll(".author-prefs-tab .source-value").map((item) => item.text())).toContain("跟随系统")
+    expect(wrapper.findAll(".author-prefs-tab .source-value").map((item) => item.text())).toContain("关闭")
+  })
+
   it("保存项目偏好", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
     await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")

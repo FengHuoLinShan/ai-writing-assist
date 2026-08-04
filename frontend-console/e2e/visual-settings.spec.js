@@ -52,10 +52,6 @@ test.describe("settings 视觉基线", () => {
     const llmResp = await ctx.put(`${API_BASE}/settings/llm-defaults`, {
       headers: xhrHeaders,
       data: {
-        provider_id: null,
-        label: null,
-        base_url: null,
-        model: null,
         timeout: null,
         max_tokens: null,
         temperature: null,
@@ -78,11 +74,11 @@ test.describe("settings 视觉基线", () => {
     await page.reload()
   })
 
-  test("全局设置页 × 三主题", async ({ page }) => {
+  test("账户设置页 × 三主题", async ({ page }) => {
     await page.goto("/#settings")
     // hash-only goto 在 SPA 中偶发不触发重新渲染，reload 强制 initRouter 按 URL hash 渲染（确定性）
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "全局设置" })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("button", { name: "保存作者偏好" })).toBeVisible()
     for (const theme of THEMES) {
       await applyTheme(page, theme)
@@ -95,18 +91,18 @@ test.describe("settings 视觉基线", () => {
     await page.goto(`/#workbench/${proj.id}/project-settings`)
     await page.reload()
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.locator("#llm-max-tokens")).toHaveValue("12000")
+    await expect(page.locator("#deep-import-phase0-target-input-chars")).toHaveValue("72000")
     for (const theme of THEMES) {
       await applyTheme(page, theme)
       await screenshotSettingsPage(page, `settings-project-${theme}.png`)
     }
 
     await applyTheme(page, "minimal")
-    await page.getByRole("button", { name: "深度导入" }).click()
+    await page.getByRole("tab", { name: "深度导入" }).click()
     await expect(page.getByText(/Phase 0/)).toBeVisible()
     await screenshotSettingsPage(page, "settings-project-tab-deep-import.png")
 
-    await page.getByRole("button", { name: "作者偏好" }).click()
+    await page.getByRole("tab", { name: "作者偏好" }).click()
     await expect(page.getByText(/日更目标/)).toBeVisible()
     await screenshotSettingsPage(page, "settings-project-tab-author.png")
   })

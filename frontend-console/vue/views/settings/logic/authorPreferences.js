@@ -5,6 +5,36 @@
 
 export const EDITOR_FONT_OPTIONS = ["system", "serif", "sans", "mono"]
 
+const EDITOR_FONT_LABELS = {
+  system: "跟随系统",
+  serif: "衬线",
+  sans: "无衬线",
+  mono: "等宽",
+}
+
+function safeDisplayValue(value) {
+  if (value === null || value === undefined) return value
+  try {
+    return String(value) || "（空值）"
+  } catch {
+    return "（未知值）"
+  }
+}
+
+export function editorFontDisplayLabel(value) {
+  if (value === null || value === undefined) return value
+  return Object.hasOwn(EDITOR_FONT_LABELS, value)
+    ? EDITOR_FONT_LABELS[value]
+    : safeDisplayValue(value)
+}
+
+export function defaultFocusModeDisplayLabel(value) {
+  if (value === null || value === undefined) return value
+  if (value === true) return "开启"
+  if (value === false) return "关闭"
+  return safeDisplayValue(value)
+}
+
 // 全局作者偏好硬默认（前端 fallback，与后端 AUTHOR_PREFS_DEFAULTS 对齐）
 export const AUTHOR_PREFS_DEFAULTS = {
   daily_goal: null,

@@ -1,6 +1,11 @@
 <script setup>
 import SourceLabel from "./SourceLabel.vue"
-import { EDITOR_FONT_OPTIONS, isResettableSource } from "../logic/authorPreferences.js"
+import {
+  EDITOR_FONT_OPTIONS,
+  defaultFocusModeDisplayLabel,
+  editorFontDisplayLabel,
+  isResettableSource,
+} from "../logic/authorPreferences.js"
 
 /**
  * 作者偏好表单（全局默认 / 项目 Tab 共用）。
@@ -35,10 +40,10 @@ const emit = defineEmits(["reset-field"])
       <div class="form-group">
         <label for="author-editor-font">编辑器字体</label>
         <select class="form-input" id="author-editor-font" v-model="form.editor_font">
-          <option v-for="font in EDITOR_FONT_OPTIONS" :key="font" :value="font">{{ font }}</option>
+          <option v-for="font in EDITOR_FONT_OPTIONS" :key="font" :value="font">{{ editorFontDisplayLabel(font) }}</option>
         </select>
         <div v-if="sourceMap.editor_font" class="settings-field-source">
-          <SourceLabel :source="sourceMap.editor_font.source" :value="sourceMap.editor_font.value" />
+          <SourceLabel :source="sourceMap.editor_font.source" :value="editorFontDisplayLabel(sourceMap.editor_font.value)" />
         </div>
         <button
           v-if="isResettableSource(sourceMap.editor_font)"
@@ -55,7 +60,7 @@ const emit = defineEmits(["reset-field"])
           默认专注模式
         </label>
         <div v-if="sourceMap.default_focus_mode" class="settings-field-source">
-          <SourceLabel :source="sourceMap.default_focus_mode.source" :value="sourceMap.default_focus_mode.value" />
+          <SourceLabel :source="sourceMap.default_focus_mode.source" :value="defaultFocusModeDisplayLabel(sourceMap.default_focus_mode.value)" />
         </div>
         <button
           v-if="isResettableSource(sourceMap.default_focus_mode)"

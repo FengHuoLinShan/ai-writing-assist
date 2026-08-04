@@ -47,11 +47,11 @@ test.describe("设置流程", () => {
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("button", { name: "深度导入" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "作者偏好" })).toBeVisible()
+    await expect(page.getByRole("tab", { name: "深度导入" })).toBeVisible()
+    await expect(page.getByRole("tab", { name: "作者偏好" })).toBeVisible()
     await expect(page.getByText(/模型与 Key 由账户设置统一管理/)).toBeVisible()
     await expect(page.getByText(/Phase 0/)).toBeVisible()
-    await page.getByRole("button", { name: "作者偏好" }).click()
+    await page.getByRole("tab", { name: "作者偏好" }).click()
     await expect(page.getByText(/日更目标/)).toBeVisible()
   })
 
@@ -72,7 +72,7 @@ test.describe("设置流程", () => {
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await page.getByRole("button", { name: "作者偏好" }).click()
+    await page.getByRole("tab", { name: "作者偏好" }).click()
     await expect(page.locator("#author-editor-font")).toHaveValue("serif")
 
     const ctx2 = await request.newContext()
@@ -85,8 +85,38 @@ test.describe("设置流程", () => {
     await page.reload()
     // reload 后需重新等渲染完成
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await page.getByRole("button", { name: "作者偏好" }).click()
+    await page.getByRole("tab", { name: "作者偏好" }).click()
     await expect(page.locator("#author-editor-font")).toHaveValue("mono")
+  })
+
+  test("项目作者偏好以中文显示选项和来源值，但保留原始保存值", async ({ page }) => {
+    const proj = await createProject({ title: "Localized Author Preferences", language: "zh" })
+    testProjectId = proj.id
+    const ctx = await request.newContext()
+    const response = await ctx.put(`${apiBase}/settings/projects/${testProjectId}/author-preferences`, {
+      headers: xhrHeaders,
+      data: { editor_font: "system", default_focus_mode: false },
+    })
+    expect(response.ok()).toBe(true)
+    expect(response.status()).toBe(200)
+    await ctx.dispose()
+
+    await page.goto(`/#workbench/${testProjectId}/project-settings`)
+    await page.reload()
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
+    await page.getByRole("tab", { name: "作者偏好" }).click()
+    const font = page.locator("#author-editor-font")
+    await expect(font).toHaveValue("system")
+    await expect(font.locator("option")).toHaveText(["跟随系统", "衬线", "无衬线", "等宽"])
+    await expect(font.locator("option").first()).toHaveAttribute("value", "system")
+    const fontGroup = page.locator(".author-prefs-tab .form-group").filter({ has: font })
+    await expect(fontGroup.locator(".source-label")).toHaveText("已覆盖")
+    await expect(fontGroup.locator(".source-value")).toHaveText("跟随系统")
+    const focusGroup = page.locator(".author-prefs-tab .form-group").filter({
+      has: page.locator("#author-default-focus"),
+    })
+    await expect(focusGroup.locator(".source-label")).toHaveText("已覆盖")
+    await expect(focusGroup.locator(".source-value")).toHaveText("关闭")
   })
 
   test("项目设置不再提供项目级模型与 Key", async ({ page }) => {
@@ -108,7 +138,7 @@ test.describe("设置流程", () => {
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     // reload 强制 initRouter 按 URL hash 同步 currentProjectId，规避空态竞态
     await page.reload()
-    await expect(page.getByRole("button", { name: "深度导入" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("tab", { name: "深度导入" })).toBeVisible({ timeout: 10000 })
     await page.fill("#deep-import-phase0-target-input-chars", "10")
     await page.getByRole("button", { name: "保存深度导入参数" }).click()
     await expect(page.getByText(/必须是/).first()).toBeVisible({ timeout: 5000 })

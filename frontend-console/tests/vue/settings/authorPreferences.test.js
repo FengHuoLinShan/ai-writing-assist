@@ -7,6 +7,8 @@ import {
   authorFormFromDefaults,
   authorFormFromEffective,
   buildAuthorPrefsPayload,
+  defaultFocusModeDisplayLabel,
+  editorFontDisplayLabel,
   isResettableSource,
   validateAuthorPreferences,
 } from "../../../vue/views/settings/logic/authorPreferences.js"
@@ -17,6 +19,21 @@ describe("buildAuthorPrefsPayload", () => {
       .toEqual({ daily_goal: 6000, editor_font: "serif", default_focus_mode: true })
     expect(buildAuthorPrefsPayload({ daily_goal: "", editor_font: "system", default_focus_mode: false }).daily_goal)
       .toBeNull()
+  })
+})
+
+describe("作者偏好显示标签", () => {
+  it("映射已知字体和默认专注模式，同时保留空值与未知值", () => {
+    expect(EDITOR_FONT_OPTIONS.map(editorFontDisplayLabel)).toEqual(["跟随系统", "衬线", "无衬线", "等宽"])
+    expect(editorFontDisplayLabel(null)).toBeNull()
+    expect(editorFontDisplayLabel(undefined)).toBeUndefined()
+    expect(editorFontDisplayLabel("variable")).toBe("variable")
+    expect(editorFontDisplayLabel("toString")).toBe("toString")
+    expect(defaultFocusModeDisplayLabel(true)).toBe("开启")
+    expect(defaultFocusModeDisplayLabel(false)).toBe("关闭")
+    expect(defaultFocusModeDisplayLabel(null)).toBeNull()
+    expect(defaultFocusModeDisplayLabel(undefined)).toBeUndefined()
+    expect(defaultFocusModeDisplayLabel("automatic")).toBe("automatic")
   })
 })
 

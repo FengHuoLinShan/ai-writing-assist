@@ -303,7 +303,7 @@ frontend-console/
 - `settings` 是无项目也可访问的账户设置页：模型连接只显示固定模板和 Key 输入，并只读显示
   余额（可能有延迟，无充值入口）。DeepSeek 默认模板是 `deepseek-v4-flash`；Kimi K3 在
   后端真实兼容门禁通过前不会出现。`project-settings` 只管理深度导入参数和作者偏好，
-  不再提供项目级 provider/model/Key。两个设置页在存在未保存输入时都会拦截离开。
+  不再提供项目级 provider/model/Key。作者偏好在账户和项目表单中把字体、专注模式及来源值本地化为中文，但保存、传输和存储仍使用稳定底层值（字体枚举与专注模式布尔值）。两个设置页在存在未保存输入时都会拦截离开。
 - 旧 `llm` 入口会按当前项目状态跳转到 `project-settings` 或 `settings`。
 - 旧 `context` hash 不再是一级页面，路由层会重定向到 `generate?tab=task`。
 
