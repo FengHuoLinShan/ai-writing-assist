@@ -38,7 +38,7 @@ frontend 只绑定宿主机 loopback，不对公网开放；PostgreSQL、worker 
 | 已确认 | `BOOTSTRAP_OWNER_EMAIL` | 新库 bootstrap 账号归属 `948620502@qq.com` |
 | 待填写 | `SMTP_PASSWORD` | 网易邮箱客户端授权码，只写入服务器 `0600` 环境文件 |
 | 待开通 | `B2_*`、`RESTIC_*` | 私有 Backblaze B2 bucket、限定 bucket 的 key、restic 密码 |
-| 待开通 | `HEALTHCHECKS_*_PING_URL` | 两个检查，邮件通知发到 `948620502@qq.com` |
+| 待开通 | `HEALTHCHECKS_*_PING_URL` | 三个检查，邮件通知发到 `948620502@qq.com` |
 
 Authing 微信保持关闭，直到真实扫码验收通过。
 
@@ -106,6 +106,11 @@ bash deploy/scripts/verify_public.sh
 `deploy/frontend-asset-contract.version`（当前值为 `1`）的提交还必须提供由生产构建验证器生成的
 `asset-inventory.txt`：容器内和公网验证都会逐项请求清单中的全部资源，并校验内容类型。没有该 marker 的历史提交继续使用稳定脚本检查，以保证回滚不会被新合同阻断；但带 marker 的提交缺少或提供无效清单会直接失败，绝不静默降级。`verify_public.sh` 还会从公网入口确认 HTML 声明资源属于清单。只有该脚本通过，才代表
 DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网链路通过。
+
+`verify_public.sh` 无参数时保留上述完整发布验收，包含 `asset-inventory.txt` 的所有发布资源。
+`runtime_health.sh` 每轮先复用本机 API、完整内部前端资产和 worker 进程健康检查，再调用
+`verify_public.sh --runtime`；后者只校验公网 HTTPS API、入口和入口 HTML 声明的 JS/CSS，避免每
+5 分钟遍历完整资源清单。它们都不会创建或启用外部 Healthchecks 检查。
 
 ## 日常更新
 
@@ -217,11 +222,14 @@ bash deploy/scripts/restore.sh \
 systemctl daemon-reload
 systemctl enable --now ai-writing-backup.timer
 systemctl enable --now ai-writing-account-maintenance.timer
+systemctl enable --now ai-writing-runtime-health.timer
 systemctl list-timers 'ai-writing-*'
 ```
 
-账号清理超过 26 小时、备份超过 26 小时或任务主动报告失败时必须告警。OpenResty
-访问日志保留 30 天，数据库本地备份最多保留 30 天。
+账号清理超过 26 小时、备份超过 26 小时、或 runtime 健康检查主动报告失败/漏 ping 时必须告警。
+为 runtime 的 5 分钟周期在 Healthchecks 配置适度 grace（例如 10 分钟），并演练 `/fail` 与 missed
+ping 告警；真实 ping URL 和外部检查仍需由运维人员在 Healthchecks 单独创建与配置。OpenResty 访问
+日志保留 30 天，数据库本地备份最多保留 30 天。
 
 ## 上线门禁
 
@@ -234,6 +242,7 @@ systemctl list-timers 'ai-writing-*'
 5. OpenResty 配置测试通过，只有 80/443 对公网开放。
 6. `verify_public.sh` 通过。
 7. B2 加密备份成功，并完成恢复演练。
-8. systemd 两个 timer 正常，Healthchecks 邮件告警已做失败演练。
+8. systemd 的 backup、account-maintenance 和 runtime-health 三个 timer 正常，Healthchecks
+   邮件告警已完成 `/fail` 与 missed ping 演练。
 
 本目录不自动申请域名/证书、不创建 SMTP/Authing/LLM 账户，也不保存任何真实凭据。

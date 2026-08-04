@@ -10,6 +10,9 @@ import yaml
 DEPLOY_ROOT = Path(__file__).parents[1]
 COMMON_SCRIPT = DEPLOY_ROOT / "scripts" / "common.sh"
 FRONTEND_ASSET_VALIDATOR = DEPLOY_ROOT / "scripts" / "validate_frontend_assets.py"
+RUNTIME_HEALTH_SCRIPT = DEPLOY_ROOT / "scripts" / "runtime_health.sh"
+VERIFY_PUBLIC_SCRIPT = DEPLOY_ROOT / "scripts" / "verify_public.sh"
+CLOSED_TEST_ENV = DEPLOY_ROOT / "tests" / "fixtures" / "closed-test.env"
 
 _RUNTIME_PATHS = [
     "/",
@@ -662,3 +665,235 @@ def test_openresty_renders_loopback_tunnel_origin() -> None:
     assert "listen 127.0.0.1:3259;" in result.stdout
     assert "listen 443" not in result.stdout
     assert "ssl_certificate" not in result.stdout
+
+
+def _copy_safe_test_env(tmp_path: Path) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    env_file = tmp_path / ".env.production"
+    env_file.write_text(CLOSED_TEST_ENV.read_text(encoding="utf-8"), encoding="utf-8")
+    env_file.chmod(0o600)
+    return env_file
+
+
+def _write_runtime_health_fakes(tmp_path: Path) -> tuple[Path, Path]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    event_log = tmp_path / "runtime-health-events.log"
+    event_log.write_text("")
+
+    fake_curl = fake_bin / "curl"
+    fake_curl.write_text(
+        "#!/bin/sh\n"
+        'printf "curl:%s\\n" "$*" >>"$FAKE_EVENT_LOG"\n'
+        "exit 0\n"
+    )
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/bin/sh\n"
+        'printf "docker:%s\\n" "$*" >>"$FAKE_EVENT_LOG"\n'
+        'test "${FAKE_DOCKER_FAIL:-0}" != 1\n'
+    )
+    fake_bash = fake_bin / "bash"
+    fake_bash.write_text(
+        "#!/bin/sh\n"
+        'printf "bash:%s\\n" "$*" >>"$FAKE_EVENT_LOG"\n'
+        'exit "${FAKE_BASH_STATUS:-0}"\n'
+    )
+    fake_sleep = fake_bin / "sleep"
+    fake_sleep.write_text("#!/bin/sh\nexit 0\n")
+    for executable in (fake_curl, fake_docker, fake_bash, fake_sleep):
+        executable.chmod(0o755)
+    return fake_bin, event_log
+
+
+def _run_runtime_health(
+    tmp_path: Path,
+    *,
+    docker_fails: bool = False,
+    public_check_status: int = 0,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    env_file = _copy_safe_test_env(tmp_path)
+    fake_bin, event_log = _write_runtime_health_fakes(tmp_path)
+    environment = os.environ | {
+        "ENV_FILE": str(env_file),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "FAKE_EVENT_LOG": str(event_log),
+        "FAKE_DOCKER_FAIL": "1" if docker_fails else "0",
+        "FAKE_BASH_STATUS": str(public_check_status),
+    }
+    result = subprocess.run(
+        ["sh", str(RUNTIME_HEALTH_SCRIPT)],
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    return result, event_log.read_text(encoding="utf-8").splitlines()
+
+
+def test_runtime_health_script_reports_start_success_and_fail_without_masking_subject_failures(
+    tmp_path: Path,
+) -> None:
+    success, success_events = _run_runtime_health(tmp_path / "success")
+
+    assert success.returncode == 0, success.stderr
+    start = next(
+        index
+        for index, event in enumerate(success_events)
+        if event.endswith("/runtime-fixture/start")
+    )
+    api = next(
+        index for index, event in enumerate(success_events) if "exec -T api" in event
+    )
+    public = next(
+        index
+        for index, event in enumerate(success_events)
+        if event.startswith("bash:") and event.endswith("verify_public.sh --runtime")
+    )
+    completed = next(
+        index
+        for index, event in enumerate(success_events)
+        if event.endswith("/runtime-fixture")
+    )
+    assert start < api < public < completed
+    assert not any(event.endswith("/runtime-fixture/fail") for event in success_events)
+
+    local_failure, local_failure_events = _run_runtime_health(
+        tmp_path / "local-failure", docker_fails=True
+    )
+
+    assert local_failure.returncode != 0
+    assert any(event.endswith("/runtime-fixture/fail") for event in local_failure_events)
+    assert not any(event.startswith("bash:") for event in local_failure_events)
+
+    public_failure, public_failure_events = _run_runtime_health(
+        tmp_path / "public-failure", public_check_status=17
+    )
+
+    assert public_failure.returncode == 17
+    assert any(event.endswith("/runtime-fixture/fail") for event in public_failure_events)
+    assert not any(event.endswith("/runtime-fixture") for event in public_failure_events)
+
+
+def _write_public_verification_curl(fake_bin: Path) -> Path:
+    fake_curl = fake_bin / "curl"
+    fake_curl.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$*" >>"$FAKE_CURL_LOG"\n'
+        "for argument in \"$@\"; do\n"
+        '    if [ "$argument" = "--write-out" ]; then\n'
+        "        last=\n"
+        "        for last; do :; done\n"
+        '        case "$last" in\n'
+        '            *.js) printf "application/javascript" ;;\n'
+        '            *.css) printf "text/css" ;;\n'
+        '            *.json) printf "application/json" ;;\n'
+        '            *.txt) printf "text/plain" ;;\n'
+        '            *) printf "text/html" ;;\n'
+        "        esac\n"
+        "        exit 0\n"
+        "    fi\n"
+        "done\n"
+        "last=\n"
+        "for last; do :; done\n"
+        'case "$last" in\n'
+        '    */api/health) printf \'{"status":"healthy","database":"connected"}\' ;;\n'
+        '    */asset-inventory.txt) cat "$FAKE_INVENTORY" ;;\n'
+        '    */) printf \'<div id="app"></div><link rel="stylesheet" href="/assets/app.css"><script src="/assets/app.js"></script>\' ;;\n'
+        "esac\n"
+    )
+    fake_curl.chmod(0o755)
+    return fake_curl
+
+
+def _run_public_verification(
+    tmp_path: Path, *arguments: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    env_file = _copy_safe_test_env(tmp_path)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_public_verification_curl(fake_bin)
+    curl_log = tmp_path / "curl.log"
+    inventory = tmp_path / "asset-inventory.txt"
+    inventory.write_text("\n".join(_RUNTIME_PATHS + ["/assets/app.css"]) + "\n")
+    environment = os.environ | {
+        "ENV_FILE": str(env_file),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "FAKE_CURL_LOG": str(curl_log),
+        "FAKE_INVENTORY": str(inventory),
+    }
+    result = subprocess.run(
+        ["sh", str(VERIFY_PUBLIC_SCRIPT), *arguments],
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    return result, curl_log.read_text(encoding="utf-8").splitlines()
+
+
+def test_public_verification_keeps_full_inventory_and_runtime_checks_only_index_assets(
+    tmp_path: Path,
+) -> None:
+    full, full_requests = _run_public_verification(tmp_path / "full")
+    runtime, runtime_requests = _run_public_verification(tmp_path / "runtime", "--runtime")
+
+    assert full.returncode == 0, full.stderr
+    assert runtime.returncode == 0, runtime.stderr
+    assert any(request.endswith("/asset-inventory.txt") for request in full_requests)
+    assert not any(request.endswith("/asset-inventory.txt") for request in runtime_requests)
+    assert any(request.endswith("/assets/app.js") for request in runtime_requests)
+    assert any(request.endswith("/assets/app.css") for request in runtime_requests)
+    for request in full_requests + runtime_requests:
+        assert "--connect-timeout 5" in request
+        assert "--max-time 30" in request
+        assert "--proto =https" in request
+        assert "--tlsv1.2" in request
+    assert any("--max-filesize 65536" in request for request in full_requests)
+    assert any("--max-filesize 1048576" in request for request in full_requests)
+    assert any("--max-filesize 65536" in request for request in runtime_requests)
+    assert any("--max-filesize 1048576" in request for request in runtime_requests)
+
+
+def test_public_verification_rejects_unknown_or_extra_arguments_before_network_use() -> None:
+    for arguments in (("--unexpected",), ("--runtime", "extra")):
+        result = subprocess.run(
+            ["sh", str(VERIFY_PUBLIC_SCRIPT), *arguments],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 2
+        assert "Usage:" in result.stderr
+
+
+def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
+    service = (
+        DEPLOY_ROOT / "systemd" / "ai-writing-runtime-health.service"
+    ).read_text(encoding="utf-8")
+    timer = (DEPLOY_ROOT / "systemd" / "ai-writing-runtime-health.timer").read_text(
+        encoding="utf-8"
+    )
+    script = RUNTIME_HEALTH_SCRIPT.read_text(encoding="utf-8")
+
+    assert RUNTIME_HEALTH_SCRIPT.stat().st_mode & 0o111
+    assert "validate_environment" in script
+    assert "load_release_id" in script
+    assert "HEALTHCHECKS_RUNTIME_PING_URL" in script
+    assert script.index('healthcheck_ping "${HEALTHCHECK_URL}/start"') < script.index(
+        "wait_for_application_health"
+    ) < script.index('bash "$SCRIPT_DIR/verify_public.sh" --runtime')
+    assert "RUNTIME_HEALTH_SUCCEEDED" in script
+    assert 'healthcheck_ping "${HEALTHCHECK_URL}/fail" || true' in script
+    assert "Requires=docker.service" in service
+    assert "Wants=network-online.target" in service
+    assert "After=network-online.target" in service
+    assert "ConditionPathExists=/opt/ai-writing-assist/deploy/.env.production" in service
+    assert "Environment=ENV_FILE=/opt/ai-writing-assist/deploy/.env.production" in service
+    assert "ExecStart=/bin/bash /opt/ai-writing-assist/deploy/scripts/runtime_health.sh" in service
+    assert "TimeoutStartSec=5m" in service
+    assert "http" not in service.lower()
+    assert "OnBootSec=2m" in timer
+    assert "OnUnitInactiveSec=5m" in timer
+    assert "AccuracySec=30s" in timer
+    assert "RandomizedDelaySec=30s" in timer
+    assert "Unit=ai-writing-runtime-health.service" in timer
+    assert "Persistent=" not in timer

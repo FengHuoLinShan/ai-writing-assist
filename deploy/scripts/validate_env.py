@@ -22,6 +22,7 @@ IMAGE_PATH_COMPONENT_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 IMAGE_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REGISTRY_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+HEALTHCHECKS_CHECK_PATH_RE = re.compile(r"^/[A-Za-z0-9_-]+$")
 
 
 def validate_env_file_metadata(
@@ -133,6 +134,29 @@ def is_pinned_image_reference(value: str) -> bool:
         and all(REGISTRY_LABEL_RE.fullmatch(label) for label in registry_host.split("."))
         and "." in registry_host
     )
+
+
+def normalize_healthchecks_check_base_url(value: str) -> str | None:
+    """Return the canonical allowed Healthchecks check endpoint, if valid."""
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+
+    normalized_path = parsed.path.rstrip("/")
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "hc-ping.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or port not in {None, 443}
+        or not HEALTHCHECKS_CHECK_PATH_RE.fullmatch(normalized_path)
+    ):
+        return None
+    return f"https://hc-ping.com{normalized_path}"
 
 
 def validate(values: dict[str, str]) -> list[str]:
@@ -333,15 +357,23 @@ def validate(values: dict[str, str]) -> list[str]:
     for name in ("B2_ACCOUNT_ID", "B2_ACCOUNT_KEY", "RESTIC_PASSWORD"):
         require(name)
 
+    healthcheck_urls: list[str] = []
     for name in (
         "HEALTHCHECKS_BACKUP_PING_URL",
         "HEALTHCHECKS_MAINTENANCE_PING_URL",
+        "HEALTHCHECKS_RUNTIME_PING_URL",
     ):
         ping_url = require(name)
         if not is_missing(ping_url):
-            parsed_ping = urlsplit(ping_url)
-            if parsed_ping.scheme != "https" or parsed_ping.hostname != "hc-ping.com":
-                errors.append(f"{name} must be an HTTPS hc-ping.com URL")
+            normalized_ping_url = normalize_healthchecks_check_base_url(ping_url)
+            if normalized_ping_url is None:
+                errors.append(
+                    f"{name} must be an HTTPS hc-ping.com check base URL"
+                )
+            else:
+                healthcheck_urls.append(normalized_ping_url)
+    if len(healthcheck_urls) != len(set(healthcheck_urls)):
+        errors.append("HEALTHCHECKS ping URLs must be distinct")
 
     if values.get("LLM_TRUST_ENV", "false").lower() not in {"0", "false", "no", "off"}:
         errors.append("LLM_TRUST_ENV must remain false in production")

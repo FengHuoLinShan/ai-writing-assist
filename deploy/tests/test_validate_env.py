@@ -72,6 +72,7 @@ def _valid_values() -> dict[str, str]:
         "HEALTHCHECKS_MAINTENANCE_PING_URL": (
             "https://hc-ping.com/maintenance-fixture"
         ),
+        "HEALTHCHECKS_RUNTIME_PING_URL": "https://hc-ping.com/runtime-fixture",
     }
 
 
@@ -209,6 +210,85 @@ def test_public_mode_requires_smtp_and_auth_secret() -> None:
 
     assert any("AUTH_SECRET_KEY" in error for error in errors)
     assert any("SMTP_HOST" in error for error in errors)
+
+
+def test_runtime_healthcheck_url_is_required_and_must_use_https_hc_ping() -> None:
+    missing = _valid_values()
+    missing.pop("HEALTHCHECKS_RUNTIME_PING_URL")
+
+    missing_errors = validator.validate(missing)
+
+    assert any(
+        "HEALTHCHECKS_RUNTIME_PING_URL is required" in error
+        for error in missing_errors
+    )
+
+    invalid = _valid_values()
+    invalid["HEALTHCHECKS_RUNTIME_PING_URL"] = "http://hc-ping.com/runtime"
+
+    invalid_errors = validator.validate(invalid)
+
+    assert invalid_errors == [
+        "HEALTHCHECKS_RUNTIME_PING_URL must be an HTTPS hc-ping.com check base URL"
+    ]
+
+
+@pytest.mark.parametrize(
+    "ping_url",
+    (
+        "https://hc-ping.com/",
+        "https://hc-ping.com/backup-fixture/start",
+        "https://hc-ping.com/runtime-fixture?next=/start",
+        "https://hc-ping.com/runtime-fixture#fragment",
+        "https://user:password@hc-ping.com/runtime-fixture",
+        "https://hc-ping.com:444/runtime-fixture",
+        "https://hc-ping.com:not-a-port/runtime-fixture",
+    ),
+)
+def test_healthchecks_ping_urls_require_a_safe_single_segment_check_base(
+    ping_url: str,
+) -> None:
+    values = _valid_values()
+    values["HEALTHCHECKS_RUNTIME_PING_URL"] = ping_url
+
+    errors = validator.validate(values)
+
+    assert errors == [
+        "HEALTHCHECKS_RUNTIME_PING_URL must be an HTTPS hc-ping.com check base URL"
+    ]
+
+
+def test_healthchecks_ping_urls_must_be_distinct() -> None:
+    values = _valid_values()
+    values["HEALTHCHECKS_RUNTIME_PING_URL"] = values[
+        "HEALTHCHECKS_BACKUP_PING_URL"
+    ]
+
+    errors = validator.validate(values)
+
+    assert errors == ["HEALTHCHECKS ping URLs must be distinct"]
+
+
+def test_healthchecks_ping_urls_reject_trailing_slash_aliases() -> None:
+    values = _valid_values()
+    values["HEALTHCHECKS_RUNTIME_PING_URL"] = (
+        values["HEALTHCHECKS_BACKUP_PING_URL"] + "/"
+    )
+
+    errors = validator.validate(values)
+
+    assert errors == ["HEALTHCHECKS ping URLs must be distinct"]
+
+
+def test_healthchecks_ping_urls_reject_default_port_and_trailing_slash_aliases() -> None:
+    values = _valid_values()
+    values["HEALTHCHECKS_RUNTIME_PING_URL"] = (
+        "https://hc-ping.com:443/backup-fixture/"
+    )
+
+    errors = validator.validate(values)
+
+    assert errors == ["HEALTHCHECKS ping URLs must be distinct"]
 
 
 def test_env_file_metadata_accepts_current_owner_with_exact_mode(tmp_path: Path) -> None:
