@@ -73,7 +73,12 @@ describe("MapWorkspaceView", () => {
   it("routes dynamic-object modification into the Vue typed editor", async () => {
     const wrapper = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], inbox: {} } })
     await vi.waitFor(() => expect(wrapper.find(".map-dynamic-item").exists()).toBe(true))
-    await wrapper.find(".map-dynamic-item").trigger("click")
+    const title = wrapper.get('[data-action="map-open-dynamic-item"]')
+    expect(title.element.tagName).toBe("BUTTON")
+    expect(title.attributes("type")).toBe("button")
+    showModalHtml.mockClear()
+    await title.trigger("click")
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
     const buttons = showModalHtml.mock.calls.at(-1)[2]
     buttons.find((button) => button.text === "修改").handler()
     await vi.waitFor(() => expect(document.body.querySelector("#map-typed-route-path")).not.toBeNull())
@@ -141,8 +146,10 @@ describe("MapWorkspaceView", () => {
     expect(wrapper.find("[data-test='viewport']").exists()).toBe(true)
     expect(wrapper.find("script").exists()).toBe(false)
 
+    showModalHtml.mockClear()
     await wrapper.find(".map-dynamic-item .btn-primary").trigger("click")
     await vi.waitFor(() => expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "o1", "p1", "rev-2"))
+    expect(showModalHtml).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

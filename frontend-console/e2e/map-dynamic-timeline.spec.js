@@ -165,6 +165,15 @@ test.describe("地图 Scene 动态时间轴", () => {
     await expect(timeline.getByLabel("待处理预览")).not.toBeChecked()
     await expect(timeline).not.toContainText("未经确认的警戒")
 
+    const currentFact = page.locator(".map-live-current-facts")
+      .getByRole("button", { name: "巡夜人", exact: true })
+      .first()
+    await expect(currentFact).toBeVisible({ timeout: 10000 })
+    await currentFact.focus()
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("dialog", { name: "巡夜人" })).toBeVisible()
+    await page.keyboard.press("Escape")
+
     await timeline.getByLabel("待处理预览").check()
     await expect(timeline.locator(".map-timeline-candidates")).toContainText(
       "未经确认的警戒",

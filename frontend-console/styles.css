@@ -7723,14 +7723,6 @@ kbd {
   min-width: 0;
 }
 
-.map-dynamic-item[data-action="map-open-dynamic-item"] {
-  cursor: pointer;
-}
-
-.map-dynamic-item[data-action="map-open-dynamic-item"]:hover {
-  border-color: var(--accent);
-}
-
 .map-dynamic-item.is-confirmed {
   border-color: var(--success);
 }
@@ -7747,6 +7739,28 @@ kbd {
   font-weight: 600;
   color: var(--text-primary);
   overflow-wrap: anywhere;
+}
+
+.map-open-dynamic-item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.map-open-dynamic-item:hover {
+  color: var(--accent);
+}
+
+.map-open-dynamic-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .map-dynamic-source {
