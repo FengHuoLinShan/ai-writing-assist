@@ -458,6 +458,41 @@ def test_release_and_restore_restore_the_finalized_state_checkout_on_failure() -
         assert current_release < committed
 
 
+def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> None:
+    release_script = (DEPLOY_ROOT / "scripts" / "release.sh").read_text()
+    restore_script = (DEPLOY_ROOT / "scripts" / "restore.sh").read_text()
+
+    release_quiesce = release_script.index("if ! compose stop api worker frontend; then")
+    release_backup = release_script.index('BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")')
+    release_migrate = release_script.index("compose --profile ops run --rm migrate")
+    release_target_up = release_script.index(
+        "compose up -d api worker frontend", release_quiesce
+    )
+    release_health = release_script.index("if ! wait_for_application_health; then")
+
+    assert release_quiesce < release_backup < release_migrate < release_target_up
+    assert release_target_up < release_health
+    assert "compose stop api worker frontend >/dev/null 2>&1 || true" not in (
+        release_script[release_quiesce:release_backup]
+    )
+
+    first_checksum = restore_script.index("verify_backup_checksum")
+    second_checksum = restore_script.index("verify_backup_checksum", first_checksum + 1)
+    restore_quiesce = restore_script.index(
+        "if ! compose stop api worker frontend; then", second_checksum
+    )
+    safety_backup = restore_script.index('SAFETY_BACKUP=$(bash "$SCRIPT_DIR/backup.sh")')
+    drop_database = restore_script.index("compose exec -T postgres dropdb")
+    restore_database = restore_script.index("    --exit-on-error <")
+    restore_migrate = restore_script.index("compose --profile ops run --rm migrate")
+
+    assert second_checksum < restore_quiesce < safety_backup < drop_database
+    assert drop_database < restore_database < restore_migrate
+    assert "compose stop api worker frontend >/dev/null 2>&1 || true" not in (
+        restore_script[restore_quiesce:safety_backup]
+    )
+
+
 def test_common_and_compose_declare_worker_process_health() -> None:
     common_script = COMMON_SCRIPT.read_text()
     compose_path = DEPLOY_ROOT / "compose.production.yml"

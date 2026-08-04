@@ -100,7 +100,11 @@ if ! verify_backup_checksum "$BACKUP_PATH"; then
     exit 1
 fi
 
-compose stop api worker frontend >/dev/null 2>&1 || true
+if ! compose stop api worker frontend; then
+    echo "Unable to quiesce application services before the safety backup." >&2
+    exit 1
+fi
+
 SAFETY_BACKUP=$(bash "$SCRIPT_DIR/backup.sh")
 POSTGRES_USER=$(env_value POSTGRES_USER)
 POSTGRES_DB=$(env_value POSTGRES_DB)

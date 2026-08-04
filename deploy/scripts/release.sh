@@ -103,6 +103,11 @@ if ! compose run --rm api python scripts/check_embedding.py; then
     exit 1
 fi
 
+if ! compose stop api worker frontend; then
+    echo "Unable to quiesce application services before the pre-migration backup." >&2
+    exit 1
+fi
+
 BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
 
 if ! compose --profile ops run --rm migrate; then
