@@ -35,10 +35,10 @@ frontend 只绑定宿主机 loopback，不对公网开放；PostgreSQL、worker 
 | 已确认 | `LLM_RATE_LIMIT_PER_MINUTE=0` | 用户使用项目 LLM 配置；仍保留并发上限 |
 | 已确认 | `EMBEDDING_*` | zy 本机 CPU TEI + `BAAI/bge-base-zh-v1.5`，768 维 |
 | 待填写 | `AUTH_SECRET_KEY` | 新生成至少 32 字符 |
-| 已确认 | `BOOTSTRAP_OWNER_EMAIL` | 新库 bootstrap 账号归属 `948620502@qq.com` |
-| 待填写 | `SMTP_PASSWORD` | 网易邮箱客户端授权码，只写入服务器 `0600` 环境文件 |
+| 待填写 | `BOOTSTRAP_OWNER_EMAIL` | 新库 bootstrap 的私有 owner 邮箱，只写入服务器 `0600` 环境文件 |
+| 待填写 | `SMTP_*`、`SUPPORT_EMAIL` | 兼容 SMTP 的 host、登录、发件与支持邮箱，只写入服务器 `0600` 环境文件 |
 | 待开通 | `B2_*`、`RESTIC_*` | 私有 Backblaze B2 bucket、限定 bucket 的 key、restic 密码 |
-| 待开通 | `HEALTHCHECKS_*_PING_URL` | 三个检查，邮件通知发到 `948620502@qq.com` |
+| 待开通 | `HEALTHCHECKS_*_PING_URL` | 三个检查，通知收件人只在私有监控配置中设置 |
 
 Authing 微信保持关闭，直到真实扫码验收通过。
 
@@ -51,6 +51,9 @@ cp deploy/.env.production.example deploy/.env.production
 chmod 600 deploy/.env.production
 python3 deploy/scripts/validate_env.py --env deploy/.env.production
 ```
+
+真实 bootstrap owner、SMTP host/login/from、support email 与监控通知收件人只可保存在服务器
+当前用户拥有、权限精确为 `0600` 的 `deploy/.env.production`；不要将它们写入示例、文档、测试或 Git。
 
 可使用以下命令生成独立随机值；不要复用本地开发密钥：
 
@@ -259,7 +262,7 @@ bash deploy/scripts/backup.sh
 备份写入 `deploy/backups/`，使用 `pg_restore --list` 验证并生成 SHA-256 sidecar，然后由
 restic 加密、去重后上传私有 Backblaze B2。保留 7 个 daily、4 个 weekly 和 6 个
 monthly 快照；超过 `BACKUP_RETENTION_DAYS` 的本地备份会自动清理。脚本在开始、成功
-或失败时 ping Healthchecks.io，由其向 `948620502@qq.com` 发告警。
+或失败时 ping Healthchecks.io；告警收件人只由私有监控配置决定。
 
 备份与恢复都将 `deploy/backups/` 当作私有文件系统边界：脚本会以原子创建或打开的目录
 描述符校验其最终路径不是 symlink、是当前用户拥有的目录且权限精确为 `0700`；当前用户拥有的

@@ -21,6 +21,7 @@ def _load_validator() -> ModuleType:
 
 
 validator = _load_validator()
+EXAMPLE_ENV = Path(__file__).parents[1] / ".env.production.example"
 
 
 def _valid_values() -> dict[str, str]:
@@ -89,6 +90,31 @@ def test_example_placeholders_fail_closed() -> None:
 
     assert any("DEPLOY_DOMAIN" in error for error in errors)
     assert any("B2_ACCOUNT_KEY" in error for error in errors)
+
+
+def test_public_example_keeps_operator_bound_mail_settings_as_placeholders() -> None:
+    values = validator.parse_env(EXAMPLE_ENV)
+    operator_bound_fields = (
+        "BOOTSTRAP_OWNER_EMAIL",
+        "SMTP_HOST",
+        "SMTP_USERNAME",
+        "SMTP_PASSWORD",
+        "SMTP_FROM",
+        "SUPPORT_EMAIL",
+    )
+
+    for field in operator_bound_fields:
+        assert field in values
+        assert validator.is_missing(values[field])
+        assert "CHANGE_ME" in values[field].upper()
+
+    assert values["SMTP_PORT"] == "587"
+    assert values["SMTP_TLS_MODE"] == "starttls"
+    errors = validator.validate(values)
+    assert errors
+    assert any(
+        any(field in error for field in operator_bound_fields) for error in errors
+    )
 
 
 def test_production_can_disable_global_llm_rpm() -> None:
@@ -321,7 +347,7 @@ def test_env_file_metadata_rejects_modes_other_than_exact_0600(tmp_path: Path) -
         ]
 
 
-def test_env_file_metadata_rejects_symlink_even_when_target_is_safe(tmp_path: Path) -> None:
+def test_env_file_metadata_rejects_safe_target_symlink(tmp_path: Path) -> None:
     target = tmp_path / "safe-target.env"
     target.write_text("EXAMPLE_KEY=fixture-value\n")
     target.chmod(0o600)
@@ -339,7 +365,7 @@ def test_env_file_metadata_rejects_non_regular_files(tmp_path: Path) -> None:
     assert errors == [f"Production env file must be a regular file: {tmp_path}"]
 
 
-def test_env_file_metadata_rejects_a_different_owner_without_chown(tmp_path: Path) -> None:
+def test_env_file_metadata_rejects_different_owner_without_chown(tmp_path: Path) -> None:
     env_file = tmp_path / ".env.production"
     env_file.write_text("EXAMPLE_KEY=fixture-value\n")
     env_file.chmod(0o600)
