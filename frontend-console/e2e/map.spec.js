@@ -17,7 +17,6 @@ import {
   createProject,
   createScene,
   getFocusState,
-  getTask,
   getMapLayerTree,
   getMapPaths,
   getMapState,
@@ -104,7 +103,7 @@ test.describe("地图一级工作台", () => {
     }
   })
 
-  test("从地图总览授权独立 Scene 事实补充任务", async ({ page }) => {
+  test("从地图总览提示账户模型连接后可重试地图事实补充", async ({ page }) => {
     const project = await createProject({
       title: "地图事实补充 E2E",
       genre: "fantasy",
@@ -120,19 +119,19 @@ test.describe("地图一级工作台", () => {
     ))
     await page.locator("#map-enrichment-start").fill("1")
     await page.locator("#map-enrichment-end").fill("1")
-    await page.getByRole("button", { name: "确认并开始补充" }).click()
+    const submit = page.getByRole("button", { name: "确认并开始补充" })
+    await submit.click()
 
     const response = await responsePromise
-    expect(response.status()).toBe(201)
-    const submitted = await response.json()
-    expect(submitted).toMatchObject({ workflow_type: "map_observation_enrichment" })
-    const task = await getTask(submitted.task_id, project.id)
-    expect(task).toMatchObject({
-      task_type: "map_observation_enrichment",
-      status: "pending",
-    })
-    await expect(page.locator("#map-enrichment-progress")).toContainText("地图事实补充")
-    await expect(page.locator("#map-enrichment-progress")).toContainText("等待执行")
+    expect(response.status()).toBe(400)
+    const rejected = await response.json()
+    expect(rejected.error).toBe("project_llm_configuration_error")
+    expect(rejected.detail).toContain("账户模型尚未连接")
+    expect(rejected.detail).toContain("账户设置")
+    await expect(page.locator(SEL.toastContainer)).toContainText("账户模型尚未连接")
+    await expect(page.locator(SEL.toastContainer)).toContainText("账户设置")
+    await expect(submit).toBeEnabled()
+    await expect(page.locator("#map-enrichment-progress")).toHaveCount(0)
   })
 
   test("should create a world map from the sidebar workspace and persist its state", async ({ page }) => {
@@ -493,7 +492,7 @@ test.describe("地图一级工作台", () => {
     const entityRow = page.locator(SEL.tableRow(location.id))
     await expect(entityRow).toContainText("双城关隘", { timeout: 10000 })
     await entityRow.locator(".action-menu-btn").click()
-    await entityRow.getByRole("button", { name: "打开地图" }).click()
+    await entityRow.getByRole("menuitem", { name: "打开地图", exact: true }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("选择关联地图")
 
     const popupPromise = page.waitForEvent("popup")
@@ -530,7 +529,7 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map)
-    await page.getByRole("button", { name: "编辑" }).click()
+    await page.locator(SEL.mapEnterEdit).click()
     await page.getByRole("button", { name: "覆盖素材", exact: true }).click()
     await page.getByRole("button", { name: "新建" }).click()
     await page.locator("#map-overlay-new-name").fill("风暴前线")
@@ -570,7 +569,7 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map)
-    await page.getByRole("button", { name: "编辑" }).click()
+    await page.locator(SEL.mapEnterEdit).click()
     await page.getByRole("button", { name: "线路", exact: true }).click()
     await page.getByRole("button", { name: "+ 线路图层" }).click()
     await page.locator("#map-path-layer-name").fill("王国公路")
@@ -609,7 +608,7 @@ test.describe("地图一级工作台", () => {
       focusPathId: pathState.paths[0].id,
       focusLayerNodeId: leaf.id,
     })
-    await page.getByRole("button", { name: "编辑" }).click()
+    await page.locator(SEL.mapEnterEdit).click()
     await page.getByRole("button", { name: "线路", exact: true }).click()
     await expect(page.locator(".map-path-list-row.active")).toContainText(pathState.paths[0].name)
   })
@@ -733,7 +732,7 @@ test.describe("地图一级工作台", () => {
 
     await openMapWorkspace(page, project, map)
     await expectMapCanvasAligned(page)
-    await page.getByRole("button", { name: "编辑" }).click()
+    await page.locator(SEL.mapEnterEdit).click()
     await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
     await expectMapCanvasAligned(page)
 
@@ -795,7 +794,7 @@ test.describe("地图一级工作台", () => {
       await openMapWorkspace(page, project, map)
       await openMapWorkspace(secondPage, project, map)
       for (const currentPage of [page, secondPage]) {
-        await currentPage.getByRole("button", { name: "编辑" }).click()
+        await currentPage.locator(SEL.mapEnterEdit).click()
         await currentPage.getByRole("button", { name: "底图地貌" }).click()
       }
       await page.locator(SEL.mapTerrainSelect).selectOption("water")
@@ -902,7 +901,7 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map)
-    await page.getByRole("button", { name: "编辑" }).click()
+    await page.locator(SEL.mapEnterEdit).click()
     const lockedTree = await getMapLayerTree(testProjectId, map.id)
     for (const layerKey of ["marker", "territory", "terrainOverlay"]) {
       const node = lockedTree.nodes.find((item) => item.layer_key === layerKey)
@@ -1112,7 +1111,7 @@ test.describe("地图一级工作台", () => {
     await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 1: 抵达洛阳")
     expect(new URL(page.url()).hash).toContain(`scene_id=${firstScene.id}`)
 
-    await page.getByRole("button", { name: "编辑" }).click()
+    await page.locator(SEL.mapEnterEdit).click()
     await page.getByRole("button", { name: "标记", exact: true }).click()
     await page.locator(SEL.mapMarkerType).selectOption("character")
     await page.locator(SEL.mapMarkerEntity).selectOption(character.id)
@@ -1185,7 +1184,7 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map)
-    await page.getByRole("button", { name: "编辑" }).click()
+    await page.locator(SEL.mapEnterEdit).click()
     await page.getByRole("button", { name: "领地", exact: true }).click()
     await page.locator(SEL.mapTerritoryFaction).selectOption(organization.id)
     await page.locator('[data-action="map-territory-mode"][data-mode="paint"]').click()
@@ -1312,7 +1311,7 @@ test.describe("写作页地图入口", () => {
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
 
-    await page.getByRole("button", { name: /抵达洛阳/ }).click()
+    await page.locator(SEL.writingSceneLabel).filter({ hasText: /^抵达洛阳(?: · |$)/ }).click()
     await expect(page.locator("#writing-panel-container")).toContainText("抵达洛阳")
     await page.getByRole("tab", { name: "地图" }).click()
     await expect(page.locator('[data-panel="map"]')).toBeVisible()

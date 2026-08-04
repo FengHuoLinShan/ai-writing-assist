@@ -331,7 +331,7 @@ test.describe("世界动态地图混乱路径", () => {
     const entityRow = page.locator(SEL.tableRow(fixture.entities.shen.id))
     await entityRow.locator(".action-menu-btn").click()
     const popupPromise = page.waitForEvent("popup")
-    await entityRow.getByRole("button", { name: "打开地图" }).click()
+    await entityRow.getByRole("menuitem", { name: "打开地图", exact: true }).click()
     const popup = await popupPromise
     await popup.waitForFunction(
       () => typeof state !== "undefined" && !state.loading,

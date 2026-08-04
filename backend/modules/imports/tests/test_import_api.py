@@ -601,6 +601,38 @@ async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
 
 
 @pytest.mark.asyncio
+async def test_map_observation_stage_rejects_missing_llm_key_without_enqueue(
+    async_client: AsyncClient,
+    db_session,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "无 LLM 配置地图补充项目"},
+    )
+    novel_id = project_resp.json()["id"]
+
+    resp = await async_client.post(
+        "/api/imports/stages/map-observations",
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 5,
+            "authorization_confirmed": True,
+        },
+    )
+
+    assert resp.status_code == 400
+    payload = resp.json()
+    assert payload["error"] == "project_llm_configuration_error"
+    assert "账户模型尚未连接" in payload["detail"]
+    assert "账户设置" in payload["detail"]
+    result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.meta["novel_id"].as_string() == novel_id)
+    )
+    assert result.scalars().all() == []
+
+
+@pytest.mark.asyncio
 async def test_scene_stage_endpoint_accepts_high_quality_flag(
     async_client: AsyncClient,
     db_session,

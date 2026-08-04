@@ -116,6 +116,7 @@ export const SEL = {
   mapTerritoryFaction: "#map-territory-faction",
   mapDetailName: "#map-detail-name",
   mapDetailAutogen: "#map-detail-autogen",
+  mapEnterEdit: '[data-action="map-enter-edit"]',
 
   // 命令栏
   commandInput: "#command-input",
