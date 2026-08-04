@@ -56,10 +56,29 @@ if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$TARGET_COMMIT" origin/main; 
 fi
 RELEASE_ID=$(printf '%s' "$TARGET_COMMIT" | cut -c1-12)
 export RELEASE_ID
-PREVIOUS_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
-if [ -f "$STATE_DIR/current-commit" ]; then
-    PREVIOUS_COMMIT=$(sed -n '1p' "$STATE_DIR/current-commit")
-fi
+PREVIOUS_COMMIT=$(resolve_active_deployment_commit)
+DEPLOYMENT_COMMITTED=false
+NEW_APP_SERVICES_MAY_HAVE_STARTED=false
+
+cleanup_uncommitted_attempt() {
+    status=$?
+    trap - EXIT HUP INT TERM
+    if [ "$DEPLOYMENT_COMMITTED" != "true" ]; then
+        if [ "$NEW_APP_SERVICES_MAY_HAVE_STARTED" = "true" ]; then
+            if ! compose stop api worker frontend >/dev/null 2>&1; then
+                echo "Warning: failed to stop application services after an uncommitted restore." >&2
+            fi
+        fi
+        if ! (
+            umask 022
+            git -C "$REPO_ROOT" checkout --detach "$PREVIOUS_COMMIT"
+        ); then
+            echo "Warning: failed to restore the finalized deployment checkout." >&2
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup_uncommitted_attempt EXIT HUP INT TERM
 
 (
     umask 022
@@ -101,6 +120,7 @@ compose exec -T postgres pg_restore \
 
 compose --profile ops run --rm migrate
 ensure_public_bootstrap
+NEW_APP_SERVICES_MAY_HAVE_STARTED=true
 compose up -d api worker frontend
 
 if ! wait_for_application_health; then
@@ -117,6 +137,8 @@ write_state_file "$STATE_DIR/current-commit" "$TARGET_COMMIT"
 write_state_file "$STATE_DIR/current-backup" "$BACKUP_PATH"
 # current-release is the final commit marker for a fully healthy restoration.
 write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"
+DEPLOYMENT_COMMITTED=true
+trap - EXIT HUP INT TERM
 
 echo "Restore healthy with release: $TARGET_COMMIT"
 echo "Safety backup of replaced state: $SAFETY_BACKUP"

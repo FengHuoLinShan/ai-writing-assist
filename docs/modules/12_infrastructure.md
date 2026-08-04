@@ -153,6 +153,15 @@ half-pair，不会删除已完成 pair。完成的 pair 一经本地完成即按
 不可用、上传或 forget 失败仍保留新 pair。
 这些脚本合同不表示外部 restic、B2 或 Healthchecks 服务已在当前环境完成验证。
 
+release/restore 以 finalized 的 `deploy/.state/current-release` 与 `current-commit` 成对状态作为
+已部署 commit 的唯一来源，而不信任可能残留在失败目标上的 checkout/分支。失败或取消且尚未写完
+最终 `current-release` 时，脚本只会切回该 finalized checkout，并在本次可能已启动新 application
+services 时停止它们。cleanup trap 本身不会 reset/clean 工作树、额外写入或恢复数据库、重启旧服务或
+改写 finalized state；但在数据库替换或 migration 后失败的底层操作可能已经改库，服务会保持停止并需
+人工恢复。状态缺失、损坏、不匹配或 symlink 会 fail closed，需人工介入；首次发布才允许两份状态均
+不存在并以当前、仍可达 `origin/main` 的 HEAD 作为 fallback。这是脚本合同，不表示生产环境或外部服务
+已经验证。
+
 ## 2. HTTP 响应边界与请求可观测性
 
 应用最外层纯 ASGI middleware 为每个 HTTP 响应统一写入且只保留一份以下响应头：

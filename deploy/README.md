@@ -201,6 +201,14 @@ SBOM（OS 与 library 清单），先验证并上传为保留 14 天的 artifact
 不会把失败发布继续对外提供。状态文件以同目录临时文件加原子替换写入，且
 `current-release` 始终最后更新，表示对应三服务已健康。
 
+下一次 release 或 restore 只以成对、互相匹配的 `current-release`（12 位前缀）与
+`current-commit`（40 位 SHA）识别已完成部署；两者缺失时才使用首次发布的当前 HEAD，且
+都必须仍可达 `origin/main`。失败或取消的尝试会切回这份已完成 checkout，并在本次可能已启动
+new application services 时停止它们。cleanup trap 本身不会 reset/clean 工作树、额外写入或恢复数据库、
+重启旧服务或改写最终状态；但在数据库替换或 migration 之后失败的底层操作可能已经改库，服务会保持
+停止并需要人工恢复。任一状态文件缺失、损坏、不匹配或 symlink 都会 fail closed，需要人工介入后再
+运行脚本。本说明描述仓库内脚本合同，不表示生产机器或外部服务已经实际验证。
+
 ## 备份、恢复和账号清理
 
 手动备份：

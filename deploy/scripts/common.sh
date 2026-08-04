@@ -128,6 +128,85 @@ write_state_file() {
     fi
 }
 
+resolve_active_deployment_commit() {
+    current_release_path="$STATE_DIR/current-release"
+    current_commit_path="$STATE_DIR/current-commit"
+    release_exists=false
+    commit_exists=false
+
+    if [ -e "$current_release_path" ] || [ -L "$current_release_path" ]; then
+        release_exists=true
+    fi
+    if [ -e "$current_commit_path" ] || [ -L "$current_commit_path" ]; then
+        commit_exists=true
+    fi
+
+    if [ "$release_exists" != "$commit_exists" ]; then
+        echo "Deployment state is incomplete; current-release and current-commit must both exist." >&2
+        return 1
+    fi
+
+    if [ "$release_exists" = "true" ]; then
+        if [ ! -f "$current_release_path" ] || [ -L "$current_release_path" ] \
+            || [ ! -f "$current_commit_path" ] || [ -L "$current_commit_path" ]; then
+            echo "Deployment state files must be regular non-symlink files." >&2
+            return 1
+        fi
+        if [ "$(wc -l <"$current_release_path")" -ne 1 ] \
+            || [ "$(wc -l <"$current_commit_path")" -ne 1 ]; then
+            echo "Deployment state files must each contain exactly one line." >&2
+            return 1
+        fi
+
+        state_release=$(cat "$current_release_path")
+        state_commit=$(cat "$current_commit_path")
+        if ! printf '%s\n' "$state_release" | grep -Eq '^[0-9a-f]{12}$'; then
+            echo "Deployment current-release is invalid." >&2
+            return 1
+        fi
+        if ! printf '%s\n' "$state_commit" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "Deployment current-commit is invalid." >&2
+            return 1
+        fi
+        if [ "$(printf '%s' "$state_commit" | cut -c1-12)" != "$state_release" ]; then
+            echo "Deployment state release marker does not match current commit." >&2
+            return 1
+        fi
+        candidate_commit=$state_commit
+    else
+        candidate_commit=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || {
+            echo "Unable to resolve the first-release deployment HEAD." >&2
+            return 1
+        }
+    fi
+
+    case "$candidate_commit" in
+        *[!0-9a-f]*|"")
+            echo "Active deployment commit must be a lowercase hexadecimal SHA." >&2
+            return 1
+            ;;
+    esac
+    if [ "${#candidate_commit}" -ne 40 ]; then
+        echo "Active deployment commit must be a full 40-character SHA." >&2
+        return 1
+    fi
+
+    resolved_commit=$(git -C "$REPO_ROOT" rev-parse --verify "${candidate_commit}^{commit}" 2>/dev/null) || {
+        echo "Active deployment commit cannot be resolved locally." >&2
+        return 1
+    }
+    if [ "$resolved_commit" != "$candidate_commit" ]; then
+        echo "Active deployment commit does not resolve exactly." >&2
+        return 1
+    fi
+    if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$resolved_commit" origin/main; then
+        echo "Active deployment commit is not reachable from origin/main." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$resolved_commit"
+}
+
 healthcheck_ping() {
     ping_url=$1
     if ! curl --fail --silent --show-error \

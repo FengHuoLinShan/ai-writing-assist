@@ -41,7 +41,30 @@ if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$TARGET_COMMIT" origin/main; 
     exit 1
 fi
 
-PREVIOUS_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
+PREVIOUS_COMMIT=$(resolve_active_deployment_commit)
+DEPLOYMENT_COMMITTED=false
+NEW_APP_SERVICES_MAY_HAVE_STARTED=false
+
+cleanup_uncommitted_attempt() {
+    status=$?
+    trap - EXIT HUP INT TERM
+    if [ "$DEPLOYMENT_COMMITTED" != "true" ]; then
+        if [ "$NEW_APP_SERVICES_MAY_HAVE_STARTED" = "true" ]; then
+            if ! compose stop api worker frontend >/dev/null 2>&1; then
+                echo "Warning: failed to stop application services after an uncommitted release." >&2
+            fi
+        fi
+        if ! (
+            umask 022
+            git -C "$REPO_ROOT" checkout --detach "$PREVIOUS_COMMIT"
+        ); then
+            echo "Warning: failed to restore the finalized deployment checkout." >&2
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup_uncommitted_attempt EXIT HUP INT TERM
+
 (
     # Keep secrets, backups, and release state private without making checked-out
     # application files unreadable to non-root container processes.
@@ -88,6 +111,7 @@ if ! compose --profile ops run --rm migrate; then
 fi
 
 ensure_public_bootstrap
+NEW_APP_SERVICES_MAY_HAVE_STARTED=true
 compose up -d api worker frontend
 
 if ! wait_for_application_health; then
@@ -104,6 +128,8 @@ write_state_file "$STATE_DIR/current-commit" "$TARGET_COMMIT"
 write_state_file "$STATE_DIR/current-backup" "$BACKUP_PATH"
 # current-release is the final commit marker for a fully healthy deployment.
 write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"
+DEPLOYMENT_COMMITTED=true
+trap - EXIT HUP INT TERM
 
 echo "Release healthy: $TARGET_COMMIT"
 echo "Database backup: $BACKUP_PATH"

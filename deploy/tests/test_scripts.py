@@ -415,7 +415,7 @@ def test_restore_verifies_checksum_before_confirmation_and_database_replacement(
 
     assert first_check < restore_script.index("Type RESTORE_PRODUCTION_BACKUP")
     assert second_check > restore_script.index('if [ "$CONFIRMATION"')
-    assert second_check < restore_script.index("compose stop api worker frontend")
+    assert second_check < restore_script.index("compose stop api worker frontend", second_check)
     assert second_check < restore_script.index("compose exec -T postgres dropdb")
     assert second_check < restore_script.index("    --exit-on-error <")
 
@@ -429,6 +429,33 @@ def test_release_and_restore_commit_state_only_after_shared_health_gate() -> Non
         current_release = script.index('write_state_file "$STATE_DIR/current-release"')
 
         assert health_gate < current_commit < current_backup < current_release
+
+
+def test_release_and_restore_restore_the_finalized_state_checkout_on_failure() -> None:
+    common_script = COMMON_SCRIPT.read_text(encoding="utf-8")
+
+    assert "resolve_active_deployment_commit()" in common_script
+    assert "current-release" in common_script
+    assert "current-commit" in common_script
+
+    for script_name in ("release.sh", "restore.sh"):
+        script = (DEPLOY_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+        previous_commit = script.index(
+            "PREVIOUS_COMMIT=$(resolve_active_deployment_commit)"
+        )
+        cleanup_trap = script.index(
+            "trap cleanup_uncommitted_attempt EXIT HUP INT TERM"
+        )
+        checkout = script.index(
+            'git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"'
+        )
+        current_release = script.index(
+            'write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"'
+        )
+        committed = script.index("DEPLOYMENT_COMMITTED=true")
+
+        assert previous_commit < cleanup_trap < checkout
+        assert current_release < committed
 
 
 def test_common_and_compose_declare_worker_process_health() -> None:
