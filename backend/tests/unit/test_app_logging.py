@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -75,6 +77,77 @@ async def test_health_check_redacts_database_exception(caplog, monkeypatch) -> N
     assert result.status_code == 503
     assert b'"status":"degraded"' in result.body
     assert secret not in caplog.text
+    assert secret.encode() not in result.body
+
+
+@pytest.mark.asyncio
+async def test_health_check_keeps_healthy_response_shape(monkeypatch) -> None:
+    class _Result:
+        def scalar(self) -> int:
+            return 1
+
+    class _HealthyManager:
+        @asynccontextmanager
+        async def session(self):
+            yield self
+
+        async def execute(self, _statement):
+            return _Result()
+
+    monkeypatch.setattr(app_main, "get_manager", _HealthyManager)
+    monkeypatch.setattr(app_main, "get_settings", _lifespan_settings)
+
+    result = await app_main.health_check()
+
+    assert result == {
+        "status": "healthy",
+        "database": "connected",
+        "version": "test-version",
+        "app_name": "test-app",
+    }
+
+
+@pytest.mark.asyncio
+async def test_health_check_deadline_cancels_query_and_closes_session(
+    monkeypatch,
+) -> None:
+    class _BlockingManager:
+        def __init__(self) -> None:
+            self.query_started = asyncio.Event()
+            self.query_cancelled = asyncio.Event()
+            self.session_closed = asyncio.Event()
+
+        @asynccontextmanager
+        async def session(self):
+            try:
+                yield self
+            finally:
+                self.session_closed.set()
+
+        async def execute(self, _statement):
+            self.query_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                self.query_cancelled.set()
+
+    manager = _BlockingManager()
+    monkeypatch.setattr(app_main, "get_manager", lambda: manager)
+    monkeypatch.setattr(app_main, "get_settings", _lifespan_settings)
+    monkeypatch.setattr(app_main, "_DATABASE_HEALTH_TIMEOUT_SECONDS", 0.05)
+
+    result = await asyncio.wait_for(app_main.health_check(), timeout=1)
+
+    assert manager.query_started.is_set()
+    assert manager.query_cancelled.is_set()
+    assert manager.session_closed.is_set()
+    assert result.status_code == 503
+    assert json.loads(result.body) == {
+        "status": "degraded",
+        "database": "unreachable",
+        "version": "test-version",
+        "app_name": "test-app",
+    }
 
 
 @pytest.mark.asyncio

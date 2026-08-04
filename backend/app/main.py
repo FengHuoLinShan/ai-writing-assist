@@ -86,6 +86,7 @@ _EXCEPTION_TYPE_LOG_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
 _TRACE_FRAME_LOG_RE = re.compile(r"^[A-Za-z0-9_.<>-]{1,80}$")
 _STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _API_SECURITY_EXEMPT_PATHS = {"/api/health", "/api/health/llm"}
+_DATABASE_HEALTH_TIMEOUT_SECONDS = 2.0
 _OUTER_RESPONSE_HEADERS = {
     b"strict-transport-security",
     b"x-content-type-options",
@@ -656,11 +657,12 @@ async def health_check():
     manager = get_manager()
     db_ok = False
     try:
-        async with manager.session() as sess:
-            from sqlalchemy import text
+        async with asyncio.timeout(_DATABASE_HEALTH_TIMEOUT_SECONDS):
+            async with manager.session() as sess:
+                from sqlalchemy import text
 
-            result = await sess.execute(text("SELECT 1"))
-            db_ok = result.scalar() == 1
+                result = await sess.execute(text("SELECT 1"))
+                db_ok = result.scalar() == 1
     except Exception as exc:
         logger.warning(
             "Health check — DB unreachable: %s",

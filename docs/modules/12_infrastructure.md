@@ -140,6 +140,12 @@ GET /api/health/llm
 常见 `error_kind` 包括 `dns_fake_ip`、`proxy_error`、`tls_error`、`auth_error`、
 `rate_limit`、`timeout`、`provider_error`。
 
+基础部署健康检查 `GET /api/health` 只探测数据库，并在服务端以 2 秒 deadline 包住 session
+获取和 `SELECT 1`。超时会取消该数据库操作、按既有脱敏 warning 路径返回原有的
+`503 {status: degraded, database: unreachable, version, app_name}`；成功时仍返回同一四字段的
+200 healthy 形状。生产 Compose 和 shared release/restore health gate 的 HTTP client timeout 是
+3 秒，因此服务端会先给出可判定的 degraded 结果；该 deadline 不适用于 `/api/health/llm`。
+
 ## 2. HTTP 响应边界与请求可观测性
 
 应用最外层纯 ASGI middleware 为每个 HTTP 响应统一写入且只保留一份以下响应头：
