@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
+import { nextTick } from "vue"
 import AccountDialog from "../../../vue/shell/components/AccountDialog.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
@@ -7,6 +8,7 @@ enableAutoUnmount(afterEach)
 let authApi
 
 beforeEach(() => {
+  document.body.innerHTML = ""
   authApi = {
     requestReauthEmailCode: vi.fn(async () => ({ challenge_id: "challenge-1", resend_after: 60 })),
     verifyReauthEmail: vi.fn(async () => ({ reauthenticated: true })),
@@ -22,6 +24,123 @@ afterEach(() => {
 })
 
 describe("AccountDialog", () => {
+  function mountInShell(props = {}, { preInert = false } = {}) {
+    const shell = document.createElement("div")
+    shell.className = "vue-shell-root"
+    const topbar = document.createElement("header")
+    topbar.id = "topbar"
+    const trigger = document.createElement("button")
+    trigger.textContent = "账户菜单"
+    topbar.appendChild(trigger)
+    const main = document.createElement("main")
+    main.id = "main-layout"
+    if (preInert) topbar.setAttribute("inert", "")
+    shell.append(topbar, main)
+    document.body.appendChild(shell)
+    trigger.focus()
+    return {
+      shell,
+      topbar,
+      main,
+      trigger,
+      wrapper: mount(AccountDialog, {
+        attachTo: shell,
+        props: {
+          open: true,
+          account: { id: "account-1", identity_type: "email" },
+          config: { auth_mode: "public", wechat_enabled: false },
+          ...props,
+        },
+      }),
+    }
+  }
+
+  async function settleDialog() {
+    await nextTick()
+    await nextTick()
+  }
+
+  it("enters the modal after rendering, isolates shell siblings, and returns focus on parent close", async () => {
+    const { wrapper, topbar, main, trigger } = mountInShell()
+    await settleDialog()
+
+    expect(topbar.hasAttribute("inert")).toBe(true)
+    expect(main.hasAttribute("inert")).toBe(true)
+    expect(document.activeElement).toBe(wrapper.get(".account-close").element)
+
+    await wrapper.setProps({ open: false })
+    await settleDialog()
+    expect(topbar.hasAttribute("inert")).toBe(false)
+    expect(main.hasAttribute("inert")).toBe(false)
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it("traps Tab within visible controls and excludes closed details descendants", async () => {
+    const { wrapper } = mountInShell()
+    await settleDialog()
+    const overlay = wrapper.get(".account-overlay").element
+    const close = wrapper.get(".account-close").element
+    const summary = wrapper.get("summary").element
+    const email = wrapper.get('input[type="email"]').element
+
+    expect(email.closest("details").open).toBe(false)
+    expect(email).not.toBe(document.activeElement)
+    close.focus()
+    const shiftTab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })
+    overlay.dispatchEvent(shiftTab)
+    expect(shiftTab.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(summary)
+
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    overlay.dispatchEvent(tab)
+    expect(tab.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(close)
+  })
+
+  it("contains ordinary keys without preventing them, and lets Escape request close", async () => {
+    const { wrapper } = mountInShell()
+    await settleDialog()
+    const documentKeys = vi.fn()
+    document.addEventListener("keydown", documentKeys)
+    const overlay = wrapper.get(".account-overlay").element
+    const ordinary = new KeyboardEvent("keydown", { key: "g", bubbles: true, cancelable: true })
+    overlay.dispatchEvent(ordinary)
+    expect(documentKeys).not.toHaveBeenCalled()
+    expect(ordinary.defaultPrevented).toBe(false)
+
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    overlay.dispatchEvent(escape)
+    expect(escape.defaultPrevented).toBe(true)
+    expect(wrapper.emitted("close")).toHaveLength(1)
+    document.removeEventListener("keydown", documentKeys)
+  })
+
+  it("preserves a shell sibling that was inert before opening", async () => {
+    const { wrapper, topbar, main } = mountInShell({}, { preInert: true })
+    await settleDialog()
+    expect(topbar.hasAttribute("inert")).toBe(true)
+    expect(main.hasAttribute("inert")).toBe(true)
+
+    await wrapper.setProps({ open: false })
+    await settleDialog()
+    expect(topbar.hasAttribute("inert")).toBe(true)
+    expect(main.hasAttribute("inert")).toBe(false)
+  })
+
+  it("does not let a late open task add inert or reclaim focus after immediate close and unmount", async () => {
+    const { wrapper, topbar, main } = mountInShell()
+    const outside = document.createElement("button")
+    document.body.appendChild(outside)
+    const close = wrapper.setProps({ open: false })
+    wrapper.unmount()
+    outside.focus()
+    await close
+    await settleDialog()
+    expect(topbar.hasAttribute("inert")).toBe(false)
+    expect(main.hasAttribute("inert")).toBe(false)
+    expect(document.activeElement).toBe(outside)
+  })
+
   it("exposes the dialog, close action, deletion code input, and initial idle state", () => {
     const wrapper = mount(AccountDialog, {
       props: {

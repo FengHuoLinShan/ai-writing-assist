@@ -1,6 +1,6 @@
 <template>
-  <div v-if="open" class="account-overlay" role="presentation" @click.self="$emit('close')">
-    <section class="account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title" :aria-busy="busy">
+  <div v-if="open" ref="overlay" class="account-overlay" role="presentation" @click.self="$emit('close')" @keydown="onOverlayKeydown">
+    <section ref="dialog" class="account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title" :aria-busy="busy" tabindex="-1">
       <button class="account-close" type="button" aria-label="关闭账号设置" @click="$emit('close')">×</button>
       <h2 id="account-title">账号</h2>
       <p>支持码：{{ account?.support_code || "—" }}</p>
@@ -28,7 +28,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../bridge/index.js"
 import { useResendCountdown } from "../../composables/useResendCountdown.js"
 
@@ -47,8 +47,96 @@ const challengeId = ref("")
 const busy = ref(false)
 const message = ref("")
 const error = ref(false)
+const overlay = ref(null)
+const dialog = ref(null)
+const originFocus = ref(null)
+const ownInert = new Set()
+let focusGeneration = 0
 const { canResend, resendLabel, start: startResendCountdown } = useResendCountdown()
 const reauthenticated = computed(() => new URLSearchParams(location.search).get("auth") === "reauthenticated")
+
+function isVisibleFocusable(element) {
+  if (!(element instanceof HTMLElement) || element.hidden || element.matches(":disabled")) return false
+  if (element.getAttribute("contenteditable") === "false") return false
+  if (element.getAttribute("aria-hidden") === "true" || element.closest("[inert], [aria-hidden='true']")) return false
+  const closedDetails = element.closest("details:not([open])")
+  if (closedDetails && element !== closedDetails.querySelector(":scope > summary")) return false
+  const style = getComputedStyle(element)
+  return style.display !== "none" && style.visibility !== "hidden" && (element.tabIndex >= 0 || element.tagName === "SUMMARY")
+}
+
+function focusableElements() {
+  if (!dialog.value) return []
+  return Array.from(dialog.value.querySelectorAll(
+    "a[href], button, input, select, textarea, summary, [contenteditable], [tabindex]",
+  )).filter(isVisibleFocusable)
+}
+
+function restoreBackground() {
+  for (const element of ownInert) element.removeAttribute("inert")
+  ownInert.clear()
+}
+
+function isolateBackground() {
+  const shell = overlay.value?.closest(".vue-shell-root")
+  for (const sibling of shell?.children || []) {
+    if (sibling !== overlay.value && !sibling.contains(overlay.value) && !sibling.hasAttribute("inert")) {
+      sibling.setAttribute("inert", "")
+      ownInert.add(sibling)
+    }
+  }
+}
+
+function restoreOriginFocus(origin) {
+  if (isVisibleFocusable(origin) && origin.isConnected) origin.focus()
+}
+
+function onOverlayKeydown(event) {
+  event.stopPropagation()
+  if (event.key === "Escape") {
+    event.preventDefault()
+    emit("close")
+    return
+  }
+  if (event.key !== "Tab") return
+  const elements = focusableElements()
+  if (!elements.length) return
+  const first = elements[0]
+  const last = elements[elements.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+watch(() => props.open, (isOpen) => {
+  const generation = ++focusGeneration
+  if (!isOpen) {
+    restoreBackground()
+    const origin = originFocus.value
+    originFocus.value = null
+    void nextTick(() => {
+      if (generation === focusGeneration && !props.open) restoreOriginFocus(origin)
+    })
+    return
+  }
+  originFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  void nextTick(() => {
+    if (generation !== focusGeneration || !props.open || !overlay.value) return
+    isolateBackground()
+    const [first] = focusableElements()
+    const destination = first || dialog.value
+    if (destination) destination.focus()
+  })
+}, { flush: "post", immediate: true })
+
+onBeforeUnmount(() => {
+  ++focusGeneration
+  restoreBackground()
+})
 
 async function run(action) {
   busy.value = true

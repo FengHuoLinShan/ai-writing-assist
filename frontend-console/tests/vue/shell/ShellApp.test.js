@@ -3,6 +3,7 @@ import { enableAutoUnmount, mount } from "@vue/test-utils"
 import { nextTick } from "vue"
 import ShellApp from "../../../vue/shell/ShellApp.vue"
 import { createShellTestServices } from "./helpers.js"
+import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 enableAutoUnmount(afterEach)
 
@@ -11,6 +12,8 @@ beforeEach(() => {
   document.documentElement.removeAttribute("data-theme")
   document.body.innerHTML = ""
 })
+
+afterEach(() => resetBridgeOverrides())
 
 describe("ShellApp", () => {
   it("owns the static shell, escapes state text, and reacts through the state bridge", async () => {
@@ -219,6 +222,31 @@ describe("ShellApp", () => {
     await wrapper.get("#help-close").trigger("click")
     await nextTick()
     expect(document.activeElement).toBe(trigger.element)
+  })
+
+  it("keeps account-dialog keys inside the modal and restores the avatar after close", async () => {
+    setBridgeOverrides({ api: { auth: { wechatStartUrl: () => "/api/auth/reauth/wechat/start" } } })
+    const services = createShellTestServices()
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
+    const avatar = wrapper.get('[aria-label="账户菜单"]')
+    avatar.element.focus()
+    await avatar.trigger("click")
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.get("#topbar").attributes()).toHaveProperty("inert")
+    expect(wrapper.get("#main-layout").attributes()).toHaveProperty("inert")
+    expect(document.activeElement).toBe(wrapper.get(".account-close").element)
+    wrapper.get(".account-overlay").element.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true, cancelable: true }))
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+
+    wrapper.get(".account-overlay").element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find(".account-dialog").exists()).toBe(false)
+    expect(wrapper.get("#topbar").attributes()).not.toHaveProperty("inert")
+    expect(wrapper.get("#main-layout").attributes()).not.toHaveProperty("inert")
+    expect(document.activeElement).toBe(avatar.element)
   })
 
   it("rejects a late health result after shell unmount", async () => {

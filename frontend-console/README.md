@@ -38,6 +38,8 @@ npm run test:all
 构建会把仍由 `index.html` 直接加载的兼容运行时脚本复制为 `0644`；生产镜像还会统一保证
 静态目录可遍历、文件可读，避免发布机的私有 `umask` 被继承为 Nginx 403。
 
+账号弹窗作为模态边界：打开后将焦点置入弹窗、隔离作者壳背景并拦截壳层快捷键；关闭时恢复触发账户菜单的焦点。
+
 Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancestors 'none'` / `X-Frame-Options: DENY`
 禁止第三方页面嵌入控制台。部署 `dist/` 时，静态托管层必须保留 `vite.config.js` 中
 `frontendSecurityHeaders` 的同等响应头；`frame-ancestors` 不能用 HTML `<meta>` 代替。

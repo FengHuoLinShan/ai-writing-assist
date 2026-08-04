@@ -128,6 +128,40 @@ test.describe("首页与导航", () => {
     await expect.poll(() => page.evaluate(() => window.__shellSelectShortcutCount)).toBe(1)
   })
 
+  test("账号弹窗隔离背景快捷键并恢复账户菜单焦点", async ({ page }) => {
+    await page.goto("/")
+    await enterAuthor(page)
+    await expect(page.locator("#project-catalog-title")).toBeVisible()
+    await page.evaluate(() => {
+      window.__accountDialogGenerateCount = 0
+      const button = document.createElement("button")
+      button.hidden = true
+      button.dataset.action = "generate"
+      button.addEventListener("click", () => { window.__accountDialogGenerateCount += 1 })
+      document.querySelector("#workspace-content")?.appendChild(button)
+    })
+    const account = page.getByRole("button", { name: "账户菜单" })
+    await account.focus()
+    await page.keyboard.press("Enter")
+    const close = page.locator(".account-close")
+    await expect(close).toBeFocused()
+    await expect(page.locator("#topbar")).toHaveAttribute("inert", "")
+    await expect(page.locator("#main-layout")).toHaveAttribute("inert", "")
+
+    await page.keyboard.press("Shift+Tab")
+    await expect(page.locator(".account-dialog summary")).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(close).toBeFocused()
+    await page.keyboard.press("g")
+    await expect.poll(() => page.evaluate(() => window.__accountDialogGenerateCount)).toBe(0)
+
+    await page.keyboard.press("Escape")
+    await expect(page.locator(".account-dialog")).toBeHidden()
+    await expect(account).toBeFocused()
+    await expect(page.locator("#topbar")).not.toHaveAttribute("inert", "")
+    await expect(page.locator("#main-layout")).not.toHaveAttribute("inert", "")
+  })
+
   test("作者可从命令栏键盘浏览建议并恢复原焦点", async ({ page }) => {
     await page.goto("/")
     await enterAuthor(page)
