@@ -7,7 +7,7 @@
         <span v-if="mode === 'overview'" class="view-header__count">{{ maps.length }} 张 · {{ locations.length }} 个地点</span>
       </div>
       <div v-if="mode === 'overview'" class="view-header__actions">
-        <button class="btn btn-sm btn-primary" data-action="map-open-recent" @click="openRecent">打开最近地图</button>
+        <button class="btn btn-sm btn-primary" data-action="map-open-recent" @click="openRecent">{{ recentMapActionLabel }}</button>
         <button class="btn btn-sm btn-primary" data-action="map-quick-create" @click="quickCreate.open()">快速创建</button>
         <button class="btn btn-sm" data-action="map-create-world" @click="modalController.showCreateWorld()">创建世界地图</button>
         <button class="btn btn-sm" data-action="map-toggle-archived" @click="showArchived = !showArchived">{{ showArchived ? '返回当前地图' : `归档地图 ${archivedMaps.length}` }}</button>
@@ -120,6 +120,10 @@ const props = defineProps({ projectId: { type: String, required: true }, route: 
 const vm = useMapWorkspace(props)
 const { activeMap, activeQueue, activeSceneId, activeSceneLabel, archiveMap, archivedMaps, archivedPage, archivedPageCount, batchReview, clearLensFocus, confirmObservation, consumePendingObservationEditor, currentLiveFacts, dynamicEditor, dynamicSummary, editingState, enrichment, focusEntityInLens, historyQueue, ignoreInbox, ignoreObservation, inbox, inboxItems, layers, lensContextItems, lensFocusableItems, lensHasFocus, loadDynamic, loadInbox, locations, lowMotion, mapByParent, maps, message, modalController, mode, openLocation, openMap, openRecent, playback, quickCreate, recentMap, returnOverview, searchQuery, searchResults, setLayer, setLowMotion, setTimelineCandidates, setTimelinePosition, setTimelineTrack, setViewMode, showArchived, showHistory, showVisualHistory, startPlayback, startTimeline, stepTimeline, stopPlayback, stopTimeline, timeline, timelineProjection, toggleHistory, viewMode, viewport, viewportContext, visibleArchivedMaps } = vm
 const railOpen = ref(typeof window === "undefined" || window.innerWidth > 1099)
+const recentMapActionLabel = computed(() => {
+  if (recentMap.value) return "打开最近地图"
+  return maps.value.length ? "打开可用地图" : "查找可用地图"
+})
 const inboxSources = computed(() => [...new Set(inbox.items.map((item) => item.source || item.source_ref?.source || item.source_ref?.workflow).filter(Boolean))].sort())
 const candidateCount = computed(() => activeQueue.value.filter((item) => mapAssetDisplay(item).displayState === "review").length)
 const factCount = computed(() => activeQueue.value.filter((item) => item.item_kind === "fact" && !mapAssetDisplay(item).isHistory).length)

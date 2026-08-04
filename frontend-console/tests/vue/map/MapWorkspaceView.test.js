@@ -51,6 +51,7 @@ describe("MapWorkspaceView", () => {
   let showModalHtml
   beforeEach(() => {
     document.body.replaceChildren()
+    localStorage.clear()
     resetBridgeOverrides()
     state = { currentProjectId: "p1", currentView: "map" }
     api = { world: worldApi() }
@@ -60,6 +61,43 @@ describe("MapWorkspaceView", () => {
     viewportSpies.remount.mockClear()
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(), set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {}, set textAlign(_) {} })
     setBridgeOverrides({ api, state, confirmAction: (_message, onConfirm) => onConfirm(), toast: vi.fn(), showModalHtml, closeModal: vi.fn(), esc: (value) => String(value ?? "").replaceAll("<", "&lt;"), router })
+  })
+
+  it.each([
+    { maps: [], recent: null, label: "查找可用地图" },
+    { maps: [{ id: "m1", name: "九州" }], recent: null, label: "打开可用地图" },
+    { maps: [], recent: { mapId: "m1", name: "九州" }, label: "打开最近地图" },
+  ])("uses the truthful recent-map action label for the overview state", ({ maps, recent, label }) => {
+    if (recent) localStorage.setItem("novel_map_recent:p1", JSON.stringify(recent))
+
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mode: "overview" }, maps, locations: [], archivedMaps: [], inbox: {} },
+    })
+
+    expect(wrapper.get('[data-action="map-open-recent"]').text()).toBe(label)
+    wrapper.unmount()
+  })
+
+  it("refreshes the overview card and action label when a stale recent map is cleared", async () => {
+    localStorage.setItem("novel_map_recent:p1", JSON.stringify({ mapId: "stale-map", name: "已删除地图" }))
+    api.world.getMap = vi.fn(async () => { throw new Error("not found") })
+    api.world.getMapOpenTarget = vi.fn(async () => ({ map_id: null }))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mode: "overview" }, maps: [], locations: [], archivedMaps: [], inbox: {} },
+    })
+
+    expect(wrapper.get('[data-action="map-open-recent"]').text()).toBe("打开最近地图")
+    expect(wrapper.text()).toContain("已删除地图")
+    await wrapper.get('[data-action="map-open-recent"]').trigger("click")
+
+    await vi.waitFor(() => {
+      expect(localStorage.getItem("novel_map_recent:p1")).toBeNull()
+      expect(wrapper.get('[data-action="map-open-recent"]').text()).toBe("查找可用地图")
+      expect(wrapper.text()).toContain("暂无最近地图")
+    })
+    wrapper.unmount()
   })
 
   it("opens the Vue quick-create layout editor from the route toolbar", async () => {

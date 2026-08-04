@@ -395,7 +395,10 @@ export function useMapWorkspace(props) {
       try {
         const map = await api.world.getMap(recent.mapId, projectId)
         return openMap(map.id, { viewMode: activeSceneId.value || focusEntityId.value ? "live" : "dashboard", replace: true })
-      } catch { clearRecentMap(projectId) }
+      } catch {
+        clearRecentMap(projectId)
+        recentRevision.value += 1
+      }
     }
     try {
       const target = await api.world.getMapOpenTarget(projectId, { sceneId: activeSceneId.value, focusEntityId: focusEntityId.value })

@@ -566,6 +566,10 @@ test.describe("地图一级工作台", () => {
         mapType: "world",
       }))
     }, testProjectId)
+    await reloadWorkbench(page, "map")
+
+    await expect(page.getByRole("button", { name: "打开最近地图", exact: true })).toBeVisible()
+    await expect(page.getByText("已删除地图", { exact: true })).toBeVisible()
 
     await page.getByRole("button", { name: "打开最近地图" }).click()
 
@@ -577,6 +581,8 @@ test.describe("地图一级工作台", () => {
       "最近地图不可用，已返回地图总览",
     )
     await expect(page.locator(SEL.workspaceContent)).toContainText("空间总览")
+    await expect(page.getByText("暂无最近地图", { exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "查找可用地图", exact: true })).toBeVisible()
     await expect(page).toHaveURL(new RegExp(
       `#workbench/${project.id}/map(?:\\?|$)`,
     ))
@@ -586,6 +592,36 @@ test.describe("地图一级工作台", () => {
       return localStorage.getItem(`novel_map_recent:${projectId}`)
     }, testProjectId)
     expect(recent).toBeNull()
+  })
+
+  test("should open an available map without recent history and then save it as recent", async ({ page }) => {
+    const project = await createProject({
+      title: "可用地图回退 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "唯一可用地图",
+      map_type: "world",
+      grid_width: 5,
+      grid_height: 5,
+      template: "blank",
+    })
+
+    await openWorkbench(page, project, "map")
+    await page.evaluate((projectId) => localStorage.removeItem(`novel_map_recent:${projectId}`), testProjectId)
+    await reloadWorkbench(page, "map")
+
+    await expect(page.getByRole("button", { name: "打开可用地图", exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "打开可用地图", exact: true }).click()
+    await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
+    await expect(page).toHaveURL(new RegExp(`map_id=${map.id}`))
+
+    await page.getByRole("button", { name: "← 返回总览", exact: true }).click()
+    const recentMapCard = page.getByRole("heading", { name: "最近地图", exact: true }).locator("..")
+    await expect(recentMapCard.getByText("唯一可用地图", { exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "打开最近地图", exact: true })).toBeVisible()
   })
 
   test("should persist terrain edits and center location bindings from the editor", async ({ page }) => {

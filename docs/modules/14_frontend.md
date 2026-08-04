@@ -251,7 +251,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 ## 地图工作台补充
 
-- `vue/views/map/MapWorkspaceView.vue` 保存“最近地图”到本地存储
+- `vue/views/map/MapWorkspaceView.vue` 保存“最近地图”到本地存储；总览主操作按状态如实显示“打开最近地图 / 打开可用地图 / 查找可用地图”，陈旧记录清除后立即刷新卡片与按钮文字，点击仍复用既有最近/可用地图回退流程
 - 可按地图名或地点名搜索
 - 支持图层开关
 - 右侧消费 `GET /api/world/maps/{map_id}/dashboard`，展示世界动态总控台、动态队列、检查器和批量分组
