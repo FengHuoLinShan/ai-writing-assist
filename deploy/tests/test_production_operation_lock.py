@@ -5,6 +5,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -111,6 +112,98 @@ def test_killing_holder_releases_the_os_lock(tmp_path: Path) -> None:
             holder.wait(timeout=5)
 
 
+def test_acquire_wait_enters_after_the_holder_releases_within_its_deadline(
+    tmp_path: Path,
+) -> None:
+    lock_path = tmp_path / ".state" / "production-operation.lock"
+    holder = _start_holder(lock_path)
+    contender = subprocess.Popen(
+        [
+            sys.executable,
+            str(HELPER),
+            "acquire-wait",
+            str(lock_path),
+            "1",
+            "/bin/sh",
+            "-c",
+            'printf "entered\\n"',
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        time.sleep(0.1)
+        assert contender.poll() is None
+        _stop_holder(holder)
+        stdout, stderr = contender.communicate(timeout=5)
+    finally:
+        if holder.poll() is None:
+            _stop_holder(holder)
+        if contender.poll() is None:
+            contender.kill()
+            contender.wait(timeout=5)
+
+    assert contender.returncode == 0, stderr
+    assert stdout == "entered\n"
+    assert stderr == ""
+
+
+def test_acquire_wait_fails_closed_after_a_bounded_timeout(tmp_path: Path) -> None:
+    lock_path = tmp_path / ".state" / "production-operation.lock"
+    holder = _start_holder(lock_path)
+    try:
+        started = time.monotonic()
+        contender = _run_helper(
+            "acquire-wait",
+            str(lock_path),
+            "0.1",
+            "/bin/sh",
+            "-c",
+            ":",
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        _stop_holder(holder)
+
+    assert contender.returncode == 1
+    assert contender.stdout == ""
+    assert contender.stderr == "Another production operation is already running.\n"
+    assert 0.08 <= elapsed < 1
+
+
+def test_runtime_acquire_or_skip_is_a_noop_when_busy_and_reenters_when_free(
+    tmp_path: Path,
+) -> None:
+    lock_path = tmp_path / ".state" / "production-operation.lock"
+    holder = _start_holder(lock_path)
+    nested_command = [
+        "/bin/sh",
+        "-c",
+        'python3 "$1" verify "$2" "$AI_WRITING_ASSIST_PRODUCTION_OPERATION_LOCK_FD" '
+        '&& printf "ran\\n"',
+        "sh",
+        str(HELPER),
+        str(lock_path),
+    ]
+    try:
+        skipped = _run_helper("acquire-or-skip", str(lock_path), *nested_command)
+    finally:
+        _stop_holder(holder)
+
+    assert skipped.returncode == 0
+    assert skipped.stdout == ""
+    assert skipped.stderr == (
+        "Runtime health check skipped: another production operation is running.\n"
+    )
+
+    entered = _run_helper("acquire-or-skip", str(lock_path), *nested_command)
+
+    assert entered.returncode == 0, entered.stderr
+    assert entered.stdout == "ran\n"
+    assert entered.stderr == ""
+
+
 def test_nested_shell_reentry_verifies_the_inherited_lock_fd(tmp_path: Path) -> None:
     lock_path = tmp_path / ".state" / "production-operation.lock"
     holder = _start_holder(lock_path, nested=True)
@@ -199,6 +292,13 @@ def test_symlinked_or_unsafe_lock_metadata_fails_closed(tmp_path: Path) -> None:
     assert symlinked.stdout == ""
     assert symlinked.stderr == "Production operation lock is unsafe.\n"
 
+    skipped_symlink = _run_helper(
+        "acquire-or-skip", str(lock_path), "/bin/sh", "-c", ":"
+    )
+    assert skipped_symlink.returncode == 1
+    assert skipped_symlink.stdout == ""
+    assert skipped_symlink.stderr == "Production operation lock is unsafe.\n"
+
     lock_path.unlink()
     created = _run_helper("acquire", str(lock_path), "/bin/sh", "-c", ":")
     assert created.returncode == 0, created.stderr
@@ -234,8 +334,17 @@ def test_mutating_scripts_enter_shared_lock_before_production_work() -> None:
     common = COMMON_SCRIPT.read_text(encoding="utf-8")
 
     assert "acquire_production_operation_lock()" in common
+    assert "acquire_runtime_health_lock()" in common
     assert "production_operation_lock.py" in common
-    assert 'exec python3 "$SCRIPT_DIR/production_operation_lock.py" acquire' in common
+    assert (
+        'exec python3 "$SCRIPT_DIR/production_operation_lock.py" acquire-wait'
+        in common
+    )
+    assert '"$lock_path" 300 /bin/sh "$0" "$@"' in common
+    assert (
+        'exec python3 "$SCRIPT_DIR/production_operation_lock.py" acquire-or-skip'
+        in common
+    )
     assert 'python3 "$SCRIPT_DIR/production_operation_lock.py" verify' in common
     assert '"$lock_path" /bin/sh "$0" "$@"' in common
 
@@ -267,4 +376,6 @@ def test_mutating_scripts_enter_shared_lock_before_production_work() -> None:
     runtime_health = (DEPLOY_ROOT / "scripts" / "runtime_health.sh").read_text(
         encoding="utf-8"
     )
+    runtime_lock = runtime_health.index('acquire_runtime_health_lock "$@"')
+    assert runtime_lock < runtime_health.index("validate_environment")
     assert "acquire_production_operation_lock" not in runtime_health

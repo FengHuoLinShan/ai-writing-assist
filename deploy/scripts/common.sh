@@ -20,7 +20,18 @@ acquire_production_operation_lock() {
             "$lock_path" "$AI_WRITING_ASSIST_PRODUCTION_OPERATION_LOCK_FD"
         return
     fi
-    exec python3 "$SCRIPT_DIR/production_operation_lock.py" acquire \
+    exec python3 "$SCRIPT_DIR/production_operation_lock.py" acquire-wait \
+        "$lock_path" 300 /bin/sh "$0" "$@"
+}
+
+acquire_runtime_health_lock() {
+    lock_path="$STATE_DIR/production-operation.lock"
+    if [ "${AI_WRITING_ASSIST_PRODUCTION_OPERATION_LOCK_FD+x}" = "x" ]; then
+        python3 "$SCRIPT_DIR/production_operation_lock.py" verify \
+            "$lock_path" "$AI_WRITING_ASSIST_PRODUCTION_OPERATION_LOCK_FD"
+        return
+    fi
+    exec python3 "$SCRIPT_DIR/production_operation_lock.py" acquire-or-skip \
         "$lock_path" /bin/sh "$0" "$@"
 }
 

@@ -5,6 +5,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$SCRIPT_DIR/common.sh"
 
+acquire_runtime_health_lock "$@"
 validate_environment
 load_release_id
 HEALTHCHECK_URL=$(env_value HEALTHCHECKS_RUNTIME_PING_URL)

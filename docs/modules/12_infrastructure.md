@@ -161,6 +161,17 @@ TERM/cleanup 窗口，再由 systemd 结束整个 control group；Healthchecks `
 SLA，应依据观测运行时间通过已评审 systemd drop-in 调整；仍需外部演练 Docker daemon/容器终止行为，本合同不表示
 该演练已完成。
 
+release、restore、backup、account-maintenance 与 runtime health 都以
+`deploy/.state/production-operation.lock` 的 exclusive `flock` 作同主机协调。mutating scripts 首次获取锁会
+以固定、不可由项目环境覆盖的 300 秒上限等待；到期仍被占用时继续以既有 held 错误 fail closed。runtime health
+首次获取遇到有效但繁忙的锁时则只输出一条 bounded、无 secret 的 skip diagnostic 并以成功退出，不读取环境或
+finalized release state、不运行 Git/Docker/curl，也不发送 Healthchecks `/start`、success 或 `/fail` ping。
+获取成功后会通过继承 FD 的 reentry verification 持锁直到本机、embedding 与公网验证全部结束，避免健康检查与
+变更脚本交叉使用不同 checkout/Compose 状态。runtime service 的既有 5 分钟 `TimeoutStartSec` 和 timer schedule
+不变；operation lock 持有导致的 skip 依赖外部 Healthchecks missed-ping/grace 继续暴露过长停机或维护，而不是
+把维护无限隐藏。该锁仅覆盖合作的同主机脚本，不是分布式、全局或跨主机互斥；本合同不表示外部 production 或
+Healthchecks 已实际验证。
+
 `deploy/backups/` 是 backup/restore 的私有文件系统边界。两个脚本都会在读取、清理或创建
 任何备份内容之前，以原子创建或目录描述符打开校验最终目录组件：它必须不是 symlink、必须为
 当前用户拥有的目录、权限必须精确为 `0700`。当前用户拥有的宽松既有目录会被收紧为 `0700`；

@@ -151,10 +151,15 @@ make test-deploy
 顺序与 Compose 声明做静态合同检查；它不启动 Compose、不访问外部服务，也不替代真实发布、
 公网验证或备份恢复演练。
 
-发布、恢复、独立/嵌套备份和账号清理共享主机本地的 `deploy/.state/production-operation.lock`：
-同一时刻只允许一个生产变更操作，竞争会在任何变更前快速失败；release/restore 中调用的
-backup 会复用同一把锁，不会自我死锁。该持久的 `0600` 文件存在是正常状态，操作可能进行时
-不得删除；进程崩溃后由 OS 自动释放锁。它只序列化同一主机上的这些脚本，不是分布式或多主机锁。
+发布、恢复、独立/嵌套备份、账号清理与 runtime health 共享主机本地的
+`deploy/.state/production-operation.lock`，并都使用 exclusive `flock`。release/restore 中调用的
+backup 会复用继承的 FD，不会自我死锁。生产变更首次获取锁最多等待固定 300 秒，仍被占用则以既有
+“another production operation”错误 fail closed；runtime health 首次获取遇到安全有效但已占用的锁时会打印
+一条无 secret 的 skip 诊断并以 0 退出，且不会读取环境/发布状态、运行 Git/Docker/curl，或发送
+Healthchecks `/start`、成功或 `/fail` ping。这样计划中的发布/恢复不会产生误报。健康检查真正获得锁后会
+在完整的本机和公网检查期间持续持有它，所以一个最多 5 分钟的健康运行也会让新的生产变更有界等待。
+持久的 `0600` 文件存在是正常状态，操作可能进行时不得删除；进程崩溃后由 OS 自动释放锁。它只是协作脚本的
+同主机 advisory coordination，不是分布式、全局或跨主机锁。
 
 ### Production image contract
 
@@ -209,8 +214,11 @@ new application services 时停止它们。cleanup trap 本身不会 reset/clean
 停止并需要人工恢复。任一状态文件缺失、损坏、不匹配或 symlink 都会 fail closed，需要人工介入后再
 运行脚本。本说明描述仓库内脚本合同，不表示生产机器或外部服务已经实际验证。
 
-runtime health 与 account maintenance 在任何 Compose 操作前也只从这份已验证的 finalized pair 导出
-本地镜像 `RELEASE_ID`（完整 commit 的前 12 位），绝不信任残留 checkout 的 HEAD。若 `.state` 存在，
+runtime health 在读取这份 finalized pair、环境或运行任何 Git/Compose/curl 前先取得同一 exclusive operation
+lock；若有 mutation 正在持锁则本轮成功 skip，不发送主动 ping。它不会掩盖持续故障：timer 仍按既有 5 分钟
+节奏运行，Healthchecks 的 missed-ping/grace 仍是长时间停机或持续维护的告警路径。account maintenance 与
+runtime health 在任何 Compose 操作前也只从这份已验证的 finalized pair 导出本地镜像 `RELEASE_ID`
+（完整 commit 的前 12 位），绝不信任残留 checkout 的 HEAD。若 `.state` 存在，
 它必须是当前用户拥有、非 symlink、权限精确为 `0700` 的私有目录；不安全或不完整状态会 fail closed。
 首次发布时 `current-release` 与 `current-commit` 两个 finalized 文件都不存在则使用当前、
 `origin/main` 可达的 HEAD；若 `.state` 目录本身也不存在，只读检查不会创建它。这描述仓库脚本合同，
@@ -309,7 +317,8 @@ B2 或 restic 已可用。数值是保守的病态上限而非 SLA；应在观�
 
 账号清理超过 26 小时、备份超过 26 小时、或 runtime 健康检查主动报告失败/漏 ping 时必须告警。
 为 runtime 的 5 分钟周期在 Healthchecks 配置适度 grace（例如 10 分钟），并演练 `/fail` 与 missed
-ping 告警；真实 ping URL 和外部检查仍需由运维人员在 Healthchecks 单独创建与配置。OpenResty 访问
+ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为；grace 不应长到掩盖超过维护窗口的
+持续不可用。真实 ping URL 和外部检查仍需由运维人员在 Healthchecks 单独创建与配置。OpenResty 访问
 日志保留 30 天，数据库本地备份最多保留 30 天。
 
 ## 上线门禁

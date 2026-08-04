@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -415,7 +416,9 @@ def test_restore_verifies_checksum_before_confirmation_and_database_replacement(
 
     assert first_check < restore_script.index("Type RESTORE_PRODUCTION_BACKUP")
     assert second_check > restore_script.index('if [ "$CONFIRMATION"')
-    assert second_check < restore_script.index("compose stop api worker frontend", second_check)
+    assert second_check < restore_script.index(
+        "compose stop api worker frontend", second_check
+    )
     assert second_check < restore_script.index("compose exec -T postgres dropdb")
     assert second_check < restore_script.index("    --exit-on-error <")
 
@@ -428,7 +431,8 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
     assert release_script.count("validate_environment") == 2
     restore_first_validation = restore_script.index("validate_environment")
     restore_checkout = restore_script.index(
-        'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
+        'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null '
+        'checkout --detach "$TARGET_COMMIT"'
     )
     restore_second_validation = restore_script.index(
         "validate_environment", restore_first_validation + 1
@@ -443,7 +447,8 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
     assert restore_archive_check < restore_prompt < restore_quiesce
 
     release_checkout = release_script.index(
-        'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
+        'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null '
+        'checkout --detach "$TARGET_COMMIT"'
     )
     release_second_validation = release_script.index(
         "validate_environment", release_checkout
@@ -458,7 +463,8 @@ def test_release_and_restore_guard_and_snapshot_the_target_checkout() -> None:
         script = (DEPLOY_ROOT / "scripts" / script_name).read_text()
         pre_guard = script.index("verify_deployment_checkout")
         checkout = script.index(
-            'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
+            'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null '
+            'checkout --detach "$TARGET_COMMIT"'
         )
         post_guard = script.index("verify_deployment_checkout", pre_guard + 1)
         target_validation = script.index("validate_environment", checkout)
@@ -495,7 +501,8 @@ def test_release_and_restore_restore_the_finalized_state_checkout_on_failure() -
             "trap cleanup_uncommitted_attempt EXIT HUP INT TERM"
         )
         checkout = script.index(
-            'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null checkout --detach "$TARGET_COMMIT"'
+            'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null '
+            'checkout --detach "$TARGET_COMMIT"'
         )
         current_release = script.index(
             'write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"'
@@ -1002,7 +1009,7 @@ def _run_runtime_health(
     return result, event_log.read_text(encoding="utf-8").splitlines()
 
 
-def test_runtime_health_script_reports_start_success_and_fail_without_masking_subject_failures(
+def test_runtime_health_reports_start_success_and_fail_without_masking_subject_failures(
     tmp_path: Path,
 ) -> None:
     success, success_events = _run_runtime_health(tmp_path / "success")
@@ -1064,6 +1071,134 @@ def test_runtime_health_script_reports_start_success_and_fail_without_masking_su
     assert not any(event.endswith("/runtime-fixture") for event in public_failure_events)
 
 
+def test_runtime_health_skips_without_work_or_events_when_mutation_holds_lock(
+    tmp_path: Path,
+) -> None:
+    fake_bin, event_log = _write_runtime_health_fakes(tmp_path)
+    repo_root = _prepare_runtime_health_repo(tmp_path)
+    lock_path = repo_root / "deploy" / ".state" / "production-operation.lock"
+    helper = repo_root / "deploy" / "scripts" / "production_operation_lock.py"
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/bin/sh\n"
+        'printf "git:%s\\n" "$*" >>"$FAKE_EVENT_LOG"\n'
+        "exit 99\n"
+    )
+    fake_git.chmod(0o755)
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            str(helper),
+            "acquire",
+            str(lock_path),
+            "/bin/sh",
+            "-c",
+            'printf "ready\\n"; exec cat',
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert holder.stdout is not None
+    assert holder.stdout.readline() == "ready\n"
+    try:
+        result = subprocess.run(
+            ["sh", str(repo_root / "deploy" / "scripts" / "runtime_health.sh")],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            env=os.environ
+            | {
+                "ENV_FILE": str(tmp_path / "missing.env"),
+                "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                "FAKE_EVENT_LOG": str(event_log),
+            },
+        )
+    finally:
+        if holder.poll() is None:
+            assert holder.stdin is not None
+            holder.stdin.close()
+        holder.wait(timeout=5)
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == (
+        "Runtime health check skipped: another production operation is running.\n"
+    )
+    assert event_log.read_text(encoding="utf-8") == ""
+
+
+def test_runtime_health_holds_the_lock_through_its_public_verification(
+    tmp_path: Path,
+) -> None:
+    env_file = _copy_safe_test_env(tmp_path)
+    fake_bin, event_log = _write_runtime_health_fakes(tmp_path)
+    repo_root = _prepare_runtime_health_repo(tmp_path)
+    lock_path = repo_root / "deploy" / ".state" / "production-operation.lock"
+    helper = repo_root / "deploy" / "scripts" / "production_operation_lock.py"
+    entered = tmp_path / "health-entered"
+    release = tmp_path / "release-health"
+    mutation_entered = tmp_path / "mutation-entered"
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/bin/sh\n"
+        'printf "docker:%s\\n" "$*" >>"$FAKE_EVENT_LOG"\n'
+        'case "$*" in\n'
+        '  *"exec -T api python -c"*)\n'
+        '    : >"$FAKE_HEALTH_ENTERED"\n'
+        '    while [ ! -f "$FAKE_HEALTH_RELEASE" ]; do /bin/sleep 0.01; done\n'
+        '    ;;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    fake_docker.chmod(0o755)
+    environment = os.environ | {
+        "ENV_FILE": str(env_file),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "FAKE_EVENT_LOG": str(event_log),
+        "FAKE_HEALTH_ENTERED": str(entered),
+        "FAKE_HEALTH_RELEASE": str(release),
+    }
+    health = subprocess.Popen(
+        ["sh", str(repo_root / "deploy" / "scripts" / "runtime_health.sh")],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    )
+    deadline = time.monotonic() + 5
+    while not entered.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert entered.exists()
+    try:
+        contender = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "acquire-wait",
+                str(lock_path),
+                "0.1",
+                "/bin/sh",
+                "-c",
+                f'printf entered >"{mutation_entered}"',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert contender.returncode == 1
+        assert contender.stderr == "Another production operation is already running.\n"
+        assert not mutation_entered.exists()
+    finally:
+        release.touch()
+        stdout, stderr = health.communicate(timeout=5)
+
+    assert health.returncode == 0, stderr
+    assert "Production environment validation passed" in stdout
+
+
 def _write_public_verification_curl(fake_bin: Path) -> Path:
     fake_curl = fake_bin / "curl"
     fake_curl.write_text(
@@ -1088,7 +1223,8 @@ def _write_public_verification_curl(fake_bin: Path) -> Path:
         'case "$last" in\n'
         '    */api/health) printf \'{"status":"healthy","database":"connected"}\' ;;\n'
         '    */asset-inventory.txt) cat "$FAKE_INVENTORY" ;;\n'
-        '    */) printf \'<div id="app"></div><link rel="stylesheet" href="/assets/app.css"><script src="/assets/app.js"></script>\' ;;\n'
+        '    */) printf \'<div id="app"></div><link rel="stylesheet" '
+        'href="/assets/app.css"><script src="/assets/app.js"></script>\' ;;\n'
         "esac\n"
     )
     fake_curl.chmod(0o755)
@@ -1120,16 +1256,20 @@ def _run_public_verification(
     return result, curl_log.read_text(encoding="utf-8").splitlines()
 
 
-def test_public_verification_keeps_full_inventory_and_runtime_checks_only_index_assets(
+def test_public_verification_keeps_runtime_checks_to_index_assets(
     tmp_path: Path,
 ) -> None:
     full, full_requests = _run_public_verification(tmp_path / "full")
-    runtime, runtime_requests = _run_public_verification(tmp_path / "runtime", "--runtime")
+    runtime, runtime_requests = _run_public_verification(
+        tmp_path / "runtime", "--runtime"
+    )
 
     assert full.returncode == 0, full.stderr
     assert runtime.returncode == 0, runtime.stderr
     assert any(request.endswith("/asset-inventory.txt") for request in full_requests)
-    assert not any(request.endswith("/asset-inventory.txt") for request in runtime_requests)
+    assert not any(
+        request.endswith("/asset-inventory.txt") for request in runtime_requests
+    )
     assert any(request.endswith("/assets/app.js") for request in runtime_requests)
     assert any(request.endswith("/assets/app.css") for request in runtime_requests)
     for request in full_requests + runtime_requests:
@@ -1143,7 +1283,7 @@ def test_public_verification_keeps_full_inventory_and_runtime_checks_only_index_
     assert any("--max-filesize 1048576" in request for request in runtime_requests)
 
 
-def test_public_verification_rejects_unknown_or_extra_arguments_before_network_use() -> None:
+def test_public_verification_rejects_unknown_arguments_before_network_use() -> None:
     for arguments in (("--unexpected",), ("--runtime", "extra")):
         result = subprocess.run(
             ["sh", str(VERIFY_PUBLIC_SCRIPT), *arguments],
@@ -1167,19 +1307,29 @@ def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
     assert RUNTIME_HEALTH_SCRIPT.stat().st_mode & 0o111
     assert "validate_environment" in script
     assert "load_release_id" in script
+    assert 'acquire_runtime_health_lock "$@"' in script
+    assert script.index('acquire_runtime_health_lock "$@"') < script.index(
+        "validate_environment"
+    )
     assert script.index("load_release_id") < script.index(
         "compose exec -T api python scripts/check_embedding.py"
     )
     assert "acquire_production_operation_lock" not in script
     assert "HEALTHCHECKS_RUNTIME_PING_URL" in script
-    assert script.index('healthcheck_ping "${HEALTHCHECK_URL}/start"') < script.index(
-        "wait_for_application_health"
-    ) < script.index("compose exec -T api python scripts/check_embedding.py") < script.index(
-        'bash "$SCRIPT_DIR/verify_public.sh" --runtime'
+    start_ping = script.index('healthcheck_ping "${HEALTHCHECK_URL}/start"')
+    health_wait = script.index("wait_for_application_health")
+    embedding_probe = script.index(
+        "compose exec -T api python scripts/check_embedding.py"
     )
-    assert (
-        "compose exec -T api python scripts/check_embedding.py \\\n    --timeout-seconds 45 \\\n    --request-timeout-seconds 10 \\\n    --retry-delay-seconds 5"
-    ) in script
+    public_check = script.index('bash "$SCRIPT_DIR/verify_public.sh" --runtime')
+    assert start_ping < health_wait < embedding_probe < public_check
+    runtime_embedding_command = (
+        "compose exec -T api python scripts/check_embedding.py \\\n"
+        "    --timeout-seconds 45 \\\n"
+        "    --request-timeout-seconds 10 \\\n"
+        "    --retry-delay-seconds 5"
+    )
+    assert runtime_embedding_command in script
     assert "RUNTIME_HEALTH_SUCCEEDED" in script
     assert 'healthcheck_ping "${HEALTHCHECK_URL}/fail" || true' in script
 
@@ -1192,9 +1342,15 @@ def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
     assert "Requires=docker.service" in service
     assert "Wants=network-online.target" in service
     assert "After=network-online.target" in service
-    assert "ConditionPathExists=/opt/ai-writing-assist/deploy/.env.production" in service
+    assert (
+        "ConditionPathExists=/opt/ai-writing-assist/deploy/.env.production"
+        in service
+    )
     assert "Environment=ENV_FILE=/opt/ai-writing-assist/deploy/.env.production" in service
-    assert "ExecStart=/bin/bash /opt/ai-writing-assist/deploy/scripts/runtime_health.sh" in service
+    assert (
+        "ExecStart=/bin/bash /opt/ai-writing-assist/deploy/scripts/runtime_health.sh"
+        in service
+    )
     assert "TimeoutStartSec=5m" in service
     assert "http" not in service.lower()
     assert "OnBootSec=2m" in timer
@@ -1215,7 +1371,7 @@ def _systemd_values(path: Path) -> dict[str, list[str]]:
     return values
 
 
-def test_backup_and_account_maintenance_systemd_units_are_network_ordered_and_bounded() -> None:
+def test_backup_and_maintenance_systemd_units_are_network_ordered_and_bounded() -> None:
     service_expectations = {
         "ai-writing-backup.service": ("backup.sh", "4h"),
         "ai-writing-account-maintenance.service": ("account_maintenance.sh", "1h"),
@@ -1395,7 +1551,9 @@ def test_embedding_probe_reports_dimension_failure_without_dynamic_details(
     )
 
     assert result == 1
-    assert capsys.readouterr().out == "Embedding service did not become ready: ValueError\n"
+    assert capsys.readouterr().out == (
+        "Embedding service did not become ready: ValueError\n"
+    )
 
 
 def test_embedding_probe_reports_malformed_json_structure_as_type_error(
@@ -1458,7 +1616,9 @@ def test_embedding_probe_rejects_oversized_responses_without_reading_body_detail
     )
 
     assert result == 1
-    assert capsys.readouterr().out == "Embedding service did not become ready: ValueError\n"
+    assert capsys.readouterr().out == (
+        "Embedding service did not become ready: ValueError\n"
+    )
 
 
 def test_embedding_probe_cli_rejects_non_positive_time_budgets() -> None:
@@ -1485,7 +1645,14 @@ def test_embedding_probe_keeps_release_defaults_and_runtime_budget_contract() ->
     assert module.DEFAULT_TIMEOUT_SECONDS == 900
     assert module.DEFAULT_REQUEST_TIMEOUT_SECONDS == 30
     assert module.DEFAULT_RETRY_DELAY_SECONDS == 5
-    assert "if ! compose run --rm api python scripts/check_embedding.py; then" in release_script
-    assert (
-        "compose exec -T api python scripts/check_embedding.py \\\n    --timeout-seconds 45 \\\n    --request-timeout-seconds 10 \\\n    --retry-delay-seconds 5"
-    ) in runtime_script
+    release_embedding_probe = (
+        "if ! compose run --rm api python scripts/check_embedding.py; then"
+    )
+    assert release_embedding_probe in release_script
+    runtime_embedding_probe = (
+        "compose exec -T api python scripts/check_embedding.py \\\n"
+        "    --timeout-seconds 45 \\\n"
+        "    --request-timeout-seconds 10 \\\n"
+        "    --retry-delay-seconds 5"
+    )
+    assert runtime_embedding_probe in runtime_script
