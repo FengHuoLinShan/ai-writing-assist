@@ -87,6 +87,11 @@ Cloudflare Tunnel 的 `novel.zhh.se` 公共主机名应使用 HTTP 源站
 `http://127.0.0.1:3259`。公网 TLS 由 Cloudflare 终止，OpenResty 只监听 loopback，
 不占用宿主机的 80/443。发布完成后渲染与 1Panel host 网络兼容的站点配置：
 
+Cloudflare Tunnel 是公网客户端身份的信任边界。OpenResty 对 API 与 frontend upstream 都使用
+`CF-Connecting-IP` 覆盖（绝不追加）`X-Real-IP` 和 `X-Forwarded-For`；loopback 直连属于受信
+host scope。若该 header 缺失，nginx 不传递空值，后端会安全地共享 direct-proxy bucket。这里不验证
+当前外部 Cloudflare 设置，也不提供分布式或全局 DDoS 防护承诺。
+
 ```bash
 python3 deploy/scripts/render_openresty.py \
   --env deploy/.env.production \

@@ -1,7 +1,7 @@
 """Process-local HTTP token-bucket middleware.
 
-The limiter keys requests by the direct ASGI peer address. Forwarding headers are
-intentionally ignored until a trusted-proxy boundary is configured.
+The limiter keys requests by the final ASGI scope client and never parses forwarding
+headers. In production, Uvicorn may normalize that scope from edge-sanitized XFF.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class _TokenBucket:
 
 
 class HttpRateLimitMiddleware:
-    """Bound per-process HTTP request rate by direct network peer.
+    """Bound per-process HTTP request rate by the final ASGI scope client.
 
     A zero rate explicitly disables the limiter for local development and tests.
     Deployment configuration validation prevents that setting outside local
@@ -159,7 +159,7 @@ class HttpRateLimitMiddleware:
 
 
 def _direct_peer_key(scope: Scope) -> str:
-    """Return a bounded direct-peer key without trusting forwarding headers."""
+    """Return a bounded final scope-client key without parsing forwarding headers."""
     client = scope.get("client")
     if (
         isinstance(client, (tuple, list))

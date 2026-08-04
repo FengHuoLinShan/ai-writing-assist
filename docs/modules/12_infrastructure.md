@@ -173,8 +173,12 @@ query/body/header 推断项目。实际 path 参数、请求体、header、token
 route metadata 必须安全降级，不能形成日志注入。未知 500 只记录白名单异常类型和有界 frame
 位置，不记录异常正文、cause chain 或源码行。
 
-HTTP 请求在认证、CORS 和路由之前经过进程级 token bucket。限流身份只取 ASGI direct peer
-地址，不读取 `X-Forwarded-For` 等未经信任的代理头；不同连接端口不会获得不同配额。
+HTTP 请求在认证、CORS 和路由之前经过进程级 token bucket。限流身份只取最终 ASGI scope client
+地址，middleware 自身不解析 `X-Forwarded-For` 等代理头；不同连接端口不会获得不同配额。生产
+Tunnel 路径以 Cloudflare 为公网信任边界，OpenResty 对 API/frontend upstream 用
+`CF-Connecting-IP` 覆盖（不追加）这两个 forwarding headers，Uvicorn 才可据 edge-sanitized XFF
+规范化 scope。直接 loopback 属于受信 host scope；缺少 `CF-Connecting-IP` 时请求安全地共享 proxy
+bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Cloudflare 配置已被本仓库验证。
 `OPTIONS` 不消耗配额，其他普通、认证失败、未匹配和健康检查请求均受限。超限返回 429、
 固定 `{"detail":"Too many requests"}`、`Retry-After` 与 `Cache-Control: no-store`，并继续
 经过外层安全响应头和 access log。

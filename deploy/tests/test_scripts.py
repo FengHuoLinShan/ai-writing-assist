@@ -762,6 +762,15 @@ def test_openresty_renders_loopback_tunnel_origin() -> None:
     assert "listen 443" not in result.stdout
     assert "ssl_certificate" not in result.stdout
 
+    api_location = result.stdout.split("location /api/ {", maxsplit=1)[1].split(
+        "location / {", maxsplit=1
+    )[0]
+    frontend_location = result.stdout.split("location / {", maxsplit=1)[1]
+    for location in (api_location, frontend_location):
+        assert "proxy_set_header X-Real-IP $http_cf_connecting_ip;" in location
+        assert "proxy_set_header X-Forwarded-For $http_cf_connecting_ip;" in location
+    assert "$proxy_add_x_forwarded_for" not in result.stdout
+
 
 def _copy_safe_test_env(tmp_path: Path) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)

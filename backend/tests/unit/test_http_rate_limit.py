@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.http_rate_limit import HttpRateLimitMiddleware, _direct_peer_key
 from app.main import _TimingMiddleware, app
@@ -25,6 +26,13 @@ def _limited_app(*, clock, rate: int = 60, burst: int = 2) -> FastAPI:
         return {"ok": True}
 
     return test_app
+
+
+def _edge_sanitized_limited_app(*, clock, rate: int = 60, burst: int = 2):
+    return ProxyHeadersMiddleware(
+        _limited_app(clock=clock, rate=rate, burst=burst),
+        trusted_hosts="*",
+    )
 
 
 @pytest.mark.asyncio
@@ -61,13 +69,26 @@ async def test_direct_peers_have_independent_buckets_and_ports_share_one() -> No
 
 
 @pytest.mark.asyncio
-async def test_forwarded_headers_do_not_create_new_client_buckets() -> None:
+async def test_unwrapped_limiter_ignores_raw_forwarded_headers() -> None:
     test_app = _limited_app(clock=lambda: 100.0, burst=1)
     transport = ASGITransport(app=test_app, client=("192.0.2.10", 4000))
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         first = await client.get("/probe", headers={"X-Forwarded-For": "198.51.100.1"})
         second = await client.get("/probe", headers={"X-Forwarded-For": "198.51.100.2"})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_edge_sanitized_forwarded_client_uses_one_rate_limit_bucket() -> None:
+    test_app = _edge_sanitized_limited_app(clock=lambda: 100.0, burst=1)
+    transport = ASGITransport(app=test_app, client=("127.0.0.1", 4000))
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.get("/probe", headers={"X-Forwarded-For": "198.51.100.1"})
+        second = await client.get("/probe", headers={"X-Forwarded-For": "198.51.100.1"})
 
     assert first.status_code == 200
     assert second.status_code == 429
