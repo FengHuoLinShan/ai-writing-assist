@@ -209,11 +209,14 @@ new application services 时停止它们。cleanup trap 本身不会 reset/clean
 停止并需要人工恢复。任一状态文件缺失、损坏、不匹配或 symlink 都会 fail closed，需要人工介入后再
 运行脚本。本说明描述仓库内脚本合同，不表示生产机器或外部服务已经实际验证。
 
-release 在 target preflight 完成后、pre-migration backup 前进入有界 maintenance window：先停止 API、
-frontend 与 worker（worker 依既有 2 分钟 grace drain），再允许创建 snapshot、migration 和新服务启动；
-restore 也会在确认与二次 checksum 后、safety backup 和任何数据库替换前走同一停服门槛。停止失败会阻断
-后续数据库工作；quiesce 之后失败会让 application services 保持停止并需要人工恢复。代价是作者和读者
-在发布/恢复期间会短暂不可用，收益是避免旧代码与新 schema 重叠；这不是零停机方案，也不表示生产演练已完成。
+release 在 target preflight 与 target API/frontend build 完成后、pre-migration backup 前进入有界
+maintenance window：先停止 API、frontend 与 worker（worker 依既有 2 分钟 grace drain），再 reconcile
+target PostgreSQL 与 embedding，随后执行首次 fresh database guard、embedding contract check、snapshot、
+migration 和新服务启动。依赖镜像或 Compose 配置变更时 Docker Compose 可能 recreate 容器，所以 reconciliation
+必须在旧 application services drain 后进行；这会使有界 downtime 比仅迁移阶段更长。restore 也会在确认与二次
+checksum 后、safety backup 和任何数据库替换前走同一停服门槛。停止失败会阻断后续数据库工作；quiesce 之后失败
+会让 application services 保持停止并需要人工恢复。代价是作者和读者在发布/恢复期间会短暂不可用，收益是避免
+旧代码与新 schema 或已替换依赖容器重叠；这不是零停机方案，也不表示生产演练已完成。
 
 ## 备份、恢复和账号清理
 

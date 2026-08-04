@@ -462,7 +462,15 @@ def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> N
     release_script = (DEPLOY_ROOT / "scripts" / "release.sh").read_text()
     restore_script = (DEPLOY_ROOT / "scripts" / "restore.sh").read_text()
 
+    release_build = release_script.index("compose build api frontend")
     release_quiesce = release_script.index("if ! compose stop api worker frontend; then")
+    release_dependencies = release_script.index("compose up -d postgres embedding")
+    release_fresh_guard = release_script.index(
+        'if [ ! -f "$STATE_DIR/current-release" ]'
+    )
+    release_embedding_check = release_script.index(
+        "if ! compose run --rm api python scripts/check_embedding.py; then"
+    )
     release_backup = release_script.index('BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")')
     release_migrate = release_script.index("compose --profile ops run --rm migrate")
     release_target_up = release_script.index(
@@ -470,7 +478,9 @@ def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> N
     )
     release_health = release_script.index("if ! wait_for_application_health; then")
 
-    assert release_quiesce < release_backup < release_migrate < release_target_up
+    assert release_build < release_quiesce < release_dependencies
+    assert release_dependencies < release_fresh_guard < release_embedding_check
+    assert release_embedding_check < release_backup < release_migrate < release_target_up
     assert release_target_up < release_health
     assert "compose stop api worker frontend >/dev/null 2>&1 || true" not in (
         release_script[release_quiesce:release_backup]

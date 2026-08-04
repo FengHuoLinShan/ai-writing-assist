@@ -168,10 +168,13 @@ services 时停止它们。cleanup trap 本身不会 reset/clean 工作树、额
 不存在并以当前、仍可达 `origin/main` 的 HEAD 作为 fallback。这是脚本合同，不表示生产环境或外部服务
 已经验证。
 
-release 在 target preflight 后、pre-migration snapshot 前先停止 API/frontend/worker（worker 按既有
-2 分钟 grace drain）；restore 在确认与二次 checksum 后、safety backup 和数据库替换前也先完成该
-quiesce。停止失败会 fail closed 并阻断后续数据库工作；quiesce 后失败会保持 application services
-停止并需人工恢复。它以发布/恢复期间作者和读者短暂不可用换取避免旧代码与新 schema 重叠，不是 zero-downtime
+release 在 target preflight 与 API/frontend build 后、pre-migration snapshot 前先停止 API/frontend/worker
+（worker 按既有 2 分钟 grace drain），然后才 reconcile target PostgreSQL 与 embedding，并执行 fresh database
+guard、embedding contract check、snapshot、migration 和新服务启动。Docker Compose 在依赖镜像或配置变更时可能
+recreate 容器，因此该 reconcile 必须在旧 application services drain 后；maintenance window 相应覆盖这些检查，
+停机可能长于仅 migration 阶段。restore 在确认与二次 checksum 后、safety backup 和数据库替换前也先完成该
+quiesce。停止失败会 fail closed 并阻断后续数据库工作；quiesce 后失败会保持 application services 停止并需人工
+恢复。它以发布/恢复期间作者和读者短暂不可用换取避免旧代码与新 schema 或已替换依赖容器重叠，不是 zero-downtime
 部署，也不表示外部生产演练已经验证。
 
 ## 2. HTTP 响应边界与请求可观测性

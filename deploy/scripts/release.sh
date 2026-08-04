@@ -82,6 +82,12 @@ fi
 
 validate_environment
 compose build api frontend
+
+if ! compose stop api worker frontend; then
+    echo "Unable to quiesce application services before the pre-migration backup." >&2
+    exit 1
+fi
+
 compose up -d postgres embedding
 
 if [ ! -f "$STATE_DIR/current-release" ] \
@@ -100,11 +106,6 @@ fi
 
 if ! compose run --rm api python scripts/check_embedding.py; then
     echo "Local embedding startup or 768-dimensional contract check failed." >&2
-    exit 1
-fi
-
-if ! compose stop api worker frontend; then
-    echo "Unable to quiesce application services before the pre-migration backup." >&2
     exit 1
 fi
 

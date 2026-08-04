@@ -62,6 +62,8 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         'case " $* " in\n'
         '  *" stop api worker frontend "*) exit "${FAKE_DOCKER_STOP_STATUS:-0}" ;;\n'
         '  *" build "*) exit "${FAKE_DOCKER_BUILD_STATUS:-0}" ;;\n'
+        '  *" up -d postgres embedding "*) exit '
+        '"${FAKE_DOCKER_DEPENDENCY_UP_STATUS:-0}" ;;\n'
         "  *) exit 0 ;;\n"
         "esac\n"
     )
@@ -192,6 +194,32 @@ def test_release_quiesce_failure_blocks_backup_migration_and_target_start(
     _assert_healthy_state(repo_root, commit_a)
     docker_commands = docker_log.read_text(encoding="utf-8")
     assert docker_commands.count(" stop api worker frontend") == 1
+    assert " up -d postgres embedding" not in docker_commands
+    assert " pg_dump" not in docker_commands
+    assert " migrate" not in docker_commands
+    assert " up -d api worker frontend" not in docker_commands
+
+
+def test_release_dependency_reconciliation_failure_keeps_applications_quiesced(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+
+    result = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment | {"FAKE_DOCKER_DEPENDENCY_UP_STATUS": "1"},
+    )
+
+    assert result.returncode != 0
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert docker_commands.count(" stop api worker frontend") == 1
+    assert docker_commands.index(" stop api worker frontend") < docker_commands.index(
+        " up -d postgres embedding"
+    )
     assert " pg_dump" not in docker_commands
     assert " migrate" not in docker_commands
     assert " up -d api worker frontend" not in docker_commands
