@@ -1,9 +1,10 @@
 <template>
-  <div v-if="open" class="modal-overlay" role="dialog" aria-modal="true" aria-label="深度导入快照状态">
-    <div class="modal-content modal-content--wide">
+  <div v-if="open" ref="overlayRef" class="modal-overlay" @keydown="onKeydown" @focusin="onFocusin">
+    <div ref="dialogRef" class="modal-content modal-content--wide" role="dialog" aria-modal="true" aria-label="深度导入快照状态" aria-labelledby="deep-import-audit-dialog-label" tabindex="-1">
+      <span id="deep-import-audit-dialog-label" class="sr-only">深度导入快照状态</span>
       <div class="modal-header">
-        <h3>深度导入快照与质量审计</h3>
-        <button class="btn-icon" aria-label="关闭" @click="$emit('close')">×</button>
+        <h3 id="deep-import-audit-dialog-heading">深度导入快照与质量审计</h3>
+        <button type="button" class="btn-icon" aria-label="关闭" @click="requestClose">×</button>
       </div>
       <div class="modal-body writing-audit-details">
         <p v-if="!progress" class="muted">暂无审计信息</p>
@@ -40,9 +41,12 @@
 <script setup>
 import { computed } from "vue"
 import { formatAuthorFacingDiagnostic } from "../../../components/progressUtils.js"
+import { useModalDialog } from "../../../composables/useModalDialog.js"
 
 const props = defineProps({ open: Boolean, progress: { type: Object, default: null } })
-defineEmits(["close"])
+const emit = defineEmits(["close"])
+const requestClose = () => emit("close")
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open, requestClose })
 
 function formatValue(value) {
   return formatAuthorFacingDiagnostic(value)

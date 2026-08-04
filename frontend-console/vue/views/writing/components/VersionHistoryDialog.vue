@@ -1,9 +1,9 @@
 <template>
-  <div v-if="model.open" class="modal-overlay" role="dialog" aria-modal="true" aria-label="版本历史">
-    <div class="modal-content modal-content--wide writing-version-history-modal">
+  <div v-if="model.open" ref="overlayRef" class="modal-overlay" @keydown="onKeydown" @focusin="onFocusin">
+    <div ref="dialogRef" class="modal-content modal-content--wide writing-version-history-modal" role="dialog" aria-modal="true" aria-label="版本历史" aria-labelledby="version-history-dialog-title" :aria-busy="model.loading" tabindex="-1">
       <div class="modal-header">
-        <h3>版本历史</h3>
-        <button class="btn-icon" aria-label="关闭" @click="close">×</button>
+        <h3 id="version-history-dialog-title">版本历史</h3>
+        <button type="button" class="btn-icon" aria-label="关闭" @click="close">×</button>
       </div>
       <div class="modal-body">
         <div class="writing-version-history-list">
@@ -14,9 +14,9 @@
               <span v-if="version.updated_at" class="muted writing-version-history-date">{{ formatTimestamp(version.updated_at) }}</span>
             </div>
             <div class="row-actions">
-              <button class="btn btn-sm" @click="$emit('preview', version.id)">预览</button>
-              <button v-if="isActive(version)" class="btn btn-sm" @click="$emit('restore', version)">基于此版本创建</button>
-              <button v-if="isActive(version)" class="btn btn-sm btn-danger" @click="$emit('delete', version)">删除</button>
+              <button type="button" class="btn btn-sm" @click="$emit('preview', version.id)">预览</button>
+              <button v-if="isActive(version)" type="button" class="btn btn-sm" @click="$emit('restore', version)">基于此版本创建</button>
+              <button v-if="isActive(version)" type="button" class="btn btn-sm btn-danger" @click="$emit('delete', version)">删除</button>
             </div>
           </article>
         </div>
@@ -27,7 +27,7 @@
           <select v-model="model.rightId" aria-label="右侧版本">
             <option v-for="version in versions" :key="`r-${version.id}`" :value="version.id">v{{ version.version_number }}</option>
           </select>
-          <button class="btn btn-primary" :disabled="model.loading" @click="$emit('compare')">{{ model.loading ? '比较中...' : '比较版本' }}</button>
+          <button type="button" class="btn btn-primary" :disabled="model.loading" @click="$emit('compare')">{{ model.loading ? '比较中...' : '比较版本' }}</button>
         </div>
         <p v-if="model.error" role="alert" class="writing-empty-hint">{{ model.error }}</p>
         <div v-if="model.diffOpen && model.diff" class="writing-version-diff">
@@ -64,12 +64,14 @@
 </template>
 
 <script setup>
+import { useModalDialog } from "../../../composables/useModalDialog.js"
 const props = defineProps({
   model: { type: Object, required: true },
   versions: { type: Array, default: () => [] },
 })
 defineEmits(["preview", "restore", "delete", "compare"])
 const close = () => { props.model.open = false; props.model.diffOpen = false }
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.model.open, requestClose: close })
 const isActive = (version) => version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
 const statusLabel = (version) => version.status === "published" ? "已发布" : version.status === "candidate" ? "待处理" : version.status === "deprecated" ? "历史" : "工作稿"
 function formatTimestamp(value) {

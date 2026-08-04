@@ -145,6 +145,7 @@ test.describe("写作台模块", () => {
     await expect(versionDialog).toBeVisible({ timeout: 5000 })
     await expect(versionDialog).toContainText("v2")
     await expect(versionDialog).toContainText("v1")
+    const writingOverlay = versionDialog.locator("xpath=..")
 
     // 预览 v1（最后一个预览按钮对应 v1）
     await versionDialog.getByRole("button", { name: "预览" }).last().click()
@@ -154,6 +155,18 @@ test.describe("写作台模块", () => {
     await expect(v1Row.getByRole("button", { name: "基于此版本创建" })).toBeVisible()
 
     // 点击"基于此版本创建"
+    await v1Row.getByRole("button", { name: "基于此版本创建" }).click()
+    const globalConfirmation = page.locator("#modal-overlay")
+    await expect(globalConfirmation).toBeVisible()
+    await expect(writingOverlay).toHaveAttribute("inert", "")
+    await expect(globalConfirmation).not.toHaveAttribute("inert")
+    await expect(page.locator("#modal-content")).toContainText("恢复至 v1")
+    await expect(page.locator("#modal-footer").getByRole("button", { name: "确认恢复" })).toBeFocused()
+    await page.locator("#modal-footer").getByRole("button", { name: "取消" }).click()
+    await expect(globalConfirmation).toBeHidden()
+    await expect(versionDialog).toBeVisible()
+    await expect(v1Row.getByRole("button", { name: "基于此版本创建" })).toBeFocused()
+
     await v1Row.getByRole("button", { name: "基于此版本创建" }).click()
     await page.locator("#modal-footer").getByRole("button", { name: "确认恢复" }).click()
     await expect(page.locator("#btn-autosave")).toHaveText("发布为新版本")

@@ -1,15 +1,15 @@
 <template>
   <div
     v-if="model.open"
+    ref="overlayRef"
     class="modal-overlay"
-    role="dialog"
-    aria-modal="true"
-    aria-label="剧情设定冲突检查"
+    @keydown="onKeydown"
+    @focusin="onFocusin"
   >
-    <div class="modal-content modal-content--wide writing-conflict-modal">
+    <div ref="dialogRef" class="modal-content modal-content--wide writing-conflict-modal" role="dialog" aria-modal="true" aria-label="剧情设定冲突检查" aria-labelledby="conflict-detail-dialog-title" :aria-busy="model.busy" tabindex="-1">
       <div class="modal-header">
-        <h3>剧情设定冲突检查</h3>
-        <button class="btn-icon" aria-label="关闭" :disabled="model.busy" @click="$emit('close')">×</button>
+        <h3 id="conflict-detail-dialog-title">剧情设定冲突检查</h3>
+        <button type="button" class="btn-icon" aria-label="关闭" :disabled="model.busy" @click="requestClose">×</button>
       </div>
       <div class="modal-body">
         <p v-if="model.error" class="writing-conflict-empty is-error" role="alert">{{ model.error }}</p>
@@ -48,6 +48,7 @@
             </div>
             <div class="writing-conflict-ai-toolbar">
               <button
+                type="button"
                 class="btn btn-sm btn-primary"
                 data-action="conflict-ai-review"
                 :disabled="model.busy || check.ai_review_status === 'running'"
@@ -72,7 +73,7 @@
           <aside v-if="model.sourcePreview" class="writing-conflict-source-modal" aria-label="冲突来源详情">
             <div class="writing-conflict-group__head">
               <strong>{{ model.sourcePreview.title || '来源详情' }}</strong>
-              <button class="btn btn-sm" @click="$emit('dismiss-source')">收起</button>
+              <button type="button" class="btn btn-sm" @click="$emit('dismiss-source')">收起</button>
             </div>
             <template v-if="model.sourcePreview.kind === 'memory'">
               <p><strong>章节</strong>：第 {{ model.sourcePreview.chapterIndex ?? '-' }} 章</p>
@@ -83,7 +84,7 @@
         </template>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-ghost" :disabled="model.busy" @click="$emit('close')">关闭</button>
+        <button type="button" class="btn btn-ghost" :disabled="model.busy" @click="requestClose">关闭</button>
       </div>
     </div>
   </div>
@@ -91,6 +92,7 @@
 
 <script setup>
 import { computed, defineComponent, h, reactive, watch } from "vue"
+import { useModalDialog } from "../../../composables/useModalDialog.js"
 
 const props = defineProps({
   model: {
@@ -99,6 +101,12 @@ const props = defineProps({
   },
 })
 const emit = defineEmits(["close", "status", "ai-review", "suggestion", "apply", "locate", "source", "dismiss-source"])
+const requestClose = () => emit("close")
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({
+  isOpen: () => props.model.open,
+  requestClose,
+  canClose: () => !props.model.busy,
+})
 
 const severityLabels = { high: "高", medium: "中", low: "低", info: "提示" }
 const statusLabels = { open: "未处理", resolved: "已处理", ignored: "忽略", later: "稍后" }
@@ -143,6 +151,7 @@ const ConflictRows = defineComponent({
   emits: ["status", "suggestion", "apply", "locate", "source", "update-draft", "copy"],
   setup(rowProps, { emit: rowEmit }) {
     const button = (label, attrs, handler) => h("button", {
+      type: "button",
       class: attrs.primary ? "btn btn-sm btn-primary" : "btn btn-sm",
       disabled: rowProps.busy || attrs.disabled,
       "data-action": attrs.action,

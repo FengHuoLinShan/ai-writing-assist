@@ -1,9 +1,10 @@
 <template>
-  <div v-if="model.open" class="modal-overlay" role="dialog" aria-modal="true" aria-label="自动提取">
-    <div class="modal-content writing-auto-extract-dialog">
+  <div v-if="model.open" ref="overlayRef" class="modal-overlay" @keydown="onKeydown" @focusin="onFocusin">
+    <div ref="dialogRef" class="modal-content writing-auto-extract-dialog" role="dialog" aria-modal="true" aria-label="自动提取" aria-labelledby="auto-extraction-dialog-label" :aria-busy="model.busy" tabindex="-1">
+      <span id="auto-extraction-dialog-label" class="sr-only">自动提取</span>
       <div class="modal-header">
-        <h3>{{ label }}</h3>
-        <button class="btn-icon" aria-label="关闭" @click="model.open = false">×</button>
+        <h3 id="auto-extraction-dialog-heading">{{ label }}</h3>
+        <button type="button" class="btn-icon" aria-label="关闭" @click="requestClose">×</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -22,8 +23,8 @@
         <p class="writing-form-hint" role="note">任务只会在作者确认后启动；普通 LLM 结果仍进入待处理或授权范围内的派生资产。</p>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-ghost" @click="model.open = false">取消</button>
-        <button class="btn btn-primary" :disabled="model.busy" @click="$emit('submit')">{{ model.busy ? '提交中...' : '确认并开始提取' }}</button>
+        <button type="button" class="btn btn-ghost" @click="requestClose">取消</button>
+        <button type="button" class="btn btn-primary" :disabled="model.busy" @click="$emit('submit')">{{ model.busy ? '提交中...' : '确认并开始提取' }}</button>
       </div>
     </div>
   </div>
@@ -31,8 +32,11 @@
 
 <script setup>
 import { computed } from "vue"
+import { useModalDialog } from "../../../composables/useModalDialog.js"
 const props = defineProps({ model: { type: Object, required: true } })
 defineEmits(["submit"])
+const requestClose = () => { props.model.open = false }
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.model.open, requestClose })
 const label = computed(() => ({
   deep: "启动深度导入",
   scenes: "从正文提取 Scene",
