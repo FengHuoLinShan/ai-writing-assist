@@ -290,6 +290,13 @@ systemctl enable --now ai-writing-runtime-health.timer
 systemctl list-timers 'ai-writing-*'
 ```
 
+backup oneshot 的保守 `TimeoutStartSec` 为 4 小时，account-maintenance 为 1 小时；两者都使用
+`TimeoutStopSec=2m` 与 `KillMode=control-group`。超时会令该 service 失败，并在给予 shell/Docker CLI
+子进程 TERM/cleanup 窗口后由 systemd 结束整个 control group；Healthchecks 的 `/fail` 或 missed ping
+仍是告警路径，进程终止后 OS 会释放共享 operation lock。两项 service 还 `Wants`/`After=network-online.target`，这只保证启动排序，不证明 Internet、
+B2 或 restic 已可用。数值是保守的病态上限而非 SLA；应在观察实际运行时间后通过经过评审的 systemd drop-in
+调整，并完成外部 Docker daemon/容器终止演练。本说明不表示该演练已完成。
+
 账号清理超过 26 小时、备份超过 26 小时、或 runtime 健康检查主动报告失败/漏 ping 时必须告警。
 为 runtime 的 5 分钟周期在 Healthchecks 配置适度 grace（例如 10 分钟），并演练 `/fail` 与 missed
 ping 告警；真实 ping URL 和外部检查仍需由运维人员在 Healthchecks 单独创建与配置。OpenResty 访问

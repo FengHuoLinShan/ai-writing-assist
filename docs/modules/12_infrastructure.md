@@ -153,6 +153,14 @@ half-pair，不会删除已完成 pair。完成的 pair 一经本地完成即按
 不可用、上传或 forget 失败仍保留新 pair。
 这些脚本合同不表示外部 restic、B2 或 Healthchecks 服务已在当前环境完成验证。
 
+systemd 的 backup/account-maintenance oneshot 分别以 4 小时/1 小时作为保守病态 `TimeoutStartSec`，
+并使用 `TimeoutStopSec=2m`、`KillMode=control-group`：超时会让 service 失败，先给 shell/Docker CLI 子进程
+TERM/cleanup 窗口，再由 systemd 结束整个 control group；Healthchecks `/fail` 与 missed ping 仍承担告警。
+进程终止后 OS 会释放共享 operation lock。
+它们 `Wants` 并 `After=network-online.target`，仅保证启动排序，不证明 Internet、B2 或 restic 可达。数值不是
+SLA，应依据观测运行时间通过已评审 systemd drop-in 调整；仍需外部演练 Docker daemon/容器终止行为，本合同不表示
+该演练已完成。
+
 `deploy/backups/` 是 backup/restore 的私有文件系统边界。两个脚本都会在读取、清理或创建
 任何备份内容之前，以原子创建或目录描述符打开校验最终目录组件：它必须不是 symlink、必须为
 当前用户拥有的目录、权限必须精确为 `0700`。当前用户拥有的宽松既有目录会被收紧为 `0700`；

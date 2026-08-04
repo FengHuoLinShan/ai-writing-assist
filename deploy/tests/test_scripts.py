@@ -1190,6 +1190,59 @@ def test_runtime_health_systemd_units_are_bounded_and_secret_free() -> None:
     assert "Persistent=" not in timer
 
 
+def _systemd_values(path: Path) -> dict[str, list[str]]:
+    values: dict[str, list[str]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" not in line or line.startswith("["):
+            continue
+        key, value = line.split("=", maxsplit=1)
+        values.setdefault(key, []).append(value)
+    return values
+
+
+def test_backup_and_account_maintenance_systemd_units_are_network_ordered_and_bounded() -> None:
+    service_expectations = {
+        "ai-writing-backup.service": ("backup.sh", "4h"),
+        "ai-writing-account-maintenance.service": ("account_maintenance.sh", "1h"),
+    }
+    timer_expectations = {
+        "ai-writing-backup.timer": ("*-*-* 02:17:00", "ai-writing-backup.service"),
+        "ai-writing-account-maintenance.timer": (
+            "*-*-* 03:17:00",
+            "ai-writing-account-maintenance.service",
+        ),
+    }
+
+    for service_name, (script_name, start_timeout) in service_expectations.items():
+        service = _systemd_values(DEPLOY_ROOT / "systemd" / service_name)
+
+        assert service["Type"] == ["oneshot"]
+        assert service["Requires"] == ["docker.service"]
+        assert service["Wants"] == ["network-online.target"]
+        assert service["After"] == ["docker.service network-online.target"]
+        assert service["TimeoutStartSec"] == [start_timeout]
+        assert service["TimeoutStopSec"] == ["2m"]
+        assert service["KillMode"] == ["control-group"]
+        assert service["ExecStart"] == [
+            f"/bin/bash /opt/ai-writing-assist/deploy/scripts/{script_name}"
+        ]
+
+    for timer_name, (calendar, unit) in timer_expectations.items():
+        timer = _systemd_values(DEPLOY_ROOT / "systemd" / timer_name)
+
+        assert timer["OnCalendar"] == [calendar]
+        assert timer["Persistent"] == ["true"]
+        assert timer["RandomizedDelaySec"] == ["10m"]
+        assert timer["Unit"] == [unit]
+
+    runtime_health = _systemd_values(
+        DEPLOY_ROOT / "systemd" / "ai-writing-runtime-health.service"
+    )
+    assert runtime_health["TimeoutStartSec"] == ["5m"]
+    assert runtime_health["Wants"] == ["network-online.target"]
+    assert "network-online.target" in runtime_health["After"]
+
+
 def _load_embedding_check() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "deployment_embedding_check", EMBEDDING_CHECK_SCRIPT
