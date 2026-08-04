@@ -12,7 +12,7 @@
         <span class="view-header__count">{{ pages.length }} 个页面</span>
       </div>
       <div class="view-header__actions">
-        <span class="world-bible-toolbar__modes" aria-label="世界书展示模式">
+        <span class="world-bible-toolbar__modes" role="group" aria-label="世界书展示模式">
           <button
             v-for="(label, mode) in modeLabels"
             :key="mode"
@@ -20,6 +20,7 @@
             :class="{ 'btn-primary': displayMode === mode }"
             data-action="bible-set-display-mode"
             :data-mode="mode"
+            :aria-pressed="displayMode === mode"
             @click="setDisplayMode(mode)"
           >{{ label }}</button>
         </span>
@@ -109,7 +110,7 @@
       </div>
       <div v-else class="panel world-bible-filter">
         <div class="world-bible-section-title">页面分类</div>
-        <div class="world-bible-category-grid">
+        <div class="world-bible-category-grid" role="group" aria-label="世界书页面分类">
           <button
             v-for="(item, index) in categoryItems(true)"
             :key="item.type"
@@ -118,6 +119,7 @@
             type="button"
             data-action="bible-set-category"
             :data-category="item.type"
+            :aria-pressed="item.type === activeCategory"
             :style="{ '--world-bible-type-color': item.meta.color, animationDelay: `${index * 0.03}s` }"
             @click="setActiveCategory(item.type)"
           >

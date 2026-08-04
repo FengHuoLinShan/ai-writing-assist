@@ -158,10 +158,14 @@ describe("渲染契约", () => {
   it("展示模式切换按钮组", () => {
     const wrapper = mountTab()
     const modes = wrapper.find(".world-bible-toolbar__modes")
+    expect(modes.attributes()).toMatchObject({ role: "group", "aria-label": "世界书展示模式" })
     expect(modes.findAll("button")).toHaveLength(3)
     expect(modes.find("[data-mode='editor']").exists()).toBe(true)
     expect(modes.find("[data-mode='gallery']").exists()).toBe(true)
     expect(modes.find("[data-mode='filter']").exists()).toBe(true)
+    expect(modes.find("[data-mode='editor']").attributes("aria-pressed")).toBe("true")
+    expect(modes.find("[data-mode='gallery']").attributes("aria-pressed")).toBe("false")
+    expect(modes.find("[data-mode='filter']").attributes("aria-pressed")).toBe("false")
   })
 
   it("编辑器模式显示 synopsis 面板、page nav、editor 和 inspector", () => {
@@ -210,6 +214,9 @@ describe("显示模式切换", () => {
   it("切换到 gallery 模式", async () => {
     const wrapper = mountTab()
     await wrapper.find("[data-mode='gallery']").trigger("click")
+    expect(wrapper.find("[data-mode='editor']").attributes("aria-pressed")).toBe("false")
+    expect(wrapper.find("[data-mode='gallery']").attributes("aria-pressed")).toBe("true")
+    expect(wrapper.find("[data-mode='filter']").attributes("aria-pressed")).toBe("false")
     expect(wrapper.find(".world-bible-gallery").exists()).toBe(true)
     expect(wrapper.find(".world-bible-gallery__hero").exists()).toBe(true)
     expect(wrapper.find(".world-bible-category-grid").exists()).toBe(true)
@@ -254,6 +261,9 @@ describe("显示模式切换", () => {
   it("切换到 filter 模式", async () => {
     const wrapper = mountTab()
     await wrapper.find("[data-mode='filter']").trigger("click")
+    expect(wrapper.find("[data-mode='editor']").attributes("aria-pressed")).toBe("false")
+    expect(wrapper.find("[data-mode='gallery']").attributes("aria-pressed")).toBe("false")
+    expect(wrapper.find("[data-mode='filter']").attributes("aria-pressed")).toBe("true")
     expect(wrapper.find(".world-bible-filter").exists()).toBe(true)
     expect(wrapper.find(".world-bible-section-title").exists()).toBe(true)
     expect(wrapper.find(".world-bible-category-grid").exists()).toBe(true)
@@ -263,8 +273,15 @@ describe("显示模式切换", () => {
     const wrapper = mountTab()
     await wrapper.find("[data-mode='filter']").trigger("click")
     await nextTick()
+    const categories = wrapper.get('[role="group"][aria-label="世界书页面分类"]')
+    const all = categories.get("[data-category='all']")
+    const species = categories.get("[data-category='species']")
+    expect(all.attributes("aria-pressed")).toBe("true")
+    expect(species.attributes("aria-pressed")).toBe("false")
     await wrapper.find("[data-action='bible-set-category'][data-category='species']").trigger("click")
     await nextTick()
+    expect(all.attributes("aria-pressed")).toBe("false")
+    expect(species.attributes("aria-pressed")).toBe("true")
     // Should only show species pages
     expect(wrapper.find(".world-bible-page-card-grid").exists()).toBe(true)
     expect(wrapper.find(".world-bible-page-card-grid").text()).toContain("种族设定")
@@ -289,6 +306,18 @@ describe("显示模式切换", () => {
     // Now switch to gallery - should trigger confirm
     await wrapper.find("[data-mode='gallery']").trigger("click")
     expect(confirmMock).toHaveBeenCalled()
+  })
+
+  it("取消未保存修改的模式切换时保留已选状态", async () => {
+    confirmMock.mockReturnValue(false)
+    const wrapper = mountTab()
+    await wrapper.find("#bible-free-text").setValue("未保存的修改")
+    await wrapper.find("[data-mode='gallery']").trigger("click")
+
+    expect(confirmMock).toHaveBeenCalled()
+    expect(wrapper.find("[data-mode='editor']").attributes("aria-pressed")).toBe("true")
+    expect(wrapper.find("[data-mode='gallery']").attributes("aria-pressed")).toBe("false")
+    expect(wrapper.find(".world-bible-editor-panel").exists()).toBe(true)
   })
 })
 
