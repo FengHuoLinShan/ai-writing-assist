@@ -248,6 +248,10 @@ session 的每次显式 checkpoint commit 和最终 commit 都在同一事务内
 marker 不超过 30 秒。它只证明 worker 控制循环近期取得执行权；per-task lease heartbeat
 仍负责 task progress、lease fence 和 stale recovery，二者不可互相替代。
 
+生产 SIGTERM 只在 `run_worker.py` 组合根转换为 `TaskWorker.stop()`：worker 随后停止新 claim 并
+drain 已领取任务，通用 worker 不感知操作系统信号。Compose 的 `stop_grace_period: 2m` 是 drain 的
+外层时限；到期后的 SIGKILL 走既有 lease heartbeat/stale recovery 崩溃恢复，不保证长任务完成。
+
 ## 不做
 
 - 复杂分布式调度 / 优先级队列 / 任务 DAG / 定时任务系统

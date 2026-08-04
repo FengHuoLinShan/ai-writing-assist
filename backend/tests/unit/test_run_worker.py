@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
+import logging
+import signal
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -12,7 +15,9 @@ from run_worker import (
     _guard_active_task_project_finalize,
     _require_active_task_project,
     _run_sync,
+    _run_task_worker,
     _validate_worker_config,
+    main,
 )
 
 
@@ -103,6 +108,112 @@ def test_worker_composition_injects_control_loop_liveness_writer() -> None:
         worker_class.call_args.kwargs["control_loop_observer"]
         is write_control_loop_liveness
     )
+
+
+@pytest.mark.asyncio
+async def test_run_task_worker_turns_sigterm_into_one_graceful_drain(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="run_worker")
+    loop = MagicMock(spec=asyncio.AbstractEventLoop)
+    worker = MagicMock()
+
+    async def run_forever() -> None:
+        handler = loop.add_signal_handler.call_args.args[1]
+        handler()
+        handler()
+
+    worker.run_forever = AsyncMock(side_effect=run_forever)
+
+    with patch(
+        "run_worker.asyncio.get_running_loop",
+        autospec=True,
+        return_value=loop,
+    ):
+        await _run_task_worker(worker)
+
+    loop.add_signal_handler.assert_called_once_with(signal.SIGTERM, ANY)
+    worker.stop.assert_called_once_with()
+    loop.remove_signal_handler.assert_called_once_with(signal.SIGTERM)
+    assert caplog.messages.count(
+        "TaskWorker received SIGTERM; draining in-flight tasks."
+    ) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_task_worker_removes_sigterm_handler_when_worker_errors() -> None:
+    loop = MagicMock(spec=asyncio.AbstractEventLoop)
+    worker = MagicMock()
+    worker.run_forever = AsyncMock(side_effect=RuntimeError("worker failed"))
+
+    with (
+        patch(
+            "run_worker.asyncio.get_running_loop",
+            autospec=True,
+            return_value=loop,
+        ),
+        pytest.raises(RuntimeError, match="worker failed"),
+    ):
+        await _run_task_worker(worker)
+
+    loop.remove_signal_handler.assert_called_once_with(signal.SIGTERM)
+
+
+@pytest.mark.asyncio
+async def test_run_task_worker_runs_without_signal_handler_when_unsupported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    loop = MagicMock(spec=asyncio.AbstractEventLoop)
+    loop.add_signal_handler.side_effect = NotImplementedError
+    worker = MagicMock()
+    worker.run_forever = AsyncMock()
+
+    with patch(
+        "run_worker.asyncio.get_running_loop",
+        autospec=True,
+        return_value=loop,
+    ):
+        await _run_task_worker(worker)
+
+    worker.run_forever.assert_awaited_once_with()
+    loop.remove_signal_handler.assert_not_called()
+    assert "SIGTERM graceful shutdown handler is unavailable." in caplog.messages
+
+
+@pytest.mark.asyncio
+async def test_run_task_worker_fails_closed_when_signal_registration_errors() -> None:
+    loop = MagicMock(spec=asyncio.AbstractEventLoop)
+    loop.add_signal_handler.side_effect = RuntimeError("not on main thread")
+    worker = MagicMock()
+    worker.run_forever = AsyncMock()
+
+    with (
+        patch(
+            "run_worker.asyncio.get_running_loop",
+            autospec=True,
+            return_value=loop,
+        ),
+        pytest.raises(RuntimeError, match="not on main thread"),
+    ):
+        await _run_task_worker(worker)
+
+    worker.run_forever.assert_not_awaited()
+    loop.remove_signal_handler.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_main_composes_worker_through_sigterm_drain_wrapper() -> None:
+    worker = MagicMock()
+
+    with (
+        patch("run_worker._configure_worker_process", autospec=True) as configure,
+        patch("run_worker._build_task_worker", autospec=True, return_value=worker),
+        patch("run_worker._run_task_worker", autospec=True) as run_worker,
+    ):
+        await main()
+
+    configure.assert_called_once_with()
+    run_worker.assert_awaited_once_with(worker)
 
 
 @pytest.mark.asyncio

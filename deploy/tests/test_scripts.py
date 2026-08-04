@@ -454,6 +454,7 @@ def test_common_and_compose_declare_worker_process_health() -> None:
         "python",
         "infrastructure/tasks/liveness.py",
     ]
+    assert compose_data["services"]["worker"]["stop_grace_period"] == "2m"
     assert "b'run_worker.py'" not in worker_section
     for setting in ("interval: 15s", "timeout: 5s", "start_period: 20s", "retries: 8"):
         assert setting in worker_section

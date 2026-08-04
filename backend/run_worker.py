@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import importlib
 import logging
+import signal
 import sys
 from pathlib import Path
 
@@ -36,6 +37,7 @@ TASK_HANDLER_MODULES = (
     "modules.world.tasks",
     "modules.writing.tasks",
 )
+logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
@@ -130,10 +132,37 @@ def _build_task_worker():
     )
 
 
+async def _run_task_worker(worker) -> None:
+    """Run a composed worker and translate production SIGTERM into a drain."""
+    loop = asyncio.get_running_loop()
+    signal_handler_installed = False
+    shutdown_started = False
+
+    def begin_graceful_shutdown() -> None:
+        nonlocal shutdown_started
+        if shutdown_started:
+            return
+        shutdown_started = True
+        logger.info("TaskWorker received SIGTERM; draining in-flight tasks.")
+        worker.stop()
+
+    try:
+        try:
+            loop.add_signal_handler(signal.SIGTERM, begin_graceful_shutdown)
+        except NotImplementedError:
+            logger.warning("SIGTERM graceful shutdown handler is unavailable.")
+        else:
+            signal_handler_installed = True
+        await worker.run_forever()
+    finally:
+        if signal_handler_installed:
+            loop.remove_signal_handler(signal.SIGTERM)
+
+
 async def main() -> None:
     _configure_worker_process()
     worker = _build_task_worker()
-    await worker.run_forever()
+    await _run_task_worker(worker)
 
 
 def _run_sync() -> None:

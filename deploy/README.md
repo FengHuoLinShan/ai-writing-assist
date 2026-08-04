@@ -114,6 +114,10 @@ DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网�
 marker 已存在但损坏、非普通文件或内容不匹配时会 fail closed，绝不静默降级。当前 Compose healthcheck
 直接运行 v1 liveness CLI。
 
+生产 worker 收到 SIGTERM 时，`run_worker.py` 会调用 `TaskWorker.stop()`，停止新 claim 并 drain
+已领取的任务；Compose 通过 `stop_grace_period: 2m` 给这段过程两分钟。超过窗口 Docker 会 SIGKILL，
+此时任务不会被承诺完成，而是由既有 lease heartbeat 与 stale recovery 的崩溃恢复路径接管。
+
 `verify_public.sh` 无参数时保留上述完整发布验收，包含 `asset-inventory.txt` 的所有发布资源。
 `runtime_health.sh` 每轮先复用本机 API、完整内部前端资产和 worker 进程健康检查，再执行一个
 小型真实 embedding 向量/维度探测，最后调用 `verify_public.sh --runtime`；后者只校验公网 HTTPS API、
