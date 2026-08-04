@@ -11,6 +11,7 @@ acquire_production_operation_lock "$@"
 # Callers capture stdout as the machine-readable backup path. Keep validation
 # diagnostics visible without contaminating that command-substitution contract.
 validate_environment >&2
+ensure_private_backup_directory >&2
 
 POSTGRES_USER=$(env_value POSTGRES_USER)
 POSTGRES_DB=$(env_value POSTGRES_DB)
@@ -52,7 +53,6 @@ trap on_exit EXIT HUP INT TERM
 
 healthcheck_ping "${HEALTHCHECK_URL}/start" || true
 
-mkdir -p "$BACKUP_DIR"
 for stale_staging in \
     "$BACKUP_DIR"/.backup-stage.* \
     "$BACKUP_DIR"/.backup-checksum-stage.* \

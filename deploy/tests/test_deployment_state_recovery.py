@@ -148,6 +148,33 @@ def test_restore_cancellation_restores_finalized_checkout_without_replacing_data
     assert " --exit-on-error" not in docker_commands
 
 
+def test_restore_rejects_symlinked_backup_directory_before_git_or_docker_work(
+    tmp_path: Path,
+) -> None:
+    repo_root, _commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    backup_dir = repo_root / "deploy" / "backups"
+    outside = tmp_path / "outside-backups"
+    outside.mkdir()
+    backup_path = outside / "fixture.dump"
+    backup_path.write_bytes(b"fixture backup")
+    Path(f"{backup_path}.sha256").write_text(
+        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
+    )
+    backup_dir.symlink_to(outside, target_is_directory=True)
+
+    result = _run_script(
+        repo_root,
+        "restore.sh",
+        [str(backup_dir / "fixture.dump"), commit_b],
+        environment,
+    )
+
+    assert result.returncode != 0
+    assert "Private directory is unsafe." in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+    assert not docker_log.exists()
+
+
 def test_release_quiesce_failure_blocks_backup_migration_and_target_start(
     tmp_path: Path,
 ) -> None:

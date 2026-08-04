@@ -25,6 +25,7 @@ fi
 
 acquire_production_operation_lock "$@"
 validate_environment
+ensure_private_backup_directory
 
 BACKUP_PATH=$(realpath "$BACKUP_INPUT")
 RESOLVED_BACKUP_DIR=$(realpath "$BACKUP_DIR")

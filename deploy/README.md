@@ -228,6 +228,12 @@ restic 加密、去重后上传私有 Backblaze B2。保留 7 个 daily、4 个 
 monthly 快照；超过 `BACKUP_RETENTION_DAYS` 的本地备份会自动清理。脚本在开始、成功
 或失败时 ping Healthchecks.io，由其向 `948620502@qq.com` 发告警。
 
+备份与恢复都将 `deploy/backups/` 当作私有文件系统边界：脚本会以原子创建或打开的目录
+描述符校验其最终路径不是 symlink、是当前用户拥有的目录且权限精确为 `0700`；当前用户拥有的
+既有宽松目录会收紧为 `0700`，所有者、类型、路径 inode/device 或元数据在校验期间不一致时直接
+拒绝。恢复在解析所选备份之前执行此检查，备份则在 healthcheck、staging 清理和数据库操作之前执行。
+这是仓库内脚本合同，不表示生产主机的目录状态已经验证。
+
 每次备份先以两份私有唯一 staging 文件写入并校验，再发布完整的 `.dump` 与 `.sha256`；同一 UTC
 timestamp 的已发布文件或 sidecar 存在时拒绝覆盖。可捕获的失败或信号只清理当前和遗留的 staging
 文件，以及本次发布未完成的精确 half-pair，绝不删除已完成 pair。完成 local pair 后立即按现有

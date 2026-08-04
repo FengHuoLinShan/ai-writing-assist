@@ -153,6 +153,12 @@ half-pair，不会删除已完成 pair。完成的 pair 一经本地完成即按
 不可用、上传或 forget 失败仍保留新 pair。
 这些脚本合同不表示外部 restic、B2 或 Healthchecks 服务已在当前环境完成验证。
 
+`deploy/backups/` 是 backup/restore 的私有文件系统边界。两个脚本都会在读取、清理或创建
+任何备份内容之前，以原子创建或目录描述符打开校验最终目录组件：它必须不是 symlink、必须为
+当前用户拥有的目录、权限必须精确为 `0700`。当前用户拥有的宽松既有目录会被收紧为 `0700`；
+descriptor 与路径的 device/inode 和元数据会在打开后复查，任何替换、类型或所有者不一致都会
+fail closed。该合同仅描述仓库脚本，不表示生产目录或外部备份已实际验证。
+
 release/restore 以 finalized 的 `deploy/.state/current-release` 与 `current-commit` 成对状态作为
 已部署 commit 的唯一来源，而不信任可能残留在失败目标上的 checkout/分支。失败或取消且尚未写完
 最终 `current-release` 时，脚本只会切回该 finalized checkout，并在本次可能已启动新 application

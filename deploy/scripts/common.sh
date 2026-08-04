@@ -33,6 +33,10 @@ validate_environment() {
     python3 "$SCRIPT_DIR/validate_env.py" --env "$ENV_FILE"
 }
 
+ensure_private_backup_directory() {
+    python3 "$SCRIPT_DIR/ensure_private_directory.py" "$BACKUP_DIR"
+}
+
 sha256_digest() {
     digest_path=$1
     if command -v sha256sum >/dev/null 2>&1; then

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 import subprocess
 import time
 from pathlib import Path
@@ -114,6 +115,39 @@ def test_failed_pg_dump_cleans_current_and_stale_staging_files(tmp_path: Path) -
     assert not legacy.exists()
     assert not list(backup_dir.glob(".backup-stage.*"))
     assert not list(backup_dir.glob("*.dump.partial"))
+
+
+def test_symlinked_backup_directory_fails_before_docker_or_staging(
+    tmp_path: Path,
+) -> None:
+    repo_root, environment, docker_log = _backup_fixture(tmp_path)
+    backup_dir = repo_root / "deploy" / "backups"
+    outside = tmp_path / "outside-backups"
+    outside.mkdir()
+    backup_dir.symlink_to(outside, target_is_directory=True)
+
+    result = _run_backup(repo_root, environment)
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "Private directory is unsafe." in result.stderr
+    assert not docker_log.exists()
+    assert not list(outside.iterdir())
+
+
+def test_permissive_owner_backup_directory_is_repaired_before_backup(
+    tmp_path: Path,
+) -> None:
+    repo_root, environment, docker_log = _backup_fixture(tmp_path)
+    backup_dir = repo_root / "deploy" / "backups"
+    backup_dir.mkdir(mode=0o755)
+    backup_dir.chmod(0o755)
+
+    result = _run_backup(repo_root, environment | {"FAKE_RESTIC_FAIL": "1"})
+
+    assert result.returncode != 0
+    assert stat.S_IMODE(backup_dir.stat().st_mode) == 0o700
+    assert "pg_dump" in docker_log.read_text(encoding="utf-8")
 
 
 def test_failed_checksum_computation_cleans_unpublished_pair_and_staging(

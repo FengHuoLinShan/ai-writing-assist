@@ -66,7 +66,9 @@ def _stop_holder(process: subprocess.Popen[str]) -> None:
     assert process.stderr.read() == ""
 
 
-def test_lock_holder_excludes_second_operation_and_file_persists(tmp_path: Path) -> None:
+def test_lock_holder_excludes_second_operation_and_file_persists(
+    tmp_path: Path,
+) -> None:
     lock_path = tmp_path / ".state" / "production-operation.lock"
     holder = _start_holder(lock_path)
     try:
@@ -127,7 +129,9 @@ def test_nested_shell_reentry_verifies_the_inherited_lock_fd(tmp_path: Path) -> 
         _stop_holder(holder)
 
 
-def test_common_wrapper_restarts_and_reenters_across_nested_shells(tmp_path: Path) -> None:
+def test_common_wrapper_restarts_and_reenters_across_nested_shells(
+    tmp_path: Path,
+) -> None:
     scripts_dir = tmp_path / "repo" / "deploy" / "scripts"
     scripts_dir.mkdir(parents=True)
     for source in (COMMON_SCRIPT, HELPER):
@@ -228,8 +232,8 @@ def test_symlinked_state_directory_fails_closed(tmp_path: Path) -> None:
 
 def test_mutating_scripts_enter_shared_lock_before_production_work() -> None:
     scripts = {
-        "release.sh": 'validate_environment\n\nif ! git',
-        "restore.sh": "validate_environment\n\nBACKUP_PATH=",
+        "release.sh": "validate_environment\n\nif ! git",
+        "restore.sh": "ensure_private_backup_directory\n\nBACKUP_PATH=",
         "backup.sh": "validate_environment >&2",
         "account_maintenance.sh": "validate_environment\nload_release_id",
     }
