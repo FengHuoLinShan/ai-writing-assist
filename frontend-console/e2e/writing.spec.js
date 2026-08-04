@@ -762,6 +762,18 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#btn-autosave")).toBeEnabled()
     await expect(page.locator("#btn-publish")).toBeEnabled()
     await expect(page.locator("#btn-conflict-check")).toBeEnabled()
+
+    const previousChapter = page.getByRole("button", { name: "上一章", exact: true })
+    const nextChapter = page.getByRole("button", { name: "下一章", exact: true })
+    await expect(previousChapter).toBeEnabled()
+    await expect(nextChapter).toBeDisabled()
+    await previousChapter.click()
+    await expect(page.locator("#writing-title-input")).toHaveValue("第一章", { timeout: 5000 })
+    await expect(page.locator("#writing-editor")).toHaveValue("第一章正文", { timeout: 5000 })
+    await expect(nextChapter).toBeEnabled()
+    await nextChapter.click()
+    await expect(page.locator("#writing-title-input")).toHaveValue("第三章 归潮尽头", { timeout: 5000 })
+    await expect(page.locator("#writing-editor")).toHaveValue("第三章正文", { timeout: 5000 })
   })
 
   test("重复发布无实质变化的正文不制造版本或任务", async ({ page }) => {

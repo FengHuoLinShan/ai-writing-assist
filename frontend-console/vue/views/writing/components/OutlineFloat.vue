@@ -1,11 +1,11 @@
 <template>
-  <aside v-if="model.open" id="outline-float-panel" class="outline-float-panel">
+  <aside v-if="model.open" id="outline-float-panel" class="outline-float-panel" aria-label="大纲浮窗">
     <div class="outline-float-header">
       <span>大纲</span>
-      <button class="btn-icon" title="关闭大纲浮窗" @click="$emit('close')">×</button>
+      <button type="button" class="btn-icon" title="关闭大纲浮窗" aria-label="关闭大纲浮窗" @click="$emit('close')">×</button>
     </div>
     <div id="outline-float-body" class="outline-float-body">
-      <p v-if="model.loading" class="muted">加载中...</p>
+      <p v-if="model.loading" class="muted" role="status">加载中...</p>
       <p v-else-if="model.error" class="muted" role="alert">{{ model.error }}</p>
       <p v-else-if="!model.threads.length" class="muted">暂无大纲条目</p>
       <div v-else class="outline-float-list">
@@ -15,8 +15,11 @@
             <button
               v-for="chapter in thread.chapter_ids || thread.chapters || []"
               :key="chapter"
+              type="button"
               class="outline-float-chapter"
               :class="{ current: Number(chapter) === currentChapter }"
+              :aria-label="`打开第 ${Number(chapter)} 章`"
+              :aria-current="Number(chapter) === currentChapter ? 'true' : undefined"
               @click="$emit('select', Number(chapter))"
             >{{ chapter }}</button>
             <span v-if="!(thread.chapter_ids || thread.chapters || []).length" class="muted">暂无章节映射</span>

@@ -12,8 +12,8 @@
         <span aria-hidden="true">{{ collapsed ? "›" : "‹" }}</span>
       </button>
       <div v-if="!collapsed" class="chapter-tree-actions">
-        <button class="btn btn-sm" title="上一章" :disabled="!previousChapter" @click="$emit('select', previousChapter)">←</button>
-        <button class="btn btn-sm" title="下一章" :disabled="!nextChapter" @click="$emit('select', nextChapter)">→</button>
+        <button type="button" class="btn btn-sm" title="上一章" aria-label="上一章" :disabled="!previousChapter" @click="$emit('select', previousChapter)">←</button>
+        <button type="button" class="btn btn-sm" title="下一章" aria-label="下一章" :disabled="!nextChapter" @click="$emit('select', nextChapter)">→</button>
         <button class="btn btn-sm" @click="$emit('create')">+ 新建</button>
       </div>
     </div>
@@ -33,6 +33,7 @@
             <button
               type="button"
               class="scene-tree-toggle"
+              :aria-label="`${expanded.has(group.id) ? '收起' : '展开'} Scene ${group.scene.title || '未命名'}的章节`"
               :aria-expanded="expanded.has(group.id)"
               :title="expanded.has(group.id) ? '折叠' : '展开'"
               @click="toggle(group.id)"
