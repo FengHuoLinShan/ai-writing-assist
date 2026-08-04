@@ -82,6 +82,17 @@ describe("conflictController", () => {
     controller.dispose()
   })
 
+  it("取消 AI 参考资料时安静返回且不提交判断或建议", async () => {
+    confirmAiReference.mockRejectedValue(new Error("已取消 AI 参考资料确认"))
+    const { controller, api, toast } = makeController()
+    await expect(controller.runAiReview()).resolves.toBeNull()
+    await expect(controller.requestSuggestion("item-1")).resolves.toBeNull()
+    expect(api.writing.runConflictAiReview).not.toHaveBeenCalled()
+    expect(api.writing.requestConflictAiSuggestion).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
   it("实际后台 AI 判断路径轮询任务并回取完整检查记录", async () => {
     const completed = { id: "check-1", chapter_index: 3, ai_review_status: "partial", items: [{ id: "ai-1", is_ai_judgment: true }] }
     const { controller, api, state, toast } = makeController({

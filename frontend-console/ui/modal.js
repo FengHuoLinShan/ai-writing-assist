@@ -11,6 +11,7 @@ let _closeAttemptCount = 0
 let _modalGeneration = 0
 const _activeActionGenerations = new Map()
 let _userCloseGeneration = null
+const _backgroundLease = new Map()
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -25,6 +26,50 @@ const FOCUSABLE_SELECTOR = [
 function _isModalOpen() {
   const overlay = document.getElementById("modal-overlay")
   return Boolean(overlay && !overlay.classList.contains("hidden"))
+}
+
+function _isServiceHost(element) {
+  return element?.matches?.("[data-imperative-service-host]")
+}
+
+function _backgroundSiblings(overlay) {
+  const boundary = overlay?.closest(".vue-shell-root") || document.body
+  const targets = []
+  for (let branch = overlay; branch && branch !== boundary; branch = branch.parentElement) {
+    const parent = branch.parentElement
+    if (!parent) break
+    for (const sibling of parent.children) {
+      if (sibling !== branch && !sibling.contains(overlay) && !_isServiceHost(sibling)) targets.push(sibling)
+    }
+  }
+  return targets
+}
+
+function _leaseBackground(overlay) {
+  for (const element of _backgroundSiblings(overlay)) {
+    if (_backgroundLease.has(element)) continue
+    _backgroundLease.set(element, element.hasAttribute("inert"))
+    if (!element.hasAttribute("inert")) element.setAttribute("inert", "")
+  }
+}
+
+function _releaseBackground() {
+  for (const [element, wasInert] of _backgroundLease) {
+    if (!wasInert) element?.removeAttribute("inert")
+  }
+  _backgroundLease.clear()
+}
+
+function _isRestorableFocusTarget(element) {
+  if (!(element instanceof HTMLElement) || !element.isConnected || element.hidden || element.matches(":disabled")) return false
+  if (element.closest("[hidden], [aria-hidden='true'], [inert]")) return false
+  const details = element.closest("details:not([open])")
+  if (details && element !== details.querySelector(":scope > summary")) return false
+  for (let current = element; current; current = current.parentElement) {
+    const style = window.getComputedStyle(current)
+    if (style.display === "none" || style.visibility === "hidden") return false
+  }
+  return element.tabIndex >= 0 || element.tagName === "SUMMARY"
 }
 
 function _focusableElements() {
@@ -238,6 +283,7 @@ function showModal(title, body, buttons = [], options = {}) {
   const generation = ++_modalGeneration
 
   if (overlay.classList.contains("hidden")) {
+    _releaseBackground()
     _previouslyFocusedElement = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null
@@ -268,8 +314,10 @@ function showModal(title, body, buttons = [], options = {}) {
   footerEl.innerHTML = ""
   for (const btn of buttons) {
     const el = document.createElement("button")
+    el.type = "button"
     const isPrimary = !btn.class || btn.class.includes("primary") || btn.text === "保存" || btn.text === "创建" || btn.text === "确认"
-    el.className = "btn " + (btn.class || (isPrimary ? "btn-primary" : "btn-ghost"))
+    const classes = (btn.class || (isPrimary ? "btn-primary" : "btn-ghost")).split(/\s+/).filter(Boolean)
+    el.className = Array.from(new Set(["btn", ...classes])).join(" ")
     el.textContent = btn.text
     el.addEventListener("click", async (event) => {
       if (_isCloseButton(btn)) {
@@ -319,6 +367,7 @@ function showModal(title, body, buttons = [], options = {}) {
   // 如果没有取消/关闭按钮，自动追加一个
   if (!buttons.some((b) => b.text === "取消" || b.text === "关闭")) {
     const cancel = document.createElement("button")
+    cancel.type = "button"
     cancel.className = "btn btn-ghost"
     cancel.textContent = "取消"
     cancel.addEventListener("click", closeModal)
@@ -327,6 +376,7 @@ function showModal(title, body, buttons = [], options = {}) {
 
   _unsavedFormBaseline = options.protectUnsaved === false ? null : _formSnapshot()
   overlay.classList.remove("hidden")
+  _leaseBackground(overlay)
   _focusInitialElement()
 }
 
@@ -358,7 +408,11 @@ function closeModal(options = {}) {
   }
 
   const overlay = document.getElementById("modal-overlay")
-  if (!overlay || overlay.classList.contains("hidden")) return true
+  if (!overlay || overlay.classList.contains("hidden")) {
+    _releaseBackground()
+    _previouslyFocusedElement = null
+    return true
+  }
 
   const currentActionIsActive = _activeActionGenerations.has(_modalGeneration)
   if (
@@ -388,8 +442,11 @@ function closeModal(options = {}) {
   _unsavedFormBaseline = null
   const focusTarget = _previouslyFocusedElement
   _previouslyFocusedElement = null
-  if (focusTarget?.isConnected && typeof focusTarget.focus === "function") {
+  _releaseBackground()
+  if (_isRestorableFocusTarget(focusTarget)) {
     focusTarget.focus()
+  } else if (document.getElementById("modal-content")?.contains(document.activeElement)) {
+    document.activeElement?.blur?.()
   }
   return true
 }

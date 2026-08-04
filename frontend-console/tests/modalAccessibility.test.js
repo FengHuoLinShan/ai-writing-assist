@@ -71,6 +71,82 @@ describe("shared modal accessibility", () => {
     expect(document.activeElement).toBe(opener)
   })
 
+  it("creates form-safe footer buttons with idempotent class tokens", () => {
+    showModal("操作", "内容", [{ text: "保存", class: "btn-primary", handler: vi.fn() }], { protectUnsaved: false })
+    const buttons = Array.from(document.querySelectorAll("#modal-footer button"))
+    expect(buttons.every((button) => button.type === "button")).toBe(true)
+    expect(buttons[0].className).toBe("btn btn-primary")
+    expect(buttons[1].className).toBe("btn btn-ghost")
+  })
+
+  it("isolates only background siblings, preserves service hosts, and releases its own lease", () => {
+    document.body.innerHTML = `
+      <div class="vue-shell-root"><button id="opener">打开</button><main id="writer">正文</main>
+        <div id="toast-container" data-imperative-service-host="toast"></div>
+        <div id="modal-overlay" class="hidden" data-imperative-service-host="modal"><div id="modal-content"><div id="modal-title"></div><div id="modal-body"></div><div id="modal-footer"></div></div></div>
+      </div>`
+    const opener = document.getElementById("opener")
+    const writer = document.getElementById("writer")
+    const toastHost = document.getElementById("toast-container")
+    opener.focus()
+    showModal("确认", "内容", [], { protectUnsaved: false })
+    expect(opener.hasAttribute("inert")).toBe(true)
+    expect(writer.hasAttribute("inert")).toBe(true)
+    expect(toastHost.hasAttribute("inert")).toBe(false)
+    closeModal()
+    expect(opener.hasAttribute("inert")).toBe(false)
+    expect(writer.hasAttribute("inert")).toBe(false)
+    expect(closeModal()).toBe(true)
+  })
+
+  it("keeps preexisting writing isolation through global close and does not recapture the opener on replacement", () => {
+    const opener = document.getElementById("opener")
+    const writingOverlay = document.createElement("div")
+    writingOverlay.setAttribute("inert", "")
+    document.body.insertBefore(writingOverlay, document.getElementById("modal-overlay"))
+    opener.focus()
+    showModal("第一步", "内容", [], { protectUnsaved: false })
+    const replacementOpener = document.createElement("button")
+    document.body.appendChild(replacementOpener)
+    replacementOpener.focus()
+    showModal("第二步", "内容", [], { protectUnsaved: false })
+    closeModal()
+    expect(writingOverlay.hasAttribute("inert")).toBe(true)
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it("releases detached owned background nodes but preserves detached preexisting inert", () => {
+    const owned = document.createElement("button")
+    const preexisting = document.createElement("button")
+    preexisting.setAttribute("inert", "")
+    document.body.insertBefore(owned, document.getElementById("modal-overlay"))
+    document.body.insertBefore(preexisting, document.getElementById("modal-overlay"))
+    showModal("确认", "内容", [], { protectUnsaved: false })
+    owned.remove()
+    preexisting.remove()
+    closeModal()
+    document.body.append(owned, preexisting)
+    expect(owned.hasAttribute("inert")).toBe(false)
+    expect(preexisting.hasAttribute("inert")).toBe(true)
+  })
+
+  it("keeps isolation after rejected unsaved close and blurs hidden modal focus for invalid openers", () => {
+    const confirmSpy = stubConfirm(false)
+    const opener = document.getElementById("opener")
+    const input = document.createElement("input")
+    input.value = "原值"
+    opener.focus()
+    showModal("编辑", input)
+    input.value = "新值"
+    expect(closeModal()).toBe(false)
+    expect(opener.hasAttribute("inert")).toBe(true)
+    expect(confirmSpy).toHaveBeenCalledOnce()
+    vi.stubGlobal("confirm", vi.fn(() => true))
+    opener.disabled = true
+    expect(closeModal()).toBe(true)
+    expect(document.activeElement).not.toBe(input)
+  })
+
   it("keeps keyboard focus inside the dialog in both tab directions", () => {
     const input = document.createElement("input")
     showModal("编辑", input, [{ text: "保存", handler: vi.fn() }])

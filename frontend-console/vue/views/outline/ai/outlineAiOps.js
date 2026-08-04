@@ -212,6 +212,7 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
     toast(`${label}建议生成任务已提交`, "success")
     return result
   } catch (err) {
+    if (err?.message === "已取消 AI 参考资料确认") throw err
     toast(err.message || "操作失败", "error")
     throw err
   }
@@ -449,6 +450,7 @@ export async function analyzeOutline({ instruction, startChapter, endChapter }) 
     toast("大纲分析任务已提交", "success")
     return result
   } catch (err) {
+    if (err?.message === "已取消 AI 参考资料确认") throw err
     toast(err.message || "操作失败", "error")
     throw err
   } finally {

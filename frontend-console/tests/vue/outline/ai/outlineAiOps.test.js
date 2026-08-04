@@ -165,6 +165,18 @@ describe("showOutlineLayerAiForm", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("generateOutlineLayer", () => {
+  it("取消 AI 参考资料时保持 reject 契约但不显示错误 toast", async () => {
+    confirmAiReference.mockRejectedValue(new Error("已取消 AI 参考资料确认"))
+    const generate = vi.fn()
+    const toast = vi.fn()
+    setupBridge({ api: { outline: { getStoryOutline: vi.fn(), generate } }, toast })
+    await expect(generateOutlineLayer({
+      target: "plot_thread", mode: "create", instruction: "取消", selectedIds: [], startChapter: 1, endChapter: 2,
+    })).rejects.toThrow("已取消 AI 参考资料确认")
+    expect(generate).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
   it("提交成功并 adopt 到 manager", async () => {
     confirmAiReference.mockResolvedValue({ id: "confirm-1" })
     const generate = vi.fn(async () => ({ task_id: "task-gen1", status: "running" }))
@@ -324,6 +336,17 @@ describe("showOutlineAnalysisForm", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("analyzeOutline", () => {
+  it("取消 AI 参考资料时保持 reject 契约但不显示错误 toast", async () => {
+    confirmAiReference.mockRejectedValue(new Error("已取消 AI 参考资料确认"))
+    const analyze = vi.fn()
+    const toast = vi.fn()
+    setupBridge({ api: { outline: { analyze } }, toast })
+    await expect(analyzeOutline({ instruction: "取消", startChapter: 1, endChapter: 2 }))
+      .rejects.toThrow("已取消 AI 参考资料确认")
+    expect(analyze).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
   it("成功提交并 adopt 到 manager", async () => {
     confirmAiReference.mockResolvedValue({
       id: "ca-1",

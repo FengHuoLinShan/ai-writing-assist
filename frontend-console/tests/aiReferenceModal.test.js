@@ -2,17 +2,31 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { clearDocument } from "./helpers.js"
 
+await import("../ui/modal.js")
+
 function mountModalDom() {
   document.body.innerHTML = `
-    <div id="modal-overlay" class="hidden">
-      <div id="modal-title"></div>
-      <div id="modal-body"></div>
-      <div id="modal-footer"></div>
+    <div class="vue-shell-root">
+      <button id="opener" type="button">打开</button>
+      <main id="writing-host"><button type="button">写作操作</button></main>
+      <div id="toast-container" data-imperative-service-host="toast"></div>
+      <div id="modal-overlay" class="hidden" data-imperative-service-host="modal">
+        <div id="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <div id="modal-header"><span id="modal-title"></span><button id="modal-close" type="button" aria-label="关闭对话框">×</button></div>
+          <div id="modal-body"></div><div id="modal-footer"></div>
+        </div>
+      </div>
     </div>
   `
+  const overlay = document.getElementById("modal-overlay")
+  document.getElementById("modal-close").addEventListener("click", (event) => closeModal(event))
+  overlay.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeModal(event)
+  })
 }
 
 beforeEach(() => {
+  globalThis.closeModal?.({ force: true })
   clearDocument()
   mountModalDom()
   vi.clearAllMocks()
@@ -20,6 +34,189 @@ beforeEach(() => {
 })
 
 describe("aiReferenceModal", () => {
+  it("keeps the existing footer classes and button types without duplicate btn tokens", () => {
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    const buttons = Array.from(document.querySelectorAll("#modal-footer button"))
+    expect(buttons.map((button) => button.type)).toEqual(["button", "button", "button"])
+    expect(buttons.map((button) => button.className)).toEqual(["btn", "btn btn-primary", "btn btn-ghost"])
+  })
+
+  it("releases each busy button after interleaved refresh and failed confirm", async () => {
+    let resolveRefresh
+    api.context.confirm
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
+      .mockRejectedValueOnce(new Error("确认失败"))
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    const refresh = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理")
+    const confirm = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "确认使用")
+    refresh.click()
+    confirm.click()
+    await vi.waitFor(() => expect(confirm.disabled).toBe(false))
+    expect(refresh.disabled).toBe(true)
+    resolveRefresh({ id: "refresh", selected_asset_ids: {}, warnings: [] })
+    await vi.waitFor(() => expect(refresh.disabled).toBe(false))
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+  })
+
+  it("does not enable the shared refresh button before all section exclusions settle", async () => {
+    let resolveFirst
+    let resolveSecond
+    api.context.confirm
+      .mockResolvedValueOnce({
+        id: "base",
+        selected_asset_ids: {},
+        warnings: [],
+        sections: [
+          { key: "one", title: "一", can_exclude: true, status: "canonical", sources: [] },
+          { key: "two", title: "二", can_exclude: true, status: "canonical", sources: [] },
+        ],
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
+    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理").click()
+    await vi.waitFor(() => expect(document.querySelectorAll("[data-ai-ref-exclude-section]")).toHaveLength(2))
+    const refresh = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理")
+    document.querySelectorAll("[data-ai-ref-exclude-section]")[0].click()
+    document.querySelectorAll("[data-ai-ref-exclude-section]")[1].click()
+    expect(refresh.disabled).toBe(true)
+    resolveFirst({ id: "one", selected_asset_ids: {}, warnings: [] })
+    await Promise.resolve()
+    expect(refresh.disabled).toBe(true)
+    resolveSecond({ id: "two", selected_asset_ids: {}, warnings: [] })
+    await vi.waitFor(() => expect(refresh.disabled).toBe(false))
+  })
+
+  it("rejects unavailable modal seams, missing sessions, and missing footer controls", async () => {
+    const originalShow = globalThis.showModalHtml
+    globalThis.showModalHtml = vi.fn(() => { throw new Error("不可用") })
+    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
+      .rejects.toThrow("AI 参考资料确认弹窗不可用")
+
+    globalThis.showModalHtml = vi.fn()
+    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
+      .rejects.toThrow("AI 参考资料确认弹窗不可用")
+
+    globalThis.showModalHtml = vi.fn((_title, html) => {
+      document.getElementById("modal-body").innerHTML = html
+      document.getElementById("modal-overlay").classList.remove("hidden")
+      document.getElementById("modal-footer").innerHTML = ""
+    })
+    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
+      .rejects.toThrow("AI 参考资料确认弹窗不可用")
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
+
+    globalThis.showModalHtml = vi.fn((_title, html) => {
+      document.getElementById("modal-body").innerHTML = html
+      document.getElementById("modal-overlay").classList.remove("hidden")
+      throw new Error("partial failure")
+    })
+    await expect(confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }))
+      .rejects.toThrow("AI 参考资料确认弹窗不可用")
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
+
+    globalThis.showModalHtml = originalShow
+  })
+
+  it.each([
+    ["custom cancel", () => Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "取消").click()],
+    ["header close", () => document.getElementById("modal-close").click()],
+    ["backdrop", () => document.getElementById("modal-overlay").click()],
+    ["Escape", () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))],
+  ])("%s rejects exactly once and restores the real modal lifecycle", async (_label, close) => {
+    const opener = document.getElementById("opener")
+    opener.focus()
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+    expect(document.getElementById("writing-host").hasAttribute("inert")).toBe(true)
+    expect(document.getElementById("modal-content").contains(document.activeElement)).toBe(true)
+    close()
+    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it("rejects a replaced session without affecting the replacement modal", async () => {
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
+    showModalHtml("后续操作", "新弹窗", [], { protectUnsaved: false })
+    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
+    expect(document.getElementById("modal-title").textContent).toBe("后续操作")
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+  })
+
+  it("drops a late refresh result after close without toast or modal mutation", async () => {
+    let resolveConfirmation
+    api.context.confirm.mockImplementation(() => new Promise((resolve) => { resolveConfirmation = resolve }))
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
+    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理").click()
+    document.getElementById("modal-close").click()
+    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
+    showModalHtml("新弹窗", "保持不变", [], { protectUnsaved: false })
+    resolveConfirmation({ id: "late", selected_asset_ids: {}, warnings: [] })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.getElementById("modal-title").textContent).toBe("新弹窗")
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("AI 参考资料"), "success")
+  })
+
+  it("rejects a pending confirm on close and does not let its late result affect a successor", async () => {
+    let resolveConfirmation
+    api.context.confirm.mockImplementation(() => new Promise((resolve) => { resolveConfirmation = resolve }))
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
+    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "确认使用").click()
+    document.getElementById("modal-close").click()
+    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
+    showModalHtml("后续", "不应污染", [], { protectUnsaved: false })
+    resolveConfirmation({ id: "late-confirm", selected_asset_ids: {}, warnings: [] })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.getElementById("modal-title").textContent).toBe("后续")
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+  })
+
+  it("drops a pending section exclusion after replacement and settles cancellation once", async () => {
+    let resolveExclude
+    api.context.confirm
+      .mockResolvedValueOnce({
+        id: "base", selected_asset_ids: {}, warnings: [],
+        sections: [{ key: "exclude", title: "排除", can_exclude: true, status: "canonical", sources: [] }],
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveExclude = resolve }))
+    let rejected = 0
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch((err) => {
+      rejected += 1
+      throw err
+    })
+    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "重新整理").click()
+    await vi.waitFor(() => expect(document.querySelector("[data-ai-ref-exclude-section]")).not.toBeNull())
+    document.querySelector("[data-ai-ref-exclude-section]").click()
+    const oldCancel = Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "取消")
+    showModalHtml("后续", "不应污染", [], { protectUnsaved: false })
+    oldCancel.click()
+    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
+    expect(rejected).toBe(1)
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+    expect(document.getElementById("modal-title").textContent).toBe("后续")
+    expect(document.getElementById("modal-body").textContent).toContain("不应污染")
+    resolveExclude({ id: "late-exclude", selected_asset_ids: {}, warnings: [] })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.getElementById("modal-title").textContent).toBe("后续")
+  })
+
+  it("drops a late activation-profile load after replacement", async () => {
+    let resolveProfiles
+    api.context.listActivationProfiles.mockImplementation(() => new Promise((resolve) => { resolveProfiles = resolve }))
+    const promise = confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" })
+    showModalHtml("新弹窗", "保持不变", [], { protectUnsaved: false })
+    await expect(promise).rejects.toThrow("已取消 AI 参考资料确认")
+    resolveProfiles({ items: [{ id: "profile-late", name: "晚到", version_number: 1, status: "published" }] })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.getElementById("modal-title").textContent).toBe("新弹窗")
+    expect(document.getElementById("modal-body").textContent).not.toContain("晚到")
+  })
+
   it("写作确认只在作者显式选择后提交已发布 Profile", async () => {
     api.context.listActivationProfiles.mockResolvedValue({
       items: [

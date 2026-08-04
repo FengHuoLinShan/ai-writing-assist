@@ -1,93 +1,186 @@
 import { renderContextSummary } from "./contextSummaryRenderer.js"
 import { contextContentModeLabel } from "./assetDisplayState.js"
 
+const CANCELLED = "已取消 AI 参考资料确认"
+let sessionNumber = 0
+
 export function confirmAiReference(options) {
   return new Promise((resolve, reject) => {
     const overlay = document.getElementById("modal-overlay")
-    const titleEl = document.getElementById("modal-title")
     const bodyEl = document.getElementById("modal-body")
     const footerEl = document.getElementById("modal-footer")
-    if (!overlay || !titleEl || !bodyEl || !footerEl) {
+    if (!overlay || !bodyEl || !footerEl || typeof globalThis.showModalHtml !== "function" || typeof globalThis.closeModal !== "function") {
       reject(new Error("AI 参考资料确认弹窗不可用"))
       return
     }
 
-    let currentConfirmation = null
+    const sessionId = `ai-reference-${++sessionNumber}`
     const excludedSectionKeys = new Set(options.excluded_asset_ids?.context_sections || [])
-    titleEl.textContent = "AI 参考资料"
-    bodyEl.innerHTML = renderBody(options)
-    loadActivationProfiles(options)
-    footerEl.innerHTML = ""
-    document.getElementById("ai-ref-scope")?.addEventListener("change", (event) => {
-      event.currentTarget.dataset.userChanged = "1"
-    })
+    let root = null
+    let settled = false
+    let requestGeneration = 0
+    let currentConfirmation = null
+    let observer = null
+    let refreshBtn = null
+    let confirmBtn = null
+    let cancelBtn = null
+    const busyLeases = new Map()
 
-    const close = () => overlay.classList.add("hidden")
-    const refreshBtn = createButton("重新整理", "btn")
-    const confirmBtn = createButton("确认使用", "btn btn-primary")
-    const cancelBtn = createButton("取消", "btn btn-ghost")
+    const active = () => Boolean(
+      !settled
+      && root?.isConnected
+      && bodyEl.contains(root)
+      && !overlay.classList.contains("hidden"),
+    )
+    const cleanup = () => {
+      requestGeneration += 1
+      observer?.disconnect()
+      observer = null
+    }
+    const settle = (value, error) => {
+      if (settled) return false
+      settled = true
+      cleanup()
+      if (error) reject(error)
+      else resolve(value)
+      return true
+    }
+    const cancel = () => settle(null, new Error(CANCELLED))
+    const owns = (token) => active() && token === requestGeneration
+    const acquireBusy = (button, label) => {
+      if (!button) return () => {}
+      const lease = busyLeases.get(button) || { count: 0, label: button.textContent }
+      lease.count += 1
+      busyLeases.set(button, lease)
+      if (button.isConnected) {
+        button.disabled = true
+        if (label) button.textContent = label
+      }
+      return () => {
+        const current = busyLeases.get(button)
+        if (!current) return
+        current.count -= 1
+        if (current.count > 0) return
+        busyLeases.delete(button)
+        if (active() && button.isConnected) {
+          button.disabled = false
+          button.textContent = current.label
+        }
+      }
+    }
 
-    const renderCurrentSummary = () => {
-      renderSummary(currentConfirmation, async (sectionKey) => {
+    const showCurrentSummary = (confirmation) => {
+      if (!active()) return
+      currentConfirmation = confirmation
+      renderSummary(root, confirmation, async (sectionKey) => {
+        if (!active()) return
         excludedSectionKeys.add(sectionKey)
+        const token = ++requestGeneration
+        const releaseBusy = acquireBusy(refreshBtn, "正在重新整理…")
         try {
-          setBusy(refreshBtn, true, "正在重新整理…")
-          currentConfirmation = await createConfirmation(options, excludedSectionKeys)
-          renderCurrentSummary()
+          const next = await createConfirmation(options, excludedSectionKeys, root)
+          if (!owns(token)) return
+          showCurrentSummary(next)
           toast("AI 参考资料已重新整理", "success")
         } catch (err) {
-          showError(err)
+          if (owns(token)) showError(root, err)
         } finally {
-          setBusy(refreshBtn, false)
+          releaseBusy()
         }
       })
     }
 
-    refreshBtn.addEventListener("click", async () => {
+    const refresh = async () => {
+      if (!active()) return false
+      const token = ++requestGeneration
+      const releaseBusy = acquireBusy(refreshBtn, "正在整理…")
       try {
-        setBusy(refreshBtn, true, "正在整理…")
-        currentConfirmation = await createConfirmation(options, excludedSectionKeys)
-        renderCurrentSummary()
+        const confirmation = await createConfirmation(options, excludedSectionKeys, root)
+        if (!owns(token)) return false
+        showCurrentSummary(confirmation)
         toast("AI 参考资料已整理", "success")
       } catch (err) {
-        showError(err)
+        if (owns(token)) showError(root, err)
       } finally {
-        setBusy(refreshBtn, false)
+        releaseBusy()
       }
-    })
+      return false
+    }
 
-    confirmBtn.addEventListener("click", async () => {
+    const confirm = async () => {
+      if (!active()) return false
+      const token = ++requestGeneration
+      const releaseBusy = acquireBusy(confirmBtn, "正在确认…")
       try {
-        setBusy(confirmBtn, true, "正在确认…")
-        if (!currentConfirmation) {
-          currentConfirmation = await createConfirmation(options, excludedSectionKeys)
-          renderCurrentSummary()
-        }
-        close()
-        resolve(currentConfirmation)
+        const confirmation = currentConfirmation || await createConfirmation(options, excludedSectionKeys, root)
+        if (!owns(token)) return false
+        showCurrentSummary(confirmation)
+        if (!globalThis.closeModal({ force: true })) return false
+        settle(confirmation)
       } catch (err) {
-        showError(err)
+        if (owns(token)) showError(root, err)
       } finally {
-        setBusy(confirmBtn, false)
+        releaseBusy()
       }
+      return false
+    }
+
+    try {
+      globalThis.showModalHtml("AI 参考资料", renderBody(options, sessionId), [
+        { text: "重新整理", class: "btn", handler: refresh },
+        { text: "确认使用", class: "btn btn-primary", handler: confirm },
+        {
+          text: "取消",
+          class: "btn btn-ghost",
+          handler: () => {
+            const ownsVisibleModal = active()
+            cancel()
+            if (ownsVisibleModal) globalThis.closeModal({ force: true })
+            return false
+          },
+        },
+      ], { protectUnsaved: false })
+    } catch {
+      root = bodyEl.querySelector(`[data-ai-reference-session="${sessionId}"]`)
+      const ownsPartialModal = Boolean(root && bodyEl.contains(root) && !overlay.classList.contains("hidden"))
+      settle(null, new Error("AI 参考资料确认弹窗不可用"))
+      if (ownsPartialModal) globalThis.closeModal({ force: true })
+      return
+    }
+
+    root = bodyEl.querySelector(`[data-ai-reference-session="${sessionId}"]`)
+    if (!root) {
+      settle(null, new Error("AI 参考资料确认弹窗不可用"))
+      return
+    }
+    const buttons = Array.from(footerEl.querySelectorAll("button"))
+    refreshBtn = buttons.find((button) => button.textContent === "重新整理") || null
+    confirmBtn = buttons.find((button) => button.textContent === "确认使用") || null
+    cancelBtn = buttons.find((button) => button.textContent === "取消") || null
+    if (!refreshBtn || !confirmBtn || !cancelBtn) {
+      settle(null, new Error("AI 参考资料确认弹窗不可用"))
+      if (bodyEl.contains(root) && !overlay.classList.contains("hidden")) globalThis.closeModal({ force: true })
+      return
+    }
+    root.querySelector("#ai-ref-scope")?.addEventListener("change", (event) => {
+      event.currentTarget.dataset.userChanged = "1"
     })
 
-    cancelBtn.addEventListener("click", () => {
-      close()
-      reject(new Error("已取消 AI 参考资料确认"))
+    observer = new MutationObserver(() => {
+      if (!active()) cancel()
     })
-
-    footerEl.append(refreshBtn, confirmBtn, cancelBtn)
-    overlay.classList.remove("hidden")
+    observer.observe(overlay, { attributes: true, attributeFilter: ["class"] })
+    observer.observe(bodyEl, { childList: true })
+    loadActivationProfiles(options, root, active)
   })
 }
 
-function renderBody(options) {
+function renderBody(options, sessionId) {
   const chapterValue = options.chapter_index || options.start_chapter || ""
   const scope = options.scope || (chapterValue ? "chapter" : "project")
   const contextMode = options.context_mode || "canonical"
   return `
-    <div class="ai-ref-modal">
+    <div class="ai-ref-modal" data-ai-reference-session="${esc(sessionId)}">
       <div class="ai-ref-section">
         <div class="ai-ref-section-title">选择规则</div>
         <div class="ai-ref-form-grid">
@@ -117,16 +210,12 @@ function renderBody(options) {
           </label>
         </div>
         <label>已发布 AI 参考规则（显式启用）
-          <select id="ai-ref-activation-profile" class="form-select">
-            <option value="">不启用</option>
-          </select>
+          <select id="ai-ref-activation-profile" class="form-select"><option value="">不启用</option></select>
         </label>
       </div>
-      <div class="ai-ref-section">
-        <label>本次 AI 额外注意事项
-          <textarea id="ai-ref-user-note" class="form-textarea" rows="3" placeholder="例如：避免剧透、只补抽长期资产">${esc(options.user_note || "")}</textarea>
-        </label>
-      </div>
+      <div class="ai-ref-section"><label>本次 AI 额外注意事项
+        <textarea id="ai-ref-user-note" class="form-textarea" rows="3" placeholder="例如：避免剧透、只补抽长期资产">${esc(options.user_note || "")}</textarea>
+      </label></div>
       <div id="ai-ref-error" class="ai-ref-error" style="display:none;"></div>
       <div id="ai-ref-summary">${renderContextSummary({})}</div>
     </div>
@@ -137,16 +226,15 @@ function option(value, label, selected) {
   return `<option value="${esc(value)}" ${selected === value ? "selected" : ""}>${esc(label)}</option>`
 }
 
-async function createConfirmation(options, excludedSectionKeys = new Set()) {
-  const payload = buildPayload(options, excludedSectionKeys)
-  return api.context.confirm(payload)
+async function createConfirmation(options, excludedSectionKeys, root) {
+  return api.context.confirm(buildPayload(options, excludedSectionKeys, root))
 }
 
-function buildPayload(options, excludedSectionKeys = new Set()) {
+function buildPayload(options, excludedSectionKeys, root) {
   const fallbackScope = options.scope || (options.chapter_index || options.start_chapter ? "chapter" : "project")
-  const scopeEl = document.getElementById("ai-ref-scope")
+  const scopeEl = root?.querySelector("#ai-ref-scope")
   const scope = scopeEl?.dataset.userChanged === "1" ? scopeEl.value : fallbackScope
-  const chapterRaw = document.getElementById("ai-ref-chapter")?.value
+  const chapterRaw = root?.querySelector("#ai-ref-chapter")?.value
   const chapter = chapterRaw ? parseInt(chapterRaw, 10) : options.chapter_index
   const payload = {
     novel_id: options.novel_id,
@@ -154,9 +242,9 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
     task: options.task,
     scope,
     reveal_mode: options.reveal_mode || "author_safe",
-    context_mode: document.getElementById("ai-ref-context-mode")?.value || options.context_mode || "canonical",
-    include_pending_objects: Boolean(document.getElementById("ai-ref-include-pending")?.checked),
-    user_note: document.getElementById("ai-ref-user-note")?.value || undefined,
+    context_mode: root?.querySelector("#ai-ref-context-mode")?.value || options.context_mode || "canonical",
+    include_pending_objects: Boolean(root?.querySelector("#ai-ref-include-pending")?.checked),
+    user_note: root?.querySelector("#ai-ref-user-note")?.value || undefined,
   }
   if (chapter) payload.chapter_index = chapter
   if (options.visible_until_chapter) payload.visible_until_chapter = options.visible_until_chapter
@@ -168,26 +256,24 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
   if (options.thread_ids) payload.thread_ids = options.thread_ids
   if (options.viewpoint_character_id) payload.viewpoint_character_id = options.viewpoint_character_id
   if (options.location_ids) payload.location_ids = options.location_ids
-  const activationProfileId = document.getElementById("ai-ref-activation-profile")?.value
-    || options.activation_profile_id
+  const activationProfileId = root?.querySelector("#ai-ref-activation-profile")?.value || options.activation_profile_id
   if (activationProfileId) payload.activation_profile_id = activationProfileId
-  const excludedContextSections = Array.from(excludedSectionKeys)
+  const sections = Array.from(excludedSectionKeys)
   const optionExcluded = options.excluded_asset_ids || {}
-  const hasOptionExcluded = Object.keys(optionExcluded).length > 0
-  if (hasOptionExcluded || excludedContextSections.length) {
+  if (Object.keys(optionExcluded).length || sections.length) {
     payload.excluded_asset_ids = { ...optionExcluded }
-    if (excludedContextSections.length) payload.excluded_asset_ids.context_sections = excludedContextSections
+    if (sections.length) payload.excluded_asset_ids.context_sections = sections
   }
   return payload
 }
 
-async function loadActivationProfiles(options) {
-  const select = document.getElementById("ai-ref-activation-profile")
+async function loadActivationProfiles(options, root, active) {
+  const select = root?.querySelector("#ai-ref-activation-profile")
   if (!select || !api.context.listActivationProfiles || !options.novel_id) return
   try {
     const result = await api.context.listActivationProfiles(options.novel_id)
-    const profiles = (result?.items || []).filter((item) => item.status === "published")
-    for (const profile of profiles) {
+    if (!active()) return
+    for (const profile of (result?.items || []).filter((item) => item.status === "published")) {
       const node = document.createElement("option")
       node.value = profile.id
       node.textContent = `${profile.name} · v${profile.version_number}`
@@ -195,47 +281,29 @@ async function loadActivationProfiles(options) {
       select.append(node)
     }
   } catch {
-    select.title = "AI 参考规则加载失败；本次仍可不启用规则继续。"
+    if (active()) select.title = "AI 参考规则加载失败；本次仍可不启用规则继续。"
   }
 }
 
-function renderSummary(confirmation, onExcludeSection) {
-  const el = document.getElementById("ai-ref-summary")
+function renderSummary(root, confirmation, onExcludeSection) {
+  const el = root?.querySelector("#ai-ref-summary")
   if (!el) return
   el.innerHTML = renderContextSummary(confirmation)
   if (!onExcludeSection) return
-  el.querySelectorAll("[data-ai-ref-exclude-section]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const sectionKey = btn.getAttribute("data-ai-ref-exclude-section")
+  el.querySelectorAll("[data-ai-ref-exclude-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const sectionKey = button.getAttribute("data-ai-ref-exclude-section")
       if (sectionKey) onExcludeSection(sectionKey)
     })
   })
 }
 
-function showError(err) {
-  const el = document.getElementById("ai-ref-error")
+function showError(root, err) {
+  const el = root?.querySelector("#ai-ref-error")
   if (!el) return
   const message = err?.message || "AI 参考资料整理失败"
   el.textContent = message.includes("请求超时")
     ? "AI 参考资料整理超时，请缩小范围或稍后重试。后端仍可继续处理其他操作。"
     : message
   el.style.display = ""
-}
-
-function createButton(text, className) {
-  const btn = document.createElement("button")
-  btn.className = className
-  btn.textContent = text
-  return btn
-}
-
-function setBusy(btn, busy, busyLabel) {
-  if (busy) {
-    btn.dataset.idleLabel = btn.textContent
-    if (busyLabel) btn.textContent = busyLabel
-  } else if (btn.dataset.idleLabel) {
-    btn.textContent = btn.dataset.idleLabel
-    delete btn.dataset.idleLabel
-  }
-  btn.disabled = busy
 }

@@ -102,7 +102,7 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
       }
       return updated
     } catch (err) {
-      if (err === ABORTED || disposed || token !== generation) return null
+      if (err === ABORTED || disposed || token !== generation || err?.message === "已取消 AI 参考资料确认") return null
       toast(err?.message || "AI 软冲突判断失败", "error")
       return null
     }
@@ -135,7 +135,7 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
       toast(updated?.suggestion_status === "failed" ? (updated.suggestion_error || "AI 建议生成失败") : "AI 修复建议已生成", updated?.suggestion_status === "failed" ? "error" : "success")
       return updated
     } catch (err) {
-      if (err === ABORTED || disposed || token !== generation) return null
+      if (err === ABORTED || disposed || token !== generation || err?.message === "已取消 AI 参考资料确认") return null
       toast(err?.message || "AI 建议生成失败", "error")
       return null
     }

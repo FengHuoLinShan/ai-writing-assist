@@ -708,6 +708,17 @@ test.describe("写作台模块", () => {
 
     await page.getByRole("button", { name: "补充 AI 软冲突判断" }).click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
+    const conflictOverlay = conflictDialog.locator("xpath=..")
+    await expect(conflictOverlay).toHaveAttribute("inert", "")
+    await page.keyboard.press("Escape")
+    await expect(page.locator("#modal-overlay")).toBeHidden()
+    await expect(conflictOverlay).not.toHaveAttribute("inert")
+    await expect(page.getByRole("button", { name: "补充 AI 软冲突判断" })).toBeEnabled()
+    await expect(conflictDialog.locator(":focus")).toHaveCount(1)
+    await expect(page.locator(SEL.toastContainer)).not.toContainText("已取消 AI 参考资料确认")
+
+    await page.getByRole("button", { name: "补充 AI 软冲突判断" }).click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
     await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
     await expect(conflictDialog).toContainText("AI 判断", { timeout: 10000 })
     await expect(conflictDialog).toContainText("主角突然接受守卫条件")
