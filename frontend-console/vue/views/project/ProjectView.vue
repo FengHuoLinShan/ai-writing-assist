@@ -228,7 +228,7 @@ async function retryProjects() {
           <span class="bulk-toolbar__hint">当前项目优先 · 其余按最近更新排序</span>
         </div>
         <div class="project-index-bar__bulk">
-          <button class="btn btn-sm" data-action="select-visible-projects" :disabled="visibleIds.length === 0" @click="selectAllVisible">全选当前项目</button>
+          <button class="btn btn-sm" data-action="select-visible-projects" :disabled="visibleIds.length === 0" :aria-label="`全选当前可见的 ${visibleIds.length} 个项目`" @click="selectAllVisible">全选当前可见项目</button>
           <div class="bulk-toolbar" data-scope="project-cards">
             <div class="bulk-toolbar__status">
               <strong>{{ selection.size }}</strong>
@@ -273,7 +273,17 @@ async function retryProjects() {
             @delete="deleteProject"
           />
         </template>
-        <div v-if="visibleProjects.length > 0" class="project-card project-card-placeholder" data-action="new" @click="showCreateForm">
+        <div
+          v-if="visibleProjects.length > 0"
+          class="project-card project-card-placeholder"
+          data-action="new"
+          role="button"
+          tabindex="0"
+          aria-label="创建新项目"
+          @click="showCreateForm"
+          @keydown.enter="showCreateForm"
+          @keydown.space.prevent="showCreateForm"
+        >
           <div class="project-card-placeholder__visual" aria-hidden="true">
             <span>+</span>
             <i></i>

@@ -4853,6 +4853,14 @@ kbd {
   border-color: var(--project-red);
 }
 
+.project-catalog .project-card-placeholder:focus-visible {
+  background: var(--project-paper-raised);
+  border-color: var(--project-red);
+  outline: 2px solid var(--project-red);
+  outline-offset: 3px;
+  box-shadow: 10px 12px 0 color-mix(in srgb, var(--project-ink) 9%, transparent);
+}
+
 .project-card-placeholder__visual {
   position: relative;
   display: flex;

@@ -30,6 +30,8 @@ export const SEL = {
   // 项目卡片
   projectGrid: ".project-grid",
   projectCard: (id) => `.project-card[data-id="${id}"]`,
+  projectCreatePlaceholder: '.project-card-placeholder[data-action="new"]',
+  projectSelectVisible: '[data-action="select-visible-projects"]',
   projectImportToggle: '[data-action="toggle-import"]',
   projectImportFile: "#pv-import-file",
   projectImportSubmit: '[data-action="upload-file"]',

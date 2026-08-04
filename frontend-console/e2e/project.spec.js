@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
-import { expectNoPageOverflow } from "./helpers/responsive.js"
+import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 
 async function enterAuthorProjects(page) {
   await page.getByRole("button", { name: /我是作家/ }).click()
@@ -99,6 +99,28 @@ test.describe("项目模块", () => {
     await expect(page.locator(SEL.projectGrid)).toBeVisible()
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("列表测试项目")
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("scifi")
+  })
+
+  test("创建占位卡可用键盘打开新建项目并保持窄屏可见", async ({ page }) => {
+    const project = await createProject({
+      title: "键盘创建入口测试",
+      genre: "scifi",
+      language: "zh",
+    })
+    trackProject(project)
+
+    await page.reload()
+    const placeholder = page.locator(SEL.projectCreatePlaceholder)
+    await expect(placeholder).toHaveAttribute("role", "button")
+    await expect(placeholder).toHaveAttribute("tabindex", "0")
+    await expect(page.locator(SEL.projectSelectVisible)).toHaveText("全选当前可见项目")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await placeholder.focus()
+    await expect(placeholder).toBeFocused()
+    await expectWithinViewport(placeholder)
+    await expectNoPageOverflow(page)
+    await placeholder.press("Enter")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
   })
 
   test("编辑项目信息并同步面包屑", async ({ page }) => {

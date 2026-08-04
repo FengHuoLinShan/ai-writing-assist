@@ -73,6 +73,8 @@ describe("渲染状态", () => {
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(2)
     expect(wrapper.find(".project-card-placeholder").exists()).toBe(true)
     expect(wrapper.find("#project-search-input").exists()).toBe(true)
+    expect(wrapper.find('[data-action="select-visible-projects"]').text()).toBe("全选当前可见项目")
+    expect(wrapper.find('[data-action="select-visible-projects"]').attributes("aria-label")).toBe("全选当前可见的 2 个项目")
   })
 
   it("无项目无错误显示首开空态", () => {
@@ -204,6 +206,19 @@ describe("选择与批量操作", () => {
     expect(getBulkSelection(projectSession, PROJECT_CARDS_SCOPE).size).toBe(1)
   })
 
+  it("搜索过滤后全选只选择当前可见项目", async () => {
+    const { wrapper } = mountView({
+      projects: [makeProject("p1", { title: "星际旅人" }), makeProject("p2", { title: "古城谜案" })],
+    })
+    await wrapper.find("#project-search-input").setValue("星际")
+    const selectVisible = wrapper.find('[data-action="select-visible-projects"]')
+    expect(selectVisible.text()).toBe("全选当前可见项目")
+    expect(selectVisible.attributes("aria-label")).toBe("全选当前可见的 1 个项目")
+
+    await selectVisible.trigger("click")
+    expect(getBulkSelection(projectSession, PROJECT_CARDS_SCOPE)).toEqual(new Set(["p1"]))
+  })
+
   it("批量移入回收站需确认并刷新列表", async () => {
     const { harness } = mountView({ projects: [makeProject("p1")] })
     getBulkSelection(projectSession, PROJECT_CARDS_SCOPE).add("p1")
@@ -225,6 +240,28 @@ describe("选择与批量操作", () => {
 })
 
 describe("卡片操作", () => {
+  it("创建占位卡保留鼠标入口并支持 Enter 与 Space", async () => {
+    const showModalHtml = vi.fn()
+    setBridgeOverrides({ showModalHtml })
+    const { wrapper } = mountView({ projects: [makeProject("p1")] })
+    const placeholder = wrapper.find(".project-card-placeholder")
+    expect(placeholder.attributes("role")).toBe("button")
+    expect(placeholder.attributes("tabindex")).toBe("0")
+    expect(placeholder.attributes("aria-label")).toBe("创建新项目")
+
+    await placeholder.trigger("click")
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+    expect(showModalHtml).toHaveBeenCalledWith("新建项目", expect.any(String), expect.any(Array))
+
+    showModalHtml.mockClear()
+    await placeholder.trigger("keydown", { key: "Enter" })
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+
+    showModalHtml.mockClear()
+    await placeholder.trigger("keydown", { key: " " })
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+  })
+
   it("打开项目写入 state 并导航写作台", async () => {
     const { wrapper, harness } = mountView({ projects: [makeProject("p1", { title: "星际旅人" })] })
     await wrapper.find('.project-card[data-id="p1"]').trigger("click")
