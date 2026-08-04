@@ -1,7 +1,7 @@
 <template>
   <div v-if="open" class="account-overlay" role="presentation" @click.self="$emit('close')">
-    <section class="account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title">
-      <button class="account-close" type="button" aria-label="关闭" @click="$emit('close')">×</button>
+    <section class="account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title" :aria-busy="busy">
+      <button class="account-close" type="button" aria-label="关闭账号设置" @click="$emit('close')">×</button>
       <h2 id="account-title">账号</h2>
       <p>支持码：{{ account?.support_code || "—" }}</p>
       <button type="button" class="secondary" @click="$emit('switch-mode')">切换使用方式</button>
@@ -12,7 +12,7 @@
         <template v-if="account?.identity_type === 'email'">
           <label>登录邮箱<input v-model.trim="email" type="email" autocomplete="email"></label>
           <div class="account-code-row">
-            <input v-model.trim="code" inputmode="numeric" maxlength="6" placeholder="6 位验证码">
+            <input v-model.trim="code" inputmode="numeric" maxlength="6" aria-label="账号删除验证码" autocomplete="one-time-code" placeholder="6 位验证码">
             <button type="button" class="secondary" :disabled="busy || !canResend" @click="requestCode">{{ resendLabel }}</button>
           </div>
           <button type="button" class="danger" :disabled="busy || !challengeId || code.length !== 6" @click="verifyAndDelete">验证并申请删除</button>
@@ -21,7 +21,7 @@
           <a class="button-link" :href="api.auth.wechatStartUrl(config, 'reauth')">微信重新认证</a>
           <button v-if="reauthenticated" type="button" class="danger" :disabled="busy" @click="requestDeletion">申请删除账号</button>
         </template>
-        <p v-if="message" class="account-message" :class="{ error }">{{ message }}</p>
+        <p v-if="message" class="account-message" :class="{ error }" :role="error ? 'alert' : 'status'">{{ message }}</p>
       </details>
     </section>
   </div>

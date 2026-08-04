@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import AuthGate from "../../../vue/auth/AuthGate.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
@@ -37,6 +37,20 @@ afterEach(() => {
 })
 
 describe("AuthGate", () => {
+  it("exposes named one-time-code inputs and the initial idle state", () => {
+    const login = mount(AuthGate, { props: { config: config() } })
+    const recovery = mount(AuthGate, {
+      props: {
+        config: config(),
+        initialAccount: { id: "account-1", status: "pending_deletion", identity_type: "email" },
+      },
+    })
+
+    expect(login.find(".auth-card").attributes("aria-busy")).toBe("false")
+    expect(login.find('input[aria-label="邮箱验证码"]').attributes("autocomplete")).toBe("one-time-code")
+    expect(recovery.find('input[aria-label="重新认证验证码"]').attributes("autocomplete")).toBe("one-time-code")
+  })
+
   it("requires policy consent and completes email verification", async () => {
     const wrapper = mount(AuthGate, { props: { config: config() } })
     const inputs = wrapper.findAll("input")
@@ -55,6 +69,46 @@ describe("AuthGate", () => {
       accept_privacy: true,
     })
     expect(wrapper.emitted("authenticated")?.[0]?.[0]?.id).toBe("account-1")
+  })
+
+  it("announces successful resend status and restores idle state after deferred requests", async () => {
+    let resolveRequest
+    let resolveVerify
+    authApi.requestEmailCode.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve }))
+    authApi.verifyEmail.mockImplementationOnce(() => new Promise((resolve) => { resolveVerify = resolve }))
+    const wrapper = mount(AuthGate, { props: { config: config() } })
+    await wrapper.find('input[type="email"]').setValue("writer@example.com")
+
+    const request = wrapper.findAll("button").find((button) => button.text() === "发送验证码")
+    await request.trigger("click")
+    expect(wrapper.find(".auth-card").attributes("aria-busy")).toBe("true")
+
+    resolveRequest({ challenge_id: "challenge-deferred", resend_after: 60 })
+    await flushPromises()
+    expect(wrapper.find(".auth-card").attributes("aria-busy")).toBe("false")
+    expect(wrapper.find(".message").attributes("role")).toBe("status")
+
+    await wrapper.find('input[aria-label="邮箱验证码"]').setValue("123456")
+    await wrapper.find('input[type="checkbox"]').setValue(true)
+    const verify = wrapper.findAll("button").find((button) => button.text() === "邮箱登录")
+    await verify.trigger("click")
+    expect(wrapper.find(".auth-card").attributes("aria-busy")).toBe("true")
+
+    resolveVerify({ id: "account-1", status: "active", identity_type: "email" })
+    await flushPromises()
+    expect(wrapper.find(".auth-card").attributes("aria-busy")).toBe("false")
+  })
+
+  it("announces rejected email code requests as alerts", async () => {
+    authApi.requestEmailCode.mockRejectedValueOnce(new Error("验证码发送失败"))
+    const wrapper = mount(AuthGate, { props: { config: config() } })
+    await wrapper.find('input[type="email"]').setValue("writer@example.com")
+    await wrapper.findAll("button").find((button) => button.text() === "发送验证码").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find(".auth-card").attributes("aria-busy")).toBe("false")
+    expect(wrapper.find(".message").attributes("role")).toBe("alert")
+    expect(wrapper.find(".message").text()).toBe("验证码发送失败")
   })
 
   it("prevents another code request during the server-provided resend interval", async () => {

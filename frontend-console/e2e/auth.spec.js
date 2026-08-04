@@ -49,6 +49,10 @@ async function mockPublicAuth(page, { initiallySignedIn = false } = {}) {
 }
 
 function seedPrivateBrowserState({ accountId = null } = {}) {
+  const testSeedSentinel = "__e2e_auth_private_state_seeded"
+  if (sessionStorage.getItem(testSeedSentinel)) return
+  sessionStorage.setItem(testSeedSentinel, "1")
+
   if (accountId) localStorage.setItem("novel_accountId", accountId)
   localStorage.setItem("novel_currentProjectId", "private-project-old")
   localStorage.setItem(
@@ -94,13 +98,13 @@ test("marker 缺失的公开邮箱登录会清除旧账号数据并写入账号 
 
   await page.goto("/")
   await expect(page.getByRole("heading", { name: "登录或注册" })).toBeVisible()
-  await page.getByLabel("邮箱").fill("writer@example.com")
-  await page.getByPlaceholder("6 位验证码").fill("123456")
+  await page.getByLabel("邮箱", { exact: true }).fill("writer@example.com")
+  await page.getByLabel("邮箱验证码", { exact: true }).fill("123456")
   await page.getByRole("button", { name: "发送验证码" }).click()
   await page.getByRole("checkbox").check()
   await page.getByRole("button", { name: "邮箱登录" }).click()
 
-  await expect(page.locator("#topbar")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" })).toBeVisible()
   expect(await storedPrivateState(page)).toEqual({
     accountId: "account-new",
     projectId: null,
@@ -120,7 +124,7 @@ test("公开模式启动时账号变化会清除旧账号数据", async ({ page 
 
   await page.goto("/")
 
-  await expect(page.locator("#topbar")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" })).toBeVisible()
   expect(await storedPrivateState(page)).toEqual({
     accountId: "account-new",
     projectId: null,
@@ -139,9 +143,16 @@ test("真实退出入口会清除账号数据并保留主题", async ({ page }) 
   await page.addInitScript(seedPrivateBrowserState, { accountId: "account-new" })
 
   await page.goto("/")
+  await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" })).toBeVisible()
+  await page.getByRole("button", { name: /我是作家/ }).click()
   await expect(page.locator("#topbar")).toBeVisible()
-  await page.getByRole("button", { name: "账号设置" }).click()
-  await page.getByRole("button", { name: "退出登录" }).click()
+  await page.getByRole("button", { name: "账户菜单", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "账号" })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "关闭账号设置", exact: true })).toBeVisible()
+  await dialog.getByText("删除账号", { exact: true }).click()
+  await expect(dialog.getByLabel("账号删除验证码", { exact: true })).toBeVisible()
+  await dialog.getByRole("button", { name: "退出登录" }).click()
 
   await expect(page.getByRole("heading", { name: "登录或注册" })).toBeVisible()
   expect(auth.logoutRequests()).toBe(1)

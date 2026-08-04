@@ -1,6 +1,6 @@
 <template>
   <main class="auth-page">
-    <section class="auth-card" aria-labelledby="auth-title">
+    <section class="auth-card" aria-labelledby="auth-title" :aria-busy="busy">
       <div class="auth-brand">◆ NovelCraft</div>
       <template v-if="account?.status === 'pending_deletion'">
         <h1 id="auth-title">账号正在等待删除</h1>
@@ -8,7 +8,7 @@
         <template v-if="account.identity_type === 'email'">
           <label>登录邮箱<input v-model.trim="email" type="email" autocomplete="email"></label>
           <div class="code-row">
-            <input v-model.trim="code" inputmode="numeric" maxlength="6" placeholder="6 位验证码">
+            <input v-model.trim="code" inputmode="numeric" maxlength="6" aria-label="重新认证验证码" autocomplete="one-time-code" placeholder="6 位验证码">
             <button type="button" class="secondary" :disabled="busy || !canResend" @click="requestCode('reauth')">{{ resendLabel }}</button>
           </div>
           <button type="button" :disabled="busy || !challengeId || code.length !== 6" @click="reauthAndRestore">验证并撤销删除</button>
@@ -23,7 +23,7 @@
         <p>使用邮箱验证码登录。首次验证会自动创建账号。</p>
         <label>邮箱<input v-model.trim="email" type="email" autocomplete="email" placeholder="name@example.com"></label>
         <div class="code-row">
-          <input v-model.trim="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码">
+          <input v-model.trim="code" inputmode="numeric" maxlength="6" aria-label="邮箱验证码" autocomplete="one-time-code" placeholder="6 位验证码">
           <button type="button" class="secondary" :disabled="busy || !email || !canResend" @click="requestCode('login')">{{ resendLabel }}</button>
         </div>
         <label class="consent"><input v-model="accepted" type="checkbox">我已阅读并同意
@@ -33,7 +33,7 @@
         <button type="button" :disabled="busy || !accepted || !challengeId || code.length !== 6" @click="verify">邮箱登录</button>
         <a v-if="config.wechat_enabled && accepted" class="button-link" :href="api.auth.wechatStartUrl(config)">微信扫码登录</a>
       </template>
-      <p v-if="message" class="message" :class="{ error }" role="status">{{ message }}</p>
+      <p v-if="message" class="message" :class="{ error }" :role="error ? 'alert' : 'status'">{{ message }}</p>
     </section>
   </main>
 </template>

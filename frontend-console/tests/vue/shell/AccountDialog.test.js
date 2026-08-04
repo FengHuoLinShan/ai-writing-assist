@@ -22,6 +22,20 @@ afterEach(() => {
 })
 
 describe("AccountDialog", () => {
+  it("exposes the dialog, close action, deletion code input, and initial idle state", () => {
+    const wrapper = mount(AccountDialog, {
+      props: {
+        open: true,
+        account: { id: "account-1", identity_type: "email" },
+        config: { auth_mode: "public", wechat_enabled: false },
+      },
+    })
+
+    expect(wrapper.find('[role="dialog"]').attributes("aria-busy")).toBe("false")
+    expect(wrapper.find('button[aria-label="关闭账号设置"]').exists()).toBe(true)
+    expect(wrapper.find('input[aria-label="账号删除验证码"]').attributes("autocomplete")).toBe("one-time-code")
+  })
+
   it("delegates successful deletion invalidation instead of reloading with private caches intact", async () => {
     const wrapper = mount(AccountDialog, {
       props: {
@@ -44,6 +58,45 @@ describe("AccountDialog", () => {
 
     expect(authApi.requestDeletion).toHaveBeenCalledTimes(1)
     expect(wrapper.emitted("account-invalidated")).toHaveLength(1)
+  })
+
+  it("announces successful reauth resend status and restores idle state after a deferred request", async () => {
+    let resolveRequest
+    authApi.requestReauthEmailCode.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve }))
+    const wrapper = mount(AccountDialog, {
+      props: {
+        open: true,
+        account: { id: "account-1", identity_type: "email" },
+        config: { auth_mode: "public", wechat_enabled: false },
+      },
+    })
+    await wrapper.find('input[type="email"]').setValue("writer@example.com")
+    await wrapper.findAll("button").find((button) => button.text() === "发送验证码").trigger("click")
+
+    expect(wrapper.find('[role="dialog"]').attributes("aria-busy")).toBe("true")
+    resolveRequest({ challenge_id: "challenge-deferred", resend_after: 60 })
+    await flushPromises()
+
+    expect(wrapper.find('[role="dialog"]').attributes("aria-busy")).toBe("false")
+    expect(wrapper.find(".account-message").attributes("role")).toBe("status")
+  })
+
+  it("announces failed reauth code requests as alerts after restoring idle state", async () => {
+    authApi.requestReauthEmailCode.mockRejectedValueOnce(new Error("验证码发送失败"))
+    const wrapper = mount(AccountDialog, {
+      props: {
+        open: true,
+        account: { id: "account-1", identity_type: "email" },
+        config: { auth_mode: "public", wechat_enabled: false },
+      },
+    })
+    await wrapper.find('input[type="email"]').setValue("writer@example.com")
+    await wrapper.findAll("button").find((button) => button.text() === "发送验证码").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find('[role="dialog"]').attributes("aria-busy")).toBe("false")
+    expect(wrapper.find(".account-message").attributes("role")).toBe("alert")
+    expect(wrapper.find(".account-message").text()).toBe("验证码发送失败")
   })
 
   it("disables reauth code resend for 60 seconds", async () => {
