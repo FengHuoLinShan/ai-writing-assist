@@ -1,9 +1,9 @@
 <template>
   <Teleport to="body">
-    <div v-if="editor.state.open" class="vue-map-dialog-backdrop" role="presentation">
-      <section class="vue-map-dialog" role="dialog" aria-modal="true" aria-labelledby="map-dynamic-edit-title">
-        <header><h2 id="map-dynamic-edit-title">修改地图对象</h2><button class="btn btn-sm" aria-label="关闭" @click="editor.close">×</button></header>
-        <div class="vue-map-dialog__body">
+    <div v-if="editor.state.open" ref="overlayRef" class="vue-map-dialog-backdrop" role="presentation" @keydown="onKeydown" @focusin="onFocusin">
+      <section ref="dialogRef" class="vue-map-dialog" role="dialog" aria-modal="true" aria-labelledby="map-dynamic-edit-title" :aria-busy="editor.state.saving" tabindex="-1">
+        <header><h2 id="map-dynamic-edit-title">修改地图对象</h2><button type="button" class="btn btn-sm" aria-label="关闭" :disabled="editor.state.saving" @click="requestClose">×</button></header>
+        <fieldset class="vue-map-dialog__body" :disabled="editor.state.saving" :inert="editor.state.saving || undefined">
           <div v-if="editor.state.error" class="alert alert-warning" role="alert">{{ editor.state.error }}</div>
           <div class="form-group"><label>对象</label><input class="form-input" :value="editor.state.item?.title || editor.state.targetName || '地图对象'" disabled /></div>
           <div class="form-group"><label>展示状态</label><select id="map-object-edit-status" v-model="editor.state.status" class="form-select"><template v-if="editor.state.isFact"><option value="confirmed">已采用</option><option value="rolled_back">历史（已回滚）</option><option value="deprecated">历史（已废弃）</option></template><template v-else><option value="candidate">待处理</option><option value="ignored">历史（已忽略）</option><option value="conflicted">待处理 · 存在冲突</option></template></select></div>
@@ -44,8 +44,8 @@
               <template v-else-if="editor.state.value.type === 'semantic'"><div class="form-group"><label>关联类型</label><input id="map-typed-semantic-relation" v-model="editor.state.value.relation_type" class="form-input" /></div><div class="form-group"><label>相关对象</label><select id="map-typed-semantic-entities" v-model="editor.state.value.related_entity_ids" class="form-select" multiple><option v-for="item in editor.state.entities" :key="item.id" :value="item.id">{{ item.name }}</option></select></div><div class="form-group"><label>关联说明（可选）</label><textarea id="map-typed-semantic-summary" v-model="editor.state.value.summary" class="form-textarea" rows="3" maxlength="2000" /></div></template>
             </section>
           </template>
-        </div>
-        <footer><button class="btn" @click="editor.close">取消</button><button class="btn btn-primary" :disabled="editor.state.saving || editor.state.legacy" @click="editor.save">{{ editor.state.saving ? '保存中…' : '保存' }}</button></footer>
+        </fieldset>
+        <footer><button type="button" class="btn" :disabled="editor.state.saving" @click="requestClose">取消</button><button type="button" class="btn btn-primary" :disabled="editor.state.saving || editor.state.legacy" @click="editor.save">{{ editor.state.saving ? '保存中…' : '保存' }}</button></footer>
       </section>
     </div>
   </Teleport>
@@ -53,9 +53,12 @@
 
 <script setup>
 import { computed, defineComponent, h } from "vue"
+import { useModalDialog } from "../../../composables/useModalDialog.js"
 import { MAP_DYNAMIC_TYPES } from "../useMapDynamicEditor.js"
 import { mapSourceText } from "../mapModel.js"
 const props = defineProps({ editor: { type: Object, required: true } })
+const requestClose = () => props.editor.close()
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.editor.state.open, requestClose, canClose: () => !props.editor.state.saving })
 const MOVEMENT_MODES = ["walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"]
 function movementLabel(value) { return ({ walk: "步行", ride: "骑乘", vehicle: "载具", rail: "轨道", water: "水路", flight: "飞行", teleport: "传送", unknown: "未知" })[value] }
 const locationOptions = computed(() => props.editor.state.entities.filter((item) => item.entityType === "location"))
@@ -72,11 +75,11 @@ const HexEditor = defineComponent({ props: { modelValue: String, label: String, 
 </script>
 
 <style scoped>
-.vue-map-dialog-backdrop { position: fixed; inset: 0; z-index: 11000; display: grid; place-items: center; padding: 24px; background: rgba(2, 6, 23, .68); }
+.vue-map-dialog-backdrop { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 24px; background: rgba(2, 6, 23, .68); }
 .vue-map-dialog { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(94vw, 760px); max-height: 92vh; overflow: hidden; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--surface-primary); box-shadow: var(--shadow-xl); }
 .vue-map-dialog > header, .vue-map-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--border-color); }
 .vue-map-dialog > footer { justify-content: flex-end; border-top: 1px solid var(--border-color); border-bottom: 0; }
-.vue-map-dialog__body { overflow: auto; padding: var(--space-4); }
+.vue-map-dialog__body { overflow: auto; padding: var(--space-4); min-inline-size: 0; border: 0; margin: 0; }
 @media (max-width: 390px) {
   .vue-map-dialog > header .btn { min-width: 40px; min-height: 40px; }
   .vue-map-dialog > footer .btn { min-height: 44px; }

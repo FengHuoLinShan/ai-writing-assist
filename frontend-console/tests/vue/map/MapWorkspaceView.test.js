@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 const viewportSpies = vi.hoisted(() => ({
+  canLeave: vi.fn(() => true),
   clearPathFocus: vi.fn(() => true),
   remount: vi.fn(async () => true),
 }))
@@ -13,7 +14,7 @@ vi.mock("../../../vue/views/map/MapViewportAdapter.vue", async () => {
     name: "MapViewportAdapter",
     props: { context: { type: Object, default: () => ({}) } },
     setup(_, { expose }) {
-      expose({ canLeave: () => true, clearPathFocus: viewportSpies.clearPathFocus, remount: viewportSpies.remount, timelineEntityOptions: () => [], timelinePathOptions: () => [{ id: "path1", name: "北境道" }] })
+      expose({ canLeave: viewportSpies.canLeave, clearPathFocus: viewportSpies.clearPathFocus, remount: viewportSpies.remount, timelineEntityOptions: () => [], timelinePathOptions: () => [{ id: "path1", name: "北境道" }] })
       return () => h("div", { class: "map-root", "data-test": "viewport" })
     },
   }) }
@@ -34,6 +35,7 @@ function worldApi() {
     getMapTimeline: vi.fn(async () => ({ scenes: [], deltas: [], candidates: [], conflicts: [] })),
     listMapObservations: vi.fn(async () => ({ items: [] })),
     confirmMapObservation: vi.fn(async () => ({})),
+    updateMapFactStatus: vi.fn(async () => ({})),
     listMaps: vi.fn(async () => ({ items: [] })),
     listEntities: vi.fn(async () => ({ items: [] })),
     getMapQuickCreateContext: vi.fn(async () => ({ locations: [{ id: "l1", name: "北港" }], candidate_locations: [], existing_maps: [] })),
@@ -49,6 +51,7 @@ describe("MapWorkspaceView", () => {
   let state
   let router
   let showModalHtml
+  let toast
   beforeEach(() => {
     document.body.replaceChildren()
     localStorage.clear()
@@ -57,11 +60,30 @@ describe("MapWorkspaceView", () => {
     api = { world: worldApi() }
     router = { navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: () => new URLSearchParams() }
     showModalHtml = vi.fn()
+    toast = vi.fn()
+    viewportSpies.canLeave.mockReturnValue(true)
     viewportSpies.clearPathFocus.mockClear()
     viewportSpies.remount.mockClear()
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(), set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {}, set textAlign(_) {} })
-    setBridgeOverrides({ api, state, confirmAction: (_message, onConfirm) => onConfirm(), toast: vi.fn(), showModalHtml, closeModal: vi.fn(), esc: (value) => String(value ?? "").replaceAll("<", "&lt;"), router })
+    setBridgeOverrides({ api, state, confirmAction: (_message, onConfirm) => onConfirm(), toast, showModalHtml, closeModal: vi.fn(), esc: (value) => String(value ?? "").replaceAll("<", "&lt;"), router })
   })
+
+  function installConfirmHost() {
+    const overlay = document.createElement("div")
+    overlay.id = "modal-overlay"
+    const close = document.createElement("button")
+    close.id = "modal-close"
+    const content = document.createElement("div")
+    content.id = "modal-content"
+    const footer = document.createElement("div")
+    footer.id = "modal-footer"
+    content.append(footer)
+    overlay.append(close, content)
+    document.body.append(overlay)
+    return { overlay, content, footer }
+  }
+
+  function factItem() { return { id: "fact-1", item_id: "fact-1", item_kind: "fact", title: "北境天气" } }
 
   it.each([
     { maps: [], recent: null, label: "查找可用地图" },
@@ -105,6 +127,182 @@ describe("MapWorkspaceView", () => {
     await wrapper.find('[data-action="map-quick-create"]').trigger("click")
     await vi.waitFor(() => expect(document.body.querySelector("#map-quick-canvas")).not.toBeNull())
     expect(api.world.previewQuickCreateMap).toHaveBeenCalledWith(expect.objectContaining({ include_markers: false }), "p1")
+    wrapper.unmount()
+  })
+
+  it("does not call the fact API after cancellation or global-confirm replacement", async () => {
+    const host = installConfirmHost()
+    let confirm
+    setBridgeOverrides({ confirmAction: (_message, onConfirm) => {
+      confirm = onConfirm
+      host.footer.replaceChildren(Object.assign(document.createElement("button"), { textContent: "取消" }))
+    } })
+    const wrapper = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} } })
+    const workspace = wrapper.vm.$.setupState.vm
+    const cancelled = workspace.updateFact(factItem(), "deprecated")
+    host.footer.querySelector("button").click()
+    await expect(cancelled).resolves.toBe(false)
+
+    const replaced = workspace.updateFact(factItem(), "deprecated")
+    host.content.replaceChildren(document.createElement("p"))
+    await expect(replaced).resolves.toBe(false)
+    confirm()
+    expect(api.world.updateMapFactStatus).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("uses the captured fact map and suppresses a late API completion after map change or unmount", async () => {
+    const host = installConfirmHost()
+    let confirm
+    setBridgeOverrides({ confirmAction: (_message, onConfirm) => { confirm = onConfirm } })
+    let resolveUpdate
+    api.world.updateMapFactStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveUpdate = resolve }))
+    const wrapper = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} } })
+    const workspace = wrapper.vm.$.setupState.vm
+    const pending = workspace.updateFact(factItem(), "deprecated")
+    confirm()
+    await vi.waitFor(() => expect(api.world.updateMapFactStatus).toHaveBeenCalledWith("m1", "fact-1", "p1", "deprecated"))
+    workspace.activeMapId.value = "m2"
+    resolveUpdate({})
+    await expect(pending).resolves.toBe(false)
+    expect(toast).not.toHaveBeenCalledWith("地图事实已更新", "success")
+
+    workspace.activeMapId.value = "m1"
+    let rejectUpdate
+    api.world.updateMapFactStatus.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectUpdate = reject }))
+    const lateError = workspace.updateFact(factItem(), "deprecated")
+    confirm()
+    await vi.waitFor(() => expect(api.world.updateMapFactStatus).toHaveBeenCalledTimes(2))
+    workspace.activeMapId.value = "m2"
+    rejectUpdate(new Error("late old-map failure"))
+    await expect(lateError).resolves.toBe(false)
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("late old-map failure"), "error")
+
+    let secondConfirm
+    setBridgeOverrides({ confirmAction: (_message, onConfirm) => { secondConfirm = onConfirm } })
+    // getConfirmAction is captured at workspace construction, so use a new
+    // island to exercise unmount ownership with its own confirmation session.
+    const second = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} } })
+    const secondWorkspace = second.vm.$.setupState.vm
+    const afterUnmount = secondWorkspace.updateFact(factItem(), "deprecated")
+    second.unmount()
+    secondConfirm()
+    await expect(afterUnmount).resolves.toBe(false)
+    expect(api.world.updateMapFactStatus).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it("does not write or notify facts across a project switch before confirmation or after API dispatch", async () => {
+    installConfirmHost()
+    let confirm
+    setBridgeOverrides({ confirmAction: (_message, onConfirm) => { confirm = onConfirm } })
+    const wrapper = mount(MapWorkspaceView, { attachTo: document.body, props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} } })
+    const workspace = wrapper.vm.$.setupState.vm
+
+    const beforeConfirm = workspace.updateFact(factItem(), "deprecated")
+    state.currentProjectId = "p2"
+    confirm()
+    await expect(beforeConfirm).resolves.toBe(false)
+    expect(api.world.updateMapFactStatus).not.toHaveBeenCalled()
+
+    state.currentProjectId = "p1"
+    let resolveUpdate
+    api.world.updateMapFactStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveUpdate = resolve }))
+    const lateSuccess = workspace.updateFact(factItem(), "deprecated")
+    confirm()
+    await vi.waitFor(() => expect(api.world.updateMapFactStatus).toHaveBeenCalledTimes(1))
+    state.currentProjectId = "p2"
+    resolveUpdate({})
+    await expect(lateSuccess).resolves.toBe(false)
+    expect(toast).not.toHaveBeenCalledWith("地图事实已更新", "success")
+
+    state.currentProjectId = "p1"
+    let rejectUpdate
+    api.world.updateMapFactStatus.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectUpdate = reject }))
+    const lateError = workspace.updateFact(factItem(), "deprecated")
+    confirm()
+    await vi.waitFor(() => expect(api.world.updateMapFactStatus).toHaveBeenCalledTimes(2))
+    state.currentProjectId = "p2"
+    rejectUpdate(new Error("late project failure"))
+    await expect(lateError).resolves.toBe(false)
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("late project failure"), "error")
+    wrapper.unmount()
+  })
+
+  it("treats an open-map refusal after quick-create commit as a post-commit warning", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    await vi.waitFor(() => expect(wrapper.findComponent({ name: "MapViewportAdapter" }).exists()).toBe(true))
+    viewportSpies.canLeave.mockReturnValue(false)
+    const workspace = wrapper.vm.$.setupState.vm
+    await workspace.quickCreate.open()
+
+    await expect(workspace.quickCreate.submit()).resolves.toBe(false)
+
+    expect(toast).toHaveBeenCalledWith("地图已创建，但工作区刷新或打开失败。请从地图列表继续。", "warning")
+    expect(toast).not.toHaveBeenCalledWith("地图已快速创建", "success")
+    wrapper.unmount()
+  })
+
+  it("keeps a committed quick-create success across its own same-project route-island remount", async () => {
+    let wrapper
+    router.navigate.mockImplementationOnce(async () => {
+      wrapper.unmount()
+      return true
+    })
+    wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mode: "overview" }, maps: [], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+    await workspace.quickCreate.open()
+
+    await expect(workspace.quickCreate.submit()).resolves.toBe(true)
+
+    expect(api.world.confirmQuickCreateMap).toHaveBeenCalledOnce()
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith("地图已快速创建", "success")
+  })
+
+  it("treats a false route navigation after quick-create commit as post-commit unavailable", async () => {
+    router.navigate.mockResolvedValueOnce(false)
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mode: "overview" }, maps: [], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+    await workspace.quickCreate.open()
+
+    await expect(workspace.quickCreate.submit()).resolves.toBe(false)
+
+    expect(toast).toHaveBeenCalledWith("地图已创建，但工作区刷新或打开失败。请从地图列表继续。", "warning")
+    expect(toast).not.toHaveBeenCalledWith("地图已快速创建", "success")
+    wrapper.unmount()
+  })
+
+  it("treats a stale catalog reload after quick-create commit as a post-commit warning", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "live" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    await vi.waitFor(() => expect(api.world.getMapDashboard).toHaveBeenCalled())
+    const catalogResolvers = []
+    api.world.listMaps.mockImplementation(() => new Promise((resolve) => catalogResolvers.push(resolve)))
+    api.world.listEntities.mockImplementation(() => new Promise((resolve) => catalogResolvers.push(resolve)))
+    const workspace = wrapper.vm.$.setupState.vm
+    await workspace.quickCreate.open()
+
+    const submit = workspace.quickCreate.submit()
+    await vi.waitFor(() => expect(catalogResolvers).toHaveLength(3))
+    const newerDynamicLoad = workspace.loadDynamic({ force: true })
+    for (const resolve of catalogResolvers) resolve({ items: [], has_more: false })
+    await newerDynamicLoad
+    await expect(submit).resolves.toBe(false)
+
+    expect(toast).toHaveBeenCalledWith("地图已创建，但工作区刷新或打开失败。请从地图列表继续。", "warning")
+    expect(toast).not.toHaveBeenCalledWith("地图已快速创建", "success")
     wrapper.unmount()
   })
 

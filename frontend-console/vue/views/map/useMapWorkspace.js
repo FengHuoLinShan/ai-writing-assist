@@ -3,6 +3,7 @@ import { getApi, getAppState, getCloseModal, getConfirmAction, getEsc, getRouter
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { buildMapQuery } from "../../../views/mapRouteContext.js"
 import { mapAssetDisplay } from "../../../shared/assetDisplayState.js"
+import { confirmAsync } from "../../../shared/confirmAsync.js"
 import {
   createMapTimelineState,
   normalizeMapStateAtResponse,
@@ -90,6 +91,7 @@ export function useMapWorkspace(props) {
   let playbackTimer = null
   let timelineTimer = null
   let editorEntitiesPromise = null
+  let factConfirmationGeneration = 0
 
   const activeMap = computed(() => maps.value.find((item) => item.id === activeMapId.value) || null)
   const recentMap = computed(() => { recentRevision.value; return readRecentMap(projectId) })
@@ -383,8 +385,11 @@ export function useMapWorkspace(props) {
     const map = maps.value.find((item) => item.id === mapId)
     if (map) { saveRecentMap(projectId, map); recentRevision.value += 1 }
     resetDynamic()
-    await navigateRoute({}, options.replace === true)
-    if (disposed) return true
+    const navigated = await navigateRoute({}, options.replace === true)
+    if (navigated === false) return false
+    if (disposed) return options.quickCreateHandoff
+      ? { kind: "map-quick-create-route-handoff", projectId }
+      : true
     await loadDynamic({ force: true })
     return true
   }
@@ -538,11 +543,26 @@ export function useMapWorkspace(props) {
     try { await api.world.updateMapObservationReview(activeMapId.value, itemId(item), projectId, { ...payload, expected_updated_at: payload.expected_updated_at || item.updated_at }); toast(successMessage, "success"); await loadDynamic({ force: true }); return true }
     catch (error) { if (!handleConflict(error, item, "该建议已被其他操作更新；当前表单未关闭，请核对后重试")) toast(`更新失败：${error.message || "未知错误"}`, "error"); return false }
   }
-  function updateFact(item, status) {
-    return confirmAction(`将地图事实「${item.title || item.target_name || "地图事实"}」更新状态？`, async () => {
-      try { await api.world.updateMapFactStatus(activeMapId.value, itemId(item), projectId, status); toast("地图事实已更新", "success"); await loadDynamic({ force: true }); return true }
-      catch (error) { toast(`更新失败：${error.message || "未知错误"}`, "error"); return false }
-    })
+  async function updateFact(item, status) {
+    const mapId = activeMapId.value
+    const factId = itemId(item)
+    const dynamicToken = dynamicGeneration.value
+    const confirmationToken = ++factConfirmationGeneration
+    const ownsFactUpdate = () => confirmationToken === factConfirmationGeneration
+      && activeMapId.value === mapId
+      && owned(dynamicToken)
+    const confirmed = await confirmAsync(`将地图事实「${item.title || item.target_name || "地图事实"}」更新状态？`, "确认", { confirmAction })
+    if (!confirmed || !ownsFactUpdate()) return false
+    try {
+      await api.world.updateMapFactStatus(mapId, factId, projectId, status)
+      if (!ownsFactUpdate()) return false
+      toast("地图事实已更新", "success")
+      await loadDynamic({ force: true })
+      return true
+    } catch (error) {
+      if (ownsFactUpdate()) toast(`更新失败：${error.message || "未知错误"}`, "error")
+      return false
+    }
   }
   function unassignObservation(item) {
     return confirmAction(`取消「${item.title || item.target_name || "地图待处理项"}」的地图分配？它将回到项目级地图待处理。`, async () => {
@@ -796,6 +816,16 @@ export function useMapWorkspace(props) {
     onFactStatus: updateFact,
   })
 
+  async function openQuickCreatedMap(map) {
+    if (disposed || appState?.currentProjectId !== projectId) return false
+    const catalogReloaded = await reloadCatalog()
+    // A project navigation can replace this island while the catalog request
+    // is in flight.  Never let its continuation select or navigate in the
+    // successor project.
+    if (!catalogReloaded || disposed || appState?.currentProjectId !== projectId) return false
+    return openMap(map.id, { viewMode: "live", quickCreateHandoff: true })
+  }
+
   async function consumePendingObservationEditor() {
     const pending = pendingObservationEditors.get(projectId)
     if (!pending || pending.mapId !== activeMapId.value || !dynamicSummary.loaded || !viewport.value) return false
@@ -825,7 +855,7 @@ export function useMapWorkspace(props) {
   })
   const quickCreate = useMapQuickCreate({
     projectId,
-    onCreated: async (map) => { await reloadCatalog(); return openMap(map.id, { viewMode: "live" }) },
+    onCreated: openQuickCreatedMap,
   })
   const enrichment = useMapEnrichment({
     projectId,

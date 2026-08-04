@@ -53,6 +53,7 @@ describe("MapQuickCreateDialog", () => {
     expect(wrapper.get("#map-quick-canvas").attributes("aria-label")).toBe("地点布局画布")
 
     const controls = wrapper.findAll(".map-quick-row-control")
+    expect(wrapper.findAll("button").every((button) => button.attributes("type") === "button")).toBe(true)
     expect(controls.map((control) => control.attributes("aria-label"))).toEqual([
       "缩小地点 洛阳 的半径", "扩大地点 洛阳 的半径", "向左移动地点 洛阳", "向右移动地点 洛阳",
       "向上移动地点 洛阳", "向下移动地点 洛阳", "锁定地点 洛阳",
@@ -94,6 +95,27 @@ describe("MapQuickCreateDialog", () => {
     expect(quick.moveLocationTo).toHaveBeenCalledWith("loc1", expect.any(Number), expect.any(Number))
     expect(quick.undo).toHaveBeenCalled()
     expect(quick.redo).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("locks every mutable quick-create control and blocks user dismissal while saving", async () => {
+    const quick = quickFixture()
+    quick.state.saving = true
+    const wrapper = mount(MapQuickCreateDialog, { props: { quick }, attachTo: document.body, global: { stubs: { Teleport: true } } })
+
+    expect(wrapper.get("fieldset.map-quick-create").attributes("disabled")).toBeDefined()
+    const mutable = wrapper.findAll("fieldset.map-quick-create input, fieldset.map-quick-create select, fieldset.map-quick-create button")
+    expect(mutable.length).toBeGreaterThan(0)
+    // A disabled fieldset disables all descendant form controls in the
+    // browser without needing a fragile copy of `:disabled` on every row.
+    expect(mutable.every((control) => control.element.closest("fieldset[disabled]"))).toBe(true)
+    expect(wrapper.get('button[aria-label="关闭"]').attributes("disabled")).toBeDefined()
+    expect(wrapper.get("footer .btn").attributes("disabled")).toBeDefined()
+
+    await wrapper.get(".vue-map-dialog-backdrop").trigger("keydown", { key: "Escape" })
+    await wrapper.get("#map-quick-canvas").trigger("pointerdown", { clientX: 248, clientY: 127, pointerId: 1 })
+    expect(quick.close).not.toHaveBeenCalled()
+    expect(quick.pushHistory).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

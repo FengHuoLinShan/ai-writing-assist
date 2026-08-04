@@ -218,6 +218,8 @@ describe("useModalDialog", () => {
     global.classList.add("hidden")
     await Promise.resolve()
     await nextTick()
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    await nextTick()
     expect(wrapper.get(".modal-overlay").attributes("inert")).toBeUndefined()
     expect(wrapper.get(".modal-content").element.contains(document.activeElement)).toBe(true)
   })
@@ -252,5 +254,18 @@ describe("useModalDialog", () => {
     await nextTick()
     expect(document.activeElement).toBe(global.querySelector("#modal-content"))
     expect(document.activeElement).not.toBe(topbar)
+  })
+
+  it("isolates Teleported map content without inerting service-host ancestry", async () => {
+    document.body.innerHTML = '<div id="app"><div class="vue-shell-root"><main id="app-content"><button>页面</button></main><div id="toast-container" data-imperative-service-host="toast"></div><div id="modal-overlay" class="hidden" data-imperative-service-host="modal"><div id="modal-content"></div></div></div></div>'
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const wrapper = mount(Harness, { attachTo: host, props: { open: true } })
+    await nextTick()
+    expect(document.getElementById("app-content").hasAttribute("inert")).toBe(true)
+    expect(document.getElementById("app").hasAttribute("inert")).toBe(false)
+    expect(document.getElementById("toast-container").hasAttribute("inert")).toBe(false)
+    wrapper.unmount()
+    expect(document.getElementById("app-content").hasAttribute("inert")).toBe(false)
   })
 })

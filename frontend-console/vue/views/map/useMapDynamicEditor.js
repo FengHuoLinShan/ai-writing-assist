@@ -31,9 +31,9 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
     open: false, saving: false, item: null, isFact: false, legacy: false,
     status: "candidate", targetName: "", targetEntityId: "", targetEntityType: "",
     entities: [], paths: [], value: {}, scalarType: "string", hexText: "", error: null,
-    spatialContext: null, originalSpatialAnchor: {}, anchorQ: "", anchorR: "",
+    spatialContext: null, originalSpatialAnchor: {}, anchorQ: "", anchorR: "", generation: 0,
   })
-  const owns = () => state.open && getAppState()?.currentProjectId === projectId
+  const owns = (token = state.generation, item = state.item) => state.open && token === state.generation && item === state.item && getAppState()?.currentProjectId === projectId
 
   function proposalToTyped(item, proposal, entities, paths) {
     const entityId = (name, types = null) => entities.find((entity) => entity.name === name && (!types || types.includes(entity.entityType)))?.id || null
@@ -44,6 +44,8 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
   }
 
   function open(item) {
+    state.generation += 1
+    state.saving = false
     const viewportEntities = [
       ...(getEntities?.() || []),
       ...(getViewport?.()?.timelineEntityOptions?.() || []),
@@ -72,7 +74,7 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
     state.error = null
     state.open = true
   }
-  function close() { state.open = false; state.item = null }
+  function close() { state.generation += 1; state.saving = false; state.open = false; state.item = null }
 
   function typedValue() {
     const value = JSON.parse(JSON.stringify(state.value || {}))
@@ -165,6 +167,9 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
 
   async function save() {
     if (!owns()) { toast("当前项目已切换，请重新打开编辑", "warning"); return false }
+    if (state.saving) return false
+    const token = state.generation
+    const item = state.item
     state.saving = true
     state.error = null
     try {
@@ -183,10 +188,13 @@ export function useMapDynamicEditor({ projectId, getViewport, getEntities, getLo
           spatial_anchor: spatialAnchor(),
         })
       }
+      if (!owns(token, item)) return false
       if (success) close()
       return Boolean(success)
-    } catch (error) { state.error = error.message || "地图待处理项字段格式不正确"; toast(state.error, "error"); return false }
-    finally { state.saving = false }
+    } catch (error) {
+      if (owns(token, item)) { state.error = error.message || "地图待处理项字段格式不正确"; toast(state.error, "error") }
+      return false
+    } finally { if (owns(token, item)) state.saving = false }
   }
 
   return { state, open, close, save, typedValue, spatialAnchor, useLocationCenter, clearSpatialHex }

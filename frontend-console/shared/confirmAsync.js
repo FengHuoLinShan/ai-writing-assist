@@ -11,6 +11,7 @@ export function confirmAsync(
   return new Promise((resolve) => {
     let settled = false
     let observer = null
+    let sessionObserver = null
     let cancelButton = null
 
     const settle = (value) => {
@@ -38,6 +39,7 @@ export function confirmAsync(
       document.removeEventListener("keydown", onKeyDown, true)
       cancelButton?.removeEventListener("click", onCancel)
       observer?.disconnect()
+      sessionObserver?.disconnect()
       cancelButton = null
     }
 
@@ -60,6 +62,27 @@ export function confirmAsync(
         if (modalOverlay.classList.contains("hidden")) onCancel()
       })
       observer.observe(modalOverlay, { attributes: true, attributeFilter: ["class"] })
+
+      // The imperative global modal is a singleton.  If another caller
+      // replaces its content while the overlay remains visible, this promise
+      // no longer owns the visible confirmation and must not confirm it.
+      const modalContent = document.getElementById("modal-content")
+      const modalFooter = document.getElementById("modal-footer")
+      sessionObserver = new MutationObserver((records) => {
+        if (
+          document.getElementById("modal-overlay") !== modalOverlay
+          || document.getElementById("modal-content") !== modalContent
+          || document.getElementById("modal-footer") !== modalFooter
+        ) onCancel()
+        else if (records.some((record) => modalContent?.contains(record.target) || modalFooter?.contains(record.target))) onCancel()
+      })
+      if (modalContent) sessionObserver.observe(modalContent, { childList: true, subtree: true, characterData: true })
+      if (modalFooter && modalFooter !== modalContent) sessionObserver.observe(modalFooter, { childList: true, subtree: true, characterData: true })
+      // The service host normally lives below #app > .vue-shell-root, so a
+      // route replacement can detach the whole nested host without changing
+      // document.body's direct children.  Identity checks keep unrelated
+      // subtree mutations outside this modal from cancelling the request.
+      sessionObserver.observe(document.body, { childList: true, subtree: true })
     }
   })
 }

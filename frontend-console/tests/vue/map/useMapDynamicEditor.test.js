@@ -5,12 +5,16 @@ import { parseDynamicHexes, useMapDynamicEditor } from "../../../vue/views/map/u
 describe("useMapDynamicEditor", () => {
   let state
   let onSave
+  let onFactStatus
+  let toast
   let editor
   beforeEach(() => {
     resetBridgeOverrides()
     state = { currentProjectId: "p1", currentView: "map" }
     onSave = vi.fn(async () => true)
-    setBridgeOverrides({ state, toast: vi.fn() })
+    onFactStatus = vi.fn(async () => true)
+    toast = vi.fn()
+    setBridgeOverrides({ state, toast })
     editor = useMapDynamicEditor({
       projectId: "p1",
       getViewport: () => ({
@@ -23,7 +27,7 @@ describe("useMapDynamicEditor", () => {
       }),
       getLocations: () => [{ id: "l1", name: "北港" }],
       onSaveObservation: onSave,
-      onFactStatus: vi.fn(async () => true),
+      onFactStatus,
     })
   })
 
@@ -96,5 +100,71 @@ describe("useMapDynamicEditor", () => {
     state.currentProjectId = "p2"
     await expect(editor.save()).resolves.toBe(false)
     expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it("drops stale save completion after close and reopening another item", async () => {
+    let resolveSave
+    onSave.mockImplementationOnce(() => new Promise((resolve) => { resolveSave = resolve }))
+    editor.open({ id: "old", item_kind: "observation", updated_at: "r1", normalized_value: { schema_version: 1, type: "location", state: "present" } })
+    const pending = editor.save()
+    expect(editor.state.saving).toBe(true)
+    editor.close()
+    editor.open({ id: "new", item_kind: "observation", updated_at: "r2", normalized_value: { schema_version: 1, type: "location", state: "present" } })
+    resolveSave(true)
+    await expect(pending).resolves.toBe(false)
+    expect(editor.state.item.id).toBe("new")
+    expect(editor.state.open).toBe(true)
+    expect(editor.state.saving).toBe(false)
+  })
+
+  it("rejects duplicate saves while the owning request is pending", async () => {
+    let resolveSave
+    onSave.mockImplementationOnce(() => new Promise((resolve) => { resolveSave = resolve }))
+    editor.open({ id: "one", item_kind: "observation", updated_at: "r1", normalized_value: { schema_version: 1, type: "location", state: "present" } })
+    const first = editor.save()
+    await expect(editor.save()).resolves.toBe(false)
+    expect(onSave).toHaveBeenCalledOnce()
+    resolveSave(true)
+    await first
+  })
+
+  it("drops stale save errors and finalizers after close/reopen without a toast", async () => {
+    let rejectSave
+    onSave.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSave = reject }))
+    editor.open({ id: "old", item_kind: "observation", updated_at: "r1", normalized_value: { schema_version: 1, type: "location", state: "present" } })
+    const pending = editor.save()
+    editor.close()
+    editor.open({ id: "new", item_kind: "observation", updated_at: "r2", normalized_value: { schema_version: 1, type: "location", state: "present" } })
+    rejectSave(new Error("old request failed"))
+
+    await expect(pending).resolves.toBe(false)
+    expect(editor.state.item.id).toBe("new")
+    expect(editor.state.saving).toBe(false)
+    expect(editor.state.error).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it("drops a pending save after project switch or unmount-equivalent close", async () => {
+    let resolveSave
+    onSave.mockImplementationOnce(() => new Promise((resolve) => { resolveSave = resolve }))
+    editor.open({ id: "old", item_kind: "observation", updated_at: "r1", normalized_value: { schema_version: 1, type: "location", state: "present" } })
+    const pending = editor.save()
+    state.currentProjectId = "p2"
+    editor.close()
+    resolveSave(true)
+
+    await expect(pending).resolves.toBe(false)
+    expect(editor.state.open).toBe(false)
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it("keeps the fact editor open when a fact status update is cancelled", async () => {
+    onFactStatus.mockResolvedValueOnce(false)
+    editor.open({ id: "f1", item_kind: "fact", fact_status: "confirmed", updated_at: "r1", normalized_value: { schema_version: 1, type: "status", field_key: "weather", value: "rain" } })
+
+    await expect(editor.save()).resolves.toBe(false)
+
+    expect(onFactStatus).toHaveBeenCalledWith(expect.objectContaining({ id: "f1" }), "confirmed")
+    expect(editor.state.open).toBe(true)
   })
 })

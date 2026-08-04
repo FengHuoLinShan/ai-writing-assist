@@ -264,6 +264,69 @@ test.describe("地图一级工作台", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("地图事实已采用", { timeout: 10000 })
 
     await expect.poll(async () => (await listMapFacts(testProjectId, map.id)).total).toBe(1)
+
+    await page.getByRole("button", { name: "活地图", exact: true }).click()
+    const factTitle = page.locator(".map-live-current-facts")
+      .filter({ hasText: character.name })
+      .getByRole("button", { name: character.name, exact: true })
+    await expect(factTitle).toBeVisible({ timeout: 10000 })
+    await factTitle.click()
+    const modifyFact = page.locator(SEL.modalFooter).getByRole("button", { name: "修改", exact: true })
+    await expect(modifyFact).toBeVisible()
+    await modifyFact.click()
+
+    const factEditor = page.getByRole("dialog", { name: "修改地图对象" })
+    const factSave = factEditor.getByRole("button", { name: "保存", exact: true })
+    await expect(factEditor).toBeVisible()
+    await factEditor.locator("#map-object-edit-status").selectOption("deprecated")
+    await factSave.focus()
+    await expect(factSave).toBeFocused()
+
+    let factStatusPatches = 0
+    const onRequest = (request) => {
+      if (request.method() === "PATCH" && /\/world\/maps\/[^/]+\/facts\/[^/?]+/.test(new URL(request.url()).pathname)) factStatusPatches += 1
+    }
+    page.on("request", onRequest)
+    try {
+      await factSave.click()
+      await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
+      const mapOverlay = page.locator(".vue-map-dialog-backdrop")
+      await expect(mapOverlay).toHaveAttribute("inert", "")
+      await expect(page.locator(SEL.modalOverlay)).not.toHaveAttribute("inert", "")
+      await expect.poll(() => page.evaluate(() => {
+        const map = document.querySelector(".vue-map-dialog-backdrop")
+        const global = document.getElementById("modal-overlay")
+        const toast = document.getElementById("toast-container")
+        return {
+          map: Number(getComputedStyle(map).zIndex),
+          global: Number(getComputedStyle(global).zIndex),
+          toast: Number(getComputedStyle(toast).zIndex),
+          globalOwnsFocus: document.getElementById("modal-content")?.contains(document.activeElement),
+        }
+      })).toEqual({ map: 1100, global: 1300, toast: 2000, globalOwnsFocus: true })
+
+      await page.keyboard.press("Escape")
+      await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+      await expect(factEditor).toBeVisible()
+      await expect(mapOverlay).not.toHaveAttribute("inert", "")
+      await expect(factSave).toBeEnabled()
+      await expect(factSave).toBeFocused()
+      expect(factStatusPatches).toBe(0)
+
+      await factEditor.locator("#map-object-edit-status").selectOption("confirmed")
+      await factSave.click()
+      await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
+      await page.locator(SEL.modalFooter).getByRole("button", { name: "确认", exact: true }).click()
+      await expect.poll(() => factStatusPatches).toBe(1)
+      await expect(page.locator(SEL.toastContainer)).toContainText("地图事实已更新", { timeout: 10000 })
+      await expect(factEditor).toBeHidden()
+    } finally {
+      page.off("request", onRequest)
+    }
+    await expect.poll(async () => {
+      const facts = await listMapFacts(testProjectId, map.id)
+      return facts.items?.find((item) => item.id === observation.id || item.item_id === observation.id)?.fact_status || facts.items?.[0]?.fact_status
+    }).toBe("confirmed")
   })
 
   test("should archive a complete subtree and rename its root on conflicting restore", async ({ page }) => {
@@ -344,9 +407,31 @@ test.describe("地图一级工作台", () => {
     })
 
     await openWorkbench(page, project, "map")
-    await page.getByRole("button", { name: "快速创建" }).first().click()
+    const quickTrigger = page.getByRole("button", { name: "快速创建" }).first()
+    await quickTrigger.focus()
+    await expect(quickTrigger).toBeFocused()
+    await quickTrigger.click()
     const quickDialog = page.getByRole("dialog", { name: "快速创建地图" })
     await expect(quickDialog.getByLabel("地点布局画布")).toBeVisible()
+    await expect.poll(() => quickDialog.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true)
+    await expect.poll(() => quickTrigger.evaluate((trigger) => {
+      let branch = trigger.parentElement
+      while (branch && !branch.hasAttribute("inert")) branch = branch.parentElement
+      return Boolean(branch)
+    })).toBe(true)
+    await expect(page.locator("#app")).not.toHaveAttribute("inert", "")
+    await expect(page.locator(SEL.modalOverlay)).not.toHaveAttribute("inert", "")
+    await expect(page.locator(SEL.toastContainer)).not.toHaveAttribute("inert", "")
+
+    await page.keyboard.press("Escape")
+    await expect(quickDialog).toBeHidden()
+    await expect.poll(() => quickTrigger.evaluate((trigger) => !trigger.closest("[inert]"))).toBe(true)
+    await expect(quickTrigger).toBeFocused()
+    expect((await listMaps(testProjectId)).total).toBe(0)
+
+    await quickTrigger.click()
+    await expect(quickDialog.getByLabel("地点布局画布")).toBeVisible()
+    await expect.poll(() => quickDialog.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true)
     await quickDialog.locator("#map-quick-name").fill("云中世界图")
     const locationRow = quickDialog.getByRole("row").filter({ hasText: location.name })
     await locationRow.getByRole("button", { name: "向右移动地点 云中城", exact: true }).click()

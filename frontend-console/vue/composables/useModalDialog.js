@@ -40,11 +40,17 @@ function backgroundSiblings(overlay) {
     const parent = branch.parentElement
     if (!parent) break
     for (const sibling of parent.children) {
-      if (sibling !== branch && !sibling.contains(overlay) && !isServiceHost(sibling)) targets.push(sibling)
+      if (sibling !== branch && !sibling.contains(overlay)) targets.push(...nonServiceBranches(sibling))
     }
   }
   if (boundary === document.body && overlay === document.body) return targets
   return targets
+}
+
+function nonServiceBranches(element) {
+  if (!element || isServiceHost(element)) return []
+  if (!element.querySelector?.("[data-imperative-service-host]")) return [element]
+  return Array.from(element.children).flatMap(nonServiceBranches)
 }
 
 function hiddenByClosedDetails(element) {
@@ -52,8 +58,15 @@ function hiddenByClosedDetails(element) {
   return Boolean(details && element !== details.querySelector(":scope > summary"))
 }
 
+function disabledByFieldset(element) {
+  const fieldset = element.closest("fieldset[disabled]")
+  if (!fieldset) return false
+  const firstLegend = fieldset.querySelector(":scope > legend")
+  return !firstLegend?.contains(element)
+}
+
 function isFocusable(element, boundary) {
-  if (!(element instanceof HTMLElement) || element.hidden || element.matches(":disabled")) return false
+  if (!(element instanceof HTMLElement) || element.hidden || element.disabled === true || element.matches(":disabled") || disabledByFieldset(element)) return false
   if (element.getAttribute("aria-hidden") === "true" || element.closest("[aria-hidden='true'], [inert]")) return false
   if (element.getAttribute("contenteditable") === "false" || hiddenByClosedDetails(element)) return false
   for (let current = element; current && current !== boundary.parentElement; current = current.parentElement) {
@@ -89,6 +102,7 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
   let generation = 0
   let observer = null
   let originObserver = null
+  let restoreFrame = null
   let expectedOriginInertMutations = 0
   let originBecameInert = false
 
@@ -115,8 +129,8 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
     const dialog = dialogRef.value
     if (!dialog) return
     const candidates = focusables(dialog)
-    const body = dialog.querySelector(".modal-body")
-    const footer = dialog.querySelector(".modal-footer")
+    const body = dialog.querySelector(".modal-body, .vue-map-dialog__body")
+    const footer = dialog.querySelector(".modal-footer, footer")
     const target = candidates.find((element) => element.hasAttribute("autofocus"))
       || candidates.find((element) => body?.contains(element))
       || candidates.find((element) => footer?.contains(element))
@@ -139,11 +153,28 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
     })
   }
 
+  function cancelDeferredRestore() {
+    if (restoreFrame != null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(restoreFrame)
+    restoreFrame = null
+  }
+
+  function restoreAfterRender(currentGeneration, restore) {
+    const run = () => {
+      restoreFrame = null
+      if (currentGeneration !== generation || !isOpen() || globalVisible()) return
+      if (restore && validOrigin(restore) && dialogRef.value?.contains(restore)) restore.focus()
+      else focusInitial()
+    }
+    if (typeof requestAnimationFrame === "function") restoreFrame = requestAnimationFrame(run)
+    else run()
+  }
+
   function syncNestedModal() {
     const currentGeneration = generation
     if (!isOpen()) return
     const globalOverlay = document.getElementById("modal-overlay")
     if (globalVisible()) {
+      cancelDeferredRestore()
       if (!nestedLease.size && overlayRef.value) {
         if (dialogRef.value?.contains(document.activeElement)) lastDialogFocus.value = document.activeElement
         for (const element of lease([overlayRef.value])) nestedLease.add(element)
@@ -153,12 +184,15 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
     }
     if (!nestedLease.size) return
     release(nestedLease)
-    const restore = validOrigin(lastDialogFocus.value) && dialogRef.value?.contains(lastDialogFocus.value)
+    // The control that opened a global confirmation can still be disabled
+    // until its async continuation clears `saving`.  Preserve the connected
+    // in-dialog candidate now, then validate after Vue has flushed that
+    // continuation rather than discarding it while it is temporarily inert.
+    const restore = lastDialogFocus.value?.isConnected && dialogRef.value?.contains(lastDialogFocus.value)
       ? lastDialogFocus.value : null
     void nextTick(() => {
       if (currentGeneration !== generation || !isOpen() || globalVisible()) return
-      if (restore) restore.focus()
-      else focusInitial()
+      restoreAfterRender(currentGeneration, restore)
     })
   }
 
@@ -172,6 +206,7 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
   }
 
   function releaseAll() {
+    cancelDeferredRestore()
     release(backgroundLease)
     release(nestedLease)
     observer?.disconnect()
