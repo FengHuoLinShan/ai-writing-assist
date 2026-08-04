@@ -52,6 +52,7 @@ Three layers:
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"` | Map observation confirm/ignore row-lock race | Dedicated PostgreSQL at Alembic head |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated on pull requests and `main` pushes |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Complete map browser regression, including touch/390px | Explicit dedicated PostgreSQL and fresh backend/frontend |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
@@ -103,8 +104,8 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 ### Continuous integration
 
 GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
-`PostgreSQL critical`、`Frontend unit quality`、`Frontend browser smoke`、`Frontend map browser` 和
-`Production image contract`，全部使用 `ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
+`PostgreSQL critical`、`Frontend unit quality`、`Frontend browser smoke`、`Frontend map browser`、
+`Frontend functional browser` 和 `Production image contract`，全部使用 `ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
 secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
@@ -126,13 +127,12 @@ text collection metrics with an isolated local Codex evaluator. Frontend job fir
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.0`) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
-build. `Frontend browser smoke` is an automated four-domain author smoke (home, project,
-imports, writing): it starts fresh dedicated PostgreSQL and Chromium for every run,
-uses workers=1 and retries=0, and retains `frontend-console/test-results` failure
-diagnostics for 14 days. `Frontend map browser` is a separate automated job: it runs the
-repository 25-test map entry on its own fresh database with workers=1 and retries=0, and
-retains the same failure diagnostics for 14 days. Complete functional, visual,
-map-performance and real-LLM Playwright suites remain explicit/manual acceptance runs.
+build. `Frontend browser smoke` remains an automated four-domain author smoke (home, project,
+imports, writing), and `Frontend map browser` remains a separate map-specific job; both start
+fresh dedicated PostgreSQL and Chromium, use workers=1 and retries=0, and retain
+`frontend-console/test-results` failure diagnostics for 14 days. `Frontend functional browser`
+runs the complete functional suite with the same isolation and fixed worker/retry settings.
+Visual, map-performance, real-LLM and worker Playwright suites remain explicit/manual acceptance runs.
 The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
 data; both complement rather than replace builds and tests, and a passing audit is
@@ -155,10 +155,11 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 `loadscope` 只把独立 module/class 分配到隔离 worker。coverage 只统计
 `app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
-LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
-后，应把 `Backend quality`、`Frontend unit quality`、`Production image contract`、
-`Frontend map browser`、`CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前
-必需状态检查。
+LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。仓库文件不会自动启用
+远端 ruleset/分支保护，需单独配置；启用后，应把 `Backend quality`、`PostgreSQL critical`、
+`Frontend unit quality`、
+`Frontend functional browser`、`Production image contract`、`Frontend map browser`、
+`CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前必需状态检查。
 `Production image contract` 独立执行 `make test-production-images`：它从固定 tag+digest
 构建 backend/frontend 镜像，并在容器内确认 backend 非 root、没有 uv、可导入 app，以及
 frontend 的 nginx 配置和入口资产都可用。它不归入本地 `make test-ci`，因为实际镜像拉取和构建

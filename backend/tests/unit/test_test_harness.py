@@ -560,17 +560,17 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert (repo_root / "frontend-console/.node-version").read_text(
         encoding="utf-8"
     ) == "24.18.0\n"
-    assert workflow.count("runs-on: ubuntu-24.04") == 6
+    assert workflow.count("runs-on: ubuntu-24.04") == 7
     assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
-    assert workflow.count('python-version: "3.12.13"') == 4
+    assert workflow.count('python-version: "3.12.13"') == 5
     assert e2e_workflow.count('python-version: "3.12.13"') == 1
     setup_node_action = "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38"
-    assert workflow.count(setup_node_action) == 3
-    assert workflow.count("node-version-file: frontend-console/.node-version") == 3
+    assert workflow.count(setup_node_action) == 4
+    assert workflow.count("node-version-file: frontend-console/.node-version") == 4
     assert (
-        workflow.count("cache-dependency-path: frontend-console/package-lock.json") == 3
+        workflow.count("cache-dependency-path: frontend-console/package-lock.json") == 4
     )
-    assert workflow.count(f"image: {postgres_image}") == 3
+    assert workflow.count(f"image: {postgres_image}") == 4
     assert e2e_workflow.count(f"image: {postgres_image}") == 1
 
     command = _make_dry_run("test-production-images")
