@@ -182,6 +182,7 @@ describe("批量选择", () => {
     const menu = row.find(".action-menu")
     const trigger = row.find(".action-menu-btn")
     expect(trigger.exists()).toBe(true)
+    expect(trigger.attributes("aria-label")).toBe("主线的更多操作")
     expect(menu.classes()).not.toContain("open")
     await trigger.trigger("click")
     expect(menu.classes()).toContain("open")

@@ -115,7 +115,7 @@
             <td data-label="操作">
               <button v-if="reviewActionHtml(a)" class="btn btn-sm" :class="reviewActionHtml(a).className" data-action="mark-arc-reviewed" :data-id="a.id || a.arc_id" @click="markReviewed(a.id || a.arc_id)">{{ reviewActionHtml(a).label }}</button>
               <button class="btn btn-sm btn-primary" data-action="edit-arc" :data-id="a.id || a.arc_id" @click="editArc(a.id || a.arc_id)">编辑</button>
-              <OutlineActionMenu :menu-id="`arc-actions-${a.id || a.arc_id}`" :items="arcMenuItems(a)" @select="onArcMenuSelect" />
+              <ActionMenu :menu-id="`arc-actions-${a.id || a.arc_id}`" :label="`${a.name || a.title || '篇章纲'}的更多操作`" :items="arcMenuItems(a)" @select="onArcMenuSelect" />
             </td>
           </tr>
         </tbody>
@@ -155,7 +155,7 @@ import {
   toggleBulkSelection,
   toggleAllBulkSelection,
 } from "../logic/outlineBulkSelection.js"
-import OutlineActionMenu from "./OutlineActionMenu.vue"
+import ActionMenu from "../../../components/ActionMenu.vue"
 import OutlineBulkToolbar from "./OutlineBulkToolbar.vue"
 
 const ARC_BULK_ACTIONS = [

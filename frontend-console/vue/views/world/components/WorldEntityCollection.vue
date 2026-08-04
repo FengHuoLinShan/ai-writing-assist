@@ -42,7 +42,7 @@
               <button v-if="showReviewAction(entity)" class="btn btn-sm btn-primary" data-action="mark-entity-reviewed" :data-id="idOf(entity)" @click="markEntityReviewed(idOf(entity))">标记已检查</button>
               <button class="btn btn-sm btn-primary" data-action="edit-entity" :data-id="idOf(entity)" @click="editEntity(idOf(entity))">{{ canPromote(entity) ? "编辑后采用" : "编辑" }}</button>
               <button v-if="canMerge(entity)" class="btn btn-sm" data-action="merge-entity" :data-id="idOf(entity)" @click="showMergeForm(idOf(entity))">合并</button>
-              <WorldActionMenu :menu-id="`entity-actions-${idOf(entity)}`" :items="tableMenuItems(entity)" @select="onMenuSelect" />
+              <ActionMenu :menu-id="`entity-actions-${idOf(entity)}`" :label="`${entity.name || '对象'}的更多操作`" :items="tableMenuItems(entity)" @select="onMenuSelect" />
             </div>
           </td>
         </tr>
@@ -78,7 +78,7 @@
           <button class="btn btn-sm btn-primary" data-action="edit-entity" :data-id="idOf(entity)" @click="editEntity(idOf(entity))">{{ canPromote(entity) ? "编辑后采用" : "编辑" }}</button>
           <button class="btn btn-sm" data-action="open-entity-map" :data-id="idOf(entity)" @click="openEntityMap(idOf(entity))">地图</button>
           <button v-if="canMerge(entity)" class="btn btn-sm" data-action="merge-entity" :data-id="idOf(entity)" @click="showMergeForm(idOf(entity))">合并</button>
-          <WorldActionMenu :menu-id="`entity-card-actions-${idOf(entity)}`" :items="cardMenuItems(entity)" @select="onMenuSelect" />
+          <ActionMenu :menu-id="`entity-card-actions-${idOf(entity)}`" :label="`${entity.name || '对象'}的更多操作`" :items="cardMenuItems(entity)" @select="onMenuSelect" />
         </div>
       </article>
     </div>
@@ -99,7 +99,7 @@ import {
   showMergeForm,
   showRollbackForm,
 } from "../logic/worldEntityOps.js"
-import WorldActionMenu from "./WorldActionMenu.vue"
+import ActionMenu from "../../../components/ActionMenu.vue"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldSelectionInput from "./WorldSelectionInput.vue"
 

@@ -40,6 +40,8 @@ npm run test:all
 
 账号弹窗作为模态边界：打开后将焦点置入弹窗、隔离作者壳背景并拦截壳层快捷键；关闭时恢复触发账户菜单的焦点。
 
+作者列表中的共享行操作菜单支持方向键、Home/End 和 Escape 的 roving focus；Tab、焦点离开或外部点击会关闭菜单，选择操作前会恢复触发器焦点，并隔离壳层快捷键。
+
 Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancestors 'none'` / `X-Frame-Options: DENY`
 禁止第三方页面嵌入控制台。部署 `dist/` 时，静态托管层必须保留 `vite.config.js` 中
 `frontendSecurityHeaders` 的同等响应头；`frame-ancestors` 不能用 HTML `<meta>` 代替。

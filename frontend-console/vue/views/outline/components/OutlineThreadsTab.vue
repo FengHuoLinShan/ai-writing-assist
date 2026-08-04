@@ -99,7 +99,7 @@
             <td data-label="操作">
               <button v-if="threadReviewAction(t)" class="btn btn-sm" :class="threadReviewAction(t).className" data-action="mark-thread-reviewed" :data-id="t.id || t.thread_id" @click="markThreadReviewed(t.id || t.thread_id)">{{ threadReviewAction(t).label }}</button>
               <button class="btn btn-sm btn-primary" data-action="edit-thread" :data-id="t.id || t.thread_id" @click="editThread(t.id || t.thread_id)">编辑</button>
-              <OutlineActionMenu :menu-id="`thread-actions-${t.id || t.thread_id}`" :items="threadMenuItems(t)" @select="onThreadMenuSelect" />
+              <ActionMenu :menu-id="`thread-actions-${t.id || t.thread_id}`" :label="`${t.name || t.title || '剧情线'}的更多操作`" :items="threadMenuItems(t)" @select="onThreadMenuSelect" />
             </td>
           </tr>
         </tbody>
@@ -192,7 +192,7 @@ import {
   toggleBulkSelection,
   toggleAllBulkSelection,
 } from "../logic/outlineBulkSelection.js"
-import OutlineActionMenu from "./OutlineActionMenu.vue"
+import ActionMenu from "../../../components/ActionMenu.vue"
 import OutlineBulkToolbar from "./OutlineBulkToolbar.vue"
 
 const THREAD_BULK_ACTIONS = [

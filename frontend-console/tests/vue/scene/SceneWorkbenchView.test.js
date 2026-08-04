@@ -120,6 +120,15 @@ describe("SceneWorkbenchView", () => {
     expect(wrapper.find('.scene-workbench-row[data-id="s1"] img').exists()).toBe(false)
   })
 
+  it("keeps Scene menu actions behind a readable contextual trigger", async () => {
+    createWrapper()
+    const row = wrapper.find('.scene-workbench-row[data-id="s2"]')
+    const trigger = row.get(".action-menu-btn")
+    expect(trigger.attributes("aria-label")).toBe("撤离的更多操作")
+    await trigger.trigger("click")
+    expect(row.find('[data-action="open-writing-scene"]').attributes("data-id")).toBe("s2")
+  })
+
   it("keeps Scene current marker non-interactive while sibling navigation uses buttons", async () => {
     createWrapper()
     for (const action of ["nav-story-outline", "nav-arcs", "nav-threads"]) {

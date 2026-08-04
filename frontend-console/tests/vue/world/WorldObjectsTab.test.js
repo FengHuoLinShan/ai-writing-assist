@@ -76,6 +76,15 @@ describe("表格渲染契约", () => {
     expect(wrapper.find('input[data-action="bulk-toggle-all"][data-scope="world-objects"]').exists()).toBe(true)
   })
 
+  it("行内菜单使用对象名称且保留既有 data-action", async () => {
+    const wrapper = mountTab()
+    const row = wrapper.find('tbody tr[data-id="e1"]')
+    const trigger = row.get(".action-menu-btn")
+    expect(trigger.attributes("aria-label")).toBe("沉钟港的更多操作")
+    await trigger.trigger("click")
+    expect(row.find('[data-action="delete-entity"]').attributes("data-id")).toBe("e1")
+  })
+
   it("空态渲染新建入口；错误态 role=alert", () => {
     const empty = mountTab({ entities: [], entitiesTotal: 0 })
     expect(empty.text()).toContain("还没有世界对象")

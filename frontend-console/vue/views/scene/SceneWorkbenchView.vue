@@ -110,7 +110,7 @@
                 <button class="btn btn-sm scene-context-action" :class="{ 'btn-primary': sceneContextAction(item).key !== 'edit' }" :data-action="sceneContextAction(item).action" :data-id="item.scene?.id" @click="runContextAction(item)">{{ sceneContextAction(item).label }}</button>
                 <button v-if="firstOverlap(item)?.counterpart_scene_id" class="btn btn-sm scene-overlap-shortcut" data-action="open-overlap-scene" :data-id="firstOverlap(item).counterpart_scene_id" @click="openOverlap(firstOverlap(item).counterpart_scene_id)">查看「{{ overlapCounterpartLabel(firstOverlap(item)) }}」</button>
                 <button v-if="sceneContextAction(item).key !== 'edit'" class="btn btn-sm scene-secondary-action" data-action="edit-workbench-scene" :data-id="item.scene?.id" @click="selectScene(item.scene?.id)">编辑</button>
-                <OutlineActionMenu :menu-id="`scene-actions-${item.scene?.id}`" :items="menuItems(item)" @select="handleMenu(item, $event)" />
+                <ActionMenu :menu-id="`scene-actions-${item.scene?.id}`" :label="`${item.scene?.title || '未命名 Scene'}的更多操作`" :items="menuItems(item)" @select="handleMenu(item, $event)" />
               </div>
             </article>
             <article v-for="chapter in visibleUnassignedChapters" :key="`unassigned-${chapter}`" class="scene-workbench-row scene-workbench-row--unassigned">
@@ -142,7 +142,7 @@
 import { computed, defineComponent, h, reactive, ref, watch } from "vue"
 import { structureAssetDisplay } from "../../../shared/assetDisplayState.js"
 import { getRouter } from "../../bridge/index.js"
-import OutlineActionMenu from "../outline/components/OutlineActionMenu.vue"
+import ActionMenu from "../../components/ActionMenu.vue"
 import OutlineGenerateProgressCard from "../outline/ai/OutlineGenerateProgressCard.vue"
 import { showOutlineLayerAiForm } from "../outline/ai/outlineAiOps.js"
 import SceneAutoExtractProgressCard from "./SceneAutoExtractProgressCard.vue"

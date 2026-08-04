@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { createProject, createThread, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("Outline View — 剧情线与篇章纲", () => {
   let testProjectId = null
@@ -51,6 +51,51 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("主线剧情")
     await expect(page.locator(SEL.dataTable)).toContainText("main")
+  })
+
+  test("行菜单用键盘隔离快捷键、恢复焦点并同步关闭另一行", async ({ page }) => {
+    const first = await createThread(testProjectId, { name: "晨雾主线", thread_type: "main", summary: "城市苏醒" })
+    const second = await createThread(testProjectId, { name: "港口支线", thread_type: "sub", summary: "旧港秘密" })
+    await reloadWorkbench(page, "outline", "threads")
+
+    await page.evaluate(() => {
+      window.__actionMenuGenerateCount = 0
+      const button = document.createElement("button")
+      button.hidden = true
+      button.dataset.action = "generate"
+      button.addEventListener("click", () => { window.__actionMenuGenerateCount += 1 })
+      document.querySelector("#workspace-content")?.appendChild(button)
+    })
+    const firstTrigger = page.getByRole("button", { name: "晨雾主线的更多操作" })
+    const secondTrigger = page.getByRole("button", { name: "港口支线的更多操作" })
+    const firstMenu = page.locator(`.action-menu[data-menu-id="thread-actions-${first.id}"]`)
+    const secondMenu = page.locator(`.action-menu[data-menu-id="thread-actions-${second.id}"]`)
+
+    await firstTrigger.focus()
+    await page.keyboard.press("ArrowDown")
+    const firstDelete = firstMenu.getByRole("menuitem", { name: "删除" })
+    await expect(firstDelete).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(firstMenu).not.toHaveClass(/open/)
+    await expect(firstTrigger).toHaveAttribute("aria-expanded", "false")
+    await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains("action-menu-item"))).toBe(false)
+
+    await firstTrigger.focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(firstDelete).toBeFocused()
+    await page.keyboard.press("g")
+    await expect.poll(() => page.evaluate(() => window.__actionMenuGenerateCount)).toBe(0)
+    await page.keyboard.press("Escape")
+    await expect(firstTrigger).toBeFocused()
+
+    await firstTrigger.click()
+    await expect(firstMenu).toHaveClass(/open/)
+    await secondTrigger.focus()
+    await page.keyboard.press("Enter")
+    await expect(firstMenu).not.toHaveClass(/open/)
+    await expect(firstTrigger).toHaveAttribute("aria-expanded", "false")
+    await expect(secondMenu).toHaveClass(/open/)
+    await expect(secondTrigger).toHaveAttribute("aria-expanded", "true")
   })
 
   test("编辑剧情线", async ({ page }) => {

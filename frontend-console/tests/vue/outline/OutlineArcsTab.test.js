@@ -121,6 +121,17 @@ describe("筛选", () => {
 })
 
 describe("批量选择", () => {
+  it("行内操作菜单保留删除动作并提供篇章纲上下文名称", async () => {
+    const wrapper = mount(OutlineArcsTab, {
+      props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
+    })
+    const row = wrapper.findAll("tbody tr")[0]
+    const trigger = row.get(".action-menu-btn")
+    expect(trigger.attributes("aria-label")).toBe("第一卷的更多操作")
+    await trigger.trigger("click")
+    expect(row.find('[data-action="delete-arc"]').exists()).toBe(true)
+  })
+
   it("选择单项后 toolbar 出现", async () => {
     const wrapper = mount(OutlineArcsTab, {
       props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
