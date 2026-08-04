@@ -420,6 +420,39 @@ def test_restore_verifies_checksum_before_confirmation_and_database_replacement(
     assert second_check < restore_script.index("    --exit-on-error <")
 
 
+def test_restore_revalidates_target_environment_before_restore_work() -> None:
+    restore_script = (DEPLOY_ROOT / "scripts" / "restore.sh").read_text()
+    release_script = (DEPLOY_ROOT / "scripts" / "release.sh").read_text()
+
+    assert restore_script.count("validate_environment") == 2
+    assert release_script.count("validate_environment") == 2
+    restore_first_validation = restore_script.index("validate_environment")
+    restore_checkout = restore_script.index(
+        'git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"'
+    )
+    restore_second_validation = restore_script.index(
+        "validate_environment", restore_first_validation + 1
+    )
+    restore_build = restore_script.index("compose build api frontend")
+    restore_archive_check = restore_script.index("pg_restore --list")
+    restore_prompt = restore_script.index("Type RESTORE_PRODUCTION_BACKUP")
+    restore_quiesce = restore_script.index("if ! compose stop api worker frontend; then")
+
+    assert restore_first_validation < restore_checkout < restore_second_validation
+    assert restore_second_validation < restore_build < restore_archive_check
+    assert restore_archive_check < restore_prompt < restore_quiesce
+
+    release_checkout = release_script.index(
+        'git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"'
+    )
+    release_second_validation = release_script.index(
+        "validate_environment", release_checkout
+    )
+    assert release_checkout < release_second_validation < release_script.index(
+        "compose build api frontend"
+    )
+
+
 def test_release_and_restore_commit_state_only_after_shared_health_gate() -> None:
     for script_name in ("release.sh", "restore.sh"):
         script = (DEPLOY_ROOT / "scripts" / script_name).read_text()

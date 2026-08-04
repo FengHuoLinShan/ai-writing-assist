@@ -175,6 +175,11 @@ first release 在 `current-release` 与 `current-commit` 两个 finalized 文件
 `origin/main` 可达的 HEAD；若 `.state` 目录本身不存在，该只读路径不会创建状态目录。该合同不表示
 生产状态已经实际验证。
 
+restore 在 fetch/check-out 前先执行当前 checkout 的 environment validator，并在切换到 target commit 后、
+image build、archive list、确认提示、quiesce 或数据库工作前重新执行 target 自带 validator。target 校验失败时，
+既有 cleanup 只恢复 finalized checkout/state，不执行 Docker 操作或进入 maintenance window。该合同不表示
+生产环境已经实际验证。
+
 release 在 target preflight 与 API/frontend build 后、pre-migration snapshot 前先停止 API/frontend/worker
 （worker 按既有 2 分钟 grace drain），然后才 reconcile target PostgreSQL 与 embedding，并执行 fresh database
 guard、embedding contract check、snapshot、migration 和新服务启动。Docker Compose 在依赖镜像或配置变更时可能

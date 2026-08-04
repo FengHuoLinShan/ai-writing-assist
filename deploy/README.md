@@ -216,6 +216,11 @@ runtime health 与 account maintenance 在任何 Compose 操作前也只从这�
 `origin/main` 可达的 HEAD；若 `.state` 目录本身也不存在，只读检查不会创建它。这描述仓库脚本合同，
 不表示生产状态已经实际验证。
 
+restore 在 fetch/check-out 前先用当前 checkout 的 validator fail fast；成功切换到 target commit 后，
+会在 image build、备份 archive list、确认提示、停服或任何数据库操作之前重新运行 target 自带的 validator。
+该 target 校验失败时，既有 cleanup 只会恢复 finalized checkout/state，且不会执行 Docker 操作或进入 downtime。
+这描述仓库脚本合同，不表示生产环境已经实际验证。
+
 release 在 target preflight 与 target API/frontend build 完成后、pre-migration backup 前进入有界
 maintenance window：先停止 API、frontend 与 worker（worker 依既有 2 分钟 grace drain），再 reconcile
 target PostgreSQL 与 embedding，随后执行首次 fresh database guard、embedding contract check、snapshot、

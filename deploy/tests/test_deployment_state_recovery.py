@@ -178,6 +178,44 @@ def test_restore_rejects_symlinked_backup_directory_before_git_or_docker_work(
     assert not docker_log.exists()
 
 
+def test_restore_target_environment_validation_failure_restores_finalized_checkout(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    target_validator = repo_root / "deploy" / "scripts" / "validate_env.py"
+    target_validator.write_text(
+        "import sys\n"
+        "print('TARGET_VALIDATOR_REJECTED', file=sys.stderr)\n"
+        "raise SystemExit(1)\n"
+    )
+    _git(repo_root, "add", "deploy/scripts/validate_env.py")
+    _git(repo_root, "commit", "-qm", "target validator rejects")
+    target_commit = _git(repo_root, "rev-parse", "HEAD")
+    _git(repo_root, "push", "origin", "HEAD:main")
+    _git(repo_root, "fetch", "origin")
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+
+    backup_path = repo_root / "deploy" / "backups" / "fixture.dump"
+    backup_path.parent.mkdir()
+    backup_path.write_bytes(b"fixture backup")
+    Path(f"{backup_path}.sha256").write_text(
+        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
+    )
+
+    result = _run_script(
+        repo_root,
+        "restore.sh",
+        [str(backup_path), target_commit],
+        environment,
+    )
+
+    assert result.returncode != 0
+    assert "TARGET_VALIDATOR_REJECTED" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+    assert not docker_log.exists()
+
+
 def test_release_quiesce_failure_blocks_backup_migration_and_target_start(
     tmp_path: Path,
 ) -> None:

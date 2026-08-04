@@ -85,6 +85,7 @@ trap cleanup_uncommitted_attempt EXIT HUP INT TERM
     umask 022
     git -C "$REPO_ROOT" checkout --detach "$TARGET_COMMIT"
 )
+validate_environment
 compose build api frontend
 compose exec -T postgres pg_restore --list <"$BACKUP_PATH" >/dev/null
 
