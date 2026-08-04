@@ -6,6 +6,8 @@ umask 077
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$SCRIPT_DIR/common.sh"
 
+acquire_production_operation_lock "$@"
+
 # Callers capture stdout as the machine-readable backup path. Keep validation
 # diagnostics visible without contaminating that command-substitution contract.
 validate_environment >&2

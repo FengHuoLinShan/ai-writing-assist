@@ -146,6 +146,11 @@ make test-deploy
 顺序与 Compose 声明做静态合同检查；它不启动 Compose、不访问外部服务，也不替代真实发布、
 公网验证或备份恢复演练。
 
+发布、恢复、独立/嵌套备份和账号清理共享主机本地的 `deploy/.state/production-operation.lock`：
+同一时刻只允许一个生产变更操作，竞争会在任何变更前快速失败；release/restore 中调用的
+backup 会复用同一把锁，不会自我死锁。该持久的 `0600` 文件存在是正常状态，操作可能进行时
+不得删除；进程崩溃后由 OS 自动释放锁。它只序列化同一主机上的这些脚本，不是分布式或多主机锁。
+
 ### Production image contract
 
 `make test-production-images` 单独构建 backend 与 frontend 生产 Dockerfile，并运行容器级

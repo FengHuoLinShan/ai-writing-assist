@@ -12,7 +12,18 @@ if [ -z "$BACKUP_INPUT" ] || [ -z "$TARGET_REF" ]; then
     echo "Usage: deploy/scripts/restore.sh <backup.dump> <full-commit-sha>" >&2
     exit 2
 fi
+case "$TARGET_REF" in
+    *[!0-9a-f]*)
+        echo "Target ref must be a lowercase hexadecimal commit SHA." >&2
+        exit 2
+        ;;
+esac
+if [ "${#TARGET_REF}" -ne 40 ]; then
+    echo "Target ref must be the full 40-character commit SHA." >&2
+    exit 2
+fi
 
+acquire_production_operation_lock "$@"
 validate_environment
 
 BACKUP_PATH=$(realpath "$BACKUP_INPUT")
@@ -31,16 +42,6 @@ fi
 if ! verify_backup_checksum "$BACKUP_PATH"; then
     echo "Restore refused before confirmation because backup integrity verification failed." >&2
     exit 1
-fi
-case "$TARGET_REF" in
-    *[!0-9a-f]*)
-        echo "Target ref must be a lowercase hexadecimal commit SHA." >&2
-        exit 2
-        ;;
-esac
-if [ "${#TARGET_REF}" -ne 40 ]; then
-    echo "Target ref must be the full 40-character commit SHA." >&2
-    exit 2
 fi
 
 git -C "$REPO_ROOT" fetch --prune origin

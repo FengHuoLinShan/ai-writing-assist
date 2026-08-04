@@ -10,6 +10,17 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.production.yml"
 STATE_DIR="$DEPLOY_DIR/.state"
 BACKUP_DIR="$DEPLOY_DIR/backups"
 
+acquire_production_operation_lock() {
+    lock_path="$STATE_DIR/production-operation.lock"
+    if [ "${AI_WRITING_ASSIST_PRODUCTION_OPERATION_LOCK_FD+x}" = "x" ]; then
+        python3 "$SCRIPT_DIR/production_operation_lock.py" verify \
+            "$lock_path" "$AI_WRITING_ASSIST_PRODUCTION_OPERATION_LOCK_FD"
+        return
+    fi
+    exec python3 "$SCRIPT_DIR/production_operation_lock.py" acquire \
+        "$lock_path" /bin/sh "$0" "$@"
+}
+
 compose() {
     docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }

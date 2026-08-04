@@ -22,6 +22,7 @@ if [ "${#RELEASE_REF}" -ne 40 ]; then
     exit 2
 fi
 
+acquire_production_operation_lock "$@"
 validate_environment
 
 if ! git -C "$REPO_ROOT" diff-index --quiet HEAD --; then
