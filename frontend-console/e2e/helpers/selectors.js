@@ -36,6 +36,11 @@ export const SEL = {
   projectImportNewProject: '.project-import-drawer [data-action="import"]',
   projectImportHistory: "#import-list-body",
   projectImportHistoryRetry: '[data-action="retry-import-history"]',
+  projectRecycleBin: '[data-action="recycle-bin"]',
+  projectRecycleSelectAll: "#recycle-select-all",
+  projectRecycleBulkRestore: "#recycle-bulk-restore",
+  projectRecycleBulkDelete: "#recycle-bulk-delete",
+  projectRecycleCheckbox: (id) => `.recycle-project-checkbox[data-id="${id}"]`,
 
   // 按钮
   btnPrimary: ".btn-primary",

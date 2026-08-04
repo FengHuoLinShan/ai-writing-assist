@@ -43,8 +43,8 @@ export async function showRecycleBin(skip = projectSession.recycleBinSkip) {
           <div class="bulk-toolbar__status"><span>回收站项目 · 共 ${esc(total)} 个</span></div>
           <div class="bulk-toolbar__actions">
             <button class="btn btn-sm" id="recycle-select-all">全选当前页</button>
-            <button class="btn btn-sm btn-primary" id="recycle-bulk-restore">批量恢复</button>
-            <button class="btn btn-sm btn-danger" id="recycle-bulk-delete">批量永久删除</button>
+            <button class="btn btn-sm btn-primary" id="recycle-bulk-restore" disabled>批量恢复</button>
+            <button class="btn btn-sm btn-danger" id="recycle-bulk-delete" disabled>批量永久删除</button>
           </div>
         </div>
         <div class="recycle-bin__list">
@@ -95,15 +95,26 @@ function bindRecycleBinEvents(items, skip) {
     const ids = new Set(Array.from(document.querySelectorAll(".recycle-project-checkbox:checked")).map((input) => input.dataset.id))
     return items.filter((item) => ids.has(item.id))
   }
+  const bulkRestoreButton = document.getElementById("recycle-bulk-restore")
+  const bulkDeleteButton = document.getElementById("recycle-bulk-delete")
+  const syncBulkActionAvailability = () => {
+    const disabled = document.querySelectorAll(".recycle-project-checkbox:checked").length === 0
+    for (const button of [bulkRestoreButton, bulkDeleteButton]) {
+      if (button) button.disabled = disabled
+    }
+  }
+  document.querySelectorAll(".recycle-project-checkbox").forEach((input) => {
+    input.addEventListener("change", syncBulkActionAvailability)
+  })
   const selectAllButton = document.getElementById("recycle-select-all")
   if (selectAllButton) {
     selectAllButton.onclick = () => {
       document.querySelectorAll(".recycle-project-checkbox").forEach((input) => {
         input.checked = true
       })
+      syncBulkActionAvailability()
     }
   }
-  const bulkRestoreButton = document.getElementById("recycle-bulk-restore")
   if (bulkRestoreButton) {
     bulkRestoreButton.onclick = async () => {
       const selected = selectedRecycleProjects()
@@ -125,7 +136,6 @@ function bindRecycleBinEvents(items, skip) {
       }
     }
   }
-  const bulkDeleteButton = document.getElementById("recycle-bulk-delete")
   if (bulkDeleteButton) {
     bulkDeleteButton.onclick = () => {
       const selected = selectedRecycleProjects()
@@ -188,4 +198,5 @@ function bindRecycleBinEvents(items, skip) {
   if (nextButton) {
     nextButton.onclick = () => showRecycleBin(skip + PAGE_SIZE)
   }
+  syncBulkActionAvailability()
 }

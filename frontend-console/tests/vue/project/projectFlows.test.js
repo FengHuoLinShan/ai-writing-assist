@@ -53,8 +53,44 @@ describe("回收站", () => {
     expect(document.querySelectorAll(".recycle-bin__item")).toHaveLength(2)
     expect(document.querySelector('.restore-project-btn[data-id="d1"]')).not.toBeNull()
     expect(document.querySelector('.perm-delete-project-btn[data-id="d2"]')).not.toBeNull()
+    expect(document.getElementById("recycle-bulk-restore").disabled).toBe(true)
+    expect(document.getElementById("recycle-bulk-delete").disabled).toBe(true)
     expect(document.getElementById("recycle-prev-page").disabled).toBe(true)
     expect(document.getElementById("recycle-next-page").disabled).toBe(true)
+  })
+
+  it("选择变化时同步批量操作可用状态", async () => {
+    stubModal()
+    await showRecycleBin(0)
+    const checkbox = document.querySelector('.recycle-project-checkbox[data-id="d1"]')
+    const bulkRestore = document.getElementById("recycle-bulk-restore")
+    const bulkDelete = document.getElementById("recycle-bulk-delete")
+
+    checkbox.checked = true
+    checkbox.dispatchEvent(new Event("change"))
+    expect(bulkRestore.disabled).toBe(false)
+    expect(bulkDelete.disabled).toBe(false)
+
+    checkbox.checked = false
+    checkbox.dispatchEvent(new Event("change"))
+    expect(bulkRestore.disabled).toBe(true)
+    expect(bulkDelete.disabled).toBe(true)
+  })
+
+  it("零选择时批量 handler 仍保留防御提示", async () => {
+    stubModal()
+    const confirmAction = vi.fn()
+    setBridgeOverrides({ confirmAction })
+    await showRecycleBin(0)
+
+    await document.getElementById("recycle-bulk-restore").onclick()
+    document.getElementById("recycle-bulk-delete").onclick()
+
+    expect(globalThis.toast).toHaveBeenCalledTimes(2)
+    expect(globalThis.toast).toHaveBeenLastCalledWith("请先选择项目", "warning")
+    expect(globalThis.api.projects.restore).not.toHaveBeenCalled()
+    expect(globalThis.api.projects.permanentDeleteMany).not.toHaveBeenCalled()
+    expect(confirmAction).not.toHaveBeenCalled()
   })
 
   it("恢复项目后刷新背景列表并重载回收站", async () => {
@@ -76,6 +112,7 @@ describe("回收站", () => {
     globalThis.api.projects.permanentDeleteMany = vi.fn(async () => ({ deleted_count: 2 }))
     await showRecycleBin(0)
     document.getElementById("recycle-select-all").click()
+    expect(document.getElementById("recycle-bulk-delete").disabled).toBe(false)
     document.getElementById("recycle-bulk-delete").click()
     await vi.waitFor(() => {
       expect(globalThis.api.projects.permanentDeleteMany).toHaveBeenCalledWith(["d1", "d2"])

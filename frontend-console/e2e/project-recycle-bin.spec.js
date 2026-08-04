@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
+import { expectNoPageOverflow } from "./helpers/responsive.js"
 import { openProjectList, reloadProjectList } from "./helpers/workbench.js"
 import {
   API_BASE,
@@ -72,6 +73,40 @@ test.describe("项目回收站", () => {
     // 刷新后项目回到列表
     await reloadProjectList(page)
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("回收站恢复测试项目")
+  })
+
+  test("零选择禁用批量操作，选择或全选当前页后启用", async ({ page }) => {
+    const project = await createProject({
+      title: "回收站批量状态测试项目",
+      language: "zh",
+    })
+    testProjectId = project.id
+    await deleteProject(project.id)
+
+    await reloadProjectList(page)
+    await page.locator(SEL.projectRecycleBin).click()
+    const checkbox = page.locator(SEL.projectRecycleCheckbox(project.id))
+    const bulkRestore = page.locator(SEL.projectRecycleBulkRestore)
+    const bulkDelete = page.locator(SEL.projectRecycleBulkDelete)
+
+    await expect(checkbox).toBeVisible()
+    await expect(bulkRestore).toBeDisabled()
+    await expect(bulkDelete).toBeDisabled()
+
+    await checkbox.check()
+    await expect(bulkRestore).toBeEnabled()
+    await expect(bulkDelete).toBeEnabled()
+
+    await checkbox.uncheck()
+    await expect(bulkRestore).toBeDisabled()
+    await expect(bulkDelete).toBeDisabled()
+
+    await page.locator(SEL.projectRecycleSelectAll).click()
+    await expect(bulkRestore).toBeEnabled()
+    await expect(bulkDelete).toBeEnabled()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectNoPageOverflow(page)
   })
 
   test("永久删除项目后不可恢复", async ({ page }) => {
