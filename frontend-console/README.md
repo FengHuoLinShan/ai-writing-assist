@@ -204,6 +204,7 @@ frontend-console/
 - 上述变更只调整前端内部所有权；HTTP API、数据库 schema 和前端 wire shape 保持不变
 - 地图视口按需加载 Leaflet（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。
+- 地图快速创建的字段、可放置地点选择、半径、方向移动和锁定操作均提供作者可读的可访问名称；画布和视觉工作流、坐标/半径/锁定命令及地图 API 契约保持不变。
 - 图层面板使用递归树，展示祖先继承后的有效显隐、锁定、透明度与 zoom；exclusive/floor 当前子层由 route + localStorage 会话投影管理，isolate 不持久化。世界对象通过 map presence 在多张地图和多条线路间选择并双向定位。
 - 连续道路/水系由 `mapPathRenderer.js` 负责 RDP 简化、平滑采样、变宽绘制、AABB 裁剪和命中测试；Pointer 手绘、节点拖动、端点吸附与线路草稿由 `mapView` 编排。地图 Canvas 使用单 RAF 和 revision/viewport 缓存。
 - Scene 时间轴由 Vue `MapWorkspaceView` 消费 timeline/state-at 只读投影，支持 Scene 游标、前后步进、

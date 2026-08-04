@@ -349,7 +349,7 @@ test.describe("地图一级工作台", () => {
     await expect(quickDialog.getByLabel("地点布局画布")).toBeVisible()
     await quickDialog.locator("#map-quick-name").fill("云中世界图")
     const locationRow = quickDialog.getByRole("row").filter({ hasText: location.name })
-    await locationRow.getByRole("button", { name: "→", exact: true }).click()
+    await locationRow.getByRole("button", { name: "向右移动地点 云中城", exact: true }).click()
     await quickDialog.getByRole("button", { name: "创建", exact: true }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("地图已快速创建", {
       timeout: 10000,

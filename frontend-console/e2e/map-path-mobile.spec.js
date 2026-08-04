@@ -174,9 +174,9 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
       .map((value) => Number(value.trim()))
     expect(initialCoordinates).toHaveLength(2)
     expect(initialCoordinates.every(Number.isFinite)).toBe(true)
-    const moveButton = locationRow.getByRole("button", { name: "→", exact: true })
-    const radiusButton = locationRow.getByRole("button", { name: "+", exact: true })
-    const lockButton = locationRow.getByRole("button", { name: "锁定", exact: true })
+    const moveButton = locationRow.getByRole("button", { name: "向右移动地点 移动云港", exact: true })
+    const radiusButton = locationRow.getByRole("button", { name: "扩大地点 移动云港 的半径", exact: true })
+    const lockButton = locationRow.getByRole("button", { name: "锁定地点 移动云港", exact: true })
     for (const control of [moveButton, radiusButton, lockButton]) {
       const box = await control.boundingBox()
       expect(box).not.toBeNull()
