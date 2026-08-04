@@ -5,6 +5,13 @@ function isFormControl(target) {
     || Boolean(target?.isContentEditable)
 }
 
+function isActivationTarget(target) {
+  if (!target || typeof target.closest !== "function") return false
+  return Boolean(target.closest(
+    "button, a[href], summary, [role='button'], [role='link'], [role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio'], [role='option'], [role='tab'], [role='checkbox'], [role='radio'], [role='switch']",
+  ))
+}
+
 export function useShellShortcuts({
   services,
   shellState,
@@ -80,6 +87,7 @@ export function useShellShortcuts({
       event.preventDefault()
       focusSidebar()
     } else if (key === "Enter") {
+      if (isActivationTarget(event.target)) return
       trigger("select")
     }
   }

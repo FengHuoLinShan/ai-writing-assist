@@ -100,6 +100,34 @@ test.describe("首页与导航", () => {
     await expect(input).not.toBeFocused()
   })
 
+  test("Enter lets focused controls activate while workspace keeps selection", async ({ page }) => {
+    await page.goto("/")
+    await enterAuthor(page)
+    await expect(page.locator("#project-catalog-title")).toBeVisible()
+    const installSelectHook = () => page.evaluate(() => {
+      window.__shellSelectShortcutCount = 0
+      document.querySelector('#workspace-content [data-action="select"]')?.remove()
+      const button = document.createElement("button")
+      button.hidden = true
+      button.dataset.action = "select"
+      button.addEventListener("click", () => { window.__shellSelectShortcutCount += 1 })
+      document.querySelector("#workspace-content")?.appendChild(button)
+    })
+    await installSelectHook()
+    const account = page.getByRole("button", { name: "账户菜单" })
+    await account.focus()
+    await page.keyboard.press("Enter")
+    await expect(page.locator(".account-dialog")).toBeVisible()
+    await expect.poll(() => page.evaluate(() => window.__shellSelectShortcutCount)).toBe(0)
+    await page.locator(".account-close").click()
+    await expect(page.locator(".account-dialog")).toBeHidden()
+    await installSelectHook()
+    await page.locator(SEL.workspace).focus()
+    await expect(page.locator(SEL.workspace)).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect.poll(() => page.evaluate(() => window.__shellSelectShortcutCount)).toBe(1)
+  })
+
   test("作者可从命令栏键盘浏览建议并恢复原焦点", async ({ page }) => {
     await page.goto("/")
     await enterAuthor(page)

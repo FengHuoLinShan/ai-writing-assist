@@ -161,6 +161,37 @@ describe("ShellApp", () => {
     expect(services.router.navigate).not.toHaveBeenCalled()
   })
 
+  it("defers Enter to focused activation controls but keeps workspace selection elsewhere", async () => {
+    const services = createShellTestServices()
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
+    const host = wrapper.get("#workspace-content").element
+    const nativeButton = document.createElement("button")
+    host.appendChild(nativeButton)
+    nativeButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+
+    const sidebarButton = wrapper.get('.nav-item[data-view="world"]')
+    sidebarButton.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(services.router.navigate).toHaveBeenCalledTimes(1)
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+
+    const ariaButton = document.createElement("div")
+    ariaButton.setAttribute("role", "button")
+    const nested = document.createElement("span")
+    ariaButton.appendChild(nested)
+    host.appendChild(ariaButton)
+    nested.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    expect(services.workspace.triggerAction).not.toHaveBeenCalled()
+
+    host.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    expect(services.workspace.triggerAction).toHaveBeenCalledTimes(1)
+    expect(services.workspace.triggerAction).toHaveBeenCalledWith("select", host)
+
+    nativeButton.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true }))
+    expect(services.workspace.triggerAction).toHaveBeenLastCalledWith("generate", host)
+  })
+
   it("blocks background workspace shortcuts while a modal is open but keeps Escape", () => {
     const services = createShellTestServices()
     services.modal.isOpen.mockReturnValue(true)
