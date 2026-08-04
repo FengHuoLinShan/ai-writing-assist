@@ -80,6 +80,11 @@ make format                      # ruff format --check
 make format-fix                  # ruff format
 ```
 
+上述自动化 backend 质量目标会在进入 `backend/` 后自行通过 `uv run --locked --extra ci --`
+解析 `backend/.python-version` 的 Python `3.12.13` 与 `backend/uv.lock` 的 `ci` 工具链；无需预先
+激活虚拟环境。首次运行仍需要可用的 `uv` 以及本地缓存或网络来取得锁定环境；这不移除 E2E
+目标的专用 PostgreSQL 等外部前提。
+
 Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证；`make test-production-images` 才会实际构建两份生产镜像并检查运行时合同。
 
 完整 `npm run test:e2e:functional` 是 GitHub pull request 与 `main` push 自动运行的浏览器 job，

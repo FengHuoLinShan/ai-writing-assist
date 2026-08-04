@@ -41,14 +41,13 @@ jobs:
         run: uv sync --project backend --locked --extra ci
 
       - name: Lint backend
-        run: uv run --project backend --locked --extra ci -- make lint
+        run: make lint
 
       - name: Run deployment contract tests
         run: make test-deploy
 
       - name: Run fast backend tests with coverage
         run: >-
-          uv run --project backend --locked --extra ci --
           make test-fast-coverage TEST_WORKERS=2
           ARGS="-W error::RuntimeWarning"
 
@@ -105,7 +104,7 @@ jobs:
         run: uv run --locked --extra ci -- python tools/postgresql_ci_diagnostics.py
 
       - name: Run serial PostgreSQL critical contracts
-        run: uv run --locked --extra ci -- make -C .. test-postgresql-critical
+        run: make -C .. test-postgresql-critical
 
       - name: Capture post-test PostgreSQL diagnostics
         if: always()

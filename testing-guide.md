@@ -38,6 +38,10 @@ Three layers:
 
 ## Test execution layers
 
+下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`
+解析 Python `3.12.13` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
+缓存或网络。该工具链约定不改变各层列出的数据库、凭据或浏览器等外部前提。
+
 | Command | Scope | External prerequisites |
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
@@ -110,6 +114,8 @@ secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
+这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
+的 pytest/Ruff 可执行文件。
 PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
 零重试规则执行 fresh migration 与高风险事务契约，并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整

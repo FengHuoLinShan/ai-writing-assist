@@ -417,6 +417,53 @@ def _make_dry_run(target: str, *variables: str) -> str:
     return result.stdout.strip()
 
 
+def test_automated_backend_quality_targets_use_the_locked_ci_runner() -> None:
+    runner = "uv run --locked --extra ci --"
+    target_tools = {
+        "test-collect": "pytest",
+        "test-fast": "pytest",
+        "test-fast-parallel": "pytest",
+        "test-fast-coverage": "pytest",
+        "test-v": "pytest",
+        "test-integration": "pytest",
+        "test-e2e": "pytest",
+        "test-postgresql-critical": "pytest",
+        "test-deploy": "pytest",
+        "lint": "ruff",
+        "lint-fix": "ruff",
+        "format": "ruff",
+        "format-fix": "ruff",
+    }
+
+    for target, tool in target_tools.items():
+        command = _make_dry_run(target)
+        assert command.count(runner) == 1, target
+        assert f"cd {BACKEND_ROOT} &&" in command, target
+        assert f"{runner} {tool}" in command, target
+        assert f"&& {tool}" not in command, target
+
+
+def test_backend_ci_uses_self_locking_make_quality_targets() -> None:
+    workflow = (BACKEND_ROOT.parent / ".github/workflows/backend-ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    lint_step = workflow.split("      - name: Lint backend\n", maxsplit=1)[1].split(
+        "\n      - name:", maxsplit=1
+    )[0]
+    fast_coverage_step = workflow.split(
+        "      - name: Run fast backend tests with coverage\n", maxsplit=1
+    )[1].split("\n\n  postgresql-critical:", maxsplit=1)[0]
+    postgresql_step = workflow.split(
+        "      - name: Run serial PostgreSQL critical contracts\n", maxsplit=1
+    )[1].split("\n      - name:", maxsplit=1)[0]
+
+    assert lint_step.strip() == "run: make lint"
+    assert "make test-fast-coverage TEST_WORKERS=2" in fast_coverage_step
+    assert "uv run" not in fast_coverage_step
+    assert postgresql_step.strip() == "run: make -C .. test-postgresql-critical"
+
+
 def test_fast_targets_expand_to_the_same_guarded_test_layer() -> None:
     serial = _make_dry_run("test-fast")
     default = _make_dry_run("test")

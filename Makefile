@@ -13,6 +13,7 @@ BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_extraction_real
 BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_map_editor_revision_concurrency.py tests/e2e/test_map_observation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_writing_version_concurrency.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
+BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
 
 # ─── Full Stack ─────────────────────────────────────
 
@@ -46,29 +47,29 @@ schema-check:  ## Fail unless the local database is at the Alembic head
 test: test-fast  ## Run the fast backend test layer
 
 test-collect:  ## Verify all backend module tests collect in one pytest session
-	cd $(BACKEND_DIR) && pytest modules -q --collect-only
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules -q --collect-only
 
 test-fast:  ## Run SQLite-backed tests without external services or source data
-	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
 
 test-fast-parallel:  ## Run the fast backend layer in isolated pytest-xdist workers
-	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(ARGS)
 
 test-fast-coverage:  ## Run the parallel fast layer with the configured coverage gate
-	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(BACKEND_COVERAGE_ARGS) --cov-report=term-missing:skip-covered $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(BACKEND_COVERAGE_ARGS) --cov-report=term-missing:skip-covered $(ARGS)
 
 test-v:  ## Run the fast backend layer verbosely and stop on the first failure
-	cd $(BACKEND_DIR) && pytest -xvs $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest -xvs $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
 
 test-integration:  ## Run the SQLite cross-module integration layer
-	cd $(BACKEND_DIR) && pytest tests/integration -m "not e2e and not real_llm and not external_data" $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest tests/integration -m "not e2e and not real_llm and not external_data" $(ARGS)
 
 test-e2e:  ## Run PostgreSQL E2E tests; explicit dedicated E2E_DATABASE_URL required
-	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 pytest tests/e2e -m "not real_llm and not external_data" $(ARGS)
+	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 $(BACKEND_LOCKED_CI_RUN) pytest tests/e2e -m "not real_llm and not external_data" $(ARGS)
 
 test-postgresql-critical:  ## Run the serial PostgreSQL merge-gate contract subset
 	mkdir -p $(BACKEND_DIR)/.test-artifacts
-	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 pytest $(BACKEND_POSTGRESQL_CRITICAL_TESTS) -m "not real_llm and not external_data" --timeout=120 --junitxml=.test-artifacts/postgresql-critical.junit.xml $(ARGS)
+	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_POSTGRESQL_CRITICAL_TESTS) -m "not real_llm and not external_data" --timeout=120 --junitxml=.test-artifacts/postgresql-critical.junit.xml $(ARGS)
 
 test-real-llm:  ## Run SQLite real-LLM acceptance tests explicitly
 	cd $(BACKEND_DIR) && RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_REAL_LLM_TESTS) -m real_llm $(ARGS)
@@ -93,7 +94,7 @@ test-manual:  ## Run real-source and PostgreSQL/real-LLM acceptance tests explic
 	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_MANUAL_TESTS) -m "real_llm or external_data" $(ARGS)
 
 test-deploy:  ## Run deployment static and CLI contract tests
-	cd $(BACKEND_DIR) && uv run --locked --extra ci -- pytest -c pyproject.toml ../deploy/tests
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest -c pyproject.toml ../deploy/tests
 
 test-frontend:  ## Run frontend tests
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
@@ -170,16 +171,16 @@ eval-context-planner:  ## Compare task-direct and planner-v1 on accepted RAG cas
 	cd $(BACKEND_DIR) && python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json)
 
 lint:  ## Run ruff linter
-	cd $(BACKEND_DIR) && ruff check .
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff check .
 
 lint-fix:  ## Run ruff auto-fix
-	cd $(BACKEND_DIR) && ruff check --fix .
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff check --fix .
 
 format:  ## Check formatting
-	cd $(BACKEND_DIR) && ruff format --check .
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff format --check .
 
 format-fix:  ## Auto-format
-	cd $(BACKEND_DIR) && ruff format .
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff format .
 
 secret-hygiene:  ## Reject tracked env files, private keys, and high-confidence credentials
 	cd $(BACKEND_DIR) && python -m tools.secret_hygiene
