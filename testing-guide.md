@@ -103,7 +103,7 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 ### Continuous integration
 
 GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
-`PostgreSQL critical`、`Frontend unit quality`、`Frontend browser smoke` 和
+`PostgreSQL critical`、`Frontend unit quality`、`Frontend browser smoke`、`Frontend map browser` 和
 `Production image contract`，全部使用 `ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
 secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
@@ -129,9 +129,11 @@ the committed lockfile cache, then uses `frontend-console/package-lock.json` to 
 build. `Frontend browser smoke` is an automated four-domain author smoke (home, project,
 imports, writing): it starts fresh dedicated PostgreSQL and Chromium for every run,
 uses workers=1 and retries=0, and retains `frontend-console/test-results` failure
-diagnostics for 14 days. Complete functional, map, visual and real-LLM Playwright
-suites remain explicit/manual acceptance runs rather than being folded into this smoke
-job. The backend
+diagnostics for 14 days. `Frontend map browser` is a separate automated job: it runs the
+repository 25-test map entry on its own fresh database with workers=1 and retries=0, and
+retains the same failure diagnostics for 14 days. Complete functional, visual,
+map-performance and real-LLM Playwright suites remain explicit/manual acceptance runs.
+The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
 data; both complement rather than replace builds and tests, and a passing audit is
 not proof of zero dependency or supply-chain risk.
@@ -155,7 +157,7 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
 后，应把 `Backend quality`、`Frontend unit quality`、`Production image contract`、
-`CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前
+`Frontend map browser`、`CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前
 必需状态检查。
 `Production image contract` 独立执行 `make test-production-images`：它从固定 tag+digest
 构建 backend/frontend 镜像，并在容器内确认 backend 非 root、没有 uv、可导入 app，以及

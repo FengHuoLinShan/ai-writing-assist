@@ -74,8 +74,11 @@ worker 套件。各专用入口分别为：
 
 四个作者域（首页、项目、导入、写作）的 `test:e2e:smoke` 是 pull request 与 `main`
 push 自动运行的浏览器 job：每次使用全新的专用 PostgreSQL 和 Chromium，固定
-workers=1、retries=0；失败时保留 `test-results/` 诊断产物 14 天。完整功能、地图、视觉
-和真实 LLM suite 仍是显式的手动验收入口，不会由这条 smoke job 代跑。
+workers=1、retries=0；失败时保留 `test-results/` 诊断产物 14 天。完整功能、视觉
+和真实 LLM suite 仍是显式的手动验收入口，不会由这条 smoke job 代跑。`test:e2e:map`
+也在 pull request 与 `main` push 上作为独立 `Frontend map browser` job 自动运行：它使用
+另一套全新的专用 PostgreSQL 与 Chromium，固定 workers=1、retries=0，并在失败时保留
+`test-results/` 诊断产物 14 天；完整功能、视觉、地图性能和真实 LLM suite 仍为手动验收。
 
 ```bash
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional
