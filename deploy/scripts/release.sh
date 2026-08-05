@@ -38,6 +38,10 @@ if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$TARGET_COMMIT" origin/main; 
 fi
 
 PREVIOUS_COMMIT=$(resolve_active_deployment_commit)
+verify_active_deployment_checkout "$PREVIOUS_COMMIT"
+if ! verify_release_migration_compatibility "$PREVIOUS_COMMIT" "$TARGET_COMMIT"; then
+    exit 1
+fi
 OPERATION_ID=$(deployment_state_operation_id)
 DEPLOYMENT_COMMITTED=false
 DEPLOYMENT_STATE_WRITE_FAILED=false
