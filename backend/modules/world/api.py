@@ -6,7 +6,6 @@ World API 路由 — v3 因果时空网
 
 from __future__ import annotations
 
-import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,8 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.api_params import NovelIdQuery
 from core.config import get_settings
 from core.dependencies import DbSession
-from core.errors import ConflictError, DomainError
-from infrastructure.llm.redaction import redact_diagnostic
+from core.errors import ConflictError
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import (
@@ -158,8 +156,6 @@ from modules.world.services.worldbuilding.worldbuilding_service import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/api/world", tags=["world"])
 
 _entity_service = WorldEntityService()
@@ -205,31 +201,6 @@ def _template_version_conflict(exc: TemplateVersionConflictError) -> HTTPExcepti
             "actual_version": exc.actual,
         },
     )
-
-
-async def _commit_projection_refresh_success(db: DbSession) -> None:
-    """Commit the queued task before exposing its id to the browser."""
-    try:
-        await db.commit()
-    except Exception as exc:
-        logger.error(
-            "提交世界书投影刷新任务失败 error_type=%s diagnostic=%s",
-            type(exc).__name__,
-            redact_diagnostic(exc, limit=300),
-        )
-        try:
-            await db.rollback()
-        except Exception as rollback_exc:
-            logger.error(
-                "回滚世界书投影刷新任务失败 error_type=%s diagnostic=%s",
-                type(rollback_exc).__name__,
-                redact_diagnostic(rollback_exc, limit=300),
-            )
-        raise DomainError(
-            "投影刷新任务保存失败，请重试",
-            code="world_bible_projection_commit_failed",
-            status_code=500,
-        ) from exc
 
 
 # ============================================================
@@ -901,14 +872,12 @@ async def refresh_bible_projection(
                 "hint": "retry with force=true",
             },
         ) from exc
-    response = ProjectionRefreshResponse(
+    return ProjectionRefreshResponse(
         task_id=task_id,
         status=status,
         existing=existing,
         projection_type=projection_type,
     )
-    await _commit_projection_refresh_success(db)
-    return response
 
 
 @router.post("/bible/pages/{page_id}/organize")

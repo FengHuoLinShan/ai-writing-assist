@@ -66,7 +66,7 @@ async def test_upload_201_is_immediately_visible_to_an_independent_session() -> 
                         await observer.execute(
                             select(AsyncTask).where(
                                 AsyncTask.task_type == "publish_chapter",
-                                AsyncTask.meta["novel_id"].as_string() == project_id,
+                                AsyncTask.novel_id == novel_uuid,
                             )
                         )
                     )

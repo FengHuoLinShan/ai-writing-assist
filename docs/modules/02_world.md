@@ -273,9 +273,9 @@ POST   /api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft
 canonical 仍只能由作者在世界书发布流程中改变。旧对象草稿、页面 AI 生成和页面建议 apply
 接口不再注册。
 
-`POST /api/world/bible/pages/{page_id}/refresh-projection` 只在 keyed-coalescing
-任务已经提交后返回 task ID，浏览器可立即经独立连接查询任务。提交失败返回脱敏 500，
-不会把尚不可见的任务 ID 暴露给轮询状态机。
+`POST /api/world/bible/pages/{page_id}/refresh-projection` 的普通非流式请求由
+`DbSession` 的 request-owned transaction 在 function-scope dependency 结束时提交；返回
+task ID 后，浏览器可立即经独立连接查询任务。
 
 `relations/review-batch` 一次最多 20 个决策、累计 50 条本次选中的关系；
 `aliases/review-batch` 一次最多 50 条别名。关系 `merge` 复用已有同端点同类型正式关系，
