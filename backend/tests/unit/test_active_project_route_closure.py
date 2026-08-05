@@ -30,7 +30,7 @@ DERIVED_SCOPED_ROUTES = {
         "_require_task_owner_active_project",
         "resume_deep_import",
     ),
-    "POST /api/tasks": ("_require_active_project", "add"),
+    "POST /api/tasks": ("_require_active_project", "enqueue_task"),
 }
 PROJECT_LIFECYCLE_EXEMPTIONS = {
     "DELETE /api/projects/{project_id}",

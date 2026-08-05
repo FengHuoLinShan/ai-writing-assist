@@ -45,7 +45,7 @@ async def test_run_once_returns_reloaded_terminal_task(
             raise RuntimeError("expected handler failure")
         return {"task_id": str(task.id), "ok": True}
 
-    registry.register(task_type, handler)
+    registry.register(task_type, handler, owner_scope="global")
     try:
         async with sessions.begin() as setup_db:
             setup_db.add(
@@ -109,7 +109,7 @@ async def test_handler_can_checkpoint_progress_without_domain_commit(test_engine
             observed["result"] = dict(persisted.result or {})
         return {"ok": True}
 
-    registry.register(task_type, handler)
+    registry.register(task_type, handler, owner_scope="global")
     try:
         async with sessions.begin() as setup_db:
             setup_db.add(
@@ -328,7 +328,7 @@ async def test_preflight_orm_write_fails_task_and_is_rolled_back(
         handler_called = True
         return {"unexpected": True}
 
-    registry.register(task_type, handler)
+    registry.register(task_type, handler, owner_scope="global")
     try:
         async with sessions.begin() as setup_db:
             setup_db.add(
@@ -416,7 +416,7 @@ async def test_preflight_core_dml_is_rolled_back_before_handler(test_engine) -> 
         assert await db.get(AsyncTask, staged_task_id) is None
         return {"ok": True}
 
-    registry.register(task_type, handler)
+    registry.register(task_type, handler, owner_scope="global")
     try:
         async with sessions.begin() as setup_db:
             setup_db.add(
