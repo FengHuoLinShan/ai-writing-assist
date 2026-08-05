@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import shlex
 import subprocess
 import tomllib
@@ -406,15 +407,30 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     assert "make test-deploy" in workflow
 
 
-def _make_dry_run(target: str, *variables: str) -> str:
+def _make_dry_run(
+    target: str,
+    *variables: str,
+    environment: dict[str, str] | None = None,
+) -> str:
     result = subprocess.run(
-        ["make", "-n", target, *variables],
+        ["make", "--no-print-directory", "-n", target, *variables],
         cwd=BACKEND_ROOT.parent,
         check=True,
         capture_output=True,
         text=True,
+        env=environment,
     )
     return result.stdout.strip()
+
+
+def test_make_dry_run_suppresses_recursive_make_directory_chatter() -> None:
+    environment = os.environ | {"MAKELEVEL": "1", "MAKEFLAGS": "w"}
+
+    command = _make_dry_run("audit-backend-deps", environment=environment)
+
+    assert "Entering directory" not in command
+    assert "Leaving directory" not in command
+    assert "uv audit --locked" in command
 
 
 def test_automated_backend_quality_targets_use_the_locked_ci_runner() -> None:
