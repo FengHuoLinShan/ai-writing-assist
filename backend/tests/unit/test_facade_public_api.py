@@ -36,6 +36,7 @@ WORLD_FACADE_API = {
     "get_characters_at_location",
     "get_characters_context",
     "get_deep_import_alias_metadata_summary",
+    "get_entity_importance_map",
     "get_confirmed_map_facts_through_scene",
     "get_entity_relations",
     "get_entity_revisions",

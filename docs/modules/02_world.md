@@ -124,6 +124,7 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 # ---- CoreEntity ----
 async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]
 async def list_entity_terms(db, novel_id, *, limit=500) -> list[dict]
+async def get_entity_importance_map(db, novel_id) -> dict[str, dict[str, object]]
 async def create_entity(db, novel_id, data: dict) -> dict
 async def count_entities(db, novel_id, *, status_filter=None) -> int
 async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
@@ -180,6 +181,9 @@ async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
 async def get_character_location_id(db, novel_id, character_id) -> str | None
 async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | None
 ```
+
+`get_entity_importance_map` 是给 RAG 派生 chunk 使用的 adopted-only 窄投影；只包含
+`canonical` 对象的 ID、importance 和 importance level，不暴露 ORM 或待处理对象。
 
 World Bible 页面是资料组织层，不是结构化事实源。`free_text` 是兼容概览，`sections_json`
 保存最多 64 个稳定、有序的 markdown/checklist/asset_collection 资料段；section 引用只能
