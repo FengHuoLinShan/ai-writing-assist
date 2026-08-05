@@ -468,27 +468,40 @@ def test_release_and_restore_guard_and_snapshot_the_target_checkout() -> None:
         )
         post_guard = script.index("verify_deployment_checkout", pre_guard + 1)
         target_validation = script.index("validate_environment", checkout)
+        state_contract = script.index("validate_deployment_state_contract")
         snapshot = script.index("prepare_fixed_commit_build_context")
         build = script.index("compose build api frontend")
 
-        assert pre_guard < checkout < post_guard < target_validation < snapshot < build
+        assert (
+            pre_guard
+            < checkout
+            < post_guard
+            < target_validation
+            < state_contract
+            < snapshot
+            < build
+        )
 
 
 def test_release_and_restore_commit_state_only_after_shared_health_gate() -> None:
     for script_name in ("release.sh", "restore.sh"):
         script = (DEPLOY_ROOT / "scripts" / script_name).read_text()
         health_gate = script.index("if ! wait_for_application_health; then")
-        current_commit = script.index('write_state_file "$STATE_DIR/current-commit"')
-        current_backup = script.index('write_state_file "$STATE_DIR/current-backup"')
-        current_release = script.index('write_state_file "$STATE_DIR/current-release"')
+        manifest_write = script.index('write_deployment_state "$OPERATION_ID"')
+        committed = script.index("DEPLOYMENT_COMMITTED=true", manifest_write)
 
-        assert health_gate < current_commit < current_backup < current_release
+        assert health_gate < manifest_write < committed
+        assert 'write_state_file "$STATE_DIR/current-commit"' not in script
+        assert 'write_state_file "$STATE_DIR/current-backup"' not in script
+        assert 'write_state_file "$STATE_DIR/current-release"' not in script
 
 
 def test_release_and_restore_restore_the_finalized_state_checkout_on_failure() -> None:
     common_script = COMMON_SCRIPT.read_text(encoding="utf-8")
 
     assert "resolve_active_deployment_commit()" in common_script
+    assert "deployment-state.json" in common_script
+    assert "read-current-commit" in common_script
     assert "current-release" in common_script
     assert "current-commit" in common_script
 
@@ -504,13 +517,16 @@ def test_release_and_restore_restore_the_finalized_state_checkout_on_failure() -
             'git -C "$REPO_ROOT" -c core.hooksPath=/dev/null '
             'checkout --detach "$TARGET_COMMIT"'
         )
-        current_release = script.index(
-            'write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"'
-        )
-        committed = script.index("DEPLOYMENT_COMMITTED=true")
+        operation_id = script.index("OPERATION_ID=$(deployment_state_operation_id)")
+        manifest_write = script.index('write_deployment_state "$OPERATION_ID"')
+        committed = script.index("DEPLOYMENT_COMMITTED=true", manifest_write)
+        match = script.index('deployment_state_matches "$TARGET_COMMIT" "$OPERATION_ID"')
+        failed_write = script.index("DEPLOYMENT_STATE_WRITE_FAILED=true")
 
-        assert previous_commit < cleanup_trap < checkout
-        assert current_release < committed
+        assert previous_commit < operation_id < cleanup_trap < checkout
+        assert match < checkout
+        assert manifest_write < failed_write < committed
+        assert '[ "$DEPLOYMENT_STATE_WRITE_FAILED" != "true" ]' in script
 
 
 def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> None:
@@ -521,7 +537,7 @@ def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> N
     release_quiesce = release_script.index("if ! compose stop api worker frontend; then")
     release_dependencies = release_script.index("compose up -d postgres embedding")
     release_fresh_guard = release_script.index(
-        'if [ ! -f "$STATE_DIR/current-release" ]'
+        'if [ ! -e "$STATE_DIR/deployment-state.json" ]'
     )
     release_embedding_check = release_script.index(
         "if ! compose run --rm api python scripts/check_embedding.py; then"
@@ -568,6 +584,10 @@ def test_common_and_compose_declare_worker_process_health() -> None:
     )[0]
 
     assert "worker_runtime_healthy" in common_script
+    state_marker = DEPLOY_ROOT / "deployment-state-contract.version"
+    assert state_marker.is_file()
+    assert not state_marker.is_symlink()
+    assert state_marker.read_bytes() == b"1\n"
     marker = DEPLOY_ROOT / "worker-liveness-contract.version"
     assert marker.is_file()
     assert not marker.is_symlink()
@@ -585,29 +605,6 @@ def test_common_and_compose_declare_worker_process_health() -> None:
     assert "b'run_worker.py'" not in worker_section
     for setting in ("interval: 15s", "timeout: 5s", "start_period: 20s", "retries: 8"):
         assert setting in worker_section
-
-
-def test_atomic_state_write_replaces_content_without_temp_file_residue(
-    tmp_path: Path,
-) -> None:
-    state_path = tmp_path / "state" / "current-release"
-
-    for value in ("release-one", "release-two"):
-        result = subprocess.run(
-            [
-                "sh",
-                "-c",
-                '. "$0"; write_state_file "$1" "$2"',
-                str(COMMON_SCRIPT),
-                str(state_path),
-                value,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stderr
-        assert state_path.read_text() == f"{value}\n"
-        assert not list(state_path.parent.glob(".current-release.tmp.*"))
 
 
 def test_public_verification_fetches_declared_frontend_assets() -> None:

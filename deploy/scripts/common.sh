@@ -309,25 +309,46 @@ verify_backup_checksum() {
     fi
 }
 
-write_state_file() {
-    state_file=$1
-    state_value=$2
-    state_directory=$(dirname "$state_file")
-    state_name=$(basename "$state_file")
+deployment_state_operation_id() {
+    python3 "$SCRIPT_DIR/deployment_state.py" generate-operation-id
+}
 
-    mkdir -p "$state_directory"
-    state_temp=$(mktemp "$state_directory/.${state_name}.tmp.XXXXXX") || return 1
-    if ! printf '%s\n' "$state_value" >"$state_temp"; then
-        rm -f "$state_temp"
+write_deployment_state() {
+    operation_id=$1
+    operation=$2
+    current_commit=$3
+    previous_commit=$4
+    backup_path=$5
+    python3 "$SCRIPT_DIR/deployment_state.py" write \
+        "$STATE_DIR" "$REPO_ROOT" "$operation_id" "$operation" \
+        "$current_commit" "$previous_commit" "$backup_path"
+}
+
+deployment_state_matches() {
+    current_commit=$1
+    operation_id=$2
+    python3 "$SCRIPT_DIR/deployment_state.py" matches \
+        "$STATE_DIR" "$REPO_ROOT" "$current_commit" "$operation_id"
+}
+
+validate_deployment_state_contract() {
+    contract_marker="$DEPLOY_DIR/deployment-state-contract.version"
+    state_helper="$SCRIPT_DIR/deployment_state.py"
+    if [ ! -f "$contract_marker" ] || [ -L "$contract_marker" ] \
+        || [ "$(wc -l <"$contract_marker")" -ne 1 ] \
+        || [ "$(cat "$contract_marker")" != "1" ]; then
+        echo "Target commit does not contain a valid deployment state contract." >&2
         return 1
     fi
-    if ! mv -f "$state_temp" "$state_file"; then
-        rm -f "$state_temp"
+    if [ ! -f "$state_helper" ] || [ -L "$state_helper" ]; then
+        echo "Target commit does not contain the deployment state helper." >&2
         return 1
     fi
+    python3 "$state_helper" generate-operation-id >/dev/null
 }
 
 resolve_active_deployment_commit() {
+    deployment_state_path="$STATE_DIR/deployment-state.json"
     current_release_path="$STATE_DIR/current-release"
     current_commit_path="$STATE_DIR/current-commit"
     release_exists=false
@@ -340,12 +361,16 @@ resolve_active_deployment_commit() {
         commit_exists=true
     fi
 
-    if [ "$release_exists" != "$commit_exists" ]; then
-        echo "Deployment state is incomplete; current-release and current-commit must both exist." >&2
-        return 1
-    fi
+    if [ -e "$deployment_state_path" ] || [ -L "$deployment_state_path" ]; then
+        candidate_commit=$(python3 "$SCRIPT_DIR/deployment_state.py" read-current-commit \
+            "$STATE_DIR" "$REPO_ROOT") || return 1
+    else
+        if [ "$release_exists" != "$commit_exists" ]; then
+            echo "Deployment state is incomplete; current-release and current-commit must both exist." >&2
+            return 1
+        fi
 
-    if [ "$release_exists" = "true" ]; then
+        if [ "$release_exists" = "true" ]; then
         if [ ! -f "$current_release_path" ] || [ -L "$current_release_path" ] \
             || [ ! -f "$current_commit_path" ] || [ -L "$current_commit_path" ]; then
             echo "Deployment state files must be regular non-symlink files." >&2
@@ -372,11 +397,12 @@ resolve_active_deployment_commit() {
             return 1
         fi
         candidate_commit=$state_commit
-    else
+        else
         candidate_commit=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || {
             echo "Unable to resolve the first-release deployment HEAD." >&2
             return 1
         }
+        fi
     fi
 
     case "$candidate_commit" in

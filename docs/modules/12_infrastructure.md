@@ -178,26 +178,37 @@ Healthchecks 已实际验证。
 descriptor 与路径的 device/inode 和元数据会在打开后复查，任何替换、类型或所有者不一致都会
 fail closed。该合同仅描述仓库脚本，不表示生产目录或外部备份已实际验证。
 
-release/restore 以 finalized 的 `deploy/.state/current-release` 与 `current-commit` 成对状态作为
-已部署 commit 的唯一来源，而不信任可能残留在失败目标上的 checkout/分支。失败或取消且尚未写完
-最终 `current-release` 时，脚本只会切回该 finalized checkout，并在本次可能已启动新 application
-services 时停止它们。cleanup trap 本身不会 reset/clean 工作树、额外写入或恢复数据库、重启旧服务或
-改写 finalized state；但在数据库替换或 migration 后失败的底层操作可能已经改库，服务会保持停止并需
-人工恢复。状态缺失、损坏、不匹配或 symlink 会 fail closed，需人工介入；首次发布才允许两份状态均
-不存在并以当前、仍可达 `origin/main` 的 HEAD 作为 fallback。这是脚本合同，不表示生产环境或外部服务
-已经验证。
+release/restore 的成功状态唯一权威为 `deploy/.state/deployment-state.json`，不信任可能残留在失败目标上的
+checkout/分支。v1 文件仅允许 schema version、32 位 operation nonce、`release`/`restore` operation、当前/前一
+40 位 commit 与规范化的本仓库 `deploy/backups` 直属 `.dump` path 六个字段；它必须是当前用户拥有的普通 `0600`
+文件，state directory 必须为私有 `0700`。未知/缺失/重复 key、错误类型、multiline、symlink、owner/mode 或路径
+均 fail closed。helper 写入私有 temp、file fsync、atomic replace、directory fsync 后才返回；旧的 manifest 一旦
+不安全或损坏绝不被覆盖或回退。读取优先 manifest，只有它完全不存在时才只读兼容 legacy
+`current-release` + `current-commit` pair，或首次发布 HEAD；新脚本不再写/delete/rewrite legacy 文件。
 
-runtime health 与 account maintenance 在 Compose 操作前从同一 validated finalized pair 导出本地镜像的
+cleanup 在 shell boolean 尚未更新但 manifest 已 durable 时，只接受本次 target commit 加唯一 operation nonce 的精确
+match，以免 signal 触发错误 rollback；同 commit 的旧/不同 nonce 不匹配。写事务在 helper 内屏蔽 HUP/INT/TERM 至目录
+fsync 和临时清理结束，且仅发给 helper 子进程的信号会被吞掉，使 shell 正常观察到 target authority；组信号仍由 shell trap
+处理。若 replace 后 directory fsync 失败，helper 先恢复精确旧 bytes（首次写入则删除 manifest）并再次 fsync，恢复确认后才
+返回失败让 shell rollback；若恢复无法完成但 target manifest 仍可验证可见，则带 warning 成功返回并保持 target，不能产生
+`manifest=target` 与 previous checkout 分裂。SIGKILL/掉电没有 shell cleanup，atomic replace 提供旧或新记录。失败或取消的尝试仍会切回 finalized checkout，并在本次
+可能已启动 new application services 时停止它们。cleanup trap 不会 reset/clean 工作树、额外写入或恢复数据库、重启旧服务
+或改写 finalized state；数据库替换或 migration 后失败的底层操作仍可能已经改库，服务会保持停止并需人工恢复。这是脚本合同，
+不表示生产环境或外部服务已经验证。
+
+runtime health 与 account maintenance 在 Compose 操作前从同一 validated manifest（或 manifest 完全缺失时的 legacy pair）导出本地镜像的
 `RELEASE_ID`（完整 commit 的前 12 位），不读取 drifted checkout 的 HEAD。若 `.state` 存在，必须先通过
 当前用户拥有、非 symlink、权限精确 `0700` 的私有目录检查；状态不安全、不完整或不匹配时 fail closed。
-first release 在 `current-release` 与 `current-commit` 两个 finalized 文件都不存在时使用当前、
+first release 在 manifest 与 `current-release`/`current-commit` 两个 legacy 文件都不存在时使用当前、
 `origin/main` 可达的 HEAD；若 `.state` 目录本身不存在，该只读路径不会创建状态目录。该合同不表示
 生产状态已经实际验证。
 
 restore 在 fetch/check-out 前先执行当前 checkout 的 environment validator，并在切换到 target commit 后、
 image build、archive list、确认提示、quiesce 或数据库工作前重新执行 target 自带 validator。target 校验失败时，
-既有 cleanup 只恢复 finalized checkout/state，不执行 Docker 操作或进入 maintenance window。该合同不表示
-生产环境已经实际验证。
+既有 cleanup 只恢复 finalized checkout/state，不执行 Docker 操作或进入 maintenance window。target validator 后、
+build context 前，release/restore 还验证 tracked `deploy/deployment-state-contract.version` 恰为 `1` 且 target 自带
+state helper；因此旧 target 不能在新 manifest 写入后被静默部署。缺 marker/helper 或不匹配时在 build、quiesce 和
+数据库操作前 fail closed。该合同不表示生产环境已经实际验证。
 
 release/restore 在 fetch 前及 target checkout 后都执行 strict deployment-checkout guard：任一 tracked/staged/
 unmerged 路径都会 fail closed。只有 untracked/ignored operational data 可使用 `deploy/.env.production`、

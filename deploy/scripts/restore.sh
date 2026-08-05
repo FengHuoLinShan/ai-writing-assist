@@ -59,12 +59,19 @@ fi
 RELEASE_ID=$(printf '%s' "$TARGET_COMMIT" | cut -c1-12)
 export RELEASE_ID
 PREVIOUS_COMMIT=$(resolve_active_deployment_commit)
+OPERATION_ID=$(deployment_state_operation_id)
 DEPLOYMENT_COMMITTED=false
+DEPLOYMENT_STATE_WRITE_FAILED=false
 NEW_APP_SERVICES_MAY_HAVE_STARTED=false
 
 cleanup_uncommitted_attempt() {
     status=$?
     trap - EXIT HUP INT TERM
+    if [ "$DEPLOYMENT_COMMITTED" != "true" ] \
+        && [ "$DEPLOYMENT_STATE_WRITE_FAILED" != "true" ] \
+        && deployment_state_matches "$TARGET_COMMIT" "$OPERATION_ID"; then
+        DEPLOYMENT_COMMITTED=true
+    fi
     if [ "$DEPLOYMENT_COMMITTED" != "true" ]; then
         if [ "$NEW_APP_SERVICES_MAY_HAVE_STARTED" = "true" ]; then
             if ! compose stop api worker frontend >/dev/null 2>&1; then
@@ -89,6 +96,7 @@ trap cleanup_uncommitted_attempt EXIT HUP INT TERM
 )
 verify_deployment_checkout
 validate_environment
+validate_deployment_state_contract
 prepare_fixed_commit_build_context "$TARGET_COMMIT"
 compose build api frontend
 compose exec -T postgres pg_restore --list <"$BACKUP_PATH" >/dev/null
@@ -142,11 +150,11 @@ if ! wait_for_application_health; then
     exit 1
 fi
 
-write_state_file "$STATE_DIR/previous-release" "$PREVIOUS_COMMIT"
-write_state_file "$STATE_DIR/current-commit" "$TARGET_COMMIT"
-write_state_file "$STATE_DIR/current-backup" "$BACKUP_PATH"
-# current-release is the final commit marker for a fully healthy restoration.
-write_state_file "$STATE_DIR/current-release" "$RELEASE_ID"
+if ! write_deployment_state "$OPERATION_ID" restore \
+    "$TARGET_COMMIT" "$PREVIOUS_COMMIT" "$BACKUP_PATH"; then
+    DEPLOYMENT_STATE_WRITE_FAILED=true
+    exit 1
+fi
 DEPLOYMENT_COMMITTED=true
 cleanup_fixed_commit_build_context
 trap - EXIT HUP INT TERM

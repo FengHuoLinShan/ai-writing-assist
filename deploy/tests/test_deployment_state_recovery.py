@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -345,6 +346,27 @@ def test_restore_target_environment_validation_failure_restores_finalized_checko
     assert not docker_log.exists()
 
 
+def test_release_rejects_target_without_deployment_state_contract_before_build(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    (repo_root / "deploy" / "deployment-state-contract.version").unlink()
+    _git(repo_root, "add", "-u", "deploy/deployment-state-contract.version")
+    _git(repo_root, "commit", "-qm", "target state contract missing")
+    target_commit = _git(repo_root, "rev-parse", "HEAD")
+    _git(repo_root, "push", "origin", "HEAD:main")
+    _git(repo_root, "fetch", "origin")
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+
+    result = _run_script(repo_root, "release.sh", [target_commit], environment)
+
+    assert result.returncode != 0
+    assert "valid deployment state contract" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+    assert not docker_log.exists()
+
+
 def test_release_quiesce_failure_blocks_backup_migration_and_target_start(
     tmp_path: Path,
 ) -> None:
@@ -467,6 +489,37 @@ def _write_state(repo_root: Path, release: str | None, commit: str | None) -> No
         (state_dir / "current-commit").write_text(commit)
 
 
+def _write_manifest(
+    repo_root: Path,
+    current_commit: str,
+    previous_commit: str,
+    *,
+    operation_id: str = "a" * 32,
+) -> None:
+    deploy_root = repo_root / "deploy"
+    backup_dir = deploy_root / "backups"
+    backup_dir.mkdir(mode=0o700, exist_ok=True)
+    backup_dir.chmod(0o700)
+    backup_path = backup_dir / "manifest.dump"
+    backup_path.write_bytes(b"manifest backup")
+    state_path = deploy_root / ".state" / "deployment-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "operation_id": operation_id,
+                "operation": "release",
+                "current_commit": current_commit,
+                "previous_commit": previous_commit,
+                "backup_path": str(backup_path),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+    state_path.chmod(0o600)
+
+
 def test_resolve_active_deployment_commit_validates_finalized_state(
     tmp_path: Path,
 ) -> None:
@@ -522,6 +575,76 @@ def test_resolve_active_deployment_commit_validates_finalized_state(
     unreachable = _resolve_active_commit(repo_root)
     assert unreachable.returncode != 0
     assert unreachable.stdout == ""
+
+
+def test_manifest_precedes_legacy_state_and_malformed_manifest_has_no_fallback(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    _write_manifest(repo_root, commit_b, commit_a)
+
+    preferred = _resolve_active_commit(repo_root)
+
+    assert preferred.returncode == 0, preferred.stderr
+    assert preferred.stdout == f"{commit_b}\n"
+
+    state_path = repo_root / "deploy" / ".state" / "deployment-state.json"
+    state_path.write_text("{}")
+    state_path.chmod(0o600)
+    malformed = _resolve_active_commit(repo_root)
+
+    assert malformed.returncode != 0
+    assert malformed.stdout == ""
+
+    state_path.unlink()
+    outside = tmp_path / "outside-manifest"
+    outside.write_text("{}")
+    state_path.symlink_to(outside)
+    symlinked = _resolve_active_commit(repo_root)
+
+    assert symlinked.returncode != 0
+    assert symlinked.stdout == ""
+
+
+def test_exact_manifest_nonce_prevents_cleanup_rollback(tmp_path: Path) -> None:
+    repo_root, commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    _write_manifest(repo_root, commit_b, commit_a, operation_id="d" * 32)
+    driver = repo_root / "deploy" / "scripts" / "cleanup-decision.sh"
+    driver.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        'SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n'
+        '. "$SCRIPT_DIR/common.sh"\n'
+        'TARGET_COMMIT=$1\n'
+        'OPERATION_ID=$2\n'
+        "DEPLOYMENT_COMMITTED=false\n"
+        "DEPLOYMENT_STATE_WRITE_FAILED=false\n"
+        'if [ "$DEPLOYMENT_COMMITTED" != "true" ] \\\n'
+        '    && [ "$DEPLOYMENT_STATE_WRITE_FAILED" != "true" ] \\\n'
+        '    && deployment_state_matches "$TARGET_COMMIT" "$OPERATION_ID"; then\n'
+        "    DEPLOYMENT_COMMITTED=true\n"
+        "fi\n"
+        'printf "%s\\n" "$DEPLOYMENT_COMMITTED"\n'
+    )
+    driver.chmod(0o700)
+
+    exact = subprocess.run(
+        ["/bin/sh", str(driver), commit_b, "d" * 32],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    different_nonce = subprocess.run(
+        ["/bin/sh", str(driver), commit_b, "e" * 32],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+
+    assert exact.returncode == 0, exact.stderr
+    assert exact.stdout == "true\n"
+    assert different_nonce.returncode == 0, different_nonce.stderr
+    assert different_nonce.stdout == "false\n"
 
 
 def test_resolve_active_deployment_commit_rejects_symlinked_state(

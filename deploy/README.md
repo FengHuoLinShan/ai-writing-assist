@@ -200,30 +200,38 @@ SBOM（OS 与 library 清单），先验证并上传为保留 14 天的 artifact
 - 生产只接受 `origin/main` 可达的完整 40 位 commit SHA。`release.sh` 会先 fetch
   `origin` 并拒绝主题分支独有、本地未推送或无法解析为精确 SHA 的提交。
 - 服务器 checkout 在发布后保持 detached；当前线上版本以
-  `deploy/.state/current-commit` 为准，不以服务器当前分支名或本地工作树状态推断。
+  `deploy/.state/deployment-state.json` 的 `current_commit` 为准，不以服务器当前分支名或本地工作树状态推断。
 - 回滚同样选择一个仍可达 `origin/main` 的已知良好 SHA，并继续走备份、迁移和健康检查，
   不把生产机切回某个长期分支。
 
-脚本在 migration 前保存备份并把当前/前一 commit、镜像 tag 和备份路径记录在
-`deploy/.state/`。健康检查失败时 API、worker 和 frontend 会停止，数据库及备份保留，
-不会把失败发布继续对外提供。状态文件以同目录临时文件加原子替换写入，且
-`current-release` 始终最后更新，表示对应三服务已健康。
+脚本在 migration 前保存备份，并只在 shared health gate 成功后写入唯一权威状态
+`deploy/.state/deployment-state.json`。v1 JSON 恰有 `schema_version: 1`、32 位 operation nonce、
+`release`/`restore` operation、当前/前一 40 位 commit 和本仓库 `deploy/backups` 直属 `.dump` 的规范绝对路径。
+文件必须是当前用户拥有的普通 `0600` 文件，目录必须是私有 `0700` 目录；未知/缺失字段、重复 key、错误类型、
+multiline、symlink、错误 owner/mode 或不安全路径都 fail closed。helper 以私有临时文件完整写入并 fsync，再原子 replace
+与 fsync 目录；旧 manifest 不安全或损坏时绝不覆盖。健康检查失败时 API、worker 和 frontend 会停止，数据库及备份保留，
+不会把失败发布继续对外提供。
 
-下一次 release 或 restore 只以成对、互相匹配的 `current-release`（12 位前缀）与
-`current-commit`（40 位 SHA）识别已完成部署；两者缺失时才使用首次发布的当前 HEAD，且
-都必须仍可达 `origin/main`。失败或取消的尝试会切回这份已完成 checkout，并在本次可能已启动
-new application services 时停止它们。cleanup trap 本身不会 reset/clean 工作树、额外写入或恢复数据库、
-重启旧服务或改写最终状态；但在数据库替换或 migration 之后失败的底层操作可能已经改库，服务会保持
-停止并需要人工恢复。任一状态文件缺失、损坏、不匹配或 symlink 都会 fail closed，需要人工介入后再
-运行脚本。本说明描述仓库内脚本合同，不表示生产机器或外部服务已经实际验证。
+下一次 release、restore、runtime health 或 account maintenance 优先读取 manifest 的 `current_commit`，并继续要求它
+精确解析且可达 `origin/main`。只有 manifest 完全不存在时，才以既有只读 legacy `current-release`（12 位前缀）+
+`current-commit`（40 位 SHA）pair，或首次发布 HEAD 作为兼容回退；新脚本不删除、重写或更新这些旧文件。失败或取消的
+尝试会切回这份已完成 checkout，并在本次可能已启动 new application services 时停止它们。写 manifest 的 catchable-signal
+临界区覆盖临时文件、file fsync、rename、directory fsync 与临时清理；若 signal 在 durable rename 后、shell boolean 更新前
+抵达，cleanup 仅在 `current_commit` 和本次唯一 nonce 都匹配时保留 target。仅发给 helper 子进程的 HUP/INT/TERM 会在临界区
+被吞掉，使它正常完成并让 shell 观察到同一份 target authority；组信号仍由 shell trap 处理。若 rename 后 directory fsync
+失败，helper 会先原子恢复写前的精确 manifest bytes（首次写入则删除新文件）并再次 fsync 目录，恢复确认后才返回失败让 shell
+回滚。若恢复不能完成，helper 只会在已验证 target manifest 仍可见时带 warning 成功退出，让 shell 保持 target；不会留下
+`manifest=target` 却让 cleanup checkout 到 previous 的分裂。SIGKILL/掉电没有 shell cleanup，atomic replace 提供旧或新记录。cleanup trap
+本身不会 reset/clean 工作树、额外写入或恢复数据库、重启旧服务或改写最终状态；但在数据库替换或 migration 后失败的底层
+操作可能已经改库，服务会保持停止并需要人工恢复。本说明描述仓库内脚本合同，不表示生产机器或外部服务已经实际验证。
 
-runtime health 在读取这份 finalized pair、环境或运行任何 Git/Compose/curl 前先取得同一 exclusive operation
+runtime health 在读取这份 manifest（或 manifest 完全缺失时的 legacy pair）、环境或运行任何 Git/Compose/curl 前先取得同一 exclusive operation
 lock；若有 mutation 正在持锁则本轮成功 skip，不发送主动 ping。它不会掩盖持续故障：timer 仍按既有 5 分钟
 节奏运行，Healthchecks 的 missed-ping/grace 仍是长时间停机或持续维护的告警路径。account maintenance 与
-runtime health 在任何 Compose 操作前也只从这份已验证的 finalized pair 导出本地镜像 `RELEASE_ID`
+runtime health 在任何 Compose 操作前也只从这份已验证的 manifest（或 manifest 完全缺失时的 legacy pair）导出本地镜像 `RELEASE_ID`
 （完整 commit 的前 12 位），绝不信任残留 checkout 的 HEAD。若 `.state` 存在，
 它必须是当前用户拥有、非 symlink、权限精确为 `0700` 的私有目录；不安全或不完整状态会 fail closed。
-首次发布时 `current-release` 与 `current-commit` 两个 finalized 文件都不存在则使用当前、
+首次发布时 manifest 与 `current-release`/`current-commit` 两个 legacy 文件都不存在则使用当前、
 `origin/main` 可达的 HEAD；若 `.state` 目录本身也不存在，只读检查不会创建它。这描述仓库脚本合同，
 不表示生产状态已经实际验证。
 
@@ -241,6 +249,10 @@ Git tree 以 `git archive` 创建私有临时 build snapshot，并用临时 Comp
 该 snapshot；`.env.production`、state、backups、ignored cache 和其他 worktree 内容不会进入 Docker context。override
 与 snapshot 会持续到本次 release/restore 结束后清理。它保证固定 source provenance，不承诺基础镜像、网络、工具链或
 Docker builder 输出逐字节相同；本说明不表示外部生产环境已验证。
+
+target checkout 的环境校验后、build context 前，release/restore 还要求 tracked
+`deploy/deployment-state-contract.version` 恰为 `1`，且目标 commit 自带可执行的 stdlib state helper。这样旧 target
+无法在新脚本写入 manifest 后被静默部署；缺 marker/helper 或不匹配即在 build、停服和数据库操作前 fail closed。
 
 release 在 target preflight 与 target API/frontend build 完成后、pre-migration backup 前进入有界
 maintenance window：先停止 API、frontend 与 worker（worker 依既有 2 分钟 grace drain），再 reconcile
