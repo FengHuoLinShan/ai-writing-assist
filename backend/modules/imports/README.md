@@ -348,6 +348,8 @@ POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_impo
 POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派生资产
 ```
 
+该可见性来自 `DbSession` 的 request-owned transaction：function-scope dependency 在普通非流式响应开始前统一提交，路由本身不持有单独的成功提交逻辑。
+
 ## 安全约束
 
 - upload、导入记录读取、deep-import/stage 入队以及 resume/abandon 都在

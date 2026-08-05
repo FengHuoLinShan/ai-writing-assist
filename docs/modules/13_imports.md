@@ -175,6 +175,8 @@ POST /api/imports/deep/resume              # 用户确认后继续可恢复的�
 POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
 ```
 
+上传成功的可见性来自 `DbSession` 的 request-owned transaction：function-scope dependency 在普通非流式响应开始前统一提交，上传路由本身不持有单独的成功提交逻辑。
+
 `/deep` 与三个 `/stages/*` 请求都必须显式发送
 `authorization_confirmed=true`；缺失或 false 返回 422 且不排队。任务 meta 和 result 都保存
 同一授权快照，完成页从 result 的 `asset_summary` 展示已采用/待处理/未采用。

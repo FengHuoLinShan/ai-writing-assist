@@ -145,8 +145,7 @@ projection 任务编排，激活解析不再调用它的私有 hash helper。
 coalescing，不再扫描最近一批全局 task。并发提交在部分唯一索引上收敛到同一个
 pending/running task，终态仍保留历史。该 key 只解决排队重复；projection 的 page version、
 source hash 与提交 CAS 仍是领域新鲜度和旧结果不得覆盖新页面的权威边界。
-刷新接口只在任务事务提交后返回 task ID，后续浏览器轮询可以立即从独立连接读取该任务；
-提交失败会返回稳定的脱敏 500，不暴露不可查询的伪成功任务。
+普通非流式刷新请求由 `DbSession` 的 request-owned transaction 在 function-scope dependency 结束时提交；返回 task ID 后，后续浏览器轮询可以立即从独立连接读取该任务。
 
 世界观简介优先以已发布页面为综合主干，再用结构化对象和关系补充校验。输入仅保留约
 50 万字符的异常安全栏，单页可使用约 20 万字符，不按常规短上下文压缩；输出导航上限约
@@ -565,8 +564,7 @@ class ResolveResult:
 - `map_dynamic_helpers.py`：动态地图 formatter、risk/priority/label、UUID 安全解析、空间锚点校验等私有 helper。
 - `map_state_assembler.py`、`map_scene_summary.py`、`map_terrain.py`、`map_location_layout.py`、`map_quick_create.py`：独立地图入口，不通过 `map_service.py` 承载业务实现。
 
-地图 observation 创建接口只在事务提交后返回 201，后续确认、列表和地图状态请求可以立即
-从独立连接读取该 observation；提交失败返回稳定的脱敏 500，不暴露不可继续操作的伪成功 ID。
+地图 observation 创建的普通非流式 HTTP 请求由 `DbSession` 的 request-owned transaction 在 function-scope dependency 结束时提交；返回 201 后，后续确认、列表和地图状态请求可以立即从独立连接读取该 observation。
 
 地点布局与绑定的职责固定如下：`map_location_layouts.center_hex` 是编辑锚点，
 `map_location_bindings` 是实际渲染范围。旧地图读取时不会自动补写；显式以
