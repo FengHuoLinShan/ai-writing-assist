@@ -5,6 +5,8 @@
 > FastAPI 后端 · Vue 3 SFC 控制台 · PostgreSQL + pgvector · 异步任务队列
 
 [![Backend CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/frontend-ci.yml)
+[![Production Image CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/production-image-ci.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/production-image-ci.yml)
 [![Architecture docs](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/architecture-docs.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/architecture-docs.yml)
 [![PostgreSQL E2E](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml)
 [![CodeQL](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml)

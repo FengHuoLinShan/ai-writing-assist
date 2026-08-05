@@ -192,6 +192,31 @@ async def _read_upload_file_in_chunks(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
+async def _commit_upload_success(db: DbSession) -> None:
+    """Commit imported chapters before the API exposes a successful response."""
+    try:
+        await db.commit()
+    except Exception as exc:
+        logger.error(
+            "提交导入结果失败 error_type=%s diagnostic=%s",
+            type(exc).__name__,
+            redact_diagnostic(exc, limit=300),
+        )
+        try:
+            await db.rollback()
+        except Exception as rollback_exc:
+            logger.error(
+                "回滚未提交的导入结果失败 error_type=%s diagnostic=%s",
+                type(rollback_exc).__name__,
+                redact_diagnostic(rollback_exc, limit=300),
+            )
+        raise DomainError(
+            "导入结果保存失败，请重试",
+            code="import_commit_failed",
+            status_code=500,
+        ) from exc
+
+
 @router.post("/upload", response_model=ImportResponse, status_code=201)
 async def upload_file(
     db: DbSession,
@@ -203,7 +228,7 @@ async def upload_file(
     await _require_active_project(db, novel_id)
     content = await _read_upload_file_in_chunks(file)
     try:
-        return await _service.upload_and_import(
+        result = await _service.upload_and_import(
             db,
             novel_id,
             os.path.basename(file.filename or "unknown"),
@@ -225,6 +250,8 @@ async def upload_file(
             except Exception:
                 pass
         raise
+    await _commit_upload_success(db)
+    return result
 
 
 @router.get("", response_model=ImportListResponse)

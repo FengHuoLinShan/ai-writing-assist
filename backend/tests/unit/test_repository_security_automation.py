@@ -10,11 +10,47 @@ import yaml
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 CODEQL_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/codeql.yml"
 DEPENDABOT_CONFIG = REPOSITORY_ROOT / ".github/dependabot.yml"
-BACKEND_CI_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/backend-ci.yml"
-CHECKOUT_SHA = "9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"
-TRIVY_ACTION_SHA = "ed142fd0673e97e23eac54620cfb913e5ce36c25"
-UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
-CODEQL_SHA = "d1ba80a13dd99fba24a470575428917156a28b43"
+PRODUCTION_IMAGE_CI_WORKFLOW = (
+    REPOSITORY_ROOT / ".github/workflows/production-image-ci.yml"
+)
+SPLIT_WORKFLOW_CONTRACTS = {
+    REPOSITORY_ROOT / ".github/workflows/backend-ci.yml": (
+        "Backend CI",
+        "backend-ci-${{ github.ref }}",
+        ["backend-quality", "postgresql-critical"],
+    ),
+    REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml": (
+        "Frontend CI",
+        "frontend-ci-${{ github.ref }}",
+        [
+            "frontend-unit-quality",
+            "frontend-browser-smoke",
+            "frontend-map-browser",
+            "frontend-functional-browser",
+        ],
+    ),
+    PRODUCTION_IMAGE_CI_WORKFLOW: (
+        "Production Image CI",
+        "production-image-ci-${{ github.ref }}",
+        ["production-image-contract"],
+    ),
+}
+AUTOMATION_WORKFLOWS = tuple(
+    sorted((REPOSITORY_ROOT / ".github/workflows").glob("*.yml"))
+)
+ALLOWED_ACTIONS = {
+    "actions/checkout",
+    "actions/setup-node",
+    "actions/upload-artifact",
+    "aquasecurity/trivy-action",
+    "astral-sh/setup-uv",
+    "github/codeql-action/analyze",
+    "github/codeql-action/init",
+}
+ACTION_LINE_PATTERN = re.compile(
+    r"^\s*uses:\s+(?P<action>[^@\s]+)@(?P<sha>[0-9a-f]{40})"
+    r"\s+#\s+(?P<version>v[0-9][0-9A-Za-z.\-]*)\s*$"
+)
 CODEQL_SCHEDULE = "17 2 * * 0"
 DEPENDABOT_SCHEDULES = {
     "github-actions": ("/", "monday", "02:10"),
@@ -40,6 +76,71 @@ def _workflow_uses(workflow: dict[str, object]) -> list[str]:
     steps = analyze["steps"]
     assert isinstance(steps, list)
     return [step["uses"] for step in steps if isinstance(step, dict) and "uses" in step]
+
+
+def _action_name(step: dict[str, object]) -> str | None:
+    reference = step.get("uses")
+    if not isinstance(reference, str):
+        return None
+    return reference.partition("@")[0]
+
+
+def _workflow_action_lines(path: Path) -> list[tuple[str, str, str]]:
+    action_lines = [
+        line for line in path.read_text(encoding="utf-8").splitlines() if "uses:" in line
+    ]
+    parsed: list[tuple[str, str, str]] = []
+    for line in action_lines:
+        match = ACTION_LINE_PATTERN.fullmatch(line)
+        assert match is not None, f"unpinned or uncommented action in {path}: {line}"
+        parsed.append((match["action"], match["sha"], match["version"]))
+    return parsed
+
+
+def test_ci_actions_are_allowlisted_fully_pinned_and_consistent() -> None:
+    observed: dict[str, set[tuple[str, str]]] = {}
+
+    for path in AUTOMATION_WORKFLOWS:
+        parsed = _workflow_action_lines(path)
+        assert parsed, path
+        for action, sha, version in parsed:
+            assert action in ALLOWED_ACTIONS
+            family = "/".join(action.split("/")[:2])
+            observed.setdefault(family, set()).add((sha, version))
+
+    inconsistent = {
+        family: sorted(references)
+        for family, references in observed.items()
+        if len(references) != 1
+    }
+    assert inconsistent == {}
+
+
+def test_split_ci_workflows_keep_triggers_permissions_and_unique_concurrency() -> None:
+    observed_groups: set[str] = set()
+
+    for path, (
+        name,
+        concurrency_group,
+        expected_jobs,
+    ) in SPLIT_WORKFLOW_CONTRACTS.items():
+        workflow = _load_yaml(path)
+        assert workflow["name"] == name
+        assert workflow["on"] == {
+            "pull_request": "",
+            "push": {"branches": ["main"]},
+        }
+        assert workflow["permissions"] == {"contents": "read"}
+        assert workflow["concurrency"] == {
+            "group": concurrency_group,
+            "cancel-in-progress": "true",
+        }
+        jobs = workflow["jobs"]
+        assert isinstance(jobs, dict)
+        assert list(jobs) == expected_jobs
+        observed_groups.add(concurrency_group)
+
+    assert len(observed_groups) == len(SPLIT_WORKFLOW_CONTRACTS)
 
 
 def test_codeql_workflow_uses_least_privilege_matrix_analysis() -> None:
@@ -89,30 +190,14 @@ def test_codeql_workflow_uses_least_privilege_matrix_analysis() -> None:
     }
 
     uses = _workflow_uses(workflow)
-    assert uses == [
-        f"actions/checkout@{CHECKOUT_SHA}",
-        f"github/codeql-action/init@{CODEQL_SHA}",
-        f"github/codeql-action/analyze@{CODEQL_SHA}",
+    assert [reference.partition("@")[0] for reference in uses] == [
+        "actions/checkout",
+        "github/codeql-action/init",
+        "github/codeql-action/analyze",
     ]
     assert len(uses) == len(set(uses)) == 3
     for reference in uses:
         assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", reference)
-
-    workflow_text = CODEQL_WORKFLOW.read_text(encoding="utf-8")
-    expected_action_lines = [
-        f"uses: actions/checkout@{CHECKOUT_SHA} # v7.0.0",
-        f"uses: github/codeql-action/init@{CODEQL_SHA} # v4.37.5",
-        f"uses: github/codeql-action/analyze@{CODEQL_SHA} # v4.37.5",
-    ]
-    for expected_line in expected_action_lines:
-        assert (
-            len(
-                re.findall(
-                    rf"^\s*{re.escape(expected_line)}$", workflow_text, re.MULTILINE
-                )
-            )
-            == 1
-        )
 
     steps = analyze["steps"]
     assert isinstance(steps, list)
@@ -168,7 +253,7 @@ def test_dependabot_updates_are_scoped_staggered_and_reviewable() -> None:
 
 
 def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> None:
-    workflow = _load_yaml(BACKEND_CI_WORKFLOW)
+    workflow = _load_yaml(PRODUCTION_IMAGE_CI_WORKFLOW)
 
     assert workflow["permissions"] == {"contents": "read"}
     jobs = workflow["jobs"]
@@ -210,8 +295,7 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     trivy_steps = [
         step
         for step in steps
-        if isinstance(step, dict)
-        and step.get("uses") == f"aquasecurity/trivy-action@{TRIVY_ACTION_SHA}"
+        if isinstance(step, dict) and _action_name(step) == "aquasecurity/trivy-action"
     ]
     assert len(trivy_steps) == 4
     observed_trivy_uses = [
@@ -221,13 +305,7 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
         and isinstance(step.get("uses"), str)
         and step["uses"].startswith("aquasecurity/trivy-action@")
     ]
-    assert (
-        observed_trivy_uses
-        == [
-            f"aquasecurity/trivy-action@{TRIVY_ACTION_SHA}",
-        ]
-        * 4
-    )
+    assert len(set(observed_trivy_uses)) == 1
     assert all(
         "continue-on-error" not in step for step in steps if isinstance(step, dict)
     )
@@ -289,7 +367,8 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     assert "not isinstance(components, list) or not components" in validator_script
 
     upload = by_name["Upload production image SBOMs"]
-    assert upload["uses"] == f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}"
+    assert _action_name(upload) == "actions/upload-artifact"
+    assert re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", upload["uses"])
     assert upload["with"] == {
         "name": "production-image-sboms",
         "path": (
@@ -301,11 +380,9 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
         "retention-days": "14",
     }
 
-    workflow_text = BACKEND_CI_WORKFLOW.read_text(encoding="utf-8")
-    production_job_text = workflow_text.split(
-        "\n  production-image-contract:\n", maxsplit=1
-    )[1]
-    trivy_action = f"uses: aquasecurity/trivy-action@{TRIVY_ACTION_SHA} # v0.36.0"
-    upload_action = f"uses: actions/upload-artifact@{UPLOAD_ARTIFACT_SHA} # v6.0.0"
-    assert production_job_text.count(trivy_action) == 4
-    assert production_job_text.count(upload_action) == 1
+    action_names = [
+        action
+        for action, _sha, _version in _workflow_action_lines(PRODUCTION_IMAGE_CI_WORKFLOW)
+    ]
+    assert action_names.count("aquasecurity/trivy-action") == 4
+    assert action_names.count("actions/upload-artifact") == 1
