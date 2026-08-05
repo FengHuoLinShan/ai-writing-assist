@@ -2,6 +2,13 @@
 
 管理账户级模型连接、只读余额、全局作者偏好和项目级作者偏好覆盖。
 
+## 数据表
+
+- `account_llm_credentials`：owner/provider 唯一的加密 Key、指纹与验证时间；
+- `global_llm_defaults`：owner 唯一的当前模板/provider 与非 secret 兼容默认；
+- `global_author_preferences`：owner 唯一的全局作者偏好；
+- `project_author_preferences`：project 唯一的可空偏好覆盖。
+
 ## 关键约束
 
 - **API Key 永远账户级**：`account_llm_credentials` 按

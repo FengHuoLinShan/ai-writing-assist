@@ -1,8 +1,12 @@
 # ADR — imports 模块子包拆分计划
 
-- **状态**: Proposed
+- **状态**: Partially implemented
 - **日期**: 2026-07-07
 - **关联追踪**: H2
+
+> 2026-07-29 复核：`entity_extraction/` 子包已经落地，并由原模块路径保留兼容 import；
+> parsing、workflow 与 scene 仍主要使用扁平文件，因此 H2 只算部分完成。本文其余内容保留
+> 原始拆分目标，不代表未落地目录已经成为当前契约。
 
 ## 背景
 
@@ -19,9 +23,18 @@
 - `imports/entity_extraction/`：Phase 2 世界对象、别名、关系、记忆 delta 抽取。
 - `imports/scene/`：Scene 切分、enrichment、commit、fusion/review 辅助，以及兼容 repair 入口。
 
+## 当前兑现情况
+
+- 已完成：`imports/entity_extraction/` 承载 Phase 2 世界对象、别名、关系和相关 checkpoint
+  处理，旧模块路径只保留窄兼容 seam。
+- 未完成：文件解析、workflow runtime 和 Scene 阶段尚未整体迁入独立子包；对应扁平模块
+  仍是当前实现入口。
+- 稳定边界未变化：外部仍只经 imports API、facade、contracts 或任务 handler 消费，
+  不能直接依赖新子包内部实现。
+
 ## 边界
 
-本文是设计计划，不表示 H2 已完成。当前代码仍可保持扁平 services/文件布局，直到单独的代码重构 PR 落地。
+本文记录 H2 的完整目标；部分目录已兑现不表示整个拆分完成。
 
 拆分不得改变：
 

@@ -25,6 +25,8 @@ memory 模块维护小说世界的“变化历史”，不是再存一份正史�
 | 表 | 说明 |
 |----|------|
 | `memory_events` | 每章的变化事件流，字段含 `chapter_index`、`sequence`、`event_type`、`snapshot_before`、`snapshot_after` |
+| `memory_scene_checkpoints` | 每个 Scene 的分维度轻量状态、来源版本与 coverage gap |
+| `memory_scene_snapshots` | stage0、周期、章末和 latest 的稀疏 Scene 全量快照 |
 | `memory_snapshots` | 阶段性全景快照，字段含 `chapter_index`、`full_state`、`events_until` |
 | `delta_log` | 结构化字段变更审计，字段含 `scene_index`、`category`、`field_path`、`old_value`、`new_value` |
 

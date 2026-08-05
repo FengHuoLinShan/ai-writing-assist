@@ -5,6 +5,7 @@
 > FastAPI 后端 · Vue 3 SFC 控制台 · PostgreSQL + pgvector · 异步任务队列
 
 [![Backend CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-ci.yml)
+[![Architecture docs](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/architecture-docs.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/architecture-docs.yml)
 [![PostgreSQL E2E](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml)
 [![CodeQL](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
@@ -522,10 +523,14 @@ backend/worker，迁移完成后自动恢复，不会自行修改数据库。
 
 ```bash
 make doctor
+make docs-check
+make docs-check BASE_REF=origin/main
 make test
 ```
 
 需要验证真实 PostgreSQL 语义时，使用仓库的 PostgreSQL critical / E2E 入口；前端开发和视觉回归命令见 `frontend-console/README.md` 与 `testing-guide.md`。
+`docs-check` 会核对当前模块、ORM 表、API 前缀、任务、路由、Prompt、ADR、链接和架构图；
+带 `BASE_REF` 时还会阻止本轮代码改动静默漏掉必查文档。
 
 </details>
 
@@ -537,11 +542,12 @@ make test
 | 整体产品与技术设计 | [docs/00_整体设计.md](docs/00_整体设计.md) |
 | 目标用户与双入口边界 | [docs/product/user-personas.md](docs/product/user-personas.md) |
 | 架构图与阅读约定 | [docs/architecture/README.md](docs/architecture/README.md) |
+| 架构文档清单与防遗漏流程 | [docs/architecture/documentation-maintenance.md](docs/architecture/documentation-maintenance.md) |
 | 各模块稳定接口 | [backend/modules/](backend/modules/)（各模块 `README.md`、`contracts.py` 与 `facade.py`） |
 | 私人 RP 旅程与分支语义 | [backend/modules/interaction/README.md](backend/modules/interaction/README.md) |
 | Prompt 与运行时调用契约 | [docs/prompts/Prompt体系设计.md](docs/prompts/Prompt体系设计.md) |
 | 开发、测试与发布 | [development-guide.md](development-guide.md) · [testing-guide.md](testing-guide.md) · [deploy/README.md](deploy/README.md) |
-| ADR 与长期架构决策 | [docs/adr/](docs/adr/) |
+| ADR 与长期架构决策 | [docs/adr/README.md](docs/adr/README.md) |
 
 ---
 

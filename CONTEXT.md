@@ -2,7 +2,9 @@
 
 本文件是当前代码的领域词汇表，不承载历史实施计划或未来架构设想。系统架构、数据库和
 模块 API 的权威来源依次为 `docs/00_整体设计.md`、`docs/01_数据库设计.md`、模块
-README、ORM 模型与 Alembic migration。
+README、ORM 模型与 Alembic migration。当前文档范围由
+`docs/architecture/architecture-documents.toml` 登记；该清单只防遗漏，不改变上述事实
+优先级。
 
 ## 1. 核心资产
 
@@ -170,4 +172,6 @@ RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interact
 models/repositories/services。
 
 旧 plan、审计快照和历史术语只用于追溯。判断当前行为时，先读对应模块 README、ORM、
-migration 与测试，再更新此词汇表。
+migration 与测试，再更新此词汇表。跨模块语义或资产所有权发生变化时，同一开发轮必须按
+`docs/architecture/documentation-maintenance.md` 更新受影响文档，并运行
+`make docs-check BASE_REF=origin/main`；无语义变化也要在 PR 中显式记录核对结论。

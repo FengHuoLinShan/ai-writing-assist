@@ -19,7 +19,9 @@
 
 1. 运行受影响模块测试与适用 `make lint`。
 2. 对公共行为、数据模型或跨模块调用，同步对应 README、设计文档和测试；使用
-   `docs/architecture/documentation-maintenance.md` 判断影响与记录证据。
+   `docs/architecture/documentation-maintenance.md` 判断影响与记录证据，并运行
+   `make docs-check BASE_REF=origin/main`。脚本列出但未修改的文档必须在 PR 中逐项说明
+   无当前架构影响。
 3. 合并前确认：稳定接口仍正确、隔离与安全规则未破坏、LLM 输出仍满足待处理/授权语义，
    且危险操作仍需确认。
 4. 用户可见功能确认主操作、状态、下一步和错误反馈使用用户语言；高频路径不暴露 raw ID、
@@ -70,7 +72,9 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 
 常用命令：`make dev`、`make test`、`make test-v`、`make test-all`、
 `make test-frontend FRONTEND_ARGS="<test>"`、`make lint`、`make format`、`make db && make migrate`。
-完整命令和 Review 门禁见 `development-guide.md`、`testing-guide.md`。
+完整命令和 Review 门禁见 `development-guide.md`、`testing-guide.md`。架构文档完整性可用
+`make docs-check` 随时验证；机器清单位于
+`docs/architecture/architecture-documents.toml`。
 
 Issue/PR 操作见 `docs/agents/issue-tracker.md`，标签见 `docs/agents/triage-labels.md`，领域
 文档布局见 `docs/agents/domain.md`。

@@ -46,7 +46,9 @@ Three layers:
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, backend and frontend dependency audits, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies; OSV data for backend audit and npm registry/advisory data for frontend audit |
+| `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
+| `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
+| `make test-ci TEST_WORKERS=2` | Local equivalent of architecture inventory, secret hygiene, backend and frontend dependency audits, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies; OSV data for backend audit and npm registry/advisory data for frontend audit |
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests` | Self-contained: `uv` resolves Python 3.12.13 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
@@ -107,7 +109,7 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 
 ### Continuous integration
 
-GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
+GitHub Actions 在 pull request 和 `main` push 上并行运行 `Architecture docs`、`Backend quality`、
 `PostgreSQL critical`、`Frontend unit quality`、`Frontend browser smoke`、`Frontend map browser`、
 `Frontend functional browser` 和 `Production image contract`，全部使用 `ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
 secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
@@ -116,6 +118,8 @@ secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
 这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
 的 pytest/Ruff 可执行文件。
+架构文档 job 使用 Python 3.12 标准库验证当前清单；PR 还相对 base SHA 检查代码差异影响，未修改的必查文档
+只有在 PR 模板逐项核对并提供无影响原因后才能通过。
 PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
 零重试规则执行 fresh migration 与高风险事务契约，并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
@@ -162,7 +166,7 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 `app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。仓库文件不会自动启用
-远端 ruleset/分支保护，需单独配置；启用后，应把 `Backend quality`、`PostgreSQL critical`、
+远端 ruleset/分支保护，需单独配置；启用后，应把 `Architecture docs`、`Backend quality`、`PostgreSQL critical`、
 `Frontend unit quality`、
 `Frontend functional browser`、`Production image contract`、`Frontend map browser`、
 `CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前必需状态检查。

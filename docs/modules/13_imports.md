@@ -8,6 +8,8 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 
 - `import_records` — file_name / file_type / file_size / total_chapters / imported_chapters / status / error_message
 - `imported_chapters` — 仍是活跃的章节正文表并被 world 事件/关系/版本来源 FK 引用；当前上传主路径把章节写为 `writing_drafts`，不把它当作第二个编辑入口
+- `import_workflow_runs` — 项目级活动 workflow、generation、task/attempt/lease owner、
+  授权与 LLM snapshot、恢复 checkpoint；它是可恢复领域状态，不由 `async_tasks` 代替
 
 ## 文件解析器（parsers.py）
 

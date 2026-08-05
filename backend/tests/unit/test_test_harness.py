@@ -499,7 +499,8 @@ def test_aggregate_targets_reuse_existing_backend_and_frontend_targets() -> None
     assert "audit-backend-deps:" in makefile
     assert "audit-frontend-deps:" in makefile
     assert (
-        "test-ci: secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps"
+        "test-ci: docs-check secret-hygiene audit-backend-deps "
+        "lint test-deploy audit-frontend-deps"
         in makefile
     )
     assert "$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS)" in makefile
@@ -548,7 +549,8 @@ def test_deployment_contract_tests_are_a_required_ci_gate() -> None:
     command = _make_dry_run("test-deploy")
 
     assert (
-        "test-ci: secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps"
+        "test-ci: docs-check secret-hygiene audit-backend-deps "
+        "lint test-deploy audit-frontend-deps"
         in (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
     )
     assert "uv run --locked --extra ci --" in command

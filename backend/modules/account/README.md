@@ -21,3 +21,25 @@ loopback）；discovery 的 authorization、token 与 JWKS 端点必须使用 HT
 保持相同 hostname/port。回调从 JWKS 验证 ID token 签名，只允许 `RS256` 或 `ES256`；
 随后要求 `iss`、`aud`、`exp`、`iat`、`sub`，校验 nonce，并以 60 秒 leeway 验证 OIDC
 claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也会校验二者匹配。
+
+## 数据表
+
+- `accounts`：账号状态、支持码和延期删除；
+- `account_identities`：唯一邮箱或 Authing 微信主身份；
+- `web_sessions`：单一有效浏览器会话与 HMAC 摘要；
+- `email_login_challenges`：邮箱验证码摘要、尝试次数和过期状态；
+- `account_security_events`：脱敏安全审计；
+- `account_consents`：版本化协议同意。
+
+## HTTP 入口
+
+- `/api/auth`：邮箱登录/注册、当前账号、退出和邮箱重新认证；
+- `/api/account`：延期删除状态、申请与撤销；
+- `/api/auth/wechat`：Authing 微信登录；
+- `/api/auth/reauth/wechat`：微信重新认证；
+- `/legal/terms`、`/legal/privacy`：公开协议页面。
+
+HTTP 路由只从当前 account principal 解析 owner。跨模块 owner 查询使用
+`current_account_id()`、`current_account_principal()`、
+`current_owner_id_or_system_none()` 与 `require_account_active()`；不得绕过 facade 读取
+账号 ORM。

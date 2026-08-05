@@ -72,7 +72,9 @@ make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
 make test-all                    # Fast backend layer, then frontend tests
-make test-ci TEST_WORKERS=2     # Secret + backend/frontend audit + Ruff + deploy contracts + coverage/RuntimeWarning + Vitest
+make docs-check                  # Current architecture inventory and link/diagram checks
+make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review
+make test-ci TEST_WORKERS=2     # Docs inventory + secret + dependency audits + Ruff + deploy contracts + coverage/RuntimeWarning + Vitest
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
@@ -126,6 +128,10 @@ dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数�
 
 GitHub Actions 的后端门禁、前端 Vitest job、等价本地命令和显式验收层边界见
 [`testing-guide.md`](testing-guide.md#continuous-integration)。
+
+架构文档清单位于 `docs/architecture/architecture-documents.toml`。涉及 API、schema、
+facade/contracts、任务、前端路由/wire 或 Prompt 的分支必须在收尾运行带 `BASE_REF` 的
+检查；脚本列出但未修改的文档只能在 PR 中逐项说明无影响，不能静默忽略。
 
 ## Pinned production toolchains
 
