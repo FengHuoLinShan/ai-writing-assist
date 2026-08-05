@@ -25,6 +25,7 @@
 3. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
 4. [`AI开发规则.md`](AI开发规则.md) — 历史设计说明；Agent 运行时以根目录 `AGENTS.md` 为准
 5. [`核心业务场景与预期行为.md`](核心业务场景与预期行为.md) — 用户可感知业务流程
+6. [`architecture/documentation-maintenance.md`](architecture/documentation-maintenance.md) — 当前架构文档清单、影响矩阵、PR/CI 防遗漏流程
 
 ## 指导文件分工
 
@@ -46,6 +47,9 @@
 - [`architecture/README.md`](architecture/README.md) 分类架构图：当前模块图以
   `module-architecture.drawio` 为可编辑图源、HTML 为兼容预览；`diagrams/` 下的旧图仅作
   历史视觉参考。
+- [`architecture/architecture-documents.toml`](architecture/architecture-documents.toml)
+  是当前架构文档、模块/API 前缀和差异影响规则的机器清单；`make docs-check` 验证完整性，
+  `make docs-check BASE_REF=origin/main` 再验证本轮改动的必查文档。
 
 ## 子模块文档
 
@@ -75,11 +79,8 @@
 
 ## 架构决策
 
-- [`adr/0005-core-entity-type-transition.md`](adr/0005-core-entity-type-transition.md) — CoreEntity 自定义类型、可逆 Profile snapshot 迁移与硬依赖门禁
-- [`adr/0006-world-bible-context-activation-ownership.md`](adr/0006-world-bible-context-activation-ownership.md) — 世界书资料、页面模板与 Context Activation Profile 的所有权边界
-- [`adr/0007-world-generation-center-consolidation.md`](adr/0007-world-generation-center-consolidation.md) — 世界设定 AI 全量进入生成中心、整页建议与工作稿应用边界
-- [`adr/0008-plot-thread-information-progression.md`](adr/0008-plot-thread-information-progression.md) — P20 三个大纲页的当前层 AI 创作、PlotThread 信息推进聚合及伏笔/揭示投影边界
-- [`adr/0010-public-browser-account-system.md`](adr/0010-public-browser-account-system.md) — 公开账号、本地会话、邮箱 OTP、Authing 微信与 owner 隔离
+- [`adr/README.md`](adr/README.md) — 全部编号 ADR、主题 ADR、细化索引、当前状态及取代关系；
+  新增或调整 ADR 状态只维护这一份完整索引，不再在此复制容易漏项的子集
 
 ## 参考与历史资料
 

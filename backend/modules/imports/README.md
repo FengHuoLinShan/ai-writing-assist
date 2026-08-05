@@ -5,6 +5,12 @@
 imports 模块负责小说文件的导入与解析。它不是一个独立的创作模块，而是将外部小说文件转换为系统内部章节正文的通道。
 同时，imports 负责深度导入的工作流编排：把已导入章节交给 Scene 切分、实体抽取和结构分析三个阶段执行。
 
+当前 ORM 表为：
+
+- `import_records`：导入文件元数据；
+- `imported_chapters`：仍被来源 FK 使用的章节正文记录，上传主路径不把它作为第二编辑入口；
+- `import_workflow_runs`：项目级 workflow owner/generation、授权快照和可恢复 checkpoint。
+
 ## 负责
 
 - 上传并解析 txt / epub / html 格式的小说文件；mobi / azw3 保留上传白名单与

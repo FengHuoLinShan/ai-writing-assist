@@ -11,11 +11,13 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 
 当前活跃对象：
 
+- `story_outline_heads` / `story_outline_revisions`：小说总纲当前指针与不可变版本
 - `plot_threads`：剧情线
 - `outline_arcs`：篇章纲
 - `scenes`：最小叙事单元
 - `scene_spans`：从 `scene_chunks` 派生的只读物理片段索引
 - `scene_chapter_links`：Scene 与章节的轻量关联
+- `scene_fusion_suggestions`：融合、替换和重复提取的待处理/历史决定
 - `foreshadowing_plans`：伏笔计划
 - `reveal_plans`：揭示计划
 

@@ -42,7 +42,9 @@ Three layers:
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, Ruff, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies |
+| `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
+| `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
+| `make test-ci TEST_WORKERS=2` | Local equivalent of architecture inventory, secret hygiene, Ruff, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
@@ -98,8 +100,10 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 
 ### Continuous integration
 
-GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality`、
-`PostgreSQL critical` 和 `Frontend unit quality`。后端快速 job checkout 后先用
+GitHub Actions 在 pull request 和 `main` push 上并行运行 `Architecture docs`、
+`Backend quality`、`PostgreSQL critical` 和 `Frontend unit quality`。架构文档 job 使用
+Python 3.12 标准库验证当前清单；PR 还相对 base SHA 检查代码差异影响，未修改的必查文档
+只有在 PR 模板逐项核对并提供无影响原因后才能通过。后端快速 job checkout 后先用
 系统 Python 执行零依赖的 repository secret hygiene gate，再通过 `backend/uv.lock` 安装
 Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后依次执行 `make lint` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
@@ -119,7 +123,8 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 `app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
-后，应把 `Backend quality` 和 `Frontend unit quality` 设为合并前必需状态检查。
+后，应把 `Architecture docs`、`Backend quality`、`PostgreSQL critical` 和
+`Frontend unit quality` 设为合并前必需状态检查。
 本地等价聚合入口是 `make test-ci TEST_WORKERS=2`；它不包含上述显式验收层。
 
 `make format` 暂未纳入 CI：当前仓库仍有历史格式债务，应先在独立机械变更中形成干净

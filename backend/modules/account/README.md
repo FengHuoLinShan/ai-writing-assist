@@ -3,6 +3,15 @@
 公开浏览器账号的领域边界。稳定跨模块入口仅为 `contracts.py` 与 `facade.py`；
 项目和设置模块不得直接依赖账号 ORM 或 service。
 
+## 数据表
+
+- `accounts`：账号状态、支持码和延期删除；
+- `account_identities`：唯一邮箱或 Authing 微信主身份；
+- `web_sessions`：单一有效浏览器会话与 HMAC 摘要；
+- `email_login_challenges`：邮箱验证码摘要、尝试次数和过期状态；
+- `account_security_events`：脱敏安全审计；
+- `account_consents`：版本化协议同意。
+
 ## 一期约束
 
 - 账号只有一个主身份：`email` 或 `authing_wechat`，不绑定、不合并。
@@ -19,3 +28,16 @@ Authing 微信由 `AUTHING_WECHAT_ENABLED` 控制。关闭时所有微信入口�
 `starttls` 或 `ssl`。Authing issuer 与 redirect URI 必须使用 HTTPS（本地环境仅允许 HTTP
 loopback）；discovery 的 authorization、token 与 JWKS 端点必须使用 HTTPS，且与 issuer
 保持相同 hostname/port。
+
+## HTTP 入口
+
+- `/api/auth`：邮箱登录/注册、当前账号、退出和邮箱重新认证；
+- `/api/account`：延期删除状态、申请与撤销；
+- `/api/auth/wechat`：Authing 微信登录；
+- `/api/auth/reauth/wechat`：微信重新认证；
+- `/legal/terms`、`/legal/privacy`：公开协议页面。
+
+HTTP 路由只从当前 account principal 解析 owner。跨模块 owner 查询使用
+`current_account_id()`、`current_account_principal()`、
+`current_owner_id_or_system_none()` 与 `require_account_active()`；不得绕过 facade 读取
+账号 ORM。

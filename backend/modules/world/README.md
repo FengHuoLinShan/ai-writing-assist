@@ -309,6 +309,17 @@ tasks ORM。
 | ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
 
+其余当前 ORM 表按子域归档如下，避免只更新主表时漏掉 schema 所有权：
+
+- 归档：`text_archive`；
+- 类型化 Profile：`species_profiles`、`faction_profiles`、`location_profiles`、
+  `rule_profiles`、`item_profiles`、`secret_profiles`、`entity_profile_templates`、
+  `generic_entity_profiles`；
+- 生成模板：`generation_prompt_templates`、`generation_prompt_template_revisions`；
+- 知识边界：`knowledge_tags`、`character_knowledge_tags`、`asset_knowledge_tags`、
+  `knowledge_tag_exclusions`、`knowledge_visibility_policies`、`reader_reveal_policies`；
+- 作者待处理队列：`creation_suggestion_queue`、`conflict_check_queue`。
+
 `character_knowledge.source_chapter_index` 表示人物学到该知识的章节。
 读者/角色视角仅激活早于可见截止章的记录；无来源章节的旧数据默认排除，
 只有显式标记 `is_public_baseline=true` 的开场公开知识例外。同章但没有更精确学习

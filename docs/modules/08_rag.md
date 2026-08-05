@@ -8,6 +8,8 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 - rag_chunks — source_type / source_id / content_mode / source_content_hash / chapter_index / chunk_index / offset / text / embedding / object refs / scene refs / visibility / index metadata
 - rag_index_state — novel/chapter/content_mode 级的 requested/indexed source ID+hash、status、warnings
+- `rag_entity_appearances` — 从当前有效正文 chunk 派生的对象出场索引；按 Scene 去重，
+  无精确 Scene 时按章去重，可删除并从新鲜索引重建
 
 ## 服务
 

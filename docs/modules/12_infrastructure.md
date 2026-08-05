@@ -189,10 +189,11 @@ HTTP 请求在认证、CORS 和路由之前经过进程级 token bucket。限流
 |------|------|
 | project | `smart_dedup_scan` |
 | world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh` |
-| outline | `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate` |
-| rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings` |
+| outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate` |
+| rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities` |
 | writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review` |
-| imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
+| imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction`、`map_observation_enrichment` |
+| interaction | `interaction_story_generate`、`interaction_summary_refresh` |
 
 任务处理器由模块 `tasks.py` 在应用/worker 启动时注册；新增或移除处理器时应更新此表并保留
 `async_tasks` 的兼容状态语义。
@@ -203,6 +204,8 @@ HTTP 请求在认证、CORS 和路由之前经过进程级 token bucket。限流
 该关联仅覆盖当前进程内 HTTP 请求/worker attempt，不替代跨进程 trace/span。
 
 ### API
+
+任务 HTTP 前缀为 `/api/tasks`：
 
 ```
 POST /api/tasks            # 提交任务

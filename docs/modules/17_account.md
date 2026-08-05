@@ -15,9 +15,27 @@
 
 ## 数据与隔离
 
-`accounts` 保存状态、支持码和删除到期时间；`account_identities` 保存唯一身份；
-`web_sessions`、`email_login_challenges` 只保存 keyed HMAC 摘要；安全事件与协议同意
-随账号清除。`projects.owner_id` 是非空外键，项目、设置和任务入口都通过 owner 门禁。
+| 表 | 职责 |
+|---|---|
+| `accounts` | 账号状态、支持码、删除申请和到期时间 |
+| `account_identities` | 唯一邮箱或 Authing 微信主身份 |
+| `web_sessions` | 单一有效浏览器会话及令牌/CSRF 摘要 |
+| `email_login_challenges` | 邮箱验证码 keyed HMAC、尝试次数和过期状态 |
+| `account_security_events` | 不含项目内容的脱敏安全审计 |
+| `account_consents` | 版本化协议同意记录 |
+
+安全事件与协议同意随账号清除。`projects.owner_id` 是非空外键，项目、设置和任务入口都通过
+owner 门禁。
+
+## HTTP 入口
+
+- `/api/auth`：配置、邮箱登录/注册、当前账号、退出和邮箱重新认证；
+- `/api/account`：延期删除状态、申请与撤销；
+- `/api/auth/wechat`：Authing 微信登录；
+- `/api/auth/reauth/wechat`：微信重新认证。
+
+条款和隐私页是无 API 前缀的 `/legal/terms` 与 `/legal/privacy`。所有写请求仍经过同源、
+XHR、CSRF 和账号状态门禁；调用方不能提交 owner ID。
 
 运维入口为：
 

@@ -17,8 +17,10 @@ context 模块决定“这次 AI 操作到底能看到哪些资料”，不是�
 context 本身不拥有业务事实，但当前**有自己的确认与审计记录表**：
 
 - `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
+- `context_confirmation_asset_refs`：把确认记录精确索引到资产 kind/id、来源 hash 与失效检查
 - `context_snapshots`：自动 AI 调用上下文快照，保存 task_id、workflow_id、phase、context_mode、included_asset_ids、摘要、prompt_hash、token/section metadata、result_refs 和错误信息
 - `evidence_links`：使用 `TargetRef + claim_path` 将对象字段连到 `SourceRangeRef`；保存 precision/status/provenance，不创建独立 Claim 正史
+- `context_retrieval_traces`：只保存查询计划 hash、clause 摘要、计数和 safe-empty 原因，不保存 raw query/正文
 - `context_activation_profiles` / `context_activation_profile_revisions`：项目级 AI 参考规则 aggregate 与不可变发布历史；运行时只消费已发布 revision
 
 聚合来源仍来自：

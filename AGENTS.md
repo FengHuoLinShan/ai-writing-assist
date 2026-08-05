@@ -14,6 +14,9 @@
 4. 新增或显著修改用户可见功能前，阅读 `docs/product/user-personas.md`；计划与 Review 必须
    明确目标画像、用户会喜欢它的理由、前端舒适度、主要摩擦和验证方式。功能可以只服务其中
    一类画像，但不得把作者后台复杂度无差别转嫁给阅读型用户。
+5. 开始非平凡实现前运行 `make docs-check`，确认当前架构文档清单没有既有漂移；收尾运行
+   `make docs-check BASE_REF=origin/main`，按输出更新文档，或在 PR 中逐项说明无当前文档
+   影响。机器清单位于 `docs/architecture/architecture-documents.toml`。
 
 Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆盖本文件或稳定接口。
 
@@ -76,7 +79,8 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 
 - 合并、删除、废弃等危险操作保留二次确认；不得提交 `.env`，不得跳过受影响模块测试合并。
 - 公共契约、用户行为、数据模型或跨模块调用变化时，在评审前同步权威文档和测试。纯内部重排
-  不强制更新设计文档。执行细则见 `docs/architecture/documentation-maintenance.md`。
+  不强制改写设计文档，但必须显式核对并记录无影响原因。执行细则和自动门禁见
+  `docs/architecture/documentation-maintenance.md`。
 - 修改 `core/`、`shared/`、`infrastructure/` 前必须理解调用边界并显式说明风险。
 
 ## 协作与冲突
@@ -99,7 +103,8 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 
 ## 完成与停止
 
-- 完成：指定功能、受影响测试、适用 lint 和文档同步均已完成。
+- 完成：指定功能、受影响测试、适用 lint、`make docs-check BASE_REF=origin/main` 和文档
+  同步/无影响核对均已完成。
 - 停止并报告：需要用户确认、Spec 矛盾、外部依赖连续 3 次不可用、同一测试修复尝试 3 次后
   仍失败，或任务需要未经确认的新架构。
 - 立即停止：发现真实数据丢失风险、跨 `novel_id` 泄漏、安全规则绕过，或未确认的破坏性 Git

@@ -68,7 +68,9 @@ RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIM
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make test-all                    # Fast backend layer, then frontend tests
-make test-ci TEST_WORKERS=2     # Secret + Ruff + coverage/RuntimeWarning + Vitest
+make docs-check                 # Current architecture inventory and link/diagram checks
+make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review
+make test-ci TEST_WORKERS=2     # Docs inventory + Secret + Ruff + coverage/RuntimeWarning + Vitest
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
@@ -80,11 +82,15 @@ Frontend has no independent lint/format dependency in `frontend-console/package.
 
 `python -m scripts.reset_map_subsystem` 是地图子系统的开发管理预检工具。它只提供
 dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数据库 fingerprint，
-会校验 16 张 `map_*` 表、FK、活跃引用和运行任务。当前 CLI 没有
+会校验 17 张 `map_*` 表、FK、活跃引用和运行任务。当前 CLI 没有
 `--execute` / `--yes` 或目标库删除分支；不得把 dry-run 的 ready 结果解释为已获得清空授权。
 
 GitHub Actions 的后端门禁、前端 Vitest job、等价本地命令和显式验收层边界见
 [`testing-guide.md`](testing-guide.md#continuous-integration)。
+
+架构文档清单位于 `docs/architecture/architecture-documents.toml`。涉及 API、schema、
+facade/contracts、任务、前端路由/wire 或 Prompt 的分支必须在收尾运行带 `BASE_REF` 的
+检查；脚本列出但未修改的文档只能在 PR 中逐项说明无影响，不能静默忽略。
 
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
 `prompts/`, and `alembic/`; worker reload watches the same schema-sensitive paths.
