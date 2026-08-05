@@ -20,6 +20,7 @@ from infrastructure.tasks.contracts import (
     CoalescedTaskContract,
     TaskCoalescingMode,
 )
+from infrastructure.tasks.identity import prepare_task_identity, task_novel_id_from_meta
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 
@@ -56,13 +57,23 @@ def _new_task(
     status: str,
     progress: float,
     coalescing_key: str | None,
+    novel_id: str | None,
 ) -> AsyncTask:
     definition = TaskRegistry().get_definition(task_type)
+    if novel_id is None and task_novel_id_from_meta(meta) is not None:
+        raise ValueError("project-scoped tasks require an explicit novel_id argument")
+    task_novel_id, task_meta = prepare_task_identity(meta, novel_id=novel_id)
+    if definition is not None:
+        if definition.owner_scope == "project" and task_novel_id is None:
+            raise ValueError("project-scoped tasks require a novel_id")
+        if definition.owner_scope == "global" and task_novel_id is not None:
+            raise ValueError("global tasks must not have a novel_id")
     return AsyncTask(
         id=uuid.uuid4(),
         task_type=task_type,
         status=status,
-        meta=meta or {},
+        novel_id=task_novel_id,
+        meta=task_meta,
         progress=progress,
         recovery_policy=(definition.recovery_policy if definition else "restart_origin"),
         max_attempts=definition.max_attempts if definition else 1,
@@ -77,6 +88,8 @@ def enqueue_task(
     meta: dict[str, Any] | None = None,
     status: str = "pending",
     progress: float = 0.0,
+    *,
+    novel_id: str | None,
 ) -> str:
     """创建并添加一个异步任务到 session，返回 task_id"""
     task = _new_task(
@@ -85,6 +98,7 @@ def enqueue_task(
         meta=meta or {},
         progress=progress,
         coalescing_key=None,
+        novel_id=novel_id,
     )
     db.add(task)
     return str(task.id)
@@ -177,6 +191,7 @@ async def enqueue_coalesced_task(
         status="pending",
         progress=0.0,
         coalescing_key=key,
+        novel_id=novel_id,
     )
     try:
         async with db.begin_nested():

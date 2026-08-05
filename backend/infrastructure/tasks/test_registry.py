@@ -50,6 +50,27 @@ class TestTaskRegistry:
         assert definition.recovery_policy == "auto_requeue"
         assert definition.max_attempts == 2
         assert definition.generic_submit_schema is _GenericTaskMeta
+        assert definition.owner_scope == "project"
+
+    def test_register_freezes_explicit_global_owner_scope(self) -> None:
+        registry = get_registry()
+
+        async def handler(db, task):
+            return {"ok": True}
+
+        registry.register("test_type", handler, owner_scope="global")
+        definition = registry.get_definition("test_type")
+        assert definition is not None
+        assert definition.owner_scope == "global"
+
+    def test_register_rejects_unknown_owner_scope(self) -> None:
+        registry = get_registry()
+
+        async def handler(db, task):
+            return {"ok": True}
+
+        with pytest.raises(ValueError, match="owner scope"):
+            registry.register("test_type", handler, owner_scope="other")  # type: ignore[arg-type]
 
     def test_register_rejects_non_pydantic_generic_submit_schema(self) -> None:
         registry = get_registry()

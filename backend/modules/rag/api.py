@@ -189,6 +189,7 @@ async def rebuild_rag_index(
             "end_chapter": request.end_chapter,
             "content_mode": request.content_mode,
         },
+        novel_id=request.novel_id,
     )
     return {"task_id": task_id, "status": "pending"}
 
@@ -209,6 +210,7 @@ async def retry_embeddings(
             "end_chapter": request.end_chapter,
             "statuses": list(request.statuses),
         },
+        novel_id=request.novel_id,
     )
     return {"task_id": task_id, "status": "pending"}
 

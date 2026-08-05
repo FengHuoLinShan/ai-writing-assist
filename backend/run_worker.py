@@ -41,7 +41,7 @@ def setup_logging() -> None:
 
 async def _require_active_task_project(db, task) -> None:
     """Non-locking worker start check; lease fencing handles later deletion."""
-    novel_id = str((task.meta or {}).get("novel_id") or "").strip()
+    novel_id = str(task.novel_id or "").strip()
     if not novel_id:
         return
 
@@ -63,7 +63,7 @@ async def _require_active_task_project(db, task) -> None:
 
 async def _guard_active_task_project_finalize(db, task) -> bool:
     """Linearize terminal task status before or after project deletion."""
-    novel_id = str((task.meta or {}).get("novel_id") or "").strip()
+    novel_id = str(task.novel_id or "").strip()
     if not novel_id:
         return True
 

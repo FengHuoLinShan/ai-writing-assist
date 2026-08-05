@@ -100,6 +100,18 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
             item["name"]: item
             for item in inspector.get_indexes("interaction_account_preferences")
         }
+        task_indexes = {
+            item["name"]: item for item in inspector.get_indexes("async_tasks")
+        }
+        task_foreign_keys = inspector.get_foreign_keys("async_tasks")
+        task_triggers = set(
+            connection.execute(
+                text(
+                    "SELECT tgname FROM pg_trigger "
+                    "WHERE tgrelid = 'async_tasks'::regclass AND NOT tgisinternal"
+                )
+            ).scalars()
+        )
 
     assert current_heads == expected_heads
     assert set(Base.metadata.tables) <= tables
@@ -114,6 +126,14 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
     assert interaction_preference_indexes[
         "ix_interaction_account_preferences_owner_id"
     ]["unique"]
+    assert "ix_async_tasks_novel_id" in task_indexes
+    assert any(
+        foreign_key.get("constrained_columns") == ["novel_id"]
+        and foreign_key.get("referred_table") == "projects"
+        and (foreign_key.get("options") or {}).get("ondelete", "").upper() == "CASCADE"
+        for foreign_key in task_foreign_keys
+    )
+    assert "trg_async_tasks_novel_id_identity" in task_triggers
 
 
 def test_empty_postgresql_database_upgrades_from_base_to_head(

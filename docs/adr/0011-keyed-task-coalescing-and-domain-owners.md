@@ -23,6 +23,12 @@ coalescing，同时需要由领域表持有不可从通用 task 状态推断的 
 
 ### 1. `async_tasks` 提供通用 keyed coalescing
 
+`async_tasks.novel_id` 同时是任务项目边界的一等、可索引且不可变列，并以
+`ON DELETE CASCADE` 外键关联 `projects.id`。`meta.novel_id` 仅保留兼容投影：新任务以显式
+`enqueue_task(..., novel_id=...)` 建立规范 UUID 的列/投影，数据库与 ORM 拒绝漂移；显式
+`owner_scope="global"` 的任务两处都为 NULL/缺失。当前业务 handler 全部为 project scope，
+所有授权、lifecycle 和 worker preflight 均以列为准，HTTP 与前端 wire 不变。
+
 `async_tasks.coalescing_key` 保存内部 SHA-256，不保存或暴露原始 key。v1 输入严格为：
 
 ```text

@@ -1509,6 +1509,7 @@ async def test_retry_embeddings_endpoint_enqueues_task() -> None:
             "end_chapter": 3,
             "statuses": ["failed"],
         },
+        novel_id=request.novel_id,
     )
 
 

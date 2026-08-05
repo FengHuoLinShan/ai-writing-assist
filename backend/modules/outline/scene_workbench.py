@@ -961,6 +961,7 @@ class SceneWorkbenchService:
                 "end_chapter": chapter_indices[-1] if chapter_indices else None,
                 "source": "scene_replacement_apply",
             },
+            novel_id=novel_id,
         )
         return SceneReplacementApplyResponse(
             deprecated_scene_ids=[str(scene.id) for scene in source_scenes],

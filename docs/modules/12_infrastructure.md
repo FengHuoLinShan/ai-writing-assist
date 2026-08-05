@@ -312,9 +312,15 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 消费的显式启动 manifest，并负责在两个组合根注册这些声明。`infrastructure/tasks` 不导入或
 自动发现业务模块。新增或移除处理器时应更新此表并保留 `async_tasks` 的兼容状态语义。
 
-每个 worker attempt 使用独立日志作用域。claim 时即使 `meta.novel_id` 存在也只记录
+`AsyncTask.novel_id` 是项目任务的一等、可索引且不可变 owner；外键 `ON DELETE CASCADE`
+指向 `projects.id`。`meta.novel_id` 仅为兼容投影，入队、ORM 事件和数据库 trigger 都要求它与
+列规范 UUID 一致。`TaskDefinition.owner_scope` 默认 `project`，当前表中处理器均为 project
+scope，普通 `enqueue_task(..., novel_id=...)` 必须显式传入 owner；只有显式 `global` handler
+才允许 NULL owner，且不能携带非空 `meta.novel_id`。
+
+每个 worker attempt 使用独立日志作用域。claim 时即使一等 `task.novel_id` 存在也只记录
 `<unverified>`；组合根 project preflight 经 facade 确认项目存在后才绑定规范化 UUID，之后的
-执行、完成、取消或失败日志共享该关联。缺少门禁、门禁失败或畸形 meta 不会产生可信项目 ID。
+执行、完成、取消或失败日志共享该关联。缺少门禁、门禁失败或畸形投影不产生可信项目 ID。
 该关联仅覆盖当前进程内 HTTP 请求/worker attempt，不替代跨进程 trace/span。
 
 ### API

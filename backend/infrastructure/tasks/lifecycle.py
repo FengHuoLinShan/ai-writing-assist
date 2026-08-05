@@ -19,6 +19,7 @@ from infrastructure.tasks.contracts import (
     TaskOwnerContract,
 )
 from infrastructure.tasks.enqueuer import lock_task_coalescing_key
+from infrastructure.tasks.identity import require_matching_task_identity
 from infrastructure.tasks.models import AsyncTask
 
 _INVALID_TASK_META = object()
@@ -47,7 +48,7 @@ class TaskLifecycleService:
                 .where(
                     AsyncTask.id == parsed_id,
                     AsyncTask.task_type == task_type,
-                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                    AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                     AsyncTask.status.in_(("pending", "running")),
                 )
                 .with_for_update()
@@ -83,7 +84,7 @@ class TaskLifecycleService:
                 .where(
                     AsyncTask.id == parsed_id,
                     AsyncTask.task_type.in_(sorted(task_types)),
-                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                    AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 )
                 .with_for_update()
             )
@@ -154,7 +155,7 @@ class TaskLifecycleService:
                 .where(
                     AsyncTask.id == parsed_id,
                     AsyncTask.task_type.in_(sorted(task_types)),
-                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                    AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 )
                 .with_for_update()
             )
@@ -186,7 +187,7 @@ class TaskLifecycleService:
                 .where(
                     AsyncTask.id == parsed_id,
                     AsyncTask.task_type.in_(sorted(task_types)),
-                    AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                    AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 )
                 .with_for_update()
             )
@@ -218,7 +219,7 @@ class TaskLifecycleService:
         stmt = (
             select(AsyncTask.task_type)
             .where(
-                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 AsyncTask.status == "running",
                 AsyncTask.task_type.in_(sorted(task_types)),
                 AsyncTask.id != excluded_id,
@@ -247,7 +248,7 @@ class TaskLifecycleService:
             .where(
                 AsyncTask.id == parsed_id,
                 AsyncTask.task_type == task_type,
-                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 AsyncTask.status == "running",
                 AsyncTask.lease_id == str(lease_id),
                 AsyncTask.attempt == int(attempt),
@@ -278,6 +279,7 @@ class TaskLifecycleService:
         stmt = select(
             AsyncTask.id,
             AsyncTask.task_type,
+            AsyncTask.novel_id,
             AsyncTask.meta,
             AsyncTask.result,
             AsyncTask.updated_at,
@@ -285,7 +287,7 @@ class TaskLifecycleService:
             AsyncTask.id == parsed_task_id,
             AsyncTask.task_type == str(task_type),
             AsyncTask.status == "done",
-            AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+            AsyncTask.novel_id == uuid.UUID(str(novel_id)),
         )
         if for_update:
             stmt = stmt.with_for_update()
@@ -314,7 +316,7 @@ class TaskLifecycleService:
         return CompletedTaskPayloadContract(
             task_id=str(row["id"]),
             task_type=str(row["task_type"]),
-            novel_id=str(novel_id),
+            novel_id=str(row["novel_id"]),
             result=deepcopy(dict(row["result"] or {})),
             revision_token=row["updated_at"],
             context_confirmation_id=context_confirmation_id,
@@ -355,7 +357,7 @@ class TaskLifecycleService:
                 AsyncTask.id == parsed_task_id,
                 AsyncTask.task_type == str(task_type),
                 AsyncTask.status == "done",
-                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 revision_clause,
             )
             .values(
@@ -409,9 +411,7 @@ class TaskLifecycleService:
             parsed_task_id = uuid.UUID(str(task_id))
         except (TypeError, ValueError):
             return None
-        stmt = select(AsyncTask.meta["novel_id"].as_string()).where(
-            AsyncTask.id == parsed_task_id
-        )
+        stmt = select(AsyncTask.novel_id).where(AsyncTask.id == parsed_task_id)
         novel_id = (await db.execute(stmt)).scalar_one_or_none()
         if not novel_id:
             return None
@@ -425,6 +425,7 @@ class TaskLifecycleService:
         lease_id: str,
     ) -> bool:
         """Merge detached handler progress while fencing the running lease."""
+        require_matching_task_identity(novel_id=task.novel_id, meta=task.meta)
         result = await db.execute(
             update(AsyncTask)
             .where(
@@ -454,7 +455,7 @@ class TaskLifecycleService:
         result = await db.execute(
             update(AsyncTask)
             .where(
-                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 AsyncTask.status.in_(("pending", "running")),
             )
             .values(
@@ -475,12 +476,14 @@ class TaskLifecycleService:
         novel_ids: list[str],
     ) -> int:
         """Delete task history for permanently deleted projects."""
-        normalized_ids = list(dict.fromkeys(str(novel_id) for novel_id in novel_ids))
+        normalized_ids = list(
+            dict.fromkeys(uuid.UUID(str(novel_id)) for novel_id in novel_ids)
+        )
         if not normalized_ids:
             return 0
         result = await db.execute(
             delete(AsyncTask).where(
-                AsyncTask.meta["novel_id"].as_string().in_(normalized_ids),
+                AsyncTask.novel_id.in_(normalized_ids),
             )
         )
         await db.flush()
@@ -502,17 +505,10 @@ class TaskLifecycleService:
                 continue
         if not parsed:
             return {}
-        tasks = list(
-            (
-                await db.execute(select(AsyncTask).where(AsyncTask.id.in_(parsed)))
-            ).scalars()
-        )
+        stmt = select(AsyncTask).where(AsyncTask.id.in_(parsed))
         if novel_id is not None:
-            tasks = [
-                task
-                for task in tasks
-                if str((task.meta or {}).get("novel_id") or "") == str(novel_id)
-            ]
+            stmt = stmt.where(AsyncTask.novel_id == uuid.UUID(str(novel_id)))
+        tasks = list((await db.execute(stmt)).scalars())
         return {
             str(task.id): lifecycle_contract(
                 task,

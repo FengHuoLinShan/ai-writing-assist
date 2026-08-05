@@ -77,6 +77,7 @@ async def create_draft(
         db,
         "publish_chapter",
         meta={"novel_id": novel_id, "chapter_index": chapter_index},
+        novel_id=novel_id,
     )
     return draft, task_id
 

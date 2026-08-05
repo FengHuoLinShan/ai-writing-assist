@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from infrastructure.tasks.facade import enqueue_coalesced_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
+from modules.project.models import Project
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -43,6 +44,14 @@ async def test_concurrent_transactions_reuse_one_pending_task() -> None:
             return queued.task_id
 
     try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                Project(
+                    id=uuid.UUID(novel_id),
+                    title="coalescing pending race",
+                )
+            )
+
         first_id, second_id = await asyncio.gather(submit(), submit())
 
         assert first_id == second_id
@@ -60,6 +69,9 @@ async def test_concurrent_transactions_reuse_one_pending_task() -> None:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(
                 delete(AsyncTask).where(AsyncTask.task_type == task_type)
+            )
+            await cleanup_db.execute(
+                delete(Project).where(Project.id == uuid.UUID(novel_id))
             )
         await engine.dispose()
 
@@ -84,6 +96,14 @@ async def test_running_owner_allows_only_one_pending_follower() -> None:
             return queued.task_id
 
     try:
+        async with sessions.begin() as project_db:
+            project_db.add(
+                Project(
+                    id=uuid.UUID(novel_id),
+                    title="coalescing pending follower",
+                )
+            )
+
         async with sessions.begin() as setup_db:
             owner = await enqueue_coalesced_task(
                 setup_db,
@@ -119,5 +139,8 @@ async def test_running_owner_allows_only_one_pending_follower() -> None:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(
                 delete(AsyncTask).where(AsyncTask.task_type == task_type)
+            )
+            await cleanup_db.execute(
+                delete(Project).where(Project.id == uuid.UUID(novel_id))
             )
         await engine.dispose()

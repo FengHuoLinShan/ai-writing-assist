@@ -108,6 +108,7 @@ class ImportService:
                         db,
                         "publish_chapter",
                         meta={"novel_id": novel_id, "chapter_index": idx},
+                        novel_id=novel_id,
                     )
 
         except _NoEffectiveChaptersError:

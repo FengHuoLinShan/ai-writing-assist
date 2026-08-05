@@ -65,6 +65,7 @@ async def test_guarded_enqueue_is_cancelled_by_waiting_soft_delete() -> None:
                 guarded_db,
                 "rag_reindex_novel",
                 meta={"novel_id": str(project_id)},
+                novel_id=str(project_id),
             )
             await guarded_db.flush()
             await guarded_db.commit()
@@ -97,9 +98,7 @@ async def test_guarded_enqueue_is_cancelled_by_waiting_soft_delete() -> None:
             await asyncio.gather(delete_task, return_exceptions=True)
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(
-                delete(AsyncTask).where(
-                    AsyncTask.meta["novel_id"].as_string() == str(project_id)
-                )
+                delete(AsyncTask).where(AsyncTask.novel_id == project_id)
             )
             await cleanup_db.execute(delete(Project).where(Project.id == project_id))
         await engine.dispose()
@@ -176,22 +175,23 @@ async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint() ->
 
     try:
         async with sessions.begin() as setup_db:
-            setup_db.add_all(
-                [
-                    Project(
-                        id=project_id,
-                        title="project delete finalize race",
-                        language="zh",
-                        default_reveal_policy="author_safe",
-                        settings={},
-                    ),
-                    AsyncTask(
-                        id=task_id,
-                        task_type=task_type,
-                        status="pending",
-                        meta={"novel_id": str(project_id)},
-                    ),
-                ]
+            setup_db.add(
+                Project(
+                    id=project_id,
+                    title="project delete finalize race",
+                    language="zh",
+                    default_reveal_policy="author_safe",
+                    settings={},
+                )
+            )
+            await setup_db.flush()
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    meta={"novel_id": str(project_id)},
+                )
             )
 
         worker_task = asyncio.create_task(worker.run_once())

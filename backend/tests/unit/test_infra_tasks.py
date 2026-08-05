@@ -23,6 +23,8 @@ from pydantic import BaseModel, ConfigDict
 from core.container import override
 from infrastructure.tasks.registry import TaskRegistry
 
+_TASK_NOVEL_ID = "00000000-0000-0000-0000-000000000123"
+
 
 class _TestTaskMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -84,6 +86,7 @@ class TestEnqueueTask:
             status="pending",
             progress=0.0,
             coalescing_key=None,
+            novel_id=None,
         )
 
         assert task.task_type == "unknown_task_type_for_compatibility_test"
@@ -101,7 +104,7 @@ class TestEnqueueTask:
         db = MagicMock()
         db.add = MagicMock()
 
-        task_id = enqueue_task(db, task_type="test_type")
+        task_id = enqueue_task(db, task_type="test_type", novel_id=None)
 
         # 验证返回 task_id
         assert isinstance(task_id, str)
@@ -122,12 +125,14 @@ class TestEnqueueTask:
         db = MagicMock()
         db.add = MagicMock()
 
+        novel_id = str(uuid.uuid4())
         task_id = enqueue_task(
             db,
             task_type="embedding_build",
-            meta={"novel_id": "abc-123"},
+            meta={"novel_id": novel_id},
             status="running",
             progress=0.5,
+            novel_id=novel_id,
         )
 
         assert isinstance(task_id, str)
@@ -135,7 +140,8 @@ class TestEnqueueTask:
         assert task.task_type == "embedding_build"
         assert task.status == "running"
         assert task.progress == 0.5
-        assert task.meta == {"novel_id": "abc-123"}
+        assert task.meta == {"novel_id": novel_id}
+        assert task.novel_id == uuid.UUID(novel_id)
 
     def test_create_task_meta_none_becomes_empty_dict(self) -> None:
         """GREEN: meta=None 时转为空 dict"""
@@ -144,7 +150,7 @@ class TestEnqueueTask:
         db = MagicMock()
         db.add = MagicMock()
 
-        enqueue_task(db, task_type="test", meta=None)
+        enqueue_task(db, task_type="test", meta=None, novel_id=None)
 
         task = db.add.call_args[0][0]
         assert task.meta == {}
@@ -301,7 +307,7 @@ class TestGetTaskStatus:
         task_mock.task_type = "test_type"
         task_mock.status = "done"
         task_mock.progress = 1.0
-        task_mock.meta = {"novel_id": "abc"}
+        task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
         task_mock.result = {"output": "ok"}
         task_mock.error_message = None
         task_mock.created_at = now
@@ -313,16 +319,16 @@ class TestGetTaskStatus:
         result_mock.scalar_one_or_none.return_value = task_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        response = await get_task_status(task_id, db=db, novel_id="abc")
+        response = await get_task_status(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert response.task_id == str(task_id)
         assert response.task_type == "test_type"
         assert response.status == "done"
         assert response.progress == 1.0
-        assert response.meta == {"novel_id": "abc"}
+        assert response.meta == {"novel_id": _TASK_NOVEL_ID}
         assert response.result == {"output": "ok"}
         assert response.error_message is None
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
         sql = _compiled_execute_statement(db)
         assert "async_tasks.id" in sql
         assert "novel_id" in sql
@@ -343,10 +349,10 @@ class TestGetTaskStatus:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_task_status(task_id, db=db, novel_id="abc")
+            await get_task_status(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert exc_info.value.status_code == 404
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
 
     @pytest.mark.asyncio
     async def test_status_fallback_when_none(
@@ -363,7 +369,7 @@ class TestGetTaskStatus:
         task_mock.task_type = "test"
         task_mock.status = None  # <-- None
         task_mock.progress = None
-        task_mock.meta = {"novel_id": "abc"}
+        task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
         task_mock.result = None
         task_mock.error_message = None
         task_mock.created_at = None
@@ -375,13 +381,13 @@ class TestGetTaskStatus:
         result_mock.scalar_one_or_none.return_value = task_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        response = await get_task_status(task_id, db=db, novel_id="abc")
+        response = await get_task_status(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert response.status == "pending"
-        assert response.meta == {"novel_id": "abc"}
+        assert response.meta == {"novel_id": _TASK_NOVEL_ID}
         assert response.result == {}
         assert response.created_at is None
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
 
 
 class TestCancelTask:
@@ -400,7 +406,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "pending"
-        task_mock.meta = {"novel_id": "abc"}
+        task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
         task_mock.mark_cancelled = MagicMock()
 
         db = AsyncMock()
@@ -409,12 +415,12 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
         db.flush = AsyncMock()
 
-        response = await cancel_task(task_id, db=db, novel_id="abc")
+        response = await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert response.task_id == str(task_id)
         assert response.cancelled is True
         task_mock.mark_cancelled.assert_called_once()
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
         sql = _compiled_execute_statement(db)
         assert "async_tasks.id" in sql
         assert "novel_id" in sql
@@ -432,7 +438,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "running"
-        task_mock.meta = {"novel_id": "abc"}
+        task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
         task_mock.mark_cancelled = MagicMock()
 
         db = AsyncMock()
@@ -441,10 +447,10 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
         db.flush = AsyncMock()
 
-        response = await cancel_task(task_id, db=db, novel_id="abc")
+        response = await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
         assert response.cancelled is True
         task_mock.mark_cancelled.assert_called_once()
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
 
     @pytest.mark.asyncio
     async def test_cancel_done_task_raises_400(
@@ -459,7 +465,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "done"
-        task_mock.meta = {"novel_id": "abc"}
+        task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
 
         db = AsyncMock()
         result_mock = MagicMock()
@@ -467,11 +473,11 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await cancel_task(task_id, db=db, novel_id="abc")
+            await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert exc_info.value.status_code == 400
         assert "done" in exc_info.value.detail
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
 
     @pytest.mark.asyncio
     async def test_cancel_failed_task_raises_400(
@@ -486,7 +492,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "failed"
-        task_mock.meta = {"novel_id": "abc"}
+        task_mock.meta = {"novel_id": _TASK_NOVEL_ID}
 
         db = AsyncMock()
         result_mock = MagicMock()
@@ -494,10 +500,10 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await cancel_task(task_id, db=db, novel_id="abc")
+            await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert exc_info.value.status_code == 400
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
 
     @pytest.mark.asyncio
     async def test_cancel_nonexistent_task_raises_404(
@@ -515,10 +521,10 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await cancel_task(task_id, db=db, novel_id="abc")
+            await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert exc_info.value.status_code == 404
-        active_project_guard.assert_awaited_once_with(db, "abc")
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
 
 
 # ============================================================
@@ -693,6 +699,185 @@ class TestTaskWorkerClaimTask:
 
 class TestTaskWorkerExecuteTask:
     """TaskWorker._execute_task 单元测试"""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("owner_scope", "novel_id"),
+        [
+            ("project", None),
+            ("global", uuid.uuid4()),
+        ],
+        ids=["project-without-owner", "global-with-owner"],
+    )
+    async def test_owner_scope_violation_fails_before_preflight_or_handler(
+        self,
+        owner_scope: str,
+        novel_id: uuid.UUID | None,
+    ) -> None:
+        """Persisted scope drift is terminal even if the enqueuer was bypassed."""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_type = f"test-owner-scope-{owner_scope}-{uuid.uuid4().hex}"
+        handler_calls: list[None] = []
+
+        async def handler(**_kwargs):
+            handler_calls.append(None)
+            return {"ok": True}
+
+        registry = TaskRegistry()
+        registry.register(task_type, handler, owner_scope=owner_scope)  # type: ignore[arg-type]
+        try:
+            task_mock = MagicMock()
+            task_mock.id = uuid.uuid4()
+            task_mock.task_type = task_type
+            task_mock.novel_id = novel_id
+            task_mock.meta = {"novel_id": str(novel_id)} if novel_id else {}
+            task_mock.result = {}
+            task_mock.lease_id = str(uuid.uuid4())
+            db_session = AsyncMock()
+            db_session.new = ()
+            db_session.dirty = ()
+            db_session.deleted = ()
+            db_session.in_transaction = MagicMock(return_value=False)
+            preflight = AsyncMock()
+
+            with (
+                patch("infrastructure.tasks.worker.get_manager", autospec=True),
+                patch.object(
+                    TaskWorker,
+                    "_heartbeat_loop",
+                    autospec=True,
+                    return_value=None,
+                ),
+            ):
+                worker = TaskWorker(task_preflight=preflight)
+                worker._lifecycle.finalize = AsyncMock(return_value=True)
+                await worker._execute_task(task_mock, db_session)
+
+            preflight.assert_not_awaited()
+            assert handler_calls == []
+            db_session.rollback.assert_awaited_once()
+            finalized = worker._lifecycle.finalize.await_args.kwargs
+            assert finalized["status"] == "failed"
+            assert finalized["recovery_policy"] == "never_retry"
+            assert worker._stats["failed"] == 1
+        finally:
+            registry.unregister(task_type)
+
+    @pytest.mark.asyncio
+    async def test_owner_scope_violation_persists_terminal_never_retry(
+        self,
+        db_session,
+    ) -> None:
+        """A claimed row remains failed when a legacy write bypassed enqueue."""
+        from infrastructure.tasks.models import AsyncTask
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_type = f"test-owner-scope-persisted-{uuid.uuid4().hex}"
+        handler_calls: list[None] = []
+
+        async def handler(**_kwargs):
+            handler_calls.append(None)
+            return {"ok": True}
+
+        registry = TaskRegistry()
+        registry.register(task_type, handler, owner_scope="project")
+        try:
+            task = AsyncTask(
+                task_type=task_type,
+                status="running",
+                lease_id=str(uuid.uuid4()),
+                recovery_policy="auto_requeue",
+                max_attempts=3,
+                meta={},
+            )
+            db_session.add(task)
+            await db_session.commit()
+            task_id = task.id
+
+            preflight = AsyncMock()
+            with (
+                patch("infrastructure.tasks.worker.get_manager", autospec=True),
+                patch.object(
+                    TaskWorker,
+                    "_heartbeat_loop",
+                    autospec=True,
+                    return_value=None,
+                ),
+            ):
+                worker = TaskWorker(task_preflight=preflight)
+                await worker._execute_task(task, db_session)
+
+            db_session.expire_all()
+            persisted = await db_session.get(AsyncTask, task_id)
+            assert persisted is not None
+            assert persisted.status == "failed"
+            assert persisted.recovery_policy == "never_retry"
+            preflight.assert_not_awaited()
+            assert handler_calls == []
+        finally:
+            registry.unregister(task_type)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("owner_scope", "novel_id"),
+        [
+            ("project", uuid.uuid4()),
+            ("global", None),
+        ],
+        ids=["project-with-owner", "global-without-owner"],
+    )
+    async def test_owner_scope_match_keeps_preflight_and_handler_flow(
+        self,
+        owner_scope: str,
+        novel_id: uuid.UUID | None,
+    ) -> None:
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_type = f"test-owner-scope-valid-{owner_scope}-{uuid.uuid4().hex}"
+        handler_calls: list[None] = []
+
+        async def handler(**_kwargs):
+            handler_calls.append(None)
+            return {"ok": True}
+
+        registry = TaskRegistry()
+        registry.register(task_type, handler, owner_scope=owner_scope)  # type: ignore[arg-type]
+        try:
+            task_mock = MagicMock()
+            task_mock.id = uuid.uuid4()
+            task_mock.task_type = task_type
+            task_mock.novel_id = novel_id
+            task_mock.meta = {"novel_id": str(novel_id)} if novel_id else {}
+            task_mock.result = {}
+            task_mock.lease_id = str(uuid.uuid4())
+            db_session = AsyncMock()
+            db_session.new = ()
+            db_session.dirty = ()
+            db_session.deleted = ()
+            db_session.in_transaction = MagicMock(return_value=False)
+            preflight = AsyncMock()
+
+            with (
+                patch("infrastructure.tasks.worker.get_manager", autospec=True),
+                patch.object(
+                    TaskWorker,
+                    "_heartbeat_loop",
+                    autospec=True,
+                    return_value=None,
+                ),
+            ):
+                worker = TaskWorker(task_preflight=preflight)
+                worker._lifecycle.finalize = AsyncMock(return_value=True)
+                await worker._execute_task(task_mock, db_session)
+
+            preflight.assert_awaited_once_with(db_session, task_mock)
+            assert handler_calls == [None]
+            finalized = worker._lifecycle.finalize.await_args.kwargs
+            assert finalized["status"] == "done"
+            assert "recovery_policy" not in finalized
+        finally:
+            registry.unregister(task_type)
 
     @pytest.mark.asyncio
     async def test_execute_success(self) -> None:

@@ -351,16 +351,19 @@ async def test_synopsis_task_checkpoints_before_llm_and_persists_public_snapshot
     assert checkpoints == ["commit", "commit"]
     assert client.transaction_states == [False]
     assert client.closed is True
-    build_snapshot.assert_awaited_once_with(mock.ANY, project_novel_id)
+    build_snapshot.assert_awaited_once_with(
+        mock.ANY,
+        str(uuid.UUID(project_novel_id)),
+    )
     restore_snapshot.assert_awaited_once_with(
         mock.ANY,
-        project_novel_id,
+        str(uuid.UUID(project_novel_id)),
         snapshot,
     )
     create_client.assert_called_once_with(
         restored_settings,
         timeout_override=1800,
-        novel_id=project_novel_id,
+        novel_id=str(uuid.UUID(project_novel_id)),
     )
 
     stored_task = await db_session.scalar(
@@ -505,7 +508,7 @@ async def test_synopsis_auto_requeue_retry_reuses_snapshot_and_fence_and_promote
     build_snapshot.assert_not_awaited()
     restore_snapshot.assert_awaited_once_with(
         mock.ANY,
-        project_novel_id,
+        str(uuid.UUID(project_novel_id)),
         first_snapshot,
     )
 

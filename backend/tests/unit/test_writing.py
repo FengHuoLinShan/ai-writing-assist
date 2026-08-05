@@ -747,6 +747,7 @@ class TestWritingAPI:
             mock_db,
             "publish_chapter",
             meta={"novel_id": data.novel_id, "chapter_index": data.chapter_index},
+            novel_id=data.novel_id,
         )
         mock_mark_chapter_index_dirty.assert_awaited_once_with(
             mock_db,
