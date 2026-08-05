@@ -82,22 +82,10 @@ async function requestContract(name, params = {}, query = {}, options = {}) {
 }
 
 export async function createProject(payload) {
-  const project = await request("/projects", {
+  return request("/projects", {
     method: "POST",
     body: JSON.stringify(payload),
   })
-  let lastError = null
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      await request(`/projects/${project.id}`, { timeout: 1000 })
-      return project
-    } catch (error) {
-      if (!String(error?.message || error).includes("failed (404)")) throw error
-      lastError = error
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-  }
-  throw lastError || new Error(`Project ${project.id} was not visible after creation`)
 }
 
 export async function connectAccountLLMProvider(providerId, apiKey) {
