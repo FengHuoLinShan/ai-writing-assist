@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 
 from app.bootstrap import register_container_services
 from app.http_rate_limit import HttpRateLimitMiddleware
+from app.task_runtime import register_task_handlers
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -55,6 +56,7 @@ def _register_container_services() -> None:
 
 
 _register_container_services()
+register_task_handlers()
 
 logger = logging.getLogger(__name__)
 
@@ -728,13 +730,6 @@ async def root():
 # 此处 include 时不额外加前缀。
 # 如需版本控制，未来可统一改为 prefix="/api/v1" + 移除模块内 prefix。
 
-import modules.imports.tasks  # noqa: F401, E402 — 注册深度导入任务处理器
-import modules.interaction.tasks  # noqa: F401, E402 — 注册 RP 互动任务处理器
-import modules.outline.tasks  # noqa: F401, E402 — 注册剧情结构生成任务处理器
-import modules.project.tasks  # noqa: F401, E402 — 注册项目级任务处理器
-import modules.rag.tasks  # noqa: F401, E402 — 注册 RAG 索引/重建任务处理器
-import modules.world.tasks  # noqa: F401, E402 — 注册世界模块任务处理器
-import modules.writing.tasks  # noqa: F401, E402 — 注册章节发布任务处理器
 from app import debug_api  # noqa: E402
 from infrastructure.tasks import api as tasks_api  # noqa: E402
 from modules.account.api import account_router  # noqa: E402
