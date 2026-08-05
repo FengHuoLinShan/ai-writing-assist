@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from infrastructure.tasks import liveness
-from infrastructure.tasks.worker import TaskWorker
+from infrastructure.tasks.worker import TaskWorker, _TaskWorkerRecoveryError
 
 
 def _write_cmdline(path, *tokens: bytes) -> None:
@@ -159,7 +159,7 @@ async def test_control_loop_observer_runs_only_in_forever_after_startup() -> Non
         poll_interval=0.0,
         control_loop_observer=lambda: calls.append("observer"),
     )
-    worker._maybe_recover_stale_tasks = AsyncMock(return_value=0)
+    worker._maybe_recover_stale_task_transitions = AsyncMock(return_value=(0, False))
 
     async def startup_reconcilers() -> None:
         calls.append("startup")
@@ -175,26 +175,231 @@ async def test_control_loop_observer_runs_only_in_forever_after_startup() -> Non
     await worker.run_forever()
 
     assert calls == ["startup", "observer"]
+    worker._maybe_recover_stale_task_transitions.assert_awaited_once_with(force=True)
     worker._run_startup_reconcilers.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
-async def test_control_loop_observer_runs_after_controlled_startup_failure() -> None:
-    observer_calls: list[str] = []
+async def test_startup_stale_transition_reconciles_once_before_observer() -> None:
+    calls: list[str] = []
     worker = TaskWorker(
         db_manager=MagicMock(),
         poll_interval=0.0,
-        control_loop_observer=lambda: (observer_calls.append("observer"), worker.stop()),
+        control_loop_observer=lambda: (calls.append("observer"), worker.stop()),
     )
-    worker._maybe_recover_stale_tasks = AsyncMock(side_effect=RuntimeError("startup"))
-    worker._run_startup_reconcilers = AsyncMock(return_value=None)
+    worker._recover_stale_task_transitions = AsyncMock(return_value=(1, True))
+
+    async def reconciler() -> None:
+        calls.append("reconciler")
+
+    worker._run_startup_reconcilers = AsyncMock(side_effect=reconciler)
     worker._claim_task_runner = AsyncMock(return_value=None)
 
     await worker.run_forever()
 
-    assert observer_calls == ["observer"]
-    worker._maybe_recover_stale_tasks.assert_awaited_once_with(force=True)
+    assert calls == ["reconciler", "observer"]
+    worker._recover_stale_task_transitions.assert_awaited_once_with()
+    worker._run_startup_reconcilers.assert_awaited_once_with()
+    worker._claim_task_runner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_startup_recovery_failure_fails_closed_without_dynamic_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "sk-startup-recovery-secret"
+    observer_calls: list[str] = []
+    worker = TaskWorker(
+        db_manager=MagicMock(),
+        poll_interval=0.0,
+        control_loop_observer=lambda: observer_calls.append("observer"),
+    )
+    worker._maybe_recover_stale_task_transitions = AsyncMock(
+        side_effect=RuntimeError(f"api_key={secret}")
+    )
+    worker._run_startup_reconcilers = AsyncMock(return_value=None)
+    worker._claim_task_runner = AsyncMock(return_value=None)
+
+    with caplog.at_level("ERROR", logger="infrastructure.tasks.worker"):
+        with pytest.raises(_TaskWorkerRecoveryError) as error:
+            await worker.run_forever()
+
+    assert str(error.value) == "Task worker recovery failed safely; restart required."
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert observer_calls == []
+    assert worker._running is False
+    worker._maybe_recover_stale_task_transitions.assert_awaited_once_with(force=True)
     worker._run_startup_reconcilers.assert_not_awaited()
+    worker._claim_task_runner.assert_not_awaited()
+    recovery_diagnostics = [
+        message
+        for message in caplog.messages
+        if "TaskWorker recovery failed closed:" in message
+    ]
+    assert len(recovery_diagnostics) == 1
+    assert secret not in "\n".join(caplog.messages)
+
+
+@pytest.mark.asyncio
+async def test_startup_reconciler_failure_fails_closed_before_observer_or_claim() -> None:
+    observer_calls: list[str] = []
+    worker = TaskWorker(
+        db_manager=MagicMock(),
+        poll_interval=0.0,
+        control_loop_observer=lambda: observer_calls.append("observer"),
+    )
+    worker._maybe_recover_stale_task_transitions = AsyncMock(return_value=(0, False))
+    worker._run_startup_reconcilers = AsyncMock(
+        side_effect=RuntimeError("owner reconciliation failed")
+    )
+    worker._claim_task_runner = AsyncMock(return_value=None)
+
+    with pytest.raises(_TaskWorkerRecoveryError) as error:
+        await worker.run_forever()
+
+    assert str(error.value) == "Task worker recovery failed safely; restart required."
+    assert observer_calls == []
+    assert worker._running is False
+    worker._run_startup_reconcilers.assert_awaited_once_with()
+    worker._claim_task_runner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_periodic_recovery_failure_exits_before_next_control_loop_iteration(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "sk-periodic-recovery-secret"
+    observer_calls: list[str] = []
+    worker = TaskWorker(
+        db_manager=MagicMock(),
+        poll_interval=0.0,
+        control_loop_observer=lambda: observer_calls.append("observer"),
+    )
+    reconciler_calls = 0
+
+    async def reconciler() -> None:
+        nonlocal reconciler_calls
+        reconciler_calls += 1
+        if reconciler_calls == 2:
+            raise RuntimeError(f"Authorization: Bearer {secret}")
+
+    worker._recover_stale_task_transitions = AsyncMock(
+        side_effect=((0, False), (1, True))
+    )
+    worker._run_startup_reconcilers = AsyncMock(side_effect=reconciler)
+    worker._claim_task_runner = AsyncMock(return_value=None)
+
+    with caplog.at_level("ERROR", logger="infrastructure.tasks.worker"):
+        with pytest.raises(_TaskWorkerRecoveryError) as error:
+            await worker.run_forever()
+
+    assert str(error.value) == "Task worker recovery failed safely; restart required."
+    assert observer_calls == ["observer"]
+    assert worker._running is False
+    assert worker._claim_task_runner.await_count == 1
+    assert reconciler_calls == 2
+    assert worker._recover_stale_task_transitions.await_count == 2
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    recovery_diagnostics = [
+        message
+        for message in caplog.messages
+        if "TaskWorker recovery failed closed:" in message
+    ]
+    assert len(recovery_diagnostics) == 1
+    assert secret not in "\n".join(caplog.messages)
+
+
+@pytest.mark.asyncio
+async def test_periodic_recovery_fatal_cancels_and_joins_in_flight_runner() -> None:
+    observer_calls: list[str] = []
+    runner_started = asyncio.Event()
+    runner_cancelled = asyncio.Event()
+    runner_finalized = asyncio.Event()
+    runner_task: asyncio.Task[None] | None = None
+    reconciler_calls = 0
+    worker = TaskWorker(
+        db_manager=MagicMock(),
+        poll_interval=0.01,
+        control_loop_observer=lambda: observer_calls.append("observer"),
+    )
+    worker._max_concurrent_tasks = 1
+
+    async def reconciler() -> None:
+        nonlocal reconciler_calls
+        reconciler_calls += 1
+        if reconciler_calls == 2:
+            raise RuntimeError("owner reconciliation failed")
+
+    async def pending_runner() -> None:
+        runner_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            runner_cancelled.set()
+            raise
+        finally:
+            runner_finalized.set()
+
+    async def claim_pending_runner() -> asyncio.Task[None] | None:
+        nonlocal runner_task
+        if runner_task is None:
+            runner_task = asyncio.create_task(pending_runner())
+            return runner_task
+        return None
+
+    worker._recover_stale_task_transitions = AsyncMock(
+        side_effect=((0, False), (1, True))
+    )
+    worker._run_startup_reconcilers = AsyncMock(side_effect=reconciler)
+    worker._claim_task_runner = AsyncMock(side_effect=claim_pending_runner)
+
+    run_task = asyncio.create_task(worker.run_forever())
+    await asyncio.wait_for(runner_started.wait(), timeout=1.0)
+
+    with pytest.raises(_TaskWorkerRecoveryError):
+        await asyncio.wait_for(run_task, timeout=1.0)
+
+    assert runner_task is not None
+    assert runner_task.cancelled()
+    assert runner_cancelled.is_set()
+    assert runner_finalized.is_set()
+    assert observer_calls == ["observer"]
+    assert worker._claim_task_runner.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_claim_loop_transient_remains_retryable_and_redacted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "sk-claim-loop-secret"
+    observer_calls: list[str] = []
+    worker = TaskWorker(
+        db_manager=MagicMock(),
+        poll_interval=0.0,
+        control_loop_observer=lambda: observer_calls.append("observer"),
+    )
+    worker._maybe_recover_stale_task_transitions = AsyncMock(return_value=(0, False))
+
+    async def first_claim_fails_then_second_stops() -> None:
+        if worker._claim_task_runner.await_count == 1:
+            raise RuntimeError(f"api_key={secret}")
+        worker.stop()
+        return None
+
+    worker._claim_task_runner = AsyncMock(side_effect=first_claim_fails_then_second_stops)
+
+    with caplog.at_level("ERROR", logger="infrastructure.tasks.worker"):
+        await worker.run_forever()
+
+    assert observer_calls == ["observer", "observer"]
+    assert worker._claim_task_runner.await_count == 2
+    loop_diagnostics = [
+        message for message in caplog.messages if "TaskWorker loop error:" in message
+    ]
+    assert len(loop_diagnostics) == 1
+    assert secret not in "\n".join(caplog.messages)
 
 
 @pytest.mark.asyncio
@@ -230,7 +435,7 @@ async def test_control_loop_observer_failures_do_not_block_or_log_storms(caplog)
         raise RuntimeError("private observer detail")
 
     worker._control_loop_observer = observer
-    worker._maybe_recover_stale_tasks = AsyncMock(return_value=0)
+    worker._maybe_recover_stale_task_transitions = AsyncMock(return_value=(0, False))
     worker._run_startup_reconcilers = AsyncMock(return_value=None)
     worker._claim_task_runner = AsyncMock(return_value=None)
 
