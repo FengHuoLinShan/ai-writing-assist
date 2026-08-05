@@ -82,6 +82,21 @@ env 文件不是 symlink、归当前有效用户所有、且权限精确为 `060
 tag 镜像、启动 PostgreSQL、创建并验证 custom-format 备份、运行 Alembic、处理公开
 模式 bootstrap 认领、启动应用并进行容器内健康检查。
 
+在切换 checkout、构建、停服、备份或迁移之前，`release.sh` 还会把 finalized active
+commit 与 target 的已提交 Alembic migration blobs 做静态图比较；它不 import migration
+Python。已有发布状态时，脚本要求当前 clean HEAD 正是 finalized commit，并向已运行的
+PostgreSQL 发出只读、短 timeout 的 `alembic_version` 查询。live revision 必须精确匹配
+active 的单一 head，target 必须单头、保留该 revision 与其全部已采用祖先的图元数据，且
+从 target head 可达；反向、分叉、重写、multi-head、缺失/动态 metadata 或数据库漂移都会
+在任何 service work 前拒绝。Postgres 未运行时也拒绝，绝不会为此 preflight 自动启动它。
+只有 manifest、legacy `current-release` 和 `current-commit` 三个状态 artifact 都不存在，且
+live database 的非系统 schema 没有表时才视为首次发布；丢失状态但非空数据库同样 fail closed。若图
+不兼容，保留原 checkout/服务，并按提示在人工确认后使用：
+
+```bash
+bash deploy/scripts/restore.sh <backup.dump> <target-sha>
+```
+
 ```bash
 bash deploy/scripts/release.sh <full-40-character-commit-sha>
 ```

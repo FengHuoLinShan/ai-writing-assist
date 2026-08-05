@@ -432,6 +432,101 @@ resolve_active_deployment_commit() {
     printf '%s\n' "$resolved_commit"
 }
 
+verify_active_deployment_checkout() {
+    active_commit=$1
+    checked_out_commit=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || {
+        echo "Unable to resolve the deployment checkout." >&2
+        return 1
+    }
+    if [ "$checked_out_commit" != "$active_commit" ]; then
+        echo "Deployment checkout does not match the finalized active deployment state." >&2
+        return 1
+    fi
+}
+
+migration_guard_state_kind() {
+    deployment_state_path="$STATE_DIR/deployment-state.json"
+    current_release_path="$STATE_DIR/current-release"
+    current_commit_path="$STATE_DIR/current-commit"
+    manifest_exists=false
+    release_exists=false
+    commit_exists=false
+
+    if [ -e "$deployment_state_path" ] || [ -L "$deployment_state_path" ]; then
+        manifest_exists=true
+    fi
+    if [ -e "$current_release_path" ] || [ -L "$current_release_path" ]; then
+        release_exists=true
+    fi
+    if [ -e "$current_commit_path" ] || [ -L "$current_commit_path" ]; then
+        commit_exists=true
+    fi
+    if [ "$manifest_exists" = true ]; then
+        printf '%s\n' active
+    elif [ "$release_exists" = true ] && [ "$commit_exists" = true ]; then
+        printf '%s\n' active
+    elif [ "$release_exists" = false ] && [ "$commit_exists" = false ]; then
+        printf '%s\n' first-release
+    else
+        echo "Deployment state is incomplete; refusing migration compatibility preflight." >&2
+        return 1
+    fi
+}
+
+read_live_migration_revisions() {
+    postgres_user=$(env_value POSTGRES_USER) || return 1
+    postgres_db=$(env_value POSTGRES_DB) || return 1
+    compose exec -T -e PGCONNECT_TIMEOUT=5 postgres psql -w -X -qAt -v ON_ERROR_STOP=1 \
+        -U "$postgres_user" -d "$postgres_db" \
+        -c "BEGIN READ ONLY; SET LOCAL statement_timeout = '5s'; SELECT version_num FROM public.alembic_version ORDER BY version_num; COMMIT;"
+}
+
+read_live_non_system_table_count() {
+    postgres_user=$(env_value POSTGRES_USER) || return 1
+    postgres_db=$(env_value POSTGRES_DB) || return 1
+    compose exec -T -e PGCONNECT_TIMEOUT=5 postgres psql -w -X -qAt -v ON_ERROR_STOP=1 \
+        -U "$postgres_user" -d "$postgres_db" \
+        -c "BEGIN READ ONLY; SET LOCAL statement_timeout = '5s'; SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema'); COMMIT;"
+}
+
+verify_release_migration_compatibility() {
+    active_commit=$1
+    target_commit=$2
+    state_kind=$(migration_guard_state_kind) || return 1
+
+    if [ "$state_kind" = first-release ]; then
+        table_count=$(read_live_non_system_table_count) || {
+            echo "Unable to verify that the first-release database is empty; confirm Postgres is running/reachable. Release will not start Postgres automatically." >&2
+            return 1
+        }
+        if [ "$table_count" != 0 ]; then
+            echo "Deployment state is absent but the live database is not empty; refusing lost-state release." >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    if [ ! -f "$SCRIPT_DIR/migration_compatibility.py" ] \
+        || [ -L "$SCRIPT_DIR/migration_compatibility.py" ]; then
+        echo "Migration compatibility helper is missing or unsafe." >&2
+        return 1
+    fi
+    live_revisions=$(read_live_migration_revisions) || {
+        echo "Unable to read live Alembic revisions; confirm Postgres is running/reachable and public.alembic_version is valid. Release will not start Postgres automatically." >&2
+        return 1
+    }
+    if [ -z "$live_revisions" ]; then
+        echo "Live migration revision output is empty; refusing compatibility preflight." >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$live_revisions" | python3 "$SCRIPT_DIR/migration_compatibility.py" \
+        verify "$REPO_ROOT" "$active_commit" "$target_commit"; then
+        echo "Target migration graph is incompatible with the deployed database; refusing before checkout." >&2
+        echo "Use deploy/scripts/restore.sh <backup.dump> <target-sha> after explicit confirmation." >&2
+        return 1
+    fi
+}
+
 healthcheck_ping() {
     ping_url=$1
     if ! curl --fail --silent --show-error \

@@ -8,6 +8,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 DEPLOY_ROOT = Path(__file__).parents[1]
 
 
@@ -26,8 +28,14 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
     _git(repo_root, "init", "-q")
     _git(repo_root, "config", "user.email", "deploy-tests@example.com")
     _git(repo_root, "config", "user.name", "Deployment Tests")
+    migrations_dir = repo_root / "backend" / "alembic" / "versions"
+    migrations_dir.mkdir(parents=True)
+    (migrations_dir / "migration_a.py").write_text(
+        'revision = "migration_a"\n'
+        "down_revision = None\n"
+    )
     (repo_root / "revision.txt").write_text("a\n")
-    _git(repo_root, "add", "deploy", "revision.txt")
+    _git(repo_root, "add", "deploy", "backend", "revision.txt")
     _git(repo_root, "commit", "-qm", "release A")
     commit_a = _git(repo_root, "rev-parse", "HEAD")
 
@@ -53,7 +61,7 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
     state_dir.mkdir(mode=0o700)
     (state_dir / "current-release").write_text(f"{commit_a[:12]}\n")
     (state_dir / "current-commit").write_text(f"{commit_a}\n")
-    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+    _git(repo_root, "checkout", "--detach", "-q", commit_a)
 
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -62,6 +70,16 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         "#!/bin/sh\n"
         'printf "%s\\n" "$*" >>"$FAKE_DOCKER_LOG"\n'
         'case " $* " in\n'
+        '  *" exec -T -e PGCONNECT_TIMEOUT=5 postgres psql "*)\n'
+        '    if test "${FAKE_MIGRATION_QUERY_STATUS:-0}" -ne 0; then\n'
+        '      exit "$FAKE_MIGRATION_QUERY_STATUS"\n'
+        "    fi\n"
+        '    case " $* " in\n'
+        '      *"alembic_version"*)\n'
+        '        printf "%s\\n" "${FAKE_MIGRATION_REVISIONS:-migration_a}" ;;\n'
+        '      *) printf "%s\\n" "${FAKE_PUBLIC_TABLE_COUNT:-1}" ;;\n'
+        "    esac\n"
+        "    exit 0 ;;\n"
         '  *" stop api worker frontend "*) exit "${FAKE_DOCKER_STOP_STATUS:-0}" ;;\n'
         '  *" build "*) exit "${FAKE_DOCKER_BUILD_STATUS:-0}" ;;\n'
         '  *" up -d postgres embedding "*) exit '
@@ -119,6 +137,7 @@ def test_release_failure_restores_the_finalized_checkout_not_drifted_head(
     assert result.returncode != 0
     assert _git(repo_root, "rev-parse", "HEAD") == commit_a
     _assert_healthy_state(repo_root, commit_a)
+    assert docker_log.exists(), result.stderr
     assert " stop api worker frontend" not in docker_log.read_text(encoding="utf-8")
 
 
@@ -142,6 +161,132 @@ def test_release_checkout_disables_local_git_hooks(tmp_path: Path) -> None:
     _assert_healthy_state(repo_root, commit_a)
 
 
+@pytest.mark.parametrize(
+    ("environment_override", "expected"),
+    [
+        ({"FAKE_MIGRATION_REVISIONS": "unknown"}, "incompatible"),
+        ({"FAKE_MIGRATION_QUERY_STATUS": "1"}, "Unable to read live Alembic revisions"),
+    ],
+)
+def test_release_migration_preflight_rejects_before_checkout_or_service_work(
+    tmp_path: Path, environment_override: dict[str, str], expected: str
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+
+    result = _run_script(
+        repo_root, "release.sh", [commit_b], environment | environment_override
+    )
+
+    assert result.returncode != 0
+    assert expected in result.stderr
+    if expected == "incompatible":
+        assert "restore.sh <backup.dump> <target-sha>" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert " exec -T -e PGCONNECT_TIMEOUT=5 postgres psql " in f" {docker_commands} "
+    assert " psql -w -X -qAt -v ON_ERROR_STOP=1 " in f" {docker_commands} "
+    assert " build " not in f" {docker_commands} "
+    assert " stop api worker frontend" not in docker_commands
+    assert " pg_dump" not in docker_commands
+    assert " migrate" not in docker_commands
+    assert " up -d postgres embedding" not in docker_commands
+
+
+def test_release_rejects_active_state_checkout_drift_before_database_work(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+
+    result = _run_script(repo_root, "release.sh", [commit_b], environment)
+
+    assert result.returncode != 0
+    assert "does not match the finalized active deployment state" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+    assert _assert_healthy_state(repo_root, commit_a) is None
+    assert not docker_log.exists()
+
+
+def test_first_release_requires_an_empty_live_database_before_checkout(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    (state_dir / "current-release").unlink()
+    (state_dir / "current-commit").unlink()
+
+    rejected = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment | {"FAKE_PUBLIC_TABLE_COUNT": "1"},
+    )
+
+    assert rejected.returncode != 0
+    assert "state is absent but the live database is not empty" in rejected.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    assert " build " not in f" {docker_log.read_text(encoding='utf-8')} "
+
+    docker_log.unlink()
+    accepted_until_build = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment | {"FAKE_PUBLIC_TABLE_COUNT": "0", "FAKE_DOCKER_BUILD_STATUS": "1"},
+    )
+
+    assert accepted_until_build.returncode != 0
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    commands = docker_log.read_text(encoding="utf-8")
+    assert " information_schema.tables " in commands
+    assert " alembic_version " not in commands
+    assert " build " in f" {commands} "
+
+
+def test_first_release_query_failure_rejects_before_checkout_or_service_work(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    (state_dir / "current-release").unlink()
+    (state_dir / "current-commit").unlink()
+
+    result = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment | {"FAKE_MIGRATION_QUERY_STATUS": "1"},
+    )
+
+    assert result.returncode != 0
+    assert "Unable to verify that the first-release database is empty" in result.stderr
+    assert "will not start Postgres automatically" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    commands = docker_log.read_text(encoding="utf-8")
+    assert " exec -T -e PGCONNECT_TIMEOUT=5 postgres psql " in f" {commands} "
+    assert " psql -w -X -qAt -v ON_ERROR_STOP=1 " in f" {commands} "
+    assert " build " not in f" {commands} "
+    assert " stop api worker frontend" not in commands
+    assert " pg_dump" not in commands
+    assert " migrate" not in commands
+    assert " up -d postgres embedding" not in commands
+
+
+def test_release_rejects_partial_legacy_state_before_database_work(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    (repo_root / "deploy" / ".state" / "current-commit").unlink()
+
+    result = _run_script(repo_root, "release.sh", [commit_b], environment)
+
+    assert result.returncode != 0
+    assert "incomplete" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    assert not docker_log.exists()
+
+
 def test_release_and_restore_precheckout_guard_rejects_untracked_source(
     tmp_path: Path,
 ) -> None:
@@ -150,7 +295,7 @@ def test_release_and_restore_precheckout_guard_rejects_untracked_source(
             tmp_path / script_name
         )
         untracked_source = repo_root / "backend" / "untracked.py"
-        untracked_source.parent.mkdir()
+        untracked_source.parent.mkdir(exist_ok=True)
         untracked_source.write_text("untracked\n")
 
         arguments = [commit_b]
@@ -160,7 +305,7 @@ def test_release_and_restore_precheckout_guard_rejects_untracked_source(
 
         assert result.returncode != 0
         assert "Deployment checkout is unsafe" in result.stderr
-        assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+        assert _git(repo_root, "rev-parse", "HEAD") == commit_a
         _assert_healthy_state(repo_root, commit_a)
         assert not docker_log.exists()
 
@@ -202,7 +347,10 @@ def test_release_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) ->
     assert "Deployment checkout is unsafe" in result.stderr
     assert _git(repo_root, "rev-parse", "HEAD") == commit_a
     _assert_healthy_state(repo_root, commit_a)
-    assert not docker_log.exists()
+    commands = docker_log.read_text(encoding="utf-8")
+    assert " exec -T -e PGCONNECT_TIMEOUT=5 postgres psql " in f" {commands} "
+    assert " build " not in f" {commands} "
+    assert " stop api worker frontend" not in commands
 
 
 def test_restore_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) -> None:
@@ -284,7 +432,7 @@ def test_restore_cancellation_restores_finalized_checkout_without_replacing_data
 def test_restore_rejects_symlinked_backup_directory_before_git_or_docker_work(
     tmp_path: Path,
 ) -> None:
-    repo_root, _commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
     backup_dir = repo_root / "deploy" / "backups"
     outside = tmp_path / "outside-backups"
     outside.mkdir()
@@ -304,7 +452,7 @@ def test_restore_rejects_symlinked_backup_directory_before_git_or_docker_work(
 
     assert result.returncode != 0
     assert "Private directory is unsafe." in result.stderr
-    assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
     assert not docker_log.exists()
 
 
@@ -312,6 +460,7 @@ def test_restore_target_environment_validation_failure_restores_finalized_checko
     tmp_path: Path,
 ) -> None:
     repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
     target_validator = repo_root / "deploy" / "scripts" / "validate_env.py"
     target_validator.write_text(
         "import sys\n"
@@ -323,7 +472,7 @@ def test_restore_target_environment_validation_failure_restores_finalized_checko
     target_commit = _git(repo_root, "rev-parse", "HEAD")
     _git(repo_root, "push", "origin", "HEAD:main")
     _git(repo_root, "fetch", "origin")
-    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+    _git(repo_root, "checkout", "--detach", "-q", commit_a)
 
     backup_path = repo_root / "deploy" / "backups" / "fixture.dump"
     backup_path.parent.mkdir()
@@ -350,13 +499,14 @@ def test_release_rejects_target_without_deployment_state_contract_before_build(
     tmp_path: Path,
 ) -> None:
     repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
     (repo_root / "deploy" / "deployment-state-contract.version").unlink()
     _git(repo_root, "add", "-u", "deploy/deployment-state-contract.version")
     _git(repo_root, "commit", "-qm", "target state contract missing")
     target_commit = _git(repo_root, "rev-parse", "HEAD")
     _git(repo_root, "push", "origin", "HEAD:main")
     _git(repo_root, "fetch", "origin")
-    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+    _git(repo_root, "checkout", "--detach", "-q", commit_a)
 
     result = _run_script(repo_root, "release.sh", [target_commit], environment)
 
@@ -364,7 +514,10 @@ def test_release_rejects_target_without_deployment_state_contract_before_build(
     assert "valid deployment state contract" in result.stderr
     assert _git(repo_root, "rev-parse", "HEAD") == commit_a
     _assert_healthy_state(repo_root, commit_a)
-    assert not docker_log.exists()
+    commands = docker_log.read_text(encoding="utf-8")
+    assert " exec -T -e PGCONNECT_TIMEOUT=5 postgres psql " in f" {commands} "
+    assert " build " not in f" {commands} "
+    assert " stop api worker frontend" not in commands
 
 
 def test_release_quiesce_failure_blocks_backup_migration_and_target_start(
@@ -581,6 +734,7 @@ def test_manifest_precedes_legacy_state_and_malformed_manifest_has_no_fallback(
     tmp_path: Path,
 ) -> None:
     repo_root, commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
     _write_manifest(repo_root, commit_b, commit_a)
 
     preferred = _resolve_active_commit(repo_root)
@@ -670,6 +824,7 @@ def test_load_release_id_uses_finalized_state_instead_of_drifted_head(
     tmp_path: Path,
 ) -> None:
     repo_root, commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
 
     result = _load_release_id(repo_root)
 
@@ -681,14 +836,14 @@ def test_load_release_id_uses_finalized_state_instead_of_drifted_head(
 def test_load_release_id_uses_reachable_first_release_head_without_creating_state(
     tmp_path: Path,
 ) -> None:
-    repo_root, _commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
     state_dir = repo_root / "deploy" / ".state"
     shutil.rmtree(state_dir)
 
     result = _load_release_id(repo_root)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"{commit_b[:12]}\n"
+    assert result.stdout == f"{commit_a[:12]}\n"
     assert not state_dir.exists()
     assert not state_dir.is_symlink()
 
@@ -696,7 +851,7 @@ def test_load_release_id_uses_reachable_first_release_head_without_creating_stat
 def test_load_release_id_uses_reachable_first_release_head_with_empty_state_directory(
     tmp_path: Path,
 ) -> None:
-    repo_root, _commit_a, commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
+    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
     state_dir = repo_root / "deploy" / ".state"
     _write_state(repo_root, None, None)
     lock_path = state_dir / "production-operation.lock"
@@ -706,7 +861,7 @@ def test_load_release_id_uses_reachable_first_release_head_with_empty_state_dire
     result = _load_release_id(repo_root)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"{commit_b[:12]}\n"
+    assert result.stdout == f"{commit_a[:12]}\n"
     assert state_dir.is_dir()
     assert lock_path.is_file()
     assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700

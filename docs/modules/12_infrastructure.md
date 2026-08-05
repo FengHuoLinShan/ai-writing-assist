@@ -186,6 +186,14 @@ checkout/分支。v1 文件仅允许 schema version、32 位 operation nonce、`
 不安全或损坏绝不被覆盖或回退。读取优先 manifest，只有它完全不存在时才只读兼容 legacy
 `current-release` + `current-commit` pair，或首次发布 HEAD；新脚本不再写/delete/rewrite legacy 文件。
 
+`release.sh` 在 target checkout 前还执行 migration compatibility preflight。它从 active/target
+固定 Git object 的普通 migration blobs 解析字面量 revision graph（不执行目标 Python）；target 必须携带
+guard helper，旧 active 可没有。单一 Alembic versioned head、全量 live revision rows、祖先图不重写与 target
+向前可达都是门槛；`depends_on` 会参与可达性但不会掩盖 Alembic multi-head。已有状态必须配合已运行
+Postgres 的只读短 timeout revision 查询；三种状态 artifact 全无时，只有非系统 schema 为空才可作为首次发布。
+任何查询、状态、图或 checkout 不一致都在 build/quiesce/backup/migrate 前 fail closed，并明确转向人工确认的
+`restore.sh <backup.dump> <target-sha>`，不自动 downgrade、恢复或启动 Postgres。
+
 cleanup 在 shell boolean 尚未更新但 manifest 已 durable 时，只接受本次 target commit 加唯一 operation nonce 的精确
 match，以免 signal 触发错误 rollback；同 commit 的旧/不同 nonce 不匹配。写事务在 helper 内屏蔽 HUP/INT/TERM 至目录
 fsync 和临时清理结束，且仅发给 helper 子进程的信号会被吞掉，使 shell 正常观察到 target authority；组信号仍由 shell trap
