@@ -13,6 +13,7 @@ beforeEach(() => {
   document.body.replaceChildren()
   localStorage.clear()
   window.history.replaceState(null, "", "#")
+  window.appState = state
   state.currentProjectId = null
   state.currentProject = null
   state.currentView = "project"
@@ -37,6 +38,33 @@ function registerBasicView(name) {
 }
 
 describe("renderCurrentView error handling", () => {
+  it("keeps the unavailable-route fallback's established visual contract", async () => {
+    const content = addWorkspace()
+    window.appState.currentView = "unavailable-fallback-control"
+
+    await window.router.renderCurrentView()
+
+    const fallback = content.querySelector(".empty-state")
+    expect(fallback).not.toBeNull()
+    const [label, copy] = fallback.querySelectorAll("p")
+    expect(fallback.querySelector(".empty-icon")?.textContent).toBe("☐")
+    expect(label?.textContent).toBe("unavailable-fallback-control 页面")
+    expect(copy?.textContent).toBe("此模块正在开发中，敬请期待")
+    expect(copy?.style.color).toBe("var(--text-dim)")
+    expect(copy?.style.fontSize).toBe("12px")
+  })
+
+  it("renders an unavailable currentView label as literal text", async () => {
+    const content = addWorkspace()
+    const payload = '<img data-router-fallback-payload src="x" onerror="alert(1)">'
+    window.appState.currentView = payload
+
+    await window.router.renderCurrentView()
+
+    expect(content.querySelector("[data-router-fallback-payload]")).toBeNull()
+    expect(content.textContent).toContain(`${payload} 页面`)
+  })
+
   it("keeps an already registered renderer ahead of its lazy loader", async () => {
     const content = addWorkspace()
     const loader = vi.fn()

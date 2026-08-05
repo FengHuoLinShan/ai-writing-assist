@@ -905,13 +905,19 @@ async function renderCurrentView() {
       } else {
         if (!isCurrentRender()) return false
         const route = routes[viewName]
-        content.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-icon">&#9744;</div>
-            <p>${route ? route.title : viewName} 页面</p>
-            <p style="color:var(--text-dim);font-size:12px;">此模块正在开发中，敬请期待</p>
-          </div>
-        `
+        const emptyState = document.createElement("div")
+        emptyState.className = "empty-state"
+        const emptyIcon = document.createElement("div")
+        emptyIcon.className = "empty-icon"
+        emptyIcon.textContent = "☐"
+        const label = document.createElement("p")
+        label.textContent = `${route ? route.title : viewName} 页面`
+        const copy = document.createElement("p")
+        copy.style.color = "var(--text-dim)"
+        copy.style.fontSize = "12px"
+        copy.textContent = "此模块正在开发中，敬请期待"
+        emptyState.replaceChildren(emptyIcon, label, copy)
+        content.replaceChildren(emptyState)
         _mountedRoute = {
           host: content,
           renderer: null,
