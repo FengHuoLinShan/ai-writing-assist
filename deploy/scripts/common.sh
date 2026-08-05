@@ -273,7 +273,12 @@ PY
 
 verify_backup_checksum() {
     verified_backup_path=$1
-    checksum_path="${verified_backup_path}.sha256"
+    verify_backup_pair_checksum "$verified_backup_path" "${verified_backup_path}.sha256"
+}
+
+verify_backup_pair_checksum() {
+    verified_backup_path=$1
+    checksum_path=$2
 
     if [ ! -f "$checksum_path" ] || [ -L "$checksum_path" ] || [ ! -s "$checksum_path" ]; then
         echo "Backup checksum sidecar is missing, empty, or not a regular file." >&2
@@ -307,6 +312,34 @@ verify_backup_checksum() {
         echo "Backup checksum does not match the selected backup." >&2
         return 1
     fi
+}
+
+verify_postgres_archive() {
+    archive_path=$1
+    postgres_image=$(env_value POSTGRES_IMAGE) || return 1
+    if [ ! -f "$archive_path" ] || [ -L "$archive_path" ] || [ ! -s "$archive_path" ]; then
+        echo "PostgreSQL archive is missing, empty, or not a regular file." >&2
+        return 1
+    fi
+    if ! docker image inspect "$postgres_image" >/dev/null 2>&1; then
+        docker pull "$postgres_image" >&2 || {
+            echo "Unable to pull the PostgreSQL archive verifier image." >&2
+            return 1
+        }
+    fi
+    docker run --rm --pull never \
+        --network none \
+        --read-only \
+        --cap-drop ALL \
+        --security-opt no-new-privileges:true \
+        --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+        --cpus 1 \
+        --memory 512m \
+        --memory-swap 512m \
+        --pids-limit 64 \
+        --user 65534:65534 \
+        --entrypoint pg_restore \
+        "$postgres_image" --list <"$archive_path" >/dev/null
 }
 
 deployment_state_operation_id() {

@@ -286,8 +286,10 @@ checksum 后、safety backup 和任何数据库替换前走同一停服门槛。
 bash deploy/scripts/backup.sh
 ```
 
-备份写入 `deploy/backups/`，使用 `pg_restore --list` 验证并生成 SHA-256 sidecar，然后由
-restic 加密、去重后上传私有 Backblaze B2。保留 7 个 daily、4 个 weekly 和 6 个
+备份写入 `deploy/backups/`，使用隔离、无网络且不挂载生产 volume 的一次性 `pg_restore --list`
+容器验证并生成 SHA-256 sidecar，然后由 restic 加密、去重后上传私有 Backblaze B2。该归档
+校验不依赖已经运行的 PostgreSQL，因此 restore 在冷启动主机上也能在破坏性确认前完成归档预检。
+保留 7 个 daily、4 个 weekly 和 6 个
 monthly 快照；超过 `BACKUP_RETENTION_DAYS` 的本地备份会自动清理。脚本在开始、成功
 或失败时 ping Healthchecks.io；告警收件人只由私有监控配置决定。
 
@@ -316,6 +318,19 @@ restic init
 
 上线前必须完成一次临时库恢复演练。Backblaze 和 Healthchecks 的真实 key/URL
 只放在 `deploy/.env.production`，不进入 systemd unit 或 Git。
+
+若所需 pair 只在 B2/restic 中，先从已知的完整 snapshot ID 精确回灌；它绝不选择 `latest`，
+不会调用 restore 或接触数据库，成功时只打印本地 dump 的绝对路径：
+
+```bash
+bash deploy/scripts/rehydrate_backup.sh \
+  <full-64-character-restic-snapshot-id> \
+  <YYYYMMDDTHHMMSSZ.dump>
+```
+
+回灌只接受带 `ai-writing-assist-postgres` tag 且精确包含同目录 dump/sidecar pair 的 snapshot；
+它先校验 JSON metadata、分别写入私有 staging 文件并校验 checksum，才会发布到 `deploy/backups/`，
+且不会覆盖已有 pair。然后把输出路径传给既有恢复命令。
 
 恢复是破坏性操作，要求明确输入确认短语，并在覆盖前再创建一份安全备份。恢复会先要求
 同名 `.dump.sha256` 为非空普通文件（不能是 symlink），其中只能有一条小写 64 位 SHA-256

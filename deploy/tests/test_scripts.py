@@ -51,6 +51,23 @@ def _run_checksum_verification(backup_path: Path) -> subprocess.CompletedProcess
     )
 
 
+def _run_pair_checksum_verification(
+    backup_path: Path, checksum_path: Path
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "sh",
+            "-c",
+            '. "$0"; verify_backup_pair_checksum "$1" "$2"',
+            str(COMMON_SCRIPT),
+            str(backup_path),
+            str(checksum_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
 def _run_sha256_digest(backup_path: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
@@ -80,6 +97,18 @@ def test_backup_checksum_accepts_matching_digest_without_trusting_sidecar_path(
     _write_checksum(backup_path, f"{digest}  not-the-selected-backup.dump\n")
 
     result = _run_checksum_verification(backup_path)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_backup_pair_checksum_accepts_a_noncanonical_sidecar_path(tmp_path: Path) -> None:
+    backup_path = tmp_path / "selected.dump"
+    checksum_path = tmp_path / "rehydrate-stage"
+    backup_path.write_bytes(b"known backup contents")
+    digest = hashlib.sha256(backup_path.read_bytes()).hexdigest()
+    checksum_path.write_text(f"{digest}  remotely-named.dump\n")
+
+    result = _run_pair_checksum_verification(backup_path, checksum_path)
 
     assert result.returncode == 0, result.stderr
 
@@ -438,7 +467,7 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
         "validate_environment", restore_first_validation + 1
     )
     restore_build = restore_script.index("compose build api frontend")
-    restore_archive_check = restore_script.index("pg_restore --list")
+    restore_archive_check = restore_script.index("verify_postgres_archive")
     restore_prompt = restore_script.index("Type RESTORE_PRODUCTION_BACKUP")
     restore_quiesce = restore_script.index("if ! compose stop api worker frontend; then")
 
@@ -457,6 +486,57 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
         "compose build api frontend"
     )
 
+
+def test_archive_verifier_is_service_independent_and_strictly_isolated() -> None:
+    common_script = COMMON_SCRIPT.read_text(encoding="utf-8")
+    backup_script = (DEPLOY_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+    restore_script = (DEPLOY_ROOT / "scripts" / "restore.sh").read_text(encoding="utf-8")
+
+    verifier = common_script.index("verify_postgres_archive()")
+    verifier_end = common_script.index("deployment_state_operation_id()")
+    verifier_body = common_script[verifier:verifier_end]
+    for required in (
+        "docker image inspect",
+        "docker pull",
+        "docker run --rm --pull never",
+        "--network none",
+        "--read-only",
+        "--cap-drop ALL",
+        "--security-opt no-new-privileges:true",
+        "--tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m",
+        "--memory 512m",
+        "--memory-swap 512m",
+        "--cpus 1",
+        "--pids-limit 64",
+        "--user 65534:65534",
+        "--entrypoint pg_restore",
+        '"$postgres_image" --list',
+    ):
+        assert required in verifier_body
+    assert "compose exec" not in verifier_body
+    assert "--volume" not in verifier_body
+    assert 'verify_postgres_archive "$STAGING_DUMP"' in backup_script
+    assert 'verify_postgres_archive "$BACKUP_PATH"' in restore_script
+
+
+def test_rehydrate_intake_validates_arguments_before_lock_and_has_no_restore_work(
+) -> None:
+    rehydrate_script = (DEPLOY_ROOT / "scripts" / "rehydrate_backup.sh").read_text(
+        encoding="utf-8"
+    )
+
+    basename_validation = rehydrate_script.index('case "$BACKUP_NAME" in')
+    lock = rehydrate_script.index('acquire_production_operation_lock "$@"')
+    environment = rehydrate_script.index("validate_environment >&2")
+    backup_directory = rehydrate_script.index("ensure_private_backup_directory >&2")
+    restic = rehydrate_script.index("command -v restic")
+    assert basename_validation < lock < environment < backup_directory < restic
+    assert "restic snapshots --json" in rehydrate_script
+    assert "restic ls --json" in rehydrate_script
+    assert "restic dump" in rehydrate_script
+    assert "latest" not in rehydrate_script
+    assert "restore.sh" not in rehydrate_script
+    assert "compose " not in rehydrate_script
 
 def test_release_and_restore_guard_and_snapshot_the_target_checkout() -> None:
     for script_name in ("release.sh", "restore.sh"):

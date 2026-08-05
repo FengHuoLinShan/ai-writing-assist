@@ -24,7 +24,6 @@ STAGING_DUMP=
 STAGING_CHECKSUM=
 BACKUP_PATH=
 CHECKSUM_PATH=
-PUBLISHING_PAIR=false
 
 on_exit() {
     status=$?
@@ -34,15 +33,6 @@ on_exit() {
     fi
     if [ -n "$STAGING_CHECKSUM" ] && [ -f "$STAGING_CHECKSUM" ] && [ ! -L "$STAGING_CHECKSUM" ]; then
         rm -f "$STAGING_CHECKSUM" || true
-    fi
-    if [ "$PUBLISHING_PAIR" = "true" ]; then
-        if { [ -e "$BACKUP_PATH" ] || [ -L "$BACKUP_PATH" ]; } \
-            && [ ! -e "$CHECKSUM_PATH" ] && [ ! -L "$CHECKSUM_PATH" ]; then
-            rm -f "$BACKUP_PATH" || true
-        elif [ ! -e "$BACKUP_PATH" ] && [ ! -L "$BACKUP_PATH" ] \
-            && { [ -e "$CHECKSUM_PATH" ] || [ -L "$CHECKSUM_PATH" ]; }; then
-            rm -f "$CHECKSUM_PATH" || true
-        fi
     fi
     if [ "$BACKUP_SUCCEEDED" != "true" ]; then
         healthcheck_ping "${HEALTHCHECK_URL}/fail" || true
@@ -96,16 +86,14 @@ if [ ! -s "$STAGING_DUMP" ]; then
     exit 1
 fi
 
-compose exec -T postgres pg_restore --list <"$STAGING_DUMP" >/dev/null
+verify_postgres_archive "$STAGING_DUMP"
 
 BACKUP_DIGEST=$(sha256_digest "$STAGING_DUMP")
 printf '%s  %s\n' "$BACKUP_DIGEST" "$BACKUP_PATH" >"$STAGING_CHECKSUM"
-PUBLISHING_PAIR=true
-mv "$STAGING_DUMP" "$BACKUP_PATH"
+python3 "$SCRIPT_DIR/backup_pair_publish.py" publish \
+    "$BACKUP_DIR" "$STAGING_DUMP" "$STAGING_CHECKSUM" "$TIMESTAMP.dump"
 STAGING_DUMP=
-mv "$STAGING_CHECKSUM" "$CHECKSUM_PATH"
 STAGING_CHECKSUM=
-PUBLISHING_PAIR=false
 
 find "$BACKUP_DIR" -type f \
     \( -name "*.dump" -o -name "*.dump.sha256" \) \

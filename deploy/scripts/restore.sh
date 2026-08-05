@@ -99,7 +99,7 @@ validate_environment
 validate_deployment_state_contract
 prepare_fixed_commit_build_context "$TARGET_COMMIT"
 compose build api frontend
-compose exec -T postgres pg_restore --list <"$BACKUP_PATH" >/dev/null
+verify_postgres_archive "$BACKUP_PATH"
 
 echo "This will replace the production database and application release."
 printf 'Type RESTORE_PRODUCTION_BACKUP to continue: '

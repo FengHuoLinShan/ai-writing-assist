@@ -423,6 +423,11 @@ def test_restore_cancellation_restores_finalized_checkout_without_replacing_data
     assert _git(repo_root, "rev-parse", "HEAD") == commit_a
     _assert_healthy_state(repo_root, commit_a)
     docker_commands = docker_log.read_text(encoding="utf-8")
+    assert "run --rm --pull never" in docker_commands
+    assert "--network none" in docker_commands
+    assert "--entrypoint pg_restore" in docker_commands
+    assert "exec -T postgres pg_restore" not in docker_commands
+    assert " up -d postgres " not in docker_commands
     assert " stop api worker frontend" not in docker_commands
     assert " dropdb " not in f" {docker_commands} "
     assert " createdb " not in f" {docker_commands} "
