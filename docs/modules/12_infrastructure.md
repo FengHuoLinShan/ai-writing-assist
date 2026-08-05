@@ -239,6 +239,18 @@ quiesce。停止失败会 fail closed 并阻断后续数据库工作；quiesce �
 
 ## 2. HTTP 响应边界与请求可观测性
 
+### 请求数据库事务边界
+
+通过 `core.dependencies.DbSession` 注入的 HTTP session 使用 FastAPI
+`scope="function"`。普通 path operation 完成业务处理和 response-model 序列化后，
+`get_db()` 会在任何成功响应字节发送前 commit；因此非流式、依赖数据库写入的成功 HTTP
+响应承诺同一项目下的独立连接可立即读取该次写入。commit 失败会 rollback 并进入既有错误
+响应边界，不能先发出虚假的 2xx。
+
+流式 response 的 iterator 不得持有请求 session 或延迟读取 ORM 对象。当前 interaction SSE
+只在 handler 中用 `DbSession` 校验初始状态，事件 generator 每次轮询均自行创建和关闭独立
+session。后台或 detached work 同样不得复用已经结束的请求 session。
+
 应用最外层纯 ASGI middleware 为每个 HTTP 响应统一写入且只保留一份以下响应头：
 
 - `X-Content-Type-Options: nosniff`

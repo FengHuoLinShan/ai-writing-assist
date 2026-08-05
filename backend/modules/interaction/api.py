@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.csrf import require_xhr_request
-from core.dependencies import DbSession, get_db
+from core.dependencies import DbSession
 from modules.account.facade import current_account_id
 from modules.interaction.schemas import (
     InteractionArchiveRequest,
@@ -46,7 +44,6 @@ from modules.interaction.streaming import stream_attempt_events
 router = APIRouter(prefix="/api/interactions", tags=["interactions"])
 _service = InteractionService()
 _xhr = [Depends(require_xhr_request)]
-StreamDbSession = Annotated[AsyncSession, Depends(get_db, scope="function")]
 
 
 @router.post(
@@ -270,7 +267,7 @@ async def list_generation_records(
 @router.get("/journeys/{journey_id}/attempts/{attempt_id}/events")
 async def stream_attempt(
     request: Request,
-    db: StreamDbSession,
+    db: DbSession,
     journey_id: str,
     attempt_id: str,
     offset: int = Query(default=0, ge=0),
