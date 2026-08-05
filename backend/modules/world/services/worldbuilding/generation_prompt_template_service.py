@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,7 +59,6 @@ TEMPLATE_ENTITY_TYPES = {
 }
 
 _PLACEHOLDER_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
-_ANY_PLACEHOLDER_RE = re.compile(r"{{(.*?)}}")
 _VARIABLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 BUILTIN_GENERATION_TEMPLATES: dict[str, dict[str, Any]] = {
@@ -899,7 +899,7 @@ def _declared_variables(
 
 def _placeholders(prompt_text: str, issues: list[PromptTemplateIssue]) -> set[str]:
     names = set(_PLACEHOLDER_RE.findall(prompt_text or ""))
-    for raw in _ANY_PLACEHOLDER_RE.findall(prompt_text or ""):
+    for raw in _iter_placeholder_bodies(prompt_text or ""):
         if not _VARIABLE_NAME_RE.match(raw.strip()):
             issues.append(
                 _issue(
@@ -910,6 +910,40 @@ def _placeholders(prompt_text: str, issues: list[PromptTemplateIssue]) -> set[st
                 )
             )
     return names
+
+
+def _iter_placeholder_bodies(prompt_text: str) -> Iterator[str]:
+    """Yield non-overlapping ``{{...}}`` bodies without crossing newlines."""
+    index = 0
+    body_start: int | None = None
+    length = len(prompt_text)
+
+    while index < length:
+        if body_start is None:
+            if (
+                index + 1 < length
+                and prompt_text[index] == "{"
+                and prompt_text[index + 1] == "{"
+            ):
+                body_start = index + 2
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if prompt_text[index] == "\n":
+            body_start = None
+            index += 1
+        elif (
+            index + 1 < length
+            and prompt_text[index] == "}"
+            and prompt_text[index + 1] == "}"
+        ):
+            yield prompt_text[body_start:index]
+            body_start = None
+            index += 2
+        else:
+            index += 1
 
 
 def _variable_value(

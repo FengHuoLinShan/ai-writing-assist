@@ -10,6 +10,8 @@ from modules.world.models import CoreEntity
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     BUILTIN_GENERATION_TEMPLATES,
     TEMPLATE_ENTITY_TYPES,
+    _placeholders,
+    validate_template,
 )
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
@@ -99,6 +101,57 @@ def test_builtin_templates_are_creative_lenses_not_required_field_lists() -> Non
 
     assert TEMPLATE_ENTITY_TYPES["none"] == "concept"
     assert "概念建议" in BUILTIN_GENERATION_TEMPLATES["none"]["description"]
+
+
+@pytest.mark.parametrize(
+    ("prompt_text", "expected_names", "expected_invalid_paths"),
+    [
+        ("{{name}}", {"name"}, []),
+        ("{{ name }}", {"name"}, []),
+        ("{{#each items}}", set(), ["{{#each items}}"]),
+        ("{{user.name|escape}}", set(), ["{{user.name|escape}}"]),
+        ("{{a}}{{b}}", {"a", "b"}, []),
+        ("{{{{a}}", {"a"}, ["{{{{a}}"]),
+        ("{{a{{b}}", {"b"}, ["{{a{{b}}"]),
+        ("{{a}}x{{b", {"a"}, []),
+        ("{{}}", set(), ["{{}}"]),
+        ("{{a\n{{b}}", {"b"}, []),
+        ("{{\nname\n}}", {"name"}, []),
+        ("{{a\nb}}", set(), []),
+    ],
+)
+def test_placeholder_discovery_preserves_regex_compatibility(
+    prompt_text: str,
+    expected_names: set[str],
+    expected_invalid_paths: list[str],
+) -> None:
+    issues = []
+
+    names = _placeholders(prompt_text, issues)
+
+    assert names == expected_names
+    assert [
+        (issue.severity, issue.code, issue.message, issue.path) for issue in issues
+    ] == [
+        ("P1", "variable.invalid_placeholder", "占位符格式无效。", path)
+        for path in expected_invalid_paths
+    ]
+
+
+@pytest.mark.timeout(2)
+def test_placeholder_validation_handles_many_unclosed_openers_in_linear_time() -> None:
+    issues = validate_template(
+        prompt_text="{{" * 32_768,
+        object_template="character",
+        variables_json=[],
+    )
+
+    actual_issues = [
+        (issue.severity, issue.code, issue.message, issue.path) for issue in issues
+    ]
+    assert actual_issues == [
+        ("P1", "prompt.too_long", "模板提示词超过 8000 字。", "prompt_text"),
+    ]
 
 
 @pytest.mark.asyncio
