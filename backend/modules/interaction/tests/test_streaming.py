@@ -111,7 +111,7 @@ async def test_stream_missing_attempt_returns_safe_not_found() -> None:
     assert events == ['event: error\ndata: {"code":"not_found"}\n\n']
 
 
-async def test_stream_route_prefers_last_event_id_and_uses_function_db_scope() -> None:
+async def test_stream_route_prefers_last_event_id_uses_shared_function_db_scope() -> None:
     captured = {}
 
     async def event_source(**kwargs):
@@ -149,11 +149,10 @@ async def test_stream_route_prefers_last_event_id_and_uses_function_db_scope() -
         )
         chunks = [chunk async for chunk in response.body_iterator]
         body = "".join(
-            chunk.decode() if isinstance(chunk, bytes) else chunk
-            for chunk in chunks
+            chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks
         )
 
-    dependency = get_args(api.StreamDbSession)[1]
+    dependency = get_args(api.DbSession)[1]
     assert dependency.scope == "function"
     assert captured == {
         "owner_id": owner_id,

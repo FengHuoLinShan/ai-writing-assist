@@ -20,7 +20,10 @@ from core.database import get_db as _get_db
 get_db = _get_db
 
 # --- Type alias for FastAPI Depends ---
-DbSession = Annotated[AsyncSession, Depends(get_db)]
+# Function scope makes get_db commit or roll back before FastAPI starts sending
+# a response. A successful non-streaming HTTP response therefore never races
+# an immediately following independent read.
+DbSession = Annotated[AsyncSession, Depends(get_db, scope="function")]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 
 
