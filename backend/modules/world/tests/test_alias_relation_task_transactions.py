@@ -664,7 +664,7 @@ async def test_current_attempt_finalizer_seam_compiles_to_exact_row_lock() -> No
     assert {
         uuid.UUID(TASK_ID),
         "world_alias_relation_extraction",
-        NOVEL_ID,
+        uuid.UUID(NOVEL_ID),
         "running",
         lease_id,
         7,

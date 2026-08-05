@@ -182,6 +182,7 @@ async def enqueue_conflict_check_ai_review(
             "context_confirmation_id": data.context_confirmation_id,
             "llm_execution_snapshot": llm_execution_snapshot,
         },
+        novel_id=data.novel_id,
     )
     await _conflict_service.bind_ai_review_task_owner(
         db,
@@ -313,6 +314,7 @@ async def generate_writing_candidate(
             "base_draft_id": data.base_draft_id,
             "llm_execution_snapshot": llm_execution_snapshot,
         },
+        novel_id=data.novel_id,
     )
     await bind_confirmed_action_result(
         db,
@@ -379,6 +381,7 @@ async def create_draft(
                 "novel_id": data.novel_id,
                 "chapter_index": data.chapter_index,
             },
+            novel_id=data.novel_id,
         )
     await db.flush()
     return PublishResponse(

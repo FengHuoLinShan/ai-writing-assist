@@ -23,6 +23,7 @@ TaskAction = Literal[
     "dismiss",
 ]
 TaskCoalescingMode = Literal["reuse_active", "one_pending_follower"]
+TaskOwnerScope = Literal["project", "global"]
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class TaskDefinition:
     recovery_policy: RecoveryPolicy = "restart_origin"
     max_attempts: int = 1
     generic_submit_schema: type[BaseModel] | None = None
+    owner_scope: TaskOwnerScope = "project"
 
 
 @dataclass(frozen=True)

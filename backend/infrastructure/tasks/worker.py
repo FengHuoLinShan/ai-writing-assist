@@ -58,6 +58,10 @@ class _TaskWorkerRecoveryError(RuntimeError):
     """Stable, secret-free failure used when task/domain recovery cannot converge."""
 
 
+class _TaskOwnerScopeInvariantError(RuntimeError):
+    """A persisted task does not satisfy its registered owner boundary."""
+
+
 class _TaskHandlerSession(AsyncSession):
     """AsyncSession that fences each handler commit before it becomes durable."""
 
@@ -165,8 +169,7 @@ def _task_error_for_log(exc: Exception) -> str:
 
 
 def _task_novel_id(task: AsyncTask) -> Any:
-    meta = task.meta
-    return meta.get("novel_id") if isinstance(meta, Mapping) else None
+    return task.novel_id
 
 
 class TaskWorker:
@@ -466,6 +469,17 @@ class TaskWorker:
         with managed_llm_provenance_scope() as managed_llm_steps:
             terminal_recovery_policy: str | None = None
             try:
+                definition = self._registry.get_definition(task.task_type)
+                if definition is not None:
+                    has_project_owner = task.novel_id is not None
+                    if (
+                        definition.owner_scope == "project" and not has_project_owner
+                    ) or (definition.owner_scope == "global" and has_project_owner):
+                        terminal_recovery_policy = "never_retry"
+                        raise _TaskOwnerScopeInvariantError(
+                            "persisted task owner does not match registered owner scope"
+                        )
+
                 handler = self._registry.get_handler(task.task_type)
                 if handler is None:
                     terminal_recovery_policy = "never_retry"

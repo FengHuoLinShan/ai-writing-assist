@@ -1118,6 +1118,7 @@ class InteractionService:
             db,
             "interaction_story_generate",
             meta=self._story_task_meta(journey, attempt),
+            novel_id=str(journey.novel_id),
         )
         attempt.task_id = uuid.UUID(task_id)
         attempt.error_kind = None
@@ -1929,6 +1930,7 @@ class InteractionService:
             db,
             "interaction_story_generate",
             meta=self._story_task_meta(journey, attempt),
+            novel_id=str(journey.novel_id),
         )
         attempt.task_id = uuid.UUID(task_id)
         await db.flush()
@@ -2069,6 +2071,7 @@ class InteractionService:
             db,
             "interaction_story_generate",
             meta=self._story_task_meta(journey, attempt),
+            novel_id=str(journey.novel_id),
         )
         attempt.task_id = uuid.UUID(task_id)
         self._repo.touch(journey)

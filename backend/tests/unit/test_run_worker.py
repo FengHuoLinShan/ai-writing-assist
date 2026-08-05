@@ -265,6 +265,7 @@ async def test_project_preflight_skips_global_tasks() -> None:
     db = AsyncMock()
     task = MagicMock()
     task.meta = {}
+    task.novel_id = None
 
     with patch(
         "modules.project.facade.get_project_context",
@@ -281,6 +282,7 @@ async def test_project_preflight_guards_novel_scoped_tasks() -> None:
     db = AsyncMock()
     task = MagicMock()
     task.meta = {"novel_id": "novel-1"}
+    task.novel_id = "novel-1"
 
     with patch(
         "modules.project.facade.get_project_context",
@@ -300,6 +302,7 @@ async def test_project_preflight_rejects_deleted_project_without_row_lock() -> N
     db = AsyncMock()
     task = MagicMock()
     task.meta = {"novel_id": "novel-1"}
+    task.novel_id = "novel-1"
 
     with (
         patch(
@@ -320,6 +323,7 @@ async def test_interaction_preflight_rejects_author_project_kind() -> None:
     task = MagicMock()
     task.task_type = "interaction_story_generate"
     task.meta = {"novel_id": "novel-1"}
+    task.novel_id = "novel-1"
 
     with (
         patch(
@@ -340,6 +344,7 @@ async def test_interaction_finalize_guard_requires_interaction_kind() -> None:
     task = MagicMock()
     task.task_type = "interaction_summary_refresh"
     task.meta = {"novel_id": "novel-1"}
+    task.novel_id = "novel-1"
 
     with patch(
         "modules.project.facade.require_interaction_project",
@@ -355,8 +360,10 @@ async def test_finalize_guard_allows_active_or_global_task() -> None:
     db = AsyncMock()
     global_task = MagicMock()
     global_task.meta = {}
+    global_task.novel_id = None
     project_task = MagicMock()
     project_task.meta = {"novel_id": "novel-1"}
+    project_task.novel_id = "novel-1"
 
     assert await _guard_active_task_project_finalize(db, global_task) is True
     with patch(
@@ -375,6 +382,7 @@ async def test_finalize_guard_rejects_deleted_project() -> None:
     db = AsyncMock()
     task = MagicMock()
     task.meta = {"novel_id": "novel-1"}
+    task.novel_id = "novel-1"
 
     with patch(
         "modules.project.facade.require_active_project",

@@ -448,6 +448,7 @@ class InteractionGenerationWorkflow:
                     db,
                     "interaction_story_generate",
                     meta=self._service._story_task_meta(journey, attempt),
+                    novel_id=str(journey.novel_id),
                 )
                 attempt.task_id = uuid.UUID(next_task_id)
                 task.update_progress(1.0)

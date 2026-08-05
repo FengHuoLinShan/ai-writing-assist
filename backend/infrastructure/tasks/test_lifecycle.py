@@ -29,7 +29,7 @@ async def test_get_owner_returns_minimal_projection_without_task_payloads() -> N
     assert owner.novel_id == owner_novel_id
     compiled = db.execute.await_args.args[0].compile()
     statement = str(compiled)
-    assert "novel_id" in compiled.params.values()
+    assert "async_tasks.novel_id" in statement
     assert "async_tasks.result" not in statement
     assert "async_tasks.error_message" not in statement
 
@@ -190,8 +190,10 @@ async def test_completed_payload_lock_query_compiles_for_both_databases() -> Non
     statement = db.execute.await_args.args[0]
     sqlite_sql = str(statement.compile(dialect=sqlite.dialect()))
     postgres_sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert "JSON_EXTRACT" in sqlite_sql
-    assert " ->> " in postgres_sql
+    assert "async_tasks.novel_id = ?" in sqlite_sql
+    assert "async_tasks.novel_id = %(" in postgres_sql
+    assert "JSON_EXTRACT" not in sqlite_sql
+    assert " ->> " not in postgres_sql
     assert "FOR UPDATE" in postgres_sql
 
 

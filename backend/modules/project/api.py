@@ -185,6 +185,7 @@ async def api_start_smart_dedup_scan(
             "llm_execution_snapshot": llm_execution_snapshot,
             **data.model_dump(exclude_none=True),
         },
+        novel_id=project_id,
     )
     await db.flush()
     return SmartDedupScanResponse(task_id=task_id)
