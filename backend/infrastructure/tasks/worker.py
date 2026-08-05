@@ -50,7 +50,12 @@ logger = logging.getLogger(__name__)
 
 _TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重试。"
 _TASK_PREFLIGHT_WRITE_ERROR = "Task preflight must be read-only"
+_TASK_RECOVERY_FAILURE_MESSAGE = "Task worker recovery failed safely; restart required."
 _TASK_TYPE_LOG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+
+
+class _TaskWorkerRecoveryError(RuntimeError):
+    """Stable, secret-free failure used when task/domain recovery cannot converge."""
 
 
 class _TaskHandlerSession(AsyncSession):
@@ -267,14 +272,10 @@ class TaskWorker:
         in_flight: set[asyncio.Task[None]] = set()
 
         try:
-            try:
-                await self._maybe_recover_stale_tasks(force=True)
-                await self._run_startup_reconcilers()
-            except Exception as e:
-                logger.error(
-                    "TaskWorker startup recovery failed: %s",
-                    _task_error_for_log(e),
-                )
+            await self._run_recovery_or_fail_closed(
+                force=True,
+                run_all_reconcilers=True,
+            )
 
             while self._running or in_flight:
                 self._observe_control_loop()
@@ -295,19 +296,20 @@ class TaskWorker:
                         in_flight = pending
                         self._log_finished_task_runners(done)
                         if not done and self._running:
-                            await self._maybe_recover_stale_tasks()
+                            await self._run_recovery_or_fail_closed(force=False)
                         continue
 
                     if self._running:
-                        await self._maybe_recover_stale_tasks()
+                        await self._run_recovery_or_fail_closed(force=False)
                         await asyncio.sleep(self._poll_interval)
+                except _TaskWorkerRecoveryError:
+                    self._running = False
+                    await self._cancel_in_flight_runners(in_flight)
+                    raise
                 except asyncio.CancelledError:
                     logger.info("TaskWorker received cancel signal, shutting down...")
                     self._running = False
-                    for runner in in_flight:
-                        runner.cancel()
-                    await asyncio.gather(*in_flight, return_exceptions=True)
-                    in_flight.clear()
+                    await self._cancel_in_flight_runners(in_flight)
                     break
                 except Exception as e:
                     logger.error("TaskWorker loop error: %s", _task_error_for_log(e))
@@ -326,6 +328,14 @@ class TaskWorker:
     def stop(self) -> None:
         """停止 worker 循环"""
         self._running = False
+
+    @staticmethod
+    async def _cancel_in_flight_runners(in_flight: set[asyncio.Task[None]]) -> None:
+        """Cancel and join runners when process-level shutdown cannot drain safely."""
+        for runner in in_flight:
+            runner.cancel()
+        await asyncio.gather(*in_flight, return_exceptions=True)
+        in_flight.clear()
 
     async def _claim_task_runner(self) -> asyncio.Task[None] | None:
         """Claim one task and return a runner with an atomic attempt transaction."""
@@ -655,7 +665,42 @@ class TaskWorker:
         except asyncio.CancelledError:
             pass
 
-    async def _maybe_recover_stale_tasks(self, *, force: bool = False) -> int:
+    async def _run_recovery_or_fail_closed(
+        self,
+        *,
+        force: bool,
+        run_all_reconcilers: bool = False,
+    ) -> int:
+        """Run recovery without allowing split task/domain ownership to continue."""
+        failure: _TaskWorkerRecoveryError | None = None
+        recovered = 0
+        try:
+            if run_all_reconcilers:
+                transition = await self._maybe_recover_stale_task_transitions(
+                    force=force
+                )
+                recovered = transition[0]
+            else:
+                recovered = await self._maybe_recover_stale_tasks(force=force)
+            if run_all_reconcilers:
+                await self._run_startup_reconcilers()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.error(
+                "TaskWorker recovery failed closed: %s",
+                _task_error_for_log(error),
+            )
+            failure = _TaskWorkerRecoveryError(_TASK_RECOVERY_FAILURE_MESSAGE)
+        if failure is not None:
+            raise failure
+        return recovered
+
+    async def _maybe_recover_stale_task_transitions(
+        self,
+        *,
+        force: bool = False,
+    ) -> tuple[int, bool]:
         """按轮询间隔节流 stale scan，启动时可强制扫描一次。"""
         now = monotonic()
         if (
@@ -663,10 +708,18 @@ class TaskWorker:
             and self._last_stale_scan_at is not None
             and now - self._last_stale_scan_at < self._poll_interval
         ):
-            return 0
+            return 0, False
 
-        recovered = await self.recover_stale_tasks()
+        recovered, reconciliation_required = await self._recover_stale_task_transitions()
         self._last_stale_scan_at = now
+        return recovered, reconciliation_required
+
+    async def _maybe_recover_stale_tasks(self, *, force: bool = False) -> int:
+        """Run throttled stale recovery with its required owner reconciliation."""
+        transition = await self._maybe_recover_stale_task_transitions(force=force)
+        recovered, reconciliation_required = transition
+        if reconciliation_required:
+            await self._run_startup_reconcilers()
         return recovered
 
     async def recover_stale_tasks(self) -> int:
@@ -680,6 +733,13 @@ class TaskWorker:
         Returns:
             自动恢复为 pending 的任务数量，不包含 stale deep_import
         """
+        recovered, reconciliation_required = await self._recover_stale_task_transitions()
+        if reconciliation_required:
+            await self._run_startup_reconcilers()
+        return recovered
+
+    async def _recover_stale_task_transitions(self) -> tuple[int, bool]:
+        """Apply stale task transitions and report whether owners must converge."""
         async with self._db_manager.session_factory() as session:
             counts = await self._lifecycle.recover_stale(
                 session,
@@ -693,17 +753,19 @@ class TaskWorker:
                     "Marked %d stale import tasks recoverable",
                     counts["manual_resume"],
                 )
-        if counts["auto_requeued"] or counts["failed"]:
-            await self._run_startup_reconcilers()
-        return recovered
+        return recovered, bool(counts["auto_requeued"] or counts["failed"])
 
     async def _run_startup_reconcilers(self) -> None:
         if not self._startup_reconcilers:
             return
         async with self._db_manager.session_factory() as session:
             repaired = 0
-            for reconciler in self._startup_reconcilers:
-                repaired += int(await reconciler(session))
-            await session.commit()
+            try:
+                for reconciler in self._startup_reconcilers:
+                    repaired += int(await reconciler(session))
+                await session.commit()
+            except BaseException:
+                await session.rollback()
+                raise
         if repaired:
             logger.info("Reconciled %d domain task owners", repaired)

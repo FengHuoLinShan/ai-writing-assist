@@ -1664,7 +1664,7 @@ class TestTaskWorkerRecoverStale:
 
         db_manager = MagicMock()
         worker = TaskWorker(db_manager=db_manager, poll_interval=2.0)
-        worker.recover_stale_tasks = AsyncMock(return_value=0)
+        worker._recover_stale_task_transitions = AsyncMock(return_value=(0, False))
 
         with patch(
             "infrastructure.tasks.worker.monotonic", return_value=10.0, autospec=True
@@ -1681,7 +1681,7 @@ class TestTaskWorkerRecoverStale:
         ):
             await worker._maybe_recover_stale_tasks()
 
-        assert worker.recover_stale_tasks.await_count == 2
+        assert worker._recover_stale_task_transitions.await_count == 2
 
 
 class TestTaskWorkerRunOnce:
@@ -1771,6 +1771,34 @@ class TestTaskWorkerStartupReconcilers:
         second.assert_awaited_once_with(db_session)
         db_session.commit.assert_awaited_once_with()
 
+    @pytest.mark.asyncio
+    async def test_reconciler_failure_rolls_back_shared_session_and_stops_chain(
+        self,
+    ) -> None:
+        from infrastructure.tasks.worker import TaskWorker
+
+        db_session = AsyncMock()
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+        first = AsyncMock(side_effect=RuntimeError("owner reconciliation failed"))
+        second = AsyncMock(return_value=3)
+        worker = TaskWorker(
+            db_manager=db_manager,
+            startup_reconcilers=(first, second),
+        )
+
+        with pytest.raises(RuntimeError, match="owner reconciliation failed"):
+            await worker._run_startup_reconcilers()
+
+        first.assert_awaited_once_with(db_session)
+        second.assert_not_awaited()
+        db_session.rollback.assert_awaited_once_with()
+        db_session.commit.assert_not_awaited()
+
 
 class TestTaskWorkerRunForever:
     """TaskWorker.run_forever 并发调度测试"""
@@ -1809,7 +1837,7 @@ class TestTaskWorkerRunForever:
             return asyncio.create_task(runner())
 
         worker._claim_task_runner = AsyncMock(side_effect=fake_claim_task_runner)
-        worker._maybe_recover_stale_tasks = AsyncMock(return_value=0)
+        worker._maybe_recover_stale_task_transitions = AsyncMock(return_value=(0, False))
 
         run_task = asyncio.create_task(worker.run_forever())
         await asyncio.wait_for(both_started.wait(), timeout=1.0)
