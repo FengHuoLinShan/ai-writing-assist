@@ -163,7 +163,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 ## API
 
 ```
-POST /api/imports/upload                    # 上传并导入（multipart/form-data）
+POST /api/imports/upload                    # 上传并导入；201 表示导入记录、章节工作稿和发布任务已提交，可立即读取
 GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true

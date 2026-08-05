@@ -9,14 +9,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from fastapi import UploadFile
 from httpx import AsyncClient
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
 from infrastructure.tasks.models import AsyncTask
 from modules.imports import api as import_api
 from modules.imports import services as import_services
@@ -124,6 +128,94 @@ async def test_upload_passes_complete_bytes_to_service(
     assert args[1] == novel_id
     assert args[2] == "book.txt"
     assert args[3] == content
+
+
+@pytest.mark.asyncio
+async def test_upload_commits_before_returning_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """201 的路由结果只能在导入事务已经提交后返回。"""
+    novel_id = str(uuid.uuid4())
+    content = b"chapter content"
+    service_response = ImportResponse(
+        id=str(uuid.uuid4()),
+        novel_id=novel_id,
+        file_name="book.txt",
+        file_type="txt",
+        file_size=len(content),
+        total_chapters=1,
+        imported_chapters=1,
+        status="done",
+    )
+    events: list[str] = []
+
+    async def require_active_project(_db, _novel_id) -> None:  # noqa: ANN001
+        events.append("project-checked")
+
+    async def upload_and_import(*_args) -> ImportResponse:  # noqa: ANN002
+        events.append("service-finished")
+        return service_response
+
+    async def commit() -> None:
+        events.append("committed")
+
+    db = AsyncMock(spec=AsyncSession)
+    db.commit.side_effect = commit
+    fake_service = SimpleNamespace(upload_and_import=upload_and_import)
+    monkeypatch.setattr(import_api, "_require_active_project", require_active_project)
+    monkeypatch.setattr(import_api, "_service", fake_service)
+
+    result = await import_api.upload_file(
+        db,
+        novel_id=novel_id,
+        file=UploadFile(file=BytesIO(content), filename="../../book.txt"),
+    )
+
+    assert result is service_response
+    assert events == ["project-checked", "service-finished", "committed"]
+    db.rollback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_upload_commit_failure_rolls_back_and_returns_safe_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """提交失败不能泄露数据库诊断，也不能返回伪成功结果。"""
+    novel_id = str(uuid.uuid4())
+    service_response = ImportResponse(
+        id=str(uuid.uuid4()),
+        novel_id=novel_id,
+        file_name="book.txt",
+        file_type="txt",
+        file_size=7,
+        total_chapters=1,
+        imported_chapters=1,
+        status="done",
+    )
+
+    async def require_active_project(_db, _novel_id) -> None:  # noqa: ANN001
+        return None
+
+    fake_service = SimpleNamespace(
+        upload_and_import=AsyncMock(return_value=service_response),
+    )
+    db = AsyncMock(spec=AsyncSession)
+    db.commit.side_effect = RuntimeError("postgres password=should-not-leak")
+    monkeypatch.setattr(import_api, "_require_active_project", require_active_project)
+    monkeypatch.setattr(import_api, "_service", fake_service)
+
+    with pytest.raises(DomainError) as captured:
+        await import_api.upload_file(
+            db,
+            novel_id=novel_id,
+            file=UploadFile(file=BytesIO(b"content"), filename="book.txt"),
+        )
+
+    assert captured.value.code == "import_commit_failed"
+    assert captured.value.status_code == 500
+    assert captured.value.message == "导入结果保存失败，请重试"
+    assert "password" not in captured.value.message
+    db.rollback.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

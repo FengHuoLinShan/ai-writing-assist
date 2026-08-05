@@ -7,12 +7,15 @@ World 动态地图 API 路由 — PRD docs/PRD-动态地图功能.md
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
+from core.errors import DomainError
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.project.facade import require_active_project
 from modules.world.map_schemas import (
     MapArchiveImpactResponse,
@@ -98,6 +101,8 @@ from modules.world.services.map_service import (
     MapTileService,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/world/maps", tags=["world-map"])
 
 _map_config_service = MapConfigService()
@@ -126,6 +131,31 @@ async def _require_active_novel_id(
 
 
 ActiveNovelIdQuery = Annotated[str, Depends(_require_active_novel_id)]
+
+
+async def _commit_map_observation_success(db: DbSession) -> None:
+    """Commit a created observation before exposing its id to follow-up actions."""
+    try:
+        await db.commit()
+    except Exception as exc:
+        logger.error(
+            "提交地图动态失败 error_type=%s diagnostic=%s",
+            type(exc).__name__,
+            redact_diagnostic(exc, limit=300),
+        )
+        try:
+            await db.rollback()
+        except Exception as rollback_exc:
+            logger.error(
+                "回滚地图动态失败 error_type=%s diagnostic=%s",
+                type(rollback_exc).__name__,
+                redact_diagnostic(rollback_exc, limit=300),
+            )
+        raise DomainError(
+            "地图动态保存失败，请重试",
+            code="map_observation_commit_failed",
+            status_code=500,
+        ) from exc
 
 
 # ============================================================
@@ -1106,12 +1136,14 @@ async def create_map_observation(
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> MapObservationResponse:
-    return await _dynamic_fact_service.create_observation(
+    response = await _dynamic_fact_service.create_observation(
         db,
         novel_id,
         map_id=map_id,
         data=data,
     )
+    await _commit_map_observation_success(db)
+    return response
 
 
 @router.patch(

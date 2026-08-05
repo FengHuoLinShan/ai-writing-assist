@@ -335,7 +335,7 @@ managed provenance、失败状态和脱敏 error，结束时取消 heartbeat。
 ## API
 
 ```http
-POST /api/imports/upload      — 上传文件（multipart multipart）
+POST /api/imports/upload      — 上传文件（multipart）；201 表示导入记录、章节工作稿和发布任务已提交，后续请求可立即读取
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；活动任务复用原 task，资产重复时先返回 requires_confirmation
