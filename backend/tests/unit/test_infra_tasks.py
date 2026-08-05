@@ -74,6 +74,26 @@ def test_task_checkpoint_session_guard_requires_explicit_worker_capability() -> 
 class TestEnqueueTask:
     """enqueue_task 单元测试"""
 
+    def test_unknown_task_type_keeps_compatibility_fallback(self) -> None:
+        """Unregistered task types retain the generic enqueue contract."""
+        from infrastructure.tasks.enqueuer import _new_task
+
+        task = _new_task(
+            task_type="unknown_task_type_for_compatibility_test",
+            meta=None,
+            status="pending",
+            progress=0.0,
+            coalescing_key=None,
+        )
+
+        assert task.task_type == "unknown_task_type_for_compatibility_test"
+        assert task.status == "pending"
+        assert task.meta == {}
+        assert task.recovery_policy == "restart_origin"
+        assert task.max_attempts == 1
+        assert task.attempt == 0
+        assert task.coalescing_key is None
+
     def test_create_task_with_defaults(self) -> None:
         """GREEN: 使用默认参数创建任务"""
         from infrastructure.tasks.enqueuer import enqueue_task

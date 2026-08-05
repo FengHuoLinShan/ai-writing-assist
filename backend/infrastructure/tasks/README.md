@@ -19,7 +19,9 @@ infrastructure/tasks/
 
 ## 当前任务处理器
 
-任务处理器由各业务模块在应用和 worker 启动时注册。当前注册项为：
+任务处理器仍由各业务模块的 `tasks.py` 声明。`app.task_runtime` 拥有显式启动 manifest，
+并由 API 与 worker 两个组合根共同调用以注册这些声明。基础设施本身不导入或发现业务模块。
+当前注册项为：
 
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、

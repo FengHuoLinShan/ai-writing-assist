@@ -37,6 +37,44 @@ def test_configure_worker_registers_domain_dependencies_and_handlers() -> None:
         reset()
 
 
+def test_configure_worker_orders_config_di_and_task_registration() -> None:
+    calls: list[str] = []
+
+    def validate_config() -> None:
+        calls.append("config")
+
+    def register_services(*, ignore_existing: bool = False) -> None:
+        assert ignore_existing is True
+        calls.append("di")
+
+    def register_handlers() -> None:
+        calls.append("handlers")
+
+    with (
+        patch(
+            "run_worker._validate_worker_config",
+            autospec=True,
+            side_effect=validate_config,
+        ) as validate,
+        patch(
+            "app.bootstrap.register_container_services",
+            autospec=True,
+            side_effect=register_services,
+        ) as register_services_mock,
+        patch(
+            "run_worker.register_task_handlers",
+            autospec=True,
+            side_effect=register_handlers,
+        ) as register_handlers_mock,
+    ):
+        _configure_worker_process()
+
+    assert calls == ["config", "di", "handlers"]
+    validate.assert_called_once_with()
+    register_services_mock.assert_called_once_with(ignore_existing=True)
+    register_handlers_mock.assert_called_once_with()
+
+
 def test_configure_worker_validates_llm_rate_limit_before_registration() -> None:
     settings = MagicMock(app_env="production", llm_rate_limit_per_minute=0)
 
@@ -51,12 +89,17 @@ def test_configure_worker_validates_llm_rate_limit_before_registration() -> None
             "app.bootstrap.register_container_services",
             autospec=True,
         ) as register_services,
+        patch(
+            "run_worker.register_task_handlers",
+            autospec=True,
+        ) as register_handlers,
         pytest.raises(RuntimeError, match="invalid LLM rate limit"),
     ):
         _configure_worker_process()
 
     validate.assert_called_once_with("production", 0)
     register_services.assert_not_called()
+    register_handlers.assert_not_called()
 
 
 def test_non_local_worker_config_allows_disabled_llm_limiter() -> None:
@@ -135,9 +178,10 @@ async def test_run_task_worker_turns_sigterm_into_one_graceful_drain(
     loop.add_signal_handler.assert_called_once_with(signal.SIGTERM, ANY)
     worker.stop.assert_called_once_with()
     loop.remove_signal_handler.assert_called_once_with(signal.SIGTERM)
-    assert caplog.messages.count(
-        "TaskWorker received SIGTERM; draining in-flight tasks."
-    ) == 1
+    assert (
+        caplog.messages.count("TaskWorker received SIGTERM; draining in-flight tasks.")
+        == 1
+    )
 
 
 @pytest.mark.asyncio

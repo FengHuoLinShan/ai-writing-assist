@@ -296,8 +296,9 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction`、`map_observation_enrichment` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
 
-任务处理器由模块 `tasks.py` 在应用/worker 启动时注册；新增或移除处理器时应更新此表并保留
-`async_tasks` 的兼容状态语义。
+任务处理器仍由 owning 模块的 `tasks.py` 声明；`app.task_runtime` 拥有 API 与 worker 共同
+消费的显式启动 manifest，并负责在两个组合根注册这些声明。`infrastructure/tasks` 不导入或
+自动发现业务模块。新增或移除处理器时应更新此表并保留 `async_tasks` 的兼容状态语义。
 
 每个 worker attempt 使用独立日志作用域。claim 时即使 `meta.novel_id` 存在也只记录
 `<unverified>`；组合根 project preflight 经 facade 确认项目存在后才绑定规范化 UUID，之后的

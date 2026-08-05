@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib
 import logging
 import signal
 import sys
 from pathlib import Path
 
+from app.task_runtime import register_task_handlers
 from core.config import get_settings, validate_llm_rate_limit_config
 from scripts.dev_schema_guard import wait_for_schema_current
 
@@ -27,15 +27,6 @@ RELOAD_DIRS = (
     "infrastructure",
     "modules",
     "prompts",
-)
-TASK_HANDLER_MODULES = (
-    "modules.imports.tasks",
-    "modules.interaction.tasks",
-    "modules.outline.tasks",
-    "modules.project.tasks",
-    "modules.rag.tasks",
-    "modules.world.tasks",
-    "modules.writing.tasks",
 )
 logger = logging.getLogger(__name__)
 
@@ -99,8 +90,7 @@ def _configure_worker_process() -> None:
     from app.bootstrap import register_container_services
 
     register_container_services(ignore_existing=True)
-    for module_name in TASK_HANDLER_MODULES:
-        importlib.import_module(module_name)
+    register_task_handlers()
 
 
 def _validate_worker_config() -> None:
