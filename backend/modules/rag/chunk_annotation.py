@@ -113,6 +113,7 @@ def build_chunk_create(
         cn_chunk.text,
         project_terms,
     )
+    importance_entity_ids = list(dict.fromkeys([*entity_ids, *character_ids]))
     scene_id, scene_span_id = resolve_scene_span_for_chunk(
         cn_chunk,
         scene_spans_for_chapter or [],
@@ -139,7 +140,7 @@ def build_chunk_create(
         scene_id=str(scene_id) if scene_id else None,
         scene_span_id=str(scene_span_id) if scene_span_id else None,
         visibility="reader_known",
-        importance=chunk_importance(entity_ids, entity_importance_map),
+        importance=chunk_importance(importance_entity_ids, entity_importance_map),
         index_version=RAG_INDEX_VERSION,
         embedding_status="pending",
         meta={

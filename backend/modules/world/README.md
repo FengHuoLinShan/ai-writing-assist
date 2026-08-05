@@ -617,6 +617,7 @@ facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` /
 # ---- CoreEntity ----
 async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]
 async def list_entity_terms(db, novel_id, *, limit=500) -> list[dict]
+async def get_entity_importance_map(db, novel_id) -> dict[str, dict[str, object]]
 async def create_entity(db, novel_id, data: dict) -> dict
 async def count_entities(db, novel_id, *, status_filter=None) -> int
 async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
@@ -686,6 +687,9 @@ confirmed 且带 Scene 锚点的事实，并单独返回 undated 数量供调用
 `depends_on_candidate=true` 和 `candidate_review_state` 标明尚未采用。
 
 `get_world_context` 默认在查询层只返回 `canonical`，不会泄漏待处理对象。
+`get_entity_importance_map` 同样只投影 `canonical` 对象的 ID、importance 和
+importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 分数，不读取 world ORM，
+也不让待处理对象影响已采用正文的检索排序。
 只有明确需要 working context 的调用方才传 `include_review=True`，此时额外
 包含 `draft` / `candidate` / `conflicted`，但始终排除已归档状态。
 `compatibility_shadow` 在待处理期间只使用 `draft` / `candidate`，不会进入默认 active context；它只用于旧读取契约与可回滚迁移。队列采用后同一对象转为 `canonical`、可正常编辑，拒绝后转入 `ignored` 历史。

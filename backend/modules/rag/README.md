@@ -37,7 +37,9 @@ RAG P@5/MRR/R@10 语义质量评测。
 - `rag_entity_appearances` — 从当前正文 chunk 派生的对象出场索引；按 Scene 去重，无法精确映射时按章去重，可删除重建
 
 对象出场索引只服务列表热点排序，不覆盖 `CoreEntity.importance`，不进入 RAG
-importance 评分或生成上下文。章节索引在替换 chunk 的同一事务内替换对应
+importance 评分或生成上下文。RAG chunk 自身的 importance 仍在章节索引时通过
+world facade 读取已采用对象的语义 importance；该读取是必需 source，失败会让本次索引
+显式失败并按任务策略重试，不会再静默把全部 chunk 降为 0.5。章节索引在替换 chunk 的同一事务内替换对应
 appearance；同一跨章 Scene 只保留一条出场并以最后一个命中章作为热度位置，无法定位 Scene
 时才按章保留一条。每章只读取新鲜的 working 索引，缺失时回退新鲜 canonical。请求 hash 与
 已索引 hash 不一致的行不参与统计。对象名称、别名、类型或采用状态变化后，world 通过组合根

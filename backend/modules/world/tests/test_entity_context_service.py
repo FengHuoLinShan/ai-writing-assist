@@ -334,6 +334,44 @@ async def test_list_entity_terms_excludes_inactive_aliases(
 
 
 @pytest.mark.asyncio
+async def test_get_entity_importance_map_requests_canonical_rows_for_current_novel(
+    novel_id: str,
+) -> None:
+    entity_id = uuid.uuid4()
+
+    class RankingRepo:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, uuid.UUID, str | None]] = []
+
+        async def list_ranking_candidates(
+            self,
+            db: object,
+            requested_novel_id: uuid.UUID,
+            *,
+            status: str | None = None,
+        ) -> list[dict[str, object]]:
+            self.calls.append((db, requested_novel_id, status))
+            return [
+                {
+                    "id": entity_id,
+                    "importance": 0.85,
+                    "importance_level": "core",
+                }
+            ]
+
+    repo = RankingRepo()
+    service = EntityContextService(repo=repo)  # type: ignore[arg-type]
+    db = object()
+
+    result = await service.get_entity_importance_map(db, novel_id)  # type: ignore[arg-type]
+
+    assert result == {
+        str(entity_id): {"importance": 0.85, "importance_level": "core"}
+    }
+    assert repo.calls == [(db, uuid.UUID(novel_id), "canonical")]
+
+
+@pytest.mark.asyncio
 async def test_find_by_name_found_returns_id(
     novel_id: str,
     entity_service: EntityContextService,

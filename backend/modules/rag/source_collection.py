@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.container import get as _container_get
 from modules.rag.query_expansion import _load_project_terms
 
 
@@ -130,12 +129,9 @@ async def collect_annotation_sources(
             content_mode=content_mode,
         )
     project_terms = await _load_project_terms(db, novel_id)
-    entity_importance_map: dict[str, dict[str, object]] = {}
-    try:
-        _get_importance_map = _container_get("world.get_entity_importance_map")
-        entity_importance_map = await _get_importance_map(db, str(novel_id))
-    except Exception:
-        entity_importance_map = {}
+    from modules.world.facade import get_entity_importance_map
+
+    entity_importance_map = await get_entity_importance_map(db, str(novel_id))
     return (
         scenes_for_chapter(scenes, chapter_index),
         scene_spans,

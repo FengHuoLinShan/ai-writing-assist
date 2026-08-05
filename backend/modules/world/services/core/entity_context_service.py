@@ -164,6 +164,26 @@ class EntityContextService:
             )
         return terms
 
+    async def get_entity_importance_map(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> dict[str, dict[str, object]]:
+        """Return canonical entity importance for derived RAG chunks."""
+        nid = parse_uuid(novel_id, "novel_id")
+        rows = await self._repo.list_ranking_candidates(
+            db,
+            nid,
+            status="canonical",
+        )
+        return {
+            str(row["id"]): {
+                "importance": float(row["importance"]),
+                "importance_level": str(row["importance_level"]),
+            }
+            for row in rows
+        }
+
     async def find_by_name(
         self,
         db: AsyncSession,
