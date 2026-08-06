@@ -48,6 +48,7 @@ import {
   setCurrentScene,
 } from "../views/mapState.js"
 import mapView from "../views/mapView.js"
+import { createRetryableLeafletLoader } from "../views/leafletLoader.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "../views/mapEditPanel.js"
 
 async function importFreshMapView() {
@@ -55,33 +56,27 @@ async function importFreshMapView() {
   return (await import("../views/mapView.js")).default
 }
 
-function interceptLeafletResourceAppend() {
-  const originalAppendChild = document.head.appendChild
-  const originalGetElementById = document.getElementById
-  const appended = []
-
-  document.head.appendChild = vi.fn((node) => {
-    if (node?.id === "leaflet-css-dynamic" || node?.id === "leaflet-js-dynamic") {
-      node.remove = vi.fn(() => {
-        node.dataset.removed = "true"
-      })
-      appended.push(node)
-      return node
-    }
-    return originalAppendChild.call(document.head, node)
-  })
-  document.getElementById = vi.fn((id) => {
-    const intercepted = appended.find((node) => node.id === id && node.dataset.removed !== "true")
-    return intercepted || originalGetElementById.call(document, id)
-  })
-
-  return {
-    appended,
-    restore() {
-      document.head.appendChild = originalAppendChild
-      document.getElementById = originalGetElementById
-    },
+function createLeafletHarness(container, { fittedZoom = -5 } = {}) {
+  const leafletMap = {
+    getBoundsZoom: vi.fn(() => fittedZoom),
+    setMinZoom: vi.fn(),
+    fitBounds: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(function () { return this }),
+    getZoom: vi.fn(() => 0),
+    latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
+    eachLayer: vi.fn(),
+    removeLayer: vi.fn(),
+    getContainer: vi.fn(() => container),
+    remove: vi.fn(),
   }
+  const leafletApi = {
+    CRS: { Simple: {} },
+    map: vi.fn(() => leafletMap),
+    latLngBounds: vi.fn((bounds) => bounds),
+    latLng: vi.fn((lat, lng) => ({ lat, lng })),
+  }
+  return { leafletApi, leafletMap }
 }
 
 beforeEach(() => {
@@ -101,10 +96,8 @@ beforeEach(() => {
   mapView._suppressNextCanvasClick = false
   mapView._lifecycleEpoch = 0
   mapView._mountContext = {}
+  mapView._leafletApi = null
   mapView._setEditorApplyBusy(false)
-  document.getElementById("leaflet-css-dynamic")?.remove()
-  document.getElementById("leaflet-js-dynamic")?.remove()
-  delete window.L
 })
 // ============================================================
 // 六边形几何
@@ -662,7 +655,6 @@ describe("mapView 列表渲染", () => {
 
 describe("mapView Leaflet overlay alignment", () => {
   it("mounts the canvas as a fixed container overlay, not inside a movable Leaflet pane", async () => {
-    const resources = interceptLeafletResourceAppend()
     const overlayPane = document.createElement("div")
     overlayPane.className = "leaflet-overlay-pane"
     const container = document.createElement("div")
@@ -677,23 +669,7 @@ describe("mapView Leaflet overlay alignment", () => {
       methods: ["setTransform", "clearRect", "translate", "scale"],
     }))
 
-    window.L = {
-      CRS: { Simple: {} },
-      map: vi.fn(() => ({
-        getBoundsZoom: vi.fn(() => -5),
-        setMinZoom: vi.fn(),
-        fitBounds: vi.fn(),
-        on: vi.fn(),
-        off: vi.fn(function () { return this }),
-        getZoom: vi.fn(() => 0),
-        latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
-        eachLayer: vi.fn(),
-        removeLayer: vi.fn(),
-        getContainer: vi.fn(() => container),
-        remove: vi.fn(),
-      })),
-      latLngBounds: vi.fn((bounds) => bounds),
-    }
+    const { leafletApi } = createLeafletHarness(container)
 
     mapView._state = {
       map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
@@ -704,7 +680,7 @@ describe("mapView Leaflet overlay alignment", () => {
     }
 
     try {
-      await mapView._initLeaflet()
+      await mapView._initLeaflet(async () => leafletApi)
 
       expect(mapView._canvas?.parentElement).toBe(container)
       expect(overlayPane.contains(mapView._canvas)).toBe(false)
@@ -712,14 +688,11 @@ describe("mapView Leaflet overlay alignment", () => {
       mapView._teardownInteractiveSurface()
       mapView._state = null
       HTMLCanvasElement.prototype.getContext = originalGetContext
-      resources.restore()
-      delete window.L
     }
   })
 
-  it("loads Leaflet CSS and JS on demand when window.L is absent", async () => {
+  it("uses the loaded module without injecting CDN resources or window globals", async () => {
     const freshMapView = await importFreshMapView()
-    const resources = interceptLeafletResourceAppend()
     const container = document.createElement("div")
     container.id = "map-leaflet"
     Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
@@ -730,19 +703,7 @@ describe("mapView Leaflet overlay alignment", () => {
     HTMLCanvasElement.prototype.getContext = vi.fn(() => createCanvasMock({
       methods: ["setTransform", "clearRect", "translate", "scale"],
     }))
-    const leafletMap = {
-      getBoundsZoom: vi.fn(() => -5),
-      setMinZoom: vi.fn(),
-      fitBounds: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(function () { return this }),
-      getZoom: vi.fn(() => 0),
-      latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
-      eachLayer: vi.fn(),
-      removeLayer: vi.fn(),
-      getContainer: vi.fn(() => container),
-      remove: vi.fn(),
-    }
+    const { leafletApi, leafletMap } = createLeafletHarness(container)
     freshMapView._state = {
       map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
       tiles: [],
@@ -752,41 +713,26 @@ describe("mapView Leaflet overlay alignment", () => {
     }
 
     try {
-      const init = freshMapView._initLeaflet()
-      const link = document.getElementById("leaflet-css-dynamic")
-      const script = document.getElementById("leaflet-js-dynamic")
+      await freshMapView._initLeaflet(async () => leafletApi)
 
-      expect(link?.getAttribute("href")).toBe("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css")
-      expect(script?.getAttribute("src")).toBe("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js")
-      expect(script?.getAttribute("integrity")).toBe("sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=")
-
-      window.L = {
-        CRS: { Simple: {} },
-        map: vi.fn(() => leafletMap),
-        latLngBounds: vi.fn((bounds) => bounds),
-      }
-      script.onload()
-      await init
-
-      expect(window.L.map).toHaveBeenCalledWith(container, expect.objectContaining({
-        crs: window.L.CRS.Simple,
+      expect(leafletApi.map).toHaveBeenCalledWith(container, expect.objectContaining({
+        crs: leafletApi.CRS.Simple,
         minZoom: -12,
         attributionControl: false,
       }))
       expect(freshMapView._leaflet.setMinZoom).toHaveBeenCalledWith(-5)
       expect(freshMapView._leaflet).toBe(leafletMap)
+      expect(document.querySelector('[data-leaflet-dynamic="true"]')).toBeNull()
+      expect(globalThis.L).toBeUndefined()
     } finally {
       freshMapView._teardownInteractiveSurface()
       freshMapView._state = null
       HTMLCanvasElement.prototype.getContext = originalGetContext
-      resources.restore()
-      delete window.L
     }
   })
 
-  it("reuses the in-flight Leaflet loader and does not inject duplicate resources", async () => {
+  it("reuses one in-flight Leaflet module load across concurrent initialization", async () => {
     const freshMapView = await importFreshMapView()
-    const resources = interceptLeafletResourceAppend()
     const container = document.createElement("div")
     container.id = "map-leaflet"
     Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
@@ -804,48 +750,40 @@ describe("mapView Leaflet overlay alignment", () => {
       markers: [],
       territories: [],
     }
+    const { leafletApi } = createLeafletHarness(container)
+    let resolveImport
+    const importer = vi.fn(() => new Promise((resolve) => {
+      resolveImport = resolve
+    }))
+    const load = createRetryableLeafletLoader(importer)
 
     try {
-      const first = freshMapView._initLeaflet()
-      const second = freshMapView._initLeaflet()
-      expect(resources.appended.filter((node) => node.id === "leaflet-css-dynamic")).toHaveLength(1)
-      expect(resources.appended.filter((node) => node.id === "leaflet-js-dynamic")).toHaveLength(1)
-
-      const script = document.getElementById("leaflet-js-dynamic")
-      window.L = {
-        CRS: { Simple: {} },
-        map: vi.fn(() => ({
-          fitBounds: vi.fn(),
-          on: vi.fn(),
-          off: vi.fn(function () { return this }),
-          getZoom: vi.fn(() => 0),
-          latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
-          eachLayer: vi.fn(),
-          removeLayer: vi.fn(),
-          getContainer: vi.fn(() => container),
-          remove: vi.fn(),
-        })),
-        latLngBounds: vi.fn((bounds) => bounds),
-      }
-      script.onload()
+      const first = freshMapView._initLeaflet(load)
+      const second = freshMapView._initLeaflet(load)
+      await Promise.resolve()
+      expect(importer).toHaveBeenCalledTimes(1)
+      resolveImport(leafletApi)
       await Promise.all([first, second])
 
-      expect(window.L.map).toHaveBeenCalledTimes(1)
+      expect(leafletApi.map).toHaveBeenCalledTimes(1)
     } finally {
       freshMapView._teardownInteractiveSurface()
       freshMapView._state = null
       HTMLCanvasElement.prototype.getContext = originalGetContext
-      resources.restore()
-      delete window.L
     }
   })
 
-  it("renders the existing failure state when Leaflet cannot load", async () => {
+  it("renders the existing failure state with an in-place retry", async () => {
     const freshMapView = await importFreshMapView()
-    const resources = interceptLeafletResourceAppend()
     const container = document.createElement("div")
     container.id = "map-leaflet"
+    Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
+    Object.defineProperty(container, "clientHeight", { value: 420, configurable: true })
     document.body.appendChild(container)
+    const originalGetContext = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => createCanvasMock({
+      methods: ["setTransform", "clearRect", "translate", "scale"],
+    }))
     freshMapView._state = {
       map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
       tiles: [],
@@ -853,15 +791,29 @@ describe("mapView Leaflet overlay alignment", () => {
       markers: [],
       territories: [],
     }
+    const { leafletApi } = createLeafletHarness(container)
+    const load = createRetryableLeafletLoader(
+      vi.fn()
+        .mockRejectedValueOnce(new Error("chunk unavailable"))
+        .mockResolvedValueOnce(leafletApi),
+    )
 
-    const init = freshMapView._initLeaflet()
-    const script = document.getElementById("leaflet-js-dynamic")
-    script.onerror()
-    await init
+    try {
+      await freshMapView._initLeaflet(load)
 
-    expect(container.textContent).toContain("地图引擎加载失败")
-    expect(freshMapView._leaflet).toBeNull()
-    resources.restore()
+      expect(container.textContent).toContain("地图引擎加载失败")
+      expect(container.textContent).toContain("其他页面不受影响")
+      expect(freshMapView._leaflet).toBeNull()
+      container.querySelector("button").click()
+
+      await vi.waitFor(() => expect(leafletApi.map).toHaveBeenCalledTimes(1))
+      expect(container.querySelector('[data-leaflet-load-failure="true"]')).toBeNull()
+      expect(freshMapView._leaflet).not.toBeNull()
+    } finally {
+      freshMapView._teardownInteractiveSurface()
+      freshMapView._state = null
+      HTMLCanvasElement.prototype.getContext = originalGetContext
+    }
   })
 
   it("throttles viewport redraws through requestAnimationFrame", () => {

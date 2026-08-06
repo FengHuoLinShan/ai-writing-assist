@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport, runResponsiveMatrix } from "./helpers/responsive.js"
 import {
@@ -90,10 +89,6 @@ test.describe("地图一级工作台", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {
@@ -1237,10 +1232,6 @@ test.describe("写作页地图入口", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {

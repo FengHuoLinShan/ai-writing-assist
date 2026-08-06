@@ -5,7 +5,8 @@ RP 路径使用独立、纯白、低干扰的故事壳，同时支持暖色与�
 
 ## 快速启动
 
-开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。地图视图首次初始化时会按需从固定 CDN 加载 Leaflet，因此离线使用时需要确保浏览器可访问该资源。
+开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。Leaflet 1.9.4 是精确锁定的
+生产依赖；地图首次进入时才由 Vite 加载本源 JS/CSS chunk，非地图页面不会下载，也不依赖外部 CDN。
 
 ```bash
 cd frontend-console
@@ -209,7 +210,8 @@ frontend-console/
 - Vue 视图经 `vue/mountIsland.js` 注册进 hash router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；异步 `load()` 使用代次守卫，新加载或 `onLeave` 后的旧响应不得回写当前 island；动态内容依赖模板自动转义，禁止 `v-html`
 - `vue/viewLoaders.js` 仅在启动时向 router 注册一级路由的动态 import 函数；认证门禁和未访问的业务页面不会下载 island。router 会复用同一路由的 pending import，模块必须经既有 `registerView()` 自注册；失败显示通用安全提示与原位“重试”。若重试仍失败，用户可以选择“刷新应用”，并会先看到未保存输入可能丢失的确认；不会自动刷新或中断正常创作。成功页的路由、生命周期、HTTP API、数据库 schema 与 wire shape 均不变。
 - 上述变更只调整前端内部所有权；HTTP API、数据库 schema 和前端 wire shape 保持不变
-- 地图视口按需加载 Leaflet（ADR-0003）
+- 地图视口按需加载锁定、自托管的 Leaflet 1.9.4；进行中和成功加载只复用一次，失败可原位重试，
+  不使用 `window.L` 或动态 CDN 标签（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。
 - 地图快速创建的字段、可放置地点选择、半径、方向移动和锁定操作均提供作者可读的可访问名称；画布和视觉工作流、坐标/半径/锁定命令及地图 API 契约保持不变。
 - 图层面板使用递归树，展示祖先继承后的有效显隐、锁定、透明度与 zoom；exclusive/floor 当前子层由 route + localStorage 会话投影管理，isolate 不持久化。世界对象通过 map presence 在多张地图和多条线路间选择并双向定位。
@@ -358,7 +360,9 @@ frontend-console/
 
 ## 安全与契约
 
-- `index.html` 配置 CSP meta baseline：脚本仅允许本源和 Leaflet CDN，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
+- `index.html` 配置 CSP meta baseline：脚本和外部样式来源仅允许本源，连接仅允许本源及本地开发
+  后端；`style-src` 暂保留 inline style 兼容。生产构建包含 Leaflet BSD-2-Clause 许可，并拒绝
+  `unpkg.com` 引用回归。
 - 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
 - Vue 模板动态内容使用插值自动转义；命令式 seam 默认使用 `textContent`，必须拼 HTML 时先走 `esc()`。
 - 世界关系审查预览使用 DOM 节点和 `textContent`，不把动态对象名称或关系类型送入

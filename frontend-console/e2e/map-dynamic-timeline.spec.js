@@ -10,7 +10,6 @@ import {
   createScene,
   waitForBackend,
 } from "./helpers/api-client.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 
@@ -62,10 +61,6 @@ test.describe("地图 Scene 动态时间轴", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {

@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   createProject,
@@ -38,8 +37,6 @@ test.describe("写作工作台 — 版本冲突", () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
-
     const project = await createProject({
       title: "冲突测试项目",
       genre: "fantasy",

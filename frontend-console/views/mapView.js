@@ -70,6 +70,7 @@ import {
   setMapTelemetryMetadata,
   startMapTelemetryStage,
 } from "./mapTelemetry.js"
+import { loadLeafletForMapView } from "./leafletLoader.js"
 import {
   bulkResultMessage,
   clearBulkSelection,
@@ -106,70 +107,17 @@ import {
   setEditorLayer,
 } from "./mapState.js"
 
-const LEAFLET_VERSION = "1.9.4"
-const LEAFLET_CSS_ID = "leaflet-css-dynamic"
-const LEAFLET_JS_ID = "leaflet-js-dynamic"
-const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`
-const LEAFLET_JS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`
-const LEAFLET_CSS_INTEGRITY = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-const LEAFLET_JS_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
 const MAP_FIT_FLOOR_ZOOM = -12
 const MAP_DEFAULT_MIN_ZOOM = -3
 const MAP_TILE_BATCH_LIMIT = 10000
 const MAP_LOCATION_BINDING_HEX_LIMIT = 5000
 const MAP_PATH_NODE_LIMIT = 500
 
-let leafletLoadPromise = null
-
-function ensureLeafletStylesheet() {
-  if (document.getElementById(LEAFLET_CSS_ID)) return
-  const link = document.createElement("link")
-  link.id = LEAFLET_CSS_ID
-  link.dataset.leafletDynamic = "true"
-  link.rel = "stylesheet"
-  link.href = LEAFLET_CSS_URL
-  link.integrity = LEAFLET_CSS_INTEGRITY
-  link.crossOrigin = ""
-  document.head.appendChild(link)
-}
-
-function loadLeafletForMapView() {
-  ensureLeafletStylesheet()
-  if (window.L) return Promise.resolve(window.L)
-  if (leafletLoadPromise) return leafletLoadPromise
-
-  leafletLoadPromise = new Promise((resolve, reject) => {
-    const existing = document.getElementById(LEAFLET_JS_ID)
-    if (existing) existing.remove()
-
-    const script = document.createElement("script")
-    script.id = LEAFLET_JS_ID
-    script.dataset.leafletDynamic = "true"
-    script.src = LEAFLET_JS_URL
-    script.integrity = LEAFLET_JS_INTEGRITY
-    script.crossOrigin = ""
-    script.async = true
-    script.onload = () => {
-      if (window.L) {
-        resolve(window.L)
-      } else {
-        reject(new Error("Leaflet script loaded without window.L"))
-      }
-    }
-    script.onerror = () => reject(new Error("Leaflet script failed to load"))
-    document.head.appendChild(script)
-  }).catch((err) => {
-    leafletLoadPromise = null
-    document.getElementById(LEAFLET_JS_ID)?.remove()
-    throw err
-  })
-
-  return leafletLoadPromise
-}
-
 const mapView = {
   /** @type {any|null} Leaflet map 实例 */
   _leaflet: null,
+  /** @type {any|null} Leaflet 模块 API；不暴露到 window。 */
+  _leafletApi: null,
   /** @type {HTMLCanvasElement|null} 自定义地形 canvas overlay */
   _canvas: null,
   /** @type {CanvasRenderingContext2D|null} */
@@ -376,6 +324,7 @@ const mapView = {
       this._leaflet.remove?.()
       this._leaflet = null
     }
+    this._leafletApi = null
     if (this._redrawFrame) {
       cancelAnimationFrame(this._redrawFrame)
       this._redrawFrame = null
@@ -1174,25 +1123,37 @@ const mapView = {
   // Leaflet 初始化 + canvas overlay
   // ============================================================
 
-  async _initLeaflet() {
+  async _initLeaflet(loadLeaflet = loadLeafletForMapView) {
     let container = document.getElementById("map-leaflet")
     if (!container || !this._state || this._leaflet) return
+    const lifecycleEpoch = this._lifecycleEpoch
+    const stateAtLoad = this._state
 
     startMapTelemetryStage("leaflet_init")
+    let leafletApi
     try {
-      await loadLeafletForMapView()
+      leafletApi = await loadLeaflet()
     } catch {
-      this._renderLeafletLoadFailure(container)
+      if (this._lifecycleEpoch === lifecycleEpoch && this._state === stateAtLoad) {
+        this._renderLeafletLoadFailure(container, loadLeaflet)
+      }
       return
     }
 
     container = document.getElementById("map-leaflet")
-    if (!container || !this._state || this._leaflet || typeof window.L === "undefined") return
+    if (
+      !container
+      || this._lifecycleEpoch !== lifecycleEpoch
+      || this._state !== stateAtLoad
+      || this._leaflet
+    ) return
+    this._leafletApi = leafletApi
+    container.querySelector('[data-leaflet-load-failure="true"]')?.remove()
 
     const cfg = this._state.map
     // 用一个 CRS.Simple 投影，把 hex 像素坐标当世界坐标
-    this._leaflet = window.L.map(container, {
-      crs: window.L.CRS.Simple,
+    this._leaflet = leafletApi.map(container, {
+      crs: leafletApi.CRS.Simple,
       minZoom: MAP_FIT_FLOOR_ZOOM,
       maxZoom: 3,
       zoomControl: true,
@@ -1211,7 +1172,7 @@ const mapView = {
     const w = cfg.grid_width
     const h = cfg.grid_height
     const [, lastY] = hexToPixel(w - 1, h - 1, size)
-    const bounds = window.L.latLngBounds(
+    const bounds = leafletApi.latLngBounds(
       [[-(lastY + size), -size], [size, (size * 1.5 * (w - 1)) + size]]
     )
     const fittedZoom = Number(this._leaflet.getBoundsZoom?.(bounds))
@@ -1266,8 +1227,29 @@ const mapView = {
     markMapTelemetryCondition("leaflet_ready")
   },
 
-  _renderLeafletLoadFailure(container) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon" style="color:var(--danger);">&#9888;</div><p>地图引擎加载失败</p><p class="world-text-dim">Leaflet 未加载，请检查网络连接（ADR-0003）</p></div>`
+  _renderLeafletLoadFailure(container, loadLeaflet = loadLeafletForMapView) {
+    const state = document.createElement("div")
+    state.className = "empty-state"
+    state.dataset.leafletLoadFailure = "true"
+    state.setAttribute("role", "alert")
+    const icon = document.createElement("div")
+    icon.className = "empty-icon"
+    icon.textContent = "⚠"
+    const title = document.createElement("p")
+    title.textContent = "地图引擎加载失败"
+    const detail = document.createElement("p")
+    detail.className = "world-text-dim"
+    detail.textContent = "本地地图资源暂时无法加载，其他页面不受影响。"
+    const retry = document.createElement("button")
+    retry.type = "button"
+    retry.className = "btn btn-sm btn-primary"
+    retry.textContent = "重试加载地图"
+    retry.addEventListener("click", () => {
+      retry.disabled = true
+      this._initLeaflet(loadLeaflet)
+    }, { once: true })
+    state.append(icon, title, detail, retry)
+    container.replaceChildren(state)
   },
 
   _scheduleRedraw() {
@@ -1295,7 +1277,7 @@ const mapView = {
     if (!Number.isFinite(q) || !Number.isFinite(r) || !this._leaflet?.setView) return
     const [x, y] = hexToPixel(q, r, size)
     const currentZoom = Number(this._leaflet.getZoom?.() ?? 0)
-    this._leaflet.setView(window.L.latLng(-y, x), Math.max(1, currentZoom))
+    this._leaflet.setView(this._leafletApi.latLng(-y, x), Math.max(1, currentZoom))
   },
 
   _effectiveLayerNode({ layerKey = null, terrainLayerId = null, pathLayerId = null, zoom = null } = {}) {
@@ -2061,7 +2043,7 @@ const mapView = {
       const r = Number(labelLayout.r)
       if (!Number.isFinite(q) || !Number.isFinite(r)) continue
       const [x, y] = hexToPixel(q, r, this._state.map.hex_size || 30)
-      const latlng = window.L.latLng(-y, x)
+      const latlng = this._leafletApi.latLng(-y, x)
       const point = this._leaflet.latLngToContainerPoint(latlng)
       const label = labelLayout.title
       const sourceKind = labelLayout.sourceKind || "location"
@@ -2070,7 +2052,7 @@ const mapView = {
       const iconWidth = labelLayout.box.width
       const iconHeight = labelLayout.box.height
       const action = sourceKind === "location" ? "map-click-center" : "map-click-layout-label"
-      const icon = window.L.divIcon({
+      const icon = this._leafletApi.divIcon({
         className: `map-center-marker map-layout-marker is-${labelLayout.displayLevel} is-${esc(sourceKind)}`,
         html: `<div class="map-center-label" style="opacity:${Number(labelLayout.opacity ?? 1)}" data-action="${action}" data-kind="${esc(sourceKind)}" data-id="${esc(sourceId)}" data-q="${q}" data-r="${r}">
                  <span class="map-center-name">${esc(labelLayout.label || label)}</span>
@@ -2079,7 +2061,7 @@ const mapView = {
         iconSize: [iconWidth, iconHeight],
         iconAnchor: [point.x - labelLayout.box.x, point.y - labelLayout.box.y],
       })
-      const marker = window.L.marker(latlng, {
+      const marker = this._leafletApi.marker(latlng, {
         icon,
         pane: "mapLabels",
         interactive: true,
@@ -2095,13 +2077,13 @@ const mapView = {
         cluster.box.x + cluster.box.width / 2,
         cluster.box.y + cluster.box.height / 2,
       ])
-      const icon = window.L.divIcon({
+      const icon = this._leafletApi.divIcon({
         className: "map-center-marker map-layout-marker is-cluster",
         html: `<div class="map-center-label map-center-cluster" data-action="map-click-cluster" data-id="${esc(cluster.id)}"><span class="map-center-name">${esc(cluster.label)}</span></div>`,
         iconSize: [cluster.box.width, cluster.box.height],
         iconAnchor: [cluster.box.width / 2, cluster.box.height / 2],
       })
-      const marker = window.L.marker(latlng, {
+      const marker = this._leafletApi.marker(latlng, {
         icon,
         pane: "mapLabels",
         interactive: true,
@@ -2119,7 +2101,7 @@ const mapView = {
     const size = this._state.map.hex_size || 30
     const anchorFor = (q, r) => {
       const [x, y] = hexToPixel(q, r, size)
-      const point = this._leaflet.latLngToContainerPoint(window.L.latLng(-y, x))
+      const point = this._leaflet.latLngToContainerPoint(this._leafletApi.latLng(-y, x))
       return { x: point.x, y: point.y }
     }
     const items = []
@@ -3118,11 +3100,11 @@ const mapView = {
     }
     const cfg = this._state.map
     const [x, y] = hexToPixel(q, r, cfg.hex_size || 30)
-    const latlng = window.L.latLng(-y, x)
+    const latlng = this._leafletApi.latLng(-y, x)
     if (this._tooltipPopup) {
       this._tooltipPopup.setLatLng(latlng).setContent(content)
     } else {
-      this._tooltipPopup = window.L.popup({ closeButton: false, autoClose: false, className: "map-hex-tooltip" })
+      this._tooltipPopup = this._leafletApi.popup({ closeButton: false, autoClose: false, className: "map-hex-tooltip" })
         .setLatLng(latlng)
         .setContent(content)
         .openOn(this._leaflet)
@@ -4621,7 +4603,7 @@ const mapView = {
     const size = this._state?.map?.hex_size || 30
     const [x, y] = hexToPixel(point.q, point.r, size)
     const currentZoom = Number(this._leaflet.getZoom?.() ?? 0)
-    this._leaflet.setView(window.L.latLng(-y, x), Math.max(1, currentZoom))
+    this._leaflet.setView(this._leafletApi.latLng(-y, x), Math.max(1, currentZoom))
     return true
   },
 
@@ -4668,7 +4650,7 @@ const mapView = {
     const point = representativePathPoint(path, this._pathState?.nodes || [])
     if (point && this._leaflet?.setView) {
       const [x, y] = hexToPixel(point.q, point.r, this._state?.map?.hex_size || 30)
-      this._leaflet.setView(window.L.latLng(-y, x), Math.max(1, this._leaflet.getZoom?.() || 0))
+      this._leaflet.setView(this._leafletApi.latLng(-y, x), Math.max(1, this._leaflet.getZoom?.() || 0))
     }
     this._renderSubsetCache.clear()
     this._scheduleRedraw()

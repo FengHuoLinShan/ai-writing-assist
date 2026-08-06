@@ -326,6 +326,10 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - Vue 模板动态文本使用插值自动转义；命令式 seam 优先走 `textContent`
 - 必须插入 HTML 时先走 `esc()`
 - 不把用户/AI/API 返回的未转义内容直接写入 `innerHTML`
-- `index.html` 通过 CSP meta 建立 baseline：脚本仅允许本源和 ADR-0003 接受的 Leaflet CDN（`https://unpkg.com`），连接仅允许本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`
+- `index.html` 通过 CSP meta 建立 baseline：脚本仅允许本源，样式不允许外部 origin，连接仅允许
+  本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`。Leaflet 1.9.4 由锁定 npm
+  依赖构建为地图按需 JS/CSS chunk，不暴露 `window.L`；失败可原位重试，非地图页面不下载。
 - 当前 `style-src` 仍保留 `'unsafe-inline'`，用于兼容入口与少量 inline style；收紧
   `style-src` 需作为独立 CSP 变更评审，不是前端页面 Vue 所有权迁移的未完成阶段
+- 生产构建复制 `/licenses/leaflet-BSD-2-Clause.txt`，资产契约同时验证 Leaflet CSS、许可文件
+  和零 `unpkg.com` 引用；直接第三方运行时依赖见根 `THIRD_PARTY_LICENSES.md`

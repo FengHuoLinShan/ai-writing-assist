@@ -12,6 +12,7 @@ import viteConfig, {
 describe("frontend response security headers", () => {
   it("denies framing in both Vite dev and preview responses", () => {
     expect(frontendSecurityHeaders["Content-Security-Policy"]).toContain("frame-ancestors 'none'")
+    expect(frontendSecurityHeaders["Content-Security-Policy"]).not.toContain("unpkg.com")
     expect(frontendSecurityHeaders["X-Frame-Options"]).toBe("DENY")
     expect(viteConfig.server.headers).toBe(frontendSecurityHeaders)
     expect(viteConfig.preview.headers).toBe(frontendSecurityHeaders)

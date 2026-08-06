@@ -14,18 +14,19 @@ function getCspPolicy() {
 }
 
 describe("index.html CSP baseline", () => {
-  it("keeps scripts on self and the Leaflet CDN without unsafe-inline", () => {
+  it("keeps scripts on self without unsafe-inline or external CDNs", () => {
     const policy = getCspPolicy()
 
-    expect(policy).toContain("script-src 'self' https://unpkg.com")
+    expect(policy).toContain("script-src 'self'")
+    expect(policy).not.toContain("unpkg.com")
     expect(policy).not.toContain("script-src 'unsafe-inline'")
     expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/)
   })
 
-  it("allows current Leaflet styles and local backend connections", () => {
+  it("allows self-hosted styles and local backend connections", () => {
     const policy = getCspPolicy()
 
-    expect(policy).toContain("style-src 'self' 'unsafe-inline' https://unpkg.com")
+    expect(policy).toContain("style-src 'self' 'unsafe-inline'")
     expect(policy).toContain("connect-src 'self' http://localhost:* http://127.0.0.1:*")
   })
 

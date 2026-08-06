@@ -20,10 +20,16 @@ const legacyRuntimeAssets = [
   "router.js",
   "commands.js",
 ]
+const thirdPartyLicenseAssets = [
+  {
+    source: resolve(frontendRoot, "node_modules/leaflet/LICENSE"),
+    destination: "licenses/leaflet-BSD-2-Clause.txt",
+  },
+]
 const contentSecurityPolicy = [
   "default-src 'self'",
-  "script-src 'self' https://unpkg.com",
-  "style-src 'self' 'unsafe-inline' https://unpkg.com",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
   "object-src 'none'",
@@ -56,11 +62,24 @@ function copyLegacyRuntimeAssets() {
   }
 }
 
+function copyThirdPartyLicenses() {
+  return {
+    name: "copy-third-party-licenses",
+    apply: "build",
+    async writeBundle(outputOptions) {
+      const outputRoot = resolve(frontendRoot, outputOptions.dir || "dist")
+      await Promise.all(thirdPartyLicenseAssets.map(({ source, destination }) => (
+        copyReadableRuntimeFile(source, resolve(outputRoot, destination))
+      )))
+    },
+  }
+}
+
 export default defineConfig({
   // Production is served through the same OpenResty origin as /api. Development
   // keeps the existing localhost fallback in api.js.
   define: isProductionBuild ? { API_HOST: JSON.stringify("") } : {},
-  plugins: [vue(), copyLegacyRuntimeAssets()],
+  plugins: [vue(), copyLegacyRuntimeAssets(), copyThirdPartyLicenses()],
   build: isProductionBuild ? { manifest: "asset-manifest.json" } : undefined,
   server: {
     host: "0.0.0.0",
