@@ -1460,6 +1460,37 @@ def test_public_verification_keeps_runtime_checks_to_index_assets(
 
 
 @pytest.mark.parametrize(
+    "hsts_value",
+    [
+        "max-age=31536000; includeSubDomains",
+        "max-age=31536000; includeSubDomains; preload",
+        "MAX-AGE=63072000; INCLUDESUBDOMAINS; PRELOAD",
+    ],
+)
+def test_public_verification_accepts_single_stronger_hsts_header(
+    tmp_path: Path,
+    hsts_value: str,
+) -> None:
+    response_headers = (
+        "HTTP/2 200\n"
+        f"strict-transport-security: {hsts_value}\n"
+        "x-content-type-options: nosniff\n"
+        "x-frame-options: DENY\n"
+        "content-security-policy: default-src 'self'; script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "frame-ancestors 'none'\n\n"
+    )
+
+    result, _requests = _run_public_verification(
+        tmp_path,
+        response_headers=response_headers,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
     "response_headers",
     [
         (
@@ -1481,6 +1512,23 @@ def test_public_verification_keeps_runtime_checks_to_index_assets(
         (
             "HTTP/2 200\n"
             "strict-transport-security: max-age=0\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000; preload\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000; "
+            "includeSubDomains; report-uri=https://example.invalid\n"
             "x-content-type-options: nosniff\n"
             "x-frame-options: DENY\n"
             "content-security-policy: default-src 'self'; script-src 'self'; "
