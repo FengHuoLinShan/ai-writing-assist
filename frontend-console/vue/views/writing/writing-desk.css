@@ -95,8 +95,30 @@
 
 /* 工具栏分组：细分隔线代替一整排平铺按钮 */
 .writing-editor-buttons {
-  gap: 0;
+  align-items: center;
+  gap: 8px;
   padding-top: 10px;
+}
+
+.writing-primary-action__hint {
+  max-width: 220px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.writing-editor-buttons__menus {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.writing-page-menu__body .btn { width: 100%; }
+
+.writing-save-badge--saving::before {
+  background: var(--accent);
+  animation: writing-desk-pulse 1s var(--ease-default) infinite;
 }
 
 .writing-editor-buttons__group {
@@ -1541,10 +1563,22 @@
 }
 
 .mobile-note-actions {
+  position: sticky;
+  bottom: 64px;
+  z-index: 12;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--archive-rule);
   background: color-mix(in srgb, var(--archive-paper-muted) 35%, transparent);
+}
+
+.mobile-note-status {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: center;
 }
 
 /* 专注模式：稿纸居中拉长 */
@@ -1571,6 +1605,24 @@
    ---------------------------------------------------------- */
 
 @media (max-width: 760px) {
+  .writing-editor-header {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    padding: 10px;
+    background: var(--archive-paper-raised);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .writing-primary-action {
+    flex: 1 1 100%;
+    min-height: 44px;
+  }
+
+  .writing-primary-action__hint { max-width: none; }
+
+  .writing-editor-buttons__menus { width: 100%; }
+
   .writing-sheet {
     padding: 4px 14px 10px;
     box-shadow: var(--shadow-sm);

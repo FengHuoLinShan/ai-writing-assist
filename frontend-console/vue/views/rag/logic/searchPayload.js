@@ -111,8 +111,8 @@ export function parentSceneLabel(ref = {}) {
   const index = ref.scene_index ?? "-"
   const title = ref.scene_title || ref.target_name
   return title && title !== `Scene ${index}`
-    ? `Scene ${index} · ${title}`
-    : `Scene ${index}`
+    ? `场景 ${index} · ${title}`
+    : `场景 ${index}`
 }
 
 const SCOPE_LABELS = { manuscript: "正文", world: "世界对象", outline: "结构" }
@@ -137,7 +137,7 @@ export function advancedFilterSummary(filterState = {}, { characters = [], scene
   if (filterState.cutoffChapter) summary.push(`可见至第 ${filterState.cutoffChapter} 章`)
   if (filterState.cutoffSceneId) {
     const scene = scenes.find((item) => item.id === filterState.cutoffSceneId)
-    summary.push(scene?.title ? `可见至 ${scene.title}` : "已设置 Scene 截止点")
+    summary.push(scene?.title ? `可见至 ${scene.title}` : "已设置场景截止点")
   }
   if (filterState.cutoffOffset != null && filterState.cutoffOffset !== "") {
     summary.push(`章内位置 ${filterState.cutoffOffset}`)

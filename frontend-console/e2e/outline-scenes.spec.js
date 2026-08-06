@@ -23,9 +23,9 @@ test.describe("Outline View — 场景工作台", () => {
   test("outline/scenes 直接显示场景工作台", async ({ page }) => {
     const scenesTab = page.locator('[data-action="nav-scenes"]')
     await expect(scenesTab).toHaveClass(/active/)
-    await expect(scenesTab).toHaveText("场景工作台")
+    await expect(scenesTab).toHaveText("场景")
 
-    await expect(page.locator('[aria-label="Scene 管理筛选"]')).toBeVisible()
+    await expect(page.locator('[aria-label="场景筛选"]')).toBeVisible()
     await expect(page.locator('.nav-item[data-view="scene"]')).toHaveCount(0)
   })
 
@@ -47,11 +47,11 @@ test.describe("Outline View — 场景工作台", () => {
     await headerScenes.focus()
     await headerScenes.press(" ")
 
-    await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("故事结构")
     await expect(page).toHaveURL(/#workbench\/[^/]+\/outline\/scenes/)
     await expect(sceneCurrent).toHaveJSProperty("tagName", "SPAN")
     await expect(sceneCurrent).toHaveAttribute("aria-current", "page")
-    await expect(page.locator('[aria-label="Scene 管理筛选"]')).toBeVisible()
+    await expect(page.locator('[aria-label="场景筛选"]')).toBeVisible()
   })
 
   test("按名称选择 Scene 完成合并，请求仍使用 ID", async ({ page }) => {
@@ -77,14 +77,14 @@ test.describe("Outline View — 场景工作台", () => {
     const targetRow = page.locator(".scene-workbench-row", { hasText: "密道入口" })
     await targetRow.locator('[data-action="select-workbench-scene"]').click()
     await page.locator('.scene-detail-panel [data-action="start-merge-scene"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("选择要合并的 Scene")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("选择要合并的场景")
 
     const picker = page.locator("#scene-merge-reference-picker")
     await picker.locator("[data-reference-query]").fill("潜入王宫")
     await picker.locator("[data-reference-result]", { hasText: "潜入王宫" }).click()
     await expect(picker.locator("[data-reference-selected]")).toContainText("潜入王宫")
     await page.getByRole("button", { name: "预览合并影响" }).click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("合并 Scene 影响预览")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("合并场景影响预览")
 
     const mergeRequest = page.waitForRequest((request) => {
       const url = new URL(request.url())
@@ -99,6 +99,6 @@ test.describe("Outline View — 场景工作台", () => {
       source_scene_ids: [source.id],
       confirmed: true,
     })
-    await expect(page.locator(SEL.toastContainer)).toContainText("Scene 已合并", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("场景已合并", { timeout: 10000 })
   })
 })

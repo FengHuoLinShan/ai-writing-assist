@@ -144,7 +144,9 @@ function presetSummary(presetId, preset) {
         </div>
       </div>
     </div>
-    <div class="llm-advanced-panel">
+    <details class="llm-advanced-panel">
+      <summary>高级模型参数</summary>
+      <div class="llm-advanced-panel__body">
       <div class="form-group">
         <label>创作模式</label>
         <div class="llm-preset-list">
@@ -202,6 +204,7 @@ function presetSummary(presetId, preset) {
           <SourceLabel :source="sourceMap.extra.source" :value="sourceMap.extra.value" />
         </div>
       </div>
-    </div>
+      </div>
+    </details>
   </div>
 </template>

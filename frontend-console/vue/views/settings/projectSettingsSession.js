@@ -4,5 +4,5 @@
  * 整页刷新后重置。不按项目隔离（与 vanilla 单例语义一致）。
  */
 export const projectSettingsSession = {
-  tab: "deep",
+  tab: "author",
 }

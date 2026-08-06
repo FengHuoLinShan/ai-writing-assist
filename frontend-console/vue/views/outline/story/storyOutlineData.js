@@ -54,7 +54,7 @@ const STORY_OUTLINE_CONTENT_FIELDS = [
 
 function assertPlainObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label}必须是 JSON 对象`)
+    throw new Error(`${label}的内容格式不正确`)
   }
 }
 
@@ -70,7 +70,7 @@ function requiredText(value, label) {
 }
 
 function stringList(value, label) {
-  if (!Array.isArray(value)) throw new Error(`${label}必须是 JSON 数组`)
+  if (!Array.isArray(value)) throw new Error(`${label}必须是列表`)
   return value.map((item, index) => requiredText(item, `${label}第 ${index + 1} 项`))
 }
 
@@ -103,7 +103,7 @@ export function validateStoryOutlineContent(raw) {
     open_decisions: raw.open_decisions,
   }
 
-  if (!Array.isArray(content.major_storylines)) throw new Error("主要剧情线必须是 JSON 数组")
+  if (!Array.isArray(content.major_storylines)) throw new Error("主要剧情线必须是列表")
   content.major_storylines = content.major_storylines.map((item, index) => {
     const label = `主要剧情线第 ${index + 1} 项`
     assertExactKeys(item, ["name", "narrative_function", "trajectory", "intersections", "resolution_direction"], label)
@@ -116,7 +116,7 @@ export function validateStoryOutlineContent(raw) {
     }
   })
 
-  if (!Array.isArray(content.macro_movements)) throw new Error("宏观推进必须是 JSON 数组")
+  if (!Array.isArray(content.macro_movements)) throw new Error("故事推进必须是列表")
   content.macro_movements = content.macro_movements.map((item, index) => {
     const label = `宏观推进第 ${index + 1} 项`
     assertExactKeys(item, ["name", "story_state_change", "advanced_storylines"], label)
@@ -127,7 +127,7 @@ export function validateStoryOutlineContent(raw) {
       advanced_storylines: advanced,
     }
   })
-  if (!Array.isArray(content.open_decisions)) throw new Error("开放决策必须是 JSON 数组")
+  if (!Array.isArray(content.open_decisions)) throw new Error("待决定问题必须是列表")
   content.open_decisions = content.open_decisions.map((item, index) => {
     const label = `开放决策第 ${index + 1} 项`
     assertExactKeys(item, ["question", "why_it_matters", "options"], label)
@@ -226,11 +226,11 @@ export const storyOutlineTaskManager = (() => {
       onUpdate: (progress, task) => {
         if (!_scopeIsCurrent(taskId, projectId)) return
         if (!_taskMatches(task, projectId)) {
-          _rejectRecoveredTask(taskId, "恢复记录与当前项目或小说总纲生成动作不匹配，已停止恢复。")
+          _rejectRecoveredTask(taskId, "恢复记录与当前项目或故事总览生成动作不匹配，已停止恢复。")
           return
         }
         if (progress.stateUnknown && /(不存在|not found)/i.test(progress.errorMessage || "")) {
-          _rejectRecoveredTask(taskId, "原小说总纲生成任务已过期或被清理，请重新生成。")
+          _rejectRecoveredTask(taskId, "原故事总览生成任务已过期或被清理，请重新生成。")
           return
         }
         state.progress = progress
@@ -238,7 +238,7 @@ export const storyOutlineTaskManager = (() => {
       onDone: (progress, task) => {
         if (!_scopeIsCurrent(taskId, projectId)) return
         if (!_taskMatches(task, projectId)) {
-          _rejectRecoveredTask(taskId, "任务结果与当前项目或小说总纲生成动作不匹配，未加载预览。")
+          _rejectRecoveredTask(taskId, "任务结果与当前项目或故事总览生成动作不匹配，未加载预览。")
           return
         }
         poller = null
@@ -293,7 +293,7 @@ export const storyOutlineTaskManager = (() => {
     persistActiveWorkflow({
       taskId: result.task_id,
       workflowType: STORY_OUTLINE_TASK_TYPE,
-      label: "AI 小说总纲",
+      label: "AI 故事总览",
       projectId,
       view: "outline",
       meta: meta || undefined,
@@ -371,7 +371,7 @@ export const storyOutlineTaskManager = (() => {
         result: { message: "任务已取消" },
         meta: state.meta || {},
       }, STORY_OUTLINE_TASK_TYPE)
-      state.taskNotice = "小说总纲生成已取消，没有创建 revision。"
+      state.taskNotice = "故事总览生成已取消，没有创建新版本。"
       return true
     } catch (err) {
       if (state.taskId === taskId) {
@@ -454,7 +454,7 @@ export async function loadStoryOutlineProps(projectId, { recoverTask = true } = 
     const reason = currentResult.status === "rejected"
       ? currentResult.reason
       : historyResult.reason
-    props.loadError = reason?.message || "小说总纲加载失败"
+    props.loadError = reason?.message || "故事总览加载失败"
   }
 
   props.characters = charactersResult.status === "fulfilled"

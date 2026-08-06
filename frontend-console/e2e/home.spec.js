@@ -19,7 +19,7 @@ test.describe("首页与导航", () => {
     await expect(page.getByRole("heading", { name: "今天想怎样进入故事？" }))
       .toBeVisible()
     await expect(page.getByRole("button", { name: /我是作家/ })).toBeVisible()
-    await expect(page.getByRole("button", { name: /我是 RP/ })).toBeVisible()
+    await expect(page.getByRole("button", { name: /进入互动故事/ })).toBeVisible()
     await expect(page.locator(SEL.sidebar)).toHaveCount(0)
     await expect(page.locator(SEL.workspace)).toBeVisible()
   })
@@ -28,22 +28,14 @@ test.describe("首页与导航", () => {
     await page.goto("/")
     await enterAuthor(page)
 
-    const navItems = [
-      "project",
-      "world",
-      "map",
-      "writing",
-      "rag",
-      "outline",
-      "generate",
-      "settings",
-      "project-settings",
-    ]
+    const navItems = ["today", "writing", "world", "outline", "map", "rag"]
     for (const item of navItems) {
       await expect(page.locator(SEL.navItem(item))).toBeVisible()
     }
-    await expect(page.locator(SEL.navItem("scene"))).toHaveCount(0)
-    await expect(page.locator(SEL.navItem("context"))).toHaveCount(0)
+    await expect(page.locator(SEL.navItem("project"))).toHaveCount(0)
+    await expect(page.locator(SEL.navItem("generate"))).toHaveCount(0)
+    await expect(page.locator(".sidebar-project-switcher")).toBeVisible()
+    await expect(page.getByText("更多", { exact: true })).toBeVisible()
   })
 
   test("点击导航切换视图", async ({ page }) => {
@@ -51,19 +43,16 @@ test.describe("首页与导航", () => {
     await enterAuthor(page)
 
     await page.locator(SEL.navItem("world")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
-    await expect(page.locator(SEL.navItem("project"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
     await expect(page.locator(SEL.navItem("world"))).not.toHaveClass(/active/)
-    await expect(page.locator(SEL.toastContainer)).toContainText("请先选择项目后再进入该页面")
+    await expect(page.locator(SEL.toastContainer)).toContainText("请先选择作品后再进入该页面")
 
     await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
-    await expect(page.locator(SEL.navItem("project"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
     await expect(page.locator(SEL.navItem("writing"))).not.toHaveClass(/active/)
 
     await page.locator(SEL.navItem("rag")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
-    await expect(page.locator(SEL.navItem("project"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
     await expect(page.locator(SEL.navItem("rag"))).not.toHaveClass(/active/)
   })
 
@@ -117,6 +106,7 @@ test.describe("首页与导航", () => {
     const account = page.getByRole("button", { name: "账户菜单" })
     await account.focus()
     await page.keyboard.press("Enter")
+    await page.getByRole("button", { name: /账户信息/ }).click()
     await expect(page.locator(".account-dialog")).toBeVisible()
     await expect.poll(() => page.evaluate(() => window.__shellSelectShortcutCount)).toBe(0)
     await page.locator(".account-close").click()
@@ -143,6 +133,8 @@ test.describe("首页与导航", () => {
     const account = page.getByRole("button", { name: "账户菜单" })
     await account.focus()
     await page.keyboard.press("Enter")
+    const accountInfo = page.getByRole("button", { name: /账户信息/ })
+    await accountInfo.click()
     const close = page.locator(".account-close")
     await expect(close).toBeFocused()
     await expect(page.locator("#topbar")).toHaveAttribute("inert", "")
@@ -157,7 +149,7 @@ test.describe("首页与导航", () => {
 
     await page.keyboard.press("Escape")
     await expect(page.locator(".account-dialog")).toBeHidden()
-    await expect(account).toBeFocused()
+    await expect(accountInfo).toBeFocused()
     await expect(page.locator("#topbar")).not.toHaveAttribute("inert", "")
     await expect(page.locator("#main-layout")).not.toHaveAttribute("inert", "")
   })
@@ -166,7 +158,7 @@ test.describe("首页与导航", () => {
     await page.goto("/")
     await enterAuthor(page)
 
-    const trigger = page.getByRole("button", { name: /帮助/ })
+    const trigger = page.getByRole("button", { name: "账户菜单" })
     const input = page.locator(SEL.commandInput)
     await trigger.focus()
     await page.keyboard.press(":")

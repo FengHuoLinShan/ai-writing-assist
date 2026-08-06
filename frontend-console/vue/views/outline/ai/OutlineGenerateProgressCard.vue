@@ -36,7 +36,7 @@ const hasContent = computed(() => !!state.progress)
       :message="''"
       :collapsible="true"
       :className="'outline-progress-mini'"
-      :showTaskId="true"
+      :showTaskId="false"
     >
       <!-- 默认 slot：可追加操作区 -->
     </WorkflowProgressCard>

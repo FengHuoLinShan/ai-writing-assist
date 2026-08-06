@@ -327,11 +327,10 @@ test.describe("世界动态地图混乱路径", () => {
     await expect(page.locator("#writing-panel-container")).toContainText("洛阳外城")
 
     await openWorkbench(page, fixture.project, "world", "objects")
-    await expect(page.locator(SEL.dataTable)).toContainText("沈砚", { timeout: 10000 })
-    const entityRow = page.locator(SEL.tableRow(fixture.entities.shen.id))
-    await entityRow.locator(".action-menu-btn").click()
+    const entityCard = page.locator(`.world-object-card[data-id="${fixture.entities.shen.id}"]`)
+    await expect(entityCard).toContainText("沈砚", { timeout: 10000 })
     const popupPromise = page.waitForEvent("popup")
-    await entityRow.getByRole("menuitem", { name: "打开地图", exact: true }).click()
+    await entityCard.getByRole("button", { name: "地图", exact: true }).click()
     const popup = await popupPromise
     await popup.waitForFunction(
       () => typeof state !== "undefined" && !state.loading,

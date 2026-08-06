@@ -665,7 +665,7 @@ const mapView = {
       mapState.sceneList = (data.items || data || []).map((s) => ({
         id: s.id,
         index: s.scene_index,
-        title: s.title || `Scene ${mapSceneDisplayNumber(s.scene_index) ?? "-"}`,
+        title: s.title || `场景 ${mapSceneDisplayNumber(s.scene_index) ?? "-"}`,
       }))
       return true
     } catch {
@@ -912,19 +912,19 @@ const mapView = {
   _renderSceneBar() {
     const scenes = mapState.sceneList
     if (!scenes || scenes.length === 0) {
-      return `<div class="map-scene-bar"><span class="map-scene-hint">暂无 Scene 数据（需先创建大纲 Scene）</span></div>`
+      return `<div class="map-scene-bar"><span class="map-scene-hint">暂无场景资料（请先在故事结构中创建场景）</span></div>`
     }
     const currentIdx = scenes.findIndex((s) => s.id === mapState.currentSceneId)
     const sceneLabel = currentIdx >= 0
-      ? `Scene ${mapSceneDisplayNumber(scenes[currentIdx].index) ?? "-"}: ${esc(scenes[currentIdx].title || "")}`
-      : "选择 Scene"
+      ? `场景 ${mapSceneDisplayNumber(scenes[currentIdx].index) ?? "-"}: ${esc(scenes[currentIdx].title || "")}`
+      : "选择场景"
 
     return `
       <div class="map-scene-bar">
-        <button class="btn btn-sm" data-action="map-scene-prev" ${currentIdx <= 0 ? "disabled" : ""} title="${currentIdx <= 0 ? "没有上一个 Scene" : "上一个 Scene"}">←</button>
+        <button class="btn btn-sm" data-action="map-scene-prev" ${currentIdx <= 0 ? "disabled" : ""} title="${currentIdx <= 0 ? "没有上一个场景" : "上一个场景"}">←</button>
         <span class="map-scene-label" data-action="map-scene-pick">${sceneLabel}</span>
-        <button class="btn btn-sm" data-action="map-scene-next" ${currentIdx >= scenes.length - 1 ? "disabled" : ""} title="${currentIdx >= scenes.length - 1 ? "没有下一个 Scene" : "下一个 Scene"}">→</button>
-        <button class="btn btn-sm" data-action="map-scene-clear" ${!mapState.currentSceneId ? "disabled" : ""} title="${!mapState.currentSceneId ? "当前未选择 Scene" : "清除 Scene 聚焦"}">清除</button>
+        <button class="btn btn-sm" data-action="map-scene-next" ${currentIdx >= scenes.length - 1 ? "disabled" : ""} title="${currentIdx >= scenes.length - 1 ? "没有下一个场景" : "下一个场景"}">→</button>
+        <button class="btn btn-sm" data-action="map-scene-clear" ${!mapState.currentSceneId ? "disabled" : ""} title="${!mapState.currentSceneId ? "当前未选择场景" : "清除场景聚焦"}">清除</button>
       </div>
     `
   },
@@ -1125,7 +1125,7 @@ const mapView = {
     return `
       <div class="map-detail-header">${esc(path.name || "未命名线路")}</div>
       <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">${esc(profile?.label || path.path_type || "线路")}${path.status === "archived" ? " · 已归档" : ""}</div></div>
-      <div class="map-detail-section"><div class="map-detail-label">几何</div><div class="map-detail-value">${nodes.length} 个节点 · revision ${Number(path.content_revision || 0)}</div></div>
+      <div class="map-detail-section"><div class="map-detail-label">路线细节</div><div class="map-detail-value">${nodes.length} 个节点</div></div>
       ${start ? `<div class="map-detail-section"><div class="map-detail-label">起点</div><div class="map-detail-value ${start.drifted ? "is-warning" : ""}">${esc(start.name)}${start.unresolved ? " · 未布置" : start.drifted ? ` · 偏离 ${start.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
       ${end ? `<div class="map-detail-section"><div class="map-detail-label">终点</div><div class="map-detail-value ${end.drifted ? "is-warning" : ""}">${esc(end.name)}${end.unresolved ? " · 未布置" : end.drifted ? ` · 偏离 ${end.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
     `
@@ -2366,8 +2366,8 @@ const mapView = {
     const scenes = mapState.sceneList
     if (!scenes.length) return
     const options = scenes.map((s) => `<option value="${esc(s.id)}">${esc(s.title)}</option>`).join("")
-    const formHtml = `<div class="form-group"><label>选择 Scene</label><select class="form-select" id="map-scene-pick-select">${options}</select></div>`
-    showModalHtml("Scene 时间轴", formHtml, [{
+    const formHtml = `<div class="form-group"><label>选择场景</label><select class="form-select" id="map-scene-pick-select">${options}</select></div>`
+    showModalHtml("场景时间轴", formHtml, [{
       text: "跳转", class: "btn-primary", handler: async () => {
         const sel = document.getElementById("map-scene-pick-select")
         if (sel && sel.value) {
@@ -3150,7 +3150,7 @@ const mapView = {
         }
       }
       if (hitMarker.marker_type === "event" && hitMarker.start_scene_id) {
-        html += `<div class="map-tooltip-sub">点击跳转到 Scene</div>`
+        html += `<div class="map-tooltip-sub">点击跳转到场景</div>`
       }
       return html
     }
@@ -5325,7 +5325,7 @@ const mapView = {
         await this._loadPaths()
         this._redraw()
         const current = this._state?.map?.editor_revision
-        toast(`地图已有新版本${current != null ? `（revision ${current}）` : ""}，已刷新基线，草稿已保留；检查后可再次应用`, "warning")
+        toast("地图已有新版本，已刷新参考状态，草稿已保留；检查后可再次应用", "warning")
       } else {
         mapEditingSession.cancelApply(attempt)
         toast(`应用失败：${err.message}`, "error")

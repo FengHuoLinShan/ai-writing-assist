@@ -480,8 +480,8 @@ describe("renderCurrentView error handling", () => {
     expect(onLeave).toHaveBeenCalledTimes(1)
     expect(render).toHaveBeenCalledTimes(1)
     expect(content.textContent).not.toContain("project-a")
-    expect(content.textContent).toContain("无法打开这个项目")
-    expect(content.textContent).toContain("项目不存在，或你没有访问权限。")
+    expect(content.textContent).toContain("无法打开这部作品")
+    expect(content.textContent).toContain("作品不存在，或你没有访问权限。")
     expect(content.querySelector('[data-action="retry-project-route"]')).toBeNull()
     expect(content.querySelector('[data-action="return-project-list"]')).not.toBeNull()
     expect(state.currentProjectId).toBeNull()
@@ -514,7 +514,7 @@ describe("renderCurrentView error handling", () => {
     await window.router.initRouter()
     warnSpy.mockRestore()
 
-    expect(content.textContent).toContain("项目暂时加载失败")
+    expect(content.textContent).toContain("作品暂时加载失败")
     expect(content.textContent).not.toContain("project-a")
     content.querySelector('[data-action="retry-project-route"]').click()
 
@@ -1005,7 +1005,7 @@ describe("route guard and normalization", () => {
     expect(window.location.hash).toBe("#project")
     expect(window.location.hash).not.toContain("workbench")
     expect(toast).toHaveBeenCalledTimes(1)
-    expect(toast).toHaveBeenCalledWith("请先选择项目后再进入该页面", "warning")
+    expect(toast).toHaveBeenCalledWith("请先选择作品后再进入该页面", "warning")
   })
 
   it("keeps active project-scoped navigation inside the selected workbench", async () => {
@@ -1047,7 +1047,7 @@ describe("route guard and normalization", () => {
     expect(state.currentView).toBe("outline")
     expect(state.currentSubView).toBe("story-outline")
     expect(window.location.hash).toBe("#workbench/p1/outline/story-outline")
-    expect(window.router.getSubViewTitle("outline", "story-outline")).toBe("小说总纲")
+    expect(window.router.getSubViewTitle("outline", "story-outline")).toBe("故事总览")
   })
 
   it("redirects legacy scene routes into the outline scene workbench", async () => {
@@ -1252,7 +1252,7 @@ describe("refresh forces project sync", () => {
     expect(state.currentProjectId).toBeNull()
     expect(state.currentProject).toBeNull()
     expect(content.querySelector("#revoked-writing")).toBeNull()
-    expect(content.textContent).toContain("无法打开这个项目")
+    expect(content.textContent).toContain("无法打开这部作品")
     expect(content.querySelector('[data-action="retry-project-route"]')).toBeNull()
   })
 

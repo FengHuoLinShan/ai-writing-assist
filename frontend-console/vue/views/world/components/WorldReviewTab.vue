@@ -42,9 +42,9 @@
           <input id="review-candidate-source" v-model="candidateForm.source" class="form-input" placeholder="来源" aria-label="来源筛选" />
           <details class="world-diagnostic-filter" :open="Boolean(candidateFilters.workflow_id)">
             <summary>诊断筛选</summary>
-            <input id="review-candidate-workflow" v-model="candidateForm.workflow_id" class="form-input" data-diagnostic-field placeholder="Workflow ID" aria-label="Workflow 诊断筛选" />
+            <input id="review-candidate-workflow" v-model="candidateForm.workflow_id" class="form-input" data-diagnostic-field placeholder="处理批次编号" aria-label="按处理批次编号诊断筛选" />
           </details>
-          <input id="review-candidate-scene" v-model="candidateForm.scene_index" class="form-input" placeholder="Scene" aria-label="Scene 序号筛选" />
+          <input id="review-candidate-scene" v-model="candidateForm.scene_index" class="form-input" placeholder="场景序号" aria-label="场景序号筛选" />
           <input id="review-candidate-chapter" v-model="candidateForm.source_chapter_index" class="form-input" placeholder="章节" aria-label="章节筛选" />
           <input id="review-candidate-confidence-min" v-model="candidateForm.confidence_min" class="form-input" placeholder="最低置信度" aria-label="最低置信度" />
           <input id="review-candidate-confidence-max" v-model="candidateForm.confidence_max" class="form-input" placeholder="最高置信度" aria-label="最高置信度" />
@@ -172,9 +172,9 @@
           <input id="review-alias-source" v-model="aliasForm.source" class="form-input" placeholder="来源" aria-label="按来源筛选待处理别名" />
           <details class="world-diagnostic-filter" :open="Boolean(aliasReviewFilters.workflow_id)">
             <summary>诊断筛选</summary>
-            <input id="review-alias-workflow" v-model="aliasForm.workflow_id" class="form-input" data-diagnostic-field placeholder="Workflow ID" aria-label="按 Workflow ID 诊断筛选待处理别名" />
+            <input id="review-alias-workflow" v-model="aliasForm.workflow_id" class="form-input" data-diagnostic-field placeholder="处理批次编号" aria-label="按处理批次编号诊断筛选待处理别名" />
           </details>
-          <input id="review-alias-scene" v-model="aliasForm.scene_index" class="form-input" placeholder="Scene" aria-label="按 Scene 序号筛选待处理别名" />
+          <input id="review-alias-scene" v-model="aliasForm.scene_index" class="form-input" placeholder="场景序号" aria-label="按场景序号筛选待处理别名" />
           <input id="review-alias-chapter" v-model="aliasForm.source_chapter_index" class="form-input" placeholder="章节序号" aria-label="按章节序号筛选待处理别名" />
           <input id="review-alias-confidence-min" v-model="aliasForm.confidence_min" class="form-input" placeholder="最低置信度" aria-label="待处理别名最低置信度" />
           <select id="review-alias-type-kind" v-model="aliasForm.type_kind" class="form-select" aria-label="待处理别名类型范围">
@@ -269,13 +269,13 @@
         <button class="btn btn-sm" data-action="set-relation-quick-filter" data-filter-key="type_kind" data-filter-value="custom" @click="setReviewQuickFilter('relation', 'type_kind', 'custom', relationReviewFilters)">自定义类型</button>
         <button class="btn btn-sm" data-action="set-relation-quick-filter" data-filter-key="has_quote" data-filter-value="false" @click="setReviewQuickFilter('relation', 'has_quote', 'false', relationReviewFilters)">缺少引用</button>
         <button class="btn btn-sm" data-action="set-relation-quick-filter" data-filter-key="strength_max" data-filter-value="0.69" @click="setReviewQuickFilter('relation', 'strength_max', '0.69', relationReviewFilters)">低强度</button>
-        <span class="review-scene-quick-filter"><input id="review-relation-scene-quick" v-model="relationForm.scene_index" class="form-input" placeholder="Scene 序号" aria-label="快速按 Scene 筛选" /><button class="btn btn-sm" data-action="apply-relation-scene-quick" @click="setReviewQuickFilter('relation', 'scene_index', relationForm.scene_index.trim(), relationReviewFilters)">按 Scene 筛选</button></span>
+        <span class="review-scene-quick-filter"><input id="review-relation-scene-quick" v-model="relationForm.scene_index" class="form-input" placeholder="场景序号" aria-label="快速按场景筛选" /><button class="btn btn-sm" data-action="apply-relation-scene-quick" @click="setReviewQuickFilter('relation', 'scene_index', relationForm.scene_index.trim(), relationReviewFilters)">按场景筛选</button></span>
       </div>
       <WorldReviewFilterChips kind="relation" :filters="relationReviewFilters" />
       <WorldFilterPanel panel-key="review-relations" :has-active-filters="relationHasActiveFilters" :project-id="projectId">
         <div class="filter-bar" style="margin-bottom:12px;">
           <input id="review-relation-type" v-model="relationForm.relation_type" class="form-input" placeholder="关系类型" aria-label="按关系类型筛选待处理关系" />
-          <input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" placeholder="Scene 序号" aria-label="按 Scene 序号筛选待处理关系" />
+          <input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" placeholder="场景序号" aria-label="按场景序号筛选待处理关系" />
           <input id="review-relation-source-chapter" v-model="relationForm.source_chapter_index" class="form-input" placeholder="章节序号" aria-label="按章节序号筛选待处理关系" />
           <input id="review-relation-strength-min" v-model="relationForm.strength_min" class="form-input" placeholder="最低强度" aria-label="待处理关系最低强度" />
           <select id="review-relation-type-kind" v-model="relationForm.type_kind" class="form-select" aria-label="待处理关系类型范围">
@@ -325,7 +325,7 @@
             </header>
             <div class="review-group-card__meta">
               <span>类型：<code v-for="value in group.type_variants || []" :key="value">{{ reviewTypeLabel('relation', value) }}</code></span>
-              <span v-if="(group.scene_indices || []).length">Scene {{ (group.scene_indices || []).join("、") }}</span>
+              <span v-if="(group.scene_indices || []).length">场景 {{ (group.scene_indices || []).join("、") }}</span>
               <span v-if="(group.source_chapter_indices || []).length">章节 {{ (group.source_chapter_indices || []).join("、") }}</span>
               <span v-if="(group.canonical_relations || []).length" class="review-warning">已有正式关系：{{ canonicalTypeLabels(group) }}</span>
             </div>

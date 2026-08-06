@@ -8,5 +8,5 @@ export function importAuthorizationPayload() {
 }
 
 export function importAuthorizationNotice() {
-  return "启动后，流水线会在所选章节范围内自动采用通过门禁的 Scene、高置信度合并与工作结构资产；存在冲突、低置信度或需人工判断的结果会进入待处理，未采用内容会保留结果摘要。"
+  return "启动后，系统会在所选章节范围内自动采用可信的场景、合并结果与故事结构；存在冲突、把握不足或需要你判断的内容会进入待处理，未采用内容会保留摘要。"
 }

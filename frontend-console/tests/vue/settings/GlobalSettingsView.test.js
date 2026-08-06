@@ -74,7 +74,7 @@ describe("账户模型连接", () => {
     overrideProjectId(null)
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })
 
-    expect(wrapper.text()).toContain("账户设置")
+    expect(wrapper.text()).toContain("账户与模型连接")
     expect(wrapper.findAll(".account-provider-card")).toHaveLength(2)
     expect(wrapper.text()).toContain("deepseek-v4-flash")
     expect(wrapper.text()).toContain("kimi-k3")

@@ -313,5 +313,5 @@ export function spanSummaryLabel(summary) {
 }
 
 export function overlapCounterpartLabel(detail) {
-  return String(detail?.counterpart_scene_label || detail?.counterpart_scene_title || "未命名 Scene").trim() || "未命名 Scene"
+  return String(detail?.counterpart_scene_label || detail?.counterpart_scene_title || "未命名场景").trim() || "未命名场景"
 }

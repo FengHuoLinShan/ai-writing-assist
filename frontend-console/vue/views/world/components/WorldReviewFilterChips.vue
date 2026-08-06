@@ -26,8 +26,8 @@ const props = defineProps({
 })
 
 const LABELS = {
-  q: "搜索", relation_type: "关系类型", source: "来源", workflow_id: "Workflow",
-  scene_index: "Scene", source_chapter_index: "章节", confidence_min: "最低置信度",
+  q: "搜索", relation_type: "关系类型", source: "来源", workflow_id: "处理批次",
+  scene_index: "场景", source_chapter_index: "章节", confidence_min: "最低置信度",
   confidence_max: "最高置信度", strength_min: "最低强度", strength_max: "最高强度",
   has_quote: "引用", type_kind: "类型范围", multi_alias_only: "同对象多别名",
   multi_type_only: "同对象对多类型",

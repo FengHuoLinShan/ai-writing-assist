@@ -71,7 +71,6 @@ async function refreshStatus() {
 }
 
 const workflow = useRagWorkflow({ statusFields, refreshStatus })
-const maintenanceBusy = workflow.maintenanceBusy
 
 // 预热结果回写（对应 vanilla _prewarm 的 _embeddingDim/_embeddingRuntime 更新）：
 // 请求由 prewarmManager 模块级管理（island load 触发/手动按钮强制），
@@ -117,16 +116,13 @@ onMounted(async () => {
 <template>
   <div class="view-header view-header--with-tabs">
     <div class="subnav">
-      <button type="button" class="subnav-item" :class="{ active: subView === 'search' }" :aria-current="subView === 'search' ? 'page' : undefined" data-action="nav-search" @click="navigateSub('search')">检索</button>
-      <button type="button" class="subnav-item" :class="{ active: subView === 'status' }" :aria-current="subView === 'status' ? 'page' : undefined" data-action="nav-status" @click="navigateSub('status')">索引维护</button>
+      <button type="button" class="subnav-item active" aria-current="page" data-action="nav-search" @click="navigateSub('search')">{{ subView === 'status' ? '返回查找' : '查找' }}</button>
     </div>
-    <div class="view-header__actions">
-      <template v-if="subView === 'status'">
-        <button class="btn btn-sm" data-action="rebuild-index" :disabled="maintenanceBusy" @click="workflow.rebuildIndex(rebuildForm)">{{ maintenanceBusy ? "提交中..." : "重建索引" }}</button>
-        <button class="btn btn-sm" data-action="prewarm-rag" @click="manualPrewarm">预热检索引擎</button>
-        <button v-if="statusFields.retryableEmbeddingCount > 0" class="btn btn-sm" data-action="retry-embeddings" :disabled="maintenanceBusy" @click="workflow.retryEmbeddings()">{{ maintenanceBusy ? "提交中..." : "重试失败向量" }}</button>
-      </template>
-    </div>
+  </div>
+
+  <div v-if="subView === 'search' && statusFields.statusDegraded" class="rag-search-repair-notice" role="status">
+    <span><strong>查找资料尚未准备好</strong>部分内容可能找不到，手写和其他功能不受影响。</span>
+    <button class="btn btn-sm btn-primary" type="button" data-action="nav-status" @click="navigateSub('status')">修复查找功能</button>
   </div>
 
   <RagSearchView

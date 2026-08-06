@@ -191,6 +191,11 @@ function formatMissingApiMethods(used, defined) {
 }
 
 describe("前后端 API 契约", () => {
+  it("构造项目工作台摘要路径", () => {
+    expect(contractPath("projects.getWorkspaceSummary", { id: "project-1" }))
+      .toBe("/projects/project-1/workspace-summary")
+  })
+
   it("API 基址默认同源并规范化显式 API_HOST", () => {
     expect(resolveApiBaseUrl()).toBe("/api")
     expect(resolveApiBaseUrl("")).toBe("/api")

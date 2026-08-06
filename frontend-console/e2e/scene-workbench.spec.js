@@ -43,7 +43,7 @@ test.describe("Scene 工作台", () => {
     await page.getByRole("button", { name: "写作联动 Scene", exact: true }).click()
     await page.getByRole("button", { name: "整理" }).click()
 
-    await expect(page.locator("#topbar-module")).toHaveText("大纲")
+    await expect(page.locator("#topbar-module")).toHaveText("故事结构")
     await expect(page).toHaveURL(new RegExp(`scene_id=${scene.id}`))
     await expect(page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)).toHaveClass(/is-selected/)
   })
@@ -140,7 +140,7 @@ test.describe("Scene 工作台", () => {
 
     await expect(page).toHaveURL(/outline\/scenes$/)
     await expect(page.locator(".scene-workbench-row.is-selected")).toHaveCount(0)
-    await expect(page.locator(".scene-detail-empty")).toHaveText("选择一个 Scene 查看详情。")
+    await expect(page.locator(".scene-detail-empty")).toHaveText("选择一个场景查看详情。")
     await expect(page.locator(`.scene-workbench-row[data-id="${first.id}"]`)).not.toHaveClass(/is-selected/)
   })
 
@@ -210,11 +210,11 @@ test.describe("Scene 工作台", () => {
 
     await openWorkbench(page, project, "scene", scene.id)
     await page.locator('.scene-workbench__detail [data-action="start-split-scene"]').click()
-    await expect(page.locator("#modal-title")).toHaveText("拆分 Scene")
-    await expect(page.locator("#scene-split-partition")).toContainText("进入新 Scene：第 2 章")
+    await expect(page.locator("#modal-title")).toHaveText("拆分场景")
+    await expect(page.locator("#scene-split-partition")).toContainText("进入新场景：第 2 章")
     await page.getByRole("button", { name: "生成拆分预览" }).click()
 
-    await expect(page.locator("#modal-title")).toHaveText("Scene 拆分预览")
+    await expect(page.locator("#modal-title")).toHaveText("场景拆分预览")
     await expect(page.locator(".scene-draft-review-grid")).toBeVisible()
     await expect(page.locator(".scene-split-impact-summary")).toContainText("影响摘要")
     await expect(page.locator("#modal-content")).toHaveAttribute("data-modal-size", "large")
@@ -222,7 +222,7 @@ test.describe("Scene 工作台", () => {
     expect(scenes).toHaveLength(1)
 
     await page.getByRole("button", { name: "确认拆分" }).click()
-    await expect(page.locator("#toast-container")).toContainText("Scene 已拆分", { timeout: 10000 })
+    await expect(page.locator("#toast-container")).toContainText("场景已拆分", { timeout: 10000 })
     scenes = await listScenesOrdered(project.id)
     expect(scenes).toHaveLength(2)
     expect(scenes[0].chapter_ids).toEqual(["1"])
@@ -247,7 +247,7 @@ test.describe("Scene 工作台", () => {
     await page.locator("#scene-detail-title").fill("新标题")
     await page.locator("#scene-detail-goal").fill("新目标")
     await page.locator('[data-action="save-scene-detail"]').click()
-    await expect(page.locator("#toast-container")).toContainText("Scene 已保存", { timeout: 10000 })
+    await expect(page.locator("#toast-container")).toContainText("场景已保存", { timeout: 10000 })
     const selectedRow = page.locator(".scene-workbench-row.is-selected")
     await expect(selectedRow.locator(".scene-workbench-row__title")).toHaveText("新标题")
     await selectedRow.locator(".action-menu-btn").click()
@@ -255,7 +255,7 @@ test.describe("Scene 工作台", () => {
     await expect(openWriting).toBeVisible()
     await openWriting.click()
 
-    await expect(page.locator("#topbar-module")).toHaveText("写作台")
+    await expect(page.locator("#topbar-module")).toHaveText("写作")
     await expect(page.locator("#writing-panel-container")).toContainText("新标题")
     await expect(page.locator("#writing-panel-container")).toContainText("新目标")
   })
@@ -281,7 +281,7 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator("#modal-body")).toContainText("正文和追踪信息会保留")
     await page.getByRole("button", { name: "确认移入历史" }).click()
 
-    await expect(page.locator("#toast-container")).toContainText("Scene 已移入历史", { timeout: 10000 })
+    await expect(page.locator("#toast-container")).toContainText("场景已移入历史", { timeout: 10000 })
     await expect(page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)).toHaveCount(0)
     await expect(page).toHaveURL(/outline\/scenes$/)
 
@@ -321,14 +321,14 @@ test.describe("Scene 工作台", () => {
     await page.locator(`.scene-workbench-row[data-id="${first.id}"] input[data-action="toggle-fusion-selection"]`).check()
     await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
     await page.locator('[data-action="start-ai-fusion-draft"]').click()
-    await expect(page.locator("#modal-title")).toHaveText("选择主 Scene")
+    await expect(page.locator("#modal-title")).toHaveText("选择主场景")
     await page.evaluate(() => {
       const button = Array.from(document.querySelectorAll("#modal-footer button"))
         .find((item) => item.textContent?.includes("生成 AI 融合建议"))
       button?.click()
     })
 
-    await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
+    await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
     await expect(page.locator("#modal-body")).toContainText("找到线索")
     await expect(page.locator("#modal-body")).toContainText("确认走私路线")
     const footerLayout = await page.evaluate(() => {
@@ -366,7 +366,7 @@ test.describe("Scene 工作台", () => {
     await page.locator("#scene-fusion-title").fill("旧港与仓库调查")
     await page.evaluate(() => {
       const button = Array.from(document.querySelectorAll("#modal-footer button"))
-        .find((item) => item.textContent?.includes("废弃 2 个原 Scene 并保存"))
+        .find((item) => item.textContent?.includes("将 2 个原场景移入历史并保存"))
       button?.click()
     })
     await expect(page.locator('[data-role="fusion-deprecation-confirm"]')).toBeVisible()
@@ -374,7 +374,7 @@ test.describe("Scene 工作台", () => {
     expect(scenesBeforeConfirm.filter((scene) => scene.id === first.id || scene.id === second.id)
       .every((scene) => scene.status === "draft")).toBe(true)
     await page.locator('[data-action="confirm-fusion-deprecation"]').click()
-    await expect(page.locator("#toast-container")).toContainText("融合 Scene 已保存", { timeout: 10000 })
+    await expect(page.locator("#toast-container")).toContainText("融合场景已保存", { timeout: 10000 })
 
     const deprecatedScenes = await listScenes(project.id, { status: "deprecated" })
     const deprecatedIds = new Set((deprecatedScenes.items || deprecatedScenes).map((scene) => scene.id))
@@ -408,7 +408,7 @@ test.describe("Scene 工作台", () => {
     await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
     await page.locator('[data-action="start-ai-fusion-draft"]').click()
     await page.getByRole("button", { name: "生成 AI 融合建议" }).click()
-    await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
+    await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
 
     for (const width of [820, 390]) {
       await page.setViewportSize({ width, height: 800 })
@@ -458,13 +458,13 @@ test.describe("Scene 工作台", () => {
       await page.locator(`.scene-workbench-row[data-id="${first.id}"] input[data-action="toggle-fusion-selection"]`).check()
       await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
       await page.locator('[data-action="start-ai-fusion-draft"]').click()
-      await expect(page.locator("#modal-title")).toHaveText("选择主 Scene")
+      await expect(page.locator("#modal-title")).toHaveText("选择主场景")
       await page.evaluate(() => {
         const button = Array.from(document.querySelectorAll("#modal-footer button"))
           .find((item) => item.textContent?.includes("生成 AI 融合建议"))
         button?.click()
       })
-      await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
+      await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
     }
     const clickFusionButton = async (text) => {
       await page.evaluate((label) => {
@@ -486,7 +486,7 @@ test.describe("Scene 工作台", () => {
     await page.locator("#scene-fusion-title").fill("线索与证词合流")
     await page.locator("#scene-fusion-goal").fill("锁定真正嫌疑人")
     await clickFusionButton("继续编辑融合结果后再保存")
-    await expect(page.locator("#toast-container")).toContainText("融合 Scene 已保存", { timeout: 10000 })
+    await expect(page.locator("#toast-container")).toContainText("融合场景已保存", { timeout: 10000 })
 
     scenes = await listScenesOrdered(project.id)
     expect(scenes.some((scene) => scene.title === "线索与证词合流" && scene.goal === "锁定真正嫌疑人")).toBe(true)
@@ -576,7 +576,7 @@ test.describe("Scene 工作台", () => {
     }, { taskId, projectId: project.id })
     await page.reload()
     await expect(page.locator('[data-role="scene-auto-extract-progress"]')).toContainText(
-      "Phase 1a · Scene 边界切分｜窗口 2/4",
+      "阶段 2 · 划分场景边界｜窗口 2/4",
     )
 
     const organize = page.locator(".scene-workbench__organize")
@@ -589,7 +589,7 @@ test.describe("Scene 工作台", () => {
 
     phase = "phase1b"
     await expect(page.locator('[data-role="scene-auto-extract-progress"]')).toContainText(
-      "Phase 1b · Scene 字段补全｜Scene 41/82",
+      "阶段 3 · 补充场景资料｜场景 41/82",
       { timeout: 5000 },
     )
 

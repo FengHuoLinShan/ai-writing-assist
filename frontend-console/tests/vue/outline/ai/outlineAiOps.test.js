@@ -125,7 +125,7 @@ describe("showOutlineLayerAiForm", () => {
       toast,
     })
     await showOutlineLayerAiForm("plot_thread")
-    expect(toast).toHaveBeenCalledWith("请先在“小说总纲”页创建并采用当前总纲", "warning")
+    expect(toast).toHaveBeenCalledWith("请先在“故事总览”页创建并采用当前版本", "warning")
     expect(router.navigate).toHaveBeenCalledWith("outline", "story-outline")
   })
 

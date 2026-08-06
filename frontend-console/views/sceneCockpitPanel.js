@@ -11,7 +11,7 @@ const DEFAULT_ORDER = [
 ]
 
 const LABELS = {
-  scene_header: "Scene",
+  scene_header: "场景",
   goal: "目标",
   must_happen: "必须发生",
   must_not_happen: "禁止发生",
@@ -96,11 +96,11 @@ export function renderSceneCockpitPanel({
       ${scene ? renderAlertSummary(alerts, alertLoading) : ""}
       ${!scene ? `
         <div class="scene-cockpit-empty">
-          当前章节未关联 Scene。${projectId ? "请从左侧选择 Scene 或到场景工作台整理。" : ""}
+          当前章节未关联场景。${projectId ? "请从左侧选择场景，或到故事结构中整理。" : ""}
         </div>
       ` : ""}
       ${scene ? `
-        <div class="cockpit-tabs" role="tablist" aria-label="Scene 参考">
+        <div class="cockpit-tabs" role="tablist" aria-label="场景参考">
           <button class="cockpit-tab ${selectedTab === "alerts" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="alerts" type="button">警报</button>
           <button class="cockpit-tab ${selectedTab === "people" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="people" type="button">人物</button>
           <button class="cockpit-tab ${selectedTab === "place" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="place" type="button">地点</button>
@@ -271,7 +271,7 @@ function renderModule(key, scene, mapSummaryHtml, compact) {
 function moduleBody(key, scene, mapSummaryHtml) {
   if (key === "scene_header") {
     return `
-      <div class="scene-cockpit-scene-title">${esc(scene?.title || "未命名 Scene")}</div>
+      <div class="scene-cockpit-scene-title">${esc(scene?.title || "未命名场景")}</div>
       <div class="scene-cockpit-meta">
         <span>#${esc(scene?.scene_index ?? "-")}</span>
         <span>${esc(scene?.narrative_tag || "draft")}</span>

@@ -5,7 +5,7 @@ import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive
 
 async function enterAuthorProjects(page) {
   await page.getByRole("button", { name: /我是作家/ }).click()
-  await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+  await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
 }
 
 test.describe("项目模块", () => {
@@ -39,11 +39,19 @@ test.describe("项目模块", () => {
 
   test("空项目状态显示新建按钮", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "开始你的第一部小说" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "新建项目", exact: true }).first()).toBeVisible()
+    await expect(page.getByRole("button", { name: "新建空白作品", exact: true })).toBeVisible()
+    const importButton = page.getByRole("button", { name: "导入已有作品", exact: true })
+    await expect(importButton).toBeVisible()
+    const fileChooserPromise = page.waitForEvent("filechooser")
+    await importButton.click()
+    const fileChooser = await fileChooserPromise
+    expect(await fileChooser.element().getAttribute("accept")).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
+    await expect(page.locator('[data-action="manage-projects"]')).toBeVisible()
+    await expect(page.locator('[data-action="recycle-bin"]')).toHaveCount(0)
   })
 
   test("单键新建项目不会把触发字符写入项目名称", async ({ page }) => {
-    await expect(page.getByRole("button", { name: "新建项目", exact: true }).first()).toBeVisible()
+    await expect(page.getByRole("button", { name: "新建空白作品", exact: true })).toBeVisible()
     await page.keyboard.press("n")
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
     const title = page.locator(SEL.projectCreateTitle)
@@ -73,7 +81,7 @@ test.describe("项目模块", () => {
     trackProject(projectId)
 
     // 创建成功后应切换到写作视图
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await expect(page).toHaveURL(/#workbench\/[^/]+\/writing/)
     await expect(page.locator(SEL.topbarProject)).toContainText("E2E 测试小说")
   })
@@ -121,6 +129,7 @@ test.describe("项目模块", () => {
     trackProject(project)
 
     await page.reload()
+    await page.locator('[data-action="manage-projects"]').click()
     const placeholder = page.locator(SEL.projectCreatePlaceholder)
     await expect(placeholder).toHaveAttribute("role", "button")
     await expect(placeholder).toHaveAttribute("tabindex", "0")
@@ -144,6 +153,7 @@ test.describe("项目模块", () => {
 
     await page.reload()
     await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
+    await page.locator('[data-action="manage-projects"]').click()
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -168,7 +178,7 @@ test.describe("项目模块", () => {
 
     // 进入工作台验证面包屑同步刷新
     await card.click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("编辑后标题", { timeout: 10000 })
   })
 
@@ -182,6 +192,7 @@ test.describe("项目模块", () => {
     trackProject(project)
 
     await page.reload()
+    await page.locator('[data-action="manage-projects"]').click()
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible({ timeout: 10000 })
     await card.hover()
@@ -220,6 +231,7 @@ test.describe("项目模块", () => {
 
     await page.reload()
     await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
+    await page.locator('[data-action="manage-projects"]').click()
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -260,9 +272,9 @@ test.describe("项目模块", () => {
     // 点击项目卡片
     await card.click()
 
-    // 应切换到写作视图
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
-    await expect(page).toHaveURL(/#workbench\/[^/]+\/writing/)
+    // 应切换到今日工作
+    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
+    await expect(page).toHaveURL(/#workbench\/[^/]+\/today/)
     await expect(page.locator(SEL.topbarProject)).toContainText("点击切换项目")
   })
 
@@ -286,14 +298,14 @@ test.describe("项目模块", () => {
     await enterAuthorProjects(page)
 
     await page.locator(SEL.projectCard(projectA.id)).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("项目A-面包屑")
 
-    await page.locator(SEL.navItem("project")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目", { timeout: 10000 })
+    await page.locator(".sidebar-project-switcher").click()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案", { timeout: 10000 })
 
     await page.locator(SEL.projectCard(projectB.id)).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("项目B-面包屑", { timeout: 10000 })
   })
 
@@ -310,7 +322,7 @@ test.describe("项目模块", () => {
 
     await page.goto(`/#workbench/${project.id}/writing`)
     await expect(page.locator(SEL.workspace)).not.toContainText("加载中", { timeout: 10000 })
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("URL 进入项目", { timeout: 10000 })
   })
 })

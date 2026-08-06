@@ -110,8 +110,13 @@ helper 和历史兼容入口：
 
 Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 import path
 稳定；它不定义 async function，也不承载业务编排。具体入口按子域下沉到
-`entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_facade.py`
+`attention_facade.py`、`entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_facade.py`
 和 `worldbuilding_facade.py`。
+
+`attention_facade.get_author_attention_summary()` 返回冻结的
+`WorldAttentionSummaryContract`，只统计同一 `novel_id` 下待处理的对象、别名、关系与地图资料，
+供 Project 工作台摘要使用。它不返回对象内容、原始状态、owner 或内部 ID，也不把聚合编排放进
+root facade。
 
 `worldbuilding_facade.py` 承载世界书上下文激活入口：
 `preview_worldbuilding_activation()` 委托确定性 activation preview 服务；
@@ -131,6 +136,9 @@ async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 # ---- Entity Context ----
 async def get_world_context(db, novel_id, entity_ids=None, ..., include_review=False) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
+
+# ---- Author workbench attention ----
+async def get_author_attention_summary(db, novel_id) -> WorldAttentionSummaryContract
 
 # Entity extraction is owned by imports `world_objects` deep-import stage.
 # World no longer exposes a parallel extraction facade.

@@ -85,7 +85,8 @@ export const SEL = {
   writingSceneCockpit: ".scene-cockpit",
   mobileQuickNote: ".mobile-quick-note",
   mobileNoteEditor: "#mobile-note-editor",
-  writingToolsMenu: "details.writing-tools-menu > summary",
+  writingAiMenu: '[data-action="writing-ai-menu"]',
+  writingToolsMenu: '[data-action="writing-more-menu"]',
   deepImportProgress: "#writing-deep-import-bar-container",
   deepImportMapNext: '[data-action="deep-import-map-next"]',
 

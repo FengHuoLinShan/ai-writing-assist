@@ -121,9 +121,9 @@ const kindLabels = {
   premature_reveal: "过早揭示",
   implicit_lore_conflict: "隐含设定风险",
   voice_or_pov_drift: "声音/视角漂移",
-  scene_goal_drift: "Scene 目标漂移",
-  scene_commitment_missing: "Scene 必要承诺缺失",
-  scene_forbidden_deviation: "Scene 禁止偏离",
+  scene_goal_drift: "场景目标偏离",
+  scene_commitment_missing: "场景必要承诺缺失",
+  scene_forbidden_deviation: "场景出现禁止偏离内容",
   continuity_soft_risk: "软连续性风险",
 }
 

@@ -131,8 +131,8 @@ describe("证据模型", () => {
   it("inlineEvidencePairs 过滤空值", () => {
     const pairs = inlineEvidencePairs({ source: "deep_import", scene_index: 3, quote: "旧塔倒塌" })
     expect(pairs).toContainEqual(["来源", "深度导入"])
-    expect(pairs).toContainEqual(["Scene", 3])
-    expect(pairs.find(([label]) => label === "Workflow")).toBeUndefined()
+    expect(pairs).toContainEqual(["场景", 3])
+    expect(pairs.find(([label]) => label === "处理批次")).toBeUndefined()
   })
 
   it("reviewEvidenceSummary 含诊断 JSON", () => {

@@ -34,8 +34,8 @@
       <details class="outline-structure-diagnostic-filters" :open="Boolean(filterForm.workflow_id)">
         <summary>诊断筛选{{ filterForm.workflow_id ? "（1）" : "" }}</summary>
         <label class="scene-filter-field scene-filter-field--wide">
-          <span>Workflow 诊断 ID</span>
-          <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field v-model="filterForm.workflow_id" placeholder="按 workflow_id 精确筛选" />
+          <span>处理批次编号</span>
+          <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field v-model="filterForm.workflow_id" placeholder="按处理批次编号精确筛选" />
         </label>
       </details>
       <div class="scene-filter-actions">
@@ -116,7 +116,7 @@
       <div class="empty-icon">&#128204;</div>
       <p>暂无剧情线。</p>
       <p class="outline-empty-detail">{{ emptyDetail }}</p>
-      <button class="btn btn-sm btn-primary" data-action="nav-scenes" @click="navigateScenes">从已采用 Scene 开始整理</button>
+      <button class="btn btn-sm btn-primary" data-action="nav-scenes" @click="navigateScenes">从已采用场景开始整理</button>
     </div>
 
     <!-- 错误态 -->

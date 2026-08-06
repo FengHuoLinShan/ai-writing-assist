@@ -58,7 +58,7 @@ describe("adopt", () => {
     expect(persistActiveWorkflow).toHaveBeenCalledWith(expect.objectContaining({
       taskId: "task-a1",
       workflowType: "story_outline_generate",
-      label: "AI 小说总纲",
+      label: "AI 故事总览",
       projectId: "p1",
       view: "outline",
     }))

@@ -15,6 +15,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 提供项目级默认策略（如 `default_reveal_policy`）
 - 根据项目 owner 打开账户级 LLM 连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
+- 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
 
 ## 边界
 
@@ -140,6 +141,7 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | POST | `/api/projects` | 创建项目 |
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/projects/{project_id}` | 项目详情 |
+| GET | `/api/projects/{project_id}/workspace-summary` | 作者工作台摘要：续写位置、章节/字数统计和待处理数量 |
 | PUT | `/api/projects/{project_id}` | 更新项目 |
 | DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站）并取消未完成任务 |
 | GET | `/api/projects/recycle-bin` | 回收站列表 |
@@ -151,6 +153,12 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | POST | `/api/projects/{project_id}/restore` | 恢复项目 |
 | DELETE | `/api/projects/{project_id}/permanent` | 永久删除（级联清理） |
 | POST | `/api/projects/recycle-bin/permanent-delete` | 批量永久删除回收站项目（最多 100 个，原子操作） |
+
+`workspace-summary` 先通过项目 API 的当前账户 owner 与活跃作者项目门禁，再由
+`ProjectWorkspaceService` 只读聚合 writing、world 和 outline 的稳定 facade。响应固定包含
+`project_id`、可空 `continuation`、`writing` 和 `attention`；调用方不能传 owner 或额外
+`novel_id`。最近正文只返回章节序号、标题、更新时间和是否存在未正式化改动，不返回正文内容。
+任一业务投影都使用门禁确认后的同一个 `project_id` 作为 `novel_id`，不建立跨模块 ORM 依赖。
 
 单个和批量永久删除都必须显式提交 `confirmed=true`，且只能删除已在回收站的
 项目。批量请求会去重 ID；任一项目不在回收站时整批拒绝，不会部分删除。

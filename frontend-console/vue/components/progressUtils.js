@@ -4,11 +4,11 @@
  */
 
 export const PHASE_DISPLAY_LABELS = {
-  phase0_plan: "Phase 0 · Scene 窗口规划",
-  phase1a_scene_slicing: "Phase 1a · Scene 边界切分",
-  phase1b_enrichment: "Phase 1b · Scene 字段补全",
-  phase1c_scene_fusion: "Phase 1c · Scene 融合",
-  scene_commit: "Scene commit · 正式写入",
+  phase0_plan: "阶段 1 · 规划场景范围",
+  phase1a_scene_slicing: "阶段 2 · 划分场景边界",
+  phase1b_enrichment: "阶段 3 · 补充场景资料",
+  phase1c_scene_fusion: "阶段 4 · 整理相邻场景",
+  scene_commit: "最后一步 · 保存整理结果",
   entity_extraction: "世界对象与关系提取",
   structure_analysis: "剧情结构分析",
 }
@@ -125,7 +125,7 @@ export function metaBits(progress, options = {}) {
   const bits = []
   if (progress.hasPercent) bits.push(`${progress.percent}%`)
   if (progress.statusLabel) bits.push(progress.statusLabel)
-  if (options.showTaskId !== false && progress.taskId) bits.push(`任务 ${progress.taskId}`)
+  if (options.showTaskId === true && progress.taskId) bits.push(`任务 ${progress.taskId}`)
   if (options.elapsedText) bits.push(options.elapsedText)
   return bits
 }
@@ -142,7 +142,7 @@ export function artifactItems(artifacts = {}) {
       const missing = Array.isArray(coverage.missing_chapters) ? coverage.missing_chapters : []
       const countBits = []
       if (counts.candidate_count != null) countBits.push(`待处理 ${counts.candidate_count}`)
-      if (counts.total_scenes != null) countBits.push(`Scene ${counts.total_scenes}`)
+      if (counts.total_scenes != null) countBits.push(`场景 ${counts.total_scenes}`)
       if (counts.total_created != null) countBits.push(`对象 ${counts.total_created}`)
       if (counts.total_threads != null) countBits.push(`剧情线 ${counts.total_threads}`)
       if (repair.attempts) countBits.push(`修复 ${repair.attempts}`)

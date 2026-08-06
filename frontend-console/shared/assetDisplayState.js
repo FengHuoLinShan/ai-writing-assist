@@ -17,7 +17,7 @@ const ATTENTION_REASON_LABELS = {
   conflicted: "存在冲突",
   conflict: "存在冲突",
   low_confidence: "低置信度",
-  pov_risk: "POV 信息风险",
+  pov_risk: "视角信息风险",
   needs_disambiguation: "需要消歧",
   unresolved_spatial_anchor: "空间位置未解析",
   uncertain_boundary: "边界不确定",
@@ -108,7 +108,7 @@ export function writingAssetDisplay(asset = {}) {
     return display("review", "待处理", asset)
   }
   if (status === "published" || asset.published === true) {
-    return display("published", "已发布", asset)
+    return display("published", "正式正文", asset)
   }
   return display("working", "工作稿", asset)
 }
@@ -124,11 +124,18 @@ export function mapAssetDisplay(item = {}) {
 export function contextContentModeLabel(mode, { compact = false } = {}) {
   if (mode === "working") return compact ? "工作稿" : "工作稿内容"
   if (mode === "candidate" || mode === "review") return compact ? "待处理" : "待处理内容"
-  return compact ? "已发布" : "已发布内容"
+  return compact ? "正式正文" : "正式正文内容"
 }
 
 export function authorFacingStateText(value) {
   return String(value ?? "")
+    .replace(/\bPhase\s*(\d+)\s*\/\s*(\d+)\s*[:：]?\s*/gi, "第 $1/$2 步：")
+    .replaceAll(" Scene ", "场景")
+    .replaceAll("Scene ", "场景 ")
+    .replaceAll(" Scene", "场景")
+    .replaceAll("Scene", "场景")
+    .replaceAll("POV", "视角")
+    .replaceAll("RAG", "查找资料")
     .replaceAll("候选", "待处理")
     .replaceAll("待确认后", "处理后")
     .replaceAll("待确认", "待处理")

@@ -95,18 +95,18 @@ function structureAlerts(scene, chapterIndex) {
     const status = semanticFieldStatus(scene, field)
     if (status === "not_applicable") return
     if (status === "uncertain") {
-      alerts.push(alert(`structure-${field}`, severity, "结构", `Scene 的${label}仍待确认`))
+      alerts.push(alert(`structure-${field}`, severity, "结构", `场景的${label}仍待确认`))
       return
     }
     if (hasText(scene?.[field])) return
-    alerts.push(alert(`structure-${field}`, severity, "结构", `Scene 尚未配置${label}`))
+    alerts.push(alert(`structure-${field}`, severity, "结构", `场景尚未配置${label}`))
   }
 
   addMissing("goal", "目标", "medium")
   addMissing("core_conflict", "核心冲突", "low")
   addMissing("emotional_beat", "情绪节拍", "low")
   if (!hasText(scene?.pov_character_id) && !hasText(scene?.pov_character?.id)) {
-    alerts.push(alert("structure-pov", "low", "结构", "Scene 尚未配置 POV 人物"))
+    alerts.push(alert("structure-pov", "low", "结构", "场景尚未配置视角人物"))
   }
   if (
     scene?.needs_review === true ||
@@ -114,17 +114,17 @@ function structureAlerts(scene, chapterIndex) {
     health.has("unreviewed") ||
     health.has("needs_review")
   ) {
-    alerts.push(alert("structure-review", "medium", "结构", "Scene 尚未完成人工复核"))
+    alerts.push(alert("structure-review", "medium", "结构", "场景尚未完成人工复核"))
   }
   if (
     scene?.needs_organize === true ||
     structureMeta.needs_organize === true ||
     health.has("needs_organize")
   ) {
-    alerts.push(alert("structure-organize", "medium", "结构", "Scene 已标记为待整理"))
+    alerts.push(alert("structure-organize", "medium", "结构", "场景已标记为待整理"))
   }
   if (!sceneMapsToChapter(scene, chapterIndex)) {
-    alerts.push(alert("structure-chapter-map", "medium", "结构", "Scene 尚未映射到当前章节"))
+    alerts.push(alert("structure-chapter-map", "medium", "结构", "场景尚未对应到当前章节"))
   }
   return alerts
 }
@@ -145,7 +145,7 @@ function proseAlerts(scene, chapterIndex, content) {
       "prose-scope-unavailable",
       "low",
       "正文",
-      "当前 Scene 正文范围不可用，已跳过 must/must_not 字面检查",
+      "当前场景的正文范围不可用，已跳过必须出现/不应出现的字面检查",
     )]
   }
   const sceneText = normalizeForLiteralMatch(scope.text)
@@ -154,7 +154,7 @@ function proseAlerts(scene, chapterIndex, content) {
     if (!sceneText.includes(normalizeForLiteralMatch(phrase))) {
       alerts.push({
         ...alert(`prose-required-${index}`, "medium", "正文", `未检测到必须发生项「${phrase}」`),
-        detail: "仅按当前 Scene 正文字面匹配，不代表剧情语义上一定缺失。",
+        detail: "仅按当前场景的正文字面匹配，不代表剧情语义上一定缺失。",
       })
     }
   }
@@ -162,7 +162,7 @@ function proseAlerts(scene, chapterIndex, content) {
     if (sceneText.includes(normalizeForLiteralMatch(phrase))) {
       alerts.push({
         ...alert(`prose-forbidden-${index}`, "high", "正文", `检测到禁止发生项「${phrase}」`),
-        detail: "仅按当前 Scene 正文字面匹配，请结合上下文人工确认。",
+        detail: "仅按当前场景的正文字面匹配，请结合上下文人工确认。",
       })
     }
   }
@@ -217,7 +217,7 @@ function checkAlerts(check, current) {
   }
   if (current.checkLoading && !check) return []
   if (!check) {
-    return [alert("check-missing", "info", "最近校验", "当前 Scene 尚无规则检查记录")]
+    return [alert("check-missing", "info", "最近校验", "当前场景尚无规则检查记录")]
   }
 
   const alerts = []
@@ -334,8 +334,8 @@ function mapWarningMessage(value) {
   if (!value || typeof value !== "object") return ""
   if (value.message) return String(value.message)
   const messages = {
-    scene_without_map_context: "当前 Scene 暂无地图上下文",
-    scene_without_location: "当前 Scene 暂无主地点",
+    scene_without_map_context: "当前场景暂无地图上下文",
+    scene_without_location: "当前场景暂无主地点",
     character_cross_map: "人物上一场在其他地图，需确认移动合理性",
   }
   return messages[value.code] || "已有地图空间连续性风险记录"

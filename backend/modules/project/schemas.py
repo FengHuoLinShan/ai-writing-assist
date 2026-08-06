@@ -133,6 +133,42 @@ class ProjectListResponse(BaseModel):
     total: int
 
 
+class WorkspaceContinuationResponse(BaseModel):
+    """Safe metadata needed to resume the author's most recent working chapter."""
+
+    chapter_index: int = Field(..., ge=0)
+    title: str
+    updated_at: datetime | None = None
+    has_unpublished_changes: bool = False
+
+
+class WorkspaceWritingSummaryResponse(BaseModel):
+    chapter_count: int = Field(default=0, ge=0)
+    word_count: int = Field(default=0, ge=0)
+
+
+class WorkspaceAttentionSummaryResponse(BaseModel):
+    world_objects: int = Field(default=0, ge=0)
+    world_aliases: int = Field(default=0, ge=0)
+    world_relations: int = Field(default=0, ge=0)
+    outline_scenes: int = Field(default=0, ge=0)
+    map_items: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
+
+
+class ProjectWorkspaceSummaryResponse(BaseModel):
+    """Task-oriented project read model; contains no content, secrets, or raw tasks."""
+
+    project_id: str
+    continuation: WorkspaceContinuationResponse | None = None
+    writing: WorkspaceWritingSummaryResponse = Field(
+        default_factory=WorkspaceWritingSummaryResponse
+    )
+    attention: WorkspaceAttentionSummaryResponse = Field(
+        default_factory=WorkspaceAttentionSummaryResponse
+    )
+
+
 class ProjectBulkPermanentDeleteRequest(BaseModel):
     """批量永久删除回收站项目请求。"""
 

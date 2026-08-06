@@ -102,7 +102,7 @@ test.describe("地图真实性能采样", () => {
         window.__mapPerformanceEvents.interactive.length
       ))
       await page.getByRole("button", { name: "← 返回总览", exact: true }).click()
-      await page.getByRole("button", { name: "打开最近地图", exact: true }).click()
+      await page.getByRole("button", { name: "继续最近地图", exact: true }).click()
       await expect.poll(async () => page.evaluate(() => (
         window.__mapPerformanceEvents.interactive.length
       )), { timeout: 30000 }).toBe(previousCount + 1)

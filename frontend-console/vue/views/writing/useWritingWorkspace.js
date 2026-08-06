@@ -180,12 +180,13 @@ export function useWritingWorkspace(props) {
       : !["candidate", "deprecated"].includes(version.status)
   )))
   const saveStatus = computed(() => {
-    if (editorState.saving) return "保存中..."
+    if (editorState.saving) return "正在保存"
+    if (editorState.saveError) return "保存失败，已保留本地备份"
     if (editorState.readonly) return "只读"
-    if (!editorState.dirty) return "已保存"
+    if (!editorState.dirty) return "已保存到工作稿"
     return substantiveWritingText(editorState.content) === substantiveWritingText(editorState.lastSavedContent)
-      ? "仅本地修改"
-      : "未保存"
+      ? "排版修改已保留在本地"
+      : "尚未保存"
   })
 
   const editor = createEditorController({
@@ -429,11 +430,11 @@ export function useWritingWorkspace(props) {
     }
     autoExtraction.busy = true
     const stageConfig = {
-      deep: ["deep_import", "深度导入"],
-      scenes: ["scene_auto_extraction", "从正文提取 Scene"],
-      world_objects: ["world_object_auto_extraction", "世界对象与别名/关系自动提取"],
-      plot_structure: ["plot_structure_auto_extraction", "剧情线自动提取"],
-    }[autoExtraction.stage] || ["scene_auto_extraction", "从正文提取 Scene"]
+      deep: ["deep_import", "整理导入内容"],
+      scenes: ["scene_auto_extraction", "从正文整理场景"],
+      world_objects: ["world_object_auto_extraction", "整理人物、设定与关系"],
+      plot_structure: ["plot_structure_auto_extraction", "从正文整理剧情线"],
+    }[autoExtraction.stage] || ["scene_auto_extraction", "从正文整理场景"]
     try {
       const authorization = importAuthorizationPayload()
       const result = autoExtraction.stage === "deep"
@@ -468,10 +469,10 @@ export function useWritingWorkspace(props) {
       }
       const returnedWorkflowType = result.workflow_type || stageConfig[0]
       const returnedLabel = {
-        deep_import: "深度导入",
-        scene_auto_extraction: "从正文提取 Scene",
-        world_object_auto_extraction: "世界对象与别名/关系自动提取",
-        plot_structure_auto_extraction: "剧情线自动提取",
+        deep_import: "整理导入内容",
+        scene_auto_extraction: "从正文整理场景",
+        world_object_auto_extraction: "整理人物、设定与关系",
+        plot_structure_auto_extraction: "从正文整理剧情线",
       }[returnedWorkflowType] || stageConfig[1]
       deepImport.startTask({
         taskId: result.task_id,
@@ -599,13 +600,13 @@ export function useWritingWorkspace(props) {
       latest = result?.items?.[0] || null
     } catch (err) {
       if (disposed.value || getAppState()?.currentProjectId !== projectId) return false
-      toast(`无法读取发布前冲突检查：${err?.message || "服务暂不可用"}。本次发布已停止，请稍后重试。`, "error")
+      toast(`无法读取正式正文前的设定检查：${err?.message || "服务暂不可用"}。本次操作已停止，请稍后重试。`, "error")
       return false
     }
     if (!latest) {
       return confirmAsync(
-        "当前章节还没有剧情设定冲突检查记录。可以继续发布，也可以先运行检查。",
-        "继续发布",
+        "当前章节还没有前后设定检查记录。可以继续设为正式正文，也可以先运行检查。",
+        "继续设为正式正文",
         { confirmAction },
       )
     }
@@ -615,8 +616,8 @@ export function useWritingWorkspace(props) {
       : Number(latest.summary_json?.open_high_count || 0)
     if (openHighCount > 0) {
       return confirmAsync(
-        `最近一次检查仍有 ${openHighCount} 个未处理高严重度问题。确认继续发布？`,
-        "继续发布",
+        `最近一次检查仍有 ${openHighCount} 个未处理的重要问题。确认继续设为正式正文？`,
+        "继续设为正式正文",
         { confirmAction },
       )
     }
@@ -652,24 +653,24 @@ export function useWritingWorkspace(props) {
     publishProgress.taskId = null
     publishProgress.phase = "running"
     publishProgress.progress = 0
-    publishProgress.message = retry ? "正在重试发布后处理..." : "正在发布正文..."
+    publishProgress.message = retry ? "正在重试正式正文后续整理..." : "正在设为正式正文..."
     try {
       const result = await api.writing.publish(payload)
       if (generation !== publishGeneration || disposed.value) return
       publishProgress.taskId = result?.task_id || null
       publishProgress.phase = result?.task_id ? "running" : "done"
       publishProgress.progress = result?.task_id ? 0 : 100
-      publishProgress.message = result?.task_id ? "正在更新检索与记忆..." : "发布完成"
+      publishProgress.message = result?.task_id ? "正在整理相关资料..." : "已设为正式正文"
       await reloadChapters()
       if (result?.new_version !== false && selectedChapter.value) {
         await selectChapter(selectedChapter.value)
       }
-      toast(result?.new_version === false ? "正文无实质变化，已沿用当前发布版本" : "已发布", result?.new_version === false ? "info" : "success")
+      toast(result?.new_version === false ? "正文无实质变化，已沿用当前正式正文" : "已设为正式正文", result?.new_version === false ? "info" : "success")
       if (result?.task_id) schedulePublishPoll(generation, result.task_id)
     } catch (err) {
       if (generation !== publishGeneration) return
       publishProgress.phase = "failed"
-      publishProgress.message = sanitizeTaskErrorMessage(err?.message, "publish_chapter") || "发布失败。工作稿已保留，可手动重试。"
+      publishProgress.message = sanitizeTaskErrorMessage(err?.message, "publish_chapter") || "未能设为正式正文。工作稿已保留，可手动重试。"
       publishProgress.retryable = true
       toast(publishProgress.message, "error")
     } finally {
@@ -722,7 +723,7 @@ export function useWritingWorkspace(props) {
         if (["done", "failed", "cancelled"].includes(task.status)) {
           publishProgress.active = false
           publishProgress.message = task.status === "done"
-            ? "发布后处理完成"
+            ? "正式正文已就绪"
             : (sanitizeTaskErrorMessage(task.error_message || task.result?.error_message || task.result?.error, "publish_chapter") || `任务${task.status}`)
           publishProgress.retryable = task.status !== "done"
           publishProgress.taskId = null
@@ -733,7 +734,7 @@ export function useWritingWorkspace(props) {
         publishProgress.phase = "failed"
         publishProgress.retryable = true
         publishProgress.taskId = null
-        publishProgress.message = "发布状态查询失败。工作稿已保留，可手动重试。"
+        publishProgress.message = "正式正文的后续状态暂时无法读取。工作稿已保留，可手动重试。"
         return
       }
       schedulePublishPoll(generation, taskId)

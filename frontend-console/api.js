@@ -713,6 +713,10 @@ const api = {
       return contractFetch("projects.get", { id }, {}, options)
     },
 
+    async getWorkspaceSummary(id, options = {}) {
+      return contractFetch("projects.getWorkspaceSummary", { id }, {}, options)
+    },
+
     async update(id, payload) {
       return contractJson("projects.update", { id }, {}, payload)
     },
@@ -1966,7 +1970,7 @@ const api = {
 
     async deepImport(novelId, startChapter, endChapter, force = false, highQuality = false, authorization = {}) {
       if (authorization.authorization_confirmed !== true) {
-        throw new Error("启动深度导入前必须获得用户授权")
+        throw new Error("整理导入内容前必须获得用户授权")
       }
       return contractJson("imports.deepImport", {}, {}, {
         novel_id: novelId,

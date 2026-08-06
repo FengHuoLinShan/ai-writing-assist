@@ -1,17 +1,17 @@
 <template>
   <div class="outline-scene-layout">
     <div class="subnav">
-      <button type="button" class="subnav-item" data-action="nav-story-outline" @click="navigateOutline('story-outline')">小说总纲</button>
-      <button type="button" class="subnav-item" data-action="nav-arcs" @click="navigateOutline('arcs')">篇章纲</button>
+      <button type="button" class="subnav-item" data-action="nav-story-outline" @click="navigateOutline('story-outline')">故事总览</button>
+      <button type="button" class="subnav-item" data-action="nav-arcs" @click="navigateOutline('arcs')">篇章</button>
       <button type="button" class="subnav-item" data-action="nav-threads" @click="navigateOutline('threads')">剧情线</button>
-      <span class="subnav-item active" aria-current="page" data-action="nav-scenes">场景工作台</span>
-      <div class="scene-workbench-actions" aria-label="Scene 工作台操作">
-        <span class="scene-view-mode-toggle" aria-label="Scene 检索模式">
+      <span class="subnav-item active" aria-current="page" data-action="nav-scenes">场景</span>
+      <div class="scene-workbench-actions" aria-label="场景操作">
+        <span class="scene-view-mode-toggle" aria-label="场景浏览模式">
           <button class="btn btn-sm" :class="{ 'btn-primary': viewMode === 'normal' }" data-action="set-scene-view-mode" data-mode="normal" @click="setViewMode('normal')">普通</button>
           <button class="btn btn-sm" :class="{ 'btn-primary': viewMode === 'hot' }" data-action="set-scene-view-mode" data-mode="hot" @click="setViewMode('hot')">热点</button>
         </span>
         <button class="btn btn-sm btn-primary" data-action="ai-create-planned-scene" @click="createPlannedScene">AI 创作细纲</button>
-        <button class="btn btn-sm" data-action="scene-auto-extract" :disabled="autoExtractionBusy" @click="showAutoExtractForm">{{ autoExtractionBusy ? "提取中..." : "从正文提取 Scene" }}</button>
+        <button class="btn btn-sm" data-action="scene-auto-extract" :disabled="autoExtractionBusy" @click="showAutoExtractForm">{{ autoExtractionBusy ? "整理中..." : "从正文整理场景" }}</button>
         <span data-role="smart-dedup-action"></span>
       </div>
     </div>
@@ -25,8 +25,8 @@
 
       <div v-if="pendingSuggestionCount" class="scene-fusion-queue" role="status">
         <div>
-          <strong>{{ pendingSuggestionCount }} 条 Scene 建议待处理</strong>
-          <span>包含融合决定或受保护 Scene 的替换审查，刷新后仍可继续。</span>
+          <strong>{{ pendingSuggestionCount }} 条场景建议待处理</strong>
+          <span>包含场景合并决定或受保护内容的替换检查，刷新后仍可继续。</span>
         </div>
         <button class="btn btn-sm btn-primary" data-action="show-fusion-suggestions" @click="modalController.showSuggestions()">逐条处理</button>
         <button v-if="dismissibleSuggestionCount" class="btn btn-sm" data-action="dismiss-fusion-suggestions" @click="modalController.dismissAllSuggestions()">忽略融合建议</button>
@@ -46,7 +46,7 @@
       </div>
       <div v-else-if="workbench" class="scene-workbench" :class="{ 'is-narrow': narrow }">
         <section class="scene-workbench__organize">
-          <div class="scene-management-filters" aria-label="Scene 管理筛选">
+          <div class="scene-management-filters" aria-label="场景筛选">
             <label class="scene-filter-field scene-filter-field--wide"><span>搜索</span><input id="scene-filter-q" v-model="filterForm.q" class="form-input" placeholder="标题 / 目标 / 冲突" /></label>
             <label class="scene-filter-field"><span>起始章</span><input id="scene-filter-chapter-from" v-model="filterForm.chapter_from" class="form-input" type="number" min="1" /></label>
             <label class="scene-filter-field"><span>结束章</span><input id="scene-filter-chapter-to" v-model="filterForm.chapter_to" class="form-input" type="number" min="1" /></label>
@@ -83,11 +83,11 @@
               <small v-if="key === 'needs_organize' && healthBreakdownText">{{ healthBreakdownText }}</small>
             </button>
           </div>
-          <p v-if="healthBreakdownText" class="scene-health-count-note" role="note">待整理总数按 Scene 去重；结构、正文定位和融合等原因可在同一 Scene 上重叠，原因数不能相加作为总数。</p>
+          <p v-if="healthBreakdownText" class="scene-health-count-note" role="note">待整理总数按场景去重；结构、正文定位和合并等原因可能同时出现在同一场景。</p>
 
-          <div class="scene-fusion-toolbar" aria-label="Scene 批量操作">
-            <div class="scene-fusion-toolbar__status"><strong>{{ selectedIds.size }}</strong><span>个 Scene 已选</span><span class="scene-fusion-toolbar__hint">{{ selectionHint }}</span></div>
-            <button class="btn btn-sm" data-action="toggle-visible-fusion-selection" :disabled="visibleIds.length === 0" :title="allVisibleSelected ? '取消选择当前列表中的 Scene' : '选择当前列表中的全部 Scene'" @click="toggleVisibleSelection">{{ allVisibleSelected ? '取消全选' : '全选当前列表' }}</button>
+          <div class="scene-fusion-toolbar" aria-label="场景批量操作">
+            <div class="scene-fusion-toolbar__status"><strong>{{ selectedIds.size }}</strong><span>个场景已选</span><span class="scene-fusion-toolbar__hint">{{ selectionHint }}</span></div>
+            <button class="btn btn-sm" data-action="toggle-visible-fusion-selection" :disabled="visibleIds.length === 0" :title="allVisibleSelected ? '取消选择当前列表中的场景' : '选择当前列表中的全部场景'" @click="toggleVisibleSelection">{{ allVisibleSelected ? '取消全选' : '全选当前列表' }}</button>
             <button class="btn btn-sm btn-primary" data-action="handle-selected-context-actions" :disabled="selectedIds.size === 0" @click="runSelectedContextActions">{{ batchLabel }}</button>
             <button class="btn btn-sm" data-action="start-selected-merge" :disabled="selectedIds.size < 2" @click="modalController.startSelectedMerge(Array.from(selectedIds))">机械合并</button>
             <button class="btn btn-sm btn-primary" data-action="start-ai-fusion-draft" :disabled="selectedIds.size < 2" @click="modalController.startFusion(Array.from(selectedIds))">AI 融合建议</button>
@@ -99,10 +99,10 @@
               <div class="scene-workbench-row__content">
                 <button class="scene-workbench-row__main" data-action="select-workbench-scene" :data-id="item.scene?.id" @click="selectScene(item.scene?.id)">
                   <div class="scene-workbench-row__meta"><span>#{{ sceneIndex(item.scene) }}</span><span>{{ sceneStatusLabel(item.scene) }}</span><span>{{ sceneSourceLabel(item.scene) }}</span><span>{{ item.chapter_range || '未关联章节' }}</span><span v-if="segmentLabel(item.segment)" class="scene-progress-chip" :class="`scene-progress-chip--${item.segment}`">{{ segmentLabel(item.segment) }}</span></div>
-                  <div class="scene-workbench-row__title">{{ item.scene?.title || '未命名 Scene' }}</div>
+                  <div class="scene-workbench-row__title">{{ item.scene?.title || '未命名场景' }}</div>
                   <div class="scene-workbench-row__summary">{{ item.summary || item.scene?.goal || '暂无目标' }}</div>
-                  <div v-if="rowSpanSummary(item)" class="scene-workbench-row__mapping" aria-label="Scene 正文范围">{{ rowSpanSummary(item) }}</div>
-                  <div v-if="rowOverlapSummary(item)" class="scene-workbench-row__overlap" aria-label="Scene 正文范围重叠">{{ rowOverlapSummary(item) }}</div>
+                  <div v-if="rowSpanSummary(item)" class="scene-workbench-row__mapping" aria-label="场景正文范围">{{ rowSpanSummary(item) }}</div>
+                  <div v-if="rowOverlapSummary(item)" class="scene-workbench-row__overlap" aria-label="场景正文范围重叠">{{ rowOverlapSummary(item) }}</div>
                 </button>
                 <div class="scene-workbench-row__health"><button v-for="health in item.health || []" :key="health" class="scene-health-chip" data-action="handle-scene-health" :data-id="item.scene?.id" :data-health="health" :title="sceneContextAction(item, health).label" @click="runContextAction(item, sceneContextAction(item, health))">{{ healthLabel(health) }}</button></div>
               </div>
@@ -110,15 +110,15 @@
                 <button class="btn btn-sm scene-context-action" :class="{ 'btn-primary': sceneContextAction(item).key !== 'edit' }" :data-action="sceneContextAction(item).action" :data-id="item.scene?.id" @click="runContextAction(item)">{{ sceneContextAction(item).label }}</button>
                 <button v-if="firstOverlap(item)?.counterpart_scene_id" class="btn btn-sm scene-overlap-shortcut" data-action="open-overlap-scene" :data-id="firstOverlap(item).counterpart_scene_id" @click="openOverlap(firstOverlap(item).counterpart_scene_id)">查看「{{ overlapCounterpartLabel(firstOverlap(item)) }}」</button>
                 <button v-if="sceneContextAction(item).key !== 'edit'" class="btn btn-sm scene-secondary-action" data-action="edit-workbench-scene" :data-id="item.scene?.id" @click="selectScene(item.scene?.id)">编辑</button>
-                <ActionMenu :menu-id="`scene-actions-${item.scene?.id}`" :label="`${item.scene?.title || '未命名 Scene'}的更多操作`" :items="menuItems(item)" @select="handleMenu(item, $event)" />
+                <ActionMenu :menu-id="`scene-actions-${item.scene?.id}`" :label="`${item.scene?.title || '未命名场景'}的更多操作`" :items="menuItems(item)" @select="handleMenu(item, $event)" />
               </div>
             </article>
             <article v-for="chapter in visibleUnassignedChapters" :key="`unassigned-${chapter}`" class="scene-workbench-row scene-workbench-row--unassigned">
-              <div class="scene-workbench-row__main"><div class="scene-workbench-row__meta"><span>未归类章节</span></div><div class="scene-workbench-row__title">第 {{ chapter }} 章</div><div class="scene-workbench-row__summary">尚未分配到 Scene</div></div>
-              <div class="scene-workbench-row__actions"><button class="btn btn-sm" data-action="assign-unassigned-chapter" :data-chapter="chapter" @click="modalController.assignChapter(chapter)">分配 Scene</button></div>
+              <div class="scene-workbench-row__main"><div class="scene-workbench-row__meta"><span>未归类章节</span></div><div class="scene-workbench-row__title">第 {{ chapter }} 章</div><div class="scene-workbench-row__summary">尚未分配到场景</div></div>
+              <div class="scene-workbench-row__actions"><button class="btn btn-sm" data-action="assign-unassigned-chapter" :data-chapter="chapter" @click="modalController.assignChapter(chapter)">分配场景</button></div>
             </article>
           </div>
-          <div v-else class="empty-state"><p>暂无需要整理的 Scene。</p></div>
+          <div v-else class="empty-state"><p>暂无需要整理的场景。</p></div>
 
           <div v-if="total > filters.limit" class="scene-workbench-pagination">
             <button class="btn btn-sm" data-action="prev-scene-page" :disabled="filters.skip <= 0" @click="changePage(-1)">上一页</button>
@@ -128,7 +128,7 @@
         </section>
 
         <details v-if="!narrow" class="workspace-rail scene-detail-rail workspace-rail--right" :data-workspace-rail-key="railKey" :open="railOpen" @toggle="onRailToggle">
-          <summary class="workspace-rail__summary" :aria-label="`${railOpen ? '收起' : '展开'}Scene 详情`"><span class="workspace-rail__title">Scene 详情</span><span class="workspace-rail__chevron" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg></span></summary>
+          <summary class="workspace-rail__summary" :aria-label="`${railOpen ? '收起' : '展开'}场景详情`"><span class="workspace-rail__title">场景详情</span><span class="workspace-rail__chevron" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg></span></summary>
           <div class="workspace-rail__body"><aside class="scene-workbench__detail"><SceneDetailPanel :item="selectedItem" :draft="detailDraft" :narrow="false" @context="runContextAction(selectedItem)" @save="saveScene(selectedItem?.scene?.id, detailDraft)" @merge="modalController.startMerge(selectedItem?.scene?.id)" @split="modalController.startSplit(selectedItem?.scene?.id)" @replacement="openOverlap" /></aside></div>
         </details>
 
@@ -284,7 +284,7 @@ const SceneDetailPanel = defineComponent({
   setup(componentProps, { emit }) {
     return () => {
       const item = componentProps.item
-      if (!item?.scene) return h("div", { class: "scene-detail-empty" }, "选择一个 Scene 查看详情。")
+      if (!item?.scene) return h("div", { class: "scene-detail-empty" }, "选择一个场景查看详情。")
       const scene = item.scene
       const review = sceneReviewState(item)
       const reviewLabel = review.reviewed ? `已检查 · ${new Date(review.reviewedAt).toLocaleString("zh-CN")}` : review.needsReview ? "需要人工检查" : "无注意项"
@@ -298,10 +298,10 @@ const SceneDetailPanel = defineComponent({
             : h("input", { id: `scene-detail-${key}`, class: "form-input", value: componentProps.draft[key], onInput: (event) => { componentProps.draft[key] = event.target.value } }),
       ])
       return h("div", { class: "scene-detail-panel" }, [
-        h("div", { class: "scene-detail-panel__head" }, [h("div", [h("div", { class: "scene-detail-panel__eyebrow" }, "Scene 详情"), h("h3", scene.title || "未命名 Scene")]), componentProps.narrow ? h("button", { class: "btn btn-sm", "data-action": "close-scene-detail", onClick: () => emit("close") }, "关闭") : null]),
+        h("div", { class: "scene-detail-panel__head" }, [h("div", [h("div", { class: "scene-detail-panel__eyebrow" }, "场景详情"), h("h3", scene.title || "未命名场景")]), componentProps.narrow ? h("button", { class: "btn btn-sm", "data-action": "close-scene-detail", onClick: () => emit("close") }, "关闭") : null]),
         h("div", { class: "scene-detail-grid" }, [
           field("标题", "title"), field("叙事标签", "narrative_tag", "select", TAG_OPTIONS), field("状态", "status", "select", STATUS_OPTIONS), field("来源", "source", "select", SOURCE_OPTIONS),
-          field("目标", "goal", "textarea"), field("核心冲突", "core_conflict", "textarea"), field("情感节奏", "emotional_beat", "textarea"), field("必须发生", "must_happen", "textarea"), field("禁止发生", "must_not_happen", "textarea"), field("POV", "pov_character_id"),
+          field("目标", "goal", "textarea"), field("核心冲突", "core_conflict", "textarea"), field("情感节奏", "emotional_beat", "textarea"), field("必须发生", "must_happen", "textarea"), field("禁止发生", "must_not_happen", "textarea"), field("视角人物", "pov_character_id"),
         ]),
         h("section", { class: "scene-detail-summary" }, [
           h("div", [h("strong", "章节映射"), h("span", item.chapter_range || "未关联章节")]),

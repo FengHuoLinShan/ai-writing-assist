@@ -101,7 +101,7 @@ afterEach(() => {
 describe("渲染 · 当前版本与空状态", () => {
   it("无 revision 时渲染空状态", () => {
     const wrapper = mount(OutlineStoryTab, { props: makeProps() })
-    expect(wrapper.text()).toContain("尚未创建小说总纲")
+    expect(wrapper.text()).toContain("尚未创建故事总览")
     expect(wrapper.find("#story-outline-empty-title").exists()).toBe(true)
   })
 
@@ -115,18 +115,18 @@ describe("渲染 · 当前版本与空状态", () => {
       }),
     })
     const text = wrapper.text()
-    expect(text).toContain("当前总纲 · v1")
+    expect(text).toContain("当前版本 · v1")
     expect(text).toContain("霜城纪事")
     expect(text).toContain("核心前提")
     expect(text).toContain("基调与读者承诺")
     expect(text).toContain("故事引擎")
     expect(text).toContain("结局方向")
     expect(text).toContain("主要剧情线")
-    expect(text).toContain("宏观推进")
-    expect(text).toContain("开放决策")
+    expect(text).toContain("故事推进")
+    expect(text).toContain("待决定问题")
     expect(text).toContain("失真档案")
     expect(text).toContain("驱动主谜题")
-    expect(text).toContain("修订历史")
+    expect(text).toContain("历史版本")
   })
 
   it("当前 revision 为空时仍展示各块但 marking 为 待决定", () => {
@@ -154,7 +154,7 @@ describe("渲染 · 当前版本与空状态", () => {
         historyTotal: 1,
       }),
     })
-    expect(wrapper.text()).toContain("不会原地回滚或改写历史")
+    expect(wrapper.text()).toContain("不会改写原有历史")
     expect(wrapper.find('[data-action="restore-story-outline-revision"]').exists()).toBe(true)
   })
 
@@ -181,7 +181,7 @@ describe("渲染 · 边界状态", () => {
     const wrapper = mount(OutlineStoryTab, {
       props: makeProps({ loadError: "网络请求异常" }),
     })
-    expect(wrapper.text()).toContain("小说总纲加载失败")
+    expect(wrapper.text()).toContain("故事总览加载失败")
     expect(wrapper.text()).toContain("网络请求异常")
     const reloadBtn = wrapper.find('[data-action="reload-story-outline"]')
     expect(reloadBtn.exists()).toBe(true)
@@ -278,7 +278,7 @@ describe("行为 · 事件触发", () => {
     await wrapper.find('[data-action="generate-story-outline"]').trigger("click")
     expect(showModal).toHaveBeenCalledTimes(1)
     const title = showModal.mock.calls[0][0]
-    expect(title).toBe("AI 生成小说总纲")
+    expect(title).toBe("AI 生成故事总览")
   })
 
   it("有运行中任务时 AI 生成按钮 disabled", async () => {
@@ -308,7 +308,7 @@ describe("行为 · 事件触发", () => {
     await flushPromises()
 
     expect(globalThis.api.outline.getStoryOutline).toHaveBeenCalledWith("p1")
-    expect(wrapper.text()).toContain("当前总纲 · v2")
+    expect(wrapper.text()).toContain("当前版本 · v2")
     expect(wrapper.text()).toContain("重载后总纲")
   })
 
@@ -318,7 +318,7 @@ describe("行为 · 事件触发", () => {
     const wrapper = mount(OutlineStoryTab, { props: makeProps() })
     await wrapper.find('[data-action="edit-story-outline"]').trigger("click")
     expect(showModal).toHaveBeenCalledTimes(1)
-    expect(showModal.mock.calls[0][0]).toBe("编辑小说总纲")
+    expect(showModal.mock.calls[0][0]).toBe("编辑故事总览")
   })
 
   it("查看历史按钮触发 viewRevision", async () => {
@@ -336,7 +336,7 @@ describe("行为 · 事件触发", () => {
     await wrapper.find('[data-action="view-story-outline-revision"]').trigger("click")
     await wrapper.vm.$nextTick()
     expect(showModal).toHaveBeenCalled()
-    expect(showModal.mock.calls[0][0]).toContain("小说总纲历史版本")
+    expect(showModal.mock.calls[0][0]).toContain("故事总览历史版本")
   })
 })
 

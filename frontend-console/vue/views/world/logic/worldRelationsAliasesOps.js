@@ -304,9 +304,9 @@ export function inlineEvidencePairs(item = {}) {
   const esc = (v) => String(v ?? "")
   return [
     ["来源", item.source === "deep_import" ? "深度导入" : item.source],
-    ["Workflow", item.workflow_id],
+    ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
-    ["Scene", item.scene_index || item.scene_id],
+    ["场景", item.scene_index || item.scene_id],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
@@ -322,8 +322,8 @@ export function inlineRelationEvidencePairs(relation = {}) {
     : {}
   const pairs = [
     ["来源", (reviewMeta.source || relation.source) === "deep_import" ? "深度导入" : (reviewMeta.source || relation.source)],
-    ["Workflow", reviewMeta.workflow_id || relation.workflow_id],
-    ["Scene", reviewMeta.scene_index ?? reviewMeta.scene_id ?? relation.scene_index ?? relation.scene_id],
+    ["处理批次", reviewMeta.workflow_id || relation.workflow_id],
+    ["场景", reviewMeta.scene_index ?? reviewMeta.scene_id ?? relation.scene_index ?? relation.scene_id],
     ["章节", reviewMeta.source_chapter_index ?? relation.source_chapter_index ?? relation.source_chapter_id],
     ["强度", relation.strength != null ? `${Math.round(Number(relation.strength) * 100)}%` : ""],
     ["引用", reviewMeta.quote || relation.quote || ""],

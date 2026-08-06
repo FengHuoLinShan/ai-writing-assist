@@ -43,7 +43,7 @@ export function createWritingCommandController({
 
   async function waitForDraft(submitted, projectId, token) {
     if (submitted?.draft_id) return submitted
-    if (!submitted?.task_id) throw new Error("生成任务未返回任务 ID")
+    if (!submitted?.task_id) throw new Error("正文建议未能开始，请稍后重试")
     while (!disposed && token === generation) {
       let task = null
       try {
@@ -88,7 +88,7 @@ export function createWritingCommandController({
       return null
     }
     if (mode === "pov" && !scene?.pov_character_id) {
-      toast(scene ? "当前 Scene 未设置 POV 角色" : "当前章节未关联 Scene", "warning")
+      toast(scene ? "当前场景还没有设置视角人物" : "当前章节还没有关联场景", "warning")
       return null
     }
     generating = true
@@ -99,7 +99,7 @@ export function createWritingCommandController({
       const confirmation = await confirmAiReference({
         novel_id: projectId,
         action: "writing.generate",
-        task: pov ? "基于当前 Scene 的 POV 角色有限认知生成正文建议" : mode === "continue" ? "从当前锁定正文末尾续写" : "生成正文建议预览",
+        task: pov ? "基于当前场景的视角人物认知生成正文建议" : mode === "continue" ? "从当前正式正文末尾续写" : "生成正文建议预览",
         scope: "chapter",
         chapter_index: chapter,
         scene_id: scene?.id,
@@ -110,7 +110,7 @@ export function createWritingCommandController({
       })
       if (disposed || token !== generation) return null
       const instruction = pov
-        ? `${confirmation.user_note ? `${confirmation.user_note}\n\n` : ""}请严格使用 POV 角色在当前 Scene 可见的信息生成正文建议。`
+        ? `${confirmation.user_note ? `${confirmation.user_note}\n\n` : ""}请严格使用视角人物在当前场景可见的信息生成正文建议。`
         : (confirmation.user_note || "")
       const submitted = await api.writing.generate({
         novel_id: projectId,

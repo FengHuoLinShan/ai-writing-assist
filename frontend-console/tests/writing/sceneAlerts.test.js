@@ -55,8 +55,8 @@ describe("sceneAlerts", () => {
     })
 
     expect(alerts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: "结构", message: "Scene 尚未完成人工复核" }),
-      expect.objectContaining({ source: "结构", message: "Scene 已标记为待整理" }),
+      expect.objectContaining({ source: "结构", message: "场景尚未完成人工复核" }),
+      expect.objectContaining({ source: "结构", message: "场景已标记为待整理" }),
       expect.objectContaining({ source: "地图", message: "林澈上一场仍在北港" }),
     ]))
     expect(alerts.some((item) => /张力|更好|自然/.test(item.message))).toBe(false)

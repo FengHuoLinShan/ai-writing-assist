@@ -116,9 +116,21 @@ const statusItems = computed(() => fields.statusItems || [])
   </div>
 
   <template v-else>
+    <section class="card rag-repair-card">
+      <div>
+        <h2>{{ fields.statusDegraded || fields.totalChunks === 0 ? '查找资料尚未准备好' : '修复与检查查找功能' }}</h2>
+        <p>{{ fields.statusDegraded ? '部分资料可能暂时找不到。修复期间仍可继续手写正文。' : '如果查找结果不全，可以重新整理当前作品的可查找资料。' }}</p>
+      </div>
+      <div class="rag-repair-card__actions">
+        <button class="btn btn-primary" type="button" data-action="rebuild-index" @click="emit('rebuild')">修复查找功能</button>
+        <button class="btn" type="button" data-action="nav-search" @click="emit('navigate-search')">返回查找</button>
+      </div>
+    </section>
+    <details class="rag-diagnostic-details">
+      <summary>诊断详情</summary>
     <div class="rag-status-stack">
       <div class="card rag-status-card">
-        <div class="card-title">小说检索索引概览</div>
+        <div class="card-title">查找资料概览</div>
         <div class="rag-status-metrics">
           <div class="rag-status-metric">
             <strong class="rag-status-value"><span class="badge" :class="statusBadgeOk ? 'badge-canonical' : 'badge-draft'">{{ statusBadgeOk ? "正常" : "未连接" }}</span></strong><br>
@@ -134,7 +146,7 @@ const statusItems = computed(() => fields.statusItems || [])
           </div>
           <div class="rag-status-metric">
             <strong class="rag-status-value">{{ canonicalFreshness.fresh ?? 0 }}/{{ canonicalFreshness.total ?? 0 }}</strong><br>
-            <span class="rag-status-label">已发布索引新鲜度</span>
+            <span class="rag-status-label">正式正文已准备</span>
           </div>
           <div class="rag-status-metric">
             <strong class="rag-status-value">{{ workingFreshness.fresh ?? 0 }}/{{ workingFreshness.total ?? 0 }}</strong><br>
@@ -152,7 +164,7 @@ const statusItems = computed(() => fields.statusItems || [])
           </div>
           <div class="rag-status-metric">
             <strong class="rag-status-value">{{ percentText(healthScene.precise_span_rate) }}</strong><br>
-            <span class="rag-status-label">Scene 精确定位</span>
+            <span class="rag-status-label">场景精确定位</span>
           </div>
           <div class="rag-status-metric">
             <strong class="rag-status-value">{{ percentText(healthMapping.eligible_mapping_rate) }}</strong><br>
@@ -172,7 +184,7 @@ const statusItems = computed(() => fields.statusItems || [])
 
       <div id="rag-diagnostics">
         <details class="card rag-diagnostics-card" :open="diagnosticsOpen" @toggle="diagnosticsOpen = $event.target.open">
-          <summary class="card-title">技术诊断详情</summary>
+          <summary class="card-title">技术信息</summary>
           <div class="rag-diagnostics-grid">
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ String(actualDim) }}</strong><br><span class="rag-diagnostics-label">实际维度</span></div>
             <div class="rag-status-metric"><strong class="rag-diagnostics-value">{{ String(configuredDim) }}</strong><br><span class="rag-diagnostics-label">配置维度</span></div>
@@ -218,7 +230,7 @@ const statusItems = computed(() => fields.statusItems || [])
           v-if="rebuildProgress"
           :progress="rebuildProgress"
           variant="card"
-          title="重建 RAG 索引"
+          title="正在修复查找功能"
         >
           <div class="workflow-progress__destination">完成后本页索引概览会更新，可继续测试搜索。</div>
           <div v-if="canRetryTask" class="workflow-progress__actions">
@@ -270,7 +282,7 @@ const statusItems = computed(() => fields.statusItems || [])
       <div class="rag-rebuild-range">
         <label for="rag-rebuild-content-mode">正文版本</label>
         <select class="form-input rag-rebuild-input" id="rag-rebuild-content-mode" v-model="rebuildForm.contentMode">
-          <option value="canonical">已发布</option>
+          <option value="canonical">正式正文</option>
           <option value="working">工作稿</option>
         </select>
         <label for="rag-rebuild-start">起始章节</label>
@@ -278,7 +290,8 @@ const statusItems = computed(() => fields.statusItems || [])
         <label for="rag-rebuild-end">结束章节</label>
         <input class="form-input rag-rebuild-input" id="rag-rebuild-end" type="number" min="1" placeholder="结束" v-model="rebuildForm.end" />
       </div>
-      <button class="btn" data-action="nav-search" @click="emit('navigate-search')">返回检索</button>
+      <button class="btn" data-action="nav-search" @click="emit('navigate-search')">返回查找</button>
     </div>
+    </details>
   </template>
 </template>

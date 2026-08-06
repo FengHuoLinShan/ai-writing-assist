@@ -189,7 +189,7 @@ export function reviewEvidenceSummary(item = {}, kind = "alias", numericValue = 
   const source = item.source === "deep_import" ? "深度导入" : item.source
   const summary = [
     source,
-    item.scene_index != null ? `Scene ${item.scene_index}` : "",
+    item.scene_index != null ? `场景 ${item.scene_index}` : "",
     item.source_chapter_index != null ? `第 ${item.source_chapter_index} 章` : "",
     numericValue != null ? `${kind === "relation" ? "强度" : "置信度"} ${Math.round(Number(numericValue) * 100)}%` : "",
   ].filter(Boolean).join(" · ")
@@ -211,9 +211,9 @@ export function reviewEvidenceSummary(item = {}, kind = "alias", numericValue = 
 export function inlineEvidencePairs(item = {}) {
   return [
     ["来源", item.source === "deep_import" ? "深度导入" : item.source],
-    ["Workflow", item.workflow_id],
+    ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
-    ["Scene", item.scene_index || item.scene_id],
+    ["场景", item.scene_index || item.scene_id],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
@@ -235,15 +235,15 @@ export function inlineRelationEvidencePairs(relation = {}) {
     ? reviewMeta.evidence_refs.map((ref) => {
       if (ref == null) return ""
       if (typeof ref !== "object") return String(ref)
-      const refScene = ref.scene_id || (ref.scene_index != null ? `Scene ${ref.scene_index}` : "")
+      const refScene = ref.scene_id || (ref.scene_index != null ? `场景 ${ref.scene_index}` : "")
       const refChapter = ref.source_chapter_index != null ? `章节 ${ref.source_chapter_index}` : ""
       return [refScene, refChapter, ref.quote || ref.evidence || ""].filter(Boolean).join(" · ")
     }).filter(Boolean).join("；")
     : ""
   return [
     ["来源", reviewMeta.source === "deep_import" ? "深度导入" : reviewMeta.source],
-    ["Workflow", reviewMeta.workflow_id],
-    ["Scene", normalizedSceneLabel],
+    ["处理批次", reviewMeta.workflow_id],
+    ["场景", normalizedSceneLabel],
     ["章节", reviewMeta.source_chapter_index ?? relation.source_chapter_id],
     ["强度", relation.strength != null ? `${Math.round(Number(relation.strength) * 100)}%` : ""],
     ["引用", relation.quote || reviewMeta.quote],
@@ -433,7 +433,7 @@ export function showAliasReviewDecisionForm(entityIdParam, aliasText) {
         <button class="btn btn-sm" data-action="copy-review-diagnostic" data-diagnostic="${esc(evidence.diagnostic)}">复制诊断信息</button>
       </details>
     </div>
-    <p class="form-help">来源、Scene、引用和置信度只读；保存这里只准备决策，最后仍需批量确认。</p>
+    <p class="form-help">来源、场景、引用和置信度只读；保存这里只准备决策，最后仍需批量确认。</p>
     </div>
   `
   showModalHtml("准备别名复核决策", body, [{

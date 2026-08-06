@@ -35,7 +35,7 @@ describe("author-facing asset display state", () => {
   it("keeps writing maturity separate from structured asset adoption", () => {
     expect(writingAssetDisplay({ status: "candidate" }).label).toBe("待处理")
     expect(writingAssetDisplay({ status: "draft" }).label).toBe("工作稿")
-    expect(writingAssetDisplay({ status: "published" }).label).toBe("已发布")
+    expect(writingAssetDisplay({ status: "published" }).label).toBe("正式正文")
   })
 
   it("keeps map observation and fact models distinct while simplifying their labels", () => {
@@ -58,7 +58,7 @@ describe("author-facing asset display state", () => {
   })
 
   it("preserves canonical and working wire values behind writing-oriented labels", () => {
-    expect(contextContentModeLabel("canonical")).toBe("已发布内容")
+    expect(contextContentModeLabel("canonical")).toBe("正式正文内容")
     expect(contextContentModeLabel("working")).toBe("工作稿内容")
     expect(contextContentModeLabel("candidate")).toBe("待处理内容")
   })

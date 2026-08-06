@@ -97,7 +97,7 @@ export function useStoryOutline(props) {
       state.taskId = null
       state.meta = null
       state.progress = null
-      state.taskNotice = "这份小说总纲预览已经采用，无需重复采用。"
+      state.taskNotice = "这份故事总览已经采用，无需重复采用。"
       preview.value = null
       return
     }
@@ -110,7 +110,7 @@ export function useStoryOutline(props) {
         idempotencyKey: state.meta?.apply_idempotency_key || idempotencyKey(),
       }
       applyError.value = null
-      toast("小说总纲建议已生成，请编辑后明确采用", "success")
+      toast("故事总览建议已生成，请编辑后明确采用", "success")
     } catch (err) {
       clearActiveWorkflow(state.taskId)
       state.taskId = null
@@ -124,8 +124,8 @@ export function useStoryOutline(props) {
   function handleTaskFailed(progress, state) {
     state.cancelPending = false
     state.taskNotice = progress.cancelled
-      ? "小说总纲生成已取消，没有创建 revision。"
-      : `小说总纲生成失败：${progress.errorMessage || "未知错误"}`
+      ? "故事总览生成已取消，没有创建新版本。"
+      : `故事总览生成失败：${progress.errorMessage || "未知错误"}`
   }
 
   // ---- 编辑器采集 ----
@@ -142,7 +142,7 @@ export function useStoryOutline(props) {
       try {
         arrays[field] = JSON.parse(read(suffix))
       } catch {
-        throw new Error(`${ARRAY_FIELD_LABELS[field]} JSON 格式错误`)
+        throw new Error(`${ARRAY_FIELD_LABELS[field]}列表格式错误`)
       }
     }
     return validateStoryOutlineContent({
@@ -163,7 +163,7 @@ export function useStoryOutline(props) {
   /** 对应 vanilla _showGenerateForm。 */
   function showGenerateForm() {
     if (taskProgress.value && !taskProgress.value.terminal) {
-      toast("已有小说总纲生成任务正在运行", "info")
+      toast("已有故事总览正在生成", "info")
       return
     }
 
@@ -207,10 +207,10 @@ export function useStoryOutline(props) {
           <span>把当前总纲纳入本次生成参考</span>
         </label>
       ` : ""}
-      <p class="form-hint">AI 不会预先创建篇章纲或 Scene，也不会自动采用结果。</p>
+      <p class="form-hint">AI 不会预先创建篇章纲或场景，也不会自动采用结果。</p>
     `
 
-    showModalHtml("AI 生成小说总纲", html, [{
+    showModalHtml("AI 生成故事总览", html, [{
       text: "生成可编辑预览",
       class: "btn-primary",
       handler: () => submitGeneration(),
@@ -251,7 +251,7 @@ export function useStoryOutline(props) {
         selected_entity_ids: selectedEntityIds,
         include_current_outline: includeCurrent,
       })
-      if (!response?.task_id) throw new Error("生成任务未返回任务编号")
+      if (!response?.task_id) throw new Error("故事总览生成未能开始，请稍后重试")
 
       const meta = {
         project_id: pid,
@@ -266,7 +266,7 @@ export function useStoryOutline(props) {
       }
       taskManager.adopt(response, meta, pid)
       closeModal()
-      toast("小说总纲生成任务已提交", "success")
+      toast("已开始生成故事总览", "success")
       return true
     } catch (err) {
       toast(err.message || "提交生成任务失败", "error")
@@ -310,13 +310,13 @@ export function useStoryOutline(props) {
       taskManager.stop()
       preview.value = null
       applyError.value = null
-      toast(`小说总纲已采用为新版本 v${response?.version_number || ""}`, "success")
+      toast(`故事总览已采用为新版本 v${response?.version_number || ""}`, "success")
       await reload()
       return response
     } catch (err) {
       const message = err?.status === 409
         ? "当前总纲已在其他会话中变更，请重新加载后再生成或采用。"
-        : err.message || "采用小说总纲失败"
+        : err.message || "采用故事总览失败"
       applyError.value = message
       toast(message, "error")
       return false
@@ -327,7 +327,7 @@ export function useStoryOutline(props) {
   async function discardPreview() {
     if (!preview.value) return
     const confirmed = await confirmAsync(
-      "确认放弃这份尚未采用的小说总纲建议？",
+      "确认放弃这份尚未采用的故事总览建议？",
       "放弃建议",
     )
     if (!confirmed) return
@@ -342,7 +342,7 @@ export function useStoryOutline(props) {
   /** 对应 vanilla _cancelTask。 */
   async function cancelTask() {
     const confirmed = await confirmAsync(
-      "确认取消当前小说总纲生成任务？未采用的预览不会写入。",
+      "确认取消当前故事总览生成？未采用的预览不会写入。",
       "确认取消",
     )
     if (!confirmed) return false
@@ -362,11 +362,11 @@ export function useStoryOutline(props) {
     const content = hasCurrentRevision.value ? clone(currentRevision.value) : emptyContent()
 
     const html = renderEditor(content, "story-outline-manual", {
-      title: hasCurrentRevision.value ? "编辑小说总纲为新版本" : "手工创建小说总纲",
-      hint: "保存会创建不可变 revision，不会覆盖当前或历史版本。",
+      title: hasCurrentRevision.value ? "编辑故事总览为新版本" : "手工创建故事总览",
+      hint: "保存会创建新版本，不会覆盖当前或历史内容。",
     })
 
-    showModalHtml("编辑小说总纲", html, [{
+    showModalHtml("编辑故事总览", html, [{
       text: "保存为新版本",
       class: "btn-primary",
       handler: async () => {
@@ -383,7 +383,7 @@ export function useStoryOutline(props) {
             provenance: { actor: "author", note: "前端手工保存" },
           })
           closeModal()
-          toast(`小说总纲已保存为新版本 v${response?.version_number || ""}`, "success")
+          toast(`故事总览已保存为新版本 v${response?.version_number || ""}`, "success")
           await reload()
           return true
         } catch (err) {
@@ -405,7 +405,7 @@ export function useStoryOutline(props) {
       const revision = await api.outline.getStoryOutlineRevision(revisionId, pid)
       if (getAppState()?.currentProjectId !== pid || projectId.value !== pid) return
       showModalHtml(
-        `小说总纲历史版本 v${revision.version_number}`,
+        `故事总览历史版本 v${revision.version_number}`,
         renderContentReadOnly(revision),
         [{ text: "关闭", class: "btn-ghost", handler: closeModal }],
         { size: "full" },
@@ -420,7 +420,7 @@ export function useStoryOutline(props) {
     const pid = projectId.value
     if (!revisionId) return false
     const confirmed = await confirmAsync(
-      "确认采用该历史内容？系统会创建一个新 revision，不会原地回滚或改写历史。",
+      "确认采用该历史内容？系统会创建一个新版本，不会改写原有历史。",
       "采用为新版本",
     )
     if (!confirmed) return false
@@ -565,21 +565,22 @@ export function useStoryOutline(props) {
           ${_textarea(`${p}-ending`, "结局方向（可留空）", core.ending_direction || "")}
         </div>
         ${_textarea(`${p}-markdown`, "高层总纲（Markdown）", content?.outline_markdown, 14)}
-        <div class="form-group">
-          <label for="${_h(p)}-major-storylines">主要剧情线（JSON 数组）</label>
-          <p class="form-hint">每项字段：name、narrative_function、trajectory、intersections 字符串数组、resolution_direction。可以是 []。</p>
-          <textarea class="form-textarea" id="${_h(p)}-major-storylines" rows="12">${_h(JSON.stringify(content?.major_storylines || [], null, 2))}</textarea>
-        </div>
-        <div class="form-group">
-          <label for="${_h(p)}-macro-movements">宏观推进（JSON 数组）</label>
-          <p class="form-hint">每项字段：name、story_state_change、advanced_storylines 字符串数组；它们是浏览导航摘要，不作为数据库关联键。可以是 []。</p>
-          <textarea class="form-textarea" id="${_h(p)}-macro-movements" rows="10">${_h(JSON.stringify(content?.macro_movements || [], null, 2))}</textarea>
-        </div>
-        <div class="form-group">
-          <label for="${_h(p)}-open-decisions">开放决策（JSON 数组）</label>
-          <p class="form-hint">每项字段：question、why_it_matters、options 字符串数组。可以是 []。</p>
-          <textarea class="form-textarea" id="${_h(p)}-open-decisions" rows="10">${_h(JSON.stringify(content?.open_decisions || [], null, 2))}</textarea>
-        </div>
+        <details class="form-group story-outline-advanced-editor">
+          <summary>高级批量编辑</summary>
+          <p class="form-hint">普通编辑请优先使用 AI 预览中的结构化列表；这里仅供需要批量迁移数据的高级用户使用。</p>
+          <div class="form-group">
+            <label for="${_h(p)}-major-storylines">主要剧情线数据</label>
+            <textarea class="form-textarea" id="${_h(p)}-major-storylines" rows="12">${_h(JSON.stringify(content?.major_storylines || [], null, 2))}</textarea>
+          </div>
+          <div class="form-group">
+            <label for="${_h(p)}-macro-movements">故事推进数据</label>
+            <textarea class="form-textarea" id="${_h(p)}-macro-movements" rows="10">${_h(JSON.stringify(content?.macro_movements || [], null, 2))}</textarea>
+          </div>
+          <div class="form-group">
+            <label for="${_h(p)}-open-decisions">待决定问题数据</label>
+            <textarea class="form-textarea" id="${_h(p)}-open-decisions" rows="10">${_h(JSON.stringify(content?.open_decisions || [], null, 2))}</textarea>
+          </div>
+        </details>
         <p id="story-outline-apply-error" class="form-error" role="alert">${_h(error || "")}</p>
         ${actions ? `<div class="form-actions">${actions}</div>` : ""}
       </section>

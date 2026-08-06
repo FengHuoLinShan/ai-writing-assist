@@ -1,13 +1,23 @@
 export const SHELL_NAV_ITEMS = Object.freeze([
-  { view: "project", label: "项目", title: "项目", icon: "project" },
-  { view: "writing", label: "写作", title: "手动工作台", icon: "writing" },
-  { view: "world", label: "世界", title: "世界对象", icon: "world" },
+  { view: "today", label: "首页", title: "今日工作", icon: "home" },
+  { view: "writing", label: "写作", title: "写作", icon: "writing" },
+  { view: "world", label: "人物与世界", title: "人物与世界", icon: "world" },
+  { view: "outline", label: "故事结构", title: "故事结构", icon: "outline" },
   { view: "map", label: "地图", title: "地图", icon: "map" },
-  { view: "rag", label: "检索", title: "小说检索", icon: "search" },
-  { view: "outline", label: "大纲", title: "大纲", icon: "outline" },
-  { view: "generate", label: "生成", title: "生成中心", icon: "generate" },
-  { view: "settings", label: "设置", title: "全局设置", icon: "settings" },
-  { view: "project-settings", label: "项目设置", title: "项目设置", icon: "project-settings" },
+  { view: "rag", label: "查找", title: "查找正文与资料", icon: "search" },
+])
+
+export const SHELL_MOBILE_NAV_ITEMS = Object.freeze([
+  SHELL_NAV_ITEMS[0],
+  SHELL_NAV_ITEMS[1],
+  { ...SHELL_NAV_ITEMS[2], label: "世界" },
+  { ...SHELL_NAV_ITEMS[3], label: "结构" },
+])
+
+export const SHELL_MORE_ITEMS = Object.freeze([
+  { view: "project", label: "导入与整理", title: "导入正文并整理作品", icon: "project" },
+  { view: "generate", label: "高级工具", title: "高级生成与上下文工具", icon: "generate" },
+  { view: "project-settings", label: "项目偏好", title: "项目偏好", icon: "project-settings" },
 ])
 
 const INTERACTION_RETURN_TARGET = (

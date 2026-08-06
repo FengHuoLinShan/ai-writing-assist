@@ -43,6 +43,7 @@ provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 
 ## 服务
 
 - ProjectService：项目 CRUD + 软删除/恢复/永久删除
+- ProjectWorkspaceSummaryService：在 owner/活跃作者项目门禁后，只读聚合续写位置、章节/字数和待处理数量
 
 ## Facade
 
@@ -60,6 +61,7 @@ execution snapshot seam 解析当前 owner 凭据。
 POST   /api/projects                          # 创建项目
 GET    /api/projects                           # 项目列表
 GET    /api/projects/{id}                      # 项目详情
+GET    /api/projects/{id}/workspace-summary    # 今日工作只读摘要
 PUT    /api/projects/{id}                      # 更新项目
 DELETE /api/projects/{id}                      # 软删除（移至回收站）
 GET    /api/projects/recycle-bin               # 回收站列表
@@ -71,6 +73,10 @@ POST   /api/projects/{id}/smart-dedup/apply     # 应用已确认的去重建议
 POST   /api/projects/{id}/restore              # 恢复项目
 DELETE /api/projects/{id}/permanent            # 永久删除（级联）
 ```
+
+工作台摘要固定返回 `project_id`、可空 `continuation`、`writing` 与 `attention`。API 先通过
+当前账户项目读取门禁，再以同一 ID 调用 writing/world/outline 稳定 facade；调用方不能指定 owner
+或额外 `novel_id`。该投影不返回正文、内部任务、密钥或 owner 信息，空作品返回零计数和空续写位置。
 
 项目级智能去重只聚合各资产模块的建议；`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果

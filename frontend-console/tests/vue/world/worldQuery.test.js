@@ -97,7 +97,7 @@ describe("query builders（编码与 vanilla 对齐）", () => {
 
     const first = objectQueryFromState({ ...WORLD_FILTER_DEFAULTS }, "table", "normal")
     expect(first.has("page")).toBe(false)
-    expect(first.has("view")).toBe(false)
+    expect(first.get("view")).toBe("table")
   })
   it("candidateQueryFromState / reviewQueryFromState：page_size=50 回写", () => {
     const cq = candidateQueryFromState({ ...WORLD_CANDIDATE_FILTER_DEFAULTS, skip: 0 })

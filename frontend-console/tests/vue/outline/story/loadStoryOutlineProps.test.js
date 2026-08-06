@@ -116,7 +116,7 @@ describe("loadStoryOutlineProps", () => {
     const workflowData = {
       taskId: "task-recover",
       workflowType: "story_outline_generate",
-      label: "AI 小说总纲",
+      label: "AI 故事总览",
       projectId: "p1",
       view: "outline",
       meta: { action: "outline.story_outline.generate", novel_id: "p1" },
