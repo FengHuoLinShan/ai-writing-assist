@@ -23,12 +23,12 @@
     "test:all": "vitest run && playwright test --config=playwright.functional.config.js"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.4.11",
-    "happy-dom": "^20.9.0",
+    "happy-dom": "^20.11.1",
     "vite": "^8.2.0",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "pinia": "^4.0.2",
