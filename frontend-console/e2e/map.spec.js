@@ -1010,34 +1010,35 @@ test.describe("地图一级工作台", () => {
     const map = await createMap(testProjectId, {
       name: "群岛聚合图",
       map_type: "world",
-      grid_width: 6,
-      grid_height: 6,
+      grid_width: 12,
+      grid_height: 12,
       template: "blank",
     })
-    // Binding API returns newest rows first. Seed the same-cell members first,
-    // then enough higher-listed fillers to force the remote members into one
-    // real layout cluster without calling an internal layout handler.
-    const locationSeeds = [
-      ...Array.from({ length: 3 }, (_, index) => [
-        `远岛 ${index + 1}`,
-        5,
-        5,
-      ]),
-      ...Array.from({ length: 24 }, (_, index) => [
-        `填充地点 ${index + 1}`,
-        index % 5,
-        Math.floor(index / 5),
-      ]),
-    ]
-    for (const [name, q, r] of locationSeeds) {
+    // Event markers have a higher layout priority than locations. Seed enough
+    // of them in the near half of the map so the three remote locations are
+    // deterministically grouped, independent of database row ordering.
+    for (let index = 0; index < 24; index += 1) {
+      const event = await createEntity(testProjectId, {
+        name: `填充事件 ${index + 1}`,
+        entity_type: "event",
+        status: "canonical",
+      })
+      await createMapMarker(testProjectId, map.id, {
+        entity_id: event.id,
+        marker_type: "event",
+        hex_q: index % 6,
+        hex_r: Math.floor(index / 6),
+      })
+    }
+    for (let index = 0; index < 3; index += 1) {
       const location = await createEntity(testProjectId, {
-        name,
+        name: `远岛 ${index + 1}`,
         entity_type: "location",
         status: "canonical",
       })
       await createLocationBindings(testProjectId, map.id, {
         location_entity_id: location.id,
-        hexes: [{ hex_q: q, hex_r: r, is_center: true }],
+        hexes: [{ hex_q: 11, hex_r: 11, is_center: true }],
       })
     }
 

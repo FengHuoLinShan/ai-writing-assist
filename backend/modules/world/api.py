@@ -1317,6 +1317,7 @@ async def extract_alias_relations(
             **data.model_dump(exclude_none=True),
             "llm_execution_snapshot": llm_execution_snapshot,
         },
+        novel_id=data.novel_id,
     )
     await attach_result_ref(
         db,
@@ -1435,6 +1436,7 @@ async def create_entity_fusion_suggestions(
         db,
         "world_entity_fusion_suggestions",
         meta=data.model_dump(exclude_none=True),
+        novel_id=data.novel_id,
     )
     await db.flush()
     return EntityFusionSuggestionResponse(task_id=task_id)

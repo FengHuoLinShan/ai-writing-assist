@@ -163,7 +163,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 ## API
 
 ```
-POST /api/imports/upload                    # 上传并导入（multipart/form-data）
+POST /api/imports/upload                    # 上传并导入；201 表示导入记录、章节工作稿和发布任务已提交，可立即读取
 GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true
@@ -174,6 +174,8 @@ POST /api/imports/deep/sync                # 同步执行深度导入（E2E/无 
 POST /api/imports/deep/resume              # 用户确认后继续可恢复的原 deep_import 或 stage task
 POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
 ```
+
+上传成功的可见性来自 `DbSession` 的 request-owned transaction：function-scope dependency 在普通非流式响应开始前统一提交，上传路由本身不持有单独的成功提交逻辑。
 
 `/deep` 与三个 `/stages/*` 请求都必须显式发送
 `authorization_confirmed=true`；缺失或 false 返回 422 且不排队。任务 meta 和 result 都保存

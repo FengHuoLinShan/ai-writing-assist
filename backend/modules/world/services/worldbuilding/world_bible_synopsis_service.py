@@ -414,6 +414,7 @@ class WorldBibleSynopsisService:
                 "llm_execution_snapshot": llm_execution_snapshot,
                 "workflow": "world_bible_synopsis_auto_maintenance",
             },
+            novel_id=novel_id,
         )
         head.active_task_id = uuid.UUID(task_id)
         head.last_error_kind = None

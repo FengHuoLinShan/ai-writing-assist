@@ -4,6 +4,16 @@
 
 轻量任务队列，不使用 Redis/Arq。使用 PostgreSQL async_tasks 表 + 进程内 worker。
 
+`async_tasks.novel_id` 是任务项目边界的一等、可索引且不可变的权威键，并以
+`ON DELETE CASCADE` 关联 `projects.id`。`meta.novel_id` 仅保留为兼容投影：入队和 ORM
+写入都会规范化两者，DB trigger 与 ORM 事件拒绝不一致或变更；全局任务的列为 NULL 且不得
+携带非空 metadata identity。
+项目任务的投影必须精确等于列的 canonical 小写连字符 UUID 文本，不能以大写、无连字符或
+空字符串等等价拼写绕过数据库校验。
+所有当前业务处理器在注册表声明为 `owner_scope="project"`，普通
+`facade.enqueue_task(..., novel_id=...)` 必须显式传入 owner，只有显式注册的
+`owner_scope="global"` 处理器可以传 `novel_id=None`。
+
 ## 目录
 
 ```
@@ -58,8 +68,9 @@ await worker.run_once()      # 单次执行
 
 其他模块的稳定写入 seam 位于 `facade.py`：
 
-- `get_task_owner()` 只返回授权所需的 `TaskOwnerContract.novel_id`；查询不加载
-  task meta/result，任务不存在或缺少 owner 时返回 `None`。
+- `get_task_owner()` 只从一等 `AsyncTask.novel_id` 返回授权所需的
+  `TaskOwnerContract.novel_id`；查询不加载 task meta/result，任务不存在或缺少 owner 时
+  返回 `None`。
 - `get_completed_task_payload()` 仅在 `task_id + task_type + novel_id + done`
   全部匹配时返回冻结的 apply 结果、revision token 与白名单上下文，
   不暴露任意 task meta；可选 `FOR UPDATE` 串行化幂等采用。
@@ -154,8 +165,8 @@ project/lease fence，不是绕过 worker 原子性的普通提交。任何 prov
 取消 runner。删除前已成功提交的 deep-import checkpoint 保留，删除后不会产生新写入。
 
 `TaskWorker(task_preflight=...)` 支持组合根注入执行前门禁。worker 本身不依赖任何
-业务模块；`run_worker.py` 统一注册业务 handler / DI，并仅对带 `meta.novel_id`
-的任务调用 project 活跃性门禁，无 `novel_id` 的全局任务直接放行。
+业务模块；`run_worker.py` 统一注册业务 handler / DI，并仅对带一等 `task.novel_id`
+的任务调用 project 活跃性门禁，`novel_id` 为空的全局任务直接放行。
 preflight 是严格只读契约；返回后若 handler session 存在 `new / dirty / deleted`
 状态，worker 会将 attempt 标记失败并回滚，不会静默丢弃门禁写入。成功的
 只读 preflight 产生的 autobegin 事务会在 handler 入场前回滚释放；已经验证后
@@ -173,7 +184,7 @@ project 行锁，因此软删除可立即清除 lease 并通过 heartbeat 取消
 仅最终状态写入前的短临界区使用 `FOR SHARE` 项目 fence，将成功 finalize
 线性化在项目删除之前或之后。
 
-每个 attempt 建立独立日志作用域。claim 阶段不信任 `meta.novel_id`，只记录是否存在
+每个 attempt 建立独立日志作用域。claim 阶段读取一等 `task.novel_id`，只记录是否存在
 未验证 owner；只有组合根 preflight 通过 project facade 成功读取活跃项目后才绑定规范化
 UUID。执行、完成、取消和失败日志复用该安全上下文，门禁失败、缺失或畸形 meta 不回显原值。
 该作用域在异常和取消时同样清理；它只提供当前进程内任务关联，不是分布式 tracing。

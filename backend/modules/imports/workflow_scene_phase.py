@@ -56,6 +56,7 @@ def _enqueue_rag_reindex_after_scene_commit(
             "end_chapter": end_chapter,
             "source": "deep_import_scene_commit",
         },
+        novel_id=novel_id,
     )
 
 

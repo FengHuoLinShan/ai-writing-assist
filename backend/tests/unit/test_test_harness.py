@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import shlex
 import subprocess
 import tomllib
 from pathlib import Path
+
+import yaml
 
 from tests.support.inventory import (
     production_python_files,
@@ -368,7 +371,10 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
 
     repo_root = BACKEND_ROOT.parent
     makefile = (repo_root / "Makefile").read_text(encoding="utf-8")
-    workflow = (repo_root / ".github/workflows/backend-ci.yml").read_text(
+    backend_workflow = (repo_root / ".github/workflows/backend-ci.yml").read_text(
+        encoding="utf-8"
+    )
+    frontend_workflow = (repo_root / ".github/workflows/frontend-ci.yml").read_text(
         encoding="utf-8"
     )
 
@@ -377,34 +383,34 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     assert "secret-hygiene:" in makefile
     assert "--timeout=$(FAST_TEST_TIMEOUT_SECONDS)" in makefile
     assert "-n $(TEST_WORKERS) --dist=loadscope" in makefile
-    assert "python3 backend/tools/secret_hygiene.py" in workflow
-    assert workflow.index("Check repository secret hygiene") < workflow.index(
-        "Install uv and Python"
-    )
-    assert "name: Audit locked backend dependencies" in workflow
-    assert "make audit-backend-deps" in workflow
-    assert "run: make audit-backend-deps" in workflow
+    assert "python3 backend/tools/secret_hygiene.py" in backend_workflow
+    assert backend_workflow.index(
+        "Check repository secret hygiene"
+    ) < backend_workflow.index("Install uv and Python")
+    assert "name: Audit locked backend dependencies" in backend_workflow
+    assert "make audit-backend-deps" in backend_workflow
+    assert "run: make audit-backend-deps" in backend_workflow
     assert (
-        workflow.index("Install uv and Python")
-        < workflow.index("name: Audit locked backend dependencies")
-        < workflow.index("Install locked backend dependencies")
-        < workflow.index("name: Lint backend")
+        backend_workflow.index("Install uv and Python")
+        < backend_workflow.index("name: Audit locked backend dependencies")
+        < backend_workflow.index("Install locked backend dependencies")
+        < backend_workflow.index("name: Lint backend")
     )
-    assert "make test-fast-coverage TEST_WORKERS=2" in workflow
-    assert 'ARGS="-W error::RuntimeWarning"' in workflow
-    assert "name: Frontend unit quality" in workflow
-    assert "working-directory: frontend-console" in workflow
-    assert "run: npm ci" in workflow
-    assert "name: Audit frontend dependency lockfile" in workflow
-    assert "run: npm audit --package-lock-only --audit-level=high" in workflow
-    assert "run: npm test" in workflow
+    assert "make test-fast-coverage TEST_WORKERS=2" in backend_workflow
+    assert 'ARGS="-W error::RuntimeWarning"' in backend_workflow
+    assert "name: Frontend unit quality" in frontend_workflow
+    assert "working-directory: frontend-console" in frontend_workflow
+    assert "run: npm ci" in frontend_workflow
+    assert "name: Audit frontend dependency lockfile" in frontend_workflow
+    assert "run: npm audit --package-lock-only --audit-level=high" in frontend_workflow
+    assert "run: npm test" in frontend_workflow
     assert (
-        workflow.index("run: npm ci")
-        < workflow.index("name: Audit frontend dependency lockfile")
-        < workflow.index("run: npm test")
+        frontend_workflow.index("run: npm ci")
+        < frontend_workflow.index("name: Audit frontend dependency lockfile")
+        < frontend_workflow.index("run: npm test")
     )
     assert "test-ci:" in makefile
-    assert "make test-deploy" in workflow
+    assert "make test-deploy" in backend_workflow
 
 
 def _make_dry_run(
@@ -480,6 +486,21 @@ def test_backend_ci_uses_self_locking_make_quality_targets() -> None:
     assert postgresql_step.strip() == "run: make -C .. test-postgresql-critical"
 
 
+def test_architecture_docs_rechecks_pr_body_edits() -> None:
+    workflow_path = BACKEND_ROOT.parent / ".github/workflows/architecture-docs.yml"
+    workflow = yaml.load(
+        workflow_path.read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+    assert workflow["on"]["pull_request"]["types"] == [
+        "opened",
+        "synchronize",
+        "reopened",
+        "edited",
+    ]
+
+
 def test_fast_targets_expand_to_the_same_guarded_test_layer() -> None:
     serial = _make_dry_run("test-fast")
     default = _make_dry_run("test")
@@ -516,8 +537,7 @@ def test_aggregate_targets_reuse_existing_backend_and_frontend_targets() -> None
     assert "audit-frontend-deps:" in makefile
     assert (
         "test-ci: docs-check secret-hygiene audit-backend-deps "
-        "lint test-deploy audit-frontend-deps"
-        in makefile
+        "lint test-deploy audit-frontend-deps" in makefile
     )
     assert "$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS)" in makefile
     assert 'ARGS="$(ARGS) -W error::RuntimeWarning"' in makefile
@@ -538,7 +558,7 @@ def test_backend_dependency_audit_target_covers_the_entire_lockfile() -> None:
     assert "--locked" in tokens
     assert "--no-build" in tokens
     assert tokens[tokens.index("--preview-features") + 1] == "audit"
-    assert tokens[tokens.index("--python-version") + 1] == "3.12"
+    assert tokens[tokens.index("--python-version") + 1] == "3.14"
     assert tokens[tokens.index("--python-platform") + 1] == "x86_64-unknown-linux-gnu"
     ignored_until_fixed = {
         tokens[index + 1]
@@ -591,19 +611,24 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     frontend_dockerfile = (repo_root / "frontend-console" / "Dockerfile").read_text(
         encoding="utf-8"
     )
-    workflow = (repo_root / ".github/workflows/backend-ci.yml").read_text(
-        encoding="utf-8"
+    workflow = "\n".join(
+        (repo_root / workflow_path).read_text(encoding="utf-8")
+        for workflow_path in (
+            ".github/workflows/backend-ci.yml",
+            ".github/workflows/frontend-ci.yml",
+            ".github/workflows/production-image-ci.yml",
+        )
     )
     e2e_workflow = (repo_root / ".github/workflows/backend-postgresql-e2e.yml").read_text(
         encoding="utf-8"
     )
     python_image = (
-        "python:3.12.13-slim-bookworm@sha256:"
-        "d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b"
+        "python:3.14.6-slim-bookworm@sha256:"
+        "4c92ffcde4dd6f1ff72a24518f49fd4990b27134987dfa31a733badde66df9f8"
     )
     node_image = (
-        "node:24.18.0-alpine3.23@sha256:"
-        "595398b0081eacda8e1c4c5b97b76cd1020e4d58a8ebcb4843b9bca1e79e7436"
+        "node:24.18.1-alpine3.23@sha256:"
+        "c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110"
     )
     nginx_image = (
         "nginx:1.30.4-alpine@sha256:"
@@ -630,16 +655,15 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     )
     assert "USER nginx\n\nEXPOSE 8080" in frontend_dockerfile
 
-    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.12.13\n"
+    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.14.6\n"
     assert (repo_root / "frontend-console/.node-version").read_text(
         encoding="utf-8"
-    ) == "24.18.0\n"
+    ) == "24.18.1\n"
     assert workflow.count("runs-on: ubuntu-24.04") == 7
     assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
-    assert workflow.count('python-version: "3.12.13"') == 5
-    assert e2e_workflow.count('python-version: "3.12.13"') == 1
-    setup_node_action = "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38"
-    assert workflow.count(setup_node_action) == 4
+    assert workflow.count('python-version: "3.14.6"') == 5
+    assert e2e_workflow.count('python-version: "3.14.6"') == 1
+    assert len(re.findall(r"uses: actions/setup-node@[0-9a-f]{40}", workflow)) == 4
     assert workflow.count("node-version-file: frontend-console/.node-version") == 4
     assert (
         workflow.count("cache-dependency-path: frontend-console/package-lock.json") == 4

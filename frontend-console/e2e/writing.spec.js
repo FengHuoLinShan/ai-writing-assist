@@ -900,6 +900,7 @@ test.describe("写作台模块", () => {
 
     const editor = page.getByLabel("移动端速记正文")
     await expect(editor).toBeVisible()
+    await expect(editor).toHaveValue("原始移动正文")
     await editor.fill("390px 下保存的短文本。")
     const saveButton = page.getByRole("button", { name: "保存工作稿", exact: true })
     const saveBox = await saveButton.boundingBox()
@@ -938,7 +939,9 @@ test.describe("写作台模块", () => {
     expect(railBox.height).toBeGreaterThanOrEqual(40)
     await chapterRailToggle.click()
     await page.getByRole("button", { name: /打开第 1 章/ }).click()
-    await page.getByLabel("移动端速记正文").fill("尚未保存但必须保留的正文")
+    const editor = page.getByLabel("移动端速记正文")
+    await expect(editor).toHaveValue("切换前正文")
+    await editor.fill("尚未保存但必须保留的正文")
 
     await page.getByRole("button", { name: "完整编辑器" }).click()
 

@@ -10,7 +10,7 @@ BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/
 BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
 BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
-BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_map_editor_revision_concurrency.py tests/e2e/test_map_observation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_writing_version_concurrency.py
+BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_map_editor_revision_concurrency.py tests/e2e/test_map_observation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_world_route_commit_visibility.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
@@ -106,7 +106,7 @@ test-production-images:  ## Build and smoke-test the pinned production Docker im
 	docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges=true --tmpfs /run:mode=0755,uid=101,gid=101 --tmpfs /var/cache/nginx:mode=0755,uid=101,gid=101 contract-smoke-frontend:fixed-toolchain sh -ec 'test "$$(id -u)" -eq 101; test "$$(grep "^CapEff:" /proc/1/status | cut -f2)" = 0000000000000000; test "$$(grep "^NoNewPrivs:" /proc/1/status | cut -f2)" = 1; test ! -w /usr/share/nginx/html; nginx -t; cleanup() { nginx -s quit >/dev/null 2>&1 || true; wait "$$nginx_pid" 2>/dev/null || true; }; trap cleanup EXIT; nginx -g "daemon off;" & nginx_pid=$$!; for path in /healthz /asset-inventory.txt; do for attempt in 1 2 3 4 5; do wget -q -O /dev/null "http://127.0.0.1:8080$$path" >/dev/null 2>&1 && break; test "$$attempt" = 5 && exit 1; sleep 1; done; done; for asset in asset-manifest.json asset-inventory.txt index.html; do path="/usr/share/nginx/html/$$asset"; test -f "$$path"; test ! -L "$$path"; test -r "$$path"; done'
 
 audit-backend-deps:  ## Audit every locked backend dependency for known advisories
-	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.12 --python-platform x86_64-unknown-linux-gnu --ignore-until-fixed GHSA-w8v5-vhqr-4h9v --ignore-until-fixed GHSA-95ww-475f-pr4f
+	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.14 --python-platform x86_64-unknown-linux-gnu --ignore-until-fixed GHSA-w8v5-vhqr-4h9v --ignore-until-fixed GHSA-95ww-475f-pr4f
 
 audit-frontend-deps:  ## Fail on high/critical frontend dependency lockfile advisories
 	cd $(FRONTEND_DIR) && npm audit --package-lock-only --audit-level=high

@@ -61,6 +61,14 @@ async def list_entity_terms(
     return await _context_service.list_entity_terms(db, novel_id, limit=limit)
 
 
+async def get_entity_importance_map(
+    db: AsyncSession,
+    novel_id: str,
+) -> dict[str, dict[str, object]]:
+    """Return canonical entity importance for derived RAG annotation."""
+    return await _context_service.get_entity_importance_map(db, novel_id)
+
+
 async def get_world_context(
     db: AsyncSession,
     novel_id: str,

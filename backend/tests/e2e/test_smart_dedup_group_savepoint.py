@@ -64,6 +64,7 @@ async def test_smart_dedup_groups_use_independent_postgresql_savepoints(
                     settings={},
                 )
             )
+            await setup_db.flush()
             setup_db.add(
                 AsyncTask(
                     id=task_id,

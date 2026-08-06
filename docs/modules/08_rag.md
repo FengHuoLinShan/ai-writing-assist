@@ -27,6 +27,10 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 - metadata 过滤：visibility / importance / source_type
 - 抽取模式：`mode="extraction"` 时允许明确 entity/character/thread/chapter 关系命中作为有效召回
 
+章节索引通过 world facade 的 adopted-only importance 投影计算 chunk importance。
+没有命中实体时使用 0.5；world source 读取失败时索引显式失败并重试，不把缺失 provider
+或查询错误伪装成空 importance map。
+
 `RERANKER_ENABLED` 默认关闭。开启后，三个检索模式都会在去重后候选数大于
 `top_k` 时对现有 `2 * top_k` 候选池做一次 project-scoped LLM 证据重排序。
 模型读取每个 chunk 全文和可选 `retrieval_purpose`，区分直接证据、辅助证据、反证、

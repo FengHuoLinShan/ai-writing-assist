@@ -335,7 +335,7 @@ managed provenance、失败状态和脱敏 error，结束时取消 heartbeat。
 ## API
 
 ```http
-POST /api/imports/upload      — 上传文件（multipart multipart）
+POST /api/imports/upload      — 上传文件（multipart）；201 表示导入记录、章节工作稿和发布任务已提交，后续请求可立即读取
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；活动任务复用原 task，资产重复时先返回 requires_confirmation
@@ -347,6 +347,8 @@ POST /api/imports/deep/sync   — 同步执行深度导入（测试/无 worker �
 POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_import task
 POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派生资产
 ```
+
+该可见性来自 `DbSession` 的 request-owned transaction：function-scope dependency 在普通非流式响应开始前统一提交，路由本身不持有单独的成功提交逻辑。
 
 ## 安全约束
 

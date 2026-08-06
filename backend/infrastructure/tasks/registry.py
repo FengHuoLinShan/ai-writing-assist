@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from infrastructure.tasks.contracts import RecoveryPolicy, TaskDefinition
+from infrastructure.tasks.contracts import RecoveryPolicy, TaskDefinition, TaskOwnerScope
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ class TaskRegistry:
         recovery_policy: RecoveryPolicy = "restart_origin",
         max_attempts: int = 1,
         generic_submit_schema: type[BaseModel] | None = None,
+        owner_scope: TaskOwnerScope = "project",
     ) -> None:
         """注册一个任务类型的处理器
 
@@ -64,6 +65,8 @@ class TaskRegistry:
             raise ValueError(f"Unknown recovery policy: {recovery_policy}")
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
+        if owner_scope not in {"project", "global"}:
+            raise ValueError(f"Unknown task owner scope: {owner_scope}")
         if generic_submit_schema is not None and (
             not isinstance(generic_submit_schema, type)
             or not issubclass(generic_submit_schema, BaseModel)
@@ -76,6 +79,7 @@ class TaskRegistry:
             recovery_policy=recovery_policy,
             max_attempts=max_attempts,
             generic_submit_schema=generic_submit_schema,
+            owner_scope=owner_scope,
         )
         logger.info("Task handler registered: %s -> %s", task_type, handler.__name__)
 
@@ -123,6 +127,7 @@ def task_handler(
     recovery_policy: RecoveryPolicy = "restart_origin",
     max_attempts: int = 1,
     generic_submit_schema: type[BaseModel] | None = None,
+    owner_scope: TaskOwnerScope = "project",
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为指定任务类型的处理器
 
@@ -139,6 +144,7 @@ def task_handler(
             recovery_policy=recovery_policy,
             max_attempts=max_attempts,
             generic_submit_schema=generic_submit_schema,
+            owner_scope=owner_scope,
         )
         return func
 

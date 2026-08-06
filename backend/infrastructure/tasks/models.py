@@ -10,10 +10,25 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, Index, String, Text, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    event,
+    inspect,
+    text,
+)
+from sqlalchemy.orm import Mapped, Mapper, mapped_column
 
-from core.base import Base, TimestampMixin, UUIDMixin
+from core.base import Base, TimestampMixin, UUIDMixin, UUIDType
+from infrastructure.tasks.identity import (
+    prepare_task_identity,
+    require_matching_task_identity,
+)
 
 
 class AsyncTask(Base, UUIDMixin, TimestampMixin):
@@ -54,6 +69,13 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         index=True,
         comment="任务类型标识，如 embedding_build, rag_reindex 等",
+    )
+    novel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="一等项目隔离键；meta.novel_id 仅为兼容投影",
     )
     status: Mapped[str] = mapped_column(
         String(32),
@@ -182,3 +204,27 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
         """更新进度并刷新心跳"""
         self.progress = progress
         self.heartbeat_at = datetime.now(UTC)
+
+
+@event.listens_for(AsyncTask, "before_insert")
+def _freeze_task_identity(
+    _mapper: Mapper[AsyncTask],
+    _connection: Any,
+    task: AsyncTask,
+) -> None:
+    """Populate the authoritative key from a consistent compatibility projection."""
+    novel_id, meta = prepare_task_identity(task.meta, novel_id=task.novel_id)
+    task.novel_id = novel_id
+    task.meta = meta
+
+
+@event.listens_for(AsyncTask, "before_update")
+def _reject_task_identity_change(
+    _mapper: Mapper[AsyncTask],
+    _connection: Any,
+    task: AsyncTask,
+) -> None:
+    """Keep a task's project boundary immutable after its insertion."""
+    if inspect(task).attrs.novel_id.history.has_changes():
+        raise ValueError("task novel_id cannot change after enqueue")
+    require_matching_task_identity(novel_id=task.novel_id, meta=task.meta)

@@ -2,26 +2,41 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-WORKFLOW_PATH = REPOSITORY_ROOT / ".github/workflows/backend-ci.yml"
-CHECKOUT_SHA = "9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"
-SETUP_UV_SHA = "08807647e7069bb48b6ef5acd8ec9567f424441b"
-SETUP_NODE_SHA = "249970729cb0ef3589644e2896645e5dc5ba9c38"
-UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
+WORKFLOW_PATH = REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml"
 POSTGRES_IMAGE = (
     "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
     "7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
 )
+WORKFLOW_DATABASE_PASSWORD = "${{ github.run_id }}"
 
 
 def _load_workflow() -> dict[str, object]:
     value = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert isinstance(value, dict)
     return value
+
+
+def _assert_pinned_action(step: dict[str, object], action: str) -> None:
+    reference = step.get("uses")
+    assert isinstance(reference, str)
+    assert re.fullmatch(rf"{re.escape(action)}@[0-9a-f]{{40}}", reference)
+
+
+def _assert_action_step(
+    step: dict[str, object],
+    action: str,
+    expected_without_uses: dict[str, object],
+) -> None:
+    _assert_pinned_action(step, action)
+    assert {key: value for key, value in step.items() if key != "uses"} == (
+        expected_without_uses
+    )
 
 
 def test_frontend_browser_smoke_is_a_pinned_ci_job() -> None:
@@ -31,13 +46,10 @@ def test_frontend_browser_smoke_is_a_pinned_ci_job() -> None:
     jobs = workflow["jobs"]
     assert isinstance(jobs, dict)
     assert list(jobs) == [
-        "backend-quality",
-        "postgresql-critical",
         "frontend-unit-quality",
         "frontend-browser-smoke",
         "frontend-map-browser",
         "frontend-functional-browser",
-        "production-image-contract",
     ]
     job = jobs["frontend-browser-smoke"]
     assert isinstance(job, dict)
@@ -59,14 +71,17 @@ def test_frontend_browser_smoke_is_a_pinned_ci_job() -> None:
             "env": {
                 "POSTGRES_DB": "ai_writing_browser_e2e_test",
                 "POSTGRES_USER": "postgres",
-                "POSTGRES_PASSWORD": "postgres",
+                "POSTGRES_PASSWORD": WORKFLOW_DATABASE_PASSWORD,
             },
             "ports": ["5432:5432"],
             "options": health_options,
         }
     }
     assert job["env"] == {
-        "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_writing_browser_e2e_test",
+        "DATABASE_URL": (
+            f"postgresql+asyncpg://postgres:{WORKFLOW_DATABASE_PASSWORD}"
+            "@127.0.0.1:5432/ai_writing_browser_e2e_test"
+        ),
         "PW_REUSE_EXISTING_SERVER": "0",
         "BACKEND_PORT": "8000",
         "FRONTEND_PORT": "8080",
@@ -86,26 +101,32 @@ def test_frontend_browser_smoke_is_a_pinned_ci_job() -> None:
         "Upload frontend browser smoke diagnostics",
     ]
     by_name = {step["name"]: step for step in steps if isinstance(step, dict)}
-    assert by_name["Check out repository"]["uses"] == f"actions/checkout@{CHECKOUT_SHA}"
-    assert by_name["Install uv and Python"] == {
-        "name": "Install uv and Python",
-        "uses": f"astral-sh/setup-uv@{SETUP_UV_SHA}",
-        "with": {
-            "version": "0.11.28",
-            "python-version": "3.12.13",
-            "enable-cache": "true",
-            "cache-dependency-glob": "backend/uv.lock",
+    _assert_pinned_action(by_name["Check out repository"], "actions/checkout")
+    _assert_action_step(
+        by_name["Install uv and Python"],
+        "astral-sh/setup-uv",
+        {
+            "name": "Install uv and Python",
+            "with": {
+                "version": "0.11.28",
+                "python-version": "3.14.6",
+                "enable-cache": "true",
+                "cache-dependency-glob": "backend/uv.lock",
+            },
         },
-    }
-    assert by_name["Install Node.js"] == {
-        "name": "Install Node.js",
-        "uses": f"actions/setup-node@{SETUP_NODE_SHA}",
-        "with": {
-            "node-version-file": "frontend-console/.node-version",
-            "cache": "npm",
-            "cache-dependency-path": "frontend-console/package-lock.json",
+    )
+    _assert_action_step(
+        by_name["Install Node.js"],
+        "actions/setup-node",
+        {
+            "name": "Install Node.js",
+            "with": {
+                "node-version-file": "frontend-console/.node-version",
+                "cache": "npm",
+                "cache-dependency-path": "frontend-console/package-lock.json",
+            },
         },
-    }
+    )
     assert by_name["Install locked backend dependencies"]["run"] == (
         "uv sync --project backend --locked --extra ci"
     )
@@ -119,18 +140,21 @@ def test_frontend_browser_smoke_is_a_pinned_ci_job() -> None:
         "uv run --project backend --locked --extra ci -- "
         "npm --prefix frontend-console run test:e2e:smoke"
     )
-    assert by_name["Upload frontend browser smoke diagnostics"] == {
-        "name": "Upload frontend browser smoke diagnostics",
-        "if": "failure()",
-        "uses": f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}",
-        "with": {
-            "name": "frontend-browser-smoke-diagnostics",
-            "path": "frontend-console/test-results",
-            "if-no-files-found": "ignore",
-            "include-hidden-files": "true",
-            "retention-days": "14",
+    _assert_action_step(
+        by_name["Upload frontend browser smoke diagnostics"],
+        "actions/upload-artifact",
+        {
+            "name": "Upload frontend browser smoke diagnostics",
+            "if": "failure()",
+            "with": {
+                "name": "frontend-browser-smoke-diagnostics",
+                "path": "frontend-console/test-results",
+                "if-no-files-found": "ignore",
+                "include-hidden-files": "true",
+                "retention-days": "14",
+            },
         },
-    }
+    )
 
 
 def test_frontend_map_browser_is_a_pinned_ci_job() -> None:
@@ -140,13 +164,10 @@ def test_frontend_map_browser_is_a_pinned_ci_job() -> None:
     jobs = workflow["jobs"]
     assert isinstance(jobs, dict)
     assert list(jobs) == [
-        "backend-quality",
-        "postgresql-critical",
         "frontend-unit-quality",
         "frontend-browser-smoke",
         "frontend-map-browser",
         "frontend-functional-browser",
-        "production-image-contract",
     ]
     job = jobs["frontend-map-browser"]
     assert isinstance(job, dict)
@@ -168,14 +189,17 @@ def test_frontend_map_browser_is_a_pinned_ci_job() -> None:
             "env": {
                 "POSTGRES_DB": "ai_writing_map_browser_e2e_test",
                 "POSTGRES_USER": "postgres",
-                "POSTGRES_PASSWORD": "postgres",
+                "POSTGRES_PASSWORD": WORKFLOW_DATABASE_PASSWORD,
             },
             "ports": ["5432:5432"],
             "options": health_options,
         }
     }
     assert job["env"] == {
-        "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_writing_map_browser_e2e_test",
+        "DATABASE_URL": (
+            f"postgresql+asyncpg://postgres:{WORKFLOW_DATABASE_PASSWORD}"
+            "@127.0.0.1:5432/ai_writing_map_browser_e2e_test"
+        ),
         "PW_REUSE_EXISTING_SERVER": "0",
         "BACKEND_PORT": "8000",
         "FRONTEND_PORT": "8080",
@@ -195,26 +219,32 @@ def test_frontend_map_browser_is_a_pinned_ci_job() -> None:
         "Upload frontend map browser diagnostics",
     ]
     by_name = {step["name"]: step for step in steps if isinstance(step, dict)}
-    assert by_name["Check out repository"]["uses"] == f"actions/checkout@{CHECKOUT_SHA}"
-    assert by_name["Install uv and Python"] == {
-        "name": "Install uv and Python",
-        "uses": f"astral-sh/setup-uv@{SETUP_UV_SHA}",
-        "with": {
-            "version": "0.11.28",
-            "python-version": "3.12.13",
-            "enable-cache": "true",
-            "cache-dependency-glob": "backend/uv.lock",
+    _assert_pinned_action(by_name["Check out repository"], "actions/checkout")
+    _assert_action_step(
+        by_name["Install uv and Python"],
+        "astral-sh/setup-uv",
+        {
+            "name": "Install uv and Python",
+            "with": {
+                "version": "0.11.28",
+                "python-version": "3.14.6",
+                "enable-cache": "true",
+                "cache-dependency-glob": "backend/uv.lock",
+            },
         },
-    }
-    assert by_name["Install Node.js"] == {
-        "name": "Install Node.js",
-        "uses": f"actions/setup-node@{SETUP_NODE_SHA}",
-        "with": {
-            "node-version-file": "frontend-console/.node-version",
-            "cache": "npm",
-            "cache-dependency-path": "frontend-console/package-lock.json",
+    )
+    _assert_action_step(
+        by_name["Install Node.js"],
+        "actions/setup-node",
+        {
+            "name": "Install Node.js",
+            "with": {
+                "node-version-file": "frontend-console/.node-version",
+                "cache": "npm",
+                "cache-dependency-path": "frontend-console/package-lock.json",
+            },
         },
-    }
+    )
     assert by_name["Install locked backend dependencies"]["run"] == (
         "uv sync --project backend --locked --extra ci"
     )
@@ -228,18 +258,21 @@ def test_frontend_map_browser_is_a_pinned_ci_job() -> None:
         "uv run --project backend --locked --extra ci -- "
         "npm --prefix frontend-console run test:e2e:map"
     )
-    assert by_name["Upload frontend map browser diagnostics"] == {
-        "name": "Upload frontend map browser diagnostics",
-        "if": "failure()",
-        "uses": f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}",
-        "with": {
-            "name": "frontend-map-browser-diagnostics",
-            "path": "frontend-console/test-results",
-            "if-no-files-found": "ignore",
-            "include-hidden-files": "true",
-            "retention-days": "14",
+    _assert_action_step(
+        by_name["Upload frontend map browser diagnostics"],
+        "actions/upload-artifact",
+        {
+            "name": "Upload frontend map browser diagnostics",
+            "if": "failure()",
+            "with": {
+                "name": "frontend-map-browser-diagnostics",
+                "path": "frontend-console/test-results",
+                "if-no-files-found": "ignore",
+                "include-hidden-files": "true",
+                "retention-days": "14",
+            },
         },
-    }
+    )
 
 
 def test_frontend_functional_browser_is_a_pinned_ci_job() -> None:
@@ -249,13 +282,10 @@ def test_frontend_functional_browser_is_a_pinned_ci_job() -> None:
     jobs = workflow["jobs"]
     assert isinstance(jobs, dict)
     assert list(jobs) == [
-        "backend-quality",
-        "postgresql-critical",
         "frontend-unit-quality",
         "frontend-browser-smoke",
         "frontend-map-browser",
         "frontend-functional-browser",
-        "production-image-contract",
     ]
     job = jobs["frontend-functional-browser"]
     assert isinstance(job, dict)
@@ -277,14 +307,17 @@ def test_frontend_functional_browser_is_a_pinned_ci_job() -> None:
             "env": {
                 "POSTGRES_DB": "ai_writing_functional_browser_e2e_test",
                 "POSTGRES_USER": "postgres",
-                "POSTGRES_PASSWORD": "postgres",
+                "POSTGRES_PASSWORD": WORKFLOW_DATABASE_PASSWORD,
             },
             "ports": ["5432:5432"],
             "options": health_options,
         }
     }
     assert job["env"] == {
-        "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_writing_functional_browser_e2e_test",
+        "DATABASE_URL": (
+            f"postgresql+asyncpg://postgres:{WORKFLOW_DATABASE_PASSWORD}"
+            "@127.0.0.1:5432/ai_writing_functional_browser_e2e_test"
+        ),
         "PW_REUSE_EXISTING_SERVER": "0",
         "BACKEND_PORT": "8000",
         "FRONTEND_PORT": "8080",
@@ -304,26 +337,32 @@ def test_frontend_functional_browser_is_a_pinned_ci_job() -> None:
         "Upload frontend functional browser diagnostics",
     ]
     by_name = {step["name"]: step for step in steps if isinstance(step, dict)}
-    assert by_name["Check out repository"]["uses"] == f"actions/checkout@{CHECKOUT_SHA}"
-    assert by_name["Install uv and Python"] == {
-        "name": "Install uv and Python",
-        "uses": f"astral-sh/setup-uv@{SETUP_UV_SHA}",
-        "with": {
-            "version": "0.11.28",
-            "python-version": "3.12.13",
-            "enable-cache": "true",
-            "cache-dependency-glob": "backend/uv.lock",
+    _assert_pinned_action(by_name["Check out repository"], "actions/checkout")
+    _assert_action_step(
+        by_name["Install uv and Python"],
+        "astral-sh/setup-uv",
+        {
+            "name": "Install uv and Python",
+            "with": {
+                "version": "0.11.28",
+                "python-version": "3.14.6",
+                "enable-cache": "true",
+                "cache-dependency-glob": "backend/uv.lock",
+            },
         },
-    }
-    assert by_name["Install Node.js"] == {
-        "name": "Install Node.js",
-        "uses": f"actions/setup-node@{SETUP_NODE_SHA}",
-        "with": {
-            "node-version-file": "frontend-console/.node-version",
-            "cache": "npm",
-            "cache-dependency-path": "frontend-console/package-lock.json",
+    )
+    _assert_action_step(
+        by_name["Install Node.js"],
+        "actions/setup-node",
+        {
+            "name": "Install Node.js",
+            "with": {
+                "node-version-file": "frontend-console/.node-version",
+                "cache": "npm",
+                "cache-dependency-path": "frontend-console/package-lock.json",
+            },
         },
-    }
+    )
     assert by_name["Install locked backend dependencies"]["run"] == (
         "uv sync --project backend --locked --extra ci"
     )
@@ -337,15 +376,18 @@ def test_frontend_functional_browser_is_a_pinned_ci_job() -> None:
         "uv run --project backend --locked --extra ci -- "
         "npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0"
     )
-    assert by_name["Upload frontend functional browser diagnostics"] == {
-        "name": "Upload frontend functional browser diagnostics",
-        "if": "failure()",
-        "uses": f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}",
-        "with": {
-            "name": "frontend-functional-browser-diagnostics",
-            "path": "frontend-console/test-results",
-            "if-no-files-found": "ignore",
-            "include-hidden-files": "true",
-            "retention-days": "14",
+    _assert_action_step(
+        by_name["Upload frontend functional browser diagnostics"],
+        "actions/upload-artifact",
+        {
+            "name": "Upload frontend functional browser diagnostics",
+            "if": "failure()",
+            "with": {
+                "name": "frontend-functional-browser-diagnostics",
+                "path": "frontend-console/test-results",
+                "if-no-files-found": "ignore",
+                "include-hidden-files": "true",
+                "retention-days": "14",
+            },
         },
-    }
+    )

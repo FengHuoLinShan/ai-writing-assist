@@ -175,7 +175,7 @@ async def _enqueue_confirmed_outline_task(
         db,
         data.novel_id,
     )
-    task_id = enqueue_task(db, task_type, meta=meta)
+    task_id = enqueue_task(db, task_type, meta=meta, novel_id=data.novel_id)
     await attach_result_ref(
         db,
         novel_id=data.novel_id,
@@ -220,7 +220,7 @@ async def _enqueue_outline_layer_task(
         db,
         data.novel_id,
     )
-    task_id = enqueue_task(db, "outline_generate", meta=meta)
+    task_id = enqueue_task(db, "outline_generate", meta=meta, novel_id=data.novel_id)
     await attach_result_ref(
         db,
         novel_id=data.novel_id,
@@ -374,7 +374,12 @@ async def api_generate_story_outline(
             ),
         }
     )
-    task_id = enqueue_task(db, "story_outline_generate", meta=meta)
+    task_id = enqueue_task(
+        db,
+        "story_outline_generate",
+        meta=meta,
+        novel_id=data.novel_id,
+    )
     await db.flush()
     return OutlineAiTaskResponse(task_id=task_id)
 

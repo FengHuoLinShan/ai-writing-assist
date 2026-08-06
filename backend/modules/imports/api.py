@@ -203,7 +203,7 @@ async def upload_file(
     await _require_active_project(db, novel_id)
     content = await _read_upload_file_in_chunks(file)
     try:
-        return await _service.upload_and_import(
+        result = await _service.upload_and_import(
             db,
             novel_id,
             os.path.basename(file.filename or "unknown"),
@@ -225,6 +225,7 @@ async def upload_file(
             except Exception:
                 pass
         raise
+    return result
 
 
 @router.get("", response_model=ImportListResponse)

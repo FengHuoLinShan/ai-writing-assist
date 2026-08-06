@@ -30,6 +30,7 @@ def _registered_catalog(composition: str) -> dict[str, dict[str, int | str]]:
             "    catalog[task_type] = {",
             "        'recovery_policy': definition.recovery_policy,",
             "        'max_attempts': definition.max_attempts,",
+            "        'owner_scope': definition.owner_scope,",
             "    }",
             "print(json.dumps(catalog, sort_keys=True))",
         )
@@ -98,15 +99,19 @@ def test_api_and_worker_compose_the_same_complete_task_catalog() -> None:
 
     assert api_catalog
     assert api_catalog == worker_catalog
+    assert {item["owner_scope"] for item in api_catalog.values()} == {"project"}
     assert api_catalog["deep_import"] == {
         "recovery_policy": "manual_resume",
         "max_attempts": 1,
+        "owner_scope": "project",
     }
     assert api_catalog["rag_index_chapter"] == {
         "recovery_policy": "auto_requeue",
         "max_attempts": 2,
+        "owner_scope": "project",
     }
     assert api_catalog["writing_generate"] == {
         "recovery_policy": "restart_origin",
         "max_attempts": 1,
+        "owner_scope": "project",
     }

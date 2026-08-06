@@ -30,6 +30,8 @@ def enqueue_task(
     meta: dict[str, Any] | None = None,
     status: str = "pending",
     progress: float = 0.0,
+    *,
+    novel_id: str | None,
 ) -> str:
     """Create one ordinary task without exposing task persistence internals."""
     return _enqueue_task(
@@ -38,6 +40,7 @@ def enqueue_task(
         meta=meta,
         status=status,
         progress=progress,
+        novel_id=novel_id,
     )
 
 

@@ -39,7 +39,7 @@ Three layers:
 ## Test execution layers
 
 下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`
-解析 Python `3.12.13` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
+解析 Python `3.14.6` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
 缓存或网络。该工具链约定不改变各层列出的数据库、凭据或浏览器等外部前提。
 
 | Command | Scope | External prerequisites |
@@ -49,10 +49,10 @@ Three layers:
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
 | `make test-ci TEST_WORKERS=2` | Local equivalent of architecture inventory, secret hygiene, backend and frontend dependency audits, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies; OSV data for backend audit and npm registry/advisory data for frontend audit |
-| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.12.13 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
+| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.6 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
-| `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.12/Linux target, with `--no-build` |
+| `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.14/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
@@ -109,19 +109,26 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 
 ### Continuous integration
 
-GitHub Actions 在 pull request 和 `main` push 上并行运行 `Architecture docs`、`Backend quality`、
-`PostgreSQL critical`、`Frontend unit quality`、`Frontend browser smoke`、`Frontend map browser`、
-`Frontend functional browser` 和 `Production image contract`，全部使用 `ubuntu-24.04`。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
-secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
+GitHub Actions 在 pull request 和 `main` push 上并行运行三个职责清晰的主工作流：
+`Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
+`Frontend unit quality`、`Frontend browser smoke`、`Frontend map browser` 与
+`Frontend functional browser`，`Production Image CI` 包含 `Production image contract`。
+它们与独立的 `Architecture docs` 均使用 `ubuntu-24.04`，因此前端或镜像失败不会再以
+`Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
+secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.14.6`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
 这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
 的 pytest/Ruff 可执行文件。
 架构文档 job 使用 Python 3.12 标准库验证当前清单；PR 还相对 base SHA 检查代码差异影响，未修改的必查文档
-只有在 PR 模板逐项核对并提供无影响原因后才能通过。
+只有在 PR 模板逐项核对并提供无影响原因后才能通过。该 workflow 显式监听
+`opened / synchronize / reopened / edited`，因此维护者补齐 Dependabot PR 的文档
+影响说明后会用当前 PR 正文重新验证，无需修改 bot 生成的提交。
 PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
-零重试规则执行 fresh migration 与高风险事务契约，并分别保留测试前、测试后的脱敏
+零重试规则执行 fresh migration、高风险事务契约，以及上传 201、工作稿保存 200/201、
+地图 observation 201 和世界书投影任务响应后的跨 session 立即可见性契约，
+并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
 PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，显式安装与服务端同主版本的
 PostgreSQL 17 客户端以覆盖备份恢复演练，不包含真实 LLM 或外部数据。
@@ -134,7 +141,7 @@ deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
 causes a published fix to fail the gate again. Production does not install `eval`,
 and the extra remains trusted/offline-only even though this project's adapter uses
 text collection metrics with an isolated local Codex evaluator. Frontend job first uses
-the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.0`) and
+the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.1` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
 build. `Frontend browser smoke` remains an automated four-domain author smoke (home, project,
@@ -155,6 +162,9 @@ confirmation. Dependabot configuration opens staggered weekly version-update PRs
 for workflow actions, backend uv, frontend npm and production Docker manifests;
 minor/patch updates are grouped but majors stay independent. Coordinated manifest,
 digest and lockfile changes still need the affected tests and image-contract review.
+Workflow contract tests do not duplicate current action SHAs. They require every allowed action
+to use a version-commented 40-character commit SHA and keep each action family on one SHA/version
+across all workflow files, so Dependabot can update a pin without weakening supply-chain review.
 Dependabot alerts and security updates are separate remote repository settings and
 are not enabled merely by this version-update configuration.
 secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、

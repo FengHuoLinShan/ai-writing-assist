@@ -25,6 +25,7 @@ from modules.world.facade import (
     expand_related_entities,
     find_entity_id_by_name,
     get_confirmed_map_facts_through_scene,
+    get_entity_importance_map,
     get_world_context,
     list_entity_terms,
 )
@@ -1103,6 +1104,49 @@ class TestFacadeLeakListEntityTerms:
         by_name = {t["name"]: t for t in terms}
         assert set(by_name.keys()) == {"主城"}
         assert by_name["主城"]["terms"] == ["主城", "王城", "都城"]
+
+
+@pytest.mark.asyncio
+async def test_entity_importance_map_is_canonical_only_and_novel_scoped(
+    db_session: AsyncSession,
+    two_projects: tuple[str, str],
+) -> None:
+    novel_id, other_novel_id = two_projects
+    adopted = CoreEntity(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        entity_type="character",
+        name="主角",
+        status="canonical",
+        importance=0.9,
+        importance_level="core",
+    )
+    review = CoreEntity(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        entity_type="item",
+        name="待处理物品",
+        status="candidate",
+        importance=0.8,
+        importance_level="important",
+    )
+    other_project = CoreEntity(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(other_novel_id),
+        entity_type="location",
+        name="其他项目的主城",
+        status="canonical",
+        importance=0.95,
+        importance_level="core",
+    )
+    db_session.add_all([adopted, review, other_project])
+    await db_session.flush()
+
+    importance = await get_entity_importance_map(db_session, novel_id)
+
+    assert importance == {
+        str(adopted.id): {"importance": 0.9, "importance_level": "core"}
+    }
 
 
 class TestFacadeLeakFindEntityIdByName:

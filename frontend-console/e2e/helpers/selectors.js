@@ -77,6 +77,7 @@ export const SEL = {
   writingToolbar: ".writing-toolbar",
   writingWorkspace: ".writing-workspace-layout",
   writingTreeRail: ".writing-tree-rail",
+  writingChapterCount: ".writing-tree-rail .writing-rail-heading-label",
   writingPanelRail: ".writing-panel-rail",
   writingEditorContainer: "#writing-editor-container",
   writingEditor: "#writing-editor",

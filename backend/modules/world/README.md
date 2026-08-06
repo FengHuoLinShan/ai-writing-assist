@@ -145,6 +145,7 @@ projection 任务编排，激活解析不再调用它的私有 hash helper。
 coalescing，不再扫描最近一批全局 task。并发提交在部分唯一索引上收敛到同一个
 pending/running task，终态仍保留历史。该 key 只解决排队重复；projection 的 page version、
 source hash 与提交 CAS 仍是领域新鲜度和旧结果不得覆盖新页面的权威边界。
+普通非流式刷新请求由 `DbSession` 的 request-owned transaction 在 function-scope dependency 结束时提交；返回 task ID 后，后续浏览器轮询可以立即从独立连接读取该任务。
 
 世界观简介优先以已发布页面为综合主干，再用结构化对象和关系补充校验。输入仅保留约
 50 万字符的异常安全栏，单页可使用约 20 万字符，不按常规短上下文压缩；输出导航上限约
@@ -563,6 +564,8 @@ class ResolveResult:
 - `map_dynamic_helpers.py`：动态地图 formatter、risk/priority/label、UUID 安全解析、空间锚点校验等私有 helper。
 - `map_state_assembler.py`、`map_scene_summary.py`、`map_terrain.py`、`map_location_layout.py`、`map_quick_create.py`：独立地图入口，不通过 `map_service.py` 承载业务实现。
 
+地图 observation 创建的普通非流式 HTTP 请求由 `DbSession` 的 request-owned transaction 在 function-scope dependency 结束时提交；返回 201 后，后续确认、列表和地图状态请求可以立即从独立连接读取该 observation。
+
 地点布局与绑定的职责固定如下：`map_location_layouts.center_hex` 是编辑锚点，
 `map_location_bindings` 是实际渲染范围。旧地图读取时不会自动补写；显式以
 `sync_bindings=true` 保存才会物化缺失中心并整体平移既有 footprint。该操作保留绑定样式，
@@ -617,6 +620,7 @@ facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` /
 # ---- CoreEntity ----
 async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]
 async def list_entity_terms(db, novel_id, *, limit=500) -> list[dict]
+async def get_entity_importance_map(db, novel_id) -> dict[str, dict[str, object]]
 async def create_entity(db, novel_id, data: dict) -> dict
 async def count_entities(db, novel_id, *, status_filter=None) -> int
 async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
@@ -689,6 +693,9 @@ confirmed 且带 Scene 锚点的事实，并单独返回 undated 数量供调用
 `depends_on_candidate=true` 和 `candidate_review_state` 标明尚未采用。
 
 `get_world_context` 默认在查询层只返回 `canonical`，不会泄漏待处理对象。
+`get_entity_importance_map` 同样只投影 `canonical` 对象的 ID、importance 和
+importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 分数，不读取 world ORM，
+也不让待处理对象影响已采用正文的检索排序。
 只有明确需要 working context 的调用方才传 `include_review=True`，此时额外
 包含 `draft` / `candidate` / `conflicted`，但始终排除已归档状态。
 `compatibility_shadow` 在待处理期间只使用 `draft` / `candidate`，不会进入默认 active context；它只用于旧读取契约与可回滚迁移。队列采用后同一对象转为 `canonical`、可正常编辑，拒绝后转入 `ignored` 历史。

@@ -59,16 +59,14 @@ test.describe("深度导入流水线", () => {
     // 等待导入完成 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("导入完成", { timeout: 15000 })
 
-    // Step 2: 导航到写作工作台
-    await page.evaluate(() => {
-      const pid = localStorage.getItem("novel_currentProjectId")
-      if (pid) state.currentProjectId = pid
-      window.router.navigate("writing")
-    })
-    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
-
-    // 等待写作视图加载完成
-    await waitWritingReady(page)
+    // Step 2: 上传流程会自动进入写作台；等待真实章节数据完成渲染。
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await waitWritingReady(page, { chapter: 1 })
+    await expect(page.locator(SEL.writingChapterCount)).toHaveText("章节（3）")
+    await expect(
+      page.locator(SEL.writingToolsMenu),
+      "上传成功后应立即看到已提交章节和 AI 工具入口",
+    ).toBeVisible()
 
     // Step 3: 上传完成后由用户在写作现场显式开始整理导入内容
     await page.locator(SEL.writingAiMenu).click()

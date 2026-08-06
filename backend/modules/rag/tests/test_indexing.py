@@ -1958,6 +1958,7 @@ async def test_collect_annotation_sources_uses_chapter_scene_lookup(
         return {}
 
     import modules.outline.facade as outline_facade
+    import modules.world.facade as world_facade
 
     monkeypatch.setattr(
         outline_facade,
@@ -1977,11 +1978,7 @@ async def test_collect_annotation_sources_uses_chapter_scene_lookup(
         raising=False,
     )
     monkeypatch.setattr(source_collection, "_load_project_terms", _load_terms)
-    monkeypatch.setattr(
-        source_collection,
-        "_container_get",
-        lambda name: _importance_map,
-    )
+    monkeypatch.setattr(world_facade, "get_entity_importance_map", _importance_map)
 
     (
         scenes,
@@ -1995,6 +1992,93 @@ async def test_collect_annotation_sources_uses_chapter_scene_lookup(
     assert spans == []
     assert terms == []
     assert importance == {}
+
+
+@pytest.mark.asyncio
+async def test_collect_annotation_sources_does_not_hide_importance_failures() -> None:
+    from modules.rag import source_collection
+
+    with (
+        patch(
+            "modules.outline.facade.get_scenes_by_chapter",
+            autospec=True,
+            return_value=[],
+        ),
+        patch(
+            "modules.outline.facade.get_scene_spans_by_chapter",
+            autospec=True,
+            return_value=[],
+        ),
+        patch(
+            "modules.rag.source_collection._load_project_terms",
+            autospec=True,
+            return_value=[],
+        ),
+        patch(
+            "modules.world.facade.get_entity_importance_map",
+            autospec=True,
+            side_effect=RuntimeError("importance lookup failed"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="importance lookup failed"):
+            await source_collection.collect_annotation_sources(
+                None,  # type: ignore[arg-type]
+                uuid.uuid4(),
+                1,
+            )
+
+
+def test_build_chunk_create_applies_world_entity_importance() -> None:
+    from modules.rag.chunk_annotation import build_chunk_create
+    from modules.rag.chunking import ChineseNovelChunk, ChunkingService
+
+    data = build_chunk_create(
+        ChineseNovelChunk(
+            chunk_index=0,
+            text="主角进入王城。",
+            start_offset=0,
+            end_offset=7,
+            char_count=7,
+        ),
+        chapter_index=1,
+        chunking=ChunkingService(),
+        project_terms=[{"term": "王城", "id": "world-entity-1", "type": "entity"}],
+        entity_importance_map={
+            "world-entity-1": {"importance": 0.75, "importance_level": "core"}
+        },
+        scenes_for_chapter=[],
+    )
+
+    assert data.entity_ids == ["world-entity-1"]
+    assert data.importance == 0.95
+
+
+def test_build_chunk_create_applies_character_entity_importance() -> None:
+    from modules.rag.chunk_annotation import build_chunk_create
+    from modules.rag.chunking import ChineseNovelChunk, ChunkingService
+
+    data = build_chunk_create(
+        ChineseNovelChunk(
+            chunk_index=0,
+            text="主角进入王城。",
+            start_offset=0,
+            end_offset=7,
+            char_count=7,
+        ),
+        chapter_index=1,
+        chunking=ChunkingService(),
+        project_terms=[
+            {"term": "主角", "id": "character-entity-1", "type": "character"}
+        ],
+        entity_importance_map={
+            "character-entity-1": {"importance": 0.75, "importance_level": "core"}
+        },
+        scenes_for_chapter=[],
+    )
+
+    assert data.character_ids == ["character-entity-1"]
+    assert data.entity_ids == []
+    assert data.importance == 0.95
 
 
 def test_build_chunk_create_prefers_scene_span_overlap() -> None:

@@ -23,6 +23,7 @@ from core.api_params import NovelIdQuery
 from core.container import get as get_container_service
 from core.dependencies import DbSession
 from infrastructure.tasks.contracts import TaskAction
+from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -230,25 +231,24 @@ async def submit_task(
         )
 
     novel_id = validated_meta.get("novel_id")
-    if novel_id is not None:
+    if definition.owner_scope == "project":
+        if novel_id is None:
+            raise HTTPException(status_code=422, detail="project task requires novel_id")
         await _require_active_project(db, str(novel_id))
 
-    task = AsyncTask(
-        id=uuid.uuid4(),
-        task_type=request.task_type,
-        status=TaskStatusEnum.pending.value,
+    task_id = enqueue_task(
+        db,
+        request.task_type,
         meta=validated_meta,
+        status=TaskStatusEnum.pending.value,
         progress=0.0,
-        recovery_policy=(definition.recovery_policy if definition else "restart_origin"),
-        max_attempts=definition.max_attempts if definition else 1,
-        attempt=0,
+        novel_id=str(novel_id) if novel_id is not None else None,
     )
-    db.add(task)
     await db.flush()
 
     return TaskSubmitResponse(
-        task_id=str(task.id),
-        status=str(task.status),
+        task_id=task_id,
+        status=TaskStatusEnum.pending.value,
     )
 
 
@@ -266,7 +266,7 @@ async def get_task_status(
     await _require_active_project(db, novel_id)
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
-        AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
     )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
@@ -317,7 +317,7 @@ async def cancel_task(
     await _require_active_project(db, novel_id)
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
-        AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
     )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
@@ -351,7 +351,7 @@ async def retry_task(
     await _require_active_project(db, novel_id)
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
-        AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+        AsyncTask.novel_id == uuid.UUID(str(novel_id)),
     )
     task = (await db.execute(stmt)).scalar_one_or_none()
     if task is None:

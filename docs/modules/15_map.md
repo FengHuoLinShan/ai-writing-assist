@@ -388,7 +388,7 @@ active map row 并比较 revision，任一命令失败则 savepoint 回滚整批
 | POST | `/project-observations/{observation_id}/assign?novel_id={}` | 分配到 active 地图、换图或以 `map_id=null` 退回收件箱 |
 | POST | `/project-observations/{observation_id}/ignore?novel_id={}` | 用 `expected_updated_at` 忽略项目候选 |
 | GET | `/{map_id}/observations?novel_id={}&review_state={}` | 地图 observation 列表（未转 Fact 项显示为待处理） |
-| POST | `/{map_id}/observations?novel_id={}` | 创建地图 observation |
+| POST | `/{map_id}/observations?novel_id={}` | 创建地图 observation；201 表示已提交，可立即读取或确认 |
 | PATCH | `/{map_id}/observations/{observation_id}?novel_id={}` | 用 `expected_updated_at` 更新作者字段或候选审查状态 |
 | POST | `/{map_id}/observations/batch-review?novel_id={}` | 用带 revision 的 `items` 批量确认、忽略或标记冲突 |
 | POST | `/{map_id}/batch-actions?novel_id={}` | 批量动作入口：采用/忽略/冲突 observation、更新 fact 状态、记录图层可见性 patch |
@@ -409,6 +409,9 @@ active map row 并比较 revision，任一命令失败则 savepoint 回滚整批
 同一 Scene、对象和维度的相同值合并证据，不同值产生 conflict，不按创建时间覆盖。
 candidate 即使通过 `include_candidates=true` 返回，也只进入独立预览，不参与有效状态、差分、
 连续性问题或 canonical projection token。
+
+创建 observation 的普通非流式请求由 `DbSession` 的 request-owned transaction 在
+function-scope dependency 结束时提交；返回 201 后，后续确认、列表和地图状态请求可以立即通过独立数据库连接读取该 observation。
 
 人物位置、事件发生地、线路/阻隔和势力范围可以先以显式
 `payload_kind="proposal"` proposal union 进入 observation；proposal 不伪装成 canonical typed
