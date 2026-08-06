@@ -345,6 +345,54 @@ def test_first_release_runs_full_restore_drill_after_migration(tmp_path: Path) -
     assert migration < backup < drill
     assert commands.count(" exec -T postgres pg_dump") == 1
     assert not (state_dir / "deployment-state.json").exists()
+    prepared_state = state_dir / "first-release-prepared.json"
+    assert json.loads(prepared_state.read_text()) == {
+        "schema_version": 1,
+        "prepared_commit": commit_b,
+    }
+    assert " exec -T postgres dropdb" not in commands
+
+    docker_log.unlink()
+    retry = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment
+        | {
+            "FAKE_PUBLIC_TABLE_COUNT": "1",
+            "FAKE_MIGRATION_REVISIONS": "migration_a",
+            "FAKE_DOCKER_BUILD_STATUS": "1",
+        },
+    )
+
+    assert retry.returncode != 0
+    assert "state is absent but the live database is not empty" not in retry.stderr
+    assert " build " in f" {docker_log.read_text(encoding='utf-8')} "
+    assert prepared_state.exists()
+
+
+def test_prepared_first_release_rejects_a_different_target_before_checkout(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    (state_dir / "current-release").unlink()
+    (state_dir / "current-commit").unlink()
+    prepared_state = state_dir / "first-release-prepared.json"
+    prepared_state.write_text(
+        json.dumps(
+            {"schema_version": 1, "prepared_commit": commit_a},
+            separators=(",", ":"),
+        )
+    )
+    prepared_state.chmod(0o600)
+
+    result = _run_script(repo_root, "release.sh", [commit_b], environment)
+
+    assert result.returncode != 0
+    assert f"may only retry its prepared fixed SHA: {commit_a}" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    assert not docker_log.exists()
 
 
 def test_first_release_drill_failure_resets_verified_empty_database_for_retry(

@@ -679,7 +679,7 @@ def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> N
     release_quiesce = release_script.index("if ! compose stop api worker frontend; then")
     release_dependencies = release_script.index("compose up -d postgres embedding")
     release_fresh_guard = release_script.index(
-        'if [ ! -e "$STATE_DIR/deployment-state.json" ]'
+        "FIRST_RELEASE_STATE_KIND=$(migration_guard_state_kind)"
     )
     release_embedding_check = release_script.index(
         "if ! compose run --rm api python scripts/check_embedding.py; then"

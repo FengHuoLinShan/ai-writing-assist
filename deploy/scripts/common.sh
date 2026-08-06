@@ -398,6 +398,20 @@ deployment_state_matches() {
         "$STATE_DIR" "$REPO_ROOT" "$current_commit" "$operation_id"
 }
 
+write_first_release_prepared_state() {
+    prepared_commit=$1
+    python3 "$SCRIPT_DIR/first_release_state.py" write \
+        "$STATE_DIR" "$prepared_commit"
+}
+
+read_first_release_prepared_commit() {
+    python3 "$SCRIPT_DIR/first_release_state.py" read "$STATE_DIR"
+}
+
+clear_first_release_prepared_state() {
+    python3 "$SCRIPT_DIR/first_release_state.py" clear "$STATE_DIR"
+}
+
 validate_deployment_state_contract() {
     contract_marker="$DEPLOY_DIR/deployment-state-contract.version"
     state_helper="$SCRIPT_DIR/deployment_state.py"
@@ -409,6 +423,11 @@ validate_deployment_state_contract() {
     fi
     if [ ! -f "$state_helper" ] || [ -L "$state_helper" ]; then
         echo "Target commit does not contain the deployment state helper." >&2
+        return 1
+    fi
+    if [ ! -f "$SCRIPT_DIR/first_release_state.py" ] \
+        || [ -L "$SCRIPT_DIR/first_release_state.py" ]; then
+        echo "Target commit does not contain the first-release recovery helper." >&2
         return 1
     fi
     python3 "$state_helper" generate-operation-id >/dev/null
@@ -513,6 +532,7 @@ verify_active_deployment_checkout() {
 
 migration_guard_state_kind() {
     deployment_state_path="$STATE_DIR/deployment-state.json"
+    first_release_prepared_path="$STATE_DIR/first-release-prepared.json"
     current_release_path="$STATE_DIR/current-release"
     current_commit_path="$STATE_DIR/current-commit"
     manifest_exists=false
@@ -533,7 +553,12 @@ migration_guard_state_kind() {
     elif [ "$release_exists" = true ] && [ "$commit_exists" = true ]; then
         printf '%s\n' active
     elif [ "$release_exists" = false ] && [ "$commit_exists" = false ]; then
-        printf '%s\n' first-release
+        if [ -e "$first_release_prepared_path" ] \
+            || [ -L "$first_release_prepared_path" ]; then
+            printf '%s\n' first-release-prepared
+        else
+            printf '%s\n' first-release
+        fi
     else
         echo "Deployment state is incomplete; refusing migration compatibility preflight." >&2
         return 1
@@ -571,6 +596,15 @@ verify_release_migration_compatibility() {
             return 1
         fi
         return 0
+    fi
+
+    if [ "$state_kind" = first-release-prepared ]; then
+        prepared_commit=$(read_first_release_prepared_commit) || return 1
+        if [ "$prepared_commit" != "$target_commit" ]; then
+            echo "An unfinished first release may only retry its prepared fixed SHA: $prepared_commit" >&2
+            return 1
+        fi
+        active_commit=$prepared_commit
     fi
 
     if [ ! -f "$SCRIPT_DIR/migration_compatibility.py" ] \

@@ -198,9 +198,11 @@ revision 与关键表。脚本从已打开的输入创建私有 `0600` 快照，
 同 inode 描述符分别供 checksum/list/restore 消费并立即 unlink；长操作期间不再按可变路径重新打开快照。
 成功、失败和 HUP/INT/TERM 都清理容器与快照，输出只有时间、摘要、字节数、revision 和关键表数量。
 release 对常规升级在 migration 前运行该演练；仅当 finalized state 不存在、`DATABASE_MODE=fresh`
-且实时查询证明 public schema 为空时，先迁移，再生成备份并完成同等演练。fresh 后置备份/演练若在启动应用和初始化前失败，
+且实时查询证明所有非系统 schema 均无表时，先迁移，再生成备份并完成同等演练。fresh 后置备份/演练若在启动应用和初始化前失败，
 会 drop/create 回事前已证明的空库，使下次固定 SHA 重试不会被 lost-state 门禁卡住。两条路径任一演练失败都不得
-启动应用或写入成功状态。destructive restore 在确认与停服前也先对同一私有快照执行真实隔离恢复和唯一
+启动应用或写入成功状态。演练成功后、bootstrap 前写入当前用户拥有的私有 first-release prepared marker；
+跨越可能产生数据的边界后若失败，保留数据库并只允许相同固定 SHA 重试，最终 deployment state 成功后清理 marker，
+避免在“可重试”和“不得静默删除新数据”之间二选一。destructive restore 在确认与停服前也先对同一私有快照执行真实隔离恢复和唯一
 revision 检查；该 revision 还必须存在于目标固定 commit 的静态 Alembic 图，并可从其唯一 head 达到。完整关键表合同留给当前发布演练，
 避免拒绝可由目标 migration 升级的历史备份。
 
@@ -216,7 +218,9 @@ checkout/分支。v1 文件仅允许 schema version、32 位 operation nonce、`
 固定 Git object 的普通 migration blobs 解析字面量 revision graph（不执行目标 Python）；target 必须携带
 guard helper，旧 active 可没有。单一 Alembic versioned head、全量 live revision rows、祖先图不重写与 target
 向前可达都是门槛；`depends_on` 会参与可达性但不会掩盖 Alembic multi-head。已有状态必须配合已运行
-Postgres 的只读短 timeout revision 查询；三种状态 artifact 全无时，只有非系统 schema 为空才可作为首次发布。
+Postgres 的只读短 timeout revision 查询；finalized 与 legacy 状态 artifact 全无时，只有非系统 schema 为空才可作为首次发布；
+若存在通过安全 helper 读取的 first-release prepared marker，则 live revision 必须精确匹配 marker 固定 SHA 的 head，
+且本次 target 必须是同一 SHA。
 任何查询、状态、图或 checkout 不一致都在 build/quiesce/backup/migrate 前 fail closed，并明确转向人工确认的
 `restore.sh <backup.dump> <target-sha>`，不自动 downgrade、恢复或启动 Postgres。
 

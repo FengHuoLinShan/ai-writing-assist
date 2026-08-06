@@ -91,7 +91,10 @@ active 的单一 head，target 必须单头、保留该 revision 与其全部已
 在任何 service work 前拒绝。Postgres 未运行时也拒绝，绝不会为此 preflight 自动启动它。
 只有 manifest、legacy `current-release` 和 `current-commit` 三个状态 artifact 都不存在，且
 live database 的非系统 schema 没有表时才视为首次发布；丢失状态但非空数据库同样 fail closed。若图
-不兼容，保留原 checkout/服务，并按提示在人工确认后使用：
+不兼容，保留原 checkout/服务。fresh migration 和隔离恢复演练成功后、bootstrap 之前会写入私有
+`first-release-prepared.json`；若后续健康或公网门禁失败，只允许重试该 marker 绑定的相同固定 SHA，
+不会删除 bootstrap 或应用可能已经写入的数据。最终 deployment state 写入后 marker 会被清理。若图
+不兼容，按提示在人工确认后使用：
 
 ```bash
 bash deploy/scripts/restore.sh <backup.dump> <target-sha>
@@ -329,6 +332,8 @@ checksum、list 和 restore 不再重新按路径打开。所有成功、失败�
 `release.sh` 对常规升级在 migration 前自动对新备份执行同一演练；已经由实时查询证明为空库的
 fresh 首次发布会先迁移，再立即生成备份并完成同等演练，然后才能启动应用并写入成功状态。
 这不把空 dump 当作 schema 恢复证据；若后置备份或演练失败，且应用/初始化尚未开始，脚本会将数据库重置回事前已证明的空状态以便安全重试。
+演练成功后会先持久化只绑定当前固定 SHA 的 first-release recovery marker，再跨越 bootstrap/应用数据边界；
+后续失败保留数据库与 marker，使相同 SHA 可重试且不以自动删库换取恢复能力。
 destructive restore 也会在用户确认、停服和删库前，对从输入固化的私有快照执行真实隔离恢复，
 并证明备份 revision 存在于目标固定 commit 的 Alembic 图且可从其唯一 head 达到。任一演练失败都停止发布或恢复。Backblaze 和 Healthchecks 的真实 key/URL
 只放在 `deploy/.env.production`，不进入 systemd unit 或 Git。
