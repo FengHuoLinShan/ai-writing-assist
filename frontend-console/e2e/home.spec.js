@@ -149,7 +149,7 @@ test.describe("首页与导航", () => {
 
     await page.keyboard.press("Escape")
     await expect(page.locator(".account-dialog")).toBeHidden()
-    await expect(accountInfo).toBeFocused()
+    await expect(account).toBeFocused()
     await expect(page.locator("#topbar")).not.toHaveAttribute("inert", "")
     await expect(page.locator("#main-layout")).not.toHaveAttribute("inert", "")
   })
