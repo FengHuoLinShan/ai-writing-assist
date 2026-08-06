@@ -558,7 +558,7 @@ def test_backend_dependency_audit_target_covers_the_entire_lockfile() -> None:
     assert "--locked" in tokens
     assert "--no-build" in tokens
     assert tokens[tokens.index("--preview-features") + 1] == "audit"
-    assert tokens[tokens.index("--python-version") + 1] == "3.12"
+    assert tokens[tokens.index("--python-version") + 1] == "3.14"
     assert tokens[tokens.index("--python-platform") + 1] == "x86_64-unknown-linux-gnu"
     ignored_until_fixed = {
         tokens[index + 1]
@@ -623,12 +623,12 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
         encoding="utf-8"
     )
     python_image = (
-        "python:3.12.13-slim-bookworm@sha256:"
-        "d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b"
+        "python:3.14.6-slim-bookworm@sha256:"
+        "4c92ffcde4dd6f1ff72a24518f49fd4990b27134987dfa31a733badde66df9f8"
     )
     node_image = (
-        "node:24.18.0-alpine3.23@sha256:"
-        "595398b0081eacda8e1c4c5b97b76cd1020e4d58a8ebcb4843b9bca1e79e7436"
+        "node:24.18.1-alpine3.23@sha256:"
+        "c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110"
     )
     nginx_image = (
         "nginx:1.30.4-alpine@sha256:"
@@ -655,14 +655,14 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     )
     assert "USER nginx\n\nEXPOSE 8080" in frontend_dockerfile
 
-    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.12.13\n"
+    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.14.6\n"
     assert (repo_root / "frontend-console/.node-version").read_text(
         encoding="utf-8"
-    ) == "24.18.0\n"
+    ) == "24.18.1\n"
     assert workflow.count("runs-on: ubuntu-24.04") == 7
     assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
-    assert workflow.count('python-version: "3.12.13"') == 5
-    assert e2e_workflow.count('python-version: "3.12.13"') == 1
+    assert workflow.count('python-version: "3.14.6"') == 5
+    assert e2e_workflow.count('python-version: "3.14.6"') == 1
     assert len(re.findall(r"uses: actions/setup-node@[0-9a-f]{40}", workflow)) == 4
     assert workflow.count("node-version-file: frontend-console/.node-version") == 4
     assert (
