@@ -320,6 +320,10 @@ frontend-console/views/
 
 ### 5.2 技术栈
 
+> **历史文档标注（2026-08-06）：** 下方 unpkg/CDN 示例已被 ADR-0003 的
+> 2026-08-06 修订取代。当前交付使用精确锁定的 npm Leaflet 1.9.4 和 Vite
+> 按需自托管产物，生产浏览器不再请求 unpkg。本段仅保留历史原文。
+
 ```html
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -617,7 +621,10 @@ function floodFillTerrain(startQ, startR, targetTerrain, nextTerrain, mapId) {
 
 P0 已实现，以下为实现与 PRD 原文的偏差，均已在 ADR-0003 或代码注释中记录决策理由：
 
-1. **Leaflet 1.9.4 引入**：通过 CDN 加载（`unpkg.com/leaflet@1.9.4`），决策见 `docs/adr/0003-leaflet-for-map-viewport.md`。Leaflet 仅作视口引擎（平移/缩放/坐标换算），六边形业务图层仍自研 Canvas 叠加。
+1. **Leaflet 1.9.4 引入**：本历史实施记录中的原方案通过 CDN 加载
+   （`unpkg.com/leaflet@1.9.4`）；该交付方式已被 ADR-0003 的 2026-08-06
+   修订取代，当前使用锁定 npm 依赖和 Vite 按需自托管产物。Leaflet 仍仅作视口引擎
+   （平移/缩放/坐标换算），六边形业务图层继续使用自研 Canvas 叠加。
 2. **`map_tiles.hex_s` 列未建**：PRD §4.2 要求 `hex_s GENERATED ALWAYS AS (-hex_q-hex_r) STORED`。项目无 `sqlalchemy.Computed` ORM 先例且 SQLite 测试不支持 PG 生成列。决策：ORM 不声明 `hex_s`，第三坐标由前端 `s = -q - r` 计算，后端只存 `(q, r)`。如未来需后端按 s 查询，再补 Alembic 原始 SQL（参照 `search_text` 的 `d967c0547255` 迁移模式）。
 3. **地点中心点部分唯一索引**：PRD §4.3 要求 `UNIQUE(map_id, location_entity_id) WHERE is_center`。SQLAlchemy 的 `Index(unique=True, postgresql_where=...)` 在非 PG dialect 仍生成无 WHERE 的 unique index，破坏 SQLite 测试。决策：ORM 不声明该索引，由业务层 `MapLocationBindingService.clear_center` 保证唯一性；PG 部分唯一索引待 Alembic 迁移补 `op.execute` 原始 SQL。
 4. **编辑面板**：项目无现成抽屉/侧边栏组件。决策：mapView 容器内绝对定位 `.map-edit-panel`（CSS `position: absolute; right: 0`），不引入抽屉框架。

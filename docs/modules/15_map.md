@@ -542,7 +542,7 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 
 ## 前端实现现状
 
-- Vue `MapWorkspaceView.vue` / `useMapWorkspace.js`：总览首屏只突出“继续最近地图”或“创建第一张地图”一个主操作；归档、资料补全、地图树和图层管理渐进展开，收件箱使用作者可读待处理卡片。总览仍可按章节范围启动独立地图资料补充，明确说明不重跑深度导入并持久化/恢复进度。原始场景 ID 只进入诊断筛选。具体地图继续提供“总控台 / 活地图 / 叙事透镜”以及既有编辑能力；Leaflet/Canvas 仍由 `MapViewportAdapter.vue` 下的窄 controller seam 承载，API、schema 和地图状态机不变。
+- Vue `MapWorkspaceView.vue` / `useMapWorkspace.js`：总览首屏只突出“继续最近地图”或“创建第一张地图”一个主操作；归档、资料补全、地图树和图层管理渐进展开，收件箱使用作者可读待处理卡片。总览仍可按章节范围启动独立地图资料补充，明确说明不重跑深度导入并持久化/恢复进度。原始场景 ID 只进入诊断筛选。具体地图继续提供“总控台 / 活地图 / 叙事透镜”以及既有编辑能力；Leaflet/Canvas 仍由 `MapViewportAdapter.vue` 下的窄 controller seam 承载。Leaflet 1.9.4 由本源按需 chunk 加载，失败在地图内原位重试且不影响其他页面；API、schema 和地图状态机不变。
 - 从具体地图创建并打开工作台索引中尚不存在的子地图/根地图时，工作台会先刷新地图与地点索引，保证返回总览后地图树、数量和搜索立即包含新地图。
 - 动态历史与当前动态分区展示；“查看历史”加载 ignored observation、rolled-back/deprecated fact 后，历史不会再受当前动态八条展示上限影响。
 - `worldView`：对象行先读取全部 map presence；一张时直接定位，多张时展示地图角色与绑定数量选择器，无 presence 时回退 `open-target`。

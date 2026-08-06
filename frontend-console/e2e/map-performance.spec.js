@@ -87,9 +87,11 @@ test.describe("地图真实性能采样", () => {
     await expect.poll(async () => page.evaluate(() => (
       window.__mapPerformanceEvents.interactive.at(-1) || null
     )), { timeout: 30000 }).not.toBeNull()
-    await expect.poll(async () => page.evaluate(() => window.L?.version || null), {
+    await expect.poll(async () => page.evaluate(() => (
+      document.querySelector("#map-leaflet")?.classList.contains("leaflet-container") || false
+    )), {
       timeout: 30000,
-    }).toBe("1.9.4")
+    }).toBe(true)
 
     const coldInteractive = await page.evaluate(() => (
       window.__mapPerformanceEvents.interactive.at(-1)

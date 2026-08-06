@@ -965,6 +965,9 @@ def test_openresty_renders_loopback_tunnel_origin() -> None:
     assert "listen 127.0.0.1:3259;" in result.stdout
     assert "listen 443" not in result.stdout
     assert "ssl_certificate" not in result.stdout
+    assert "script-src 'self';" in result.stdout
+    assert "style-src 'self' 'unsafe-inline';" in result.stdout
+    assert "unpkg.com" not in result.stdout
 
     api_location = result.stdout.split("location /api/ {", maxsplit=1)[1].split(
         "location / {", maxsplit=1

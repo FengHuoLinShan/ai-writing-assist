@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
   cleanupProject,
@@ -248,10 +247,6 @@ test.describe("世界动态地图混乱路径", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {

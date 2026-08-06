@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport, runResponsiveMatrix } from "./helpers/responsive.js"
 import {
@@ -27,13 +26,16 @@ import {
   waitForBackend,
 } from "./helpers/api-client.js"
 
-const LEAFLET_ORIGIN = 60
-
-function hexPosition(q, r, size = 30) {
-  return {
-    x: LEAFLET_ORIGIN + size * 1.5 * q,
-    y: LEAFLET_ORIGIN + size * Math.sqrt(3) * (r + q / 2),
-  }
+async function hexPosition(page, q, r, size = 30) {
+  return page.evaluate(async ({ q, r, size }) => {
+    const { default: currentMapView } = await import("/views/mapView.js")
+    const leafletMap = currentMapView._leaflet
+    const leafletApi = currentMapView._leafletApi
+    if (!leafletMap || !leafletApi) throw new Error("Leaflet map is not ready")
+    const x = size * 1.5 * q
+    const y = size * Math.sqrt(3) * (r + q / 2)
+    return leafletMap.latLngToContainerPoint(leafletApi.latLng(-y, x))
+  }, { q, r, size })
 }
 
 function findTile(mapState, q, r) {
@@ -58,7 +60,7 @@ async function openMapWorkspace(page, project, map, params = {}) {
 }
 
 async function clickHex(page, q, r) {
-  await page.locator(SEL.mapCanvas).click({ position: hexPosition(q, r) })
+  await page.locator(SEL.mapCanvas).click({ position: await hexPosition(page, q, r) })
 }
 
 async function expectMapCanvasAligned(page) {
@@ -90,10 +92,6 @@ test.describe("地图一级工作台", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {
@@ -507,7 +505,9 @@ test.describe("地图一级工作台", () => {
     expect(popup.url()).toContain(`map_id=${regionMap.id}`)
     expect(popup.url()).toContain(`focus_entity_id=${location.id}`)
     await expect(popup.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
-    await clickHex(popup, 2, 2)
+    const locationLabel = popup.locator(`.map-center-label[data-id="${location.id}"]`)
+    await locationLabel.focus()
+    await popup.keyboard.press("Enter")
     await expect(popup.locator(SEL.mapDetailPanel)).toContainText("双城关隘")
     await popup.locator(SEL.mapDetailPanel).getByRole("button", { name: "查看世界对象" }).click()
     await expect(popup.locator(`.world-object-card[data-id="${location.id}"]`)).toContainText("双城关隘", {
@@ -584,8 +584,8 @@ test.describe("地图一级工作台", () => {
     await canvas.scrollIntoViewIfNeeded()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
-    const start = hexPosition(1, 1)
-    const end = hexPosition(4, 2)
+    const start = await hexPosition(page, 1, 1)
+    const end = await hexPosition(page, 4, 2)
     await page.mouse.move(box.x + start.x, box.y + start.y)
     await page.mouse.down()
     await page.mouse.move(box.x + end.x, box.y + end.y, { steps: 16 })
@@ -946,7 +946,7 @@ test.describe("地图一级工作台", () => {
     )
     await expect(centerLabel).toBeVisible()
     const paneState = await centerLabel.evaluate((label) => {
-      const pane = label.closest('[data-pane="mapLabels"]')
+      const pane = label.closest(".map-label-pane")
       const canvas = document.querySelector('canvas[data-testid="map-canvas"]')
       return {
         inLabelPane: Boolean(pane),
@@ -1237,10 +1237,6 @@ test.describe("写作页地图入口", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {

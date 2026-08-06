@@ -50,40 +50,6 @@ import {
 import mapView from "../views/mapView.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "../views/mapEditPanel.js"
 
-async function importFreshMapView() {
-  vi.resetModules()
-  return (await import("../views/mapView.js")).default
-}
-
-function interceptLeafletResourceAppend() {
-  const originalAppendChild = document.head.appendChild
-  const originalGetElementById = document.getElementById
-  const appended = []
-
-  document.head.appendChild = vi.fn((node) => {
-    if (node?.id === "leaflet-css-dynamic" || node?.id === "leaflet-js-dynamic") {
-      node.remove = vi.fn(() => {
-        node.dataset.removed = "true"
-      })
-      appended.push(node)
-      return node
-    }
-    return originalAppendChild.call(document.head, node)
-  })
-  document.getElementById = vi.fn((id) => {
-    const intercepted = appended.find((node) => node.id === id && node.dataset.removed !== "true")
-    return intercepted || originalGetElementById.call(document, id)
-  })
-
-  return {
-    appended,
-    restore() {
-      document.head.appendChild = originalAppendChild
-      document.getElementById = originalGetElementById
-    },
-  }
-}
-
 beforeEach(() => {
   // 防御：单文件运行时 setup.js 可能未在同一 worker 执行，兜底初始化全局
   if (!globalThis.state) {
@@ -102,10 +68,8 @@ beforeEach(() => {
   mapView._suppressNextCanvasClick = false
   mapView._lifecycleEpoch = 0
   mapView._mountContext = {}
+  mapView._leafletApi = null
   mapView._setEditorApplyBusy(false)
-  document.getElementById("leaflet-css-dynamic")?.remove()
-  document.getElementById("leaflet-js-dynamic")?.remove()
-  delete window.L
 })
 
 // ============================================================
@@ -1491,7 +1455,7 @@ describe("图层会话与连续线路纵切", () => {
   })
 
   it("地点标记线路势力与 Scene 动态共享地图标签布局输入", () => {
-    window.L = {
+    mapView._leafletApi = {
       latLng: (lat, lng) => ({ lat, lng }),
     }
     mapView._leaflet = {

@@ -1,18 +1,12 @@
 import { test, expect } from "./fixtures.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import {
   createEntity,
   createProject,
   cleanupProject,
   waitForBackend,
 } from "./helpers/api-client.js"
-
-function isLeafletStubIntegrityNoise(text) {
-  return text.includes("Failed to find a valid digest in the 'integrity' attribute")
-    && text.includes("https://unpkg.com/leaflet@1.9.4/dist/leaflet")
-}
 
 test.describe("worldView 子视图切换", () => {
   let testProjectId = null
@@ -22,7 +16,6 @@ test.describe("worldView 子视图切换", () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
     const project = await createProject({
       title: "视图切换测试项目",
       genre: "fantasy",
@@ -50,10 +43,7 @@ test.describe("worldView 子视图切换", () => {
 
     page.on("console", (msg) => {
       if (msg.type() === "error") {
-        const text = msg.text()
-        if (!isLeafletStubIntegrityNoise(text)) {
-          consoleErrors.push(text)
-        }
+        consoleErrors.push(msg.text())
       }
     })
 

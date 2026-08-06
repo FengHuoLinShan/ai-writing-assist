@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 import {
@@ -40,10 +39,6 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {
