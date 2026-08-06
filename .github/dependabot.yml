@@ -58,6 +58,14 @@ updates:
       time: "02:40"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
     groups:
       minor-and-patch:
         patterns:

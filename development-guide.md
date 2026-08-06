@@ -147,6 +147,13 @@ Production Node upgrades remain on an LTS release line. A newer `Current` major 
 validated in CI, but it does not replace the production pin until the Node.js project
 promotes that line to LTS and the same image-contract review passes.
 
+Dependabot keeps patch updates on the pinned Python line and minor/patch updates on the
+pinned Node LTS line automated. It ignores Python semver-minor/major Docker updates and
+Node semver-major Docker updates, because those represent a Python release-line change
+or a Node major lifecycle decision rather than routine image rotation. Those upgrades
+are reviewed manually after the upstream release is stable/LTS; Dependabot security
+updates are not disabled by these version-update filters.
+
 Rotate an image only by reviewing a new upstream tag and digest together, then update
 the Dockerfile, production/example PostgreSQL declarations, relevant CI service image,
 and the associated contract tests in one change. `make test-production-images` is
