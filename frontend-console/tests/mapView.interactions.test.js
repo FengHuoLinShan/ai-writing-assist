@@ -731,18 +731,15 @@ describe("mapView Leaflet overlay alignment", () => {
     }
   })
 
-  it("handles location label activation through the Leaflet marker event", async () => {
+  it("handles mouse and keyboard activation on the rendered Leaflet marker", async () => {
     const freshMapView = await importFreshMapView()
     const container = document.createElement("div")
     Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
     Object.defineProperty(container, "clientHeight", { value: 420, configurable: true })
-    const markerHandlers = {}
+    const markerElement = document.createElement("div")
     const marker = {
-      on: vi.fn((event, handler) => {
-        markerHandlers[event] = handler
-        return marker
-      }),
       addTo: vi.fn(() => marker),
+      getElement: vi.fn(() => markerElement),
     }
     freshMapView._state = { map: { hex_size: 30 }, markers: [] }
     freshMapView._leaflet = {
@@ -776,9 +773,11 @@ describe("mapView Leaflet overlay alignment", () => {
     const openDetail = vi.spyOn(freshMapView, "_onCenterClick").mockImplementation(() => {})
 
     freshMapView._renderCenterLabels()
-    expect(marker.on).toHaveBeenCalledWith("click", expect.any(Function))
-    markerHandlers.click()
-    expect(openDetail).toHaveBeenCalledWith("loc-1")
+    markerElement.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    markerElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    markerElement.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }))
+    expect(openDetail).toHaveBeenCalledTimes(3)
+    expect(openDetail).toHaveBeenNthCalledWith(1, "loc-1")
   })
 
   it("reuses one in-flight Leaflet module load across concurrent initialization", async () => {

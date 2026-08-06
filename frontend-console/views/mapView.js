@@ -2006,7 +2006,22 @@ const mapView = {
     if (this._canvas.height !== height) this._canvas.height = height
   },
 
-  /** 中心点标签用 DOM（便于显示文字），通过 Leaflet marker 事件点击 */
+  /** 中心点标签用 DOM（便于显示文字），直接绑定 Leaflet marker 根节点。 */
+  _bindLeafletMarkerActivation(marker, activate) {
+    const element = marker.getElement?.()
+    if (!element) return
+    element.addEventListener("click", (event) => {
+      event.stopPropagation()
+      activate()
+    })
+    element.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return
+      event.preventDefault()
+      event.stopPropagation()
+      activate()
+    })
+  },
+
   _renderCenterLabels() {
     if (!this._leaflet || !this._state) return
     this._labelClusterItemsById.clear()
@@ -2068,14 +2083,14 @@ const mapView = {
         title: labelLayout.title,
       })
       marker._isMapLabel = true
-      marker.on("click", () => {
+      marker.addTo(this._leaflet)
+      this._bindLeafletMarkerActivation(marker, () => {
         if (sourceKind === "location") {
           if (sourceId) this._onCenterClick(sourceId)
           return
         }
         this._openMapLayoutItem({ kind: sourceKind, id: sourceId, q, r })
       })
-      marker.addTo(this._leaflet)
     }
     for (const cluster of layout.clusters) {
       this._labelClusterItemsById.set(cluster.id, cluster.items)
@@ -2097,8 +2112,8 @@ const mapView = {
         title: cluster.label,
       })
       marker._isMapLabel = true
-      marker.on("click", () => this._showLocationCluster(cluster.id))
       marker.addTo(this._leaflet)
+      this._bindLeafletMarkerActivation(marker, () => this._showLocationCluster(cluster.id))
     }
     markMapTelemetryCondition("labels_ready")
   },

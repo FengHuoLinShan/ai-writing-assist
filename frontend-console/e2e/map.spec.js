@@ -505,7 +505,7 @@ test.describe("地图一级工作台", () => {
     expect(popup.url()).toContain(`map_id=${regionMap.id}`)
     expect(popup.url()).toContain(`focus_entity_id=${location.id}`)
     await expect(popup.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
-    await clickHex(popup, 2, 2)
+    await popup.locator(`.map-center-label[data-id="${location.id}"]`).click()
     await expect(popup.locator(SEL.mapDetailPanel)).toContainText("双城关隘")
     await popup.locator(SEL.mapDetailPanel).getByRole("button", { name: "查看世界对象" }).click()
     await expect(popup.locator(`.world-object-card[data-id="${location.id}"]`)).toContainText("双城关隘", {
