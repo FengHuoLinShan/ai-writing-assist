@@ -2006,7 +2006,7 @@ const mapView = {
     if (this._canvas.height !== height) this._canvas.height = height
   },
 
-  /** 中心点标签用 DOM（便于显示文字），通过 data-action 委托点击 */
+  /** 中心点标签用 DOM（便于显示文字），通过 Leaflet marker 事件点击 */
   _renderCenterLabels() {
     if (!this._leaflet || !this._state) return
     this._labelClusterItemsById.clear()
@@ -2051,10 +2051,9 @@ const mapView = {
       const hasDetail = sourceKind === "location" && this._hasDetailMap(sourceId)
       const iconWidth = labelLayout.box.width
       const iconHeight = labelLayout.box.height
-      const action = sourceKind === "location" ? "map-click-center" : "map-click-layout-label"
       const icon = this._leafletApi.divIcon({
         className: `map-center-marker map-layout-marker is-${labelLayout.displayLevel} is-${esc(sourceKind)}`,
-        html: `<div class="map-center-label" style="opacity:${Number(labelLayout.opacity ?? 1)}" data-action="${action}" data-kind="${esc(sourceKind)}" data-id="${esc(sourceId)}" data-q="${q}" data-r="${r}">
+        html: `<div class="map-center-label" style="opacity:${Number(labelLayout.opacity ?? 1)}" data-kind="${esc(sourceKind)}" data-id="${esc(sourceId)}" data-q="${q}" data-r="${r}">
                  <span class="map-center-name">${esc(labelLayout.label || label)}</span>
                  ${sourceKind === "location" ? `<span class="map-center-drill ${hasDetail ? "has-detail" : ""}">${hasDetail ? "▾" : "·"}</span>` : ""}
                </div>`,
@@ -2069,6 +2068,13 @@ const mapView = {
         title: labelLayout.title,
       })
       marker._isMapLabel = true
+      marker.on("click", () => {
+        if (sourceKind === "location") {
+          if (sourceId) this._onCenterClick(sourceId)
+          return
+        }
+        this._openMapLayoutItem({ kind: sourceKind, id: sourceId, q, r })
+      })
       marker.addTo(this._leaflet)
     }
     for (const cluster of layout.clusters) {
@@ -2079,7 +2085,7 @@ const mapView = {
       ])
       const icon = this._leafletApi.divIcon({
         className: "map-center-marker map-layout-marker is-cluster",
-        html: `<div class="map-center-label map-center-cluster" data-action="map-click-cluster" data-id="${esc(cluster.id)}"><span class="map-center-name">${esc(cluster.label)}</span></div>`,
+        html: `<div class="map-center-label map-center-cluster" data-id="${esc(cluster.id)}"><span class="map-center-name">${esc(cluster.label)}</span></div>`,
         iconSize: [cluster.box.width, cluster.box.height],
         iconAnchor: [cluster.box.width / 2, cluster.box.height / 2],
       })
@@ -2091,6 +2097,7 @@ const mapView = {
         title: cluster.label,
       })
       marker._isMapLabel = true
+      marker.on("click", () => this._showLocationCluster(cluster.id))
       marker.addTo(this._leaflet)
     }
     markMapTelemetryCondition("labels_ready")
@@ -3206,20 +3213,6 @@ const mapView = {
       "map-breadcrumb": (_e, t) => {
         const id = t.getAttribute("data-id")
         if (id) this._openMap(id)
-      },
-      "map-click-center": (_e, t) => {
-        const id = t.getAttribute("data-id")
-        if (id) this._onCenterClick(id)
-      },
-      "map-click-layout-label": (_e, t) => this._openMapLayoutItem({
-        kind: t.getAttribute("data-kind"),
-        id: t.getAttribute("data-id"),
-        q: Number(t.getAttribute("data-q")),
-        r: Number(t.getAttribute("data-r")),
-      }),
-      "map-click-cluster": (_e, t) => {
-        const id = t.getAttribute("data-id")
-        if (id) this._showLocationCluster(id)
       },
       "map-detail-drill": (_e, t) => {
         const id = t.getAttribute("data-id")

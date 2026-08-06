@@ -731,6 +731,56 @@ describe("mapView Leaflet overlay alignment", () => {
     }
   })
 
+  it("handles location label activation through the Leaflet marker event", async () => {
+    const freshMapView = await importFreshMapView()
+    const container = document.createElement("div")
+    Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
+    Object.defineProperty(container, "clientHeight", { value: 420, configurable: true })
+    const markerHandlers = {}
+    const marker = {
+      on: vi.fn((event, handler) => {
+        markerHandlers[event] = handler
+        return marker
+      }),
+      addTo: vi.fn(() => marker),
+    }
+    freshMapView._state = { map: { hex_size: 30 }, markers: [] }
+    freshMapView._leaflet = {
+      eachLayer: vi.fn(),
+      getZoom: vi.fn(() => 0),
+      getContainer: vi.fn(() => container),
+      latLngToContainerPoint: vi.fn(() => ({ x: 60, y: 60 })),
+    }
+    freshMapView._leafletApi = {
+      latLng: vi.fn((lat, lng) => ({ lat, lng })),
+      divIcon: vi.fn((options) => options),
+      marker: vi.fn(() => marker),
+    }
+    freshMapView._buildMapLabelItems = vi.fn(() => [{
+      item_id: "location:loc-1",
+      item_kind: "fact",
+      fact_status: "confirmed",
+      title: "洛阳外城",
+      object_type: "location",
+      dynamic_type: "location",
+      priority: 56,
+      target_entity_id: "loc-1",
+      source_kind: "location",
+      source_id: "loc-1",
+      q: 0,
+      r: 0,
+      opacity: 1,
+      anchor: { x: 60, y: 60 },
+    }])
+    freshMapView._hasDetailMap = vi.fn(() => false)
+    const openDetail = vi.spyOn(freshMapView, "_onCenterClick").mockImplementation(() => {})
+
+    freshMapView._renderCenterLabels()
+    expect(marker.on).toHaveBeenCalledWith("click", expect.any(Function))
+    markerHandlers.click()
+    expect(openDetail).toHaveBeenCalledWith("loc-1")
+  })
+
   it("reuses one in-flight Leaflet module load across concurrent initialization", async () => {
     const freshMapView = await importFreshMapView()
     const container = document.createElement("div")

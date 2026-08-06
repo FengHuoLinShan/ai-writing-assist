@@ -30,13 +30,11 @@ async function hexPosition(page, q, r, size = 30) {
   return page.evaluate(async ({ q, r, size }) => {
     const { default: currentMapView } = await import("/views/mapView.js")
     const leafletMap = currentMapView._leaflet
-    if (!leafletMap) throw new Error("Leaflet map is not ready")
-    const origin = leafletMap.latLngToContainerPoint([0, 0])
-    const scale = 2 ** Number(leafletMap.getZoom())
-    return {
-      x: origin.x + size * 1.5 * q * scale,
-      y: origin.y + size * Math.sqrt(3) * (r + q / 2) * scale,
-    }
+    const leafletApi = currentMapView._leafletApi
+    if (!leafletMap || !leafletApi) throw new Error("Leaflet map is not ready")
+    const x = size * 1.5 * q
+    const y = size * Math.sqrt(3) * (r + q / 2)
+    return leafletMap.latLngToContainerPoint(leafletApi.latLng(-y, x))
   }, { q, r, size })
 }
 
