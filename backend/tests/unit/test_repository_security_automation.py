@@ -228,13 +228,16 @@ def test_dependabot_updates_are_scoped_staggered_and_reviewable() -> None:
         entry = by_ecosystem[ecosystem]
         assert (entry.get("directory") or entry.get("directories")) == directory
         assert entry["open-pull-requests-limit"] == "3"
-        assert set(entry) == {
+        expected_keys = {
             "package-ecosystem",
             "directory" if isinstance(directory, str) else "directories",
             "schedule",
             "open-pull-requests-limit",
             "groups",
         }
+        if ecosystem == "docker":
+            expected_keys.add("ignore")
+        assert set(entry) == expected_keys
         assert entry["schedule"] == {
             "interval": "weekly",
             "day": day,
@@ -248,6 +251,20 @@ def test_dependabot_updates_are_scoped_staggered_and_reviewable() -> None:
                 "update-types": ["minor", "patch"],
             }
         }
+        if ecosystem == "docker":
+            assert entry["ignore"] == [
+                {
+                    "dependency-name": "python",
+                    "update-types": [
+                        "version-update:semver-minor",
+                        "version-update:semver-major",
+                    ],
+                },
+                {
+                    "dependency-name": "node",
+                    "update-types": ["version-update:semver-major"],
+                },
+            ]
 
     assert len(observed_times) == len(DEPENDABOT_SCHEDULES)
 
