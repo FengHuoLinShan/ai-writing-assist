@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
 from copy import deepcopy
@@ -22,7 +21,7 @@ def fingerprint_secret(value: str, *, purpose: str) -> str:
     if not key:
         raise RuntimeError(f"{_SECRET_ENV_KEY} must be configured to fingerprint secrets")
     payload = domain.encode("utf-8") + b"\x00" + secret.encode("utf-8")
-    return hmac.new(key.encode("ascii"), payload, hashlib.sha256).hexdigest()
+    return hmac.digest(key.encode("ascii"), payload, "sha256").hex()
 
 
 def is_encrypted_secret(value: Any) -> bool:
