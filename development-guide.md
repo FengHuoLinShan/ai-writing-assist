@@ -23,7 +23,7 @@ cd backend
 pip install -e ".[dev]"          # Install dependencies
 python scripts/dev_server.py     # Process-level auto-reload (port 8000)
 python run_worker.py --reload    # Task worker with auto-reload
-python scripts/check_llm.py      # Sanitized LLM connectivity check
+python scripts/check_llm.py      # Env-only remote LLM diagnostic; not account state
 python scripts/manage_accounts.py smtp-smoke --to test@example.com  # SMTP smoke
 python scripts/manage_accounts.py claim-legacy --email test@example.com  # 认领存量数据
 
@@ -171,6 +171,8 @@ nginx-owned `/run` and `/var/cache/nginx` tmpfs. PostgreSQL and embedding are de
 non-goals until separately validated. `make test-production-images` runs both images with
 those restrictions and verifies effective UID, zero capabilities, no-new-privileges,
 immutable application/static paths, a backend tempfile and live nginx health/assets. This
+gate also performs a real network-isolated restore from a synthetic content-free dump with
+the pinned PostgreSQL image and verifies that no drill container or snapshot remains. This
 reduces a container's write and privilege surface; it does not eliminate application,
 image, daemon or host compromise risk. Roll back an undeclared write-path failure through
 the fixed-SHA release flow, rather than making a production root filesystem writable.

@@ -37,9 +37,9 @@ PUBLIC_BASE_URL=$(env_value PUBLIC_BASE_URL)
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
 
-curl_https --max-filesize 65536 \
+curl_https --dump-header "$TMP_DIR/health.headers" --max-filesize 65536 \
     "$PUBLIC_BASE_URL/api/health" >"$TMP_DIR/health.json"
-python3 - "$TMP_DIR/health.json" <<'PY'
+python3 - "$TMP_DIR/health.json" "$TMP_DIR/health.headers" <<'PY'
 import json
 import sys
 
@@ -47,6 +47,74 @@ with open(sys.argv[1], encoding="utf-8") as health_file:
     payload = json.load(health_file)
 if payload.get("status") != "healthy" or payload.get("database") != "connected":
     raise SystemExit(f"Unexpected health response: {payload!r}")
+
+with open(sys.argv[2], encoding="iso-8859-1") as header_file:
+    raw_lines = header_file.read().splitlines()
+responses: list[list[str]] = []
+current: list[str] | None = None
+for raw_line in raw_lines:
+    line = raw_line.strip("\r")
+    if line.startswith("HTTP/"):
+        if current is not None:
+            responses.append(current)
+        current = []
+    elif not line:
+        if current is not None:
+            responses.append(current)
+            current = None
+    elif current is None:
+        raise SystemExit("Security header verification found an unframed header block")
+    else:
+        current.append(line)
+if current is not None:
+    responses.append(current)
+if not responses:
+    raise SystemExit("Security header verification found no HTTP response headers")
+
+headers: dict[str, list[str]] = {}
+for line in responses[-1]:
+    if ":" not in line:
+        raise SystemExit("Security header verification found a malformed header")
+    name, value = line.split(":", 1)
+    headers.setdefault(name.strip().lower(), []).append(value.strip())
+
+required = {
+    "strict-transport-security": "max-age=31536000",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+}
+for name, expected in required.items():
+    values = headers.get(name, [])
+    if values != [expected]:
+        raise SystemExit(
+            f"Security header {name} must appear exactly once with the expected value"
+        )
+
+csp_values = headers.get("content-security-policy", [])
+if len(csp_values) != 1:
+    raise SystemExit("Security header content-security-policy must appear exactly once")
+csp = csp_values[0]
+expected_csp = {
+    "default-src": ["'self'"],
+    "script-src": ["'self'"],
+    "style-src": ["'self'", "'unsafe-inline'"],
+    "img-src": ["'self'", "data:"],
+    "connect-src": ["'self'"],
+    "object-src": ["'none'"],
+    "base-uri": ["'self'"],
+    "frame-ancestors": ["'none'"],
+}
+actual_csp: dict[str, list[str]] = {}
+for raw_directive in csp.split(";"):
+    tokens = raw_directive.split()
+    if not tokens:
+        continue
+    name, values = tokens[0].lower(), tokens[1:]
+    if name in actual_csp:
+        raise SystemExit("Security header content-security-policy repeats a directive")
+    actual_csp[name] = values
+if actual_csp != expected_csp:
+    raise SystemExit("Security header content-security-policy differs from the baseline")
 PY
 
 curl_https --max-filesize 1048576 \

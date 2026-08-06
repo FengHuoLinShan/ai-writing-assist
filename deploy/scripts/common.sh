@@ -262,6 +262,35 @@ sha256_digest() {
     printf '%s\n' "$digest"
 }
 
+sha256_digest_stream() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        digest_output=$(sha256sum) || {
+            echo "Unable to calculate streamed SHA-256 with sha256sum." >&2
+            return 1
+        }
+    elif command -v shasum >/dev/null 2>&1; then
+        digest_output=$(shasum -a 256) || {
+            echo "Unable to calculate streamed SHA-256 with shasum." >&2
+            return 1
+        }
+    else
+        echo "No SHA-256 command is available (need sha256sum or shasum)." >&2
+        return 1
+    fi
+    digest=${digest_output%% *}
+    case "$digest" in
+        ""|*[!0-9a-f]*)
+            echo "SHA-256 command returned an invalid digest." >&2
+            return 1
+            ;;
+    esac
+    if [ "${#digest}" -ne 64 ]; then
+        echo "SHA-256 command returned an invalid digest." >&2
+        return 1
+    fi
+    printf '%s\n' "$digest"
+}
+
 constant_time_equal() {
     python3 - "$1" "$2" <<'PY'
 import hmac
@@ -321,13 +350,18 @@ verify_postgres_archive() {
         echo "PostgreSQL archive is missing, empty, or not a regular file." >&2
         return 1
     fi
+    verify_postgres_archive_stream <"$archive_path"
+}
+
+verify_postgres_archive_stream() {
+    postgres_image=$(env_value POSTGRES_IMAGE) || return 1
     if ! docker image inspect "$postgres_image" >/dev/null 2>&1; then
         docker pull "$postgres_image" >&2 || {
             echo "Unable to pull the PostgreSQL archive verifier image." >&2
             return 1
         }
     fi
-    docker run --rm --pull never \
+    docker run --rm -i --pull never \
         --network none \
         --read-only \
         --cap-drop ALL \
@@ -339,7 +373,7 @@ verify_postgres_archive() {
         --pids-limit 64 \
         --user 65534:65534 \
         --entrypoint pg_restore \
-        "$postgres_image" --list <"$archive_path" >/dev/null
+        "$postgres_image" --list >/dev/null
 }
 
 deployment_state_operation_id() {

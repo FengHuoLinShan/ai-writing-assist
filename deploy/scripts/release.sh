@@ -46,6 +46,28 @@ OPERATION_ID=$(deployment_state_operation_id)
 DEPLOYMENT_COMMITTED=false
 DEPLOYMENT_STATE_WRITE_FAILED=false
 NEW_APP_SERVICES_MAY_HAVE_STARTED=false
+FIRST_RELEASE_FRESH=false
+FIRST_RELEASE_ROLLBACK_REQUIRED=false
+FIRST_RELEASE_POSTGRES_USER=
+FIRST_RELEASE_POSTGRES_DB=
+
+rollback_verified_empty_first_release() {
+    if [ "$FIRST_RELEASE_ROLLBACK_REQUIRED" != "true" ]; then
+        return 0
+    fi
+    echo "Resetting the failed first-release schema to its previously verified empty state." >&2
+    if ! compose exec -T postgres dropdb \
+        --username "$FIRST_RELEASE_POSTGRES_USER" \
+        --force \
+        --if-exists "$FIRST_RELEASE_POSTGRES_DB" \
+        || ! compose exec -T postgres createdb \
+            --username "$FIRST_RELEASE_POSTGRES_USER" \
+            "$FIRST_RELEASE_POSTGRES_DB"; then
+        echo "Failed to reset the first-release database; manual recovery is required." >&2
+        return 1
+    fi
+    FIRST_RELEASE_ROLLBACK_REQUIRED=false
+}
 
 cleanup_uncommitted_attempt() {
     status=$?
@@ -60,6 +82,9 @@ cleanup_uncommitted_attempt() {
             if ! compose stop api worker frontend >/dev/null 2>&1; then
                 echo "Warning: failed to stop application services after an uncommitted release." >&2
             fi
+        fi
+        if ! rollback_verified_empty_first_release; then
+            status=1
         fi
         if ! (
             umask 022
@@ -114,6 +139,9 @@ if [ ! -e "$STATE_DIR/deployment-state.json" ] \
         echo "DATABASE_MODE=fresh but the first-release database is not empty." >&2
         exit 1
     fi
+    FIRST_RELEASE_FRESH=true
+    FIRST_RELEASE_POSTGRES_USER=$POSTGRES_USER
+    FIRST_RELEASE_POSTGRES_DB=$POSTGRES_DB
 fi
 
 if ! compose run --rm api python scripts/check_embedding.py; then
@@ -121,11 +149,29 @@ if ! compose run --rm api python scripts/check_embedding.py; then
     exit 1
 fi
 
-BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
+BACKUP_PATH=
+if [ "$FIRST_RELEASE_FRESH" != "true" ]; then
+    BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
+    bash "$SCRIPT_DIR/restore_drill.sh" \
+        --target-commit "$TARGET_COMMIT" "$BACKUP_PATH"
+else
+    FIRST_RELEASE_ROLLBACK_REQUIRED=true
+fi
 
 if ! compose --profile ops run --rm migrate; then
-    echo "Migration failed. Database backup: $BACKUP_PATH" >&2
+    if [ -n "$BACKUP_PATH" ]; then
+        echo "Migration failed. Database backup: $BACKUP_PATH" >&2
+    else
+        echo "Migration failed on the verified empty first-release database." >&2
+    fi
     exit 1
+fi
+
+if [ "$FIRST_RELEASE_FRESH" = "true" ]; then
+    BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
+    bash "$SCRIPT_DIR/restore_drill.sh" \
+        --target-commit "$TARGET_COMMIT" "$BACKUP_PATH"
+    FIRST_RELEASE_ROLLBACK_REQUIRED=false
 fi
 
 ensure_public_bootstrap
@@ -135,6 +181,15 @@ compose up -d api worker frontend
 if ! wait_for_application_health; then
     compose stop api worker frontend >/dev/null 2>&1 || true
     echo "Release health check failed; application services were stopped." >&2
+    echo "Target commit: $TARGET_COMMIT" >&2
+    echo "Previous commit: $PREVIOUS_COMMIT" >&2
+    echo "Pre-migration backup: $BACKUP_PATH" >&2
+    exit 1
+fi
+
+if ! bash "$SCRIPT_DIR/verify_public.sh"; then
+    compose stop api worker frontend >/dev/null 2>&1 || true
+    echo "Public release verification failed; application services were stopped." >&2
     echo "Target commit: $TARGET_COMMIT" >&2
     echo "Previous commit: $PREVIOUS_COMMIT" >&2
     echo "Pre-migration backup: $BACKUP_PATH" >&2

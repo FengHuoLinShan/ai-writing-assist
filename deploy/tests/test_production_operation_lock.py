@@ -362,7 +362,9 @@ def test_mutating_scripts_enter_shared_lock_before_production_work() -> None:
     restore_guard = restore.index("verify_deployment_checkout")
     assert restore_lock < restore_validation < restore_guard < restore.index(
         "ensure_private_backup_directory"
-    ) < restore.index("BACKUP_PATH=$(realpath")
+    ) < restore.index(
+        'VALIDATED_PAIR=$(python3 "$SCRIPT_DIR/validate_backup_pair.py"'
+    )
 
     for script_name, validator in (
         ("backup.sh", "validate_environment >&2"),
