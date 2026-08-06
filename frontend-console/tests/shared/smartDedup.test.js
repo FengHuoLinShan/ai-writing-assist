@@ -602,7 +602,7 @@ describe("Smart Dedup Manager", () => {
     const result = sceneGroupResult()
     const manager = await runScanToDone(result)
     let modal = latestModal()
-    expect(modal.body.html).toContain("生成 Scene 影响预览")
+    expect(modal.body.html).toContain("生成场景影响预览")
     expect(modal.buttons[0].text).toBe("执行已就绪组 (0)")
 
     document.body.innerHTML = modal.body.html
@@ -634,7 +634,7 @@ describe("Smart Dedup Manager", () => {
     expect(latestModal().body.html).toContain("转入 AI 融合工作台")
     expect(manager._groupDraftFor(groups[0]).operations.s1.action).toBe("ai_fusion")
     expect(manager._groupReadiness(groups[0]).ready).toBe(true)
-    expect(latestModal().body.html).not.toContain("生成 Scene 影响预览")
+    expect(latestModal().body.html).not.toContain("生成场景影响预览")
   })
 
   it("keeps stale group results visible and offers a rescan instead of retrying them", async () => {

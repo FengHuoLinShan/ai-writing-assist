@@ -35,7 +35,7 @@ describe("渲染契约", () => {
     expect(wrapper.find(".workflow-progress__chevron").exists()).toBe(true)
     expect(wrapper.find(".workflow-progress__title").text()).toBe("索引重建")
     expect(wrapper.find(".workflow-progress__meta").text()).toContain("42%")
-    expect(wrapper.find(".workflow-progress__meta").text()).toContain("任务 task-1")
+    expect(wrapper.find(".workflow-progress__meta").text()).not.toContain("task-1")
     expect(wrapper.find(".workflow-progress__body").exists()).toBe(true)
   })
 
@@ -178,8 +178,8 @@ describe("内容区块", () => {
     expect(wrapper.find(".workflow-progress__error").text()).toBe("部分失败")
     expect(wrapper.findAll(".workflow-progress__warnings li")).toHaveLength(3)
     expect(wrapper.find(".workflow-progress__asset-summary").text()).toContain("已采用 10")
-    expect(wrapper.find(".workflow-progress__artifacts li").text()).toContain("Phase 0 · Scene 窗口规划")
-    expect(wrapper.find(".workflow-progress__artifacts li").text()).toContain("Scene 58")
+    expect(wrapper.find(".workflow-progress__artifacts li").text()).toContain("阶段 1 · 规划场景范围")
+    expect(wrapper.find(".workflow-progress__artifacts li").text()).toContain("场景 58")
   })
 
   it("详细进度五个小节按需渲染", () => {

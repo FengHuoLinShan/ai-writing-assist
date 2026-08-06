@@ -23,7 +23,7 @@ const props = defineProps({
   collapsible: { type: Boolean, default: true },
   className: { type: String, default: "" },
   detailLevel: { type: String, default: "" },
-  showTaskId: { type: Boolean, default: true },
+  showTaskId: { type: Boolean, default: false },
   elapsedText: { type: String, default: "" },
   defaultExpanded: { type: Boolean, default: undefined },
   attentionRequired: { type: Boolean, default: false },

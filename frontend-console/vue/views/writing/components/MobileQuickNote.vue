@@ -2,6 +2,7 @@
   <div class="mobile-quick-note">
     <div class="mobile-note-header">
       <span class="mobile-note-chapter">第 {{ state.chapter }} 章</span>
+      <span class="mobile-note-status" role="status">{{ statusText }}</span>
       <span id="mobile-note-wc" class="mobile-note-wc">{{ state.content.length.toLocaleString() }} 字</span>
     </div>
     <textarea
@@ -13,21 +14,27 @@
       placeholder="在此记录灵感..."
     />
     <div class="mobile-note-actions">
-      <button class="btn btn-primary" :disabled="state.saving" @click="$emit('save')">保存为工作稿</button>
+      <button class="btn btn-primary" :disabled="state.saving || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
+      <button class="btn btn-ghost" :disabled="state.saving" @click="$emit('save')">保存工作稿</button>
       <button class="btn btn-ghost" @click="$emit('desktop')">完整编辑器</button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue"
 
 const props = defineProps({
   state: { type: Object, required: true },
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })
-defineEmits(["save", "desktop"])
+defineEmits(["save", "publish", "desktop"])
+const statusText = computed(() => {
+  if (props.state.saving) return "正在保存"
+  if (props.state.saveError) return "保存失败，本地备份已保留"
+  return props.state.dirty ? "尚未保存" : "已保存到工作稿"
+})
 const editorEl = ref(null)
 onMounted(() => nextTick(() => props.attach({ title: null, editor: editorEl.value })))
 onBeforeUnmount(() => props.detach())

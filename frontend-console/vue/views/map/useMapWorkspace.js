@@ -147,7 +147,7 @@ export function useMapWorkspace(props) {
     const queueItem = dashboardQueue.value.find(
       (item) => item.scene_id === activeSceneId.value || item.source_scene_id === activeSceneId.value,
     )
-    return queueItem?.time_label || (activeSceneId.value ? "当前 Scene" : "当前正式世界状态")
+    return queueItem?.time_label || (activeSceneId.value ? "当前场景" : "当前正式世界状态")
   })
   const currentLiveFacts = computed(() => activeQueue.value.filter((item) => (
     item.item_kind === "fact"
@@ -316,7 +316,7 @@ export function useMapWorkspace(props) {
       if (token === timelineGeneration.value) {
         timeline.stateAt = null
         timeline.stateLoading = false
-        timeline.stateError = error.message || "Scene 正式状态暂不可用"
+        timeline.stateError = error.message || "场景正式状态暂不可用"
       }
       return false
     }
@@ -359,13 +359,13 @@ export function useMapWorkspace(props) {
         if (index < 0) index = Math.max(0, data.scenes.length - 1)
         Object.assign(timeline, { loading: false, loaded: true, error: null, data, activeIndex: index, sceneIndex: data.scenes[index]?.scene_index ?? null, playing: false })
         if (timeline.sceneIndex != null) await loadTimelineState(timeline.sceneIndex)
-      } else Object.assign(timeline, { loading: false, loaded: true, error: timelineResult.error?.message || "Scene 时间轴暂不可用", data: null, playing: false })
+      } else Object.assign(timeline, { loading: false, loaded: true, error: timelineResult.error?.message || "场景时间轴暂不可用", data: null, playing: false })
       return true
     } catch (error) {
       if (!owned(token)) return false
       Object.assign(dynamicSummary, emptySummary(), { loaded: true, error: "地图动态事实暂不可用" })
       Object.assign(playback, { loading: false, loaded: true, playback: null, error: "世界动态播放暂不可用", playing: false, activeIndex: 0 })
-      Object.assign(timeline, { loading: false, loaded: true, error: "Scene 时间轴暂不可用", data: null, playing: false })
+      Object.assign(timeline, { loading: false, loaded: true, error: "场景时间轴暂不可用", data: null, playing: false })
       toast(`地图动态事实暂不可用：${error.message || "加载失败"}`, "warning")
       return false
     }
@@ -471,7 +471,7 @@ export function useMapWorkspace(props) {
     }, Math.max(600, Number(timeline.speedMs || 1600)))
   }
   async function startTimeline() {
-    if (editingState.editing) { toast("请先结束地图编辑，再播放 Scene 时间轴", "info"); return false }
+    if (editingState.editing) { toast("请先结束地图编辑，再播放故事时间轴", "info"); return false }
     const scenes = timeline.data?.scenes || []
     if (!scenes.length) return startPlayback()
     if (timeline.activeIndex >= scenes.length - 1) await setTimelinePosition(0, { fromPlayback: true })
@@ -778,7 +778,7 @@ export function useMapWorkspace(props) {
   function continuityEvidence(issue) {
     const evidence = (issue?.source_fact_ids || []).map((id) => factById.value.get(String(id))).filter(Boolean).map((item) => item.evidence_text || item.source_summary).filter(Boolean)
     const sceneRange = `${mapSceneLabel(issue?.from_scene_index)} → ${mapSceneLabel(issue?.to_scene_index)}`
-    showModalHtml("空间连续性证据", `<div class="map-object-info"><div class="map-detail-section"><div class="map-detail-label">检查结果</div><div class="map-detail-value">${esc(issue?.message || "空间连续性待核对")}</div></div><div class="map-detail-section"><div class="map-detail-label">Scene</div><div class="map-detail-value">${esc(sceneRange)}</div></div><div class="map-detail-section"><div class="map-detail-label">来源证据</div><div class="map-detail-value">${evidence.length ? evidence.slice(0, 5).map((text) => `<p>${esc(mapSourceText(text))}</p>`).join("") : `已保留 ${esc((issue?.source_fact_ids || []).length)} 条来源事实`}</div></div></div>`, [{ text: "关闭", class: "", handler: closeModal }])
+    showModalHtml("空间连续性证据", `<div class="map-object-info"><div class="map-detail-section"><div class="map-detail-label">检查结果</div><div class="map-detail-value">${esc(issue?.message || "空间连续性待核对")}</div></div><div class="map-detail-section"><div class="map-detail-label">场景</div><div class="map-detail-value">${esc(sceneRange)}</div></div><div class="map-detail-section"><div class="map-detail-label">来源证据</div><div class="map-detail-value">${evidence.length ? evidence.slice(0, 5).map((text) => `<p>${esc(mapSourceText(text))}</p>`).join("") : `已保留 ${esc((issue?.source_fact_ids || []).length)} 条来源事实`}</div></div></div>`, [{ text: "关闭", class: "", handler: closeModal }])
   }
   function continuityExplain(issue) {
     const suggestion = issue?.suggested_observation
@@ -894,6 +894,11 @@ export function useMapWorkspace(props) {
   const beforeUnload = (event) => { if (!editingState.dirty) return; event.preventDefault(); event.returnValue = "" }
   onMounted(() => {
     window.addEventListener("beforeunload", beforeUnload)
+    const rememberedMap = readRecentMap(projectId)
+    if (rememberedMap?.mapId && !maps.value.some((item) => item.id === rememberedMap.mapId)) {
+      clearRecentMap(projectId)
+      recentRevision.value += 1
+    }
     enrichment.recover()
     void initializeRoute()
   })

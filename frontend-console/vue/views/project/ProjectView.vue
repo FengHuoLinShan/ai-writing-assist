@@ -66,6 +66,7 @@ const currentName = computed(() => {
 const filterCountLabel = computed(() => projectCountLabel(visibleProjects.value.length, allProjects.value.length))
 
 const searchInput = ref(null)
+const manageMode = ref(false)
 
 function clearProjectSearch() {
   session.searchQuery = ""
@@ -73,6 +74,10 @@ function clearProjectSearch() {
 }
 
 function toggleImportSection() {
+  if (allProjects.value.length === 0) {
+    importAsNewProject()
+    return
+  }
   session.importSectionOpen = !session.importSectionOpen
 }
 
@@ -83,7 +88,7 @@ function openProject(id) {
   state.currentProjectId = id
   state.currentProject = project
   getToast()(`已切换到项目：${project.title || project.name}`, "success")
-  getRouter().navigate("writing")
+  getRouter().navigate("today")
 }
 
 function toggleSelect(id, checked) {
@@ -159,15 +164,20 @@ async function retryProjects() {
           <b :title="currentName">{{ currentName }}</b>
         </div>
         <div class="project-archive-hero__actions">
-          <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建项目</button>
-          <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ session.importSectionOpen ? "收起导入" : "导入小说" }}</button>
-          <button class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
+          <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建空白作品</button>
+          <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ session.importSectionOpen ? "收起导入" : "导入已有作品" }}</button>
+          <button class="btn btn-ghost" data-action="manage-projects" @click="manageMode = !manageMode">{{ manageMode ? "完成管理" : "管理作品" }}</button>
+          <button v-if="manageMode" class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
         </div>
       </div>
       <div class="project-archive-hero__geometry" aria-hidden="true">
         <i></i><i></i><i></i><i></i>
       </div>
     </header>
+
+    <div v-if="session.importSectionOpen" class="project-import-drawer">
+      <ImportDrawer @import-new-project="importSelectedFileAsNewProject" />
+    </div>
 
     <div v-if="props.loadError && allProjects.length === 0" class="empty-state project-catalog-state" role="alert">
       <div class="project-catalog-state__mark" aria-hidden="true">!</div>
@@ -189,18 +199,11 @@ async function retryProjects() {
       <div class="project-catalog-state__copy">
         <span class="project-catalog-state__index">FIRST STORY / 01</span>
         <h2>开始你的第一部小说</h2>
-        <p>从一页空白开始，或导入已有正文，让人物、世界与剧情在同一处继续生长。</p>
-        <div class="actions">
-          <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建项目</button>
-          <button class="btn btn-ghost" data-action="import" @click="importAsNewProject()">导入小说</button>
-        </div>
+        <p>使用上方的“新建空白作品”或“导入已有作品”开始，两种方式之后都可以继续写作。</p>
       </div>
     </div>
 
     <template v-else>
-      <div v-if="session.importSectionOpen" class="project-import-drawer">
-        <ImportDrawer @import-new-project="importSelectedFileAsNewProject" />
-      </div>
       <div v-if="props.loadError" class="alert alert-warning" role="alert">
         <span>项目列表刷新失败，当前显示上次已加载的内容。</span>
         <button class="btn btn-sm" data-action="retry-projects" @click="retryProjects">重试</button>
@@ -227,7 +230,7 @@ async function retryProjects() {
           </span>
           <span class="bulk-toolbar__hint">当前项目优先 · 其余按最近更新排序</span>
         </div>
-        <div class="project-index-bar__bulk">
+        <div v-if="manageMode" class="project-index-bar__bulk">
           <button class="btn btn-sm" data-action="select-visible-projects" :disabled="visibleIds.length === 0" :aria-label="`全选当前可见的 ${visibleIds.length} 个项目`" @click="selectAllVisible">全选当前可见项目</button>
           <div class="bulk-toolbar" data-scope="project-cards">
             <div class="bulk-toolbar__status">
@@ -267,6 +270,7 @@ async function retryProjects() {
             :index="index"
             :is-current="String(project.id) === String(currentProjectId || '')"
             :selected="selection.has(String(project.id))"
+            :manage="manageMode"
             @open="openProject"
             @toggle-select="toggleSelect"
             @edit="editProjectModal"

@@ -73,7 +73,7 @@ defineEmits(["preview", "restore", "delete", "compare"])
 const close = () => { props.model.open = false; props.model.diffOpen = false }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.model.open, requestClose: close })
 const isActive = (version) => version.display_state ? version.display_state === "active" : !["candidate", "deprecated"].includes(version.status)
-const statusLabel = (version) => version.status === "published" ? "已发布" : version.status === "candidate" ? "待处理" : version.status === "deprecated" ? "历史" : "工作稿"
+const statusLabel = (version) => version.status === "published" ? "正式正文" : version.status === "candidate" ? "待处理" : version.status === "deprecated" ? "历史" : "工作稿"
 function formatTimestamp(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)

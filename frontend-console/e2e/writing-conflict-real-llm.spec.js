@@ -32,7 +32,7 @@ const TEST_CONTENT = [
 ].join("")
 
 async function confirmPublishIfPrompted(page) {
-  const continueButton = page.locator("#modal-footer").getByRole("button", { name: "继续发布" })
+  const continueButton = page.locator("#modal-footer").getByRole("button", { name: "继续设为正式正文" })
   try {
     await expect(continueButton).toBeVisible({ timeout: 5000 })
     await continueButton.click()
@@ -155,6 +155,7 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
 
     await page.locator("#writing-title-input").fill("第一章 旧约门")
     await page.locator("#writing-editor").fill(TEST_CONTENT)
+    await page.locator('[data-action="writing-more-menu"]').click()
     await page.locator("#btn-conflict-check").click()
     const conflictOptions = page.getByRole("dialog", { name: "剧情设定冲突检查选项" })
     await expect(conflictOptions).toContainText("剧情设定冲突检查")
@@ -245,9 +246,9 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     await conflictDialog.locator(".modal-footer").getByRole("button", { name: "关闭" }).click()
 
     await page.locator("#btn-publish").click()
-    await expect(page.locator(SEL.modalOverlay)).toContainText("未处理高严重度问题", { timeout: 10000 })
+    await expect(page.locator(SEL.modalOverlay)).toContainText("未处理的重要问题", { timeout: 10000 })
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 30000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 30000 })
 
     const latestDraft = await getLatestDraft(testProjectId, 1)
     const snapshot = latestDraft.conflict_check_snapshot_json

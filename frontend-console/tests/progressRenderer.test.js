@@ -107,7 +107,7 @@ describe("progressRenderer", () => {
 
     expect(html).toContain("workflow-progress--indeterminate")
     expect(html).toContain("workflow-progress__fill--indeterminate")
-    expect(html).toContain("任务 t1")
+    expect(html).not.toContain("任务 t1")
   })
 
   it("只在后端明确允许 retry 时渲染重试操作", () => {
@@ -169,8 +169,8 @@ describe("progressRenderer", () => {
       },
     })
 
-    expect(html).toContain("Scene commit · 正式写入")
-    expect(html).toContain("Scene 60")
+    expect(html).toContain("最后一步 · 保存整理结果")
+    expect(html).toContain("场景 60")
     expect(html).toContain("修复 1")
   })
 

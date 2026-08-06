@@ -22,8 +22,8 @@ const props = defineProps({
 })
 
 const TABS = [
-  { key: "deep", label: "深度导入" },
-  { key: "author", label: "作者偏好" },
+  { key: "author", label: "创作偏好" },
+  { key: "deep", label: "高级导入" },
 ]
 
 function deepImportSettingsSource(llm) {
@@ -33,7 +33,7 @@ function deepImportSettingsSource(llm) {
 
 const initialTab = TABS.some((item) => item.key === projectSettingsSession.tab)
   ? projectSettingsSession.tab
-  : "deep"
+  : "author"
 const tab = ref(initialTab)
 const tabButtons = ref([])
 watch(tab, (value) => {
@@ -212,7 +212,7 @@ function hasUnsavedChanges() {
 
 useLeaveGuard(() => (
   !hasUnsavedChanges()
-  || getConfirm()("项目设置有未保存修改，确定放弃并离开吗？")
+  || getConfirm()("项目偏好有未保存修改，确定放弃并离开吗？")
 ))
 
 function beforeUnload(event) {
@@ -232,16 +232,16 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
       id="project-settings-goto-global"
       class="btn btn-link"
       @click="gotoGlobalSettings"
-    >返回账户设置</button>
+    >返回账户与模型连接</button>
   </div>
 
   <div v-else class="project-settings-view">
     <div class="view-header view-header--with-tabs section-header">
       <h2 class="view-header__title">
-        项目设置
+        项目偏好
         <span class="view-header__project">{{ props.projectTitle }}</span>
       </h2>
-      <nav class="subnav settings-tab-nav" role="tablist" aria-label="项目设置">
+      <nav class="subnav settings-tab-nav" role="tablist" aria-label="项目偏好">
         <button
           v-for="item in TABS"
           :key="item.key"
@@ -266,7 +266,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
         id="project-settings-goto-global"
         class="btn btn-sm btn-link"
         @click="gotoGlobalSettings"
-      >到账户设置管理</button>
+      >管理账户与模型连接</button>
     </aside>
 
     <div
@@ -279,7 +279,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
       <template v-if="dataReady">
         <div v-if="tab === 'deep'" class="deep-import-tab">
           <p class="settings-section-hint">
-            这些高级参数只影响本项目的深度导入；模型与 Key 由账户设置统一管理。
+            这些高级参数只影响本项目的深度导入；模型与密钥由“账户与模型连接”统一管理。
           </p>
           <p class="deep-import-source-hint">
             深度导入参数

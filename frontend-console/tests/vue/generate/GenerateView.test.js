@@ -226,7 +226,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const wrapper = mount(GenerateView, { props: baseProps({ tab: "pov_prose" }), attachTo: document.body })
 
     expect(wrapper.text()).toContain("角色视角正文需要先准备章节")
-    expect(wrapper.text()).toContain("至少一个章节，再补充 Scene 和视角角色")
+    expect(wrapper.text()).toContain("至少一个章节，再补充场景和视角角色")
     expect(wrapper.find("#generate-pov-chapter").exists()).toBe(false)
     expect(wrapper.find("#generate-pov-scene").exists()).toBe(false)
     expect(wrapper.find("#generate-pov-instruction").exists()).toBe(false)
@@ -265,7 +265,7 @@ describe("GenerateView Vue behavior matrix", () => {
     })
 
     await wrapper.get("#generate-pov-chapter").setValue("1")
-    await vi.waitFor(() => expect(wrapper.text()).toContain("加载 Scene 失败：Scene 暂不可用"))
+    await vi.waitFor(() => expect(wrapper.text()).toContain("加载场景失败：Scene 暂不可用"))
     expect(wrapper.find("#generate-pov-chapter").exists()).toBe(true)
     expect(wrapper.find("#generate-pov-scene").exists()).toBe(true)
     expect(wrapper.find("#generate-pov-character").exists()).toBe(true)
@@ -537,7 +537,7 @@ describe("GenerateView Vue behavior matrix", () => {
       await flushPromises()
       expect(api.tasks.get).toHaveBeenCalledTimes(3)
       expect(wrapper.get("#generate-pov-result").text()).toContain("打开并审阅建议")
-      expect(toast).toHaveBeenCalledWith(expect.stringContaining("draft-retry"), "success")
+      expect(toast).toHaveBeenCalledWith("角色视角正文建议已生成", "success")
     } finally {
       vi.useRealTimers()
     }
@@ -546,7 +546,7 @@ describe("GenerateView Vue behavior matrix", () => {
   it.each([
     ["失败", { status: "failed", error_message: "上游生成失败" }, "上游生成失败"],
     ["取消", { status: "cancelled" }, "角色视角正文生成已取消"],
-    ["缺少建议 ID", { status: "done", result: {} }, "任务已完成，但未返回正文建议 ID"],
+    ["缺少建议", { status: "done", result: {} }, "任务已完成，但正文建议未能加载"],
   ])("shows the POV %s terminal state instead of leaving an empty result", async (_label, task, expectedMessage) => {
     api.outline.listScenesByChapter.mockResolvedValue([{ id: "scene-1", title: "第一场", pov_character_id: "char-1" }])
     confirmAiReference.mockResolvedValue({ id: "confirm-1", user_note: "" })

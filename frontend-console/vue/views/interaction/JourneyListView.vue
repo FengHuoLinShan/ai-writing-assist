@@ -311,8 +311,8 @@ onMounted(() => {
         @click="showOpening && hasAnyJourney ? getRouter().navigate('journeys') : getRouter().navigate('home')"
       >‹</button>
       <div>
-        <h1>{{ showOpening ? "开始新旅程" : "跑团模式" }}</h1>
-        <p>{{ showOpening ? "进入你想体验的世界" : "尽情游玩吧" }}</p>
+        <h1>{{ showOpening ? "开始新旅程" : "互动故事" }}</h1>
+        <p>{{ showOpening ? "进入你想体验的世界" : "继续你的角色扮演旅程" }}</p>
       </div>
       <button class="rp-text-button" type="button" @click="goConnect('journeys')">账户设置</button>
     </header>
@@ -372,7 +372,7 @@ onMounted(() => {
           :aria-expanded="seeSeaNoticeOpen"
           aria-controls="rp-new-journey-see-sea-confirm"
           @click="requestSeeSea"
-        >看海模式</button>
+        >故事自主发展</button>
         <button
           type="button"
           class="rp-mode-toggle"
@@ -386,8 +386,8 @@ onMounted(() => {
         id="rp-new-journey-see-sea-confirm"
         :anchor="seeSeaButton"
         :busy="seeSeaConfirming"
-        confirm-text="开始看海"
-        message="看海模式会持续使用你的模型额度；离开页面或关闭开关后会停止。"
+        confirm-text="开始自主发展"
+        message="故事会持续自主发展并使用你的模型额度；离开页面或关闭开关后会停止。"
         :open="seeSeaNoticeOpen"
         @close="seeSeaNoticeOpen = false"
         @confirm="confirmSeeSea"

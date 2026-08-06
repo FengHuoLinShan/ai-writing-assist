@@ -14,18 +14,23 @@ export function createShellTestServices(overrides = {}) {
     ...stateOverrides,
   }
   const routes = {
-    project: { title: "项目", subViews: [] },
-    world: { title: "世界对象", subViews: ["objects", "bible"], defaultSubView: "objects" },
-    writing: { title: "写作台", subViews: [] },
-    generate: { title: "生成中心", subViews: [] },
-    settings: { title: "全局设置", subViews: [] },
+    today: { title: "今日工作", subViews: [] },
+    project: { title: "作品档案", subViews: [] },
+    world: { title: "人物与世界", subViews: ["objects", "bible"], defaultSubView: "objects" },
+    writing: { title: "写作", subViews: [] },
+    outline: { title: "故事结构", subViews: ["story-outline"], defaultSubView: "story-outline" },
+    map: { title: "地图", subViews: [] },
+    rag: { title: "查找", subViews: ["search", "status"], defaultSubView: "search" },
+    generate: { title: "高级生成工具", subViews: [] },
+    settings: { title: "账户与模型连接", subViews: [] },
+    "project-settings": { title: "项目偏好", subViews: [] },
   }
   const services = {
     state,
     subscribeState: vi.fn((listener) => { listeners.add(listener); return () => listeners.delete(listener) }),
     router: {
       getRoute: vi.fn((view) => routes[view] || { title: view, subViews: [] }),
-      getSubViewTitle: vi.fn((_view, subview) => ({ objects: "对象库", bible: "世界书" })[subview] || subview || ""),
+      getSubViewTitle: vi.fn((_view, subview) => ({ objects: "人物与设定", bible: "世界笔记", "story-outline": "故事总览" })[subview] || subview || ""),
       getLastSubView: vi.fn(() => null),
       navigate: vi.fn(async () => true),
       init: vi.fn(async () => true),

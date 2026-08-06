@@ -106,17 +106,20 @@ export function mapSourceText(value) {
 }
 
 export function mapSceneLabel(sceneIndex) {
-  if (sceneIndex === null || sceneIndex === undefined || sceneIndex === "") return "Scene -"
+  if (sceneIndex === null || sceneIndex === undefined || sceneIndex === "") return "场景 -"
   const value = Number(sceneIndex)
-  return Number.isInteger(value) && value >= 0 ? `Scene ${value + 1}` : "Scene -"
+  return Number.isInteger(value) && value >= 0 ? `场景 ${value + 1}` : "场景 -"
 }
 
 export function normalizeEmbeddedSceneLabel(title, item = {}) {
   const value = String(title || "")
-  if (!/^Scene\s+\d+\s+地图上下文/.test(value)) return value
+  const legacyScene = value.match(/^Scene\s+(\d+)\s+地图上下文/)
+  if (!legacyScene) return value
   const sceneIndex = item.scene_index ?? item.time_anchor?.scene_index
-  const timeLabel = String(item.time_label || "").match(/^Scene\s+\d+/)?.[0] || null
-  const displayLabel = sceneIndex == null ? timeLabel : mapSceneLabel(sceneIndex)
+  const timeIndex = String(item.time_label || "").match(/^Scene\s+(\d+)/)?.[1] || null
+  const displayLabel = sceneIndex == null
+    ? `场景 ${timeIndex || legacyScene[1]}`
+    : mapSceneLabel(sceneIndex)
   return displayLabel ? value.replace(/^Scene\s+\d+/, displayLabel) : value
 }
 
@@ -166,7 +169,7 @@ export function inboxTimeLabel(item = {}) {
     const sequence = item.scene_sequence ?? item.time_anchor?.scene_sequence
     if (sequence != null) parts.push(`片段 ${Number(sequence) + 1}`)
   }
-  else if (item.scene_id) parts.push("已关联 Scene")
+  else if (item.scene_id) parts.push("已关联场景")
   if (item.source_chapter_index != null) parts.push(`第 ${item.source_chapter_index} 章`)
   if (item.time_anchor?.kind === "initial_state") parts.push("初始状态")
   return parts.join(" · ") || item.time_label || "时间来源待补全"

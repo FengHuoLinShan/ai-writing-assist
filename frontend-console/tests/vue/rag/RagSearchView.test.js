@@ -245,8 +245,8 @@ describe("结果交互", () => {
     const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
     await vi.waitFor(() => expect(wrapper.find(".rag-result-context").exists()).toBe(true))
 
-    expect(wrapper.find(".rag-result-context").text()).toContain("Scene 11 · 旧塔铜铃")
-    expect(wrapper.find(".rag-result-context").text()).toContain("Scene 10 · 进入旧塔")
+    expect(wrapper.find(".rag-result-context").text()).toContain("场景 11 · 旧塔铜铃")
+    expect(wrapper.find(".rag-result-context").text()).toContain("场景 10 · 进入旧塔")
     expect(wrapper.findAll(".rag-result-context__summary")).toHaveLength(2)
     expect(wrapper.find(".rag-result-context").text()).toContain("剧情承接")
     expect(wrapper.find(".rag-result-evidence-label").text()).toBe("命中依据")

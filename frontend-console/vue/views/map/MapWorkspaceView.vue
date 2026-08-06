@@ -7,11 +7,15 @@
         <span v-if="mode === 'overview'" class="view-header__count">{{ maps.length }} 张 · {{ locations.length }} 个地点</span>
       </div>
       <div v-if="mode === 'overview'" class="view-header__actions">
-        <button class="btn btn-sm btn-primary" data-action="map-open-recent" @click="openRecent">{{ recentMapActionLabel }}</button>
-        <button class="btn btn-sm btn-primary" data-action="map-quick-create" @click="quickCreate.open()">快速创建</button>
-        <button class="btn btn-sm" data-action="map-create-world" @click="modalController.showCreateWorld()">创建世界地图</button>
-        <button class="btn btn-sm" data-action="map-toggle-archived" @click="showArchived = !showArchived">{{ showArchived ? '返回当前地图' : `归档地图 ${archivedMaps.length}` }}</button>
         <input v-model="searchQuery" class="form-input map-overview-search" placeholder="搜索地图或地点" aria-label="搜索地图或地点" />
+        <details class="map-overview-more">
+          <summary class="btn btn-sm">管理地图</summary>
+          <div class="map-overview-more__panel">
+            <button class="btn btn-sm" data-action="map-quick-create" @click="quickCreate.open()">创建地图</button>
+            <button class="btn btn-sm" data-action="map-create-world" @click="modalController.showCreateWorld()">创建世界地图</button>
+            <button class="btn btn-sm" data-action="map-toggle-archived" @click="showArchived = !showArchived">{{ showArchived ? '返回当前地图' : `归档地图 ${archivedMaps.length}` }}</button>
+          </div>
+        </details>
       </div>
       <div v-else class="view-header__actions">
         <button class="btn btn-sm btn-primary" data-action="map-quick-create" :disabled="editingState.dirty" @click="quickCreate.open()">快速创建</button>
@@ -32,32 +36,38 @@
         <div class="map-pagination"><button class="btn btn-sm" :disabled="archivedPage === 0" @click="archivedPage--">上一页</button><span>第 {{ archivedPage + 1 }} / {{ archivedPageCount }} 页，共 {{ archivedMaps.length }} 个归档子树</span><button class="btn btn-sm" :disabled="archivedPage + 1 >= archivedPageCount" @click="archivedPage++">下一页</button></div>
       </section>
       <div v-else class="map-overview-grid">
-        <section class="card map-enrichment-panel">
-          <div class="map-inbox-heading"><div><h3>从既有 Scene 补充地图事实</h3><p>只读取已发布正文和既有 Scene，不重跑深度导入；结果只进入待复核候选。</p></div><span class="badge">人物位置 · 事件地点 · 线路 · 势力</span></div>
+        <section class="card map-overview-primary">
+          <div><span class="map-overview-primary__eyebrow">继续地图工作</span><h2>{{ recentAvailable?.name || (maps.length ? '打开你的地图' : '为故事创建第一张地图') }}</h2><p>{{ maps.length ? '回到最近使用的地图，继续整理地点和动态。' : '先建立一张基础地图，地点和人物位置可以稍后补充。' }}</p></div>
+          <button v-if="maps.length" class="btn btn-primary" data-action="map-open-recent" @click="openRecent">继续最近地图</button>
+          <button v-else class="btn btn-primary" data-action="map-quick-create" @click="quickCreate.open()">创建第一张地图</button>
+        </section>
+        <details class="card map-progressive-section">
+          <summary>从正文补充地图资料</summary>
+        <section class="map-enrichment-panel">
+          <div class="map-inbox-heading"><div><h3>从正文补充地图资料</h3><p>只读取正式正文和已整理的场景，不会重新导入；结果先进入待处理。</p></div><span class="badge">人物位置 · 事件地点 · 线路 · 势力</span></div>
           <div class="map-enrichment-controls">
             <label>起始章<input id="map-enrichment-start" v-model="enrichment.state.startChapter" class="form-input" type="number" min="1" :disabled="enrichment.running.value" /></label>
             <label>结束章<input id="map-enrichment-end" v-model="enrichment.state.endChapter" class="form-input" type="number" min="1" placeholder="留空表示最后一章" :disabled="enrichment.running.value" /></label>
             <label class="map-enrichment-quality"><input id="map-enrichment-high-quality" v-model="enrichment.state.highQuality" type="checkbox" :disabled="enrichment.running.value" />双阶段高质量审计</label>
             <button class="btn btn-sm btn-primary" data-action="map-enrichment-start" :disabled="enrichment.running.value" @click="enrichment.submit">{{ enrichment.running.value ? '补充中...' : '确认并开始补充' }}</button>
           </div>
-          <p class="map-enrichment-note">高质量模式会先抽取，再独立检查遗漏；未知或歧义地点不会猜测坐标。点击上方按钮即明确授权该项目的本次候选流水线。</p>
+          <p class="map-enrichment-note">高质量模式会再检查一遍遗漏；不确定的地点不会自动猜测坐标。</p>
           <div v-if="enrichment.state.progress" id="map-enrichment-progress" class="workflow-progress-card" role="status">
             <strong>{{ enrichment.state.progress.label }}</strong><span>{{ enrichment.state.progress.statusLabel }}</span>
             <p>{{ enrichment.state.progress.message }}</p><p v-if="enrichment.state.progress.resultSummary">{{ enrichment.state.progress.resultSummary }}</p>
             <p v-if="enrichment.state.progress.errorMessage" class="alert alert-warning">{{ enrichment.state.progress.errorMessage }}</p>
           </div>
         </section>
+        </details>
         <section class="card map-project-inbox">
           <div class="map-inbox-heading"><div><h3>地图收件箱</h3><p>未分配地图的建议先在这里分流，不会进入任意地图面板。</p></div><span class="badge">{{ inbox.total }} 条</span></div>
-          <div class="map-inbox-filters" aria-label="地图收件箱筛选"><select v-model="inbox.filters.dynamicType" class="form-select" aria-label="按动态类型筛选" @change="resetInbox"><option value="">全部类型</option><option value="location">人物/事件位置</option><option value="route_state">线路状态</option><option value="boundary">势力范围</option></select><details class="map-inbox-diagnostic-filter"><summary>诊断筛选</summary><input v-model="inbox.filters.sceneId" class="form-input" aria-label="按 Scene 原始 ID 筛选" placeholder="Scene 原始 ID" @change="resetInbox" /></details><select v-model="inbox.filters.source" class="form-select" aria-label="按来源筛选" @change="resetInbox"><option value="">全部来源</option><option v-for="source in inboxSources" :key="source" :value="source">{{ inboxSourceLabel({ source }) }}</option></select><select v-model="inbox.filters.confidence" class="form-select" aria-label="按置信度筛选" @change="resetInbox"><option value="">全部置信度</option><option value="low">低于 60%</option><option value="high">60% 及以上</option></select><select v-model="inbox.filters.eligibility" class="form-select" aria-label="按字段完整度筛选" @change="resetInbox"><option value="">全部完整度</option><option value="ready">可确认</option><option value="missing">待补全</option></select></div>
+          <div class="map-inbox-filters" aria-label="地图收件箱筛选"><select v-model="inbox.filters.dynamicType" class="form-select" aria-label="按动态类型筛选" @change="resetInbox"><option value="">全部类型</option><option value="location">人物/事件位置</option><option value="route_state">线路状态</option><option value="boundary">势力范围</option></select><details class="map-inbox-diagnostic-filter"><summary>诊断筛选</summary><input v-model="inbox.filters.sceneId" class="form-input" aria-label="按场景原始编号筛选" placeholder="场景原始编号" @change="resetInbox" /></details><select v-model="inbox.filters.source" class="form-select" aria-label="按来源筛选" @change="resetInbox"><option value="">全部来源</option><option v-for="source in inboxSources" :key="source" :value="source">{{ inboxSourceLabel({ source }) }}</option></select><select v-model="inbox.filters.confidence" class="form-select" aria-label="按置信度筛选" @change="resetInbox"><option value="">全部置信度</option><option value="low">低于 60%</option><option value="high">60% 及以上</option></select><select v-model="inbox.filters.eligibility" class="form-select" aria-label="按字段完整度筛选" @change="resetInbox"><option value="">全部完整度</option><option value="ready">可确认</option><option value="missing">待补全</option></select></div>
           <p v-if="inbox.loading" class="map-muted-text">正在加载地图待处理项...</p><div v-if="inbox.error" class="alert alert-warning map-inbox-error"><span>{{ inbox.error }}</span><button class="btn btn-sm" @click="loadInbox">重试</button></div><p v-if="!inbox.loading && !inboxItems.length" class="map-muted-text">当前筛选下没有未分配建议。</p>
           <div class="map-inbox-list"><article v-for="item in inboxItems" :key="item.id" class="map-inbox-item"><div><strong>{{ item.target_name || proposalTypeLabel(item) }}</strong><div class="map-dynamic-meta">{{ proposalTypeLabel(item) }} · {{ inboxSourceLabel(item) }} · {{ inboxConfidenceLabel(item) }}</div><div class="map-dynamic-meta">{{ inboxTimeLabel(item) }}</div><div class="map-dynamic-source">{{ inboxEvidenceText(item) }}</div><div class="map-dynamic-meta">{{ inboxMissingLabels(item).length ? `待补：${inboxMissingLabels(item).join('、')}` : '字段完整，分配地图后可确认' }}</div></div><div class="map-dynamic-actions"><button class="btn btn-sm btn-primary" @click="modalController.showAssign(item)">分配并继续</button><button class="btn btn-sm" @click="ignoreInbox(item)">忽略</button><button class="btn btn-sm" @click="modalController.copyDiagnostic(item)">复制诊断信息</button></div></article></div>
           <div v-if="inbox.total > 20" class="map-pagination"><button class="btn btn-sm" :disabled="inbox.page === 0" @click="changeInboxPage(-1)">上一页</button><span>{{ inbox.page * 20 + 1 }}–{{ Math.min(inbox.total, inbox.page * 20 + inbox.items.length) }} / {{ inbox.total }}</span><button class="btn btn-sm" :disabled="!inbox.hasMore" @click="changeInboxPage(1)">下一页</button></div>
         </section>
-        <section class="card"><h3>最近地图</h3><p>{{ recentMap?.name || '暂无最近地图' }}</p></section>
         <section class="card"><h3>空间总览</h3><p>地图 {{ maps.length }} 张，地点 {{ locations.length }} 个</p></section>
-        <section class="card"><h3>地图树</h3><MapTreeNode v-if="mapByParent.get(null)?.length" :items="mapByParent.get(null)" :children="mapByParent" @open="openMap($event.id, { viewMode: 'live' })" @archive="archiveMap" /><p v-else class="map-muted-text">暂无地图</p></section>
-        <section class="card"><h3>图层</h3><label v-for="(label, key) in MAP_LAYER_LABELS" :key="key" class="map-layer-toggle"><input type="checkbox" :checked="layers[key]" @change="setLayer(key, $event.target.checked)" />{{ label }}</label></section>
+        <details class="card map-progressive-section"><summary>地图结构与图层</summary><section><h3>地图结构</h3><MapTreeNode v-if="mapByParent.get(null)?.length" :items="mapByParent.get(null)" :children="mapByParent" @open="openMap($event.id, { viewMode: 'live' })" @archive="archiveMap" /><p v-else class="map-muted-text">暂无地图</p><h3>图层</h3><label v-for="(label, key) in MAP_LAYER_LABELS" :key="key" class="map-layer-toggle"><input type="checkbox" :checked="layers[key]" @change="setLayer(key, $event.target.checked)" />{{ label }}</label></section></details>
       </div>
     </template>
 
@@ -120,10 +130,7 @@ const props = defineProps({ projectId: { type: String, required: true }, route: 
 const vm = useMapWorkspace(props)
 const { activeMap, activeQueue, activeSceneId, activeSceneLabel, archiveMap, archivedMaps, archivedPage, archivedPageCount, batchReview, clearLensFocus, confirmObservation, consumePendingObservationEditor, currentLiveFacts, dynamicEditor, dynamicSummary, editingState, enrichment, focusEntityInLens, historyQueue, ignoreInbox, ignoreObservation, inbox, inboxItems, layers, lensContextItems, lensFocusableItems, lensHasFocus, loadDynamic, loadInbox, locations, lowMotion, mapByParent, maps, message, modalController, mode, openLocation, openMap, openRecent, playback, quickCreate, recentMap, returnOverview, searchQuery, searchResults, setLayer, setLowMotion, setTimelineCandidates, setTimelinePosition, setTimelineTrack, setViewMode, showArchived, showHistory, showVisualHistory, startPlayback, startTimeline, stepTimeline, stopPlayback, stopTimeline, timeline, timelineProjection, toggleHistory, viewMode, viewport, viewportContext, visibleArchivedMaps } = vm
 const railOpen = ref(typeof window === "undefined" || window.innerWidth > 1099)
-const recentMapActionLabel = computed(() => {
-  if (recentMap.value) return "打开最近地图"
-  return maps.value.length ? "打开可用地图" : "查找可用地图"
-})
+const recentAvailable = computed(() => maps.value.find((item) => item.id === recentMap.value?.mapId) || null)
 const inboxSources = computed(() => [...new Set(inbox.items.map((item) => item.source || item.source_ref?.source || item.source_ref?.workflow).filter(Boolean))].sort())
 const candidateCount = computed(() => activeQueue.value.filter((item) => mapAssetDisplay(item).displayState === "review").length)
 const factCount = computed(() => activeQueue.value.filter((item) => item.item_kind === "fact" && !mapAssetDisplay(item).isHistory).length)

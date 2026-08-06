@@ -51,6 +51,7 @@ export function createEditorController({
     restoreExpectedUpdatedAt: null,
     provenanceJson: null,
     saving: false,
+    saveError: null,
     loadError: null,
   }
   let elements = { title: null, editor: null }
@@ -166,6 +167,7 @@ export function createEditorController({
     state.restoreExpectedVersion = options.restoreExpectedVersion ?? null
     state.restoreExpectedUpdatedAt = options.restoreExpectedUpdatedAt || null
     state.provenanceJson = draft.provenance_json || null
+    state.saveError = null
   }
 
   function applyAutosaveMetadata(draft = {}, savedContent, savedTitle) {
@@ -278,7 +280,7 @@ export function createEditorController({
     elements = { title: null, editor: null }
   }
 
-  async function autosave({ successMessage = "已暂存", createIfMissing = false } = {}) {
+  async function autosave({ successMessage = "已保存到工作稿", createIfMissing = false } = {}) {
     if (autosaveTimer) clearTimeout(autosaveTimer)
     autosaveTimer = null
     if (savePromise) {
@@ -336,6 +338,7 @@ export function createEditorController({
       }
       if (hasNewerEdits || keepsLocalFormatting) saveBackup()
       else clearBackup()
+      state.saveError = null
       emit()
       if (keepsLocalFormatting && !hasNewerEdits) {
         toast("已回到上一版；排版或标题修改仅保存在本地", "info")
@@ -346,7 +349,8 @@ export function createEditorController({
       return result
     }).catch((err) => {
       if (lifecycle === lifecycleGeneration && projectId === getProjectId()) {
-        toast(err?.message || "暂存失败，已保留本地备份", "error")
+        state.saveError = err?.message || "保存失败，已保留本地备份"
+        toast(state.saveError, "error")
       }
       return null
     }).finally(() => {

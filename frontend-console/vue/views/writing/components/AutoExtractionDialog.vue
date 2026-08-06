@@ -20,7 +20,7 @@
           <span>更高质量</span>
           <span class="writing-checkbox-hint">最大推理 + 融合补强，约需更长时间</span>
         </label>
-        <p class="writing-form-hint" role="note">任务只会在作者确认后启动；普通 LLM 结果仍进入待处理或授权范围内的派生资产。</p>
+        <p class="writing-form-hint" role="note">只有确认后才会开始整理；AI 结果会先进入待处理，不会自动变成正式设定。</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" @click="requestClose">取消</button>
@@ -38,9 +38,9 @@ defineEmits(["submit"])
 const requestClose = () => { props.model.open = false }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.model.open, requestClose })
 const label = computed(() => ({
-  deep: "启动深度导入",
-  scenes: "从正文提取 Scene",
-  world_objects: "世界对象与别名/关系自动提取",
-  plot_structure: "剧情线自动提取",
+  deep: "完整整理导入内容",
+  scenes: "从正文整理场景",
+  world_objects: "整理人物、设定与关系",
+  plot_structure: "从正文整理剧情线",
 }[props.model.stage] || "自动提取"))
 </script>

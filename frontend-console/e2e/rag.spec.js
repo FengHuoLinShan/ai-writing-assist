@@ -29,37 +29,31 @@ test.describe("RAG 检索模块", () => {
     }
   })
 
-  test("索引状态页面显示", async ({ page }) => {
-    // ragView 使用 data-action 而非 data-subview
-    await expect(page.locator('[data-action="nav-status"]')).toHaveClass(/active/)
-    // 新项目的 RAG 状态可能是空或后端未连接，只保证视图标题和子导航正确即可
-    await expect(page.locator(SEL.viewTitle)).toHaveText("小说检索")
+  test("修复查找页面优先展示用户可理解的状态", async ({ page }) => {
+    await expect(page.locator(SEL.viewTitle)).toHaveText("查找")
+    await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible()
+    await expect(page.locator('[data-action="rebuild-index"]')).toHaveText("修复查找功能")
+    await expect(page.locator(".rag-diagnostic-details")).toContainText("诊断详情")
   })
 
-  test("键盘切换搜索子标签并公开当前页", async ({ page }) => {
-    const status = page.locator('.subnav-item[data-action="nav-status"]')
-    const search = page.locator('.subnav-item[data-action="nav-search"]')
-    await expect(status).toHaveAttribute("type", "button")
-    await expect(status).toHaveAttribute("aria-current", "page")
-    await expect(search).toHaveAttribute("type", "button")
-    await expect(search).not.toHaveAttribute("aria-current", /.+/)
+  test("键盘从修复页返回查找并可用浏览器后退恢复", async ({ page }) => {
+    const returnToSearch = page.locator('.subnav-item[data-action="nav-search"]')
+    await expect(returnToSearch).toHaveAttribute("type", "button")
+    await returnToSearch.focus()
+    await returnToSearch.press("Enter")
 
-    await search.focus()
-    await search.press("Enter")
+    const search = page.locator('.subnav-item[data-action="nav-search"]')
     await expect(page.locator("#rag-search-input")).toBeVisible()
     await expect(search).toHaveAttribute("aria-current", "page")
-    await expect(status).not.toHaveAttribute("aria-current", /.+/)
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expectNoPageOverflow(page)
     await expectWithinViewport(search)
-    await expectWithinViewport(status)
 
-    await status.focus()
-    await status.press(" ")
+    await page.goBack()
+    await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible()
     await expect(page.locator('[data-action="rebuild-index"]')).toBeVisible()
-    await expect(status).toHaveAttribute("aria-current", "page")
-    await expect(search).not.toHaveAttribute("aria-current", /.+/)
+    await expectNoPageOverflow(page)
   })
 
   test("390px 下检索输入和主操作可见且无水平溢出", async ({ page }) => {

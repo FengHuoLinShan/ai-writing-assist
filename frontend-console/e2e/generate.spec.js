@@ -249,8 +249,8 @@ test.describe("生成中心模块", () => {
   })
 
   test("生成中心页面加载", async ({ page }) => {
-    await expect(page.locator("#topbar-module")).toContainText("生成中心")
-    await expect(page.locator("#topbar-view-note")).toContainText("先自由聊")
+    await expect(page.locator("#topbar-module")).toContainText("高级生成工具")
+    await expect(page.locator("#topbar-view-note")).toContainText("面向高级用法")
     await expect(page.locator("#workspace-content")).toContainText("人物")
     await expect(page.locator("#workspace-content")).toContainText("高质量")
     await expect(page.locator("#workspace-content")).toContainText("生成世界对象建议")
@@ -270,7 +270,7 @@ test.describe("生成中心模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await expectNoPageOverflow(page)
     await page.getByRole("button", { name: "去写作台创建第一章" }).click()
-    await expect(page.locator("#topbar-module")).toContainText("写作台")
+    await expect(page.locator("#topbar-module")).toContainText("写作")
     await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
   })
 
@@ -365,7 +365,7 @@ test.describe("生成中心模块", () => {
     await page.locator("#generate-page-free-text").fill("作者确定的潮汐经济与迁徙逻辑。")
     await page.getByRole("button", { name: "应用到工作稿" }).click()
 
-    await expect(page.locator("#topbar-module")).toContainText("世界对象", { timeout: 15000 })
+    await expect(page.locator("#topbar-module")).toContainText("人物与世界", { timeout: 15000 })
     await expect(page.locator(".world-bible-workspace")).toContainText("作者修订·龙息潮汐纪")
     expect(worldSuggestionRequests.at(-1).target).toEqual(expect.objectContaining({
       kind: "world_bible_new_page",

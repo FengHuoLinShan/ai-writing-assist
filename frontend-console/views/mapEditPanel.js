@@ -237,14 +237,14 @@ export function renderEditPanel(ctx) {
         </select>
         <input class="form-input" id="map-marker-label" value="${esc(mapState.selectedMarkerLabel || "")}" placeholder="标记名称（可选）" />
         <select class="form-select" id="map-marker-scene-start">
-          <option value="">不限定起始 Scene</option>
+          <option value="">不限定起始场景</option>
           ${sceneOptions}
         </select>
         <select class="form-select" id="map-marker-scene-end">
-          <option value="">不限定结束 Scene</option>
+          <option value="">不限定结束场景</option>
           ${sceneOptions}
         </select>
-        <p class="map-hint">选择类型和实体后，点击六边形放置标记。可选择 Scene 范围限定标记可见时段。</p>
+        <p class="map-hint">选择类型和对象后，点击六边形放置标记。可选择场景范围限定标记可见时段。</p>
       </div>
 
       <div class="map-edit-section map-path-section" id="map-path-section" style="display:${mapState.editorLayer === "path" ? "" : "none"};">

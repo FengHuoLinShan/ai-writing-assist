@@ -85,7 +85,7 @@
           <p class="generate-empty-copy">单次最多附带 20 章；长对话只发送最近 40 条消息。</p>
           <div id="generate-selected-chapters" class="generate-attachment-summary">{{ chapterSummary }}</div>
           <details class="generate-world-context-panel"><summary>展开精确上下文</summary>
-            <label>当前 Scene<select id="generate-world-scene" v-model="selectedSceneId" class="form-select"><option value="">不指定</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.title || scene.name || scene.id }}</option></select></label>
+            <label>当前场景<select id="generate-world-scene" v-model="selectedSceneId" class="form-select"><option value="">不指定</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.title || scene.name || '未命名场景' }}</option></select></label>
             <label>剧情线<select id="generate-world-threads" v-model="selectedThreadIds" class="form-select" multiple size="4"><option v-for="thread in threads" :key="thread.id" :value="thread.id">{{ thread.title || thread.name || thread.id }}</option></select></label>
             <label>人物（未显式选择时由服务器 Top-6）<select id="generate-world-characters" v-model="selectedCharacterIds" class="form-select" multiple size="4"><option v-for="item in characters" :key="characterId(item)" :value="characterId(item)">{{ item.name || item.display_name || characterId(item) }}</option></select></label>
             <label>物品 / 世界对象（未显式选择时由服务器 Top-16）<select id="generate-world-entities" v-model="selectedEntityIds" class="form-select" multiple size="5"><option v-for="item in entities" :key="item.id" :value="item.id">{{ item.name || item.id }} · {{ item.entity_type || '对象' }}</option></select></label>

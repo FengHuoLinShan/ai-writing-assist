@@ -3,6 +3,12 @@ import { SEL } from "./helpers/selectors.js"
 import { openProjectList, reloadProjectList } from "./helpers/workbench.js"
 import { cleanupProject, createProject, waitForBackend } from "./helpers/api-client.js"
 
+async function enterManageMode(page) {
+  if (!await page.locator('[data-action="recycle-bin"]').isVisible()) {
+    await page.locator('[data-action="manage-projects"]').click()
+  }
+}
+
 test.describe("项目路径 chaos recovery", () => {
   let testProjectId = null
 
@@ -30,6 +36,7 @@ test.describe("项目路径 chaos recovery", () => {
     testProjectId = project.id
 
     await reloadProjectList(page)
+    await enterManageMode(page)
     const card = page.locator(SEL.projectCard(project.id))
     await card.hover()
     await card.locator('[data-action="delete-project"]').click()
@@ -37,6 +44,7 @@ test.describe("项目路径 chaos recovery", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已移至回收站", { timeout: 15000 })
 
     await reloadProjectList(page)
+    await enterManageMode(page)
     await page.locator('[data-action="recycle-bin"]').click()
     await expect(page.locator(SEL.modalBody)).toContainText("取消永久删除 chaos")
 

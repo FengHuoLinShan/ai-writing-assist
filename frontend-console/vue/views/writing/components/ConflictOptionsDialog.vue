@@ -11,7 +11,7 @@
           <input v-model="model.includeCandidates" type="checkbox">
           <span>包含待处理内容</span>
         </label>
-        <p class="writing-form-hint">包含后，依赖待处理内容的结果会标记注意原因；不会修改正文、Scene、地图或已采用设定。</p>
+        <p class="writing-form-hint">包含后，依赖待处理内容的结果会标记注意原因；不会修改正文、场景、地图或已采用设定。</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" @click="requestClose">取消</button>

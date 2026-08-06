@@ -52,7 +52,7 @@ function dismiss() {
       :message="rangeText"
       :collapsible="true"
       :className="'outline-progress-mini'"
-      :showTaskId="true"
+      :showTaskId="false"
     >
       <div v-if="canCancel" class="workflow-progress__actions">
         <button class="btn btn-sm btn-ghost" data-action="cancel-outline-analysis" :disabled="cancelPending" @click="cancel">{{ cancelPending ? "取消中..." : "取消任务" }}</button>

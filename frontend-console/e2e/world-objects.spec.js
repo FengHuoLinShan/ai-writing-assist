@@ -39,7 +39,7 @@ test.describe("世界对象入口", () => {
     })
 
     await openWorkbench(page, project, "world", "objects")
-    await expect(page.locator(SEL.dataTable)).toContainText("沉钟港")
+    await expect(page.locator(".world-object-card-grid")).toContainText("沉钟港")
 
     const filterToggle = page.locator('[data-action="toggle-filter-panel"][data-filter-key="objects"]')
     await expect(filterToggle).toContainText("展开筛选")
@@ -54,7 +54,7 @@ test.describe("世界对象入口", () => {
     await expect(page.locator("#filter-q")).toBeVisible()
 
     await page.locator('.bulk-toolbar__select-all input[data-action="bulk-toggle-all"]').check()
-    const selectedRows = page.locator('tbody input[data-action="bulk-toggle-one"]')
+    const selectedRows = page.locator('.world-object-card input[data-action="bulk-toggle-one"]')
     await expect(selectedRows).toHaveCount(2)
     await expect(selectedRows.nth(0)).toBeChecked()
     await expect(selectedRows.nth(1)).toBeChecked()
@@ -68,7 +68,7 @@ test.describe("世界对象入口", () => {
     await expect(page.locator('input[name="world-bulk-target"]')).toHaveCount(2)
     await page.getByRole("button", { name: "取消" }).click()
 
-    await page.locator(SEL.subnavItem("map")).click()
+    await page.locator(SEL.navItem("map")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("地图")
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/map`))
     await expect(page.getByRole("heading", { name: "空间总览" })).toBeVisible()
@@ -76,9 +76,9 @@ test.describe("世界对象入口", () => {
     await page.locator(SEL.navItem("world")).click()
 
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/world/objects`))
-    await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("人物与世界")
     await expect(page.locator(SEL.subnavItem("objects"))).toHaveClass(/active/)
-    await expect(page.locator(SEL.dataTable)).toContainText("沉钟港")
+    await expect(page.locator(".world-object-card-grid")).toContainText("沉钟港")
     await expect(page).not.toHaveURL(/\/map/)
   })
 
@@ -110,14 +110,14 @@ test.describe("世界对象入口", () => {
     await page.locator(SEL.modalFooter).getByRole("button", { name: "编辑后采用" }).click()
 
     await page.locator(SEL.subnavItem("objects")).click()
-    await expect(page.locator(SEL.dataTable)).toContainText("月廷")
-    await expect(page.locator(SEL.dataTable)).toContainText("宗教/神祇")
+    await expect(page.locator(".world-object-card-grid")).toContainText("月廷")
+    await expect(page.locator(".world-object-card-grid")).toContainText("宗教/神祇")
     const filterToggle = page.locator('[data-action="toggle-filter-panel"][data-filter-key="objects"]')
     if (await page.locator("#filter-entity-type").isHidden()) await filterToggle.click()
     await page.locator("#filter-entity-type").selectOption("宗教/神祇")
     await page.getByRole("button", { name: "应用", exact: true }).click()
     await expect(page).toHaveURL(/entity_type=%E5%AE%97%E6%95%99%2F%E7%A5%9E%E7%A5%87/)
-    await expect(page.locator(SEL.dataTable)).toContainText("月廷")
+    await expect(page.locator(".world-object-card-grid")).toContainText("月廷")
 
     const ownCatalog = await listEntityTypes(project.id)
     const otherCatalog = await listEntityTypes(otherProject.id)

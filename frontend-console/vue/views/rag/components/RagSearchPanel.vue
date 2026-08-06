@@ -53,7 +53,7 @@ function toggleScope(scope, checked) {
 }
 
 function sceneOptionLabel(scene) {
-  const title = scene.title || `Scene ${scene.scene_index ?? "-"}`
+  const title = scene.title || `场景 ${scene.scene_index ?? "-"}`
   const chapters = (scene.chapter_ids || []).join("/")
   return chapters ? `${title} · 第 ${chapters} 章` : title
 }
@@ -114,7 +114,7 @@ function characterIdOf(character) {
         <label>起始章 <input class="form-input" id="rag-chapter-from" data-rag-advanced-filter type="number" min="1" placeholder="可选" v-model="form.chapterFrom" :aria-invalid="chapterRangeError ? 'true' : undefined" :aria-describedby="chapterRangeError ? 'rag-chapter-range-error' : undefined" /></label>
         <label>结束章 <input class="form-input" id="rag-chapter-to" data-rag-advanced-filter type="number" min="1" placeholder="可选" v-model="form.chapterTo" :aria-invalid="chapterRangeError ? 'true' : undefined" :aria-describedby="chapterRangeError ? 'rag-chapter-range-error' : undefined" /></label>
         <label id="rag-cutoff-field" :hidden="form.visibilityMode === 'author'">可见截止章 <input class="form-input" id="rag-cutoff-chapter" data-rag-advanced-filter type="number" min="1" v-model="form.cutoffChapter" /></label>
-        <label id="rag-cutoff-scene-field" :hidden="form.visibilityMode === 'author'">截止 Scene
+        <label id="rag-cutoff-scene-field" :hidden="form.visibilityMode === 'author'">截止场景
           <select class="form-input" id="rag-cutoff-scene-id" data-rag-advanced-filter v-model="form.cutoffSceneId">
             <option value="">可选</option>
             <option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ sceneOptionLabel(scene) }}</option>

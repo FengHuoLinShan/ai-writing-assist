@@ -25,18 +25,18 @@ describe("ShellApp", () => {
 
     expect(wrapper.get("#topbar-project").text()).toContain("<img")
     expect(wrapper.find("#topbar-project img").exists()).toBe(false)
-    expect(wrapper.get("#topbar-module").text()).toBe("世界对象")
-    expect(wrapper.get("#topbar-submodule").text()).toContain("对象库")
+    expect(wrapper.get("#topbar-module").text()).toBe("人物与世界")
+    expect(wrapper.get("#topbar-submodule").text()).toContain("人物与设定")
     expect(wrapper.get('.nav-item[data-view="world"]').classes()).toContain("active")
     expect(wrapper.get("#workspace-content").attributes("data-imperative-route-host")).toBe("hash-router")
 
     services.updateState("currentView", "generate")
     services.updateState("currentSubView", null)
     await nextTick()
-    expect(wrapper.get("#topbar-module").text()).toBe("生成中心")
-    expect(wrapper.get('.nav-item[data-view="generate"]').classes()).toContain("active")
+    expect(wrapper.get("#topbar-module").text()).toBe("高级生成工具")
+    expect(wrapper.get(".sidebar-more > summary").classes()).toContain("active")
     expect(wrapper.get("#workspace-content").attributes("data-workspace-view")).toBe("generate")
-    expect(wrapper.get("#topbar-view-note").text()).toContain("先自由聊")
+    expect(wrapper.get("#topbar-view-note").text()).toContain("高级用法")
   })
 
   it("navigates through the existing hash router and reports failures visibly", async () => {
@@ -47,8 +47,45 @@ describe("ShellApp", () => {
     expect(services.router.navigate).toHaveBeenCalledWith("world", "bible")
 
     services.router.navigate.mockRejectedValueOnce(new Error("route down"))
-    await wrapper.get('.nav-item[data-view="settings"]').trigger("click")
+    await wrapper.get('[aria-label="账户菜单"]').trigger("click")
+    await wrapper.findAll(".topbar-account-menu__panel button")[0].trigger("click")
     expect(services.toast).toHaveBeenCalledWith("导航失败：route down", "error")
+    expect(wrapper.get(".topbar-account-menu").attributes()).not.toHaveProperty("open")
+  })
+
+  it("将更多菜单的导入入口带到作品档案", async () => {
+    const services = createShellTestServices({ state: { currentView: "today" } })
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 } })
+
+    await wrapper.get(".sidebar-more > summary").trigger("click")
+    const importEntry = wrapper.findAll(".sidebar-more__panel button").find((item) => item.text().includes("导入与整理"))
+    expect(importEntry).toBeTruthy()
+    await importEntry.trigger("click")
+
+    expect(services.router.navigate).toHaveBeenCalledWith("project", null)
+    expect(wrapper.get(".sidebar-more").attributes()).not.toHaveProperty("open")
+  })
+
+  it("移动端全部面板管理初始焦点、Escape 恢复和导航收起", async () => {
+    const services = createShellTestServices({ state: { currentView: "writing" } })
+    const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
+    const trigger = wrapper.get('.sidebar-mobile-nav button[aria-controls="sidebar-mobile-sheet"]')
+
+    await trigger.trigger("click")
+    await nextTick()
+    expect(wrapper.get("#sidebar-mobile-sheet").exists()).toBe(true)
+    expect(document.activeElement).toBe(wrapper.get("#sidebar-mobile-sheet button").element)
+
+    wrapper.get("#sidebar-mobile-sheet").element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(wrapper.find("#sidebar-mobile-sheet").exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+
+    await trigger.trigger("click")
+    await nextTick()
+    await wrapper.get(".sidebar-mobile-nav button").trigger("click")
+    expect(services.router.navigate).toHaveBeenCalledWith("today", null)
+    expect(wrapper.find("#sidebar-mobile-sheet").exists()).toBe(false)
   })
 
   it("keeps router-owned DOM alive across shell state updates and exposes wordcount", async () => {
@@ -214,7 +251,9 @@ describe("ShellApp", () => {
   it("restores focus to the help trigger after closing the modal", async () => {
     const services = createShellTestServices()
     const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
-    const trigger = wrapper.get(".nav-item.help")
+    await wrapper.get(".sidebar-more > summary").trigger("click")
+    const trigger = wrapper.findAll(".sidebar-more__panel button").find((item) => item.text().includes("帮助与快捷键"))
+    expect(trigger).toBeTruthy()
     trigger.element.focus()
     await trigger.trigger("click")
     await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.get("#help-close").element))
@@ -224,13 +263,17 @@ describe("ShellApp", () => {
     expect(document.activeElement).toBe(trigger.element)
   })
 
-  it("keeps account-dialog keys inside the modal and restores the avatar after close", async () => {
+  it("keeps account-dialog keys inside the modal and restores the account trigger after close", async () => {
     setBridgeOverrides({ api: { auth: { wechatStartUrl: () => "/api/auth/reauth/wechat/start" } } })
     const services = createShellTestServices()
     const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
     const avatar = wrapper.get('[aria-label="账户菜单"]')
     avatar.element.focus()
     await avatar.trigger("click")
+    const accountTrigger = wrapper.findAll(".topbar-account-menu__panel button").find((item) => item.text().includes("账户信息"))
+    expect(accountTrigger).toBeTruthy()
+    accountTrigger.element.focus()
+    await accountTrigger.trigger("click")
     await nextTick()
     await nextTick()
 

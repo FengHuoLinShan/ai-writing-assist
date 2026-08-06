@@ -65,6 +65,7 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
         "get_effective_llm_settings"
     ),
     "GET /api/projects/{project_id}/llm-settings": "get_llm_settings",
+    "GET /api/projects/{project_id}/workspace-summary": "get_summary",
     "POST /api/projects/{project_id}/smart-dedup/apply": "get_project",
     "POST /api/projects/{project_id}/smart-dedup/scan": "get_project",
     "PUT /api/projects/{project_id}": "update_project",
@@ -124,9 +125,7 @@ def _all_api_routes() -> dict[str, APIRoute]:
             if original_router is not None:
                 yield from iter_routes(original_router.routes)
 
-    return {
-        _route_key(route): route for route in iter_routes(app.routes)
-    }
+    return {_route_key(route): route for route in iter_routes(app.routes)}
 
 
 def _module_ast(source_file: str) -> ModuleAst:

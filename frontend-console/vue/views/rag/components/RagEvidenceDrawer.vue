@@ -24,7 +24,7 @@ const session = ragSearchSession
 
 function refLabel(ref, index) {
   const isScene = ref.target_type === "outline_scene"
-  return ref.target_name || ref.name || (isScene ? `Scene ${index + 1}` : `关联对象 ${index + 1}`)
+  return ref.target_name || ref.name || (isScene ? `场景 ${index + 1}` : `关联对象 ${index + 1}`)
 }
 </script>
 

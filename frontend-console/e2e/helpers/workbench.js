@@ -30,14 +30,15 @@ export async function openWorkbench(page, project, view = "writing", subview = n
   }, { projectData: project, viewName: view, subViewName: subview })
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   const expectedTitle = {
-    writing: "写作台",
-    world: "世界对象",
-    outline: "大纲",
-    scene: "大纲",
-    rag: "小说检索",
+    today: "今日工作",
+    writing: "写作",
+    world: "人物与世界",
+    outline: "故事结构",
+    scene: "故事结构",
+    rag: "查找",
     context: "上下文",
-    generate: "生成中心",
-    project: "项目",
+    generate: "高级生成工具",
+    project: "作品档案",
     map: "地图",
   }[view]
   await expect(page.locator(SEL.viewTitle)).toHaveText(expectedTitle, { timeout: 10000 })
@@ -58,7 +59,7 @@ export async function openProjectList(page) {
     await window.router.navigate("project")
   })
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
-  await expect(page.locator(SEL.viewTitle)).toHaveText("项目", { timeout: 10000 })
+  await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案", { timeout: 10000 })
 }
 
 /**
@@ -86,7 +87,7 @@ export async function openProjectView(page, project) {
     await window.router.navigate("project")
   }, project)
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
-  await expect(page.locator(SEL.viewTitle)).toHaveText("项目", { timeout: 10000 })
+  await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案", { timeout: 10000 })
 }
 
 /**

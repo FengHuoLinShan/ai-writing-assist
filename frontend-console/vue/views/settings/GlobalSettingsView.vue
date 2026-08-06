@@ -221,7 +221,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
           aria-label="返回旅程"
           @click="returnAfterConnection"
         >‹</button>
-        <h2>账户设置</h2>
+        <h2>账户与模型连接</h2>
       </div>
       <div class="view-header__actions">
         <button
@@ -235,9 +235,9 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
     </div>
 
     <section class="settings-section account-connection-section" :aria-busy="connectionButton.saving.value || balanceLoading">
-      <h3>模型连接</h3>
+      <h3>连接 AI 服务</h3>
       <p class="settings-section-hint">
-        作者创作和 RP 旅程共用这里选择的模型，只影响之后的新生成。
+        先选择服务，再填写密钥并测试连接。未连接时仍可正常手写，只有 AI 功能会在使用时提醒你。
         <template v-if="returnTarget">连接成功后会回到刚才的旅程位置。</template>
       </p>
 
@@ -281,7 +281,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
       </div>
 
       <label class="form-group account-key-field">
-        <span>API Key</span>
+        <span>服务密钥（API Key）</span>
         <input
           id="account-llm-api-key"
           v-model="apiKey"
@@ -325,7 +325,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
     </section>
 
     <section v-if="!returningToRp" class="settings-section" :aria-busy="authorButton.saving.value">
-      <h3>作者偏好</h3>
+      <h3>通用创作偏好</h3>
       <AuthorPreferencesForm v-model="authorForm" />
       <div class="settings-actions">
         <button

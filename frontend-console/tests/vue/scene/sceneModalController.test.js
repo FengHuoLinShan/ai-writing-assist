@@ -208,7 +208,7 @@ describe("scene modal workflows", () => {
 
     controller.showSuggestions("replacement-1")
     document.querySelector('[data-replacement-field="title"]').value = "作者编辑候选"
-    await action("编辑后采用，旧 Scene 移入历史")()
+    await action("编辑后采用，原场景移入历史")()
 
     expect(confirmAsync).toHaveBeenCalledOnce()
     expect(api.outline.applySceneReplacement).toHaveBeenCalledWith("p1", expect.objectContaining({
@@ -260,7 +260,7 @@ describe("scene modal workflows", () => {
     await action("生成 AI 融合建议")()
 
     expect(document.querySelector('[data-role="fusion-deprecation-confirm"]').hidden).toBe(true)
-    expect(action("废弃 2 个原 Scene 并保存")()).toBe(false)
+    expect(action("将 2 个原场景移入历史并保存")()).toBe(false)
     expect(api.outline.saveSceneFusion).not.toHaveBeenCalled()
     expect(document.querySelector('[data-role="fusion-deprecation-confirm"]').hidden).toBe(false)
 
@@ -333,7 +333,7 @@ describe("scene modal workflows", () => {
     api.outline.dismissFusionSuggestions.mockResolvedValue({ status: "dismissed" })
 
     expect(controller.dismissAllSuggestions()).toBe(true)
-    expect(document.getElementById("modal-body").textContent).toContain("需单独审查的 Scene 替换建议不会被忽略")
+    expect(document.getElementById("modal-body").textContent).toContain("需要单独检查的场景替换建议不会被忽略")
     await action("确认忽略 2 条")()
 
     expect(api.outline.dismissFusionSuggestions).toHaveBeenCalledWith("p1", {

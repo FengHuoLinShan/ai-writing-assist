@@ -140,7 +140,7 @@ describe("mapView Scene 时间轴", () => {
   it("_renderSceneBar 无 scene 数据时显示提示", () => {
     mapState.sceneList = []
     const html = mapView._renderSceneBar()
-    expect(html).toContain("暂无 Scene 数据")
+    expect(html).toContain("暂无场景资料")
   })
 
   it("_renderSceneBar 有 scene 列表时显示导航", () => {
@@ -151,7 +151,7 @@ describe("mapView Scene 时间轴", () => {
     mapState.currentSceneId = "s1"
     const html = mapView._renderSceneBar()
     expect(html).toContain("开端")
-    expect(html).toContain("Scene 2")
+    expect(html).toContain("场景 2")
     expect(html).toContain("map-scene-prev")
     expect(html).toContain("map-scene-next")
     expect(html).toContain("map-scene-clear")

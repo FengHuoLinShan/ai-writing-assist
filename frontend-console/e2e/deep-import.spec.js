@@ -59,8 +59,8 @@ test.describe("深度导入流水线", () => {
     // 等待导入完成 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("导入完成", { timeout: 15000 })
 
-    // Step 2: 上传流程会自动进入写作台；等待真实章节数据完成渲染。
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    // Step 2: 上传流程会自动进入写作页；等待真实章节数据完成渲染。
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await waitWritingReady(page, { chapter: 1 })
     await expect(page.locator(SEL.writingChapterCount)).toHaveText("章节（3）")
     await expect(
@@ -68,13 +68,13 @@ test.describe("深度导入流水线", () => {
       "上传成功后应立即看到已提交章节和 AI 工具入口",
     ).toBeVisible()
 
-    // Step 3: 上传完成后由用户从写作台显式启动完整深度导入
-    await page.locator(SEL.writingToolsMenu).click()
-    const deepImportButton = page.getByRole("button", { name: "启动深度导入" })
+    // Step 3: 上传完成后由用户在写作现场显式开始整理导入内容
+    await page.locator(SEL.writingAiMenu).click()
+    const deepImportButton = page.getByRole("button", { name: "完整整理" })
     await expect(deepImportButton).toBeVisible()
     await deepImportButton.click()
     const extractionDialog = page.getByRole("dialog", { name: "自动提取" })
-    await expect(extractionDialog).toContainText("启动深度导入")
+    await expect(extractionDialog).toContainText("完整整理导入内容")
 
     // Step 4: Mock 后端执行，但保留真实 UI 提交和本地恢复凭据写入。
     const taskId = `mock-deep-import-${Date.now()}`
@@ -113,8 +113,8 @@ test.describe("深度导入流水线", () => {
     await extractionDialog.getByRole("button", { name: "确认并开始提取" }).click()
 
     // Step 6: 验证当前任务入口成功启动
-    await expect(page.locator(SEL.toastContainer)).toContainText("深度导入已启动", { timeout: 10000 })
-    await expect(page.locator(SEL.deepImportProgress)).toContainText("正在补全 Scene 字段")
+    await expect(page.locator(SEL.toastContainer)).toContainText("整理导入内容已启动", { timeout: 10000 })
+    await expect(page.locator(SEL.deepImportProgress)).toContainText("正在补全场景字段")
     await expect.poll(() => page.evaluate((expectedTaskId) => {
       const items = JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]")
       return items.some((item) => item.taskId === expectedTaskId)
@@ -127,7 +127,7 @@ test.describe("深度导入流水线", () => {
     const recoveryPage = persistentContext.pages()[0] || await persistentContext.newPage()
     await openWorkbench(recoveryPage, testProject, "writing")
     await expect(recoveryPage.locator(SEL.deepImportProgress)).toContainText(
-      "正在补全 Scene 字段",
+      "正在补全场景字段",
       { timeout: 10000 },
     )
     await expect(recoveryPage.locator(SEL.deepImportProgress)).toContainText("35%")
@@ -177,18 +177,18 @@ test.describe("深度导入流水线", () => {
       await window.router.navigate("project")
     })
     await page.waitForFunction(() => !state.loading, { timeout: 15000 })
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案", { timeout: 10000 })
 
     // 导航回写作视图
     await page.evaluate(async () => {
       await window.router.navigate("writing")
     })
     await page.waitForFunction(() => !state.loading, { timeout: 15000 })
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
 
     // 验证当前 stage task 通过 active workflow contract 恢复显示
     await expect(page.locator("#writing-deep-import-bar-container")).toContainText(
-      "Phase 2/3: 实体提取",
+      "第 2/3 步：实体提取",
       { timeout: 10000 },
     )
     await expect(page.locator(SEL.deepImportProgress)).toContainText("世界对象与关系提取")
@@ -421,6 +421,6 @@ test.describe("深度导入流水线", () => {
 
     // 空状态下（无章节）不渲染编辑器区域，因此深度导入按钮不显示
     await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
-    await expect(page.getByRole("button", { name: "从正文提取 Scene" })).not.toBeVisible()
+    await expect(page.getByRole("button", { name: "从正文整理场景" })).not.toBeVisible()
   })
 })

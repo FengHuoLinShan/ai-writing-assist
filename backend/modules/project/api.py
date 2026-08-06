@@ -20,6 +20,7 @@ from modules.project.schemas import (
     ProjectLLMSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
+    ProjectWorkspaceSummaryResponse,
     SmartDedupApplyRequest,
     SmartDedupApplyResponse,
     SmartDedupScanRequest,
@@ -27,6 +28,7 @@ from modules.project.schemas import (
 )
 from modules.project.services import ProjectService
 from modules.project.smart_dedup import SmartDedupService
+from modules.project.workspace_service import ProjectWorkspaceSummaryService
 from modules.settings.contracts import (
     EffectiveAuthorPrefsResponse,
     EffectiveLLMSettingsResponse,
@@ -36,6 +38,9 @@ from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 _service = ProjectService()
 _smart_dedup_service = SmartDedupService()
+_workspace_summary_service = ProjectWorkspaceSummaryService(
+    project_reader=_service.get_project
+)
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -220,6 +225,18 @@ async def api_apply_smart_dedup(
             ],
         )
     return SmartDedupApplyResponse(**result)
+
+
+@router.get(
+    "/{project_id}/workspace-summary",
+    response_model=ProjectWorkspaceSummaryResponse,
+)
+async def api_get_project_workspace_summary(
+    db: DbSession,
+    project_id: str,
+) -> ProjectWorkspaceSummaryResponse:
+    """Return the safe, task-oriented read model for the author's project home."""
+    return await _workspace_summary_service.get_summary(db, project_id)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

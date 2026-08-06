@@ -161,7 +161,7 @@ test.describe("390px 地图浏览与桌面端编辑转交", () => {
     })
 
     await openWorkbench(page, project, "map")
-    await page.getByRole("button", { name: "快速创建" }).first().click()
+    await page.getByRole("button", { name: "创建第一张地图" }).click()
     const quickDialog = page.getByRole("dialog", { name: "快速创建地图" })
     const preview = quickDialog.getByLabel("地点布局画布")
     await preview.scrollIntoViewIfNeeded()

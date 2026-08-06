@@ -10,6 +10,12 @@ import {
   waitForBackend,
 } from "./helpers/api-client.js"
 
+async function enterManageMode(page) {
+  if (!await page.locator(SEL.projectRecycleBin).isVisible()) {
+    await page.locator('[data-action="manage-projects"]').click()
+  }
+}
+
 test.describe("项目回收站", () => {
   let testProjectId = null
   let testProjectIds = []
@@ -42,6 +48,7 @@ test.describe("项目回收站", () => {
     testProjectId = project.id
 
     await reloadProjectList(page)
+    await enterManageMode(page)
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -58,6 +65,7 @@ test.describe("项目回收站", () => {
 
     // 项目从列表消失
     await reloadProjectList(page)
+    await enterManageMode(page)
     await expect(page.locator(SEL.projectCard(project.id))).toHaveCount(0)
 
     // 打开回收站
@@ -84,6 +92,7 @@ test.describe("项目回收站", () => {
     await deleteProject(project.id)
 
     await reloadProjectList(page)
+    await enterManageMode(page)
     await page.locator(SEL.projectRecycleBin).click()
     const checkbox = page.locator(SEL.projectRecycleCheckbox(project.id))
     const bulkRestore = page.locator(SEL.projectRecycleBulkRestore)
@@ -118,6 +127,7 @@ test.describe("项目回收站", () => {
     testProjectId = project.id
 
     await reloadProjectList(page)
+    await enterManageMode(page)
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -133,6 +143,7 @@ test.describe("项目回收站", () => {
 
     // 打开回收站
     await reloadProjectList(page)
+    await enterManageMode(page)
     await page.locator('[data-action="recycle-bin"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("回收站")
     await expect(page.locator(SEL.modalBody)).toContainText("永久删除测试项目")
@@ -162,6 +173,7 @@ test.describe("项目回收站", () => {
     await Promise.all(testProjectIds.map((projectId) => deleteProject(projectId)))
 
     await reloadProjectList(page)
+    await enterManageMode(page)
     await page.locator('[data-action="recycle-bin"]').click()
     for (const project of projects) {
       await page.locator(`.recycle-project-checkbox[data-id="${project.id}"]`).check()

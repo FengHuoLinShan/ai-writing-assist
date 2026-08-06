@@ -8,7 +8,7 @@
     <!-- 自动提取抽屉（vanilla _renderAutoExtractPanel 847-873） -->
     <div v-if="session.autoExtractOpen" class="world-extract-drawer">
       <div class="world-extract-panel">
-        <div class="world-extract-panel__label">世界对象与别名/关系自动提取</div>
+        <div class="world-extract-panel__label">从正文整理人物、设定与关系</div>
         <div class="world-extract-panel__controls">
           起始章 <input id="w-extract-start" v-model.number="extractStart" type="number" min="1" class="world-extract-panel__input" />
           结束章 <input id="w-extract-end" v-model.number="extractEnd" type="number" min="1" class="world-extract-panel__input" />
@@ -22,7 +22,8 @@
             v-if="extractProgress"
             :progress="extractProgress"
             variant="card"
-            title="世界对象与别名/关系自动提取"
+            title="正在整理人物、设定与关系"
+            :show-task-id="false"
           >
             <div class="workflow-progress__destination">{{ extractDestination }}</div>
           </WorkflowProgressCard>
@@ -76,7 +77,7 @@
             </select>
             <details class="world-diagnostic-filter" :open="Boolean(objectFilters.workflow_id)">
               <summary>诊断筛选</summary>
-              <input id="filter-workflow-id" v-model="filterForm.workflow_id" class="form-input" data-diagnostic-field placeholder="workflow_id" aria-label="Workflow ID 筛选" />
+              <input id="filter-workflow-id" v-model="filterForm.workflow_id" class="form-input" data-diagnostic-field placeholder="处理批次编号" aria-label="处理批次编号筛选" />
             </details>
             <select id="filter-needs-review" v-model="filterForm.needs_review" class="form-select" aria-label="注意原因筛选">
               <option value="">全部注意原因</option>
@@ -144,7 +145,7 @@
     <!-- 列表（hot 模式直出；normal 模式按批次分组，vanilla 1150-1216） -->
     <template v-else>
       <template v-if="discoveryMode === 'hot'">
-        <WorldEntityCollection :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" @bulk-run="onBulkRun" />
+        <WorldEntityCollection :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
       </template>
       <template v-else-if="batchGroups.hasBatches">
         <div v-if="batchGroups.autoEntities.length > 0" class="world-batch-group">
@@ -152,7 +153,7 @@
             <summary class="world-batch-group__summary">
               <span class="world-batch-group__star">&#9733;</span> 自动入库 — <span class="world-batch-time" :title="batchGroups.batchTimeTitle"><span v-if="batchGroups.fresh" class="world-batch-fresh-dot" aria-label="新鲜入库"></span>{{ batchGroups.batchTimeLabel }}</span> — {{ batchGroups.autoEntities.length }} 个对象
             </summary>
-            <WorldEntityCollection :entities="batchGroups.autoEntities" :show-new-badge="true" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" @bulk-run="onBulkRun" />
+            <WorldEntityCollection :entities="batchGroups.autoEntities" :show-new-badge="true" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
           </details>
         </div>
         <div v-if="batchGroups.manualEntities.length > 0" class="world-batch-group">
@@ -160,12 +161,12 @@
             <summary class="world-batch-group__summary">
               其他对象 — {{ batchGroups.manualEntities.length }} 个
             </summary>
-            <WorldEntityCollection :entities="batchGroups.manualEntities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" @bulk-run="onBulkRun" />
+            <WorldEntityCollection :entities="batchGroups.manualEntities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
           </details>
         </div>
       </template>
       <template v-else>
-        <WorldEntityCollection :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" @bulk-run="onBulkRun" />
+        <WorldEntityCollection :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
       </template>
       <WorldPager
         :total="entitiesTotal"

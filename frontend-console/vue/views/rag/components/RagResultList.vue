@@ -107,14 +107,14 @@ function hitMode(hit) {
                   <p v-if="ref.context_summary" class="rag-result-context__summary">{{ ref.context_summary }}</p>
                 </div>
               </div>
-              <span v-else class="rag-result-context__missing">未关联 Scene</span>
+              <span v-else class="rag-result-context__missing">未关联场景</span>
             </div>
             <p v-if="hit.writing_relevance?.label" class="rag-result-context__relevance"><strong>与当前创作：</strong>{{ hit.writing_relevance.label }}</p>
           </section>
           <div class="rag-result-evidence-label">命中依据</div>
           <p class="rag-result-text">{{ highlightParts(hit.snippet, session.query).before }}<mark v-if="highlightParts(hit.snippet, session.query).mark">{{ highlightParts(hit.snippet, session.query).mark }}</mark>{{ highlightParts(hit.snippet, session.query).after }}</p>
           <div class="card-meta">
-            {{ hitKindLabel(hit.kind) }}<template v-if="hit.chapter_index"> · 第 {{ hit.chapter_index }} 章</template><template v-if="hit.match_count > 1"> · {{ hit.match_basis === "occurrence" ? `本章 ${hit.match_count} 处命中` : `聚合 ${hit.match_count} 个相关片段` }}</template><template v-if="hit.source_ref"> · {{ hitMode(hit) }} v{{ hit.source_ref.version_number || "-" }}</template><template v-if="hit.index_fresh === false"> · 索引待更新</template><template v-if="(hit.scene_refs || []).length"> · Scene {{ hit.scene_refs.length }}</template><template v-if="(hit.object_refs || []).length"> · 对象 {{ hit.object_refs.length }}</template>
+            {{ hitKindLabel(hit.kind) }}<template v-if="hit.chapter_index"> · 第 {{ hit.chapter_index }} 章</template><template v-if="hit.match_count > 1"> · {{ hit.match_basis === "occurrence" ? `本章 ${hit.match_count} 处命中` : `找到 ${hit.match_count} 个相关片段` }}</template><template v-if="hit.source_ref"> · {{ hitMode(hit) }} v{{ hit.source_ref.version_number || "-" }}</template><template v-if="hit.index_fresh === false"> · 资料待更新</template><template v-if="(hit.scene_refs || []).length"> · 场景 {{ hit.scene_refs.length }}</template><template v-if="(hit.object_refs || []).length"> · 对象 {{ hit.object_refs.length }}</template>
           </div>
           <div class="rag-result-actions">
             <button class="btn btn-sm" data-action="open-hit" :data-hit-index="index" @click="emit('open-hit', index)">{{ hit.source_ref ? "阅读原文" : "查看对象" }}</button>

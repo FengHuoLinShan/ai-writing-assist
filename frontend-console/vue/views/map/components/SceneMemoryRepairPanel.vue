@@ -1,7 +1,7 @@
 <template>
   <section v-if="sceneId" class="map-dynamic-section scene-memory-repair" data-testid="scene-memory-repair" :aria-busy="loading || saving">
     <div class="scene-memory-heading">
-      <div><h4>阶段状态</h4><p>{{ sceneTitle }} · 只使用此 Scene 及之前的已确认事实</p></div>
+      <div><h4>阶段状态</h4><p>{{ sceneTitle }} · 只使用当前场景及之前的已确认事实</p></div>
       <span class="badge" :class="{ 'is-warning': needsRepair }">{{ statusLabel }}</span>
     </div>
     <p v-if="loading" class="map-muted-text" role="status">正在核对阶段状态...</p>
@@ -25,7 +25,7 @@
         <label><input v-model="decision" type="radio" value="confirm_empty" /> 这一阶段确实没有此类事实</label>
         <textarea v-model="decisionSummary" class="form-textarea" rows="2" placeholder="简要说明判断依据，便于以后回看。" aria-label="说明判断依据" />
         <button class="btn btn-primary scene-memory-primary" type="submit" :disabled="saving">{{ saving ? "正在修复并重建..." : "确认修复并重建后续阶段" }}</button>
-        <p class="map-muted-text">只替换当前 Scene 的系统结果；人工确认内容会保留，后续阶段自动重建。</p>
+        <p class="map-muted-text">只替换当前场景的整理结果；人工确认内容会保留，后续阶段自动重建。</p>
       </form>
     </template>
   </section>
@@ -48,7 +48,7 @@ const decisionSummary = ref("")
 const replacementSummary = ref("")
 let generation = 0
 
-const sceneTitle = computed(() => checkpointSet.value?.scene_title || `Scene ${checkpointSet.value?.scene_index ?? ""}`)
+const sceneTitle = computed(() => checkpointSet.value?.scene_title || `场景 ${checkpointSet.value?.scene_index ?? ""}`)
 const selected = computed(() => checkpointSet.value?.items?.find((item) => item.dimension === selectedDimension.value) || checkpointSet.value?.items?.find((item) => item.status !== "ready") || checkpointSet.value?.items?.[0] || null)
 const needsRepair = computed(() => checkpointSet.value?.coverage_status !== "ready")
 const statusLabel = computed(() => needsRepair.value ? "需要判断" : "状态完整")

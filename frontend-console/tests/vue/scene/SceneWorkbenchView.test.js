@@ -113,7 +113,7 @@ describe("SceneWorkbenchView", () => {
     createWrapper()
 
     expect(wrapper.find(".outline-scene-layout > .subnav").exists()).toBe(true)
-    expect(wrapper.find('[aria-label="Scene 管理筛选"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="场景筛选"]').exists()).toBe(true)
     expect(wrapper.findAll(".scene-workbench-row")).toHaveLength(2)
     expect(wrapper.find('.scene-workbench-row[data-id="s1"] .scene-workbench-row__title').text())
       .toBe("<img src=x onerror=alert(1)>")

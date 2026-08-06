@@ -168,12 +168,12 @@ test.describe("深度导入异步 Worker 受理", () => {
       await page.evaluate(() => window.router.navigate("writing"))
       await page.waitForFunction(() => !state.loading, { timeout: 10_000 })
       await waitWritingReady(page)
-      await page.locator(SEL.writingToolsMenu).click()
-      await page.getByRole("button", { name: "启动深度导入" }).click()
+      await page.locator(SEL.writingAiMenu).click()
+      await page.getByRole("button", { name: "完整整理" }).click()
       const dialog = page.getByRole("dialog", { name: "自动提取" })
-      await expect(dialog).toContainText("启动深度导入")
+      await expect(dialog).toContainText("完整整理导入内容")
       await dialog.getByRole("button", { name: "确认并开始提取" }).click()
-      await expect(page.locator(SEL.toastContainer)).toContainText("深度导入已启动", {
+      await expect(page.locator(SEL.toastContainer)).toContainText("整理导入内容已启动", {
         timeout: 15_000,
       })
 

@@ -87,12 +87,12 @@ export async function showOutlineLayerAiForm(target, { selectedIds } = {}) {
   try {
     currentOutline = await api.outline.getStoryOutline(projectId)
   } catch (err) {
-    toast(err.message || "无法检查小说总纲", "error")
+    toast(err.message || "无法检查故事总览", "error")
     return
   }
   if (state?.currentProjectId !== projectId) return
   if (!currentOutline?.current_revision_id || !currentOutline?.revision) {
-    toast("请先在“小说总纲”页创建并采用当前总纲", "warning")
+    toast("请先在“故事总览”页创建并采用当前版本", "warning")
     router?.navigate?.("outline", "story-outline")
     return
   }
@@ -185,7 +185,7 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       start_chapter: startChapter,
       end_chapter: endChapter,
     })
-    if (!result?.task_id) throw new Error("生成任务未返回任务编号")
+    if (!result?.task_id) throw new Error("内容生成未能开始，请稍后重试")
 
     const meta = {
       start_chapter: startChapter,
@@ -297,7 +297,7 @@ export async function applyOutlineGeneratePreview() {
     const counts = [
       response?.total_threads != null ? `剧情线 ${response.total_threads}` : "",
       response?.total_arcs != null ? `篇章纲 ${response.total_arcs}` : "",
-      response?.total_scenes != null ? `Scene ${response.total_scenes}` : "",
+      response?.total_scenes != null ? `场景 ${response.total_scenes}` : "",
     ].filter(Boolean).join(" · ")
     toast(`${P20_TARGET_LABELS[response?.target] || "结构"}已采用${counts ? `：${counts}` : ""}`, "success")
     closeModal()
@@ -342,7 +342,7 @@ export function showOutlineAnalysisForm() {
         <input class="form-input" id="outline-analysis-end" type="number" min="1" value="${esc(String(endValue))}" />
       </div>
     </div>
-    <p class="writing-form-hint" role="note">下一步会先展示本范围内的 Scene、剧情线、篇章、伏笔/揭示，以及相关人物和物品，确认后才提交分析。结果只读，不会直接修改大纲。</p>
+    <p class="writing-form-hint" role="note">下一步会先展示本范围内的场景、剧情线、篇章、伏笔与揭示，以及相关人物和物品，确认后才提交分析。结果只读，不会直接修改故事结构。</p>
   `
   showModalHtml("AI 分析大纲", formHtml, [{
     text: "检查参考资料并分析",
@@ -421,7 +421,7 @@ export async function analyzeOutline({ instruction, startChapter, endChapter }) 
       start_chapter: confirmedStart,
       end_chapter: confirmedEnd,
     })
-    if (!result?.task_id) throw new Error("分析任务未返回任务编号")
+    if (!result?.task_id) throw new Error("分析未能开始，请稍后重试")
 
     const analysisMeta = {
       project_id: projectId,

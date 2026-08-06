@@ -31,7 +31,7 @@
         <tr v-for="entity in entities" :key="idOf(entity)" :data-id="idOf(entity)" class="clickable">
           <td class="selection-cell"><WorldSelectionInput mode="one" scope="world-objects" :id="idOf(entity)" :label="`选择 ${entity.name || '对象'}`" /></td>
           <td data-label="状态"><span class="badge" :class="displayOf(entity).statusClass">{{ displayOf(entity).label }}</span></td>
-          <td data-label="类型" class="world-table-cell--type">{{ entity.entity_type || "-" }}</td>
+          <td data-label="类型" class="world-table-cell--type">{{ cardTypeLabel(entity) }}</td>
           <td data-label="名称">{{ entity.name }}<span v-if="showNewBadge" class="badge badge-new">新</span><span v-if="entity.ranking" class="world-ranking-badges" :title="rankingTitle(entity)"><span v-for="label in entity.ranking.labels || []" :key="label" class="badge" :class="label === 'hot' ? 'badge-warning' : 'badge-info'">{{ label === 'hot' ? '近期热点' : '重要' }}</span></span></td>
           <td data-label="来源" class="world-table-cell--muted">{{ sourceText(entity) }}</td>
           <td data-label="注意" :class="needsReview(entity) ? 'world-table-cell--warning' : 'world-table-cell--muted'">{{ displayOf(entity).attentionText }}</td>

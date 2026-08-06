@@ -25,7 +25,7 @@ const REVIEW_FIELDS = [
   ["must_happen", "必须发生"],
   ["must_not_happen", "禁止发生"],
   ["narrative_tag", "叙事标签"],
-  ["pov_character_id", "POV"],
+  ["pov_character_id", "视角人物"],
   ["chapter_ids", "章节映射"],
 ]
 
@@ -103,11 +103,11 @@ export function createSceneModalController({
         source_scene_ids: sourceSceneIds,
       })
     } catch (err) {
-      if (owns(ownerGeneration)) toast(err.message || "Scene 合并预览失败", "error")
+      if (owns(ownerGeneration)) toast(err.message || "场景合并预览失败", "error")
       return false
     }
     if (!owns(ownerGeneration)) return false
-    showModalHtml("合并 Scene 影响预览", renderImpact(preview), [
+    showModalHtml("合并场景影响预览", renderImpact(preview), [
       { text: "取消", class: "", handler: closeModal },
       {
         text: "确认合并",
@@ -115,7 +115,7 @@ export function createSceneModalController({
         handler: async () => {
           if (!owns(ownerGeneration)) {
             closeModal()
-            toast("项目或页面已切换，未执行 Scene 合并", "warning")
+            toast("项目或页面已切换，未执行场景合并", "warning")
             return false
           }
           try {
@@ -126,11 +126,11 @@ export function createSceneModalController({
             })
             closeModal()
             clearSelection?.()
-            toast("Scene 已合并", "success")
+            toast("场景已合并", "success")
             await refresh?.()
             return true
           } catch (err) {
-            toast(`Scene 合并失败：${err.message || "未知错误"}`, "error")
+            toast(`场景合并失败：${err.message || "未知错误"}`, "error")
             return false
           }
         },
@@ -144,10 +144,10 @@ export function createSceneModalController({
     const target = findScene(targetSceneId)
     if (!target) return false
     const ownerGeneration = generation
-    showModalHtml("选择要合并的 Scene", `
-      <p>选择要合并到<strong>「${esc(target.title || "当前 Scene")}」</strong>中的另一个 Scene。</p>
+    showModalHtml("选择要合并的场景", `
+      <p>选择要合并到<strong>「${esc(target.title || "当前场景")}」</strong>中的另一个场景。</p>
       <div id="scene-merge-reference-picker"></div>
-      <p class="form-help">可按标题、目标或冲突搜索；历史 Scene 和当前 Scene 不会出现在结果中。</p>
+      <p class="form-help">可按标题、目标或冲突搜索；历史场景和当前场景不会出现在结果中。</p>
     `, [
       { text: "取消", class: "", handler: () => { destroyPicker(); closeModal() } },
       {
@@ -157,7 +157,7 @@ export function createSceneModalController({
           if (!owns(ownerGeneration)) return false
           const sourceId = mergePicker?.getRefs?.()?.[0]?.id
           if (!sourceId) {
-            toast("请选择要合并的 Scene", "warning")
+            toast("请选择要合并的场景", "warning")
             return false
           }
           destroyPicker()
@@ -174,7 +174,7 @@ export function createSceneModalController({
       projectId,
       sources: [{
         kind: "scene",
-        label: "Scene",
+        label: "场景",
         search: async (query, { projectId: searchProjectId, limit }) => {
           if (!owns(ownerGeneration) || searchProjectId !== projectId) return []
           const data = await api.outline.getSceneWorkbench(projectId, null, {
@@ -189,13 +189,13 @@ export function createSceneModalController({
             .filter((scene) => scene.id !== targetSceneId && scene.status !== "deprecated")
             .map((scene) => ({
               id: scene.id,
-              label: scene.title || "未命名 Scene",
+              label: scene.title || "未命名场景",
               description: [sceneChapterLabel(scene), scene.goal || scene.core_conflict].filter(Boolean).join(" · "),
               status: sceneStatusLabel(scene),
             }))
         },
       }],
-      placeholder: "搜索 Scene 标题、目标或冲突",
+      placeholder: "搜索场景标题、目标或冲突",
     })
     return true
   }
@@ -203,15 +203,15 @@ export function createSceneModalController({
   function startSelectedMerge(sceneIds) {
     const selected = sceneIds.map(findScene).filter(Boolean)
     if (selected.length < 2) {
-      toast("请至少选择 2 个 Scene 再合并", "warning")
+      toast("请至少选择 2 个场景再合并", "warning")
       return false
     }
     showModalHtml("选择合并目标", `
-      <p>目标 Scene 将保留，其他 Scene 的章节映射会合并到目标中。</p>
+      <p>目标场景将保留，其他场景的章节映射会合并到目标中。</p>
       ${selected.map((scene, index) => `
         <label class="scene-picker-card">
           <input type="radio" name="merge-target-scene" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
-          <strong>${esc(scene.title || "未命名 Scene")}</strong><span>${esc(sceneChapterLabel(scene))}</span>
+          <strong>${esc(scene.title || "未命名场景")}</strong><span>${esc(sceneChapterLabel(scene))}</span>
         </label>`).join("")}
     `, [
       { text: "取消", class: "", handler: closeModal },
@@ -245,7 +245,7 @@ export function createSceneModalController({
     if (!values?.length) return '<span class="scene-draft-review-empty">无来源证据</span>'
     return values.map((entry) => {
       const value = entry?.value ?? entry?.summary ?? entry
-      const source = entry?.scene_title || entry?.source_label || "来源 Scene"
+      const source = entry?.scene_title || entry?.source_label || "来源场景"
       const text = formatValue(value)
       return `<article class="scene-draft-ref"><strong>${esc(source)}</strong><p>${esc(text || "未提供")}</p></article>`
     }).join("")
@@ -253,7 +253,7 @@ export function createSceneModalController({
 
   function reviewTable(headers, rows) {
     return `
-      <section class="scene-draft-review-shell" aria-label="Scene 字段对比">
+      <section class="scene-draft-review-shell" aria-label="场景字段对比">
       <label class="scene-draft-review-filter"><input type="checkbox" data-action="filter-draft-review-differences" /> 仅看初始差异</label>
       <p data-role="draft-review-filter-note" class="writing-form-hint" hidden></p>
       <table class="scene-draft-review-grid"><thead><tr>${headers.map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
@@ -321,11 +321,11 @@ export function createSceneModalController({
       const result = await api.outline.saveSceneFusion(projectId, payload)
       closeModal()
       clearSelection?.()
-      toast(result?.status === "discarded" ? "融合结果已放弃" : "融合 Scene 已保存", "success")
+      toast(result?.status === "discarded" ? "融合结果已放弃" : "融合场景已保存", "success")
       await refresh?.()
       return true
     } catch (err) {
-      toast(err.message || "Scene 融合保存失败", "error")
+      toast(err.message || "场景融合保存失败", "error")
       return false
     } finally {
       fusionSavePending = false
@@ -342,25 +342,25 @@ export function createSceneModalController({
       const values = refs[field] || []
       const distinct = new Set([formatValue(draft[field]), ...values.map((entry) => formatValue(entry?.value ?? entry))])
       return `<tr class="scene-draft-review-row" data-difference="${distinct.size > 1}" data-no-evidence="${values.length === 0}">
-        <th scope="row">${esc(label)}</th><td data-label="AI 建议">${editor(field, label, draft[field])}</td><td data-label="来源 Scene">${referenceCell(values)}</td>
+        <th scope="row">${esc(label)}</th><td data-label="AI 建议">${editor(field, label, draft[field])}</td><td data-label="来源场景">${referenceCell(values)}</td>
       </tr>`
     }).join("")
     const sourceLabels = sourceSceneIds.map((id) => findScene(id)?.title || id)
     const body = `<div class="scene-fusion-preview">
-      <div class="scene-fusion-preview__meta"><div><strong>主 Scene</strong><span>${esc(findScene(preview?.primary_scene_id)?.title || "未指定")}</span></div>
-      <div><strong>来源 Scene</strong><span>${esc(sourceLabels.join("、"))}</span></div></div>
-      ${reviewTable(["字段", "AI 建议", "来源 Scene"], rows)}
+      <div class="scene-fusion-preview__meta"><div><strong>主场景</strong><span>${esc(findScene(preview?.primary_scene_id)?.title || "未指定")}</span></div>
+      <div><strong>来源场景</strong><span>${esc(sourceLabels.join("、"))}</span></div></div>
+      ${reviewTable(["字段", "AI 建议", "来源场景"], rows)}
       <section data-role="fusion-deprecation-confirm" class="scene-draft-deprecation-confirm" hidden>
-        <p>将废弃以下原 Scene：${esc(sourceLabels.join("、"))}</p>
+        <p>将把以下原场景移入历史：${esc(sourceLabels.join("、"))}</p>
         <button class="btn" data-action="cancel-fusion-deprecation">返回编辑</button>
-        <button class="btn btn-danger" data-action="confirm-fusion-deprecation">确认废弃 ${sourceSceneIds.length} 个原 Scene 并保存</button>
+        <button class="btn btn-danger" data-action="confirm-fusion-deprecation">确认将 ${sourceSceneIds.length} 个原场景移入历史并保存</button>
       </section>
     </div>`
-    showModalHtml("Scene AI 建议预览", body, [
+    showModalHtml("场景 AI 建议预览", body, [
       { text: "放弃融合结果", class: "", handler: () => saveFusion("discard", sourceSceneIds) },
       { text: "继续编辑融合结果后再保存", class: "btn-primary", handler: () => saveFusion("keep_originals", sourceSceneIds) },
       {
-        text: `废弃 ${sourceSceneIds.length} 个原 Scene 并保存`,
+        text: `将 ${sourceSceneIds.length} 个原场景移入历史并保存`,
         class: "btn-danger",
         handler: () => {
           const section = document.querySelector('[data-role="fusion-deprecation-confirm"]')
@@ -381,7 +381,7 @@ export function createSceneModalController({
 
   async function previewFusion(sourceSceneIds, primarySceneId, suggestionId = null) {
     if (fusionPreviewPending) {
-      toast("Scene AI 融合建议正在生成，请稍候", "info")
+      toast("场景融合建议正在生成，请稍候", "info")
       return false
     }
     const ownerGeneration = generation
@@ -395,7 +395,7 @@ export function createSceneModalController({
         ...(suggestionId ? { suggestion_id: suggestionId } : {}),
       })
     } catch (err) {
-      if (owns(ownerGeneration) && requestSequence === fusionPreviewSequence) toast(err.message || "Scene AI 融合建议生成失败", "error")
+      if (owns(ownerGeneration) && requestSequence === fusionPreviewSequence) toast(err.message || "场景融合建议生成失败", "error")
       return false
     } finally {
       if (requestSequence === fusionPreviewSequence) fusionPreviewPending = false
@@ -408,12 +408,12 @@ export function createSceneModalController({
   function startFusion(sceneIds, suggestionId = null) {
     const selected = sceneIds.map(findScene).filter(Boolean)
     if (selected.length < 2) {
-      toast("请至少选择 2 个 Scene 再融合", "warning")
+      toast("请至少选择 2 个场景再融合", "warning")
       return false
     }
-    showModalHtml("选择主 Scene", `
-      <p>主 Scene 只在证据冲突时作为偏好；所有来源 Scene 的精确正文都会完整参与。</p>
-      ${selected.map((scene, index) => `<label class="scene-picker-card"><input type="radio" name="fusion-primary-scene" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""}/><strong>${esc(scene.title || "未命名 Scene")}</strong><span>${esc(sceneChapterLabel(scene))}</span></label>`).join("")}
+    showModalHtml("选择主场景", `
+      <p>主场景只在内容冲突时作为偏好；所有来源场景的正文都会参与。</p>
+      ${selected.map((scene, index) => `<label class="scene-picker-card"><input type="radio" name="fusion-primary-scene" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""}/><strong>${esc(scene.title || "未命名场景")}</strong><span>${esc(sceneChapterLabel(scene))}</span></label>`).join("")}
     `, [
       { text: "取消", class: "", handler: closeModal },
       {
@@ -437,7 +437,7 @@ export function createSceneModalController({
       const evidence = refs[field] || []
       const distinct = new Set([formatValue(drafts[0]?.[field]), formatValue(drafts[1]?.[field]), ...evidence.map((entry) => formatValue(entry?.value ?? entry))])
       return `<tr class="scene-draft-review-row" data-difference="${distinct.size > 1}" data-no-evidence="${evidence.length === 0}">
-        <th scope="row">${esc(label)}</th><td data-label="原 Scene">${referenceCell(evidence)}</td>
+        <th scope="row">${esc(label)}</th><td data-label="原场景">${referenceCell(evidence)}</td>
         <td data-label="建议 A">${editor(field, label, drafts[0]?.[field], "scene-split-0")}</td>
         <td data-label="建议 B">${editor(field, label, drafts[1]?.[field], "scene-split-1")}</td>
       </tr>`
@@ -469,8 +469,8 @@ export function createSceneModalController({
     }
     if (!owns(ownerGeneration)) return false
     const impact = preview?.chapter_mapping_change?.after || {}
-    showModalHtml("Scene 拆分预览", `<div class="scene-fusion-preview">
-      ${reviewTable(["字段", "原 Scene", "建议 A", "建议 B"], splitDraftRows(preview))}
+    showModalHtml("场景拆分预览", `<div class="scene-fusion-preview">
+      ${reviewTable(["字段", "原场景", "建议 A", "建议 B"], splitDraftRows(preview))}
       <section class="scene-split-impact-summary" aria-label="拆分影响摘要"><h3>影响摘要</h3>
         <p>章节映射：${esc(Object.entries(impact).map(([id, ids]) => `${id}: ${(ids || []).join("、") || "无"}`).join("；") || "以表格为准")}</p>
         <p>关联剧情线：${esc(preview?.related_threads?.count ?? 0)} 条</p>
@@ -490,11 +490,11 @@ export function createSceneModalController({
               confirmed: true,
             })
             closeModal()
-            toast("Scene 已拆分", "success")
+            toast("场景已拆分", "success")
             await refresh?.()
             return true
           } catch (err) {
-            toast(`Scene 拆分失败：${err.message || "未知错误"}`, "error")
+            toast(`场景拆分失败：${err.message || "未知错误"}`, "error")
             return false
           }
         },
@@ -508,22 +508,22 @@ export function createSceneModalController({
     const scene = findScene(sceneId)
     const chapters = [...new Set((scene?.chapter_ids || []).map(Number).filter((item) => Number.isInteger(item) && item > 0))].sort((a, b) => a - b)
     if (!scene) {
-      toast("Scene 不存在或已变化，请刷新后重试", "warning")
+      toast("场景不存在或已变化，请刷新后重试", "warning")
       return false
     }
     if (chapters.length < 2) {
-      toast("该 Scene 至少需要关联两个章节才能按章节拆分", "info")
+      toast("该场景至少需要关联两个章节才能按章节拆分", "info")
       return false
     }
     const defaultBoundary = chapters[1]
     const partition = (boundary) => ({ retained: chapters.filter((item) => item < boundary), created: chapters.filter((item) => item >= boundary) })
     const summary = (boundary) => {
       const parts = partition(boundary)
-      return `<p><strong>保留在原 Scene：</strong>${esc(parts.retained.map((item) => `第 ${item} 章`).join("、"))}</p><p><strong>进入新 Scene：</strong>${esc(parts.created.map((item) => `第 ${item} 章`).join("、"))}</p>`
+      return `<p><strong>保留在原场景：</strong>${esc(parts.retained.map((item) => `第 ${item} 章`).join("、"))}</p><p><strong>进入新场景：</strong>${esc(parts.created.map((item) => `第 ${item} 章`).join("、"))}</p>`
     }
-    showModalHtml("拆分 Scene", `<div class="scene-split-setup">
-      <p>当前 Scene：<strong>${esc(scene.title || "未命名 Scene")}</strong></p>
-      <label class="writing-form-field"><span>新 Scene 的起始章节</span><select id="scene-split-chapter-index">${chapters.slice(1).map((chapter) => `<option value="${chapter}" ${chapter === defaultBoundary ? "selected" : ""}>从第 ${chapter} 章起创建新 Scene</option>`).join("")}</select></label>
+    showModalHtml("拆分场景", `<div class="scene-split-setup">
+      <p>当前场景：<strong>${esc(scene.title || "未命名场景")}</strong></p>
+      <label class="writing-form-field"><span>新场景的起始章节</span><select id="scene-split-chapter-index">${chapters.slice(1).map((chapter) => `<option value="${chapter}" ${chapter === defaultBoundary ? "selected" : ""}>从第 ${chapter} 章起创建新场景</option>`).join("")}</select></label>
       <div id="scene-split-partition" class="scene-split-impact-summary" aria-live="polite">${summary(defaultBoundary)}</div>
       <p id="scene-split-setup-error" class="form-error" role="alert"></p></div>`, [
       { text: "取消", class: "", handler: closeModal },
@@ -577,10 +577,10 @@ export function createSceneModalController({
   function assignChapter(chapterIndex) {
     const scenes = items().map((item) => item.scene).filter(Boolean)
     if (!scenes.length) {
-      toast("当前没有可关联的 Scene", "warning")
+      toast("当前没有可关联的场景", "warning")
       return false
     }
-    showModalHtml(`分配第 ${chapterIndex} 章`, scenes.map((scene, index) => `<label class="scene-picker-card"><input type="radio" name="assign-target-scene" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""}/><strong>${esc(scene.title || "未命名 Scene")}</strong><span>${esc(sceneChapterLabel(scene))}</span></label>`).join(""), [
+    showModalHtml(`分配第 ${chapterIndex} 章`, scenes.map((scene, index) => `<label class="scene-picker-card"><input type="radio" name="assign-target-scene" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""}/><strong>${esc(scene.title || "未命名场景")}</strong><span>${esc(sceneChapterLabel(scene))}</span></label>`).join(""), [
       { text: "取消", class: "", handler: closeModal },
       {
         text: "确认分配",
@@ -606,7 +606,7 @@ export function createSceneModalController({
       toast("正文定位已变化，请刷新后重试", "warning")
       return false
     }
-    showModalHtml("确认章节级正文定位", '<p>确认后，该 Scene 仍只保留章节级定位。这不会伪造正文 offset。</p>', [
+    showModalHtml("确认章节级正文定位", '<p>确认后，该场景仍只保留章节级定位，不会伪造更精确的正文位置。</p>', [
       { text: "取消", class: "", handler: closeModal },
       {
         text: "确认仅按章节关联",
@@ -629,14 +629,14 @@ export function createSceneModalController({
   }
 
   function organizeMapping(sceneId, unassigned) {
-    showModalHtml("整理 Scene 映射", "<p>选择要处理的映射动作。</p>", [
+    showModalHtml("整理场景正文范围", "<p>选择要处理的动作。</p>", [
       { text: "移动章节", class: "", handler: () => { closeModal(); showAssignChapters(sceneId, unassigned) } },
       { text: "合并", class: "", handler: () => { closeModal(); startMerge(sceneId) } },
       { text: "拆分", class: "btn-primary", handler: () => { closeModal(); startSplit(sceneId) } },
     ])
   }
 
-  async function dismissSuggestions(ids, message = "已忽略 Scene 建议") {
+  async function dismissSuggestions(ids, message = "已忽略场景建议") {
     const safeIds = [...new Set(ids)].filter(Boolean).slice(0, 100)
     if (!safeIds.length) return false
     try {
@@ -655,10 +655,10 @@ export function createSceneModalController({
     const suggestions = (getSuggestions?.() || []).filter((item) => item.suggestion_kind !== "replacement")
     const ids = suggestions.map((item) => item.id).filter(Boolean).slice(0, 100)
     if (!ids.length) {
-      toast("暂无可忽略的 Scene 融合建议", "info")
+      toast("暂无可忽略的场景融合建议", "info")
       return false
     }
-    showModalHtml("忽略 Scene 融合建议", `<p>将忽略 ${ids.length} 条融合/分开建议；需单独审查的 Scene 替换建议不会被忽略。</p>`, [
+    showModalHtml("忽略场景融合建议", `<p>将忽略 ${ids.length} 条融合或分开建议；需要单独检查的场景替换建议不会被忽略。</p>`, [
       { text: "取消", class: "", handler: closeModal },
       { text: `确认忽略 ${ids.length} 条`, class: "btn-primary", handler: () => dismissSuggestions(ids) },
     ])
@@ -668,26 +668,26 @@ export function createSceneModalController({
   function showReplacementSuggestion(suggestion) {
     const drafts = suggestion?.proposed_scene?.draft_scenes || []
     const fields = REVIEW_FIELDS.filter(([field]) => !["pov_character_id", "chapter_ids"].includes(field))
-    showModalHtml("Scene 替换审查", `<p>原 Scene 会继续作为有效资产，只有明确采用后才会进入历史。</p><section><h4>受保护的原 Scene</h4>${(suggestion.source_scene_ids || []).map((id) => `<p>${esc(findScene(id)?.title || "原 Scene")}</p>`).join("")}</section><section><h4>新提取候选</h4>${drafts.map((draft, index) => `<article class="scene-replacement-draft" data-index="${index}"><h4>新候选 ${index + 1} · 章节 ${esc((draft.chapter_ids || []).join("、") || "-")}</h4>${fields.map(([field, label]) => `<label class="scene-detail-field scene-detail-field--wide"><span>${esc(label)}</span><textarea class="form-textarea" data-replacement-field="${esc(field)}">${esc(draft[field] || "")}</textarea></label>`).join("")}</article>`).join("")}</section>`, [
-      { text: "保留原 Scene", class: "", handler: () => dismissSuggestions([suggestion.id], "已保留原 Scene") },
-      { text: "采用新 Scene，旧 Scene 移入历史", class: "btn-primary", handler: () => applyReplacement(suggestion, false) },
-      { text: "编辑后采用，旧 Scene 移入历史", class: "btn-primary", handler: () => applyReplacement(suggestion, true) },
+    showModalHtml("场景替换检查", `<p>原场景会继续保留，只有明确采用后才会进入历史。</p><section><h4>受保护的原场景</h4>${(suggestion.source_scene_ids || []).map((id) => `<p>${esc(findScene(id)?.title || "原场景")}</p>`).join("")}</section><section><h4>新整理候选</h4>${drafts.map((draft, index) => `<article class="scene-replacement-draft" data-index="${index}"><h4>新候选 ${index + 1} · 章节 ${esc((draft.chapter_ids || []).join("、") || "-")}</h4>${fields.map(([field, label]) => `<label class="scene-detail-field scene-detail-field--wide"><span>${esc(label)}</span><textarea class="form-textarea" data-replacement-field="${esc(field)}">${esc(draft[field] || "")}</textarea></label>`).join("")}</article>`).join("")}</section>`, [
+      { text: "保留原场景", class: "", handler: () => dismissSuggestions([suggestion.id], "已保留原场景") },
+      { text: "采用新场景，原场景移入历史", class: "btn-primary", handler: () => applyReplacement(suggestion, false) },
+      { text: "编辑后采用，原场景移入历史", class: "btn-primary", handler: () => applyReplacement(suggestion, true) },
     ])
   }
 
   async function applyReplacement(suggestion, edited) {
-    const confirmed = await confirmAsync("采用新 Scene 后，原 Scene 将移入历史；正文和追踪信息会保留。", edited ? "确认编辑后采用" : "确认采用并移入历史")
+    const confirmed = await confirmAsync("采用新场景后，原场景将移入历史；正文和追踪信息会保留。", edited ? "确认编辑后采用" : "确认采用并移入历史")
     if (!confirmed) return false
     const draftScenes = edited ? Array.from(document.querySelectorAll(".scene-replacement-draft")).map((card) => Object.fromEntries(Array.from(card.querySelectorAll("[data-replacement-field]")).map((input) => [input.getAttribute("data-replacement-field"), input.value]))) : null
     try {
       const result = await api.outline.applySceneReplacement(projectId, { suggestion_id: suggestion.id, decision: edited ? "edit_then_replace" : "replace", confirmed: true, ...(edited ? { draft_scenes: draftScenes } : {}) })
       closeModal()
       const downstream = result?.downstream_refresh_required || []
-      toast(downstream.length ? `新 Scene 已采用，旧 Scene 已移入历史；建议按需重跑：${downstream.join("、")}` : "新 Scene 已采用，旧 Scene 已移入历史", "success")
+      toast(downstream.length ? `新场景已采用，原场景已移入历史；建议按需重新整理：${downstream.join("、")}` : "新场景已采用，原场景已移入历史", "success")
       await refresh?.()
       return true
     } catch (err) {
-      toast(err.message || "替换 Scene 失败", "error")
+      toast(err.message || "替换场景失败", "error")
       return false
     }
   }
@@ -698,16 +698,16 @@ export function createSceneModalController({
     if (direct) {
       if (direct.suggestion_kind === "replacement") return showReplacementSuggestion(direct)
       if (direct.proposed_action === "keep_separate") {
-        showModalHtml("保持 Scene 分开", "<p>确认后只更新建议状态，不修改 Scene 内容。</p>", [{ text: "取消", class: "", handler: closeModal }, { text: "确认保持分开", class: "btn-primary", handler: () => dismissSuggestions([direct.id], "已确认 Scene 保持分开") }])
+        showModalHtml("保持场景分开", "<p>确认后只更新建议状态，不修改场景内容。</p>", [{ text: "取消", class: "", handler: closeModal }, { text: "确认保持分开", class: "btn-primary", handler: () => dismissSuggestions([direct.id], "已确认场景保持分开") }])
         return true
       }
       return startFusion(direct.source_scene_ids || [], direct.id)
     }
     if (!suggestions.length) {
-      toast("暂无 Scene 融合建议", "info")
+      toast("暂无场景融合建议", "info")
       return false
     }
-    showModalHtml("Scene 融合建议", suggestions.map((item) => `<label class="scene-fusion-suggestion"><input type="radio" name="review-suggestion" value="${esc(item.id || "")}"/><strong>${esc(item.suggestion_kind === "replacement" ? "Scene 替换建议" : item.proposed_action === "keep_separate" ? "Scene 切分建议" : item.proposed_scene?.title || "Scene 融合建议")}</strong><p>${esc(item.reason || "无说明")}</p></label>`).join(""), [
+    showModalHtml("场景融合建议", suggestions.map((item) => `<label class="scene-fusion-suggestion"><input type="radio" name="review-suggestion" value="${esc(item.id || "")}"/><strong>${esc(item.suggestion_kind === "replacement" ? "场景替换建议" : item.proposed_action === "keep_separate" ? "场景分开建议" : item.proposed_scene?.title || "场景融合建议")}</strong><p>${esc(item.reason || "无说明")}</p></label>`).join(""), [
       {
         text: "处理所选审查",
         class: "btn-primary",
@@ -716,7 +716,7 @@ export function createSceneModalController({
           const item = suggestions.find((candidate) => candidate.id === id)
           if (!item) { toast("请先选择一条需逐条审查的建议", "warning"); return false }
           if (item.suggestion_kind === "replacement") showReplacementSuggestion(item)
-          else if (item.proposed_action === "keep_separate") dismissSuggestions([item.id], "已确认 Scene 保持分开")
+          else if (item.proposed_action === "keep_separate") dismissSuggestions([item.id], "已确认场景保持分开")
           else startFusion(item.source_scene_ids || [], item.id)
           return false
         },

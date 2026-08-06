@@ -7,42 +7,48 @@
         <span v-if="hasChapter" id="writing-save-status" class="writing-save-badge" :class="saveBadgeClass">{{ saveStatus }}</span>
       </div>
       <div id="writing-editor-buttons" class="writing-editor-buttons">
-        <div class="writing-editor-buttons__group" role="group" aria-label="版本操作">
-          <button id="btn-autosave" class="btn btn-sm" :disabled="!hasChapter || state.readonly || state.saving" @click="$emit('autosave')">{{ state.restoreSourceVersion ? '发布为新版本' : '暂存' }}</button>
-          <button id="btn-checkpoint-version" class="btn btn-sm" :disabled="!hasChapter || state.readonly || state.saving" @click="$emit('checkpoint')">保存版本</button>
-          <button v-if="state.status === 'draft' && Number(state.versionNumber || 0) > 1" class="btn btn-sm btn-ghost" @click="$emit('discard')">放弃未发布更改</button>
-        </div>
-        <div class="writing-editor-buttons__group" role="group" aria-label="校验与发布">
-          <button id="btn-conflict-check" class="btn btn-sm" :disabled="!hasChapter || state.readonly || conflictLoading" @click="$emit('conflict-check')">{{ conflictLoading ? '检查中...' : '冲突检查' }}</button>
-          <button id="btn-publish" class="btn btn-primary btn-sm" :disabled="!hasChapter || state.readonly || !state.content.trim()" @click="$emit('publish')">发布</button>
-        </div>
-        <div class="writing-editor-buttons__group" role="group" aria-label="AI 助手">
-          <button class="btn btn-sm btn-ghost" :disabled="!hasChapter || state.readonly || !state.content.trim() || generationLoading" title="基于当前已锁定正文生成续写建议" @click="$emit('generate-continuation')">{{ generationLoading ? '生成中…' : 'AI 续写' }}</button>
-          <details v-if="hasChapters" class="writing-tools-menu">
-            <summary class="btn btn-sm">AI 工具</summary>
+        <button id="btn-publish" class="btn btn-primary btn-sm writing-primary-action" :disabled="!hasChapter || state.readonly || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
+        <span v-if="hasChapter" class="writing-primary-action__hint">只在本作品内生效，不会对外发布</span>
+        <div class="writing-editor-buttons__menus">
+          <details class="writing-tools-menu">
+            <summary class="btn btn-sm">工作稿与版本</summary>
             <div class="writing-tools-menu__body">
               <div class="writing-tools-menu__group">
-                <strong>生成</strong>
+                <button id="btn-autosave" class="btn btn-sm" :disabled="!hasChapter || state.readonly || state.saving" @click="$emit('autosave')">{{ state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
+                <button id="btn-checkpoint-version" class="btn btn-sm" :disabled="!hasChapter || state.readonly || state.saving" @click="$emit('checkpoint')">保存版本</button>
+                <button v-if="state.status === 'draft' && Number(state.versionNumber || 0) > 1" class="btn btn-sm btn-ghost" @click="$emit('discard')">放弃未设为正式正文的更改</button>
+              </div>
+            </div>
+          </details>
+          <details v-if="hasChapters" class="writing-tools-menu">
+            <summary class="btn btn-sm" data-action="writing-ai-menu">AI 写作助手</summary>
+            <div class="writing-tools-menu__body">
+              <div class="writing-tools-menu__group">
+                <strong>可编辑建议</strong>
+                <button class="btn btn-sm btn-primary" :disabled="!hasChapter || state.readonly || !state.content.trim() || generationLoading" @click="$emit('generate-continuation')">{{ generationLoading ? '生成中…' : '续写建议' }}</button>
                 <button class="btn btn-sm" :disabled="!hasChapter || state.readonly || generationLoading" @click="$emit('generate-draft')">AI 正文建议</button>
                 <button class="btn btn-sm" :disabled="!hasChapter || state.readonly || generationLoading" @click="$emit('generate-pov')">AI 角色视角建议</button>
               </div>
               <div class="writing-tools-menu__group">
-                <strong>提取</strong>
-                <button class="btn btn-sm btn-primary" @click="$emit('auto-extract', 'deep')">启动深度导入</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">从正文提取 Scene</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'world_objects')">世界对象与别名/关系自动提取</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'plot_structure')">剧情线自动提取</button>
-              </div>
-              <div class="writing-tools-menu__group">
-                <strong>工具</strong>
-                <button class="btn btn-sm" :disabled="!hasChapter" @click="$emit('export')">导出本章</button>
-                <button class="btn btn-sm" @click="$emit('open-map')">打开地图</button>
+                <strong>从正文整理资料</strong>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理</button>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">整理场景</button>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'world_objects')">整理人物、设定与关系</button>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'plot_structure')">整理剧情线</button>
               </div>
             </div>
           </details>
-        </div>
-        <div class="writing-editor-buttons__group" role="group" aria-label="视图">
-          <button class="btn btn-sm" @click="$emit('toggle-focus')">专注模式</button>
+          <details class="writing-tools-menu">
+            <summary class="btn btn-sm" data-action="writing-more-menu">更多</summary>
+            <div class="writing-tools-menu__body">
+              <div class="writing-tools-menu__group">
+                <button id="btn-conflict-check" class="btn btn-sm" :disabled="!hasChapter || state.readonly || conflictLoading" @click="$emit('conflict-check')">{{ conflictLoading ? '检查中...' : '检查前后设定' }}</button>
+                <button class="btn btn-sm" :disabled="!hasChapter" @click="$emit('export')">导出本章</button>
+                <button class="btn btn-sm" @click="$emit('open-map')">打开地图</button>
+                <button class="btn btn-sm" @click="$emit('toggle-focus')">专注模式</button>
+              </div>
+            </div>
+          </details>
         </div>
         <div v-if="$slots['context-actions']" class="writing-editor-buttons__context" aria-label="版本与检查状态">
           <slot name="context-actions" />
@@ -132,7 +138,11 @@ watch(() => props.state.chapter, () => nextTick(attachElements))
 onBeforeUnmount(() => props.detach())
 
 const versionLabel = computed(() => props.state.versionNumber ? `v${props.state.versionNumber}${props.state.readonly ? '（只读）' : ''}` : "未选择版本")
-const saveBadgeClass = computed(() => props.state.dirty ? "writing-save-badge--unsaved" : "writing-save-badge--saved")
+const saveBadgeClass = computed(() => ({
+  "writing-save-badge--saving": Boolean(props.state.saving),
+  "writing-save-badge--unsaved": !props.state.saving && props.state.dirty,
+  "writing-save-badge--saved": !props.state.saving && !props.state.dirty,
+}) )
 const paragraphCount = computed(() => String(props.state.content || "").replace(/\r\n?/g, "\n").split(/\n+/).filter((item) => item.trim()).length)
 const readMinutes = computed(() => Math.max(1, Math.ceil(String(props.state.content || "").length / 300)))
 const goalPercent = computed(() => {

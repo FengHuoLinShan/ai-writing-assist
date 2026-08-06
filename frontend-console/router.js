@@ -12,19 +12,20 @@
  */
 const routes = {
   home: { title: "选择使用方式", subViews: [], requiresProject: false },
-  project: { title: "项目", subViews: [], requiresProject: false },
-  journeys: { title: "跑团模式", subViews: [], requiresProject: false, dynamicSubView: true },
-  interaction: { title: "互动旅程", subViews: [], requiresProject: false, dynamicSubView: true },
-  world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "待处理", "review-objects": "待处理 · 对象", "review-aliases": "待处理 · 别名", "review-relations": "待处理 · 关系", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
-  rag: { title: "小说检索", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "检索", status: "索引维护" } },
-  outline: { title: "大纲", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "小说总纲", arcs: "篇章纲", threads: "剧情线", scenes: "场景工作台" } },
+  project: { title: "作品档案", subViews: [], requiresProject: false },
+  journeys: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
+  interaction: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
+  today: { title: "今日工作", subViews: [], requiresProject: true },
+  world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "人物与设定", candidates: "需要处理", "review-objects": "需要处理 · 人物与设定", "review-aliases": "需要处理 · 别名", "review-relations": "需要处理 · 关系", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记", map: "地图" } },
+  rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "修复查找功能" } },
+  outline: { title: "故事结构", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "故事总览", arcs: "篇章", threads: "剧情线", scenes: "场景" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
-  writing: { title: "写作台", subViews: [], requiresProject: true },
+  writing: { title: "写作", subViews: [], requiresProject: true },
   map: { title: "地图", subViews: [], requiresProject: true },
-  generate: { title: "生成中心", subViews: [], requiresProject: true },
-  llm: { title: "LLM 设置", subViews: [], requiresProject: false },
-  settings: { title: "全局设置", subViews: [], requiresProject: false },
-  "project-settings": { title: "项目设置", subViews: [], requiresProject: true },
+  generate: { title: "高级生成工具", subViews: [], requiresProject: true },
+  llm: { title: "模型连接", subViews: [], requiresProject: false },
+  settings: { title: "账户与模型连接", subViews: [], requiresProject: false },
+  "project-settings": { title: "项目偏好", subViews: [], requiresProject: true },
 }
 
 /**
@@ -192,12 +193,12 @@ function _showProjectLoadFailure(content, failure) {
   const title = document.createElement("h2")
   title.className = "project-route-failure__title"
   title.tabIndex = -1
-  title.textContent = inaccessible ? "无法打开这个项目" : "项目暂时加载失败"
+  title.textContent = inaccessible ? "无法打开这部作品" : "作品暂时加载失败"
 
   const message = document.createElement("p")
   message.className = "project-route-failure__message"
   message.textContent = inaccessible
-    ? "项目不存在，或你没有访问权限。"
+    ? "作品不存在，或你没有访问权限。"
     : "当前页面没有加载完成，可以重试或返回项目列表。"
 
   const actions = document.createElement("div")
@@ -219,7 +220,7 @@ function _showProjectLoadFailure(content, failure) {
   back.type = "button"
   back.className = inaccessible ? "btn btn-primary" : "btn"
   back.dataset.action = "return-project-list"
-  back.textContent = "返回项目列表"
+  back.textContent = "返回作品档案"
   back.addEventListener("click", () => {
     void _returnFromFailedProjectRoute(failure)
   })
@@ -966,7 +967,7 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
   })
 
   if (routeState.redirectedToProject) {
-    toast("请先选择项目后再进入该页面", "warning")
+    toast("请先选择作品后再进入该页面", "warning")
   }
 
   const sourceRoute = _representedRouteState()

@@ -41,10 +41,10 @@ describe("mapModel", () => {
     ], { source: "manual", confidence: "high", eligibility: "ready" })).toEqual([expect.objectContaining({ id: "a" })])
   })
 
-  it("将内部来源和零基 Scene 编号转为作者可读文案", () => {
+  it("将内部来源和零基场景编号转为作者可读文案", () => {
     expect(inboxSourceLabel({ source: "map_enrichment_typed_map_proposal" })).toBe("地图事实补充")
     expect(mapSourceText("deep_import_delta_event · 路线")).toBe("深度导入 · 路线")
-    expect(mapSceneLabel(0)).toBe("Scene 1")
-    expect(inboxTimeLabel({ scene_index: 1, scene_sequence: 0 })).toBe("Scene 2 · 片段 1")
+    expect(mapSceneLabel(0)).toBe("场景 1")
+    expect(inboxTimeLabel({ scene_index: 1, scene_sequence: 0 })).toBe("场景 2 · 片段 1")
   })
 })
