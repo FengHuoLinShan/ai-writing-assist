@@ -110,6 +110,14 @@ provider/model、非 secret 参数、endpoint/extra hash 和项目工作流设�
 fail-closed。业务 LLM Profile 不从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 等环境变量
 继承；代理、重试和 health gate 等运行参数仍由 `core.config.Settings` 管理。
 
+账户连接的等值指纹复用 `LLM_SETTINGS_ENCRYPTION_KEY`，并使用用途分隔的
+HMAC-SHA256；数据库字段和公开 wire 不变。旧的无密钥 SHA-256 指纹不会被当作相同 Key，
+作者下次保存连接时先执行真实验证，再在同一事务内惰性升级。指纹不是认证或 Key 恢复接口。
+
+provider 初始化日志只记录固定事件名，不记录 model、完整 endpoint 或动态异常值。进入日志、
+task status 或诊断响应前必须先做 secret redaction 和控制字符规范化；降级日志只允许规范 UUID、
+受限枚举/原因 token 与异常类型，不能记录 exception message。
+
 `balance.py` 只提供 DeepSeek `/user/balance` 与 Kimi `/v1/users/me/balance` 的窄 schema
 适配，返回 provider 原币种总可用额。它不持久化余额、不轮询、不换算、不拆分，也不构成
 账务系统；失败必须映射为不含响应正文或 Key 的安全不可用状态。

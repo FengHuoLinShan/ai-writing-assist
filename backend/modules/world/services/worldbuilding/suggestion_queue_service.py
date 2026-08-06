@@ -10,7 +10,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
-from infrastructure.llm.redaction import redact_diagnostic
+from core.logging_context import (
+    exception_summary_for_log,
+    identifier_for_log,
+    novel_id_for_log,
+)
 from modules.world.models import (
     CreationSuggestion,
     WorldBiblePage,
@@ -801,10 +805,10 @@ class SuggestionQueueService:
             logger.warning(
                 "world_suggestion_context_invalidation_failed novel_id=%s "
                 "suggestion_id=%s asset_id=%s; accepted_write_remains_valid; reason=%s",
-                novel_id,
-                suggestion.id,
-                result_ref.get("id") or suggestion.id,
-                redact_diagnostic(exc, limit=300),
+                novel_id_for_log(novel_id),
+                identifier_for_log(suggestion.id),
+                identifier_for_log(result_ref.get("id") or suggestion.id),
+                exception_summary_for_log(exc),
             )
         await db.flush()
         return CreationSuggestionResponse.model_validate(suggestion)

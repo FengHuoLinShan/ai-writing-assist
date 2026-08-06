@@ -10,6 +10,8 @@ import yaml
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 CODEQL_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/codeql.yml"
 DEPENDABOT_CONFIG = REPOSITORY_ROOT / ".github/dependabot.yml"
+LICENSE_FILE = REPOSITORY_ROOT / "LICENSE"
+SECURITY_POLICY = REPOSITORY_ROOT / "SECURITY.md"
 PRODUCTION_IMAGE_CI_WORKFLOW = (
     REPOSITORY_ROOT / ".github/workflows/production-image-ci.yml"
 )
@@ -59,6 +61,20 @@ DEPENDABOT_SCHEDULES = {
     "docker": (["/backend", "/frontend-console"], "thursday", "02:40"),
     "docker-compose": ("/deploy", "friday", "02:50"),
 }
+
+
+def test_repository_license_and_private_security_reporting_policy_are_present() -> None:
+    license_text = LICENSE_FILE.read_text(encoding="utf-8")
+    policy = SECURITY_POLICY.read_text(encoding="utf-8")
+    normalized_policy = " ".join(policy.split())
+
+    assert license_text.startswith("MIT License\n")
+    assert "Copyright (c) 2026 FengHuoLinShan" in license_text
+    assert "private vulnerability reporting" in normalized_policy
+    assert "three business days" in normalized_policy
+    assert "seven business days" in normalized_policy
+    assert "Do not open a public issue" in normalized_policy
+    assert "LLM API keys" in normalized_policy
 
 
 def _load_yaml(path: Path) -> dict[str, object]:

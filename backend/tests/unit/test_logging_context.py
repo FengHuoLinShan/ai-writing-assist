@@ -9,8 +9,11 @@ import pytest
 from core.logging_context import (
     bind_validated_novel_id,
     current_novel_id_for_log,
+    exception_summary_for_log,
+    identifier_for_log,
     novel_id_for_log,
     novel_log_scope,
+    token_for_log,
 )
 
 
@@ -52,6 +55,17 @@ def test_novel_id_for_log_does_not_stringify_untrusted_values() -> None:
 
     assert novel_id_for_log(ExplodingValue()) == "<invalid>"
     assert novel_id_for_log("a" * 65) == "<invalid>"
+
+
+def test_structured_log_helpers_reject_control_characters_and_secret_values() -> None:
+    secret = "sk-unit-test-secret\r\nforged=warning"
+
+    assert token_for_log("candidate_promoted") == "candidate_promoted"
+    assert token_for_log(secret) == "<invalid>"
+    assert identifier_for_log(secret) == "<invalid>"
+    assert exception_summary_for_log(RuntimeError(secret)) == (
+        "RuntimeError:[REDACTED]"
+    )
 
 
 def test_log_scope_restores_context_after_exception() -> None:

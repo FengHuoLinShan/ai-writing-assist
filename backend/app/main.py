@@ -83,7 +83,6 @@ _UUID_PATH_SEGMENT_RE = re.compile(
 _LONG_HEX_PATH_SEGMENT_RE = re.compile(r"^[0-9a-fA-F]{16,}$")
 _LONG_HASH_PATH_SEGMENT_RE = re.compile(r"^(?=.*\d)[A-Za-z0-9_-]{24,}$")
 _HTTP_METHOD_LOG_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Z]{1,32}$")
-_DOMAIN_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 _EXCEPTION_TYPE_LOG_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
 _TRACE_FRAME_LOG_RE = re.compile(r"^[A-Za-z0-9_.<>-]{1,80}$")
 _STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -126,13 +125,12 @@ def _should_redact_path_segment(segment: str) -> bool:
 def _domain_error_log_fields(
     request: Request | None,
     exc: DomainError,
-) -> tuple[str, str, str]:
+) -> tuple[str, str]:
     """Return bounded, non-user-content fields for DomainError logs."""
+    del exc
     scope = getattr(request, "scope", None)
     method, route_template = _request_log_fields(scope)
-    raw_code = str(exc.code)
-    code = raw_code if _DOMAIN_ERROR_CODE_RE.fullmatch(raw_code) else "domain_error"
-    return method, route_template, code
+    return method, route_template
 
 
 def _request_log_fields(scope: object) -> tuple[str, str]:
@@ -566,15 +564,14 @@ async def request_validation_error_handler(
 @app.exception_handler(DomainError)
 async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
     """领域异常 → HTTP JSON 响应。"""
-    method, route_template, code = _domain_error_log_fields(request, exc)
+    method, route_template = _domain_error_log_fields(request, exc)
     level = logging.ERROR if exc.status_code >= 500 else logging.INFO
     logger.log(
         level,
-        "Domain request rejected method=%s route=%s status=%d code=%s novel_id=%s",
+        "Domain request rejected method=%s route=%s status=%d novel_id=%s",
         method,
         route_template,
         exc.status_code,
-        code,
         current_novel_id_for_log(),
     )
     content = {

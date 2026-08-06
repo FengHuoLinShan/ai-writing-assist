@@ -1247,10 +1247,9 @@ class TestDeepImportOrchestrator:
         assert task is not None
         original_snapshot = dict(task.meta["llm_execution_snapshot"])
 
-        import hashlib
         from datetime import UTC, datetime
 
-        from infrastructure.llm.secret_store import encrypt_secret
+        from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
         from modules.settings.repositories import AccountLLMCredentialRepository
 
         rotated_key = "unit-test-rotated-account-key"
@@ -1260,7 +1259,10 @@ class TestDeepImportOrchestrator:
                 "owner_id": account_llm_connection["owner_id"],
                 "provider_id": account_llm_connection["provider_id"],
                 "encrypted_api_key": encrypt_secret(rotated_key),
-                "key_fingerprint": hashlib.sha256(rotated_key.encode()).hexdigest(),
+                "key_fingerprint": fingerprint_secret(
+                    rotated_key,
+                    purpose="account-llm-api-key",
+                ),
                 "verified_at": datetime.now(UTC),
             },
         )

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
@@ -12,7 +11,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.llm.secret_store import encrypt_secret
+from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
 from modules.project import llm_runtime
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
@@ -64,7 +63,10 @@ async def _seed_account_connection(
             "owner_id": owner_id,
             "provider_id": provider_id,
             "encrypted_api_key": encrypt_secret(api_key),
-            "key_fingerprint": hashlib.sha256(api_key.encode()).hexdigest(),
+            "key_fingerprint": fingerprint_secret(
+                api_key,
+                purpose="account-llm-api-key",
+            ),
             "verified_at": datetime.now(UTC),
         },
     )

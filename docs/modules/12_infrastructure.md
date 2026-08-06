@@ -98,11 +98,15 @@ temperature / top_p / extra，并保留字段来源。日志、JSONL、health ch
 只能使用脱敏 summary：`provider_id`、`label`、`model`、`base_url_host`、
 `timeout`、`max_tokens`、`api_key_configured`、`sources`、`extra_keys`。API Key
 不得进入日志、错误信息、任务结果或前端响应。
-provider transport 的请求/失败日志只记录 endpoint host，即使 Base URL
-包含 query 也不输出完整 URL。
-task worker 对异常先执行 `redact_diagnostic`再写入 task status API 与
+账户 Key 的等值指纹使用部署加密密钥和用途分隔的 HMAC-SHA256；旧无密钥指纹在作者下次
+保存连接并完成真实验证后惰性改写，数据库字段与 wire 不变。provider 初始化日志只记录固定
+事件名，不记录 model、endpoint 或动态异常值；运行时 profile summary 只允许在受管边界记录
+上述白名单字段。
+task worker 对异常先执行 `redact_diagnostic` 再写入 task status API 与
 错误日志；数据库错误统一转成公开可展示的稳定消息，不输出可能
-包含请求 URL/query 的 exception cause traceback。
+包含请求 URL/query 的 exception cause traceback。所有诊断文本在 secret redaction 后继续
+规范化换行与 C0/C1 控制字符；best-effort 降级日志只记录规范 UUID、安全 token 与异常类型，
+不记录 exception message。
 
 可恢复任务不把 effective API Key 或完整 endpoint 写入 task meta。
 project facade 在提交时生成 secret-free execution snapshot，冻结

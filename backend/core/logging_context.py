@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -11,6 +12,7 @@ from typing import Any
 _NO_NOVEL_ID = "<none>"
 _INVALID_NOVEL_ID = "<invalid>"
 _MULTIPLE_NOVEL_IDS = "<multiple>"
+_SAFE_LOG_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 _scope_active: ContextVar[bool] = ContextVar("log_scope_active", default=False)
 _novel_id: ContextVar[str] = ContextVar("log_novel_id", default=_NO_NOVEL_ID)
@@ -32,6 +34,23 @@ def _safe_novel_id(value: Any, *, invalid: str) -> str:
 def novel_id_for_log(value: Any) -> str:
     """Return a bounded canonical project identifier without echoing invalid input."""
     return _safe_novel_id(value, invalid=_INVALID_NOVEL_ID)
+
+
+def identifier_for_log(value: Any) -> str:
+    """Return one canonical UUID suitable for a structured log field."""
+    return _safe_novel_id(value, invalid=_INVALID_NOVEL_ID)
+
+
+def token_for_log(value: Any) -> str:
+    """Return one bounded ASCII token without control characters."""
+    if not isinstance(value, str):
+        return "<invalid>"
+    return value if _SAFE_LOG_TOKEN_RE.fullmatch(value) else "<invalid>"
+
+
+def exception_summary_for_log(exc: BaseException) -> str:
+    """Return exception type only; exception values may contain user secrets."""
+    return f"{token_for_log(type(exc).__name__)}:[REDACTED]"
 
 
 def current_novel_id_for_log() -> str:

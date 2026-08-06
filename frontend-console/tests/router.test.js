@@ -80,6 +80,22 @@ describe("renderCurrentView error handling", () => {
     expect(content.querySelector("#eager-wins")?.textContent).toBe("ready")
   })
 
+  it("rejects prototype keys from dynamic view registration", async () => {
+    addWorkspace()
+    const maliciousRenderer = {
+      render: vi.fn(async () => '<p id="prototype-route">unsafe</p>'),
+    }
+
+    window.router.registerView("__proto__", maliciousRenderer)
+    window.router.registerViewLoader("constructor", vi.fn())
+    state.currentView = "__proto__"
+
+    await window.router.renderCurrentView()
+
+    expect(maliciousRenderer.render).not.toHaveBeenCalled()
+    expect(document.getElementById("prototype-route")).toBeNull()
+  })
+
   it("deduplicates a pending route loader", async () => {
     const content = addWorkspace()
     let resolveLoader

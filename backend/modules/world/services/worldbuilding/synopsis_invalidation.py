@@ -6,7 +6,12 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.llm.redaction import redact_diagnostic
+from core.logging_context import (
+    exception_summary_for_log,
+    identifier_for_log,
+    novel_id_for_log,
+    token_for_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +35,10 @@ async def mark_synopsis_source_changed(
         logger.warning(
             "世界观简介标脏失败 source_type=%s source_id=%s novel_id=%s "
             "reason=%s",
-            source_type,
-            source_id,
-            novel_id,
-            redact_diagnostic(exc, limit=300),
+            token_for_log(source_type),
+            identifier_for_log(source_id),
+            novel_id_for_log(novel_id),
+            exception_summary_for_log(exc),
         )
 
 
