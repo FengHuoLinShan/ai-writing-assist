@@ -474,11 +474,12 @@ async def test_suggestion_context_invalidation_failure_logs_and_keeps_acceptance
         for item in caplog.records
         if "world_suggestion_context_invalidation_failed" in item.getMessage()
     )
-    assert project_novel_id in record.getMessage()
+    assert str(uuid.UUID(project_novel_id)) in record.getMessage()
     assert suggestion.id in record.getMessage()
     assert record.exc_info is None
     assert "credential-value" not in record.getMessage()
     assert "[REDACTED]" in record.getMessage()
+    assert "RuntimeError" in record.getMessage()
 
 
 @pytest.mark.asyncio

@@ -33,17 +33,26 @@ const routes = {
  * 每个视图模块提供 render() 函数
  * @type {Object<string, {render: function, onEnter?: function, onRendered?: function, canLeave?: function, onLeave?: function}>}
  */
-const viewRenderers = {}
+const viewRenderers = new Map()
 
 /**
  * Route-level module loaders. A loaded module self-registers its renderer via
  * registerView(), preserving the existing island registration contract.
  * @type {Object<string, () => Promise<unknown>>}
  */
-const viewLoaders = {}
+const viewLoaders = new Map()
 
 /** @type {Object<string, Promise<Object>>} */
-const pendingViewLoaders = {}
+const pendingViewLoaders = new Map()
+
+const SAFE_REGISTRY_KEY_RE = /^[a-z][a-z0-9-]{0,63}$/
+const UNSAFE_REGISTRY_KEYS = new Set(["__proto__", "prototype", "constructor"])
+
+function isSafeRegistryKey(name) {
+  return typeof name === "string"
+    && SAFE_REGISTRY_KEY_RE.test(name)
+    && !UNSAFE_REGISTRY_KEYS.has(name)
+}
 
 /**
  * 注册视图渲染器
@@ -51,7 +60,8 @@ const pendingViewLoaders = {}
  * @param {Object} renderer - { render(), onEnter?(), onRendered?(), canLeave?(), onLeave?() }
  */
 function registerView(name, renderer) {
-  viewRenderers[name] = renderer
+  if (!isSafeRegistryKey(name) || !renderer || typeof renderer !== "object") return
+  viewRenderers.set(name, renderer)
 }
 
 /**
@@ -61,29 +71,30 @@ function registerView(name, renderer) {
  * @param {() => Promise<unknown>} loader - module import which self-registers the renderer
  */
 function registerViewLoader(name, loader) {
-  if (typeof loader !== "function") return
-  viewLoaders[name] = loader
+  if (!isSafeRegistryKey(name) || typeof loader !== "function") return
+  viewLoaders.set(name, loader)
 }
 
 function _loadViewRenderer(viewName) {
-  if (viewRenderers[viewName]) return Promise.resolve(viewRenderers[viewName])
-  const loader = viewLoaders[viewName]
+  if (!isSafeRegistryKey(viewName)) return Promise.resolve(null)
+  if (viewRenderers.has(viewName)) return Promise.resolve(viewRenderers.get(viewName))
+  const loader = viewLoaders.get(viewName)
   if (!loader) return Promise.resolve(null)
 
-  let pending = pendingViewLoaders[viewName]
+  let pending = pendingViewLoaders.get(viewName)
   if (!pending) {
     pending = Promise.resolve()
       .then(() => loader())
       .then(() => {
-        const renderer = viewRenderers[viewName]
+        const renderer = viewRenderers.get(viewName)
         if (!renderer) {
           throw new Error(`Route module did not register renderer: ${viewName}`)
         }
         return renderer
       })
-    pendingViewLoaders[viewName] = pending
+    pendingViewLoaders.set(viewName, pending)
     const clearPending = () => {
-      if (pendingViewLoaders[viewName] === pending) delete pendingViewLoaders[viewName]
+      if (pendingViewLoaders.get(viewName) === pending) pendingViewLoaders.delete(viewName)
     }
     pending.then(clearPending, clearPending)
   }
@@ -241,12 +252,10 @@ let _renderingRoute = null
 let _routeTransitionGeneration = 0
 
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
-const _lastSubViewMap = {}
+const _lastSubViewMap = new Map()
 
 /** @type {Object<string, Set<string>>} 不应作为一级导航恢复目标的兼容子标签 */
-const _nonRestorableSubViews = {
-  world: new Set(["map"]),
-}
+const _nonRestorableSubViews = new Map([["world", new Set(["map"])]])
 
 /** @type {URLSearchParams} 当前 hash 的 query 参数 */
 let _currentQuery = new URLSearchParams()
@@ -477,7 +486,7 @@ function _canLeaveMountedRoute(routeState) {
   const mounted = _currentMountedRoute()
   const renderer = mounted?.renderer || (
     !_pendingRoute && !_currentFailureRoute()
-      ? viewRenderers[state.currentView]
+      ? viewRenderers.get(state.currentView)
       : null
   )
   if (!renderer?.canLeave) return true
@@ -663,13 +672,13 @@ async function _applyRoute(routeState, { forceProject = false, showNeutral = fal
  * @returns {string|null}
  */
 function getLastSubView(viewName) {
-  return _lastSubViewMap[viewName] || null
+  return _lastSubViewMap.get(viewName) || null
 }
 
 function _rememberSubView(viewName, subView) {
   if (!viewName || !subView) return
-  if (_nonRestorableSubViews[viewName]?.has(subView)) return
-  _lastSubViewMap[viewName] = subView
+  if (_nonRestorableSubViews.get(viewName)?.has(subView)) return
+  _lastSubViewMap.set(viewName, subView)
 }
 
 /**
@@ -820,7 +829,7 @@ async function renderCurrentView() {
     : _routeStateFromAppState()
   const viewName = routeState.viewName
   const subView = routeState.subView || ""
-  let renderer = viewRenderers[viewName]
+  let renderer = viewRenderers.get(viewName)
   const mounted = _currentMountedRoute()
 
   // 视图或项目 owner 变化时统一走同一个 cleanup seam。项目边界通常已经在
@@ -874,7 +883,7 @@ async function renderCurrentView() {
     } else {
       // A configured loader is only invoked for an actually rendered route.
       // Pending calls are shared; rejected calls are cleared for a later retry.
-      if (!renderer && viewLoaders[viewName]) {
+      if (!renderer && viewLoaders.has(viewName)) {
         renderer = await _loadViewRenderer(viewName)
         if (!isCurrentRender()) return false
       }

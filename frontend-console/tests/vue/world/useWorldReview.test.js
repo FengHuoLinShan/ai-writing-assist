@@ -19,6 +19,7 @@ import {
   reviewTypeLabel,
   runReviewBulkAction,
   showAliasReviewDecisionForm,
+  showRelationGroupReviewForm,
   splitCandidateGroups,
   syncReviewRegistry,
 } from "../../../vue/views/world/logic/useWorldReview.js"
@@ -183,6 +184,44 @@ describe("决策模态", () => {
       alias_type: "name",
     })
     expect(worldSession.aliasReviewErrors["e1::旧港"]).toBeUndefined()
+  })
+
+  it("关系预览把对象名和描述作为纯文本", () => {
+    const payload = '<img data-review-payload src="x" onerror="alert(1)">'
+    setBridgeOverrides({
+      showModalHtml: (title, html, buttons, options) => {
+        modalCalls.push({ title, html, buttons, options })
+        document.body.innerHTML = html
+      },
+    })
+    syncReviewRegistry({
+      relationGroups: [{
+        group_id: "group-xss",
+        source_id: "source-1",
+        source_name: payload,
+        target_id: "target-1",
+        target_name: "目标对象",
+        execution_fingerprint: "fp-xss",
+        members: [{
+          id: "relation-1",
+          source_id: "source-1",
+          target_id: "target-1",
+          relation_type: "friend_of",
+          description: payload,
+          strength: 0.5,
+        }],
+        canonical_relations: [],
+      }],
+      reviewTypeCatalog: {
+        relation_types: [{ value: "friend_of", label: "朋友" }],
+      },
+    })
+
+    showRelationGroupReviewForm("group-xss")
+
+    const preview = document.getElementById("relation-review-preview")
+    expect(preview?.querySelector("[data-review-payload]")).toBeNull()
+    expect(preview?.textContent).toContain(payload)
   })
 })
 

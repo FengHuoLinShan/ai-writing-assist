@@ -25,7 +25,9 @@ settings 模块拥有账户级模型连接、只读余额、全局作者偏好�
 - 新 Key 必须先完成真实最小验证；成功后才在同一事务保存 credential 并激活模板。相同指纹的
   已验证 Key 可免重复验证。连接失败不覆盖旧连接，运行时不暗降级。
 - Key 使用 `LLM_SETTINGS_ENCRYPTION_KEY` 加密；response、日志、task meta、execution
-  snapshot 和 producer provenance 只保存脱敏状态/摘要。
+  snapshot 和 producer provenance 只保存脱敏状态/摘要。等值指纹使用同一部署密钥和用途分隔
+  的 HMAC-SHA256，仅用于重复保存判断；旧无密钥 SHA-256 指纹在作者下次保存连接并完成真实
+  验证后惰性升级，不改变字段或 wire。
 - 项目中的遗留 Key 由 migration 不可逆清理；兼容项目 LLM API 仍保留 wire，但任何
   `api_key/clear_api_key/clear_all_api_keys` 写入都会被拒绝。
 - effective LLM 响应保留 `{value, source}` wire；账户模板/凭据使用 `global`，项目只拥有

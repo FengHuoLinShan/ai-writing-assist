@@ -90,7 +90,9 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 ## 路由与状态特性
 
-- `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
+- `router.js` 使用 `Map` 维护视图、异步 loader、pending loader 与最后子标签注册表；动态 key
+  必须通过小写路由白名单并拒绝 `__proto__`、`prototype`、`constructor`，避免把路由输入解释为
+  对象原型属性。主视图切换后仍恢复最后子标签，公开 hash 与生命周期契约不变。
 - 作者 shell 的桌面主导航固定为“首页、写作、人物与世界、故事结构、地图、查找”；移动端固定为
   “首页、写作、世界、结构、全部”。项目切换器位于导航顶部，高级入口保留旧路由但只从“更多”
   或上下文错误进入。`today` 是作者有效项目的默认续接页。
@@ -106,6 +108,9 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   时显示空态并提供返回账户设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
 - `errorLogger.js` 的右下角错误徽标是当前项目/未关联项目范围的原生计数按钮；其非模态诊断面板用原生 DOM 与 `textContent` 展示已脱敏的记录。关闭返回徽标，清空必须在同一面板二次确认且只删除当前范围；`window.errorLog.clear()` 仍可供程序直接清空当前范围。
+- 世界关系审查等命令式预览使用 DOM 节点与 `textContent` 组合动态内容，不把对象名称、关系类型
+  或 API 文本送入 `innerHTML`。地图遥测 ID 只使用 Web Crypto：优先 `randomUUID()`，兼容环境
+  使用 `getRandomValues()`，安全随机源不可用时不降级到 `Math.random()`。
 - Shell 单键业务快捷键在表单、命令栏、快捷键帮助和既有业务 modal 中不触发；只有既有 workspace action 实际处理成功时才消费原始按键，避免同步聚焦的新字段收到触发字符。
 - Vue 视图生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点
   div → `onRendered` 挂载（同视图 forceRefresh 先卸载残留实例）→ `onLeave` 卸载。

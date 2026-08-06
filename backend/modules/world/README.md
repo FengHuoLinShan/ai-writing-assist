@@ -70,6 +70,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 转为 `deprecated` 前写入 `manual_delete` 修订快照，之后以
 `entity_deprecated` 标记 context 失效。修订和 context 标记均是带独立
 savepoint 的 best-effort 辅助审计；其失败会记日志，不回滚主删除。
+这类降级日志只记录规范化实体 UUID、受限原因 token 与异常类型，不记录对象名称、用户文本、
+异常 message 或控制字符；公开 API 的稳定错误语义不变。
 
 ### 对象库普通 / 热点模式
 

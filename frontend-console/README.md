@@ -201,8 +201,9 @@ frontend-console/
 
 - Vue 3 SFC shell + 业务页面（ADR-0009）：Vue 拥有静态外壳和所有实际路由目标的
   主 DOM；`scene` / `llm` 只作兼容重定向，不拥有页面 DOM
-- hash router、Proxy state、API 和 toast/modal 作为集中式基础设施保留；router 不再使用
-  DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态
+- hash router、Proxy state、API 和 toast/modal 作为集中式基础设施保留；router 的动态视图、
+  loader、pending loader 和子标签注册表使用 `Map`，只接受安全的小写路由 key 并拒绝原型属性名；
+  router 不再使用 DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态
 - Leaflet/Canvas 只通过 Vue `MapViewportAdapter` 下的 `mapView` seam 运行；Writing 仅保留
   `mapQuickCreateView` bridge 以及 `sceneAlerts` / `versionDiff` 纯 helper
 - Vue 视图经 `vue/mountIsland.js` 注册进 hash router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；异步 `load()` 使用代次守卫，新加载或 `onLeave` 后的旧响应不得回写当前 island；动态内容依赖模板自动转义，禁止 `v-html`
@@ -360,6 +361,9 @@ frontend-console/
 - `index.html` 配置 CSP meta baseline：脚本仅允许本源和 Leaflet CDN，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
 - 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
 - Vue 模板动态内容使用插值自动转义；命令式 seam 默认使用 `textContent`，必须拼 HTML 时先走 `esc()`。
+- 世界关系审查预览使用 DOM 节点和 `textContent`，不把动态对象名称或关系类型送入
+  `innerHTML`。地图遥测 ID 优先使用 `crypto.randomUUID()`，兼容回退使用
+  `crypto.getRandomValues()`；安全随机源不可用时明确失败，不使用 `Math.random()`。
 - 右下角错误徽标是带计数和 dialog 状态的原生按钮；它按当前项目或未关联项目范围展示经脱敏的本地错误。打开的是非模态诊断面板，关闭会回到徽标；清空在面板内明确二次确认，只影响当前范围，不影响其他项目或已上报记录。程序化 `window.errorLog.clear()` 保持直接清空当前范围的兼容语义。
 - 当前已落地共享 JS API 契约校验第一阶段：`apiContracts.js` 注册高风险 wrapper 的 method/path/query/body/timeout，浏览器 `api.js` 与 Playwright API helper 共用同一 registry 和序列化规则；Vitest 覆盖加载顺序、必填 body、method 固定与代表 endpoint 映射。
 - TypeScript / OpenAPI codegen 仍是未来设计项；当前契约层不覆盖响应字段级 schema drift，设计记录见 `docs/frontend/typescript-api-contracts.md`。

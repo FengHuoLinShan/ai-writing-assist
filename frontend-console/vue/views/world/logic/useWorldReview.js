@@ -718,13 +718,17 @@ export function showRelationGroupReviewForm(groupId) {
 
 /** 对应 vanilla _updateRelationReviewPreview。 */
 function updateRelationReviewPreview(group) {
-  const esc = getEsc()
   const preview = document.getElementById("relation-review-preview")
   if (!preview) return
+  preview.replaceChildren()
+  const heading = document.createElement("h4")
   const action = document.getElementById("relation-review-action")?.value || "accept"
   const selectedIds = Array.from(document.querySelectorAll('input[name="relation-review-member"]:checked')).map((input) => input.value)
   if (action === "ignore") {
-    preview.innerHTML = `<h4>处理结果预览</h4><p>将把 ${esc(selectedIds.length)} 条所选候选移入历史；未选中候选保持待处理。</p>`
+    heading.textContent = "处理结果预览"
+    const paragraph = document.createElement("p")
+    paragraph.textContent = `将把 ${selectedIds.length} 条所选候选移入历史；未选中候选保持待处理。`
+    preview.append(heading, paragraph)
     return
   }
   const sourceSelect = document.getElementById("relation-source-select")
@@ -739,13 +743,24 @@ function updateRelationReviewPreview(group) {
   const canonical = (group.canonical_relations || []).find((item) => (
     item.source_id === sourceId && item.target_id === targetId && item.relation_type === relationType
   ))
-  preview.innerHTML = `
-    <h4>采用后结果预览</h4>
-    <p><strong>${esc(sourceLabel)}</strong> → <strong>${esc(targetLabel)}</strong></p>
-    <p>类型：${esc(reviewTypeLabel("relation", relationType))} · 强度：${esc(strength)} · 所选证据：${esc(selectedIds.length)} 条</p>
-    <p>${esc(description)}</p>
-    ${canonical ? `<p class="review-warning">将复用已有正式关系，关系 ID 只会记录在诊断与审计信息中。</p>` : `<p class="world-text-dim">将采用主关系作为正式关系；服务端提交前会再检查是否存在可复用关系。</p>`}
-  `
+  heading.textContent = "采用后结果预览"
+  const endpoints = document.createElement("p")
+  const source = document.createElement("strong")
+  source.textContent = sourceLabel
+  const target = document.createElement("strong")
+  target.textContent = targetLabel
+  endpoints.append(source, document.createTextNode(" → "), target)
+
+  const summary = document.createElement("p")
+  summary.textContent = `类型：${reviewTypeLabel("relation", relationType)} · 强度：${strength} · 所选证据：${selectedIds.length} 条`
+  const descriptionNode = document.createElement("p")
+  descriptionNode.textContent = description
+  const disposition = document.createElement("p")
+  disposition.className = canonical ? "review-warning" : "world-text-dim"
+  disposition.textContent = canonical
+    ? "将复用已有正式关系，关系 ID 只会记录在诊断与审计信息中。"
+    : "将采用主关系作为正式关系；服务端提交前会再检查是否存在可复用关系。"
+  preview.append(heading, endpoints, summary, descriptionNode, disposition)
 }
 
 /** 对应 vanilla showRelationReviewEditForm。 */

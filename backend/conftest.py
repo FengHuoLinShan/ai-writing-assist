@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 # 必须在所有项目 import 之前设置，防止 lru_cache 缓存 bge_onnx 默认值
-import hashlib
 import os
 import uuid
 from datetime import UTC, datetime
@@ -53,6 +52,7 @@ from app.main import _register_container_services, app
 from core.base import Base
 from core.container import reset as reset_container
 from core.dependencies import get_db
+from infrastructure.llm.secret_store import fingerprint_secret
 from tests.support.http import XhrAsyncClient
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -188,7 +188,10 @@ async def account_llm_connection(db_session: AsyncSession):  # noqa: ANN201
             "owner_id": LOCAL_OWNER_ID,
             "provider_id": "deepseek",
             "encrypted_api_key": encrypt_secret(api_key),
-            "key_fingerprint": hashlib.sha256(api_key.encode()).hexdigest(),
+            "key_fingerprint": fingerprint_secret(
+                api_key,
+                purpose="account-llm-api-key",
+            ),
             "verified_at": datetime.now(UTC),
         },
     )

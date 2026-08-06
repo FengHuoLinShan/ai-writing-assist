@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -21,6 +20,7 @@ from infrastructure.llm.health import LLMHealthChecker
 from infrastructure.llm.secret_store import (
     decrypt_secret,
     encrypt_secret,
+    fingerprint_secret,
 )
 from modules.project.contracts import ProjectSummary
 from modules.settings.constants import (
@@ -157,7 +157,7 @@ class SettingsService:
     ) -> AccountLLMConnectionsResponse:
         template = self._require_account_provider(provider_id)
         owner_id = _current_owner_id()
-        fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+        fingerprint = fingerprint_secret(api_key, purpose="account-llm-api-key")
         await self._credential_repo.lock_owner_provider(
             db,
             owner_id,

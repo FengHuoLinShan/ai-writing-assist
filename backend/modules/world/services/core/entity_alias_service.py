@@ -14,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
-from infrastructure.llm.redaction import redact_diagnostic
+from core.logging_context import (
+    exception_summary_for_log,
+    identifier_for_log,
+    novel_id_for_log,
+    token_for_log,
+)
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CoreEntityUpdate,
@@ -239,10 +244,10 @@ class EntityAliasService:
             logger.warning(
                 "world_alias_context_invalidation_failed novel_id=%s "
                 "entity_id=%s reason=%s; alias_write_remains_valid; error=%s",
-                novel_id,
-                entity_id,
-                reason,
-                redact_diagnostic(exc, limit=300),
+                novel_id_for_log(novel_id),
+                identifier_for_log(entity_id),
+                token_for_log(reason),
+                exception_summary_for_log(exc),
             )
 
     async def list_aliases(

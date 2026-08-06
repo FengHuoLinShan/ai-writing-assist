@@ -26,7 +26,7 @@ from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
 
-def test_provider_initialization_log_omits_base_url_query_secret(caplog) -> None:
+def test_provider_initialization_log_omits_dynamic_profile_values(caplog) -> None:
     query_secret = "fixture-query-secret"
     with (
         patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
@@ -40,7 +40,9 @@ def test_provider_initialization_log_omits_base_url_query_secret(caplog) -> None
         )
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
-    assert "base_url_host=gateway.example.test" in messages
+    assert "OpenAIProvider initialized" in messages
+    assert "gateway.example.test" not in messages
+    assert "test-model" not in messages
     assert query_secret not in messages
     assert "token=" not in messages
 
