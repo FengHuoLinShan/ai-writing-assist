@@ -2,7 +2,7 @@
 # 安装：pip install -r requirements.txt
 
 # --- Web 框架 ---
-fastapi>=0.121.1
+fastapi>=0.141.1
 authlib>=1.7.0,<1.8
 email-validator>=2.0.0,<3.0
 itsdangerous>=2.2.0,<2.3
@@ -21,7 +21,7 @@ pydantic-settings>=2.1.0
 python-dotenv>=1.0.0
 
 # --- LLM ---
-openai>=1.12.0
+openai>=2.52.0
 httpx>=0.27.0
 cryptography>=50.0.0
 tiktoken>=0.6.0
