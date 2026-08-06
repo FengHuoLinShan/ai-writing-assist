@@ -59,8 +59,8 @@ test.describe("深度导入流水线", () => {
     // 等待导入完成 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("导入完成", { timeout: 15000 })
 
-    // Step 2: 上传流程会自动进入写作台；等待真实章节数据完成渲染。
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    // Step 2: 上传流程会自动进入写作页；等待真实章节数据完成渲染。
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await waitWritingReady(page, { chapter: 1 })
     await expect(page.locator(SEL.writingChapterCount)).toHaveText("章节（3）")
     await expect(
