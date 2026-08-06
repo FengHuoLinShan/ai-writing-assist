@@ -91,7 +91,10 @@ active 的单一 head，target 必须单头、保留该 revision 与其全部已
 在任何 service work 前拒绝。Postgres 未运行时也拒绝，绝不会为此 preflight 自动启动它。
 只有 manifest、legacy `current-release` 和 `current-commit` 三个状态 artifact 都不存在，且
 live database 的非系统 schema 没有表时才视为首次发布；丢失状态但非空数据库同样 fail closed。若图
-不兼容，保留原 checkout/服务，并按提示在人工确认后使用：
+不兼容，保留原 checkout/服务。fresh migration 和隔离恢复演练成功后、bootstrap 之前会写入私有
+`first-release-prepared.json`；若后续健康或公网门禁失败，只允许重试该 marker 绑定的相同固定 SHA，
+不会删除 bootstrap 或应用可能已经写入的数据。最终 deployment state 写入后 marker 会被清理。若图
+不兼容，按提示在人工确认后使用：
 
 ```bash
 bash deploy/scripts/restore.sh <backup.dump> <target-sha>
@@ -125,11 +128,10 @@ bash deploy/scripts/verify_public.sh
 
 `release.sh` 与 `restore.sh` 会共同检查 API `/api/health`、前端入口及既有稳定运行时脚本，
 并确认 worker 容器的 PID 1 的独立 argv token 为 `run_worker.py`，且控制循环 marker 在 30 秒内
-更新；三项都通过才会写入成功发布状态，避免容器仅因 `/healthz` 可达而掩盖静态文件权限、缺失、
+更新；内部健康与公网 `verify_public.sh` 都通过才会写入成功发布状态，避免容器仅因 `/healthz` 可达而掩盖静态文件权限、缺失、
 worker 退出或只剩 PID 的空转问题。带有
 `deploy/frontend-asset-contract.version`（当前值为 `1`）的提交还必须提供由生产构建验证器生成的
-`asset-inventory.txt`：容器内和公网验证都会逐项请求清单中的全部资源，并校验内容类型。没有该 marker 的历史提交继续使用稳定脚本检查，以保证回滚不会被新合同阻断；但带 marker 的提交缺少或提供无效清单会直接失败，绝不静默降级。`verify_public.sh` 还会从公网入口确认 HTML 声明资源属于清单。只有该脚本通过，才代表
-DNS、TLS、OpenResty、前端运行时资产、API 和数据库的完整公网链路通过。
+`asset-inventory.txt`：容器内和公网验证都会逐项请求清单中的全部资源，并校验内容类型。没有该 marker 的历史提交继续使用稳定脚本检查，以保证回滚不会被新合同阻断；但带 marker 的提交缺少或提供无效清单会直接失败，绝不静默降级。`verify_public.sh` 还会从公网入口确认 HTML 声明资源属于清单，并验证最终 API 响应只有一份预期的 HSTS、`nosniff`、`DENY` 和 CSP。OpenResty 对 `/api/` 隐藏后端的三个重叠安全头后由边缘统一输出；后端直连仍保留自身安全头。只有该脚本通过，才代表 DNS、TLS、OpenResty、前端运行时资产、API、响应头和数据库的完整公网链路通过。
 
 `deploy/worker-liveness-contract.version` 的当前值为 `1`。仅当历史固定 SHA 完全没有该 marker
 （且不是 symlink）时，shared health gate 才回退到旧 worker 的精确 PID 1 argv-token 检查，以便恢复
@@ -183,7 +185,8 @@ Healthchecks `/start`、成功或 `/fail` ping。这样计划中的发布/恢复
 
 `make test-production-images` 单独构建 backend 与 frontend 生产 Dockerfile，并运行容器级
 smoke checks：backend 必须以非 root 运行、没有构建期 uv、且可导入应用；frontend 必须通过
-`nginx -t` 且入口、manifest 和资产清单是可读普通文件。它需要 Docker daemon 和镜像仓库访问，
+`nginx -t` 且入口、manifest 和资产清单是可读普通文件。同一门禁还会使用合成、
+无业务内容的 dump 执行一次真实隔离恢复，验证锁定 PostgreSQL 镜像和清理路径。它需要 Docker daemon 和镜像仓库访问，
 因此不放入日常 `make test-ci`，但 GitHub Actions 会以独立 `Production image contract` job
 执行。
 
@@ -316,7 +319,23 @@ set +a
 restic init
 ```
 
-上线前必须完成一次临时库恢复演练。Backblaze 和 Healthchecks 的真实 key/URL
+上线前必须完成一次临时库恢复演练。演练只读取选定的私有 dump/sidecar，
+使用与生产一致的锁定 PostgreSQL 镜像，且不挂载生产 volume、不暴露端口、不连接外部网络：
+
+```bash
+bash deploy/scripts/restore_drill.sh deploy/backups/<timestamp>.dump
+```
+
+脚本会重算 SHA-256、执行 `pg_restore --list`、真实恢复，再验证可查询性、唯一 Alembic
+revision 和关键表；内部快照收紧为 `0400`后以多个同 inode 读取描述符打开并立即解除路径，
+checksum、list 和 restore 不再重新按路径打开。所有成功、失败和信号路径都清理临时容器，仅输出摘要、时间和校验值。
+`release.sh` 对常规升级在 migration 前自动对新备份执行同一演练；已经由实时查询证明为空库的
+fresh 首次发布会先迁移，再立即生成备份并完成同等演练，然后才能启动应用并写入成功状态。
+这不把空 dump 当作 schema 恢复证据；若后置备份或演练失败，且应用/初始化尚未开始，脚本会将数据库重置回事前已证明的空状态以便安全重试。
+演练成功后会先持久化只绑定当前固定 SHA 的 first-release recovery marker，再跨越 bootstrap/应用数据边界；
+后续失败保留数据库与 marker，使相同 SHA 可重试且不以自动删库换取恢复能力。
+destructive restore 也会在用户确认、停服和删库前，对从输入固化的私有快照执行真实隔离恢复，
+并证明备份 revision 存在于目标固定 commit 的 Alembic 图且可从其唯一 head 达到。任一演练失败都停止发布或恢复。Backblaze 和 Healthchecks 的真实 key/URL
 只放在 `deploy/.env.production`，不进入 systemd unit 或 Git。
 
 若所需 pair 只在 B2/restic 中，先从已知的完整 snapshot ID 精确回灌；它绝不选择 `latest`，
@@ -334,7 +353,8 @@ bash deploy/scripts/rehydrate_backup.sh \
 
 恢复是破坏性操作，要求明确输入确认短语，并在覆盖前再创建一份安全备份。恢复会先要求
 同名 `.dump.sha256` 为非空普通文件（不能是 symlink），其中只能有一条小写 64 位 SHA-256
-记录；脚本直接重算所选 `.dump` 的摘要而不信任 sidecar 中的文件名。缺失、格式错误或不匹配
+记录；脚本直接重算所选 `.dump` 的摘要而不信任 sidecar 中的文件名，并从已打开的文件生成私有快照。
+隔离恢复、二次 checksum 和最终生产 `pg_restore` 都使用该快照，不再重新打开用户选择的路径。缺失、格式错误或不匹配
 都会在确认和数据库写操作前拒绝继续：
 
 ```bash
@@ -379,5 +399,6 @@ ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为�
 7. B2 加密备份成功，并完成恢复演练。
 8. systemd 的 backup、account-maintenance 和 runtime-health 三个 timer 正常，Healthchecks
    邮件告警已完成 `/fail` 与 missed ping 演练。
+9. 一个真实账户在设置页完成 LLM 连接验证；验收记录和日志不保存 Key、请求正文或用户内容。
 
 本目录不自动申请域名/证书、不创建 SMTP/Authing/LLM 账户，也不保存任何真实凭据。

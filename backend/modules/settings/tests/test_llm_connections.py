@@ -12,17 +12,27 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from infrastructure.llm.balance import ProviderBalance, ProviderBalanceError
+from infrastructure.llm.profiles import list_account_provider_templates
 from infrastructure.llm.secret_store import (
     decrypt_secret,
     encrypt_secret,
     fingerprint_secret,
 )
-from modules.settings.constants import LOCAL_OWNER_ID
+from modules.settings.constants import ACCOUNT_LLM_PROVIDER_TEMPLATES, LOCAL_OWNER_ID
 from modules.settings.models import AccountLLMCredential
 from modules.settings.repositories import AccountLLMCredentialRepository
 from modules.settings.services import SettingsService
 
 XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
+
+
+def test_account_runtime_templates_derive_from_public_catalog() -> None:
+    catalog = {item["id"]: item for item in list_account_provider_templates()}
+
+    assert set(ACCOUNT_LLM_PROVIDER_TEMPLATES) == set(catalog)
+    for provider_id, runtime in ACCOUNT_LLM_PROVIDER_TEMPLATES.items():
+        assert runtime["base_url"] == catalog[provider_id]["base_url"]
+        assert runtime["model"] == catalog[provider_id]["default_model"]
 
 
 @pytest.fixture(autouse=True)

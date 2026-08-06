@@ -44,6 +44,11 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 Leaflet 1.9.4 根据 ADR-0003 的 2026-08-06 交付修订改为锁定 npm 依赖和 Vite 按需 chunk，
 浏览器不再访问 unpkg；这是对原 CSP baseline 的收紧，不改变 Leaflet/Canvas 使用边界。
 
+生产 OpenResty 是公网边缘响应头的唯一所有者：`/api/` 先隐藏上游的 HSTS、
+`X-Content-Type-Options` 和 `X-Frame-Options`，再由边缘各输出一份。后端直连仍保留自身安全头。
+`verify_public.sh` 对最终 API 响应检查单份、预期值的 HSTS/nosniff/DENY 和 CSP，
+并拒绝 CSP 重新引入 unpkg。
+
 ## 影响
 
 - LLM、worker、embedding 的并发上限成为显式系统边界，后续调优应优先改配置和测试，而不是在业务调用点散落并发控制。

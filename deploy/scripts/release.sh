@@ -46,6 +46,33 @@ OPERATION_ID=$(deployment_state_operation_id)
 DEPLOYMENT_COMMITTED=false
 DEPLOYMENT_STATE_WRITE_FAILED=false
 NEW_APP_SERVICES_MAY_HAVE_STARTED=false
+FIRST_RELEASE_FRESH=false
+FIRST_RELEASE_RECOVERY_STATE=false
+FIRST_RELEASE_ROLLBACK_REQUIRED=false
+FIRST_RELEASE_POSTGRES_USER=
+FIRST_RELEASE_POSTGRES_DB=
+
+rollback_verified_empty_first_release() {
+    if [ "$FIRST_RELEASE_ROLLBACK_REQUIRED" != "true" ]; then
+        return 0
+    fi
+    echo "Resetting the failed first-release schema to its previously verified empty state." >&2
+    if ! compose exec -T postgres dropdb \
+        --username "$FIRST_RELEASE_POSTGRES_USER" \
+        --force \
+        --if-exists "$FIRST_RELEASE_POSTGRES_DB" \
+        || ! compose exec -T postgres createdb \
+            --username "$FIRST_RELEASE_POSTGRES_USER" \
+            "$FIRST_RELEASE_POSTGRES_DB"; then
+        echo "Failed to reset the first-release database; manual recovery is required." >&2
+        return 1
+    fi
+    if ! clear_first_release_prepared_state; then
+        echo "Failed to clear first-release recovery state; manual recovery is required." >&2
+        return 1
+    fi
+    FIRST_RELEASE_ROLLBACK_REQUIRED=false
+}
 
 cleanup_uncommitted_attempt() {
     status=$?
@@ -60,6 +87,9 @@ cleanup_uncommitted_attempt() {
             if ! compose stop api worker frontend >/dev/null 2>&1; then
                 echo "Warning: failed to stop application services after an uncommitted release." >&2
             fi
+        fi
+        if ! rollback_verified_empty_first_release; then
+            status=1
         fi
         if ! (
             umask 022
@@ -101,19 +131,22 @@ fi
 
 compose up -d postgres embedding
 
-if [ ! -e "$STATE_DIR/deployment-state.json" ] \
-    && [ ! -e "$STATE_DIR/current-release" ] \
+FIRST_RELEASE_STATE_KIND=$(migration_guard_state_kind)
+if [ "$FIRST_RELEASE_STATE_KIND" = first-release ] \
     && [ "$(env_value DATABASE_MODE)" = "fresh" ]; then
     POSTGRES_USER=$(env_value POSTGRES_USER)
     POSTGRES_DB=$(env_value POSTGRES_DB)
-    TABLE_COUNT=$(compose exec -T postgres psql \
-        -U "$POSTGRES_USER" \
-        -d "$POSTGRES_DB" \
-        -Atqc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+    TABLE_COUNT=$(read_live_non_system_table_count)
     if [ "$TABLE_COUNT" != "0" ]; then
         echo "DATABASE_MODE=fresh but the first-release database is not empty." >&2
         exit 1
     fi
+    FIRST_RELEASE_FRESH=true
+    FIRST_RELEASE_RECOVERY_STATE=true
+    FIRST_RELEASE_POSTGRES_USER=$POSTGRES_USER
+    FIRST_RELEASE_POSTGRES_DB=$POSTGRES_DB
+elif [ "$FIRST_RELEASE_STATE_KIND" = first-release-prepared ]; then
+    FIRST_RELEASE_RECOVERY_STATE=true
 fi
 
 if ! compose run --rm api python scripts/check_embedding.py; then
@@ -121,11 +154,30 @@ if ! compose run --rm api python scripts/check_embedding.py; then
     exit 1
 fi
 
-BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
+BACKUP_PATH=
+if [ "$FIRST_RELEASE_FRESH" != "true" ]; then
+    BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
+    bash "$SCRIPT_DIR/restore_drill.sh" \
+        --target-commit "$TARGET_COMMIT" "$BACKUP_PATH"
+else
+    FIRST_RELEASE_ROLLBACK_REQUIRED=true
+fi
 
 if ! compose --profile ops run --rm migrate; then
-    echo "Migration failed. Database backup: $BACKUP_PATH" >&2
+    if [ -n "$BACKUP_PATH" ]; then
+        echo "Migration failed. Database backup: $BACKUP_PATH" >&2
+    else
+        echo "Migration failed on the verified empty first-release database." >&2
+    fi
     exit 1
+fi
+
+if [ "$FIRST_RELEASE_FRESH" = "true" ]; then
+    BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
+    bash "$SCRIPT_DIR/restore_drill.sh" \
+        --target-commit "$TARGET_COMMIT" "$BACKUP_PATH"
+    write_first_release_prepared_state "$TARGET_COMMIT"
+    FIRST_RELEASE_ROLLBACK_REQUIRED=false
 fi
 
 ensure_public_bootstrap
@@ -141,12 +193,25 @@ if ! wait_for_application_health; then
     exit 1
 fi
 
+if ! bash "$SCRIPT_DIR/verify_public.sh"; then
+    compose stop api worker frontend >/dev/null 2>&1 || true
+    echo "Public release verification failed; application services were stopped." >&2
+    echo "Target commit: $TARGET_COMMIT" >&2
+    echo "Previous commit: $PREVIOUS_COMMIT" >&2
+    echo "Pre-migration backup: $BACKUP_PATH" >&2
+    exit 1
+fi
+
 if ! write_deployment_state "$OPERATION_ID" release \
     "$TARGET_COMMIT" "$PREVIOUS_COMMIT" "$BACKUP_PATH"; then
     DEPLOYMENT_STATE_WRITE_FAILED=true
     exit 1
 fi
 DEPLOYMENT_COMMITTED=true
+if [ "$FIRST_RELEASE_RECOVERY_STATE" = "true" ] \
+    && ! clear_first_release_prepared_state; then
+    echo "Warning: finalized deployment state is healthy, but stale first-release recovery state could not be removed." >&2
+fi
 cleanup_fixed_commit_build_context
 trap - EXIT HUP INT TERM
 

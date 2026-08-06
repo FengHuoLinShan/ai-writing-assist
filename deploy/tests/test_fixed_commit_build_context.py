@@ -20,7 +20,11 @@ def _git(repo_root: Path, *arguments: str) -> str:
 
 def _repository(tmp_path: Path) -> tuple[Path, str, str]:
     repo_root = tmp_path / "repo"
-    shutil.copytree(DEPLOY_ROOT, repo_root / "deploy")
+    shutil.copytree(
+        DEPLOY_ROOT,
+        repo_root / "deploy",
+        ignore=shutil.ignore_patterns(".pytest_cache", "__pycache__", "*.pyc"),
+    )
     (repo_root / "backend").mkdir()
     (repo_root / "backend" / "Dockerfile").write_text("FROM scratch\n")
     (repo_root / "frontend-console").mkdir()

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from infrastructure.llm.profiles import list_account_provider_templates
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from shared.constants import DEFAULT_LLM_MAX_TOKENS
 
@@ -39,32 +40,27 @@ LLM_DEFAULTS_SYSTEM: dict[str, Any] = {
     "deep_import": None,  # D9 本期永远 NULL
 }
 
-ACCOUNT_LLM_PROVIDER_TEMPLATES: dict[str, dict[str, Any]] = {
-    "deepseek": {
-        "provider_id": "deepseek",
-        "label": "DeepSeek",
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",
-        "timeout": 180,
-        "max_tokens": DEFAULT_LLM_MAX_TOKENS,
-        "temperature": 0.3,
-        "top_p": None,
-        "extra": {},
-    },
-    "kimi": {
-        "provider_id": "kimi",
-        "label": "Kimi",
-        "base_url": "https://api.moonshot.cn/v1",
-        "model": "kimi-k3",
-        "timeout": 180,
-        "max_tokens": DEFAULT_LLM_MAX_TOKENS,
-        "temperature": 0.3,
-        "top_p": None,
-        "extra": {},
-    },
-}
+def _account_llm_runtime_templates() -> dict[str, dict[str, Any]]:
+    templates: dict[str, dict[str, Any]] = {}
+    for catalog_item in list_account_provider_templates():
+        provider_id = str(catalog_item["id"])
+        defaults = dict(catalog_item["default_parameters"])
+        templates[provider_id] = {
+            "provider_id": provider_id,
+            "label": str(catalog_item["name"]),
+            "base_url": str(catalog_item["base_url"]),
+            "model": str(catalog_item["default_model"]),
+            "timeout": int(defaults["timeout"]),
+            "max_tokens": int(defaults["max_tokens"]),
+            "temperature": defaults["temperature"],
+            "top_p": defaults["top_p"],
+            "extra": dict(defaults["extra"]),
+        }
+    return templates
 
-ACCOUNT_LLM_PROVIDER_ORDER: tuple[str, ...] = ("deepseek", "kimi")
+
+ACCOUNT_LLM_PROVIDER_TEMPLATES = _account_llm_runtime_templates()
+ACCOUNT_LLM_PROVIDER_ORDER: tuple[str, ...] = tuple(ACCOUNT_LLM_PROVIDER_TEMPLATES)
 
 
 def account_llm_provider_enabled(provider_id: str) -> bool:

@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.config import get_settings  # noqa: E402
-from infrastructure.llm.health import check_llm_health  # noqa: E402
+from infrastructure.llm.health import check_llm_environment_health  # noqa: E402
 from infrastructure.llm.redaction import redact_diagnostic  # noqa: E402
 from shared.constants import TASK_MAX_HEARTBEAT_GAP  # noqa: E402
 
@@ -629,7 +629,9 @@ def check_db() -> list[CheckResult]:
 
 
 def _configured_value(env_values: dict[str, str], key: str, default: str = "") -> str:
-    return env_values.get(key) or os.environ.get(key, default)
+    if key in os.environ:
+        return os.environ[key]
+    return env_values.get(key, default)
 
 
 def check_llm_config(env_path: Path | None = None) -> list[CheckResult]:
@@ -669,6 +671,8 @@ def check_llm_config(env_path: Path | None = None) -> list[CheckResult]:
                 "model": model,
                 "trust_env": trust_env,
                 "proxy_configured": bool(proxy_url),
+                "scope": "environment",
+                "account_connection_state": "not_checked",
                 "remote_check": "skipped; run with --llm to contact provider",
             },
         )
@@ -677,7 +681,7 @@ def check_llm_config(env_path: Path | None = None) -> list[CheckResult]:
 
 async def check_llm_remote() -> list[CheckResult]:
     try:
-        result = await check_llm_health()
+        result = await check_llm_environment_health()
     except Exception as exc:  # noqa: BLE001 - doctor must not expose stack traces.
         return [
             CheckResult(
@@ -692,9 +696,11 @@ async def check_llm_remote() -> list[CheckResult]:
             name="llm_remote",
             status=STATUS_OK if result.ok else STATUS_ERROR,
             message=(
-                "Remote LLM health check passed"
+                "Environment-level remote LLM diagnostic passed; "
+                "production account connections were not checked"
                 if result.ok
-                else "Remote LLM health check failed"
+                else "Environment-level remote LLM diagnostic failed; "
+                "production account connections were not checked"
             ),
             details=result.model_dump(),
         )
@@ -745,7 +751,10 @@ async def async_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--llm",
         action="store_true",
-        help="also contact the configured remote LLM provider",
+        help=(
+            "also contact the environment-configured remote LLM provider; "
+            "does not check production account connections"
+        ),
     )
     args = parser.parse_args(argv)
 

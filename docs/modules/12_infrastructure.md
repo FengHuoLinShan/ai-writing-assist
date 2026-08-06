@@ -140,9 +140,17 @@ python scripts/check_llm.py
 GET /api/health/llm
 ```
 
-返回只包含 host、model、错误类型、延迟等脱敏诊断信息，不返回 API key。
-常见 `error_kind` 包括 `dns_fake_ip`、`proxy_error`、`tls_error`、`auth_error`、
-`rate_limit`、`timeout`、`provider_error`。
+两个入口语义不同。公共 `GET /api/health/llm` 只静态验证服务自有代理配置与可供账户选择的
+provider 模板，不读取数据库、账户/项目 Key，也不访问远端 provider；它保持旧响应字段但
+固定标明 `scope=service`、`remote_check=false`，旧的 model/host/profile 诊断字段为空，只有
+服务配置非法才返回 503。真实账户连通性由设置页保存连接流程验证，带 `novel_id` 的工作流
+仍按 owner 与 effective profile 执行远端前置检查。
+
+`python scripts/check_llm.py` 和 `doctor --llm` 是环境级远端诊断：它们显式读取 `LLM_*`
+环境值，标明 `scope=environment`、`remote_check=true`，不表示任何生产账户或项目的连接状态。
+远端诊断只包含 host、model、错误类型、延迟等脱敏信息，不返回 API Key；常见
+`error_kind` 包括 `dns_fake_ip`、`proxy_error`、`tls_error`、`auth_error`、`rate_limit`、
+`timeout`、`provider_error`。
 
 基础部署健康检查 `GET /api/health` 只探测数据库，并在服务端以 2 秒 deadline 包住 session
 获取和 `SELECT 1`。超时会取消该数据库操作、按既有脱敏 warning 路径返回原有的
@@ -176,11 +184,27 @@ finalized release state、不运行 Git/Docker/curl，也不发送 Healthchecks 
 把维护无限隐藏。该锁仅覆盖合作的同主机脚本，不是分布式、全局或跨主机互斥；本合同不表示外部 production 或
 Healthchecks 已实际验证。
 
-`deploy/backups/` 是 backup/restore 的私有文件系统边界。两个脚本都会在读取、清理或创建
+`deploy/backups/` 是 backup/restore/restore-drill 的私有文件系统边界。backup/restore 会在读取、清理或创建
 任何备份内容之前，以原子创建或目录描述符打开校验最终目录组件：它必须不是 symlink、必须为
 当前用户拥有的目录、权限必须精确为 `0700`。当前用户拥有的宽松既有目录会被收紧为 `0700`；
-descriptor 与路径的 device/inode 和元数据会在打开后复查，任何替换、类型或所有者不一致都会
-fail closed。该合同仅描述仓库脚本，不表示生产目录或外部备份已实际验证。
+restore-drill 为保持输入只读，只检查并拒绝非 `0700` 目录，不会自动 chmod。descriptor 与路径的
+device/inode 和元数据会在打开后复查，任何替换、类型或所有者不一致都会 fail closed。
+该合同仅描述仓库脚本，不表示生产目录或外部备份已实际验证。
+
+`restore_drill.sh` 只接受该目录直属、当前用户拥有且精确 `0600` 的 dump/sidecar，重新计算
+SHA-256 并执行 `pg_restore --list`。随后用生产锁定的 PostgreSQL 镜像启动无网络、无端口、
+无生产 volume、只读根文件系统和临时 tmpfs 的一次性容器，真实恢复后验证查询、唯一 Alembic
+revision 与关键表。脚本从已打开的输入创建私有 `0600` 快照，然后收紧为 `0400`，以多个
+同 inode 描述符分别供 checksum/list/restore 消费并立即 unlink；长操作期间不再按可变路径重新打开快照。
+成功、失败和 HUP/INT/TERM 都清理容器与快照，输出只有时间、摘要、字节数、revision 和关键表数量。
+release 对常规升级在 migration 前运行该演练；仅当 finalized state 不存在、`DATABASE_MODE=fresh`
+且实时查询证明所有非系统 schema 均无表时，先迁移，再生成备份并完成同等演练。fresh 后置备份/演练若在启动应用和初始化前失败，
+会 drop/create 回事前已证明的空库，使下次固定 SHA 重试不会被 lost-state 门禁卡住。两条路径任一演练失败都不得
+启动应用或写入成功状态。演练成功后、bootstrap 前写入当前用户拥有的私有 first-release prepared marker；
+跨越可能产生数据的边界后若失败，保留数据库并只允许相同固定 SHA 重试，最终 deployment state 成功后清理 marker，
+避免在“可重试”和“不得静默删除新数据”之间二选一。destructive restore 在确认与停服前也先对同一私有快照执行真实隔离恢复和唯一
+revision 检查；该 revision 还必须存在于目标固定 commit 的静态 Alembic 图，并可从其唯一 head 达到。完整关键表合同留给当前发布演练，
+避免拒绝可由目标 migration 升级的历史备份。
 
 release/restore 的成功状态唯一权威为 `deploy/.state/deployment-state.json`，不信任可能残留在失败目标上的
 checkout/分支。v1 文件仅允许 schema version、32 位 operation nonce、`release`/`restore` operation、当前/前一
@@ -194,7 +218,9 @@ checkout/分支。v1 文件仅允许 schema version、32 位 operation nonce、`
 固定 Git object 的普通 migration blobs 解析字面量 revision graph（不执行目标 Python）；target 必须携带
 guard helper，旧 active 可没有。单一 Alembic versioned head、全量 live revision rows、祖先图不重写与 target
 向前可达都是门槛；`depends_on` 会参与可达性但不会掩盖 Alembic multi-head。已有状态必须配合已运行
-Postgres 的只读短 timeout revision 查询；三种状态 artifact 全无时，只有非系统 schema 为空才可作为首次发布。
+Postgres 的只读短 timeout revision 查询；finalized 与 legacy 状态 artifact 全无时，只有非系统 schema 为空才可作为首次发布；
+若存在通过安全 helper 读取的 first-release prepared marker，则 live revision 必须精确匹配 marker 固定 SHA 的 head，
+且本次 target 必须是同一 SHA。
 任何查询、状态、图或 checkout 不一致都在 build/quiesce/backup/migrate 前 fail closed，并明确转向人工确认的
 `restore.sh <backup.dump> <target-sha>`，不自动 downgrade、恢复或启动 Postgres。
 

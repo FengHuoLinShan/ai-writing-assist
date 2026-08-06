@@ -118,6 +118,18 @@ provider 初始化日志只记录固定事件名，不记录 model、完整 endp
 task status 或诊断响应前必须先做 secret redaction 和控制字符规范化；降级日志只允许规范 UUID、
 受限枚举/原因 token 与异常类型，不能记录 exception message。
 
+### 健康检查边界
+
+公共 `GET /api/health/llm` 是无账户、无项目的服务能力检查：它只静态验证 provider 模板和
+服务自有代理配置，固定返回 `scope=service`、`remote_check=false`，不访问数据库、账户 Key
+或远端 provider。保留的 model、host、profile 等旧响应字段在该端点为空；仅服务配置非法时
+返回 503。它不表示任一作者账户可连接。
+
+作者的真实连通性继续在账户设置保存连接时使用待保存 Key 远端验证；带 `novel_id` 的工作流
+继续通过 project facade 和 owner/effective profile 前置检查。`scripts/check_llm.py` 与
+`doctor --llm` 是显式的环境级远端诊断，只读取 `LLM_*` 环境值，输出
+`scope=environment`、`remote_check=true`，同样不代表生产账户状态。
+
 `balance.py` 只提供 DeepSeek `/user/balance` 与 Kimi `/v1/users/me/balance` 的窄 schema
 适配，返回 provider 原币种总可用额。它不持久化余额、不轮询、不换算、不拆分，也不构成
 账务系统；失败必须映射为不含响应正文或 Key 的安全不可用状态。
