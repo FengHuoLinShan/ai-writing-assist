@@ -731,53 +731,102 @@ describe("mapView Leaflet overlay alignment", () => {
     }
   })
 
-  it("handles mouse and keyboard activation on the rendered Leaflet marker", async () => {
+  it("uses native label buttons for location, layout item, and cluster activation", async () => {
     const freshMapView = await importFreshMapView()
     const container = document.createElement("div")
     Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
-    Object.defineProperty(container, "clientHeight", { value: 420, configurable: true })
-    const markerElement = document.createElement("div")
-    const marker = {
-      addTo: vi.fn(() => marker),
-      getElement: vi.fn(() => markerElement),
-    }
+    Object.defineProperty(container, "clientHeight", { value: 180, configurable: true })
+    const markers = []
     freshMapView._state = { map: { hex_size: 30 }, markers: [] }
     freshMapView._leaflet = {
       eachLayer: vi.fn(),
       getZoom: vi.fn(() => 0),
       getContainer: vi.fn(() => container),
       latLngToContainerPoint: vi.fn(() => ({ x: 60, y: 60 })),
+      containerPointToLatLng: vi.fn(([x, y]) => ({ lat: y, lng: x })),
     }
+    const divIcon = vi.fn((options) => options)
     freshMapView._leafletApi = {
       latLng: vi.fn((lat, lng) => ({ lat, lng })),
-      divIcon: vi.fn((options) => options),
-      marker: vi.fn(() => marker),
+      divIcon,
+      marker: vi.fn(() => {
+        const marker = { addTo: vi.fn(() => marker) }
+        markers.push(marker)
+        return marker
+      }),
     }
-    freshMapView._buildMapLabelItems = vi.fn(() => [{
-      item_id: "location:loc-1",
-      item_kind: "fact",
-      fact_status: "confirmed",
-      title: "洛阳外城",
-      object_type: "location",
-      dynamic_type: "location",
-      priority: 56,
-      target_entity_id: "loc-1",
-      source_kind: "location",
-      source_id: "loc-1",
-      q: 0,
-      r: 0,
-      opacity: 1,
-      anchor: { x: 60, y: 60 },
-    }])
+    freshMapView._buildMapLabelItems = vi.fn(() => [
+      {
+        item_id: "location:loc-1", item_kind: "fact", fact_status: "confirmed",
+        title: "洛阳外城", object_type: "location", dynamic_type: "location",
+        priority: 100, target_entity_id: "loc-1", source_kind: "location",
+        source_id: "loc-1", q: 0, r: 0, opacity: 1, anchor: { x: 30, y: 90 },
+      },
+      {
+        item_id: "marker:marker-1", item_kind: "fact", fact_status: "confirmed",
+        title: "城门守卫", object_type: "character", dynamic_type: "character",
+        priority: 100, target_entity_id: "char-1", source_kind: "marker",
+        source_id: "marker-1", q: 1, r: 1, opacity: 1, anchor: { x: 150, y: 90 },
+      },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        item_id: `filler:${index}`, item_kind: "fact", fact_status: "confirmed",
+        title: `事件 ${index}`, object_type: "event", dynamic_type: "event",
+        priority: 0, source_kind: "marker", source_id: `filler-${index}`,
+        q: index + 2, r: 1, opacity: 1,
+        anchor: { x: 260 + index * 45, y: index % 2 ? 130 : 50 },
+      })),
+    ])
     freshMapView._hasDetailMap = vi.fn(() => false)
     const openDetail = vi.spyOn(freshMapView, "_onCenterClick").mockImplementation(() => {})
+    const openLayoutItem = vi.spyOn(freshMapView, "_openMapLayoutItem").mockImplementation(() => {})
+    const openCluster = vi.spyOn(freshMapView, "_showLocationCluster").mockImplementation(() => {})
 
     freshMapView._renderCenterLabels()
-    markerElement.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    markerElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    markerElement.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }))
-    expect(openDetail).toHaveBeenCalledTimes(3)
-    expect(openDetail).toHaveBeenNthCalledWith(1, "loc-1")
+
+    const iconButtons = divIcon.mock.calls.map(([options]) => options.html)
+    expect(iconButtons.every((button) => button instanceof HTMLButtonElement)).toBe(true)
+    const locationButton = iconButtons.find((button) => button.dataset.id === "loc-1")
+    const markerButton = iconButtons.find((button) => button.dataset.id === "marker-1")
+    const clusterButton = iconButtons.find((button) => button.dataset.kind === "cluster")
+    expect(locationButton).toMatchObject({ type: "button", tabIndex: 0 })
+    expect(locationButton.dataset).toMatchObject({
+      kind: "location", id: "loc-1", q: "0", r: "0",
+    })
+    expect(locationButton.textContent).toContain("洛阳外城")
+    expect(locationButton.getAttribute("aria-label")).toBe("洛阳外城")
+    expect(locationButton.querySelector(".map-center-drill")?.getAttribute("aria-hidden")).toBe("true")
+    expect(markerButton.dataset).toMatchObject({
+      kind: "marker", id: "marker-1", q: "1", r: "1",
+    })
+    expect(clusterButton).toBeInstanceOf(HTMLButtonElement)
+
+    const eventBoundary = document.createElement("div")
+    const leakedEvents = []
+    for (const eventType of ["pointerdown", "mousedown", "touchstart", "dblclick", "contextmenu"]) {
+      eventBoundary.addEventListener(eventType, () => leakedEvents.push(eventType))
+    }
+    eventBoundary.append(locationButton, markerButton, clusterButton)
+    document.body.appendChild(eventBoundary)
+    locationButton.focus()
+    expect(document.activeElement).toBe(locationButton)
+    for (const eventType of ["pointerdown", "mousedown", "touchstart", "dblclick", "contextmenu"]) {
+      locationButton.dispatchEvent(new Event(eventType, { bubbles: true, cancelable: true }))
+    }
+    expect(leakedEvents).toEqual([])
+    expect(openDetail).not.toHaveBeenCalled()
+    // happy-dom 不会为 Enter 合成浏览器默认 click，因此显式执行该默认动作。
+    locationButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    locationButton.click()
+    locationButton.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }))
+    expect(openDetail).toHaveBeenCalledOnce()
+    expect(openDetail).toHaveBeenCalledWith("loc-1")
+    markerButton.click()
+    expect(openLayoutItem).toHaveBeenCalledWith({
+      kind: "marker", id: "marker-1", q: 1, r: 1,
+    })
+    clusterButton.click()
+    expect(openCluster).toHaveBeenCalledWith(clusterButton.dataset.id)
+    expect(markers.every((marker) => marker.addTo.mock.calls.length === 1)).toBe(true)
   })
 
   it("reuses one in-flight Leaflet module load across concurrent initialization", async () => {

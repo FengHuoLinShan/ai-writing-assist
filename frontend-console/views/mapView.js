@@ -2006,20 +2006,39 @@ const mapView = {
     if (this._canvas.height !== height) this._canvas.height = height
   },
 
-  /** 中心点标签用 DOM（便于显示文字），直接绑定 Leaflet marker 根节点。 */
-  _bindLeafletMarkerActivation(marker, activate) {
-    const element = marker.getElement?.()
-    if (!element) return
-    element.addEventListener("click", (event) => {
+  /** 中心点标签用原生按钮，避免依赖 Leaflet marker 的事件冒泡边界。 */
+  _createMapLabelButton({ className = "", opacity = 1, kind, id, q, r, label, drill, activate }) {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.className = ["map-center-label", className].filter(Boolean).join(" ")
+    button.style.opacity = String(Number(opacity ?? 1))
+    if (kind) button.dataset.kind = String(kind)
+    if (id) button.dataset.id = String(id)
+    if (Number.isFinite(q)) button.dataset.q = String(q)
+    if (Number.isFinite(r)) button.dataset.r = String(r)
+
+    const name = document.createElement("span")
+    name.className = "map-center-name"
+    name.textContent = label || "未命名地图对象"
+    button.setAttribute("aria-label", name.textContent)
+    button.appendChild(name)
+    if (drill) {
+      const indicator = document.createElement("span")
+      indicator.className = ["map-center-drill", drill.hasDetail ? "has-detail" : ""]
+        .filter(Boolean)
+        .join(" ")
+      indicator.setAttribute("aria-hidden", "true")
+      indicator.textContent = drill.hasDetail ? "▾" : "·"
+      button.appendChild(indicator)
+    }
+    for (const eventType of ["pointerdown", "mousedown", "touchstart", "dblclick", "contextmenu"]) {
+      button.addEventListener(eventType, (event) => event.stopPropagation())
+    }
+    button.addEventListener("click", (event) => {
       event.stopPropagation()
       activate()
     })
-    element.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return
-      event.preventDefault()
-      event.stopPropagation()
-      activate()
-    })
+    return button
   },
 
   _renderCenterLabels() {
@@ -2066,12 +2085,25 @@ const mapView = {
       const hasDetail = sourceKind === "location" && this._hasDetailMap(sourceId)
       const iconWidth = labelLayout.box.width
       const iconHeight = labelLayout.box.height
+      const labelButton = this._createMapLabelButton({
+        opacity: labelLayout.opacity,
+        kind: sourceKind,
+        id: sourceId,
+        q,
+        r,
+        label: labelLayout.label || label,
+        drill: sourceKind === "location" ? { hasDetail } : null,
+        activate: () => {
+          if (sourceKind === "location") {
+            if (sourceId) this._onCenterClick(sourceId)
+            return
+          }
+          this._openMapLayoutItem({ kind: sourceKind, id: sourceId, q, r })
+        },
+      })
       const icon = this._leafletApi.divIcon({
         className: `map-center-marker map-layout-marker is-${labelLayout.displayLevel} is-${esc(sourceKind)}`,
-        html: `<div class="map-center-label" style="opacity:${Number(labelLayout.opacity ?? 1)}" data-kind="${esc(sourceKind)}" data-id="${esc(sourceId)}" data-q="${q}" data-r="${r}">
-                 <span class="map-center-name">${esc(labelLayout.label || label)}</span>
-                 ${sourceKind === "location" ? `<span class="map-center-drill ${hasDetail ? "has-detail" : ""}">${hasDetail ? "▾" : "·"}</span>` : ""}
-               </div>`,
+        html: labelButton,
         iconSize: [iconWidth, iconHeight],
         iconAnchor: [point.x - labelLayout.box.x, point.y - labelLayout.box.y],
       })
@@ -2079,18 +2111,11 @@ const mapView = {
         icon,
         pane: "mapLabels",
         interactive: true,
-        keyboard: true,
+        keyboard: false,
         title: labelLayout.title,
       })
       marker._isMapLabel = true
       marker.addTo(this._leaflet)
-      this._bindLeafletMarkerActivation(marker, () => {
-        if (sourceKind === "location") {
-          if (sourceId) this._onCenterClick(sourceId)
-          return
-        }
-        this._openMapLayoutItem({ kind: sourceKind, id: sourceId, q, r })
-      })
     }
     for (const cluster of layout.clusters) {
       this._labelClusterItemsById.set(cluster.id, cluster.items)
@@ -2098,9 +2123,16 @@ const mapView = {
         cluster.box.x + cluster.box.width / 2,
         cluster.box.y + cluster.box.height / 2,
       ])
+      const clusterButton = this._createMapLabelButton({
+        className: "map-center-cluster",
+        kind: "cluster",
+        id: cluster.id,
+        label: cluster.label,
+        activate: () => this._showLocationCluster(cluster.id),
+      })
       const icon = this._leafletApi.divIcon({
         className: "map-center-marker map-layout-marker is-cluster",
-        html: `<div class="map-center-label map-center-cluster" data-id="${esc(cluster.id)}"><span class="map-center-name">${esc(cluster.label)}</span></div>`,
+        html: clusterButton,
         iconSize: [cluster.box.width, cluster.box.height],
         iconAnchor: [cluster.box.width / 2, cluster.box.height / 2],
       })
@@ -2108,12 +2140,11 @@ const mapView = {
         icon,
         pane: "mapLabels",
         interactive: true,
-        keyboard: true,
+        keyboard: false,
         title: cluster.label,
       })
       marker._isMapLabel = true
       marker.addTo(this._leaflet)
-      this._bindLeafletMarkerActivation(marker, () => this._showLocationCluster(cluster.id))
     }
     markMapTelemetryCondition("labels_ready")
   },
