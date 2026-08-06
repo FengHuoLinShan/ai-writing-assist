@@ -79,7 +79,6 @@ for line in responses[-1]:
     headers.setdefault(name.strip().lower(), []).append(value.strip())
 
 required = {
-    "strict-transport-security": "max-age=31536000",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
 }
@@ -89,6 +88,47 @@ for name, expected in required.items():
         raise SystemExit(
             f"Security header {name} must appear exactly once with the expected value"
         )
+
+hsts_values = headers.get("strict-transport-security", [])
+if len(hsts_values) != 1:
+    raise SystemExit(
+        "Security header strict-transport-security must appear exactly once"
+    )
+hsts_directives: dict[str, str | None] = {}
+for raw_directive in hsts_values[0].split(";"):
+    directive = raw_directive.strip()
+    if not directive:
+        raise SystemExit("Security header strict-transport-security is malformed")
+    name, separator, raw_value = directive.partition("=")
+    normalized_name = name.strip().lower()
+    if normalized_name not in {"max-age", "includesubdomains", "preload"}:
+        raise SystemExit(
+            "Security header strict-transport-security has an unsupported directive"
+        )
+    if normalized_name in hsts_directives:
+        raise SystemExit(
+            "Security header strict-transport-security repeats a directive"
+        )
+    value = raw_value.strip() if separator else None
+    if normalized_name == "max-age":
+        if value is None or not value.isascii() or not value.isdecimal():
+            raise SystemExit(
+                "Security header strict-transport-security has an invalid max-age"
+            )
+    elif value is not None:
+        raise SystemExit(
+            "Security header strict-transport-security has an invalid flag directive"
+        )
+    hsts_directives[normalized_name] = value
+max_age = hsts_directives.get("max-age")
+if max_age is None or int(max_age) < 31_536_000:
+    raise SystemExit(
+        "Security header strict-transport-security must retain at least one year"
+    )
+if "preload" in hsts_directives and "includesubdomains" not in hsts_directives:
+    raise SystemExit(
+        "Security header strict-transport-security preload requires includeSubDomains"
+    )
 
 csp_values = headers.get("content-security-policy", [])
 if len(csp_values) != 1:
