@@ -39,7 +39,7 @@ Three layers:
 ## Test execution layers
 
 下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`
-解析 Python `3.12.13` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
+解析 Python `3.14.6` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
 缓存或网络。该工具链约定不改变各层列出的数据库、凭据或浏览器等外部前提。
 
 | Command | Scope | External prerequisites |
@@ -49,10 +49,10 @@ Three layers:
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
 | `make test-ci TEST_WORKERS=2` | Local equivalent of architecture inventory, secret hygiene, backend and frontend dependency audits, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies; OSV data for backend audit and npm registry/advisory data for frontend audit |
-| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.12.13 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
+| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.6 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
-| `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.12/Linux target, with `--no-build` |
+| `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.14/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
@@ -115,7 +115,7 @@ GitHub Actions 在 pull request 和 `main` push 上并行运行三个职责清�
 `Frontend functional browser`，`Production Image CI` 包含 `Production image contract`。
 它们与独立的 `Architecture docs` 均使用 `ubuntu-24.04`，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
-secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
+secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.14.6`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
@@ -141,7 +141,7 @@ deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
 causes a published fix to fail the gate again. Production does not install `eval`,
 and the extra remains trusted/offline-only even though this project's adapter uses
 text collection metrics with an isolated local Codex evaluator. Frontend job first uses
-the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.0`) and
+the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.1` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
 build. `Frontend browser smoke` remains an automated four-domain author smoke (home, project,
