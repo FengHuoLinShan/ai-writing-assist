@@ -162,6 +162,12 @@ POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
 ```
 
+正文保存 API 共享 function-scope `DbSession` 事务边界：普通非流式请求只有在
+事务成功提交后才开始发送成功响应。因此前端收到“已保存到工作稿”对应的
+`POST /drafts/autosave` 201 或 `PUT /drafts/{id}` 200 时，后续请求与独立数据库
+session 必须能立即读到新正文；提交失败由共享依赖回滚并返回脱敏 500，
+不暴露成功状态。
+
 默认正文生成把模型定位为共同创作者，不使用固定字数、段落或节奏
 模板，并始终生成可替换目标章的完整正文；当前编辑章关联 Scene 时，
 Scene 只作为结构上下文，不把跨章 Scene 错当成输出范围。`generation_mode=continue`
