@@ -122,10 +122,12 @@ secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.12.13`，
 这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
 的 pytest/Ruff 可执行文件。
 架构文档 job 使用 Python 3.12 标准库验证当前清单；PR 还相对 base SHA 检查代码差异影响，未修改的必查文档
-只有在 PR 模板逐项核对并提供无影响原因后才能通过。
+只有在 PR 模板逐项核对并提供无影响原因后才能通过。该 workflow 显式监听
+`opened / synchronize / reopened / edited`，因此维护者补齐 Dependabot PR 的文档
+影响说明后会用当前 PR 正文重新验证，无需修改 bot 生成的提交。
 PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
-零重试规则执行 fresh migration、高风险事务契约，以及上传 201、地图 observation 201 和
-世界书投影任务响应后的跨 session 立即可见性契约，
+零重试规则执行 fresh migration、高风险事务契约，以及上传 201、工作稿保存 200/201、
+地图 observation 201 和世界书投影任务响应后的跨 session 立即可见性契约，
 并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
 PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，显式安装与服务端同主版本的

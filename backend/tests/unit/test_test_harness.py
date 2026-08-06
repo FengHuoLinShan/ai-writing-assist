@@ -10,6 +10,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+import yaml
+
 from tests.support.inventory import (
     production_python_files,
     python_ast,
@@ -482,6 +484,21 @@ def test_backend_ci_uses_self_locking_make_quality_targets() -> None:
     assert "make test-fast-coverage TEST_WORKERS=2" in fast_coverage_step
     assert "uv run" not in fast_coverage_step
     assert postgresql_step.strip() == "run: make -C .. test-postgresql-critical"
+
+
+def test_architecture_docs_rechecks_pr_body_edits() -> None:
+    workflow_path = BACKEND_ROOT.parent / ".github/workflows/architecture-docs.yml"
+    workflow = yaml.load(
+        workflow_path.read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+    assert workflow["on"]["pull_request"]["types"] == [
+        "opened",
+        "synchronize",
+        "reopened",
+        "edited",
+    ]
 
 
 def test_fast_targets_expand_to_the_same_guarded_test_layer() -> None:
