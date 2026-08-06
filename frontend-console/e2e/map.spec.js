@@ -26,13 +26,18 @@ import {
   waitForBackend,
 } from "./helpers/api-client.js"
 
-const LEAFLET_ORIGIN = 60
-
-function hexPosition(q, r, size = 30) {
-  return {
-    x: LEAFLET_ORIGIN + size * 1.5 * q,
-    y: LEAFLET_ORIGIN + size * Math.sqrt(3) * (r + q / 2),
-  }
+async function hexPosition(page, q, r, size = 30) {
+  return page.evaluate(async ({ q, r, size }) => {
+    const { default: currentMapView } = await import("/views/mapView.js")
+    const leafletMap = currentMapView._leaflet
+    if (!leafletMap) throw new Error("Leaflet map is not ready")
+    const origin = leafletMap.latLngToContainerPoint([0, 0])
+    const scale = 2 ** Number(leafletMap.getZoom())
+    return {
+      x: origin.x + size * 1.5 * q * scale,
+      y: origin.y + size * Math.sqrt(3) * (r + q / 2) * scale,
+    }
+  }, { q, r, size })
 }
 
 function findTile(mapState, q, r) {
@@ -57,7 +62,7 @@ async function openMapWorkspace(page, project, map, params = {}) {
 }
 
 async function clickHex(page, q, r) {
-  await page.locator(SEL.mapCanvas).click({ position: hexPosition(q, r) })
+  await page.locator(SEL.mapCanvas).click({ position: await hexPosition(page, q, r) })
 }
 
 async function expectMapCanvasAligned(page) {
@@ -579,8 +584,8 @@ test.describe("地图一级工作台", () => {
     await canvas.scrollIntoViewIfNeeded()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
-    const start = hexPosition(1, 1)
-    const end = hexPosition(4, 2)
+    const start = await hexPosition(page, 1, 1)
+    const end = await hexPosition(page, 4, 2)
     await page.mouse.move(box.x + start.x, box.y + start.y)
     await page.mouse.down()
     await page.mouse.move(box.x + end.x, box.y + end.y, { steps: 16 })
@@ -941,7 +946,7 @@ test.describe("地图一级工作台", () => {
     )
     await expect(centerLabel).toBeVisible()
     const paneState = await centerLabel.evaluate((label) => {
-      const pane = label.closest('[data-pane="mapLabels"]')
+      const pane = label.closest(".map-label-pane")
       const canvas = document.querySelector('canvas[data-testid="map-canvas"]')
       return {
         inLabelPane: Boolean(pane),
