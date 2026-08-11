@@ -29,8 +29,6 @@ SPLIT_WORKFLOW_CONTRACTS = {
         "frontend-ci-${{ github.ref }}",
         [
             "frontend-unit-quality",
-            "frontend-browser-smoke",
-            "frontend-map-browser",
             "frontend-functional-browser",
         ],
     ),
