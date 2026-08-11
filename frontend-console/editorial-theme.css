@@ -199,26 +199,40 @@ body {
 }
 
 #theme-toggle.btn-icon {
-  border: 1px solid var(--archive-rule) !important;
-  background: var(--archive-paper-raised) !important;
-  color: var(--archive-ink) !important;
-  border-radius: 2px !important;
+  border: 1px solid var(--archive-rule);
+  background: var(--archive-paper-raised);
+  color: var(--archive-ink);
+  border-radius: 2px;
+  font-size: 14px;
+}
+
+#theme-toggle.btn-icon:hover {
+  background: var(--bg-hover);
 }
 
 #theme-menu {
-  border-color: var(--archive-rule-strong) !important;
-  border-radius: 2px !important;
-  box-shadow: var(--shadow-float) !important;
+  background: var(--archive-paper-raised);
+  border: 1px solid var(--archive-rule-strong);
+  border-radius: 2px;
+  box-shadow: var(--shadow-float);
 }
 
 #theme-menu .theme-option {
+  background: none;
+  border: none;
+  color: var(--text-body);
   font-family: var(--font-mono);
+  font-size: 13px;
   letter-spacing: 0.04em;
 }
 
 #theme-menu .theme-option:hover {
-  background: var(--bg-hover) !important;
-  color: var(--archive-red) !important;
+  background: var(--bg-hover);
+  color: var(--archive-red);
+}
+
+#theme-menu .theme-option:active {
+  background: var(--bg-active);
 }
 
 #sidebar {

@@ -118,8 +118,3 @@ function onFocusOut(event) {
 defineExpose({ close })
 </script>
 
-<style>
-.topbar-theme{position:relative}.topbar-theme #theme-toggle{background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;padding:4px 8px;border-radius:var(--radius-sm)}
-.topbar-theme #theme-menu{position:absolute;right:0;top:36px;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius-md);padding:6px 0;box-shadow:var(--shadow-lg);min-width:160px;z-index:1000}
-.topbar-theme #theme-menu.hidden{display:none}.topbar-theme .theme-option{display:block;width:100%;text-align:left;padding:8px 14px;background:none;border:none;color:var(--text-body);font-size:13px;cursor:pointer}
-</style>
