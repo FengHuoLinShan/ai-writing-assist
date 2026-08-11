@@ -51,6 +51,14 @@
   --selected: var(--bg-active);
   --hover: var(--bg-hover);
   --hover-bg: var(--bg-hover);
+  /* 兼容别名（仍被业务样式引用；经语义层转发，随主题自动切换） */
+  --bg: var(--bg-base);
+  --text: var(--text-body);
+  --text-muted: var(--text-secondary);
+  --text-dim: var(--text-tertiary);
+  --bg-surface: var(--bg-panel);
+  --bg-alt: var(--bg-active);
+  --accent-dim: var(--accent-hover);
   --radius-sm: 2px;
   --radius-md: 3px;
   --radius-lg: 4px;
@@ -172,7 +180,7 @@ body {
 .logo {
   color: var(--archive-ink);
   font-family: var(--font-body);
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-caps);
   font-weight: 700;
 }
 
@@ -187,7 +195,7 @@ body {
 .topbar-right,
 .topbar-wordcount {
   font-family: var(--font-mono);
-  letter-spacing: 0.045em;
+  letter-spacing: var(--tracking-wide);
 }
 
 #theme-toggle.btn-icon {

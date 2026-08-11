@@ -27,6 +27,14 @@ describe("editorial archive theme", () => {
     expect(theme).toMatch(/\[data-theme="dark"\]\s*\{[\s\S]*--archive-paper:[^;]+;[\s\S]*--archive-red:[^;]+;/)
   })
 
+  it("leaves color, radius and shadow tokens solely to the editorial layer", () => {
+    expect(styles).not.toMatch(/^\s*--(bg-base|bg-panel|text-primary|accent|success|warning|error|border|shadow-sm|radius-sm|line-subtle):/m)
+    expect(theme).toMatch(/--bg:\s*var\(--bg-base\);/)
+    expect(theme).toMatch(/--text-dim:\s*var\(--text-tertiary\);/)
+    expect(theme).toMatch(/--bg-alt:\s*var\(--bg-active\);/)
+    expect(theme).toMatch(/--accent-dim:\s*var\(--accent-hover\);/)
+  })
+
   it("gives functional buttons and form fields visible interaction hierarchy", () => {
     expect(theme).toMatch(/\.btn-primary\s*\{[^}]*background:\s*var\(--archive-ink\);[^}]*box-shadow:[^}]*var\(--archive-red\)/s)
     expect(theme).toMatch(/\.form-input,[\s\S]*\.form-select,[\s\S]*\.form-textarea,[\s\S]*border-left:\s*3px solid var\(--archive-ink\);/)

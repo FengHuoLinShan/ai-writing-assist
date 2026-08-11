@@ -1,44 +1,11 @@
 /* ============================================================
-   NovelCraft 前端样式表 v3.0
-   三主题设计系统：现代极简 / 黄金时刻 / 午夜星河
-   设计规范：NovelCraft_设计规范文档_v2.0.md
+   NovelCraft 前端样式表
+   结构与排版层：字体族、字阶、行高、字间距、间距、缓动、布局尺寸。
+   视觉表达（颜色/圆角/阴影/线条）唯一权威：editorial-theme.css
+   设计标准：docs/frontend/uiux/design-standard.md
    ============================================================ */
 
-/* ===== 主题 A：现代极简（默认） ===== */
 :root {
-  /* 背景层 */
-  --bg-base: #F8F9FA;
-  --bg-panel: #FFFFFF;
-  --bg-elevated: #FFFFFF;
-  --bg-hover: #F1F3F5;
-  --bg-active: #E9ECEF;
-
-  /* 文字层 */
-  --text-primary: #212529;
-  --text-body: #343A40;
-  --text-secondary: #6C757D;
-  --text-tertiary: #ADB5BD;
-  --text-quaternary: #DEE2E6;
-
-  /* 强调色（Charcoal） */
-  --accent: #36454F;
-  --accent-soft: rgba(54, 69, 79, 0.08);
-  --accent-hover: #2A363E;
-  --accent-glow: rgba(54, 69, 79, 0.12);
-
-  /* 语义色 */
-  --success: #28A745;
-  --success-soft: #D1FAE5;
-  --warning: #F4A900;
-  --warning-soft: #FFF3CD;
-  --error: #DC3545;
-  --error-soft: #F8D7DA;
-  --info: #36454F;
-  --info-soft: rgba(54, 69, 79, 0.08);
-
-  /* 兼容旧语义别名 */
-  --danger: var(--error);
-
   /* 字体 */
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-body: "Noto Serif SC", "Source Han Serif SC", "PingFang SC", "Microsoft YaHei", "Georgia", "SimSun", serif;
@@ -63,9 +30,10 @@
   --leading-loose: 1.8;
 
   /* 字间距 */
-  --tracking-tight: 0;
+  --tracking-tight: -0.01em;
   --tracking-normal: 0;
-  --tracking-wide: 0.02em;
+  --tracking-wide: 0.045em;
+  --tracking-caps: 0.08em;
 
   /* 间距（8px 网格） */
   --space-1: 4px;
@@ -81,20 +49,8 @@
   --space-20: 80px;
   --space-24: 96px;
 
-  /* 圆角 — Minimal 风格 */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-2xl: 20px;
+  /* 圆角（其余档位由 editorial-theme.css 统一管辖） */
   --radius-full: 9999px;
-
-  /* 阴影 */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
-  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.10);
-  --shadow-float: 0 4px 24px rgba(0, 0, 0, 0.08);
 
   /* 缓动 */
   --ease-default: ease;
@@ -102,11 +58,10 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* 线条 */
-  --line-default: 1px solid var(--text-quaternary);
-  --line-subtle: 1px solid #F1F3F5;
-  --line-accent: 2px solid var(--accent);
-  --line-active: 3px solid var(--accent);
+  /* 过渡时长 */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
 
   /* 布局尺寸 */
   --topbar-height: 56px;
@@ -116,86 +71,12 @@
   --workspace-rail-left-min: 176px;
   --workspace-rail-right-min: 190px;
   --workspace-rail-collapsed: 44px;
-
-  /* === 兼容旧主题变量 === */
-  --bg: var(--bg-base);
-  --panel: var(--bg-panel);
-  --panel-alt: var(--bg-hover);
-  --text: var(--text-body);
-  --text-muted: var(--text-secondary);
-  --text-dim: var(--text-tertiary);
-  --border: #E9ECEF;
-  --border-light: var(--text-quaternary);
-  --border-dim: var(--text-quaternary);
-  --bg-surface: var(--bg-panel);
-  --bg-alt: var(--bg-active);
-  --selected: var(--bg-active);
-  --hover: var(--bg-hover);
-  --hover-bg: var(--bg-hover);
-  --accent-dim: var(--accent-hover);
-  --info: var(--accent);
-  --danger: var(--error);
 }
 
-/* ===== 主题 C：午夜星河（暗色） ===== */
-[data-theme="dark"] {
-  /* 背景层 */
-  --bg-base: #1A1425;
-  --bg-panel: #241D35;
-  --bg-elevated: #2E2545;
-  --bg-hover: #352D4E;
-  --bg-active: #3E345A;
-
-  /* 文字层 */
-  --text-primary: #EDE6FF;
-  --text-body: #D8D0E8;
-  --text-secondary: #A9A0C0;
-  --text-tertiary: #7A7090;
-  --text-quaternary: #4E4666;
-
-  /* 强调色（Lavender） */
-  --accent: #A490C2;
-  --accent-soft: rgba(164, 144, 194, 0.12);
-  --accent-hover: #C4B4E0;
-  --accent-glow: rgba(164, 144, 194, 0.20);
-
-  /* 语义色 */
-  --success: #6EE7B7;
-  --success-soft: rgba(110, 231, 183, 0.12);
-  --warning: #FCD34D;
-  --error: #FCA5A5;
-
-  /* 阴影 */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.6);
-  --shadow-float: 0 4px 24px rgba(0, 0, 0, 0.5);
-
-  /* 圆角 — Dark 风格 */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
-  --radius-2xl: 28px;
-
-  --line-subtle: 1px solid #2E2545;
-
-  /* 兼容变量暗色映射 */
-  --bg: var(--bg-base);
-  --panel: var(--bg-panel);
-  --panel-alt: var(--bg-hover);
-  --text: var(--text-body);
-  --text-muted: var(--text-secondary);
-  --text-dim: var(--text-tertiary);
-  --border: #352D4E;
-  --border-light: var(--text-quaternary);
-  --selected: var(--bg-active);
-  --hover: var(--bg-hover);
-  --hover-bg: var(--bg-hover);
-  --accent-dim: var(--accent-hover);
-  --info: var(--accent);
-  --danger: var(--error);
+/* 暖色主题字体偏好（颜色/圆角/阴影/线条由 editorial-theme.css 统一覆写） */
+[data-theme="warm"] {
+  --font-ui: "PingFang SC", -apple-system, "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-body: "Noto Serif SC", "Source Han Serif SC", "Georgia", "STSong", serif;
 }
 
 /* ===== 全局重置 ===== */
@@ -259,75 +140,6 @@ html, body {
   backdrop-filter: blur(20px);
   box-shadow: 0 1px 0 var(--border);
   z-index: 100;
-}
-
-[data-theme="dark"] #topbar {
-  background: rgba(36, 29, 53, 0.85);
-}
-
-/* ===== 主题 B：黄金时刻（暖色） ===== */
-[data-theme="warm"] {
-  /* 背景层 */
-  --bg-base: #F5F0E8;
-  --bg-panel: #FFFCF7;
-  --bg-elevated: #FFF9F0;
-  --bg-hover: #F0E8D8;
-  --bg-active: #E8DCC8;
-
-  /* 文字层 */
-  --text-primary: #3A3028;
-  --text-body: #4A4038;
-  --text-secondary: #7A6E62;
-  --text-tertiary: #A89E90;
-  --text-quaternary: #D4C8B8;
-
-  /* 强调色（Rose） */
-  --accent: #C1666B;
-  --accent-soft: rgba(193, 102, 107, 0.10);
-  --accent-hover: #A85458;
-  --accent-glow: rgba(193, 102, 107, 0.15);
-
-  /* 语义色 */
-  --success: #5A8A6E;
-  --success-soft: rgba(90, 138, 110, 0.10);
-  --warning: #D4A000;
-  --error: #B84545;
-
-  /* 阴影 */
-  --shadow-sm: 0 1px 3px rgba(58, 48, 40, 0.05);
-  --shadow-md: 0 2px 12px rgba(58, 48, 40, 0.08);
-  --shadow-lg: 0 8px 28px rgba(58, 48, 40, 0.10);
-  --shadow-xl: 0 24px 48px rgba(58, 48, 40, 0.15);
-  --shadow-float: 0 4px 24px rgba(58, 48, 40, 0.12);
-
-  /* 圆角 — Warm 风格（更柔和） */
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 28px;
-  --radius-2xl: 32px;
-
-  /* 字体 */
-  --font-ui: "PingFang SC", -apple-system, "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
-  --font-body: "Noto Serif SC", "Source Han Serif SC", "Georgia", "STSong", serif;
-
-  --line-subtle: 1px solid #F0E8D8;
-
-  /* 兼容变量 */
-  --bg: var(--bg-base);
-  --panel: var(--bg-panel);
-  --panel-alt: var(--bg-hover);
-  --text: var(--text-body);
-  --text-muted: var(--text-secondary);
-  --text-dim: var(--text-tertiary);
-  --border: #E8DCC8;
-  --border-light: var(--text-quaternary);
-  --selected: var(--bg-active);
-  --hover: var(--bg-hover);
-  --hover-bg: var(--bg-hover);
-  --accent-dim: var(--accent-hover);
-  --info: var(--accent);
-  --danger: var(--error);
 }
 
 .topbar-left {

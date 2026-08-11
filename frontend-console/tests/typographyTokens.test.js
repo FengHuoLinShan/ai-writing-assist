@@ -15,9 +15,17 @@ describe("global typography tokens", () => {
     expect(styles).toMatch(/--font-ui:[^;]*"PingFang SC"[^;]*"Hiragino Sans GB"[^;]*;/)
   })
 
-  it("keeps shared letter spacing neutral for Chinese UI text", () => {
-    expect(styles).toMatch(/--tracking-tight:\s*0;/)
+  it("keeps letter spacing tokens at the design-standard values", () => {
+    expect(styles).toMatch(/--tracking-tight:\s*-0\.01em;/)
     expect(styles).toMatch(/--tracking-normal:\s*0;/)
+    expect(styles).toMatch(/--tracking-wide:\s*0\.045em;/)
+    expect(styles).toMatch(/--tracking-caps:\s*0\.08em;/)
+  })
+
+  it("keeps transition durations on shared tokens", () => {
+    expect(styles).toMatch(/--dur-fast:\s*120ms;/)
+    expect(styles).toMatch(/--dur-base:\s*200ms;/)
+    expect(styles).toMatch(/--dur-slow:\s*320ms;/)
   })
 
   it("keeps topbar module title compact instead of display sizing", () => {
