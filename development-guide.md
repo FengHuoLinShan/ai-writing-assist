@@ -71,10 +71,10 @@ make test-production-images      # Build pinned production Dockerfiles and run i
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
-make test-all                    # Fast backend layer, then frontend tests
+make test-all                    # Fast backend layer + frontend Vitest; no E2E
 make docs-check                  # Current architecture inventory and link/diagram checks
 make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review
-make test-ci TEST_WORKERS=2     # Docs inventory + secret + dependency audits + Ruff + deploy contracts + coverage/RuntimeWarning + Vitest
+make test-ci TEST_WORKERS=2     # One cross-stack quality gate; no PostgreSQL/browser/image suites
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
@@ -89,11 +89,14 @@ make format-fix                  # ruff format
 
 Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证；`make test-production-images` 才会实际构建两份生产镜像并检查运行时合同。
 
-完整 `npm run test:e2e:functional` 是 GitHub pull request 与 `main` push 自动运行的浏览器 job，
-使用全新的专用 PostgreSQL 与 Chromium，固定 workers=1、retries=0，失败诊断保留 14 天。
-`npm run test:e2e:smoke` 仍覆盖首页、项目、导入和写作四个作者域，作为更快的信号；
-`npm run test:e2e:map` 仍是独立地图专项信号。视觉、地图性能、真实 LLM 和 worker suite
-仍需通过各自显式命令验收。
+开发中只跑受影响项；提交前按 `testing-guide.md` 选择一次对应门禁。跨栈、安全或 CI 改动运行
+一次 `make test-ci TEST_WORKERS=2` 即可，不再先后重复 `make test` 或 `make test-all`。
+
+完整 `npm run test:e2e:functional` 在 GitHub pull request 与 `main` push 上各运行一次，使用全新的
+专用 PostgreSQL 与 Chromium，固定 workers=1、retries=0，失败诊断保留 14 天。
+`npm run test:e2e:smoke` 和 `npm run test:e2e:map` 保留为本地定向入口，其用例已包含在完整
+Functional 套件中，不再作为独立 CI job。视觉、地图性能、真实 LLM 和 worker suite 仍需通过
+各自显式命令验收。
 
 `make audit-frontend-deps` uses npm registry/advisory data to check the committed
 lockfile and fails only on high/critical findings. It complements, rather than
