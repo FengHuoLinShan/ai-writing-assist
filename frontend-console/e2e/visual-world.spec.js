@@ -57,7 +57,7 @@ test.describe("world 视觉基线", () => {
 
     await openWorkbench(page, proj, "world", "objects")
     await expect(page.locator(".world-hot-overview")).toBeVisible({ timeout: 10000 })
-    await expect(page.locator(".data-table tbody tr[data-id]")).toHaveCount(4)
+    await expect(page.locator(".world-object-card[data-id]")).toHaveCount(4)
     for (const theme of THEMES) {
       await applyTheme(page, theme)
       await screenshotPage(page, `world-objects-${theme}.png`)
