@@ -3365,6 +3365,7 @@ kbd {
   font-size: var(--text-xs);
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 980px) {
   .world-candidate-alias-item {
     grid-template-columns: minmax(0, 1fr);
@@ -4784,7 +4785,7 @@ kbd {
   color: var(--project-ink);
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1100px) {
   .project-card,
   .project-catalog .project-card-placeholder {
     grid-column: span 6;
@@ -4805,6 +4806,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 900px) {
   .project-archive-hero {
     grid-template-columns: 58px minmax(0, 1fr);
@@ -4846,7 +4848,7 @@ kbd {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .project-catalog {
     padding: 10px;
   }
@@ -4974,6 +4976,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 460px) {
   .project-archive-hero__copy,
   .project-archive-hero__summary {
@@ -5293,7 +5296,7 @@ kbd {
   flex: 0 0 auto;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .project-import-list__item-summary {
     grid-template-columns: 24px minmax(0, 1fr) auto;
     row-gap: var(--space-2);
@@ -5311,6 +5314,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 480px) {
   .project-import-list__item-error {
     margin-left: 0;
@@ -5750,6 +5754,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 900px) {
   #contextual-notes {
     display: none;
@@ -5855,7 +5860,7 @@ kbd {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .table-card-list,
   .table-card-list tbody,
   .table-card-list tr,
@@ -5922,7 +5927,7 @@ kbd {
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   #sidebar {
     position: fixed;
     inset: auto 0 0;
@@ -7007,6 +7012,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 560px) {
   .scene-split-impact-summary dl {
     grid-template-columns: minmax(0, 1fr);
@@ -7017,7 +7023,7 @@ kbd {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .scene-workbench {
     display: block;
     min-height: 0;
@@ -7473,7 +7479,7 @@ kbd {
   font-weight: 600;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .map-spatial-anchor-fields {
     grid-template-columns: 1fr 1fr;
   }
@@ -7823,6 +7829,7 @@ kbd {
   cursor: pointer;
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 560px) {
   .map-inbox-filters {
     grid-template-columns: minmax(0, 1fr);
@@ -8207,6 +8214,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 600px) {
   .map-leaflet {
     height: min(240px, 30vh);
@@ -8842,7 +8850,7 @@ kbd {
   margin-top: var(--space-2);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .outline-asset-description {
     max-width: none;
     white-space: normal;
@@ -9270,6 +9278,7 @@ kbd {
 }
 
 /* 响应式 */
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 640px) {
   .global-settings-view,
   .project-settings-view {
@@ -9820,7 +9829,7 @@ kbd {
   color: inherit;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .novel-evidence-drawer {
     inset: 64px 10px 10px;
     width: auto;
@@ -10248,6 +10257,7 @@ kbd {
   color: var(--text-muted);
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (min-width: 391px) {
   #modal-overlay:has(.review-decision-layout) {
     align-items: stretch;
@@ -10277,6 +10287,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 390px) {
   #modal-close,
   #help-close,
@@ -10396,7 +10407,7 @@ kbd {
   vertical-align: middle;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .scene-progress-bar,
   .world-hot-overview__facets {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -11197,6 +11208,7 @@ kbd {
   display: none;
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 560px) {
   .map-quick-filters {
     grid-template-columns: 1fr;
@@ -11233,6 +11245,7 @@ kbd {
   }
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 390px) {
   .map-mobile-edit-handoff {
     display: grid;
@@ -11954,6 +11967,7 @@ kbd {
   font-size: 12px;
 }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 600px) {
   .reference-picker__search-row {
     display: grid;
@@ -13577,7 +13591,7 @@ button.rp-journey-card__main:hover {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .entry-choice {
     padding: 30px 16px;
   }
@@ -13901,7 +13915,7 @@ button.rp-journey-card__main:hover {
   border-left: 0;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .rp-adaptive-confirm {
     max-width: calc(100vw - 20px);
   }
@@ -14054,12 +14068,13 @@ button.rp-journey-card__main:hover {
 .project-catalog .project-catalog-state h2 { font-size: clamp(28px, 3.2vw, 42px); }
 .project-catalog .project-index-bar { margin-top: var(--space-5); }
 
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 900px) {
   .today-attention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .today-workflow-card { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .sidebar-project-switcher,
   .sidebar-desktop-nav,
   .sidebar-footer { display: none; }
@@ -14175,7 +14190,7 @@ button.rp-journey-card__main:hover {
 .llm-advanced-panel > summary { margin-bottom: var(--space-3); cursor: pointer; font-weight: 700; }
 .llm-advanced-panel__body { display: grid; gap: var(--space-3); }
 
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .story-outline-list-item__header,
   .map-overview-primary,
   .rag-search-repair-notice,

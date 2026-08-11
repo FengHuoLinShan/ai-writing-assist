@@ -154,7 +154,7 @@ export function useWritingWorkspace(props) {
   const generationLoading = ref(false)
   const focusMode = ref(Boolean(props.authorPreferences?.defaultFocusMode))
   const forceDesktop = ref(false)
-  const isNarrow = ref(typeof window !== "undefined" && window.innerWidth < 600)
+  const isNarrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
   const disposed = ref(false)
   let selectionGeneration = 0
   let sceneGeneration = 0
@@ -1106,7 +1106,7 @@ export function useWritingWorkspace(props) {
     event.returnValue = ""
   }
 
-  function resize() { isNarrow.value = window.innerWidth < 600 }
+  function resize() { isNarrow.value = window.innerWidth <= 760 }
 
   watch(focusMode, (active) => {
     document.body.classList.toggle("focus-mode-active", active)
