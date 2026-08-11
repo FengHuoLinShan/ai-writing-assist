@@ -107,6 +107,8 @@
   `prompts/Prompt体系设计.md` 维护。
 - `frontend-console/README.md` 与 `frontend-console/e2e/scenario-coverage.md` 是前端入口和
   测试覆盖文档；`frontend-console/docs/` 是前端历史分析和实施记录。
+- `frontend/uiux/` 是前端「Editorial Archive 提纯」二次设计的权威规范集：`design-standard.md`
+  为全站 UI/UX 设计标准，`pages/` 为分页执行规范，执行与认领规则见其 `README.md`。
 - `workflows/` 是已落地工作流的实现说明；`tools/*/README.md` 是各开发工具的局部说明。
 - `backend/evals/` 与 `.test-logs/` 保存可复现实验/测试产物，不是当前设计契约；其中受版本
   控制的报告仍保留在产生它们的评测目录中。
