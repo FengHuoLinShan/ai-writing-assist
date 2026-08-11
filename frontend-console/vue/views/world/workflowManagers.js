@@ -177,7 +177,7 @@ function refreshWorldIfActive() {
 /** 世界对象与别名/关系自动提取（world_objects 阶段）。 */
 export const autoExtractManager = createWorkflowManager({
   workflowType: "world_object_auto_extraction",
-  label: "世界对象与别名/关系自动提取",
+  label: "整理人物、设定与关系",
   destinationLabel: "完成后查看世界对象、别名和待处理关系。",
   matchRecovered: (workflows) => (
     workflows.find((item) => item.workflowType === "world_object_auto_extraction" && item.view === "world")
@@ -186,7 +186,7 @@ export const autoExtractManager = createWorkflowManager({
   onTerminal: async (progress) => {
     const toast = getToast()
     if (progress.done) {
-      toast("世界对象与别名/关系自动提取已完成", "success")
+      toast("人物、设定与关系已整理完成", "success")
       // vanilla 在此重拉 entities/candidates/batches 并 navigate；refresh 触发
       // island onEnter → load() 全量重取，等价。
       refreshWorldIfActive()
@@ -252,7 +252,7 @@ export async function submitAutoExtract(start, end) {
       { start_chapter: start, end_chapter: end },
       projectId,
     )
-    if (adopted) toast("世界对象与别名/关系自动提取任务已提交", "info")
+    if (adopted) toast("已开始整理人物、设定与关系", "info")
     return true
   } catch (err) {
     if (getAppState()?.currentProjectId === projectId) {

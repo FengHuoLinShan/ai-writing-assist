@@ -58,6 +58,7 @@ async def test_context_marker_failure_logs_without_blocking_alias_write(
     assert record.exc_info is None
     assert "credential-value" not in record.getMessage()
     assert "[REDACTED]" in record.getMessage()
+    assert "RuntimeError" in record.getMessage()
 
 
 @pytest.mark.asyncio

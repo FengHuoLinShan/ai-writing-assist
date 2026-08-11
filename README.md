@@ -550,6 +550,7 @@ make test
 | Prompt 与运行时调用契约 | [docs/prompts/Prompt体系设计.md](docs/prompts/Prompt体系设计.md) |
 | 开发、测试与发布 | [development-guide.md](development-guide.md) · [testing-guide.md](testing-guide.md) · [deploy/README.md](deploy/README.md) |
 | ADR 与长期架构决策 | [docs/adr/README.md](docs/adr/README.md) |
+| 软件许可与安全报告 | [MIT License](LICENSE) · [Security Policy](SECURITY.md) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md) |
 
 ---
 

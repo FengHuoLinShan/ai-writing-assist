@@ -175,8 +175,8 @@ describe("review-aliases", () => {
     })
     const controls = [
       ["#review-alias-source", "按来源筛选待处理别名", "deep_import"],
-      ["#review-alias-workflow", "按 Workflow ID 诊断筛选待处理别名", "workflow-7"],
-      ["#review-alias-scene", "按 Scene 序号筛选待处理别名", "3"],
+      ["#review-alias-workflow", "按处理批次编号诊断筛选待处理别名", "workflow-7"],
+      ["#review-alias-scene", "按场景序号筛选待处理别名", "3"],
       ["#review-alias-chapter", "按章节序号筛选待处理别名", "2"],
       ["#review-alias-confidence-min", "待处理别名最低置信度", "0.85"],
       ["#review-alias-type-kind", "待处理别名类型范围", "custom"],
@@ -236,7 +236,7 @@ describe("review-relations", () => {
     })
     const controls = [
       ["#review-relation-type", "按关系类型筛选待处理关系", "friend_of"],
-      ["#review-relation-scene", "按 Scene 序号筛选待处理关系", "5"],
+      ["#review-relation-scene", "按场景序号筛选待处理关系", "5"],
       ["#review-relation-source-chapter", "按章节序号筛选待处理关系", "4"],
       ["#review-relation-strength-min", "待处理关系最低强度", "0.7"],
       ["#review-relation-type-kind", "待处理关系类型范围", "recommended"],

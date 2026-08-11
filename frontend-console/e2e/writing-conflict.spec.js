@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import {
   createProject,
@@ -17,6 +16,19 @@ import {
   listConflictChecks,
 } from "./helpers/api-client.js"
 
+async function openWritingToolMenu(page, selector) {
+  const tool = page.locator(selector)
+  const menu = page.locator("details.writing-tools-menu").filter({ has: tool })
+  if (await menu.getAttribute("open") === null) {
+    await menu.locator(":scope > summary").click()
+  }
+}
+
+async function clickWritingTool(page, selector) {
+  await openWritingToolMenu(page, selector)
+  await page.locator(selector).click()
+}
+
 test.describe("写作工作台 — 版本冲突", () => {
   let testProjectId = null
 
@@ -25,8 +37,6 @@ test.describe("写作工作台 — 版本冲突", () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
-
     const project = await createProject({
       title: "冲突测试项目",
       genre: "fantasy",
@@ -63,7 +73,7 @@ test.describe("写作工作台 — 版本冲突", () => {
 
     // Step 4: 在当前页面编辑并暂存（expected_version 仍为 v1）
     await page.locator("#writing-editor").fill("v3 内容 — 冲突")
-    await page.locator("#btn-autosave").click()
+    await clickWritingTool(page, "#btn-autosave")
 
     // Step 5: 应收到 409 冲突 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("已被其他会话更新", { timeout: 10000 })
@@ -163,7 +173,7 @@ test.describe("写作工作台 — 版本冲突", () => {
     await page.locator("#writing-editor").fill(
       "守门人交出银色通行符，主角说明自己违背誓约的原因后，准备从旧约门进入禁区。",
     )
-    await page.locator("#btn-conflict-check").click()
+    await clickWritingTool(page, "#btn-conflict-check")
     const conflictOptions = page.getByRole("dialog", { name: "剧情设定冲突检查选项" })
     await expect(conflictOptions).toContainText("剧情设定冲突检查")
     await conflictOptions.getByRole("checkbox", { name: "包含待处理内容" }).check()
@@ -223,7 +233,7 @@ test.describe("写作工作台 — 版本冲突", () => {
 
     await conflictDialog.locator(".modal-footer").getByRole("button", { name: "关闭" }).click()
     await page.locator("#btn-publish").click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 30000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 30000 })
 
     const latestDraft = await getLatestDraft(testProjectId, 1)
     expect(latestDraft.id).not.toBe(draft.draft.id)
@@ -261,12 +271,12 @@ test.describe("写作工作台 — 版本冲突", () => {
 
       // Step 3: Tab A 编辑并暂存
       await pageA.locator("#writing-editor").fill("Tab A 内容")
-      await pageA.locator("#btn-autosave").click()
-      await expect(pageA.locator("#writing-save-status")).toHaveText("已保存", { timeout: 10000 })
+      await clickWritingTool(pageA, "#btn-autosave")
+      await expect(pageA.locator("#writing-save-status")).toHaveText("已保存到工作稿", { timeout: 10000 })
 
       // Step 4: Tab B 再暂存应收到 409
       await pageB.locator("#writing-editor").fill("Tab B 内容")
-      await pageB.locator("#btn-autosave").click()
+      await clickWritingTool(pageB, "#btn-autosave")
       await expect(pageB.locator(SEL.toastContainer)).toContainText("已被其他会话更新", { timeout: 10000 })
     } finally {
       await context.close()

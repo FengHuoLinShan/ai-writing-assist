@@ -11,6 +11,9 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
   worldbuilding_facade — 世界书 / 上下文激活
 """
 
+from modules.world.attention_facade import (  # noqa: F401
+    get_author_attention_summary,
+)
 from modules.world.character_facade import (  # noqa: F401
     create_character,
     filter_context_by_character_knowledge,
@@ -103,6 +106,7 @@ __all__ = [
     "find_similar_entities",
     "find_working_entity_id_by_name",
     "find_working_entity_ids_by_names",
+    "get_author_attention_summary",
     "get_character_id_by_world_entity",
     "get_character_knowledge_context",
     "get_character_knowledge_entries",

@@ -48,11 +48,11 @@ test.describe("世界对象 — 关系与别名", () => {
 
     // 刷新获取实体 ID
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(SEL.dataTable)).toContainText("源对象")
-    await expect(page.locator(SEL.dataTable)).toContainText("目标对象")
+    await expect(page.locator(".world-object-card-grid")).toContainText("源对象")
+    await expect(page.locator(".world-object-card-grid")).toContainText("目标对象")
 
-    const sourceId = await page.locator("tr:has-text('源对象')").getAttribute("data-id")
-    const targetId = await page.locator("tr:has-text('目标对象')").getAttribute("data-id")
+    const sourceId = await page.locator(".world-object-card", { hasText: "源对象" }).getAttribute("data-id")
+    const targetId = await page.locator(".world-object-card", { hasText: "目标对象" }).getAttribute("data-id")
 
     // When: 切换到关系子标签，创建关系
     await page.locator(SEL.subnavItem("relations")).click()
@@ -98,12 +98,12 @@ test.describe("世界对象 — 关系与别名", () => {
 
     // 刷新获取实体 ID
     await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(SEL.dataTable)).toContainText("主角")
-    const entityId = await page.locator("tr:has-text('主角')").getAttribute("data-id")
+    await expect(page.locator(".world-object-card-grid")).toContainText("主角")
+    const entityId = await page.locator(".world-object-card", { hasText: "主角" }).getAttribute("data-id")
 
-    // When: 切换到别名子标签，创建别名
-    await page.locator(SEL.subnavItem("aliases")).click()
-    await expect(page.locator(SEL.subnavItem("aliases"))).toHaveClass(/active/)
+    // When: 通过兼容深链进入别名管理，创建别名
+    await reloadWorkbench(page, "world", "aliases")
+    await expect(page).toHaveURL(new RegExp(`world/aliases`))
 
     await page.locator('[data-action="create-alias"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建别名")
@@ -123,8 +123,7 @@ test.describe("世界对象 — 关系与别名", () => {
     })
 
     // Then: 刷新后列表按对象聚合显示别名
-    await reloadWorkbench(page, "world", "objects")
-    await page.locator(SEL.subnavItem("aliases")).click()
+    await reloadWorkbench(page, "world", "aliases")
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(`${SEL.dataTable} tbody td[rowspan="2"]`, { hasText: "主角" })).toHaveCount(1)
     await expect(page.locator(SEL.dataTable)).toContainText("小名")

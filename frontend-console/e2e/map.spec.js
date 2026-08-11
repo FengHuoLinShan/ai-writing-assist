@@ -1,6 +1,5 @@
 import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport, runResponsiveMatrix } from "./helpers/responsive.js"
 import {
@@ -27,13 +26,16 @@ import {
   waitForBackend,
 } from "./helpers/api-client.js"
 
-const LEAFLET_ORIGIN = 60
-
-function hexPosition(q, r, size = 30) {
-  return {
-    x: LEAFLET_ORIGIN + size * 1.5 * q,
-    y: LEAFLET_ORIGIN + size * Math.sqrt(3) * (r + q / 2),
-  }
+async function hexPosition(page, q, r, size = 30) {
+  return page.evaluate(async ({ q, r, size }) => {
+    const { default: currentMapView } = await import("/views/mapView.js")
+    const leafletMap = currentMapView._leaflet
+    const leafletApi = currentMapView._leafletApi
+    if (!leafletMap || !leafletApi) throw new Error("Leaflet map is not ready")
+    const x = size * 1.5 * q
+    const y = size * Math.sqrt(3) * (r + q / 2)
+    return leafletMap.latLngToContainerPoint(leafletApi.latLng(-y, x))
+  }, { q, r, size })
 }
 
 function findTile(mapState, q, r) {
@@ -58,7 +60,7 @@ async function openMapWorkspace(page, project, map, params = {}) {
 }
 
 async function clickHex(page, q, r) {
-  await page.locator(SEL.mapCanvas).click({ position: hexPosition(q, r) })
+  await page.locator(SEL.mapCanvas).click({ position: await hexPosition(page, q, r) })
 }
 
 async function expectMapCanvasAligned(page) {
@@ -92,10 +94,6 @@ test.describe("地图一级工作台", () => {
     await waitForBackend(60000)
   })
 
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
-  })
-
   test.afterEach(async () => {
     if (testProjectId) {
       try { await cleanupProject(testProjectId) } catch {}
@@ -113,6 +111,7 @@ test.describe("地图一级工作台", () => {
     await createDraft(project.id, 1, "第一章", "主角抵达北港。")
 
     await openWorkbench(page, project, "map")
+    await page.getByText("从正文补充地图资料", { exact: true }).first().click()
     const responsePromise = page.waitForResponse((response) => (
       response.url().endsWith("/api/imports/stages/map-observations")
       && response.request().method() === "POST"
@@ -145,6 +144,7 @@ test.describe("地图一级工作台", () => {
     await openWorkbench(page, project, "map")
 
     await expect(page.locator(SEL.viewTitle)).toHaveText("地图")
+    await page.locator(".map-overview-more > summary").click()
     await expect(page.getByRole("button", { name: "创建世界地图" })).toBeVisible()
 
     await page.getByRole("button", { name: "创建世界地图" }).click()
@@ -354,6 +354,7 @@ test.describe("地图一级工作台", () => {
     await openWorkbench(page, project, "map")
     const returnToOverview = page.getByRole("button", { name: "← 返回总览", exact: true })
     if (await returnToOverview.isVisible()) await returnToOverview.click()
+    await page.getByText("地图结构与图层", { exact: true }).click()
     await page.getByRole("button", { name: "归档", exact: true }).first().click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
     await page.locator(SEL.modalFooter).getByRole("button", { name: "归档子树" }).click()
@@ -372,6 +373,7 @@ test.describe("地图一级工作台", () => {
     })
     await reloadWorkbench(page, "map")
     if (await returnToOverview.isVisible()) await returnToOverview.click()
+    await page.locator(".map-overview-more > summary").click()
     await page.getByRole("button", { name: /归档地图 2/ }).click()
     await expect(page.getByText("旧九州", { exact: true })).toBeVisible()
     await expect(page.getByText("旧王都", { exact: true })).toHaveCount(0)
@@ -406,7 +408,7 @@ test.describe("地图一级工作台", () => {
     })
 
     await openWorkbench(page, project, "map")
-    const quickTrigger = page.getByRole("button", { name: "快速创建" }).first()
+    const quickTrigger = page.getByRole("button", { name: "创建第一张地图" })
     await quickTrigger.focus()
     await expect(quickTrigger).toBeFocused()
     await quickTrigger.click()
@@ -489,10 +491,9 @@ test.describe("地图一级工作台", () => {
     })
 
     await openWorkbench(page, project, "world", "objects")
-    const entityRow = page.locator(SEL.tableRow(location.id))
-    await expect(entityRow).toContainText("双城关隘", { timeout: 10000 })
-    await entityRow.locator(".action-menu-btn").click()
-    await entityRow.getByRole("menuitem", { name: "打开地图", exact: true }).click()
+    const entityCard = page.locator(`.world-object-card[data-id="${location.id}"]`)
+    await expect(entityCard).toContainText("双城关隘", { timeout: 10000 })
+    await entityCard.locator('[data-action="open-entity-map"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("选择关联地图")
 
     const popupPromise = page.waitForEvent("popup")
@@ -504,10 +505,12 @@ test.describe("地图一级工作台", () => {
     expect(popup.url()).toContain(`map_id=${regionMap.id}`)
     expect(popup.url()).toContain(`focus_entity_id=${location.id}`)
     await expect(popup.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
-    await clickHex(popup, 2, 2)
+    const locationLabel = popup.locator(`.map-center-label[data-id="${location.id}"]`)
+    await locationLabel.focus()
+    await popup.keyboard.press("Enter")
     await expect(popup.locator(SEL.mapDetailPanel)).toContainText("双城关隘")
     await popup.locator(SEL.mapDetailPanel).getByRole("button", { name: "查看世界对象" }).click()
-    await expect(popup.locator(SEL.tableRow(location.id))).toContainText("双城关隘", {
+    await expect(popup.locator(`.world-object-card[data-id="${location.id}"]`)).toContainText("双城关隘", {
       timeout: 10000,
     })
     await popup.close()
@@ -581,8 +584,8 @@ test.describe("地图一级工作台", () => {
     await canvas.scrollIntoViewIfNeeded()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
-    const start = hexPosition(1, 1)
-    const end = hexPosition(4, 2)
+    const start = await hexPosition(page, 1, 1)
+    const end = await hexPosition(page, 4, 2)
     await page.mouse.move(box.x + start.x, box.y + start.y)
     await page.mouse.down()
     await page.mouse.move(box.x + end.x, box.y + end.y, { steps: 16 })
@@ -622,6 +625,7 @@ test.describe("地图一级工作台", () => {
     testProjectId = project.id
 
     await openWorkbench(page, project, "map")
+    await page.locator(".map-overview-more > summary").click()
     await page.getByRole("button", { name: "创建世界地图" }).click()
     await page.locator(SEL.modalFooter).getByRole("button", { name: "创建" }).click()
 
@@ -634,7 +638,7 @@ test.describe("地图一级工作台", () => {
     expect(maps.total).toBe(0)
   })
 
-  test("should clear a stale recent map and show a fallback warning", async ({ page }) => {
+  test("should clear a stale recent map and return to the first-map action", async ({ page }) => {
     const project = await createProject({
       title: "最近地图回退 E2E",
       genre: "fantasy",
@@ -652,21 +656,9 @@ test.describe("地图一级工作台", () => {
     }, testProjectId)
     await reloadWorkbench(page, "map")
 
-    await expect(page.getByRole("button", { name: "打开最近地图", exact: true })).toBeVisible()
-    await expect(page.getByText("已删除地图", { exact: true })).toBeVisible()
-
-    await page.getByRole("button", { name: "打开最近地图" }).click()
-
-    await expect(page.locator(SEL.toastContainer)).toContainText(
-      "最近地图不可用，已返回地图总览",
-      { timeout: 10000 },
-    )
-    await expect(page.locator(SEL.workspaceContent)).toContainText(
-      "最近地图不可用，已返回地图总览",
-    )
+    await expect(page.getByRole("button", { name: "创建第一张地图" })).toBeVisible()
+    await expect(page.getByText("已删除地图", { exact: true })).toHaveCount(0)
     await expect(page.locator(SEL.workspaceContent)).toContainText("空间总览")
-    await expect(page.getByText("暂无最近地图", { exact: true })).toBeVisible()
-    await expect(page.getByRole("button", { name: "查找可用地图", exact: true })).toBeVisible()
     await expect(page).toHaveURL(new RegExp(
       `#workbench/${project.id}/map(?:\\?|$)`,
     ))
@@ -697,15 +689,14 @@ test.describe("地图一级工作台", () => {
     await page.evaluate((projectId) => localStorage.removeItem(`novel_map_recent:${projectId}`), testProjectId)
     await reloadWorkbench(page, "map")
 
-    await expect(page.getByRole("button", { name: "打开可用地图", exact: true })).toBeVisible()
-    await page.getByRole("button", { name: "打开可用地图", exact: true }).click()
+    await expect(page.getByRole("button", { name: "继续最近地图", exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "继续最近地图", exact: true }).click()
     await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
     await expect(page).toHaveURL(new RegExp(`map_id=${map.id}`))
 
     await page.getByRole("button", { name: "← 返回总览", exact: true }).click()
-    const recentMapCard = page.getByRole("heading", { name: "最近地图", exact: true }).locator("..")
-    await expect(recentMapCard.getByText("唯一可用地图", { exact: true })).toBeVisible()
-    await expect(page.getByRole("button", { name: "打开最近地图", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "唯一可用地图", exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "继续最近地图", exact: true })).toBeVisible()
   })
 
   test("should persist terrain edits and center location bindings from the editor", async ({ page }) => {
@@ -955,7 +946,7 @@ test.describe("地图一级工作台", () => {
     )
     await expect(centerLabel).toBeVisible()
     const paneState = await centerLabel.evaluate((label) => {
-      const pane = label.closest('[data-pane="mapLabels"]')
+      const pane = label.closest(".map-label-pane")
       const canvas = document.querySelector('canvas[data-testid="map-canvas"]')
       return {
         inLabelPane: Boolean(pane),
@@ -1109,7 +1100,7 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map, { sceneId: firstScene.id })
-    await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 1: 抵达洛阳")
+    await expect(page.locator(SEL.mapSceneLabel)).toContainText("场景 1: 抵达洛阳")
     expect(new URL(page.url()).hash).toContain(`scene_id=${firstScene.id}`)
 
     await page.locator(SEL.mapEnterEdit).click()
@@ -1145,12 +1136,12 @@ test.describe("地图一级工作台", () => {
     }).toBe(false)
 
     await page.locator(SEL.mapSceneBar).getByRole("button", { name: "→" }).click()
-    await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 2: 夜探城门", {
+    await expect(page.locator(SEL.mapSceneLabel)).toContainText("场景 2: 夜探城门", {
       timeout: 10000,
     })
     await expect.poll(() => new URL(page.url()).hash).toContain(`scene_id=${secondScene.id}`)
     await page.locator(SEL.mapSceneBar).getByRole("button", { name: "清除" }).click()
-    await expect(page.locator(SEL.mapSceneLabel)).toHaveText("选择 Scene", {
+    await expect(page.locator(SEL.mapSceneLabel)).toHaveText("选择场景", {
       timeout: 10000,
     })
     await expect.poll(() => new URL(page.url()).hash).not.toContain("scene_id=")
@@ -1246,10 +1237,6 @@ test.describe("写作页地图入口", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {

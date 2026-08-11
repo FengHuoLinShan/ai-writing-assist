@@ -33,7 +33,7 @@
             <button
               type="button"
               class="scene-tree-toggle"
-              :aria-label="`${expanded.has(group.id) ? '收起' : '展开'} Scene ${group.scene.title || '未命名'}的章节`"
+              :aria-label="`${expanded.has(group.id) ? '收起' : '展开'}场景“${group.scene.title || '未命名'}”的章节`"
               :aria-expanded="expanded.has(group.id)"
               :title="expanded.has(group.id) ? '折叠' : '展开'"
               @click="toggle(group.id)"

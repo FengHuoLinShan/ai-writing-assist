@@ -49,6 +49,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 - `home`
 - `project`
+- `today`
 - `journeys`
 - `interaction`
 - `writing`
@@ -62,7 +63,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - `project-settings`
 - `llm`（兼容重定向，按当前项目状态跳转到项目设置或全局设置）
 
-除上述两个无业务 DOM 的兼容重定向外，12 个实际路由目标的主 DOM 全部由 Vue SFC 拥有。
+除上述两个无业务 DOM 的兼容重定向外，13 个实际路由目标的主 DOM 全部由 Vue SFC 拥有。
 
 旧 `context` hash 不再作为一级页面注册；路由初始化或浏览器前进/后退遇到它时，会重定向到 `generate?tab=task`。
 
@@ -70,28 +71,34 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 | 视图 | 当前职责 |
 |------|----------|
-| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由；只显示 `我是作家` 与 `我是 RP 用户` 两个大框 |
+| `vue/views/interaction/HomeChoiceView.vue` | `home` 路由；作者入口校验当前账户的已选作品并智能续接 `today`，无有效作品时回作品档案；RP 卡使用“进入互动故事”并解释一次角色扮演（RP） |
 | `vue/views/interaction/JourneyListView.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档入口和按需搜索 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位 |
-| `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口；“全选当前可见项目”只选择搜索/筛选后可见项，创建新项目占位卡支持鼠标、Enter 和 Space 打开同一表单；回收站零选择时批量恢复和批量永久删除保持禁用，选择后启用，永久删除仍需二次确认；导入历史只在失败记录中显示经清洗、限长的作者可读失败原因，并在加载失败时保留同项目已成功记录和提供安全重试；新建/编辑项目的必填标题校验或保存失败会保留表单输入，所有字段以关联 label 暴露可访问名称；导入抽屉会复用已选文件直接进入“导入为新项目”确认，取消不会清空当前选择 |
+| `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
+| `vue/views/today/TodayView.vue` | `today` 路由（Vue island）；一个续写/第一章/继续整理主卡，待处理汇总和最多 3 个项目隔离的长任务恢复；摘要失败不阻断写作，未知状态保留并允许重试 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
-| `vue/views/writing/WritingView.vue` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene Cockpit；版本历史/恢复、发布、冲突检查、授权深度导入与地图下一步均由 Vue 页编排；只剩 quick-create bridge 和 Scene alert/version diff 纯 helper |
+| `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；版本、冲突、导出和导入收进分组菜单 |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | 地图一级工作台，总览、最近地图、地图树、收件箱、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查。动态队列、历史、活地图当前事实与叙事透镜时间线的标题均为同名原生按钮，可用键盘打开详情；整卡点击仍是鼠标快捷方式，采用/忽略不会触发详情。 |
 | `views/mapView.js` | 仅作为 `MapViewportAdapter` 下的 Leaflet/Canvas viewport controller：地形、地点、标记、线路、势力范围与编辑会话；不拥有一级页面 DOM |
-| `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；`OutlineStoryTab` 管理小说总纲，`OutlineArcsTab` / `OutlineThreadsTab` 管理篇章纲和剧情线，并提供当前层 AI 创作。伏笔/揭示作为剧情线的信息推进时间线与未归类区展示，不再是顶层子标签 |
+| `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 预览使用结构化重复项编辑器，提交时适配回原 wire payload；版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
-| `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
+| `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；普通路径只显示查找。资料未准备好时提供“修复查找功能”，索引、worker、embedding 等技术状态只在诊断详情中出现 |
 | `vue/views/generate/GenerateView.vue` | 生成中心：world 共创对话、来源与上下文选择、结构化预览和工作稿应用；同时承担 suggestion-bound 未应用提案编辑的恢复、上下文任务预览/编译、POV、模板与既有领域流程 |
 | `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理账户级 DeepSeek/Kimi 模板与 Key、只读余额和全局作者偏好；作者偏好的字体、专注模式显示为中文，保存/传输/存储仍使用稳定底层值（字体枚举与专注模式布尔值） |
 | `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；只管理深度导入参数和项目作者偏好，不提供项目级 provider/model/Key；作者偏好的字体、专注模式显示为中文，保存/传输/存储仍使用稳定底层值（字体枚举与专注模式布尔值） |
 
 ## 路由与状态特性
 
-- `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
+- `router.js` 使用 `Map` 维护视图、异步 loader、pending loader 与最后子标签注册表；动态 key
+  必须通过小写路由白名单并拒绝 `__proto__`、`prototype`、`constructor`，避免把路由输入解释为
+  对象原型属性。主视图切换后仍恢复最后子标签，公开 hash 与生命周期契约不变。
+- 作者 shell 的桌面主导航固定为“首页、写作、人物与世界、故事结构、地图、查找”；移动端固定为
+  “首页、写作、世界、结构、全部”。项目切换器位于导航顶部，高级入口保留旧路由但只从“更多”
+  或上下文错误进入。`today` 是作者有效项目的默认续接页。
 - `home/journeys/interaction` 使用独立 RP 壳，不显示作者 sidebar；合法深链不要求先选择
   author 项目。RP 草稿按旅程保存在本地，服务端流式 buffer/分支/回顾负责跨刷新恢复。
-- `outline` 的规范默认子视图是 `story-outline`，导航层级为“小说总纲 → 篇章纲 → 剧情线 → 场景工作台”。旧 `scene` 路由重定向到 `outline/scenes`；旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
+- `outline` 的规范默认子视图是 `story-outline`，作者导航层级为“故事总览 → 篇章 → 剧情线 → 场景”。旧 `scene` 路由重定向到 `outline/scenes`；旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
 - router 不再保留 KeepAlive/DocumentFragment 缓存；所有视图离开时卸载。写作快照、Outline/Scene workflow 与滚动位置采用显式项目隔离 session 恢复，详见 [ADR-0009 附录 A](../adr/0009-appendix-a-keep-alive-policy.md)
 - 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
 - Scene 工作台的筛选、详情和复核状态由 `useSceneWorkbench` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。
@@ -101,6 +108,9 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   时显示空态并提供返回账户设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
 - `errorLogger.js` 的右下角错误徽标是当前项目/未关联项目范围的原生计数按钮；其非模态诊断面板用原生 DOM 与 `textContent` 展示已脱敏的记录。关闭返回徽标，清空必须在同一面板二次确认且只删除当前范围；`window.errorLog.clear()` 仍可供程序直接清空当前范围。
+- 世界关系审查等命令式预览使用 DOM 节点与 `textContent` 组合动态内容，不把对象名称、关系类型
+  或 API 文本送入 `innerHTML`。地图遥测 ID 只使用 Web Crypto：优先 `randomUUID()`，兼容环境
+  使用 `getRandomValues()`，安全随机源不可用时不降级到 `Math.random()`。
 - Shell 单键业务快捷键在表单、命令栏、快捷键帮助和既有业务 modal 中不触发；只有既有 workspace action 实际处理成功时才消费原始按键，避免同步聚焦的新字段收到触发字符。
 - Vue 视图生命周期（ADR-0009）：`onEnter` 预取数据（router 会 await）→ `render` 返回挂载点
   div → `onRendered` 挂载（同视图 forceRefresh 先卸载残留实例）→ `onLeave` 卸载。
@@ -208,7 +218,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 ## 作者展示状态
 
-- `shared/assetDisplayState.js` 是前端唯一通用映射：结构资产显示“待处理 / 已采用 / 历史”，正文显示“待处理 / 工作稿 / 已发布”。页面不得自行再维护 `candidate` / `canonical` 文案表。
+- `shared/assetDisplayState.js` 是前端唯一通用映射：结构资产显示“待处理 / 已采用 / 历史”，正文显示“待处理 / 工作稿 / 正式正文”。页面不得自行再维护 `candidate` / `canonical` 文案表。
 - `attention_reasons`、低置信、冲突和 `needs_review` 显示为注意标签，不替代主状态。
 - 主列表默认隐藏历史；只有显式选择历史/raw status 筛选时加载或展示。
 - API 保留原始 `status/review_state/fact_status` 兼容字段，前端优先消费领域 `display_state`，必要时才由共享 helper 回退映射。
@@ -316,6 +326,10 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - Vue 模板动态文本使用插值自动转义；命令式 seam 优先走 `textContent`
 - 必须插入 HTML 时先走 `esc()`
 - 不把用户/AI/API 返回的未转义内容直接写入 `innerHTML`
-- `index.html` 通过 CSP meta 建立 baseline：脚本仅允许本源和 ADR-0003 接受的 Leaflet CDN（`https://unpkg.com`），连接仅允许本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`
+- `index.html` 通过 CSP meta 建立 baseline：脚本仅允许本源，样式不允许外部 origin，连接仅允许
+  本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`。Leaflet 1.9.4 由锁定 npm
+  依赖构建为地图按需 JS/CSS chunk，不暴露 `window.L`；失败可原位重试，非地图页面不下载。
 - 当前 `style-src` 仍保留 `'unsafe-inline'`，用于兼容入口与少量 inline style；收紧
   `style-src` 需作为独立 CSP 变更评审，不是前端页面 Vue 所有权迁移的未完成阶段
+- 生产构建复制 `/licenses/leaflet-BSD-2-Clause.txt`，资产契约同时验证 Leaflet CSS、许可文件
+  和零 `unpkg.com` 引用；直接第三方运行时依赖见根 `THIRD_PARTY_LICENSES.md`

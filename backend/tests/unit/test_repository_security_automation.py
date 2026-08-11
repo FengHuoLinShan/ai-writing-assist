@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -10,6 +11,10 @@ import yaml
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 CODEQL_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/codeql.yml"
 DEPENDABOT_CONFIG = REPOSITORY_ROOT / ".github/dependabot.yml"
+LICENSE_FILE = REPOSITORY_ROOT / "LICENSE"
+SECURITY_POLICY = REPOSITORY_ROOT / "SECURITY.md"
+THIRD_PARTY_LICENSES = REPOSITORY_ROOT / "THIRD_PARTY_LICENSES.md"
+FRONTEND_PACKAGE = REPOSITORY_ROOT / "frontend-console/package.json"
 PRODUCTION_IMAGE_CI_WORKFLOW = (
     REPOSITORY_ROOT / ".github/workflows/production-image-ci.yml"
 )
@@ -59,6 +64,29 @@ DEPENDABOT_SCHEDULES = {
     "docker": (["/backend", "/frontend-console"], "thursday", "02:40"),
     "docker-compose": ("/deploy", "friday", "02:50"),
 }
+
+
+def test_repository_license_and_private_security_reporting_policy_are_present() -> None:
+    license_text = LICENSE_FILE.read_text(encoding="utf-8")
+    policy = SECURITY_POLICY.read_text(encoding="utf-8")
+    normalized_policy = " ".join(policy.split())
+
+    assert license_text.startswith("MIT License\n")
+    assert "Copyright (c) 2026 FengHuoLinShan" in license_text
+    assert "private vulnerability reporting" in normalized_policy
+    assert "three business days" in normalized_policy
+    assert "seven business days" in normalized_policy
+    assert "Do not open a public issue" in normalized_policy
+    assert "LLM API keys" in normalized_policy
+
+
+def test_leaflet_runtime_license_and_exact_dependency_are_declared() -> None:
+    notices = THIRD_PARTY_LICENSES.read_text(encoding="utf-8")
+    package = json.loads(FRONTEND_PACKAGE.read_text(encoding="utf-8"))
+
+    assert package["dependencies"]["leaflet"] == "1.9.4"
+    assert "Leaflet | 1.9.4 | BSD-2-Clause" in notices
+    assert "/licenses/leaflet-BSD-2-Clause.txt" in notices
 
 
 def _load_yaml(path: Path) -> dict[str, object]:

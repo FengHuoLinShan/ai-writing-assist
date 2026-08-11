@@ -12,19 +12,20 @@
  */
 const routes = {
   home: { title: "选择使用方式", subViews: [], requiresProject: false },
-  project: { title: "项目", subViews: [], requiresProject: false },
-  journeys: { title: "跑团模式", subViews: [], requiresProject: false, dynamicSubView: true },
-  interaction: { title: "互动旅程", subViews: [], requiresProject: false, dynamicSubView: true },
-  world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "待处理", "review-objects": "待处理 · 对象", "review-aliases": "待处理 · 别名", "review-relations": "待处理 · 关系", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
-  rag: { title: "小说检索", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "检索", status: "索引维护" } },
-  outline: { title: "大纲", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "小说总纲", arcs: "篇章纲", threads: "剧情线", scenes: "场景工作台" } },
+  project: { title: "作品档案", subViews: [], requiresProject: false },
+  journeys: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
+  interaction: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
+  today: { title: "今日工作", subViews: [], requiresProject: true },
+  world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "人物与设定", candidates: "需要处理", "review-objects": "需要处理 · 人物与设定", "review-aliases": "需要处理 · 别名", "review-relations": "需要处理 · 关系", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记", map: "地图" } },
+  rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "修复查找功能" } },
+  outline: { title: "故事结构", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "故事总览", arcs: "篇章", threads: "剧情线", scenes: "场景" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
-  writing: { title: "写作台", subViews: [], requiresProject: true },
+  writing: { title: "写作", subViews: [], requiresProject: true },
   map: { title: "地图", subViews: [], requiresProject: true },
-  generate: { title: "生成中心", subViews: [], requiresProject: true },
-  llm: { title: "LLM 设置", subViews: [], requiresProject: false },
-  settings: { title: "全局设置", subViews: [], requiresProject: false },
-  "project-settings": { title: "项目设置", subViews: [], requiresProject: true },
+  generate: { title: "高级生成工具", subViews: [], requiresProject: true },
+  llm: { title: "模型连接", subViews: [], requiresProject: false },
+  settings: { title: "账户与模型连接", subViews: [], requiresProject: false },
+  "project-settings": { title: "项目偏好", subViews: [], requiresProject: true },
 }
 
 /**
@@ -32,17 +33,26 @@ const routes = {
  * 每个视图模块提供 render() 函数
  * @type {Object<string, {render: function, onEnter?: function, onRendered?: function, canLeave?: function, onLeave?: function}>}
  */
-const viewRenderers = {}
+const viewRenderers = new Map()
 
 /**
  * Route-level module loaders. A loaded module self-registers its renderer via
  * registerView(), preserving the existing island registration contract.
  * @type {Object<string, () => Promise<unknown>>}
  */
-const viewLoaders = {}
+const viewLoaders = new Map()
 
 /** @type {Object<string, Promise<Object>>} */
-const pendingViewLoaders = {}
+const pendingViewLoaders = new Map()
+
+const SAFE_REGISTRY_KEY_RE = /^[a-z][a-z0-9-]{0,63}$/
+const UNSAFE_REGISTRY_KEYS = new Set(["__proto__", "prototype", "constructor"])
+
+function isSafeRegistryKey(name) {
+  return typeof name === "string"
+    && SAFE_REGISTRY_KEY_RE.test(name)
+    && !UNSAFE_REGISTRY_KEYS.has(name)
+}
 
 /**
  * 注册视图渲染器
@@ -50,7 +60,8 @@ const pendingViewLoaders = {}
  * @param {Object} renderer - { render(), onEnter?(), onRendered?(), canLeave?(), onLeave?() }
  */
 function registerView(name, renderer) {
-  viewRenderers[name] = renderer
+  if (!isSafeRegistryKey(name) || !renderer || typeof renderer !== "object") return
+  viewRenderers.set(name, renderer)
 }
 
 /**
@@ -60,29 +71,30 @@ function registerView(name, renderer) {
  * @param {() => Promise<unknown>} loader - module import which self-registers the renderer
  */
 function registerViewLoader(name, loader) {
-  if (typeof loader !== "function") return
-  viewLoaders[name] = loader
+  if (!isSafeRegistryKey(name) || typeof loader !== "function") return
+  viewLoaders.set(name, loader)
 }
 
 function _loadViewRenderer(viewName) {
-  if (viewRenderers[viewName]) return Promise.resolve(viewRenderers[viewName])
-  const loader = viewLoaders[viewName]
+  if (!isSafeRegistryKey(viewName)) return Promise.resolve(null)
+  if (viewRenderers.has(viewName)) return Promise.resolve(viewRenderers.get(viewName))
+  const loader = viewLoaders.get(viewName)
   if (!loader) return Promise.resolve(null)
 
-  let pending = pendingViewLoaders[viewName]
+  let pending = pendingViewLoaders.get(viewName)
   if (!pending) {
     pending = Promise.resolve()
       .then(() => loader())
       .then(() => {
-        const renderer = viewRenderers[viewName]
+        const renderer = viewRenderers.get(viewName)
         if (!renderer) {
           throw new Error(`Route module did not register renderer: ${viewName}`)
         }
         return renderer
       })
-    pendingViewLoaders[viewName] = pending
+    pendingViewLoaders.set(viewName, pending)
     const clearPending = () => {
-      if (pendingViewLoaders[viewName] === pending) delete pendingViewLoaders[viewName]
+      if (pendingViewLoaders.get(viewName) === pending) pendingViewLoaders.delete(viewName)
     }
     pending.then(clearPending, clearPending)
   }
@@ -192,12 +204,12 @@ function _showProjectLoadFailure(content, failure) {
   const title = document.createElement("h2")
   title.className = "project-route-failure__title"
   title.tabIndex = -1
-  title.textContent = inaccessible ? "无法打开这个项目" : "项目暂时加载失败"
+  title.textContent = inaccessible ? "无法打开这部作品" : "作品暂时加载失败"
 
   const message = document.createElement("p")
   message.className = "project-route-failure__message"
   message.textContent = inaccessible
-    ? "项目不存在，或你没有访问权限。"
+    ? "作品不存在，或你没有访问权限。"
     : "当前页面没有加载完成，可以重试或返回项目列表。"
 
   const actions = document.createElement("div")
@@ -219,7 +231,7 @@ function _showProjectLoadFailure(content, failure) {
   back.type = "button"
   back.className = inaccessible ? "btn btn-primary" : "btn"
   back.dataset.action = "return-project-list"
-  back.textContent = "返回项目列表"
+  back.textContent = "返回作品档案"
   back.addEventListener("click", () => {
     void _returnFromFailedProjectRoute(failure)
   })
@@ -240,12 +252,10 @@ let _renderingRoute = null
 let _routeTransitionGeneration = 0
 
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
-const _lastSubViewMap = {}
+const _lastSubViewMap = new Map()
 
 /** @type {Object<string, Set<string>>} 不应作为一级导航恢复目标的兼容子标签 */
-const _nonRestorableSubViews = {
-  world: new Set(["map"]),
-}
+const _nonRestorableSubViews = new Map([["world", new Set(["map"])]])
 
 /** @type {URLSearchParams} 当前 hash 的 query 参数 */
 let _currentQuery = new URLSearchParams()
@@ -476,7 +486,7 @@ function _canLeaveMountedRoute(routeState) {
   const mounted = _currentMountedRoute()
   const renderer = mounted?.renderer || (
     !_pendingRoute && !_currentFailureRoute()
-      ? viewRenderers[state.currentView]
+      ? viewRenderers.get(state.currentView)
       : null
   )
   if (!renderer?.canLeave) return true
@@ -662,13 +672,13 @@ async function _applyRoute(routeState, { forceProject = false, showNeutral = fal
  * @returns {string|null}
  */
 function getLastSubView(viewName) {
-  return _lastSubViewMap[viewName] || null
+  return _lastSubViewMap.get(viewName) || null
 }
 
 function _rememberSubView(viewName, subView) {
   if (!viewName || !subView) return
-  if (_nonRestorableSubViews[viewName]?.has(subView)) return
-  _lastSubViewMap[viewName] = subView
+  if (_nonRestorableSubViews.get(viewName)?.has(subView)) return
+  _lastSubViewMap.set(viewName, subView)
 }
 
 /**
@@ -819,7 +829,7 @@ async function renderCurrentView() {
     : _routeStateFromAppState()
   const viewName = routeState.viewName
   const subView = routeState.subView || ""
-  let renderer = viewRenderers[viewName]
+  let renderer = viewRenderers.get(viewName)
   const mounted = _currentMountedRoute()
 
   // 视图或项目 owner 变化时统一走同一个 cleanup seam。项目边界通常已经在
@@ -873,7 +883,7 @@ async function renderCurrentView() {
     } else {
       // A configured loader is only invoked for an actually rendered route.
       // Pending calls are shared; rejected calls are cleared for a later retry.
-      if (!renderer && viewLoaders[viewName]) {
+      if (!renderer && viewLoaders.has(viewName)) {
         renderer = await _loadViewRenderer(viewName)
         if (!isCurrentRender()) return false
       }
@@ -966,7 +976,7 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
   })
 
   if (routeState.redirectedToProject) {
-    toast("请先选择项目后再进入该页面", "warning")
+    toast("请先选择作品后再进入该页面", "warning")
   }
 
   const sourceRoute = _representedRouteState()

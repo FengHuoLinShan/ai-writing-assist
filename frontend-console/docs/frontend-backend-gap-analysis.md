@@ -100,11 +100,12 @@ POST /api/world/entities/{entity_id}/rollback
 
 在后端提供上述读契约前，前端不只增加三个无法正确定位对象的写按钮。
 
-### 4.2 项目级 LLM 健康检查
+### 4.2 LLM 健康检查边界
 
-`GET /api/health/llm` 当前调用 `check_llm_health()`，使用服务端环境/默认 profile，不读取当前项目的 effective LLM settings。
+`GET /api/health/llm` 是无账户、无项目、无远程请求的服务配置检查，明确返回
+`scope=service` 和 `remote_check=false`；它不读取当前项目的 effective profile，也不表示作者账户可连通。
 
-因此不将它放到项目设置中伪装成“当前项目连通性”。需要先由后端提供 project-scoped 健康检查，且继续不回显 API Key。
+因此前端不将它放到项目设置中伪装成“当前项目连通性”。真实连通性继续由账户设置页保存连接时验证；项目工作流按 `novel_id`、owner 和 effective profile 做前置检查，不新增公开的项目健康端点。
 
 ---
 

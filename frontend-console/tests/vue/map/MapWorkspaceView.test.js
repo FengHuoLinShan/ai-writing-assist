@@ -86,10 +86,10 @@ describe("MapWorkspaceView", () => {
   function factItem() { return { id: "fact-1", item_id: "fact-1", item_kind: "fact", title: "北境天气" } }
 
   it.each([
-    { maps: [], recent: null, label: "查找可用地图" },
-    { maps: [{ id: "m1", name: "九州" }], recent: null, label: "打开可用地图" },
-    { maps: [], recent: { mapId: "m1", name: "九州" }, label: "打开最近地图" },
-  ])("uses the truthful recent-map action label for the overview state", ({ maps, recent, label }) => {
+    { maps: [], recent: null, action: "map-quick-create", label: "创建第一张地图" },
+    { maps: [{ id: "m1", name: "九州" }], recent: null, action: "map-open-recent", label: "继续最近地图" },
+    { maps: [{ id: "m1", name: "九州" }], recent: { mapId: "m1", name: "九州" }, action: "map-open-recent", label: "继续最近地图" },
+  ])("shows exactly one primary map action for the overview state", ({ maps, recent, action, label }) => {
     if (recent) localStorage.setItem("novel_map_recent:p1", JSON.stringify(recent))
 
     const wrapper = mount(MapWorkspaceView, {
@@ -97,11 +97,13 @@ describe("MapWorkspaceView", () => {
       props: { projectId: "p1", route: { mode: "overview" }, maps, locations: [], archivedMaps: [], inbox: {} },
     })
 
-    expect(wrapper.get('[data-action="map-open-recent"]').text()).toBe(label)
+    const primary = wrapper.get(".map-overview-primary .btn-primary")
+    expect(primary.attributes("data-action")).toBe(action)
+    expect(primary.text()).toBe(label)
     wrapper.unmount()
   })
 
-  it("refreshes the overview card and action label when a stale recent map is cleared", async () => {
+  it("clears a stale recent map when the overview opens", async () => {
     localStorage.setItem("novel_map_recent:p1", JSON.stringify({ mapId: "stale-map", name: "已删除地图" }))
     api.world.getMap = vi.fn(async () => { throw new Error("not found") })
     api.world.getMapOpenTarget = vi.fn(async () => ({ map_id: null }))
@@ -110,14 +112,10 @@ describe("MapWorkspaceView", () => {
       props: { projectId: "p1", route: { mode: "overview" }, maps: [], locations: [], archivedMaps: [], inbox: {} },
     })
 
-    expect(wrapper.get('[data-action="map-open-recent"]').text()).toBe("打开最近地图")
-    expect(wrapper.text()).toContain("已删除地图")
-    await wrapper.get('[data-action="map-open-recent"]').trigger("click")
-
     await vi.waitFor(() => {
       expect(localStorage.getItem("novel_map_recent:p1")).toBeNull()
-      expect(wrapper.get('[data-action="map-open-recent"]').text()).toBe("查找可用地图")
-      expect(wrapper.text()).toContain("暂无最近地图")
+      expect(wrapper.get(".map-overview-primary .btn-primary").text()).toBe("创建第一张地图")
+      expect(wrapper.text()).not.toContain("已删除地图")
     })
     wrapper.unmount()
   })

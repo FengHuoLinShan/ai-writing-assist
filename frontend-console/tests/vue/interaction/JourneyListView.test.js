@@ -222,11 +222,11 @@ describe("RP 旅程列表与开场", () => {
       },
     })
     const sea = wrapper.findAll(".rp-mode-toggle")
-      .find((button) => button.text() === "看海模式")
+      .find((button) => button.text() === "故事自主发展")
     await sea.trigger("click")
     expect(sea.attributes("aria-pressed")).toBe("false")
     const confirmButton = [...document.querySelectorAll(".rp-sea-notice button")]
-      .find((button) => button.textContent === "开始看海")
+      .find((button) => button.textContent === "开始自主发展")
     confirmButton.click()
     confirmButton.click()
     await flushPromises()

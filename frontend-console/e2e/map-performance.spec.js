@@ -87,9 +87,11 @@ test.describe("地图真实性能采样", () => {
     await expect.poll(async () => page.evaluate(() => (
       window.__mapPerformanceEvents.interactive.at(-1) || null
     )), { timeout: 30000 }).not.toBeNull()
-    await expect.poll(async () => page.evaluate(() => window.L?.version || null), {
+    await expect.poll(async () => page.evaluate(() => (
+      document.querySelector("#map-leaflet")?.classList.contains("leaflet-container") || false
+    )), {
       timeout: 30000,
-    }).toBe("1.9.4")
+    }).toBe(true)
 
     const coldInteractive = await page.evaluate(() => (
       window.__mapPerformanceEvents.interactive.at(-1)
@@ -102,7 +104,7 @@ test.describe("地图真实性能采样", () => {
         window.__mapPerformanceEvents.interactive.length
       ))
       await page.getByRole("button", { name: "← 返回总览", exact: true }).click()
-      await page.getByRole("button", { name: "打开最近地图", exact: true }).click()
+      await page.getByRole("button", { name: "继续最近地图", exact: true }).click()
       await expect.poll(async () => page.evaluate(() => (
         window.__mapPerformanceEvents.interactive.length
       )), { timeout: 30000 }).toBe(previousCount + 1)

@@ -300,11 +300,29 @@ def verify(repo_root: str, active_commit: str, target_commit: str) -> None:
             raise GuardError("target migration graph is not forward-compatible")
 
 
+def verify_target_revision(repo_root: str, target_commit: str) -> None:
+    target = _graph(repo_root, _commit(target_commit), require_helper=True)
+    restored_revisions = _live_revisions()
+    if len(restored_revisions) != 1:
+        raise GuardError("restored database must contain exactly one revision")
+    revision = next(iter(restored_revisions))
+    if revision not in target.parents:
+        raise GuardError("target migration graph does not contain the restored revision")
+    if not _target_reaches(target, revision):
+        raise GuardError("restored revision is not reachable from the target migration head")
+
+
 def main(arguments: list[str]) -> None:
-    if len(arguments) != 5 or arguments[1] != "verify":
-        _fail("usage is verify <repo-root> <active-commit> <target-commit>")
     try:
-        verify(arguments[2], arguments[3], arguments[4])
+        if len(arguments) == 5 and arguments[1] == "verify":
+            verify(arguments[2], arguments[3], arguments[4])
+        elif len(arguments) == 4 and arguments[1] == "verify-target":
+            verify_target_revision(arguments[2], arguments[3])
+        else:
+            raise GuardError(
+                "usage is verify <repo-root> <active-commit> <target-commit> "
+                "or verify-target <repo-root> <target-commit>"
+            )
     except GuardError as exc:
         _fail(str(exc))
 

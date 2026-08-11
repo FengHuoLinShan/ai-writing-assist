@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+from infrastructure.llm.health import LLMHealthResult
 from scripts import doctor
 
 
@@ -166,3 +167,47 @@ def test_json_output_contains_all_default_groups(monkeypatch, capsys):
     assert exit_code == 0
     assert payload["status"] == doctor.STATUS_OK
     assert set(doctor.ALL_GROUPS).issubset(payload["checks"])
+
+
+def test_doctor_llm_remote_is_explicitly_environment_scoped(monkeypatch):
+    async def fake_environment_health():
+        return LLMHealthResult(
+            ok=True,
+            scope="environment",
+            remote_check=True,
+            message="LLM health check passed",
+        )
+
+    monkeypatch.setattr(
+        doctor,
+        "check_llm_environment_health",
+        fake_environment_health,
+    )
+
+    results = asyncio.run(doctor.check_llm_remote())
+
+    assert results[0].status == doctor.STATUS_OK
+    assert "environment-level" in results[0].message.lower()
+    assert results[0].details["scope"] == "environment"
+    assert results[0].details["remote_check"] is True
+
+
+def test_doctor_llm_config_uses_shell_override_before_env_file(
+    monkeypatch,
+    tmp_path,
+):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LLM_API_KEY=file-key\n"
+        "LLM_BASE_URL=https://file-provider.example/v1\n"
+        "LLM_MODEL=file-model\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LLM_API_KEY", "shell-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://shell-provider.example/v1")
+    monkeypatch.setenv("LLM_MODEL", "")
+
+    result = doctor.check_llm_config(env_file)[0]
+
+    assert result.details["base_url_host"] == "shell-provider.example"
+    assert "LLM_MODEL" in result.details["missing_or_placeholder"]

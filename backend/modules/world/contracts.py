@@ -95,6 +95,26 @@ class EntityRelationContract:
 
 
 @dataclass(frozen=True)
+class WorldAttentionSummaryContract:
+    """Author-facing review counts used by project-level workspace summaries."""
+
+    novel_id: str
+    world_objects: int = 0
+    world_aliases: int = 0
+    world_relations: int = 0
+    map_items: int = 0
+
+    @property
+    def total(self) -> int:
+        return (
+            self.world_objects
+            + self.world_aliases
+            + self.world_relations
+            + self.map_items
+        )
+
+
+@dataclass(frozen=True)
 class EntityRevisionContract:
     """版本快照契约
 
@@ -488,6 +508,7 @@ __all__ = [
     "ResolveResult",
     "WorldBackgroundBundleContract",
     "WorldBackgroundEntryContract",
+    "WorldAttentionSummaryContract",
     "WorldBibleActivationResolutionContract",
     "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",

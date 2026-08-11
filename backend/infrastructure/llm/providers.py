@@ -13,7 +13,6 @@ import ssl
 import time
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from openai import (
@@ -161,11 +160,7 @@ class OpenAIProvider:
             self._embedding_http_client = None
             self._embedding_client = self._client
 
-        logger.info(
-            "OpenAIProvider initialized — base_url_host=%s, default_model=%s",
-            urlparse(self._base_url).hostname or "",
-            self._default_model,
-        )
+        logger.info("OpenAIProvider initialized")
 
     def _build_sdk_client(
         self,

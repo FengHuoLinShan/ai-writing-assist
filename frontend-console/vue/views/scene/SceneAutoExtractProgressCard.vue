@@ -18,10 +18,10 @@ const terminal = computed(() => Boolean(
   <div v-if="state.progress" class="scene-progress-card-wrap" data-role="scene-auto-extract-progress">
     <WorkflowProgressCard
       :progress="state.progress"
-      title="从正文提取 Scene"
+      title="从正文整理场景"
       :message="state.progress.message || ''"
       :collapsible="true"
-      :show-task-id="true"
+      :show-task-id="false"
     >
       <p class="workflow-progress__destination">{{ rangeText }}</p>
     </WorkflowProgressCard>

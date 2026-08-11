@@ -15,6 +15,7 @@ _API_KEY_RE = re.compile(
 )
 _SK_RE = re.compile(r"\bsk-[A-Za-z0-9._-]{6,}\b")
 _URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 
 
 def _redact_url(match: re.Match[str]) -> str:
@@ -43,6 +44,7 @@ def redact_diagnostic(value: object, *, limit: int | None = None) -> str:
     text = _BEARER_RE.sub("Bearer [REDACTED]", text)
     text = _API_KEY_RE.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
     text = _SK_RE.sub("[REDACTED]", text)
+    text = _CONTROL_CHAR_RE.sub(" ", text)
     if limit is not None:
         return text[:limit]
     return text

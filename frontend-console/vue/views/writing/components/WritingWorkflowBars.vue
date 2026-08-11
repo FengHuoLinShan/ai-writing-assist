@@ -1,6 +1,6 @@
 <template>
   <div v-if="publish.active || publish.phase" id="writing-publish-bar-container" class="workflow-progress-card writing-publish-progress">
-    <div class="workflow-progress-card__title">发布正文</div>
+    <div class="workflow-progress-card__title">设为正式正文</div>
     <div class="workflow-progress-card__message">{{ publish.message }}</div>
     <progress v-if="publish.progress != null" max="100" :value="publish.progress" />
     <div v-if="publish.retryable" class="writing-publish-actions">
@@ -23,7 +23,7 @@
           v-for="entry in currentPositions"
           :key="entry[0]"
           class="deep-import-current-position__item"
-          :data-diagnostic-field="entry[0] === 'Scene' ? '' : undefined"
+          :data-diagnostic-field="entry[0] === '场景' ? '' : undefined"
         >{{ entry[0] }}：{{ entry[1] }}</span>
       </div>
       <div v-if="qualityEntries.length" class="deep-import-current-position" aria-label="深度导入质量统计">
@@ -110,9 +110,10 @@ const currentPositions = computed(() => {
   return [
     ["阶段", value.currentPhase ? phaseDisplayLabel(value.currentPhase) : null],
     ["步骤", value.step ? phaseDisplayLabel(value.step) : null], ["轮次", value.currentRound],
-    ["章节范围", value.currentChapterRange], ["章节", value.currentChapter], ["Scene", value.currentSceneCandidateId],
-    ["窗口", value.currentWindow], ["操作", value.currentOperation], ["质量", value.qualityStatus],
-  ].filter((entry) => entry[1] != null && entry[1] !== "").map(([label, value]) => [label, typeof value === "object" ? JSON.stringify(value) : String(value)])
+    ["章节范围", value.currentChapterRange], ["章节", value.currentChapter],
+    ["处理批次", value.currentWindow], ["当前步骤", value.currentOperation ? phaseDisplayLabel(value.currentOperation) : null],
+    ["整理状态", value.qualityStatus === "partial" ? "部分完成" : value.qualityStatus === "complete" ? "已完成" : null],
+  ].filter((entry) => entry[1] != null && entry[1] !== "").map(([label, value]) => [label, formatAuthorFacingDiagnostic(value)])
 })
 const qualityEntries = computed(() => Object.entries(props.deepImport.progress?.qualityStats || {}).map(([key, value]) => [key, formatAuthorFacingDiagnostic(value)]))
 const auditEntries = computed(() => {

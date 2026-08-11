@@ -129,11 +129,11 @@ describe("预览 · 任务完成创建 preview", () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find("#story-outline-preview-title").exists()).toBe(true)
-    expect(wrapper.text()).toContain("AI 总纲完整预览")
+    expect(wrapper.text()).toContain("AI 故事总览预览")
     expect(wrapper.find("#story-outline-preview-title-input").element.value).toBe("霜城纪事")
     expect(wrapper.find('[data-action="apply-story-outline-preview"]').exists()).toBe(true)
     expect(wrapper.find('[data-action="discard-story-outline-preview"]').exists()).toBe(true)
-    expect(toast).toHaveBeenCalledWith("小说总纲建议已生成，请编辑后明确采用", "success")
+    expect(toast).toHaveBeenCalledWith("故事总览建议已生成，请编辑后明确采用", "success")
   })
 
   it("任务返回的 apply_status=applied 时显示已采用提示", async () => {
@@ -156,6 +156,51 @@ describe("预览 · 任务完成创建 preview", () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain("已经采用")
     expect(wrapper.find("#story-outline-preview-title").exists()).toBe(false)
+  })
+
+  it("用结构化列表编辑并还原原有 apply payload", async () => {
+    setBridgeOverrides({ toast: vi.fn(), state: { currentProjectId: "p1" } })
+    const wrapper = mount(OutlineStoryTab, { props: makeProps(), attachTo: document.body })
+    storyOutlineTaskManager.adopt(
+      { task_id: "task-structured", status: "running" },
+      { action: "outline.story_outline.generate", apply_idempotency_key: "structured-key" },
+      "p1",
+    )
+    const callbacks = vi.mocked(pollTaskProgress).mock.calls[0][0]
+    callbacks.onDone(
+      { taskId: "task-structured", done: true, terminal: true },
+      taskFixture(contentFixture({
+        major_storylines: [{ name: "主线", narrative_function: "推进", trajectory: "起步", intersections: ["交汇甲"], resolution_direction: "收束" }],
+        macro_movements: [{ name: "中段", story_state_change: "世界变化", advanced_storylines: ["主线"] }],
+        open_decisions: [{ question: "是否公开？", why_it_matters: "影响信任", options: ["公开", "保留"] }],
+      })),
+    )
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain("JSON")
+    const storyline = wrapper.findAll(".story-outline-list-editor")[0]
+    await storyline.findAll("input")[0].setValue("修订主线")
+    await storyline.findAll("input")[2].setValue("交汇甲、交汇乙")
+    await wrapper.vm.$nextTick()
+
+    globalThis.api.outline.applyStoryOutlinePreview.mockResolvedValue({ version_number: 2 })
+    mockReloadTo(revisionFixture("rev-2", 2, "已采用"))
+    await wrapper.find('[data-action="apply-story-outline-preview"]').trigger("click")
+    await flushPromises()
+
+    expect(globalThis.api.outline.applyStoryOutlinePreview).toHaveBeenCalledWith(expect.objectContaining({
+      major_storylines: [{
+        name: "修订主线",
+        narrative_function: "推进",
+        trajectory: "起步",
+        intersections: ["交汇甲", "交汇乙"],
+        resolution_direction: "收束",
+      }],
+      macro_movements: [{ name: "中段", story_state_change: "世界变化", advanced_storylines: ["主线"] }],
+      open_decisions: [{ question: "是否公开？", why_it_matters: "影响信任", options: ["公开", "保留"] }],
+    }))
+    wrapper.unmount()
   })
 
   it("任务返回内容不符合 schema 时显示错误提示而非 preview", async () => {
@@ -197,8 +242,8 @@ describe("预览 · 任务完成创建 preview", () => {
     callArgs.onFailed({ taskId: "task-failed", failed: true, terminal: true, cancelled: false, errorMessage: "生成失败" })
 
     await wrapper.vm.$nextTick()
-    expect(storyOutlineTaskManager.state.taskNotice).toContain("小说总纲生成失败")
-    expect(wrapper.text()).toContain("小说总纲生成失败")
+    expect(storyOutlineTaskManager.state.taskNotice).toContain("故事总览生成失败")
+    expect(wrapper.text()).toContain("故事总览生成失败")
   })
 
   it("任务取消时显示取消提示", async () => {
@@ -217,7 +262,7 @@ describe("预览 · 任务完成创建 preview", () => {
 
     await wrapper.vm.$nextTick()
     expect(storyOutlineTaskManager.state.taskNotice).toContain("已取消")
-    expect(storyOutlineTaskManager.state.taskNotice).toContain("没有创建 revision")
+    expect(storyOutlineTaskManager.state.taskNotice).toContain("没有创建新版本")
   })
 
   it("重新加载保留未采用编辑并将 apply base 更新到最新 revision", async () => {
@@ -263,7 +308,7 @@ describe("预览 · 任务完成创建 preview", () => {
       confirmed: true,
     }))
     expect(globalThis.api.outline.applyStoryOutlinePreview.mock.calls[0][0].idempotency_key).not.toBe("key-before-rebase")
-    expect(wrapper.text()).toContain("当前总纲 · v3")
+    expect(wrapper.text()).toContain("当前版本 · v3")
     wrapper.unmount()
   })
 })

@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
 from core.errors import ConflictError, NotFoundError, ValidationError
-from infrastructure.llm.redaction import redact_diagnostic
+from core.logging_context import (
+    exception_summary_for_log,
+    identifier_for_log,
+    novel_id_for_log,
+)
 from modules.world.models import EntityRelation
 from modules.world.repositories import (
     CoreEntityRepository,
@@ -1125,9 +1129,9 @@ class EntityRelationService(
                 logger.warning(
                     "world_relation_context_invalidation_failed novel_id=%s "
                     "entity_id=%s; relation_write_remains_valid; reason=%s",
-                    novel_id,
-                    entity_id,
-                    redact_diagnostic(exc, limit=300),
+                    novel_id_for_log(novel_id),
+                    identifier_for_log(entity_id),
+                    exception_summary_for_log(exc),
                 )
 
     # ============================================================

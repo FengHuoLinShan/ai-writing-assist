@@ -279,9 +279,9 @@ function aliasEvidenceHtml(item = {}) {
   const esc = getEsc()
   const evidence = [
     ["来源", item.source === "deep_import" ? "深度导入" : item.source],
-    ["Workflow", item.workflow_id],
+    ["处理批次", item.workflow_id],
     ["章节", item.source_chapter_index],
-    ["Scene", item.scene_id || item.scene_index],
+    ["场景", item.scene_id || item.scene_index],
     ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
     ["引用", item.quote],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
@@ -933,7 +933,7 @@ export async function openEntityMap(entityIdParam) {
               <strong>${esc(item.map_name)}${item._pathRef?.path_name ? ` · ${esc(item._pathRef.path_name)}` : ""}</strong>
               <span>${esc((item._pathRef?.roles || item.roles || []).map((role) => roleLabels[role] || role).join("、") || "地图位置")} · ${Number(item.binding_count || 0)} 个空间绑定</span>
               ${item.scene_index_min != null || item.scene_index_max != null
-                ? `<small>Scene ${esc(item.scene_index_min ?? "?")}–${esc(item.scene_index_max ?? "?")}</small>`
+                ? `<small>场景 ${esc(item.scene_index_min ?? "?")}–${esc(item.scene_index_max ?? "?")}</small>`
                 : ""}
             </button>
           `).join("")}

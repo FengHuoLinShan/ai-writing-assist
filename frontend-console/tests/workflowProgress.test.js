@@ -39,7 +39,7 @@ describe("normalizeTaskProgress", () => {
       },
     })
 
-    expect(progress.message).toBe("正在融合 Scene 待处理，处理后进入已采用")
+    expect(progress.message).toBe("正在融合场景待处理，处理后进入已采用")
     expect(progress.warnings).toEqual(["低置信待处理需要人工检查"])
     expect(progress.resultSummary).toBe("待处理 2，已采用 1")
   })
@@ -52,7 +52,7 @@ describe("normalizeTaskProgress", () => {
       progress: 0.42,
     })
 
-    expect(progress.label).toBe("重建 RAG 索引")
+    expect(progress.label).toBe("修复查找资料")
     expect(progress.percent).toBe(42)
     expect(progress.hasPercent).toBe(true)
     expect(progress.indeterminate).toBe(false)
@@ -113,8 +113,8 @@ describe("normalizeTaskProgress", () => {
       },
     })
 
-    expect(progress.label).toBe("地图事实补充")
-    expect(progress.resultSummary).toBe("扫描 12 个 Scene，新增待处理 18 条，复用待处理 2 条，待判定 3 条")
+    expect(progress.label).toBe("补充地图资料")
+    expect(progress.resultSummary).toBe("检查 12 个场景，新增待处理 18 条，复用待处理 2 条，待判定 3 条")
   })
 
   it("collects failure details and warnings", () => {
@@ -238,8 +238,8 @@ describe("normalizeTaskProgress", () => {
       },
     })
 
-    expect(progress.message).toBe("Phase 1a · Scene 边界切分｜窗口 2/4")
-    expect(progress.resultSummary).toBe("已完成 Phase 0")
+    expect(progress.message).toBe("阶段 2 · 划分场景边界｜窗口 2/4")
+    expect(progress.resultSummary).toBe("已完成 阶段 1")
     expect(progress.percent).toBe(30)
     expect(progress.currentPhase).toBe("phase1a_scene_slicing")
     expect(progress.currentOperation).toBe("scene_slicing")
@@ -257,7 +257,7 @@ describe("normalizeTaskProgress", () => {
       },
     })
 
-    expect(progress.message).toBe("Phase 0 · Scene 窗口规划｜正在准备章节窗口")
+    expect(progress.message).toBe("阶段 1 · 规划场景范围｜正在准备章节窗口")
     expect(progress.percent).toBeNull()
     expect(progress.hasPercent).toBe(false)
     expect(progress.indeterminate).toBe(true)
@@ -281,8 +281,8 @@ describe("normalizeTaskProgress", () => {
       },
     })
 
-    expect(progress.message).toBe("Phase 1b · Scene 字段补全｜Scene 41/82")
-    expect(progress.resultSummary).toBe("已完成 Phase 0、Phase 1a")
+    expect(progress.message).toBe("阶段 3 · 补充场景资料｜场景 41/82")
+    expect(progress.resultSummary).toBe("已完成 阶段 1、阶段 2")
     expect(progress.resultSummary).not.toContain("已完成 0 个阶段")
     expect(progress.percent).toBe(79)
   })

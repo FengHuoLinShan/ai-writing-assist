@@ -92,6 +92,9 @@
     "projects.get": define("GET", ({ id }) => `/projects/${required(id, "id", "projects.get")}`, {
       requiredParams: ["id"],
     }),
+    "projects.getWorkspaceSummary": define("GET", ({ id }) => `/projects/${required(id, "id", "projects.getWorkspaceSummary")}/workspace-summary`, {
+      requiredParams: ["id"],
+    }),
     "projects.create": define("POST", () => "/projects", { hasBody: true }),
     "projects.update": define("PUT", ({ id }) => `/projects/${required(id, "id", "projects.update")}`, {
       requiredParams: ["id"],

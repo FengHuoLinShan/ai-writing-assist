@@ -217,7 +217,7 @@ export function objectQueryFromState(filters, viewMode, discoveryMode) {
   }
   const page = Math.floor((filters.skip || 0) / filters.limit) + 1
   if (page > 1) query.set("page", String(page))
-  if (viewMode === "card") query.set("view", "card")
+  query.set("view", viewMode === "table" ? "table" : "card")
   query.set("mode", discoveryMode)
   return query
 }

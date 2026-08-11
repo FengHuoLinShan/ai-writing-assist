@@ -262,6 +262,35 @@ sha256_digest() {
     printf '%s\n' "$digest"
 }
 
+sha256_digest_stream() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        digest_output=$(sha256sum) || {
+            echo "Unable to calculate streamed SHA-256 with sha256sum." >&2
+            return 1
+        }
+    elif command -v shasum >/dev/null 2>&1; then
+        digest_output=$(shasum -a 256) || {
+            echo "Unable to calculate streamed SHA-256 with shasum." >&2
+            return 1
+        }
+    else
+        echo "No SHA-256 command is available (need sha256sum or shasum)." >&2
+        return 1
+    fi
+    digest=${digest_output%% *}
+    case "$digest" in
+        ""|*[!0-9a-f]*)
+            echo "SHA-256 command returned an invalid digest." >&2
+            return 1
+            ;;
+    esac
+    if [ "${#digest}" -ne 64 ]; then
+        echo "SHA-256 command returned an invalid digest." >&2
+        return 1
+    fi
+    printf '%s\n' "$digest"
+}
+
 constant_time_equal() {
     python3 - "$1" "$2" <<'PY'
 import hmac
@@ -321,13 +350,18 @@ verify_postgres_archive() {
         echo "PostgreSQL archive is missing, empty, or not a regular file." >&2
         return 1
     fi
+    verify_postgres_archive_stream <"$archive_path"
+}
+
+verify_postgres_archive_stream() {
+    postgres_image=$(env_value POSTGRES_IMAGE) || return 1
     if ! docker image inspect "$postgres_image" >/dev/null 2>&1; then
         docker pull "$postgres_image" >&2 || {
             echo "Unable to pull the PostgreSQL archive verifier image." >&2
             return 1
         }
     fi
-    docker run --rm --pull never \
+    docker run --rm -i --pull never \
         --network none \
         --read-only \
         --cap-drop ALL \
@@ -339,7 +373,7 @@ verify_postgres_archive() {
         --pids-limit 64 \
         --user 65534:65534 \
         --entrypoint pg_restore \
-        "$postgres_image" --list <"$archive_path" >/dev/null
+        "$postgres_image" --list >/dev/null
 }
 
 deployment_state_operation_id() {
@@ -364,6 +398,20 @@ deployment_state_matches() {
         "$STATE_DIR" "$REPO_ROOT" "$current_commit" "$operation_id"
 }
 
+write_first_release_prepared_state() {
+    prepared_commit=$1
+    python3 "$SCRIPT_DIR/first_release_state.py" write \
+        "$STATE_DIR" "$prepared_commit"
+}
+
+read_first_release_prepared_commit() {
+    python3 "$SCRIPT_DIR/first_release_state.py" read "$STATE_DIR"
+}
+
+clear_first_release_prepared_state() {
+    python3 "$SCRIPT_DIR/first_release_state.py" clear "$STATE_DIR"
+}
+
 validate_deployment_state_contract() {
     contract_marker="$DEPLOY_DIR/deployment-state-contract.version"
     state_helper="$SCRIPT_DIR/deployment_state.py"
@@ -375,6 +423,11 @@ validate_deployment_state_contract() {
     fi
     if [ ! -f "$state_helper" ] || [ -L "$state_helper" ]; then
         echo "Target commit does not contain the deployment state helper." >&2
+        return 1
+    fi
+    if [ ! -f "$SCRIPT_DIR/first_release_state.py" ] \
+        || [ -L "$SCRIPT_DIR/first_release_state.py" ]; then
+        echo "Target commit does not contain the first-release recovery helper." >&2
         return 1
     fi
     python3 "$state_helper" generate-operation-id >/dev/null
@@ -479,6 +532,7 @@ verify_active_deployment_checkout() {
 
 migration_guard_state_kind() {
     deployment_state_path="$STATE_DIR/deployment-state.json"
+    first_release_prepared_path="$STATE_DIR/first-release-prepared.json"
     current_release_path="$STATE_DIR/current-release"
     current_commit_path="$STATE_DIR/current-commit"
     manifest_exists=false
@@ -499,7 +553,12 @@ migration_guard_state_kind() {
     elif [ "$release_exists" = true ] && [ "$commit_exists" = true ]; then
         printf '%s\n' active
     elif [ "$release_exists" = false ] && [ "$commit_exists" = false ]; then
-        printf '%s\n' first-release
+        if [ -e "$first_release_prepared_path" ] \
+            || [ -L "$first_release_prepared_path" ]; then
+            printf '%s\n' first-release-prepared
+        else
+            printf '%s\n' first-release
+        fi
     else
         echo "Deployment state is incomplete; refusing migration compatibility preflight." >&2
         return 1
@@ -537,6 +596,15 @@ verify_release_migration_compatibility() {
             return 1
         fi
         return 0
+    fi
+
+    if [ "$state_kind" = first-release-prepared ]; then
+        prepared_commit=$(read_first_release_prepared_commit) || return 1
+        if [ "$prepared_commit" != "$target_commit" ]; then
+            echo "An unfinished first release may only retry its prepared fixed SHA: $prepared_commit" >&2
+            return 1
+        fi
+        active_commit=$prepared_commit
     fi
 
     if [ ! -f "$SCRIPT_DIR/migration_compatibility.py" ] \

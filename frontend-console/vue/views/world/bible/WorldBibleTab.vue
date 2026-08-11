@@ -168,8 +168,8 @@
       <section class="panel world-bible-synopsis-panel">
         <div class="world-bible-panel__header">
           <div>
-            <h2>世界观简介 <span class="badge">作者模式 · P1</span></h2>
-            <div class="world-bible-page-meta">只读 AI 派生资料；不会替代确定性的核心世界设定摘要。</div>
+            <h2>世界观简介 <span class="badge">创作参考</span></h2>
+            <div class="world-bible-page-meta">AI 整理的参考资料；不会替代你已确认的核心设定。</div>
           </div>
           <div class="world-bible-panel__actions">
             <button
@@ -187,7 +187,7 @@
         <div class="world-bible-page-meta">
           状态：{{ taskStatusLabel(synopsis?.status || 'missing') }}
           <template v-if="synopsis?.current_revision">
-            · v{{ synopsis.current_revision.version_number }} · 约 {{ synopsis.current_revision.token_estimate }} 词元
+            · 第 {{ synopsis.current_revision.version_number }} 版
             <template v-if="synopsis.current_revision.coverage_json?.source_count != null">
               · 覆盖 {{ synopsis.current_revision.coverage_json.source_count }} 个来源
             </template>
@@ -197,7 +197,7 @@
         <div v-else class="world-bible-empty-hint">尚无成功版本；生成中心启用时会使用有界确定性降级资料。</div>
         <details v-if="synopsisTask || (synopsis?.warnings || []).length" class="world-bible-diagnostics">
           <summary>诊断信息</summary>
-          <div v-if="synopsisTask">任务 ID：{{ synopsisTask.task_id || '未提供' }}</div>
+          <div v-if="synopsisTask">任务编号：{{ synopsisTask.task_id || '未提供' }}</div>
           <div v-for="(w, i) in (synopsis?.warnings || [])" :key="i" class="world-bible-projection-status__hint">{{ w }}</div>
         </details>
       </section>
@@ -379,7 +379,7 @@
                     >强制重新刷新</button>
                     <details class="world-bible-diagnostics">
                       <summary>诊断信息</summary>
-                      <div>任务 ID：{{ projectionTask.task_id || projectionTask.id || '未提供' }}</div>
+                      <div>任务编号：{{ projectionTask.task_id || projectionTask.id || '未提供' }}</div>
                       <div>原始状态：{{ projectionTask.status || 'pending' }}</div>
                     </details>
                   </template>
@@ -427,12 +427,12 @@
               <button class="btn btn-sm btn-primary" data-action="bible-activation-publish" :disabled="currentProfile.status === 'archived'" @click="publishActivationProfile">发布规则</button>
             </div>
             <label class="bible-ai-field">
-              Dry-run 任务文本
+              试运行任务文本
               <textarea class="form-textarea" id="bible-activation-task" rows="4" placeholder="例如：描写北境商队使用银币"></textarea>
             </label>
-            <button class="btn btn-sm" data-action="bible-activation-dry-run" @click="dryRunActivationProfile">执行 Dry-run</button>
+            <button class="btn btn-sm" data-action="bible-activation-dry-run" @click="dryRunActivationProfile">执行试运行</button>
           </template>
-          <div v-else class="world-bible-empty-hint">创建或选择 Profile 后，可配置正向词、排除词和固定资料目标。</div>
+          <div v-else class="world-bible-empty-hint">创建或选择规则方案后，可配置关键词、排除词和固定参考资料。</div>
           <!-- activation trace -->
           <div v-if="activationTrace" class="world-bible-activation-trace">
             <div class="world-bible-section-title">本次参考资料</div>
@@ -445,7 +445,7 @@
               <template v-if="(activationTrace.items || []).length">
                 <div v-for="item in (activationTrace.items || [])" :key="item.label || item.target?.target_id" class="world-bible-trace-item">
                   <strong>{{ item.label || item.target?.target_id || '未知目标' }}</strong>
-                  <div>{{ item.activation_reason || item.source || '' }} · {{ item.token_after ?? item.token_before ?? 0 }} tokens</div>
+                  <div>{{ item.activation_reason || item.source || '' }} · 参考容量 {{ item.token_after ?? item.token_before ?? 0 }}</div>
                   <span v-if="item.excluded_reason" class="badge">{{ item.excluded_reason }}</span>
                 </div>
               </template>
@@ -456,7 +456,7 @@
               <template v-if="(activationTrace.excluded_items || []).length">
                 <div v-for="item in (activationTrace.excluded_items || [])" :key="item.label || item.target?.target_id" class="world-bible-trace-item">
                   <strong>{{ item.label || item.target?.target_id || '未知目标' }}</strong>
-                  <div>{{ item.activation_reason || item.source || '' }} · {{ item.token_after ?? item.token_before ?? 0 }} tokens</div>
+                  <div>{{ item.activation_reason || item.source || '' }} · 参考容量 {{ item.token_after ?? item.token_before ?? 0 }}</div>
                   <span v-if="item.excluded_reason" class="badge">{{ item.excluded_reason }}</span>
                 </div>
               </template>
@@ -626,8 +626,8 @@ function openActivationProfileEditor(profile = null) {
   const target = rule?.select?.target_refs?.[0]
     || (activePage.value?.id ? { target_type: "world_bible_page", target_id: activePage.value.id } : {})
   const body = `
-    <p class="world-bible-empty-hint">简单模式只支持确定性词匹配、固定 TargetRef、优先级和预算；不支持 regex、随机、Prompt role 或递归。</p>
-    <div class="form-group"><label>Profile key</label><input class="form-input" id="bible-profile-key" value="${esc(profile?.profile_key || "writing.world_bible")}" ${profile ? "disabled" : ""} /></div>
+    <p class="world-bible-empty-hint">简单模式支持关键词匹配、固定参考资料、优先级和容量限制；更复杂的规则需在高级工具中处理。</p>
+    <div class="form-group"><label>规则标识</label><input class="form-input" id="bible-profile-key" value="${esc(profile?.profile_key || "writing.world_bible")}" ${profile ? "disabled" : ""} /></div>
     <div class="form-group"><label>名称</label><input class="form-input" id="bible-profile-name" value="${esc(profile?.name || "场景写作世界资料")}" /></div>
     <div class="form-group"><label>适用操作</label><input class="form-input" id="bible-profile-action" value="${esc(profile?.applicable_actions_json?.[0] || "writing.generate")}" /></div>
     <div class="form-group"><label>规则名称</label><input class="form-input" id="bible-rule-name" value="${esc(rule?.name || "命中关键词时加入资料")}" /></div>
@@ -641,8 +641,8 @@ function openActivationProfileEditor(profile = null) {
     <p class="form-help">只可选择已采用的世界对象或已发布的世界书页面。</p>
     <div class="generate-form-grid">
       <label>优先级<input class="form-input" id="bible-rule-priority" type="number" min="0" max="1000" value="${esc(rule?.rank?.priority ?? 700)}" /></label>
-      <label>Top-K<input class="form-input" id="bible-rule-top-k" type="number" min="1" max="256" value="${esc(rule?.rank?.top_k ?? 12)}" /></label>
-      <label>Token cap<input class="form-input" id="bible-rule-token-cap" type="number" min="64" max="32000" value="${esc(rule?.rank?.token_cap ?? 1200)}" /></label>
+      <label>最多选取条数<input class="form-input" id="bible-rule-top-k" type="number" min="1" max="256" value="${esc(rule?.rank?.top_k ?? 12)}" /></label>
+      <label>参考内容上限<input class="form-input" id="bible-rule-token-cap" type="number" min="64" max="32000" value="${esc(rule?.rank?.token_cap ?? 1200)}" /></label>
     </div>
   `
   const showModalHtml = getShowModalHtml()
@@ -768,7 +768,7 @@ async function saveActivationProfileEditor(profile) {
 async function publishActivationProfile() {
   const profile = currentProfile.value
   if (!profile) return
-  getConfirmAction()("发布此 Activation Profile？后续显式启用它的 AI 调用将固定使用该 revision。", async () => {
+  getConfirmAction()("发布此启用配置？后续显式启用它的 AI 功能将固定使用该版本。", async () => {
     try {
       const api = getApi()
       const saved = await api.context.publishActivationProfile(profile.id, { base_version_number: profile.version_number, revision_reason: "manual_publish" }, props.projectId)

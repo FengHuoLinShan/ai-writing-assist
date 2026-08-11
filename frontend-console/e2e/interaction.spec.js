@@ -146,9 +146,9 @@ test.describe("RP 路由与窄屏故事页", () => {
   test("双入口进入 RP 列表并打开当前旅程", async ({ page, browserErrors }) => {
     await mockRpApis(page)
     await page.goto("/")
-    await page.getByRole("button", { name: /我是 RP/ }).click()
+    await page.getByRole("button", { name: /进入互动故事/ }).click()
 
-    await expect(page.getByRole("heading", { name: "跑团模式" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "互动故事" })).toBeVisible()
     await expect(page.getByText("雾港钟楼")).toBeVisible()
     await expect(page.getByRole("button", { name: "归档旅程：雾港钟楼", exact: true }))
       .toBeVisible()
@@ -245,13 +245,13 @@ test.describe("RP 路由与窄屏故事页", () => {
     await mockRpApis(page, { seeSeaNoticeAcknowledged: false })
     await page.goto(`/#interaction/${journeyId}`)
 
-    const seaButton = page.getByRole("button", { name: "看海模式" })
+    const seaButton = page.getByRole("button", { name: "故事自主发展" })
     await seaButton.click()
     const confirmation = page.locator(".rp-adaptive-confirm")
     await expect(confirmation).toBeVisible()
     await expect(confirmation).toHaveAttribute("data-placement", "top")
     await expect(confirmation.getByRole("alertdialog")).toContainText(
-      "会持续使用你的模型额度",
+      "使用你的模型额度",
     )
     await expect(seaButton).toHaveAttribute("aria-expanded", "true")
 

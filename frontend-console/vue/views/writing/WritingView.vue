@@ -2,14 +2,19 @@
 <template>
   <div class="view-header writing-toolbar">
     <div class="view-header__title">
-      手动工作台
+      写作
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
       <button class="btn btn-sm btn-primary" @click="vm.createChapter">新建章节</button>
-      <button class="btn btn-sm" @click="vm.toggleFocusMode">{{ vm.focusMode.value ? '退出专注' : '聚焦模式' }}</button>
-      <button class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">大纲浮窗</button>
-      <button class="btn btn-sm" @click="vm.navigateOutline">打开大纲</button>
+      <details class="writing-page-menu">
+        <summary class="btn btn-sm">写作视图</summary>
+        <div class="writing-page-menu__body">
+          <button class="btn btn-sm" @click="vm.toggleFocusMode">{{ vm.focusMode.value ? '退出专注' : '进入专注' }}</button>
+          <button class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">故事结构浮窗</button>
+          <button class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -19,6 +24,7 @@
     :attach="vm.attachEditor"
     :detach="vm.detachEditor"
     @save="vm.saveMobileNote"
+    @publish="vm.publish"
     @desktop="vm.switchDesktopMode"
   />
 
@@ -90,7 +96,7 @@
                   :value="version.id"
                   :data-version="version.version_number"
                   :data-latest="index === 0 ? 1 : 0"
-                >v{{ version.version_number }} · {{ version.status === 'published' ? '已发布' : version.status === 'candidate' ? '待处理' : version.status === 'deprecated' ? '历史' : '工作稿' }}</option>
+                >v{{ version.version_number }} · {{ version.status === 'published' ? '正式正文' : version.status === 'candidate' ? '待处理' : version.status === 'deprecated' ? '历史' : '工作稿' }}</option>
               </select>
             </span>
             <span id="publish-status-dot" class="publish-status-dot" :class="{ active: vm.publishProgress.active }" />

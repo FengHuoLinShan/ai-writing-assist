@@ -8,12 +8,17 @@
   <div ref="rootEl" class="world-view">
     <div class="view-header view-header--with-tabs world-toolbar">
       <div class="subnav">
-        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' }" :aria-current="subView === 'objects' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">对象库</button>
-        <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" data-subview="review-objects" data-action="nav-review" @click="navigateSub('review-objects')">待处理 ({{ reviewTotal }})</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' || reviewSubView === 'review-objects' || reviewSubView === 'review-aliases' }" :aria-current="subView === 'objects' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">人物与设定</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
-        <button type="button" class="subnav-item" :class="{ active: subView === 'aliases' }" :aria-current="subView === 'aliases' ? 'page' : undefined" data-subview="aliases" data-action="nav-aliases" @click="navigateSub('aliases')">别名</button>
-        <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界书</button>
-        <button type="button" class="subnav-item" :class="{ active: subView === 'map' }" :aria-current="subView === 'map' ? 'page' : undefined" data-subview="map" data-action="nav-map" @click="navigateMap">地图</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界笔记</button>
+        <details ref="attentionMenu" class="world-attention-menu">
+          <summary class="subnav-item" :class="{ active: !!reviewSubView }">需要处理 <span class="badge">{{ reviewTotal }}</span></summary>
+          <div class="world-attention-menu__panel">
+            <button type="button" @click="navigateSub('review-objects')">人物与设定 <strong>{{ reviewCounts.objects || 0 }}</strong></button>
+            <button type="button" @click="navigateSub('review-aliases')">别名 <strong>{{ reviewCounts.aliases || 0 }}</strong></button>
+            <button type="button" @click="navigateSub('review-relations')">关系 <strong>{{ reviewCounts.relations || 0 }}</strong></button>
+          </div>
+        </details>
       </div>
       <div class="view-header__tail">
         <span v-if="headerTitle" class="view-header__title">
@@ -21,16 +26,21 @@
         </span>
         <div class="view-header__actions">
           <template v-if="subView === 'objects'">
-            <span class="world-discovery-mode-toggle" aria-label="对象检索模式">
-              <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'normal' }" data-action="set-discovery-mode" data-mode="normal" @click="setDiscoveryMode('normal')">普通</button>
-              <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'hot' }" data-action="set-discovery-mode" data-mode="hot" @click="setDiscoveryMode('hot')">热点</button>
-            </span>
-            <button id="btn-new-entity" class="btn btn-sm btn-primary" data-action="new" @click="showEntityCreateForm()">新建对象</button>
-            <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "▾" : "▸" }} 自动提取</button>
-            <span class="world-object-view-toggle" aria-label="对象库视图">
-              <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'table' }" data-action="set-object-view" data-view-mode="table" @click="setObjectViewMode('table')">表格</button>
-              <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'card' }" data-action="set-object-view" data-view-mode="card" @click="setObjectViewMode('card')">卡片</button>
-            </span>
+            <button id="btn-new-entity" class="btn btn-sm btn-primary" data-action="new" @click="showEntityCreateForm()">新建人物或设定</button>
+            <details class="world-view-options">
+              <summary class="btn btn-sm">视图与整理</summary>
+              <div class="world-view-options__panel">
+                <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "收起" : "打开" }} AI 资料整理</button>
+                <span class="world-object-view-toggle" aria-label="人物与设定视图">
+                  <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'card' }" data-action="set-object-view" data-view-mode="card" @click="setObjectViewMode('card')">卡片</button>
+                  <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'table' }" data-action="set-object-view" data-view-mode="table" @click="setObjectViewMode('table')">表格</button>
+                </span>
+                <span class="world-discovery-mode-toggle" aria-label="资料排序">
+                  <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'hot' }" data-action="set-discovery-mode" data-mode="hot" @click="setDiscoveryMode('hot')">最近相关</button>
+                  <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'normal' }" data-action="set-discovery-mode" data-mode="normal" @click="setDiscoveryMode('normal')">全部资料</button>
+                </span>
+              </div>
+            </details>
           </template>
           <button v-if="subView === 'relations'" class="btn btn-sm btn-primary" data-action="create-relation" @click="showRelationCreateForm()">新建关系</button>
           <button v-if="subView === 'aliases'" class="btn btn-sm btn-primary" data-action="create-alias" @click="showAliasCreateForm()">新建别名</button>
@@ -45,7 +55,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue"
 import { getAppState, getRouter } from "../../bridge/index.js"
-import { buildMapQuery } from "../../../views/mapRouteContext.js"
 import { worldSession as session } from "./worldSession.js"
 import { objectQueryFromState } from "./logic/worldQuery.js"
 import { clearBulkSelection } from "./logic/worldBulkSelection.js"
@@ -98,6 +107,7 @@ const props = defineProps({
 })
 
 const rootEl = ref(null)
+const attentionMenu = ref(null)
 
 const TAB_COMPONENTS = {
   objects: WorldObjectsTab,
@@ -117,8 +127,8 @@ const reviewTotal = computed(() => (
 
 /** 对应 vanilla _renderHeaderTitle（worldView.js:756-779）。 */
 const headerTitle = computed(() => {
-  if (props.subView === "objects") return { text: "世界对象", count: props.entitiesTotal }
-  if (props.reviewSubView === "review-objects") return { text: "待处理对象", count: props.candidateTotal }
+  if (props.subView === "objects") return { text: "人物与设定", count: props.entitiesTotal }
+  if (props.reviewSubView === "review-objects") return { text: "待处理的人物与设定", count: props.candidateTotal }
   if (props.reviewSubView === "review-aliases") return { text: "待处理别名", count: props.aliasItemTotal }
   if (props.reviewSubView === "review-relations") return { text: "待处理关系", count: props.relationItemTotal }
   if (props.subView === "relations") return { text: "关系", count: props.relationsTotal }
@@ -132,15 +142,8 @@ const projectTitle = computed(() => {
 })
 
 function navigateSub(sub) {
+  if (attentionMenu.value) attentionMenu.value.open = false
   getRouter()?.navigate("world", sub)
-}
-
-/** 对应 vanilla nav-map（worldView.js:3875-3878）。 */
-function navigateMap() {
-  getRouter()?.navigate("map", null, true, buildMapQuery({
-    projectId: props.projectId,
-    mode: "overview",
-  }))
 }
 
 function navigateObjectsQuery(nextFilters, viewMode = props.objectViewMode, mode = props.discoveryMode) {

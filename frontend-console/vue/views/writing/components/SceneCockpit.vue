@@ -15,7 +15,7 @@
     </div>
 
     <div v-if="!railCollapsed && !chapter" class="empty-state writing-scene-panel-empty">
-      <p>请先从左侧选择章节，再查看对应 Scene、人物和地图参考。</p>
+      <p>请先从左侧选择章节，再查看对应场景、人物和地图参考。</p>
     </div>
     <div v-else-if="!railCollapsed && scene" class="scene-alert-summary" :class="`scene-alert-summary--${alertSummary.highest}`" aria-live="polite">
       <span v-if="loading">警报加载中…</span>
@@ -24,10 +24,10 @@
       </span>
       <span v-else>✓ 当前未发现确定性警报</span>
     </div>
-    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">当前章节未关联 Scene。请从左侧选择 Scene 或到场景工作台整理。</div>
+    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">当前章节还没有关联场景。请从左侧选择场景或到故事结构中整理。</div>
 
     <template v-if="!railCollapsed && chapter && scene">
-      <div class="cockpit-tabs" role="tablist" aria-label="Scene 参考">
+      <div class="cockpit-tabs" role="tablist" aria-label="场景参考">
         <button v-for="tab in tabs" :key="tab.key" class="cockpit-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.label }}</button>
       </div>
       <div class="cockpit-body">
@@ -91,8 +91,8 @@
             </div>
             <div class="scene-cockpit-module__body">
               <template v-if="moduleKey === 'scene_header'">
-                <div class="scene-cockpit-scene-title">{{ scene.title || '未命名 Scene' }}</div>
-                <div class="scene-cockpit-meta"><span>#{{ scene.scene_index ?? '-' }}</span><span>{{ scene.narrative_tag || 'draft' }}</span></div>
+                <div class="scene-cockpit-scene-title">{{ scene.title || '未命名场景' }}</div>
+                <div class="scene-cockpit-meta"><span>{{ scene.scene_index != null ? `第 ${scene.scene_index} 场` : '未排序' }}</span><span>{{ narrativeTagLabel(scene.narrative_tag) }}</span></div>
               </template>
               <div v-else-if="moduleValue(moduleKey)" class="scene-cockpit-text">{{ moduleValue(moduleKey) }}</div>
               <div v-else class="muted">暂无</div>
@@ -103,7 +103,7 @@
         <section v-else class="cockpit-panel" data-panel="map">
           <div v-if="loading && !mapSummary" class="writing-map-summary__empty">地图摘要加载中...</div>
           <div v-else-if="error" class="writing-map-summary__warning">{{ error }}</div>
-          <div v-else-if="!mapSummary" class="cockpit-empty">当前 Scene 暂无地图位置</div>
+          <div v-else-if="!mapSummary" class="cockpit-empty">当前场景暂无地图位置</div>
           <div v-else class="writing-map-summary">
             <div class="writing-map-summary__title">地图摘要</div>
             <div class="writing-map-summary__row">地点：{{ mapSummary.primary_location?.name || '未绑定地点' }}</div>
@@ -144,7 +144,7 @@ const tabs = [
 ]
 const severities = ["high", "medium", "low", "info"]
 const labels = {
-  scene_header: "Scene", goal: "目标", must_happen: "必须发生", must_not_happen: "禁止发生",
+  scene_header: "场景", goal: "目标", must_happen: "必须发生", must_not_happen: "禁止发生",
   core_conflict: "核心冲突", continuity: "前后连续性摘要", references: "参考资料", foreshadowing: "伏笔 / 揭示",
 }
 const activeTab = ref("lore")
@@ -176,6 +176,13 @@ const mapWarnings = computed(() => [...(props.mapSummary?.risks || []), ...(prop
 const severityLabel = (severity) => ({ high: "高", medium: "中", low: "提示", info: "信息" }[severity] || severity)
 const personName = (person) => person?.name || person?.title || "未命名"
 const moduleLabel = (key) => labels[key] || key
+const narrativeTagLabel = (value) => ({
+  draft: "创作中",
+  planned: "待写",
+  canonical: "已采用",
+  candidate: "待处理",
+  proposal: "建议稿",
+}[value] || "创作中")
 function moduleValue(key) {
   const value = {
     goal: props.scene?.goal,
@@ -218,8 +225,8 @@ function mapWarningMessage(warning) {
   if (typeof warning === "string") return warning
   if (warning?.message) return warning.message
   return ({
-    scene_without_map_context: "当前 Scene 暂无地图上下文",
-    scene_without_location: "当前 Scene 暂无主地点",
+    scene_without_map_context: "当前场景暂无地图参考",
+    scene_without_location: "当前场景暂无主要地点",
     character_cross_map: "人物上一场在其他地图，需确认移动合理性",
   }[warning?.code] || "地图空间连续性需要人工检查")
 }

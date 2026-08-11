@@ -24,7 +24,11 @@ def _git(repo_root: Path, *arguments: str) -> str:
 
 def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Path]:
     repo_root = tmp_path / "repo"
-    shutil.copytree(DEPLOY_ROOT, repo_root / "deploy")
+    shutil.copytree(
+        DEPLOY_ROOT,
+        repo_root / "deploy",
+        ignore=shutil.ignore_patterns(".pytest_cache", "__pycache__", "*.pyc"),
+    )
     _git(repo_root, "init", "-q")
     _git(repo_root, "config", "user.email", "deploy-tests@example.com")
     _git(repo_root, "config", "user.name", "Deployment Tests")
@@ -70,6 +74,25 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         "#!/bin/sh\n"
         'printf "%s\\n" "$*" >>"$FAKE_DOCKER_LOG"\n'
         'case " $* " in\n'
+        '  *" image inspect "*) exit 0 ;;\n'
+        '  *" run --rm -i --pull never "*) cat >/dev/null; exit 0 ;;\n'
+        '  *" create --name ai-writing-restore-drill-"*)\n'
+        '    printf "fixture-restore-drill-id\\n"; exit 0 ;;\n'
+        '  *" start fixture-restore-drill-id "*) exit 0 ;;\n'
+        '  *" exec fixture-restore-drill-id pg_isready "*) exit 0 ;;\n'
+        '  *" exec -i fixture-restore-drill-id pg_restore "*)\n'
+        '    cat >/dev/null; exit "${FAKE_DRILL_RESTORE_STATUS:-0}" ;;\n'
+        '  *" exec fixture-restore-drill-id psql "*"SELECT 1"*)\n'
+        '    printf "1\\n"; exit 0 ;;\n'
+        '  *" exec fixture-restore-drill-id psql "*"alembic_version"*)\n'
+        '    printf "%s\\n" "${FAKE_ALEMBIC_REVISION:-migration_a}"; exit 0 ;;\n'
+        '  *" exec fixture-restore-drill-id psql "*"to_regclass"*)\n'
+        '    printf "8\\n"; exit 0 ;;\n'
+        '  *" rm -f fixture-restore-drill-id "*) exit 0 ;;\n'
+        '  *" exec -T postgres pg_dump "*)\n'
+        '    printf "fixture custom archive"; exit 0 ;;\n'
+        '  *" exec -T postgres psql "*"information_schema.tables"*)\n'
+        '    printf "%s\\n" "${FAKE_PUBLIC_TABLE_COUNT:-1}"; exit 0 ;;\n'
         '  *" exec -T -e PGCONNECT_TIMEOUT=5 postgres psql "*)\n'
         '    if test "${FAKE_MIGRATION_QUERY_STATUS:-0}" -ne 0; then\n'
         '      exit "$FAKE_MIGRATION_QUERY_STATUS"\n'
@@ -80,7 +103,14 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         '      *) printf "%s\\n" "${FAKE_PUBLIC_TABLE_COUNT:-1}" ;;\n'
         "    esac\n"
         "    exit 0 ;;\n"
-        '  *" stop api worker frontend "*) exit "${FAKE_DOCKER_STOP_STATUS:-0}" ;;\n'
+        '  *" stop api worker frontend "*)\n'
+        '    if test "${FAKE_MUTATE_RESTORE_SNAPSHOT:-0}" = 1; then\n'
+        '      for snapshot in "$FAKE_BACKUP_DIR"/restore-input-*.dump; do\n'
+        '        test -f "$snapshot" || continue\n'
+        '        printf "attacker-replacement" >"$snapshot"\n'
+        '      done\n'
+        '    fi\n'
+        '    exit "${FAKE_DOCKER_STOP_STATUS:-0}" ;;\n'
         '  *" build "*) exit "${FAKE_DOCKER_BUILD_STATUS:-0}" ;;\n'
         '  *" up -d postgres embedding "*) exit '
         '"${FAKE_DOCKER_DEPENDENCY_UP_STATUS:-0}" ;;\n'
@@ -88,10 +118,15 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         "esac\n"
     )
     (fake_bin / "docker").chmod(0o755)
+    (fake_bin / "restic").write_text("#!/bin/sh\nexit 0\n")
+    (fake_bin / "restic").chmod(0o755)
+    (fake_bin / "curl").write_text("#!/bin/sh\nexit 0\n")
+    (fake_bin / "curl").chmod(0o755)
     environment = os.environ | {
         "ENV_FILE": str(environment_file),
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "FAKE_DOCKER_LOG": str(docker_log),
+        "FAKE_BACKUP_DIR": str(deploy_root / "backups"),
     }
     return repo_root, commit_a, commit_b, environment, docker_log
 
@@ -113,6 +148,21 @@ def _run_script(
         text=True,
         timeout=20,
     )
+
+
+def _write_private_backup(repo_root: Path) -> Path:
+    backup_dir = repo_root / "deploy" / "backups"
+    backup_dir.mkdir(mode=0o700, exist_ok=True)
+    backup_dir.chmod(0o700)
+    backup_path = backup_dir / "fixture.dump"
+    backup_path.write_bytes(b"fixture backup")
+    backup_path.chmod(0o600)
+    checksum_path = Path(f"{backup_path}.sha256")
+    checksum_path.write_text(
+        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
+    )
+    checksum_path.chmod(0o600)
+    return backup_path
 
 
 def _assert_healthy_state(repo_root: Path, commit_a: str) -> None:
@@ -273,6 +323,124 @@ def test_first_release_query_failure_rejects_before_checkout_or_service_work(
     assert " up -d postgres embedding" not in commands
 
 
+def test_first_release_runs_full_restore_drill_after_migration(tmp_path: Path) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    (state_dir / "current-release").unlink()
+    (state_dir / "current-commit").unlink()
+
+    result = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment | {"FAKE_PUBLIC_TABLE_COUNT": "0"},
+    )
+
+    assert result.returncode != 0
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    commands = docker_log.read_text(encoding="utf-8")
+    migration = commands.index(" --profile ops run --rm migrate")
+    backup = commands.index(" exec -T postgres pg_dump")
+    drill = commands.index("exec -i fixture-restore-drill-id pg_restore")
+    assert migration < backup < drill
+    assert commands.count(" exec -T postgres pg_dump") == 1
+    assert not (state_dir / "deployment-state.json").exists()
+    prepared_state = state_dir / "first-release-prepared.json"
+    assert json.loads(prepared_state.read_text()) == {
+        "schema_version": 1,
+        "prepared_commit": commit_b,
+    }
+    assert " exec -T postgres dropdb" not in commands
+
+    docker_log.unlink()
+    retry = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment
+        | {
+            "FAKE_PUBLIC_TABLE_COUNT": "1",
+            "FAKE_MIGRATION_REVISIONS": "migration_a",
+            "FAKE_DOCKER_BUILD_STATUS": "1",
+        },
+    )
+
+    assert retry.returncode != 0
+    assert "state is absent but the live database is not empty" not in retry.stderr
+    assert " build " in f" {docker_log.read_text(encoding='utf-8')} "
+    assert prepared_state.exists()
+
+
+def test_prepared_first_release_rejects_a_different_target_before_checkout(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    (state_dir / "current-release").unlink()
+    (state_dir / "current-commit").unlink()
+    prepared_state = state_dir / "first-release-prepared.json"
+    prepared_state.write_text(
+        json.dumps(
+            {"schema_version": 1, "prepared_commit": commit_a},
+            separators=(",", ":"),
+        )
+    )
+    prepared_state.chmod(0o600)
+
+    result = _run_script(repo_root, "release.sh", [commit_b], environment)
+
+    assert result.returncode != 0
+    assert f"may only retry its prepared fixed SHA: {commit_a}" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    assert not docker_log.exists()
+
+
+def test_first_release_drill_failure_resets_verified_empty_database_for_retry(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    state_dir = repo_root / "deploy" / ".state"
+    (state_dir / "current-release").unlink()
+    (state_dir / "current-commit").unlink()
+
+    failed = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment
+        | {
+            "FAKE_PUBLIC_TABLE_COUNT": "0",
+            "FAKE_DRILL_RESTORE_STATUS": "1",
+        },
+    )
+
+    assert failed.returncode != 0
+    commands = docker_log.read_text(encoding="utf-8")
+    migration = commands.index(" --profile ops run --rm migrate")
+    drill = commands.index("exec -i fixture-restore-drill-id pg_restore")
+    reset_drop = commands.index(" exec -T postgres dropdb", drill)
+    reset_create = commands.index(" exec -T postgres createdb", reset_drop)
+    assert migration < drill < reset_drop < reset_create
+    assert "previously verified empty state" in failed.stderr
+    assert not (state_dir / "deployment-state.json").exists()
+
+    docker_log.unlink()
+    retry = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment
+        | {
+            "FAKE_PUBLIC_TABLE_COUNT": "0",
+            "FAKE_DOCKER_BUILD_STATUS": "1",
+        },
+    )
+
+    assert retry.returncode != 0
+    assert "state is absent but the live database is not empty" not in retry.stderr
+    assert " build " in f" {docker_log.read_text(encoding='utf-8')} "
+
+
 def test_release_rejects_partial_legacy_state_before_database_work(
     tmp_path: Path,
 ) -> None:
@@ -355,12 +523,7 @@ def test_release_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) ->
 
 def test_restore_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) -> None:
     repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
-    backup_path = repo_root / "deploy" / "backups" / "fixture.dump"
-    backup_path.parent.mkdir()
-    backup_path.write_bytes(b"fixture backup")
-    Path(f"{backup_path}.sha256").write_text(
-        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
-    )
+    backup_path = _write_private_backup(repo_root)
     fake_bin = Path(environment["PATH"].split(os.pathsep, maxsplit=1)[0])
     real_git = shutil.which("git")
     assert real_git is not None
@@ -403,13 +566,7 @@ def test_restore_cancellation_restores_finalized_checkout_without_replacing_data
     tmp_path: Path,
 ) -> None:
     repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
-    backup_path = repo_root / "deploy" / "backups" / "fixture.dump"
-    backup_path.parent.mkdir()
-    backup_path.write_bytes(b"fixture backup")
-    checksum_path = Path(f"{backup_path}.sha256")
-    checksum_path.write_text(
-        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
-    )
+    backup_path = _write_private_backup(repo_root)
 
     result = _run_script(
         repo_root,
@@ -423,7 +580,7 @@ def test_restore_cancellation_restores_finalized_checkout_without_replacing_data
     assert _git(repo_root, "rev-parse", "HEAD") == commit_a
     _assert_healthy_state(repo_root, commit_a)
     docker_commands = docker_log.read_text(encoding="utf-8")
-    assert "run --rm --pull never" in docker_commands
+    assert "run --rm -i --pull never" in docker_commands
     assert "--network none" in docker_commands
     assert "--entrypoint pg_restore" in docker_commands
     assert "exec -T postgres pg_restore" not in docker_commands
@@ -431,7 +588,7 @@ def test_restore_cancellation_restores_finalized_checkout_without_replacing_data
     assert " stop api worker frontend" not in docker_commands
     assert " dropdb " not in f" {docker_commands} "
     assert " createdb " not in f" {docker_commands} "
-    assert " --exit-on-error" not in docker_commands
+    assert "exec -i fixture-restore-drill-id pg_restore" in docker_commands
 
 
 def test_restore_rejects_symlinked_backup_directory_before_git_or_docker_work(
@@ -479,12 +636,7 @@ def test_restore_target_environment_validation_failure_restores_finalized_checko
     _git(repo_root, "fetch", "origin")
     _git(repo_root, "checkout", "--detach", "-q", commit_a)
 
-    backup_path = repo_root / "deploy" / "backups" / "fixture.dump"
-    backup_path.parent.mkdir()
-    backup_path.write_bytes(b"fixture backup")
-    Path(f"{backup_path}.sha256").write_text(
-        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
-    )
+    backup_path = _write_private_backup(repo_root)
 
     result = _run_script(
         repo_root,
@@ -573,17 +725,32 @@ def test_release_dependency_reconciliation_failure_keeps_applications_quiesced(
     assert " up -d api worker frontend" not in docker_commands
 
 
+def test_release_restore_drill_failure_blocks_migration_and_finalized_state(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+
+    result = _run_script(
+        repo_root,
+        "release.sh",
+        [commit_b],
+        environment | {"FAKE_DRILL_RESTORE_STATUS": "1"},
+    )
+
+    assert result.returncode != 0
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    _assert_healthy_state(repo_root, commit_a)
+    commands = docker_log.read_text(encoding="utf-8")
+    assert "exec -i fixture-restore-drill-id pg_restore" in commands
+    assert " --profile ops run --rm migrate" not in commands
+    assert " up -d api worker frontend" not in commands
+
+
 def test_restore_quiesce_failure_blocks_safety_backup_and_database_replacement(
     tmp_path: Path,
 ) -> None:
     repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
-    backup_path = repo_root / "deploy" / "backups" / "fixture.dump"
-    backup_path.parent.mkdir()
-    backup_path.write_bytes(b"fixture backup")
-    checksum_path = Path(f"{backup_path}.sha256")
-    checksum_path.write_text(
-        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
-    )
+    backup_path = _write_private_backup(repo_root)
 
     result = _run_script(
         repo_root,
@@ -601,8 +768,53 @@ def test_restore_quiesce_failure_blocks_safety_backup_and_database_replacement(
     assert " pg_dump" not in docker_commands
     assert " dropdb " not in f" {docker_commands} "
     assert " createdb " not in f" {docker_commands} "
-    assert " --exit-on-error" not in docker_commands
+    assert "exec -T postgres pg_restore" not in docker_commands
     assert " migrate" not in docker_commands
+
+
+def test_restore_rejects_snapshot_mutation_after_quiesce_before_database_change(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    backup_path = _write_private_backup(repo_root)
+
+    result = _run_script(
+        repo_root,
+        "restore.sh",
+        [str(backup_path), commit_b],
+        environment | {"FAKE_MUTATE_RESTORE_SNAPSHOT": "1"},
+        input_text="RESTORE_PRODUCTION_BACKUP\n",
+    )
+
+    assert result.returncode != 0
+    assert "input integrity verification failed" in result.stderr
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    commands = docker_log.read_text(encoding="utf-8")
+    assert " exec -T postgres pg_dump" in commands
+    assert " dropdb " not in f" {commands} "
+    assert "exec -T postgres pg_restore" not in commands
+
+
+def test_restore_rejects_revision_absent_from_target_before_confirmation(
+    tmp_path: Path,
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    backup_path = _write_private_backup(repo_root)
+
+    result = _run_script(
+        repo_root,
+        "restore.sh",
+        [str(backup_path), commit_b],
+        environment | {"FAKE_ALEMBIC_REVISION": "orphan_revision"},
+    )
+
+    assert result.returncode != 0
+    assert "incompatible with the target commit" in result.stderr
+    assert "Type RESTORE_PRODUCTION_BACKUP" not in result.stdout
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_a
+    commands = docker_log.read_text(encoding="utf-8")
+    assert " stop api worker frontend" not in commands
+    assert " dropdb " not in f" {commands} "
 
 
 def _resolve_active_commit(repo_root: Path) -> subprocess.CompletedProcess[str]:

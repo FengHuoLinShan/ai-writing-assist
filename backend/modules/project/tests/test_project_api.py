@@ -88,6 +88,31 @@ async def test_get_project_not_found(async_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_workspace_summary_for_empty_project_is_safe_and_additive(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    resp = await async_client.get(
+        f"/api/projects/{sample_project['id']}/workspace-summary"
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "project_id": sample_project["id"],
+        "continuation": None,
+        "writing": {"chapter_count": 0, "word_count": 0},
+        "attention": {
+            "world_objects": 0,
+            "world_aliases": 0,
+            "world_relations": 0,
+            "outline_scenes": 0,
+            "map_items": 0,
+            "total": 0,
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_local_browser_cannot_access_foreign_owner_projects(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -120,13 +145,15 @@ async def test_local_browser_cannot_access_foreign_owner_projects(
         json={"title": "cross-owner update"},
     )
     soft_delete = await async_client.delete(f"/api/projects/{foreign_project_id}")
+    workspace = await async_client.get(
+        f"/api/projects/{foreign_project_id}/workspace-summary"
+    )
 
     assert detail.status_code == 404
-    assert all(
-        item["id"] != str(foreign_project_id) for item in listing.json()["items"]
-    )
+    assert all(item["id"] != str(foreign_project_id) for item in listing.json()["items"])
     assert update.status_code == 404
     assert soft_delete.status_code == 404
+    assert workspace.status_code == 404
     stored = await db_session.get(Project, foreign_project_id)
     assert stored is not None
     assert stored.title == "foreign private project"
@@ -219,8 +246,7 @@ async def test_closed_test_token_is_still_scoped_to_bootstrap_owner(
 
     assert detail.status_code == 404
     assert all(
-        item["id"] != str(foreign_project_id)
-        for item in recycle_bin.json()["items"]
+        item["id"] != str(foreign_project_id) for item in recycle_bin.json()["items"]
     )
     assert permanent_delete.status_code == 404
     assert await db_session.get(Project, foreign_project_id) is not None

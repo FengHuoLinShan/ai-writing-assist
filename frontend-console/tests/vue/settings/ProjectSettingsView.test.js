@@ -43,7 +43,7 @@ function deferred() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  projectSettingsSession.tab = "deep"
+  projectSettingsSession.tab = "author"
   globalThis.api.settings.getEffectiveLLMSettings.mockImplementation(
     async () => makeEffectiveLLM(),
   )
@@ -70,10 +70,10 @@ describe("结构与导航", () => {
     expect(globalThis.router.navigate).toHaveBeenCalledWith("settings")
   })
 
-  it("只保留深度导入和作者偏好，模型连接跳账户设置", async () => {
+  it("创作偏好在前，高级导入和模型连接保留次级入口", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
     const tabs = wrapper.findAll(".settings-tab-nav .tab-btn")
-    expect(tabs.map((item) => item.text())).toEqual(["深度导入", "作者偏好"])
+    expect(tabs.map((item) => item.text())).toEqual(["创作偏好", "高级导入"])
     expect(wrapper.text()).toContain("当前模型：DeepSeek · deepseek-v4-flash · 未连接")
     expect(wrapper.find("#llm-model").exists()).toBe(false)
 
@@ -84,11 +84,11 @@ describe("结构与导航", () => {
   it("Tab 选择在页面往返间保留", async () => {
     const first = mount(ProjectSettingsView, { props: makeProps() })
     await first.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
-    expect(first.find(".author-prefs-tab").exists()).toBe(true)
+    expect(first.find(".deep-import-tab").exists()).toBe(true)
     first.unmount()
 
     const second = mount(ProjectSettingsView, { props: makeProps() })
-    expect(second.find(".author-prefs-tab").exists()).toBe(true)
+    expect(second.find(".deep-import-tab").exists()).toBe(true)
     expect(second.findAll(".settings-tab-nav .tab-btn")[1].attributes("aria-selected"))
       .toBe("true")
   })
@@ -100,18 +100,18 @@ describe("结构与导航", () => {
     })
     const tabs = wrapper.findAll(".settings-tab-nav .tab-btn")
     const panel = wrapper.get("#project-settings-tab-panel")
-    expect(tabs[0].attributes("id")).toBe("project-settings-tab-deep")
+    expect(tabs[0].attributes("id")).toBe("project-settings-tab-author")
     expect(tabs[0].attributes("aria-controls")).toBe("project-settings-tab-panel")
     expect(tabs[0].attributes("tabindex")).toBe("0")
     expect(tabs[1].attributes("tabindex")).toBe("-1")
-    expect(panel.attributes("aria-labelledby")).toBe("project-settings-tab-deep")
+    expect(panel.attributes("aria-labelledby")).toBe("project-settings-tab-author")
 
     tabs[0].element.focus()
     await tabs[0].trigger("keydown", { key: "ArrowRight" })
     await vi.waitFor(() => expect(document.activeElement).toBe(tabs[1].element))
     expect(tabs[1].attributes("aria-selected")).toBe("true")
-    expect(panel.attributes("aria-labelledby")).toBe("project-settings-tab-author")
-    expect(projectSettingsSession.tab).toBe("author")
+    expect(panel.attributes("aria-labelledby")).toBe("project-settings-tab-deep")
+    expect(projectSettingsSession.tab).toBe("deep")
 
     await tabs[1].trigger("keydown", { key: "Home" })
     await vi.waitFor(() => expect(document.activeElement).toBe(tabs[0].element))
@@ -130,11 +130,12 @@ describe("结构与导航", () => {
     const save = deferred()
     globalThis.api.projects.updateLlmSettings.mockReturnValue(save.promise)
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
     void wrapper.find("#deep-import-tab-save").trigger("click")
     await Promise.resolve()
     expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("true")
     expect(wrapper.get("#deep-import-tab-save").attributes("aria-busy")).toBe("true")
-    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[0].trigger("click")
     expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("false")
     save.resolve()
     await flushPromises()
@@ -158,15 +159,17 @@ describe("深度导入", () => {
       },
     })
     expect(guard()).toBe(true)
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
     await wrapper.find("#deep-import-phase0-target-input-chars").setValue("80000")
     expect(guard()).toBe(false)
     expect(confirm).toHaveBeenCalledWith(
-      "项目设置有未保存修改，确定放弃并离开吗？",
+      "项目偏好有未保存修改，确定放弃并离开吗？",
     )
   })
 
   it("只提交 deep_import，不回传项目 provider/model/key", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
     await wrapper.find("#deep-import-tab-save").trigger("click")
 
     await vi.waitFor(() => {
@@ -181,6 +184,7 @@ describe("深度导入", () => {
 
   it("越界参数不提交", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
     await wrapper.find("#deep-import-phase0-target-input-chars").setValue("10")
     await wrapper.find("#deep-import-tab-save").trigger("click")
     expect(globalThis.api.projects.updateLlmSettings).not.toHaveBeenCalled()
@@ -201,8 +205,6 @@ describe("作者偏好", () => {
         }),
       }),
     })
-    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
-
     const font = wrapper.find("#author-editor-font")
     expect(font.element.value).toBe("system")
     expect(font.findAll("option").map((option) => option.element.value)).toEqual([
@@ -217,7 +219,6 @@ describe("作者偏好", () => {
 
   it("保存项目偏好", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
-    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
     await wrapper.find("#author-daily-goal").setValue("500")
     await wrapper.find("#author-prefs-tab-save").trigger("click")
 
@@ -246,7 +247,6 @@ describe("作者偏好", () => {
         }),
       }),
     })
-    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
     await wrapper.find("#author-editor-font").setValue("serif")
     await wrapper.find('.field-reset[data-field="daily_goal"]').trigger("click")
 

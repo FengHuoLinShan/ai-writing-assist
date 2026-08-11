@@ -184,7 +184,7 @@ describe("终态处理",  () => {
 
     expect(clearActiveWorkflow).toHaveBeenCalledWith("task-done")
     expect(autoExtractManager.state.taskId).toBeNull()
-    expect(toast).toHaveBeenCalledWith("世界对象与别名/关系自动提取已完成", "success")
+    expect(toast).toHaveBeenCalledWith("人物、设定与关系已整理完成", "success")
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 

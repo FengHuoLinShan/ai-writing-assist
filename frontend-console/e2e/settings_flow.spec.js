@@ -36,9 +36,9 @@ test.describe("设置流程", () => {
     // hash-only goto 在 SPA 中偶发不触发重新渲染，reload 强制 initRouter 按 URL hash 渲染（确定性）
     await page.reload()
     // 限定 workspace-content，避免与顶部栏模块标题冲突
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("heading", { name: "作者偏好" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("heading", { name: "模型连接" })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户与模型连接" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("heading", { name: "通用创作偏好" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("heading", { name: "连接 AI 服务" })).toBeVisible({ timeout: 10000 })
     const providerGroup = page.getByRole("radiogroup", { name: "模型模板" })
     const providers = providerGroup.getByRole("radio")
     const selectedProvider = providerGroup.locator('[role="radio"][aria-checked="true"]')
@@ -53,26 +53,28 @@ test.describe("设置流程", () => {
     testProjectId = proj.id
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole("tab", { name: "深度导入" })).toBeVisible()
-    await expect(page.getByRole("tab", { name: "作者偏好" })).toBeVisible()
-    await expect(page.getByText(/模型与 Key 由账户设置统一管理/)).toBeVisible()
-    await expect(page.getByText(/Phase 0/)).toBeVisible()
-    const deepTab = page.getByRole("tab", { name: "深度导入" })
-    const authorTab = page.getByRole("tab", { name: "作者偏好" })
-    await expect(deepTab).toHaveAttribute("aria-controls", "project-settings-tab-panel")
-    await expect(page.locator("#project-settings-tab-panel")).toHaveAttribute(
-      "aria-labelledby",
-      await deepTab.getAttribute("id"),
-    )
-    await deepTab.focus()
-    await page.keyboard.press("End")
-    await expect(authorTab).toBeFocused()
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: /^项目偏好/ })).toBeVisible({ timeout: 10000 })
+    const deepTab = page.getByRole("tab", { name: "高级导入" })
+    const authorTab = page.getByRole("tab", { name: "创作偏好" })
+    await expect(deepTab).toBeVisible()
     await expect(authorTab).toHaveAttribute("aria-selected", "true")
+    await expect(deepTab).toHaveAttribute("aria-controls", "project-settings-tab-panel")
     await expect(page.locator("#project-settings-tab-panel")).toHaveAttribute(
       "aria-labelledby",
       await authorTab.getAttribute("id"),
     )
+    await authorTab.focus()
+    await page.keyboard.press("End")
+    await expect(deepTab).toBeFocused()
+    await expect(deepTab).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator("#project-settings-tab-panel")).toHaveAttribute(
+      "aria-labelledby",
+      await deepTab.getAttribute("id"),
+    )
+    await expect(page.getByText(/模型与密钥由“账户与模型连接”统一管理/)).toBeVisible()
+    await expect(page.getByText(/Phase 0/)).toBeVisible()
+    await page.keyboard.press("Home")
+    await expect(authorTab).toHaveAttribute("aria-selected", "true")
     await expect(page.getByText(/日更目标/)).toBeVisible()
   })
 
@@ -92,8 +94,8 @@ test.describe("设置流程", () => {
 
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await page.getByRole("tab", { name: "作者偏好" }).click()
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: /^项目偏好/ })).toBeVisible({ timeout: 10000 })
+    await page.getByRole("tab", { name: "创作偏好" }).click()
     await expect(page.locator("#author-editor-font")).toHaveValue("serif")
 
     const ctx2 = await request.newContext()
@@ -105,8 +107,8 @@ test.describe("设置流程", () => {
 
     await page.reload()
     // reload 后需重新等渲染完成
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await page.getByRole("tab", { name: "作者偏好" }).click()
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: /^项目偏好/ })).toBeVisible({ timeout: 10000 })
+    await page.getByRole("tab", { name: "创作偏好" }).click()
     await expect(page.locator("#author-editor-font")).toHaveValue("mono")
   })
 
@@ -124,8 +126,8 @@ test.describe("设置流程", () => {
 
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await page.getByRole("tab", { name: "作者偏好" }).click()
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: /^项目偏好/ })).toBeVisible({ timeout: 10000 })
+    await page.getByRole("tab", { name: "创作偏好" }).click()
     const font = page.locator("#author-editor-font")
     await expect(font).toHaveValue("system")
     await expect(font.locator("option")).toHaveText(["跟随系统", "衬线", "无衬线", "等宽"])
@@ -146,11 +148,11 @@ test.describe("设置流程", () => {
 
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: /^项目偏好/ })).toBeVisible({ timeout: 10000 })
     await expect(page.getByText(/当前模型：/)).toBeVisible()
     await expect(page.locator("#llm-api-key")).toHaveCount(0)
     await expect(page.locator("#llm-provider")).toHaveCount(0)
-    await expect(page.getByRole("button", { name: "到账户设置管理" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "管理账户与模型连接" })).toBeVisible()
   })
 
   test("深度导入字段越界校验 toast", async ({ page }) => {
@@ -159,7 +161,8 @@ test.describe("设置流程", () => {
     await page.goto(`/#workbench/${testProjectId}/project-settings`)
     // reload 强制 initRouter 按 URL hash 同步 currentProjectId，规避空态竞态
     await page.reload()
-    await expect(page.getByRole("tab", { name: "深度导入" })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("tab", { name: "高级导入" })).toBeVisible({ timeout: 10000 })
+    await page.getByRole("tab", { name: "高级导入" }).click()
     await page.fill("#deep-import-phase0-target-input-chars", "10")
     await page.getByRole("button", { name: "保存深度导入参数" }).click()
     await expect(page.getByText(/必须是/).first()).toBeVisible({ timeout: 5000 })
@@ -179,6 +182,6 @@ test.describe("设置流程", () => {
     await page.goto("/#llm")
     await page.waitForURL(/#settings/, { timeout: 5000 })
     await expect(page).toHaveURL(/#settings/)
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户与模型连接" })).toBeVisible({ timeout: 5000 })
   })
 })

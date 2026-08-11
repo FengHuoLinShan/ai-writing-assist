@@ -152,12 +152,12 @@ describe("normalizeEvidenceHit", () => {
       writing_relevance: { kind: "previous_scene", label: "前序 Scene" },
     })
     expect(parentSceneContexts(hit)).toHaveLength(1)
-    expect(parentSceneLabel(parentSceneContexts(hit)[0])).toBe("Scene 11 · 旧塔铜铃")
+    expect(parentSceneLabel(parentSceneContexts(hit)[0])).toBe("场景 11 · 旧塔铜铃")
     expect(hit.writing_relevance.kind).toBe("previous_scene")
   })
 
   it("无标题 Scene 不重复序号标签", () => {
-    expect(parentSceneLabel({ scene_index: 11, target_name: "Scene 11" })).toBe("Scene 11")
+    expect(parentSceneLabel({ scene_index: 11, target_name: "Scene 11" })).toBe("场景 11")
   })
 })
 

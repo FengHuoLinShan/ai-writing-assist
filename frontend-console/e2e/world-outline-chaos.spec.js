@@ -70,11 +70,11 @@ test.describe("世界对象与大纲 chaos", () => {
       await expect(page.locator(".data-table tbody tr")).toHaveCount(1)
 
       await page.locator(SEL.subnavItem("objects")).click()
-      await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象")
-      const targetRow = page.locator(`tr[data-id="${target.id}"]`)
+      await expect(page.locator(SEL.viewTitle)).toHaveText("人物与世界")
+      const targetRow = page.locator(`.world-object-card[data-id="${target.id}"]`)
       await expect(targetRow).toContainText(target.name)
       await expect(targetRow).toContainText("目标实体保持正史")
-      const entityRow = page.locator(`tr[data-id="${entity.id}"]`)
+      const entityRow = page.locator(`.world-object-card[data-id="${entity.id}"]`)
       await expect(entityRow).toContainText("当前摘要不应变化")
       await entityRow.locator(".action-menu-btn").click()
       await entityRow.locator('[data-action="rollback-entity"]').click()
@@ -112,7 +112,7 @@ test.describe("世界对象与大纲 chaos", () => {
       return window.__phase53WritingSessionMarker
     })
     await page.getByRole("button", { name: "整理", exact: true }).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("故事结构")
     expect(await page.evaluate(() => window.__phase53WritingSessionMarker)).toBe(writingSessionMarker)
 
     const row = page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)
@@ -131,7 +131,7 @@ test.describe("世界对象与大纲 chaos", () => {
       return window.__phase53NavigationMarker
     })
     await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
     expect(await page.evaluate(() => window.__phase53NavigationMarker)).toBe(navigationMarker)
     await expect(page.locator("#writing-panel-container")).not.toContainText(scene.title)
     await expect(page.locator(".scene-tree-label", { hasText: scene.title })).toHaveCount(0)
@@ -158,13 +158,13 @@ test.describe("世界对象与大纲 chaos", () => {
     await page.reload()
     await page.waitForFunction(() => !state.loading, { timeout: 10000 })
     await page.locator('[data-action="scene-auto-extract"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("从正文提取 Scene")
+    await expect(page.locator(SEL.modalTitle)).toHaveText("从正文整理场景")
     await page.locator("#scene-auto-extract-start").fill("1")
     await page.locator("#scene-auto-extract-end").fill("1")
-    await page.getByRole("button", { name: "确认并开始提取" }).click()
+    await page.getByRole("button", { name: "确认并开始整理" }).click()
 
     await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
-    await expect(page.locator(SEL.modalBody)).toContainText("已有 Scene，确认覆盖才会继续")
+    await expect(page.locator(SEL.modalBody)).toContainText("已有场景，确认覆盖才会继续")
     await page.getByRole("button", { name: "取消", exact: true }).click()
 
     expect(submissions).toHaveLength(1)

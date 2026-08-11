@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 from copy import deepcopy
 from typing import Any
 
 _SECRET_ENV_KEY = "LLM_SETTINGS_ENCRYPTION_KEY"
 _SECRET_ENVELOPE_VERSION = "fernet-v1"
+
+
+def fingerprint_secret(value: str, *, purpose: str) -> str:
+    """Return a stable deployment-keyed fingerprint for secret equality checks."""
+    secret = (value or "").strip()
+    domain = (purpose or "").strip()
+    if not secret or not domain:
+        raise ValueError("Secret fingerprint value and purpose must be non-empty")
+    key = os.environ.get(_SECRET_ENV_KEY, "").strip()
+    if not key:
+        raise RuntimeError(f"{_SECRET_ENV_KEY} must be configured to fingerprint secrets")
+    payload = domain.encode("utf-8") + b"\x00" + secret.encode("utf-8")
+    return hmac.digest(key.encode("ascii"), payload, "sha256").hex()
 
 
 def is_encrypted_secret(value: Any) -> bool:

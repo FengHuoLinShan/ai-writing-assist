@@ -5,7 +5,8 @@ RP 路径使用独立、纯白、低干扰的故事壳，同时支持暖色与�
 
 ## 快速启动
 
-开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。地图视图首次初始化时会按需从固定 CDN 加载 Leaflet，因此离线使用时需要确保浏览器可访问该资源。
+开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。Leaflet 1.9.4 是精确锁定的
+生产依赖；地图首次进入时才由 Vite 加载本源 JS/CSS chunk，非地图页面不会下载，也不依赖外部 CDN。
 
 ```bash
 cd frontend-console
@@ -201,14 +202,16 @@ frontend-console/
 
 - Vue 3 SFC shell + 业务页面（ADR-0009）：Vue 拥有静态外壳和所有实际路由目标的
   主 DOM；`scene` / `llm` 只作兼容重定向，不拥有页面 DOM
-- hash router、Proxy state、API 和 toast/modal 作为集中式基础设施保留；router 不再使用
-  DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态
+- hash router、Proxy state、API 和 toast/modal 作为集中式基础设施保留；router 的动态视图、
+  loader、pending loader 和子标签注册表使用 `Map`，只接受安全的小写路由 key 并拒绝原型属性名；
+  router 不再使用 DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态
 - Leaflet/Canvas 只通过 Vue `MapViewportAdapter` 下的 `mapView` seam 运行；Writing 仅保留
   `mapQuickCreateView` bridge 以及 `sceneAlerts` / `versionDiff` 纯 helper
 - Vue 视图经 `vue/mountIsland.js` 注册进 hash router（同一 `{onEnter, render, onRendered, onLeave}` 契约），组件只经 `vue/bridge/index.js` 访问 `api/state/router/toast` 等既有基建；异步 `load()` 使用代次守卫，新加载或 `onLeave` 后的旧响应不得回写当前 island；动态内容依赖模板自动转义，禁止 `v-html`
 - `vue/viewLoaders.js` 仅在启动时向 router 注册一级路由的动态 import 函数；认证门禁和未访问的业务页面不会下载 island。router 会复用同一路由的 pending import，模块必须经既有 `registerView()` 自注册；失败显示通用安全提示与原位“重试”。若重试仍失败，用户可以选择“刷新应用”，并会先看到未保存输入可能丢失的确认；不会自动刷新或中断正常创作。成功页的路由、生命周期、HTTP API、数据库 schema 与 wire shape 均不变。
 - 上述变更只调整前端内部所有权；HTTP API、数据库 schema 和前端 wire shape 保持不变
-- 地图视口按需加载 Leaflet（ADR-0003）
+- 地图视口按需加载锁定、自托管的 Leaflet 1.9.4；进行中和成功加载只复用一次，失败可原位重试，
+  不使用 `window.L` 或动态 CDN 标签（ADR-0003）
 - 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“待应用变更”按当前图层统计所有内容层草稿，而不是只统计底图 tile。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。地图设置保存后原位重载当前地图，不丢失 Scene、聚焦对象、视图模式或编辑会话上下文。
 - 地图快速创建的字段、可放置地点选择、半径、方向移动和锁定操作均提供作者可读的可访问名称；画布和视觉工作流、坐标/半径/锁定命令及地图 API 契约保持不变。
 - 图层面板使用递归树，展示祖先继承后的有效显隐、锁定、透明度与 zoom；exclusive/floor 当前子层由 route + localStorage 会话投影管理，isolate 不持久化。世界对象通过 map presence 在多张地图和多条线路间选择并双向定位。
@@ -232,18 +235,26 @@ frontend-console/
 
 ## 路由与设置
 
+- 作者入口会校验本地当前作品是否仍属于当前账户：有效时直接进入
+  `#workbench/{projectId}/today`，无效时清除选择并回到作品档案；没有作品时优先显示“新建空白作品”
+  与“导入已有作品”。`today` 通过 `projects.getWorkspaceSummary` 展示一个续写主操作、待处理数量
+  和最多 3 个可恢复长任务；摘要局部失败不阻止进入写作，未知任务不会被静默清除。
+- 桌面作者主导航固定为“首页、写作、人物与世界、故事结构、地图、查找”；项目切换器位于顶部，
+  “导入与整理、高级工具、项目偏好”收进“更多”，账户与模型连接位于头像菜单。390px 使用
+  “首页、写作、世界、结构、全部”五项带文字底栏，“全部”直接列出地图、查找和更多工具。
+  `generate`、`settings`、`project-settings` 及其他旧 hash 深链继续有效，只是不再占据主导航。
 - 作者壳层主题菜单提供具名开关和关联菜单语义：打开时聚焦当前主题，方向键与 Home/End 只移动焦点，Enter/Space 选择并回到开关，Escape 关闭并返回；Tab 保持浏览器原生遍历，主题值、持久化和通知契约不变。
 - 作者壳层命令栏以可编辑 combobox 呈现最多六项建议；方向键只浏览建议，Enter 仅在显式选择后采用建议，Tab 仍补全首项，命令与 `/` 搜索行为不变。
 - RP 旅程目录会为每个归档、恢复与永久删除操作公开对应旅程名；故事页为分支选择、抽屉关闭、加载/生成与失败状态提供程序化语义。流式正文和字数统计不使用 live announcement，既有故事、分支、归档及 API 契约不变。
 - 公共邮箱登录、等待删除后的重新认证与账号删除重新认证均提供命名的验证码输入、忙碌状态和成功/失败通告；账号弹窗关闭按钮具有明确名称。认证请求、恢复期、注销与 HTTP/API wire 契约不变。
 - RAG、结构、Scene 与世界书的可切换子导航使用原生按钮，当前项公开为当前页；Scene 工作台自身仍是非交互当前项，避免同路由刷新。地图的动态队列、历史、活地图当前事实与叙事透镜上下文时间线保留整卡鼠标详情快捷方式，同时以动态标题的原生按钮提供同名键盘入口；采用、忽略等卡内操作不会顺带打开详情。
 - 项目目录的“全选当前可见项目”明确只选择当前搜索/筛选后可见的项目；创建新项目占位卡保留鼠标入口，也可用键盘 Enter 或 Space 打开同一创建表单。项目回收站支持单个恢复、单个永久删除、批量恢复和批量永久删除；零选择时两项批量操作保持禁用，选择项目后才启用。永久删除仍必须二次确认，批量删除使用后端原子接口，不做部分成功。回收站每页 20 条，桌面端大模态框用双列完整展示当前页，并提供上一页、下一页和总数。
-- 根路由 `home` 只展示 `我是作家` 与 `我是 RP 用户` 两个大框；RP 使用 `journeys` 列表与
-  `interaction/{journey_id}` 故事路由。作者一级路由包含 `project`、`writing`、`world`、
+- 根路由 `home` 展示作者与“进入互动故事”双入口；RP 使用 `journeys` 列表与
+  `interaction/{journey_id}` 故事路由。作者一级路由包含 `project`、`today`、`writing`、`world`、
   `map`、`outline`、`rag`、`generate`、`settings`、`project-settings`。`outline` 默认进入
   层级最高的 `story-outline`，旧 `scene` 路由跳转到 `outline/scenes`。快速切换或初始化期间
   使用浏览器前进/后退时，晚到请求不会提交旧路由或覆盖当前页面。router 不缓存活 DOM；
-  `outline` 离开时停止 workflow 轮询并从持久化记录恢复，`writing` 使用项目隔离的显式
+  `today` 只按现有 task API 逐项恢复该项目的持久化任务；`outline` 离开时停止 workflow 轮询并从持久化记录恢复，`writing` 使用项目隔离的显式
   session snapshot 恢复作者编辑态。
 - 路由模块加载期间继续使用可访问的工作区骨架；快速导航、账号边界或 host 卸载后晚到的模块
   只可为未来访问完成注册，不能挂载或覆盖当前页面。已注册 renderer 优先于 loader；加载模块未
@@ -283,7 +294,7 @@ frontend-console/
   写结构资产。剧情线详情把伏笔与揭示合并成信息推进时间线，并提供未归类计划分配。P20 不在
   生成中心出现。P20 与大纲分析的异步提交请求允许等待 5 分钟，后台 P20 模型步骤允许 30 分钟，
   任务轮询不设置整体截止时间。
-- `outline/story-outline` 展示当前小说总纲的全部 creative core、Markdown 正文、主要剧情线、宏观推进和开放决策。手工保存、采用 AI preview 和采用历史内容都会使用 current revision 作为 CAS base 创建新 revision；历史不会被原地改写或回退版本号。AI 表单只包含作者意图、计划尺度、覆盖描述、显式可选人物/世界对象和是否参考当前总纲，不包含起止章；人物/对象不显式选择时由后端自动取 Top-K，结果完整可编辑且不自动采用。生成任务只恢复匹配 project / `story_outline_generate` / `outline.story_outline.generate` 的记录，接受受管 LLM provenance 但拒绝其他结果字段；轮询与取消显式携带 `novel_id`。409 保留当前 DOM 编辑内容，重新加载后更新 CAS base；同一 apply payload 重试复用幂等键，内容或 base 改变时轮换。
+- `outline/story-outline` 的作者名称为“故事总览”。AI 预览将主要剧情线、故事推进和待决定问题呈现为可新增、删除、排序和逐项校验的结构化列表；隐藏适配字段在提交前还原既有 JSON wire payload，后端 schema 不变。手工保存、采用 AI preview 和采用历史内容都会使用 current revision 作为 CAS base 创建新 revision；历史不会被原地改写或回退版本号。生成结果完整可编辑且不自动采用，409 保留当前 DOM 编辑内容并要求刷新基线。
 - Scene 融合与拆分使用大尺寸字段对比表，完整展示 AI 建议、原 Scene 引用、叙事标签、POV 和章节映射；默认显示全部字段，可只看服务端初始预览中的差异。融合预览属于同步 LLM 请求，后端生成窗口为 30 分钟，浏览器等待 35 分钟以给持久化和响应传输留出余量，不受普通 API 的 15 秒超时限制。长来源证据按需展开，AI 建议始终可见。叙事标签统一用 `draft` 表示“未标注”，拆分时显式清空的字段会按空值保存。废弃融合来源需要在预览内再次确认；保存请求期间所有融合操作保持锁定，失败后恢复控件并保留当前编辑内容。
 - 写作台“AI 工具”提供一次授权的完整“启动深度导入”入口，也保留三个分阶段提取入口。深度导入和 Scene 自动提取任务以 `taskId + projectId` 持久化；查询与取消都显式携带 `novel_id`。Scene stage 百分比是基于历史实测的耗时估算，Phase 0 只显示准备状态。Scene 工作台轮询只局部更新进度卡，不重绘正在浏览的列表。运行中的进度卡可在二次确认后取消当前任务；瞬时查询失败保留恢复记录，完成/降级/失败/已取消终态均保留到作者明确关闭，只有明确 404、放弃恢复或用户关闭时清理对应记录。
 - 同项目多个标签页或浏览器同时提交完整/分阶段自动提取时，服务端在项目级短事务锁内复用已有活动/待恢复 task；前端按返回的真实 `workflow_type` 连接原任务。恢复、放弃与取消按钮只按 task status API 的 `available_actions` 渲染。作者界面的失败、降级、质量与审计摘要会递归转换 `error_kind`，不直接展示内部错误码。
@@ -349,9 +360,14 @@ frontend-console/
 
 ## 安全与契约
 
-- `index.html` 配置 CSP meta baseline：脚本仅允许本源和 Leaflet CDN，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
+- `index.html` 配置 CSP meta baseline：脚本和外部样式来源仅允许本源，连接仅允许本源及本地开发
+  后端；`style-src` 暂保留 inline style 兼容。生产构建包含 Leaflet BSD-2-Clause 许可，并拒绝
+  `unpkg.com` 引用回归。
 - 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
 - Vue 模板动态内容使用插值自动转义；命令式 seam 默认使用 `textContent`，必须拼 HTML 时先走 `esc()`。
+- 世界关系审查预览使用 DOM 节点和 `textContent`，不把动态对象名称或关系类型送入
+  `innerHTML`。地图遥测 ID 优先使用 `crypto.randomUUID()`，兼容回退使用
+  `crypto.getRandomValues()`；安全随机源不可用时明确失败，不使用 `Math.random()`。
 - 右下角错误徽标是带计数和 dialog 状态的原生按钮；它按当前项目或未关联项目范围展示经脱敏的本地错误。打开的是非模态诊断面板，关闭会回到徽标；清空在面板内明确二次确认，只影响当前范围，不影响其他项目或已上报记录。程序化 `window.errorLog.clear()` 保持直接清空当前范围的兼容语义。
 - 当前已落地共享 JS API 契约校验第一阶段：`apiContracts.js` 注册高风险 wrapper 的 method/path/query/body/timeout，浏览器 `api.js` 与 Playwright API helper 共用同一 registry 和序列化规则；Vitest 覆盖加载顺序、必填 body、method 固定与代表 endpoint 映射。
 - TypeScript / OpenAPI codegen 仍是未来设计项；当前契约层不覆盖响应字段级 schema drift，设计记录见 `docs/frontend/typescript-api-contracts.md`。

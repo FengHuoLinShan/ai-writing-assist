@@ -35,18 +35,25 @@ Batch queue 的失败处理必须保持可重试或可恢复语义，不应因�
 前端入口添加 `Content-Security-Policy` meta baseline：
 
 ```text
-default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'
 ```
 
-`script-src` 不允许 `'unsafe-inline'`，因为当前脚本均通过本地文件或 Leaflet CDN 加载。`style-src` 暂时保留 `'unsafe-inline'`，兼容 `index.html` 现有静态 inline style 和现有视图模板中的内联样式。
+`script-src` 不允许 `'unsafe-inline'` 且仅允许本源。`style-src` 不再允许外部 origin，暂时保留
+`'unsafe-inline'`，兼容 `index.html` 现有静态 inline style 和现有视图模板中的内联样式。
 
-Leaflet 的 `https://unpkg.com` 许可是 ADR-0003 的延续：Leaflet 1.9.4 仍通过固定版本 CDN 加载，CSP 只把已接受的运行时依赖显式列入安全策略，不新增前端运行时依赖。
+Leaflet 1.9.4 根据 ADR-0003 的 2026-08-06 交付修订改为锁定 npm 依赖和 Vite 按需 chunk，
+浏览器不再访问 unpkg；这是对原 CSP baseline 的收紧，不改变 Leaflet/Canvas 使用边界。
+
+生产 OpenResty 是公网边缘响应头的唯一所有者：`/api/` 先隐藏上游的 HSTS、
+`X-Content-Type-Options` 和 `X-Frame-Options`，再由边缘各输出一份。后端直连仍保留自身安全头。
+`verify_public.sh` 对最终 API 响应检查单份、预期值的 HSTS/nosniff/DENY 和 CSP，
+并拒绝 CSP 重新引入 unpkg。
 
 ## 影响
 
 - LLM、worker、embedding 的并发上限成为显式系统边界，后续调优应优先改配置和测试，而不是在业务调用点散落并发控制。
 - 前端 CSP baseline 会阻止未授权脚本来源和 inline script，同时继续允许现有 inline style。
-- Leaflet CDN 继续可用；如需 vendor 本地化或替换 CDN，需更新 ADR-0003 或新增 ADR。
+- Leaflet JS/CSS 与 BSD-2-Clause 许可均由应用本源交付；生产构建验证外部 CDN 引用不会回归。
 
 ## 后续
 

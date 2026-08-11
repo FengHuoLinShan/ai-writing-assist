@@ -6,9 +6,9 @@
   >
     <Topbar v-if="showAuthorChrome" :project-title="projectTitle" :module-title="moduleTitle" :submodule-title="submoduleTitle" :view-note="viewNote"
       :connected="health.connected.value" :theme="theme.current.value" :wordcount="wordcount.dashboard" :wordcount-visible="wordcountVisible"
-      @select-theme="theme.apply" @manage-account="accountOpen = true" />
+      @select-theme="theme.apply" @manage-account="accountOpen = true" @open-settings="navigate('settings')" @show-help="showHelp" />
     <div id="main-layout" :class="{ 'main-layout--immersive': !showAuthorChrome }">
-      <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" @navigate="navigate" @show-help="showHelp" />
+      <Sidebar v-if="showAuthorChrome" ref="sidebar" :current-view="shellState.currentView" :project-title="projectTitle" @navigate="navigate" @show-help="showHelp" />
       <WorkspaceHost ref="workspace" @ready="setRouteHost" />
       <aside id="contextual-notes"></aside>
     </div>
@@ -75,11 +75,12 @@ const projectTitle = computed(() => shellState.currentProject?.title || shellSta
 const moduleTitle = computed(() => services.router.getRoute(shellState.currentView)?.title || shellState.currentView || "项目")
 const submoduleTitle = computed(() => services.router.getSubViewTitle(shellState.currentView, shellState.currentSubView))
 const viewNote = computed(() => ({
-  project: "项目是其他所有模块的根。点击项目卡片即可进入创作流程。",
-  world: "管理小说中的人物、地点、物品等长期创作资产。",
-  writing: "按章节撰写正文。支持暂存、发布、版本管理。",
-  rag: "检索小说正文与结构资料，追溯可靠证据来源。",
-  generate: "先自由聊，确定后再生成待处理建议。",
+  project: "选择一部作品，或从空白和已有正文开始。",
+  today: "从上次停下的地方继续，待处理内容可以稍后决定。",
+  world: "管理人物、地点、物品和关系等长期创作资料。",
+  writing: "按章节写作，工作稿会自动保存。",
+  rag: "在正文与作品资料中查找可靠来源。",
+  generate: "面向高级用法的生成与上下文工具。",
 })[shellState.currentView] || "")
 const wordcountVisible = computed(() => (
   shellState.currentView === "writing"

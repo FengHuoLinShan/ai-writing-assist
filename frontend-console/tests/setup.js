@@ -124,6 +124,7 @@ globalThis.api = {
     list: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
+    getWorkspaceSummary: vi.fn(),
     update: vi.fn(),
     remove: vi.fn(),
     listLlmProviderTemplates: vi.fn(),

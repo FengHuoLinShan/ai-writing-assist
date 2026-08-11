@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   beginMapNavigation,
   cancelMapTelemetry,
@@ -16,6 +16,11 @@ describe("mapTelemetry", () => {
   beforeEach(() => {
     cancelMapTelemetry()
     queueMapNavigationStart({ mapId: null })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it("emits one frozen interactive snapshot after every readiness condition", () => {
@@ -85,6 +90,22 @@ describe("mapTelemetry", () => {
     }
 
     expect(listener.mock.calls[0][0].detail.navigation_started_at_ms).toBe(12.5)
+  })
+
+  it("uses cryptographic bytes when randomUUID is unavailable", () => {
+    const getRandomValues = vi.fn((bytes) => {
+      bytes.set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+      return bytes
+    })
+    const random = vi.spyOn(Math, "random").mockImplementation(() => {
+      throw new Error("Math.random must not generate telemetry identifiers")
+    })
+    vi.stubGlobal("crypto", { getRandomValues })
+
+    expect(() => beginMapNavigation({ mapId: "map-crypto-fallback" })).not.toThrow()
+    expect(getRandomValues).toHaveBeenCalledTimes(1)
+    expect(random).not.toHaveBeenCalled()
+
   })
 
   it("consumes the matching route-level navigation start", () => {

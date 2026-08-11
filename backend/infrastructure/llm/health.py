@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import os
 import socket
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 from pydantic import BaseModel, Field
@@ -22,7 +24,10 @@ from infrastructure.llm.egress import (
     build_public_llm_request_guard,
     validate_user_llm_base_url,
 )
-from infrastructure.llm.profiles import resolve_llm_profile
+from infrastructure.llm.profiles import (
+    list_account_provider_templates,
+    resolve_llm_profile,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 
 
@@ -30,6 +35,8 @@ class LLMHealthResult(BaseModel):
     """Machine-readable health check result."""
 
     ok: bool
+    scope: str = "connection"
+    remote_check: bool = True
     model: str = ""
     base_url_host: str = ""
     error_kind: str = ""
@@ -197,7 +204,7 @@ class LLMHealthChecker:
             ok=False,
             host=urlparse(self.base_url).hostname or "",
             error_kind=_classify_http_status(response.status_code),
-            message=redact_diagnostic(response.text, limit=300),
+            message=self._redact_provider_diagnostic(response.text),
         )
 
     def _exception_result(self, exc: Exception) -> LLMHealthResult:
@@ -205,8 +212,14 @@ class LLMHealthChecker:
             ok=False,
             host=urlparse(self.base_url).hostname or "",
             error_kind=_classify_exception(exc),
-            message=redact_diagnostic(exc, limit=300),
+            message=self._redact_provider_diagnostic(exc),
         )
+
+    def _redact_provider_diagnostic(self, value: object) -> str:
+        diagnostic = str(value)
+        if self.api_key:
+            diagnostic = diagnostic.replace(self.api_key, "[REDACTED]")
+        return redact_diagnostic(diagnostic, limit=300)
 
     def _result(
         self,
@@ -265,7 +278,145 @@ async def check_llm_health_for_project(
 
 
 async def check_llm_health() -> LLMHealthResult:
+    """Run the legacy accountless connection check for internal callers."""
+
     return await check_llm_health_for_project(None)
+
+
+async def check_llm_service_health() -> LLMHealthResult:
+    """Validate service-owned LLM capability without credentials or network I/O."""
+
+    settings = get_settings()
+    try:
+        _validate_service_proxy_configuration(
+            settings.llm_proxy_url,
+            trust_env=settings.llm_trust_env,
+            public_mode=settings.auth_mode.strip().lower() == "public",
+        )
+        _validate_account_provider_templates(settings=settings)
+    except (TypeError, ValueError):
+        return LLMHealthResult(
+            ok=False,
+            scope="service",
+            remote_check=False,
+            error_kind="configuration_error",
+            message="LLM service configuration is invalid",
+        )
+    return LLMHealthResult(
+        ok=True,
+        scope="service",
+        remote_check=False,
+        message="LLM service configuration is valid",
+    )
+
+
+async def check_llm_environment_health(
+    environment: Mapping[str, str] | None = None,
+) -> LLMHealthResult:
+    """Run an explicit CLI-only remote diagnostic from environment values.
+
+    This helper never participates in account or project profile resolution.
+    """
+
+    values = environment if environment is not None else os.environ
+    settings = get_settings()
+    api_key = str(values["LLM_API_KEY"]) if "LLM_API_KEY" in values else ""
+    base_url = (
+        str(values["LLM_BASE_URL"])
+        if "LLM_BASE_URL" in values
+        else settings.llm_base_url
+    )
+    model = str(values["LLM_MODEL"]) if "LLM_MODEL" in values else settings.llm_model
+    proxy_url = (
+        str(values["LLM_PROXY_URL"])
+        if "LLM_PROXY_URL" in values
+        else settings.llm_proxy_url
+    )
+    trust_env_value = values.get("LLM_TRUST_ENV")
+    trust_env = (
+        settings.llm_trust_env
+        if trust_env_value is None
+        else str(trust_env_value).strip().lower() in {"1", "true", "yes", "on"}
+    )
+    checker = LLMHealthChecker(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        trust_env=trust_env,
+        proxy_url=proxy_url,
+        timeout=min(int(settings.llm_timeout), 30),
+    )
+    result = await checker.check()
+    result.scope = "environment"
+    result.remote_check = True
+    result.profile_sources = {
+        "api_key": "environment",
+        "base_url": "environment" if "LLM_BASE_URL" in values else "default",
+        "model": "environment" if "LLM_MODEL" in values else "default",
+        "proxy_url": "environment" if "LLM_PROXY_URL" in values else "default",
+        "trust_env": "environment" if trust_env_value is not None else "default",
+    }
+    result.profile_summary = {
+        "model": model,
+        "base_url_host": urlparse(base_url).hostname or "",
+        "api_key_configured": bool(api_key),
+        "proxy_configured": bool(proxy_url),
+        "trust_env": trust_env,
+        "scope": "environment",
+    }
+    return result
+
+
+def _validate_service_proxy_configuration(
+    proxy_url: str,
+    *,
+    trust_env: bool,
+    public_mode: bool,
+) -> None:
+    if public_mode and trust_env:
+        raise ValueError("public service proxy configuration must be explicit")
+    if not proxy_url:
+        return
+    try:
+        parsed = urlsplit(proxy_url)
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid LLM proxy URL") from exc
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("invalid LLM proxy URL")
+    if parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+        raise ValueError("invalid LLM proxy URL")
+
+
+def _validate_account_provider_templates(*, settings: Any) -> None:
+    templates = list_account_provider_templates()
+    if not templates:
+        raise ValueError("no account LLM provider templates")
+    provider_ids: set[str] = set()
+    for template in templates:
+        provider_id = str(template.get("id") or "").strip()
+        base_url = str(template.get("base_url") or "").strip()
+        model = str(template.get("default_model") or "").strip()
+        if not provider_id or provider_id in provider_ids or not base_url or not model:
+            raise ValueError("invalid account LLM provider template")
+        provider_ids.add(provider_id)
+        parsed = urlsplit(base_url)
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("unsafe account LLM provider template")
+        try:
+            literal = ipaddress.ip_address(parsed.hostname)
+        except ValueError:
+            literal = None
+        if literal is not None and not literal.is_global:
+            raise ValueError("unsafe account LLM provider template")
+        validate_user_llm_base_url(base_url, settings=settings)
 
 
 def _is_fake_ip(value: str) -> bool:

@@ -8,7 +8,7 @@ from inspect import isawaitable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
-from infrastructure.llm.redaction import redact_diagnostic
+from core.logging_context import exception_summary_for_log, novel_id_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,6 @@ async def request_entity_activity_reannotation(
     except Exception as exc:
         logger.warning(
             "failed to request entity activity reannotation novel_id=%s reason=%s",
-            novel_id,
-            redact_diagnostic(exc, limit=300),
+            novel_id_for_log(novel_id),
+            exception_summary_for_log(exc),
         )

@@ -76,7 +76,7 @@ function startPolling(taskId, projectId) {
       clearActiveWorkflow(progress.taskId || taskId)
       state.taskId = null
       state.progress = progress
-      getToast()("从正文提取 Scene 完成", "success")
+      getToast()("场景已从正文整理完成", "success")
       await terminalHandler?.(progress)
     },
     onFailed: async (progress) => {
@@ -84,8 +84,8 @@ function startPolling(taskId, projectId) {
       state.progress = progress
       getToast()(
         progress.cancelled
-          ? "当前正文 Scene 提取任务已取消"
-          : `从正文提取 Scene 失败: ${progress.errorMessage || "未知错误"}`,
+          ? "当前正文场景整理已取消"
+          : `从正文整理场景失败：${progress.errorMessage || "未知错误"}`,
         progress.cancelled ? "warning" : "error",
       )
       await terminalHandler?.(progress)
@@ -136,7 +136,7 @@ function adopt(result, meta, projectId = getAppState()?.currentProjectId) {
   persistActiveWorkflow({
     taskId: result.task_id,
     workflowType: "scene_auto_extraction",
-    label: "从正文提取 Scene",
+    label: "从正文整理场景",
     projectId,
     view: "outline",
     meta: state.meta,

@@ -807,7 +807,7 @@ export function useWorldBible(props) {
   function projectionRefreshErrorMessage(err) {
     const msg = err?.message || ""
     if (msg.includes("No handler registered") || msg.includes("world_bible_projection_refresh")) {
-      return "投影刷新任务暂不可用，请确认后端 worker 已更新并重启后重试"
+      return "资料刷新任务暂不可用，请确认后台服务已更新并重启后重试"
     }
     return msg || "刷新投影失败"
   }

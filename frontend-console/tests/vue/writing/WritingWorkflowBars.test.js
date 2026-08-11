@@ -252,7 +252,7 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.text()).not.toContain("schema_failure")
     expect(wrapper.text()).not.toContain("phase1b_enrichment")
     expect(wrapper.text()).toContain("结果格式未通过校验")
-    expect(wrapper.text()).toContain("Phase 1b · Scene 字段补全")
+    expect(wrapper.text()).toContain("阶段 3 · 补充场景资料")
   })
 
   it("允许宿主把最近冲突检查移到顶部操作行", () => {

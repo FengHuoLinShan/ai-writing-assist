@@ -22,6 +22,22 @@ const SAFE_ROUTE_PARAMS = Object.freeze(new Set([
 let activeSession = null
 let longTaskObserver = null
 
+function randomTelemetryId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID()
+  }
+  if (typeof globalThis.crypto?.getRandomValues !== "function") {
+    throw new Error("Secure random generation is unavailable")
+  }
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  const encoded = Array.from(
+    bytes,
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("")
+  return `map-telemetry-${encoded}`
+}
+
 function now() {
   return globalThis.performance?.now?.() ?? Date.now()
 }
@@ -162,8 +178,7 @@ export function beginMapNavigation({ mapId = null, route = null, startedAt = nul
   const navigationStartedAt = typeof requestedStart === "number" && Number.isFinite(requestedStart)
     ? requestedStart
     : now()
-  const id = globalThis.crypto?.randomUUID?.()
-    || `map-telemetry-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const id = randomTelemetryId()
   activeSession = {
     id,
     mapId,

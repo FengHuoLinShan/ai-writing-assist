@@ -15,6 +15,7 @@ const props = defineProps({
   index: { type: Number, required: true },
   isCurrent: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
+  manage: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(["open", "toggle-select", "edit", "delete"])
@@ -59,7 +60,7 @@ const cardClasses = computed(() => [
     </div>
     <div class="project-card__content">
       <div class="project-card__masthead">
-        <div class="project-card-selection" data-action="noop" @click.stop>
+        <div v-if="manage" class="project-card-selection" data-action="noop" @click.stop>
           <label class="selection-checkbox" :title="`选择 ${name}`">
             <input
               type="checkbox"
@@ -102,9 +103,9 @@ const cardClasses = computed(() => [
       <div class="project-card__footer">
         <div class="project-meta">{{ created ? `创建于 ${created}` : "刚刚创建" }}</div>
         <div class="project-card__actions">
-          <button class="btn btn-sm btn-primary" data-action="continue-writing" :data-id="project.id" @click.stop="emit('open', project.id)">继续写作</button>
-          <button class="btn btn-sm btn-ghost" data-action="edit-project" :data-id="project.id" @click.stop="emit('edit', project.id)">编辑</button>
-          <button class="btn btn-sm btn-danger" data-action="delete-project" :data-id="project.id" @click.stop="emit('delete', project.id)">删除</button>
+          <button class="btn btn-sm btn-primary" data-action="continue-writing" :data-id="project.id" @click.stop="emit('open', project.id)">继续创作</button>
+          <button v-if="manage" class="btn btn-sm btn-ghost" data-action="edit-project" :data-id="project.id" @click.stop="emit('edit', project.id)">编辑</button>
+          <button v-if="manage" class="btn btn-sm btn-danger" data-action="delete-project" :data-id="project.id" @click.stop="emit('delete', project.id)">删除</button>
         </div>
       </div>
     </div>

@@ -19,6 +19,8 @@ const SAFE_RELATIVE_PATH = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-
 
 export const MAX_INVENTORY_BYTES = 65536
 export const MAX_INVENTORY_ENTRIES = 512
+export const LEAFLET_LICENSE_PATH = "licenses/leaflet-BSD-2-Clause.txt"
+export const LEAFLET_MANIFEST_KEY = "node_modules/leaflet/dist/leaflet-src.js"
 
 function isPlainObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
@@ -179,7 +181,31 @@ export async function verifyProductionOutput(outputRoot) {
   for (const reference of indexReferences) {
     await regularFileAt(outputRoot, reference, "index asset")
   }
+  const leafletManifestRecord = manifest[LEAFLET_MANIFEST_KEY]
+  if (!isPlainObject(leafletManifestRecord) || leafletManifestRecord.isDynamicEntry !== true) {
+    throw new Error("production manifest does not contain the dynamic Leaflet entry")
+  }
+  const leafletImportOwners = Object.entries(manifest)
+    .filter(([, record]) => (
+      Array.isArray(record?.dynamicImports)
+      && record.dynamicImports.includes(LEAFLET_MANIFEST_KEY)
+    ))
+    .map(([key]) => key)
+  if (
+    leafletImportOwners.length !== 1
+    || leafletImportOwners[0] !== "vue/mapIsland.js"
+  ) {
+    throw new Error("Leaflet must be dynamically imported only by the map route island")
+  }
   const manifestPaths = await collectManifestAssetPaths(manifest, outputRoot)
+  await regularFileAt(outputRoot, LEAFLET_LICENSE_PATH, "Leaflet production license")
+  const leafletLicense = await readFile(resolve(outputRoot, LEAFLET_LICENSE_PATH), "utf8")
+  if (
+    !leafletLicense.includes("BSD 2-Clause License")
+    || !leafletLicense.includes("Volodymyr Agafonkin")
+  ) {
+    throw new Error("Leaflet production license is incomplete")
+  }
 
   const assetsRoot = resolve(outputRoot, "assets")
   let generatedAssets
@@ -194,6 +220,29 @@ export async function verifyProductionOutput(outputRoot) {
     if (!manifestPaths.has(declaredPath)) {
       throw new Error(`generated production asset is absent from manifest: ${declaredPath}`)
     }
+  }
+
+  const publishedFiles = await recursiveFiles(outputRoot, "")
+  const externalLeafletReferences = []
+  for (const path of publishedFiles.filter((value) => /\.(?:html|js|css|json)$/.test(value))) {
+    const contents = await readFile(resolve(outputRoot, path), "utf8")
+    if (contents.includes("unpkg.com")) externalLeafletReferences.push(path)
+  }
+  if (externalLeafletReferences.length) {
+    throw new Error(
+      `production output still references unpkg.com: ${externalLeafletReferences.join(", ")}`,
+    )
+  }
+
+  const leafletStyleFlags = await Promise.all(
+    generatedAssets
+      .filter((path) => path.endsWith(".css"))
+      .map(async (path) => (
+        await readFile(resolve(assetsRoot, path), "utf8")
+      ).includes(".leaflet-container")),
+  )
+  if (!leafletStyleFlags.some(Boolean)) {
+    throw new Error("production build does not contain Leaflet CSS")
   }
 
   const localhostApiBundles = []
@@ -212,6 +261,7 @@ export async function verifyProductionOutput(outputRoot) {
     "/index.html",
     "/asset-manifest.json",
     "/asset-inventory.txt",
+    `/${LEAFLET_LICENSE_PATH}`,
     ...indexReferences.map((path) => `/${path}`),
     ...[...manifestPaths].map((path) => `/${path}`),
   ])

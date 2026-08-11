@@ -161,7 +161,7 @@ def test_archive_verifier_failure_cleans_the_unpublished_backup(tmp_path: Path) 
     backup_dir = repo_root / "deploy" / "backups"
     assert result.returncode != 0
     assert result.stdout == ""
-    assert "run --rm --pull never" in docker_log.read_text(encoding="utf-8")
+    assert "run --rm -i --pull never" in docker_log.read_text(encoding="utf-8")
     assert not (backup_dir / "20260102T030405Z.dump").exists()
     assert not Path(f"{backup_dir / '20260102T030405Z.dump'}.sha256").exists()
 
@@ -191,7 +191,7 @@ def test_archive_verifier_pulls_only_when_the_pinned_image_is_missing(
     archive = next(
         index
         for index, line in enumerate(command_lines)
-        if "run --rm --pull never" in line
+        if "run --rm -i --pull never" in line
     )
     assert inspect < pull < archive
 
@@ -206,7 +206,7 @@ def test_archive_verifier_does_not_pull_an_inspected_cached_image(
     assert result.returncode == 0, result.stderr
     command_lines = docker_log.read_text(encoding="utf-8").splitlines()
     assert any("image inspect" in line for line in command_lines)
-    assert any("run --rm --pull never" in line for line in command_lines)
+    assert any("run --rm -i --pull never" in line for line in command_lines)
     assert not any(line.startswith("pull ") for line in command_lines)
 
 
@@ -226,7 +226,7 @@ def test_archive_verifier_fails_closed_when_the_missing_image_cannot_be_pulled(
     commands = docker_log.read_text(encoding="utf-8")
     assert "image inspect" in commands
     assert "pull" in commands
-    assert "run --rm --pull never" not in commands
+    assert "run --rm -i --pull never" not in commands
 
 
 def test_remote_failure_keeps_completed_pair_and_prunes_old_local_pair(

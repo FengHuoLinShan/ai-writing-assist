@@ -104,7 +104,7 @@ async function loadWorld() {
 
   // URL 解码筛选（URL 为事实源；objects 解码语义见 worldView.js:467-487）
   const objectFilters = objectFiltersFromQuery(query)
-  const objectViewMode = query.get("view") === "card" ? "card" : "table"
+  const objectViewMode = query.get("view") === "table" ? "table" : "card"
   const requestedMode = query.get("mode")
   const discoveryMode = requestedMode === "normal" || requestedMode === "hot"
     ? requestedMode

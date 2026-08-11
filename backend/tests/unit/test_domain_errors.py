@@ -144,7 +144,7 @@ async def test_domain_error_handler_logs_only_safe_structured_fields(
     assert record.getMessage() == (
         "Domain request rejected method=PATCH "
         f"route=/api/projects/{{project_id}}/maps/{{map_id}} "
-        f"status={error.status_code} code={error.code} novel_id=<none>"
+        f"status={error.status_code} novel_id=<none>"
     )
     assert raw_project_id not in caplog.text
     assert error.message not in caplog.text
@@ -177,7 +177,7 @@ async def test_domain_error_handler_falls_back_for_untrusted_log_metadata(
     assert len(records) == 1
     assert records[0].getMessage() == (
         "Domain request rejected method=UNKNOWN route=<unresolved> "
-        "status=400 code=domain_error novel_id=<none>"
+        "status=400 novel_id=<none>"
     )
     assert secret not in caplog.text
     assert json.loads(response.body)["error"] == f"bad\n{secret}"
@@ -207,7 +207,7 @@ async def test_domain_error_handler_gets_route_template_in_real_fastapi_scope(
     assert len(records) == 1
     assert records[0].getMessage() == (
         "Domain request rejected method=GET route=/probe/{item_id} "
-        "status=404 code=probe_not_found novel_id=<none>"
+        "status=404 novel_id=<none>"
     )
     assert private_item_id not in caplog.text
     assert response.status_code == 404

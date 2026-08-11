@@ -7,18 +7,18 @@ const RUNNING_STATUSES = new Set(["pending", "running"])
 
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
-  scene_auto_extraction: "从正文提取 Scene",
+  scene_auto_extraction: "从正文整理场景",
   smart_dedup_scan: "智能去重扫描",
-  world_object_auto_extraction: "世界对象与别名/关系自动提取",
+  world_object_auto_extraction: "整理人物、设定与关系",
   world_entity_fusion_suggestions: "世界对象 AI 合并建议",
-  plot_structure_auto_extraction: "剧情线自动提取",
-  map_observation_enrichment: "地图事实补充",
-  publish_chapter: "发布正文",
-  rag_reindex_novel: "重建 RAG 索引",
-  rag_retry_embeddings: "重试失败向量",
+  plot_structure_auto_extraction: "从正文整理剧情线",
+  map_observation_enrichment: "补充地图资料",
+  publish_chapter: "设为正式正文",
+  rag_reindex_novel: "修复查找资料",
+  rag_retry_embeddings: "修复查找资料",
   plot_structure_generate: "生成剧情结构",
   outline_generate: "生成剧情结构",
-  story_outline_generate: "AI 小说总纲",
+  story_outline_generate: "AI 故事总览",
   outline_analyze: "AI 分析大纲",
   chapter_card_generation: "生成章节卡",
   chapter_scene_generate: "生成章节与场景结构",
@@ -36,16 +36,16 @@ const STATUS_LABELS = {
 }
 
 const PHASE_MESSAGE_LABELS = {
-  entity_extraction: "正在按 Scene 提取世界对象与别名/关系",
+  entity_extraction: "正在按场景提取人物、设定与关系",
   structure_analysis: "正在提取剧情结构",
 }
 
 const SCENE_PHASE_LABELS = {
-  phase0_plan: { technical: "Phase 0", label: "Scene 窗口规划" },
-  phase1a_scene_slicing: { technical: "Phase 1a", label: "Scene 边界切分" },
-  phase1b_enrichment: { technical: "Phase 1b", label: "Scene 字段补全" },
-  phase1c_scene_fusion: { technical: "Phase 1c", label: "Scene 边界融合" },
-  scene_commit: { technical: "Scene commit", label: "正式写入" },
+  phase0_plan: { technical: "阶段 1", label: "规划场景范围" },
+  phase1a_scene_slicing: { technical: "阶段 2", label: "划分场景边界" },
+  phase1b_enrichment: { technical: "阶段 3", label: "补充场景资料" },
+  phase1c_scene_fusion: { technical: "阶段 4", label: "整理相邻场景" },
+  scene_commit: { technical: "最后一步", label: "保存整理结果" },
 }
 
 function scenePhaseMessage(result) {
@@ -59,24 +59,24 @@ function scenePhaseMessage(result) {
   if (result.current_phase === "phase1a_scene_slicing") {
     const unit = item.completed != null && item.total
       ? `窗口 ${item.completed}/${item.total}`
-      : "正在切分 Scene 边界"
+      : "正在划分场景边界"
     return `${prefix}｜${unit}`
   }
   if (result.current_phase === "phase1b_enrichment") {
     const unit = item.completed != null && item.total
-      ? `Scene ${item.completed}/${item.total}`
+      ? `场景 ${item.completed}/${item.total}`
       : "正在补全叙事字段"
     return `${prefix}｜${unit}`
   }
   if (result.current_phase === "phase1c_scene_fusion") {
     const unit = item.completed != null && item.total
       ? `边界 ${item.completed}/${item.total}`
-      : "正在审核相邻 Scene"
+      : "正在检查相邻场景"
     return `${prefix}｜${unit}`
   }
   const count = item.count
     ?? safeObject(safeObject(result.phase_artifacts).phase1b_enrichment).counts?.candidate_count
-  return `${prefix}｜${count != null ? `正在保存 ${count} 个 Scene` : "正在保存 Scene"}`
+  return `${prefix}｜${count != null ? `正在保存 ${count} 个场景` : "正在保存场景"}`
 }
 
 function scenePhaseSummary(result) {
@@ -150,17 +150,17 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (workflowType === "smart_dedup_scan") return "正在扫描重复资产"
   if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
   if (workflowType === "world_entity_fusion_suggestions") return "正在生成世界对象合并建议"
-  if (workflowType === "map_observation_enrichment") return "正在从既有 Scene 补充地图待复核事实"
+  if (workflowType === "map_observation_enrichment") return "正在从既有场景补充地图资料"
   if (workflowType === "plot_structure_auto_extraction") return "正在自动提取剧情线"
   if (workflowType === "publish_chapter") {
     if (percent != null && percent < 50) return "正在存入 RAG 系统"
     return "正在创建历史状态"
   }
   if (workflowType === "rag_reindex_novel") return "正在逐章重建索引"
-  if (workflowType === "rag_retry_embeddings") return "正在重试失败向量"
+  if (workflowType === "rag_retry_embeddings") return "正在修复查找资料"
   if (workflowType === "plot_structure_generate" || workflowType === "outline_generate") return "正在生成剧情结构"
   if (workflowType === "outline_analyze") return "正在分析大纲结构"
-  if (workflowType === "story_outline_generate") return "正在生成小说总纲预览"
+  if (workflowType === "story_outline_generate") return "正在生成故事总览预览"
   if (
     workflowType === "chapter_card_generation"
     || workflowType === "chapter_scene_generate"
@@ -199,7 +199,7 @@ function buildResultSummary(result, workflowType) {
     const parts = []
     if (result.total_chapters != null) parts.push(`${result.total_chapters} 章`)
     if (result.chunks_created != null) parts.push(`${result.chunks_created} 个片段`)
-    if (result.embedding_failed_count) parts.push(`${result.embedding_failed_count} 个嵌入失败`)
+    if (result.embedding_failed_count) parts.push(`${result.embedding_failed_count} 项资料仍待修复`)
     return parts.length ? parts.join("，") : null
   }
   if (workflowType === "rag_retry_embeddings") {
@@ -213,11 +213,11 @@ function buildResultSummary(result, workflowType) {
     const parts = []
     if (result.total_threads != null) parts.push(`剧情线 ${result.total_threads}`)
     if (result.total_arcs != null) parts.push(`篇章纲 ${result.total_arcs}`)
-    if (result.total_scenes != null) parts.push(`Scene ${result.total_scenes}`)
+    if (result.total_scenes != null) parts.push(`场景 ${result.total_scenes}`)
     return parts.length ? parts.join("，") : result.summary || null
   }
   if (workflowType === "chapter_scene_generate") {
-    if (result.total_scenes != null) return `Scene ${result.total_scenes}`
+    if (result.total_scenes != null) return `场景 ${result.total_scenes}`
     return result.summary || null
   }
   if (workflowType === "smart_dedup_scan") {
@@ -233,7 +233,7 @@ function buildResultSummary(result, workflowType) {
   }
   if (workflowType === "map_observation_enrichment") {
     const parts = []
-    if (result.scene_count != null) parts.push(`扫描 ${result.scene_count} 个 Scene`)
+    if (result.scene_count != null) parts.push(`检查 ${result.scene_count} 个场景`)
     if (result.candidate_created_count != null) parts.push(`新增候选 ${result.candidate_created_count} 条`)
     if (result.candidate_reused_count) parts.push(`复用候选 ${result.candidate_reused_count} 条`)
     if (result.uncertain_count) parts.push(`待判定 ${result.uncertain_count} 条`)

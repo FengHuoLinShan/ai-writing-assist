@@ -64,12 +64,46 @@ def _verify(
     )
 
 
+def _verify_target(
+    repo: Path, target: str, restored: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(HELPER), "verify-target", str(repo), target],
+        input=restored,
+        capture_output=True,
+        text=True,
+    )
+
+
 @pytest.mark.parametrize("which", ["same", "forward"])
 def test_accepts_same_or_forward_graph(tmp_path: Path, which: str) -> None:
     repo, active, target = _repo(tmp_path)
     result = _verify(repo, active, active if which == "same" else target, "a\n")
 
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("restored", ["a\n", "b\n"])
+def test_target_revision_guard_accepts_reachable_revision(
+    tmp_path: Path, restored: str
+) -> None:
+    repo, _active, target = _repo(tmp_path)
+
+    result = _verify_target(repo, target, restored)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("restored", ["orphan\n", "a\nb\n"])
+def test_target_revision_guard_rejects_unknown_or_multiple_revisions(
+    tmp_path: Path, restored: str
+) -> None:
+    repo, _active, target = _repo(tmp_path)
+
+    result = _verify_target(repo, target, restored)
+
+    assert result.returncode != 0
+    assert "Migration compatibility guard rejected" in result.stderr
 
 
 def test_accepts_legacy_active_without_guard_helper_when_target_has_one(

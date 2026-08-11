@@ -10,7 +10,6 @@ import {
   createScene,
   waitForBackend,
 } from "./helpers/api-client.js"
-import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 
@@ -62,10 +61,6 @@ test.describe("地图 Scene 动态时间轴", () => {
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
-  })
-
-  test.beforeEach(async ({ page }) => {
-    await installLeafletStub(page.context())
   })
 
   test.afterEach(async () => {
@@ -158,9 +153,9 @@ test.describe("地图 Scene 动态时间轴", () => {
 
     const timeline = page.locator(".map-timeline-panel")
     await expect(timeline).toBeVisible({ timeout: 10000 })
-    const sceneSelect = timeline.getByLabel("选择 Scene")
+    const sceneSelect = timeline.getByLabel("选择场景")
     await expect(sceneSelect).toHaveValue("1")
-    await expect(sceneSelect.locator("option:checked")).toHaveText("Scene 10")
+    await expect(sceneSelect.locator("option:checked")).toHaveText("场景 10")
     await expect(timeline.locator(".map-timeline-state")).toContainText("巡夜人")
     await expect(timeline.getByLabel("待处理预览")).not.toBeChecked()
     await expect(timeline).not.toContainText("未经确认的警戒")
@@ -182,9 +177,9 @@ test.describe("地图 Scene 动态时间轴", () => {
     await expect(timeline.locator(".map-timeline-candidates")).toContainText("只读预览")
     await expect(timeline.locator(".map-timeline-state")).toContainText("巡夜人")
 
-    await timeline.getByRole("button", { name: "上一个 Scene" }).click()
+    await timeline.getByRole("button", { name: "上一个场景" }).click()
     await expect(sceneSelect).toHaveValue("0")
-    await expect(sceneSelect.locator("option:checked")).toHaveText("Scene 3")
+    await expect(sceneSelect.locator("option:checked")).toHaveText("场景 3")
     await expect(timeline.locator(".map-timeline-state")).toContainText("巡夜人")
     await expect(page.locator(".map-continuity-panel")).toContainText("空间连续性")
     await expect(page.locator(".map-continuity-panel")).toContainText("没有完整接入当前线路图")

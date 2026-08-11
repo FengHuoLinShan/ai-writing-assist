@@ -6,16 +6,16 @@
 <template>
   <div class="view-header view-header--with-tabs outline-toolbar">
     <div class="subnav">
-      <button type="button" class="subnav-item" :class="{ active: subView === 'story-outline' }" :aria-current="subView === 'story-outline' ? 'page' : undefined" data-action="nav-story-outline" @click="navigateSub('story-outline')">小说总纲</button>
-      <button type="button" class="subnav-item" :class="{ active: subView === 'arcs' }" :aria-current="subView === 'arcs' ? 'page' : undefined" data-action="nav-arcs" @click="navigateSub('arcs')">篇章纲</button>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'story-outline' }" :aria-current="subView === 'story-outline' ? 'page' : undefined" data-action="nav-story-outline" @click="navigateSub('story-outline')">故事总览</button>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'arcs' }" :aria-current="subView === 'arcs' ? 'page' : undefined" data-action="nav-arcs" @click="navigateSub('arcs')">篇章</button>
       <button type="button" class="subnav-item" :class="{ active: subView === 'threads' }" :aria-current="subView === 'threads' ? 'page' : undefined" data-action="nav-threads" @click="navigateSub('threads')">剧情线</button>
-      <button type="button" class="subnav-item" :class="{ active: subView === 'scenes' }" :aria-current="subView === 'scenes' ? 'page' : undefined" data-action="nav-scenes" @click="navigateSub('scenes')">场景工作台</button>
+      <button type="button" class="subnav-item" :class="{ active: subView === 'scenes' }" :aria-current="subView === 'scenes' ? 'page' : undefined" data-action="nav-scenes" @click="navigateSub('scenes')">场景</button>
     </div>
     <div class="view-header__tail">
       <span class="view-header__title">
-        <template v-if="subView === 'story-outline'">小说总纲<span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span></template>
+        <template v-if="subView === 'story-outline'">故事总览<span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span></template>
         <template v-else-if="subView === 'threads'">剧情线 <span class="view-header__count">共 {{ structureTotals.threads }} 个</span><span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span></template>
-        <template v-else-if="subView === 'arcs'">篇章纲 <span class="view-header__count">共 {{ structureTotals.arcs }} 个</span><span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span></template>
+        <template v-else-if="subView === 'arcs'">篇章 <span class="view-header__count">共 {{ structureTotals.arcs }} 个</span><span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span></template>
       </span>
       <div class="view-header__actions">
         <template v-if="subView === 'threads'">
@@ -25,10 +25,10 @@
           <button class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "提取中..." : "从正文提取剧情线" }}</button>
         </template>
         <template v-else-if="subView === 'arcs'">
-          <button class="btn btn-sm btn-primary" data-action="create-arc" @click="showCreateArcForm()">新建篇章纲</button>
-          <button class="btn btn-sm" data-action="ai-create-outline-arc" @click="showOutlineLayerAiForm('outline_arc')">AI 创作篇章纲</button>
+          <button class="btn btn-sm btn-primary" data-action="create-arc" @click="showCreateArcForm()">新建篇章</button>
+          <button class="btn btn-sm" data-action="ai-create-outline-arc" @click="showOutlineLayerAiForm('outline_arc')">AI 规划篇章</button>
           <button class="btn btn-sm" data-action="analyze-outline" :disabled="analysisBusy" @click="showOutlineAnalysisForm()">{{ analysisBusy ? "AI 分析中" : "AI 分析大纲" }}</button>
-          <button class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "提取中..." : "从正文提取篇章纲" }}</button>
+          <button class="btn btn-sm" data-action="plot-structure-auto-extract" :disabled="plotExtractBusy" @click="showPlotStructureAutoExtractForm()">{{ plotExtractBusy ? "整理中..." : "从正文整理篇章" }}</button>
         </template>
         <span data-role="smart-dedup-action"></span>
       </div>

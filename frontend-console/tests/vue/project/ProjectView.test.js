@@ -53,6 +53,11 @@ function mountView({ projects = [], currentProjectId = null, loadError = null } 
   return { wrapper, harness }
 }
 
+async function enterManageMode(wrapper) {
+  await wrapper.find('[data-action="manage-projects"]').trigger("click")
+  await wrapper.vm.$nextTick()
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   projectSession.importSectionOpen = false
@@ -66,13 +71,15 @@ afterEach(() => {
 })
 
 describe("渲染状态", () => {
-  it("有项目时渲染 hero、搜索条、卡片与占位卡", () => {
+  it("有项目时渲染 hero、搜索条、卡片，管理操作渐进展开", async () => {
     const { wrapper } = mountView({ projects: [makeProject("p1"), makeProject("p2")] })
     expect(wrapper.find("#project-catalog-title").exists()).toBe(true)
     expect(wrapper.find('[data-role="project-total-count"]').text()).toBe("2 个项目")
     expect(wrapper.findAll(".project-card[data-id]")).toHaveLength(2)
     expect(wrapper.find(".project-card-placeholder").exists()).toBe(true)
     expect(wrapper.find("#project-search-input").exists()).toBe(true)
+    expect(wrapper.find('[data-action="select-visible-projects"]').exists()).toBe(false)
+    await enterManageMode(wrapper)
     expect(wrapper.find('[data-action="select-visible-projects"]').text()).toBe("全选当前可见项目")
     expect(wrapper.find('[data-action="select-visible-projects"]').attributes("aria-label")).toBe("全选当前可见的 2 个项目")
   })
@@ -81,6 +88,8 @@ describe("渲染状态", () => {
     const { wrapper } = mountView()
     expect(wrapper.find(".project-catalog-state--first").exists()).toBe(true)
     expect(wrapper.text()).toContain("开始你的第一部小说")
+    expect(wrapper.find('[data-action="new"]').text()).toBe("新建空白作品")
+    expect(wrapper.find('[data-action="toggle-import"]').text()).toBe("导入已有作品")
   })
 
   it("加载失败且无项目显示连接错误态", () => {
@@ -142,7 +151,7 @@ describe("渲染状态", () => {
       return element
     })
     try {
-      await wrapper.find('[data-action="import"]').trigger("click")
+      await wrapper.find('[data-action="toggle-import"]').trigger("click")
 
       expect(chooser?.type).toBe("file")
       expect(chooser?.accept).toBe(".txt,.epub,.html,.htm,.mobi,.azw3")
@@ -182,6 +191,7 @@ describe("搜索过滤", () => {
 describe("选择与批量操作", () => {
   it("卡片勾选更新计数，全选可见，清空复位", async () => {
     const { wrapper } = mountView({ projects: [makeProject("p1"), makeProject("p2")] })
+    await enterManageMode(wrapper)
     const bulkBar = () => wrapper.find(".bulk-toolbar__status strong")
     expect(bulkBar().text()).toBe("0")
 
@@ -200,6 +210,7 @@ describe("选择与批量操作", () => {
     const { wrapper } = mountView({
       projects: [makeProject("p1", { title: "星际旅人" }), makeProject("p2", { title: "古城谜案" })],
     })
+    await enterManageMode(wrapper)
     await wrapper.find('[data-action="select-visible-projects"]').trigger("click")
     expect(getBulkSelection(projectSession, PROJECT_CARDS_SCOPE).size).toBe(2)
     await wrapper.find("#project-search-input").setValue("星际")
@@ -210,6 +221,7 @@ describe("选择与批量操作", () => {
     const { wrapper } = mountView({
       projects: [makeProject("p1", { title: "星际旅人" }), makeProject("p2", { title: "古城谜案" })],
     })
+    await enterManageMode(wrapper)
     await wrapper.find("#project-search-input").setValue("星际")
     const selectVisible = wrapper.find('[data-action="select-visible-projects"]')
     expect(selectVisible.text()).toBe("全选当前可见项目")
@@ -230,6 +242,7 @@ describe("选择与批量操作", () => {
       onStateChange: harness.onStateChange,
     })
     const wrapper = mount(ProjectView, { props: {} })
+    await enterManageMode(wrapper)
     await wrapper.find('[data-action="bulk-run"]').trigger("click")
     await vi.waitFor(() => {
       expect(globalThis.toast).toHaveBeenCalledWith(expect.stringContaining("批量移入回收站"), "success")
@@ -262,19 +275,20 @@ describe("卡片操作", () => {
     expect(showModalHtml).toHaveBeenCalledTimes(1)
   })
 
-  it("打开项目写入 state 并导航写作台", async () => {
+  it("打开项目写入 state 并导航今日工作", async () => {
     const { wrapper, harness } = mountView({ projects: [makeProject("p1", { title: "星际旅人" })] })
     await wrapper.find('.project-card[data-id="p1"]').trigger("click")
     expect(harness.state.currentProjectId).toBe("p1")
     expect(harness.state.currentProject.title).toBe("星际旅人")
     expect(globalThis.toast).toHaveBeenCalledWith("已切换到项目：星际旅人", "success")
-    expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("today")
   })
 
   it("编辑按钮打开编辑 modal（不冒泡打开项目）", async () => {
     const showModalHtml = vi.fn()
     setBridgeOverrides({ showModalHtml })
     const { wrapper, harness } = mountView({ projects: [makeProject("p1")] })
+    await enterManageMode(wrapper)
     await wrapper.find('[data-action="edit-project"]').trigger("click")
     expect(showModalHtml).toHaveBeenCalledWith("编辑项目", expect.stringContaining("edit-title"), expect.any(Array))
     expect(harness.state.currentProjectId).toBeNull()
@@ -284,6 +298,7 @@ describe("卡片操作", () => {
     const confirmAction = vi.fn()
     setBridgeOverrides({ confirmAction })
     const { wrapper, harness } = mountView({ projects: [makeProject("p1", { title: "星际旅人" })] })
+    await enterManageMode(wrapper)
     await wrapper.find('[data-action="delete-project"]').trigger("click")
     expect(confirmAction).toHaveBeenCalledWith(
       expect.stringContaining("星际旅人"),
@@ -320,6 +335,7 @@ describe("重试与回收站入口", () => {
   it("回收站按钮触发回收站加载", async () => {
     globalThis.api.projects.listDeleted = vi.fn(async () => ({ items: [], total: 0 }))
     const { wrapper } = mountView({ projects: [makeProject("p1")] })
+    await enterManageMode(wrapper)
     await wrapper.find('[data-action="recycle-bin"]').trigger("click")
     await vi.waitFor(() => {
       expect(globalThis.api.projects.listDeleted).toHaveBeenCalled()

@@ -17,6 +17,7 @@ COMMON_SCRIPT = DEPLOY_ROOT / "scripts" / "common.sh"
 FRONTEND_ASSET_VALIDATOR = DEPLOY_ROOT / "scripts" / "validate_frontend_assets.py"
 RUNTIME_HEALTH_SCRIPT = DEPLOY_ROOT / "scripts" / "runtime_health.sh"
 VERIFY_PUBLIC_SCRIPT = DEPLOY_ROOT / "scripts" / "verify_public.sh"
+RESTORE_DRILL_SCRIPT = DEPLOY_ROOT / "scripts" / "restore_drill.sh"
 CLOSED_TEST_ENV = DEPLOY_ROOT / "tests" / "fixtures" / "closed-test.env"
 EMBEDDING_CHECK_SCRIPT = DEPLOY_ROOT.parent / "backend" / "scripts" / "check_embedding.py"
 
@@ -438,6 +439,64 @@ def test_release_and_restore_use_shared_application_health_gate() -> None:
         assert asset in common_script
 
 
+def test_release_requires_restore_drill_and_public_gate_before_final_state() -> None:
+    release = (DEPLOY_ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+
+    backup = release.index('BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")')
+    drill = release.index('bash "$SCRIPT_DIR/restore_drill.sh"')
+    migration = release.index("compose --profile ops run --rm migrate")
+    internal_health = release.index("wait_for_application_health")
+    public_health = release.index('bash "$SCRIPT_DIR/verify_public.sh"')
+    finalized = release.index("write_deployment_state")
+
+    assert backup < drill < migration < internal_health < public_health < finalized
+
+    fresh_gate = release.index('if [ "$FIRST_RELEASE_FRESH" = "true" ]')
+    fresh_backup = release.index(
+        'BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")', fresh_gate
+    )
+    fresh_drill = release.index(
+        'bash "$SCRIPT_DIR/restore_drill.sh"', fresh_gate
+    )
+    assert migration < fresh_gate < fresh_backup < fresh_drill < internal_health
+
+
+def test_restore_drill_uses_only_an_isolated_pinned_postgres_container() -> None:
+    script = RESTORE_DRILL_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'POSTGRES_IMAGE=$(env_value POSTGRES_IMAGE)' in script
+    assert "validate_backup_pair.py" in script
+    assert 'verify_postgres_archive_stream <&4' in script
+    assert "--network none" in script
+    assert "--read-only" in script
+    assert "--cap-drop ALL" in script
+    assert "--security-opt no-new-privileges:true" in script
+    assert "--tmpfs /var/lib/postgresql/data:" in script
+    assert "--tmpfs /var/run/postgresql:" in script
+    assert "--user 999:999" in script
+    assert "docker create --name" in script
+    assert 'DRILL_CONTAINER_ID=$(docker create' in script
+    assert 'docker rm -f "$DRILL_CONTAINER_ID"' in script
+    assert "pg_restore" in script
+    assert "alembic_version" in script
+    assert 'verify-target "$REPO_ROOT" "$TARGET_COMMIT"' in script
+    assert 'rm -f -- "$BACKUP_PATH" "$BACKUP_PATH.sha256"' in script
+    for table_name in (
+        "accounts",
+        "projects",
+        "scenes",
+        "core_entities",
+        "async_tasks",
+        "account_llm_credentials",
+        "import_workflow_runs",
+        "interaction_journeys",
+    ):
+        assert table_name in script
+    assert "compose " not in script
+    assert "postgres-data" not in script
+    assert "POSTGRES_PASSWORD=$(env_value" not in script
+
+
 def test_restore_verifies_checksum_before_confirmation_and_database_replacement() -> None:
     restore_script = (DEPLOY_ROOT / "scripts" / "restore.sh").read_text()
     first_check = restore_script.index("verify_backup_checksum")
@@ -467,7 +526,9 @@ def test_restore_revalidates_target_environment_before_restore_work() -> None:
         "validate_environment", restore_first_validation + 1
     )
     restore_build = restore_script.index("compose build api frontend")
-    restore_archive_check = restore_script.index("verify_postgres_archive")
+    restore_archive_check = restore_script.index(
+        'bash "$SCRIPT_DIR/restore_drill.sh" --revision-only'
+    )
     restore_prompt = restore_script.index("Type RESTORE_PRODUCTION_BACKUP")
     restore_quiesce = restore_script.index("if ! compose stop api worker frontend; then")
 
@@ -498,7 +559,7 @@ def test_archive_verifier_is_service_independent_and_strictly_isolated() -> None
     for required in (
         "docker image inspect",
         "docker pull",
-        "docker run --rm --pull never",
+        "docker run --rm -i --pull never",
         "--network none",
         "--read-only",
         "--cap-drop ALL",
@@ -516,7 +577,8 @@ def test_archive_verifier_is_service_independent_and_strictly_isolated() -> None
     assert "compose exec" not in verifier_body
     assert "--volume" not in verifier_body
     assert 'verify_postgres_archive "$STAGING_DUMP"' in backup_script
-    assert 'verify_postgres_archive "$BACKUP_PATH"' in restore_script
+    assert 'bash "$SCRIPT_DIR/restore_drill.sh" --revision-only' in restore_script
+    assert '--target-commit "$TARGET_COMMIT" "$BACKUP_PATH"' in restore_script
 
 
 def test_rehydrate_intake_validates_arguments_before_lock_and_has_no_restore_work(
@@ -617,7 +679,7 @@ def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> N
     release_quiesce = release_script.index("if ! compose stop api worker frontend; then")
     release_dependencies = release_script.index("compose up -d postgres embedding")
     release_fresh_guard = release_script.index(
-        'if [ ! -e "$STATE_DIR/deployment-state.json" ]'
+        "FIRST_RELEASE_STATE_KIND=$(migration_guard_state_kind)"
     )
     release_embedding_check = release_script.index(
         "if ! compose run --rm api python scripts/check_embedding.py; then"
@@ -965,6 +1027,9 @@ def test_openresty_renders_loopback_tunnel_origin() -> None:
     assert "listen 127.0.0.1:3259;" in result.stdout
     assert "listen 443" not in result.stdout
     assert "ssl_certificate" not in result.stdout
+    assert "script-src 'self';" in result.stdout
+    assert "style-src 'self' 'unsafe-inline';" in result.stdout
+    assert "unpkg.com" not in result.stdout
 
     api_location = result.stdout.split("location /api/ {", maxsplit=1)[1].split(
         "location / {", maxsplit=1
@@ -973,6 +1038,13 @@ def test_openresty_renders_loopback_tunnel_origin() -> None:
     for location in (api_location, frontend_location):
         assert "proxy_set_header X-Real-IP $http_cf_connecting_ip;" in location
         assert "proxy_set_header X-Forwarded-For $http_cf_connecting_ip;" in location
+    for header_name in (
+        "Strict-Transport-Security",
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+    ):
+        assert api_location.count(f"proxy_hide_header {header_name};") == 1
+        assert f"proxy_hide_header {header_name};" not in frontend_location
     assert "$proxy_add_x_forwarded_for" not in result.stdout
 
 
@@ -1021,7 +1093,11 @@ def _write_runtime_health_fakes(tmp_path: Path) -> tuple[Path, Path]:
 def _prepare_runtime_health_repo(tmp_path: Path) -> Path:
     repo_root = tmp_path / "repo"
     deploy_root = repo_root / "deploy"
-    shutil.copytree(DEPLOY_ROOT, deploy_root)
+    shutil.copytree(
+        DEPLOY_ROOT,
+        deploy_root,
+        ignore=shutil.ignore_patterns(".pytest_cache", "__pycache__", "*.pyc"),
+    )
     state_dir = deploy_root / ".state"
     if state_dir.is_symlink():
         state_dir.unlink()
@@ -1281,7 +1357,11 @@ def _write_public_verification_curl(fake_bin: Path) -> Path:
     fake_curl.write_text(
         "#!/bin/sh\n"
         'printf "%s\\n" "$*" >>"$FAKE_CURL_LOG"\n'
+        "dump_header=\n"
+        "previous=\n"
         "for argument in \"$@\"; do\n"
+        '    if [ "$previous" = "--dump-header" ]; then dump_header="$argument"; fi\n'
+        '    previous="$argument"\n'
         '    if [ "$argument" = "--write-out" ]; then\n'
         "        last=\n"
         "        for last; do :; done\n"
@@ -1295,6 +1375,7 @@ def _write_public_verification_curl(fake_bin: Path) -> Path:
         "        exit 0\n"
         "    fi\n"
         "done\n"
+        'if [ -n "$dump_header" ]; then cat "$FAKE_RESPONSE_HEADERS" >"$dump_header"; fi\n'
         "last=\n"
         "for last; do :; done\n"
         'case "$last" in\n'
@@ -1309,7 +1390,9 @@ def _write_public_verification_curl(fake_bin: Path) -> Path:
 
 
 def _run_public_verification(
-    tmp_path: Path, *arguments: str
+    tmp_path: Path,
+    *arguments: str,
+    response_headers: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     env_file = _copy_safe_test_env(tmp_path)
     fake_bin = tmp_path / "bin"
@@ -1318,11 +1401,27 @@ def _run_public_verification(
     curl_log = tmp_path / "curl.log"
     inventory = tmp_path / "asset-inventory.txt"
     inventory.write_text("\n".join(_RUNTIME_PATHS + ["/assets/app.css"]) + "\n")
+    headers = tmp_path / "response.headers"
+    headers.write_text(
+        response_headers
+        or (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'; object-src 'none'; "
+            "base-uri 'self'; frame-ancestors 'none'\n\n"
+        ),
+        encoding="utf-8",
+    )
     environment = os.environ | {
         "ENV_FILE": str(env_file),
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "FAKE_CURL_LOG": str(curl_log),
         "FAKE_INVENTORY": str(inventory),
+        "FAKE_RESPONSE_HEADERS": str(headers),
     }
     result = subprocess.run(
         ["sh", str(VERIFY_PUBLIC_SCRIPT), *arguments],
@@ -1358,6 +1457,139 @@ def test_public_verification_keeps_runtime_checks_to_index_assets(
     assert any("--max-filesize 1048576" in request for request in full_requests)
     assert any("--max-filesize 65536" in request for request in runtime_requests)
     assert any("--max-filesize 1048576" in request for request in runtime_requests)
+
+
+@pytest.mark.parametrize(
+    "hsts_value",
+    [
+        "max-age=31536000; includeSubDomains",
+        "max-age=31536000; includeSubDomains; preload",
+        "MAX-AGE=63072000; INCLUDESUBDOMAINS; PRELOAD",
+    ],
+)
+def test_public_verification_accepts_single_stronger_hsts_header(
+    tmp_path: Path,
+    hsts_value: str,
+) -> None:
+    response_headers = (
+        "HTTP/2 200\n"
+        f"strict-transport-security: {hsts_value}\n"
+        "x-content-type-options: nosniff\n"
+        "x-frame-options: DENY\n"
+        "content-security-policy: default-src 'self'; script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "frame-ancestors 'none'\n\n"
+    )
+
+    result, _requests = _run_public_verification(
+        tmp_path,
+        response_headers=response_headers,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "response_headers",
+    [
+        (
+            "HTTP/2 200\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000\n"
+            "strict-transport-security: max-age=31536000\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=0\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000; preload\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000; "
+            "includeSubDomains; report-uri=https://example.invalid\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self' "
+            "https://unpkg.com; frame-ancestors 'none'\n\n"
+        ),
+        (
+            "HTTP/2 200\n"
+            "strict-transport-security: max-age=31536000\n"
+            "x-content-type-options: nosniff\n"
+            "x-frame-options: DENY\n"
+            "content-security-policy: default-src 'self'; script-src 'self' "
+            "https://cdn.example; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+            "base-uri 'self'; frame-ancestors 'none'\n\n"
+        ),
+    ],
+)
+def test_public_verification_rejects_missing_duplicate_or_weak_security_headers(
+    tmp_path: Path,
+    response_headers: str,
+) -> None:
+    result, _requests = _run_public_verification(
+        tmp_path,
+        response_headers=response_headers,
+    )
+
+    assert result.returncode != 0
+    assert "security header" in result.stderr.lower()
+
+
+def test_public_verification_rejects_unframed_trailing_header_block(
+    tmp_path: Path,
+) -> None:
+    response_headers = (
+        "HTTP/2 200\n"
+        "strict-transport-security: max-age=0\n"
+        "x-content-type-options: invalid\n\n"
+        "strict-transport-security: max-age=31536000\n"
+        "x-content-type-options: nosniff\n"
+        "x-frame-options: DENY\n"
+        "content-security-policy: default-src 'self'; script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "frame-ancestors 'none'\n\n"
+    )
+
+    result, _requests = _run_public_verification(
+        tmp_path,
+        response_headers=response_headers,
+    )
+
+    assert result.returncode != 0
+    assert "unframed header block" in result.stderr.lower()
 
 
 def test_public_verification_rejects_unknown_arguments_before_network_use() -> None:

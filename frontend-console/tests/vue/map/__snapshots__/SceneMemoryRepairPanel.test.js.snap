@@ -5,7 +5,7 @@ exports[`SceneMemoryRepairPanel > presents evidence, current fact, and one prima
   <div data-v-332e7d9f="" class="scene-memory-heading">
     <div data-v-332e7d9f="">
       <h4 data-v-332e7d9f="">阶段状态</h4>
-      <p data-v-332e7d9f="">雾港封锁 · 只使用此 Scene 及之前的已确认事实</p>
+      <p data-v-332e7d9f="">雾港封锁 · 只使用当前场景及之前的已确认事实</p>
     </div><span data-v-332e7d9f="" class="badge is-warning">需要判断</span>
   </div>
   <div data-v-332e7d9f="" class="scene-memory-dimensions" role="group" aria-label="阶段状态维度"><button data-v-332e7d9f="" class="scene-memory-dimension is-active needs-attention" aria-pressed="true"><span data-v-332e7d9f="">地图事实</span><small data-v-332e7d9f="">待修复</small></button></div>
@@ -22,7 +22,7 @@ exports[`SceneMemoryRepairPanel > presents evidence, current fact, and one prima
   <form data-v-332e7d9f="" class="scene-memory-decision">
     <div data-v-332e7d9f="" class="scene-memory-kicker">你的决定</div><label data-v-332e7d9f=""><input data-v-332e7d9f="" type="radio" value="keep_current"> 当前事实正确，直接采用</label><label data-v-332e7d9f=""><input data-v-332e7d9f="" type="radio" value="replace_with_summary"> 用我填写的正确内容替换</label>
     <!--v-if--><label data-v-332e7d9f=""><input data-v-332e7d9f="" type="radio" value="confirm_empty"> 这一阶段确实没有此类事实</label><textarea data-v-332e7d9f="" class="form-textarea" rows="2" placeholder="简要说明判断依据，便于以后回看。" aria-label="说明判断依据"></textarea><button data-v-332e7d9f="" class="btn btn-primary scene-memory-primary" type="submit">确认修复并重建后续阶段</button>
-    <p data-v-332e7d9f="" class="map-muted-text">只替换当前 Scene 的系统结果；人工确认内容会保留，后续阶段自动重建。</p>
+    <p data-v-332e7d9f="" class="map-muted-text">只替换当前场景的整理结果；人工确认内容会保留，后续阶段自动重建。</p>
   </form>
 </section>"
 `;

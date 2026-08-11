@@ -70,6 +70,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 转为 `deprecated` 前写入 `manual_delete` 修订快照，之后以
 `entity_deprecated` 标记 context 失效。修订和 context 标记均是带独立
 savepoint 的 best-effort 辅助审计；其失败会记日志，不回滚主删除。
+这类降级日志只记录规范化实体 UUID、受限原因 token 与异常类型，不记录对象名称、用户文本、
+异常 message 或控制字符；公开 API 的稳定错误语义不变。
 
 ### 对象库普通 / 热点模式
 
@@ -611,6 +613,11 @@ facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` /
 关系、已确认地图事实和人物知识边界派生 token-aware 条目，供 context 编译；不拥有
 新的正史表，也不写回任何事实。
 
+`get_author_attention_summary()` 是 Project“今日工作”消费的只读稳定投影，返回冻结的
+`WorldAttentionSummaryContract`：同一 `novel_id` 下待处理的世界对象、别名、关系和地图资料
+数量及确定性 `total`。实现位于 world 自己的 attention service，复用既有查询服务并保持
+项目过滤；root `facade.py` 仅 re-export，响应不包含对象内容、原始状态、owner 或内部 ID。
+
 ```python
 # ---- CoreEntity ----
 async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]
@@ -623,6 +630,9 @@ async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 # ---- Entity Context ----
 async def get_world_context(db, novel_id, entity_ids=None, ..., include_review=False) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
+
+# ---- Author workbench attention ----
+async def get_author_attention_summary(db, novel_id) -> WorldAttentionSummaryContract
 
 # Entity extraction is owned by imports `world_objects` deep-import stage.
 # World no longer exposes a parallel `run_entity_extraction` facade.

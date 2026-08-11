@@ -1558,7 +1558,7 @@ onBeforeUnmount(() => {
       <button class="rp-icon-button" type="button" aria-label="返回旅程列表" @click="getRouter().navigate('journeys')">‹</button>
       <div class="rp-story-title">
         <strong>{{ journey.title }}</strong>
-        <span>跑团模式</span>
+        <span>互动故事</span>
       </div>
       <details ref="moreMenu" class="rp-more-menu">
         <summary aria-label="更多操作">•••</summary>
@@ -1877,7 +1877,7 @@ onBeforeUnmount(() => {
           :aria-expanded="seeSeaNoticeOpen"
           aria-controls="rp-story-see-sea-confirm"
           @click="requestModeToggle('see_sea_enabled')"
-        >看海模式</button>
+        >故事自主发展</button>
         <button
           v-if="storyStarted"
           type="button"
@@ -1900,8 +1900,8 @@ onBeforeUnmount(() => {
         id="rp-story-see-sea-confirm"
         :anchor="seeSeaButton"
         :busy="seeSeaConfirming"
-        confirm-text="开始看海"
-        message="看海模式会持续使用你的模型额度；离开页面或关闭开关后会停止。"
+        confirm-text="开始自主发展"
+        message="故事会持续自主发展并使用你的模型额度；离开页面或关闭开关后会停止。"
         :open="seeSeaNoticeOpen"
         @close="seeSeaNoticeOpen = false"
         @confirm="confirmSeeSea"

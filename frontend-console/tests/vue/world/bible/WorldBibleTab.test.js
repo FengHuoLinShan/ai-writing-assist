@@ -530,7 +530,7 @@ describe("模态操作", () => {
     }
     const wrapper = mountTab({ bible })
     expect(wrapper.find("pre.generate-markdown-pre").text()).toContain("只读世界观简介")
-    expect(wrapper.find(".world-bible-synopsis-panel").text()).toContain("v3")
+    expect(wrapper.find(".world-bible-synopsis-panel").text()).toContain("第 3 版")
   })
 })
 

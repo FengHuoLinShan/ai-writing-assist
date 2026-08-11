@@ -47,13 +47,13 @@ class TestApiSystem:
         from infrastructure.llm.health import LLMHealthResult
 
         with patch(
-            "infrastructure.llm.health.check_llm_health",
+            "infrastructure.llm.health.check_llm_service_health",
             autospec=True,
             return_value=LLMHealthResult(
                 ok=True,
-                model="deepseek-v4-flash",
-                base_url_host="opencode.ai",
-                message="LLM health check passed",
+                scope="service",
+                remote_check=False,
+                message="LLM service configuration is valid",
             ),
         ):
             resp = await async_client.get("/api/health/llm")
@@ -61,8 +61,35 @@ class TestApiSystem:
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
-        assert data["model"] == "deepseek-v4-flash"
+        assert data["scope"] == "service"
+        assert data["remote_check"] is False
+        assert data["model"] == ""
+        assert data["base_url_host"] == ""
+        assert data["profile_summary"] == {}
         assert "key" not in str(data).lower()
+
+    async def test_api_llm_health_returns_503_only_for_service_configuration(
+        self,
+        async_client: AsyncClient,
+    ):
+        from infrastructure.llm.health import LLMHealthResult
+
+        with patch(
+            "infrastructure.llm.health.check_llm_service_health",
+            autospec=True,
+            return_value=LLMHealthResult(
+                ok=False,
+                scope="service",
+                remote_check=False,
+                error_kind="configuration_error",
+                message="LLM service configuration is invalid",
+            ),
+        ):
+            resp = await async_client.get("/api/health/llm")
+
+        assert resp.status_code == 503
+        assert resp.json()["scope"] == "service"
+        assert resp.json()["remote_check"] is False
 
     async def test_api_system_root_returns_modules_list(
         self,

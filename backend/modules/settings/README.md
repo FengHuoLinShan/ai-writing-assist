@@ -13,7 +13,9 @@
 
 - **API Key 永远账户级**：`account_llm_credentials` 按
   `(owner_id, provider_id)` 唯一加密保存。项目设置、任务 meta、execution snapshot、响应和
-  日志都不保存或回显 Key；遗留项目 Key 由 migration 清除。
+  日志都不保存或回显 Key；指纹使用部署加密密钥和用途分隔的 HMAC-SHA256，仅用于判断
+  同一账户连接是否重复保存，不是认证凭据。遗留的无密钥 SHA-256 指纹在作者下次保存该连接并
+  完成真实验证后惰性改写，不新增 migration；遗留项目 Key 由既有 migration 清除。
 - **连接编辑只有模板和 Key**：第一版固定 DeepSeek `deepseek-v4-flash` 与 Kimi
   `kimi-k3` 两个代码模板；DeepSeek 默认可用，Kimi 在真实兼容门禁通过并显式启用前不进入
   API 响应，也不能被选择。

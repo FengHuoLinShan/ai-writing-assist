@@ -548,7 +548,7 @@ export function createSmartDedupManager({
           return { ready: false, status: "incomplete", message: "需确认已采用对象别名化" }
         }
         if (group.asset_type === "scene" && operation.action === "merge" && !operation.scenePreviewConfirmed) {
-          return { ready: false, status: "incomplete", message: "需预览并确认 Scene 影响" }
+          return { ready: false, status: "incomplete", message: "需预览并确认场景影响" }
         }
       }
       return { ready: true, status: "ready", message: "已就绪" }
@@ -644,7 +644,7 @@ export function createSmartDedupManager({
           <div class="smart-dedup-impact">影响：${esc(this._impactText(operation.action, member, group.members.find((item) => item.asset_id === draft.primaryId)))}</div>
           ${canonicalMerge ? `<label class="smart-dedup-confirm"><input type="checkbox" data-smart-dedup-confirm-merge="${esc(member.asset_id)}" ${operation.allowCanonicalMerge ? "checked" : ""} ${locked ? "disabled" : ""}/> 我理解来源是已采用对象，融合后将进入历史态</label>` : ""}
           ${canonicalAlias ? `<label class="smart-dedup-confirm"><input type="checkbox" data-smart-dedup-confirm-alias="${esc(member.asset_id)}" ${operation.allowCanonicalAlias ? "checked" : ""} ${locked ? "disabled" : ""}/> 我理解来源是已采用对象，别名化后将进入历史态</label>` : ""}
-          ${scenePreview ? `<div class="smart-dedup-scene-preview"><button type="button" class="btn btn-sm" data-smart-dedup-preview-scene="${esc(member.asset_id)}" ${locked ? "disabled" : ""}>${operation.scenePreview ? "刷新 Scene 影响预览" : "生成 Scene 影响预览"}</button>${operation.scenePreview ? `<pre>${esc(this._displayValue(operation.scenePreview))}</pre><label><input type="checkbox" data-smart-dedup-confirm-scene="${esc(member.asset_id)}" ${operation.scenePreviewConfirmed ? "checked" : ""}/> 我已核对当前预览</label>` : ""}</div>` : ""}
+          ${scenePreview ? `<div class="smart-dedup-scene-preview"><button type="button" class="btn btn-sm" data-smart-dedup-preview-scene="${esc(member.asset_id)}" ${locked ? "disabled" : ""}>${operation.scenePreview ? "刷新场景影响预览" : "生成场景影响预览"}</button>${operation.scenePreview ? `<pre>${esc(this._displayValue(operation.scenePreview))}</pre><label><input type="checkbox" data-smart-dedup-confirm-scene="${esc(member.asset_id)}" ${operation.scenePreviewConfirmed ? "checked" : ""}/> 我已核对当前预览</label>` : ""}</div>` : ""}
           <details><summary>匹配证据</summary><p>${esc(evidence.join(" / ") || "无可展开证据")}</p></details>
         </article>
       `
@@ -705,7 +705,7 @@ export function createSmartDedupManager({
           operation.scenePreviewConfirmed = false
           this._showGroupWorkbench({ preserveScroll: true })
         } catch (error) {
-          toast(`Scene 预览失败：${error.message}`, "error")
+          toast(`场景影响预览失败：${error.message}`, "error")
         }
       }))
     },
@@ -771,7 +771,7 @@ export function createSmartDedupManager({
     },
 
     _assetLabel(assetType) {
-      return { world_entity: "世界对象", plot_thread: "剧情线", outline_arc: "篇章纲", scene: "Scene", foreshadowing_plan: "伏笔", reveal_plan: "揭示" }[assetType] || assetType || "资产"
+      return { world_entity: "世界对象", plot_thread: "剧情线", outline_arc: "篇章纲", scene: "场景", foreshadowing_plan: "伏笔", reveal_plan: "揭示" }[assetType] || assetType || "资产"
     },
 
     _actionLabel(action) {
@@ -783,7 +783,7 @@ export function createSmartDedupManager({
       if (action === "keep_separate") return "保存本资产对的当前指纹裁决，语义变化后会重新扫描"
       const references = Number(source?.relation_count || source?.reference_count || 0)
       if (action === "alias_only") return `来源进入历史态，迁移/去重 ${references} 条当前关系，不融合正文字段`
-      if (action === "ai_fusion") return "创建待处理的 AI 融合建议；当前 Scene 不会立即修改或废弃"
+      if (action === "ai_fusion") return "创建待处理的 AI 融合建议；当前场景不会立即修改或废弃"
       if (action === "merge") return `机械保留「${target?.title || "主对象"}」的优先字段并合并映射，来源进入历史态；语义冲突会标记复核`
       return "来源标记为重复历史项，主对象保留"
     },
@@ -916,7 +916,7 @@ export function createSmartDedupManager({
         world_entity: "世界对象",
         plot_thread: "剧情线",
         outline_arc: "篇章纲",
-        scene: "Scene",
+        scene: "场景",
         foreshadowing_plan: "伏笔",
         reveal_plan: "揭示",
       }[item.asset_type] || item.asset_type || "资产"

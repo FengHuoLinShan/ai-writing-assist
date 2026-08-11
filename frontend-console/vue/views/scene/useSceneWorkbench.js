@@ -292,17 +292,17 @@ export function useSceneWorkbench(props) {
 
   async function reviewScenes(sceneIds, decision = "review") {
     if (!sceneIds.length) {
-      toast("请先选择要处理的 Scene", "warning")
+      toast("请先选择要处理的场景", "warning")
       return false
     }
     try {
       await api.outline.reviewSceneWorkbench(projectId, { scene_ids: sceneIds, decision })
       clearSelection()
-      toast(decision === "review" ? `已处理 ${sceneIds.length} 个 Scene` : `已将 ${sceneIds.length} 个 Scene 标记为需要人工检查`, "success")
+      toast(decision === "review" ? `已处理 ${sceneIds.length} 个场景` : `已将 ${sceneIds.length} 个场景标记为需要人工检查`, "success")
       await refresh()
       return true
     } catch (err) {
-      toast(err.message || "Scene 复核失败", "error")
+      toast(err.message || "场景检查失败", "error")
       return false
     }
   }
@@ -333,7 +333,7 @@ export function useSceneWorkbench(props) {
 
   async function runSelectedContextActions() {
     if (!selectedItems.value.length) {
-      toast("请先选择要处理的 Scene", "warning")
+      toast("请先选择要处理的场景", "warning")
       return
     }
     const actions = selectedItems.value.map((item) => sceneContextAction(item))
@@ -341,7 +341,7 @@ export function useSceneWorkbench(props) {
     if (actions.every((item) => item.key === "source_mapping")) {
       const requests = selectedItems.value.map((item, index) => ({ scene_id: item.scene.id, expected_fingerprint: actions[index].fingerprint })).filter((item) => item.expected_fingerprint)
       if (!requests.length) return
-      showModalHtml("批量确认章节级定位", `<p>将确认 ${esc(requests.length)} 个 Scene 只保留章节级定位。</p>`, [
+      showModalHtml("批量确认章节级定位", `<p>将确认 ${esc(requests.length)} 个场景只保留章节级定位。</p>`, [
         { text: "取消", class: "", handler: closeModal },
         { text: "确认定位", class: "btn-primary", handler: async () => {
           await api.outline.reviewSceneSourceMappings(projectId, { items: requests, decision: "accept_chapter_only", confirmed: true })
@@ -350,7 +350,7 @@ export function useSceneWorkbench(props) {
       ])
       return
     }
-    showModalHtml("批量处理", "<p>选中的 Scene 包含不同待办类型，请分组处理或缩小选择范围。</p>", [{ text: "关闭", class: "", handler: closeModal }])
+    showModalHtml("批量处理", "<p>选中的场景包含不同待办类型，请分组处理或缩小选择范围。</p>", [{ text: "关闭", class: "", handler: closeModal }])
   }
 
   async function saveScene(sceneId, draft) {
@@ -367,11 +367,11 @@ export function useSceneWorkbench(props) {
         must_not_happen: draft.must_not_happen?.trim() || null,
         pov_character_id: draft.pov_character_id?.trim() || null,
       })
-      toast("Scene 已保存", "success")
+      toast("场景已保存", "success")
       await refresh()
       return true
     } catch (err) {
-      toast(err.message || "保存 Scene 失败", "error")
+      toast(err.message || "保存场景失败", "error")
       return false
     }
   }
@@ -379,13 +379,13 @@ export function useSceneWorkbench(props) {
   async function moveToHistory(sceneId) {
     const scene = workbench.value?.items?.find((item) => item.scene?.id === sceneId)?.scene
     if (!scene || structureAssetDisplay(scene).isHistory) return false
-    const confirmed = await confirmAsync(`确认将“${scene.title || "未命名 Scene"}”移入历史？Scene 正文和追踪信息会保留，可通过“状态 → 历史”查看。`, "确认移入历史")
+    const confirmed = await confirmAsync(`确认将“${scene.title || "未命名场景"}”移入历史？场景正文和追踪信息会保留，可通过“状态 → 历史”查看。`, "确认移入历史")
     if (!confirmed) return false
     try {
       await api.outline.deleteScene(sceneId, projectId)
       const next = new Set(selectedIds.value); next.delete(sceneId); selectedIds.value = next
       if (selectedSceneId.value === sceneId) clearSelectedScene()
-      toast("Scene 已移入历史", "success")
+      toast("场景已移入历史", "success")
       await refresh({ preserveSelection: false })
       return true
     } catch (err) {
@@ -420,15 +420,15 @@ export function useSceneWorkbench(props) {
 
   function showAutoExtractForm() {
     if (autoExtractionBusy.value) {
-      toast("正文 Scene 提取任务正在处理", "info")
+      toast("正文场景整理正在进行", "info")
       return
     }
-    showModalHtml("从正文提取 Scene", `
+    showModalHtml("从正文整理场景", `
       <div class="form-group"><label>起始章节</label><input class="form-input" id="scene-auto-extract-start" type="number" min="1" value="1" /></div>
       <div class="form-group"><label>结束章节</label><input class="form-input" id="scene-auto-extract-end" type="number" min="1" value="10" /></div>
-      <label class="scene-quality-option"><input id="scene-auto-extract-high-quality" type="checkbox" />更高质量 <span class="scene-quality-option__hint">最大推理 + Phase 1c 融合，约需 2 倍时间</span></label>
+      <label class="scene-quality-option"><input id="scene-auto-extract-high-quality" type="checkbox" />更高质量 <span class="scene-quality-option__hint">增加推理与融合步骤，约需 2 倍时间</span></label>
       <p class="writing-form-hint" role="note">${esc(importAuthorizationNotice())}</p>`, [{
-      text: "确认并开始提取",
+      text: "确认并开始整理",
       class: "btn-primary",
       handler: async () => {
         const start = Number(document.getElementById("scene-auto-extract-start")?.value || 1)
@@ -449,7 +449,7 @@ export function useSceneWorkbench(props) {
     if (!owned(ownerGeneration)) return false
     const submission = sceneAutoExtractManager.beginSubmission(projectId)
     if (!submission) {
-      toast("正文 Scene 提取任务正在处理", "info")
+      toast("正文场景整理正在进行", "info")
       return false
     }
     try {
@@ -470,17 +470,18 @@ export function useSceneWorkbench(props) {
       const result = await api.imports.startStage("scenes", projectId, start, end, force, highQuality, importAuthorizationPayload())
       if (!owned(ownerGeneration)) return false
       if (result?.requires_confirmation) {
-        const confirmed = await confirmAsync(result.warning, "确认覆盖")
+        const warning = String(result.warning || "已有场景资料，确认覆盖才会继续。").replace(/\s*\bScene\b/g, "场景")
+        const confirmed = await confirmAsync(warning, "确认覆盖")
         if (!owned(ownerGeneration)) return false
         if (!confirmed) return false
         return submitAutoExtractionAttempt(start, end, highQuality, true, ownerGeneration)
       }
       if (!result?.task_id) {
-        closeModal(); toast(result?.message || "从正文提取 Scene 未启动", "warning"); return false
+        closeModal(); toast(result?.message || "正文场景整理未能开始", "warning"); return false
       }
       sceneAutoExtractManager.adopt(result, { start_chapter: start, end_chapter: end, highQuality }, projectId)
       closeModal()
-      toast(`从正文提取 Scene 任务已提交：${result.task_id}`, "success")
+      toast("已开始从正文整理场景", "success")
       return true
     } catch (err) {
       if (owned(ownerGeneration)) toast(err.message || "提交失败", "error")
@@ -489,11 +490,11 @@ export function useSceneWorkbench(props) {
   }
 
   async function cancelAutoExtraction() {
-    const confirmed = await confirmAsync("确认取消当前正文 Scene 提取任务？已完成的阶段结果不会自动删除。", "确认取消")
+    const confirmed = await confirmAsync("确认取消当前正文场景整理？已完成的阶段结果不会自动删除。", "确认取消")
     if (!confirmed) return false
     try {
       await sceneAutoExtractManager.cancel(projectId)
-      toast("当前正文 Scene 提取任务已取消", "warning")
+      toast("当前正文场景整理已取消", "warning")
       return true
     } catch (err) {
       toast(err.message || "取消任务失败", "error")
