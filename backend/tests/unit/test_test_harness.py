@@ -663,6 +663,8 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
     assert workflow.count('python-version: "3.14.6"') == 3
     assert e2e_workflow.count('python-version: "3.14.6"') == 1
+    assert workflow.count("prune-cache: true") == 3
+    assert e2e_workflow.count("prune-cache: true") == 1
     assert len(re.findall(r"uses: actions/setup-node@[0-9a-f]{40}", workflow)) == 2
     assert workflow.count("node-version-file: frontend-console/.node-version") == 2
     assert (

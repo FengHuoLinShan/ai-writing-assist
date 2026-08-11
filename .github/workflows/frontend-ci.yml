@@ -83,6 +83,7 @@ jobs:
           version: "0.11.28"
           python-version: "3.14.6"
           enable-cache: true
+          prune-cache: true
           cache-dependency-glob: backend/uv.lock
 
       - name: Install Node.js
