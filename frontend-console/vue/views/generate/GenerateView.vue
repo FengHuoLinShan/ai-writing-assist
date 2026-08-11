@@ -267,4 +267,3 @@ function viewGenerationContext(kind) { const usage = kind === "chat" ? chatConte
 
 onBeforeUnmount(() => { disarmBeforeUnload(); persist(); owner.dispose(); if (ownedModal) closeModal() })
 </script>
-
