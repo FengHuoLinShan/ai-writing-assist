@@ -14,7 +14,6 @@
     "test:e2e:smoke": "playwright test --config=playwright.functional.config.js e2e/home.spec.js e2e/project.spec.js e2e/import.spec.js e2e/writing.spec.js",
     "test:e2e:visual": "playwright test --config=playwright.visual.config.js",
     "test:e2e:visual:update": "playwright test --config=playwright.visual.config.js --update-snapshots",
-    "test:e2e:core": "playwright test --config=playwright.functional.config.js home.spec.js project.spec.js world.spec.js outline-scenes.spec.js writing.spec.js",
     "test:e2e:map": "playwright test --config=playwright.functional.config.js map.spec.js map-dynamic-timeline.spec.js map-path-mobile.spec.js world-dynamics-map-chaos.spec.js --workers=1 --retries=0",
     "test:e2e:map-perf": "playwright test --config=playwright.map-perf.config.js",
     "test:e2e:real-llm": "ENABLE_REAL_LLM=1 playwright test --config=playwright.real-llm.config.js",
