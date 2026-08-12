@@ -78,6 +78,7 @@ class GenerationBackgroundRequest:
     entity_ids: tuple[str, ...] | None = None
     source_snapshot: Mapping[str, Any] = field(default_factory=dict)
     budget_tokens: int = _DEFAULT_BUDGET_TOKENS
+    capture_snapshot: bool = True
 
 
 class GenerationBackgroundService:
@@ -124,20 +125,21 @@ class GenerationBackgroundService:
             is_world_generation=is_world_generation,
         )
         included_asset_ids = self._included_asset_ids(compiled, options)
-        snapshot_request = self._snapshot_request(
-            request,
-            options,
-            compiled,
-            rendered=rendered,
-            usage=usage,
-            included_asset_ids=included_asset_ids,
-            normalized_focus=normalized_focus,
-        )
-        snapshot = await self._snapshot_writer.open_context_snapshot(
-            db,
-            snapshot_request,
-        )
-        usage["context_snapshot_id"] = snapshot.id
+        if request.capture_snapshot:
+            snapshot_request = self._snapshot_request(
+                request,
+                options,
+                compiled,
+                rendered=rendered,
+                usage=usage,
+                included_asset_ids=included_asset_ids,
+                normalized_focus=normalized_focus,
+            )
+            snapshot = await self._snapshot_writer.open_context_snapshot(
+                db,
+                snapshot_request,
+            )
+            usage["context_snapshot_id"] = snapshot.id
         return {
             "rendered_context": rendered,
             "context_usage": usage,

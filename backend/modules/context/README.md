@@ -299,7 +299,9 @@ sources 记为实际纳入；请求过但被裁剪的内容仍可由 `compile_op
 生成快照使用 context-owned durable transaction：
 `compile_generation_background()` 独立持久化 running 状态，调用方通过
 `succeed_generation_context_snapshot()` / `fail_generation_context_snapshot()` 独立收尾，
-不会提交或回滚调用方的业务事务。
+不会提交或回滚调用方的业务事务。生成中心在模型返回后可用
+`capture_snapshot=false` 复编同一份当前上下文做来源新鲜度比较；该复编只读且不建立第二条
+调用审计快照，真实模型调用仍始终保留一条完整快照。
 - `PlotThreadsLoader(get_active_threads_fn=...)`
 - `OutlineArcLoader(get_arc_by_chapter_fn=...)`
 

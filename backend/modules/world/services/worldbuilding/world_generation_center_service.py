@@ -447,9 +447,7 @@ class WorldGenerationCenterService:
                             review_request,
                         )
                 provider = str(client.provider)
-            from modules.project.facade import require_active_project
-
-            await require_active_project(db, data.novel_id)
+            await self._revalidate_source(db, data, prepared)
         except Exception as exc:
             await self._finish_context_snapshot(
                 db, data.novel_id, prepared["background"], error=exc
@@ -1490,6 +1488,7 @@ class WorldGenerationCenterService:
         *,
         operation: str,
         model: str,
+        capture_context_snapshot: bool = True,
     ) -> dict[str, Any]:
         parse_uuid(data.novel_id, "novel_id")
         source = await self._load_source(db, data)
@@ -1540,6 +1539,7 @@ class WorldGenerationCenterService:
                 assets=assets,
                 source_snapshot=source["source_snapshot"],
                 model=model,
+                capture_snapshot=capture_context_snapshot,
             )
             source_refs = self._source_refs(
                 data,
@@ -1566,6 +1566,8 @@ class WorldGenerationCenterService:
                     }
                     for item in page_catalog
                 ],
+                "operation": operation,
+                "model": model,
             }
         except Exception as exc:
             if background is not None:
@@ -3318,6 +3320,7 @@ class WorldGenerationCenterService:
         focus_text: str,
         assets: dict[str, Any],
         source_snapshot: WorldGenerationSourceSnapshot,
+        capture_snapshot: bool = True,
     ) -> dict[str, Any]:
         provider = self._generation_background_provider
         if provider is None:
@@ -3369,6 +3372,7 @@ class WorldGenerationCenterService:
                 dict.fromkeys([*data.entity_ids, *assets.get("entity_ids", [])])
             ),
             source_snapshot=source_snapshot.model_dump(mode="json"),
+            capture_snapshot=capture_snapshot,
         )
 
     @staticmethod
@@ -3504,21 +3508,60 @@ class WorldGenerationCenterService:
         from modules.project.facade import require_active_project
 
         await require_active_project(db, data.novel_id)
-        current = await self._load_source(db, data)
-        if current["source_snapshot"] != prepared["source_snapshot"]:
-            raise WorldGenerationSourceConflictError(
-                "World generation source changed while the model was running"
-            )
         try:
-            current_assets = await self._asset_catalog(db, data, current)
+            current = await self._prepare(
+                db,
+                data,
+                operation=prepared["operation"],
+                model=prepared["model"],
+                capture_context_snapshot=False,
+            )
         except ValidationError as exc:
             raise WorldGenerationSourceConflictError(
                 "World generation selected references changed while the model was running"
             ) from exc
-        if current_assets["items"] != prepared["assets"]["items"]:
+        if self._freshness_evidence(data, current) != self._freshness_evidence(
+            data,
+            prepared,
+        ):
             raise WorldGenerationSourceConflictError(
                 "World generation selected references changed while the model was running"
             )
+
+    def _freshness_evidence(
+        self,
+        data: WorldGenerationRequestBase,
+        prepared: dict[str, Any],
+    ) -> dict[str, Any]:
+        usage = dict(prepared["background"].get("context_usage") or {})
+        usage.pop("context_snapshot_id", None)
+        evidence: dict[str, Any] = {
+            "source_snapshot": prepared["source_snapshot"].model_dump(mode="json"),
+            "chapters": prepared["chapters"],
+            "assets": prepared["assets"]["items"],
+            "background": prepared["background"].get("rendered_context", ""),
+            "context_usage": usage,
+        }
+        if prepared["operation"] in {
+            "world.generation.chat",
+            "world.generation.core_entity",
+            "world.generation.world_bible_page",
+        }:
+            template = prepared.get("object_template")
+            evidence["reference_message"] = self._reference_message(data, prepared)
+            evidence["object_template"] = (
+                None
+                if template is None
+                else {
+                    "template_id": template.template_id,
+                    "template_version": template.template_version,
+                    "template_hash": template.template_hash,
+                    "object_template": template.object_template,
+                    "label": template.label,
+                    "rendered_prompt": template.rendered_prompt,
+                }
+            )
+        return evidence
 
     @staticmethod
     def _context_usage(background: dict[str, Any]) -> GenerationContextUsage | None:

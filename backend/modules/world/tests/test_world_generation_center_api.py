@@ -440,6 +440,50 @@ async def test_generation_center_chat_is_read_only_and_records_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_generation_center_chat_rejects_selected_chapter_drift_after_model(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.world import api as world_api
+
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "聊天期间章节变化")
+    calls = 0
+
+    async def drifting_chapters(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return [
+            {
+                "chapter_index": 1,
+                "title": "第一章",
+                "excerpt": (
+                    "模型调用前的章节内容"
+                    if calls == 1
+                    else "模型调用后的章节内容"
+                ),
+            }
+        ]
+
+    monkeypatch.setattr(
+        world_api._world_generation_service,
+        "_load_selected_chapters",
+        drifting_chapters,
+    )
+    payload = _project_source_payload(novel_id)
+    payload["selected_chapter_indices"] = [1]
+
+    response = await async_client.post(
+        "/api/world/generation-center/chat",
+        json=payload,
+    )
+
+    assert response.status_code == 409, response.text
+    assert calls == 2
+    assert len(fake.requests) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("author_message", "pasted_context"),
     [

@@ -355,6 +355,7 @@ async def compile_generation_background(
     character_ids: list[str] | None = None,
     entity_ids: list[str] | None = None,
     source_snapshot: dict | None = None,
+    capture_snapshot: bool = True,
 ) -> dict:
     """Compile the actual author-only background consumed by generation center."""
     return await _generation_background_service.compile(
@@ -376,6 +377,7 @@ async def compile_generation_background(
             character_ids=(tuple(character_ids) if character_ids is not None else None),
             entity_ids=tuple(entity_ids) if entity_ids is not None else None,
             source_snapshot=dict(source_snapshot or {}),
+            capture_snapshot=capture_snapshot,
         ),
     )
 

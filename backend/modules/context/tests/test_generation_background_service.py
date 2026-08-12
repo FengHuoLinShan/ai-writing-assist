@@ -164,6 +164,30 @@ async def test_service_owns_compilation_usage_and_snapshot_provenance() -> None:
     ]
 
 
+async def test_service_can_recompile_without_opening_a_second_snapshot() -> None:
+    snapshots = _CapturingSnapshotWriter()
+    service = GenerationBackgroundService(
+        compiler=_ProvenanceCompiler(
+            CompiledContext(sections=[], budget_tokens=4000)
+        ),
+        renderer=lambda _compiled: "<current>",
+        snapshot_writer=snapshots,
+    )
+
+    result = await service.compile(
+        object(),
+        GenerationBackgroundRequest(
+            novel_id="00000000-0000-0000-0000-00000000c110",
+            task="复验生成上下文",
+            capture_snapshot=False,
+        ),
+    )
+
+    assert result["rendered_context"] == "<current>"
+    assert "context_snapshot_id" not in result["context_usage"]
+    assert snapshots.request is None
+
+
 async def test_service_preserves_none_and_empty_context_selection_shapes() -> None:
     compiled = CompiledContext(sections=[], budget_tokens=4000)
     compiler = _ProvenanceCompiler(compiled)

@@ -262,6 +262,28 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
   })
 
+  it("opens map facts in the canonical Map workspace", async () => {
+    const response = convergenceResponse()
+    response.manifest[0] = {
+      ...response.manifest[0],
+      label: "白堤港口仍被封锁",
+      source_ref: { source_type: "map_fact", source_id: "fact-1", title: "白堤港口仍被封锁" },
+    }
+    api.generate.convergeWorld.mockResolvedValue(response)
+    const wrapper = mount(GenerateView, {
+      props: baseProps({ initialSession: { ...emptyGenerateSession(), messages: [{ role: "user", content: "整理地图事实" }] } }),
+      attachTo: document.body,
+    })
+
+    await wrapper.get('[data-action="converge-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.text()).toContain("白堤港口仍被封锁"))
+    const sourceButton = wrapper.findAll(".generate-convergence-sources button").find((button) => button.text().includes("白堤港口仍被封锁"))
+    await sourceButton.trigger("click")
+
+    expect(router.navigate).toHaveBeenCalledWith("map", null, true, expect.any(URLSearchParams))
+    expect(router.navigate.mock.calls.at(-1)[3].toString()).toBe("mode=overview")
+  })
+
   it("adds only author-selected related World Bible pages to the existing convergence request", async () => {
     api.generate.convergeWorld.mockResolvedValue(convergenceResponse())
     const key = generateSessionKey("p1", "page-1", "world_bible_page")

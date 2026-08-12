@@ -15,7 +15,7 @@
 
 | # | 严重度 | 问题 | 证据 |
 |---|---|---|---|
-| 1 | 高 | 非 scoped 全局样式块：`<style>` 无 `scoped`，约 60+ 条规则压缩在单行，全局注入且组件卸载后不移除；`.topbar-generate-note` 与 styles.css 重复定义（双份来源）；内联 `@media(max-width:900px)` 与 editorial-theme 窄屏块断点分散 | `frontend-console/vue/views/generate/GenerateView.vue:271-273`；`styles.css:413-424`；`editorial-theme.css:1280-1371` |
+| 1 | 已修复 | `GenerateView.vue` 不再包含全局 `<style>`；布局、收束、探索、视觉简报与窄屏规则统一收编到 `styles.css` 的 Generate 段，`.topbar-generate-note` 保持单份来源 | `frontend-console/styles.css` 的 Generate 视图段；`frontend-console/vue/views/generate/GenerateView.vue` 无 `<style>` |
 | 2 | 高 | 弹窗耦合约束：模板编辑器、章节选择器、上下文查看三处弹窗 HTML 由 `showModalHtml` 注入字符串，依赖上述全局类，直接改 `scoped` 会破坏弹窗样式——收编必须先迁移样式再改弹窗 | `GenerateView.vue:255, 265-266`（弹窗 HTML 字符串） |
 | 3 | 高 | 生成进度反馈弱：world 聊天仅「正在思考...」占位；建议生成仅按钮 disabled + 「正在生成…」；task 编译无进度——仅 pov 有百分比轮询，违反主规范 §7「不允许只有 spinner 超过 2s」 | `GenerateView.vue:199, 235`；`components/WorldWorkspace.vue:95`；`components/TaskContextTab.vue:28`；`components/PovProseTab.vue:63` |
 | 4 | 中 | tab 间形态割裂：world 78/22 聊天+持久栏、pov 72/28 双栏表单、task 22/78 预设卡左置、preview 单卡只读；栅格方向三个；editorial 主题只给 world 的 chat-panel 做了墨线/档案角标，其余三 tab 无主题特征 | `GenerateView.vue:272`（内联栅格）；`editorial-theme.css:1111-1150` |
@@ -28,12 +28,11 @@
 | 11 | 低 | 视觉体系两套并存：world/pov 用 `generate-*` 内联体系，task/preview 混入全局 `.form-group`/`.data-table`/`.gen-form-section` vanilla 遗留类，控件规格不一致 | `TaskContextTab.vue`、`ContextPreviewTab.vue` 模板（执行时逐类核实） |
 | 12 | 低 | generate 页在 `e2e/helpers/selectors.js` 无任何条目，e2e 全靠 role/label 语义钩子；新增 data 钩子需同步 `generate.spec.js` 现有约定 | `e2e/helpers/selectors.js`；`e2e/generate.spec.js` |
 
-### GenerateView.vue:271 收编方案（问题 1/2 的落地路径）
+### GenerateView 样式收编状态（问题 1/2）
 
-1. 将 272 行单行样式块整体迁出 SFC，格式化后按「结构 vs 材质」拆分：布局/尺寸/栅格规则并入 `styles.css` 的 generate 结构段；颜色/圆角/阴影引用 token 后放入 `editorial-theme.css` 的 generate 段。
-2. **类名全部保持 `generate-*` 不变**（全局类），因为三处弹窗 HTML 字符串（`GenerateView.vue:255, 265-266`）无法被 scoped 样式覆盖；待弹窗改造为组件化模板后，非弹窗规则才可降级为 scoped——分两期，不在一次改动里做。
-3. 删除 `.topbar-generate-note` 双份来源中的一份（保留 styles.css 或 editorial 单侧，grep 确认后裁定）（执行时核实保留侧）。
-4. 内联 `@media(max-width:900px)` 断点并入主规范 §6 的 760px 档叙事，与 editorial-theme.css:1280-1371 的窄屏块合并到一处。
+1. 已将 SFC 单行样式整体迁出并格式化到 `styles.css` 的 Generate 结构段；材质继续引用现有 token。
+2. **类名保持 `generate-*` 不变**（全局类），因为三处弹窗 HTML 字符串仍需使用这些类；待弹窗组件化后再评估 scoped 化。
+3. `.topbar-generate-note` 已保留单份来源；900px/390px 组件级断点与 Generate 规则放在同一结构段。
 
 ## 3. 目标布局与信息层级
 
@@ -52,6 +51,7 @@
 - composer：`#generate-chat-input` + `data-action="send-chat-message"`；发送按钮从绝对定位改为 flex 行内跟随（消除 resize 错位）；Cmd/Ctrl+Enter 发送与 IME 组合保护保留（:145-151）。
 - 生成中：占位消息 + 发送按钮 loading/disabled，超过 2s 需有进度或阶段文案（对齐主规范 §7）。
 - 右侧 rail：`<details>` 折叠 + sessionStorage 持久化保留；栏内上下文设置卡控件遵循 §5.2 表单结构；结果卡 `#generate-result` 的提案编辑器（WorldResult）保持「建议→采纳」语义，`data-action="apply-world-page-draft"` 为主操作。
+- 收束结果中的地图事实来源统一打开一级 Map 工作区的概览态，不进入兼容的 `world/map` 子路由。
 - 收编约束：chatbox 高度改用 `min-height` + 视口计算的下限保护，矮窗口不溢出（问题 9）；`:has()` 折叠切换保留。
 
 ### 4.2 POV 正文（`PovProseTab.vue`）

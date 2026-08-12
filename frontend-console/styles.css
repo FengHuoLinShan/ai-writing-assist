@@ -14535,6 +14535,26 @@ button.rp-journey-card__main:hover {
 }
 
 /* ===== Generate 视图（自 GenerateView.vue 收编，视觉规则与 editorial 层无冲突） ===== */
+.generate-visual-brief { flex:0 0 auto;margin:0 0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text-muted);font-size:12px }
+.generate-visual-brief>summary { cursor:pointer;color:var(--text);font-weight:600 }
+.generate-visual-brief__axes { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0 }
+.generate-visual-brief__axes span { display:grid;gap:2px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px }
+.generate-visual-brief__grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px }
+.generate-visual-brief__grid label { display:grid;gap:4px }
+.generate-visual-brief__wide { grid-column:1/-1 }
+.generate-external-handoff { flex:0 0 auto;margin:0 0 10px;border-top:1px solid var(--border);padding-top:8px;color:var(--text-muted);font-size:12px }
+.generate-external-handoff>summary { cursor:pointer;color:var(--text) }
+.generate-external-handoff__input { display:grid;gap:5px;margin-top:8px }
+.generate-external-handoff__meta { display:grid;gap:2px;margin-top:5px;color:var(--text-dim) }
+.generate-external-handoff__meta.is-over-limit { color:var(--warning) }
+.generate-external-packet-history { display:grid;gap:6px;margin-top:10px }
+.generate-external-packet-history article { display:grid;gap:2px;border-top:1px solid var(--border);padding-top:6px }
+.generate-external-packet-history code { overflow-wrap:anywhere;color:var(--text-dim);font-size:10px }
+.generate-handoff-manual { width:100%;font:12px/1.5 var(--font-mono) }
+.generate-exploration { flex:0 0 auto;margin:0 0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text-muted);font-size:12px }
+.generate-exploration>summary { cursor:pointer;color:var(--text);font-weight:600 }
+.generate-exploration__results { display:grid;gap:8px;margin-top:8px }
+.generate-exploration .generate-convergence-card.is-selected { border-color:var(--accent);background:var(--selected) }
 .generate-suggestion-note { max-width:260px;color:var(--text-dim);font-size:11px;line-height:1.35 }
 .generate-tab-panel { min-width:0 }
 .generate-chatbox { display:grid;grid-template-columns:minmax(0,78fr) minmax(180px,22fr);gap:12px;align-items:stretch;height:calc(100vh - 180px);min-height:480px;overflow:hidden }
@@ -14552,6 +14572,23 @@ button.rp-journey-card__main:hover {
 .generate-chat-role,.generate-result-meta,.generate-empty-copy { color:var(--text-dim);font-size:12px }
 .generate-chat-bubble { white-space:pre-wrap;border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 12px;background:var(--panel);font-size:13px;line-height:1.55 }
 .generate-chat-message.error .generate-chat-bubble,.generate-error-text { color:var(--danger) }
+.generate-convergence-action { display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-2px 0 10px;color:var(--text-muted);font-size:12px }
+.generate-convergence-action strong,.generate-convergence-action span { display:block }
+.generate-convergence { flex:0 1 48vh;min-height:0;overflow:auto;margin-bottom:10px;border:1px solid var(--accent);border-radius:var(--radius-md);padding:12px;background:var(--panel) }
+.generate-convergence__header,.generate-convergence-card__title,.generate-convergence-actions,.generate-convergence-sources,.generate-convergence__stats { display:flex;align-items:center;gap:8px;flex-wrap:wrap }
+.generate-convergence__header,.generate-convergence-card__title { justify-content:space-between }
+.generate-convergence__header p,.generate-convergence-card p { margin:3px 0;color:var(--text-muted);font-size:12px }
+.generate-convergence__stats { margin:8px 0;color:var(--text-dim);font-size:11px }
+.generate-convergence-card { margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px }
+.generate-convergence-card__title span,.generate-convergence-sources>span { color:var(--text-dim);font-size:11px }
+.generate-convergence-list { margin:6px 0;padding-left:20px }
+.generate-convergence-items { display:grid;gap:7px;margin-top:8px }
+.generate-convergence-items label { display:grid;grid-template-columns:minmax(0,1fr) minmax(132px,180px);align-items:center;gap:8px }
+.generate-convergence-sources { margin-top:8px }
+.generate-convergence-boundary { border-left:3px solid var(--accent);padding-left:8px }
+.generate-convergence-message { display:grid;gap:5px;font-size:12px }
+.generate-convergence-message textarea { min-height:150px }
+.generate-convergence-actions { margin-top:8px }
 .generate-composer { position:relative;display:flex;align-items:flex-end;flex:0 0 auto;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--panel);padding:8px }
 .generate-chat-input { width:100%;min-height:72px;padding-right:76px;resize:vertical;border:0;outline:0;background:transparent;color:var(--text);font:inherit }
 .generate-composer-send { position:absolute;right:10px;bottom:10px;min-width:58px }
@@ -14597,8 +14634,16 @@ button.rp-journey-card__main:hover {
 
 /* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 900px) {
-  .generate-chatbox,.generate-chatbox:has(.generate-side-rail:not([open])),.generate-task-workspace,.generate-pov-workspace,.generate-form-grid { grid-template-columns:1fr;height:auto;min-height:0;overflow:visible }
+  .generate-chatbox,.generate-chatbox:has(.generate-side-rail:not([open])),.generate-task-workspace,.generate-pov-workspace,.generate-form-grid,.generate-visual-brief__axes,.generate-visual-brief__grid { grid-template-columns:1fr;height:auto;min-height:0;overflow:visible }
+  .generate-visual-brief__wide { grid-column:auto }
   .generate-side-rail { grid-column:1/-1 }
   .topbar-generate-note,.generate-suggestion-note { display:none }
-  .generate-world-source-bar,.generate-world-config { align-items:stretch;flex-direction:column }
+  .generate-world-source-bar,.generate-world-config,.generate-convergence-action { align-items:stretch;flex-direction:column }
+  .generate-convergence { max-height:none }
+  .generate-convergence-items label { grid-template-columns:1fr }
+}
+
+@media (max-width: 390px) {
+  .generate-visual-brief .btn,.generate-exploration .btn { min-height:44px }
+  .generate-convergence-actions .btn { flex:1 1 100%;min-height:44px }
 }
