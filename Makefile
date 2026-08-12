@@ -172,8 +172,8 @@ eval-fast:  ## Run deterministic eval toolkit tests without remote LLM calls
 	cd $(BACKEND_DIR) && pytest evals/tests -q
 
 eval-ask-world:  ## Run Ask World API contracts, then the offline evidence-ranking gate
-	cd $(BACKEND_DIR) && pytest modules/world/tests/test_world_generation_center_api.py -k ask_world -q
-	cd $(BACKEND_DIR) && python -m evals.ask_world $(if $(DATASET),$(DATASET),) $(if $(OUTPUT),--output $(OUTPUT),)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules/world/tests/test_world_generation_center_api.py -k ask_world -q
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) python -m evals.ask_world $(if $(DATASET),$(DATASET),) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-context-planner:  ## Compare task-direct and planner-v1 on accepted RAG cases
 	cd $(BACKEND_DIR) && python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json)
