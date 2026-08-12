@@ -28,7 +28,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}"
 
 RUN groupadd --system app \
-    && useradd --system --gid app --home-dir /app app
+    && useradd --system --gid app --home-dir /app app \
+    && python -m pip uninstall --yes pip
 
 WORKDIR /app
 

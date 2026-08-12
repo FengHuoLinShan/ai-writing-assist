@@ -643,6 +643,7 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert "AS build" in backend_dockerfile
     assert "AS runtime" in backend_dockerfile
     assert "ARG UV_VERSION=0.12.3" in backend_dockerfile
+    assert "python -m pip uninstall --yes pip" in backend_dockerfile
     assert "USER app" in backend_dockerfile
     assert "COPY --from=build --chown=app:app /app /app" in backend_dockerfile
     assert f"FROM {node_image} AS build" in frontend_dockerfile
@@ -698,6 +699,7 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert "test ! -w /app" in command
     assert "test ! -w /usr/share/nginx/html" in command
     assert "! command -v uv" in command
+    assert "! command -v pip" in command
     assert "from app.main import app" in command
     assert "NamedTemporaryFile" in command
     assert 'Path(\\"/tmp\\")' in command
