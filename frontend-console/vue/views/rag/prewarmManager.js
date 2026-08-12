@@ -41,7 +41,14 @@ export async function ensurePrewarm({ force = false } = {}) {
   manager.controller = controller
   manager.ready = false
 
-  const isCurrent = () => manager.controller === controller && manager.generation === generation
+  const isCurrent = () => (
+    manager.controller === controller
+    && !controller.signal.aborted
+    && manager.generation === generation
+    && manager.projectId === projectId
+    && getAppState()?.currentProjectId === projectId
+    && ragSearchSession.ownerProjectId === projectId
+  )
 
   ragSearchSession.prewarmState = "running"
   ragSearchSession.prewarmWarning = ""

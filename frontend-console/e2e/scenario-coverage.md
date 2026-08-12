@@ -44,7 +44,7 @@
 | `outline-scenes.spec.js` | 场景 6 | Scene 卡创建/编辑/移入历史、重排、工作台与正文 Scene 提取入口；P20 Planned Scene 由单元与后端契约测试覆盖 |
 | `outline-threads-arcs.spec.js` | 场景 6 | 创建/编辑/删除剧情线、创建/编辑/删除篇章纲；6/6 通过 |
 | `outline-foreshadowing-reveal.spec.js` | 场景 6 | 旧路由归并、同一 movement 的伏笔/揭示时间线、未归类计划分配 |
-| `rag.spec.js` | A1 | 索引状态页面、搜索子标签、搜索空结果、真实 RAG chunk UI 召回、embedding 降级元数据与 warning、重建索引按钮；5/5 通过 |
+| `rag.spec.js` | A1 | 索引状态页面、搜索子标签、搜索空结果、真实 RAG chunk UI 召回、embedding 降级元数据与 warning、重建索引按钮；“问世界”在 390px 下覆盖引用打开、内部字段隐藏和明确保存后才进入待处理 |
 | `generate.spec.js` | A2 | 生成中心页面、自由聊天/草稿/模板，以及上下文编译、预览与人物视角提交契约 |
 | `interaction.spec.js` | B1 | 双入口进入 RP、旅程列表到故事页深链、独立壳、390px composer/定位轨/底部操作面板与横向溢出 |
 

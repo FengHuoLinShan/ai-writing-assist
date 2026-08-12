@@ -35,12 +35,25 @@ async def test_recycled_project_is_hidden_from_world_query_body_and_atlas_apis(
             },
         ),
         await async_client.post(
+            "/api/world/generation-center/convergence",
+            json={
+                "novel_id": novel_id,
+                "source_context": {"kind": "project"},
+                "target": {"kind": "core_entity", "template": "none"},
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+        ),
+        await async_client.post(
+            "/api/world/ask-world",
+            json={"novel_id": novel_id, "question": "世界背景是什么"},
+        ),
+        await async_client.post(
             "/api/world/generation-prompt-templates/validate",
             json={"novel_id": novel_id, "prompt_text": "Create {{ name }}"},
         ),
     ]
 
-    assert [response.status_code for response in responses] == [404, 404, 404, 404]
+    assert [response.status_code for response in responses] == [404] * 6
     assert all("Project" in response.text for response in responses)
 
 

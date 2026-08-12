@@ -339,7 +339,7 @@ async def resume_deep_import(
         await _require_task_owner_active_project(db, task_id)
         result = await imports_facade.resume_deep_import(db, task_id)
     except TaskNotFoundError as exc:
-        raise HTTPException(404, detail=redact_diagnostic(exc)) from exc
+        raise HTTPException(404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(400, detail=redact_diagnostic(exc)) from exc
     return result
@@ -367,7 +367,7 @@ async def abandon_deep_import(
         await _require_task_owner_active_project(db, task_id)
         result = await imports_facade.abandon_deep_import(db, task_id)
     except TaskNotFoundError as exc:
-        raise HTTPException(404, detail=redact_diagnostic(exc)) from exc
+        raise HTTPException(404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(400, detail=redact_diagnostic(exc)) from exc
     return DeepImportAbandonResponse.model_validate(result)

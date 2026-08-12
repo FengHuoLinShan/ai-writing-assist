@@ -1,12 +1,12 @@
 /**
  * rag 视图 Vue island 注册入口 — 由 app.js（ESM）import。
  * 替代原 views/ragView.js；load 对应 vanilla onEnter
- * （status/evidenceHealth/characters 分页/scenes + 检索会话重置）。
+ * （status/evidenceHealth/characters 分页/scenes + 项目级检索会话）。
  */
 import { mountIsland } from "./mountIsland.js"
 import RagView from "./views/rag/RagView.vue"
 import { getApi, getAppState, getRouter } from "./bridge/index.js"
-import { resetRagSearchSession, scopeRagSessionToProject } from "./views/rag/ragSearchSession.js"
+import { scopeRagSessionToProject } from "./views/rag/ragSearchSession.js"
 import { ensurePrewarm } from "./views/rag/prewarmManager.js"
 
 const CHARACTER_PAGE_SIZE = 50
@@ -40,8 +40,6 @@ async function loadRag() {
   const state = getAppState()
   const projectId = state?.currentProjectId || null
   scopeRagSessionToProject(projectId)
-  // 对应 vanilla onEnter 开头的 _resetSearchState()
-  resetRagSearchSession()
   if (!projectId) {
     return { projectId: null, apiAvailable: false }
   }

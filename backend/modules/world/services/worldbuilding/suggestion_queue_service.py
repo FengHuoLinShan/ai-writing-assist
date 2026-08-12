@@ -21,6 +21,8 @@ from modules.world.models import (
     WorldBiblePageDraft,
 )
 from modules.world.schemas import (
+    AskWorldSaveRequest,
+    AskWorldSaveResponse,
     CoreEntityCreate,
     CoreEntityDraftSuggestionPayload,
     CoreEntityResponse,
@@ -28,6 +30,7 @@ from modules.world.schemas import (
     CoreEntityUpdate,
     CreationSuggestionCreate,
     CreationSuggestionResponse,
+    CreationSuggestionRevisionLink,
     EntityAliasSuggestionPayload,
     EntityMergeRequest,
     EntityPromoteRequest,
@@ -37,6 +40,7 @@ from modules.world.schemas import (
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftSuggestionPayload,
     WorldBiblePageDraftUpdate,
+    WorldBiblePageProposalContent,
     WorldBibleSourceRef,
     WorldGenerationApplyPageDraftRequest,
     WorldGenerationApplyPageDraftResponse,
@@ -192,6 +196,92 @@ class SuggestionQueueService:
         await db.flush()
         return CreationSuggestionResponse.model_validate(suggestion)
 
+    async def save_ask_world_answer(
+        self,
+        db: AsyncSession,
+        data: AskWorldSaveRequest,
+    ) -> AskWorldSaveResponse:
+        """Save one author-requested answer as a reviewable new-page suggestion."""
+        from modules.world.services.worldbuilding.ask_world_service import AskWorldService
+
+        ask_world = AskWorldService()
+        expected = ask_world.response_hash(
+            data.question,
+            data.answer,
+            data.claims,
+            data.uncertainty,
+            data.citations,
+        )
+        if expected != data.response_hash:
+            raise ConflictError("Ask World answer changed before it was saved")
+        for citation in data.citations:
+            opened = await ask_world.open_citation(db, data.novel_id, citation)
+            if opened.status != "current":
+                raise ConflictError("Ask World citation changed before it was saved")
+
+        citations_by_key = {item.citation_key: item for item in data.citations}
+        lines = [data.answer.strip()]
+        for claim in data.claims:
+            titles = [citations_by_key[key].title for key in claim.citation_keys]
+            lines.append(f"- {claim.text}（来源：{'、'.join(titles)}）")
+        if data.uncertainty.strip():
+            lines.append(f"仍需核对：{data.uncertainty.strip()}")
+        source_refs = [self._ask_world_source_ref(item) for item in data.citations]
+        payload = WorldBiblePageDraftSuggestionPayload(
+            operation="create_new",
+            page=WorldBiblePageProposalContent(
+                title=f"问世界：{data.question.strip()[:240]}",
+                page_type="custom",
+                free_text="\n\n".join(lines)[:30_000],
+            ),
+            design_rationale="作者主动把只读问答保存为待处理世界书建议。",
+            review_notes=[
+                "回答尚未写入正式世界书；请编辑并应用到工作稿后再决定是否发布。"
+            ],
+            source_refs=source_refs,
+        )
+        suggestion = await self.create(
+            db,
+            CreationSuggestionCreate(
+                novel_id=data.novel_id,
+                source_module="world",
+                review_group="generation_center",
+                target_type="world_bible_page_draft",
+                action_schema="ask_world.page_draft.v1",
+                payload_json=payload.model_dump(mode="json"),
+                evidence_refs_json=[item.model_dump(mode="json") for item in source_refs],
+                risk_level="low",
+            ),
+        )
+        return AskWorldSaveResponse(suggestion=suggestion)
+
+    @staticmethod
+    def _ask_world_source_ref(citation) -> WorldBibleSourceRef:
+        if citation.kind == "world_bible_page":
+            return WorldBibleSourceRef(
+                source_type="world_bible_page",
+                source_id=citation.page_id,
+                source_version=citation.source_version,
+                source_hash=citation.source_hash,
+                page_id=citation.page_id,
+                title=citation.title,
+            )
+        if citation.kind == "manuscript":
+            return WorldBibleSourceRef(
+                source_type="writing_chapter",
+                source_id=str((citation.source_ref or {}).get("draft_id") or "") or None,
+                source_version=citation.source_version,
+                source_hash=citation.source_hash,
+                chapter_index=citation.chapter_index,
+                title=citation.title,
+            )
+        return WorldBibleSourceRef(
+            source_type="core_entity",
+            source_id=str((citation.target_ref or {}).get("target_id") or "") or None,
+            source_hash=citation.source_hash,
+            title=citation.title,
+        )
+
     async def list(
         self,
         db: AsyncSession,
@@ -223,6 +313,87 @@ class SuggestionQueueService:
             CreationSuggestionResponse.model_validate(item)
             for item in result.scalars().all()
         ], total
+
+    async def require_generation_revision_parent(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        suggestion_id: str,
+    ) -> CreationSuggestionResponse:
+        try:
+            suggestion = await self._get_pending(db, novel_id, suggestion_id)
+        except SuggestionAlreadyProcessedError as exc:
+            raise ConflictError(
+                "The suggestion selected for revision is no longer pending"
+            ) from exc
+        if (
+            suggestion.source_module != "world"
+            or suggestion.review_group != "generation_center"
+        ):
+            raise ValidationError(
+                "Only generation-center suggestions can be revised in this workflow"
+            )
+        response = CreationSuggestionResponse.model_validate(suggestion)
+        if response.revision_link and response.revision_link.successor_suggestion_id:
+            raise ConflictError("The suggestion already has a newer revision")
+        return response
+
+    async def supersede_generation_suggestion(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        predecessor_suggestion_id: str,
+        successor_suggestion_id: str,
+    ) -> CreationSuggestionResponse:
+        try:
+            predecessor = await self._claim_pending(
+                db,
+                novel_id,
+                predecessor_suggestion_id,
+            )
+        except SuggestionAlreadyProcessedError as exc:
+            raise ConflictError(
+                "The suggestion selected for revision is no longer pending"
+            ) from exc
+        successor = await self._get_pending(db, novel_id, successor_suggestion_id)
+        if (
+            predecessor.source_module != "world"
+            or predecessor.review_group != "generation_center"
+            or successor.source_module != "world"
+            or successor.review_group != "generation_center"
+        ):
+            raise ValidationError(
+                "Only generation-center suggestions can participate in revisions"
+            )
+        predecessor_link = self._revision_link(predecessor.result_ref_json)
+        successor_link = self._revision_link(successor.result_ref_json)
+        if predecessor_link and predecessor_link.successor_suggestion_id:
+            raise ConflictError("The suggestion already has a newer revision")
+        if successor_link and successor_link.predecessor_suggestion_id:
+            raise ConflictError("The new suggestion is already linked to a revision")
+
+        compatibility_ref = await self._archive_compatibility_shadow(
+            db,
+            novel_id=novel_id,
+            suggestion=predecessor,
+        )
+        predecessor.result_ref_json = self._with_revision_link(
+            compatibility_ref or dict(predecessor.result_ref_json or {}),
+            predecessor=predecessor_link.predecessor_suggestion_id
+            if predecessor_link
+            else None,
+            successor=str(successor.id),
+        )
+        successor.result_ref_json = self._with_revision_link(
+            dict(successor.result_ref_json or {}),
+            predecessor=str(predecessor.id),
+            successor=successor_link.successor_suggestion_id if successor_link else None,
+        )
+        predecessor.status = "rejected"
+        await db.flush()
+        return CreationSuggestionResponse.model_validate(successor)
 
     async def confirm(
         self,
@@ -790,7 +961,10 @@ class SuggestionQueueService:
         result_ref: dict[str, Any],
     ) -> CreationSuggestionResponse:
         suggestion.status = "accepted"
-        suggestion.result_ref_json = result_ref
+        suggestion.result_ref_json = self._preserve_revision_link(
+            result_ref,
+            suggestion.result_ref_json,
+        )
         try:
             from modules.context import facade as context_facade
 
@@ -879,7 +1053,10 @@ class SuggestionQueueService:
             suggestion=suggestion,
         )
         if compatibility_ref is not None:
-            suggestion.result_ref_json = compatibility_ref
+            suggestion.result_ref_json = self._preserve_revision_link(
+                compatibility_ref,
+                suggestion.result_ref_json,
+            )
         suggestion.status = "rejected"
         await db.flush()
         return CreationSuggestionResponse.model_validate(suggestion)
@@ -919,6 +1096,40 @@ class SuggestionQueueService:
             "id": entity_id,
             "status": "archived",
         }
+
+    @staticmethod
+    def _revision_link(
+        result_ref_json: dict[str, Any] | None,
+    ) -> CreationSuggestionRevisionLink | None:
+        raw = (result_ref_json or {}).get("revision_link")
+        if raw is None:
+            return None
+        return CreationSuggestionRevisionLink.model_validate(raw)
+
+    @staticmethod
+    def _with_revision_link(
+        result_ref_json: dict[str, Any],
+        *,
+        predecessor: str | None,
+        successor: str | None,
+    ) -> dict[str, Any]:
+        result = dict(result_ref_json)
+        result["revision_link"] = CreationSuggestionRevisionLink(
+            predecessor_suggestion_id=predecessor,
+            successor_suggestion_id=successor,
+        ).model_dump(mode="json", exclude_none=True)
+        return result
+
+    @staticmethod
+    def _preserve_revision_link(
+        result_ref_json: dict[str, Any],
+        previous_result_ref_json: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        result = dict(result_ref_json)
+        revision_link = (previous_result_ref_json or {}).get("revision_link")
+        if revision_link is not None:
+            result["revision_link"] = revision_link
+        return result
 
     async def _get_pending(
         self,

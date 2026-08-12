@@ -68,7 +68,7 @@ describe("上传流程", () => {
     expect(globalThis.api.clearCache).toHaveBeenCalled()
     expect(settled).toHaveBeenCalledWith(null, { total_chapters: 12, imported_chapters: 12 })
     expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
-    expect(globalThis.router.refresh).toHaveBeenCalled()
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
     expect(u.uploading.value).toBe(false)
     expect(u.progress.value).toBeNull()
     scope.stop()

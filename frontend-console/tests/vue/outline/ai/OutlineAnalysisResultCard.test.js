@@ -1,7 +1,7 @@
 /**
  * OutlineAnalysisResultCard 组件测试 — DOM 对齐 vanilla _renderOutlineAnalysisResult。
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import OutlineAnalysisResultCard from "../../../../vue/views/outline/ai/OutlineAnalysisResultCard.vue"
 import { outlineAnalysisManager } from "../../../../vue/views/outline/ai/outlineWorkflowManagers.js"
@@ -63,7 +63,7 @@ describe("渲染契约", () => {
     expect(wrapper.find("details.outline-analysis-context").exists()).toBe(false)
   })
 
-  it("收起结果按钮存在", () => {
+  it("收起结果只清理本地分析状态", async () => {
     outlineAnalysisManager.state.result = {
       markdown: "分析内容",
       contextSummary: {},
@@ -72,5 +72,8 @@ describe("渲染契约", () => {
     const btn = wrapper.find('[data-action="dismiss-outline-analysis"]')
     expect(btn.exists()).toBe(true)
     expect(btn.text()).toBe("收起结果")
+    await btn.trigger("click")
+    expect(outlineAnalysisManager.state.result).toBeNull()
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
   })
 })

@@ -174,7 +174,7 @@ describe("终态处理",  () => {
     const refresh = vi.fn()
     const toast = vi.fn()
     setBridgeOverrides({
-      state: { currentProjectId: "p-term", currentView: "world" },
+      state: { currentProjectId: "p-term", currentView: "world", currentSubView: "objects" },
       router: { refresh },
       toast,
     })
@@ -191,7 +191,7 @@ describe("终态处理",  () => {
   it("autoExtract done 但当前不在 world 视图：不 refresh", async () => {
     const refresh = vi.fn()
     setBridgeOverrides({
-      state: { currentProjectId: "p-away", currentView: "rag" },
+      state: { currentProjectId: "p-away", currentView: "rag", currentSubView: "search" },
       router: { refresh },
       toast: vi.fn(),
     })
@@ -199,6 +199,36 @@ describe("终态处理",  () => {
     const { onDone } = pollTaskProgress.mock.calls[0][0]
     await onDone({ taskId: "task-away", done: true, terminal: true })
     expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it("autoExtract done 但当前在世界笔记：不打断编辑器", async () => {
+    const refresh = vi.fn()
+    setBridgeOverrides({
+      state: { currentProjectId: "p-bible", currentView: "world", currentSubView: "bible" },
+      router: { refresh },
+      toast: vi.fn(),
+    })
+    autoExtractManager.adopt({ task_id: "task-bible", status: "running" })
+    const { onDone } = pollTaskProgress.mock.calls[0][0]
+    await onDone({ taskId: "task-bible", done: true, terminal: true })
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it("autoExtract 旧项目任务晚到：不刷新当前项目", async () => {
+    const refresh = vi.fn()
+    const state = { currentProjectId: "p-old", currentView: "world", currentSubView: "objects" }
+    setBridgeOverrides({ state, router: { refresh }, toast: vi.fn() })
+    autoExtractManager.adopt({ task_id: "task-old-late", status: "running" })
+    const { onDone } = pollTaskProgress.mock.calls[0][0]
+    recoverActiveWorkflows.mockReturnValue([
+      { taskId: "task-new", workflowType: "world_object_auto_extraction", view: "world" },
+    ])
+    state.currentProjectId = "p-new"
+    autoExtractManager.recover("p-new")
+    await onDone({ taskId: "task-old-late", done: true, terminal: true })
+    expect(refresh).not.toHaveBeenCalled()
+    expect(autoExtractManager.state.taskId).toBe("task-new")
+    expect(autoExtractManager.state.ownerProjectId).toBe("p-new")
   })
 
   it("autoExtract failed：toast 报错、不 refresh", async () => {

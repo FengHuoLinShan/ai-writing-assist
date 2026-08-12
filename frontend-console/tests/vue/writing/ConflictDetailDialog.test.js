@@ -69,6 +69,44 @@ describe("ConflictDetailDialog", () => {
     expect(wrapper.text()).toContain('<img src=x onerror="alert(1)">')
   })
 
+  it("把可覆盖的规则交给作者决定，AI 与历史结果不会冒充确定性阻断", () => {
+    const items = [
+      { id: "rule-high", severity: "high", kind: "forbidden_present", status: "open", source_module: "writing", evidence_summary: "命中禁止项" },
+      { id: "rule-review", severity: "high", kind: "map_risk", status: "open", source_module: "world", evidence_summary: "候选地图证据", needs_review: true },
+      { id: "ai-soft", severity: "high", kind: "motivation_gap", status: "open", source_module: "outline", evidence_summary: "动机可加强", is_ai_judgment: true },
+      { id: "ai-choice", severity: "medium", kind: "emotion_jump", status: "open", source_module: "outline", evidence_summary: "需作者判断", is_ai_judgment: true, needs_review: true },
+      { id: "rule-closed", severity: "high", kind: "required_missing", status: "resolved", source_module: "outline", evidence_summary: "已修复" },
+      { id: "ai-later", severity: "medium", kind: "voice_or_pov_drift", status: "later", source_module: "outline", evidence_summary: "以后再看", is_ai_judgment: true },
+    ]
+    const wrapper = mount(ConflictDetailDialog, {
+      props: {
+        model: model({
+          check: {
+            ...model().check,
+            status: "degraded",
+            version_number: 3,
+            scene_id: "scene-private-id",
+            summary_json: { degraded_sources: ["outline", "world.map.candidates"] },
+            items,
+          },
+        }),
+      },
+    })
+    const action = (id) => wrapper.find(`[data-conflict-item-id="${id}"] [data-author-action]`)
+
+    expect(action("rule-high").attributes("data-author-action")).toBe("needs_decision")
+    expect(action("rule-review").attributes("data-author-action")).toBe("needs_decision")
+    expect(action("ai-soft").attributes("data-author-action")).toBe("can_improve")
+    expect(action("ai-choice").attributes("data-author-action")).toBe("needs_decision")
+    expect(action("rule-closed").exists()).toBe(false)
+    expect(action("ai-later").exists()).toBe(false)
+    expect(wrapper.text()).toContain("来源版本：工作稿 v3")
+    expect(wrapper.text()).toContain("定向复检：第 2 章当前场景")
+    expect(wrapper.get('[role="status"][data-author-action="needs_decision"]').text()).toContain("故事结构、地图资料")
+    expect(wrapper.find('[data-author-action="must_fix"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain("scene-private-id")
+  })
+
   it("从 Vue 事件送出状态决策、AI 请求、定位、来源与可编辑建议", async () => {
     const wrapper = mount(ConflictDetailDialog, { props: { model: model() } })
     await wrapper.get('[data-conflict-item-id="rule-1"] [data-action="later-conflict"]').trigger("click")

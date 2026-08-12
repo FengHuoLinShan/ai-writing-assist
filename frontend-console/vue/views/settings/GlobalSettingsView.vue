@@ -34,6 +34,8 @@ const authorForm = ref(authorFormFromDefaults(props.authorPrefs))
 const authorBaseline = ref(JSON.stringify(authorForm.value))
 const connectionButton = useSaveButton()
 const authorButton = useSaveButton()
+let disposed = false
+let connectionFormRevision = 0
 const returnTarget = normalizeRpReturnTarget(
   getRouter()?.getCurrentQuery?.()?.get?.("return_to"),
 )
@@ -47,8 +49,13 @@ const selectedProvider = computed(() => (
 ))
 
 function selectProvider(providerId) {
+  connectionFormRevision += 1
   selectedProviderId.value = providerId
   apiKey.value = ""
+}
+
+function onApiKeyInput() {
+  connectionFormRevision += 1
 }
 
 function focusProvider(providerId) {
@@ -96,6 +103,7 @@ function gotoRecentProject() {
 }
 
 async function returnAfterConnection() {
+  if (disposed) return false
   if (!returnTarget) return
   if (returnTarget === "journeys") {
     await getRouter().navigate("journeys")
@@ -113,8 +121,10 @@ async function refreshBalances() {
   balanceLoading.value = true
   try {
     const response = await getApi().settings.listLLMBalances()
+    if (disposed) return false
     balances.value = response?.items || []
   } catch {
+    if (disposed) return false
     balances.value = providers.value
       .filter((provider) => provider.connected)
       .map((provider) => ({
@@ -134,20 +144,31 @@ async function saveConnection() {
     getToast()("请先填写 API Key", "warning")
     return
   }
+  const providerId = provider.provider_id
+  const revision = connectionFormRevision
+  const ownsForm = () => (
+    !disposed
+    && selectedProviderId.value === providerId
+    && connectionFormRevision === revision
+  )
 
   connectionButton.saving.value = true
   try {
     const response = key
-      ? await getApi().settings.connectLLMProvider(provider.provider_id, key)
-      : await getApi().settings.activateLLMProvider(provider.provider_id)
+      ? await getApi().settings.connectLLMProvider(providerId, key)
+      : await getApi().settings.activateLLMProvider(providerId)
+    if (!ownsForm()) return false
     if (response?.providers) connections.value = response
     apiKey.value = ""
     getToast()(`已启用 ${provider.label}，之后的新生成会使用此模型`, "success")
     await refreshBalances()
+    if (!ownsForm()) return false
     await returnAfterConnection()
   } catch (err) {
-    getToast()(err.message || "模型连接验证失败", "error")
-    connectionButton.flashError()
+    if (ownsForm()) {
+      getToast()(err.message || "模型连接验证失败", "error")
+      connectionButton.flashError()
+    }
   } finally {
     connectionButton.saving.value = false
   }
@@ -159,16 +180,24 @@ async function clearConnection() {
   if (!getConfirm()(
     `清除 ${provider.label} 的 API Key？已有内容不会受影响；重新连接前，作者创作与 RP 的新生成都会暂停。`,
   )) return
+  const providerId = provider.provider_id
+  const revision = connectionFormRevision
+  const ownsForm = () => (
+    !disposed
+    && selectedProviderId.value === providerId
+    && connectionFormRevision === revision
+  )
   try {
-    const response = await getApi().settings.clearLLMProvider(provider.provider_id)
+    const response = await getApi().settings.clearLLMProvider(providerId)
+    if (!ownsForm()) return false
     if (response?.providers) connections.value = response
     apiKey.value = ""
     balances.value = balances.value.filter(
-      (item) => item.provider_id !== provider.provider_id,
+      (item) => item.provider_id !== providerId,
     )
     getToast()(`${provider.label} 已断开`, "success")
   } catch (err) {
-    getToast()(err.message || "断开失败", "error")
+    if (ownsForm()) getToast()(err.message || "断开失败", "error")
   }
 }
 
@@ -199,13 +228,16 @@ async function saveAuthor() {
   authorButton.saving.value = true
   try {
     await getApi().settings.updateGlobalAuthorPrefs(prefs)
+    if (disposed) return false
     if (JSON.stringify(authorForm.value) === submittedForm) {
       authorBaseline.value = submittedForm
     }
     toast("作者偏好已保存", "success")
   } catch (err) {
-    toast(err.message || "保存失败", "error")
-    authorButton.flashError()
+    if (!disposed) {
+      toast(err.message || "保存失败", "error")
+      authorButton.flashError()
+    }
   } finally {
     authorButton.saving.value = false
   }
@@ -231,7 +263,10 @@ onMounted(async () => {
   window.addEventListener("beforeunload", beforeUnload)
   try { imageConnection.value = await getApi().settings.getImageConnection() } catch { /* 地图册使用时仍会给出明确提示 */ }
 })
-onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
+onBeforeUnmount(() => {
+  disposed = true
+  window.removeEventListener("beforeunload", beforeUnload)
+})
 </script>
 
 <template>
@@ -313,6 +348,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
           type="password"
           autocomplete="new-password"
           :placeholder="selectedProvider?.connected ? '留空可直接切换到已验证连接' : '请先填写 Key'"
+          @input="onApiKeyInput"
         />
       </label>
       <p class="settings-section-hint">

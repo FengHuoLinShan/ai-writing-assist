@@ -12,10 +12,9 @@ import { createDraft, createScene, waitForBackend } from "./helpers/api-client.j
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, waitWritingReady } from "./helpers/workbench.js"
 
-const THEMES = ["minimal", "warm", "dark"]
+const THEMES = ["sticky", "night", "ink"]
 
 async function applyTheme(page, theme) {
-  await page.locator(SEL.themeToggle).click()
   await page.locator(SEL.themeOption(theme)).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
 }
@@ -108,14 +107,17 @@ test.describe("writing 视觉基线", () => {
     const project = await projectFactory({ title: "视觉基线专注写作", genre: "fantasy", language: "zh" })
     await seedWritingDesk(project.id)
     await openPopulatedDesk(page, project)
-    await applyTheme(page, "minimal")
+    await applyTheme(page, "sticky")
 
     await page.locator(SEL.writingToolbar).getByText("写作视图", { exact: true }).click()
+    await expect(page.locator(SEL.writingToolbar)).toHaveCSS("overflow", "visible")
     await page.locator(SEL.writingToolbar).getByRole("button", { name: "进入专注" }).click()
+    await expect(page.locator(".writing-page-menu")).not.toHaveAttribute("open", "")
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator(SEL.writingTreeRail)).toBeHidden()
     await expect(page.locator(SEL.writingPanelRail)).toBeHidden()
-    await screenshotPage(page, "writing-focus-minimal.png")
+    await expect(page.locator(SEL.writingEditor)).toBeVisible()
+    await screenshotPage(page, "writing-focus-sticky.png")
   })
 
   test("should preserve the 390px mobile quick note", async ({ page, projectFactory }) => {
@@ -132,7 +134,8 @@ test.describe("writing 视觉基线", () => {
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await expect(page.locator(SEL.mobileQuickNote)).toBeVisible()
     await expect(page.locator(SEL.mobileNoteEditor)).toHaveValue(/潮声退到石阶之外/)
-    await applyTheme(page, "minimal")
-    await screenshotPage(page, "writing-mobile-390-minimal.png")
+    await expect(page.locator(".mobile-note-actions")).toBeInViewport()
+    await applyTheme(page, "sticky")
+    await screenshotPage(page, "writing-mobile-390-sticky.png")
   })
 })

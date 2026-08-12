@@ -72,6 +72,8 @@ project runtime 创建的 client 带有 secret-free `runtime_scope`。managed he
 task-local context collector 聚合这些记录，并在成功、失败和取消路径
 都合并到 result 的 `managed_llm_steps`；记录不包含 API Key、完整
 Base URL/query、prompt 或正文。
+profile 字段来源 `account` 表示项目 owner 当前账户连接，属于受管白名单值；
+只有未登记的动态来源才降级为 `unknown`。
 
 step envelope 可表达 read / suggest / draft / act-with-confirmation 权限，但当前 harness
 明确拒绝 `autonomous`。它记录确定性执行与输出守门，不实现 agent loop、工具自主选择或
@@ -385,6 +387,11 @@ deep-import orchestrator 与 World Bible projection coalescing 仍有已登记�
 - `list_running_task_types_for_novel()` 只返回指定项目/类型的运行中任务；
 - `require_running_task_attempt()` 按 task type、owner、lease 与 attempt 锁定当前执行；
 - 取消和永久删除使用 novel-scoped facade，不跨项目扫描或写入。
+
+公开取消和重试在 active-project 门禁后都按 `task_id + novel_id` 使用 `FOR UPDATE` 锁定任务行，
+并在锁内重验状态。取消只接受 `pending/running`；并发重试只有首个合格请求执行
+`failed -> pending`，后续保持既有 409。它们与 worker 的 lease-fenced claim/finalize
+串行化，旧请求不会覆盖已经提交的终态或新 lease。
 
 worker claim 使用 `FOR UPDATE SKIP LOCKED`，每次 attempt 生成新 `lease_id`。handler
 session 的每次显式 checkpoint commit 和最终 commit 都在同一事务内执行

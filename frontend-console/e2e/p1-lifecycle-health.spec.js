@@ -99,7 +99,7 @@ test.describe("P1 lifecycle and evidence health", () => {
     await openWorkbench(page, project, "rag", "status")
 
     const card = page.getByText("创作证据健康").locator("..")
-    await expect(card).toContainText("需要处理")
+    await expect(card).toContainText("可以改进")
     await expect(card).toContainText("91%")
     await expect(card).toContainText("82%")
     await expect(page.locator("body")).not.toContainText("raw query")

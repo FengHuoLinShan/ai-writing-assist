@@ -7,11 +7,15 @@ World Pydantic Schema 定义 — v3 因果时空网
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ValidationError as PydanticValidationError
+
+from modules.world.llm_schemas import GeneratedWorldGenerationDecisionState
 
 # ============================================================
 # 内部工具
@@ -287,29 +291,6 @@ class ObjectDraftChatMessage(BaseModel):
     content: str = Field(..., min_length=1, max_length=20000)
 
 
-class ObjectDraftChatRequest(BaseModel):
-    """生成中心自由聊天请求；不写入数据库。"""
-
-    novel_id: str
-    template: ObjectDraftTemplate = "none"
-    messages: list[ObjectDraftChatMessage] = Field(default_factory=list, max_length=40)
-    pasted_context: str | None = Field(default=None, max_length=60000)
-    selected_chapter_indices: list[int] = Field(default_factory=list, max_length=20)
-    quality_mode: ObjectDraftQualityMode = "fast"
-    template_name: str | None = Field(default=None, max_length=80)
-    template_prompt: str | None = Field(default=None, max_length=8000)
-    template_id: str | None = Field(default=None, max_length=128)
-    template_version: int | None = Field(default=None, ge=1)
-    template_variables: dict[str, Any] = Field(default_factory=dict)
-    include_world_synopsis: bool = False
-    selected_world_bible_draft_ids: list[str] = Field(
-        default_factory=list,
-        max_length=20,
-    )
-    activation_profile_id: str | None = None
-    activation_profile_version: int | None = Field(default=None, ge=1)
-
-
 class GenerationContextUsage(BaseModel):
     included: bool = False
     section_key: str = "world_bible_synopsis"
@@ -426,6 +407,16 @@ class WorldGenerationRequestBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_target_pair(self) -> WorldGenerationRequestBase:
+        selected_world_pages = sum(
+            1
+            for ref in self.selected_asset_refs
+            if str(
+                ref.get("type") or ref.get("source_type") or ref.get("target_type") or ""
+            )
+            in {"world_bible_page", "page"}
+        )
+        if selected_world_pages > 16:
+            raise ValueError("selected_asset_refs supports at most 16 World Bible pages")
         if isinstance(self.target, WorldGenerationExistingPageTarget):
             if not isinstance(self.source_context, WorldGenerationPageSource):
                 raise ValueError(
@@ -440,8 +431,109 @@ class WorldGenerationChatRequest(WorldGenerationRequestBase):
     pass
 
 
+class WorldGenerationExternalPacket(BaseModel):
+    """Client-computed identity for one bounded external return packet."""
+
+    sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    packet_index: int = Field(..., ge=1, le=10000)
+    packet_total: int | None = Field(default=None, ge=1, le=10000)
+
+    @model_validator(mode="after")
+    def validate_position(self) -> WorldGenerationExternalPacket:
+        if self.packet_total is not None and self.packet_index > self.packet_total:
+            raise ValueError("packet_index cannot exceed packet_total")
+        return self
+
+
+class WorldGenerationConvergenceRequest(WorldGenerationRequestBase):
+    """Read-only convergence over the client-visible conversation window."""
+
+    excluded_message_count: int = Field(default=0, ge=0, le=100000)
+    external_packet: WorldGenerationExternalPacket | None = None
+
+    @model_validator(mode="after")
+    def validate_external_packet_hash(self) -> WorldGenerationConvergenceRequest:
+        if self.external_packet is None:
+            return self
+        packet = (self.pasted_context or "").strip()
+        if not packet:
+            raise ValueError("external_packet requires pasted_context")
+        if len(self.pasted_context or "") > 55_000:
+            raise ValueError(
+                "external_packet pasted_context cannot exceed 55000 characters"
+            )
+        actual = hashlib.sha256(self.pasted_context.encode("utf-8")).hexdigest()
+        if actual != self.external_packet.sha256:
+            raise ValueError("external_packet sha256 does not match pasted_context")
+        return self
+
+
+class WorldGenerationExplorationRequest(WorldGenerationRequestBase):
+    """Read-only, one-hop exploration from one World Bible page."""
+
+    depth: Literal[1] = 1
+
+    @model_validator(mode="after")
+    def validate_exploration_scope(self) -> WorldGenerationExplorationRequest:
+        if not isinstance(self.source_context, WorldGenerationPageSource):
+            raise ValueError("exploration requires a World Bible page source")
+        if not isinstance(self.target, WorldGenerationNewPageTarget):
+            raise ValueError("exploration currently supports one adjacent new page")
+        return self
+
+
+class WorldGenerationSemanticInspectionRequest(WorldGenerationRequestBase):
+    """User-triggered semantic inspection of one exact World Bible page source."""
+
+    @model_validator(mode="after")
+    def validate_inspection_scope(self) -> WorldGenerationSemanticInspectionRequest:
+        if not isinstance(self.source_context, WorldGenerationPageSource):
+            raise ValueError("semantic inspection requires a World Bible page source")
+        if not isinstance(self.target, WorldGenerationExistingPageTarget):
+            raise ValueError("semantic inspection requires an existing World Bible page")
+        return self
+
+
+class WorldGenerationExplorationSelection(BaseModel):
+    """The only adjacent target explicitly selected by the author."""
+
+    depth: Literal[1] = 1
+    request_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    item_id: str = Field(..., min_length=1, max_length=32)
+    title: str = Field(..., min_length=1, max_length=160)
+    gap: str = Field(..., min_length=1, max_length=800)
+    why_it_matters: str = Field(..., min_length=1, max_length=1000)
+    author_boundary: str = Field(..., min_length=1, max_length=800)
+    reverse_check_focus: str = Field(..., min_length=1, max_length=800)
+    source_keys: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(
+        ...,
+        min_length=1,
+        max_length=8,
+    )
+
+
 class WorldGenerationSuggestionRequest(WorldGenerationRequestBase):
-    pass
+    revises_suggestion_id: str | None = None
+    exploration_selection: WorldGenerationExplorationSelection | None = None
+
+    @field_validator("revises_suggestion_id", mode="before")
+    @classmethod
+    def coerce_revision_parent_uuid(cls, value: object) -> str | None:
+        return _optional_uuid_validator(value)
+
+    @model_validator(mode="after")
+    def validate_exploration_selection_scope(
+        self,
+    ) -> WorldGenerationSuggestionRequest:
+        if self.exploration_selection is None:
+            return self
+        if not isinstance(self.source_context, WorldGenerationPageSource):
+            raise ValueError("exploration selection requires a World Bible page source")
+        if not isinstance(self.target, WorldGenerationNewPageTarget):
+            raise ValueError("exploration selection requires an adjacent new page target")
+        if self.revises_suggestion_id is not None:
+            raise ValueError("exploration selection cannot revise an existing suggestion")
+        return self
 
 
 class WorldGenerationSourceSnapshot(BaseModel):
@@ -473,6 +565,268 @@ class WorldBibleSourceRef(BaseModel):
     page_id: str | None = None
     title: str | None = Field(default=None, max_length=255)
     chapter_index: int | None = None
+
+
+class WorldGenerationConvergenceManifestItem(BaseModel):
+    key: str = Field(..., min_length=1, max_length=128)
+    kind: Literal[
+        "conversation",
+        "pasted_context",
+        "source_page",
+        "chapter",
+        "asset",
+        "project_background",
+    ]
+    label: str = Field(..., min_length=1, max_length=255)
+    content_hash: str = Field(..., min_length=64, max_length=64)
+    source_ref: WorldBibleSourceRef
+
+
+class WorldGenerationExplorationTarget(BaseModel):
+    item_id: str = Field(..., min_length=1, max_length=32)
+    title: str = Field(..., min_length=1, max_length=160)
+    gap: str = Field(..., min_length=1, max_length=800)
+    why_it_matters: str = Field(..., min_length=1, max_length=1000)
+    author_boundary: str = Field(..., min_length=1, max_length=800)
+    reverse_check_focus: str = Field(..., min_length=1, max_length=800)
+    source_keys: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(
+        ...,
+        min_length=1,
+        max_length=8,
+    )
+    evidence: list[WorldGenerationConvergenceManifestItem] = Field(
+        default_factory=list,
+        min_length=1,
+        max_length=8,
+    )
+
+
+class WorldGenerationExplorationResponse(BaseModel):
+    depth: Literal[1] = 1
+    targets: list[WorldGenerationExplorationTarget] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    stop_reason: str = Field(..., min_length=1, max_length=1000)
+    request_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    model: str = ""
+    provider: str = ""
+    context_usage: GenerationContextUsage | None = None
+    source_snapshot: WorldGenerationSourceSnapshot
+
+
+class WorldGenerationSemanticInspectionFinding(BaseModel):
+    item_id: str = Field(..., min_length=1, max_length=32)
+    author_action: Literal["needs_decision", "can_improve"]
+    finding_type: Literal[
+        "authority_order",
+        "open_question",
+        "authorization",
+        "projection_lag",
+        "other",
+    ]
+    summary: str = Field(..., min_length=1, max_length=600)
+    evidence: str = Field(..., min_length=1, max_length=1200)
+    location: str = Field(..., min_length=1, max_length=500)
+    next_step: str = Field(..., min_length=1, max_length=800)
+    source_keys: list[str] = Field(..., min_length=1, max_length=8)
+    evidence_refs: list[WorldGenerationConvergenceManifestItem] = Field(
+        ...,
+        min_length=1,
+        max_length=8,
+    )
+
+
+class WorldGenerationSemanticInspectionReceipt(BaseModel):
+    scope_label: str = Field(..., min_length=1, max_length=500)
+    source_version: int = Field(..., ge=1)
+    target_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    checks_run: list[str] = Field(..., min_length=1, max_length=8)
+    not_run: list[str] = Field(..., min_length=1, max_length=12)
+    omissions: list[str] = Field(default_factory=list, max_length=12)
+    completed_at: datetime
+
+
+class WorldGenerationSemanticInspectionResponse(BaseModel):
+    findings: list[WorldGenerationSemanticInspectionFinding] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    queue_item_ids: list[str] = Field(default_factory=list, max_length=8)
+    receipt: WorldGenerationSemanticInspectionReceipt
+    model: str = ""
+    provider: str = ""
+    context_usage: GenerationContextUsage | None = None
+    source_snapshot: WorldGenerationSourceSnapshot
+
+
+class AskWorldQuestionRequest(BaseModel):
+    novel_id: str
+    question: str = Field(..., min_length=2, max_length=2000)
+
+
+class AskWorldCitation(BaseModel):
+    citation_key: str = Field(..., min_length=1, max_length=160)
+    kind: Literal["world_bible_page", "world_object", "manuscript"]
+    title: str = Field(..., min_length=1, max_length=255)
+    snippet: str = Field(default="", max_length=2000)
+    source_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    source_version: int | None = Field(default=None, ge=1)
+    page_id: str | None = None
+    chapter_index: int | None = Field(default=None, ge=1)
+    source_ref: dict[str, Any] | None = None
+    target_ref: dict[str, Any] | None = None
+    index_fresh: bool = True
+
+
+class AskWorldClaim(BaseModel):
+    text: str = Field(..., min_length=1, max_length=1200)
+    citation_keys: list[str] = Field(..., min_length=1, max_length=3)
+
+
+class AskWorldEvidenceTrace(BaseModel):
+    included_titles: list[str] = Field(default_factory=list, max_length=5)
+    excluded_count: int = Field(default=0, ge=0)
+    truncated_titles: list[str] = Field(default_factory=list, max_length=5)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    degraded: bool = False
+    checks_run: list[str] = Field(default_factory=list, max_length=10)
+    not_run: list[str] = Field(default_factory=list, max_length=10)
+
+
+class AskWorldResponse(BaseModel):
+    question: str
+    answer: str
+    claims: list[AskWorldClaim] = Field(default_factory=list, max_length=8)
+    uncertainty: str = Field(default="", max_length=2000)
+    no_answer: bool = False
+    citations: list[AskWorldCitation] = Field(default_factory=list, max_length=5)
+    response_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    evidence_trace: AskWorldEvidenceTrace
+    model: str = ""
+    provider: str = ""
+    context_snapshot_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_citations(self) -> AskWorldResponse:
+        known = {item.citation_key for item in self.citations}
+        if any(key not in known for claim in self.claims for key in claim.citation_keys):
+            raise ValueError("claim references an unknown citation")
+        if self.no_answer and self.claims:
+            raise ValueError("no-answer response cannot contain claims")
+        return self
+
+
+class AskWorldSaveRequest(BaseModel):
+    novel_id: str
+    question: str = Field(..., min_length=2, max_length=2000)
+    answer: str = Field(..., min_length=1, max_length=6000)
+    claims: list[AskWorldClaim] = Field(..., min_length=1, max_length=8)
+    uncertainty: str = Field(default="", max_length=2000)
+    citations: list[AskWorldCitation] = Field(..., min_length=1, max_length=5)
+    response_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_citations(self) -> AskWorldSaveRequest:
+        known = {item.citation_key for item in self.citations}
+        if len(known) != len(self.citations):
+            raise ValueError("citation keys must be unique")
+        if any(key not in known for claim in self.claims for key in claim.citation_keys):
+            raise ValueError("claim references an unknown citation")
+        return self
+
+
+class AskWorldCitationOpenRequest(BaseModel):
+    novel_id: str
+    citation: AskWorldCitation
+
+
+class AskWorldCitationOpenResponse(BaseModel):
+    status: Literal["current", "stale", "unavailable"]
+    kind: Literal["world_bible_page", "world_object", "manuscript"]
+    title: str
+    text: str = ""
+    source_hash: str | None = None
+    page_id: str | None = None
+    chapter_index: int | None = None
+    warnings: list[str] = Field(default_factory=list, max_length=10)
+
+
+class WorldGenerationConvergenceCoverage(BaseModel):
+    scope_label: str = Field(..., min_length=1, max_length=500)
+    source_count: int = Field(..., ge=0, le=256)
+    covered_source_keys: list[str] = Field(default_factory=list, max_length=256)
+    missing_source_keys: list[str] = Field(default_factory=list, max_length=256)
+    stale_source_keys: list[str] = Field(default_factory=list, max_length=256)
+    excluded_message_count: int = Field(default=0, ge=0, le=100000)
+    manifest_hash: str = Field(..., min_length=64, max_length=64)
+    complete: bool = False
+    issues: list[Annotated[str, Field(max_length=500)]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+
+class WorldGenerationConvergenceDetailSummary(BaseModel):
+    before_grouping: int = Field(..., ge=0, le=10000)
+    after_deduplication: int = Field(..., ge=0, le=10000)
+    retained_in_sources: int = Field(..., ge=0, le=10000)
+
+
+class WorldGenerationConvergenceDecisionItem(BaseModel):
+    item_id: str = Field(..., min_length=1, max_length=32)
+    text: str = Field(..., min_length=1, max_length=600)
+    suggested_disposition: Literal["include", "open", "discard"] = "open"
+    external_disposition: (
+        Literal[
+            "compatible",
+            "repair",
+            "candidate",
+            "unmapped",
+            "exact_duplicate",
+        ]
+        | None
+    ) = None
+
+
+class WorldGenerationConvergenceDecisionCard(BaseModel):
+    card_id: str = Field(..., min_length=1, max_length=32)
+    title: str = Field(..., min_length=1, max_length=160)
+    common_ground: list[Annotated[str, Field(max_length=600)]] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    items: list[WorldGenerationConvergenceDecisionItem] = Field(
+        ...,
+        min_length=1,
+        max_length=12,
+    )
+    dependencies: list[Annotated[str, Field(max_length=600)]] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    affected_targets: list[str] = Field(default_factory=list, max_length=6)
+    source_keys: list[str] = Field(..., min_length=1, max_length=256)
+    why_now: str = Field(..., min_length=1, max_length=1000)
+
+
+class WorldGenerationConvergenceResponse(BaseModel):
+    coverage: WorldGenerationConvergenceCoverage
+    manifest: list[WorldGenerationConvergenceManifestItem] = Field(
+        default_factory=list,
+        max_length=256,
+    )
+    detail_summary: WorldGenerationConvergenceDetailSummary
+    decision_cards: list[WorldGenerationConvergenceDecisionCard] = Field(
+        default_factory=list,
+        max_length=7,
+    )
+    next_boundary: str = Field(default="", max_length=1200)
+    model: str = ""
+    provider: str = ""
+    context_usage: GenerationContextUsage | None = None
+    source_snapshot: WorldGenerationSourceSnapshot
+    external_packet: WorldGenerationExternalPacket | None = None
 
 
 class CoreEntityDraftSuggestionPayload(BaseModel):
@@ -1543,6 +1897,8 @@ class CharacterKnowledgeResponse(BaseModel):
     character_id: str
     target_type: str
     target_id: str
+    target_name: str | None = None
+    target_entity_type: str | None = None
     knowledge_level: str
     known_content: str | None = None
     misconception: str | None = None
@@ -1551,6 +1907,7 @@ class CharacterKnowledgeResponse(BaseModel):
     source_memory_id: str | None = None
     status: str = "canonical"
     created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     @field_validator(
         "id",
@@ -2072,6 +2429,17 @@ class WorldBiblePageUpdate(BaseModel):
         return None if value is None else _validate_world_bible_sections(value)
 
 
+class WorldBibleValidationReceipt(BaseModel):
+    scope: Literal["targeted", "domain_full"]
+    scope_label: str
+    source_version: int = Field(..., ge=1)
+    checked: list[str] = Field(default_factory=list)
+    not_checked: list[str] = Field(default_factory=list)
+    omissions: list[str] = Field(default_factory=list)
+    impact_scope_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    completed_at: datetime
+
+
 class WorldBiblePageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -2092,6 +2460,7 @@ class WorldBiblePageResponse(BaseModel):
     sort_order: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    validation_receipt: WorldBibleValidationReceipt | None = None
 
     @field_validator("id", "novel_id", mode="before")
     @classmethod
@@ -2254,6 +2623,82 @@ class WorldBiblePageDraftResponse(BaseModel):
 class WorldBiblePageDraftListResponse(BaseModel):
     items: list[WorldBiblePageDraftResponse]
     total: int
+
+
+class WorldBibleImpactPathNode(BaseModel):
+    page_id: str
+    title: str
+    version_number: int = Field(..., ge=1)
+    section_titles: list[str] = Field(default_factory=list, max_length=64)
+
+    @field_validator("page_id", mode="before")
+    @classmethod
+    def coerce_path_page_uuid(cls, value: object) -> str:
+        return _uuid_validator(value)
+
+
+class WorldBibleImpactedPage(BaseModel):
+    page_id: str
+    title: str
+    page_type: str
+    version_number: int = Field(..., ge=1)
+    distance: int = Field(..., ge=1)
+    path: list[WorldBibleImpactPathNode] = Field(..., min_length=2, max_length=256)
+
+    @field_validator("page_id", mode="before")
+    @classmethod
+    def coerce_impacted_page_uuid(cls, value: object) -> str:
+        return _uuid_validator(value)
+
+
+class WorldBibleImpactOmission(BaseModel):
+    reason: Literal[
+        "invalid_page_reference",
+        "unavailable_page_reference",
+        "response_limit",
+    ]
+    referring_page_id: str | None = None
+    referring_page_title: str | None = None
+    count: int = Field(default=1, ge=1)
+
+    @field_validator("referring_page_id", mode="before")
+    @classmethod
+    def coerce_optional_referring_page_uuid(cls, value: object) -> str | None:
+        return _optional_uuid_validator(value)
+
+
+class WorldBiblePublishImpactSource(BaseModel):
+    draft_id: str
+    page_id: str | None = None
+    title: str
+    page_version: int | None = Field(default=None, ge=1)
+    draft_updated_at: datetime | None = None
+    content_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("draft_id", mode="before")
+    @classmethod
+    def coerce_impact_draft_uuid(cls, value: object) -> str:
+        return _uuid_validator(value)
+
+    @field_validator("page_id", mode="before")
+    @classmethod
+    def coerce_optional_impact_page_uuid(cls, value: object) -> str | None:
+        return _optional_uuid_validator(value)
+
+
+class WorldBiblePublishImpactResponse(BaseModel):
+    source: WorldBiblePublishImpactSource
+    added_outgoing_refs: int = Field(default=0, ge=0)
+    removed_outgoing_refs: int = Field(default=0, ge=0)
+    affected_pages: list[WorldBibleImpactedPage] = Field(
+        default_factory=list,
+        max_length=200,
+    )
+    omissions: list[WorldBibleImpactOmission] = Field(default_factory=list)
+    automatic_actions: list[str] = Field(default_factory=list)
+    not_checked: list[str] = Field(default_factory=list)
+    complete: bool = True
+    impact_scope_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
 
 
 class WorldBiblePageRevisionResponse(BaseModel):
@@ -2434,6 +2879,7 @@ class WorldBiblePageDraftSuggestionPayload(BaseModel):
     design_rationale: str = Field(default="", max_length=4000)
     review_notes: list[str] = Field(default_factory=list, max_length=20)
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+    decision_state: GeneratedWorldGenerationDecisionState | None = None
 
     @model_validator(mode="after")
     def validate_operation(self) -> WorldBiblePageDraftSuggestionPayload:
@@ -2574,6 +3020,60 @@ class CreationSuggestionCreate(BaseModel):
     status: str = Field(default="pending", max_length=32)
 
 
+def _suggestion_decision_state(
+    target_type: str,
+    payload_json: dict[str, Any],
+) -> GeneratedWorldGenerationDecisionState | None:
+    if target_type == "world_bible_page_draft":
+        raw = payload_json.get("decision_state")
+    elif target_type in {"core_entity", "core_entity_draft"}:
+        content = payload_json.get("content_json")
+        meta = content.get("_meta") if isinstance(content, dict) else None
+        raw = meta.get("author_decision_state") if isinstance(meta, dict) else None
+    else:
+        return None
+    if raw is None:
+        return None
+    try:
+        return GeneratedWorldGenerationDecisionState.model_validate(raw)
+    except PydanticValidationError:
+        return None
+
+
+class CreationSuggestionRevisionLink(BaseModel):
+    predecessor_suggestion_id: str | None = None
+    successor_suggestion_id: str | None = None
+
+    @field_validator(
+        "predecessor_suggestion_id",
+        "successor_suggestion_id",
+        mode="before",
+    )
+    @classmethod
+    def coerce_revision_uuid(cls, value: object) -> str | None:
+        return _optional_uuid_validator(value)
+
+    @model_validator(mode="after")
+    def validate_linear_link(self) -> CreationSuggestionRevisionLink:
+        if not self.predecessor_suggestion_id and not self.successor_suggestion_id:
+            raise ValueError("revision link requires a predecessor or successor")
+        if self.predecessor_suggestion_id == self.successor_suggestion_id:
+            raise ValueError("revision predecessor and successor must differ")
+        return self
+
+
+def _suggestion_revision_link(
+    result_ref_json: dict[str, Any],
+) -> CreationSuggestionRevisionLink | None:
+    raw = result_ref_json.get("revision_link")
+    if raw is None:
+        return None
+    try:
+        return CreationSuggestionRevisionLink.model_validate(raw)
+    except PydanticValidationError:
+        return None
+
+
 class CreationSuggestionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -2591,6 +3091,8 @@ class CreationSuggestionResponse(BaseModel):
     source: str | None = None
     attention_reasons: list[str] = Field(default_factory=list)
     suggested_action: str | None = None
+    decision_state: GeneratedWorldGenerationDecisionState | None = None
+    revision_link: CreationSuggestionRevisionLink | None = None
     result_ref_json: dict = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -2618,7 +3120,18 @@ class CreationSuggestionResponse(BaseModel):
             self.attention_reasons = projection["attention_reasons"]
         if self.suggested_action is None:
             self.suggested_action = projection["suggested_action"]
+        if self.decision_state is None:
+            self.decision_state = _suggestion_decision_state(
+                self.target_type,
+                self.payload_json,
+            )
+        if self.revision_link is None:
+            self.revision_link = _suggestion_revision_link(self.result_ref_json)
         return self
+
+
+class AskWorldSaveResponse(BaseModel):
+    suggestion: CreationSuggestionResponse
 
 
 class WorldGenerationCoreEntityResult(BaseModel):
@@ -2642,6 +3155,8 @@ WorldGenerationSuggestionResult = Annotated[
 
 class WorldGenerationSuggestionResponse(BaseModel):
     result: WorldGenerationSuggestionResult
+    source_revision: WorldGenerationPageResult | None = None
+    decision_state: GeneratedWorldGenerationDecisionState | None = None
     model: str = ""
     provider: str = ""
     context_usage: GenerationContextUsage | None = None

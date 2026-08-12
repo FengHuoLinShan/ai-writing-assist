@@ -233,6 +233,11 @@ submit；其 `meta` 先按该 schema 重建，再在存在 `novel_id` 时执行�
 422 只返回受控字段位置与错误类型，不回显提交值或动态 mapping key。
 infrastructure 仅依赖 DI 容器键，不 import project 模块。
 
+公开 cancel/retry 都会按 `task_id + novel_id` 锁定任务行后重验状态。cancel 只把
+`pending/running` 写为 `cancelled`；retry 只允许首个合格的 `failed -> pending`，并发后续
+请求沿用 409。两者均与 worker 的 lease-fenced claim/finalize 串行化，不能用请求内旧状态
+覆盖已经提交的终态或新 lease。
+
 `story_outline_generate` 是 outline 模块专属的 `restart_origin` 任务：只能通过
 `POST /api/outline/story-outline/generate` 提交。它在 provider 前持久化无 secret 的 project
 LLM execution snapshot 和 StoryOutline context provenance；worker 首次 prepare 必须匹配

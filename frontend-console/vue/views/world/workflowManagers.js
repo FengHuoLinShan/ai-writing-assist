@@ -46,12 +46,13 @@ function createWorkflowManager({
     poller = null
   }
 
-  async function handleTerminal(progress) {
+  async function handleTerminal(progress, ownerProjectId, ownedTaskId) {
+    clearActiveWorkflow(progress.taskId || ownedTaskId)
+    if (state.ownerProjectId !== ownerProjectId || state.taskId !== ownedTaskId) return
     stop()
-    clearActiveWorkflow(progress.taskId || state.taskId)
     state.taskId = null
     state.progress = progress
-    await onTerminal?.(progress, state)
+    await onTerminal?.(progress, state, ownerProjectId)
   }
 
   function resetMemoryScope() {
@@ -95,8 +96,8 @@ function createWorkflowManager({
         state.progress = progress
         state.status = progress.statusLabel || progress.status || "运行中"
       },
-      onDone: (progress) => { void handleTerminal(progress) },
-      onFailed: (progress) => { void handleTerminal(progress) },
+      onDone: (progress) => { void handleTerminal(progress, projectId, taskId) },
+      onFailed: (progress) => { void handleTerminal(progress, projectId, taskId) },
     })
   }
 
@@ -167,9 +168,20 @@ function createWorkflowManager({
   }
 }
 
-function refreshWorldIfActive() {
+const AUTO_EXTRACT_REFRESH_SUBVIEWS = new Set([
+  "objects",
+  "review-objects",
+  "review-aliases",
+  "review-relations",
+  "relations",
+  "aliases",
+])
+
+function refreshWorldListsIfActive(ownerProjectId) {
   const appState = getAppState()
   if (appState?.currentView !== "world") return
+  if (!ownerProjectId || appState.currentProjectId !== ownerProjectId) return
+  if (!AUTO_EXTRACT_REFRESH_SUBVIEWS.has(appState.currentSubView || "objects")) return
   const router = getRouter()
   router?.refresh?.()
 }
@@ -183,13 +195,13 @@ export const autoExtractManager = createWorkflowManager({
     workflows.find((item) => item.workflowType === "world_object_auto_extraction" && item.view === "world")
     || workflows.find((item) => item.workflowType === "world_object_auto_extraction")
   ),
-  onTerminal: async (progress) => {
+  onTerminal: async (progress, _state, ownerProjectId) => {
     const toast = getToast()
     if (progress.done) {
       toast("人物、设定与关系已整理完成", "success")
       // vanilla 在此重拉 entities/candidates/batches 并 navigate；refresh 触发
       // island onEnter → load() 全量重取，等价。
-      refreshWorldIfActive()
+      refreshWorldListsIfActive(ownerProjectId)
       return
     }
     if (progress.failed || progress.cancelled) {

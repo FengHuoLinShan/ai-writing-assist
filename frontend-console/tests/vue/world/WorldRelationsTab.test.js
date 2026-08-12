@@ -108,4 +108,13 @@ describe("批量操作", () => {
     expect(toolbar.exists()).toBe(true)
     expect(toolbar.props("scope")).toBe("world-relations")
   })
+
+  it("列表换页后剔除不再可见的选择", async () => {
+    const wrapper = mountTab()
+    await wrapper.find('input[data-id="r1"]').setValue(true)
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("1")
+
+    await wrapper.setProps({ relations: [RELATIONS[1]], relationsTotal: 1 })
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("0")
+  })
 })

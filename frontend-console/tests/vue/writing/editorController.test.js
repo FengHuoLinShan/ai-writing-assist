@@ -17,12 +17,14 @@ function makeController(overrides = {}) {
       autosave: vi.fn(async (_id, payload) => ({ id: "d1", ...payload, version_number: 2, status: "draft" })),
       autosaveDraftOnly: vi.fn(async (payload) => ({ id: "d-new", ...payload, version_number: 1, status: "draft" })),
       checkpoint: vi.fn(),
+      discard: vi.fn(),
       adoptDraftCandidate: vi.fn(),
       deleteDraft: vi.fn(),
     },
     ...overrides.api,
   }
   const toast = vi.fn()
+  const onVersionChanged = vi.fn()
   const controller = createEditorController({
     api,
     toast,
@@ -31,8 +33,9 @@ function makeController(overrides = {}) {
     getScenes: () => [],
     onChange: vi.fn(),
     onSceneChange: vi.fn(),
+    onVersionChanged,
   })
-  return { controller, api, toast, setProject: (value) => { projectId = value } }
+  return { controller, api, toast, onVersionChanged, setProject: (value) => { projectId = value } }
 }
 
 describe("editorController", () => {
@@ -194,5 +197,125 @@ describe("editorController", () => {
     late.resolve({ id: "new-id", version_number: 99, status: "draft" })
     await saving
     expect(controller.snapshot().draftId).toBe("d1")
+  })
+
+  it("保存新版本晚到时接收新版本元数据但不覆盖随后输入", async () => {
+    const late = deferred()
+    const { controller, api, toast, onVersionChanged } = makeController()
+    api.writing.checkpoint.mockReturnValue(late.promise)
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: document.getElementById("title"), editor })
+    editor.value = "准备留版"
+    editor.dispatchEvent(new Event("input"))
+    const checkpoint = controller.checkpoint()
+    await vi.waitFor(() => expect(api.writing.checkpoint).toHaveBeenCalled())
+    expect(controller.snapshot().saving).toBe(true)
+    await controller.autosave()
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+
+    editor.value = "留版后的新输入"
+    editor.dispatchEvent(new Event("input"))
+    late.resolve({ id: "d2", title: "第一章", content: "准备留版", version_number: 2, status: "draft", updated_at: "2026-08-12T10:00:00Z" })
+
+    expect(await checkpoint).toMatchObject({ id: "d2", version_number: 2 })
+    expect(controller.snapshot()).toMatchObject({ draftId: "d2", versionNumber: 2, updatedAt: "2026-08-12T10:00:00Z", content: "留版后的新输入", dirty: true })
+    expect(localStorage.getItem("draft_backup_p1_1")).toContain("留版后的新输入")
+    expect(toast).toHaveBeenCalledWith("已保存为新版本；之后的输入仍待保存", "success")
+    expect(onVersionChanged).toHaveBeenCalledWith(expect.objectContaining({ id: "d2" }))
+    expect(controller.snapshot().saving).toBe(false)
+    api.writing.autosave.mockResolvedValueOnce({ id: "d2", title: "第一章", content: "留版后的新输入", version_number: 3, status: "draft" })
+    await controller.autosave()
+    expect(api.writing.autosave).toHaveBeenCalledWith("d2", expect.objectContaining({ expected_version: 2 }), "p1")
+    controller.dispose()
+  })
+
+  it("版本列表刷新失败时不把已成功留版误报为保存失败", async () => {
+    const { controller, api, toast, onVersionChanged } = makeController()
+    api.writing.checkpoint.mockResolvedValue({ id: "d2", title: "第一章", content: "新正文", version_number: 2, status: "draft" })
+    onVersionChanged.mockRejectedValue(new Error("list failed"))
+    await controller.loadChapter(1)
+    controller.setState({ content: "新正文" })
+
+    await expect(controller.checkpoint()).resolves.toMatchObject({ id: "d2" })
+    expect(toast).toHaveBeenCalledWith("已保存为新版本", "success")
+    expect(toast).toHaveBeenCalledWith("操作已完成，但版本列表暂时未刷新", "warning")
+    expect(toast).not.toHaveBeenCalledWith("list failed", "error")
+    controller.dispose()
+  })
+
+  it("放弃结果晚到时接收基线元数据但不覆盖随后输入", async () => {
+    const late = deferred()
+    const { controller, api, toast, onVersionChanged } = makeController()
+    api.writing.discard.mockReturnValue(late.promise)
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: document.getElementById("title"), editor })
+    const discarding = controller.discardChanges()
+    await vi.waitFor(() => expect(api.writing.discard).toHaveBeenCalled())
+
+    editor.value = "回退期间的新输入"
+    editor.dispatchEvent(new Event("input"))
+    late.resolve({ id: "base", title: "旧基线", content: "旧基线正文", version_number: 1, status: "published", updated_at: "2026-08-12T09:00:00Z" })
+
+    expect(await discarding).toMatchObject({ id: "base" })
+    expect(controller.snapshot()).toMatchObject({ draftId: "base", versionNumber: 1, content: "回退期间的新输入", lastSavedContent: "旧基线正文", dirty: true })
+    expect(toast).toHaveBeenCalledWith("已回到上一版；之后的输入仍待保存", "success")
+    expect(onVersionChanged).toHaveBeenCalledWith(expect.objectContaining({ id: "base" }))
+    api.writing.autosave.mockResolvedValueOnce({ id: "next", title: "旧基线", content: "回退期间的新输入", version_number: 2, status: "draft" })
+    await controller.autosave()
+    expect(api.writing.autosave).toHaveBeenCalledWith("base", expect.objectContaining({ expected_version: 1 }), "p1")
+    controller.dispose()
+  })
+
+  it("切换章节后放弃更改的晚到结果不覆盖新章节", async () => {
+    const late = deferred()
+    const { controller, api, toast, onVersionChanged } = makeController()
+    api.writing.discard.mockReturnValue(late.promise)
+    await controller.loadChapter(1)
+    const discarding = controller.discardChanges()
+    await vi.waitFor(() => expect(api.writing.discard).toHaveBeenCalled())
+    await controller.loadChapter(2)
+    late.resolve({ id: "base", title: "旧基线", content: "旧基线正文", version_number: 1, status: "published" })
+
+    expect(await discarding).toBeNull()
+    expect(controller.snapshot()).toMatchObject({ chapter: 2, draftId: "d1", content: "原文" })
+    expect(toast).not.toHaveBeenCalledWith("已回到上一版", "success")
+    expect(onVersionChanged).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it("切换章节后采用建议的晚到结果不覆盖新章节", async () => {
+    const late = deferred()
+    const { controller, api, toast } = makeController()
+    api.writing.get.mockResolvedValueOnce({ id: "candidate", novel_id: "p1", title: "建议", content: "建议正文", version_number: 2, status: "candidate" })
+    api.writing.adoptDraftCandidate.mockReturnValue(late.promise)
+    await controller.loadChapter(1, { draftId: "candidate" })
+    const adopting = controller.adoptCandidate()
+    await vi.waitFor(() => expect(api.writing.adoptDraftCandidate).toHaveBeenCalled())
+    await controller.loadChapter(2)
+    late.resolve({ draft: { id: "adopted", title: "建议", content: "建议正文", version_number: 3, status: "draft" } })
+
+    expect(await adopting).toBeNull()
+    expect(controller.snapshot()).toMatchObject({ chapter: 2, draftId: "d1", content: "原文" })
+    expect(toast).not.toHaveBeenCalledWith("已采用到工作稿", "success")
+    controller.dispose()
+  })
+
+  it("dispose 后拒绝建议的晚到结果不再反馈成功", async () => {
+    const late = deferred()
+    const { controller, api, toast } = makeController()
+    api.writing.get.mockResolvedValueOnce({ id: "candidate", novel_id: "p1", title: "建议", content: "建议正文", version_number: 2, status: "candidate" })
+    api.writing.deleteDraft.mockReturnValue(late.promise)
+    await controller.loadChapter(1, { draftId: "candidate" })
+    const rejecting = controller.rejectCandidate()
+    await vi.waitFor(() => expect(api.writing.deleteDraft).toHaveBeenCalled())
+    controller.dispose()
+    late.resolve({ ok: true })
+
+    expect(await rejecting).toBe(false)
+    expect(toast).not.toHaveBeenCalledWith("已拒绝 AI 建议", "success")
   })
 })

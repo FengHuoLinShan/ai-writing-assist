@@ -94,7 +94,10 @@ function manualPrewarm() {
 const rebuildForm = reactive({ contentMode: "canonical", start: "", end: "" })
 
 function navigateSub(sub) {
-  getRouter().navigate("rag", sub)
+  if (sub === subView.value) return
+  const router = getRouter()
+  const query = new URLSearchParams(router.getCurrentQuery?.()?.toString() || "")
+  router.navigate("rag", sub, true, query)
 }
 
 onMounted(async () => {

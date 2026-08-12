@@ -196,6 +196,109 @@ describe("账户模型连接", () => {
     )
   })
 
+  it("连接验证响应晚到时不再驱动已离开的设置页", async () => {
+    const connection = deferred()
+    globalThis.api.settings.connectLLMProvider.mockReturnValueOnce(connection.promise)
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("late-key")
+
+    const saving = wrapper.find("#account-llm-save").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.settings.connectLLMProvider).toHaveBeenCalled())
+    wrapper.unmount()
+    connection.resolve(makeConnections())
+    await saving
+    await flushPromises()
+
+    expect(globalThis.toast).not.toHaveBeenCalledWith(expect.stringContaining("已启用"), "success")
+    expect(globalThis.api.settings.listLLMBalances).not.toHaveBeenCalled()
+    expect(globalThis.router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("旧 provider 验证晚到时不清空新 provider 的 Key", async () => {
+    const connection = deferred()
+    globalThis.api.settings.connectLLMProvider.mockReturnValueOnce(connection.promise)
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("kimi-key")
+    const saving = wrapper.find("#account-llm-save").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.settings.connectLLMProvider).toHaveBeenCalledWith("kimi", "kimi-key"))
+
+    await wrapper.findAll(".account-provider-card")[0].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("deepseek-new-key")
+    expect(wrapper.find("#account-llm-save").attributes("aria-busy")).toBe("true")
+    connection.resolve(makeConnections())
+    await saving
+    await flushPromises()
+
+    expect(wrapper.find("#account-llm-api-key").element.value).toBe("deepseek-new-key")
+    expect(globalThis.toast).not.toHaveBeenCalledWith(expect.stringContaining("已启用 Kimi"), "success")
+    expect(globalThis.api.settings.listLLMBalances).not.toHaveBeenCalled()
+    expect(globalThis.router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("旧验证响应不清空同一 provider 重新编辑的 Key", async () => {
+    const connection = deferred()
+    globalThis.api.settings.connectLLMProvider.mockReturnValueOnce(connection.promise)
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("kimi-old-key")
+    const saving = wrapper.find("#account-llm-save").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.settings.connectLLMProvider).toHaveBeenCalled())
+
+    await wrapper.find("#account-llm-api-key").setValue("kimi-new-key")
+    connection.resolve(makeConnections())
+    await saving
+    await flushPromises()
+
+    expect(wrapper.find("#account-llm-api-key").element.value).toBe("kimi-new-key")
+    expect(wrapper.find("#account-llm-save").attributes("aria-busy")).toBe("false")
+    expect(globalThis.toast).not.toHaveBeenCalledWith(expect.stringContaining("已启用 Kimi"), "success")
+  })
+
+  it("余额响应晚到时不再触发连接后的返回导航", async () => {
+    const balances = deferred()
+    const navigate = vi.fn()
+    globalThis.api.settings.listLLMBalances.mockReturnValueOnce(balances.promise)
+    setBridgeOverrides({
+      router: {
+        navigate,
+        getCurrentQuery: () => new URLSearchParams({ return_to: "journeys" }),
+      },
+    })
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+
+    const saving = wrapper.find("#account-llm-save").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.settings.listLLMBalances).toHaveBeenCalled())
+    wrapper.unmount()
+    balances.resolve({ items: [] })
+    await saving
+
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it("等待余额时重新编辑 Key 不再触发旧返回导航", async () => {
+    const balances = deferred()
+    const navigate = vi.fn()
+    globalThis.api.settings.listLLMBalances.mockReturnValueOnce(balances.promise)
+    setBridgeOverrides({
+      router: {
+        navigate,
+        getCurrentQuery: () => new URLSearchParams({ return_to: "journeys" }),
+      },
+    })
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    const saving = wrapper.find("#account-llm-save").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.settings.listLLMBalances).toHaveBeenCalled())
+
+    await wrapper.find("#account-llm-api-key").setValue("new-key")
+    balances.resolve({ items: [] })
+    await saving
+
+    expect(wrapper.find("#account-llm-api-key").element.value).toBe("new-key")
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
   it("已验证模板留空 Key 时直接激活，不重复验证", async () => {
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })
     await wrapper.find("#account-llm-save").trigger("click")
@@ -255,6 +358,24 @@ describe("账户模型连接", () => {
     ))
     expect(globalThis.api.settings.clearLLMProvider).toHaveBeenCalledWith("deepseek")
     expect(wrapper.find(".account-provider-card.selected").text()).toContain("DeepSeek")
+  })
+
+  it("断开响应晚到时不清空新 provider 的 Key", async () => {
+    const clearing = deferred()
+    setBridgeOverrides({ confirm: () => true })
+    globalThis.api.settings.clearLLMProvider.mockReturnValueOnce(clearing.promise)
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    const request = wrapper.find("#account-llm-clear").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.settings.clearLLMProvider).toHaveBeenCalledWith("deepseek"))
+
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    await wrapper.find("#account-llm-api-key").setValue("kimi-new-key")
+    clearing.resolve(makeConnections())
+    await request
+    await flushPromises()
+
+    expect(wrapper.find("#account-llm-api-key").element.value).toBe("kimi-new-key")
+    expect(globalThis.toast).not.toHaveBeenCalledWith("DeepSeek 已断开", "success")
   })
 
   it("未保存 Key 会触发离开确认", async () => {

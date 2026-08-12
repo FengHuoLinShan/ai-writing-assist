@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import ProjectCard from "./components/ProjectCard.vue"
 import ImportDrawer from "./components/ImportDrawer.vue"
 import {
@@ -45,8 +45,24 @@ const props = defineProps({
 
 const projects = useStateKey("projects")
 const currentProjectId = useStateKey("currentProjectId")
+const loadError = ref(props.loadError)
 const session = projectSession
 const selection = getBulkSelection(session, PROJECT_CARDS_SCOPE)
+let disposed = false
+
+function ownsProjectPage() {
+  return !disposed && getAppState()?.currentView === "project"
+}
+
+function ownsProjectModal(owner) {
+  if (!ownsProjectPage() || !owner) return ownsProjectPage()
+  const overlay = document.getElementById("modal-overlay")
+  return owner.isConnected
+    && document.getElementById("modal-body")?.contains(owner)
+    && !overlay?.classList.contains("hidden")
+}
+
+onBeforeUnmount(() => { disposed = true })
 
 const allProjects = computed(() => sortedProjects(projects.value || [], currentProjectId.value))
 const visibleProjects = computed(() => filterProjects(allProjects.value, session.searchQuery))
@@ -66,7 +82,6 @@ const currentName = computed(() => {
 const filterCountLabel = computed(() => projectCountLabel(visibleProjects.value.length, allProjects.value.length))
 
 const searchInput = ref(null)
-const manageMode = ref(false)
 
 function clearProjectSearch() {
   session.searchQuery = ""
@@ -112,16 +127,24 @@ function runBulkDelete() {
     return
   }
   getConfirmAction()(`确定将选中的 ${items.length} 个项目移入回收站吗？`, async () => {
+    const modalOwner = document.querySelector("#modal-body > *")
     const result = await runBulkAction(items, async (project) => {
       await getApi().projects.remove(project.id)
     })
+    if (!ownsProjectModal(modalOwner)) return true
+    if (result.failed.length === result.total) {
+      getToast()(bulkResultMessage(result, "批量移入回收站", (item) => item.title || item.name || item.id), "error")
+      return false
+    }
+    selection.clear()
+    for (const { item } of result.failed) selection.add(String(item.id))
+    await loadProjectsIntoState()
+    if (!ownsProjectModal(modalOwner)) return true
     getToast()(
       bulkResultMessage(result, "批量移入回收站", (item) => item.title || item.name || item.id),
       result.failed.length ? "warning" : "success",
     )
-    clearBulkSelection(session, PROJECT_CARDS_SCOPE)
-    await loadProjectsIntoState()
-    await getRouter().refresh()
+    return true
   }, "移入回收站")
 }
 
@@ -134,8 +157,9 @@ function importSelectedFileAsNewProject(file) {
 }
 
 async function retryProjects() {
-  await loadProjectsIntoState()
-  await getRouter().refresh()
+  const result = await loadProjectsIntoState()
+  if (!ownsProjectPage()) return
+  loadError.value = result.error
 }
 </script>
 
@@ -166,8 +190,8 @@ async function retryProjects() {
         <div class="project-archive-hero__actions">
           <button class="btn btn-primary" data-action="new" @click="showCreateForm">新建空白作品</button>
           <button class="btn btn-ghost" data-action="toggle-import" @click="toggleImportSection">{{ session.importSectionOpen ? "收起导入" : "导入已有作品" }}</button>
-          <button class="btn btn-ghost" data-action="manage-projects" @click="manageMode = !manageMode">{{ manageMode ? "完成管理" : "管理作品" }}</button>
-          <button v-if="manageMode" class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
+          <button class="btn btn-ghost" data-action="manage-projects" @click="session.manageMode = !session.manageMode">{{ session.manageMode ? "完成管理" : "管理作品" }}</button>
+          <button v-if="session.manageMode" class="btn btn-ghost" data-action="recycle-bin" @click="showRecycleBin()">回收站</button>
         </div>
       </div>
       <div class="project-archive-hero__geometry" aria-hidden="true">
@@ -179,12 +203,12 @@ async function retryProjects() {
       <ImportDrawer @import-new-project="importSelectedFileAsNewProject" />
     </div>
 
-    <div v-if="props.loadError && allProjects.length === 0" class="empty-state project-catalog-state" role="alert">
+    <div v-if="loadError && allProjects.length === 0" class="empty-state project-catalog-state" role="alert">
       <div class="project-catalog-state__mark" aria-hidden="true">!</div>
       <div class="project-catalog-state__copy">
         <span class="project-catalog-state__index">CONNECTION / 00</span>
         <h2>项目列表暂时无法加载</h2>
-        <p>{{ props.loadError }}</p>
+        <p>{{ loadError }}</p>
         <div class="actions">
           <button class="btn btn-primary" data-action="retry-projects" @click="retryProjects">重新连接</button>
         </div>
@@ -204,7 +228,7 @@ async function retryProjects() {
     </div>
 
     <template v-else>
-      <div v-if="props.loadError" class="alert alert-warning" role="alert">
+      <div v-if="loadError" class="alert alert-warning" role="alert">
         <span>项目列表刷新失败，当前显示上次已加载的内容。</span>
         <button class="btn btn-sm" data-action="retry-projects" @click="retryProjects">重试</button>
       </div>
@@ -230,7 +254,7 @@ async function retryProjects() {
           </span>
           <span class="bulk-toolbar__hint">当前项目优先 · 其余按最近更新排序</span>
         </div>
-        <div v-if="manageMode" class="project-index-bar__bulk">
+        <div v-if="session.manageMode" class="project-index-bar__bulk">
           <button class="btn btn-sm" data-action="select-visible-projects" :disabled="visibleIds.length === 0" :aria-label="`全选当前可见的 ${visibleIds.length} 个项目`" @click="selectAllVisible">全选当前可见项目</button>
           <div class="bulk-toolbar" data-scope="project-cards">
             <div class="bulk-toolbar__status">
@@ -270,7 +294,7 @@ async function retryProjects() {
             :index="index"
             :is-current="String(project.id) === String(currentProjectId || '')"
             :selected="selection.has(String(project.id))"
-            :manage="manageMode"
+            :manage="session.manageMode"
             @open="openProject"
             @toggle-select="toggleSelect"
             @edit="editProjectModal"

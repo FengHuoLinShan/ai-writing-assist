@@ -5,7 +5,7 @@
  * 模态全部走全局 showModalHtml（Vue 树外）；成功后 router.refresh()。
  * AI 入口按钮调用另一 lane 的模块（showOutlineLayerAiForm 等，签名见任务规格）。
  */
-import { getApi, getAppState, getCloseModal, getConfirm, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { structureAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection, clearAllBulkSelections } from "./outlineBulkSelection.js"
 import {
@@ -69,12 +69,57 @@ function unreviewThreadPayload(thread) {
 // 刷新辅助
 // ============================================================
 
-async function finishMutation(successMessage) {
+function captureOutlineOperationScope() {
+  const state = getAppState()
+  return {
+    projectId: state?.currentProjectId || null,
+    view: state?.currentView || null,
+    subView: state?.currentSubView || null,
+  }
+}
+
+function ownsOutlineOperationScope(scope) {
+  const state = getAppState()
+  return Boolean(
+    scope
+    && state
+    && (state.currentProjectId || null) === scope.projectId
+    && (state.currentView || null) === scope.view
+    && (state.currentSubView || null) === scope.subView,
+  )
+}
+
+function ownsModalControl(control) {
+  return Boolean(control?.id && control.isConnected && document.getElementById(control.id) === control)
+}
+
+function currentConfirmOwner() {
+  return document.getElementById("modal-body")?.firstElementChild || null
+}
+
+function ownsConfirmOwner(owner) {
+  return Boolean(owner?.isConnected && document.getElementById("modal-body")?.contains(owner))
+}
+
+function confirmOwnedMutation(message, onConfirm, confirmText) {
+  let owner = null
+  getConfirmAction()(message, () => onConfirm(() => ownsConfirmOwner(owner)), confirmText)
+  owner = currentConfirmOwner()
+}
+
+function ownsMutation(scope, ownsModal = () => true) {
+  return ownsOutlineOperationScope(scope) && ownsModal()
+}
+
+async function finishMutation(scope, successMessage, ownsModal = () => true) {
+  if (!ownsMutation(scope, ownsModal)) return true
   const toast = getToast()
   try {
     const refreshed = await getRouter()?.refresh?.()
+    if (!ownsMutation(scope, ownsModal)) return true
     if (refreshed === false) throw new Error("当前页面未完成刷新")
   } catch (err) {
+    if (!ownsMutation(scope, ownsModal)) return true
     toast(`${successMessage}，但列表刷新失败：${err.message || "未知错误"}`, "warning")
     return true
   }
@@ -82,8 +127,10 @@ async function finishMutation(successMessage) {
   return true
 }
 
-async function refreshCurrentView() {
-  await getRouter()?.refresh?.()
+async function refreshCurrentView(scope, ownsModal = () => true) {
+  if (!ownsMutation(scope, ownsModal)) return false
+  const refreshed = await getRouter()?.refresh?.()
+  return ownsMutation(scope, ownsModal) && refreshed !== false
 }
 
 // ============================================================
@@ -91,6 +138,7 @@ async function refreshCurrentView() {
 // ============================================================
 
 export function showCreateForeshadowingForm(guessLastChapter) {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -115,26 +163,31 @@ export function showCreateForeshadowingForm(guessLastChapter) {
   `
   showModalHtml("新建伏笔", formHtml, [{
     text: "创建", class: "btn-primary", handler: async () => {
-      const description = document.getElementById("create-foreshadowing-description")?.value?.trim()
-      if (!description) { toast("请输入描述", "warning"); return }
+      const modalOwner = document.getElementById("create-foreshadowing-description")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
+      const description = modalOwner?.value?.trim()
+      if (!description) { toast("请输入描述", "warning"); return false }
       const targetChapter = parseInt(document.getElementById("create-foreshadowing-target-chapter")?.value || "1", 10)
       try {
-        await getApi().outline.createForeshadowing(getAppState()?.currentProjectId, {
+        await getApi().outline.createForeshadowing(scope.projectId, {
           name: description,
           summary: description,
           planned_seed_chapter: Number.isInteger(targetChapter) && targetChapter >= 1 ? targetChapter : 1,
           status: document.getElementById("create-foreshadowing-status")?.value || "planted",
         })
-        toast("伏笔已创建", "success")
-        refreshCurrentView()
+        return await finishMutation(scope, "伏笔已创建", ownsModal)
       } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
         toast(err.message || "创建失败", "error")
+        return false
       }
     },
   }])
 }
 
 export function editForeshadowing(id, foreshadowingList, guessLastChapter) {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -163,47 +216,54 @@ export function editForeshadowing(id, foreshadowingList, guessLastChapter) {
   `
   showModalHtml("编辑伏笔", formHtml, [{
     text: "保存", class: "btn-primary", handler: async () => {
-      const description = document.getElementById("edit-foreshadowing-description")?.value?.trim()
-      if (!description) { toast("请输入描述", "warning"); return }
+      const modalOwner = document.getElementById("edit-foreshadowing-description")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
+      const description = modalOwner?.value?.trim()
+      if (!description) { toast("请输入描述", "warning"); return false }
       const targetChapter = parseInt(document.getElementById("edit-foreshadowing-target-chapter")?.value || "1", 10)
       try {
-        await getApi().outline.updateForeshadowing(id, getAppState()?.currentProjectId, {
+        await getApi().outline.updateForeshadowing(id, scope.projectId, {
           name: description,
           summary: description,
           planned_seed_chapter: Number.isInteger(targetChapter) && targetChapter >= 1 ? targetChapter : 1,
           status: document.getElementById("edit-foreshadowing-status")?.value || "planted",
         })
-        toast("伏笔已保存", "success")
-        refreshCurrentView()
+        return await finishMutation(scope, "伏笔已保存", ownsModal)
       } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
         toast(err.message || "保存失败", "error")
+        return false
       }
     },
   }])
 }
 
 export function deleteForeshadowing(id) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
-  const confirmAction = getConfirmAction()
-  confirmAction("确定删除此伏笔？", async () => {
+  confirmOwnedMutation("确定删除此伏笔？", async (ownsModal) => {
+    if (!ownsMutation(scope, ownsModal)) return true
     try {
-      await getApi().outline.deleteForeshadowing(id, getAppState()?.currentProjectId)
-      toast("已删除", "success")
-      refreshCurrentView()
+      await getApi().outline.deleteForeshadowing(id, scope.projectId)
+      return await finishMutation(scope, "已删除", ownsModal)
     } catch (err) {
+      if (!ownsMutation(scope, ownsModal)) return true
       toast(err.message || "删除失败", "error")
+      return false
     }
   })
 }
 
 /** 伏笔状态就地更新（vanilla _bindEvents 中 .foreshadowing-status-select 的 change 事件）。 */
 export async function updateForeshadowingStatus(id, newStatus) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
   try {
-    await getApi().outline.updateForeshadowing(id, getAppState()?.currentProjectId, { status: newStatus })
-    toast("伏笔状态已更新", "success")
-    refreshCurrentView()
+    await getApi().outline.updateForeshadowing(id, scope.projectId, { status: newStatus })
+    return await finishMutation(scope, "伏笔状态已更新")
   } catch (err) {
+    if (!ownsOutlineOperationScope(scope)) return false
     toast(err.message || "更新失败", "error")
   }
 }
@@ -213,6 +273,7 @@ export async function updateForeshadowingStatus(id, newStatus) {
 // ============================================================
 
 export function showCreateRevealForm(guessLastChapter, buildForeshadowingOptions) {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -242,16 +303,19 @@ export function showCreateRevealForm(guessLastChapter, buildForeshadowingOptions
   `
   showModalHtml("新建揭示", formHtml, [{
     text: "创建", class: "btn-primary", handler: async () => {
-      const description = document.getElementById("create-reveal-description")?.value?.trim()
+      const modalOwner = document.getElementById("create-reveal-description")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
+      const description = modalOwner?.value?.trim()
       const chapterValue = document.getElementById("create-reveal-chapter")?.value
-      if (!description) { toast("请输入描述", "warning"); return }
+      if (!description) { toast("请输入描述", "warning"); return false }
       const chapterIndex = parseInt(chapterValue || "1", 10)
       if (!Number.isInteger(chapterIndex) || chapterIndex < 1) {
         toast("揭示章节必须大于 0", "warning")
-        return
+        return false
       }
       try {
-        await getApi().outline.createReveal(getAppState()?.currentProjectId, {
+        await getApi().outline.createReveal(scope.projectId, {
           target_type: "world_entity",
           target_id: "00000000-0000-0000-0000-000000000000",
           secret_summary: description,
@@ -262,16 +326,18 @@ export function showCreateRevealForm(guessLastChapter, buildForeshadowingOptions
           }],
           status: document.getElementById("create-reveal-status")?.value || "planned",
         })
-        toast("揭示已创建", "success")
-        refreshCurrentView()
+        return await finishMutation(scope, "揭示已创建", ownsModal)
       } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
         toast(err.message || "创建失败", "error")
+        return false
       }
     },
   }])
 }
 
 export function editReveal(id, revealsList, guessLastChapter, buildForeshadowingOptions) {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -305,16 +371,19 @@ export function editReveal(id, revealsList, guessLastChapter, buildForeshadowing
   `
   showModalHtml("编辑揭示", formHtml, [{
     text: "保存", class: "btn-primary", handler: async () => {
-      const description = document.getElementById("edit-reveal-description")?.value?.trim()
+      const modalOwner = document.getElementById("edit-reveal-description")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
+      const description = modalOwner?.value?.trim()
       const chapterValue = document.getElementById("edit-reveal-chapter")?.value
-      if (!description) { toast("请输入描述", "warning"); return }
+      if (!description) { toast("请输入描述", "warning"); return false }
       const chapterIndex = parseInt(chapterValue || "1", 10)
       if (!Number.isInteger(chapterIndex) || chapterIndex < 1) {
         toast("揭示章节必须大于 0", "warning")
-        return
+        return false
       }
       try {
-        await getApi().outline.updateReveal(id, getAppState()?.currentProjectId, {
+        await getApi().outline.updateReveal(id, scope.projectId, {
           secret_summary: description,
           reveal_stages: [{
             stage_index: 0,
@@ -323,37 +392,41 @@ export function editReveal(id, revealsList, guessLastChapter, buildForeshadowing
           }],
           status: document.getElementById("edit-reveal-status")?.value || "planned",
         })
-        toast("揭示已保存", "success")
-        refreshCurrentView()
+        return await finishMutation(scope, "揭示已保存", ownsModal)
       } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
         toast(err.message || "保存失败", "error")
+        return false
       }
     },
   }])
 }
 
 export function deleteReveal(id) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
-  const confirmAction = getConfirmAction()
-  confirmAction("确定删除此揭示？", async () => {
+  confirmOwnedMutation("确定删除此揭示？", async (ownsModal) => {
+    if (!ownsMutation(scope, ownsModal)) return true
     try {
-      await getApi().outline.deleteReveal(id, getAppState()?.currentProjectId)
-      toast("已删除", "success")
-      refreshCurrentView()
+      await getApi().outline.deleteReveal(id, scope.projectId)
+      return await finishMutation(scope, "已删除", ownsModal)
     } catch (err) {
+      if (!ownsMutation(scope, ownsModal)) return true
       toast(err.message || "删除失败", "error")
+      return false
     }
   })
 }
 
 /** 揭示状态就地更新（vanilla _bindEvents 中 .reveal-status-select 的 change 事件）。 */
 export async function updateRevealStatus(id, newStatus) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
   try {
-    await getApi().outline.updateReveal(id, getAppState()?.currentProjectId, { status: newStatus })
-    toast("揭示状态已更新", "success")
-    refreshCurrentView()
+    await getApi().outline.updateReveal(id, scope.projectId, { status: newStatus })
+    return await finishMutation(scope, "揭示状态已更新")
   } catch (err) {
+    if (!ownsOutlineOperationScope(scope)) return false
     toast(err.message || "更新失败", "error")
   }
 }
@@ -363,25 +436,25 @@ export async function updateRevealStatus(id, newStatus) {
 // ============================================================
 
 export async function assignInformationPlan(planId, kind, threadId, unassignedForeshadowing, unassignedReveals) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
   const api = getApi()
-  const projectId = getAppState()?.currentProjectId
   if (!threadId || !planId) return
   try {
     if (kind === "foreshadowing") {
       const plan = (unassignedForeshadowing || []).find((item) => item.id === planId)
-      await api.outline.updateForeshadowing(planId, projectId, {
+      await api.outline.updateForeshadowing(planId, scope.projectId, {
         related_thread_ids: Array.from(new Set([...(plan?.related_thread_ids || []), threadId])),
       })
     } else {
       const plan = (unassignedReveals || []).find((item) => item.id === planId)
-      await api.outline.updateReveal(planId, projectId, {
+      await api.outline.updateReveal(planId, scope.projectId, {
         related_thread_ids: Array.from(new Set([...(plan?.related_thread_ids || []), threadId])),
       })
     }
-    toast("信息推进计划已归入剧情线", "success")
-    refreshCurrentView()
+    return await finishMutation(scope, "信息推进计划已归入剧情线")
   } catch (err) {
+    if (!ownsOutlineOperationScope(scope)) return false
     toast(err.message || "分配失败", "error")
   }
 }
@@ -391,6 +464,7 @@ export async function assignInformationPlan(planId, kind, threadId, unassignedFo
 // ============================================================
 
 export function showCreateThreadForm() {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -414,22 +488,29 @@ export function showCreateThreadForm() {
   `
   showModalHtml("新建剧情线", formHtml, [{
     text: "创建", class: "btn-primary", handler: async () => {
-      const name = document.getElementById("create-thread-name")?.value
-      if (!name) { toast("请输入名称", "warning"); return }
+      const modalOwner = document.getElementById("create-thread-name")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
+      const name = modalOwner?.value
+      if (!name) { toast("请输入名称", "warning"); return false }
       try {
-        await getApi().outline.createThread(getAppState()?.currentProjectId, {
+        await getApi().outline.createThread(scope.projectId, {
           name,
           thread_type: document.getElementById("create-thread-type")?.value || "main",
           summary: document.getElementById("create-thread-desc")?.value || "",
         })
-        toast("剧情线已创建", "success")
-        refreshCurrentView()
-      } catch (err) { toast(err.message || "创建失败", "error") }
+        return await finishMutation(scope, "剧情线已创建", ownsModal)
+      } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
+        toast(err.message || "创建失败", "error")
+        return false
+      }
     },
   }])
 }
 
 export function editThread(id, threadsList) {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -456,15 +537,21 @@ export function editThread(id, threadsList) {
   `
   showModalHtml("编辑剧情线", formHtml, [{
     text: "保存", class: "btn-primary", handler: async () => {
+      const modalOwner = document.getElementById("edit-thread-name")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
       try {
-        await getApi().outline.updateThread(id, getAppState()?.currentProjectId, {
-          name: document.getElementById("edit-thread-name")?.value,
+        await getApi().outline.updateThread(id, scope.projectId, {
+          name: modalOwner?.value,
           thread_type: document.getElementById("edit-thread-type")?.value,
           summary: document.getElementById("edit-thread-desc")?.value,
         })
-        toast("已保存", "success")
-        refreshCurrentView()
-      } catch (err) { toast(err.message || "保存失败", "error") }
+        return await finishMutation(scope, "已保存", ownsModal)
+      } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
+        toast(err.message || "保存失败", "error")
+        return false
+      }
     },
   }])
 }
@@ -478,55 +565,58 @@ export function findThread(threadsList, id) {
 }
 
 export async function markThreadReviewed(id, threadsList) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
   const thread = findThread(threadsList, id)
   if (!thread) {
     toast("未找到目标剧情线", "error")
     return
   }
-  const projectId = getAppState()?.currentProjectId
-  await getApi().outline.updateThread(id, projectId, reviewThreadPayload(thread, "outline_threads"))
-  toast(structureAssetDisplay(thread).displayState === "active" ? "剧情线已标记为已检查" : "剧情线已采用", "success")
-  await refreshCurrentView()
+  await getApi().outline.updateThread(id, scope.projectId, reviewThreadPayload(thread, "outline_threads"))
+  return await finishMutation(scope, structureAssetDisplay(thread).displayState === "active" ? "剧情线已标记为已检查" : "剧情线已采用")
 }
 
 export async function markThreadUnreviewed(id, threadsList) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
   const thread = findThread(threadsList, id)
   if (!thread) {
     toast("未找到目标剧情线", "error")
     return
   }
-  const projectId = getAppState()?.currentProjectId
-  await getApi().outline.updateThread(id, projectId, unreviewThreadPayload(thread))
-  toast("剧情线已标记为需要人工检查", "success")
-  await refreshCurrentView()
+  await getApi().outline.updateThread(id, scope.projectId, unreviewThreadPayload(thread))
+  return await finishMutation(scope, "剧情线已标记为需要人工检查")
 }
 
 export function deleteThread(id) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
-  const confirmAction = getConfirmAction()
-  confirmAction("确定删除此剧情线？", async () => {
+  confirmOwnedMutation("确定删除此剧情线？", async (ownsModal) => {
+    if (!ownsMutation(scope, ownsModal)) return true
     try {
-      await getApi().outline.deleteThread(id, getAppState()?.currentProjectId)
-      toast("已删除", "success")
-      refreshCurrentView()
-    } catch (err) { toast(err.message || "删除失败", "error") }
+      await getApi().outline.deleteThread(id, scope.projectId)
+      return await finishMutation(scope, "已删除", ownsModal)
+    } catch (err) {
+      if (!ownsMutation(scope, ownsModal)) return true
+      toast(err.message || "删除失败", "error")
+      return false
+    }
   }, "确认删除")
 }
 
 // ============================================================
-// 篇章纲 CRUD (vanilla L1813-1923)
+// 篇章 CRUD (vanilla L1813-1923)
 // ============================================================
 
 export function showCreateArcForm() {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const formHtml = `
     <div class="form-group">
       <label>名称 *</label>
-      <input class="form-input" id="create-arc-name" placeholder="篇章纲名称" />
+      <input class="form-input" id="create-arc-name" placeholder="篇章名称" />
     </div>
     <div class="form-group">
       <label>起始章节</label>
@@ -538,28 +628,35 @@ export function showCreateArcForm() {
     </div>
     <div class="form-group">
       <label>描述</label>
-      <textarea class="form-textarea" id="create-arc-desc" rows="3" placeholder="篇章纲描述"></textarea>
+      <textarea class="form-textarea" id="create-arc-desc" rows="3" placeholder="篇章描述"></textarea>
     </div>
   `
-  showModalHtml("新建篇章纲", formHtml, [{
+  showModalHtml("新建篇章", formHtml, [{
     text: "创建", class: "btn-primary", handler: async () => {
-      const title = document.getElementById("create-arc-name")?.value
-      if (!title) { toast("请输入名称", "warning"); return }
+      const modalOwner = document.getElementById("create-arc-name")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
+      const title = modalOwner?.value
+      if (!title) { toast("请输入名称", "warning"); return false }
       try {
-        await getApi().outline.createArc(getAppState()?.currentProjectId, {
+        await getApi().outline.createArc(scope.projectId, {
           title,
           start_chapter: parseInt(document.getElementById("create-arc-start")?.value || "1", 10),
           end_chapter: parseInt(document.getElementById("create-arc-end")?.value || "10", 10),
           arc_goal: document.getElementById("create-arc-desc")?.value || "",
         })
-        toast("篇章纲已创建", "success")
-        refreshCurrentView()
-      } catch (err) { toast(err.message || "创建失败", "error") }
+        return await finishMutation(scope, "篇章已创建", ownsModal)
+      } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
+        toast(err.message || "创建失败", "error")
+        return false
+      }
     },
   }])
 }
 
 export function editArc(id, arcsList) {
+  const scope = captureOutlineOperationScope()
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -584,18 +681,24 @@ export function editArc(id, arcsList) {
       <textarea class="form-textarea" id="edit-arc-desc" rows="3">${esc(arc?.description || arc?.summary || arc?.arc_goal || arc?.core_conflict || "")}</textarea>
     </div>
   `
-  showModalHtml("编辑篇章纲", formHtml, [{
+  showModalHtml("编辑篇章", formHtml, [{
     text: "保存", class: "btn-primary", handler: async () => {
+      const modalOwner = document.getElementById("edit-arc-name")
+      const ownsModal = () => ownsModalControl(modalOwner)
+      if (!ownsModal()) return true
       try {
-        await getApi().outline.updateArc(id, getAppState()?.currentProjectId, {
-          title: document.getElementById("edit-arc-name")?.value?.trim(),
+        await getApi().outline.updateArc(id, scope.projectId, {
+          title: modalOwner?.value?.trim(),
           start_chapter: optionalPositiveInteger("edit-arc-start", "起始章节"),
           end_chapter: optionalPositiveInteger("edit-arc-end", "结束章节"),
           arc_goal: document.getElementById("edit-arc-desc")?.value?.trim(),
         })
-        toast("已保存", "success")
-        refreshCurrentView()
-      } catch (err) { toast(err.message || "保存失败", "error") }
+        return await finishMutation(scope, "已保存", ownsModal)
+      } catch (err) {
+        if (!ownsMutation(scope, ownsModal)) return true
+        toast(err.message || "保存失败", "error")
+        return false
+      }
     },
   }])
 }
@@ -617,27 +720,30 @@ export function findArc(arcsList, id) {
 }
 
 export async function markArcReviewed(id, arcsList) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
   const arc = findArc(arcsList, id)
   if (!arc) {
-    toast("未找到目标篇章纲", "error")
+    toast("未找到目标篇章", "error")
     return
   }
-  const projectId = getAppState()?.currentProjectId
-  await getApi().outline.updateArc(id, projectId, reviewThreadPayload(arc, "outline_arcs"))
-  toast(structureAssetDisplay(arc).displayState === "active" ? "篇章纲已标记为已检查" : "篇章纲已采用", "success")
-  await refreshCurrentView()
+  await getApi().outline.updateArc(id, scope.projectId, reviewThreadPayload(arc, "outline_arcs"))
+  return await finishMutation(scope, structureAssetDisplay(arc).displayState === "active" ? "篇章已标记为已检查" : "篇章已采用")
 }
 
 export function deleteArc(id) {
+  const scope = captureOutlineOperationScope()
   const toast = getToast()
-  const confirmAction = getConfirmAction()
-  confirmAction("确定删除此篇章纲？", async () => {
+  confirmOwnedMutation("确定删除此篇章？", async (ownsModal) => {
+    if (!ownsMutation(scope, ownsModal)) return true
     try {
-      await getApi().outline.deleteArc(id, getAppState()?.currentProjectId)
-      toast("已删除", "success")
-      refreshCurrentView()
-    } catch (err) { toast(err.message || "删除失败", "error") }
+      await getApi().outline.deleteArc(id, scope.projectId)
+      return await finishMutation(scope, "已删除", ownsModal)
+    } catch (err) {
+      if (!ownsMutation(scope, ownsModal)) return true
+      toast(err.message || "删除失败", "error")
+      return false
+    }
   }, "确认删除")
 }
 
@@ -646,8 +752,8 @@ export function deleteArc(id) {
 // ============================================================
 
 export function runBulkOutlineAction(scope, action, items) {
+  const operationScope = captureOutlineOperationScope()
   const toast = getToast()
-  const confirmAction = getConfirmAction()
   const selectedItems = selectedItemsFrom(
     items,
     getBulkSelection(scope),
@@ -661,29 +767,31 @@ export function runBulkOutlineAction(scope, action, items) {
     "delete-threads": "批量删除剧情线",
     "review-threads": "批量采用 / 标记已检查",
     "review-arcs": "批量采用 / 标记已检查",
-    "delete-arcs": "批量删除篇章纲",
+    "delete-arcs": "批量删除篇章",
     "delete-foreshadowing": "批量删除伏笔",
     "delete-reveals": "批量删除揭示",
   }
   const confirmText = action === "review-threads" || action === "review-arcs" ? "确认处理" : "确认删除"
-  confirmAction(
+  confirmOwnedMutation(
     `确定对选中的 ${selectedItems.length} 项执行「${labels[action] || "批量删除"}」吗？`,
-    async () => {
-      await executeBulkOutlineAction(scope, action, selectedItems)
+    async (ownsModal) => {
+      if (!ownsMutation(operationScope, ownsModal)) return true
+      const result = await executeBulkOutlineAction(scope, action, selectedItems, operationScope, ownsModal)
+      return result === false && !ownsMutation(operationScope, ownsModal) ? true : result
     },
     confirmText,
   )
 }
 
-export async function executeBulkOutlineAction(scope, action, items) {
+export async function executeBulkOutlineAction(scope, action, items, operationScope = captureOutlineOperationScope(), ownsModal = () => true) {
   const toast = getToast()
   const api = getApi()
-  const projectId = getAppState()?.currentProjectId
+  const projectId = operationScope.projectId
   const labels = {
     "delete-threads": "批量删除剧情线",
     "review-threads": "批量采用 / 标记已检查",
     "review-arcs": "批量采用 / 标记已检查",
-    "delete-arcs": "批量删除篇章纲",
+    "delete-arcs": "批量删除篇章",
     "delete-foreshadowing": "批量删除伏笔",
     "delete-reveals": "批量删除揭示",
   }
@@ -697,12 +805,14 @@ export async function executeBulkOutlineAction(scope, action, items) {
     else if (action === "delete-foreshadowing") await api.outline.deleteForeshadowing(item.id, projectId)
     else if (action === "delete-reveals") await api.outline.deleteReveal(item.id, projectId)
   })
+  if (!ownsMutation(operationScope, ownsModal)) return false
   toast(
     bulkResultMessage(result, labels[action] || "批量删除", (item) => item.name || item.title || item.summary || item.secret_summary || item.id),
     result.failed.length ? "warning" : "success",
   )
   clearBulkSelection(scope)
-  await refreshCurrentView()
+  await refreshCurrentView(operationScope, ownsModal)
+  return true
 }
 
 // ============================================================

@@ -181,7 +181,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import { getRouter } from "../../../bridge/index.js"
 import { importAuthorizationNotice } from "../../../../shared/importAuthorization.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
@@ -194,7 +194,7 @@ import {
 } from "../logic/worldQuery.js"
 import { reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { entityId, formatBatchTime, formatBatchTimeFull, isFreshBatch } from "../logic/worldEntityHelpers.js"
-import { runObjectsBulkAction, showEntityCreateForm, syncWorldListRegistry } from "../logic/worldEntityOps.js"
+import { runObjectsBulkAction, showEntityCreateForm, showKnowledgeForm, syncWorldListRegistry } from "../logic/worldEntityOps.js"
 import WorldEntityCollection from "./WorldEntityCollection.vue"
 import WorldPager from "./WorldPager.vue"
 
@@ -211,6 +211,7 @@ const props = defineProps({
   discoveryMode: { type: String, default: "hot" },
   entityTypes: { type: Array, default: () => [] },
   reviewTypeCatalog: { type: Object, default: () => ({}) },
+  knowledgeCharacterId: { type: String, default: "" },
 })
 
 const statuses = [
@@ -221,16 +222,34 @@ const statuses = [
 
 const importNotice = importAuthorizationNotice()
 
-// ---- 筛选表单（本地副本，应用时 navigate 写 query；重挂载后由新 props 重播种） ----
-const filterForm = reactive({ ...WORLD_FILTER_DEFAULTS })
-
-function seedFilterForm() {
-  Object.assign(filterForm, WORLD_FILTER_DEFAULTS, props.objectFilters)
-}
-watch(() => props.objectFilters, seedFilterForm, { immediate: true, deep: true })
+// ---- 筛选表单（query 保存已应用条件；会话保存尚未应用的编辑副本） ----
+const routeSignature = objectQueryFromState(
+  props.objectFilters,
+  props.objectViewMode,
+  props.discoveryMode,
+).toString()
+const restoredDraft = session.objectFilterDraft?.routeSignature === routeSignature
+  ? session.objectFilterDraft.value
+  : null
+if (!restoredDraft) session.objectFilterDraft = null
+const filterForm = reactive({
+  ...WORLD_FILTER_DEFAULTS,
+  ...props.objectFilters,
+  ...(restoredDraft || {}),
+  skip: props.objectFilters.skip,
+  limit: props.objectFilters.limit,
+})
+watch(filterForm, (value) => {
+  session.objectFilterDraft = {
+    routeSignature: session.objectFilterDraft?.routeSignature || routeSignature,
+    value: { ...value },
+  }
+}, { immediate: true, deep: true, flush: "sync" })
 
 function navigateObjects(nextFilters) {
-  getRouter()?.navigate("world", "objects", true, objectQueryFromState(nextFilters, props.objectViewMode, props.discoveryMode))
+  const query = objectQueryFromState(nextFilters, props.objectViewMode, props.discoveryMode)
+  session.objectFilterDraft.routeSignature = query.toString()
+  getRouter()?.navigate("world", "objects", true, query)
 }
 
 /** 对应 vanilla _applyFilters（读取表单 → skip 归零 → navigate）。 */
@@ -240,6 +259,7 @@ function applyFilters() {
 
 /** 对应 vanilla _resetFilters。 */
 function resetFilters() {
+  Object.assign(filterForm, WORLD_FILTER_DEFAULTS)
   navigateObjects({ ...WORLD_FILTER_DEFAULTS, skip: 0 })
 }
 
@@ -376,6 +396,10 @@ watch(() => [props.entities, props.entityTypes, props.reviewTypeCatalog], () => 
   })
   reconcileBulkSelection("world-objects", props.entities.map((item) => entityId(item)).filter(Boolean))
 }, { immediate: true, deep: true })
+
+onMounted(() => {
+  if (props.knowledgeCharacterId) void showKnowledgeForm(props.knowledgeCharacterId)
+})
 
 function onBulkRun(action) {
   runObjectsBulkAction(action, props.entities)

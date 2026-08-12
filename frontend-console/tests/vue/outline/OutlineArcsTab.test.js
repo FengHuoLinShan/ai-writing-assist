@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { mount } from "@vue/test-utils"
 import { setBridgeOverrides, resetBridgeOverrides } from "../../../vue/bridge/index.js"
-import { clearAllBulkSelections } from "../../../vue/views/outline/logic/outlineBulkSelection.js"
+import { clearAllBulkSelections, clearOutlineFilterDrafts } from "../../../vue/views/outline/logic/outlineBulkSelection.js"
 import OutlineArcsTab from "../../../vue/views/outline/components/OutlineArcsTab.vue"
 
 const SAMPLE_ARCS = [
@@ -18,6 +18,7 @@ let confirmAction
 
 beforeEach(() => {
   clearAllBulkSelections()
+  clearOutlineFilterDrafts()
   routerCalls = []
   toastCalls = []
   confirmAction = vi.fn()
@@ -42,7 +43,7 @@ describe("渲染", () => {
     const wrapper = mount(OutlineArcsTab, {
       props: { projectId: "p1", subView: "arcs", arcs: [], arcsTotal: 0 },
     })
-    expect(wrapper.text()).toContain("暂无篇章纲")
+    expect(wrapper.text()).toContain("暂无篇章")
   })
 
   it("错误态优先显示错误消息", () => {
@@ -118,10 +119,29 @@ describe("筛选", () => {
     await wrapper.find('[data-action="reset-outline-structure-filters"]').trigger("click")
     expect(routerCalls.length).toBeGreaterThanOrEqual(1)
   })
+
+  it("分页只使用已应用条件，重挂载后保留未应用草稿", async () => {
+    const props = {
+      projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 120,
+      filters: { status: "", source: "", workflow_id: "", needs_review: "", skip: 0, limit: 50 },
+    }
+    const wrapper = mount(OutlineArcsTab, { props })
+    await wrapper.find("#outline-filter-status").setValue("candidate")
+    await wrapper.find('[data-action="next-outline-structure-page"]').trigger("click")
+    const query = routerCalls.at(-1)[3]
+    expect(query.get("status")).toBeNull()
+    expect(query.get("page")).toBe("2")
+    wrapper.unmount()
+
+    const remounted = mount(OutlineArcsTab, {
+      props: { ...props, filters: { ...props.filters, skip: 50 } },
+    })
+    expect(remounted.find("#outline-filter-status").element.value).toBe("candidate")
+  })
 })
 
 describe("批量选择", () => {
-  it("行内操作菜单保留删除动作并提供篇章纲上下文名称", async () => {
+  it("行内操作菜单保留删除动作并提供篇章上下文名称", async () => {
     const wrapper = mount(OutlineArcsTab, {
       props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
     })
@@ -143,7 +163,18 @@ describe("批量选择", () => {
     expect(wrapper.find(".bulk-toolbar").exists()).toBe(true)
   })
 
-  it("批量操作确认数量只包含已选中的篇章纲", async () => {
+  it("列表换页后剔除不再可见的选择", async () => {
+    const wrapper = mount(OutlineArcsTab, {
+      props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
+    })
+    await wrapper.find('input[data-id="a1"]').setValue(true)
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("1")
+
+    await wrapper.setProps({ arcs: [SAMPLE_ARCS[1]], arcsTotal: 1 })
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("0")
+  })
+
+  it("批量操作确认数量只包含已选中的篇章", async () => {
     const wrapper = mount(OutlineArcsTab, {
       props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
     })

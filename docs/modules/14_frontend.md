@@ -27,8 +27,11 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 ## 架构
 
 - 入口：`index.html`
-- 基础样式：`styles.css`
-- 全站主题覆层：`editorial-theme.css`
+- 基础样式：`styles.css`（结构/排版/布局尺寸；ink 主题字体族覆写）
+- 全站主题覆层：`editorial-theme.css`（视觉表达唯一权威；`--nc-*` 原语层 + 语义转发层 +
+  `--archive-*` 兼容别名；末尾含 shell 级点缀分节）
+- 写作页样式：`vue/views/writing/writing-desk.css`（页面级）与
+  `vue/views/writing/writing-decorations.css`（编辑区点缀与水印字）
 - 全局状态：`state.js`
 - 状态切片 helper：`stateSlices.js`
 - 路由：`router.js`
@@ -71,15 +74,15 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 | `vue/views/interaction/JourneyListView.vue` | `journeys` 路由；扁平旅程列表、新旅程、归档入口和按需搜索 |
 | `vue/views/interaction/InteractionView.vue` | `interaction/{journey_id}` 路由；故事阅读、composer、流式恢复、分支、回顾、看海与右侧定位 |
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
-| `vue/views/today/TodayView.vue` | `today` 路由（Vue island）；一个续写/第一章/继续整理主卡，待处理汇总和最多 3 个项目隔离的长任务恢复；摘要失败不阻断写作，未知状态保留并允许重试 |
+| `vue/views/today/TodayView.vue` | `today` 路由（Vue island）；一个正文或世界设定续接主卡、服务器世界书工作稿/待处理页面建议入口、待处理汇总和最多 3 个项目隔离的长任务恢复；摘要失败不阻断写作，未知状态保留并允许重试 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
-| `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；版本、冲突、导出和导入收进分组菜单 |
-| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
+| `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；版本、冲突、导出和导入收进分组菜单，菜单动作完成后关闭且不会被页头裁切 |
+| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 预览使用结构化重复项编辑器，提交时适配回原 wire payload；版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；普通路径只显示查找。资料未准备好时提供“修复查找功能”，索引、worker、embedding 等技术状态只在诊断详情中出现 |
-| `vue/views/generate/GenerateView.vue` | 生成中心：world 共创对话、来源与上下文选择、结构化预览和工作稿应用；同时承担 suggestion-bound 未应用提案编辑的恢复、上下文任务预览/编译、POV、模板与既有领域流程 |
+| `vue/views/generate/GenerateView.vue` | 生成中心：world 共创对话、来源与上下文选择、结构化预览和工作稿应用；同时在既有 512 KiB 项目会话内恢复未发送输入与 suggestion-bound 未应用提案编辑，并承担上下文任务预览/编译、POV、模板与既有领域流程 |
 | `vue/views/settings/GlobalSettingsView.vue` | `settings` 路由（Vue island）；管理账户级 DeepSeek/Kimi 模板与 Key、只读余额和全局作者偏好；作者偏好的字体、专注模式显示为中文，保存/传输/存储仍使用稳定底层值（字体枚举与专注模式布尔值） |
 | `vue/views/settings/ProjectSettingsView.vue` | `project-settings` 路由（Vue island）；只管理深度导入参数和项目作者偏好，不提供项目级 provider/model/Key；作者偏好的字体、专注模式显示为中文，保存/传输/存储仍使用稳定底层值（字体枚举与专注模式布尔值） |
 
@@ -91,6 +94,16 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 作者 shell 的桌面主导航固定为“首页、写作、人物与世界、故事结构、地图、查找”；移动端固定为
   “首页、写作、世界、结构、全部”。项目切换器位于导航顶部，高级入口保留旧路由但只从“更多”
   或上下文错误进入。`today` 是作者有效项目的默认续接页。
+- `todayIsland` 并行组合现有项目摘要、世界书工作稿和 generation-center pending 页面建议；
+  导航不调用 LLM。项目级本地创作指针只允许 `generate / world_bible_draft /
+  world_suggestion_review` 三种结构化 route，只有作者编辑/发送、打开/保存工作稿、进入/应用建议
+  时更新。轮询、任务完成和迟到响应不能改写它；失效指针清除后降级到服务器资产，来源页删除时
+  保留原会话内容并要求作者重新选择，不自动切成项目来源。该指针以 `novel_` 前缀纳入账户切换清理，
+  不复制聊天或服务器正文，也不提供跨设备聊天恢复。
+- 小说检索页复用同一输入增加作者端“问世界”：回答、逐条主张、可打开来源、不确定性和本次
+  纳入／未查范围就地显示，不展示模型、token、hash、snapshot 或内部 ID。停止只承诺不再处理
+  后续结果，不声称瞬时断开 provider；跨项目迟到响应会丢弃。回答默认只读，作者明确点击后才
+  保存为待处理世界笔记建议，来源变化时要求重新提问。
 - `home/journeys/interaction` 使用独立 RP 壳，不显示作者 sidebar；合法深链不要求先选择
   author 项目。RP 草稿按旅程保存在本地，服务端流式 buffer/分支/回顾负责跨刷新恢复。
 - `outline` 的规范默认子视图是 `story-outline`，作者导航层级为“故事总览 → 篇章 → 剧情线 → 场景”。旧 `scene` 路由重定向到 `outline/scenes`；旧 `outline/foreshadowing` 与 `outline/reveals` 重定向到剧情线的信息推进区域。
@@ -141,25 +154,42 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 项目页使用“作品档案”首屏和非对称项目网格：当前项目始终置顶，首张卡占更大版面；
   其余项目按最近更新时间排序。视觉层只消费既有标题、题材、阶段、简介和统计字段，
   不新增封面数据或 API；`760px` 以下收敛为单栏，`390px` 不产生页面级横向溢出。
-- 全部一级页面、子标签、弹窗、表格和辅助栏共用“编辑档案”主题：米白纸张、深蓝结构线、
-  朱红索引与低圆角几何编排。`styles.css` 保持结构布局，`editorial-theme.css` 作为后加载
-  覆层拥有视觉表达；路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
+- 全部一级页面、子标签、弹窗、表格和辅助栏共用三主题换肤体系：`sticky`（晨光便签，浅色默认）、
+  `night`（暗夜书房，深色）、`ink`（水墨写意，纸色），经 `<html data-theme="…">` 切换。
+  `editorial-theme.css` 作为后加载覆层拥有视觉表达：`--nc-*` 原语层是唯一写色值的一层
+  （`:root` = sticky，`[data-theme="night"|"ink"]` 只覆写 `--nc-*`），语义层全从 `--nc-*` 转发，
+  `--archive-*` 保留为转发别名；`styles.css` 保持结构布局。全站线条为 1px hairline，阴影只用于
+  浮层。主题持久化 key 为 `nc-theme`（首次从旧 key `novel_theme` 迁移并删除；legacy 值映射
+  `light/minimal→sticky`、`dark/dark-soft→night`、`paper/warm→ink`）；无存储时跟随系统
+  `prefers-color-scheme`（dark → night）。切换入口为顶栏三点切换器（`.topbar-theme` radiogroup +
+  `button.theme-dot[data-theme-value]`，支持方向键），切换过渡 250ms、reduced-motion 关闭。
+  点缀只允许顶栏品牌区、写作页编辑区（上 1 组 + 下 1 组）与左栏导航底部三处，近底色、
+  `pointer-events:none`，专注模式与 ≤760px 一律隐藏。设计细则唯一权威：
+  `docs/frontend/uiux/design-standard.md`。
+- 路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
   定位，不得被业务逻辑、数据请求或测试 fixture 当作状态来源。
-- 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用深蓝
-  实体面与朱红索引线，普通操作保留可见边框；可编辑字段使用纸张底、完整边框与左侧功能线，
-  focus-visible/聚焦切换朱红并显示焦点环。暗色主题保持相同层级；`760px` 以下常用按钮高度
-  不低于 `42px`，输入控件不低于 `44px`。
+- 全局布局尺寸：`--topbar-height:57px`、`--sidebar-width:211px`、rail 折叠 `44px`；
+  写作页固定三栏：章节树 238px / 正文弹性 / 写作副驾驶 257px。
+- 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用主题
+  accent 实体面（sticky 蓝 / night 金 / ink 朱砂），普通操作保留可见边框；可编辑字段使用
+  surface 底与完整边框，focus-visible 显示 2px accent 焦点环。暗色主题保持相同层级；
+  `760px` 以下常用按钮高度不低于 `42px`，输入控件不低于 `44px`。
 - 创作工作台以正文、主列表、编辑区、生成结果和地图册图片为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
 - Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
   在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
+- 卡片/表格、展开/收起、选中与其他纯呈现控件只更新局部状态；同路由仅需同步
+  hash query 时使用 router 的就地 query seam，不重新执行 `onEnter/render`。确需重取
+  服务端数据的操作也必须在返回后复核发起时的项目、路由/编辑器 owner，不得用旧响应
+  重挂载用户已切换到的页面。同路由强制刷新恢复工作区纵向滚动位置。
 - 写作专注模式高于普通辅助栏状态；中等宽度重排第三栏，`760px` 及以下使用单栏、抽屉或手风琴，不允许产生页面级横向溢出。
 - Vue 业务页使用 `vue/components/WorkflowProgressCard.vue` 渲染任务卡：普通运行/完成态
   显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态
-  默认展开；用户保存状态优先于自动规则。
+  默认展开；用户保存状态优先于自动规则。取消终态统一说明为停止后续处理并保留已保存阶段，
+  不把任务租约失效表述成远端模型连接已瞬时中断。
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
   双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
   对比默认“只看差异”；勾选操作与切换合格主对象会保留工作台滚动位置，且主对象 radio
-  必须使用真实 asset ID，不能退化为浏览器默认值。
+  及当前控件焦点，且主对象 radio 必须使用真实 asset ID，不能退化为浏览器默认值。
   Scene merge 进入已就绪前必须调用现有 Scene merge preview 并由用户确认。
   工作台不把 `needs_review` 或“稍后处理”发到 apply API，也不允许手填任意主对象 ID。
 - 折叠栏和进度摘要必须使用现有设计 token，并覆盖 hover、focus-visible、disabled、错误、暗色主题和 `prefers-reduced-motion`，不得暴露浏览器默认折叠标记。
@@ -174,24 +204,57 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 当前已落地共享 JS API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图册、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 - 小说检索继续消费 context evidence API：单次最多取回 100 条现有命中，DOM 首批只挂载
   20 张结果卡并按 20 条渐进加载。章节范围的非整数、非正数或倒置条件会在请求前提示并保留给作者修正，不会被伪装成空结果。检索词、方式、正文版本、可见视角、章节范围和 scope
-  保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。新查询
-  abort 旧请求，晚到响应还需通过 project/lifecycle generation 才能回写；证据抽屉使用独立
+  保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。同项目内在
+  “查找 / 状态”间往返保留已执行结果和未提交筛选；切换项目时统一清空。新查询会
+  就地 push hash query 并执行检索，不重挂页面或重取状态数据；同时 abort 旧请求，晚到响应还需
+  通过 project/lifecycle generation 才能回写；证据抽屉使用独立
   abort/generation/project/drawer 门禁，关闭抽屉或切换项目后不接受旧正文、引用或导航结果。
   作者视角的聚合卡会为每个实际命中范围展示所属 Scene 位置和摘要，
   并用项目隔离的写作台 Scene 快照标记“当前/前序/后续”关系；同章多 Scene
   会逐个展示摘要和跳转入口。读者/角色视角不显示这些作者专用元数据，
   不将“因可见性被隐藏”误报为“未关联 Scene”。
-- 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。
-- 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。来源页面正文与服务器工作稿始终由服务器重载；本地 v2 会话按项目 + 来源页 + target 隔离，只缓存对话、选择项、suggestion ID，以及 schemaVersion=1、精确绑定当前 pending suggestion 的作者未应用提案编辑。刷新或离开时仍在等待的聊天助手气泡仅在本地副本转为可见的中断终态，不自动重试且不进入后续聊天请求。该版本化 working copy 受 512 KiB / 最多 5 个会话边界约束，不代表 canonical 或服务器工作稿；匹配 suggestion 才恢复，成功应用或作者确认放弃后清理。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
+- 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。创建 RAG 维护任务的写请求不随视图卸载取消，避免服务端已入队而浏览器丢失 task id；离页只停止轮询与晚到 UI 投影。
+- 生成中心精确上下文可显式选择最多 16 个其他已采用世界书页，当前页不重复出现。选择按“项目 + 来源页 + target”会话恢复，只作聊天、收束与建议的参考；不合并、修改或自动采用页面。
+- 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。次级“收束本轮”只在作者触发后调用只读 convergence：界面显示实际范围、排除的更早消息、覆盖状态、细账统计与最多 7 张决定卡；接近 40 条只提示，不自动请求。卡内每项可改为“纳入／开放／放弃”，先编成可编辑作者消息，再由作者确认加入本地对话；此阶段不调用聊天、建议或采用 API。完整且未 stale 的收束可导航到既有 `outline/story-outline` 承接全书／分部的核心前提、叙事读法、基调和读者承诺；导航不搬运内容、不改世界事实，整页提案有未应用编辑时复用离开确认。来源页的新页面目标可额外执行只读深度 1 探索：最多展示 3 个带来源证据的相邻缺口，作者只能选 1 个，未选项不创建 suggestion；输入或来源改变会标记选择过期。生成返回的可选来源页修订与新页面分别显示为待审结果，均不自动应用或触发下一跳。不同 owner 只显示需分别处理，本次仍只生成当前 world target。刷新恢复 schemaVersion=1 的摘要、来源 refs、选择与消息；对话/来源选择变化或 409 会把旧稿降为只读，512 KiB 超限先删可重建展开说明而保留 refs、选择和作者消息。多轮结构化建议在结果和世界书建议审阅中默认折叠展示服务端 `decision_state` 的作者语言摘要；低置信或有未决项只标“请核对”，不显示分数，旧记录明确提示未保存摘要。当前已有 pending 提案时，生成动作必须由作者明确选“修订此版”或“另起方案”，不默认推断。修订成功后先展示决定摘要、“上一版 → 当前版”和关键字段差异；世界书审阅可展开不可再采用的线性历史。修订 409 或其他生成失败保留当前对话和未应用编辑；只有新版成功才替换本地预览。前端不读取对象 `_meta`、页面 payload 或原始 `result_ref_json` 来拼装决定/修订关系，也不允许编辑 JSON 伪造决定；作者通过补充明确纠正并重新生成更新它。来源页面正文与服务器工作稿始终由服务器重载；本地 v2 会话按项目 + 来源页 + target 隔离，只缓存对话、选择项、suggestion ID、收束草稿，以及 schemaVersion=1、精确绑定当前 pending suggestion 的作者未应用提案编辑。刷新或离开时仍在等待的聊天助手气泡仅在本地副本转为可见的中断终态，不自动重试且不进入后续聊天请求。该版本化 working copy 受 512 KiB / 最多 5 个会话边界约束，不代表 canonical 或服务器工作稿；匹配 suggestion 才恢复，成功应用或作者确认放弃后清理。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
 - 生成中心模式导航是受限 tab/tabpanel surface：方向键和 Home/End 只 rove 焦点，Enter/Space 继续走既有切换和离开确认；任务预设、世界目标和对象模板以可访问选择态公开当前值，任务原生字段与可见标签关联。
+- “与外部模型交接”是 world 工作区的折叠次级入口，只服务长期作者。主输入框保留本次目标，
+  外部回包单独进入现有 `pasted_context`；55,000 字符超限在请求前阻止且不截断输入，Web Crypto
+  SHA-256 只对当前本地会话做精确重复 no-op。会话保存当前输入和最多 20 条无正文的包摘要；
+  收束选择形成作者消息后也不自动生成 suggestion。只有完整、未 stale 且带 manifest 的预览
+  才能复制／下载同一 Markdown；项目级材料明确提示无法证明全部来源未变化，外部 ID／检查声明
+  不显示为本地对象或本地通过。该入口不上传文件、不跨设备同步、不建立导入批次。
+- “准备视觉稿”复用同一份完整 convergence manifest 与 R06 文本交接，不新增图片 wire 或状态表。
+  本地 `visualBrief` 只保存单一用途、来源清单 hash、作者编辑的“必须保留／准确标签／仍开放／
+  不要新增”、确认时间和 stale 标记；不保存图片、Prompt、seed 或内部对象 ID。确认简报业务写入为
+  0；输入、来源或收束选择变化会保留文字并使后续动作 fail closed。确认后可复制／下载包含同一
+  创作交接快照的 Markdown，或在当前页面直接打开既有 `MapQuickCreateDialog`。quick-create 的
+  context／preview 仍是只读，candidate 地点仍禁选，最终“创建”仍是独立的既有确认动作。首批
+  不调用图像模型、不上传图片，也不把外部候选图细节转成 observation／fact。
 - 生成中心任务页签选择章节后，Scene 选择器先展示该章的可用 Scene，同时仍可按名称搜索项目内其他活跃 Scene。
 - 生成中心角色视角正文在 lazy load 期间显示加载态；只有已成功确认零章节才显示前置条件空态，隐藏生成表单和顶部动作，并复用写作台/世界设定入口。加载错误保留 warning，不得被呈现为零章节。
 - 世界书、生成中心和通用 AI 参考弹窗只列出已发布 Activation Profile；只有作者显式选择后才随请求发送。世界书规则编辑器提供受限表单和 dry-run trace，不提供 raw JSON、regex 或 Prompt 插槽。世界书存在未保存修改时，“用 AI 完善此页”必须先保存成功再跳转；生成中心页面 apply 只写工作稿，成功后带页面/工作稿 ID 返回世界书。中等宽度把第三栏下移，窄屏改为单栏且不得产生页面级横向溢出。
-- 世界书编辑器把“保存并发布”作为始终可见的主操作；只有“保存工作稿”不会改变正式页。
+- 世界书编辑器把“保存并发布”作为始终可见的主操作；点击后先保存工作稿并显示发布前影响
+  核对，用“发布后会自动处理／建议核对／本次未检查”区分确定性 typed 引用范围。空态明确
+  自由文本和其他创作领域未检查；路径按需展开且不显示 raw ID/hash。确认时携带预演 scope，
+  引用漂移以 409 保留工作稿并要求重查；预演服务不可用时保留工作稿和明确的人工发布出口。
+  只有“保存工作稿”不会改变正式页。
+- 世界书分区编辑器以作者语言显示序号、标题、普通资料／检查清单／资产清单和正文；原有
+  `sensitivity_hint`、`projection_policy`、稳定 `section_id` 与局部引用 hash 保留在默认折叠的
+  “创作辅助与高级设置”，不改变 section payload、恢复、排序或发布契约。公开世界常识明确指
+  故事内知识范围，不代表向其他用户公开；自动整理策略也不冒充显式整页参考的全局排除门禁。
+  保存回包直接对账页内工作稿集合，不重挂编辑器，也不重置焦点、光标或当前页面选择。
   世界观简介的终止任务 ID 不得在同一页面生命周期内重新挂回轮询，避免失败刷新反复重绘并
   阻断点击。
 - 世界书类别、简介状态与投影状态默认使用作者可读中文；投影恢复键、任务 ID、原始状态和
   后端 warning 只放在折叠的“诊断信息”中，不在设定正文和主操作区直接展示。
+- 世界书顶部用原生折叠区汇总 `author-open-questions` 中已保存的未勾选项；同一页面的工作稿
+  覆盖正式页，归档页不计，点击项目打开来源并定位分区。空态只承诺“没有已保存的未决项”，
+  不把未保存 DOM 编辑误报为已同步。该交互借鉴
+  [GitLab open threads](https://docs.gitlab.com/user/project/merge_requests/#manage-comment-threads)
+  的集中计数与
+  [Gerrit ported unresolved comments](https://gerrit-review.googlesource.com/Documentation/user-porting-comments.html)
+  的跨版本可达性，但不复制内容、不生成第二套状态，也不阻断发布。汇总与跳转全是确定性前端
+  投影，因此不引入 Pi 或 Agent runtime。
 
 ## 写作流补充
 
@@ -199,6 +262,10 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 
 - Scene 树导航
 - 自动保存与未保存提醒
+- 底部状态栏 `.writing-statusbar`（38px 通栏）：左侧为字数进度（当前 / 日目标 + 3px accent
+  进度条）、段落数与预计阅读时长（字数 / 400 向上取整）；右侧为字体循环切换（会话内临时
+  override，不写偏好存储）、专注模式按钮和保存/版本状态徽标——这些 DOM 自编辑器头平移，
+  id 不变；版本选择条保留在编辑器上方工具区
 - 版本历史/恢复
 - 读取项目生效作者偏好并驱动日目标、编辑器字体和默认专注模式；优先使用设置服务的项目/全局继承结果，旧本地值只作为接口失败时的兼容回退
 - 深度导入进度展示：恢复 localStorage 中的 task_id，展示当前章节 / Scene / batch、质量统计、降级状态和中断恢复提示
@@ -208,10 +275,14 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 
 - `shared/assetDisplayState.js` 是前端唯一通用映射：结构资产显示“待处理 / 已采用 / 历史”，正文显示“待处理 / 工作稿 / 正式正文”。页面不得自行再维护 `candidate` / `canonical` 文案表。
 - `attention_reasons`、低置信、冲突和 `needs_review` 显示为注意标签，不替代主状态。
+- “必须修复／需要决定／可以改进”只是当前页面的作者动作投影，不新增统一校验生命周期：世界候选只进入“需要决定”，当前列表加载失败才显示“必须修复＋重试”；写作规则与需人工判断的 AI 项进入“需要决定”，普通 AI 软判断和 RAG 证据降级只显示“可以改进”。已处理、忽略或稍后的历史项不再获得当前动作标签。冲突详情同时显示作者可读的来源版本和定向复检范围，不暴露 Scene ID；检查来源不完整时交还作者选择，不伪装成确定性阻断。
 - 主列表默认隐藏历史；只有显式选择历史/raw status 筛选时加载或展示。
 - API 保留原始 `status/review_state/fact_status` 兼容字段，前端优先消费领域 `display_state`，必要时才由共享 helper 回退映射。
 - AI 正文建议在编辑器中以只读预览打开；“采用到工作稿”成功后加载服务端新 draft 并恢复编辑/自动保存，“拒绝建议”经确认后软废弃候选并回到当前工作稿/已发布稿。顶部“AI 续写”只对服务端已保存的可写或已发布 base draft 开放，不拿未保存本地文本或跨章 Scene 作为替换范围；异步任务轮询没有前端总截止时间，完成后自动打开候选审核面板。普通生成的 `pov_validation=not_applicable` 不显示角色视角失败提示。
-- 生成中心的角色视角正文按“章节 + Scene + POV 角色”确认上下文；已有目标章时锁定完整 active 正文，候选仍是该章完整替换稿，Scene 即使跨章也不扩大范围。结果入口跳转写作台统一审核，POV 面板只描述知识边界诊断，不把“未发现明显越权”显示成整体质量通过。
+- 生成中心的角色视角正文按“章节 + Scene + POV 角色”确认上下文；已有目标章时锁定完整 active 正文，候选仍是该章完整替换稿，Scene 即使跨章也不扩大范围。结果卡固定显示该次请求的 Scene 与 POV 角色，不随生成后的表单选择漂移。结果入口跳转写作台统一审核，POV 面板只描述知识边界诊断，不把“未发现明显越权”显示成整体质量通过。
+- 人物知识管理复用现有列表、创建和更新接口，按可读目标名称/类型展示“当前认知”和可展开的较早记录；作者通过类型化对象选择器新增，在同一目标与生效位置就地更新，并以 PUT 归档，不在主界面暴露 raw ID 或内部枚举。重复检查点会明确提示。角色视角的 AI 参考弹窗完整展示“会交给角色视角模型”的知识，并把导演约束分到“仅供作者约束”；“修正人物知识”在新标签页打开既有管理器，原表单和弹窗保留，作者返回后手动“重新整理”，不自动调用模型。
+- 同一弹窗的 Scene 时点状态按“当时可证 / 人物所信 / 当前正典”分层，只把可追溯的历史投影作为导演约束；未覆盖对象显示“尚无时间锚”，不暴露 checkpoint ID 或内部状态。“核对 Scene 时点”在新标签页打开地图活视图中的既有修复台，原表单保留，返回后由作者手动重新整理。
+- 这条人物知识修复流程目前只面向目标画像 A 的角色视角写作；它不新增角色扮演聊天入口，也不把知识图谱或 Agent 配置转嫁给普通作者。重复使用意愿仍是待真实用户验证的产品假设，当前验收覆盖空态、失败、晚到响应、保存反馈和 390px 触控尺寸。
 - deep import/stage 启动入口必须先展示自动采用范围并取得明确授权，完成卡展示 `asset_summary` 的已采用/待处理/未采用三类汇总。
 
 ## 世界对象分组复核
@@ -223,6 +294,12 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 端点搜索覆盖同项目 canonical / draft / candidate 对象，排除历史对象和 suggestion shadow，不依赖对象库当前首页。
 - 未收录的别名/关系类型以“保留原类型”打开；类型建议只有在用户点击后才更改草稿。置信度只用于筛选/预选，不自动采用。
 - 批处理一次确认只发送一个请求，并在客户端先校验关系 20 个决策 / 50 条所选成员、别名 50 条的上限。成功项移出当前选择并自动进入下一组；`stale` / `failed` 项在原卡片显示原因并保留选中与决策草稿，网络异常不丢草稿。筛选、分页和滚动位置在就地刷新后保留。
+- 世界对象的卡片/表格只切换当前组件呈现并就地同步 query；筛选表单的未应用副本
+  放在现有 `worldSession` 中并精确绑定 query 签名。同项目分页、热点/全部资料切换或后台
+  必要刷新可恢复草稿；外部深链、子页或项目变更仍以新 URL 为准。
+- Outline 篇章/剧情线同样区分已应用 query 与编辑中筛选：翻页只改已应用条件的页码，
+  不隐式提交未点“应用”的控件值；同 query 重挂载恢复草稿，各子页草稿相互隔离，
+  外部 query 或项目变更时以新路由为准。
 - compatibility shadow 仍由建议队列拥有；其内联别名在分组复核页只显示“随对象建议处理”，不进入多选或批处理。
 - 默认卡片不展示 UUID，只展示“来源 · Scene · 章节 · 强度/置信度”和短引用；Workflow、Scene UUID 与证据引用收进可复制的诊断区。关系字段始终称为“强度”。
 - 桌面使用右侧抽屉；390px 变为全屏复核页，复核搜索和主操作按钮高度不小于 44px。

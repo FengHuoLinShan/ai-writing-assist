@@ -126,8 +126,9 @@ describe("状态页渲染", () => {
         retrieval_summary: { query_count: 9, empty_count: 1 },
       },
     })
-    expect(wrapper.text()).toContain("需要处理")
+    expect(wrapper.text()).toContain("可以改进")
     expect(wrapper.text()).toContain("Scene 覆盖率不足")
+    expect(wrapper.get('[data-author-action="can_improve"]').text()).toContain("不代表作品内容有错")
   })
 })
 

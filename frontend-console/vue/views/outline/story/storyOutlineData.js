@@ -37,8 +37,17 @@ export function clone(value) {
 }
 
 export function idempotencyKey() {
-  const token = globalThis.crypto?.randomUUID?.()
-    || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  let token
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    token = globalThis.crypto.randomUUID()
+  } else {
+    if (typeof globalThis.crypto?.getRandomValues !== "function") {
+      throw new Error("当前浏览器无法安全生成操作标识，请更换浏览器后重试")
+    }
+    const bytes = new Uint8Array(16)
+    globalThis.crypto.getRandomValues(bytes)
+    token = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")
+  }
   return `story-outline-${token}`.slice(0, 128)
 }
 

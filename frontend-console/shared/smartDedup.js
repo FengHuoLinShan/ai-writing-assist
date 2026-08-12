@@ -16,6 +16,28 @@ import { createReferencePicker } from "./referencePicker.js"
 import { worldAssetDisplay } from "./assetDisplayState.js"
 
 const PAGE_SIZE = 6
+const WORKBENCH_FOCUS_ID_ATTRIBUTES = [
+  "data-smart-dedup-group-primary",
+  "data-smart-dedup-diff",
+  "data-smart-dedup-operation",
+  "data-smart-dedup-confirm-merge",
+  "data-smart-dedup-confirm-alias",
+  "data-smart-dedup-confirm-scene",
+  "data-smart-dedup-preview-scene",
+]
+
+function captureModalOwner(selector) {
+  const owner = document.querySelector(selector)
+  const body = document.getElementById("modal-body")
+  return body ? (owner && body.contains(owner) ? owner : null) : owner
+}
+
+function ownsModal(owner) {
+  const body = document.getElementById("modal-body")
+  if (!body) return !owner || owner.isConnected
+  const overlay = document.getElementById("modal-overlay")
+  return Boolean(owner?.isConnected && body.contains(owner) && !overlay?.classList.contains("hidden"))
+}
 
 export function createSmartDedupManager({
   api,
@@ -25,6 +47,7 @@ export function createSmartDedupManager({
   esc,
   onRenderActions,
   getCurrentProjectId,
+  getCurrentRouteKey,
 }) {
   const modalApi = modal || {
     showModalHtml: globalThis.showModalHtml,
@@ -47,6 +70,9 @@ export function createSmartDedupManager({
     _manualPrimaryPickers: [],
     _currentProjectId() {
       return typeof getCurrentProjectId === "function" ? getCurrentProjectId() : null
+    },
+    _currentRouteKey() {
+      return typeof getCurrentRouteKey === "function" ? getCurrentRouteKey() : null
     },
 
     getState() {
@@ -423,8 +449,25 @@ export function createSmartDedupManager({
       if (comparison) comparison.scrollLeft = snapshot.comparisonLeft
     },
 
+    _captureGroupWorkbenchFocus() {
+      const active = document.activeElement
+      if (!(active instanceof HTMLElement)) return null
+      const attribute = WORKBENCH_FOCUS_ID_ATTRIBUTES.find((name) => active.hasAttribute(name))
+      if (!attribute) return null
+      return { attribute, value: active.getAttribute(attribute) || "" }
+    },
+
+    _restoreGroupWorkbenchFocus(snapshot) {
+      if (!snapshot) return
+      const target = Array.from(document.querySelectorAll(`[${snapshot.attribute}]`))
+        .find((element) => (element.getAttribute(snapshot.attribute) || "") === snapshot.value)
+      if (!(target instanceof HTMLElement) || target.matches(":disabled")) return
+      target.focus({ preventScroll: true })
+    },
+
     _showGroupWorkbench({ preserveScroll = false } = {}) {
       const scrollSnapshot = preserveScroll ? this._captureGroupWorkbenchScroll() : null
+      const focusSnapshot = preserveScroll ? this._captureGroupWorkbenchFocus() : null
       if (this._scanProjectId !== this._currentProjectId()) {
         this._resetResult()
         return
@@ -463,6 +506,7 @@ export function createSmartDedupManager({
       ], { size: "large", protectUnsaved: true })
       this._bindGroupControls(groups)
       this._restoreGroupWorkbenchScroll(scrollSnapshot)
+      this._restoreGroupWorkbenchFocus(focusSnapshot)
     },
 
     _groups(result) {
@@ -694,18 +738,29 @@ export function createSmartDedupManager({
       document.querySelectorAll("[data-smart-dedup-preview-scene]").forEach((button) => button.addEventListener("click", async () => {
         const group = groups.find((item) => item.group_id === this._activeGroupId)
         if (!group) return
+        const requestProjectId = this._currentProjectId()
+        const requestRouteKey = this._currentRouteKey()
+        const scanOwnerProjectId = this._scanProjectId
+        const scanOwnerTaskId = this._scanTaskId
+        const stillOwnsPreview = () => ownsModal(button)
+          && this._currentProjectId() === requestProjectId
+          && this._currentRouteKey() === requestRouteKey
+          && this._scanProjectId === scanOwnerProjectId
+          && this._scanTaskId === scanOwnerTaskId
         const sourceId = button.getAttribute("data-smart-dedup-preview-scene")
         const operation = this._groupDraftFor(group).operations[sourceId]
         try {
-          operation.scenePreview = await api.outline.previewSceneMerge(this._currentProjectId(), {
+          const preview = await api.outline.previewSceneMerge(requestProjectId, {
             target_scene_id: this._groupDraftFor(group).primaryId,
             source_scene_ids: [sourceId],
             confirmed: false,
           })
+          if (!stillOwnsPreview()) return
+          operation.scenePreview = preview
           operation.scenePreviewConfirmed = false
           this._showGroupWorkbench({ preserveScroll: true })
         } catch (error) {
-          toast(`场景影响预览失败：${error.message}`, "error")
+          if (stillOwnsPreview()) toast(`场景影响预览失败：${error.message}`, "error")
         }
       }))
     },
@@ -735,7 +790,20 @@ export function createSmartDedupManager({
     },
 
     async _applyReadyGroups(groups) {
-      if (this._scanProjectId !== this._currentProjectId()) {
+      const modalOwner = captureModalOwner(".smart-dedup-workbench")
+      if (!ownsModal(modalOwner)) return true
+      const requestProjectId = this._currentProjectId()
+      const requestRouteKey = this._currentRouteKey()
+      const scanOwnerProjectId = this._scanProjectId
+      const scanOwnerTaskId = this._scanTaskId
+      const stillOwnsRequest = () => (
+        this._currentProjectId() === requestProjectId
+        && this._currentRouteKey() === requestRouteKey
+        && this._scanProjectId === scanOwnerProjectId
+        && this._scanTaskId === scanOwnerTaskId
+        && ownsModal(modalOwner)
+      )
+      if (scanOwnerProjectId !== requestProjectId) {
         this._closeModal()
         this._resetResult()
         toast("项目已切换，旧扫描裁决已清理", "warning")
@@ -744,14 +812,15 @@ export function createSmartDedupManager({
       const ready = groups.filter((group) => this._groupReadiness(group).ready)
       if (!ready.length) {
         toast("请先完成至少一组裁决", "warning")
-        return
+        return false
       }
       try {
-        const response = await api.projects.applySmartDedup(this._currentProjectId(), {
+        const response = await api.projects.applySmartDedup(requestProjectId, {
           confirmed: true,
-          scan_task_id: this._scanTaskId,
+          scan_task_id: scanOwnerTaskId,
           groups: ready.map((group) => this._buildGroupPayload(group)),
         })
+        if (!stillOwnsRequest()) return true
         ;(response.group_results || []).forEach((item) => {
           this._groupResults[item.group_id] = item
         })
@@ -765,8 +834,11 @@ export function createSmartDedupManager({
         }
         toast(`本次执行成功 ${succeeded} 组，失败 ${(response.group_results || []).length - succeeded} 组`, succeeded ? "success" : "warning")
         this._showGroupWorkbench()
+        return true
       } catch (error) {
+        if (!stillOwnsRequest()) return true
         toast(error.message || "执行失败", "error")
+        return false
       }
     },
 
@@ -1098,7 +1170,20 @@ export function createSmartDedupManager({
     },
 
     async _applySuggestions(suggestions) {
-      if (this._scanProjectId && this._scanProjectId !== this._currentProjectId()) {
+      const modalOwner = captureModalOwner("[data-smart-dedup-index]")
+      if (!ownsModal(modalOwner)) return true
+      const requestProjectId = this._currentProjectId()
+      const requestRouteKey = this._currentRouteKey()
+      const scanOwnerProjectId = this._scanProjectId
+      const scanOwnerTaskId = this._scanTaskId
+      const stillOwnsRequest = () => (
+        this._currentProjectId() === requestProjectId
+        && this._currentRouteKey() === requestRouteKey
+        && this._scanProjectId === scanOwnerProjectId
+        && this._scanTaskId === scanOwnerTaskId
+        && ownsModal(modalOwner)
+      )
+      if (scanOwnerProjectId && scanOwnerProjectId !== requestProjectId) {
         this._closeModal()
         this._resetResult()
         toast("项目已切换，旧扫描建议已清理", "warning")
@@ -1116,23 +1201,27 @@ export function createSmartDedupManager({
         .filter((entry) => ["merge", "alias_only", "deprecate_duplicate"].includes(entry.item.action))
       if (!selected.length) {
         toast("请选择可应用的建议", "warning")
-        return
+        return false
       }
       const payload = selected
         .map(({ item, draft }) => this._buildApplyItem(item, draft))
         .filter(Boolean)
       try {
-        const applied = await api.projects.applySmartDedup(this._currentProjectId(), {
+        const applied = await api.projects.applySmartDedup(requestProjectId, {
           confirmed: true,
           suggestions: payload,
         })
+        if (!stillOwnsRequest()) return true
         this._closeModal()
         toast(`已应用 ${applied.applied || 0} 条智能去重建议`, "success")
         this._resetResult()
         api.clearCache()
         router.refresh()
+        return true
       } catch (err) {
+        if (!stillOwnsRequest()) return true
         toast(err.message || "应用失败", "error")
+        return false
       }
     },
   }

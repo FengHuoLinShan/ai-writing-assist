@@ -12,7 +12,6 @@ Context 模块测试
 测试中确保即使业务资料为空，编译器也能正常工作。
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -80,9 +79,7 @@ async def test_compiler_redacts_loader_failure_warning() -> None:
             return "project"
 
         async def load(self, db, options, bundle) -> None:
-            raise RuntimeError(
-                f"Authorization: Bearer {secret} api_key={secret}"
-            )
+            raise RuntimeError(f"Authorization: Bearer {secret} api_key={secret}")
 
     bundle = await ContextCompiler([FailingLoader()]).compile(
         db=object(),
@@ -202,6 +199,7 @@ async def _setup_character_knowledge(
             known_content=known_content,
             misconception=misconception,
             source_chapter_index=1,
+            status="canonical",
         )
     )
     await db_session.flush()
@@ -619,8 +617,7 @@ class TestContextCompiler:
         assert bundle.world_entities == []
         assert bundle.characters == []
         assert bundle.geo_locations == []
-        # memory_records 现在是全景 dict（启用后），空列表兜底也兼容
-        assert isinstance(bundle.memory_records, (list, dict))
+        assert isinstance(bundle.memory_records, list)
         assert bundle.timeline_events == []
         assert bundle.plot_threads == []
         assert bundle.outline_arc is None
@@ -758,6 +755,7 @@ class TestContextCompiler:
                 known_content="一个神秘组织。",
                 misconception="错误认知：暗影组织是正义的。",
                 source_chapter_index=1,
+                status="canonical",
             )
         )
         await db_session.flush()
@@ -1071,6 +1069,14 @@ class TestContextCompiler:
         assert "想夺取王位" not in role_text
         assert "失散多年的兄长" not in role_text
         assert "工程师" not in role_text
+        assert char_id not in role_text
+        assert scene_id not in role_text
+
+        time_boundary = next(s for s in sections if s.key == "scene_time_boundary")
+        assert "当前 Scene 序号: 3" in time_boundary.content
+        assert "当前 Scene 锚点: 已固定" in time_boundary.content
+        assert char_id not in time_boundary.content
+        assert scene_id not in time_boundary.content
 
         plotline = next(s for s in sections if s.key == "safe_plotline_context")
         assert plotline.status == "director_only"
@@ -1095,6 +1101,238 @@ class TestContextCompiler:
         assert "完整记忆快照隐藏内容" not in rendered
         assert "完整记忆快照隐藏内容" not in source_text
         assert "隐藏摘要不应进入 source" not in source_text
+
+    def test_character_scene_keeps_proven_state_separate_from_belief(self) -> None:
+        """Scene 实际状态、角色误信与当前正典不得互相回填。"""
+        from modules.context.services.compiled_context import Tier
+        from modules.context.services.context_compiler import ContextCompiler
+
+        bridge_id = uuid.uuid4()
+        options = CompileOptions(
+            novel_id="project-1",
+            task="生成倒叙 Scene",
+            scope="chapter",
+            consumer_action="writing.generate",
+            chapter_index=4,
+            scene_id="scene-4",
+            entity_ids=[bridge_id.hex, "future-satellite"],
+            character_ids=["pov"],
+            reveal_mode="character",
+            viewpoint_character_id="pov",
+        )
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+            characters=[{"character_id": "pov", "name": "秦岚"}],
+            world_entities=[
+                {
+                    "entity_id": bridge_id.hex,
+                    "name": "旧桥",
+                    "knowledge_level": "false_belief",
+                    "misconception": "秦岚相信旧桥已毁",
+                },
+                {
+                    "entity_id": "future-satellite",
+                    "name": "天基武器",
+                    "knowledge_level": "unknown",
+                    "hidden_truth": "当前正典的未来状态",
+                },
+            ],
+            scene={"id": "scene-4", "pov_character_id": "pov"},
+            scene_checkpoint_set={
+                "coverage_status": "manual_required",
+                "items": [
+                    {
+                        "id": "cp-entities",
+                        "dimension": "entities",
+                        "status": "ready",
+                        "source": "system_generated",
+                        "confirmed": False,
+                        "state_json": {
+                            "entities": {
+                                str(bridge_id): {
+                                    "name": "旧桥",
+                                    "summary": "桥身仍然完好",
+                                    "hidden_truth": "作者隐藏真相不在 allowlist",
+                                }
+                            }
+                        },
+                        "display_summary": "人物与对象 1 条",
+                    },
+                    {
+                        "id": "cp-relations",
+                        "dimension": "relations",
+                        "status": "ready",
+                        "source": "system_generated",
+                        "confirmed": False,
+                        "state_json": {
+                            "relations": [
+                                {
+                                    "source_id": "pov",
+                                    "target_id": str(bridge_id),
+                                    "description": "守桥盟约仍然有效",
+                                }
+                            ]
+                        },
+                        "display_summary": "关系 1 条",
+                    },
+                    {
+                        "id": "cp-locations",
+                        "dimension": "locations",
+                        "status": "ready",
+                        "source": "system_generated",
+                        "confirmed": False,
+                        "state_json": {
+                            "character_locations": {"pov": {"text_state": "位于旧桥东端"}}
+                        },
+                        "display_summary": "人物位置 1 条",
+                    },
+                    {
+                        "id": "cp-knowledge",
+                        "dimension": "knowledge",
+                        "status": "ready",
+                        "source": "system_generated",
+                        "confirmed": False,
+                        "state_json": {
+                            "character_knowledge": ["checkpoint 知识不得覆盖 R13"]
+                        },
+                        "display_summary": "知识边界 1 条",
+                    },
+                    {
+                        "id": "cp-map",
+                        "dimension": "map",
+                        "status": "ready",
+                        "source": "system_generated",
+                        "confirmed": False,
+                        "state_json": {
+                            "facts_by_key": {
+                                "relevant": {
+                                    "target_entity_id": str(bridge_id),
+                                    "target_name": "旧桥",
+                                    "evidence_text": "桥东端的路当时可通行",
+                                },
+                                "same-name-but-unrelated": {
+                                    "target_entity_id": "another-bridge",
+                                    "target_name": "旧桥",
+                                    "evidence_text": "同名对象的未来状态不得进入",
+                                },
+                            }
+                        },
+                        "display_summary": "地图事实 2 条",
+                    },
+                ],
+            },
+        )
+
+        sections = ContextCompiler()._build_sections(bundle, options)
+        scene_state = next(item for item in sections if item.key == "scene_world_state")
+        role_state = next(
+            item for item in sections if item.key == "role_visible_knowledge"
+        )
+
+        assert scene_state.tier == Tier.P0
+        assert scene_state.status == "director_only"
+        assert scene_state.can_exclude is False
+        assert "桥身仍然完好" in scene_state.content
+        assert "守桥盟约仍然有效" in scene_state.content
+        assert "位于旧桥东端" in scene_state.content
+        assert "桥东端的路当时可通行" in scene_state.content
+        assert "同名对象的未来状态不得进入" not in scene_state.content
+        assert "秦岚相信旧桥已毁" in role_state.content
+        assert "秦岚相信旧桥已毁" not in scene_state.content
+        assert "checkpoint 知识不得覆盖 R13" not in scene_state.content
+        assert "未来地图状态不得进入" not in scene_state.content
+        assert "当前正典的未来状态" not in scene_state.content
+        assert {"label": "天基武器", "reason": "尚无时间锚"} in (
+            scene_state.retrieval_metadata["omissions"]
+        )
+        assert {"label": "秦岚", "reason": "尚无时间锚"} in (
+            scene_state.retrieval_metadata["omissions"]
+        )
+        assert not any(
+            item["label"] == "旧桥"
+            for item in scene_state.retrieval_metadata["omissions"]
+        )
+        assert len(scene_state.retrieval_metadata["checkpoint_versions"]) == 5
+
+    def test_manual_scene_summary_does_not_hide_unanchored_objects(self) -> None:
+        options = CompileOptions(
+            novel_id="project-1",
+            task="生成历史 Scene",
+            scope="chapter",
+            consumer_action="writing.generate",
+            scene_id="scene-1",
+            entity_ids=["unanchored"],
+            reveal_mode="character",
+            viewpoint_character_id="pov",
+        )
+        long_summary = "当时的已确认人物状态" * 200
+        checkpoint = {
+            "id": "manual-entities",
+            "dimension": "entities",
+            "status": "ready",
+            "source": "manual",
+            "confirmed": True,
+            "state_json": {"manual_summary": long_summary},
+            "display_summary": long_summary,
+        }
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+            characters=[{"character_id": "pov", "name": "秦岚"}],
+            world_entities=[
+                {
+                    "entity_id": "unanchored",
+                    "name": "未建立时间锚的塔",
+                    "knowledge_level": "unknown",
+                }
+            ],
+            scene={"id": "scene-1", "pov_character_id": "pov"},
+            scene_checkpoint_set={
+                "coverage_status": "ready",
+                "items": [checkpoint],
+            },
+        )
+
+        section = ContextCompiler._build_scene_world_state_section(bundle, options)
+
+        assert {"label": "未建立时间锚的塔", "reason": "尚无时间锚"} in (
+            section.retrieval_metadata["omissions"]
+        )
+        assert long_summary[:1200] in section.content
+        assert long_summary[:1201] not in section.content
+
+        checkpoint["state_json"] = {}
+        checkpoint["display_summary"] = "已人工确认此阶段没有该维度事实"
+        confirmed_empty = ContextCompiler._build_scene_world_state_section(
+            bundle,
+            options,
+        )
+        assert confirmed_empty.retrieval_metadata["omissions"] == []
+
+    def test_scene_time_boundary_preserves_first_scene_indices(self) -> None:
+        options = CompileOptions(
+            novel_id="project-1",
+            task="生成开场 Scene",
+            scope="chapter",
+            chapter_index=0,
+            scene_id="scene-0",
+            reveal_mode="character",
+            viewpoint_character_id="pov",
+        )
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+            scene={"scene_index": 0},
+        )
+
+        content = ContextCompiler._format_scene_time_boundary(bundle, options)
+
+        assert "当前章节: 0" in content
+        assert "当前 Scene 序号: 0" in content
 
 
 # ============================================================

@@ -70,8 +70,8 @@ export const SEL = {
   toastItems: "#toast-container > *",
 
   // 主题
-  themeToggle: "#theme-toggle",
-  themeOption: (theme) => `#theme-menu [data-theme-value="${theme}"]`,
+  themeGroup: ".topbar-theme",
+  themeOption: (theme) => `.theme-dot[data-theme-value="${theme}"]`,
 
   // 写作台
   writingToolbar: ".writing-toolbar",

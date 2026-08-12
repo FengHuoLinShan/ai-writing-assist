@@ -183,11 +183,7 @@ class CoreEntityRepository:
         scored.sort(
             key=lambda item: (
                 -item[1],
-                -(
-                    item[0].importance
-                    if item[0].importance is not None
-                    else 0
-                ),
+                -(item[0].importance if item[0].importance is not None else 0),
                 item[0].name,
                 str(item[0].id),
             )
@@ -881,9 +877,7 @@ class CoreEntityRepository:
                     rows = result.all()
                 return [(row[0], float(row[1])) for row in rows]
             except (OperationalError, ProgrammingError):
-                logger.warning(
-                    "pg_trgm similarity() unavailable, falling back to ILIKE"
-                )
+                logger.warning("pg_trgm similarity() unavailable, falling back to ILIKE")
 
         # SQLite / 缺失 pg_trgm 回退：ILIKE name + JSON alias 粗筛
         fallback_conditions = [
@@ -2464,6 +2458,7 @@ class CharacterKnowledgeRepository:
         conditions = [
             CharacterKnowledge.novel_id == novel_id,
             CharacterKnowledge.character_id == character_id,
+            CharacterKnowledge.status == "canonical",
             *self._active_conditions(),
         ]
         if target_ids:
@@ -2481,11 +2476,36 @@ class CharacterKnowledgeRepository:
                     ),
                 )
             )
+        else:
+            conditions.append(
+                or_(
+                    CharacterKnowledge.source_chapter_index.is_not(None),
+                    CharacterKnowledge.is_public_baseline.is_(True),
+                )
+            )
 
         stmt = select(CharacterKnowledge).where(*conditions)
         result = await db.execute(stmt)
         items: Sequence[CharacterKnowledge] = result.scalars().all()
-        return list(items)
+        selected: dict[uuid.UUID, CharacterKnowledge] = {}
+        for item in items:
+            key = item.target_id
+            current = selected.get(key)
+            if current is None or self._checkpoint_order(item) > self._checkpoint_order(
+                current
+            ):
+                selected[key] = item
+        return [selected[key] for key in sorted(selected, key=str)]
+
+    @staticmethod
+    def _checkpoint_order(item: CharacterKnowledge) -> tuple[int, float, str]:
+        """Latest effective checkpoint wins without depending on row order."""
+        changed_at = item.updated_at or item.created_at
+        return (
+            item.source_chapter_index if item.source_chapter_index is not None else -1,
+            changed_at.timestamp() if changed_at else 0.0,
+            str(item.id),
+        )
 
     async def update(
         self,

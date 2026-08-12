@@ -4,7 +4,7 @@
 
 export const EVIDENCE_HEALTH_LABELS = {
   healthy: "健康",
-  degraded: "需要处理",
+  degraded: "可以改进",
   insufficient_data: "数据不足",
 }
 

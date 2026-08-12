@@ -13,6 +13,11 @@
       <button type="button" class="subnav-item" :class="{ active: tab === 'review-relations' }" :aria-current="tab === 'review-relations' ? 'page' : undefined" data-action="nav-review-relations" @click="navigateSub('review-relations')">关系 ({{ reviewCounts.relations || 0 }})</button>
     </div>
 
+    <p v-if="currentReviewCount" class="world-list-description" data-author-action="needs_decision">
+      <span class="pill pill-warning">需要决定</span>
+      这里只列当前仍有效、尚未采用的候选；已采用、忽略或过期内容不计入当前待办。
+    </p>
+
     <!-- ==================== review-objects ==================== -->
     <template v-if="tab === 'review-objects'">
       <!-- vanilla _renderCandidatesList 收尾处 `renderBulkToolbar(...) + html`：批量条前置（仅非空时存在） -->
@@ -54,8 +59,9 @@
       </WorldFilterPanel>
 
       <template v-if="candidateLoadError && localCandidates.length === 0">
-        <div class="empty-state" role="alert">
+        <div class="empty-state" role="alert" data-author-action="must_fix">
           <div class="empty-icon">!</div>
+          <strong>必须修复</strong>
           <p>{{ candidateLoadError }}</p>
           <button class="btn btn-primary world-review-touch-target" data-action="retry-candidate-load" @click="retryLoad">重试加载</button>
         </div>
@@ -191,7 +197,8 @@
         </div>
       </WorldFilterPanel>
 
-      <div v-if="aliasReviewLoadError" class="empty-state">
+      <div v-if="aliasReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
+        <strong>必须修复</strong>
         <p>加载待处理别名失败。</p>
         <p class="world-text-dim">{{ aliasReviewLoadError }}</p>
       </div>
@@ -292,7 +299,8 @@
         </div>
       </WorldFilterPanel>
 
-      <div v-if="relationReviewLoadError" class="empty-state">
+      <div v-if="relationReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
+        <strong>必须修复</strong>
         <p>加载待处理关系失败。</p>
         <p class="world-text-dim">{{ relationReviewLoadError }}</p>
       </div>
@@ -424,6 +432,11 @@ const props = defineProps({
 })
 
 const tab = computed(() => props.reviewSubView || "review-objects")
+const currentReviewCount = computed(() => {
+  if (tab.value === "review-aliases") return props.aliasItemTotal
+  if (tab.value === "review-relations") return props.relationItemTotal
+  return props.candidateTotal
+})
 const suggestedActionLabels = WORLD_SUGGESTED_ACTION_LABELS
 const entityIdOf = entityId
 const aliasKeyOf = aliasKey

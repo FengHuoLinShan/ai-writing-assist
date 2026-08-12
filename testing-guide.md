@@ -46,6 +46,7 @@ Three layers:
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
+| `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and visibility thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
 | `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
@@ -92,6 +93,13 @@ for the merged `main` SHA.
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
 local corpus. Neither may enter the default fast layer.
+
+The Ask World launch command is explicit release evidence in addition to the full
+suite. It first runs the actual API contract tests, then emits an offline report
+whose quality scope is limited to evidence ranking and dataset integrity. Neither
+part stands in for human review of prose usefulness or factual synthesis. R01–R14
+product behavior remains covered by the affected Pytest, Vitest, and Playwright
+paths; a fixture that only repeats expected states is not a product gate.
 
 The Kimi targets fail before collection when any required flag, key, cost
 approval, context-limit value, or dedicated database URL is absent. They do not

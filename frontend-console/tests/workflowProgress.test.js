@@ -27,6 +27,13 @@ function mockVisibilityState(initial = "visible") {
 }
 
 describe("normalizeTaskProgress", () => {
+  it("将取消态说明为停止后续处理并保留已保存阶段", () => {
+    const progress = normalizeTaskProgress({ status: "cancelled", result: { message: "任务已取消" } })
+
+    expect(progress.message).toContain("不会再排下一步")
+    expect(progress.message).toContain("可能不会瞬时断开")
+  })
+
   it("normalizes legacy asset-state words from backend progress text", () => {
     const progress = normalizeTaskProgress({
       id: "task-copy",
@@ -301,6 +308,19 @@ describe("active workflow storage", () => {
 
     clearActiveWorkflow("task-1")
     expect(recoverActiveWorkflows("p1")).toEqual([])
+  })
+
+  it("does not attach legacy projectless workflows to the current project", () => {
+    persistActiveWorkflow({ taskId: "task-p1", workflowType: "deep_import", projectId: "p1" })
+    persistActiveWorkflow({ taskId: "task-p2", workflowType: "deep_import", projectId: "p2" })
+    persistActiveWorkflow({ taskId: "task-legacy", workflowType: "deep_import" })
+
+    expect(recoverActiveWorkflows("p1").map((item) => item.taskId)).toEqual(["task-p1"])
+    expect(recoverActiveWorkflows().map((item) => item.taskId)).toEqual([
+      "task-p1",
+      "task-p2",
+      "task-legacy",
+    ])
   })
 
 })

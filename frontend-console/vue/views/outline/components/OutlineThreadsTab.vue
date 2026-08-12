@@ -169,7 +169,7 @@
 </template>
 
 <script setup>
-import { computed, reactive } from "vue"
+import { computed, reactive, watch } from "vue"
 import { getRouter } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
@@ -188,6 +188,8 @@ import {
 } from "../logic/outlineStructureOps.js"
 import {
   getBulkSelection,
+  reconcileBulkSelection,
+  outlineFilterDrafts,
   selectAllState as computeSelectAll,
   toggleBulkSelection,
   toggleAllBulkSelection,
@@ -216,8 +218,31 @@ const props = defineProps({
 const threadStatusOptions = computed(() => structureStatusOptions("threads"))
 
 // ---- Filters ----
-const filterForm = reactive({ ...STRUCTURE_FILTER_DEFAULTS })
-Object.assign(filterForm, props.filters)
+const threadScope = "outline-threads"
+const routeSignature = structureQueryFromState("threads", props.filters).toString()
+const restoredDraft = outlineFilterDrafts[threadScope]?.routeSignature === routeSignature
+  ? outlineFilterDrafts[threadScope].value
+  : null
+if (!restoredDraft) delete outlineFilterDrafts[threadScope]
+const filterForm = reactive({
+  ...STRUCTURE_FILTER_DEFAULTS,
+  ...props.filters,
+  ...(restoredDraft || {}),
+  skip: props.filters.skip,
+  limit: props.filters.limit,
+})
+watch(filterForm, (value) => {
+  outlineFilterDrafts[threadScope] = {
+    routeSignature: outlineFilterDrafts[threadScope]?.routeSignature || routeSignature,
+    value: { ...value },
+  }
+}, { immediate: true, deep: true, flush: "sync" })
+
+function navigateFilters(filters) {
+  const query = structureQueryFromState("threads", filters)
+  outlineFilterDrafts[threadScope].routeSignature = query.toString()
+  getRouter()?.navigate("outline", "threads", true, query)
+}
 
 const threadsTotal = computed(() => props.threadsTotal || 0)
 const threadsCurrentPage = computed(() => Math.floor(filterForm.skip / filterForm.limit) + 1)
@@ -225,8 +250,12 @@ const threadsTotalPages = computed(() => Math.ceil(threadsTotal.value / filterFo
 const threadsLoadError = computed(() => props.threadsLoadError)
 
 // ---- Threads Bulk Selection ----
-const threadScope = "outline-threads"
 const threadIsSelected = (id) => getBulkSelection(threadScope).has(String(id))
+watch(
+  () => props.threads.map((item) => item.id || item.thread_id),
+  (ids) => reconcileBulkSelection(threadScope, ids),
+  { immediate: true },
+)
 const threadSelectAll = computed(() => {
   const ids = props.threads.map((t) => t.id || t.thread_id)
   return computeSelectAll(threadScope, ids)
@@ -355,22 +384,18 @@ function retryLoad() { getRouter()?.refresh() }
 function applyFilters() {
   const f = { ...STRUCTURE_FILTER_DEFAULTS, ...filterForm, skip: 0 }
   Object.assign(filterForm, f)
-  const query = structureQueryFromState("threads", f)
-  getRouter()?.navigate("outline", "threads", true, query)
+  navigateFilters(f)
 }
 function resetFilters() {
   Object.assign(filterForm, STRUCTURE_FILTER_DEFAULTS)
   filterForm.skip = 0
-  const query = structureQueryFromState("threads", filterForm)
-  getRouter()?.navigate("outline", "threads", true, query)
+  navigateFilters(filterForm)
 }
 function changePage(delta) {
   const total = props.threadsTotal || 0
-  const newSkip = filterForm.skip + delta * filterForm.limit
+  const newSkip = props.filters.skip + delta * props.filters.limit
   if (newSkip < 0 || newSkip >= total) return
-  filterForm.skip = newSkip
-  const query = structureQueryFromState("threads", filterForm)
-  getRouter()?.navigate("outline", "threads", true, query)
+  navigateFilters({ ...props.filters, skip: newSkip })
 }
 
 // ---- Bulk ----

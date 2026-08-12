@@ -125,6 +125,8 @@ rg -n "<已移除模块或旧术语>" docs CONTEXT.md backend/modules
 再按改动运行受影响模块测试和 lint。涉及 schema 时，将 Alembic head、模型注册和对应测试
 作为证据；涉及 API/wire 时，将 API 或前端测试作为证据；涉及 Prompt 时运行
 `make prompt-contracts`（若该契约系统覆盖本次变更）。不要把“文档已写”当作实现正确的证据。
+用户可见的检索或生成能力若另有离线准入评测，还应记录数据集 hash、阈值和实际覆盖范围；
+确定性检索／引用门禁不能被表述为对生成内容质量的人工验收。
 `make docs-check` 已自动验证 Draw.io XML、重复 ID、edge endpoint 和业务模块覆盖；修改图源
 时仍需使用 Draw.io 结构校验/视觉预览确认无重叠、裁切和错误箭头，并核对 HTML 预览同步。
 

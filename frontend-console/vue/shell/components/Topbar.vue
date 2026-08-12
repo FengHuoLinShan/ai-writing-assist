@@ -4,7 +4,7 @@
     <div class="topbar-center">
       <span id="topbar-project">{{ projectTitle }}</span><span class="separator">·</span>
       <span id="topbar-module">{{ moduleTitle }}</span>
-      <span id="topbar-submodule" class="topbar-submodule" :class="{ hidden: !submoduleTitle }">{{ submoduleTitle ? `· ${submoduleTitle}` : '' }}</span>
+      <span id="topbar-submodule" class="topbar-submodule" :class="{ hidden: !submoduleVisible }">{{ submoduleVisible ? `· ${submoduleTitle}` : '' }}</span>
       <span v-if="viewNote" id="topbar-view-note" class="topbar-view-note">{{ viewNote }}</span>
       <span id="topbar-chapter" class="topbar-chapter" :class="{ hidden: !wordcountVisible }">{{ wordcountVisible ? `第 ${wordcount.chapterIndex} 章` : '' }}</span>
     </div>
@@ -40,6 +40,8 @@ const props = defineProps({
 const emit = defineEmits(["select-theme", "manage-account", "open-settings", "show-help"])
 const accountMenu = ref(null)
 const saveStateTitle = computed(() => ({ saving: "保存中", unsaved: "未保存", saved: "已保存" })[props.wordcount.saveState] || "保存状态")
+// 子视图与模块同名时隐藏子段，避免「查找 · 查找」式重复面包屑
+const submoduleVisible = computed(() => Boolean(props.submoduleTitle) && props.submoduleTitle !== props.moduleTitle)
 function formatNumber(value) { return Number(value || 0).toLocaleString() }
 function runMenuAction(action) {
   const summary = accountMenu.value?.querySelector("summary")

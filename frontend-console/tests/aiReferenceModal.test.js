@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
+import { renderContextSummary } from "../shared/contextSummaryRenderer.js"
 import { clearDocument } from "./helpers.js"
 
 await import("../ui/modal.js")
@@ -34,6 +35,39 @@ beforeEach(() => {
 })
 
 describe("aiReferenceModal", () => {
+  it("普通摘要使用作者语言，仅诊断视图显示 token 和内部键", () => {
+    const summary = {
+      scope: "chapter",
+      selected_asset_ids: { context_sections: ["world"] },
+      sections: [{ key: "retrieval_evidence_packs", title: "检索到的设定", status: "canonical", token_count: 42, sources: [{ type: "rag", id: "internal-1" }] }],
+      budget_events: [{ section_key: "retrieval_evidence_packs", event_type: "truncated", before_tokens: 80, after_tokens: 42, reason: "超出预算" }],
+      result_refs: [{ type: "confirmation", id: "internal-result" }],
+    }
+
+    const ordinary = renderContextSummary(summary)
+    expect(ordinary).toContain("当前章节")
+    expect(ordinary).toContain("参考分区: 1")
+    expect(ordinary).not.toContain("Token")
+    expect(ordinary).not.toContain("tokens")
+    expect(ordinary).not.toContain("retrieval_evidence_packs")
+    expect(ordinary).not.toContain("internal-1")
+    expect(ordinary).not.toContain("internal-result")
+
+    const diagnostic = renderContextSummary(summary, { diagnostic: true })
+    expect(diagnostic).toContain("Token")
+    expect(diagnostic).toContain("retrieval_evidence_packs")
+    expect(diagnostic).toContain("internal-result")
+  })
+
+  it("角色知识为空时仍提供修复入口", () => {
+    document.body.innerHTML = renderContextSummary({
+      sections: [{ key: "role_profile", title: "POV 角色档案", status: "canonical" }],
+    }, { knowledgeRepairHref: "#workbench/p1/world/objects?knowledge_character_id=char-1" })
+
+    expect(document.body.textContent).toContain("当前没有可展示的角色知识")
+    expect(document.querySelector('a[href*="knowledge_character_id=char-1"]')?.target).toBe("_blank")
+  })
+
   it("keeps the existing footer classes and button types without duplicate btn tokens", () => {
     confirmAiReference({ novel_id: "p1", action: "writing.generate", task: "生成" }).catch(() => {})
     const buttons = Array.from(document.querySelectorAll("#modal-footer button"))
@@ -347,7 +381,7 @@ describe("aiReferenceModal", () => {
       include_pending_objects: true,
       user_note: "只补抽长期资产",
     }))
-    expect(document.getElementById("ai-ref-summary")?.innerHTML).toContain("context_sections: 2")
+    expect(document.getElementById("ai-ref-summary")?.innerHTML).toContain("参考分区: 2")
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("RAG 证据包")
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("已裁剪")
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("包含待处理内容，结果需要人工检查")
@@ -470,6 +504,7 @@ describe("aiReferenceModal", () => {
           token_count: 20,
           activation_reason: "CharacterKnowledge 与默认可见性规则过滤后",
           preview: "公开信息：警报响起",
+          content: `- 主控室；认知=听说过：警报响起\n- 北侧密道；认知=相信错误版本：${"错误方向".repeat(30)}\n- 完整内容末尾`,
           can_exclude: true,
           sources: [{ type: "entity", id: "e1", label: "主控室", status: "canonical" }],
         },
@@ -482,6 +517,24 @@ describe("aiReferenceModal", () => {
           preview: "DIRECTOR_ONLY",
           can_exclude: false,
           sources: [{ type: "scene", id: "scene-1", label: "主控室警报", status: "director_only" }],
+        },
+        {
+          key: "scene_world_state",
+          title: "Scene 时点可证状态",
+          status: "director_only",
+          token_count: 18,
+          activation_reason: "五维 checkpoint 对照",
+          can_exclude: false,
+          sources: [{ type: "memory_scene_checkpoint", id: "cp-1", label: "人物与对象", status: "director_only" }],
+          retrieval_metadata: {
+            coverage_label: "有些相关对象尚无时间锚",
+            dimensions: [
+              { label: "人物与对象", state_label: "当时可证" },
+              { label: "地图事实", state_label: "需要判断" },
+            ],
+            omissions: [{ label: "北侧密道", reason: "尚无时间锚" }],
+            current_canon_note: "当前正典只作为修复参考，不会回填过去。",
+          },
         },
       ],
       warnings: [],
@@ -506,12 +559,25 @@ describe("aiReferenceModal", () => {
     expect(summary?.textContent).toContain("POV 角色档案")
     expect(summary?.textContent).toContain("角色可见知识")
     expect(summary?.textContent).toContain("Scene 导演约束")
+    expect(summary?.textContent).toContain("当时可证")
+    expect(summary?.textContent).toContain("人物所信")
+    expect(summary?.textContent).toContain("当前正典")
+    expect(summary?.textContent).toContain("北侧密道（尚无时间锚）")
+    expect(summary?.textContent).toContain("会交给角色视角模型")
+    expect(summary?.textContent).toContain("仅供作者约束，不是角色知识")
+    expect(summary?.textContent).toContain("完整内容末尾")
+    expect(summary?.textContent).toContain("不会自动再次生成正文")
     expect(summary?.textContent).not.toContain("pov_knowledge")
     expect(summary?.textContent).not.toContain("scene_blueprint")
     expect(summary?.textContent).not.toContain("hidden truth")
     expect(document.querySelector('[data-ai-ref-exclude-section="role_profile"]')).toBeNull()
     expect(document.querySelector('[data-ai-ref-exclude-section="scene_director_constraints"]')).toBeNull()
+    expect(document.querySelector('[data-ai-ref-exclude-section="scene_world_state"]')).toBeNull()
     expect(document.querySelector('[data-ai-ref-exclude-section="role_visible_knowledge"]')).not.toBeNull()
+    const repair = document.querySelector('a[href*="knowledge_character_id=char-1"]')
+    expect(repair?.textContent).toBe("修正人物知识")
+    expect(repair?.target).toBe("_blank")
+    expect(document.querySelector('a[href*="scene_id=scene-1"]')).toBeNull()
   })
 
   it("点击 section 本次排除后重新整理并提交 context_sections 排除项", async () => {
@@ -590,6 +656,7 @@ describe("aiReferenceModal", () => {
       },
     }))
     expect(document.getElementById("ai-ref-summary")?.textContent).not.toContain("RAG 证据包")
+    expect(document.activeElement).toBe(document.getElementById("ai-ref-summary"))
   })
 
   it("确认使用返回 context_confirmation_id 来源记录", async () => {

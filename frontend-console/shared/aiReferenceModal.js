@@ -81,13 +81,14 @@ export function confirmAiReference(options) {
           const next = await createConfirmation(options, excludedSectionKeys, root)
           if (!owns(token)) return
           showCurrentSummary(next)
+          root.querySelector("#ai-ref-summary")?.focus({ preventScroll: true })
           toast("AI 参考资料已重新整理", "success")
         } catch (err) {
           if (owns(token)) showError(root, err)
         } finally {
           releaseBusy()
         }
-      })
+      }, options)
     }
 
     const refresh = async () => {
@@ -217,7 +218,7 @@ function renderBody(options, sessionId) {
         <textarea id="ai-ref-user-note" class="form-textarea" rows="3" placeholder="例如：避免剧透、只补抽长期资产">${esc(options.user_note || "")}</textarea>
       </label></div>
       <div id="ai-ref-error" class="ai-ref-error" style="display:none;"></div>
-      <div id="ai-ref-summary">${renderContextSummary({})}</div>
+      <div id="ai-ref-summary" tabindex="-1">${renderContextSummary({})}</div>
     </div>
   `
 }
@@ -285,10 +286,13 @@ async function loadActivationProfiles(options, root, active) {
   }
 }
 
-function renderSummary(root, confirmation, onExcludeSection) {
+function renderSummary(root, confirmation, onExcludeSection, options = {}) {
   const el = root?.querySelector("#ai-ref-summary")
   if (!el) return
-  el.innerHTML = renderContextSummary(confirmation)
+  const knowledgeRepairHref = options.viewpoint_character_id && options.novel_id
+    ? `#workbench/${encodeURIComponent(options.novel_id)}/world/objects?knowledge_character_id=${encodeURIComponent(options.viewpoint_character_id)}`
+    : ""
+  el.innerHTML = renderContextSummary(confirmation, { knowledgeRepairHref })
   if (!onExcludeSection) return
   el.querySelectorAll("[data-ai-ref-exclude-section]").forEach((button) => {
     button.addEventListener("click", () => {

@@ -66,8 +66,91 @@ test.describe("RAG 检索模块", () => {
     await expectWithinViewport(input)
     await expectWithinViewport(searchButton)
     await expectNoPageOverflow(page)
-    await expect(input).toHaveCSS("min-height", "40px")
-    await expect(searchButton).toHaveCSS("min-height", "40px")
+    await expect(input).toHaveCSS("min-height", "44px")
+    await expect(searchButton).toHaveCSS("min-height", "42px")
+  })
+
+  test("390px 下问世界先给可打开引用，明确保存后才进入待处理", async ({ page }) => {
+    const saves = []
+    const sourceHash = "a".repeat(64)
+    await page.route("**/api/world/ask-world", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          question: "旧塔铜铃何时响起",
+          answer: "当前正式资料只确认换岗时会响起。",
+          claims: [{ text: "旧塔铜铃只在守卫换岗时响起。", citation_keys: ["page:bell"] }],
+          uncertainty: "是否还会因其他事件响起，当前资料没有说明。",
+          no_answer: false,
+          citations: [{
+            citation_key: "page:bell",
+            kind: "world_bible_page",
+            title: "旧塔守卫规则",
+            snippet: "铜铃只在换岗时响起。",
+            source_hash: sourceHash,
+            source_version: 3,
+            page_id: "00000000-0000-0000-0000-000000000001",
+            index_fresh: true,
+          }],
+          response_hash: "b".repeat(64),
+          evidence_trace: {
+            included_titles: ["旧塔守卫规则"],
+            excluded_count: 0,
+            truncated_titles: [],
+            warnings: [],
+            degraded: false,
+            checks_run: ["作者可见性与项目隔离"],
+            not_run: ["待处理候选"],
+          },
+          model: "internal-model-name",
+          provider: "internal-provider-name",
+          context_snapshot_id: "internal-snapshot-id",
+        }),
+      })
+    })
+    await page.route("**/api/world/ask-world/citations/open", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "current",
+          kind: "world_bible_page",
+          title: "旧塔守卫规则",
+          text: "铜铃只在换岗时响起。",
+          source_hash: sourceHash,
+          page_id: "00000000-0000-0000-0000-000000000001",
+          warnings: [],
+        }),
+      })
+    })
+    await page.route("**/api/world/ask-world/suggestions", async (route) => {
+      saves.push(route.request().postDataJSON())
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ suggestion: { id: "saved-ask-world", status: "pending" } }),
+      })
+    })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.getByLabel("检索关键词").fill("旧塔铜铃何时响起")
+    await page.locator('[data-action="ask-world"]').click()
+
+    const answer = page.locator(".ask-world-card")
+    await expect(answer).toContainText("当前正式资料只确认换岗时会响起")
+    await expect(answer).toContainText("查看来源：旧塔守卫规则")
+    await expect(answer).not.toContainText("internal-model-name")
+    await expect(answer).not.toContainText("internal-snapshot-id")
+    expect(saves).toHaveLength(0)
+
+    await answer.locator('[data-action="open-ask-world-citation"]').click()
+    await expect(page.locator(".ask-world-source")).toContainText("铜铃只在换岗时响起")
+    await answer.locator('[data-action="save-ask-world-answer"]').click()
+    await expect.poll(() => saves.length).toBe(1)
+    await expect(answer).toContainText("不会直接改写正式设定")
+    await expectNoPageOverflow(page)
   })
 
   test("倒置章节范围在请求前提示并保留条件，修正后才检索", async ({ page }) => {

@@ -100,7 +100,6 @@ export function useImportUpload() {
       setProgress("刷新项目", 100, "正在刷新项目...")
       onSettled?.(null, result)
       await getRouter().navigate("writing")
-      await getRouter().refresh()
       return true
     } catch (err) {
       if (err?.name === "AbortError") return false

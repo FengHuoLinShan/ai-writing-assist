@@ -18,8 +18,10 @@ import {
   reviewEvidenceSummary,
   reviewTypeLabel,
   runReviewBulkAction,
+  showAliasReviewEditForm,
   showAliasReviewDecisionForm,
   showRelationGroupReviewForm,
+  showRelationReviewEditForm,
   splitCandidateGroups,
   syncReviewRegistry,
 } from "../../../vue/views/world/logic/useWorldReview.js"
@@ -32,6 +34,7 @@ let toastMock
 let confirmCalls
 let modalCalls
 let apiMock
+let routerMock
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -41,16 +44,20 @@ beforeEach(() => {
   toastMock = vi.fn()
   confirmCalls = []
   modalCalls = []
+  document.body.innerHTML = ""
   apiMock = {
     world: {
+      editAlias: vi.fn(async () => ({})),
+      reviewEditRelationship: vi.fn(async () => ({})),
       reviewAliasesBatch: vi.fn(async () => ({ results: [] })),
       reviewRelationsBatch: vi.fn(async () => ({ results: [] })),
     },
   }
+  routerMock = { navigate: navigateMock, refresh: vi.fn(async () => true), replace: vi.fn(async () => true) }
   setBridgeOverrides({
     api: apiMock,
     state: { currentProjectId: "p-rev", currentView: "world" },
-    router: { navigate: navigateMock, refresh: vi.fn(async () => true), replace: vi.fn(async () => true) },
+    router: routerMock,
     toast: toastMock,
     showModalHtml: (title, html, buttons, options) => modalCalls.push({ title, html, buttons, options }),
     confirmAction: (message, onConfirm, confirmText) => confirmCalls.push({ message, onConfirm, confirmText }),
@@ -164,6 +171,63 @@ describe("changeReviewPage", () => {
 })
 
 describe("决策模态", () => {
+  it.each([
+    [
+      "别名",
+      () => {
+        syncReviewRegistry({ aliases: [{ entity_id: "e1", alias: "旧港", alias_type: "name" }] })
+        showAliasReviewEditForm("e1", "旧港")
+      },
+      () => { document.getElementById("alias-target-id").value = "" },
+      "editAlias",
+    ],
+    [
+      "关系",
+      () => {
+        syncReviewRegistry({ relations: [{
+          id: "r1",
+          source_id: "e1",
+          target_id: "e2",
+          relation_type: "friend_of",
+        }] })
+        showRelationReviewEditForm("r1")
+      },
+      () => { document.getElementById("rel-review-type").value = "" },
+      "reviewEditRelationship",
+    ],
+  ])("编辑后采用%s的本地校验失败时返回 false 且不调接口", async (_label, openForm, invalidate, apiMethod) => {
+    openForm()
+    document.body.innerHTML = modalCalls[0].html
+    invalidate()
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world[apiMethod]).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["别名", "editAlias", () => {
+      syncReviewRegistry({ aliases: [{ entity_id: "e1", alias: "旧港", alias_type: "name" }] })
+      showAliasReviewEditForm("e1", "旧港")
+    }],
+    ["关系", "reviewEditRelationship", () => {
+      syncReviewRegistry({ relations: [{
+        id: "r1",
+        source_id: "e1",
+        target_id: "e2",
+        relation_type: "friend_of",
+      }] })
+      showRelationReviewEditForm("r1")
+    }],
+  ])("编辑后采用%s的 API 失败时返回 false 供原位重试", async (_label, apiMethod, openForm) => {
+    apiMock.world[apiMethod].mockRejectedValueOnce(new Error("请求失败"))
+    openForm()
+    document.body.innerHTML = modalCalls[0].html
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world[apiMethod]).toHaveBeenCalledTimes(1)
+    expect(toastMock).toHaveBeenCalledWith("请求失败", "error")
+  })
+
   it("showAliasReviewDecisionForm 保存草稿到 session 并清错误", async () => {
     syncReviewRegistry({
       aliases: [{ entity_id: "e1", alias: "旧港", alias_type: "name", confidence: 0.8 }],
@@ -184,6 +248,7 @@ describe("决策模态", () => {
       alias_type: "name",
     })
     expect(worldSession.aliasReviewErrors["e1::旧港"]).toBeUndefined()
+    expect(routerMock.refresh).not.toHaveBeenCalled()
   })
 
   it("关系预览把对象名和描述作为纯文本", () => {
@@ -222,6 +287,63 @@ describe("决策模态", () => {
     const preview = document.getElementById("relation-review-preview")
     expect(preview?.querySelector("[data-review-payload]")).toBeNull()
     expect(preview?.textContent).toContain(payload)
+  })
+
+  it("关系对象搜索只允许最新响应更新选择", async () => {
+    let resolveOlder
+    let resolveLatest
+    const olderResponse = new Promise((resolve) => { resolveOlder = resolve })
+    const latestResponse = new Promise((resolve) => { resolveLatest = resolve })
+    apiMock.world.listEntities = vi.fn()
+      .mockReturnValueOnce(olderResponse)
+      .mockReturnValueOnce(latestResponse)
+    setBridgeOverrides({
+      showModalHtml: (title, html, buttons, options) => {
+        modalCalls.push({ title, html, buttons, options })
+        document.body.innerHTML = html
+      },
+    })
+    syncReviewRegistry({
+      relationGroups: [{
+        group_id: "group-search",
+        source_id: "e-source",
+        source_name: "原始源对象",
+        target_id: "e-target",
+        target_name: "原始目标对象",
+        execution_fingerprint: "fp-search",
+        members: [{
+          id: "relation-search",
+          source_id: "e-source",
+          target_id: "e-target",
+          relation_type: "friend_of",
+          strength: 0.5,
+        }],
+        canonical_relations: [],
+      }],
+    })
+
+    showRelationGroupReviewForm("group-search")
+    const input = document.getElementById("relation-source-query")
+    const button = document.getElementById("relation-source-search")
+    const select = document.getElementById("relation-source-select")
+
+    input.value = "旧查询"
+    const olderSearch = button.onclick()
+    input.value = "新查询"
+    const latestSearch = button.onclick()
+    resolveLatest({ items: [{ id: "e-new", name: "新源对象", entity_type: "character", status: "canonical" }] })
+    await latestSearch
+    select.value = "e-new"
+
+    resolveOlder({ items: [{ id: "e-old", name: "旧源对象", entity_type: "character", status: "canonical" }] })
+    await olderSearch
+
+    expect(Array.from(select.options, (option) => option.value)).toContain("e-new")
+    expect(Array.from(select.options, (option) => option.value)).not.toContain("e-old")
+    expect(select.value).toBe("e-new")
+    await modalCalls[0].buttons[0].handler()
+    expect(worldSession.relationReviewDrafts["group-search"].source_id).toBe("e-new")
+    expect(routerMock.refresh).not.toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,16 @@
 export const AI_MESSAGE_LIMIT = 40
 export const AI_SELECTED_CHAPTER_LIMIT = 20
+export const AI_SELECTED_WORLD_PAGE_LIMIT = 16
+export const EXTERNAL_HANDOFF_PACKET_CHAR_LIMIT = 55_000
+export const VISUAL_BRIEF_FIELD_LIMIT = 20_000
 export const PAGE_SIZE = 50
+
+export const VISUAL_BRIEF_PURPOSE_OPTIONS = [
+  ["overview", "世界／区域总览"],
+  ["district", "城区／坊域布局"],
+  ["cross_section", "设施／工程剖面"],
+  ["scene_route", "场景路线"],
+].map(([value, label]) => ({ value, label }))
 
 export const BUILTIN_TEMPLATE_PROMPTS = {
   none: "不预设固定创作框架。围绕作者真正想创造或解决的内容，找出这个对象最核心的概念、辨识度，以及它与现有世界和故事的关系。允许对象暂时跨越多个类别或尚未完成分类，不要套用人物、事件、物品等模板的固定维度。最终先收束为概念建议，作者可在采用前调整类型。",
@@ -123,6 +133,10 @@ export function buildWorldPayload(state) {
   } else {
     target = { kind: "core_entity", ...template }
   }
+  const availableWorldPageIds = new Set((state.worldPages || []).map((item) => item.id))
+  const selectedWorldPageIds = [...new Set(state.selectedWorldPageIds || [])]
+    .filter((id) => typeof id === "string" && id !== state.sourcePageId && availableWorldPageIds.has(id))
+    .slice(0, AI_SELECTED_WORLD_PAGE_LIMIT)
   return {
     novel_id: state.projectId,
     source_context: sourceContext,
@@ -135,10 +149,308 @@ export function buildWorldPayload(state) {
     thread_ids: state.selectedThreadIds || [],
     character_ids: state.selectedCharacterIds || [],
     entity_ids: state.selectedEntityIds || [],
-    selected_asset_refs: [],
+    selected_asset_refs: selectedWorldPageIds.map((id) => ({ type: "world_bible_page", id })),
     activation_profile_id: state.activationProfileId || null,
     activation_profile_version: profile?.version_number || null,
   }
+}
+
+const CONVERGENCE_TARGET_LABELS = {
+  current_world_target: "当前世界目标",
+  world_bible_page: "世界笔记",
+  outline: "故事结构",
+  map: "地图",
+  writing: "正文",
+  other: "其他创作入口",
+}
+
+const EXTERNAL_DISPOSITION_LABELS = {
+  compatible: "可直接兼容",
+  repair: "需要修复",
+  candidate: "作为候选",
+  unmapped: "未能归位",
+  exact_duplicate: "完全重复",
+}
+
+export function externalDispositionLabel(value) {
+  return EXTERNAL_DISPOSITION_LABELS[value] || ""
+}
+
+export function externalDispositionCounts(draft) {
+  const counts = Object.fromEntries(Object.keys(EXTERNAL_DISPOSITION_LABELS).map((key) => [key, 0]))
+  for (const item of (draft?.cards || []).flatMap((card) => card.items || [])) {
+    if (item.externalDisposition in counts) counts[item.externalDisposition] += 1
+  }
+  return counts
+}
+
+export function convergenceDraftFromResponse(response, { now = () => Date.now() } = {}) {
+  const manifest = new Map((response?.manifest || []).map((item) => [item.key, item]))
+  const cards = (response?.decision_cards || []).slice(0, 7).map((card) => ({
+    cardId: card.card_id,
+    title: card.title,
+    commonGround: card.common_ground || [],
+    items: (card.items || []).map((item) => ({
+      itemId: item.item_id,
+      text: item.text,
+      disposition: item.suggested_disposition || "open",
+      externalDisposition: item.external_disposition || null,
+    })),
+    dependencies: card.dependencies || [],
+    affectedTargets: card.affected_targets || [],
+    sourceRefs: (card.source_keys || []).map((key) => manifest.get(key)).filter(Boolean).map((source) => ({
+      key: source.key,
+      label: source.label,
+      sourceRef: source.source_ref || null,
+    })),
+    whyNow: card.why_now || "",
+  }))
+  const draft = {
+    schemaVersion: 1,
+    generatedAt: new Date(now()).toISOString(),
+    manifestHash: response?.coverage?.manifest_hash || "",
+    manifest: [...manifest.values()].map((item) => ({
+      key: item.key,
+      kind: item.kind,
+      label: item.label,
+      contentHash: item.content_hash,
+    })),
+    sourceSnapshot: response?.source_snapshot || { kind: "project" },
+    stale: false,
+    coverage: {
+      complete: Boolean(response?.coverage?.complete),
+      scopeLabel: response?.coverage?.scope_label || "当前可见材料",
+      sourceCount: Number(response?.coverage?.source_count || 0),
+      coveredSourceCount: (response?.coverage?.covered_source_keys || []).length,
+      excludedMessageCount: Number(response?.coverage?.excluded_message_count || 0),
+      missingCount: (response?.coverage?.missing_source_keys || []).length,
+      issues: response?.coverage?.issues || [],
+    },
+    detailSummary: response?.detail_summary || { before_grouping: 0, after_deduplication: 0, retained_in_sources: 0 },
+    cards,
+    nextBoundary: response?.next_boundary || "",
+    externalPacket: response?.external_packet ? {
+      sha256: response.external_packet.sha256,
+      packetIndex: response.external_packet.packet_index,
+      packetTotal: response.external_packet.packet_total || null,
+    } : null,
+    authorMessage: "",
+  }
+  draft.authorMessage = compileConvergenceMessage(draft)
+  return draft
+}
+
+function uniqueBriefLines(values) {
+  return [...new Set(values.flatMap((value) => String(value || "").split(/\r?\n/))
+    .map((value) => value.replace(/^\s*[-*]\s*/, "").trim()).filter(Boolean))]
+}
+
+export function visualBriefFromConvergence(convergenceDraft, { sourceLabel = "当前项目相关资料", sourceTitle = "" } = {}) {
+  if (!convergenceDraft?.coverage?.complete || convergenceDraft.stale || !convergenceDraft.manifestHash) return null
+  const cards = convergenceDraft.cards || []
+  const selected = (disposition) => cards.flatMap((card) => (card.items || [])
+    .filter((item) => item.disposition === disposition).map((item) => item.text))
+  const mustKeep = uniqueBriefLines([
+    ...cards.flatMap((card) => card.commonGround || []),
+    ...selected("include"),
+  ])
+  const openItems = uniqueBriefLines(selected("open"))
+  const avoid = uniqueBriefLines([
+    ...selected("discard"),
+    "不要把仍开放项表现成已确认事实",
+    "不要因比例尺、北箭头、标签或画面细节推断设定已被采用",
+  ])
+  return {
+    schemaVersion: 1,
+    manifestHash: convergenceDraft.manifestHash,
+    sourceLabel,
+    purpose: "overview",
+    mustKeep: (mustKeep.length ? mustKeep : ["只表现本次来源明确支持的内容；没有依据的细节保持中性"]).join("\n"),
+    exactLabels: String(sourceTitle || "").trim(),
+    openItems: (openItems.length ? openItems : ["没有额外开放项；仍不得用画面补写未声明事实"]).join("\n"),
+    avoid: avoid.join("\n"),
+    createdAt: new Date().toISOString(),
+    confirmedAt: null,
+    stale: false,
+  }
+}
+
+export function visualBriefMatchesConvergence(visualBrief, convergenceDraft) {
+  return Boolean(
+    visualBrief && !visualBrief.stale
+    && convergenceDraft?.coverage?.complete && !convergenceDraft.stale
+    && visualBrief.manifestHash === convergenceDraft.manifestHash,
+  )
+}
+
+export function buildVisualBriefMarkdown({ handoffMarkdown, visualBrief, convergenceDraft }) {
+  if (!handoffMarkdown || !visualBrief?.confirmedAt || !visualBriefMatchesConvergence(visualBrief, convergenceDraft)) return ""
+  const purpose = VISUAL_BRIEF_PURPOSE_OPTIONS.find((item) => item.value === visualBrief.purpose)?.label || "单一视觉用途"
+  const section = (title, value, fallback) => {
+    const lines = uniqueBriefLines([value])
+    return `## ${title}\n\n${(lines.length ? lines : [fallback]).map((item) => `- ${item}`).join("\n")}`
+  }
+  return [
+    handoffMarkdown.trimEnd(),
+    "---",
+    "# 视觉制作简报",
+    "- brief_version: world-visual-brief-v1",
+    `- 确认时间: ${visualBrief.confirmedAt}`,
+    `- 来源状态: ${visualBrief.sourceLabel || "当前项目相关资料"}`,
+    `- 来源清单 SHA-256: ${visualBrief.manifestHash}`,
+    `- 本次画面用途: ${purpose}`,
+    "- 一份简报只服务一种用途；总览、城区和工程剖面需要分别准备。",
+    section("必须保留", visualBrief.mustKeep, "只表现来源明确支持的内容"),
+    section("必须准确的名称或标签", visualBrief.exactLabels, "没有必须出现在画面中的文字标签"),
+    section("仍开放", visualBrief.openItems, "没有额外开放项，但不得自行补写事实"),
+    section("不要新增", visualBrief.avoid, "不要新增来源未支持的地点、距离、设施或权威状态"),
+    "## 候选图核对\n\n- 文件与尺寸是否可用\n- 名称与标签是否准确\n- 空间关系与方向是否符合来源\n- 是否泄漏开放项或凭空新增细节\n- 是否服务本次画面用途",
+    "## 权威边界\n\n这份简报和任何外部候选图都只是参考，不创建图片资产，不确认地点、距离、设施、地图事实或世界设定。需要落回项目的内容必须逐项进入现有地图预览、观察审查或世界建议，由作者再次确认。",
+  ].join("\n\n") + "\n"
+}
+
+export function externalPacketCharacterCount(value) {
+  return [...String(value || "")].length
+}
+
+export async function hashExternalPacket(value, cryptoImpl = globalThis.crypto) {
+  if (!cryptoImpl?.subtle?.digest) throw new Error("当前浏览器无法计算回包校验码")
+  const digest = await cryptoImpl.subtle.digest("SHA-256", new TextEncoder().encode(String(value || "")))
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+export function parseExternalPacketPosition(value, fallbackIndex) {
+  const text = String(value || "")
+  const number = (name) => {
+    const match = text.match(new RegExp("^\\s*(?:[-*]\\s*)?`?packet_" + name + "`?\\s*[:=：]\\s*(\\d+)\\s*$", "im"))
+    const parsed = Number(match?.[1])
+    return Number.isInteger(parsed) && parsed > 0 && parsed <= 10_000 ? parsed : null
+  }
+  const packetIndex = number("index") || fallbackIndex
+  const packetTotal = number("total")
+  return { packetIndex, packetTotal: packetTotal && packetTotal >= packetIndex ? packetTotal : null }
+}
+
+export function externalPacketBatchSummary(records = []) {
+  const latest = new Map()
+  for (const item of records) latest.set(item.packetIndex, item)
+  const totals = [...new Set([...latest.values()].map((item) => item.packetTotal).filter(Boolean))]
+  if (!totals.length) return { packetTotal: null, complete: false, missingPacketIndexes: [], label: `${latest.size} 份已记录；回包总数未声明` }
+  if (totals.length > 1) return { packetTotal: null, complete: false, missingPacketIndexes: [], label: "回包总数不一致，无法确认完整" }
+  const packetTotal = totals[0]
+  const missingPacketIndexes = Array.from({ length: packetTotal }, (_, index) => index + 1).filter((index) => !latest.has(index))
+  const terminal = new Set(["decision_ready", "exact_duplicate"])
+  const complete = !missingPacketIndexes.length && Array.from({ length: packetTotal }, (_, index) => latest.get(index + 1)).every((item) => terminal.has(item?.status))
+  const progress = `${packetTotal - missingPacketIndexes.length}/${packetTotal}`
+  const label = missingPacketIndexes.length
+    ? `${progress} 包已收到；缺第 ${missingPacketIndexes.join("、")} 包`
+    : complete ? `${progress} 包已完整处理` : `${progress} 包已收到；尚未全部形成作者消息`
+  return { packetTotal, complete, missingPacketIndexes, label }
+}
+
+const HANDOFF_TARGET_LABELS = {
+  core_entity: "世界对象建议",
+  world_bible_page: "完善当前世界笔记",
+  world_bible_new_page: "新建世界笔记",
+}
+const HANDOFF_SOURCE_LABELS = {
+  conversation: ["本轮对话", "未采用的创作过程"],
+  pasted_context: ["外部参考", "未采用的外部材料"],
+  source_page: ["当前世界笔记", "权威状态见本页基线"],
+  chapter: ["正文摘录", "当前正文参考"],
+  asset: ["显式资料", "权威状态以本地来源入口为准"],
+  project_background: ["相关项目背景", "相关性选取，不代表全项目"],
+}
+
+function handoffPageMarkdown(source) {
+  if (!source) return ""
+  const parts = [`## 当前目标内容\n\n# ${source.title || "未命名世界笔记"}`]
+  if (String(source.free_text || "").trim()) parts.push(String(source.free_text).trim())
+  for (const section of [...(source.sections_json || [])].sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0))) {
+    const scope = section.projection_policy === "excluded" ? "不进入普通 AI 上下文" : "可按可见性规则进入 AI 上下文"
+    const visibility = { author_only: "仅作者", author_safe: "作者安全", public_baseline: "公开基线" }[section.sensitivity_hint] || "作者资料"
+    parts.push(`### ${section.title || "未命名分区"}\n\n> ${scope}；${visibility}\n\n${String(section.body_markdown || "").trim() || "（本分区为空）"}`)
+  }
+  return parts.join("\n\n")
+}
+
+export function buildWorldHandoffMarkdown({ projectTitle, targetKind, sourcePage, sourceDraft, convergenceDraft }) {
+  const draft = convergenceDraft
+  if (!draft?.coverage?.complete || draft.stale || !draft.manifest?.length) return ""
+  const snapshot = draft.sourceSnapshot || { kind: "project" }
+  const source = sourceDraft || sourcePage
+  const baseline = snapshot.kind === "world_bible_page"
+    ? `${snapshot.draft_id ? "服务器工作稿" : "已发布页面"} · v${snapshot.page_version || 1}${snapshot.content_hash ? ` · SHA-256 ${snapshot.content_hash}` : ""}`
+    : "当前项目相关资料；P1 无法证明全项目所有来源自本次收束后均未变化"
+  const cards = draft.cards.map((card) => {
+    const lines = [`### ${card.title}`]
+    for (const item of card.commonGround || []) lines.push(`- 共同前提：${item}`)
+    const disposition = { include: "本次纳入", open: "继续开放", discard: "明确放弃" }
+    for (const item of card.items || []) lines.push(`- ${disposition[item.disposition] || "继续开放"}：${item.text}`)
+    for (const item of card.dependencies || []) lines.push(`- 依赖／影响：${item}`)
+    return lines.join("\n")
+  }).join("\n\n")
+  const manifest = draft.manifest.map((item) => {
+    const [kind, authority] = HANDOFF_SOURCE_LABELS[item.kind] || ["其他来源", "权威状态未声明"]
+    return `- ${kind}｜${item.label}｜SHA-256 ${item.contentHash}｜${authority}`
+  }).join("\n")
+  const omitted = [
+    draft.coverage.excludedMessageCount ? `更早的 ${draft.coverage.excludedMessageCount} 条对话` : null,
+    "未被本次相关性选择或作者显式选择的项目资料",
+    "raw Prompt、token、内部 ID、私有诊断与未打开的来源正文",
+    "跨领域自由文本依赖和全项目语义正确性",
+  ].filter(Boolean).map((item) => `- ${item}`).join("\n")
+  const page = handoffPageMarkdown(source)
+  return [
+    "# AI 小说创作交接快照",
+    `- handoff_version: world-handoff-v1`,
+    `- 导出时间: ${draft.generatedAt || "未记录"}`,
+    `- 项目: ${projectTitle || "未命名项目"}`,
+    `- 当前目标: ${HANDOFF_TARGET_LABELS[targetKind] || "当前世界目标"}`,
+    `- 来源基线: ${baseline}`,
+    "- 本文件是作者主动导出的参考材料，不会采用或发布任何设定。",
+    page,
+    `## 当前作者决定\n\n${draft.authorMessage || "尚未形成作者决定消息。"}`,
+    `## 决定面\n\n${cards}`,
+    `## 来源清单\n\n${manifest}`,
+    `## 本地检查回执\n\n- 已运行：来源基线复核；manifest 覆盖校验（${draft.coverage.sourceCount}/${draft.coverage.sourceCount}）。\n- 未运行：全项目一致性检查、跨领域完整依赖检查、外部工具声明的任何检查。\n- 外部回包里的 checks_run、已通过或临时 ID 只作为来源声明，不能成为本地回执或对象 ID。`,
+    `## 本次明确遗漏\n\n${omitted}`,
+    `## 给外部模型的任务与回包约定\n\n只审查上述单一世界目标，不修改本地项目。回包正文不得超过 ${EXTERNAL_HANDOFF_PACKET_CHAR_LIMIT.toLocaleString("en-US")} 字符；若材料过大，请按当前 target 拆成多包。每包必须列出 packet_index、packet_total、引用的来源标题／SHA-256、checks_run 和 checks_not_run。每项只使用 compatible、repair、candidate、unmapped、exact_duplicate 之一并说明依据。外部编号只是来源标签；不要把未决项写成已确认事实，也不要声称已经运行本地校验。`,
+  ].filter(Boolean).join("\n\n") + "\n"
+}
+
+export function compileConvergenceMessage(draft) {
+  const groups = { include: [], open: [], discard: [] }
+  const targets = new Set()
+  for (const card of draft?.cards || []) {
+    for (const target of card.affectedTargets || []) targets.add(target)
+    for (const item of card.items || []) {
+      if (groups[item.disposition]) groups[item.disposition].push(item.text)
+    }
+  }
+  const section = (title, values, fallback) => `${title}\n${values.length ? values.map((item) => `- ${item}`).join("\n") : `- ${fallback}`}`
+  const otherTargets = [...targets].filter((target) => target !== "current_world_target").map((target) => CONVERGENCE_TARGET_LABELS[target] || CONVERGENCE_TARGET_LABELS.other)
+  return [
+    "请按以下作者决定继续处理当前世界设定：",
+    section("本次纳入：", groups.include, "暂不纳入新的确定内容"),
+    section("继续开放（不得写成已确认事实）：", groups.open, "无"),
+    section("明确放弃（后续不要恢复）：", groups.discard, "无"),
+    otherTargets.length ? `另有影响需要分别处理：${[...new Set(otherTargets)].join("、")}。本次只处理当前目标。` : "本次只处理当前世界目标。",
+    `本次范围：${draft?.coverage?.scopeLabel || "当前可见材料"}。未列入决定面的细节继续留在原来源。`,
+    "这是一条可编辑的作者消息，不代表设定已经采用；最终仍需审阅后续提案。",
+  ].join("\n\n")
+}
+
+export function convergenceSourceMatchesPayload(draft, payload) {
+  const snapshot = draft?.sourceSnapshot || {}
+  const source = payload?.source_context || { kind: "project" }
+  if (snapshot.kind !== source.kind) return false
+  if (source.kind === "project") return true
+  const baseline = source.baseline || {}
+  return snapshot.page_id === source.page_id
+    && Number(snapshot.page_version || 0) === Number(baseline.page_version || 0)
+    && (snapshot.draft_id || null) === (baseline.draft_id || null)
+    && (snapshot.draft_updated_at || null) === (baseline.draft_updated_at || null)
 }
 
 export function sectionDiff(previousSections = [], nextSections = []) {
@@ -162,6 +474,32 @@ export function sectionDiff(previousSections = [], nextSections = []) {
     if (!after.has(sectionId)) changes.push({ kind: "删除", section, fields: [] })
   }
   return changes
+}
+
+export function authorDecisionPresentation(state) {
+  if (!state || typeof state !== "object") return null
+  const unique = (values) => [...new Set(values.filter((value) => String(value || "").trim()).map((value) => String(value).trim()))]
+  const naming = {
+    allowed: "可以命名",
+    unnamed_placeholder: "暂不命名，只使用描述性占位",
+    uncertain: "是否命名尚不确定",
+  }[state.naming_policy] || "命名方式尚未确认"
+  const rows = [
+    ["本轮目标", [state.current_author_goal]],
+    ["必须保留", state.confirmed_requirements],
+    ["可以发展", state.supported_developments],
+    ["不要再出现", [...(state.rejected_elements || []), ...(state.forbidden_exact_terms || [])]],
+    ["仍由我决定", state.unresolved_choices],
+    ["命名边界", [naming]],
+    ["谁能知道 / 如何表达", state.knowledge_expression_boundaries],
+  ].map(([label, values]) => ({ label, items: unique(Array.isArray(values) ? values : []) }))
+    .filter((row) => row.items.length)
+  const confidence = state.confidence === null || state.confidence === undefined ? Number.NaN : Number(state.confidence)
+  return {
+    rows,
+    needsReview: Boolean(state.unresolved_choices?.length)
+      || (Number.isFinite(confidence) && confidence < 0.5),
+  }
 }
 
 export function createDefaultTaskForm() {

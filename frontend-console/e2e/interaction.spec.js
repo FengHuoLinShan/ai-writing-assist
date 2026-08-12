@@ -216,7 +216,7 @@ test.describe("RP 路由与窄屏故事页", () => {
     expect(menuBox).not.toBeNull()
     expect(Math.abs((menuBox.y + menuBox.height) - 844)).toBeLessThanOrEqual(2)
     await expect(page.locator(".rp-sheet-backdrop")).toBeVisible()
-    await expect(page.locator(".rp-more-menu__themes")).toContainText("午夜星河")
+    await expect(page.locator(".rp-more-menu__themes")).toContainText("暗夜书房")
     await page.locator(".rp-more-menu__header")
       .getByRole("button", { name: "关闭更多操作", exact: true })
       .click()
@@ -225,9 +225,9 @@ test.describe("RP 路由与窄屏故事页", () => {
     await page.locator(".rp-more-menu summary").click()
     await page.locator(".rp-more-menu__themes").getByRole(
       "button",
-      { name: /午夜星河/ },
+      { name: /暗夜书房/ },
     ).click()
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "night")
     await expect(page.locator(".rp-more-menu")).not.toHaveAttribute("open", "")
 
     const overflow = await page.evaluate(() => (

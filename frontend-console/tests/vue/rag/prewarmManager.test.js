@@ -5,7 +5,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { ensurePrewarm } from "../../../vue/views/rag/prewarmManager.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
-import { ragSearchSession, resetRagSearchSession } from "../../../vue/views/rag/ragSearchSession.js"
+import {
+  ragSearchSession,
+  resetRagSearchSession,
+  scopeRagSessionToProject,
+} from "../../../vue/views/rag/ragSearchSession.js"
 
 function useProject(projectId) {
   setBridgeOverrides({ state: { currentProjectId: projectId } })
@@ -121,5 +125,22 @@ describe("项目切换", () => {
 
     // 旧项目的晚到响应不覆盖新项目状态
     expect(ragSearchSession.prewarmResult.embedding_dim).toBe(1024)
+  })
+
+  it("新项目尚未发起预热时，旧项目晚到响应不写入新会话", async () => {
+    const state = { currentProjectId: "p-deferred-old" }
+    setBridgeOverrides({ state })
+    let resolveFirst
+    globalThis.api.rag.prewarm = vi.fn(() => new Promise((resolve) => { resolveFirst = resolve }))
+
+    const first = ensurePrewarm()
+    state.currentProjectId = "p-deferred-new"
+    scopeRagSessionToProject("p-deferred-new")
+    resolveFirst({ status: "ready", embedding_dim: 512, cache_stats: {} })
+
+    await expect(first).resolves.toBeNull()
+    expect(ragSearchSession.ownerProjectId).toBe("p-deferred-new")
+    expect(ragSearchSession.prewarmState).toBe("idle")
+    expect(ragSearchSession.prewarmResult).toBeNull()
   })
 })

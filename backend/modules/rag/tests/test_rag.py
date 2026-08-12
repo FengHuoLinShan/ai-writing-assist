@@ -1468,6 +1468,28 @@ class TestRagFacade:
         assert status["embedding_runtime"]["healthy"] is False
         assert "cache_stats" in status["embedding_runtime"]
 
+    @pytest.mark.asyncio
+    async def test_get_index_status_reports_the_requested_novel_breaker(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        from modules.rag.circuit_breaker import (
+            get_circuit_breaker,
+            reset_circuit_breakers_for_tests,
+        )
+
+        reset_circuit_breakers_for_tests()
+        breaker = get_circuit_breaker(sample_novel_id)
+        for _ in range(3):
+            breaker.record_failure()
+
+        status = await get_index_status(db_with_project, str(sample_novel_id))
+
+        assert status["circuit_breaker"] == "open"
+        assert get_circuit_breaker().status["state"] == "closed"
+        assert get_circuit_breaker(uuid.uuid4()).status["state"] == "closed"
+
 
 @pytest.mark.asyncio
 async def test_retry_embeddings_endpoint_enqueues_task() -> None:

@@ -89,7 +89,7 @@ import { computed, watch } from "vue"
 import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
 import { deleteRelation, inlineRelationEvidencePairs as relationEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction } from "../logic/worldRelationsAliasesOps.js"
-import { selectedItemsFrom, getBulkSelection } from "../logic/worldBulkSelection.js"
+import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldPager from "./WorldPager.vue"
@@ -112,6 +112,7 @@ watch(() => props.relations, (items) => {
 const relationIds = computed(() => (
   props.relations.map((r) => r.id || r.relationship_id).filter(Boolean)
 ))
+watch(relationIds, (ids) => reconcileBulkSelection("world-relations", ids), { immediate: true })
 
 function sourceNameOf(r) {
   return r.source_name || r.source_entity_name || r.source?.name || (r.source_id ? `${String(r.source_id).slice(0, 8)}...` : "-")

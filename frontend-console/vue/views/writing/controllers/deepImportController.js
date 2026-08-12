@@ -2,6 +2,7 @@ import {
   clearActiveWorkflow,
   persistActiveWorkflow,
   recoverActiveWorkflows,
+  TASK_CANCELLED_MESSAGE,
 } from "../../../../shared/workflowProgress.js"
 
 const SUPPORTED = new Set([
@@ -224,10 +225,11 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       await api.tasks.cancel(snapshot.taskId, snapshot.projectId)
       if (!operationIsCurrent(snapshot)) return true
       stop()
-      progress = { ...(progress || {}), phase: "cancelled", status: "cancelled", message: "任务已取消" }
+      progress = { ...(progress || {}), phase: "cancelled", status: "cancelled", message: TASK_CANCELLED_MESSAGE }
       emit()
       return true
     } catch (err) {
+      if (!operationIsCurrent(snapshot)) return true
       toast(err?.message || "取消任务失败", "error")
       return false
     }
@@ -245,6 +247,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       poll(generation)
       return true
     } catch (err) {
+      if (!operationIsCurrent(snapshot)) return true
       toast(err?.message || "继续恢复失败", "error")
       return false
     }
@@ -263,6 +266,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       emit()
       return true
     } catch (err) {
+      if (!operationIsCurrent(snapshot)) return true
       toast(err?.message || "放弃恢复失败", "error")
       return false
     }

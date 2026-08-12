@@ -61,6 +61,7 @@ async def run_snapshot_maintenance(...) -> dict
 async def list_retrieval_traces(...) -> list[ContextRetrievalTraceContract]
 async def get_evidence_health(...) -> EvidenceHealthContract
 async def retrieve_planned_context_evidence(...) -> StructureContextBundle
+def compile_author_question_evidence(...) -> dict
 async def grep_novel_evidence(...) -> dict
 async def search_novel_evidence(...) -> dict
 async def read_novel_evidence(...) -> dict
@@ -111,6 +112,11 @@ JSON wire 中为兼容保留 `world_entities/scenes/...` 等复数 key；精确�
 `world_entity/scene/...` 单数资产类型，使各领域的失效命令使用同一类型词汇。
 
 默认只保存可复现摘要和 metadata；`retain_rendered_context=True` 时才保存完整上下文并设置过期时间。清理任务只清空 `rendered_context` 和 `rendered_context_expires_at`，不删除快照行、hash、资产 ID、结果引用或 metadata。
+
+作者端“问世界”调用 `retrieve_planned_context_evidence()` 复用现有 RAG 召回和正文回读，再把
+world 已回读的正式页面候选一并交给 `compile_author_question_evidence()`。后者只做稳定排序、
+去重、SHA-256 形状校验以及最多 5 个来源／24,000 字符的预算裁剪，并返回不含正文的
+included／excluded／truncated trace；它不调用模型、不判断事实权威，也不持久化第二套索引。
 
 ## Activation Profile
 
@@ -259,8 +265,26 @@ CharacterKnowledge 过滤。当前章活跃剧情线只向模型提供名称、�
 当前进展，并标为 `director_only`；`summary / hidden_truth /
 author_known_state` 不进入 character reveal section。
 
-`scope=generation_center` 供生成中心整个 world 工作区使用，覆盖对象建议、完善现有
-世界书页面和创建新页面。编译器接收来源页面、当前 Scene、显式剧情线/人物/对象、章节
+CharacterKnowledge 先由 world 按目标选出唯一 canonical 有效检查点：公开基线从开场生效，
+章节记录仅在学习章严格早于目标章时生效，同章重复按更新时间和稳定 ID 确定结果。角色视角
+`role_visible_knowledge` 展示该结果的完整内容、生效位置与作者可读知识级别；
+`false_belief` / `misunderstood` 缺少明确误解内容时不进入上下文。剧情线等
+`director_only` 作者约束保持独立，不伪装成角色已知事实。
+
+带 `scene_id` 的 `writing.generate + reveal_mode=character` 还会通过 memory 稳定
+facade 确保当前 Scene 五维 checkpoint，并编译不可排除的 P0
+`scene_world_state`。只有可重放的 system `ready` 或已人工确认的状态会成为
+`director_only` 环境约束；`knowledge` 只报 coverage，不覆盖上述
+CharacterKnowledge。当前 Scene、POV 和显式选择对象没有命中实体投影时，只在
+确认 UI 显示“尚无时间锚”，模型不收到该项，也不得用当前 World 回填。
+
+`MemoryRecordsLoader` 同时把章级 panorama 规范为可读记忆列表，不再把 dict 塞入
+`memory_records: list`。新的 Scene 确认会按固定五维顺序保存 checkpoint
+ID/status 指纹；执行前指纹变化就拒绝回放并要求重新确认。旧确认没有该可选
+字段时继续兼容。
+
+`scope=generation_center` 供生成中心整个 world 工作区使用，覆盖共创聊天、只读收束、对象建议、
+完善现有世界书页面和创建新页面。编译器接收来源页面、当前 Scene、显式剧情线/人物/对象、章节
 索引、世界观简介开关和 Activation Profile revision；以最近作者意图作为确定性 RAG query，
 按“显式选择与来源页引用 → 当前 Scene → 当前章活跃剧情线/篇章/RAG → 关联人物与对象 →
 项目设定与可选简介”组织资料。人物自动候选最多 6 个，非人物世界对象最多 16 个，显式
@@ -282,7 +306,9 @@ sources 记为实际纳入；请求过但被裁剪的内容仍可由 `compile_op
 生成快照使用 context-owned durable transaction：
 `compile_generation_background()` 独立持久化 running 状态，调用方通过
 `succeed_generation_context_snapshot()` / `fail_generation_context_snapshot()` 独立收尾，
-不会提交或回滚调用方的业务事务。
+不会提交或回滚调用方的业务事务。生成中心在模型返回后可用
+`capture_snapshot=false` 复编同一份当前上下文做来源新鲜度比较；该复编只读且不建立第二条
+调用审计快照，真实模型调用仍始终保留一条完整快照。
 - `PlotThreadsLoader(get_active_threads_fn=...)`
 - `OutlineArcLoader(get_arc_by_chapter_fn=...)`
 

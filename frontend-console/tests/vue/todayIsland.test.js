@@ -1,9 +1,15 @@
 import { mount } from "@vue/test-utils"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../vue/bridge/index.js"
-import { persistActiveWorkflow } from "../../shared/workflowProgress.js"
+import { persistActiveWorkflow, recoverActiveWorkflows } from "../../shared/workflowProgress.js"
 import { loadTodayProps } from "../../vue/todayIsland.js"
 import TodayView from "../../vue/views/today/TodayView.vue"
+import {
+  generateSessionKey,
+  readCreativeContinuation,
+  writeCreativeContinuation,
+  writeGenerateSession,
+} from "../../vue/views/generate/generateSession.js"
 
 beforeEach(() => {
   localStorage.clear()
@@ -81,5 +87,143 @@ describe("todayIsland", () => {
     expect(wrapper.findAll(".today-resume .btn-primary")).toHaveLength(1)
     await primary.trigger("click")
     expect(router.navigate).toHaveBeenCalledWith("writing", null)
+  })
+
+  it("隐藏首页任务只更新本地卡片，不整页刷新", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    persistActiveWorkflow({ taskId: "failed-task", workflowType: "writing_generate", projectId: "p1" })
+    setBridgeOverrides({ router })
+    const wrapper = mount(TodayView, {
+      props: {
+        project: { id: "p1", title: "雾港" },
+        summary: { continuation: null, writing: {}, attention: {} },
+        workflows: [{ taskId: "failed-task", workflowType: "writing_generate", failed: true }],
+      },
+    })
+
+    await wrapper.get(".today-workflow-card__actions .btn-ghost").trigger("click")
+
+    expect(wrapper.find(".today-workflow-card").exists()).toBe(false)
+    expect(recoverActiveWorkflows("p1")).toEqual([])
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("keeps the author's explicit local world track ahead of writing and background refreshes", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    const generate = { worldChat: vi.fn(), generateWorldSuggestion: vi.fn() }
+    const key = generateSessionKey("p1", "page-a", "world_bible_page")
+    writeGenerateSession(key, { composer: "继续轨道 A", messages: [] })
+    writeCreativeContinuation("p1", {
+      destination: "generate",
+      route: { source_page_id: "page-a", target: "world_bible_page" },
+    })
+    setBridgeOverrides({
+      state,
+      router,
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1", continuation: { title: "第三章", chapter_index: 3 }, writing: {}, attention: {} })) },
+        world: {
+          listBibleDrafts: vi.fn(async () => ({ items: [{ id: "draft-b", title: "后台更新的轨道 B" }] })),
+          listSuggestions: vi.fn(async () => ({ items: [] })),
+        },
+        generate,
+        tasks: { get: vi.fn() },
+      },
+    })
+
+    const props = await loadTodayProps()
+    const wrapper = mount(TodayView, { props })
+
+    expect(wrapper.get("#today-resume-title").text()).toBe("继续完善世界书页面")
+    expect(wrapper.get(".today-resume").text()).not.toContain("第 3 章")
+    await wrapper.get(".today-resume__action").trigger("click")
+    expect(router.navigate).toHaveBeenCalledWith("generate", null, true, expect.any(URLSearchParams))
+    const query = router.navigate.mock.calls[0][3]
+    expect(query.get("source_page_id")).toBe("page-a")
+    expect(query.get("target")).toBe("world_bible_page")
+    expect(generate.worldChat).not.toHaveBeenCalled()
+    expect(generate.generateWorldSuggestion).not.toHaveBeenCalled()
+  })
+
+  it("clears an evicted local pointer and promotes a server draft without pretending chat is cross-device", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    writeCreativeContinuation("p1", {
+      destination: "generate",
+      route: { source_page_id: null, target: "core_entity" },
+    })
+    setBridgeOverrides({
+      state,
+      router,
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1", continuation: null, writing: {}, attention: {} })) },
+        world: {
+          listBibleDrafts: vi.fn(async () => ({ items: [{ id: "draft-1", page_id: "page-1", title: "潮汐法则" }] })),
+          listSuggestions: vi.fn(async () => ({ items: [{ id: "suggestion-1", target_type: "world_bible_page_draft", payload_json: { page: { title: "港口制度" } } }] })),
+        },
+        tasks: { get: vi.fn() },
+      },
+    })
+
+    const props = await loadTodayProps()
+    const wrapper = mount(TodayView, { props })
+
+    expect(props.creativeContinuation).toBeNull()
+    expect(props.continuationWarning).toContain("已失效")
+    expect(wrapper.get("#today-resume-title").text()).toBe("继续《潮汐法则》工作稿")
+    expect(wrapper.get(".today-resume").text()).toContain("本机未发送的文字和对话不会出现在其他设备")
+    await wrapper.get(".today-resume__action").trigger("click")
+    expect(router.navigate).toHaveBeenCalledWith("world", "bible", true, expect.any(URLSearchParams))
+    expect(readCreativeContinuation("p1")).toMatchObject({ destination: "world_bible_draft", route: { draft_id: "draft-1" } })
+  })
+
+  it("keeps a pending suggestion pointer that is beyond the first result page", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: `suggestion-${index + 1}`,
+      target_type: "world_bible_page_draft",
+      payload_json: { page: { title: `建议 ${index + 1}` } },
+    }))
+    const pointed = {
+      id: "suggestion-51",
+      target_type: "world_bible_page_draft",
+      payload_json: { page: { title: "精确恢复的港口制度" } },
+    }
+    writeCreativeContinuation("p1", {
+      destination: "world_suggestion_review",
+      route: { suggestion_id: pointed.id },
+    })
+    const listSuggestions = vi.fn(async ({ skip }) => (
+      skip === 0
+        ? { items: firstPage, total: 51 }
+        : { items: [pointed], total: 51 }
+    ))
+    setBridgeOverrides({
+      state,
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1", continuation: null, writing: {}, attention: {} })) },
+        world: {
+          listBibleDrafts: vi.fn(async () => ({ items: [] })),
+          listSuggestions,
+        },
+        tasks: { get: vi.fn() },
+      },
+    })
+
+    const props = await loadTodayProps()
+
+    expect(listSuggestions).toHaveBeenNthCalledWith(1, expect.objectContaining({ skip: 0, limit: 50 }))
+    expect(listSuggestions).toHaveBeenNthCalledWith(2, expect.objectContaining({ skip: 50, limit: 50 }))
+    expect(props.creativeContinuation).toMatchObject({
+      destination: "world_suggestion_review",
+      route: { suggestion_id: "suggestion-51" },
+      title: "审查《精确恢复的港口制度》建议",
+    })
+    expect(props.continuationWarning).toBeNull()
+    expect(readCreativeContinuation("p1")).toMatchObject({
+      destination: "world_suggestion_review",
+      route: { suggestion_id: "suggestion-51" },
+    })
   })
 })

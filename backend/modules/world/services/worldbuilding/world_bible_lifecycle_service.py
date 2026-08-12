@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -26,6 +27,9 @@ from modules.world.schemas import (
     WorldBibleCategoryCreate,
     WorldBibleCategoryResponse,
     WorldBibleCategoryUpdate,
+    WorldBibleImpactedPage,
+    WorldBibleImpactOmission,
+    WorldBibleImpactPathNode,
     WorldBiblePageCreate,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftResponse,
@@ -33,7 +37,10 @@ from modules.world.schemas import (
     WorldBiblePageResponse,
     WorldBiblePageRevisionResponse,
     WorldBiblePageUpdate,
+    WorldBiblePublishImpactResponse,
+    WorldBiblePublishImpactSource,
     WorldBibleSection,
+    WorldBibleValidationReceipt,
 )
 from shared.target_ref import TargetRef
 from shared.utils import parse_uuid
@@ -142,6 +149,7 @@ class WorldBibleLifecycleService:
     ) -> WorldBiblePageResponse:
         """Create through the legacy direct-page API while owning its lifecycle."""
         nid = parse_uuid(data.novel_id, "novel_id")
+        await self._lock_page_universe(db, nid)
         await self._validate_page_content(
             db,
             novel_id=nid,
@@ -184,6 +192,7 @@ class WorldBibleLifecycleService:
         data: WorldBiblePageUpdate,
     ) -> WorldBiblePageResponse:
         """Update a published page and atomically maintain its derived lifecycle."""
+        await self._lock_page_universe(db, parse_uuid(novel_id, "novel_id"))
         page = await self._get_page_model(db, novel_id, page_id, for_update=True)
         if await self.has_active_draft(db, page.novel_id, page.id):
             raise ConflictError("World Bible page has an active working draft")
@@ -514,6 +523,23 @@ class WorldBibleLifecycleService:
         await db.delete(draft)
         await db.flush()
 
+    async def preview_publish_impact(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        draft_id: str,
+    ) -> WorldBiblePublishImpactResponse:
+        draft = await self._get_draft_model(db, novel_id, draft_id)
+        page = (
+            await self._get_page_model(db, novel_id, str(draft.page_id))
+            if draft.page_id is not None
+            else None
+        )
+        if page is not None and page.version_number != draft.base_version_number:
+            raise ConflictError("World Bible page changed after this draft was created")
+        await self._validate_publish_draft(db, draft)
+        return await self._build_publish_impact(db, draft, page)
+
     async def publish_draft(
         self,
         db: AsyncSession,
@@ -521,7 +547,9 @@ class WorldBibleLifecycleService:
         draft_id: str,
         *,
         published_by: str | None = None,
+        expected_impact_scope_hash: str | None = None,
     ) -> WorldBiblePageResponse:
+        await self._lock_page_universe(db, parse_uuid(novel_id, "novel_id"))
         observed_draft = await self._get_draft_model(db, novel_id, draft_id)
         page: WorldBiblePage | None = None
         if observed_draft.page_id is not None:
@@ -549,18 +577,14 @@ class WorldBibleLifecycleService:
                 draft_id,
                 for_update=True,
             )
-        await self._ensure_category_key(db, draft.novel_id, draft.page_type)
-        if draft.template_key:
-            await self._ensure_page_template_key(
-                db,
-                str(draft.novel_id),
-                draft.template_key,
-            )
-        await self._validate_asset_refs(db, draft.novel_id, draft.linked_asset_refs_json)
-        self._validate_section_refs(
-            draft.sections_json,
-            draft.linked_asset_refs_json,
-        )
+        await self._validate_publish_draft(db, draft)
+        current_impact = await self._build_publish_impact(db, draft, page)
+        if expected_impact_scope_hash is not None:
+            if current_impact.impact_scope_hash != expected_impact_scope_hash:
+                raise ConflictError(
+                    "World Bible explicit references changed after impact preview",
+                    code="world_bible_impact_scope_changed",
+                )
         if draft.page_id is None:
             page = WorldBiblePage(
                 novel_id=draft.novel_id,
@@ -612,7 +636,278 @@ class WorldBibleLifecycleService:
         )
         await db.delete(draft)
         await db.flush()
-        return WorldBiblePageResponse.model_validate(page)
+        omissions = {
+            "invalid_page_reference": "有页面引用格式损坏",
+            "unavailable_page_reference": "有页面引用不可用或不在当前项目",
+            "response_limit": "部分显式下游未在回执中展开",
+        }
+        receipt = WorldBibleValidationReceipt(
+            scope="targeted",
+            scope_label=(f"当前页面与 {len(current_impact.affected_pages)} 个显式下游"),
+            source_version=page.version_number,
+            checked=[
+                "目标页面的 schema、来源基线与写入版本",
+                "发布时显式引用路径与影响范围",
+                "当前页面修订历史与派生内容失效标记",
+            ],
+            not_checked=[
+                *current_impact.not_checked,
+                "显式下游页面的语义一致性",
+                "所属领域的完整检查",
+            ],
+            omissions=[
+                f"{item.count} 处{omissions.get(item.reason, '内容未能检查')}"
+                for item in current_impact.omissions
+            ],
+            impact_scope_hash=current_impact.impact_scope_hash,
+            completed_at=datetime.now(UTC),
+        )
+        return WorldBiblePageResponse.model_validate(page).model_copy(
+            update={"validation_receipt": receipt}
+        )
+
+    async def _validate_publish_draft(
+        self,
+        db: AsyncSession,
+        draft: WorldBiblePageDraft,
+    ) -> None:
+        await self._ensure_category_key(db, draft.novel_id, draft.page_type)
+        await self._validate_page_content(
+            db,
+            novel_id=draft.novel_id,
+            template_key=draft.template_key,
+            sections=draft.sections_json,
+            refs=draft.linked_asset_refs_json,
+        )
+
+    @staticmethod
+    async def _lock_page_universe(db: AsyncSession, novel_id: uuid.UUID) -> None:
+        """Serialize adopted-page writes with impact-scope computation."""
+        bind = db.get_bind()
+        if bind.dialect.name != "postgresql":
+            return
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"world_bible_pages:{novel_id}"},
+        )
+
+    async def _build_publish_impact(
+        self,
+        db: AsyncSession,
+        draft: WorldBiblePageDraft,
+        page: WorldBiblePage | None,
+    ) -> WorldBiblePublishImpactResponse:
+        result = await db.execute(
+            select(WorldBiblePage).where(
+                WorldBiblePage.novel_id == draft.novel_id,
+                WorldBiblePage.status.in_(self._ADOPTED_STATUSES),
+            )
+        )
+        pages = list(result.scalars().all())
+        pages_by_id = {item.id: item for item in pages}
+        reverse_edges: dict[uuid.UUID, dict[uuid.UUID, set[str]]] = {}
+        normalized_edges: list[dict[str, str]] = []
+        omission_counts: dict[tuple[str, uuid.UUID | None, str | None], int] = {}
+
+        def add_omission(reason: str, referrer: WorldBiblePage | None) -> None:
+            key = (
+                reason,
+                referrer.id if referrer is not None else None,
+                referrer.title if referrer is not None else None,
+            )
+            omission_counts[key] = omission_counts.get(key, 0) + 1
+
+        for referrer in pages:
+            seen_refs: set[tuple[uuid.UUID, str]] = set()
+            for raw_ref in referrer.linked_asset_refs_json or []:
+                raw_type = str(
+                    raw_ref.get("target_type")
+                    or raw_ref.get("type")
+                    or raw_ref.get("source_type")
+                    or ""
+                ).strip()
+                if raw_type not in {"world_bible_page", "page"}:
+                    continue
+                try:
+                    target = self._normalize_asset_ref(raw_ref)
+                    target_id = uuid.UUID(target.target_id)
+                except (TypeError, ValueError):
+                    add_omission("invalid_page_reference", referrer)
+                    continue
+                edge_key = (target_id, target.target_path)
+                if edge_key in seen_refs:
+                    continue
+                seen_refs.add(edge_key)
+                normalized_edges.append(
+                    {
+                        "from": str(referrer.id),
+                        "path": target.target_path,
+                        "to": str(target_id),
+                    }
+                )
+                if target_id not in pages_by_id:
+                    add_omission("unavailable_page_reference", referrer)
+                    continue
+                target_hash = target.target_hash()
+                section_titles = {
+                    str(section.get("title") or section.get("section_id") or "未命名分区")
+                    for section in referrer.sections_json or []
+                    if target_hash
+                    in {
+                        str(value).removeprefix("sha256:")
+                        for value in section.get("linked_asset_ref_hashes") or []
+                    }
+                }
+                reverse_edges.setdefault(target_id, {}).setdefault(
+                    referrer.id,
+                    set(),
+                ).update(section_titles)
+
+        affected: list[WorldBibleImpactedPage] = []
+        if page is not None:
+            paths: dict[uuid.UUID, list[WorldBibleImpactPathNode]] = {
+                page.id: [
+                    WorldBibleImpactPathNode(
+                        page_id=str(page.id),
+                        title=page.title,
+                        version_number=page.version_number,
+                    )
+                ]
+            }
+            queue = deque([page.id])
+            while queue:
+                target_id = queue.popleft()
+                referrers = reverse_edges.get(target_id, {})
+                for referrer_id in sorted(
+                    referrers,
+                    key=lambda item: (
+                        pages_by_id[item].title.casefold(),
+                        str(item),
+                    ),
+                ):
+                    if referrer_id in paths:
+                        continue
+                    referrer = pages_by_id[referrer_id]
+                    path = [
+                        *paths[target_id],
+                        WorldBibleImpactPathNode(
+                            page_id=str(referrer.id),
+                            title=referrer.title,
+                            version_number=referrer.version_number,
+                            section_titles=sorted(referrers[referrer_id]),
+                        ),
+                    ]
+                    paths[referrer_id] = path
+                    affected.append(
+                        WorldBibleImpactedPage(
+                            page_id=str(referrer.id),
+                            title=referrer.title,
+                            page_type=referrer.page_type,
+                            version_number=referrer.version_number,
+                            distance=len(path) - 1,
+                            path=path,
+                        )
+                    )
+                    queue.append(referrer_id)
+
+        affected.sort(
+            key=lambda item: (
+                item.distance,
+                item.title.casefold(),
+                item.page_id,
+            )
+        )
+        if len(affected) > 200:
+            add_omission("response_limit", None)
+            omission_counts[("response_limit", None, None)] = len(affected) - 200
+            affected = affected[:200]
+
+        omissions = [
+            WorldBibleImpactOmission(
+                reason=reason,
+                referring_page_id=str(referrer_id) if referrer_id else None,
+                referring_page_title=referrer_title,
+                count=count,
+            )
+            for (reason, referrer_id, referrer_title), count in sorted(
+                omission_counts.items(),
+                key=lambda item: (
+                    item[0][0],
+                    (item[0][2] or "").casefold(),
+                    str(item[0][1] or ""),
+                ),
+            )
+        ]
+        base_refs = page.linked_asset_refs_json if page is not None else []
+        previous_refs = self._canonical_asset_refs(base_refs or [])
+        proposed_refs = self._canonical_asset_refs(draft.linked_asset_refs_json or [])
+        content_hash = self.source_content_hash(
+            title=draft.title,
+            page_type=draft.page_type,
+            free_text=draft.free_text,
+            sections_json=list(draft.sections_json or []),
+            linked_asset_refs_json=list(draft.linked_asset_refs_json or []),
+            template_key=draft.template_key,
+            template_version=draft.template_version,
+            page_version=page.version_number if page is not None else 0,
+        )
+        scope_payload = {
+            "source": {
+                "content_hash": content_hash,
+                "draft_id": str(draft.id),
+                "draft_updated_at": draft.updated_at,
+                "page_id": str(page.id) if page is not None else None,
+                "page_version": page.version_number if page is not None else None,
+            },
+            "universe": [
+                {
+                    "id": str(item.id),
+                    "status": item.status,
+                    "version": item.version_number,
+                }
+                for item in sorted(pages, key=lambda current: str(current.id))
+            ],
+            "edges": sorted(
+                normalized_edges,
+                key=lambda item: (item["from"], item["to"], item["path"]),
+            ),
+            "omissions": [item.model_dump(mode="json") for item in omissions],
+        }
+        impact_scope_hash = hashlib.sha256(
+            json.dumps(
+                scope_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        return WorldBiblePublishImpactResponse(
+            source=WorldBiblePublishImpactSource(
+                draft_id=str(draft.id),
+                page_id=str(page.id) if page is not None else None,
+                title=draft.title,
+                page_version=page.version_number if page is not None else None,
+                draft_updated_at=draft.updated_at,
+                content_hash=content_hash,
+            ),
+            added_outgoing_refs=len(proposed_refs - previous_refs),
+            removed_outgoing_refs=len(previous_refs - proposed_refs),
+            affected_pages=affected,
+            omissions=omissions,
+            automatic_actions=[
+                "保存不可变页面版本",
+                "标记本页上下文摘要与世界观简介需要刷新",
+                "让实际使用过本页的上下文确认重新核对",
+            ],
+            not_checked=[
+                "故事总纲与 Scene",
+                "正文和自由文本中的语义提及",
+                "地图、人物及其他没有 typed 引用的内容",
+            ],
+            complete=not omissions,
+            impact_scope_hash=impact_scope_hash,
+        )
 
     async def restore_revision_to_draft(
         self,
@@ -784,7 +1079,7 @@ class WorldBibleLifecycleService:
             WorldBiblePageDraft.page_id == page.id,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
         draft = await db.scalar(stmt)
         return WorldBiblePageSourceState(page=page, draft=draft)
 
@@ -1018,7 +1313,7 @@ class WorldBibleLifecycleService:
             WorldBiblePageDraft.novel_id == nid,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
         draft = await db.scalar(stmt)
         if draft is None:
             raise NotFoundError("World Bible draft not found")
@@ -1039,7 +1334,7 @@ class WorldBibleLifecycleService:
             WorldBiblePage.novel_id == nid,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
         page = await db.scalar(stmt)
         if page is None:
             raise NotFoundError("World Bible page not found")
@@ -1246,8 +1541,26 @@ class WorldBibleLifecycleService:
                         "World Bible section references must point to page asset refs"
                     )
 
+    @classmethod
+    def _canonical_asset_refs(cls, refs: list[dict[str, Any]]) -> set[str]:
+        normalized: set[str] = set()
+        for ref in refs:
+            try:
+                normalized.add(cls._normalize_asset_ref(ref).canonical_json())
+            except (TypeError, ValueError):
+                normalized.add(
+                    json.dumps(
+                        ref,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        default=str,
+                    )
+                )
+        return normalized
+
     @staticmethod
-    def _asset_ref_hash(ref: dict[str, Any]) -> str:
+    def _normalize_asset_ref(ref: dict[str, Any]) -> TargetRef:
         target_type = str(
             ref.get("target_type") or ref.get("type") or ref.get("source_type") or ""
         )
@@ -1265,7 +1578,11 @@ class WorldBibleLifecycleService:
             target_type=aliases.get(target_type, target_type),
             target_id=target_id,
             target_path=str(ref.get("target_path") or ""),
-        ).target_hash()
+        )
+
+    @classmethod
+    def _asset_ref_hash(cls, ref: dict[str, Any]) -> str:
+        return cls._normalize_asset_ref(ref).target_hash()
 
 
 __all__ = [

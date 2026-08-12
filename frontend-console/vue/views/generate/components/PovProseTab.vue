@@ -33,7 +33,7 @@
         <p v-else-if="error" class="generate-error-text">生成失败：{{ error }}</p>
         <div v-else-if="submission" class="generate-result-card">
           <div class="generate-result-title">角色视角正文建议已生成</div>
-          <div class="generate-result-meta">第 {{ submission.chapterIndex }} 章 · {{ selectedScene?.title || selectedScene?.name || '已选场景' }} · {{ selectedRole?.name || selectedRole?.display_name || '已选角色' }}</div>
+          <div class="generate-result-meta">第 {{ submission.chapterIndex }} 章 · {{ submissionScene?.title || submissionScene?.name || '已选场景' }} · {{ submissionRole?.name || submissionRole?.display_name || '已选角色' }}</div>
           <p class="generate-result-summary">{{ resultId ? `任务 / 建议：${resultId}` : '正文建议已生成，可到写作页采用到工作稿。' }}</p>
           <div class="generate-result-actions"><button class="btn btn-sm btn-primary" data-action="open-generated-destination" @click="$emit('open-result', submission)">打开并审阅建议</button></div>
         </div>
@@ -56,6 +56,8 @@ defineEmits(["change-chapter", "change-scene", "open-result", "open-writing", "r
 const form = defineModel("form", { type: Object, required: true })
 const selectedScene = computed(() => props.scenes.find((item) => item.id === form.value.sceneId) || null)
 const selectedRole = computed(() => props.characters.find((item) => characterId(item) === form.value.viewpointCharacterId) || null)
+const submissionScene = computed(() => props.scenes.find((item) => item.id === props.submission?.sceneId) || null)
+const submissionRole = computed(() => props.characters.find((item) => characterId(item) === props.submission?.viewpointCharacterId) || null)
 const chapterTitle = computed(() => props.chapters.find((item) => Number(item.chapter_index) === Number(form.value.chapterIndex))?.title || "")
 const manualRole = computed(() => Boolean(form.value.viewpointCharacterId && selectedScene.value?.pov_character_id && form.value.viewpointCharacterId !== selectedScene.value.pov_character_id))
 const sceneWithoutPov = computed(() => Boolean(selectedScene.value && !selectedScene.value.pov_character_id))

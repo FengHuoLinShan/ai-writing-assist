@@ -5,6 +5,8 @@ const ACTIVE_WORKFLOWS_KEY = "novel_active_workflows_v1"
 const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"])
 const RUNNING_STATUSES = new Set(["pending", "running"])
 
+export const TASK_CANCELLED_MESSAGE = "已停止后续处理，不会再排下一步；已保存的阶段结果仍保留。正在结束的远程请求可能不会瞬时断开。"
+
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   scene_auto_extraction: "从正文整理场景",
@@ -129,7 +131,7 @@ function clampPercent(value) {
 
 function inferMessage({ status, workflowType, result, meta, percent }) {
   if (status === "failed") return "任务失败"
-  if (status === "cancelled") return "任务已取消"
+  if (status === "cancelled") return TASK_CANCELLED_MESSAGE
   if (status === "done") return result.message || "任务完成"
   if (RUNNING_STATUSES.has(status)) {
     if (workflowType === "scene_auto_extraction") {
@@ -402,7 +404,7 @@ export function recoverActiveWorkflows(projectId = null, storage = globalThis.lo
   writeStorage(deduped, storage)
 
   return projectId
-    ? deduped.filter((item) => !item.projectId || item.projectId === projectId)
+    ? deduped.filter((item) => item.projectId === projectId)
     : deduped
 }
 

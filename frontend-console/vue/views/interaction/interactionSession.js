@@ -6,9 +6,16 @@ function journeyKey(kind, journeyId) {
 }
 
 export function interactionOperationKey(prefix = "rp") {
-  const id = globalThis.crypto?.randomUUID?.()
-    || `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `${prefix}-${id}`
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`
+  }
+  if (typeof globalThis.crypto?.getRandomValues !== "function") {
+    throw new Error("当前浏览器无法安全生成操作标识，请更换浏览器后重试")
+  }
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  const token = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")
+  return `${prefix}-${token}`
 }
 
 export function readOpeningDraft() {

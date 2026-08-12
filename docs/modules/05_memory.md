@@ -37,6 +37,8 @@ memory 模块维护小说世界的“变化历史”，不是再存一份正史�
 - `facade.get_continuity_evidence_for_writing()`：给写作冲突检查提供上一章角色位置证据和 `memory_chapter` 打开目标
 - `facade.capture_snapshot()`：跨模块手动生成快照
 - `facade.create_delta_log()`：跨模块写入结构化差分
+- `facade.ensure_scene_checkpoints()` / `get_scene_checkpoints()`：跨模块确保或读取
+  Scene 五维派生投影；不读取当前 World 作历史兜底
 
 ## API
 
@@ -48,6 +50,10 @@ POST /api/novels/{novel_id}/memories/snapshots/capture
 GET  /api/novels/{novel_id}/memories/snapshots
 POST /api/novels/{novel_id}/memories/rebuild
 GET  /api/novels/{novel_id}/memories/status
+GET  /api/novels/{novel_id}/memories/scene-checkpoints?scene_id=...
+POST /api/novels/{novel_id}/memories/scene-checkpoints/ensure
+POST /api/novels/{novel_id}/memories/scene-checkpoints/rebuild
+POST /api/novels/{novel_id}/memories/scene-checkpoints/repair
 ```
 
 查询参数要点：

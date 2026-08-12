@@ -207,7 +207,7 @@ export function useStoryOutline(props) {
           <span>把当前总纲纳入本次生成参考</span>
         </label>
       ` : ""}
-      <p class="form-hint">AI 不会预先创建篇章纲或场景，也不会自动采用结果。</p>
+      <p class="form-hint">AI 不会预先创建篇章或场景，也不会自动采用结果。</p>
     `
 
     showModalHtml("AI 生成故事总览", html, [{
@@ -239,9 +239,8 @@ export function useStoryOutline(props) {
 
     const includeCurrent = Boolean(document.getElementById("story-outline-include-current")?.checked)
     const baseRevisionId = current.value?.current_revision_id || null
-    const applyKey = idempotencyKey()
-
     try {
+      const applyKey = idempotencyKey()
       const response = await api.outline.generateStoryOutline({
         novel_id: pid,
         author_intent: authorIntent,
@@ -358,7 +357,13 @@ export function useStoryOutline(props) {
   function showManualEditor() {
     const pid = projectId.value
     const baseRevisionId = current.value?.current_revision_id || null
-    const key = idempotencyKey()
+    let key
+    try {
+      key = idempotencyKey()
+    } catch (err) {
+      toast(err.message || "无法安全保存，请更换浏览器后重试", "error")
+      return
+    }
     const content = hasCurrentRevision.value ? clone(currentRevision.value) : emptyContent()
 
     const html = renderEditor(content, "story-outline-manual", {
@@ -428,9 +433,9 @@ export function useStoryOutline(props) {
       toast("项目已切换，请在当前项目重新选择历史版本", "warning")
       return false
     }
-    const key = restoreKeys.get(revisionId) || idempotencyKey()
-    restoreKeys.set(revisionId, key)
     try {
+      const key = restoreKeys.get(revisionId) || idempotencyKey()
+      restoreKeys.set(revisionId, key)
       const response = await api.outline.restoreStoryOutlineRevision(revisionId, pid, {
         base_revision_id: current.value?.current_revision_id || null,
         idempotency_key: key,
@@ -476,8 +481,15 @@ export function useStoryOutline(props) {
     if (previewTaskId && preview.value?.taskId === previewTaskId) {
       const nextBaseRevisionId = current.value?.current_revision_id || null
       if (preview.value.baseRevisionId !== nextBaseRevisionId) {
+        let nextIdempotencyKey
+        try {
+          nextIdempotencyKey = idempotencyKey()
+        } catch (err) {
+          applyError.value = err.message || "无法安全刷新预览，请更换浏览器后重试。"
+          return false
+        }
         preview.value.baseRevisionId = nextBaseRevisionId
-        preview.value.idempotencyKey = idempotencyKey()
+        preview.value.idempotencyKey = nextIdempotencyKey
         preview.value.lastApplyFingerprint = null
       }
     }

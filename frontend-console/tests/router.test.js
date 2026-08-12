@@ -854,6 +854,7 @@ describe("route guard and normalization", () => {
     })
     state.currentProjectId = "p1"
     state.currentProject = { id: "p1", title: "项目一" }
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
     state.currentView = "map"
     const beforeLength = window.history.length
 
@@ -867,6 +868,28 @@ describe("route guard and normalization", () => {
     expect(canLeave).toHaveBeenCalledTimes(1)
     expect(window.history.length).toBe(beforeLength)
     expect(window.location.hash).toBe("#workbench/p1/map?tab=atlas")
+  })
+
+  it("commits a local query without remounting and keeps it authoritative for refresh", async () => {
+    addWorkspace()
+    const onEnter = vi.fn()
+    const render = vi.fn(async () => "<p>人物与设定</p>")
+    window.router.registerView("world", { onEnter, render })
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+
+    await window.router.replace("world", "objects", new URLSearchParams({ view: "table" }))
+    expect(onEnter).toHaveBeenCalledTimes(1)
+    expect(render).toHaveBeenCalledTimes(1)
+
+    expect(window.router.commitCurrentQuery(new URLSearchParams({ view: "card" }))).toBe(true)
+    expect(window.router.getCurrentQuery().get("view")).toBe("card")
+    expect(window.location.hash).toBe("#workbench/p1/world/objects?view=card")
+    expect(onEnter).toHaveBeenCalledTimes(1)
+    expect(render).toHaveBeenCalledTimes(1)
+
+    await window.router.refresh()
+    expect(window.router.getCurrentQuery().get("view")).toBe("card")
   })
 
   it("keeps the current route when its renderer rejects leaving", async () => {
@@ -1195,6 +1218,60 @@ describe("refresh forces project sync", () => {
       }),
     )
     expect(state.currentProject.title).toBe("New")
+  })
+
+  it("preserves the workspace position during a same-route refresh", async () => {
+    const content = addWorkspace()
+    const replaceChildren = content.replaceChildren.bind(content)
+    vi.spyOn(content, "replaceChildren").mockImplementation((...nodes) => {
+      replaceChildren(...nodes)
+      if (nodes[0]?.classList?.contains("loading-skeleton")) content.scrollTop = 0
+    })
+    window.router.registerView("scroll-refresh", {
+      async render() { return '<div style="height:2000px">long page</div>' },
+    })
+    state.currentView = "scroll-refresh"
+    await window.router.renderCurrentView()
+    content.scrollTop = 640
+
+    await window.router.refresh()
+
+    expect(content.scrollTop).toBe(640)
+  })
+
+  it("restores the focused local control during a same-route refresh", async () => {
+    const content = addWorkspace()
+    window.router.registerView("focus-refresh", {
+      async render() {
+        return '<label><input id="bulk-choice" type="checkbox" /> 批量选择</label>'
+      },
+    })
+    state.currentView = "focus-refresh"
+    await window.router.renderCurrentView()
+    content.querySelector("#bulk-choice").focus()
+
+    await window.router.refresh()
+
+    expect(document.activeElement).toBe(content.querySelector("#bulk-choice"))
+  })
+
+  it("restores a focused row control identified by data attributes", async () => {
+    const content = addWorkspace()
+    window.router.registerView("row-focus-refresh", {
+      async render() {
+        return '<button data-action="select" data-id="row-2">选择</button>'
+      },
+    })
+    state.currentView = "row-focus-refresh"
+    await window.router.renderCurrentView()
+    const original = content.querySelector('[data-action="select"]')
+    original.focus()
+
+    await window.router.refresh()
+
+    const replacement = content.querySelector('[data-action="select"]')
+    expect(replacement).not.toBe(original)
+    expect(document.activeElement).toBe(replacement)
   })
 
   it("keeps the mounted page and metadata when same-project refresh fails temporarily", async () => {

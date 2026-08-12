@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -95,6 +96,14 @@ SCOPE_LOADERS: dict[str, list[str]] = {
 }
 
 _PREREQUISITE_LOADERS = {"project", "world_entities"}
+_SCENE_STATE_DIMENSIONS = ("entities", "relations", "locations", "knowledge", "map")
+_SCENE_STATE_LABELS = {
+    "entities": "人物与对象",
+    "relations": "关系",
+    "locations": "人物位置",
+    "knowledge": "知识边界",
+    "map": "地图事实",
+}
 
 
 class ContextCompiler:
@@ -154,13 +163,16 @@ class ContextCompiler:
             budget_used={k: 0 for k in CONTEXT_BUDGET},
         )
 
-        loader_names = SCOPE_LOADERS.get(options.scope, ["project"])
+        loader_names = list(SCOPE_LOADERS.get(options.scope, ["project"]))
+        if self._uses_scene_world_state(options):
+            loader_names = list(dict.fromkeys(["scene", *loader_names, "memory_records"]))
         warnings: list[str] = []
 
         relevance_generation = options.consumer_action in {
             "writing.generate",
             "outline.analyze",
             "world.generation.chat",
+            "world.generation.convergence",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
@@ -233,10 +245,7 @@ class ContextCompiler:
                 try:
                     await loader.load(db, options, bundle)
                 except Exception as exc:
-                    msg = (
-                        f"加载 {name} 时出错: "
-                        f"{redact_diagnostic(exc, limit=500)}"
-                    )
+                    msg = f"加载 {name} 时出错: {redact_diagnostic(exc, limit=500)}"
                     logger.warning(msg)
                     warnings.append(msg)
 
@@ -269,10 +278,7 @@ class ContextCompiler:
                 try:
                     await loader.load(db, options, bundle)
                 except Exception as exc:
-                    msg = (
-                        f"加载 {name} 时出错: "
-                        f"{redact_diagnostic(exc, limit=500)}"
-                    )
+                    msg = f"加载 {name} 时出错: {redact_diagnostic(exc, limit=500)}"
                     logger.warning(msg)
                     warnings.append(msg)
 
@@ -553,8 +559,7 @@ class ContextCompiler:
             )
 
         if bundle.outline_analysis and (
-            options is None
-            or options.reveal_mode in {"author_safe", "author_full"}
+            options is None or options.reveal_mode in {"author_safe", "author_full"}
         ):
             sections.extend(self._build_outline_analysis_sections(bundle, options))
 
@@ -719,7 +724,7 @@ class ContextCompiler:
             )
 
         if bundle.memory_records:
-            content = "\n".join(str(m) for m in bundle.memory_records)
+            content = self._format_memory_records(bundle.memory_records)
             prefixed = mode_prefix + content
             sections.append(
                 ContextSection(
@@ -838,6 +843,7 @@ class ContextCompiler:
 
         if options is not None and options.consumer_action in {
             "world.generation.chat",
+            "world.generation.convergence",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
@@ -871,9 +877,7 @@ class ContextCompiler:
             "scenes": len(analysis.get("scenes") or []),
             "arcs": len(analysis.get("arcs") or []),
             "plot_threads": len(analysis.get("plot_threads") or []),
-            "foreshadowing_plans": len(
-                analysis.get("foreshadowing_plans") or []
-            ),
+            "foreshadowing_plans": len(analysis.get("foreshadowing_plans") or []),
             "reveal_plans": len(analysis.get("reveal_plans") or []),
         }
         overview = json.dumps(
@@ -893,8 +897,7 @@ class ContextCompiler:
                 token_count=estimate_token_count(overview),
                 title="大纲分析范围",
                 preview=(
-                    f"章节 {start_chapter}-{end_chapter} · "
-                    f"{counts['scenes']} 个 Scene"
+                    f"章节 {start_chapter}-{end_chapter} · {counts['scenes']} 个 Scene"
                 ),
                 status="system",
                 activation_reason="作者本次确认的分析章节范围",
@@ -953,9 +956,7 @@ class ContextCompiler:
         )
         for key, data_key, title, source_type, tier, can_exclude in specs:
             items = [
-                item
-                for item in analysis.get(data_key) or []
-                if isinstance(item, dict)
+                item for item in analysis.get(data_key) or [] if isinstance(item, dict)
             ]
             if not items:
                 continue
@@ -1160,6 +1161,9 @@ class ContextCompiler:
                 )
             )
 
+        if bundle.scene_checkpoint_set is not None:
+            sections.append(self._build_scene_world_state_section(bundle, options))
+
         relationship_content = (
             "未显式公开或未由 relation 级 CharacterKnowledge 授权的关系描述已排除。"
         )
@@ -1341,6 +1345,365 @@ class ContextCompiler:
         return sections
 
     @staticmethod
+    def _uses_scene_world_state(options: CompileOptions) -> bool:
+        return bool(
+            options.consumer_action == "writing.generate"
+            and options.scene_id
+            and options.reveal_mode == "character"
+        )
+
+    @classmethod
+    def _build_scene_world_state_section(
+        cls,
+        bundle: StructureContextBundle,
+        options: CompileOptions,
+    ) -> ContextSection:
+        checkpoint_set = bundle.scene_checkpoint_set or {}
+        items = {
+            str(item.get("dimension")): item
+            for item in checkpoint_set.get("items") or []
+            if isinstance(item, dict) and item.get("dimension")
+        }
+        related_labels = cls._scene_state_related_labels(bundle, options)
+        trusted: dict[str, dict[str, Any]] = {}
+        dimensions: list[dict[str, Any]] = []
+        checkpoint_versions: list[dict[str, str]] = []
+        sources: list[dict[str, Any]] = []
+        missing_status = (
+            "unavailable"
+            if checkpoint_set.get("coverage_status") == "unavailable"
+            else "missing"
+        )
+
+        for dimension in _SCENE_STATE_DIMENSIONS:
+            item = items.get(dimension) or {}
+            status = str(item.get("status") or missing_status)
+            is_trusted = status == "ready" and (
+                item.get("source") == "system_generated" or item.get("confirmed") is True
+            )
+            if is_trusted:
+                trusted[dimension] = item
+                sources.append(
+                    {
+                        "type": "memory_scene_checkpoint",
+                        "id": str(item.get("id") or f"{options.scene_id}:{dimension}"),
+                        "label": _SCENE_STATE_LABELS[dimension],
+                        "status": "director_only",
+                    }
+                )
+            checkpoint_versions.append(
+                {
+                    "dimension": dimension,
+                    "id": str(item.get("id") or ""),
+                    "status": status,
+                }
+            )
+            dimensions.append(
+                {
+                    "label": _SCENE_STATE_LABELS[dimension],
+                    "state_label": cls._scene_state_status_label(status, is_trusted),
+                    "summary": str(
+                        item.get("display_summary")
+                        or item.get("gap_reason")
+                        or "尚无可用记录"
+                    ),
+                    "evidence_count": len(item.get("evidence_refs") or []),
+                }
+            )
+
+        entity_state = (
+            trusted.get("entities", {}).get("state_json", {}).get("entities") or {}
+        )
+        entity_state_ids = {cls._id_key(entity_id) for entity_id in entity_state}
+        historical_labels = {
+            cls._id_key(entity_id): str(payload.get("name"))
+            for entity_id, payload in entity_state.items()
+            if isinstance(payload, dict) and payload.get("name")
+        }
+        lines = [
+            "DIRECTOR_ONLY: 以下只是当前 Scene 时点可追溯的环境事实，"
+            "不代表 POV 人物知道或相信它们。",
+            "人物的判断、内心与台词只能使用角色可见知识；"
+            "未覆盖项不表示当时不存在，不得用当前世界资料回填。",
+        ]
+        fact_lines = cls._scene_state_fact_lines(
+            trusted,
+            related_labels,
+            historical_labels,
+        )
+        lines.extend(fact_lines or ["- 本次没有可交给模型的相关 Scene 时点事实。"])
+
+        manual_entities = trusted.get("entities") or {}
+        entity_absence_confirmed = bool(
+            manual_entities.get("source") == "manual"
+            and manual_entities.get("confirmed") is True
+            and manual_entities.get("display_summary") == "已人工确认此阶段没有该维度事实"
+        )
+        omissions = []
+        if not entity_absence_confirmed:
+            omissions = [
+                {"label": label, "reason": "尚无时间锚"}
+                for entity_id, label in related_labels.items()
+                if entity_id not in entity_state_ids
+            ]
+
+        coverage_status = str(checkpoint_set.get("coverage_status") or "missing")
+        if omissions:
+            coverage_label = "有些相关对象尚无时间锚"
+        elif coverage_status == "ready":
+            coverage_label = "当时状态已有可追溯证据"
+        elif coverage_status == "retry_pending":
+            coverage_label = "部分状态正在重建"
+        elif coverage_status == "manual_required":
+            coverage_label = "部分状态需要作者判断"
+        else:
+            coverage_label = "Scene 时点证据不完整"
+
+        content = "\n".join(lines)
+        return cls._make_section(
+            key="scene_world_state",
+            tier=Tier.P0,
+            title="Scene 时点可证状态",
+            content=content,
+            status="director_only",
+            activation_reason="当前 Scene 五维 checkpoint 与相关对象对照",
+            sources=sources,
+            can_exclude=False,
+            retrieval_metadata={
+                "coverage_label": coverage_label,
+                "dimensions": dimensions,
+                "omissions": omissions,
+                "checkpoint_versions": checkpoint_versions,
+                "current_canon_note": (
+                    "当前正典只作为作者修复参考，不会回填这个 Scene 的过去状态。"
+                ),
+            },
+        )
+
+    @staticmethod
+    def _scene_state_status_label(status: str, trusted: bool) -> str:
+        if trusted:
+            return "当时可证"
+        return {
+            "retry_pending": "正在重建",
+            "manual_required": "需要判断",
+            "gap": "证据不完整",
+            "unavailable": "证据不完整",
+        }.get(status, "尚无时间锚")
+
+    @classmethod
+    def _scene_state_related_labels(
+        cls,
+        bundle: StructureContextBundle,
+        options: CompileOptions,
+    ) -> dict[str, str]:
+        labels: dict[str, str] = {}
+
+        def add(value: Any, label: Any = None) -> None:
+            normalized = cls._id_key(value)
+            if not normalized:
+                return
+            current = str(label or "").strip()
+            labels.setdefault(normalized, current)
+            if current:
+                labels[normalized] = current
+
+        for item in [*bundle.characters, *bundle.world_entities]:
+            if not isinstance(item, dict):
+                continue
+            add(
+                item.get("character_id") or item.get("entity_id") or item.get("id"),
+                item.get("name") or item.get("title"),
+            )
+        for value in [
+            options.viewpoint_character_id,
+            *(options.character_ids or []),
+            *(options.entity_ids or []),
+            *(options.location_ids or []),
+        ]:
+            add(value)
+        scene = bundle.scene or {}
+        add(scene.get("pov_character_id"))
+        structure_meta = scene.get("structure_meta") or {}
+        for key in (
+            "related_character_ids",
+            "present_character_ids",
+            "character_ids",
+            "related_entity_ids",
+            "world_entity_ids",
+            "item_ids",
+            "related_location_ids",
+        ):
+            for value in structure_meta.get(key) or []:
+                add(value)
+        for key in ("location_id", "location_entity_id"):
+            add(structure_meta.get(key) or scene.get(key))
+
+        unnamed = 0
+        for entity_id, label in list(labels.items()):
+            if label:
+                continue
+            unnamed += 1
+            labels[entity_id] = f"已选对象 {unnamed}"
+        return labels
+
+    @classmethod
+    def _scene_state_fact_lines(
+        cls,
+        trusted: dict[str, dict[str, Any]],
+        related_labels: dict[str, str],
+        historical_labels: dict[str, str],
+    ) -> list[str]:
+        lines: list[str] = []
+        related_ids = set(related_labels)
+        entity_state = trusted.get("entities", {}).get("state_json", {})
+        for entity_id, payload in sorted((entity_state.get("entities") or {}).items()):
+            if cls._id_key(entity_id) not in related_ids or not isinstance(payload, dict):
+                continue
+            label = str(payload.get("name") or "相关人物或对象")
+            details = cls._scene_state_details(
+                payload,
+                (
+                    "summary",
+                    "public_info",
+                    "current_state",
+                    "state",
+                    "condition",
+                    "description",
+                ),
+            )
+            lines.append(f"- 人物与对象｜{label}: {details or '该时点已有明确事件锚'}")
+
+        relation_state = trusted.get("relations", {}).get("state_json", {})
+        for payload in relation_state.get("relations") or []:
+            if not isinstance(payload, dict):
+                continue
+            source_id = cls._id_key(payload.get("source_id"))
+            target_id = cls._id_key(payload.get("target_id"))
+            if not ({source_id, target_id} & related_ids):
+                continue
+            endpoints = [
+                payload.get("source_name") or historical_labels.get(source_id),
+                payload.get("target_name") or historical_labels.get(target_id),
+            ]
+            label = " → ".join(str(value) for value in endpoints if value) or "相关关系"
+            details = cls._scene_state_details(
+                payload,
+                ("relation_type", "description", "current_state", "state"),
+            )
+            lines.append(f"- 关系｜{label}: {details or '该时点已有明确关系锚'}")
+
+        location_state = trusted.get("locations", {}).get("state_json", {})
+        for character_id, payload in sorted(
+            (location_state.get("character_locations") or {}).items()
+        ):
+            if cls._id_key(character_id) not in related_ids or not isinstance(
+                payload, dict
+            ):
+                continue
+            label = historical_labels.get(cls._id_key(character_id)) or "相关人物"
+            location_id = cls._id_key(payload.get("location_id"))
+            details = cls._scene_state_details(
+                payload,
+                ("text_state", "location_name", "state", "description"),
+            ) or historical_labels.get(location_id)
+            if details:
+                lines.append(f"- 人物位置｜{label}: {details}")
+
+        map_state = trusted.get("map", {}).get("state_json", {})
+        related_names = {
+            *historical_labels.values(),
+            *(label for label in related_labels.values() if label),
+        }
+        for _key, payload in sorted((map_state.get("facts_by_key") or {}).items()):
+            if not isinstance(payload, dict):
+                continue
+            target_id = cls._id_key(payload.get("target_entity_id"))
+            target_name = str(payload.get("target_name") or "")
+            if (
+                target_id not in related_ids
+                if target_id
+                else target_name not in related_names
+            ):
+                continue
+            details = cls._scene_state_details(
+                payload,
+                ("evidence_text", "summary", "description"),
+            ) or cls._scene_state_details(
+                payload.get("value_json") or {},
+                (
+                    "state",
+                    "reason",
+                    "field_key",
+                    "value",
+                    "resource_key",
+                    "status",
+                    "amount",
+                    "terrain_key",
+                    "crisis_key",
+                    "severity",
+                    "relation_type",
+                    "summary",
+                    "movement_mode",
+                ),
+            )
+            if details:
+                lines.append(f"- 地图事实｜{target_name or '相关对象'}: {details}")
+
+        for dimension in ("entities", "relations", "locations", "map"):
+            item = trusted.get(dimension) or {}
+            state = item.get("state_json") or {}
+            if item.get("source") == "manual" and item.get("confirmed") is True:
+                summary = (
+                    cls._scene_state_details(state, ("manual_summary",))
+                    or str(item.get("display_summary") or "")[:1200]
+                )
+                if summary:
+                    lines.append(
+                        f"- {_SCENE_STATE_LABELS[dimension]}｜作者确认: {summary}"
+                    )
+        return list(dict.fromkeys(lines))[:16]
+
+    @staticmethod
+    def _scene_state_details(payload: Any, fields: tuple[str, ...]) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        values: list[str] = []
+        for field in fields:
+            value = payload.get(field)
+            if not isinstance(value, str | int | float | bool) or value in (None, ""):
+                continue
+            text = str(value).strip()
+            if text and text not in values:
+                values.append(text)
+        return "；".join(values)[:1200]
+
+    @staticmethod
+    def _id_key(value: object) -> str:
+        text = str(value or "").strip()
+        try:
+            return uuid.UUID(text).hex
+        except ValueError:
+            return text
+
+    @staticmethod
+    def _format_memory_records(records: list) -> str:
+        lines: list[str] = []
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("memory_type") or "记忆")
+            title = str(item.get("title") or item.get("name") or "").strip()
+            summary = str(item.get("summary") or item.get("event") or "").strip()
+            chapter = item.get("chapter_index")
+            prefix = f"- [{kind}]"
+            if chapter is not None:
+                prefix += f" 第 {chapter} 章"
+            detail = " — ".join(value for value in (title, summary) if value)
+            lines.append(f"{prefix}: {detail}" if detail else prefix)
+        return "\n".join(lines)
+
+    @staticmethod
     def _make_section(
         *,
         key: str,
@@ -1377,10 +1740,11 @@ class ContextCompiler:
         profile_lines: list[str] = []
         for raw in characters or []:
             item = raw if isinstance(raw, dict) else getattr(raw, "__dict__", {})
-            char_id = str(item.get("character_id") or item.get("entity_id") or "")
-            if (
+            char_id = ContextCompiler._id_key(
+                item.get("character_id") or item.get("entity_id") or ""
+            )
+            if options.viewpoint_character_id and char_id != ContextCompiler._id_key(
                 options.viewpoint_character_id
-                and char_id != options.viewpoint_character_id
             ):
                 continue
             fields = [
@@ -1416,10 +1780,11 @@ class ContextCompiler:
         result: list[dict] = []
         for raw in characters or []:
             item = raw if isinstance(raw, dict) else getattr(raw, "__dict__", {})
-            char_id = str(item.get("character_id") or item.get("entity_id") or "")
-            if (
+            char_id = ContextCompiler._id_key(
+                item.get("character_id") or item.get("entity_id") or ""
+            )
+            if options.viewpoint_character_id and char_id == ContextCompiler._id_key(
                 options.viewpoint_character_id
-                and char_id == options.viewpoint_character_id
             ):
                 continue
             result.append(item)
@@ -1433,7 +1798,7 @@ class ContextCompiler:
             "真实动机或内心。"
         ]
         for item in characters:
-            name = item.get("name") or item.get("character_id") or "未命名人物"
+            name = item.get("name") or "未命名人物"
             observable_fields = [
                 ("外观", item.get("appearance")),
                 ("语言风格", item.get("voice_style")),
@@ -1529,11 +1894,28 @@ class ContextCompiler:
 
     @staticmethod
     def _format_role_visible_knowledge(world_entities: list) -> str:
+        level_labels = {
+            "rumor": "听说过",
+            "partial": "知道一部分",
+            "full": "清楚知道",
+            "false_belief": "相信错误版本",
+            "restricted": "只知道这段",
+            "misunderstood": "理解偏了",
+            "public_info": "公开信息",
+        }
+        type_labels = {
+            "entity": "世界对象",
+            "character": "人物",
+            "event": "事件",
+            "location": "地点",
+            "item": "物品",
+            "faction": "势力",
+        }
         lines: list[str] = []
         for item in world_entities or []:
             if not isinstance(item, dict):
                 continue
-            name = item.get("name") or item.get("target_id") or item.get("id")
+            name = item.get("name") or "未命名对象"
             entity_type = item.get("entity_type") or item.get("target_type")
             level = item.get("knowledge_level") or item.get("visibility_source")
             if level == "unknown":
@@ -1546,9 +1928,18 @@ class ContextCompiler:
             )
             label_parts = [str(name)]
             if entity_type:
-                label_parts.append(f"类型={entity_type}")
+                label_parts.append(
+                    f"类型={type_labels.get(str(entity_type), '世界对象')}"
+                )
             if level:
-                label_parts.append(f"认知={level}")
+                label_parts.append(f"认知={level_labels.get(str(level), str(level))}")
+            learned = item.get("knowledge_source_chapter_index")
+            if learned is not None:
+                label_parts.append(f"第{learned}章后生效")
+            elif item.get("knowledge_is_public_baseline"):
+                label_parts.append("开场已知")
+            elif item.get("visibility_source") == "public_info":
+                label_parts.append("公开基线")
             if text:
                 lines.append(f"- {'; '.join(label_parts)}: {text}")
             elif name:
@@ -1560,17 +1951,29 @@ class ContextCompiler:
         scene: dict,
         options: CompileOptions,
     ) -> str:
+        present = scene.get("present_character_ids") or scene.get("character_ids")
+        present_summary = (
+            f"{len(present)} 位在场人物"
+            if isinstance(present, list | tuple | set) and present
+            else None
+        )
         fields = [
-            ("Scene", scene.get("title") or scene.get("name") or options.scene_id),
+            ("Scene", scene.get("title") or scene.get("name") or "当前 Scene"),
             ("章节", options.chapter_index),
             ("Scene 序号", scene.get("scene_index")),
-            ("POV 角色", scene.get("pov_character_id") or options.viewpoint_character_id),
-            ("地点", scene.get("location") or scene.get("location_id")),
-            ("时间", scene.get("time_of_day") or scene.get("time")),
             (
-                "在场对象",
-                scene.get("present_character_ids") or scene.get("character_ids"),
+                "POV 角色",
+                "见 POV 角色档案"
+                if scene.get("pov_character_id") or options.viewpoint_character_id
+                else None,
             ),
+            (
+                "地点",
+                scene.get("location")
+                or ("已选择地点" if scene.get("location_id") else None),
+            ),
+            ("时间", scene.get("time_of_day") or scene.get("time")),
+            ("在场对象", present_summary),
             ("可感知氛围", scene.get("atmosphere") or scene.get("mood")),
         ]
         lines = [f"- {label}: {value}" for label, value in fields if value]
@@ -1613,14 +2016,17 @@ class ContextCompiler:
         options: CompileOptions,
     ) -> str:
         scene_index = bundle.scene.get("scene_index") if bundle.scene else None
+        chapter_label = (
+            options.chapter_index if options.chapter_index is not None else "未提供"
+        )
+        scene_index_label = scene_index if scene_index is not None else "未提供"
         return "\n".join(
             [
-                f"- 当前 Scene 锚点: {options.scene_id or '未提供'}",
-                f"- 当前章节: {options.chapter_index or '未提供'}",
-                f"- 当前 Scene 序号: {scene_index or '未提供'}",
-                "- character reveal 中 scene_id 同时表示当前 Scene、"
-                "RAG 场景边界、POV 生成锚点。",
-                "- 安全边界由 compiler 的 metadata/time filter 执行，不依赖提示词自律。",
+                f"- 当前 Scene 锚点: {'已固定' if options.scene_id else '未提供'}",
+                f"- 当前章节: {chapter_label}",
+                f"- 当前 Scene 序号: {scene_index_label}",
+                "- 角色视角、正文证据与生成位置都以这个 Scene 为边界。",
+                "- 可见边界由系统确定性校验，不依赖提示词自律。",
             ]
         )
 

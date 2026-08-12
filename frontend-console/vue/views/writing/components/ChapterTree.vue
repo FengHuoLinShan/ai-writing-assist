@@ -8,13 +8,13 @@
         :aria-expanded="!collapsed"
         @click="$emit('toggle-collapse')"
       >
-        <span class="writing-rail-heading-label">{{ collapsed ? "章节" : `章节（${chapterList.length}）` }}</span>
+        <span class="writing-rail-heading-label">{{ collapsed ? "章节" : `章节 · 共 ${chapterList.length} 章` }}</span>
         <span aria-hidden="true">{{ collapsed ? "›" : "‹" }}</span>
       </button>
       <div v-if="!collapsed" class="chapter-tree-actions">
         <button type="button" class="btn btn-sm" title="上一章" aria-label="上一章" :disabled="!previousChapter" @click="$emit('select', previousChapter)">←</button>
         <button type="button" class="btn btn-sm" title="下一章" aria-label="下一章" :disabled="!nextChapter" @click="$emit('select', nextChapter)">→</button>
-        <button class="btn btn-sm" @click="$emit('create')">+ 新建</button>
+        <button class="btn btn-sm" @click="$emit('create')">+ 新章</button>
       </div>
     </div>
 

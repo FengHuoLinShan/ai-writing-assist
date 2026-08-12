@@ -94,6 +94,7 @@ class WorldEntitiesLoader(Loader):
         generation_action = options.consumer_action in {
             "outline.analyze",
             "world.generation.chat",
+            "world.generation.convergence",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
             "world.map_atlas.generate",
@@ -299,9 +300,7 @@ def _related_entity_candidates(
 
     extend(options.entity_ids, "explicit_or_source")
     analysis = (
-        bundle.outline_analysis
-        if isinstance(bundle.outline_analysis, dict)
-        else {}
+        bundle.outline_analysis if isinstance(bundle.outline_analysis, dict) else {}
     )
     extend(analysis.get("related_entity_ids"), "outline_range")
     scene = bundle.scene if isinstance(bundle.scene, dict) else {}

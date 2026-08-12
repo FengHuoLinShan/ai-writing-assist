@@ -1,8 +1,17 @@
 <script setup>
-import { ref } from "vue"
+import { onBeforeUnmount, ref } from "vue"
 import { getApi, getAppState, getRouter, getToast } from "../../bridge/index.js"
 
 const openingAuthor = ref(false)
+let lifecycleGeneration = 0
+let disposed = false
+
+function ownsAuthorRequest(state, projectId, generation) {
+  return !disposed
+    && generation === lifecycleGeneration
+    && state?.currentView === "home"
+    && state?.currentProjectId === projectId
+}
 
 async function enterAuthor() {
   if (openingAuthor.value) return
@@ -12,25 +21,35 @@ async function enterAuthor() {
     getRouter().navigate("project")
     return
   }
+  const generation = ++lifecycleGeneration
   openingAuthor.value = true
   try {
     const project = await getApi().projects.get(projectId)
+    if (!ownsAuthorRequest(state, projectId, generation)) return
     state.currentProjectId = project.id
     state.currentProject = project
     await getRouter().navigate("today")
   } catch {
+    if (!ownsAuthorRequest(state, projectId, generation)) return
     state.currentProjectId = null
     state.currentProject = null
     getToast()("上次打开的作品已不可用，请重新选择。", "info")
     await getRouter().navigate("project")
   } finally {
-    openingAuthor.value = false
+    if (ownsAuthorRequest(state, projectId, generation)) openingAuthor.value = false
   }
 }
 
 function enterRp() {
+  lifecycleGeneration += 1
+  openingAuthor.value = false
   getRouter().navigate("journeys")
 }
+
+onBeforeUnmount(() => {
+  disposed = true
+  lifecycleGeneration += 1
+})
 </script>
 
 <template>

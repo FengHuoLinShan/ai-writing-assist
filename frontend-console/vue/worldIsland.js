@@ -160,7 +160,10 @@ export async function loadWorld() {
     bibleDeepLink: {
       draftId: query.get("draft_id") || "",
       pageId: query.get("page_id") || "",
+      openSuggestions: query.get("open") === "suggestions",
+      suggestionId: query.get("suggestion_id") || "",
     },
+    knowledgeCharacterId: query.get("knowledge_character_id") || "",
   }
   if (!projectId || !api?.world) return props
 

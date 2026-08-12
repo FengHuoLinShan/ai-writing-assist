@@ -4,6 +4,8 @@ import { loadGenerate } from "../../../vue/generateIsland.js"
 import {
   emptyGenerateSession,
   generateSessionKey,
+  readCreativeContinuation,
+  writeCreativeContinuation,
   writeGenerateSession,
 } from "../../../vue/views/generate/generateSession.js"
 
@@ -85,7 +87,38 @@ describe("generateIsland load contract", () => {
     })
   })
 
+  it("restores the immediate predecessor for revision comparison", async () => {
+    writeGenerateSession(
+      generateSessionKey("p1", null, "core_entity"),
+      { ...emptyGenerateSession(), suggestionId: "suggestion-current" },
+    )
+    api.world.listSuggestions.mockImplementation(async ({ status }) => collection(status === "pending" ? [{
+      id: "suggestion-current",
+      target_type: "core_entity_draft",
+      payload_json: { name: "当前版" },
+      revision_link: { predecessor_suggestion_id: "suggestion-old", successor_suggestion_id: null },
+    }] : [{
+      id: "suggestion-old",
+      target_type: "core_entity_draft",
+      payload_json: { name: "上一版" },
+      revision_link: { predecessor_suggestion_id: null, successor_suggestion_id: "suggestion-current" },
+    }]))
+
+    const props = await loadGenerate()
+
+    expect(props.restoredWorldResult?.suggestion.id).toBe("suggestion-current")
+    expect(props.restoredPreviousWorldResult?.suggestion.id).toBe("suggestion-old")
+    expect(api.world.listSuggestions).toHaveBeenLastCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      status: "rejected",
+    }))
+  })
+
   it("paginates all active assets and uses the ordered active-scene seam", async () => {
+    api.world.listBiblePages.mockResolvedValue(collection([
+      { id: "page-adopted", title: "已采用页", status: "canonical" },
+      { id: "page-draft", title: "未发布页", status: "draft" },
+    ]))
     const firstCharacters = Array.from({ length: 50 }, (_, index) => ({ entity_id: `character-${index + 1}` }))
     const firstEntities = Array.from({ length: 50 }, (_, index) => ({ id: `entity-${index + 1}`, entity_type: "item" }))
     api.world.listCharacters.mockImplementation(async ({ skip }) => (
@@ -103,13 +136,14 @@ describe("generateIsland load contract", () => {
 
     expect(props.worldCharacters).toHaveLength(51)
     expect(props.worldEntities).toHaveLength(51)
+    expect(props.worldPages.map((item) => item.id)).toEqual(["page-adopted"])
     expect(props.worldScenes.map((item) => item.id)).toEqual(["scene-1", "scene-2"])
     expect(api.world.listCharacters).toHaveBeenNthCalledWith(2, { novel_id: "p1", skip: 50, limit: 50 })
     expect(api.world.listEntities).toHaveBeenNthCalledWith(2, { novel_id: "p1", display_state: "active", skip: 50, limit: 50 })
     expect(api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
   })
 
-  it("does not reuse a foreign project session and downgrades a missing source page safely", async () => {
+  it("does not reuse a foreign project session or silently downgrade a missing source page", async () => {
     writeGenerateSession(
       generateSessionKey("p1", "foreign-page", "world_bible_page"),
       { ...emptyGenerateSession(), suggestionId: "foreign-suggestion" },
@@ -124,14 +158,57 @@ describe("generateIsland load contract", () => {
     const props = await loadGenerate()
 
     expect(props.projectId).toBe("p2")
-    expect(props.sourcePageId).toBeNull()
-    expect(props.targetKind).toBe("core_entity")
-    expect(props.sessionKey).toBe(generateSessionKey("p2", null, "core_entity"))
-    expect(props.initialSession.selectedTemplateId).toBe("builtin:location")
+    expect(props.sourcePageId).toBe("foreign-page")
+    expect(props.targetKind).toBe("world_bible_page")
+    expect(props.sessionKey).toBe(generateSessionKey("p2", "foreign-page", "world_bible_page"))
+    expect(props.initialSession.selectedTemplateId).toBe("builtin:none")
+    expect(props.worldSourceUnavailable).toBe(true)
+    expect(props.worldWorkspaceWarning).toContain("本地对话和未发送内容仍保留")
     expect(props.restoredWorldResult).toBeNull()
     expect(api.world.listSuggestions).not.toHaveBeenCalled()
     expect(api.world.listBiblePages).toHaveBeenCalledWith({ novel_id: "p2" })
     expect(api.world.listCharacters).toHaveBeenCalledWith({ novel_id: "p2", skip: 0, limit: 50 })
     expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("foreign-suggestion"), expect.anything())
+  })
+
+  it("keeps the exact local session but clears its continuation when the source page was deleted", async () => {
+    router.getCurrentQuery.mockReturnValue(new URLSearchParams("tab=world&source_page_id=deleted-page&target=world_bible_page"))
+    const key = generateSessionKey("p1", "deleted-page", "world_bible_page")
+    writeGenerateSession(key, { ...emptyGenerateSession(), composer: "保留这段未发送内容" })
+    writeCreativeContinuation("p1", {
+      destination: "generate",
+      route: { source_page_id: "deleted-page", target: "world_bible_page" },
+    })
+
+    const props = await loadGenerate()
+
+    expect(props.initialSession.composer).toBe("保留这段未发送内容")
+    expect(props.sourcePageId).toBe("deleted-page")
+    expect(props.targetKind).toBe("world_bible_page")
+    expect(props.worldSourceUnavailable).toBe(true)
+    expect(readCreativeContinuation("p1")).toBeNull()
+    expect(api.world.listSuggestions).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when a source route cannot verify its loading baseline", async () => {
+    router.getCurrentQuery.mockReturnValue(new URLSearchParams("tab=world&source_page_id=page-1&target=world_bible_page"))
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    writeGenerateSession(key, { ...emptyGenerateSession(), composer: "保留这段未发送内容" })
+    writeCreativeContinuation("p1", {
+      destination: "generate",
+      route: { source_page_id: "page-1", target: "world_bible_page" },
+    })
+    api.world.listBibleCategories.mockRejectedValue(new Error("类别暂时不可用"))
+
+    const props = await loadGenerate()
+
+    expect(props.worldSourceUnavailable).toBe(true)
+    expect(props.worldWorkspaceWarning).toContain("原来源与生成上下文暂时无法核对")
+    expect(props.initialSession.composer).toBe("保留这段未发送内容")
+    expect(readCreativeContinuation("p1")).toMatchObject({
+      destination: "generate",
+      route: { source_page_id: "page-1", target: "world_bible_page" },
+    })
+    expect(api.world.listSuggestions).not.toHaveBeenCalled()
   })
 })

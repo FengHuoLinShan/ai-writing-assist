@@ -458,7 +458,7 @@ describe("plotAutoExtractManager", () => {
       const refresh = vi.fn()
       const toast = vi.fn()
       setBridgeOverrides({
-        state: { currentProjectId: "p-ext", currentView: "outline" },
+        state: { currentProjectId: "p-ext", currentView: "outline", currentSubView: "threads" },
         router: { refresh },
         toast,
       })
@@ -473,7 +473,7 @@ describe("plotAutoExtractManager", () => {
     it("done 但不在 outline 视图时不 refresh", async () => {
       const refresh = vi.fn()
       setBridgeOverrides({
-        state: { currentProjectId: "p-away", currentView: "rag" },
+        state: { currentProjectId: "p-away", currentView: "rag", currentSubView: "search" },
         router: { refresh },
         toast: vi.fn(),
       })
@@ -481,6 +481,36 @@ describe("plotAutoExtractManager", () => {
       const { onDone } = pollTaskProgress.mock.calls[0][0]
       await onDone({ taskId: "task-away", done: true, terminal: true })
       expect(refresh).not.toHaveBeenCalled()
+    })
+
+    it.each(["story-outline", "scenes"])("done 但当前在无关子页 %s 时不 refresh", async (currentSubView) => {
+      const refresh = vi.fn()
+      setBridgeOverrides({
+        state: { currentProjectId: "p-unrelated", currentView: "outline", currentSubView },
+        router: { refresh },
+        toast: vi.fn(),
+      })
+      plotAutoExtractManager.adopt({ task_id: `task-${currentSubView}`, status: "running" })
+      const { onDone } = pollTaskProgress.mock.calls[0][0]
+      await onDone({ taskId: `task-${currentSubView}`, done: true, terminal: true })
+      expect(refresh).not.toHaveBeenCalled()
+    })
+
+    it("旧项目任务晚到时不 refresh 当前项目", async () => {
+      const refresh = vi.fn()
+      const state = { currentProjectId: "p-old", currentView: "outline", currentSubView: "arcs" }
+      setBridgeOverrides({ state, router: { refresh }, toast: vi.fn() })
+      plotAutoExtractManager.adopt({ task_id: "task-old-late", status: "running" })
+      const { onDone } = pollTaskProgress.mock.calls[0][0]
+      recoverActiveWorkflows.mockReturnValue([
+        { taskId: "task-new", workflowType: "plot_structure_auto_extraction", view: "outline" },
+      ])
+      state.currentProjectId = "p-new"
+      plotAutoExtractManager.recover("p-new")
+      await onDone({ taskId: "task-old-late", done: true, terminal: true })
+      expect(refresh).not.toHaveBeenCalled()
+      expect(plotAutoExtractManager.state.taskId).toBe("task-new")
+      expect(plotAutoExtractManager.state.ownerProjectId).toBe("p-new")
     })
   })
 })
@@ -511,8 +541,8 @@ describe("plotAutoExtractLabel", () => {
   it("threads 返回剧情线", () => {
     expect(plotAutoExtractLabel("threads")).toBe("从正文提取剧情线")
   })
-  it("arcs 返回篇章纲", () => {
-    expect(plotAutoExtractLabel("arcs")).toBe("从正文提取篇章纲")
+  it("arcs 返回篇章", () => {
+    expect(plotAutoExtractLabel("arcs")).toBe("从正文提取篇章")
   })
   it("默认回落 threads", () => {
     expect(plotAutoExtractLabel()).toBe("从正文提取剧情线")

@@ -73,7 +73,7 @@ function seedPrivateBrowserState({ accountId = null } = {}) {
   }]))
   sessionStorage.setItem("workspace-rail:private-project-old:writing:assistant", "closed")
   sessionStorage.setItem("workflow-progress-card:private-task-old", "open")
-  localStorage.setItem("novel_theme", "dark")
+  localStorage.setItem("nc-theme", "night")
 }
 
 async function storedPrivateState(page) {
@@ -88,7 +88,7 @@ async function storedPrivateState(page) {
     workflows: localStorage.getItem("novel_active_workflows_v1"),
     rail: sessionStorage.getItem("workspace-rail:private-project-old:writing:assistant"),
     workflowCard: sessionStorage.getItem("workflow-progress-card:private-task-old"),
-    theme: localStorage.getItem("novel_theme"),
+    theme: localStorage.getItem("nc-theme"),
   }))
 }
 
@@ -114,7 +114,7 @@ test("marker 缺失的公开邮箱登录会清除旧账号数据并写入账号 
     workflows: null,
     rail: null,
     workflowCard: null,
-    theme: "dark",
+    theme: "night",
   })
 })
 
@@ -134,7 +134,7 @@ test("公开模式启动时账号变化会清除旧账号数据", async ({ page 
     workflows: null,
     rail: null,
     workflowCard: null,
-    theme: "dark",
+    theme: "night",
   })
 })
 
@@ -166,6 +166,6 @@ test("真实退出入口会清除账号数据并保留主题", async ({ page }) 
     workflows: null,
     rail: null,
     workflowCard: null,
-    theme: "dark",
+    theme: "night",
   })
 })

@@ -305,9 +305,9 @@ POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派�
   业务操作前通过 project facade 确认项目仍活跃；不存在与已进入回收站的
   项目统一返回 404。
 - resume/abandon 先按 `task_id` 确认任务存在，再校验任务归属项目；
-  因此不存在任务仍保持原有 task 404，回收站项目不会触发恢复或清理。
-  owner 只通过 tasks facade 的最小投影读取，项目 404 不回显 owner ID、task
-  meta 或 result。
+  不存在任务与任务归属项目不可访问统一返回 `404 Not found`，避免泄漏 task
+  是否存在；回收站项目不会触发恢复或清理。owner 只通过 tasks facade 的
+  最小投影读取，404 不回显 owner ID、task meta 或 result。
 
 - 文件类型白名单：txt, epub, html, htm, mobi, azw3
 - 文件大小上限：50MB

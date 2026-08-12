@@ -489,6 +489,79 @@ describe("api.js cache behavior", () => {
     await expect(promiseB).resolves.toEqual([{ id: "p1", title: "Shared" }])
   })
 
+  it("starts a fresh related GET after a successful write and ignores the late stale response", async () => {
+    let resolveStaleList
+    let resolveFreshList
+    let listRequestCount = 0
+    globalThis.fetch = vi.fn((_url, init = {}) => {
+      const method = (init.method || "GET").toUpperCase()
+      if (method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ id: "p1", title: "Updated" }),
+        })
+      }
+      listRequestCount += 1
+      return new Promise((resolve) => {
+        if (listRequestCount === 1) resolveStaleList = resolve
+        else resolveFreshList = resolve
+      })
+    })
+
+    const staleRequest = window.api.projects.list()
+    await window.api.projects.update("p1", { title: "Updated" })
+    const freshRequest = window.api.projects.list()
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3)
+    resolveFreshList({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ id: "p1", title: "Updated" }]),
+    })
+    await expect(freshRequest).resolves.toEqual([{ id: "p1", title: "Updated" }])
+
+    resolveStaleList({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ id: "p1", title: "Stale" }]),
+    })
+    await expect(staleRequest).resolves.toEqual([{ id: "p1", title: "Updated" }])
+    await expect(window.api.projects.list()).resolves.toEqual([{ id: "p1", title: "Updated" }])
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3)
+  })
+
+  it("keeps an unrelated pending GET deduplicated after a successful write", async () => {
+    let resolveWorldList
+    globalThis.fetch = vi.fn((url, init = {}) => {
+      const method = (init.method || "GET").toUpperCase()
+      if (method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ id: "p1", title: "Updated" }),
+        })
+      }
+      if (String(url).includes("/world/entities")) {
+        return new Promise((resolve) => { resolveWorldList = resolve })
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`)
+    })
+
+    const first = window.api.request("/world/entities?novel_id=p1")
+    await window.api.projects.update("p1", { title: "Updated" })
+    const second = window.api.request("/world/entities?novel_id=p1")
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    resolveWorldList({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ id: "w1", name: "Harbor" }]),
+    })
+    await expect(first).resolves.toEqual([{ id: "w1", name: "Harbor" }])
+    await expect(second).resolves.toEqual([{ id: "w1", name: "Harbor" }])
+  })
+
   it("GET with external abort signal does not poison the shared pending GET", async () => {
     const resolvers = []
     globalThis.fetch = vi.fn((_url, init) => new Promise((resolve, reject) => {

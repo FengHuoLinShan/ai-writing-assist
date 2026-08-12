@@ -27,7 +27,7 @@ import {
 // ─── P20 结构层级映射 ─────────────────────────────────
 const P20_TARGET_LABELS = {
   plot_thread: "剧情线",
-  outline_arc: "篇章纲",
+  outline_arc: "篇章",
   planned_scene: "细纲",
 }
 const P20_TARGET_BY_SUBVIEW = {
@@ -36,9 +36,11 @@ const P20_TARGET_BY_SUBVIEW = {
   scenes: "planned_scene",
 }
 
-function refreshOutlineIfActive() {
+function refreshPlotStructureIfActive(ownerProjectId) {
   const appState = getAppState()
   if (appState?.currentView !== "outline") return
+  if (!ownerProjectId || appState.currentProjectId !== ownerProjectId) return
+  if (!["threads", "arcs"].includes(appState.currentSubView)) return
   const router = getRouter()
   router?.refresh?.()
 }
@@ -117,19 +119,21 @@ function createOutlineWorkflowManager({
     state.submitting = false
   }
 
-  async function handleTerminal(progress, task = null) {
-    stop()
+  async function handleTerminal(progress, task, ownerProjectId, ownedTaskId) {
     if (!progress.done || clearOnDone) {
-      clearActiveWorkflow(progress.taskId || state.taskId)
-      state.taskId = null
+      clearActiveWorkflow(progress.taskId || ownedTaskId)
     }
+    if (state.ownerProjectId !== ownerProjectId || state.taskId !== ownedTaskId) return
+    stop()
+    if (!progress.done || clearOnDone) state.taskId = null
     state.progress = progress
-    await onTerminal?.(progress, state, task)
+    await onTerminal?.(progress, state, task, ownerProjectId)
   }
 
   function startPolling(taskId, novelId = null) {
     stop()
     const api = getApi()
+    const ownerProjectId = state.ownerProjectId
     const opts = {
       taskId,
       workflowType,
@@ -139,8 +143,8 @@ function createOutlineWorkflowManager({
         state.status = progress.statusLabel || progress.status || "运行中"
         onUpdate?.(progress)
       },
-      onDone: (progress, task) => { void handleTerminal(progress, task) },
-      onFailed: (progress, task) => { void handleTerminal(progress, task) },
+      onDone: (progress, task) => { void handleTerminal(progress, task, ownerProjectId, taskId) },
+      onFailed: (progress, task) => { void handleTerminal(progress, task, ownerProjectId, taskId) },
     }
     if (useNovelId && novelId) opts.novelId = novelId
     poller = pollTaskProgress(opts)
@@ -417,7 +421,7 @@ export function outlineAnalysisContextSummary(confirmation) {
 // ─── Plot Auto Extract Manager ───────────────────────────────────────────
 
 /**
- * 剧情线/篇章纲自动提取管理器。
+ * 剧情线/篇章自动提取管理器。
  * 终态完成触发 router.refresh()（等价 vanilla onEnter + refresh）。
  */
 export const plotAutoExtractManager = createOutlineWorkflowManager({
@@ -427,11 +431,11 @@ export const plotAutoExtractManager = createOutlineWorkflowManager({
     workflows.find((item) => item.workflowType === "plot_structure_auto_extraction" && item.view === "outline")
     || workflows.find((item) => item.workflowType === "plot_structure_auto_extraction")
   ),
-  onTerminal: async (progress) => {
+  onTerminal: async (progress, _state, _task, ownerProjectId) => {
     const toast = getToast()
     if (progress.done) {
       toast(`${progress.label || "剧情线自动提取"}完成`, "success")
-      refreshOutlineIfActive()
+      refreshPlotStructureIfActive(ownerProjectId)
       return
     }
     if (progress.failed || progress.cancelled) {
@@ -443,7 +447,7 @@ export const plotAutoExtractManager = createOutlineWorkflowManager({
 /** 基于 currentSubView 返回提取动作标签（对应 vanilla _plotAutoExtractLabel L1070-1072）。 */
 export function plotAutoExtractLabel(subView) {
   const s = subView || getAppState()?.currentSubView || "threads"
-  return s === "arcs" ? "从正文提取篇章纲" : "从正文提取剧情线"
+  return s === "arcs" ? "从正文提取篇章" : "从正文提取剧情线"
 }
 
 // ─── 当前 P20 target 辅助 ────────────────────────────────────────────────

@@ -2,13 +2,14 @@
  * WorldObjectsTab 测试 — 渲染契约、筛选导航、热点概览、提取抽屉、批次分组、批量。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { enableAutoUnmount, mount, shallowMount } from "@vue/test-utils"
 
 vi.mock("../../../../shared/referencePicker.js", () => ({
   createReferencePicker: vi.fn(() => ({ destroy: vi.fn(), resolve: vi.fn() })),
 }))
 
 import WorldObjectsTab from "../../../vue/views/world/components/WorldObjectsTab.vue"
+import WorldView from "../../../vue/views/world/WorldView.vue"
 import { autoExtractManager } from "../../../vue/views/world/workflowManagers.js"
 import { resetWorldSession, worldSession } from "../../../vue/views/world/worldSession.js"
 import { getBulkSelection } from "../../../vue/views/world/logic/worldBulkSelection.js"
@@ -62,6 +63,22 @@ afterEach(() => {
 })
 
 describe("表格渲染契约", () => {
+  it("知识 deep link 打开既有角色知识进程", async () => {
+    const listKnowledge = vi.fn(async () => ({ items: [], total: 0 }))
+    const getEntity = vi.fn(async () => ENTITIES[1])
+    const showModalHtml = vi.fn()
+    setBridgeOverrides({
+      api: { world: { listKnowledge, getEntity } },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+      toast: toastMock,
+      showModalHtml,
+    })
+    mountTab({ knowledgeCharacterId: "e2" })
+    await vi.waitFor(() => expect(listKnowledge).toHaveBeenCalledWith("e2", "p-obj"))
+    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledWith("人物认知进程", expect.any(String), expect.any(Array), { size: "large" }))
+  })
+
   it("行/复选框/状态/来源/注意列与 vanilla 一致", () => {
     const wrapper = mountTab()
     const rows = wrapper.findAll("tbody tr[data-id]")
@@ -131,6 +148,57 @@ describe("筛选", () => {
     await toggle.trigger("click")
     expect(toggle.attributes("aria-expanded")).toBe("true")
     expect(JSON.parse(localStorage.getItem("novel_world_filter_panels:p-obj")).objects).toBe(true)
+  })
+
+  it("同一 query 重挂载保留未应用草稿，外部 query 变更仍以 URL 为准", async () => {
+    const first = mountTab()
+    await first.find("#filter-q").setValue("尚未应用")
+    first.unmount()
+
+    const remounted = mountTab()
+    expect(remounted.find("#filter-q").element.value).toBe("尚未应用")
+    remounted.unmount()
+
+    const external = mountTab({
+      objectFilters: {
+        entity_type: "", display_state: "active", q: "外部链接", source: "",
+        workflow_id: "", needs_review: "", auto_ingested: "", focus: "", skip: 0, limit: 20,
+      },
+    })
+    expect(external.find("#filter-q").element.value).toBe("外部链接")
+  })
+})
+
+describe("页内视图控件", () => {
+  it("卡片/表格只切本地呈现并同步 query，不重挂载", async () => {
+    const commitCurrentQuery = vi.fn(() => true)
+    setBridgeOverrides({
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(), commitCurrentQuery },
+    })
+    const wrapper = shallowMount(WorldView, {
+      attachTo: document.body,
+      props: {
+        projectId: "p-obj",
+        subView: "objects",
+        objectFilters: { display_state: "active", skip: 0, limit: 20 },
+        objectViewMode: "table",
+        discoveryMode: "hot",
+      },
+    })
+    const root = wrapper.element
+    const card = wrapper.get('[data-action="set-object-view"][data-view-mode="card"]')
+    card.element.focus()
+
+    await card.trigger("click")
+
+    expect(wrapper.element).toBe(root)
+    expect(document.activeElement).toBe(card.element)
+    expect(card.classes()).toContain("btn-primary")
+    expect(wrapper.findComponent(WorldObjectsTab).props("objectViewMode")).toBe("card")
+    expect(commitCurrentQuery).toHaveBeenCalledTimes(1)
+    expect(commitCurrentQuery.mock.calls[0][0].get("view")).toBe("card")
+    expect(navigateMock).not.toHaveBeenCalled()
   })
 })
 

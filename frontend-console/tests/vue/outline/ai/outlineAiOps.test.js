@@ -304,6 +304,57 @@ describe("applyOutlineGeneratePreview", () => {
     expect(refresh).toHaveBeenCalled()
     expect(closeModal).toHaveBeenCalled()
   })
+
+  it("旧项目页的采用响应不改动新页面或新预览", async () => {
+    let resolveApply
+    const applyStructurePreview = vi.fn(() => new Promise((resolve) => { resolveApply = resolve }))
+    const bridge = setupBridge({ api: { outline: { applyStructurePreview } } })
+    const oldPreview = {
+      sourceTaskId: "st-old",
+      contextConfirmationId: "cc-old",
+      draftStructure: { threads: [] },
+      target: "plot_thread",
+    }
+    outlineGenerateManager.state.preview = oldPreview
+    document.body.innerHTML = '<textarea id="outline-layer-preview-json">{"threads":[]}</textarea>'
+
+    const pending = applyOutlineGeneratePreview()
+    await vi.waitFor(() => expect(applyStructurePreview).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p-test",
+      source_task_id: "st-old",
+    })))
+
+    const newPreview = { ...oldPreview, sourceTaskId: "st-new" }
+    bridge.state.currentProjectId = "p-next"
+    bridge.state.currentSubView = "arcs"
+    outlineGenerateManager.state.preview = newPreview
+    document.body.innerHTML = '<textarea id="outline-layer-preview-json">{"arcs":[]}</textarea>'
+    resolveApply({ target: "plot_thread", total_threads: 1 })
+
+    await expect(pending).resolves.toBe(true)
+    expect(outlineGenerateManager.state.preview).toMatchObject({ sourceTaskId: "st-new" })
+    expect(bridge.closeModal).not.toHaveBeenCalled()
+    expect(bridge.toast).not.toHaveBeenCalled()
+    expect(bridge.router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("当前预览采用失败时保持弹窗并返回 false", async () => {
+    const bridge = setupBridge({
+      api: { outline: { applyStructurePreview: vi.fn(async () => { throw new Error("版本冲突") }) } },
+    })
+    outlineGenerateManager.state.preview = {
+      sourceTaskId: "st-current",
+      contextConfirmationId: "cc-current",
+      draftStructure: { threads: [] },
+      target: "plot_thread",
+    }
+    document.body.innerHTML = '<textarea id="outline-layer-preview-json">{"threads":[]}</textarea>'
+
+    await expect(applyOutlineGeneratePreview()).resolves.toBe(false)
+    expect(bridge.toast).toHaveBeenCalledWith("版本冲突", "error")
+    expect(bridge.closeModal).not.toHaveBeenCalled()
+    expect(bridge.router.refresh).not.toHaveBeenCalled()
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -480,6 +531,31 @@ describe("showPlotStructureAutoExtractForm", () => {
     )
     expect(closeModal).toHaveBeenCalled()
     expect(plotAutoExtractManager.state.taskId).toBe("task-plot1")
+  })
+
+  it("严格拒绝非正整数和倒序章节范围", async () => {
+    const startStage = vi.fn()
+    const showModalHtml = vi.fn()
+    const toast = vi.fn()
+    setupBridge({ api: { imports: { startStage } }, showModalHtml, toast })
+    showPlotStructureAutoExtractForm()
+    const handler = showModalHtml.mock.calls[0][2][0].handler
+    document.body.innerHTML = `
+      <input id="plot-auto-extract-start" value="1.5" />
+      <input id="plot-auto-extract-end" value="5" />
+    `
+
+    await expect(handler()).resolves.toBe(false)
+    expect(toast).toHaveBeenLastCalledWith("章节范围必须是正整数", "warning")
+
+    document.getElementById("plot-auto-extract-start").value = "0"
+    await expect(handler()).resolves.toBe(false)
+    expect(toast).toHaveBeenLastCalledWith("章节范围必须是正整数", "warning")
+
+    document.getElementById("plot-auto-extract-start").value = "6"
+    await expect(handler()).resolves.toBe(false)
+    expect(toast).toHaveBeenLastCalledWith("结束章节必须 ≥ 起始章节", "warning")
+    expect(startStage).not.toHaveBeenCalled()
   })
 
   it("同步双击只提交一次，并在完成后释放锁", async () => {

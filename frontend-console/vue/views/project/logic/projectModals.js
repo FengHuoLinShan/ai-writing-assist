@@ -6,7 +6,6 @@
 import {
   getApi,
   getAppState,
-  getCloseModal,
   getConfirmAction,
   getEsc,
   getRouter,
@@ -20,6 +19,24 @@ function mergeProject(projects, project) {
   return items.some((item) => item.id === project.id)
     ? items.map((item) => item.id === project.id ? { ...item, ...project } : item)
     : [...items, project]
+}
+
+function captureProjectModalOwner(control = null) {
+  const state = getAppState()
+  return {
+    control: control || document.querySelector("#modal-body > *"),
+    view: state?.currentView,
+  }
+}
+
+function ownsProjectModal(owner) {
+  const state = getAppState()
+  if (owner.view != null && state?.currentView !== owner.view) return false
+  if (!owner.control) return true
+  const overlay = document.getElementById("modal-overlay")
+  return owner.control.isConnected
+    && document.getElementById("modal-body")?.contains(owner.control)
+    && !overlay?.classList.contains("hidden")
 }
 
 /** 编辑项目（showModalHtml 表单 + 保存回写 state）。 */
@@ -70,6 +87,7 @@ export function editProject(id) {
       class: "btn-primary",
       handler: async () => {
         const titleInput = document.getElementById("edit-title")
+        const owner = captureProjectModalOwner(titleInput)
         const title = titleInput?.value.trim() || ""
         const genre = document.getElementById("edit-genre")?.value
         const tone = document.getElementById("edit-tone")?.value
@@ -92,6 +110,7 @@ export function editProject(id) {
 
         try {
           const updated = await getApi().projects.update(id, payload)
+          if (!ownsProjectModal(owner)) return true
           // 重赋值触发响应式（Vue 侧 useStateKey("projects") 依赖顶层 set）
           state.projects = (state.projects || []).map((p) => (
             p.id === id ? { ...p, ...updated } : p
@@ -100,8 +119,9 @@ export function editProject(id) {
             state.currentProject = { ...state.currentProject, ...updated }
           }
           getToast()("项目已更新", "success")
-          getCloseModal()()
+          return true
         } catch (err) {
+          if (!ownsProjectModal(owner)) return true
           getToast()(`保存失败：${err.message}`, "error")
           return false
         }
@@ -119,15 +139,20 @@ export function deleteProject(id, { clearCurrentProjectSelection } = {}) {
   getConfirmAction()(
     `确定要删除项目「${getEsc()(name)}」吗？删除后可在回收站中恢复。`,
     async () => {
+      const owner = captureProjectModalOwner()
       try {
         await getApi().projects.remove(id)
+        if (!ownsProjectModal(owner)) return true
         getToast()(`项目「${name}」已移至回收站`, "success")
+        state.projects = (state.projects || []).filter((item) => item.id !== id)
         if (state.currentProjectId === id) {
           clearCurrentProjectSelection?.()
         }
-        await getRouter().refresh()
+        return true
       } catch (err) {
+        if (!ownsProjectModal(owner)) return true
         getToast()(`删除失败：${err.message}`, "error")
+        return false
       }
     },
     "移至回收站",
@@ -176,6 +201,7 @@ export function showCreateForm() {
       class: "btn-primary",
       handler: async () => {
         const titleInput = document.getElementById("create-title")
+        const owner = captureProjectModalOwner(titleInput)
         const title = titleInput?.value.trim() || ""
         if (!title) {
           getToast()("请输入项目标题", "warning")
@@ -190,6 +216,7 @@ export function showCreateForm() {
             tone: document.getElementById("create-tone")?.value || "",
             language: "zh",
           })
+          if (!ownsProjectModal(owner)) return true
           getToast()(`项目 "${title}" 已创建`, "success")
           const state = getAppState()
           if (state) {
@@ -197,7 +224,9 @@ export function showCreateForm() {
             state.currentProject = project
           }
           getRouter().navigate("writing")
+          return true
         } catch (err) {
+          if (!ownsProjectModal(owner)) return true
           getToast()(`创建失败：${err.message}`, "error")
           return false
         }
@@ -218,6 +247,7 @@ function startImportAsNewProject(file) {
   getConfirmAction()(
     `将创建新项目「${projectName}」并导入文件「${file.name}」。是否继续？`,
     async () => {
+      const owner = captureProjectModalOwner()
       const state = getAppState()
       const selectionAtStart = state?.currentProjectId || null
       let createdProject = null
@@ -228,7 +258,7 @@ function startImportAsNewProject(file) {
           tone: "",
           language: "zh",
         })
-        if (state) {
+        if (state && ownsProjectModal(owner)) {
           state.projects = mergeProject(state.projects, createdProject)
           if ((state.currentProjectId || null) === selectionAtStart) {
             state.currentProjectId = createdProject.id
@@ -237,12 +267,15 @@ function startImportAsNewProject(file) {
         }
 
         const result = await getApi().imports.upload(createdProject.id, file)
+        getApi().clearCache()
+        if (!ownsProjectModal(owner)) return true
+        let projects = state?.projects
         try {
           const data = await getApi().projects.list()
-          if (state) state.projects = mergeProject(data.items || data || [], createdProject)
-        } catch {
-          if (state) state.projects = mergeProject(state.projects, createdProject)
-        }
+          if (!ownsProjectModal(owner)) return true
+          projects = data.items || data || []
+        } catch { /* keep the locally known project */ }
+        if (state) state.projects = mergeProject(projects, createdProject)
         const selectionUnchanged = !state || [selectionAtStart, createdProject.id].includes(state.currentProjectId || null)
         if (state && selectionUnchanged) {
           state.currentProjectId = createdProject.id
@@ -252,18 +285,19 @@ function startImportAsNewProject(file) {
           ? "，可在写作台按需启动场景自动提取"
           : ""
         toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
-        getApi().clearCache()
         if (selectionUnchanged) {
           await getRouter().navigate("writing")
-          await getRouter().refresh()
         }
+        return true
       } catch (err) {
         const detail = err.message || "导入失败"
         if (!createdProject) {
+          if (!ownsProjectModal(owner)) return true
           toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
-          return
+          return false
         }
         getApi().clearCache()
+        if (!ownsProjectModal(owner)) return true
         const selectionUnchanged = !state || [selectionAtStart, createdProject.id].includes(state.currentProjectId || null)
         if (state) {
           state.projects = mergeProject(state.projects, createdProject)
@@ -276,8 +310,8 @@ function startImportAsNewProject(file) {
         toast(`导入失败：${detail}。项目「${projectName}」${location}`, "error")
         if (selectionUnchanged) {
           await getRouter().navigate("project")
-          await getRouter().refresh()
         }
+        return true
       }
     },
     "创建并导入",
