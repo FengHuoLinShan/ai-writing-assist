@@ -12401,7 +12401,7 @@ kbd {
   cursor: default;
 }
 
-[data-theme="dark"] .rp-send-button:disabled {
+[data-theme="night"] .rp-send-button:disabled {
   background: var(--rp-accent-soft);
   color: var(--rp-dim);
 }

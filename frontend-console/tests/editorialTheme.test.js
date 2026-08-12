@@ -106,9 +106,9 @@ describe("editorial archive theme", () => {
     expect(desk).toMatch(/\.writing-sheet \.novel-editor:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--archive-red\);/s)
   })
 
-  it("keeps dark-theme disabled buttons on neutral paper instead of a light slab", () => {
-    expect(theme).toMatch(/\[data-theme="dark"\] \.btn:disabled,\s*\[data-theme="dark"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
-    expect(theme).toMatch(/\[data-theme="dark"\] \.btn-text:disabled,\s*\[data-theme="dark"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)
-    expect(styles).toMatch(/\[data-theme="dark"\] \.rp-send-button:disabled\s*\{[^}]*background:\s*var\(--rp-accent-soft\);/s)
+  it("keeps night-theme disabled buttons on neutral paper instead of a light slab", () => {
+    expect(theme).toMatch(/\[data-theme="night"\] \.btn:disabled,\s*\[data-theme="night"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
+    expect(theme).toMatch(/\[data-theme="night"\] \.btn-text:disabled,\s*\[data-theme="night"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)
+    expect(styles).toMatch(/\[data-theme="night"\] \.rp-send-button:disabled\s*\{[^}]*background:\s*var\(--rp-accent-soft\);/s)
   })
 })
