@@ -291,6 +291,31 @@ function getCurrentQuery() {
   return _currentQuery
 }
 
+/** 更新当前页的 query，不重新执行 onEnter/render。 */
+function commitCurrentQuery(query, historyMode = "replace") {
+  const mounted = _currentMountedRoute()
+  if (!mounted || _pendingRoute || _currentFailureRoute()) return false
+  if (historyMode !== "replace" && historyMode !== "push") return false
+  const route = mounted.route
+  if (
+    route.viewName !== state.currentView
+    || (route.subView || null) !== (state.currentSubView || null)
+    || (route.projectId || null) !== (state.currentProjectId || null)
+  ) return false
+  const nextQuery = new URLSearchParams(query?.toString?.() || "")
+  _currentQuery = nextQuery
+  route.query = new URLSearchParams(nextQuery)
+  const hash = _hashForRoute(route)
+  if (window.location.hash !== hash) {
+    window.history[historyMode === "push" ? "pushState" : "replaceState"]({
+      view: route.viewName,
+      subView: route.subView,
+      projectId: route.projectId,
+    }, "", hash)
+  }
+  return true
+}
+
 /**
  * 解析 hash，支持两种格式：
  * - workbench/:pid/:view[/:subView]
@@ -439,6 +464,24 @@ function _sameRoute(left, right) {
     && (left.projectId || null) === (right.projectId || null)
     && (left.query || new URLSearchParams()).toString()
       === (right.query || new URLSearchParams()).toString()
+}
+
+function _captureFocusedControl(content) {
+  const active = document.activeElement
+  if (!active || !content.contains(active)) return null
+  if (active.id) return { elementId: active.id }
+  const action = active.dataset?.action
+  if (!action) return null
+  return { action, dataId: active.dataset.id || null }
+}
+
+function _restoreFocusedControl(content, owner) {
+  if (!owner) return
+  const control = owner.elementId
+    ? content.querySelector(`#${CSS.escape(owner.elementId)}`)
+    : Array.from(content.querySelectorAll(`[data-action="${CSS.escape(owner.action)}"]`))
+      .find((item) => (item.dataset.id || null) === owner.dataId)
+  if (control && !control.disabled) control.focus({ preventScroll: true })
 }
 
 function _currentMountedRoute() {
@@ -867,6 +910,14 @@ async function renderCurrentView() {
   const forceRefresh = _forceRefresh
   _forceRefresh = false
   const currentMounted = _currentMountedRoute()
+  const preservedScrollTop = forceRefresh
+    && !failure
+    && _sameRoute(currentMounted?.route, routeState)
+    ? content.scrollTop
+    : null
+  const preservedFocus = preservedScrollTop === null
+    ? null
+    : _captureFocusedControl(content)
   const isSameRender = !forceRefresh
     && !failure
     && _sameRoute(currentMounted?.route, routeState)
@@ -934,6 +985,10 @@ async function renderCurrentView() {
           route: _copyRouteState(routeState),
           project: routeState.projectId ? state.currentProject : null,
         }
+      }
+      if (preservedScrollTop !== null) {
+        content.scrollTop = preservedScrollTop
+        _restoreFocusedControl(content, preservedFocus)
       }
     }
   } catch (err) {
@@ -1178,4 +1233,4 @@ async function initRouter() {
 }
 
 // 导出
-window.router = { navigate, replace, refresh, getCurrentView, getRoute, getSubViewTitle, registerView, registerViewLoader, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }
+window.router = { navigate, replace, refresh, commitCurrentQuery, getCurrentView, getRoute, getSubViewTitle, registerView, registerViewLoader, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }

@@ -282,14 +282,32 @@ export async function applyOutlineGeneratePreview() {
   const { api, state, toast, closeModal, router } = getBridge()
   const preview = outlineGenerateManager.state.preview
   if (!preview) return false
+  const owner = {
+    projectId: state?.currentProjectId,
+    view: state?.currentView,
+    subView: state?.currentSubView,
+    preview,
+    modal: document.getElementById("outline-layer-preview-json"),
+  }
+  const ownsResult = () => Boolean(
+    state?.currentProjectId === owner.projectId
+    && state?.currentView === owner.view
+    && state?.currentSubView === owner.subView
+    && outlineGenerateManager.state.preview === owner.preview
+    && (!owner.modal || (
+      owner.modal.isConnected
+      && document.getElementById("outline-layer-preview-json") === owner.modal
+    )),
+  )
   try {
     const response = await api.outline.applyStructurePreview({
-      novel_id: state?.currentProjectId,
+      novel_id: owner.projectId,
       context_confirmation_id: preview.contextConfirmationId,
       source_task_id: preview.sourceTaskId,
       draft_structure: collectEditedOutlineGeneratePreview(),
       confirmed: true,
     })
+    if (!ownsResult()) return true
     const appliedTarget = response?.target || preview.target || outlineGenerateManager.state.meta?.target || "plot_thread"
     clearOutlineGenerateWorkflowsForTarget(appliedTarget)
     resetOutlineGenerateState()
@@ -304,6 +322,7 @@ export async function applyOutlineGeneratePreview() {
     router?.refresh?.()
     return response
   } catch (err) {
+    if (!ownsResult()) return true
     toast(err.message || "采用失败", "error")
     return false
   }
@@ -544,9 +563,13 @@ export function showPlotStructureAutoExtractForm() {
     text: "确认并开始提取",
     class: "btn-primary",
     handler: async () => {
-      const start = parseInt(document.getElementById("plot-auto-extract-start")?.value || "1", 10)
-      const end = parseInt(document.getElementById("plot-auto-extract-end")?.value || "10", 10)
-      if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+      const start = Number(document.getElementById("plot-auto-extract-start")?.value)
+      const end = Number(document.getElementById("plot-auto-extract-end")?.value)
+      if (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < 1) {
+        toast("章节范围必须是正整数", "warning")
+        return false
+      }
+      if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return false }
       const appState = getAppState()
       const projectId = appState?.currentProjectId
       if (!projectId) {

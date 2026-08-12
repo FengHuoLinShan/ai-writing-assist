@@ -32,8 +32,8 @@
               <div class="world-view-options__panel">
                 <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "收起" : "打开" }} AI 资料整理</button>
                 <span class="world-object-view-toggle" role="group" aria-label="人物与设定视图">
-                  <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'card' }" data-action="set-object-view" data-view-mode="card" @click="setObjectViewMode('card')">卡片</button>
-                  <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'table' }" data-action="set-object-view" data-view-mode="table" @click="setObjectViewMode('table')">表格</button>
+                  <button class="btn btn-sm" :class="{ 'btn-primary': localObjectViewMode === 'card' }" data-action="set-object-view" data-view-mode="card" @click="setObjectViewMode('card')">卡片</button>
+                  <button class="btn btn-sm" :class="{ 'btn-primary': localObjectViewMode === 'table' }" data-action="set-object-view" data-view-mode="table" @click="setObjectViewMode('table')">表格</button>
                 </span>
                 <span class="world-discovery-mode-toggle" role="group" aria-label="资料排序">
                   <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'hot' }" data-action="set-discovery-mode" data-mode="hot" @click="setDiscoveryMode('hot')">最近相关</button>
@@ -48,12 +48,12 @@
         </div>
       </div>
     </div>
-    <component :is="activeTab" v-bind="$props" v-if="activeTab" />
+    <component :is="activeTab" v-bind="$props" :object-view-mode="localObjectViewMode" v-if="activeTab" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { getAppState, getRouter } from "../../bridge/index.js"
 import { worldSession as session } from "./worldSession.js"
 import { objectQueryFromState } from "./logic/worldQuery.js"
@@ -108,6 +108,8 @@ const props = defineProps({
 
 const rootEl = ref(null)
 const attentionMenu = ref(null)
+const localObjectViewMode = ref(props.objectViewMode === "card" ? "card" : "table")
+watch(() => props.objectViewMode, (mode) => { localObjectViewMode.value = mode === "card" ? "card" : "table" })
 
 const TAB_COMPONENTS = {
   objects: WorldObjectsTab,
@@ -146,13 +148,20 @@ function navigateSub(sub) {
   getRouter()?.navigate("world", sub)
 }
 
-function navigateObjectsQuery(nextFilters, viewMode = props.objectViewMode, mode = props.discoveryMode) {
-  getRouter()?.navigate("world", "objects", true, objectQueryFromState(nextFilters, viewMode, mode))
+function navigateObjectsQuery(nextFilters, viewMode = localObjectViewMode.value, mode = props.discoveryMode) {
+  const query = objectQueryFromState(nextFilters, viewMode, mode)
+  if (session.objectFilterDraft) session.objectFilterDraft.routeSignature = query.toString()
+  getRouter()?.navigate("world", "objects", true, query)
 }
 
 /** 对应 vanilla _setObjectViewMode（worldView.js:1293 区域）。 */
 function setObjectViewMode(mode) {
-  navigateObjectsQuery(props.objectFilters, mode === "card" ? "card" : "table")
+  const next = mode === "card" ? "card" : "table"
+  if (next === localObjectViewMode.value) return
+  localObjectViewMode.value = next
+  const query = objectQueryFromState(props.objectFilters, next, props.discoveryMode)
+  if (session.objectFilterDraft) session.objectFilterDraft.routeSignature = query.toString()
+  if (getRouter()?.commitCurrentQuery?.(query) !== true) navigateObjectsQuery(props.objectFilters, next)
 }
 
 /** 对应 vanilla _setDiscoveryMode（worldView.js:1293 区域）：记偏好、清批量、复位 focus/skip。 */
@@ -165,7 +174,7 @@ function setDiscoveryMode(mode) {
     // 偏好写入失败不阻断列表使用。
   }
   clearBulkSelection("world-objects")
-  navigateObjectsQuery({ ...props.objectFilters, focus: "", skip: 0 }, props.objectViewMode, mode)
+  navigateObjectsQuery({ ...props.objectFilters, focus: "", skip: 0 }, localObjectViewMode.value, mode)
 }
 
 /** 对应 vanilla _toggleAutoExtract（worldView.js:842-845）；响应式重绘取代 router.refresh。 */

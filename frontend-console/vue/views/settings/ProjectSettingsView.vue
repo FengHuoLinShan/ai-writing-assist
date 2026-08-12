@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
 import SourceLabel from "./components/SourceLabel.vue"
-import { getApi, getConfirm, getRouter, getToast } from "../../bridge/index.js"
+import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { projectSettingsSession } from "./projectSettingsSession.js"
@@ -48,6 +48,15 @@ const deepImportForm = ref(
 )
 const authorBaseline = ref(JSON.stringify(authorForm.value))
 const deepImportBaseline = ref(JSON.stringify(deepImportForm.value))
+let disposed = false
+
+function ownsProjectSettings(projectId) {
+  const state = getAppState()
+  return !disposed
+    && props.projectId === projectId
+    && state?.currentProjectId === projectId
+    && state?.currentView === "project-settings"
+}
 
 const dataReady = computed(() => Boolean(effectiveLLM.value && effectivePrefs.value))
 const deepImportSource = computed(() => (
@@ -109,40 +118,56 @@ function gotoGlobalSettings() {
 async function refreshEffective({
   author = true,
   deepImport = true,
-} = {}) {
+} = {}, projectId = props.projectId) {
   const api = getApi()
   const [llm, prefs] = await Promise.all([
-    api.settings.getEffectiveLLMSettings(props.projectId),
-    api.settings.getEffectiveAuthorPrefs(props.projectId),
+    deepImport ? api.settings.getEffectiveLLMSettings(projectId) : null,
+    author ? api.settings.getEffectiveAuthorPrefs(projectId) : null,
   ])
-  effectiveLLM.value = llm
-  effectivePrefs.value = prefs
+  if (!ownsProjectSettings(projectId)) return false
   if (author) {
+    effectivePrefs.value = prefs
     authorForm.value = authorFormFromEffective(prefs)
     authorBaseline.value = JSON.stringify(authorForm.value)
   }
   if (deepImport) {
+    effectiveLLM.value = llm
     deepImportForm.value = deepImportFormFromSettings(deepImportSettingsSource(llm))
     deepImportBaseline.value = JSON.stringify(deepImportForm.value)
+  }
+  return true
+}
+
+async function reconcileAfterMutation(options, projectId) {
+  try {
+    return await refreshEffective(options, projectId)
+  } catch (err) {
+    if (ownsProjectSettings(projectId)) {
+      getToast()(`已保存，但重新读取最新设置失败：${err.message || "未知错误"}`, "warning")
+    }
+    return false
   }
 }
 
 async function saveDeepImport() {
+  const projectId = props.projectId
   const toast = getToast()
   const submittedForm = JSON.stringify(deepImportForm.value)
   const out = buildDeepImportPayload(deepImportForm.value)
   if (!out.ok) return toast(out.error, "warning")
   deepImportButton.saving.value = true
   try {
-    await getApi().projects.updateLlmSettings(props.projectId, {
+    await getApi().projects.updateLlmSettings(projectId, {
       deep_import: out.value,
     })
+    if (!ownsProjectSettings(projectId)) return
     toast("深度导入参数已保存", "success")
-    await refreshEffective({
+    await reconcileAfterMutation({
       author: false,
       deepImport: JSON.stringify(deepImportForm.value) === submittedForm,
-    })
+    }, projectId)
   } catch (err) {
+    if (!ownsProjectSettings(projectId)) return
     toast(err.message || "保存失败", "error")
     deepImportButton.flashError()
   } finally {
@@ -152,17 +177,21 @@ async function saveDeepImport() {
 
 async function resetDeepImport() {
   if (!getConfirm()("将清除项目深度导入覆盖，恢复默认。继续？")) return
+  const projectId = props.projectId
   const toast = getToast()
   try {
-    await getApi().settings.resetLLMSettingsField(props.projectId, "deep_import")
+    await getApi().settings.resetLLMSettingsField(projectId, "deep_import")
+    if (!ownsProjectSettings(projectId)) return
     toast("深度导入参数已恢复默认", "success")
-    await refreshEffective({ author: false })
+    await reconcileAfterMutation({ author: false }, projectId)
   } catch (err) {
+    if (!ownsProjectSettings(projectId)) return
     toast(err.message || "重置失败", "error")
   }
 }
 
 async function saveAuthorPrefs() {
+  const projectId = props.projectId
   const toast = getToast()
   const submittedForm = JSON.stringify(authorForm.value)
   const prefs = buildAuthorPrefsPayload(authorForm.value)
@@ -170,13 +199,15 @@ async function saveAuthorPrefs() {
   if (!validation.ok) return toast(validation.message, "warning")
   authorButton.saving.value = true
   try {
-    await getApi().settings.updateProjectAuthorPrefs(props.projectId, prefs)
+    await getApi().settings.updateProjectAuthorPrefs(projectId, prefs)
+    if (!ownsProjectSettings(projectId)) return
     toast("作者偏好已保存", "success")
-    await refreshEffective({
+    await reconcileAfterMutation({
       author: JSON.stringify(authorForm.value) === submittedForm,
       deepImport: false,
-    })
+    }, projectId)
   } catch (err) {
+    if (!ownsProjectSettings(projectId)) return
     toast(err.message || "保存失败", "error")
     authorButton.flashError()
   } finally {
@@ -185,11 +216,14 @@ async function saveAuthorPrefs() {
 }
 
 async function resetAuthorPrefsField(field) {
+  const projectId = props.projectId
   const toast = getToast()
   const submittedFieldValue = authorForm.value[field]
   try {
-    await getApi().settings.resetProjectAuthorPrefsField(props.projectId, field)
-    const prefs = await getApi().settings.getEffectiveAuthorPrefs(props.projectId)
+    await getApi().settings.resetProjectAuthorPrefsField(projectId, field)
+    if (!ownsProjectSettings(projectId)) return
+    const prefs = await getApi().settings.getEffectiveAuthorPrefs(projectId)
+    if (!ownsProjectSettings(projectId)) return
     const refreshedForm = authorFormFromEffective(prefs)
     effectivePrefs.value = prefs
 
@@ -201,6 +235,7 @@ async function resetAuthorPrefsField(field) {
     }
     toast(`${field} 已恢复到全局默认`, "success")
   } catch (err) {
+    if (!ownsProjectSettings(projectId)) return
     toast(err.message || "重置失败", "error")
   }
 }
@@ -222,7 +257,10 @@ function beforeUnload(event) {
 }
 
 onMounted(() => window.addEventListener("beforeunload", beforeUnload))
-onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
+onBeforeUnmount(() => {
+  disposed = true
+  window.removeEventListener("beforeunload", beforeUnload)
+})
 </script>
 
 <template>

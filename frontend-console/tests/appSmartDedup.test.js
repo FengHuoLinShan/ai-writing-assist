@@ -26,6 +26,7 @@ beforeEach(() => {
     esc,
     onRenderActions: () => App._renderGlobalActions(),
     getCurrentProjectId: () => state.currentProjectId,
+    getCurrentRouteKey: () => `${state.currentView || ""}:${state.currentSubView || ""}`,
   })
   App._bindGlobalActions()
   localStorage.clear()

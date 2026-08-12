@@ -160,7 +160,8 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
 - `get_index_freshness(db, novel_id, *, content_mode, chapter_from=None, chapter_to=None) -> dict`
   - 返回指定模式/范围的 fresh/stale 状态
 - `get_index_status(db, novel_id) -> dict`
-  - 返回索引统计、配置/实际向量维度、可重试 embedding 数、worker runtime 快照
+  - 返回索引统计、配置/实际向量维度、可重试 embedding 数、worker runtime 快照，以及该
+    `novel_id` 的检索熔断状态
 - `prewarm_embedding_runtime() -> dict`
   - 预热本地 embedding worker 并返回维度、耗时和缓存统计
 - `get_ordered_chapter_chunks(db, novel_id, start_chapter, end_chapter=None) -> list[RagChunkContract]`

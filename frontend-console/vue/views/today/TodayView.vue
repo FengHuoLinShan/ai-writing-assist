@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import { clearActiveWorkflow } from "../../../shared/workflowProgress.js"
 import { getRouter } from "../../bridge/index.js"
 
@@ -11,6 +11,8 @@ const props = defineProps({
 })
 
 const router = getRouter()
+const dismissedWorkflowIds = ref(new Set())
+const visibleWorkflows = computed(() => props.workflows.filter((workflow) => !dismissedWorkflowIds.value.has(workflow.taskId)))
 const projectTitle = computed(() => props.project?.title || props.project?.name || "当前作品")
 const continuation = computed(() => props.summary?.continuation || null)
 const writing = computed(() => props.summary?.writing || { chapter_count: 0, word_count: 0 })
@@ -18,7 +20,7 @@ const attention = computed(() => props.summary?.attention || {})
 const importWorkflow = computed(() => (
   continuation.value
     ? null
-    : props.workflows.find((workflow) => workflow.workflowType === "deep_import") || null
+    : visibleWorkflows.value.find((workflow) => workflow.workflowType === "deep_import") || null
 ))
 const resumeTitle = computed(() => {
   if (continuation.value) return continuation.value.title
@@ -102,7 +104,7 @@ function openWorkflow(workflow) {
 
 function dismissWorkflow(workflow) {
   clearActiveWorkflow(workflow.taskId)
-  router.refresh()
+  dismissedWorkflowIds.value = new Set([...dismissedWorkflowIds.value, workflow.taskId])
 }
 
 function retry() {
@@ -155,10 +157,10 @@ function retry() {
       </div>
     </section>
 
-    <section v-if="workflows.length" class="today-section" aria-labelledby="today-workflows-title">
+    <section v-if="visibleWorkflows.length" class="today-section" aria-labelledby="today-workflows-title">
       <div class="today-section__heading"><div><h2 id="today-workflows-title">正在进行的整理</h2><p>离开页面不会中断，失败也不会覆盖原内容。</p></div></div>
       <div class="today-workflow-list">
-        <article v-for="workflow in workflows" :key="workflow.taskId" class="today-workflow-card" :class="{ 'is-warning': workflow.failed || workflow.stateUnknown }">
+        <article v-for="workflow in visibleWorkflows" :key="workflow.taskId" class="today-workflow-card" :class="{ 'is-warning': workflow.failed || workflow.stateUnknown }">
           <div class="today-workflow-card__copy"><strong>{{ workflowLabel(workflow) }}</strong><span>{{ workflowStatus(workflow) }}</span></div>
           <progress v-if="workflow.percent != null && !workflow.failed" max="100" :value="workflow.percent" :aria-label="workflowStatus(workflow)"></progress>
           <div class="today-workflow-card__actions">

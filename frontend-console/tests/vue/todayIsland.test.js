@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../vue/bridge/index.js"
-import { persistActiveWorkflow } from "../../shared/workflowProgress.js"
+import { persistActiveWorkflow, recoverActiveWorkflows } from "../../shared/workflowProgress.js"
 import { loadTodayProps } from "../../vue/todayIsland.js"
 import TodayView from "../../vue/views/today/TodayView.vue"
 
@@ -81,5 +81,24 @@ describe("todayIsland", () => {
     expect(wrapper.findAll(".today-resume .btn-primary")).toHaveLength(1)
     await primary.trigger("click")
     expect(router.navigate).toHaveBeenCalledWith("writing", null)
+  })
+
+  it("隐藏首页任务只更新本地卡片，不整页刷新", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    persistActiveWorkflow({ taskId: "failed-task", workflowType: "writing_generate", projectId: "p1" })
+    setBridgeOverrides({ router })
+    const wrapper = mount(TodayView, {
+      props: {
+        project: { id: "p1", title: "雾港" },
+        summary: { continuation: null, writing: {}, attention: {} },
+        workflows: [{ taskId: "failed-task", workflowType: "writing_generate", failed: true }],
+      },
+    })
+
+    await wrapper.get(".today-workflow-card__actions .btn-ghost").trigger("click")
+
+    expect(wrapper.find(".today-workflow-card").exists()).toBe(false)
+    expect(recoverActiveWorkflows("p1")).toEqual([])
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 })

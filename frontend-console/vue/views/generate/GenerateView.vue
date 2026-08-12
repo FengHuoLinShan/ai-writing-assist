@@ -104,7 +104,11 @@ const world = reactive({ sourcePage: props.sourcePage, sourceDraft: props.source
 const pov = reactive({ chapters: props.povChapters, scenes: [], characters: props.povCharacters, warning: props.povLoadWarning, loaded: props.tab === "pov_prose", loading: false })
 const povForm = ref({ chapterIndex: null, sceneId: "", viewpointCharacterId: "", instruction: "" })
 const povSubmission = ref(null); const povPending = ref(false); const povProgress = ref(null); const povError = ref("")
-let ownedModal = false
+let modalGeneration = 0
+let ownedModal = null
+let povSceneGeneration = 0
+let copiedBuiltinTemplate = null
+let templateMutationPending = false
 
 const tabs = [{ key: "world", label: "世界设定" }, { key: "pov_prose", label: "角色视角正文" }, { key: "task", label: "任务" }, { key: "preview", label: "上下文预览" }]
 const projectTitle = computed(() => appState?.currentProject?.title || appState?.currentProject?.name || "")
@@ -219,8 +223,9 @@ async function generateWorldSuggestion() {
 async function applyWorldPage(payload) {
   if (worldBusy.value) return false
   const suggestionId = worldResult.value?.suggestion?.id || session.suggestionId; if (!suggestionId || worldResult.value?.kind === "core_entity") return
+  const submittedDraft = JSON.stringify(session.pageProposalDraft)
   applyPending.value = true; const scope = owner.begin()
-  try { const response = await api.generate.applyWorldPageDraft(suggestionId, payload, props.projectId, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; discardPageProposalDraft(); persist(); toast("提案已应用到工作稿，尚未发布", "success"); const query = new URLSearchParams({ draft_id: response.draft.id }); if (response.draft.page_id) query.set("page_id", response.draft.page_id); router.navigate("world", "bible", true, query) }
+  try { const response = await api.generate.applyWorldPageDraft(suggestionId, payload, props.projectId); if (JSON.stringify(session.pageProposalDraft) === submittedDraft) { discardPageProposalDraft(); persist() } if (!owner.isActive(scope)) return; toast("提案已应用到工作稿，尚未发布", "success"); const query = new URLSearchParams({ draft_id: response.draft.id }); if (response.draft.page_id) query.set("page_id", response.draft.page_id); router.navigate("world", "bible", true, query) }
   catch (err) { if (!owner.isActive(scope)) return; toast(err?.status === 409 ? "来源工作稿已变更，本次提案未覆盖新修改。请重新生成。" : `应用失败：${err?.message || "未知错误"}`, err?.status === 409 ? "warning" : "error") }
   finally { owner.finish(scope); applyPending.value = false }
 }
@@ -229,13 +234,13 @@ function selectTarget(kind) { if (kind === props.targetKind) return; if (!confir
 function returnToWorldBible() { if (!confirmDiscard("整页提案仍有未应用的编辑，确定放弃修改并离开吗？")) return; persist(); const query = new URLSearchParams(); if (props.sourcePageId) query.set("page_id", props.sourcePageId); router.navigate("world", "bible", true, query) }
 function openReview() { router.navigate("world", "review-objects", true) }
 
-async function changePovChapter(value) { povForm.value = { ...povForm.value, chapterIndex: value ? Number(value) : null, sceneId: "", viewpointCharacterId: "" }; povSubmission.value = null; pov.scenes = []; if (!value) return; const scope = owner.begin(); try { const data = await api.outline.listScenesByChapter(props.projectId, Number(value)); if (owner.isActive(scope)) pov.scenes = Array.isArray(data) ? data : data?.items || [] } catch (err) { if (owner.isActive(scope)) pov.warning = `加载场景失败：${err?.message || "未知错误"}` } finally { owner.finish(scope) } }
+async function changePovChapter(value) { const chapterIndex = value ? Number(value) : null; const generation = ++povSceneGeneration; povForm.value = { ...povForm.value, chapterIndex, sceneId: "", viewpointCharacterId: "" }; povSubmission.value = null; pov.scenes = []; if (!chapterIndex) return; const scope = owner.begin(); try { const data = await api.outline.listScenesByChapter(props.projectId, chapterIndex); if (generation === povSceneGeneration && Number(povForm.value.chapterIndex) === chapterIndex && owner.isActive(scope)) pov.scenes = Array.isArray(data) ? data : data?.items || [] } catch (err) { if (generation === povSceneGeneration && Number(povForm.value.chapterIndex) === chapterIndex && owner.isActive(scope)) pov.warning = `加载场景失败：${err?.message || "未知错误"}` } finally { owner.finish(scope) } }
 function changePovScene(id) { const scene = pov.scenes.find((item) => item.id === id); povForm.value = { ...povForm.value, sceneId: id || "", viewpointCharacterId: scene?.pov_character_id || "" }; povSubmission.value = null }
 function abortableDelay(ms, signal) { return new Promise((resolve, reject) => { const timer = setTimeout(resolve, ms); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")) }, { once: true }) }) }
 async function waitForPovTask(taskId, scope) { while (owner.isActive(scope)) { let task; try { task = await api.tasks.get(taskId, props.projectId) } catch (err) { if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); await abortableDelay(1500, scope.controller.signal); continue } if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); povProgress.value = Number(task?.progress || 0); if (task?.status === "done") { if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载"); return task } if (task?.status === "failed") throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败"); if (task?.status === "cancelled") throw new Error("角色视角正文生成已取消"); await abortableDelay(1500, scope.controller.signal) } throw new DOMException("Aborted", "AbortError") }
 async function generatePov() {
   if (povPending.value) return false
-  const form = povForm.value; if (!form.chapterIndex) return toast("请先选择章节", "warning"); if (!form.sceneId) return toast("请先选择场景", "warning"); if (!form.viewpointCharacterId) return toast("请先选择视角角色", "warning")
+  const form = { ...povForm.value }; if (!form.chapterIndex) return toast("请先选择章节", "warning"); if (!form.sceneId) return toast("请先选择场景", "warning"); if (!form.viewpointCharacterId) return toast("请先选择视角角色", "warning")
   povPending.value = true; povProgress.value = null; povError.value = ""; const scope = owner.begin()
   try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选场景和视角角色的有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0 }); if (!owner.isActive(scope)) return; let result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(form.instruction, confirmation.user_note), context_confirmation_id: confirmation.id }); if (!owner.isActive(scope)) return; if (result?.task_id && !result?.draft_id) { const task = await waitForPovTask(result.task_id, scope); result = { ...result, ...(task.result || {}), task_status: task.status } } if (!owner.isActive(scope)) return; povSubmission.value = { result, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId }; toast("角色视角正文建议已生成", "success") }
   catch (err) { if (!owner.isActive(scope) || err?.name === "AbortError") return; if (err?.message === "已取消 AI 参考资料确认") return; povError.value = err?.message || "未知错误"; toast(`角色视角正文生成失败：${povError.value}`, "error") }
@@ -251,19 +256,138 @@ function copyTaskMarkdown() { if (!lastContextMarkdown.value) return; navigator.
 function exportTaskMarkdown() { if (!lastContextMarkdown.value) return; const url = URL.createObjectURL(new Blob([lastContextMarkdown.value], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = `context-${projectTitle.value || "project"}-${Date.now()}.md`; link.click(); URL.revokeObjectURL(url); toast("上下文已导出为 Markdown 文件", "success") }
 async function applyTaskToChat() { if (!taskForm.value.task) return toast("当前没有任务内容", "warning"); session.messages.push({ role: "user", content: taskForm.value.task }); if (lastContextBundle.value?.sections?.length) session.messages.push({ role: "assistant", content: `已加载 ${lastContextBundle.value.sections.length} 段上下文，共 ${lastContextBundle.value.total_tokens || 0} tokens。` }); activeTab.value = "world"; await ensureWorld() }
 
-function openOwnedModal(title, body, buttons, options) { ownedModal = true; showModalHtml(title, body, buttons, options) }
+function captureModalOwner(control = null) {
+  const body = document.getElementById("modal-body")
+  const overlay = document.getElementById("modal-overlay")
+  return { generation: modalGeneration, body, root: body?.firstChild || null, overlay, visible: overlay ? !overlay.classList.contains("hidden") : null, control }
+}
+function modalStateUnchanged(modalOwner) {
+  const body = document.getElementById("modal-body")
+  const overlay = document.getElementById("modal-overlay")
+  return Boolean(modalOwner && body
+    && modalOwner.generation === modalGeneration
+    && modalOwner.body === body
+    && modalOwner.root === body.firstChild
+    && modalOwner.overlay === overlay
+    && modalOwner.visible === (overlay ? !overlay.classList.contains("hidden") : null))
+}
+function ownsModal(modalOwner) {
+  return modalStateUnchanged(modalOwner)
+    && modalOwner.root?.isConnected
+    && (!modalOwner.control || (modalOwner.control.isConnected && modalOwner.body.contains(modalOwner.control)))
+    && (!modalOwner.overlay || modalOwner.visible)
+}
+function openOwnedModal(title, body, buttons, options) { modalGeneration += 1; showModalHtml(title, body, buttons, options); ownedModal = captureModalOwner() }
 function templateEditorBody(item) { return `<div class="generate-template-editor"><div><label for="generate-template-editor-select">现有模板</label><select class="form-select" id="generate-template-editor-select">${templates.value.map((entry) => `<option value="${esc(entry.value)}" ${entry.value === item.value ? "selected" : ""}>${esc(entry.is_builtin ? entry.label : `自定义 · ${entry.label}`)}</option>`).join("")}</select></div><div><label for="generate-template-editor-name">模板名称</label><input class="form-input" id="generate-template-editor-name" value="${esc(item.label)}" maxlength="80" /></div><div><label for="generate-template-editor-prompt">提示词</label><textarea class="form-textarea" id="generate-template-editor-prompt" maxlength="8000">${esc(item.prompt || "")}</textarea></div><p class="generate-template-editor-help">${item.is_builtin ? "内置模板为只读；点击“保存模板”会创建项目级副本。" : "修改自定义模板会生成新版本。"}</p><button class="btn btn-sm" id="generate-template-history-load" type="button" ${item.is_builtin ? "hidden" : ""}>版本历史</button><div id="generate-template-history" class="generate-template-history"></div></div>` }
 function selectedEditorTemplate() { const value = document.getElementById("generate-template-editor-select")?.value || session.selectedTemplateId; return templates.value.find((item) => item.value === value) || templates.value[0] }
 function editorValues() { return { item: selectedEditorTemplate(), name: document.getElementById("generate-template-editor-name")?.value?.trim() || "", prompt: document.getElementById("generate-template-editor-prompt")?.value?.trim() || "" } }
-async function saveTemplate() { const { item, name, prompt } = editorValues(); if (!prompt) return toast("请输入模板提示词", "warning"), false; const scope = owner.begin(); try { let updated; if (item.is_builtin) { const copied = await api.generate.copyPromptTemplate(item.id, { novel_id: props.projectId, name: item.label }); updated = await api.generate.updatePromptTemplate(copied.id, props.projectId, { prompt_text: prompt }) } else { if (!name) return toast("请输入模板名称", "warning"), false; updated = await api.generate.updatePromptTemplate(item.id, props.projectId, { name, prompt_text: prompt }) } if (!owner.isActive(scope)) return false; const normalized = normalizeTemplate(updated); templates.value = item.is_builtin ? [...templates.value, normalized] : templates.value.map((entry) => entry.id === item.id ? normalized : entry); session.selectedTemplateId = normalized.value; toast("模板已保存", "success") } catch (err) { if (owner.isActive(scope)) toast(`保存模板失败：${err?.message || "未知错误"}`, "error"); return false } finally { owner.finish(scope) } }
-async function createTemplate() { const { name, prompt } = editorValues(); if (!name) return toast("请输入模板名称", "warning"), false; if (!prompt) return toast("请输入模板提示词", "warning"), false; const scope = owner.begin(); try { const created = await api.generate.createPromptTemplate({ novel_id: props.projectId, name, object_template: "custom", prompt_text: prompt }); if (!owner.isActive(scope)) return false; const normalized = normalizeTemplate(created); templates.value = [...templates.value, normalized]; session.selectedTemplateId = normalized.value; toast("新模板已创建", "success") } catch (err) { if (owner.isActive(scope)) toast(`创建模板失败：${err?.message || "未知错误"}`, "error"); return false } finally { owner.finish(scope) } }
-function bindTemplateModal() { const select = document.getElementById("generate-template-editor-select"); select?.addEventListener("change", () => { const item = templates.value.find((entry) => entry.value === select.value); if (!item) return; document.getElementById("generate-template-editor-name").value = item.label; document.getElementById("generate-template-editor-prompt").value = item.prompt || ""; document.getElementById("generate-template-history-load").hidden = item.is_builtin }); document.getElementById("generate-template-history-load")?.addEventListener("click", loadTemplateHistory) }
-async function loadTemplateHistory() { const item = selectedEditorTemplate(); const container = document.getElementById("generate-template-history"); if (!container || item.is_builtin) return; container.textContent = "加载版本历史…"; const scope = owner.begin(); try { const data = await api.generate.listPromptTemplateRevisions(item.id, props.projectId); if (!owner.isActive(scope) || !container.isConnected) return; const revisions = Array.isArray(data) ? data : data?.items || []; container.replaceChildren(...revisions.map((revision) => { const article = document.createElement("article"); article.className = "generate-template-revision"; const title = document.createElement("strong"); title.textContent = `v${revision.version_number || "-"}`; const pre = document.createElement("pre"); pre.textContent = String(revision.prompt_text || "").slice(0, 800); const button = document.createElement("button"); button.className = "btn btn-sm"; button.textContent = "载入到编辑器"; button.addEventListener("click", () => { document.getElementById("generate-template-editor-prompt").value = revision.prompt_text || "" }); article.append(title, pre, button); return article })) } catch (err) { if (owner.isActive(scope) && container.isConnected) container.textContent = `版本历史加载失败：${err?.message || "未知错误"}` } finally { owner.finish(scope) } }
+async function saveTemplate() {
+  if (templateMutationPending) return false
+  const modalOwner = captureModalOwner(document.getElementById("generate-template-editor-select"))
+  const { item, name, prompt } = editorValues()
+  if (!prompt) return toast("请输入模板提示词", "warning"), false
+  templateMutationPending = true
+  const scope = owner.begin()
+  try {
+    let updated
+    if (item.is_builtin) {
+      const copied = copiedBuiltinTemplate?.sourceId === item.id
+        ? copiedBuiltinTemplate.template
+        : await api.generate.copyPromptTemplate(item.id, { novel_id: props.projectId, name: item.label })
+      copiedBuiltinTemplate = { sourceId: item.id, template: copied }
+      updated = await api.generate.updatePromptTemplate(copied.id, props.projectId, { prompt_text: prompt, template_version: copied.version_number })
+      copiedBuiltinTemplate = null
+    } else {
+      if (!name) return toast("请输入模板名称", "warning"), false
+      updated = await api.generate.updatePromptTemplate(item.id, props.projectId, { name, prompt_text: prompt, template_version: item.version_number })
+    }
+    if (!owner.isActive(scope) || !ownsModal(modalOwner)) return true
+    const normalized = normalizeTemplate(updated)
+    templates.value = item.is_builtin ? [...templates.value, normalized] : templates.value.map((entry) => entry.id === item.id ? normalized : entry)
+    session.selectedTemplateId = normalized.value
+    toast("模板已保存", "success")
+    return true
+  } catch (err) {
+    if (!owner.isActive(scope) || !ownsModal(modalOwner)) return true
+    toast(`保存模板失败：${err?.message || "未知错误"}`, "error")
+    return false
+  } finally { owner.finish(scope); templateMutationPending = false }
+}
+async function createTemplate() {
+  if (templateMutationPending) return false
+  const modalOwner = captureModalOwner(document.getElementById("generate-template-editor-select"))
+  const { name, prompt } = editorValues()
+  if (!name) return toast("请输入模板名称", "warning"), false
+  if (!prompt) return toast("请输入模板提示词", "warning"), false
+  templateMutationPending = true
+  const scope = owner.begin()
+  try {
+    const created = await api.generate.createPromptTemplate({ novel_id: props.projectId, name, object_template: "custom", prompt_text: prompt })
+    if (!owner.isActive(scope) || !ownsModal(modalOwner)) return true
+    const normalized = normalizeTemplate(created)
+    templates.value = [...templates.value, normalized]
+    session.selectedTemplateId = normalized.value
+    toast("新模板已创建", "success")
+    return true
+  } catch (err) {
+    if (!owner.isActive(scope) || !ownsModal(modalOwner)) return true
+    toast(`创建模板失败：${err?.message || "未知错误"}`, "error")
+    return false
+  } finally { owner.finish(scope); templateMutationPending = false }
+}
+function bindTemplateModal() { const select = document.getElementById("generate-template-editor-select"); select?.addEventListener("change", () => { const item = templates.value.find((entry) => entry.value === select.value); if (!item) return; document.getElementById("generate-template-editor-name").value = item.label; document.getElementById("generate-template-editor-prompt").value = item.prompt || ""; document.getElementById("generate-template-history-load").hidden = item.is_builtin; document.getElementById("generate-template-history")?.replaceChildren() }); document.getElementById("generate-template-history-load")?.addEventListener("click", loadTemplateHistory) }
+async function loadTemplateHistory() {
+  const item = selectedEditorTemplate()
+  const select = document.getElementById("generate-template-editor-select")
+  const container = document.getElementById("generate-template-history")
+  if (!container || item.is_builtin) return
+  const selectedValue = select?.value
+  const modalOwner = captureModalOwner(container)
+  container.textContent = "加载版本历史…"
+  const scope = owner.begin()
+  try {
+    const data = await api.generate.listPromptTemplateRevisions(item.id, props.projectId)
+    if (!owner.isActive(scope) || !ownsModal(modalOwner) || select?.value !== selectedValue) return
+    const revisions = Array.isArray(data) ? data : data?.items || []
+    container.replaceChildren(...revisions.map((revision) => {
+      const article = document.createElement("article"); article.className = "generate-template-revision"
+      const title = document.createElement("strong"); title.textContent = `v${revision.version_number || "-"}`
+      const pre = document.createElement("pre"); pre.textContent = String(revision.prompt_text || "").slice(0, 800)
+      const button = document.createElement("button"); button.className = "btn btn-sm"; button.textContent = "载入到编辑器"
+      button.addEventListener("click", () => { if (ownsModal(modalOwner) && select?.value === selectedValue) document.getElementById("generate-template-editor-prompt").value = revision.prompt_text || "" })
+      article.append(title, pre, button)
+      return article
+    }))
+  } catch (err) {
+    if (owner.isActive(scope) && ownsModal(modalOwner) && select?.value === selectedValue) container.textContent = `版本历史加载失败：${err?.message || "未知错误"}`
+  } finally { owner.finish(scope) }
+}
 function openTemplateEditor() { const item = templates.value.find((entry) => entry.value === session.selectedTemplateId) || templates.value[0]; openOwnedModal("编辑模板", templateEditorBody(item), [{ text: "保存模板", class: "btn-primary", handler: saveTemplate }, { text: "新建模板", class: "btn", handler: createTemplate }, { text: "关闭", class: "btn-ghost", handler: closeModal }]); bindTemplateModal() }
 
 async function runInBatches(items, size, fn) { const output = []; for (let index = 0; index < items.length; index += size) output.push(...await Promise.all(items.slice(index, index + size).map(fn))); return output }
-async function openChapterPicker() { const scope = owner.begin(); try { const data = await api.writing.listChapters(props.projectId); const summaries = data?.chapters || []; if (!summaries.length) return toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成建议", "info"); const previews = await runInBatches(summaries, 5, async (item) => { try { const draft = item.id ? await api.writing.get(item.id, props.projectId) : await api.writing.getDraft(item.chapter_index, props.projectId); return { chapter_index: item.chapter_index, title: draft.title || item.title || `第${item.chapter_index}章`, excerpt: String(draft.content || "").replace(/\s+/g, " ").trim().slice(0, 120) } } catch { return { chapter_index: item.chapter_index, title: item.title || `第${item.chapter_index}章`, excerpt: "" } } }); if (!owner.isActive(scope)) return; const selected = new Set(session.selectedChapters.map((item) => item.chapter_index)); const body = `<div class="generate-chapter-list">${previews.map((item) => `<label class="generate-chapter-card"><input id="generate-chapter-${esc(item.chapter_index)}" type="checkbox" ${selected.has(item.chapter_index) ? "checked" : ""}/><span><span class="generate-chapter-title">第 ${esc(item.chapter_index)} 章 · ${esc(item.title)}</span><span class="generate-chapter-excerpt">${esc(item.excerpt || "暂无正文摘录")}</span></span></label>`).join("")}</div>`; openOwnedModal("选择附带正文", body, [{ text: "取消", class: "btn-ghost", handler: closeModal }, { text: "确认选择", class: "btn-primary", handler: () => { const next = previews.filter((item) => document.getElementById(`generate-chapter-${item.chapter_index}`)?.checked); if (next.length > AI_SELECTED_CHAPTER_LIMIT) return toast(`每次最多附带 ${AI_SELECTED_CHAPTER_LIMIT} 章正文`, "warning"), false; session.selectedChapters = next; closeModal() } }]) } catch (err) { if (owner.isActive(scope)) toast(`加载章节失败：${err?.message || "未知错误"}`, "error") } finally { owner.finish(scope) } }
+async function openChapterPicker() {
+  const modalOwner = captureModalOwner()
+  const scope = owner.begin()
+  try {
+    const data = await api.writing.listChapters(props.projectId)
+    if (!owner.isActive(scope) || !modalStateUnchanged(modalOwner)) return
+    const summaries = data?.chapters || []
+    if (!summaries.length) return toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成建议", "info")
+    const previews = await runInBatches(summaries, 5, async (item) => {
+      try {
+        const draft = item.id ? await api.writing.get(item.id, props.projectId) : await api.writing.getDraft(item.chapter_index, props.projectId)
+        return { chapter_index: item.chapter_index, title: draft.title || item.title || `第${item.chapter_index}章`, excerpt: String(draft.content || "").replace(/\s+/g, " ").trim().slice(0, 120) }
+      } catch { return { chapter_index: item.chapter_index, title: item.title || `第${item.chapter_index}章`, excerpt: "" } }
+    })
+    if (!owner.isActive(scope) || !modalStateUnchanged(modalOwner)) return
+    const selected = new Set(session.selectedChapters.map((item) => item.chapter_index))
+    const body = `<div class="generate-chapter-list">${previews.map((item) => `<label class="generate-chapter-card"><input id="generate-chapter-${esc(item.chapter_index)}" type="checkbox" ${selected.has(item.chapter_index) ? "checked" : ""}/><span><span class="generate-chapter-title">第 ${esc(item.chapter_index)} 章 · ${esc(item.title)}</span><span class="generate-chapter-excerpt">${esc(item.excerpt || "暂无正文摘录")}</span></span></label>`).join("")}</div>`
+    openOwnedModal("选择附带正文", body, [{ text: "取消", class: "btn-ghost", handler: closeModal }, { text: "确认选择", class: "btn-primary", handler: () => { const next = previews.filter((item) => document.getElementById(`generate-chapter-${item.chapter_index}`)?.checked); if (next.length > AI_SELECTED_CHAPTER_LIMIT) return toast(`每次最多附带 ${AI_SELECTED_CHAPTER_LIMIT} 章正文`, "warning"), false; session.selectedChapters = next; closeModal() } }])
+  } catch (err) {
+    if (owner.isActive(scope) && modalStateUnchanged(modalOwner)) toast(`加载章节失败：${err?.message || "未知错误"}`, "error")
+  } finally { owner.finish(scope) }
+}
 function viewGenerationContext(kind) { const usage = kind === "chat" ? chatContextUsage.value : entityContextUsage.value; if (!usage) return toast("本次生成没有返回可审计的上下文记录", "warning"); const body = `<div class="generate-context-header"><span class="generate-context-stat">${esc(usage.section_key || "world_bible_synopsis")}</span><span class="generate-context-meta">状态：${esc(usage.status || "unknown")}</span><span class="generate-context-meta">Tokens：${esc(usage.token_count || 0)}</span></div><table class="data-table"><tbody><tr><th>Revision</th><td>${esc(usage.revision_id || "确定性降级/未包含")}</td></tr><tr><th>Source hash</th><td>${esc(usage.source_hash || "-")}</td></tr><tr><th>Block hash</th><td>${esc(usage.block_hash || "-")}</td></tr><tr><th>Context snapshot</th><td>${esc(usage.context_snapshot_id || "-")}</td></tr><tr><th>Stale</th><td>${usage.stale ? "是" : "否"}</td></tr><tr><th>Fallback</th><td>${usage.fallback ? "是" : "否"}</td></tr></tbody></table>`; openOwnedModal("本次实际使用的上下文", body, [], { size: "large" }) }
 
-onBeforeUnmount(() => { disarmBeforeUnload(); persist(); owner.dispose(); if (ownedModal) closeModal() })
+onBeforeUnmount(() => { disarmBeforeUnload(); persist(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
 </script>

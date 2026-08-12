@@ -9,7 +9,7 @@
  * 列表数据（entities）不跨 subView 缓存，因此创建表单打开时需从 API
  * 拉取实体列表填充下拉菜单。
  */
-import { getApi, getAppState, getCloseModal, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection } from "./worldBulkSelection.js"
 
 // ============================================================
@@ -24,6 +24,43 @@ const listRegistry = {
 export function syncRelationsAliasesRegistry(partial = {}) {
   if (Array.isArray(partial.relations)) listRegistry.relations = partial.relations
   if (Array.isArray(partial.aliases)) listRegistry.aliases = partial.aliases
+}
+
+function captureWorldOperationScope() {
+  const state = getAppState()
+  return {
+    projectId: state?.currentProjectId || null,
+    view: state?.currentView || null,
+    subView: state?.currentSubView || null,
+  }
+}
+
+function ownsWorldOperationScope(scope) {
+  const state = getAppState()
+  return Boolean(
+    scope
+    && state
+    && (state.currentProjectId || null) === scope.projectId
+    && (state.currentView || null) === scope.view
+    && (state.currentSubView || null) === scope.subView,
+  )
+}
+
+function captureModalOwner(node = null) {
+  const body = document.getElementById("modal-body")
+  const overlay = document.getElementById("modal-overlay")
+  return { body, overlay, node: node || body?.firstElementChild || null }
+}
+
+function ownsModalOwner(owner) {
+  if (!owner?.body || !owner?.overlay) return true
+  return Boolean(
+    document.getElementById("modal-body") === owner.body
+    && document.getElementById("modal-overlay") === owner.overlay
+    && owner.node?.isConnected
+    && owner.body.contains(owner.node)
+    && !owner.overlay.classList.contains("hidden"),
+  )
 }
 
 // ============================================================
@@ -76,12 +113,15 @@ async function entitySelectHtml(selectId) {
 export async function showRelationCreateForm() {
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   let pending = false
   // 先 fetch 实体选项再构建 HTML（确保模态打开时 select 已有完整选项）
   const [sourceSelectHtml, targetSelectHtml] = await Promise.all([
     entitySelectHtml("rel-source"),
     entitySelectHtml("rel-target"),
   ])
+  if (!ownsWorldOperationScope(scope)) return
   const formHtml = `
     <div class="form-group">
       <label>源对象</label>
@@ -120,10 +160,10 @@ export async function showRelationCreateForm() {
         toast("请选择源对象和目标对象", "warning")
         return false
       }
+      const modalOwner = captureModalOwner(document.getElementById("rel-source"))
       pending = true
       try {
         const api = getApi()
-        const projectId = getAppState()?.currentProjectId
         await api.world.createRelationship({
           source_id: src,
           source_type: "entity",
@@ -132,11 +172,13 @@ export async function showRelationCreateForm() {
           relation_type: document.getElementById("rel-type")?.value || "related_to",
           description: document.getElementById("rel-desc")?.value || "",
         }, projectId)
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast("关系已创建", "success")
         getRouter()?.refresh?.()
         return true
       } catch (err) {
         pending = false
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast(err?.message || "创建失败", "error")
         return false
       }
@@ -148,9 +190,12 @@ export async function showRelationCreateForm() {
 export async function showAliasCreateForm() {
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   let pending = false
   // 先 fetch 实体选项
   const aliasSelectHtml = await entitySelectHtml("alias-entity")
+  if (!ownsWorldOperationScope(scope)) return
   const formHtml = `
     <div class="form-group">
       <label>所属对象</label>
@@ -182,20 +227,22 @@ export async function showAliasCreateForm() {
         toast("请选择对象并输入别名", "warning")
         return false
       }
+      const modalOwner = captureModalOwner(document.getElementById("alias-text"))
       pending = true
       try {
         const api = getApi()
-        const projectId = getAppState()?.currentProjectId
         await api.world.createAlias({
           entity_id: eid,
           alias: text,
           alias_type: document.getElementById("alias-type")?.value || "name",
         }, projectId)
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast("别名已创建", "success")
         getRouter()?.refresh?.()
         return true
       } catch (err) {
         pending = false
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast(err?.message || "创建失败", "error")
         return false
       }
@@ -209,19 +256,24 @@ export async function showAliasCreateForm() {
 
 /** 对应 vanilla deleteRelation（worldView.js:2649-2657）。 */
 export function deleteRelation(relId) {
-  const esc = getEsc()
   const toast = getToast()
   const confirmAction = getConfirmAction()
   const api = getApi()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   confirmAction("确定删除此关系？", async () => {
+    const modalOwner = captureModalOwner()
     try {
       await api.world.deleteRelationship(relId, { novel_id: projectId })
+      if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
       toast("已删除", "success")
       const router = getRouter()
       router?.refresh?.()
+      return true
     } catch (err) {
+      if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
       toast(err?.message || "删除失败", "error")
+      return false
     }
   }, "确认删除")
 }
@@ -231,20 +283,26 @@ export function deleteAlias(entityId, alias) {
   const esc = getEsc()
   const toast = getToast()
   const confirmAction = getConfirmAction()
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   if (!entityId || !alias) {
     toast("参数错误：缺少实体 ID 或别名", "error")
     return
   }
   confirmAction(`确定删除别名 "${esc(alias)}"？`, async () => {
+    const modalOwner = captureModalOwner()
     try {
       const api = getApi()
-      const projectId = getAppState()?.currentProjectId
       await api.world.deleteAlias(entityId, alias, { novel_id: projectId })
+      if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
       toast("已删除", "success")
       const router = getRouter()
       router?.refresh?.()
+      return true
     } catch (err) {
+      if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
       toast(err?.message || "删除失败", "error")
+      return false
     }
   }, `确认删除别名 "${esc(alias)}"`)
 }
@@ -258,7 +316,8 @@ export async function runCanonicalBulkAction(scope, action, items) {
   const toast = getToast()
   const router = getRouter()
   const api = getApi()
-  const projectId = getAppState()?.currentProjectId
+  const operationScope = captureWorldOperationScope()
+  const projectId = operationScope.projectId
   const label = {
     "review-relations": "批量采用关系",
     "delete-relations": "批量删除关系",
@@ -284,6 +343,7 @@ export async function runCanonicalBulkAction(scope, action, items) {
     }
   })
 
+  if (!ownsWorldOperationScope(operationScope)) return
   toast(
     bulkResultMessage(result, label, (item) => item.alias || item.relation_type || item.id || ""),
     result.failed.length ? "warning" : "success",
@@ -347,14 +407,17 @@ export function aliasKey(alias) {
 export async function markRelationReviewed(id) {
   const api = getApi()
   const toast = getToast()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   try {
     await api.world.reviewEditRelationship(id, { confirm_review: true }, projectId)
-    toast("关系已采用", "success")
-    getRouter()?.refresh?.()
+    if (ownsWorldOperationScope(scope)) {
+      toast("关系已采用", "success")
+      getRouter()?.refresh?.()
+    }
     return true
   } catch (err) {
-    toast(err?.message || "采用关系失败", "error")
+    if (ownsWorldOperationScope(scope)) toast(err?.message || "采用关系失败", "error")
     return false
   }
 }
@@ -363,14 +426,17 @@ export async function markRelationReviewed(id) {
 export async function markRelationUnreviewed(id) {
   const api = getApi()
   const toast = getToast()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   try {
     await api.world.reviewEditRelationship(id, { confirm_review: false, clear_review: true }, projectId)
-    toast("关系已标记为待处理", "success")
-    getRouter()?.refresh?.()
+    if (ownsWorldOperationScope(scope)) {
+      toast("关系已标记为待处理", "success")
+      getRouter()?.refresh?.()
+    }
     return true
   } catch (err) {
-    toast(err?.message || "状态更新失败", "error")
+    if (ownsWorldOperationScope(scope)) toast(err?.message || "状态更新失败", "error")
     return false
   }
 }
@@ -379,7 +445,8 @@ export async function markRelationUnreviewed(id) {
 export async function markAliasReviewed(entityId, alias) {
   const api = getApi()
   const toast = getToast()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   if (!entityId || !alias) {
     toast("参数错误", "error")
     return false
@@ -392,11 +459,13 @@ export async function markAliasReviewed(entityId, alias) {
       reviewed_by: "manual",
       reviewed_from: "world_aliases",
     }, { novel_id: projectId })
-    toast("别名已采用", "success")
-    getRouter()?.refresh?.()
+    if (ownsWorldOperationScope(scope)) {
+      toast("别名已采用", "success")
+      getRouter()?.refresh?.()
+    }
     return true
   } catch (err) {
-    toast(err?.message || "采用别名失败", "error")
+    if (ownsWorldOperationScope(scope)) toast(err?.message || "采用别名失败", "error")
     return false
   }
 }
@@ -405,7 +474,8 @@ export async function markAliasReviewed(entityId, alias) {
 export async function markAliasUnreviewed(entityId, alias) {
   const api = getApi()
   const toast = getToast()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   if (!entityId || !alias) {
     toast("参数错误", "error")
     return false
@@ -415,11 +485,13 @@ export async function markAliasUnreviewed(entityId, alias) {
       needs_review: true,
       reviewed_at: null,
     }, { novel_id: projectId })
-    toast("别名已标记为待处理", "success")
-    getRouter()?.refresh?.()
+    if (ownsWorldOperationScope(scope)) {
+      toast("别名已标记为待处理", "success")
+      getRouter()?.refresh?.()
+    }
     return true
   } catch (err) {
-    toast(err?.message || "状态更新失败", "error")
+    if (ownsWorldOperationScope(scope)) toast(err?.message || "状态更新失败", "error")
     return false
   }
 }
@@ -431,7 +503,8 @@ export function showRelationReviewEditForm(relationId) {
   const showModalHtml = getShowModalHtml()
   const confirmAction = getConfirmAction()
   const api = getApi()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   const relation = listRegistry.relations.find((r) => (r.id || r.relationship_id) === relationId)
   if (!relation) {
     toast("未找到目标关系", "error")
@@ -470,6 +543,7 @@ export function showRelationReviewEditForm(relationId) {
         toast("请填写源对象、目标对象和关系类型", "warning")
         return false
       }
+      const modalOwner = captureModalOwner(document.getElementById("rel-review-type"))
       try {
         await api.world.reviewEditRelationship(relationId, {
           source_id: sourceId,
@@ -479,11 +553,14 @@ export function showRelationReviewEditForm(relationId) {
           strength: Number(document.getElementById("rel-review-strength")?.value || 0.5),
           confirm_review: true,
         }, projectId)
-        getCloseModal()()
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast("关系已采用", "success")
         getRouter()?.refresh?.()
+        return true
       } catch (err) {
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast(err?.message || "采用关系失败", "error")
+        return false
       }
     },
   }])

@@ -221,16 +221,34 @@ const statuses = [
 
 const importNotice = importAuthorizationNotice()
 
-// ---- 筛选表单（本地副本，应用时 navigate 写 query；重挂载后由新 props 重播种） ----
-const filterForm = reactive({ ...WORLD_FILTER_DEFAULTS })
-
-function seedFilterForm() {
-  Object.assign(filterForm, WORLD_FILTER_DEFAULTS, props.objectFilters)
-}
-watch(() => props.objectFilters, seedFilterForm, { immediate: true, deep: true })
+// ---- 筛选表单（query 保存已应用条件；会话保存尚未应用的编辑副本） ----
+const routeSignature = objectQueryFromState(
+  props.objectFilters,
+  props.objectViewMode,
+  props.discoveryMode,
+).toString()
+const restoredDraft = session.objectFilterDraft?.routeSignature === routeSignature
+  ? session.objectFilterDraft.value
+  : null
+if (!restoredDraft) session.objectFilterDraft = null
+const filterForm = reactive({
+  ...WORLD_FILTER_DEFAULTS,
+  ...props.objectFilters,
+  ...(restoredDraft || {}),
+  skip: props.objectFilters.skip,
+  limit: props.objectFilters.limit,
+})
+watch(filterForm, (value) => {
+  session.objectFilterDraft = {
+    routeSignature: session.objectFilterDraft?.routeSignature || routeSignature,
+    value: { ...value },
+  }
+}, { immediate: true, deep: true, flush: "sync" })
 
 function navigateObjects(nextFilters) {
-  getRouter()?.navigate("world", "objects", true, objectQueryFromState(nextFilters, props.objectViewMode, props.discoveryMode))
+  const query = objectQueryFromState(nextFilters, props.objectViewMode, props.discoveryMode)
+  session.objectFilterDraft.routeSignature = query.toString()
+  getRouter()?.navigate("world", "objects", true, query)
 }
 
 /** 对应 vanilla _applyFilters（读取表单 → skip 归零 → navigate）。 */
@@ -240,6 +258,7 @@ function applyFilters() {
 
 /** 对应 vanilla _resetFilters。 */
 function resetFilters() {
+  Object.assign(filterForm, WORLD_FILTER_DEFAULTS)
   navigateObjects({ ...WORLD_FILTER_DEFAULTS, skip: 0 })
 }
 

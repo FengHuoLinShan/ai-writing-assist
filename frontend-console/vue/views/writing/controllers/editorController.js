@@ -65,6 +65,40 @@ export function createEditorController({
   let savePromise = null
   let disposed = false
 
+  function captureCommandOwner() {
+    return {
+      lifecycle: lifecycleGeneration,
+      load: loadGeneration,
+      projectId: getProjectId(),
+      chapter: state.chapter,
+      draftId: state.draftId,
+      editRevision,
+      title: state.title,
+      content: state.content,
+      versionNumber: state.versionNumber,
+      updatedAt: state.updatedAt,
+    }
+  }
+
+  function ownsCommand(owner) {
+    return !disposed
+      && owner.lifecycle === lifecycleGeneration
+      && owner.load === loadGeneration
+      && owner.projectId === getProjectId()
+      && owner.chapter === state.chapter
+      && owner.draftId === state.draftId
+      && owner.editRevision === editRevision
+  }
+
+  function ownsCommandTarget(owner) {
+    return !disposed
+      && owner.lifecycle === lifecycleGeneration
+      && owner.load === loadGeneration
+      && owner.projectId === getProjectId()
+      && owner.chapter === state.chapter
+      && owner.draftId === state.draftId
+  }
+
   function dirty() {
     return state.title !== state.lastSavedTitle || state.content !== state.lastSavedContent
   }
@@ -83,6 +117,14 @@ export function createEditorController({
       })
     }
     onChange(value)
+  }
+
+  async function refreshVersions(result) {
+    try {
+      await onVersionChanged(result)
+    } catch {
+      toast("操作已完成，但版本列表暂时未刷新", "warning")
+    }
   }
 
   function syncElements() {
@@ -283,6 +325,10 @@ export function createEditorController({
   async function autosave({ successMessage = "已保存到工作稿", createIfMissing = false } = {}) {
     if (autosaveTimer) clearTimeout(autosaveTimer)
     autosaveTimer = null
+    if (state.saving && !savePromise) {
+      scheduleAutosave()
+      return null
+    }
     if (savePromise) {
       await savePromise
       if (dirty()) return autosave({ successMessage, createIfMissing })
@@ -345,7 +391,7 @@ export function createEditorController({
       } else if (!hasNewerEdits) {
         toast(successMessage, "success")
       }
-      if (changedDraft) return Promise.resolve(onVersionChanged(result)).then(() => result)
+      if (changedDraft) return refreshVersions(result).then(() => result)
       return result
     }).catch((err) => {
       if (lifecycle === lifecycleGeneration && projectId === getProjectId()) {
@@ -364,66 +410,118 @@ export function createEditorController({
   }
 
   async function checkpoint() {
-    if (!state.draftId || state.readonly) return null
-    const projectId = getProjectId()
+    if (!state.draftId || state.readonly || state.saving) return null
+    if (autosaveTimer) clearTimeout(autosaveTimer)
+    autosaveTimer = null
+    const owner = captureCommandOwner()
     let force = false
     if (state.provenanceJson?.version_origin !== "auto"
       && substantiveWritingText(state.content) === substantiveWritingText(state.lastSavedContent)) {
       force = await confirmDialog("正文没有实质变化。仍要强制保存一个新版本吗？", "保存新版本")
-      if (!force) return null
+      if (!force) {
+        if (dirty()) scheduleAutosave()
+        return null
+      }
     }
+    if (!ownsCommand(owner)) {
+      if (!disposed && dirty()) scheduleAutosave()
+      return null
+    }
+    state.saving = true
+    emit()
     try {
-      const result = await api.writing.checkpoint(state.draftId, {
-        title: state.title,
-        content: state.content,
-        expected_version: state.versionNumber,
-        expected_updated_at: state.updatedAt,
+      const result = await api.writing.checkpoint(owner.draftId, {
+        title: owner.title,
+        content: owner.content,
+        expected_version: owner.versionNumber,
+        expected_updated_at: owner.updatedAt,
         force,
-      }, projectId)
-      if (projectId !== getProjectId()) return null
-      applyDraft(result, { isReadonly: false })
-      clearBackup()
-      syncElements()
+      }, owner.projectId)
+      if (!ownsCommandTarget(owner)) return null
+      const hasNewerEdits = owner.editRevision !== editRevision
+      if (hasNewerEdits) {
+        applyAutosaveMetadata(result, owner.content, owner.title)
+        state.saveError = null
+      }
+      else {
+        applyDraft(result, { isReadonly: false })
+        clearBackup()
+        syncElements()
+      }
+      if (hasNewerEdits) saveBackup()
       emit()
-      toast("已保存为新版本", "success")
-      await onVersionChanged(result)
+      toast(hasNewerEdits ? "已保存为新版本；之后的输入仍待保存" : "已保存为新版本", "success")
+      await refreshVersions(result)
       return result
     } catch (err) {
+      if (!ownsCommandTarget(owner)) return null
       toast(err?.message || "保存新版本失败", "error")
       return null
+    } finally {
+      if (!disposed && owner.lifecycle === lifecycleGeneration) {
+        state.saving = false
+        emit()
+        if (dirty()) scheduleAutosave()
+      }
     }
   }
 
   async function discardChanges() {
-    if (!state.draftId || state.readonly || state.status !== "draft") return null
-    if (!(await confirmDialog("放弃当前未发布更改并回到上一版？", "放弃更改"))) return null
-    const projectId = getProjectId()
+    if (!state.draftId || state.readonly || state.status !== "draft" || state.saving) return null
+    if (autosaveTimer) clearTimeout(autosaveTimer)
+    autosaveTimer = null
+    const owner = captureCommandOwner()
+    if (!(await confirmDialog("放弃当前未发布更改并回到上一版？", "放弃更改"))) {
+      if (dirty()) scheduleAutosave()
+      return null
+    }
+    if (!ownsCommand(owner)) {
+      if (!disposed && dirty()) scheduleAutosave()
+      return null
+    }
+    state.saving = true
+    emit()
     try {
-      const result = await api.writing.discard(state.draftId, projectId, {
-        expected_version: state.versionNumber,
-        expected_updated_at: state.updatedAt,
+      const result = await api.writing.discard(owner.draftId, owner.projectId, {
+        expected_version: owner.versionNumber,
+        expected_updated_at: owner.updatedAt,
       })
-      if (projectId !== getProjectId()) return null
-      applyDraft(result, { isReadonly: false })
-      clearBackup()
-      syncElements()
+      if (!ownsCommandTarget(owner)) return null
+      const hasNewerEdits = owner.editRevision !== editRevision
+      if (hasNewerEdits) {
+        applyAutosaveMetadata(result, result.content, result.title)
+        state.saveError = null
+        saveBackup()
+      } else {
+        applyDraft(result, { isReadonly: false })
+        clearBackup()
+        syncElements()
+      }
       emit()
-      toast("已回到上一版", "success")
-      await onVersionChanged(result)
+      toast(hasNewerEdits ? "已回到上一版；之后的输入仍待保存" : "已回到上一版", "success")
+      await refreshVersions(result)
       return result
     } catch (err) {
+      if (!ownsCommandTarget(owner)) return null
       toast(err?.message || "放弃更改失败", "error")
       return null
+    } finally {
+      if (!disposed && owner.lifecycle === lifecycleGeneration) {
+        state.saving = false
+        emit()
+        if (dirty()) scheduleAutosave()
+      }
     }
   }
 
   async function adoptCandidate() {
     if (state.status !== "candidate" || !state.draftId) return null
+    const owner = captureCommandOwner()
     if (!confirm("采用后，这份建议会成为新的未发布工作稿。是否继续？")) return null
-    const projectId = getProjectId()
+    if (!ownsCommand(owner)) return null
     try {
-      const response = await api.writing.adoptDraftCandidate(state.draftId, projectId)
-      if (projectId !== getProjectId()) return null
+      const response = await api.writing.adoptDraftCandidate(owner.draftId, owner.projectId)
+      if (!ownsCommand(owner)) return null
       const result = response?.draft || response
       applyDraft(result, { isReadonly: false })
       syncElements()
@@ -431,6 +529,7 @@ export function createEditorController({
       toast("已采用到工作稿", "success")
       return result
     } catch (err) {
+      if (!ownsCommand(owner)) return null
       toast(err?.message || "采用到工作稿失败", "error")
       return null
     }
@@ -438,14 +537,16 @@ export function createEditorController({
 
   async function rejectCandidate() {
     if (state.status !== "candidate" || !state.draftId) return false
+    const owner = captureCommandOwner()
     if (!confirm("拒绝后建议会保留在版本历史中。是否继续？")) return false
-    const projectId = getProjectId()
+    if (!ownsCommand(owner)) return false
     try {
-      await api.writing.deleteDraft(state.draftId, projectId)
-      if (projectId !== getProjectId()) return false
+      await api.writing.deleteDraft(owner.draftId, owner.projectId)
+      if (!ownsCommand(owner)) return false
       toast("已拒绝 AI 建议", "success")
       return true
     } catch (err) {
+      if (!ownsCommand(owner)) return false
       toast(err?.message || "拒绝建议失败", "error")
       return false
     }

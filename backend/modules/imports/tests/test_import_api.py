@@ -915,7 +915,7 @@ async def test_deep_import_recovery_openapi_uses_shared_typed_body(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["resume", "abandon"])
-async def test_deep_import_recovery_checks_task_existence_then_project_gate(
+async def test_deep_import_recovery_hides_task_existence_before_project_gate(
     async_client: AsyncClient,
     db_session,
     sample_project: dict,
@@ -927,7 +927,8 @@ async def test_deep_import_recovery_checks_task_existence_then_project_gate(
         json={"task_id": missing_task_id},
     )
     assert missing.status_code == 404
-    assert missing_task_id in missing.text
+    assert missing.json()["detail"] == "Not found"
+    assert missing_task_id not in missing.text
 
     novel_id = sample_project["id"]
     project = await db_session.get(Project, uuid.UUID(novel_id))
@@ -948,7 +949,7 @@ async def test_deep_import_recovery_checks_task_existence_then_project_gate(
     )
 
     assert recycled.status_code == 404
-    assert recycled.json()["detail"] == "Not found"
+    assert recycled.json()["detail"] == missing.json()["detail"]
     assert novel_id not in recycled.text
     assert "meta-must-not-leak" not in recycled.text
     assert "result-must-not-leak" not in recycled.text

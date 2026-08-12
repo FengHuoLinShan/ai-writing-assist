@@ -34,6 +34,10 @@ const mapQuickCreateView = {
   _onCreated: null,
   _projectId: null,
   _openGeneration: 0,
+  _previewGeneration: 0,
+  _acceptedPreviewGeneration: 0,
+  _acceptedPreviewState: null,
+  _confirmPending: false,
 
   async open({ onCreated = null, projectId = null } = {}) {
     const frozenProjectId = projectId || state.currentProjectId
@@ -65,10 +69,11 @@ const mapQuickCreateView = {
     this._parentFilter = "all"
     this._detailFilter = "all"
     this._filterQuery = ""
-    await this._loadContext()
-    if (!this._isCurrentOpen(generation, frozenProjectId)) return false
-    await this._loadPreview()
-    if (!this._isCurrentOpen(generation, frozenProjectId)) return false
+    this._acceptedPreviewState = null
+    this._acceptedPreviewGeneration = 0
+    this._confirmPending = false
+    const previewRequest = this._beginPreviewRequest()
+    if (!await this._refreshPreview(previewRequest)) return false
     this._showModal()
     return true
   },
@@ -82,16 +87,52 @@ const mapQuickCreateView = {
     )
   },
 
+  _beginPreviewRequest() {
+    const startedFromAccepted = this._previewGeneration === this._acceptedPreviewGeneration
+    return {
+      generation: ++this._previewGeneration,
+      openGeneration: this._openGeneration,
+      projectId: this._projectId || state.currentProjectId,
+      modalRoot: document.querySelector(".map-quick-create"),
+      startedFromAccepted,
+    }
+  },
+
+  _ownsPreviewRequest(request) {
+    return Boolean(
+      request
+      && request.generation === this._previewGeneration
+      && this._isCurrentOpen(request.openGeneration, request.projectId)
+      && (!request.modalRoot || (
+        request.modalRoot.isConnected
+        && document.querySelector(".map-quick-create") === request.modalRoot
+      ))
+    )
+  },
+
+  _restoreFailedPreviewRequest(request, previous) {
+    const editedName = this._mapName
+    const nameTouched = this._mapNameTouched
+    this._restorePreviewState(
+      request.startedFromAccepted ? previous : this._acceptedPreviewState || previous,
+    )
+    if (nameTouched) {
+      this._mapName = editedName
+      this._mapNameTouched = true
+    }
+  },
+
   async setIncludeCandidates(enabled) {
     const previous = this._snapshotPreviewState()
     this._includeCandidates = Boolean(enabled)
+    const request = this._beginPreviewRequest()
     try {
-      await this._loadContext()
-      await this._loadPreview()
+      if (!await this._refreshPreview(request)) return false
       this._updateModalDom()
       return true
     } catch (err) {
-      this._restorePreviewState(previous)
+      if (!this._ownsPreviewRequest(request)) return false
+      this._restoreFailedPreviewRequest(request, previous)
       this._updateModalDom()
       toast(`快速创建预览刷新失败：${err.message || "未知错误"}`, "error")
       return false
@@ -114,12 +155,14 @@ const mapQuickCreateView = {
         this._parentMapId = null
       }
     }
+    const request = this._beginPreviewRequest()
     try {
-      await this._loadPreview()
+      if (!await this._refreshPreview(request)) return false
       this._updateModalDom()
       return true
     } catch (err) {
-      this._restorePreviewState(previous)
+      if (!this._ownsPreviewRequest(request)) return false
+      this._restoreFailedPreviewRequest(request, previous)
       this._updateModalDom()
       toast(`快速创建预览刷新失败：${err.message || "未知错误"}`, "error")
       return false
@@ -185,35 +228,39 @@ const mapQuickCreateView = {
     this._filterQuery = snapshot.filterQuery || ""
   },
 
-  async _loadContext() {
-    const projectId = this._projectId || state.currentProjectId
-    const generation = this._openGeneration
-    if (!this._isCurrentOpen(generation, projectId)) {
+  async _loadContext(request) {
+    if (!this._ownsPreviewRequest(request)) {
       throw new Error("当前项目已切换")
     }
     const context = await api.world.getMapQuickCreateContext(
-      projectId,
+      request.projectId,
       this._includeCandidates,
     )
-    if (!this._isCurrentOpen(generation, projectId)) {
-      throw new Error("当前项目已切换")
-    }
-    this._context = context
+    if (!this._ownsPreviewRequest(request)) return false
+    request.context = context
+    return true
   },
 
-  async _loadPreview() {
-    const projectId = this._projectId || state.currentProjectId
-    const generation = this._openGeneration
-    if (!this._isCurrentOpen(generation, projectId)) {
+  async _refreshPreview(request) {
+    if (
+      !this._acceptedPreviewState
+      || this._includeCandidates !== this._acceptedPreviewState.includeCandidates
+    ) {
+      if (!await this._loadContext(request)) return false
+    }
+    return this._loadPreview(request)
+  },
+
+  async _loadPreview(request) {
+    if (!this._ownsPreviewRequest(request)) {
       throw new Error("当前项目已切换")
     }
     const preview = await api.world.previewQuickCreateMap(
       this._previewPayload(),
-      projectId,
+      request.projectId,
     )
-    if (!this._isCurrentOpen(generation, projectId)) {
-      throw new Error("当前项目已切换")
-    }
+    if (!this._ownsPreviewRequest(request)) return false
+    if (request.context) this._context = request.context
     this._preview = preview
     if (!this._mapNameTouched) {
       this._mapName = this._preview?.map?.name || ""
@@ -225,6 +272,9 @@ const mapQuickCreateView = {
     this._syncSelectionForLayouts(this._activeLayouts)
     this._layoutHistory = []
     this._layoutRedo = []
+    this._acceptedPreviewGeneration = request.generation
+    this._acceptedPreviewState = this._snapshotPreviewState()
+    return true
   },
 
   _previewPayload() {
@@ -637,17 +687,47 @@ const mapQuickCreateView = {
   _updatePreviewDom() {
     const container = document.getElementById("map-quick-preview")
     if (!container) return
+    const activeElement = document.activeElement
+    const focusTarget = activeElement && container.contains(activeElement)
+      ? activeElement.id
+        ? { elementId: activeElement.id }
+        : activeElement.dataset?.action && activeElement.dataset?.id
+          ? { dataset: { ...activeElement.dataset } }
+          : null
+      : null
     container.innerHTML = this._renderPreviewTable()
     this._bindModalEvents()
     this._drawCanvas()
+    const nextActiveElement = !focusTarget
+      ? null
+      : focusTarget.elementId
+        ? document.getElementById(focusTarget.elementId)
+        : Array.from(container.querySelectorAll("[data-action][data-id]")).find((element) => (
+          Object.entries(focusTarget.dataset).every(([key, value]) => element.dataset[key] === value)
+        ))
+    if (
+      nextActiveElement
+      && container.contains(nextActiveElement)
+      && !nextActiveElement.disabled
+      && nextActiveElement.tabIndex >= 0
+    ) {
+      nextActiveElement.focus({ preventScroll: true })
+    }
   },
 
   _updateModalDom() {
     const container = document.querySelector(".map-quick-create")
     if (!container) return
+    const active = document.activeElement
+    const focusId = active && container.contains(active) ? active.id : ""
+    const modalBody = container.closest("#modal-body")
+    const scrollTop = modalBody?.scrollTop ?? null
     container.outerHTML = this._render()
     this._bindModalEvents()
     this._drawCanvas()
+    const nextFocus = focusId ? document.getElementById(focusId) : null
+    if (nextFocus && !nextFocus.disabled) nextFocus.focus({ preventScroll: true })
+    if (scrollTop !== null && modalBody?.isConnected) modalBody.scrollTop = scrollTop
   },
 
   async _changeSetting(field, value) {
@@ -657,12 +737,14 @@ const mapQuickCreateView = {
   },
 
   async _reloadSettingsPreview(previous = this._snapshotPreviewState()) {
+    const request = this._beginPreviewRequest()
     try {
-      await this._loadPreview()
+      if (!await this._refreshPreview(request)) return false
       this._updateModalDom()
       return true
     } catch (err) {
-      this._restorePreviewState(previous)
+      if (!this._ownsPreviewRequest(request)) return false
+      this._restoreFailedPreviewRequest(request, previous)
       this._updateModalDom()
       toast(`快速创建预览刷新失败：${err.message || "未知错误"}`, "error")
       return false
@@ -676,9 +758,11 @@ const mapQuickCreateView = {
       (button) => button.textContent === "创建",
     )
     if (!createButton) return
-    const disabled = this._selectedCount() === 0
+    const disabled = this._confirmPending || this._selectedCount() === 0
     createButton.disabled = disabled
-    createButton.title = disabled ? "请至少选择一个地点" : ""
+    createButton.title = this._confirmPending
+      ? "正在创建地图"
+      : disabled ? "请至少选择一个地点" : ""
   },
 
   _setAllSelected(enabled) {
@@ -888,8 +972,14 @@ const mapQuickCreateView = {
   },
 
   async _confirm() {
+    if (this._confirmPending) return this._confirmPending
     const projectId = this._projectId || state.currentProjectId
     const generation = this._openGeneration
+    const modalRoot = document.querySelector(".map-quick-create")
+    const ownsModal = () => this._isCurrentOpen(generation, projectId) && (
+      !modalRoot
+      || (modalRoot.isConnected && document.querySelector(".map-quick-create") === modalRoot)
+    )
     if (!this._isCurrentOpen(generation, projectId)) {
       toast("当前项目已切换，请返回原项目重新打开快速创建", "warning")
       return false
@@ -907,23 +997,35 @@ const mapQuickCreateView = {
     ) {
       return false
     }
-    try {
-      const nameInput = document.getElementById("map-quick-name")
-      const created = await api.world.confirmQuickCreateMap({
-        ...this._previewPayload(),
-        name: nameInput?.value?.trim() || this._mapName?.trim() || this._preview?.map?.name || undefined,
-        layouts: selectedLayouts,
-      }, projectId)
-      if (!this._isCurrentOpen(generation, projectId)) {
-        toast("地图已在原项目创建，当前项目已切换", "warning")
-        return false
+    const nameInput = document.getElementById("map-quick-name")
+    const confirmation = (async () => {
+      let created
+      try {
+        created = await api.world.confirmQuickCreateMap({
+          ...this._previewPayload(),
+          name: nameInput?.value?.trim() || this._mapName?.trim() || this._preview?.map?.name || undefined,
+          layouts: selectedLayouts,
+        }, projectId)
+      } catch (err) {
+        if (ownsModal()) toast(`快速创建地图失败：${err.message || "未知错误"}`, "error")
+        return ownsModal() ? false : true
       }
+      if (!ownsModal()) return true
       toast("地图已快速创建", "success")
-      await this._onCreated?.(created.map)
+      try {
+        await this._onCreated?.(created.map)
+      } catch (err) {
+        if (ownsModal()) toast(`地图已创建，但页面更新失败：${err.message || "未知错误"}`, "warning")
+      }
       return created
-    } catch (err) {
-      toast(`快速创建地图失败：${err.message || "未知错误"}`, "error")
-      return false
+    })()
+    this._confirmPending = confirmation
+    this._syncCreateButton()
+    try {
+      return await confirmation
+    } finally {
+      if (this._confirmPending === confirmation) this._confirmPending = null
+      if (ownsModal()) this._syncCreateButton()
     }
   },
 

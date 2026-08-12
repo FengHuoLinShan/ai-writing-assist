@@ -412,7 +412,7 @@ export function recoverActiveWorkflows(projectId = null, storage = globalThis.lo
   writeStorage(deduped, storage)
 
   return projectId
-    ? deduped.filter((item) => !item.projectId || item.projectId === projectId)
+    ? deduped.filter((item) => item.projectId === projectId)
     : deduped
 }
 

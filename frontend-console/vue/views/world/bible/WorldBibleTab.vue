@@ -4,7 +4,12 @@
   DOM class/id/data-action 逐节点保留（e2e 世界书契约）。
 -->
 <template>
-  <section class="world-bible-workspace" ref="rootEl">
+  <section
+    class="world-bible-workspace"
+    ref="rootEl"
+    :inert="editorMutationPending || undefined"
+    :aria-busy="editorMutationPending"
+  >
     <!-- toolbar -->
     <div class="view-header world-bible-toolbar">
       <div class="view-header__title">
@@ -508,6 +513,7 @@ const {
   projectionTask,
   projectionConflictHint,
   projectionRetryPending,
+  editorMutationPending,
 
   pages,
   categories,
@@ -555,6 +561,9 @@ const {
   categoryOptions,
   formatAssetRefs,
   parseAssetRefs,
+  ownsProject,
+  captureModalOwner,
+  ownsModalOwner,
   captureSectionsFromDom,
   readSectionsFromDom,
   rerenderSectionEditor,
@@ -621,7 +630,34 @@ const taskStorageKeyValue = computed(() => {
 })
 
 // ---- activation profile editor ----
+let activationTargetPicker = null
+let assetRefPicker = null
+let activationMutationGeneration = 0
+
+function captureActivationOwner(modalNode = null) {
+  return {
+    generation: ++activationMutationGeneration,
+    novelId: props.projectId,
+    selectionId: activeActivationProfileId.value,
+    picker: activationTargetPicker,
+    modal: captureModalOwner(modalNode),
+  }
+}
+
+function ownsActivationOwner(owner) {
+  return owner.generation === activationMutationGeneration
+    && ownsProject(owner.novelId)
+    && activeActivationProfileId.value === owner.selectionId
+    && ownsModalOwner(owner.modal)
+}
+
+function destroyActivationTargetPicker(picker = activationTargetPicker) {
+  picker?.destroy?.()
+  if (activationTargetPicker === picker) activationTargetPicker = null
+}
+
 function openActivationProfileEditor(profile = null) {
+  activationMutationGeneration += 1
   const rule = profile?.rules_json?.[0] || null
   const target = rule?.select?.target_refs?.[0]
     || (activePage.value?.id ? { target_type: "world_bible_page", target_id: activePage.value.id } : {})
@@ -646,7 +682,6 @@ function openActivationProfileEditor(profile = null) {
     </div>
   `
   const showModalHtml = getShowModalHtml()
-  const closeModal = getCloseModal()
   showModalHtml(profile ? "编辑 AI 参考规则工作稿" : "新建 AI 参考规则", body, [{
     text: "保存工作稿",
     class: "btn-primary",
@@ -658,6 +693,7 @@ function openActivationProfileEditor(profile = null) {
 function mountActivationTargetPicker(target) {
   const root = document.getElementById("bible-rule-target-picker")
   if (!root) return
+  destroyActivationTargetPicker()
   const picker = createReferencePicker({
     root,
     projectId: props.projectId,
@@ -671,8 +707,7 @@ function mountActivationTargetPicker(target) {
   if (target?.target_id) {
     picker.resolve([{ kind: canonicalAssetRefType(target.target_type), id: target.target_id }])
   }
-  // Store picker ref for cleanup
-  window.__bibleActivationTargetPicker = picker
+  activationTargetPicker = picker
 }
 
 function canonicalAssetRefType(type) {
@@ -747,21 +782,27 @@ async function saveActivationProfileEditor(profile) {
     },
     rank: { priority: Number(document.getElementById("bible-rule-priority")?.value || 700), top_k: Number(document.getElementById("bible-rule-top-k")?.value || 12), token_cap: Number(document.getElementById("bible-rule-token-cap")?.value || 1200) },
   }
+  const owner = captureActivationOwner(document.getElementById("bible-profile-name"))
   try {
     const name = document.getElementById("bible-profile-name")?.value?.trim() || "AI 参考规则"
+    const profileKey = document.getElementById("bible-profile-key")?.value?.trim() || ""
     const api = getApi()
     const saved = profile
-      ? await api.context.updateActivationProfile(profile.id, { base_version_number: profile.version_number, name, applicable_actions_json: [action], rules_json: [rule] }, props.projectId)
-      : await api.context.createActivationProfile({ novel_id: props.projectId, profile_key: document.getElementById("bible-profile-key")?.value?.trim() || "", name, applicable_actions_json: [action], rules_json: [rule] })
-    closeModal()
-    window.__bibleActivationTargetPicker?.destroy?.()
-    window.__bibleActivationTargetPicker = null
+      ? await api.context.updateActivationProfile(profile.id, { base_version_number: profile.version_number, name, applicable_actions_json: [action], rules_json: [rule] }, owner.novelId)
+      : await api.context.createActivationProfile({ novel_id: owner.novelId, profile_key: profileKey, name, applicable_actions_json: [action], rules_json: [rule] })
+    destroyActivationTargetPicker(owner.picker)
+    if (!ownsActivationOwner(owner)) return true
+    getCloseModal()()
     activeActivationProfileId.value = saved.id
     activationTrace.value = null
     getToast()("规则工作稿已保存；发布前不会影响真实调用", "success")
     getRouter().refresh()
   } catch (err) {
-    getToast()(err.message || "保存规则失败", "error")
+    if (ownsActivationOwner(owner)) {
+      getToast()(err.message || "保存规则失败", "error")
+      return false
+    }
+    return true
   }
 }
 
@@ -769,14 +810,20 @@ async function publishActivationProfile() {
   const profile = currentProfile.value
   if (!profile) return
   getConfirmAction()("发布此启用配置？后续显式启用它的 AI 功能将固定使用该版本。", async () => {
+    const owner = captureActivationOwner()
     try {
       const api = getApi()
-      const saved = await api.context.publishActivationProfile(profile.id, { base_version_number: profile.version_number, revision_reason: "manual_publish" }, props.projectId)
+      const saved = await api.context.publishActivationProfile(profile.id, { base_version_number: profile.version_number, revision_reason: "manual_publish" }, owner.novelId)
+      if (!ownsActivationOwner(owner)) return true
       activeActivationProfileId.value = saved.id
       getToast()("AI 参考规则已发布", "success")
       getRouter().refresh()
     } catch (err) {
-      getToast()(err.message || "发布规则失败", "error")
+      if (ownsActivationOwner(owner)) {
+        getToast()(err.message || "发布规则失败", "error")
+        return false
+      }
+      return true
     }
   })
 }
@@ -788,9 +835,11 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  activationMutationGeneration += 1
   cleanup()
-  window.__bibleActivationTargetPicker?.destroy?.()
-  window.__bibleActivationTargetPicker = null
+  assetRefPicker?.destroy?.()
+  assetRefPicker = null
+  destroyActivationTargetPicker()
 })
 
 function mountAssetRefPicker() {
@@ -802,10 +851,11 @@ function mountAssetRefPicker() {
   try {
     wireRefs = parseAssetRefs(input.value || "")
   } catch { wireRefs = [] }
+  assetRefPicker?.destroy?.()
   const picker = createReferencePicker({
     root,
     projectId: props.projectId,
-    sources: window.__bibleAssetRefSources || assetRefSources(),
+    sources: assetRefSources(),
     mode: "multiple",
     maxItems: 50,
     placeholder: "按名称搜索关联资产",
@@ -824,7 +874,7 @@ function mountAssetRefPicker() {
   })
   const canonicalRefs = wireRefs.map((ref) => ({ kind: canonicalAssetRefType(assetRefType(ref)), id: assetRefId(ref) })).filter((ref) => ref.kind && ref.id)
   picker.resolve(canonicalRefs)
-  window.__bibleAssetRefPicker = picker
+  assetRefPicker = picker
 }
 
 function openAssetRef(type, id) {

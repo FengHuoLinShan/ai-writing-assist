@@ -785,7 +785,7 @@ class WorldBibleLifecycleService:
             WorldBiblePageDraft.page_id == page.id,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
         draft = await db.scalar(stmt)
         return WorldBiblePageSourceState(page=page, draft=draft)
 
@@ -1019,7 +1019,7 @@ class WorldBibleLifecycleService:
             WorldBiblePageDraft.novel_id == nid,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
         draft = await db.scalar(stmt)
         if draft is None:
             raise NotFoundError("World Bible draft not found")
@@ -1040,7 +1040,7 @@ class WorldBibleLifecycleService:
             WorldBiblePage.novel_id == nid,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
         page = await db.scalar(stmt)
         if page is None:
             raise NotFoundError("World Bible page not found")

@@ -318,7 +318,7 @@ async def cancel_task(
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
         AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-    )
+    ).with_for_update()
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
@@ -352,7 +352,7 @@ async def retry_task(
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
         AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-    )
+    ).with_for_update()
     task = (await db.execute(stmt)).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")

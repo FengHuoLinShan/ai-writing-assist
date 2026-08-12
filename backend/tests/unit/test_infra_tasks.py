@@ -424,6 +424,7 @@ class TestCancelTask:
         sql = _compiled_execute_statement(db)
         assert "async_tasks.id" in sql
         assert "novel_id" in sql
+        assert "FOR UPDATE" in sql
 
     @pytest.mark.asyncio
     async def test_cancel_running_task(
@@ -524,6 +525,38 @@ class TestCancelTask:
             await cancel_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
 
         assert exc_info.value.status_code == 404
+        active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
+
+
+class TestRetryTask:
+    @pytest.mark.asyncio
+    async def test_retry_locks_task_before_transition(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
+        from infrastructure.tasks.api import retry_task
+
+        task_id = uuid.uuid4()
+        task = MagicMock()
+        task.id = task_id
+        task.status = "failed"
+        task.recovery_policy = "auto_requeue"
+        task.attempt = 1
+        task.max_attempts = 2
+        task.result = {}
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = task
+        db.execute = AsyncMock(return_value=result)
+        db.flush = AsyncMock()
+
+        response = await retry_task(task_id, db=db, novel_id=_TASK_NOVEL_ID)
+
+        assert response.status == "pending"
+        locked_select = db.execute.await_args_list[0].args[0]
+        assert "FOR UPDATE" in str(
+            locked_select.compile(compile_kwargs={"literal_binds": True})
+        )
         active_project_guard.assert_awaited_once_with(db, _TASK_NOVEL_ID)
 
 

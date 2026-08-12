@@ -81,6 +81,7 @@ const overviewConflict = ref(null)
 const overviewEditContext = ref(null)
 const overviewDraftNotice = ref(false)
 const overviewRetrying = ref(false)
+const overviewSaving = ref(false)
 const overviewLoading = ref(false)
 const overviewLoadError = ref("")
 const generationRecordsOpen = ref(false)
@@ -127,6 +128,7 @@ let disposed = false
 let locatorGesture = null
 let branchCacheGeneration = 0
 let journeyRefreshVersion = 0
+let overviewGeneration = 0
 const branchLoads = new Map()
 const unseenStoryNodeIds = new Set()
 const knownStoryNodeIds = new Set([
@@ -568,14 +570,28 @@ async function startMutation(
     getToast()("这次输入过长，请分几次发送", "warning")
     return null
   }
+  const requestJourneyId = journeyId.value
+  const requestSelectionEpoch = journey.value?.selection_epoch
+  const requestComposer = composer.value
+  const ownsRequest = () => (
+    !disposed
+    && journeyId.value === requestJourneyId
+    && journey.value?.selection_epoch === requestSelectionEpoch
+  )
   sending.value = true
   conflict.value = null
   try {
     const result = await run()
+    if (!ownsRequest()) {
+      if (usesComposer && !preserveComposer && readJourneyDraft(requestJourneyId) === requestComposer) {
+        writeJourneyDraft(requestJourneyId, "")
+      }
+      return null
+    }
     applyJourney(result.journey)
-    if (!preserveComposer) {
+    if (usesComposer && !preserveComposer && composer.value === requestComposer) {
       composer.value = ""
-      writeJourneyDraft(journeyId.value, "")
+      writeJourneyDraft(requestJourneyId, "")
       editingNodeId.value = null
     }
     connectionProblem.value = false
@@ -584,6 +600,7 @@ async function startMutation(
     await scrollToBottom()
     return result
   } catch (error) {
+    if (!ownsRequest()) return null
     if (error?.status === 409 && error?.body?.error === "interaction_selection_conflict") {
       conflict.value = {
         nodeId: journey.value?.selected_leaf_node_id,
@@ -599,7 +616,9 @@ async function startMutation(
     }
     return null
   } finally {
-    sending.value = false
+    if (!disposed && journeyId.value === requestJourneyId) {
+      sending.value = false
+    }
   }
 }
 
@@ -895,12 +914,24 @@ async function openTree() {
 }
 
 async function openOverview() {
+  const generation = ++overviewGeneration
+  const requestJourneyId = journeyId.value
+  const requestSelectionEpoch = journey.value?.selection_epoch
+  const requestBranchId = journey.value?.selected_leaf_node_id
+  const ownsRequest = () => (
+    !disposed
+    && overviewOpen.value
+    && generation === overviewGeneration
+    && journeyId.value === requestJourneyId
+    && journey.value?.selection_epoch === requestSelectionEpoch
+  )
   overviewOpen.value = true
-  if (overviewLoading.value) return
   overviewLoading.value = true
   overviewLoadError.value = ""
   try {
-    overview.value = await getApi().interactions.getOverview(journeyId.value)
+    const nextOverview = await getApi().interactions.getOverview(requestJourneyId)
+    if (!ownsRequest()) return
+    overview.value = nextOverview
     overviewDraft.value = cloneOverviewSections(overview.value.sections)
     overviewBaseline.value = JSON.stringify(overviewDraft.value)
     overviewEditing.value = false
@@ -908,15 +939,15 @@ async function openOverview() {
     overviewEditContext.value = null
     overviewDraftNotice.value = false
     const saved = readOverviewDraft(
-      journeyId.value,
-      journey.value?.selected_leaf_node_id,
+      requestJourneyId,
+      requestBranchId,
     )
     if (saved?.sections) {
       overviewDraft.value = cloneOverviewSections(saved.sections)
       overviewEditContext.value = {
-        nodeId: journey.value?.selected_leaf_node_id,
+        nodeId: requestBranchId,
         selectionEpoch:
-          saved.selectionEpoch ?? journey.value?.selection_epoch,
+          saved.selectionEpoch ?? requestSelectionEpoch,
         overviewEpoch:
           saved.overviewEpoch ?? overview.value?.overview_epoch,
         baseRevisionId:
@@ -930,15 +961,18 @@ async function openOverview() {
       }
       overviewDraftNotice.value = (
         saved.overviewEpoch !== overview.value.overview_epoch
-        || saved.selectionEpoch !== journey.value.selection_epoch
+        || saved.selectionEpoch !== requestSelectionEpoch
       )
       overviewEditing.value = true
     }
   } catch {
+    if (!ownsRequest()) return
     overviewLoadError.value = "回顾暂时无法载入，请稍后重试。"
     getToast()(overviewLoadError.value, "error")
   } finally {
-    overviewLoading.value = false
+    if (!disposed && generation === overviewGeneration) {
+      overviewLoading.value = false
+    }
   }
 }
 
@@ -992,11 +1026,14 @@ function closeOverview() {
   overviewConflict.value = null
   overviewEditContext.value = null
   overviewDraftNotice.value = false
+  overviewGeneration += 1
+  overviewLoading.value = false
   overviewOpen.value = false
 }
 
 async function saveOverview() {
-  if (!overviewDraftHasContent.value) return
+  if (!overviewDraftHasContent.value || overviewSaving.value) return false
+  overviewSaving.value = true
   const draftBranchId = (
     overviewEditContext.value?.nodeId || journey.value?.selected_leaf_node_id
   )
@@ -1025,15 +1062,19 @@ async function saveOverview() {
       null,
     )
     getToast()("回顾已保存", "success")
+    return true
   } catch (error) {
     if (error?.status === 409) {
       overviewConflict.value = {
         nodeId: overviewEditContext.value?.nodeId,
       }
       getToast()("旅程在别处发生了变化；你的回顾草稿仍保留。", "error")
-      return
+      return false
     }
     getToast()("回顾保存失败；你的草稿仍保留，请稍后重试。", "error")
+    return false
+  } finally {
+    overviewSaving.value = false
   }
 }
 
@@ -1150,6 +1191,7 @@ async function toggleMode(field) {
     && !journey.value.see_sea_enabled
     && !requireModelConnection()
   ) return
+  const requestJourneyId = journeyId.value
   const payload = {
     expected_selection_epoch: journey.value.selection_epoch,
     [field]: !journey.value[field],
@@ -1158,7 +1200,13 @@ async function toggleMode(field) {
     field === "see_sea_enabled" && journey.value.see_sea_enabled
   )
   try {
-    const result = await getApi().interactions.updateModes(journeyId.value, payload)
+    const result = await getApi().interactions.updateModes(requestJourneyId, payload)
+    if (disposed || journeyId.value !== requestJourneyId) {
+      if (field === "see_sea_enabled" && payload[field]) {
+        await getApi().interactions.leaveJourney(requestJourneyId).catch(() => {})
+      }
+      return
+    }
     const responseOnCurrentBranch = applyModeJourney(
       result.journey,
       payload.expected_selection_epoch,
@@ -1180,7 +1228,9 @@ async function toggleMode(field) {
       void followAttempt(result.attempt)
     }
   } catch (error) {
-    getToast()(safeInteractionError(error).message, "error")
+    if (!disposed && journeyId.value === requestJourneyId) {
+      getToast()(safeInteractionError(error).message, "error")
+    }
   }
 }
 
@@ -1206,14 +1256,18 @@ function requestModeToggle(field) {
 
 async function confirmSeeSea() {
   if (seeSeaConfirming.value) return
+  const requestJourneyId = journeyId.value
   seeSeaConfirming.value = true
   try {
     await getApi().interactions.acknowledgeSeeSeaNotice()
+    if (disposed || journeyId.value !== requestJourneyId) return
     seeSeaNoticeAcknowledged.value = true
     seeSeaNoticeOpen.value = false
     await toggleMode("see_sea_enabled")
   } catch {
-    getToast()("暂时无法保存提示状态，请重试。", "error")
+    if (!disposed && journeyId.value === requestJourneyId) {
+      getToast()("暂时无法保存提示状态，请重试。", "error")
+    }
   } finally {
     seeSeaConfirming.value = false
   }
@@ -1238,12 +1292,16 @@ async function archiveJourney() {
     ? " 当前生成会停止，已显示正文会作为未完整片段保留。"
     : ""
   if (!getConfirm()(`归档「${journey.value.title}」？${suffix}`)) return
+  const requestJourneyId = journeyId.value
   try {
-    await getApi().interactions.archiveJourney(journeyId.value)
+    await getApi().interactions.archiveJourney(requestJourneyId)
+    if (disposed || journeyId.value !== requestJourneyId) return
     abortStream()
     await getRouter().navigate("journeys")
   } catch {
-    getToast()("归档失败；旅程和正在生成的内容仍保留，请重试。", "error")
+    if (!disposed && journeyId.value === requestJourneyId) {
+      getToast()("归档失败；旅程和正在生成的内容仍保留，请重试。", "error")
+    }
   }
 }
 
@@ -1311,12 +1369,13 @@ async function loadLatestAfterConflict() {
 
 async function continueFromVisible() {
   const value = conflict.value
-  if (!value?.nodeId || !value.content?.trim()) return
+  const content = composer.value.trim()
+  if (!value?.nodeId || !content) return
   const result = await startMutation(() => getApi().interactions.continueFromNode(
     journeyId.value,
     value.nodeId,
     {
-      content: value.content.trim(),
+      content,
       expected_selection_epoch: value.currentEpoch,
       idempotency_key: interactionOperationKey("from-here"),
     },
@@ -1535,6 +1594,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   disposed = true
+  overviewGeneration += 1
   persistScrollPosition()
   abortStream()
   stopHeartbeat()
@@ -1961,7 +2021,13 @@ onBeforeUnmount(() => {
       <footer v-if="!overviewLoading && !overviewLoadError">
         <template v-if="overviewEditing">
           <button type="button" @click="cancelOverviewEdit">取消</button>
-          <button class="primary" type="button" :disabled="!overviewDraftHasContent" @click="saveOverview">保存修改</button>
+          <button
+            class="primary"
+            type="button"
+            :disabled="!overviewDraftHasContent || overviewSaving"
+            :aria-busy="overviewSaving"
+            @click="saveOverview"
+          >{{ overviewSaving ? "正在保存…" : "保存修改" }}</button>
         </template>
         <button v-else-if="overviewHasContent" type="button" @click="editOverview">手动纠正</button>
         <button

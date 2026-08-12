@@ -8,9 +8,8 @@
  * referencePicker 挂载保持 vanilla 原样。
  *
  * 刷新语义：vanilla 的 router.refresh()/navigate/_reloadWorldLists 统一等价于
- * getRouter().refresh()（island 重挂载 = onEnter 全量重取）。vanilla 的
- * _lifecycleEpoch 守卫（ mutation 期间离开视图后不回写）在此不复制——
- * 模态打开期间用户无法触发视图导航。
+ * getRouter().refresh()（island 重挂载 = onEnter 全量重取）。模态操作由全局
+ * modal/router 守卫项目导航；无模态的异步操作在回写 UI 前校验启动时作用域。
  */
 import { getApi, getAppState, getCloseModal, getConfirm, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
@@ -221,7 +220,27 @@ function showEntityTypeBlocker(err, targetId) {
 // 通用助手
 // ============================================================
 
-/** 对应 vanilla _finishEntityMutation（无 lifecycleEpoch 守卫，见文件头注释）。 */
+function captureWorldOperationScope() {
+  const state = getAppState()
+  return {
+    projectId: state?.currentProjectId || null,
+    view: state?.currentView || null,
+    subView: state?.currentSubView || null,
+  }
+}
+
+function ownsWorldOperationScope(scope) {
+  const state = getAppState()
+  return Boolean(
+    scope
+    && state
+    && (state.currentProjectId || null) === scope.projectId
+    && (state?.currentView || null) === scope.view
+    && (state?.currentSubView || null) === scope.subView,
+  )
+}
+
+/** 对应 vanilla _finishEntityMutation；调用方为受全局 modal/router 管理的模态操作。 */
 async function finishEntityMutation(successMessage) {
   const toast = getToast()
   try {
@@ -509,7 +528,8 @@ export function promoteEntity(id) {
 export async function markEntityReviewed(id) {
   const api = getApi()
   const toast = getToast()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   let entity = findEntity(id)
   try {
     const fetched = await api.world.getEntity(id, projectId)
@@ -518,18 +538,22 @@ export async function markEntityReviewed(id) {
     // 列表数据足够完成检查标记；详情读取失败不阻断单项操作。
   }
   if (!entity) {
-    toast("未找到目标世界对象", "error")
+    if (ownsWorldOperationScope(scope)) toast("未找到目标世界对象", "error")
     return false
   }
   try {
     await api.world.updateEntity(id, {
       content_json: entityReviewContent(entity, true, "world_objects"),
     }, projectId)
-    toast("世界对象已标记为已检查", "success")
-    getRouter()?.refresh?.()
+    if (ownsWorldOperationScope(scope)) {
+      toast("世界对象已标记为已检查", "success")
+      getRouter()?.refresh?.()
+    }
     return true
   } catch (err) {
-    toast(`世界对象检查状态更新失败：${err.message || "未知错误"}`, "error")
+    if (ownsWorldOperationScope(scope)) {
+      toast(`世界对象检查状态更新失败：${err.message || "未知错误"}`, "error")
+    }
     return false
   }
 }
@@ -538,7 +562,8 @@ export async function markEntityReviewed(id) {
 export async function markEntityUnreviewed(id) {
   const api = getApi()
   const toast = getToast()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   let entity = findEntity(id)
   try {
     const fetched = await api.world.getEntity(id, projectId)
@@ -547,18 +572,22 @@ export async function markEntityUnreviewed(id) {
     // 列表数据足够完成检查标记；详情读取失败不阻断单项操作。
   }
   if (!entity) {
-    toast("未找到目标世界对象", "error")
+    if (ownsWorldOperationScope(scope)) toast("未找到目标世界对象", "error")
     return false
   }
   try {
     await api.world.updateEntity(id, {
       content_json: entityReviewContent(entity, false, "world_objects"),
     }, projectId)
-    toast("世界对象已标记为需要人工检查", "success")
-    getRouter()?.refresh?.()
+    if (ownsWorldOperationScope(scope)) {
+      toast("世界对象已标记为需要人工检查", "success")
+      getRouter()?.refresh?.()
+    }
     return true
   } catch (err) {
-    toast(`世界对象检查状态更新失败：${err.message || "未知错误"}`, "error")
+    if (ownsWorldOperationScope(scope)) {
+      toast(`世界对象检查状态更新失败：${err.message || "未知错误"}`, "error")
+    }
     return false
   }
 }
@@ -662,7 +691,7 @@ export function showResolveAliasForm(candidateId) {
       const type = document.getElementById("alias-edit-type")?.value || "alias"
       if (!selectedTargetId || !text) {
         toast("请选择目标对象并输入别名", "warning")
-        return
+        return false
       }
       try {
         const projectId = getAppState()?.currentProjectId
@@ -680,6 +709,7 @@ export function showResolveAliasForm(candidateId) {
         getRouter()?.refresh?.()
       } catch (err) {
         toast(err.message || "设为别名失败", "error")
+        return false
       }
     },
   }])
@@ -722,7 +752,7 @@ export function showMergeForm(candidateId) {
     class: "btn-primary",
     handler: async () => {
       const selectedTargetId = document.getElementById("merge-target-id")?.value
-      if (!selectedTargetId) { toast("请选择目标对象", "warning"); return }
+      if (!selectedTargetId) { toast("请选择目标对象", "warning"); return false }
       const selectedLabel = document.getElementById("merge-target-id")?.dataset.referenceLabel
         || findEntity(selectedTargetId)?.name
         || "所选目标对象"
@@ -760,8 +790,10 @@ async function mergeEntity(candidateId, targetId) {
     }
     toast("实体已合并", "success")
     getRouter()?.refresh?.()
+    return true
   } catch (err) {
     toast(err.message || "合并失败", "error")
+    return false
   }
 }
 
@@ -785,13 +817,14 @@ export function showRollbackForm(entityIdParam) {
     class: "btn-primary",
     handler: async () => {
       const idx = parseInt(document.getElementById("rollback-scene-index")?.value || "0", 10)
-      if (Number.isNaN(idx)) { toast("请输入有效的场景索引", "warning"); return }
+      if (Number.isNaN(idx)) { toast("请输入有效的场景索引", "warning"); return false }
       try {
         const result = await getApi().world.rollbackEntity(entityIdParam, idx, getAppState()?.currentProjectId)
         toast((result.warnings || []).length ? "回滚完成，存在警告" : "回滚完成", (result.warnings || []).length ? "warning" : "success")
         getRouter()?.refresh?.()
       } catch (err) {
         toast(err.message || "回滚失败", "error")
+        return false
       }
     },
   }])
@@ -854,10 +887,10 @@ export function showKnowledgeForm(characterId) {
           ? parseInt(document.getElementById("knowledge-chapter").value, 10)
           : null,
       }
-      if (!payload.target_id) { toast("请选择目标对象", "warning"); return }
+      if (!payload.target_id) { toast("请选择目标对象", "warning"); return false }
       if (payload.knowledge_level === "false_belief" && !payload.misconception) {
         toast("错误认知必须填写误解内容", "warning")
-        return
+        return false
       }
       try {
         await getApi().world.createKnowledge(characterId, payload, getAppState()?.currentProjectId)
@@ -865,19 +898,20 @@ export function showKnowledgeForm(characterId) {
         getRouter()?.refresh?.()
       } catch (err) {
         toast(err.message || "添加知识边界失败", "error")
+        return false
       }
     },
   }])
 }
 
 /** 对应 vanilla _openEntityPresence。 */
-function openEntityPresence(presence, entityIdParam) {
-  const projectId = getAppState()?.currentProjectId
+function openEntityPresence(presence, entityIdParam, scope) {
+  if (!ownsWorldOperationScope(scope)) return false
   const target = presence?.open_target || {}
   const pathRef = presence?._pathRef || presence?.path_refs?.[0] || {}
   const focusesPath = Boolean(pathRef.path_id || target.focus_path_id)
   const url = buildMapUrl({
-    projectId,
+    projectId: scope.projectId,
     mapId: target.map_id || presence.map_id,
     sceneId: target.scene_id,
     focusEntityId: target.focus_entity_id || entityIdParam,
@@ -888,6 +922,7 @@ function openEntityPresence(presence, entityIdParam) {
     mode: target.mode || "live",
   })
   window.open(url, "_blank", "noopener")
+  return true
 }
 
 /** 对应 vanilla _openEntityMap。 */
@@ -895,7 +930,8 @@ export async function openEntityMap(entityIdParam) {
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const closeModal = getCloseModal()
-  const projectId = getAppState()?.currentProjectId
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
   if (!projectId) {
     toast("请先选择项目", "warning")
     return
@@ -904,6 +940,7 @@ export async function openEntityMap(entityIdParam) {
     const entity = findEntity(entityIdParam)
     const includeCandidates = entity?.status === "candidate" || entity?.status === "draft"
     const presence = await getApi().world.getEntityMapPresence(entityIdParam, projectId, includeCandidates)
+    if (!ownsWorldOperationScope(scope)) return
     const items = presence?.items || []
     const choices = items.flatMap((item) => (
       item.path_refs?.length
@@ -911,7 +948,7 @@ export async function openEntityMap(entityIdParam) {
         : [item]
     ))
     if (choices.length === 1) {
-      openEntityPresence(choices[0], entityIdParam)
+      openEntityPresence(choices[0], entityIdParam, scope)
       return
     }
     if (choices.length > 1) {
@@ -943,12 +980,13 @@ export async function openEntityMap(entityIdParam) {
       document.querySelectorAll("[data-map-presence-index]").forEach((button) => {
         button.onclick = () => {
           closeModal()
-          openEntityPresence(choices[Number(button.dataset.mapPresenceIndex)], entityIdParam)
+          openEntityPresence(choices[Number(button.dataset.mapPresenceIndex)], entityIdParam, scope)
         }
       })
       return
     }
     const target = await getApi().world.getMapOpenTarget(projectId, { focusEntityId: entityIdParam })
+    if (!ownsWorldOperationScope(scope)) return
     const url = buildMapUrl({
       projectId,
       mapId: target.map_id,
@@ -963,7 +1001,9 @@ export async function openEntityMap(entityIdParam) {
     }
     window.open(url, "_blank", "noopener")
   } catch (err) {
-    toast(`打开地图失败：${err.message || "未知错误"}`, "error")
+    if (ownsWorldOperationScope(scope)) {
+      toast(`打开地图失败：${err.message || "未知错误"}`, "error")
+    }
   }
 }
 
@@ -1028,7 +1068,7 @@ export function showEntityFusionSuggestions(fusionProgress) {
         .filter((entry) => entry.item.action === "merge" || entry.item.action === "alias_only")
       if (!selected.length) {
         toast("请选择可应用的建议", "warning")
-        return
+        return false
       }
       const payload = selected.map(({ item, card }) => {
         const allowCanonical = Boolean(card?.querySelector("[data-canonical-merge]")?.checked)
@@ -1052,6 +1092,7 @@ export function showEntityFusionSuggestions(fusionProgress) {
         getRouter()?.refresh?.()
       } catch (err) {
         toast(err.message || "应用失败", "error")
+        return false
       }
     },
   }], { size: "large" })
@@ -1108,7 +1149,7 @@ function showBulkEntityResolution(action, items) {
       const target = items.find((item) => entityId(item) === targetId)
       if (!target) {
         toast("请选择要保留的主对象", "warning")
-        return
+        return false
       }
       const sources = items.filter((item) => entityId(item) !== targetId)
       const confirmationMessage = action === "fuse-entities"
@@ -1138,8 +1179,10 @@ function showBulkEntityResolution(action, items) {
             )
             clearBulkSelection("world-objects")
             getRouter()?.refresh?.()
+            return true
           } catch (err) {
             toast(err.message || `${operationLabel}失败`, "error")
+            return false
           }
         },
         "确认执行",

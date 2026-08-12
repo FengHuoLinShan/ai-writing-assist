@@ -590,6 +590,7 @@ describe("aiReferenceModal", () => {
       },
     }))
     expect(document.getElementById("ai-ref-summary")?.textContent).not.toContain("RAG 证据包")
+    expect(document.activeElement).toBe(document.getElementById("ai-ref-summary"))
   })
 
   it("确认使用返回 context_confirmation_id 来源记录", async () => {

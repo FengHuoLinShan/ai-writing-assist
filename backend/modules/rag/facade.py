@@ -172,7 +172,7 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
             or embedding_dimension_mismatch
         ),
         "warnings": warnings,
-        "circuit_breaker": get_circuit_breaker().status["state"],
+        "circuit_breaker": get_circuit_breaker(novel_id).status["state"],
         "index_freshness": freshness,
     }
 

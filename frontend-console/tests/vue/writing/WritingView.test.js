@@ -5,6 +5,12 @@ import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../
 import { clearWritingSession } from "../../../vue/views/writing/writingSession.js"
 import mapQuickCreateView from "../../../views/mapQuickCreateView.js"
 
+function deferred() {
+  let resolve
+  const promise = new Promise((next) => { resolve = next })
+  return { promise, resolve }
+}
+
 function props(overrides = {}) {
   return {
     projectId: "p1",
@@ -201,6 +207,50 @@ describe("WritingView", () => {
     expect(vm.editorState.chapter).toBe(3)
     expect(globalThis.api.writing.get).not.toHaveBeenCalledWith("d2", "p1")
     expect(globalThis.api.writing.get).toHaveBeenCalledWith("d3", "p1")
+    wrapper.unmount()
+  })
+
+  it("同章切换版本时保留选择控件和焦点", async () => {
+    const history = {
+      versions: [
+        { id: "d2", version_number: 2, status: "draft" },
+        { id: "d1", version_number: 1, status: "draft" },
+      ],
+    }
+    globalThis.api.writing.getVersionHistory.mockResolvedValue(history)
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      chapter_index: 1,
+      title: "第一章",
+      content: id === "d2" ? "新正文" : "旧正文",
+      version_number: id === "d2" ? 2 : 1,
+      status: "draft",
+    }))
+    const wrapper = mount(WritingView, {
+      props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }),
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(wrapper.findAll("#version-selector option")).toHaveLength(2))
+
+    let resolveDraft
+    let resolveHistory
+    globalThis.api.writing.get.mockImplementationOnce(() => new Promise((resolve) => { resolveDraft = resolve }))
+    globalThis.api.writing.getVersionHistory.mockImplementationOnce(() => new Promise((resolve) => { resolveHistory = resolve }))
+    const selector = wrapper.get("#version-selector")
+    selector.element.focus()
+    await selector.setValue("d1")
+
+    expect(globalThis.api.writing.get).toHaveBeenLastCalledWith("d1", "p1")
+    expect(selector.element.isConnected).toBe(true)
+    expect(document.activeElement).toBe(selector.element)
+    expect(selector.element.value).toBe("d1")
+
+    resolveDraft({ id: "d1", novel_id: "p1", chapter_index: 1, title: "第一章", content: "旧正文", version_number: 1, status: "draft" })
+    resolveHistory(history)
+    await flushPromises()
+    expect(wrapper.get("#version-selector").element).toBe(selector.element)
+    expect(document.activeElement).toBe(selector.element)
     wrapper.unmount()
   })
 
@@ -502,6 +552,56 @@ describe("WritingView", () => {
     expect(wrapper.find('[aria-label="剧情设定冲突检查"]').exists()).toBe(true)
     expect(globalThis.showModalHtml).not.toHaveBeenCalled()
     wrapper.unmount()
+  })
+
+  it("冲突检查暂存期间切换章节后不再提交旧章节检查", async () => {
+    const late = deferred()
+    const wrapper = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2],
+        chapters: {
+          1: { chapter_index: 1, title: "第一章", status: "draft" },
+          2: { chapter_index: 2, title: "第二章", status: "draft" },
+        },
+        scenes: [],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await wrapper.get("#writing-editor").setValue("等待检查的正文")
+    globalThis.api.writing.autosave.mockReturnValueOnce(late.promise)
+    const vm = wrapper.vm.$.setupState.vm
+    const checking = vm.runConflictCheck()
+    await vi.waitFor(() => expect(globalThis.api.writing.autosave).toHaveBeenCalled())
+    const switching = vm.selectChapter(2)
+
+    expect(globalThis.api.writing.createConflictCheck).not.toHaveBeenCalled()
+    late.resolve({ id: "d1", novel_id: "p1", title: "第一章", content: "等待检查的正文", version_number: 2, status: "draft" })
+    await Promise.all([checking, switching])
+    await flushPromises()
+
+    expect(vm.selectedChapter.value).toBe(2)
+    expect(globalThis.api.writing.createConflictCheck).not.toHaveBeenCalled()
+    expect(vm.conflictDialog.open).toBe(false)
+    expect(toastMock).not.toHaveBeenCalledWith("冲突检查已完成", "success")
+    wrapper.unmount()
+  })
+
+  it("组件卸载后忽略冲突检查的晚到结果", async () => {
+    const late = deferred()
+    globalThis.api.writing.createConflictCheck.mockReturnValue(late.promise)
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    const checking = vm.runConflictCheck()
+    await vi.waitFor(() => expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalled())
+    wrapper.unmount()
+    late.resolve({ id: "late-check", chapter_index: 1, items: [] })
+    await checking
+
+    expect(vm.conflictState.latest).toBeNull()
+    expect(vm.conflictDialog.open).toBe(false)
+    expect(toastMock).not.toHaveBeenCalledWith("冲突检查已完成", "success")
   })
 
   it("冲突详情的状态、来源和采用建议均端到端经过 Vue", async () => {

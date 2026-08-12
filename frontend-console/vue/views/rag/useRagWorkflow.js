@@ -3,8 +3,8 @@
  * _retryEmbeddings / _retryFailedTask / _recoverRebuildWorkflow
  * 与轮询管理（_startRebuildPolling/_stopRebuildPolling）。
  * （预热由 ./prewarmManager.js 模块级管理，不在组件生命周期内。）
- * 进度写入 ragSearchSession（跨 island 重挂载存活）；scope 销毁时停止轮询并
- * abort 在途请求（对应 vanilla onLeave 清理）。
+ * 进度写入 ragSearchSession（跨 island 重挂载存活）；scope 销毁时停止轮询。
+ * 创建任务的写请求不随视图取消，避免服务端已入队但客户端丢失 task_id。
  */
 import { computed, getCurrentScope, onScopeDispose, ref } from "vue"
 import {
@@ -26,8 +26,8 @@ import { ragSearchSession } from "./ragSearchSession.js"
  */
 export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
   const polling = useWorkflowPolling()
-  let abortController = new AbortController()
   let pollerStarted = false
+  let disposed = false
   const maintenanceSubmitting = ref(false)
   let maintenanceSubmissionGeneration = 0
 
@@ -37,20 +37,22 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
   })
 
   function beginMaintenanceSubmission() {
-    if (maintenanceBusy.value) return null
+    if (disposed || maintenanceBusy.value) return null
     const token = ++maintenanceSubmissionGeneration
     maintenanceSubmitting.value = true
     return token
   }
 
   function endMaintenanceSubmission(token) {
-    if (token !== maintenanceSubmissionGeneration) return
+    if (disposed || token !== maintenanceSubmissionGeneration) return
     maintenanceSubmitting.value = false
   }
 
-  function ensureAbortController() {
-    if (!abortController) abortController = new AbortController()
-    return abortController
+  function ownsProject(projectId) {
+    const ownerProjectId = ragSearchSession.ownerProjectId
+    return !disposed
+      && getAppState()?.currentProjectId === projectId
+      && (!ownerProjectId || ownerProjectId === projectId)
   }
 
   /** onUpdate → session.rebuildProgress；onDone/onFailed → 状态落账（对应 _handleRebuildDone）。 */
@@ -59,33 +61,32 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
     workflowType,
     projectId,
   ) {
-    const ownsProject = () => {
-      const ownerProjectId = ragSearchSession.ownerProjectId
-      return getAppState()?.currentProjectId === projectId
-        && (!ownerProjectId || ownerProjectId === projectId)
-    }
+    const ownsPollingProject = () => ownsProject(projectId)
+    if (!ownsPollingProject()) return false
     pollerStarted = true
     polling.start({
       taskId,
       workflowType,
       novelId: projectId,
       onUpdate: (progress) => {
-        if (!ownsProject()) return
+        if (!ownsPollingProject()) return
         ragSearchSession.rebuildProgress = progress
         ragSearchSession.rebuildInfo = null
       },
       onDone: (progress, task) => {
-        if (!ownsProject()) return
+        if (!ownsPollingProject()) return
         const result = task?.result || progress.raw?.result || {}
-        void handleRebuildDone(taskId, workflowType, result)
+        void handleRebuildDone(taskId, workflowType, result, projectId)
       },
       onFailed: () => {
         // 失败/取消状态保留在 rebuildProgress 中展示（vanilla 仅刷新 DOM）
       },
     })
+    return true
   }
 
-  async function applyRagRebuildResult(result = {}) {
+  async function applyRagRebuildResult(result = {}, projectId) {
+    if (!ownsProject(projectId)) return false
     if (result.chunks_created != null) {
       statusFields.totalChunks = result.chunks_created
     } else if (result.total_chapters != null) {
@@ -99,25 +100,35 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       statusFields.statusWarnings = result.warnings
       statusFields.statusDegraded = result.warnings.length > 0 || Boolean(result.embedding_failed_count)
     }
+    return ownsProject(projectId)
   }
 
-  async function handleRebuildDone(taskId, workflowType, result = {}) {
-    if (workflowType === "rag_retry_embeddings") {
-      const remaining = result.remaining_retryable_count ?? result.failed ?? 0
-      statusFields.retryableEmbeddingCount = remaining
-      statusFields.embeddingFailedCount = remaining
-      await refreshStatus?.()
-    } else {
-      await applyRagRebuildResult(result)
+  async function handleRebuildDone(taskId, workflowType, result = {}, projectId) {
+    if (!ownsProject(projectId)) return
+    try {
+      if (workflowType === "rag_retry_embeddings") {
+        const remaining = result.remaining_retryable_count ?? result.failed ?? 0
+        statusFields.retryableEmbeddingCount = remaining
+        statusFields.embeddingFailedCount = remaining
+        await refreshStatus?.()
+      } else {
+        await applyRagRebuildResult(result, projectId)
+      }
+    } catch (err) {
+      if (ownsProject(projectId)) {
+        getToast()(`索引任务已完成，但状态刷新失败：${err.message || "未知错误"}`, "warning")
+      }
+    } finally {
+      clearActiveWorkflow(taskId)
     }
-    clearActiveWorkflow(taskId)
   }
 
   /** 恢复跨刷新的活动工作流（对应 _recoverRebuildWorkflow）。 */
   function recoverRebuildWorkflow() {
     const state = getAppState()
-    if (!state?.currentProjectId || pollerStarted) return
-    const workflows = recoverActiveWorkflows(state.currentProjectId)
+    const projectId = state?.currentProjectId
+    if (!projectId || pollerStarted || !ownsProject(projectId)) return
+    const workflows = recoverActiveWorkflows(projectId)
     const ragWorkflowTypes = new Set(["rag_reindex_novel", "rag_retry_embeddings"])
     const workflow = workflows.find((item) => ragWorkflowTypes.has(item.workflowType) && item.view === "rag")
       || workflows.find((item) => ragWorkflowTypes.has(item.workflowType))
@@ -130,13 +141,14 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       status: "running",
       meta: workflow.meta || {},
     }, workflowType)
-    startRebuildPolling(workflow.taskId, workflowType, state.currentProjectId)
+    startRebuildPolling(workflow.taskId, workflowType, projectId)
   }
 
   /** 重建索引（对应 _rebuildIndex；form = {contentMode, start, end}）。 */
   async function rebuildIndex(form) {
     const toast = getToast()
     const state = getAppState()
+    if (disposed) return false
     if (!state?.currentProjectId) {
       toast("请先选择项目", "warning")
       return
@@ -180,7 +192,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
         payload.start_chapter = chapterRange.startChapter
         payload.end_chapter = chapterRange.endChapter
       }
-      const result = await getApi().rag.rebuild(payload, { signal: ensureAbortController().signal })
+      const result = await getApi().rag.rebuild(payload)
       getApi().clearCache()
       if (result.task_id) {
         persistActiveWorkflow({
@@ -190,7 +202,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
           view: "rag",
           meta: { start_chapter: payload.start_chapter, end_chapter: payload.end_chapter },
         })
-        if (getAppState()?.currentProjectId !== projectId) return true
+        if (!ownsProject(projectId)) return true
         ragSearchSession.rebuildInfo = null
         ragSearchSession.rebuildProgress = normalizeTaskProgress({
           ...result,
@@ -198,7 +210,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
         }, "rag_reindex_novel")
         startRebuildPolling(result.task_id, "rag_reindex_novel", projectId)
         toast("索引重建任务已提交", "success")
-      } else if (getAppState()?.currentProjectId !== projectId) {
+      } else if (!ownsProject(projectId)) {
         return true
       } else if (result.total > 0 || (result.task_ids || []).length > 0) {
         ragSearchSession.rebuildInfo = "索引重建请求已处理。"
@@ -214,7 +226,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       }
       return true
     } catch (err) {
-      if (getAppState()?.currentProjectId === projectId) {
+      if (ownsProject(projectId)) {
         toast(err.message || "重建失败", "error")
       }
       return false
@@ -227,6 +239,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
   async function retryEmbeddings() {
     const toast = getToast()
     const state = getAppState()
+    if (disposed) return false
     if (!state?.currentProjectId) {
       toast("请先选择项目", "warning")
       return
@@ -245,7 +258,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       const result = await getApi().rag.retryEmbeddings({
         novel_id: projectId,
         statuses: ["failed", "pending_vectorization"],
-      }, { signal: ensureAbortController().signal })
+      })
       getApi().clearCache()
       if (result.task_id) {
         persistActiveWorkflow({
@@ -254,7 +267,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
           projectId,
           view: "rag",
         })
-        if (getAppState()?.currentProjectId !== projectId) return true
+        if (!ownsProject(projectId)) return true
         ragSearchSession.rebuildInfo = null
         ragSearchSession.rebuildProgress = normalizeTaskProgress({
           ...result,
@@ -265,7 +278,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
       }
       return true
     } catch (err) {
-      if (getAppState()?.currentProjectId === projectId) {
+      if (ownsProject(projectId)) {
         toast(err.message || "重试失败", "error")
       }
       return false
@@ -276,6 +289,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
 
   /** 重试失败任务（对应 _retryFailedTask）。 */
   async function retryFailedTask() {
+    if (disposed) return false
     const toast = getToast()
     const progress = ragSearchSession.rebuildProgress
     const taskId = progress?.taskId
@@ -288,8 +302,7 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
     ) return false
     const projectId = state.currentProjectId
     const ownsRetryScope = () => (
-      getAppState()?.currentProjectId === projectId
-      && (!ragSearchSession.ownerProjectId || ragSearchSession.ownerProjectId === projectId)
+      ownsProject(projectId)
       && ragSearchSession.rebuildProgress?.taskId === taskId
     )
     ragSearchSession.taskRetryPending = true
@@ -311,26 +324,27 @@ export function useRagWorkflow({ statusFields, refreshStatus } = {}) {
         },
         available_actions: ["cancel"],
       }, workflowType)
-      ragSearchSession.taskRetryPending = false
       startRebuildPolling(taskId, workflowType, projectId)
       toast("任务已重新加入队列", "success")
       return true
     } catch (err) {
       if (ownsRetryScope()) {
-        ragSearchSession.taskRetryPending = false
         toast(err.message || "重试任务失败", "error")
       }
       return false
+    } finally {
+      if (ragSearchSession.rebuildProgress?.taskId === taskId) {
+        ragSearchSession.taskRetryPending = false
+      }
     }
   }
 
   if (getCurrentScope()) {
     onScopeDispose(() => {
+      disposed = true
+      maintenanceSubmissionGeneration += 1
+      maintenanceSubmitting.value = false
       polling.stopAll()
-      if (abortController) {
-        abortController.abort()
-        abortController = null
-      }
     })
   }
 

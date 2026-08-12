@@ -37,6 +37,12 @@ function baseProps(overrides = {}) {
   }
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 beforeEach(() => {
   localStorage.clear()
   writeGenerateContextPreview("p1", {})
@@ -275,6 +281,67 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(api.writing.generate).not.toHaveBeenCalled()
   })
 
+  it("keeps the Scene list for the latest chapter when requests finish B then A", async () => {
+    const resolveScenes = new Map()
+    api.outline.listScenesByChapter.mockImplementation((_projectId, chapter) => new Promise((resolve) => {
+      resolveScenes.set(chapter, resolve)
+    }))
+    const wrapper = mount(GenerateView, {
+      props: baseProps({
+        tab: "pov_prose",
+        povChapters: [
+          { chapter_index: 1, title: "旧怨" },
+          { chapter_index: 2, title: "追击" },
+        ],
+        povCharacters: [{ entity_id: "char-1", name: "秦岚" }],
+      }),
+      attachTo: document.body,
+    })
+
+    const chapter = wrapper.get("#generate-pov-chapter")
+    await chapter.setValue("1")
+    await chapter.setValue("2")
+    resolveScenes.get(2)([{ id: "scene-b", title: "B 章场景" }])
+    await flushPromises()
+    expect(wrapper.get("#generate-pov-scene").text()).toContain("B 章场景")
+
+    resolveScenes.get(1)([{ id: "scene-a", title: "A 章场景" }])
+    await flushPromises()
+    expect(chapter.element.value).toBe("2")
+    expect(wrapper.get("#generate-pov-scene").text()).toContain("B 章场景")
+    expect(wrapper.get("#generate-pov-scene").text()).not.toContain("A 章场景")
+  })
+
+  it("生成期间改选角色不会篡改已发起请求的结果归属", async () => {
+    const generated = deferred()
+    confirmAiReference.mockResolvedValue({ id: "confirm-1", user_note: "" })
+    api.writing.generate.mockReturnValue(generated.promise)
+    const wrapper = mount(GenerateView, {
+      props: baseProps({
+        tab: "pov_prose",
+        povChapters: [{ chapter_index: 1, title: "第一章" }],
+        povCharacters: [{ id: "char-a", name: "甲" }, { id: "char-b", name: "乙" }],
+      }),
+      attachTo: document.body,
+    })
+    api.outline.listScenesByChapter.mockResolvedValueOnce([{ id: "scene-1", title: "场景", pov_character_id: "char-a" }])
+    await wrapper.get("#generate-pov-chapter").setValue("1")
+    await vi.waitFor(() => expect(wrapper.findAll("#generate-pov-scene option").length).toBeGreaterThan(1))
+    await wrapper.get("#generate-pov-scene").setValue("scene-1")
+    await wrapper.get("#generate-pov-character").setValue("char-a")
+    const pending = wrapper.get('[data-action="generate-pov-prose"]').trigger("click")
+    await vi.waitFor(() => expect(api.writing.generate).toHaveBeenCalled())
+
+    await wrapper.get("#generate-pov-character").setValue("char-b")
+    generated.resolve({ draft_id: "draft-1" })
+    await pending
+    await flushPromises()
+
+    expect(wrapper.get("#generate-pov-result").text()).toContain("角色视角正文建议已生成")
+    expect(wrapper.get("#generate-pov-result").text()).toContain("甲")
+    expect(wrapper.get("#generate-pov-result").text()).not.toContain("乙")
+  })
+
   it("aborts an in-flight world request and rejects its late response after unmount", async () => {
     let resolve
     api.generate.worldChat.mockImplementation((_payload, options) => new Promise((done) => { resolve = done; expect(options.signal.aborted).toBe(false) }))
@@ -445,8 +512,32 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(api.generate.listPromptTemplateRevisions).toHaveBeenCalledWith("tpl-1", "p1")
   })
 
+  it("does not render template A history after the editor switches to template B", async () => {
+    const revisions = deferred()
+    api.generate.listPromptTemplateRevisions.mockReturnValue(revisions.promise)
+    const wrapper = mount(GenerateView, { props: baseProps({
+      templates: [
+        { id: "tpl-a", value: "tpl-a", label: "模板 A", prompt: "A 当前提示词", object_template: "custom", is_builtin: false, version_number: 2 },
+        { id: "tpl-b", value: "tpl-b", label: "模板 B", prompt: "B 当前提示词", object_template: "custom", is_builtin: false, version_number: 1 },
+      ],
+      initialSession: { ...emptyGenerateSession(), selectedTemplateId: "tpl-a" },
+    }), attachTo: document.body })
+    await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
+    document.getElementById("generate-template-history-load").click()
+    await vi.waitFor(() => expect(api.generate.listPromptTemplateRevisions).toHaveBeenCalledWith("tpl-a", "p1"))
+
+    const select = document.getElementById("generate-template-editor-select")
+    select.value = "tpl-b"
+    select.dispatchEvent(new Event("change"))
+    revisions.resolve([{ version_number: 1, prompt_text: "A 历史提示词" }])
+    await flushPromises()
+
+    expect(document.getElementById("generate-template-editor-prompt").value).toBe("B 当前提示词")
+    expect(document.getElementById("generate-template-history").textContent).not.toContain("A 历史提示词")
+  })
+
   it("copies a builtin template into the project before saving its prompt", async () => {
-    api.generate.copyPromptTemplate.mockResolvedValue({ id: "tpl-copy" })
+    api.generate.copyPromptTemplate.mockResolvedValue({ id: "tpl-copy", version_number: 1 })
     api.generate.updatePromptTemplate.mockResolvedValue({
       id: "tpl-copy", name: "不带模板副本", prompt_text: "只保留可验证事实",
       object_template: "none", is_builtin: false, version_number: 2,
@@ -457,7 +548,66 @@ describe("GenerateView Vue behavior matrix", () => {
     const save = showModalHtml.mock.calls[0][2][0].handler
     await save()
     expect(api.generate.copyPromptTemplate).toHaveBeenCalledWith("builtin:none", { novel_id: "p1", name: "不带模板" })
-    expect(api.generate.updatePromptTemplate).toHaveBeenCalledWith("tpl-copy", "p1", { prompt_text: "只保留可验证事实" })
+    expect(api.generate.updatePromptTemplate).toHaveBeenCalledWith("tpl-copy", "p1", { prompt_text: "只保留可验证事实", template_version: 1 })
+  })
+
+  it("弹窗被替换后仍完成已发起的内置模板复制链", async () => {
+    const copied = deferred()
+    api.generate.copyPromptTemplate.mockReturnValue(copied.promise)
+    api.generate.updatePromptTemplate.mockResolvedValue({
+      id: "tpl-copy", name: "不带模板", prompt_text: "新提示词", object_template: "none", is_builtin: false, version_number: 2,
+    })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
+    document.getElementById("generate-template-editor-prompt").value = "新提示词"
+    const save = showModalHtml.mock.calls[0][2][0].handler()
+    await vi.waitFor(() => expect(api.generate.copyPromptTemplate).toHaveBeenCalled())
+
+    document.getElementById("modal-body").innerHTML = '<div class="replacement-modal">后续弹窗</div>'
+    copied.resolve({ id: "tpl-copy", version_number: 1 })
+    await save
+
+    expect(api.generate.updatePromptTemplate).toHaveBeenCalledWith("tpl-copy", "p1", { prompt_text: "新提示词", template_version: 1 })
+    expect(readGenerateSession(generateSessionKey("p1")).selectedTemplateId).toBe("builtin:none")
+    expect(toast).not.toHaveBeenCalledWith("模板已保存", "success")
+  })
+
+  it("内置模板更新失败后重试复用已创建副本", async () => {
+    api.generate.copyPromptTemplate.mockResolvedValue({ id: "tpl-copy", version_number: 1 })
+    api.generate.updatePromptTemplate
+      .mockRejectedValueOnce(new Error("update failed"))
+      .mockResolvedValueOnce({ id: "tpl-copy", name: "不带模板", prompt_text: "新提示词", object_template: "none", is_builtin: false, version_number: 2 })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
+    document.getElementById("generate-template-editor-prompt").value = "新提示词"
+    const save = showModalHtml.mock.calls[0][2][0].handler
+
+    await expect(save()).resolves.toBe(false)
+    await expect(save()).resolves.toBe(true)
+
+    expect(api.generate.copyPromptTemplate).toHaveBeenCalledTimes(1)
+    expect(api.generate.updatePromptTemplate).toHaveBeenCalledTimes(2)
+  })
+
+  it("内置模板保存进行中忽略重复提交", async () => {
+    const copied = deferred()
+    api.generate.copyPromptTemplate.mockReturnValue(copied.promise)
+    api.generate.updatePromptTemplate.mockResolvedValue({
+      id: "tpl-copy", name: "不带模板", prompt_text: "新提示词", object_template: "none", is_builtin: false, version_number: 2,
+    })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
+    document.getElementById("generate-template-editor-prompt").value = "新提示词"
+    const save = showModalHtml.mock.calls[0][2][0].handler
+
+    const first = save()
+    await vi.waitFor(() => expect(api.generate.copyPromptTemplate).toHaveBeenCalledOnce())
+    await expect(save()).resolves.toBe(false)
+    copied.resolve({ id: "tpl-copy", version_number: 1 })
+    await expect(first).resolves.toBe(true)
+
+    expect(api.generate.copyPromptTemplate).toHaveBeenCalledOnce()
+    expect(api.generate.updatePromptTemplate).toHaveBeenCalledOnce()
   })
 
   it("creates and selects a new project template", async () => {
@@ -477,6 +627,44 @@ describe("GenerateView Vue behavior matrix", () => {
       novel_id: "p1", name: "推理约束", object_template: "custom", prompt_text: "优先检查时间线",
     })
     await vi.waitFor(() => expect(wrapper.findAll('[data-action="select-object-template"]').some((button) => button.text() === "推理约束")).toBe(true))
+  })
+
+  it("keeps the current template modal open for validation and API failures", async () => {
+    api.generate.updatePromptTemplate.mockRejectedValue(new Error("update failed"))
+    const wrapper = mount(GenerateView, { props: baseProps({
+      templates: [{ id: "tpl-1", value: "tpl-1", label: "自定义", prompt: "当前", object_template: "custom", is_builtin: false, version_number: 1 }],
+      initialSession: { ...emptyGenerateSession(), selectedTemplateId: "tpl-1" },
+    }), attachTo: document.body })
+    await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
+    const save = showModalHtml.mock.calls[0][2][0].handler
+
+    document.getElementById("generate-template-editor-prompt").value = ""
+    await expect(save()).resolves.toBe(false)
+    document.getElementById("generate-template-editor-prompt").value = "可重试提示词"
+    await expect(save()).resolves.toBe(false)
+
+    expect(toast).toHaveBeenCalledWith("请输入模板提示词", "warning")
+    expect(toast).toHaveBeenCalledWith("保存模板失败：update failed", "error")
+  })
+
+  it("drops a late template create after its modal is replaced", async () => {
+    const creation = deferred()
+    api.generate.createPromptTemplate.mockReturnValue(creation.promise)
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
+    document.getElementById("generate-template-editor-name").value = "新模板"
+    document.getElementById("generate-template-editor-prompt").value = "新提示词"
+    const pending = showModalHtml.mock.calls[0][2][1].handler()
+    await vi.waitFor(() => expect(api.generate.createPromptTemplate).toHaveBeenCalled())
+
+    document.getElementById("modal-body").innerHTML = '<div class="replacement-modal">后续弹窗</div>'
+    creation.resolve({ id: "tpl-new", name: "新模板", prompt_text: "新提示词", object_template: "custom", is_builtin: false, version_number: 1 })
+
+    await expect(pending).resolves.toBe(true)
+    expect(document.querySelector(".replacement-modal").textContent).toBe("后续弹窗")
+    expect(wrapper.findAll('[data-action="select-object-template"]').some((button) => button.text() === "新模板")).toBe(false)
+    expect(readGenerateSession(generateSessionKey("p1")).selectedTemplateId).toBe("builtin:none")
+    expect(toast).not.toHaveBeenCalledWith("新模板已创建", "success")
   })
 
   it("loads chapter previews in batches of five and enforces the 20 chapter UI cap", async () => {
@@ -504,6 +692,24 @@ describe("GenerateView Vue behavior matrix", () => {
     const confirmSelection = showModalHtml.mock.calls.at(-1)[2].find((button) => button.text === "确认选择").handler
     expect(confirmSelection()).toBe(false)
     expect(toast).toHaveBeenCalledWith("每次最多附带 20 章正文", "warning")
+  })
+
+  it("does not replace a newer modal when chapter preview prefetch finishes late", async () => {
+    const preview = deferred()
+    api.writing.listChapters.mockResolvedValue({ chapters: [{ id: "draft-1", chapter_index: 1, title: "第一章" }] })
+    api.writing.get.mockReturnValue(preview.promise)
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+
+    await wrapper.get('[data-action="select-source-chapters"]').trigger("click")
+    await vi.waitFor(() => expect(api.writing.get).toHaveBeenCalledWith("draft-1", "p1"))
+    await wrapper.get('[data-action="edit-object-templates"]').trigger("click")
+    const editor = document.querySelector(".generate-template-editor")
+    preview.resolve({ title: "第一章", content: "晚到正文" })
+    await flushPromises()
+
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+    expect(showModalHtml.mock.calls[0][0]).toBe("编辑模板")
+    expect(document.getElementById("modal-body").firstElementChild).toBe(editor)
   })
 
   it("retries transient POV polling failures and finishes the owned task", async () => {
@@ -655,8 +861,8 @@ describe("GenerateView Vue behavior matrix", () => {
   })
 
   it("drops a late custom-template save after the Generate view unmounts", async () => {
-    let resolveUpdate
-    api.generate.updatePromptTemplate.mockImplementation(() => new Promise((resolve) => { resolveUpdate = resolve }))
+    const update = deferred()
+    api.generate.updatePromptTemplate.mockReturnValue(update.promise)
     const wrapper = mount(GenerateView, { props: baseProps({
       templates: [{
         id: "tpl-owned", value: "tpl-owned", label: "当前自定义", prompt: "旧提示词",
@@ -670,15 +876,16 @@ describe("GenerateView Vue behavior matrix", () => {
     const pending = showModalHtml.mock.calls[0][2][0].handler()
     await flushPromises()
     expect(api.generate.updatePromptTemplate).toHaveBeenCalledWith("tpl-owned", "p1", {
-      name: "修订名称", prompt_text: "修订提示词",
+      name: "修订名称", prompt_text: "修订提示词", template_version: 1,
     })
 
     wrapper.unmount()
-    resolveUpdate({
+    update.resolve({
       id: "tpl-owned", name: "修订名称", prompt_text: "修订提示词",
       object_template: "custom", is_builtin: false, version_number: 2,
     })
-    await expect(pending).resolves.toBe(false)
+    await expect(pending).resolves.toBe(true)
+    expect(readGenerateSession(generateSessionKey("p1")).selectedTemplateId).toBe("tpl-owned")
     expect(toast).not.toHaveBeenCalledWith("模板已保存", "success")
   })
 
@@ -699,9 +906,60 @@ describe("GenerateView Vue behavior matrix", () => {
       "suggestion-page-1",
       expect.objectContaining({ page: expect.objectContaining({ title: "作者修订标题" }) }),
       "p1",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(router.navigate.mock.calls.at(-1)[3].get("draft_id")).toBe("draft-page-1")
+  })
+
+  it("应用响应晚到时不清理提交后的新编辑", async () => {
+    const applied = deferred()
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-late-edit" },
+      proposal: { operation: "replace_existing", page: { title: "初始", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    api.generate.applyWorldPageDraft.mockReturnValue(applied.promise)
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-late-edit" }, restoredWorldResult: result,
+    }), attachTo: document.body })
+    await wrapper.get("#generate-page-title").setValue("提交版本")
+    const pending = wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
+    await vi.waitFor(() => expect(api.generate.applyWorldPageDraft).toHaveBeenCalled())
+    expect(wrapper.get(".generate-page-result").attributes()).toHaveProperty("inert")
+
+    await wrapper.get("#generate-page-title").setValue("响应前新编辑")
+    applied.resolve({ draft: { id: "draft-1", page_id: "page-1" } })
+    await pending
+    await flushPromises()
+
+    expect(readGenerateSession(key).pageProposalDraft?.editor.title).toBe("响应前新编辑")
+    expect(router.navigate).toHaveBeenCalled()
+  })
+
+  it("页面卸载后仍记录已成功应用的未变提案", async () => {
+    const applied = deferred()
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    const result = {
+      kind: "world_bible_page", suggestion: { id: "suggestion-unmounted" },
+      proposal: { operation: "replace_existing", page: { title: "初始", page_type: "custom", sections_json: [], linked_asset_refs_json: [] } },
+    }
+    api.generate.applyWorldPageDraft.mockReturnValue(applied.promise)
+    const wrapper = mount(GenerateView, { props: baseProps({
+      targetKind: "world_bible_page", sourcePageId: "page-1", sessionKey: key,
+      initialSession: { ...emptyGenerateSession(), suggestionId: "suggestion-unmounted" }, restoredWorldResult: result,
+    }), attachTo: document.body })
+    await wrapper.get("#generate-page-title").setValue("已提交编辑")
+    const pending = wrapper.get('[data-action="apply-world-page-draft"]').trigger("click")
+    await vi.waitFor(() => expect(api.generate.applyWorldPageDraft).toHaveBeenCalled())
+
+    wrapper.unmount()
+    applied.resolve({ draft: { id: "draft-1", page_id: "page-1" } })
+    await pending
+    await flushPromises()
+
+    expect(readGenerateSession(key).pageProposalDraft).toBeNull()
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("提案已应用到工作稿，尚未发布", "success")
   })
 
   it("keeps an edited page proposal in place when the baseline conflicts", async () => {

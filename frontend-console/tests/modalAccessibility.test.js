@@ -534,6 +534,31 @@ describe("shared modal accessibility", () => {
     expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
   })
 
+  it("runs each footer button once while pending without blocking sibling actions or retries", async () => {
+    const releases = []
+    const save = vi.fn(() => new Promise((resolve) => { releases.push(resolve) }))
+    const preview = vi.fn(() => false)
+    showModal("编辑", "内容", [
+      { text: "保存", handler: save },
+      { text: "预览", handler: preview },
+    ], { protectUnsaved: false })
+
+    const [saveButton, previewButton] = document.querySelectorAll("#modal-footer button")
+    saveButton.click()
+    saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    previewButton.click()
+
+    expect(save).toHaveBeenCalledOnce()
+    expect(preview).toHaveBeenCalledOnce()
+    expect(saveButton.disabled).toBe(true)
+
+    releases.shift()(false)
+    await vi.waitFor(() => expect(saveButton.disabled).toBe(false))
+    saveButton.click()
+    expect(save).toHaveBeenCalledTimes(2)
+    releases.shift()(false)
+  })
+
   it("lets an action close synchronously without a discard prompt", async () => {
     const confirmSpy = stubConfirm(false)
     const input = document.createElement("input")

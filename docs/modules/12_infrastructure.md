@@ -386,6 +386,11 @@ deep-import orchestrator 与 World Bible projection coalescing 仍有已登记�
 - `require_running_task_attempt()` 按 task type、owner、lease 与 attempt 锁定当前执行；
 - 取消和永久删除使用 novel-scoped facade，不跨项目扫描或写入。
 
+公开取消和重试在 active-project 门禁后都按 `task_id + novel_id` 使用 `FOR UPDATE` 锁定任务行，
+并在锁内重验状态。取消只接受 `pending/running`；并发重试只有首个合格请求执行
+`failed -> pending`，后续保持既有 409。它们与 worker 的 lease-fenced claim/finalize
+串行化，旧请求不会覆盖已经提交的终态或新 lease。
+
 worker claim 使用 `FOR UPDATE SKIP LOCKED`，每次 attempt 生成新 `lease_id`。handler
 session 的每次显式 checkpoint commit 和最终 commit 都在同一事务内执行
 `project FOR SHARE -> running task + lease` fence；项目删除或 lease 丢失先线性化时，

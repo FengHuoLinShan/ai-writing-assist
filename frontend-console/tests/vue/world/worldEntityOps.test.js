@@ -17,10 +17,16 @@ import {
   openEntityMap,
   promoteEntity,
   registerCandidateListHooks,
+  runObjectsBulkAction,
   showEntityCreateForm,
+  showEntityFusionSuggestions,
+  showKnowledgeForm,
+  showMergeForm,
   showResolveAliasForm,
+  showRollbackForm,
   syncWorldListRegistry,
 } from "../../../vue/views/world/logic/worldEntityOps.js"
+import { clearBulkSelection, toggleBulkSelection } from "../../../vue/views/world/logic/worldBulkSelection.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 const ENTITIES = [
@@ -40,6 +46,12 @@ function captureModal(title, html, buttons, options) {
   modalCalls.push({ title, html, buttons, options })
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
+}
+
 beforeEach(() => {
   modalCalls = []
   confirmCalls = []
@@ -54,6 +66,10 @@ beforeEach(() => {
       deleteEntity: vi.fn(async () => ({})),
       getEntity: vi.fn(async () => null),
       resolveEntityAsAlias: vi.fn(async () => ({})),
+      mergeEntity: vi.fn(async () => ({})),
+      rollbackEntity: vi.fn(async () => ({ warnings: [] })),
+      createKnowledge: vi.fn(async () => ({})),
+      applyEntityFusionSuggestions: vi.fn(async () => ({ applied: 0 })),
       getEntityMapPresence: vi.fn(async () => ({ items: [] })),
       getMapOpenTarget: vi.fn(async () => ({ map_id: null, mode: "overview" })),
     },
@@ -71,6 +87,7 @@ beforeEach(() => {
   })
   syncWorldListRegistry({ entities: ENTITIES, candidates: CANDIDATES, entityTypes: [{ value: "location", label: "地点" }, { value: "organization", label: "组织" }] })
   registerCandidateListHooks({})
+  clearBulkSelection("world-objects")
 })
 
 afterEach(() => {
@@ -138,6 +155,23 @@ describe("openEntityMap", () => {
     await openEntityMap("c1")
     expect(apiMock.world.getEntityMapPresence).toHaveBeenCalledWith("c1", "p-ops", true)
   })
+
+  it("项目切换后不处理原项目晚到的地图位置", async () => {
+    const state = { currentProjectId: "p-ops", currentView: "world", currentSubView: "objects" }
+    const presence = deferred()
+    apiMock.world.getEntityMapPresence.mockReturnValueOnce(presence.promise)
+    setBridgeOverrides({ state })
+
+    const opening = openEntityMap("e1")
+    state.currentProjectId = "p-next"
+    presence.resolve({ items: [{ map_id: "map-old", map_name: "原项目地图", binding_count: 1 }] })
+    await opening
+
+    expect(window.open).not.toHaveBeenCalled()
+    expect(modalCalls).toHaveLength(0)
+    expect(apiMock.world.getMapOpenTarget).not.toHaveBeenCalled()
+    expect(toastCalls).toHaveLength(0)
+  })
 })
 
 describe("editEntity", () => {
@@ -184,6 +218,25 @@ describe("markEntityReviewed", () => {
     expect(projectId).toBe("p-ops")
     expect(payload.content_json._meta.needs_review).toBe(false)
     expect(payload.content_json._meta.reviewed_from).toBe("world_objects")
+  })
+
+  it("离开原子视图后旧 mutation 完成不刷新或提示新视图", async () => {
+    const state = { currentProjectId: "p-ops", currentView: "world", currentSubView: "objects" }
+    const router = { refresh: vi.fn(async () => true) }
+    const update = deferred()
+    apiMock.world.getEntity.mockResolvedValueOnce(ENTITIES[0])
+    apiMock.world.updateEntity.mockReturnValueOnce(update.promise)
+    setBridgeOverrides({ state, router })
+
+    const marking = markEntityReviewed("e1")
+    await vi.waitFor(() => expect(apiMock.world.updateEntity).toHaveBeenCalled())
+    state.currentSubView = "relations"
+    update.resolve({})
+
+    expect(await marking).toBe(true)
+    expect(apiMock.world.updateEntity).toHaveBeenCalledWith("e1", expect.any(Object), "p-ops")
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(toastCalls).toHaveLength(0)
   })
 })
 
@@ -233,5 +286,142 @@ describe("showResolveAliasForm", () => {
     showResolveAliasForm("nope")
     expect(toastCalls).toContainEqual(["未找到目标待处理项", "error"])
     expect(modalCalls).toHaveLength(0)
+  })
+
+  it.each([
+    ["设为别名", () => showResolveAliasForm("c1"), "alias-target-id", "resolveEntityAsAlias"],
+    ["合并对象", () => showMergeForm("c1"), "merge-target-id", "mergeEntity"],
+  ])("%s 缺少目标时保留弹窗且不调接口", async (_label, openForm, targetId, apiMethod) => {
+    openForm()
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById(targetId).value = ""
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world[apiMethod]).not.toHaveBeenCalled()
+    expect(confirmCalls).toHaveLength(0)
+  })
+})
+
+describe("表单前置校验保留弹窗", () => {
+  it("回滚索引无效时返回 false 且不调接口", async () => {
+    showRollbackForm("e1")
+    document.body.innerHTML = modalCalls[0].html
+    Object.defineProperty(document.getElementById("rollback-scene-index"), "value", {
+      configurable: true,
+      value: "not-a-number",
+    })
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world.rollbackEntity).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["未选目标", "", "unknown", ""],
+    ["错误认知未填误解", "e2", "false_belief", ""],
+  ])("知识边界：%s 时返回 false 且不调接口", async (_label, targetId, level, misconception) => {
+    showKnowledgeForm("e1")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("knowledge-target-id").value = targetId
+    document.getElementById("knowledge-level").value = level
+    document.getElementById("knowledge-misconception").value = misconception
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world.createKnowledge).not.toHaveBeenCalled()
+  })
+
+  it("融合建议未选可应用项时返回 false 且不调接口", async () => {
+    showEntityFusionSuggestions({ raw: { result: { suggestions: [{
+      action: "merge",
+      source_entity_id: "e1",
+      source_entity_name: "沉钟港",
+      target_entity_id: "e2",
+      target_entity_name: "月廷",
+    }] } } })
+    document.body.innerHTML = modalCalls[0].html
+    document.querySelector("[data-fusion-key]").checked = false
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world.applyEntityFusionSuggestions).not.toHaveBeenCalled()
+  })
+
+  it("批量解析未选主对象时返回 false 且不调接口", async () => {
+    const entities = [
+      { id: "bulk-1", name: "旧港", entity_type: "location", status: "canonical" },
+      { id: "bulk-2", name: "新港", entity_type: "location", status: "canonical" },
+    ]
+    syncWorldListRegistry({ entities })
+    entities.forEach((item) => toggleBulkSelection("world-objects", item.id, true))
+    runObjectsBulkAction("fuse-entities", entities)
+    document.body.innerHTML = modalCalls[0].html
+    document.querySelector('input[name="world-bulk-target"]:checked').checked = false
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world.applyEntityFusionSuggestions).not.toHaveBeenCalled()
+    expect(confirmCalls).toHaveLength(0)
+  })
+})
+
+describe("当前表单请求失败保留弹窗", () => {
+  it.each([
+    ["设为别名", "resolveEntityAsAlias", () => {
+      showResolveAliasForm("c1")
+      document.body.innerHTML = modalCalls[0].html
+      document.getElementById("alias-target-id").value = "e1"
+    }],
+    ["回滚对象", "rollbackEntity", () => {
+      showRollbackForm("e1")
+      document.body.innerHTML = modalCalls[0].html
+    }],
+    ["添加知识边界", "createKnowledge", () => {
+      showKnowledgeForm("e1")
+      document.body.innerHTML = modalCalls[0].html
+      document.getElementById("knowledge-target-id").value = "e2"
+    }],
+    ["应用融合建议", "applyEntityFusionSuggestions", () => {
+      showEntityFusionSuggestions({ raw: { result: { suggestions: [{
+        action: "merge",
+        source_entity_id: "e1",
+        source_entity_name: "沉钟港",
+        target_entity_id: "e2",
+        target_entity_name: "月廷",
+      }] } } })
+      document.body.innerHTML = modalCalls[0].html
+    }],
+  ])("%s API 失败时返回 false 供原位重试", async (_label, apiMethod, openValidForm) => {
+    apiMock.world[apiMethod].mockRejectedValueOnce(new Error("请求失败"))
+    openValidForm()
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world[apiMethod]).toHaveBeenCalledTimes(1)
+    expect(toastCalls).toContainEqual(["请求失败", "error"])
+  })
+
+  it("合并确认请求失败时返回 false 供原位重试", async () => {
+    apiMock.world.mergeEntity.mockRejectedValueOnce(new Error("合并失败"))
+    showMergeForm("c1")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("merge-target-id").value = "e1"
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    await expect(confirmCalls[0].onConfirm()).resolves.toBe(false)
+    expect(apiMock.world.mergeEntity).toHaveBeenCalledWith("c1", "e1", "p-ops")
+    expect(toastCalls).toContainEqual(["合并失败", "error"])
+  })
+
+  it("批量融合确认请求失败时返回 false 供原位重试", async () => {
+    const entities = [
+      { id: "bulk-1", name: "旧港", entity_type: "location", status: "canonical" },
+      { id: "bulk-2", name: "新港", entity_type: "location", status: "canonical" },
+    ]
+    apiMock.world.applyEntityFusionSuggestions.mockRejectedValueOnce(new Error("融合失败"))
+    syncWorldListRegistry({ entities })
+    entities.forEach((item) => toggleBulkSelection("world-objects", item.id, true))
+    runObjectsBulkAction("fuse-entities", entities)
+    document.body.innerHTML = modalCalls[0].html
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    await expect(confirmCalls[0].onConfirm()).resolves.toBe(false)
+    expect(apiMock.world.applyEntityFusionSuggestions).toHaveBeenCalledTimes(1)
+    expect(toastCalls).toContainEqual(["融合失败", "error"])
   })
 })

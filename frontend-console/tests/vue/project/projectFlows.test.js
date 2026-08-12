@@ -22,6 +22,13 @@ function deletedItem(id, overrides = {}) {
   }
 }
 
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
 /** 捕获 showModalHtml 调用并把内容写入 document（模拟外壳 modal 已打开）。 */
 function stubModal() {
   const showModalHtml = vi.fn((title, html) => {
@@ -77,6 +84,33 @@ describe("回收站", () => {
     expect(bulkDelete.disabled).toBe(true)
   })
 
+  it.each([
+    ["下一页", 0, 20, "recycle-next-page"],
+    ["上一页", 40, 20, "recycle-prev-page"],
+  ])("%s重绘后恢复同方向分页按钮焦点且不滚动", async (_label, initialSkip, expectedSkip, buttonId) => {
+    globalThis.api.projects.listDeleted = vi.fn(async (skip) => ({
+      items: [deletedItem(`page-${skip}`)],
+      total: 80,
+    }))
+    stubModal()
+    await showRecycleBin(initialSkip)
+    const originalButton = document.getElementById(buttonId)
+    originalButton.focus()
+    const focusSpy = vi.spyOn(HTMLElement.prototype, "focus")
+
+    try {
+      await originalButton.onclick()
+      const replacementButton = document.getElementById(buttonId)
+
+      expect(replacementButton).not.toBe(originalButton)
+      expect(document.activeElement).toBe(replacementButton)
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true })
+      expect(globalThis.api.projects.listDeleted).toHaveBeenLastCalledWith(expectedSkip, 20)
+    } finally {
+      focusSpy.mockRestore()
+    }
+  })
+
   it("零选择时批量 handler 仍保留防御提示", async () => {
     stubModal()
     const confirmAction = vi.fn()
@@ -93,17 +127,96 @@ describe("回收站", () => {
     expect(confirmAction).not.toHaveBeenCalled()
   })
 
-  it("恢复项目后刷新背景列表并重载回收站", async () => {
+  it("恢复项目后局部更新背景列表并重载回收站", async () => {
     stubModal()
+    setBridgeOverrides({ state: globalThis.state })
+    globalThis.state.currentProjectId = null
+    globalThis.state.currentProject = null
+    globalThis.state.projects = []
     globalThis.api.projects.restore = vi.fn(async () => ({}))
+    globalThis.api.projects.list = vi.fn(async () => ({ items: [{ id: "d1", title: "已恢复项目" }] }))
     await showRecycleBin(0)
-    await document.querySelector('.restore-project-btn[data-id="d1"]').click()
-    await vi.waitFor(() => {
-      expect(globalThis.api.projects.restore).toHaveBeenCalledWith("d1")
-    })
+    await document.querySelector('.restore-project-btn[data-id="d1"]').onclick()
+
+    expect(globalThis.api.projects.restore).toHaveBeenCalledWith("d1")
     expect(globalThis.toast).toHaveBeenCalledWith("项目已恢复", "success")
-    expect(globalThis.router.refresh).toHaveBeenCalled()
+    expect(globalThis.api.projects.list).toHaveBeenCalledTimes(1)
+    expect(globalThis.state.projects).toEqual([{ id: "d1", title: "已恢复项目" }])
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
     expect(globalThis.api.projects.listDeleted).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ["单个", "single"],
+    ["批量", "bulk"],
+  ])("%s恢复的背景局部更新期间弹窗换主时不重开回收站", async (_label, kind) => {
+    document.body.innerHTML = `
+      <main id="workspace-content"><section class="project-catalog"></section></main>
+      <div id="modal-overlay" class="hidden"><div id="modal-body"></div></div>
+    `
+    globalThis.state.currentView = "project"
+    globalThis.state.currentProjectId = null
+    globalThis.state.currentProject = null
+    globalThis.state.projects = []
+    setBridgeOverrides({
+      state: globalThis.state,
+      showModalHtml: vi.fn((_title, html) => {
+        document.getElementById("modal-body").innerHTML = html
+        document.getElementById("modal-overlay").classList.remove("hidden")
+      }),
+    })
+    globalThis.api.projects.restore = vi.fn(async () => ({}))
+    const reload = deferred()
+    globalThis.api.projects.list = vi.fn(() => reload.promise)
+    await showRecycleBin(0)
+
+    let pending
+    if (kind === "bulk") {
+      const checkbox = document.querySelector('.recycle-project-checkbox[data-id="d1"]')
+      checkbox.checked = true
+      checkbox.dispatchEvent(new Event("change"))
+      pending = document.getElementById("recycle-bulk-restore").onclick()
+    } else {
+      pending = document.querySelector('.restore-project-btn[data-id="d1"]').onclick()
+    }
+    await vi.waitFor(() => expect(globalThis.api.projects.list).toHaveBeenCalled())
+    document.getElementById("modal-body").innerHTML = '<div class="create-project-form"></div>'
+    reload.resolve({ items: [{ id: "restored", title: "已恢复项目" }] })
+    await pending
+
+    expect(document.querySelector(".create-project-form")).not.toBeNull()
+    expect(globalThis.state.projects).toEqual([{ id: "restored", title: "已恢复项目" }])
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+    expect(globalThis.api.projects.listDeleted).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ["离开项目页", () => document.querySelector(".project-catalog").remove()],
+    ["回收站弹窗被替换", () => {
+      document.getElementById("modal-body").innerHTML = '<div class="create-project-form"></div>'
+    }],
+  ])("恢复响应晚到且%s时不再驱动旧界面", async (_label, loseOwner) => {
+    document.body.innerHTML = `
+      <main id="workspace-content" data-workspace-view="project"><section class="project-catalog"></section></main>
+      <div id="modal-body"></div>
+    `
+    setBridgeOverrides({
+      showModalHtml: vi.fn((_title, html) => { document.getElementById("modal-body").innerHTML = html }),
+    })
+    let resolveRestore
+    globalThis.api.projects.restore = vi.fn(() => new Promise((resolve) => { resolveRestore = resolve }))
+    await showRecycleBin(0)
+
+    const restoring = document.querySelector('.restore-project-btn[data-id="d1"]').onclick()
+    loseOwner()
+    resolveRestore({})
+    await restoring
+
+    expect(globalThis.api.projects.restore).toHaveBeenCalledWith("d1")
+    expect(globalThis.toast).not.toHaveBeenCalled()
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+    expect(globalThis.api.projects.list).not.toHaveBeenCalled()
+    expect(globalThis.api.projects.listDeleted).toHaveBeenCalledTimes(1)
   })
 
   it("批量永久删除需二次确认", async () => {
@@ -118,6 +231,113 @@ describe("回收站", () => {
       expect(globalThis.api.projects.permanentDeleteMany).toHaveBeenCalledWith(["d1", "d2"])
     })
     expect(globalThis.toast).toHaveBeenCalledWith("已永久删除 2 个项目", "success")
+  })
+
+  it.each([
+    ["单个", "single"],
+    ["批量", "bulk"],
+  ])("%s永久删除成功时先关闭确认框再重开回收站", async (_label, kind) => {
+    document.body.innerHTML = `
+      <main id="workspace-content"><section class="project-catalog"></section></main>
+      <div id="modal-overlay" class="hidden"><div id="modal-body"></div></div>
+    `
+    globalThis.state.currentView = "project"
+    let confirmHandler
+    const showModalHtml = vi.fn((_title, html) => {
+      document.getElementById("modal-body").innerHTML = html
+      document.getElementById("modal-overlay").classList.remove("hidden")
+    })
+    const closeModal = vi.fn(() => {
+      document.getElementById("modal-overlay").classList.add("hidden")
+      document.getElementById("modal-body").innerHTML = ""
+      return true
+    })
+    setBridgeOverrides({
+      showModalHtml,
+      closeModal,
+      confirmAction: (_message, onConfirm) => {
+        document.getElementById("modal-body").innerHTML = '<p class="confirm-owner"></p>'
+        confirmHandler = onConfirm
+      },
+    })
+    if (kind === "bulk") globalThis.api.projects.permanentDeleteMany = vi.fn(async () => ({ deleted_count: 2 }))
+    else globalThis.api.projects.permanentDelete = vi.fn(async () => ({}))
+    await showRecycleBin(0)
+
+    if (kind === "bulk") {
+      document.getElementById("recycle-select-all").click()
+      document.getElementById("recycle-bulk-delete").click()
+    } else {
+      document.querySelector('.perm-delete-project-btn[data-id="d1"]').click()
+    }
+    await expect(confirmHandler()).resolves.toBe(true)
+
+    expect(closeModal).toHaveBeenCalledTimes(1)
+    expect(showModalHtml).toHaveBeenCalledTimes(2)
+    expect(closeModal.mock.invocationCallOrder[0]).toBeLessThan(showModalHtml.mock.invocationCallOrder[1])
+    expect(document.querySelector(".recycle-bin")).not.toBeNull()
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+  })
+
+  it.each([
+    ["单个", "single"],
+    ["批量", "bulk"],
+  ])("%s永久删除失败晚到且模态已换主时收口旧确认框", async (_label, kind) => {
+    const request = deferred()
+    let confirmHandler
+    globalThis.state.currentView = "project"
+    setBridgeOverrides({
+      showModalHtml: vi.fn((_title, html) => { document.body.innerHTML = `<div id="modal-body">${html}</div>` }),
+      confirmAction: (_message, onConfirm) => {
+        document.getElementById("modal-body").innerHTML = '<p class="confirm-owner"></p>'
+        confirmHandler = onConfirm
+      },
+    })
+    if (kind === "bulk") globalThis.api.projects.permanentDeleteMany = vi.fn(() => request.promise)
+    else globalThis.api.projects.permanentDelete = vi.fn(() => request.promise)
+    await showRecycleBin(0)
+
+    if (kind === "bulk") {
+      document.getElementById("recycle-select-all").click()
+      document.getElementById("recycle-bulk-delete").click()
+    } else {
+      document.querySelector('.perm-delete-project-btn[data-id="d1"]').click()
+    }
+    const pending = confirmHandler()
+    document.getElementById("modal-body").innerHTML = '<div class="create-project-form"></div>'
+    request.reject(new Error("late delete failure"))
+
+    await expect(pending).resolves.toBe(true)
+    expect(globalThis.toast).not.toHaveBeenCalledWith(expect.stringContaining("late delete failure"), "error")
+    expect(globalThis.api.projects.listDeleted).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ["单个", "single", "永久删除失败：delete failure"],
+    ["批量", "bulk", "批量永久删除失败：delete failure"],
+  ])("%s永久删除当前请求失败时保留确认框", async (_label, kind, message) => {
+    let confirmHandler
+    globalThis.state.currentView = "project"
+    setBridgeOverrides({
+      showModalHtml: vi.fn((_title, html) => { document.body.innerHTML = `<div id="modal-body">${html}</div>` }),
+      confirmAction: (_message, onConfirm) => {
+        document.getElementById("modal-body").innerHTML = '<p class="confirm-owner"></p>'
+        confirmHandler = onConfirm
+      },
+    })
+    if (kind === "bulk") globalThis.api.projects.permanentDeleteMany = vi.fn(async () => { throw new Error("delete failure") })
+    else globalThis.api.projects.permanentDelete = vi.fn(async () => { throw new Error("delete failure") })
+    await showRecycleBin(0)
+
+    if (kind === "bulk") {
+      document.getElementById("recycle-select-all").click()
+      document.getElementById("recycle-bulk-delete").click()
+    } else {
+      document.querySelector('.perm-delete-project-btn[data-id="d1"]').click()
+    }
+
+    await expect(confirmHandler()).resolves.toBe(false)
+    expect(globalThis.toast).toHaveBeenCalledWith(message, "error")
   })
 
   it("空回收站显示空态且重置分页", async () => {
@@ -138,6 +358,65 @@ describe("回收站", () => {
     await showRecycleBin(40)
     // 40 >= total=3 → 回退到最后一页 skip=0... total=3 → lastPageSkip = floor(2/20)*20 = 0
     expect(globalThis.api.projects.listDeleted).toHaveBeenLastCalledWith(0, 20)
+  })
+
+  it("连续分页逆序返回时只显示最新请求", async () => {
+    const pending = new Map()
+    globalThis.api.projects.listDeleted = vi.fn((skip) => new Promise((resolve) => pending.set(skip, resolve)))
+    const showModalHtml = stubModal()
+
+    const first = showRecycleBin(0)
+    const latest = showRecycleBin(20)
+    pending.get(20)({ items: [deletedItem("latest")], total: 40 })
+    await latest
+    pending.get(0)({ items: [deletedItem("stale")], total: 40 })
+    await first
+
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.recycle-project-checkbox[data-id="latest"]')).not.toBeNull()
+    expect(document.querySelector('.recycle-project-checkbox[data-id="stale"]')).toBeNull()
+    expect(projectSession.recycleBinSkip).toBe(20)
+  })
+
+  it("关闭回收站后忽略分页的晚到响应", async () => {
+    document.body.innerHTML = '<div id="modal-overlay" class="hidden"><div id="modal-body"></div></div>'
+    const showModalHtml = vi.fn((_title, html) => {
+      document.getElementById("modal-body").innerHTML = html
+      document.getElementById("modal-overlay").classList.remove("hidden")
+    })
+    setBridgeOverrides({ showModalHtml })
+    globalThis.api.projects.listDeleted = vi.fn(async () => ({
+      items: [deletedItem("page-1")],
+      total: 40,
+    }))
+    await showRecycleBin(0)
+
+    let resolveNext
+    globalThis.api.projects.listDeleted = vi.fn(() => new Promise((resolve) => { resolveNext = resolve }))
+    const nextPage = showRecycleBin(20)
+    document.getElementById("modal-overlay").classList.add("hidden")
+    resolveNext({ items: [deletedItem("late")], total: 40 })
+    await nextPage
+
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.recycle-project-checkbox[data-id="late"]')).toBeNull()
+  })
+
+  it("初次加载期间打开其他弹窗时不覆盖当前弹窗", async () => {
+    document.body.innerHTML = '<div id="modal-overlay" class="hidden"><div id="modal-body"></div></div>'
+    const showModalHtml = vi.fn()
+    setBridgeOverrides({ showModalHtml })
+    let resolveLoad
+    globalThis.api.projects.listDeleted = vi.fn(() => new Promise((resolve) => { resolveLoad = resolve }))
+
+    const loading = showRecycleBin(0)
+    document.getElementById("modal-overlay").classList.remove("hidden")
+    document.getElementById("modal-body").innerHTML = '<div class="create-project-form"></div>'
+    resolveLoad({ items: [deletedItem("late")], total: 1 })
+    await loading
+
+    expect(showModalHtml).not.toHaveBeenCalled()
+    expect(document.querySelector(".create-project-form")).not.toBeNull()
   })
 })
 
@@ -180,7 +459,7 @@ describe("项目 modal 流程", () => {
     expect(document.getElementById("edit-title").required).toBe(true)
   })
 
-  it("editProject 保存回写 state 并关闭 modal", async () => {
+  it("editProject 保存回写 state 并交由 modal footer 收口", async () => {
     const state = makeState([{ id: "p1", title: "旧标题" }], "p1")
     state.currentProject = { id: "p1", title: "旧标题" }
     const closeModal = vi.fn()
@@ -197,13 +476,37 @@ describe("项目 modal 流程", () => {
     editProject("p1")
     document.getElementById("edit-title").value = "  新标题  "
     document.getElementById("edit-genre").value = "fantasy"
-    await saveHandler()
+    expect(await saveHandler()).toBe(true)
 
     expect(globalThis.api.projects.update).toHaveBeenCalledWith("p1", expect.objectContaining({ title: "新标题", genre: "fantasy" }))
     expect(state.projects[0].title).toBe("新标题")
     expect(state.currentProject.title).toBe("新标题")
     expect(globalThis.toast).toHaveBeenCalledWith("项目已更新", "success")
-    expect(closeModal).toHaveBeenCalled()
+    expect(closeModal).not.toHaveBeenCalled()
+  })
+
+  it("editProject 响应晚到且弹窗已替换时不回写或提示", async () => {
+    const state = makeState([{ id: "p1", title: "旧标题" }], "p1")
+    const request = deferred()
+    let saveHandler = null
+    setBridgeOverrides({
+      state,
+      showModalHtml: (_title, html, buttons) => {
+        document.body.innerHTML = `<div id="modal-body">${html}</div>`
+        saveHandler = buttons[0].handler
+      },
+    })
+    globalThis.api.projects.update.mockReturnValue(request.promise)
+
+    editProject("p1")
+    document.getElementById("edit-title").value = "新标题"
+    const pending = saveHandler()
+    document.getElementById("modal-body").innerHTML = '<div class="replacement-modal"></div>'
+    request.resolve({ title: "新标题" })
+
+    await expect(pending).resolves.toBe(true)
+    expect(state.projects[0].title).toBe("旧标题")
+    expect(globalThis.toast).not.toHaveBeenCalled()
   })
 
   it.each(["", "   "])("editProject 标题为 %j 时保持 modal 并聚焦标题", async (title) => {
@@ -291,7 +594,7 @@ describe("项目 modal 流程", () => {
     document.getElementById("create-title").value = "  修剪后的标题  "
     document.getElementById("create-genre").value = "fantasy"
     document.getElementById("create-tone").value = "黑暗"
-    expect(await createHandler()).toBeUndefined()
+    expect(await createHandler()).toBe(true)
 
     expect(globalThis.api.projects.create).toHaveBeenCalledWith(expect.objectContaining({ title: "修剪后的标题" }))
     expect(globalThis.toast).toHaveBeenCalledWith('项目 "修剪后的标题" 已创建', "success")
@@ -341,7 +644,21 @@ describe("项目 modal 流程", () => {
     })
     expect(globalThis.toast).toHaveBeenCalledWith("项目「星际旅人」已移至回收站", "success")
     expect(clearSelection).toHaveBeenCalled()
-    expect(globalThis.router.refresh).toHaveBeenCalled()
+    expect(state.projects).toEqual([])
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("deleteProject 当前请求失败时保留确认框", async () => {
+    const state = makeState([{ id: "p1", title: "星际旅人" }])
+    let confirmDelete = null
+    setBridgeOverrides({ state, confirmAction: (_msg, onConfirm) => { confirmDelete = onConfirm } })
+    globalThis.api.projects.remove.mockRejectedValue(new Error("delete failed"))
+
+    deleteProject("p1")
+
+    await expect(confirmDelete()).resolves.toBe(false)
+    expect(globalThis.toast).toHaveBeenCalledWith("删除失败：delete failed", "error")
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
   })
 
   it("导入为新项目只在用户确认后创建项目并上传文件", async () => {
@@ -549,5 +866,28 @@ describe("项目 modal 流程", () => {
     } finally {
       createSpy.mockRestore()
     }
+  })
+
+  it("上传期间弹窗被替换时只完成已发起的导入", async () => {
+    const state = { ...makeState([], null), currentView: "project" }
+    const upload = deferred()
+    let confirmImport = null
+    document.body.innerHTML = '<div id="modal-body"><p class="confirm-owner"></p></div>'
+    setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
+    globalThis.api.projects.create.mockResolvedValue({ id: "p-import", title: "慢导入" })
+    globalThis.api.imports.upload.mockReturnValue(upload.promise)
+    const file = new File(["正文"], "慢导入.txt", { type: "text/plain" })
+
+    importAsNewProject(file)
+    const pending = confirmImport()
+    await vi.waitFor(() => expect(globalThis.api.imports.upload).toHaveBeenCalledWith("p-import", file))
+    expect(state.currentProjectId).toBe("p-import")
+    document.getElementById("modal-body").innerHTML = '<div class="replacement-modal"></div>'
+    upload.resolve({ total_chapters: 1, imported_chapters: 1 })
+
+    await expect(pending).resolves.toBe(true)
+    expect(state.currentProjectId).toBe("p-import")
+    expect(globalThis.toast).not.toHaveBeenCalled()
+    expect(globalThis.router.navigate).not.toHaveBeenCalled()
   })
 })

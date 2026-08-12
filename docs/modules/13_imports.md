@@ -159,6 +159,8 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 - 文件类型白名单：`.txt .epub .html .htm .mobi .azw3`
 - 大小上限：50MB
 - 文件名必须 `os.path.basename` 处理，防止路径穿越
+- resume/abandon 会校验任务归属的 active project；任务不存在或归属项目不可访问
+  都统一返回 `404 Not found`，不得回显 task 是否存在、owner、meta 或 result
 
 ## API
 

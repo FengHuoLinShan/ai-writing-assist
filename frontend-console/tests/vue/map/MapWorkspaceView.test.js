@@ -33,17 +33,35 @@ function worldApi() {
     })),
     getMapPlayback: vi.fn(async () => ({ events: [], tracks: [] })),
     getMapTimeline: vi.fn(async () => ({ scenes: [], deltas: [], candidates: [], conflicts: [] })),
+    getMap: vi.fn(async (mapId) => ({ id: mapId })),
+    getMapOpenTarget: vi.fn(async () => ({ map_id: null })),
     listMapObservations: vi.fn(async () => ({ items: [] })),
+    listMapFacts: vi.fn(async () => ({ items: [] })),
     confirmMapObservation: vi.fn(async () => ({})),
+    ignoreMapObservation: vi.fn(async () => ({})),
+    updateMapObservationReview: vi.fn(async () => ({})),
+    assignProjectMapObservation: vi.fn(async () => ({})),
+    ignoreProjectMapObservation: vi.fn(async () => ({})),
+    runMapBatchAction: vi.fn(async () => ({})),
     updateMapFactStatus: vi.fn(async () => ({})),
     listMaps: vi.fn(async () => ({ items: [] })),
     listEntities: vi.fn(async () => ({ items: [] })),
+    getMapArchiveImpact: vi.fn(async () => ({ map_count: 1 })),
+    archiveMap: vi.fn(async () => ({})),
     getMapQuickCreateContext: vi.fn(async () => ({ locations: [{ id: "l1", name: "北港" }], candidate_locations: [], existing_maps: [] })),
     previewQuickCreateMap: vi.fn(async () => ({ map: { name: "快速地图", grid_width: 40, grid_height: 30, map_type: "world" }, location_layouts: [{ location_entity_id: "l1", center_hex_q: 2, center_hex_r: 3, occupy_radius: 1 }], warnings: [] })),
     confirmQuickCreateMap: vi.fn(async () => ({ map: { id: "m2", name: "快速地图" } })),
     listMapVisualRevisions: vi.fn(async () => ({ items: [] })),
     restoreMapVisualRevision: vi.fn(async () => ({ editor_revision: 3 })),
+    createMapObservation: vi.fn(async () => ({})),
   }
+}
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 describe("MapWorkspaceView", () => {
@@ -58,7 +76,7 @@ describe("MapWorkspaceView", () => {
     resetBridgeOverrides()
     state = { currentProjectId: "p1", currentView: "map" }
     api = { world: worldApi() }
-    router = { navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: () => new URLSearchParams() }
+    router = { navigate: vi.fn(), replace: vi.fn(), commitCurrentQuery: vi.fn(() => true), getCurrentQuery: () => new URLSearchParams() }
     showModalHtml = vi.fn()
     toast = vi.fn()
     viewportSpies.canLeave.mockReturnValue(true)
@@ -117,6 +135,24 @@ describe("MapWorkspaceView", () => {
       expect(wrapper.get(".map-overview-primary .btn-primary").text()).toBe("创建第一张地图")
       expect(wrapper.text()).not.toContain("已删除地图")
     })
+    wrapper.unmount()
+  })
+
+  it("does not navigate when a recent-map lookup completes after project switch", async () => {
+    localStorage.setItem("novel_map_recent:p1", JSON.stringify({ mapId: "m1", name: "九州" }))
+    let resolveMap
+    api.world.getMap.mockImplementationOnce(() => new Promise((resolve) => { resolveMap = resolve }))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mode: "overview" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const pending = wrapper.vm.$.setupState.vm.openRecent()
+    state.currentProjectId = "p2"
+    resolveMap({ id: "m1" })
+
+    await expect(pending).resolves.toBe(false)
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(localStorage.getItem("novel_map_recent:p1")).not.toBeNull()
     wrapper.unmount()
   })
 
@@ -320,6 +356,55 @@ describe("MapWorkspaceView", () => {
     wrapper.unmount()
   })
 
+  it("does not apply late assignment or restore effects after their modal is replaced", async () => {
+    const assignRequest = deferred()
+    const restoreRequest = deferred()
+    api.world.assignProjectMapObservation.mockReturnValueOnce(assignRequest.promise)
+    api.world.restoreMap = vi.fn(() => restoreRequest.promise)
+    const inboxItem = { id: "o1", target_name: "北境通道", updated_at: "rev-1" }
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: {
+        projectId: "p1",
+        route: { mode: "overview" },
+        maps: [{ id: "m1", name: "九州" }],
+        locations: [],
+        archivedMaps: [{ id: "a1", name: "旧地图" }],
+        inbox: { items: [inboxItem], total: 1 },
+      },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+
+    workspace.modalController.showAssign(inboxItem)
+    let [, body, buttons] = showModalHtml.mock.calls.at(-1)
+    document.body.insertAdjacentHTML("beforeend", body)
+    const assigning = buttons.find((button) => button.text === "分配并继续").handler()
+    await vi.waitFor(() => expect(api.world.assignProjectMapObservation).toHaveBeenCalledWith("o1", "p1", "m1", "rev-1"))
+    document.getElementById("map-inbox-assignment-map").remove()
+    workspace.modalController.showCreateWorld()
+    assignRequest.resolve({})
+
+    await expect(assigning).resolves.toBe(true)
+    expect(workspace.inbox.items.map((item) => item.id)).toContain("o1")
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("已分配地图，请继续补全并确认", "success")
+
+    workspace.modalController.showRestore("a1")
+    ;[, body, buttons] = showModalHtml.mock.calls.at(-1)
+    document.body.insertAdjacentHTML("beforeend", body)
+    api.world.listMaps.mockClear()
+    const restoring = buttons.find((button) => button.text === "恢复子树").handler()
+    await vi.waitFor(() => expect(api.world.restoreMap).toHaveBeenCalledWith("a1", { root_name: "旧地图" }, "p1"))
+    document.getElementById("map-restore-root-name").remove()
+    workspace.modalController.showCreateWorld()
+    restoreRequest.resolve({})
+
+    await expect(restoring).resolves.toBe(true)
+    expect(api.world.listMaps).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("地图子树已恢复", "success")
+    wrapper.unmount()
+  })
+
   it("restores a committed visual revision through the existing map modal style", async () => {
     api.world.listMapVisualRevisions.mockResolvedValue({ items: [
       { revision_number: 2, operation: "editor_apply", forward_changes: [{}], created_at: "2026-07-22T10:00:00Z" },
@@ -341,6 +426,259 @@ describe("MapWorkspaceView", () => {
 
     expect(api.world.restoreMapVisualRevision).toHaveBeenCalledWith("m1", 1, 2, "p1")
     expect(viewportSpies.remount).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("drops late visual-history and archive dialogs after project ownership changes", async () => {
+    let resolveHistory
+    api.world.listMapVisualRevisions.mockImplementationOnce(() => new Promise((resolve) => { resolveHistory = resolve }))
+    let resolveImpact
+    api.world.getMapArchiveImpact.mockImplementationOnce(() => new Promise((resolve) => { resolveImpact = resolve }))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+
+    const history = workspace.showVisualHistory()
+    const archive = workspace.archiveMap({ id: "m1", name: "九州" })
+    state.currentProjectId = "p2"
+    resolveHistory({ items: [
+      { revision_number: 2, operation: "editor_apply", forward_changes: [] },
+      { revision_number: 1, operation: "baseline", forward_changes: [] },
+    ] })
+    resolveImpact({ map_count: 1 })
+
+    await expect(history).resolves.toBe(false)
+    await expect(archive).resolves.toBe(false)
+    expect(showModalHtml).not.toHaveBeenCalled()
+    expect(api.world.archiveMap).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("drops a late archive-impact dialog after switching maps in the same project", async () => {
+    let resolveImpact
+    api.world.getMapArchiveImpact.mockImplementationOnce(() => new Promise((resolve) => { resolveImpact = resolve }))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+
+    const archive = workspace.archiveMap({ id: "m1", name: "九州" })
+    workspace.activeMapId.value = "m2"
+    resolveImpact({ map_count: 1 })
+
+    await expect(archive).resolves.toBe(false)
+    expect(api.world.archiveMap).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("suppresses a late archive completion after switching maps in the same project", async () => {
+    let resolveArchive
+    api.world.archiveMap.mockImplementationOnce(() => new Promise((resolve) => { resolveArchive = resolve }))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+
+    const archive = workspace.archiveMap({ id: "m1", name: "九州" })
+    await vi.waitFor(() => expect(api.world.archiveMap).toHaveBeenCalledWith("m1", "p1"))
+    workspace.activeMapId.value = "m2"
+    resolveArchive({})
+
+    await expect(archive).resolves.toBe(true)
+    expect(api.world.listMaps).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("地图子树已归档", "success")
+    wrapper.unmount()
+  })
+
+  it("closes the old archive confirmation after a late failure on another map", async () => {
+    let rejectArchive
+    api.world.archiveMap.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectArchive = reject }))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+
+    const archive = workspace.archiveMap({ id: "m1", name: "九州" })
+    await vi.waitFor(() => expect(api.world.archiveMap).toHaveBeenCalledWith("m1", "p1"))
+    workspace.activeMapId.value = "m2"
+    rejectArchive(new Error("late old-map failure"))
+
+    await expect(archive).resolves.toBe(true)
+    expect(api.world.listMaps).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("late old-map failure"), "error")
+    wrapper.unmount()
+  })
+
+  it("keeps the current archive confirmation open after an API failure", async () => {
+    api.world.archiveMap.mockRejectedValueOnce(new Error("网络失败"))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+
+    await expect(wrapper.vm.$.setupState.vm.archiveMap({ id: "m1", name: "九州" })).resolves.toBe(false)
+    expect(toast).toHaveBeenCalledWith("归档失败：网络失败", "error")
+    wrapper.unmount()
+  })
+
+  it("reports archive-impact lookup failure without opening confirmation", async () => {
+    api.world.getMapArchiveImpact.mockRejectedValueOnce(new Error("网络失败"))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+
+    await expect(wrapper.vm.$.setupState.vm.archiveMap({ id: "m1", name: "九州" })).resolves.toBe(false)
+
+    expect(toast).toHaveBeenCalledWith("归档失败：网络失败", "error")
+    expect(api.world.archiveMap).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("does not restore an old history modal into a newly selected map", async () => {
+    api.world.listMapVisualRevisions.mockResolvedValue({ items: [
+      { revision_number: 2, operation: "editor_apply", forward_changes: [] },
+      { revision_number: 1, operation: "baseline", forward_changes: [] },
+    ] })
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+    await workspace.showVisualHistory()
+    const [, body, buttons] = showModalHtml.mock.calls.at(-1)
+    document.body.insertAdjacentHTML("beforeend", body)
+    workspace.activeMapId.value = "m2"
+
+    await expect(buttons.find((button) => button.text === "恢复所选版本").handler()).resolves.toBe(true)
+    expect(api.world.restoreMapVisualRevision).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(["resolve", "reject"])("closes old visual history after a late restore %s on another map", async (outcome) => {
+    api.world.listMapVisualRevisions.mockResolvedValue({ items: [
+      { revision_number: 2, operation: "editor_apply", forward_changes: [] },
+      { revision_number: 1, operation: "baseline", forward_changes: [] },
+    ] })
+    const request = deferred()
+    api.world.restoreMapVisualRevision.mockReturnValueOnce(request.promise)
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+    await workspace.showVisualHistory()
+    const [, body, buttons] = showModalHtml.mock.calls.at(-1)
+    document.body.insertAdjacentHTML("beforeend", body)
+    closeModal.mockClear()
+    viewportSpies.remount.mockClear()
+
+    const restoring = buttons.find((button) => button.text === "恢复所选版本").handler()
+    await vi.waitFor(() => expect(api.world.restoreMapVisualRevision).toHaveBeenCalledWith("m1", 1, 2, "p1"))
+    workspace.activeMapId.value = "m2"
+    if (outcome === "resolve") request.resolve({ editor_revision: 3 })
+    else request.reject(new Error("late old-map restore failure"))
+
+    await expect(restoring).resolves.toBe(true)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(viewportSpies.remount).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("does not reload from a visual-history response after its modal is replaced", async () => {
+    api.world.listMapVisualRevisions.mockResolvedValue({ items: [
+      { revision_number: 2, operation: "editor_apply", forward_changes: [] },
+      { revision_number: 1, operation: "baseline", forward_changes: [] },
+    ] })
+    const request = deferred()
+    api.world.restoreMapVisualRevision.mockReturnValueOnce(request.promise)
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    const workspace = wrapper.vm.$.setupState.vm
+    await workspace.showVisualHistory()
+    const [, body, buttons] = showModalHtml.mock.calls.at(-1)
+    document.body.insertAdjacentHTML("beforeend", body)
+    api.world.listMaps.mockClear()
+    viewportSpies.remount.mockClear()
+
+    const restoring = buttons.find((button) => button.text === "恢复所选版本").handler()
+    await vi.waitFor(() => expect(api.world.restoreMapVisualRevision).toHaveBeenCalledWith("m1", 1, 2, "p1"))
+    document.querySelector(".map-archived-list").remove()
+    workspace.continuityEvidence({ message: "新弹窗" })
+    request.resolve({ editor_revision: 3 })
+
+    await expect(restoring).resolves.toBe(true)
+    expect(api.world.listMaps).not.toHaveBeenCalled()
+    expect(viewportSpies.remount).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("地图已恢复到版本"), "success")
+    wrapper.unmount()
+  })
+
+  it("keeps a new modal and local timeline state after a late continuity explanation", async () => {
+    const request = deferred()
+    api.world.createMapObservation.mockReturnValueOnce(request.promise)
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    await vi.waitFor(() => expect(api.world.getMapDashboard).toHaveBeenCalled())
+    const workspace = wrapper.vm.$.setupState.vm
+    workspace.continuityExplain({
+      message: "移动缺少解释",
+      suggested_observation: { value_json: { relation_type: "movement" } },
+    })
+    const [, body, buttons] = showModalHtml.mock.calls.at(-1)
+    document.body.insertAdjacentHTML("beforeend", body)
+    document.getElementById("map-continuity-explanation").value = "经由密道"
+    api.world.getMapDashboard.mockClear()
+
+    const saving = buttons.find((button) => button.text === "保存为待处理").handler()
+    await vi.waitFor(() => expect(api.world.createMapObservation).toHaveBeenCalledWith(
+      "m1",
+      expect.objectContaining({ evidence_text: "经由密道" }),
+      "p1",
+    ))
+    document.getElementById("map-continuity-explanation").remove()
+    workspace.continuityEvidence({ message: "替换弹窗" })
+    request.resolve({})
+
+    await expect(saving).resolves.toBe(true)
+    expect(workspace.timeline.includeCandidates).toBe(false)
+    expect(api.world.getMapDashboard).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("移动解释已进入待处理，确认后才会成为正式事实", "success")
+    wrapper.unmount()
+  })
+
+  it("does not merge a late dynamic-history response into another map", async () => {
+    const pendingPages = []
+    api.world.listMapObservations.mockImplementation((mapId, _projectId, status) => {
+      if (status !== "ignored") return Promise.resolve({ items: [] })
+      return new Promise((resolve) => pendingPages.push({ mapId, resolve }))
+    })
+    api.world.listMapFacts.mockImplementation((mapId, _projectId, status) => (
+      new Promise((resolve) => pendingPages.push({ mapId, status, resolve }))
+    ))
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    await vi.waitFor(() => expect(api.world.getMapDashboard).toHaveBeenCalled())
+    const workspace = wrapper.vm.$.setupState.vm
+    const pending = workspace.toggleHistory()
+    await vi.waitFor(() => expect(pendingPages).toHaveLength(3))
+    workspace.activeMapId.value = "m2"
+    for (const page of pendingPages) page.resolve({ items: [{ id: `old-${page.status || "observation"}` }] })
+
+    await expect(pending).resolves.toBe(false)
+    expect(workspace.showHistory.value).toBe(false)
+    expect(workspace.dynamicSummary.historyItems).toEqual([])
     wrapper.unmount()
   })
 
@@ -376,10 +714,21 @@ describe("MapWorkspaceView", () => {
     expect(dashboard.attributes("aria-pressed")).toBe("false")
     expect(live.attributes("aria-pressed")).toBe("true")
     expect(lens.attributes("aria-pressed")).toBe("false")
+    const lowMotion = wrapper.get(".map-low-motion-toggle input")
+    await lowMotion.setValue(true)
+    const root = wrapper.element
+    dashboard.element.focus()
     await dashboard.trigger("click")
     expect(dashboard.attributes("aria-pressed")).toBe("true")
     expect(live.attributes("aria-pressed")).toBe("false")
     expect(lens.attributes("aria-pressed")).toBe("false")
+    expect(wrapper.element).toBe(root)
+    expect(document.activeElement).toBe(dashboard.element)
+    expect(router.replace).not.toHaveBeenCalled()
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(lowMotion.element.checked).toBe(true)
+    expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams))
+    expect(router.commitCurrentQuery.mock.calls.at(-1)[0].get("mode")).toBe("dashboard")
     wrapper.unmount()
   })
 
@@ -405,6 +754,95 @@ describe("MapWorkspaceView", () => {
     await wrapper.find(".map-dynamic-item .btn-primary").trigger("click")
     await vi.waitFor(() => expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "o1", "p1", "rev-2"))
     expect(showModalHtml).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(["resolve", "reject"])("closes an old observation confirmation after a late %s on another map", async (outcome) => {
+    let confirm
+    setBridgeOverrides({ confirmAction: (_message, onConfirm) => { confirm = onConfirm } })
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    await vi.waitFor(() => expect(wrapper.vm.$.setupState.vm.dynamicSummary.loaded).toBe(true))
+    const request = deferred()
+    api.world.confirmMapObservation.mockReturnValueOnce(request.promise)
+    api.world.getMapDashboard.mockClear()
+    toast.mockClear()
+    const item = { id: "o-late", item_id: "o-late", updated_at: "rev-late", eligibility: { can_confirm: true } }
+
+    wrapper.vm.$.setupState.vm.confirmObservation(item)
+    const pending = confirm()
+    await vi.waitFor(() => expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "o-late", "p1", "rev-late"))
+    wrapper.vm.$.setupState.vm.activeMapId.value = "m2"
+    if (outcome === "resolve") request.resolve({})
+    else request.reject(new Error("late old-map failure"))
+
+    await expect(pending).resolves.toBe(true)
+    expect(api.world.getMapDashboard).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("does not mutate a new map after an inbox ignore completes late", async () => {
+    let confirm
+    setBridgeOverrides({ confirmAction: (_message, onConfirm) => { confirm = onConfirm } })
+    const item = { id: "inbox-late", target_name: "北港", updated_at: "rev-inbox" }
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mode: "overview" }, maps: [{ id: "m1", name: "九州" }], locations: [], archivedMaps: [], inbox: { items: [item], total: 1, filters: {} } },
+    })
+    const request = deferred()
+    api.world.ignoreProjectMapObservation.mockReturnValueOnce(request.promise)
+    const workspace = wrapper.vm.$.setupState.vm
+
+    workspace.ignoreInbox(item)
+    const pending = confirm()
+    await vi.waitFor(() => expect(api.world.ignoreProjectMapObservation).toHaveBeenCalledWith("inbox-late", "p1", "rev-inbox"))
+    await workspace.openMap("m1")
+    toast.mockClear()
+    request.resolve({})
+
+    await expect(pending).resolves.toBe(true)
+    expect(workspace.inbox.items.map((entry) => entry.id)).toContain("inbox-late")
+    expect(toast).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("uses the captured map and suppresses late dynamic-editor save effects", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: { projectId: "p1", route: { mapId: "m1", mode: "dashboard" }, maps: [{ id: "m1", name: "九州" }, { id: "m2", name: "北境" }], locations: [], archivedMaps: [], inbox: {} },
+    })
+    await vi.waitFor(() => expect(wrapper.vm.$.setupState.vm.dynamicSummary.loaded).toBe(true))
+    const request = deferred()
+    api.world.updateMapObservationReview.mockReturnValueOnce(request.promise)
+    api.world.getMapDashboard.mockClear()
+    toast.mockClear()
+    const workspace = wrapper.vm.$.setupState.vm
+    workspace.dynamicEditor.open({
+      id: "o-edit",
+      item_id: "o-edit",
+      item_kind: "observation",
+      review_state: "candidate",
+      updated_at: "rev-edit",
+      target_name: "北港状态",
+      normalized_value: { schema_version: 1, type: "status", field_key: "weather", value: "clear" },
+    })
+
+    const pending = workspace.dynamicEditor.save()
+    await vi.waitFor(() => expect(api.world.updateMapObservationReview).toHaveBeenCalledWith(
+      "m1",
+      "o-edit",
+      "p1",
+      expect.objectContaining({ expected_updated_at: "rev-edit" }),
+    ))
+    workspace.activeMapId.value = "m2"
+    request.resolve({})
+
+    await expect(pending).resolves.toBe(false)
+    expect(api.world.getMapDashboard).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

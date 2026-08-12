@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   getApi,
+  getAppState,
   getConfirm,
   getPrompt,
   getRouter,
@@ -80,8 +81,26 @@ const currentTotal = computed(() => (
 ))
 let reloadVersion = 0
 let loadMoreVersion = 0
+let disposed = false
+
+function routeOwner() {
+  const state = getAppState()
+  return {
+    view: state?.currentView || null,
+    subView: state?.currentSubView || null,
+  }
+}
+
+function ownsRoute(owner) {
+  const state = getAppState()
+  return !disposed
+    && owner?.view === "journeys"
+    && state?.currentView === owner.view
+    && (state?.currentSubView || null) === owner.subView
+}
 
 async function reload(query = appliedSearch.value) {
+  const owner = routeOwner()
   const normalizedQuery = String(query || "").trim()
   const requestVersion = ++reloadVersion
   loadMoreVersion += 1
@@ -100,7 +119,7 @@ async function reload(query = appliedSearch.value) {
         limit: 50,
       }),
     ])
-    if (requestVersion !== reloadVersion) return false
+    if (requestVersion !== reloadVersion || !ownsRoute(owner)) return false
     active.value = activeData.items || []
     activeTotal.value = Number(activeData.total || 0)
     archived.value = archivedData.items || []
@@ -109,12 +128,12 @@ async function reload(query = appliedSearch.value) {
     loadError.value = null
     return true
   } catch {
-    if (requestVersion !== reloadVersion) return false
+    if (requestVersion !== reloadVersion || !ownsRoute(owner)) return false
     loadError.value = "旅程列表暂时无法加载，请稍后重试。"
     getToast()("旅程列表暂时无法加载，请稍后重试。", "error")
     return false
   } finally {
-    if (requestVersion === reloadVersion) searching.value = false
+    if (requestVersion === reloadVersion && ownsRoute(owner)) searching.value = false
   }
 }
 
@@ -170,22 +189,29 @@ async function createJourney() {
   creating.value = true
   createError.value = ""
   createErrorAction.value = ""
+  const owner = routeOwner()
+  const submittedOpening = opening.value
   try {
     const result = await getApi().interactions.createJourney({
-      opening_text: opening.value.trim(),
+      opening_text: submittedOpening.trim(),
       idempotency_key: interactionOperationKey("journey"),
       see_sea_enabled: seeSea.value,
       action_options_enabled: actionOptions.value,
     })
+    if (!ownsRoute(owner)) {
+      if (readOpeningDraft() === submittedOpening) writeOpeningDraft("")
+      return
+    }
     writeOpeningDraft("")
     opening.value = ""
     await getRouter().navigate("interaction", result.journey.id)
   } catch (error) {
+    if (!ownsRoute(owner)) return
     const safeError = safeInteractionError(error, { opening: true })
     createError.value = safeError.message
     createErrorAction.value = safeError.action
   } finally {
-    creating.value = false
+    if (ownsRoute(owner)) creating.value = false
   }
 }
 
@@ -260,22 +286,32 @@ async function archiveJourney(journey) {
     ? " 当前生成会停止，已经显示的正文会作为未完整片段保留。"
     : ""
   if (!getConfirm()(`归档「${journey.title}」？${suffix}`)) return
+  const owner = routeOwner()
   try {
     await getApi().interactions.archiveJourney(journey.id)
+    if (!ownsRoute(owner)) return
     await reload()
+    if (!ownsRoute(owner)) return
     getToast()("旅程已归档", "success")
   } catch {
-    getToast()("归档失败；旅程和正在生成的内容仍保留，请重试。", "error")
+    if (ownsRoute(owner)) {
+      getToast()("归档失败；旅程和正在生成的内容仍保留，请重试。", "error")
+    }
   }
 }
 
 async function restoreJourney(journey) {
+  const owner = routeOwner()
   try {
     await getApi().interactions.restoreJourney(journey.id)
+    if (!ownsRoute(owner)) return
     await reload()
+    if (!ownsRoute(owner)) return
     getToast()("旅程已恢复", "success")
   } catch {
-    getToast()("恢复失败；归档中的旅程仍然保留，请重试。", "error")
+    if (ownsRoute(owner)) {
+      getToast()("恢复失败；归档中的旅程仍然保留，请重试。", "error")
+    }
   }
 }
 
@@ -285,12 +321,17 @@ async function deleteJourney(journey) {
     "",
   )
   if (answer === null) return
+  const owner = routeOwner()
   try {
     await getApi().interactions.deleteJourney(journey.id, answer)
+    if (!ownsRoute(owner)) return
     await reload()
+    if (!ownsRoute(owner)) return
     getToast()("旅程已永久删除", "success")
   } catch {
-    getToast()("永久删除失败；旅程仍在归档中，请确认标题后重试。", "error")
+    if (ownsRoute(owner)) {
+      getToast()("永久删除失败；旅程仍在归档中，请确认标题后重试。", "error")
+    }
   }
 }
 
@@ -298,6 +339,12 @@ onMounted(() => {
   if (!loadError.value && !hasAnyJourney.value && !hasActiveConnection.value) {
     goConnect("journeys:new")
   }
+})
+
+onBeforeUnmount(() => {
+  disposed = true
+  reloadVersion += 1
+  loadMoreVersion += 1
 })
 </script>
 

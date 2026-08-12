@@ -6,7 +6,7 @@
  * 投影轮询 / 简介轮询等后台任务使用 useWorkflowPolling。
  */
 import { computed, reactive, readonly, ref, shallowRef, watch } from "vue"
-import { getApi, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import { worldSession } from "../../world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
@@ -75,9 +75,19 @@ export function useWorldBible(props) {
   const projectId = computed(() => props.projectId)
   const pages = computed(() => props.bible?.pages || [])
   const categories = computed(() => props.bible?.categories || [])
-  const drafts = computed(() => props.bible?.drafts || [])
+  const savedDrafts = reactive(new Map())
+  const drafts = computed(() => {
+    const merged = new Map((props.bible?.drafts || []).map((draft) => [draft.id, draft]))
+    for (const [id, draft] of savedDrafts) merged.set(id, draft)
+    return Array.from(merged.values())
+  })
   const synopsis = ref(props.bible?.synopsis || null)
-  const pageTemplates = computed(() => props.bible?.pageTemplates || [])
+  const savedPageTemplates = reactive(new Map())
+  const pageTemplates = computed(() => {
+    const merged = new Map((props.bible?.pageTemplates || []).map((template) => [template.id || template.template_key, template]))
+    for (const [id, template] of savedPageTemplates) merged.set(id, template)
+    return Array.from(merged.values()).filter((template) => template.status !== "archived")
+  })
   const activationProfiles = computed(() => props.bible?.activationProfiles || [])
   const bibleDeepLink = computed(() => props.bibleDeepLink || { draftId: "", pageId: "" })
 
@@ -85,7 +95,7 @@ export function useWorldBible(props) {
   const displayMode = ref(storedDisplayPref(projectId.value, "displayMode", "editor"))
   const activeCategory = ref(storedDisplayPref(projectId.value, "activeCategory", "all"))
   const galleryCategory = ref(null)
-  const activeActivationProfileId = ref(null)
+  const activeActivationProfileId = ref(worldSession.bible.activeActivationProfileId || null)
   const activationTrace = ref(null)
   const synopsisTask = ref(null)
   const synopsisTerminalTaskId = ref(null)
@@ -96,14 +106,61 @@ export function useWorldBible(props) {
   const projectionConflictHint = ref(null)
   const projectionPoller = ref(null)
   const projectionRetryPending = ref(false)
+  const editorMutationPending = ref(false)
   const beforeUnloadBound = ref(false)
   const suggestionBatchKey = ref(null)
+  let disposed = false
+  let activationGeneration = 0
+  let projectionGeneration = 0
+  let synopsisGeneration = 0
+
+  function ownsProject(novelId) {
+    return !disposed
+      && projectId.value === novelId
+      && getAppState()?.currentProjectId === novelId
+  }
+
+  function ownsPage(novelId, pageId) {
+    return ownsProject(novelId) && activePageId.value === pageId
+  }
 
   // ---- active page / draft state (从 session 恢复) ----
   const activePageId = ref(worldSession.bible.activePageId || null)
   const activeDraftId = ref(worldSession.bible.activeDraftId || null)
   const editorBaseline = ref(worldSession.bible.editorBaseline || null)
   const editorBaselineKey = ref(worldSession.bible.editorBaselineKey || null)
+
+  function captureEditorOwner() {
+    return { novelId: projectId.value, pageId: activePageId.value, draftId: activeDraftId.value }
+  }
+
+  function ownsEditor(owner) {
+    return ownsPage(owner.novelId, owner.pageId) && activeDraftId.value === owner.draftId
+  }
+
+  function captureModalOwner(node = null) {
+    const body = document.getElementById("modal-body")
+    const overlay = document.getElementById("modal-overlay")
+    return {
+      body,
+      overlay,
+      node: node || body?.firstElementChild || null,
+      open: Boolean(overlay && !overlay.classList.contains("hidden")),
+    }
+  }
+
+  function ownsModalOwner(owner) {
+    if (!owner?.body || !owner?.overlay) return true
+    if (document.getElementById("modal-body") !== owner.body || document.getElementById("modal-overlay") !== owner.overlay) return false
+    if (!owner.open) {
+      return owner.overlay.classList.contains("hidden") && owner.body.firstElementChild === owner.node
+    }
+    return Boolean(
+      owner.node?.isConnected
+      && owner.body.contains(owner.node)
+      && !owner.overlay.classList.contains("hidden"),
+    )
+  }
 
   // ---- 从 pageId/draftId 解析对象 ----
   const activePage = computed(() => {
@@ -119,14 +176,6 @@ export function useWorldBible(props) {
   /** 当前编辑源（draft 优先于 page） */
   const editSource = computed(() => activeDraft.value || activePage.value)
 
-  /**
-   * savePage(refreshView=false) 后的草稿快照覆盖。
-   * drafts 来自 props，保存后未 refresh 时 activeDraft 仍是旧对象
-   * （updated_at/内容陈旧），editorSourceKey 失配会让未保存检测回落到
-   * 陈旧基线，误判未保存并拦截离开导航（AI 转交流程）。id 失配自动失效。
-   */
-  const savedDraftSnapshot = ref(null)
-
   /** 当前页面是否有工作稿 */
   const draftForActivePage = computed(() => {
     if (!activePageId.value) return null
@@ -134,10 +183,6 @@ export function useWorldBible(props) {
   })
 
   const isWorkingDraft = computed(() => Boolean(activeDraft.value))
-
-  // ---- asset ref picker ----
-  let assetRefPicker = null
-  let activationTargetPicker = null
 
   // ---- 初始化 ----
   function initialize() {
@@ -159,8 +204,8 @@ export function useWorldBible(props) {
     }
 
     // activation profile default
-    if (!activeActivationProfileId.value && activationProfiles.value.length) {
-      activeActivationProfileId.value = activationProfiles.value[0].id
+    if (!activationProfiles.value.some((profile) => profile.id === activeActivationProfileId.value)) {
+      activeActivationProfileId.value = activationProfiles.value[0]?.id || null
     }
 
     // synopsis recovery
@@ -197,6 +242,7 @@ export function useWorldBible(props) {
   function syncSession() {
     worldSession.bible.activePageId = activePageId.value
     worldSession.bible.activeDraftId = activeDraftId.value
+    worldSession.bible.activeActivationProfileId = activeActivationProfileId.value
     worldSession.bible.editorBaseline = editorBaseline.value
     worldSession.bible.editorBaselineKey = editorBaselineKey.value
   }
@@ -396,11 +442,7 @@ export function useWorldBible(props) {
   }
 
   function editorHasUnsavedChanges() {
-    const currentSource = () => (
-      savedDraftSnapshot.value?.id && savedDraftSnapshot.value.id === activeDraftId.value
-        ? savedDraftSnapshot.value
-        : editSource.value
-    )
+    const currentSource = () => editSource.value
     // If the DOM is available, read from DOM (matches vanilla _editorHasUnsavedChanges behavior)
     const titleEl = typeof document !== "undefined" && document.getElementById("bible-title")
     if (titleEl) {
@@ -485,17 +527,15 @@ export function useWorldBible(props) {
   }
 
   // ---- CRUD: Save / Publish / Discard ----
-  async function savePage(refreshView = true) {
+  async function savePage(refreshView = false, modalOwner = null) {
+    if (editorMutationPending.value) return false
     const page = activePage.value
     let draft = activeDraft.value || draftForActivePage.value
     if (!page && !draft) return false
+    const owner = captureEditorOwner()
+    const novelId = owner.novelId
+    editorMutationPending.value = true
     try {
-      if (!draft) {
-        draft = await api.world.createBibleDraft({
-          novel_id: projectId.value,
-          page_id: page.id,
-        })
-      }
       const payload = {
         title: document.getElementById("bible-title")?.value?.trim() || "",
         page_type: document.getElementById("bible-page-type")?.value || "custom",
@@ -508,16 +548,25 @@ export function useWorldBible(props) {
         toast("标题不能为空", "warning")
         return false
       }
-      draft = await api.world.updateBibleDraft(draft.id, payload, projectId.value)
+      if (!draft) {
+        draft = await api.world.createBibleDraft({
+          novel_id: novelId,
+          page_id: page.id,
+        })
+      }
+      draft = await api.world.updateBibleDraft(draft.id, payload, novelId)
+      if (!ownsEditor(owner) || (modalOwner && !ownsModalOwner(modalOwner))) return false
+      savedDrafts.set(draft.id, draft)
       activeDraftId.value = draft.id
       setEditorBaseline(draft)
-      savedDraftSnapshot.value = draft
       toast("工作稿已保存；正式页面尚未变化", "success")
       if (refreshView) router.refresh()
       return true
     } catch (err) {
-      toast(err.message || "保存失败", "error")
+      if (ownsEditor(owner) && (!modalOwner || ownsModalOwner(modalOwner))) toast(err.message || "保存失败", "error")
       return false
+    } finally {
+      editorMutationPending.value = false
     }
   }
 
@@ -625,8 +674,11 @@ export function useWorldBible(props) {
   const sectionsSignal = ref(0)
 
   async function publishDraft() {
+    if (editorMutationPending.value) return false
     let draft = activeDraft.value || draftForActivePage.value
-    if (!draft) return
+    if (!draft) return false
+    const owner = captureEditorOwner()
+    editorMutationPending.value = true
     try {
       const payload = {
         title: document.getElementById("bible-title")?.value?.trim() || "",
@@ -640,18 +692,22 @@ export function useWorldBible(props) {
         toast("标题不能为空", "warning")
         return
       }
-      draft = await api.world.updateBibleDraft(draft.id, payload, projectId.value)
-      activeDraftId.value = draft.id
-      const page = await api.world.publishBibleDraft(draft.id, projectId.value)
+      draft = await api.world.updateBibleDraft(draft.id, payload, owner.novelId)
+      const page = await api.world.publishBibleDraft(draft.id, owner.novelId)
+      if (!ownsEditor(owner)) return false
       activeDraftId.value = null
       activePageId.value = page.id
       toast("页面已发布，世界观简介已标记为需要刷新", "success")
       await router.refresh()
     } catch (err) {
+      if (!ownsEditor(owner)) return false
       const message = err.status === 409
         ? "发布冲突：正式页已变化。工作稿已保留，请重新核对后发布。"
         : err.message || "发布失败"
       toast(message, "error")
+      return false
+    } finally {
+      editorMutationPending.value = false
     }
   }
 
@@ -660,16 +716,24 @@ export function useWorldBible(props) {
     if (!draft) return
     // vanilla 走 confirmAction 应用模态（"确认操作" + 危险按钮），非原生 confirm
     return confirmAction("丢弃这个工作稿？正式页面和历史版本不会受影响。", async () => {
+      const owner = captureEditorOwner()
+      const modalOwner = captureModalOwner()
       try {
-        await api.world.discardBibleDraft(draft.id, projectId.value)
+        await api.world.discardBibleDraft(draft.id, owner.novelId)
+        if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
         activeDraftId.value = null
         if (!draft.page_id) {
           activePageId.value = pages.value[0]?.id || null
         }
+        syncSession()
         toast("工作稿已丢弃", "success")
         router.refresh()
       } catch (err) {
-        toast(err.message || "丢弃工作稿失败", "error")
+        if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+          toast(err.message || "丢弃工作稿失败", "error")
+          return false
+        }
+        return true
       }
     })
   }
@@ -680,12 +744,13 @@ export function useWorldBible(props) {
       toast("请选择页面模板", "warning")
       return
     }
+    const owner = captureEditorOwner()
     try {
       let draft = activeDraft.value || draftForActivePage.value
       if (!draft && activePage.value) {
         draft = await api.world.createBibleDraft({
-          novel_id: projectId.value,
-          page_id: activePage.value.id,
+          novel_id: owner.novelId,
+          page_id: owner.pageId,
         })
       }
       if (!draft) return
@@ -694,12 +759,17 @@ export function useWorldBible(props) {
         template_key: templateKey,
         template_version: selected?.version_number || 1,
         replace_sections: false,
-      }, projectId.value)
+      }, owner.novelId)
+      if (!ownsEditor(owner)) return false
+      savedDrafts.set(draft.id, draft)
       activeDraftId.value = draft.id
+      setEditorBaseline(draft)
+      sectionsSignal.value = Date.now()
       toast("模板已生成工作稿分区；发布前可继续编辑", "success")
-      await router.refresh()
+      return true
     } catch (err) {
-      toast(err.message || "应用模板失败", "error")
+      if (ownsEditor(owner)) toast(err.message || "应用模板失败", "error")
+      return false
     }
   }
 
@@ -729,16 +799,18 @@ export function useWorldBible(props) {
         text: "创建",
         class: "btn-primary",
         handler: async () => {
+          const owner = captureEditorOwner()
+          const modalOwner = captureModalOwner(document.getElementById("bible-create-title"))
           const title = document.getElementById("bible-create-title")?.value?.trim()
           if (!title) {
             toast("请输入页面标题", "warning")
-            return
+            return false
           }
           try {
             const templateKey = document.getElementById("bible-create-template")?.value || ""
             const template = pageTemplates.value.find((t) => t.template_key === templateKey)
             const createPayload = {
-              novel_id: projectId.value,
+              novel_id: owner.novelId,
               title,
               page_type: document.getElementById("bible-create-type")?.value || "custom",
             }
@@ -752,19 +824,25 @@ export function useWorldBible(props) {
                 template_key: templateKey,
                 template_version: template?.version_number || 1,
                 replace_sections: true,
-              }, projectId.value)
+              }, owner.novelId)
             }
+            if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
+            savedDrafts.set(draft.id, draft)
             activeDraftId.value = draft.id
             activePageId.value = null
             displayMode.value = "editor"
             galleryCategory.value = null
-            saveDisplayPref(projectId.value, "displayMode", "editor")
-            resetEditorBaseline()
+            saveDisplayPref(owner.novelId, "displayMode", "editor")
+            setEditorBaseline(draft)
             syncSession()
             toast("工作稿已创建；发布后才进入世界观简介来源", "success")
-            await router.refresh()
+            return true
           } catch (err) {
-            toast(err.message || "创建页面失败", "error")
+            if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+              toast(err.message || "创建页面失败", "error")
+              return false
+            }
+            return true
           }
         },
       },
@@ -775,32 +853,41 @@ export function useWorldBible(props) {
   async function refreshProjection(force) {
     const page = activePage.value
     if (!page) return
+    const novelId = projectId.value
+    const pageId = page.id
     try {
-      const result = await api.world.refreshBibleProjection(page.id, projectId.value, PROJECTION_TYPE, force)
-      localStorage.setItem(taskStorageKey(projectId.value, page.id), result.task_id)
-      projectionTask.value = await api.tasks.get(result.task_id, projectId.value)
+      const result = await api.world.refreshBibleProjection(pageId, novelId, PROJECTION_TYPE, force)
+      localStorage.setItem(taskStorageKey(novelId, pageId), result.task_id)
+      if (!ownsPage(novelId, pageId)) return false
+      const task = await api.tasks.get(result.task_id, novelId)
+      if (!ownsPage(novelId, pageId)) return false
+      projectionTask.value = task
       projectionConflictHint.value = null
       toast(result.existing ? "已有刷新任务正在运行" : "刷新任务已提交", "success")
-      router.refresh()
+      if (!isTerminalTask(task)) startProjectionPolling(result.task_id, pageId)
     } catch (err) {
       const apiErr = errorLog?._lastApiError || null
       if (err.status === 409 || apiErr?.status === 409) {
         if (errorLog) errorLog._lastApiError = null
         const finishedTaskId = extractFinishedTaskId(err, apiErr)
         if (finishedTaskId) {
-          localStorage.setItem(taskStorageKey(projectId.value, page.id), finishedTaskId)
+          localStorage.setItem(taskStorageKey(novelId, pageId), finishedTaskId)
+          if (!ownsPage(novelId, pageId)) return false
           try {
-            projectionTask.value = await api.tasks.get(finishedTaskId, projectId.value)
+            const task = await api.tasks.get(finishedTaskId, novelId)
+            if (!ownsPage(novelId, pageId)) return false
+            projectionTask.value = task
           } catch {
-            projectionTask.value = null
+            if (ownsPage(novelId, pageId)) projectionTask.value = null
           }
         }
+        if (!ownsPage(novelId, pageId)) return false
         projectionConflictHint.value = "上次刷新已结束，可使用强制重新刷新。"
         toast("上次刷新已结束，如需重跑请使用强制刷新", "warning")
-        router.refresh()
       } else {
-        toast(projectionRefreshErrorMessage(err), "error")
+        if (ownsPage(novelId, pageId)) toast(projectionRefreshErrorMessage(err), "error")
       }
+      return false
     }
   }
 
@@ -814,29 +901,36 @@ export function useWorldBible(props) {
 
   async function restoreProjectionTask(pageId) {
     stopProjectionPolling()
-    const storedId = localStorage.getItem(taskStorageKey(projectId.value, pageId))
+    const generation = projectionGeneration
+    const novelId = projectId.value
+    const storageKey = taskStorageKey(novelId, pageId)
+    const storedId = localStorage.getItem(storageKey)
     projectionTask.value = null
     if (!storedId) return
     try {
-      const task = await api.tasks.get(storedId, projectId.value)
+      const task = await api.tasks.get(storedId, novelId)
+      if (generation !== projectionGeneration || !ownsPage(novelId, pageId)) return false
       const meta = task.meta || {}
-      if (meta.novel_id === projectId.value && meta.page_id === pageId && meta.projection_type === PROJECTION_TYPE) {
+      if (meta.novel_id === novelId && meta.page_id === pageId && meta.projection_type === PROJECTION_TYPE) {
         projectionTask.value = task
         if (!isTerminalTask(task)) startProjectionPolling(storedId, pageId)
       }
     } catch {
-      localStorage.removeItem(taskStorageKey(projectId.value, pageId))
+      if (generation === projectionGeneration && ownsPage(novelId, pageId)) localStorage.removeItem(storageKey)
     }
   }
 
   function stopProjectionPolling() {
+    projectionGeneration += 1
     if (projectionPoller.value?.stop) projectionPoller.value.stop()
     projectionPoller.value = null
   }
 
   function startProjectionPolling(taskId, pageId) {
-    stopProjectionPolling()
     const novelId = projectId.value
+    if (!ownsPage(novelId, pageId)) return false
+    stopProjectionPolling()
+    const generation = projectionGeneration
     projectionPoller.value = pollTaskProgress({
       taskId,
       workflowType: "world_bible_projection_refresh",
@@ -847,20 +941,23 @@ export function useWorldBible(props) {
       },
       intervalMs: 800,
       onUpdate: (_progress, task) => {
+        if (generation !== projectionGeneration || !ownsPage(novelId, pageId)) return
         if (task) projectionTask.value = task
       },
       onDone: (_progress, task) => {
+        if (generation !== projectionGeneration || !ownsPage(novelId, pageId)) return
         projectionPoller.value = null
         if (task) projectionTask.value = task
         toast("世界书投影刷新完成", "success")
       },
       onFailed: (progress, task) => {
+        if (generation !== projectionGeneration || !ownsPage(novelId, pageId)) return
         projectionPoller.value = null
         if (task) projectionTask.value = task
         toast(`世界书投影刷新失败：${progress.errorMessage || "未知错误"}`, "error")
       },
     })
-    localStorage.setItem(taskStorageKey(projectId.value, pageId), taskId)
+    localStorage.setItem(taskStorageKey(novelId, pageId), taskId)
   }
 
   function extractFinishedTaskId(err, apiErr) {
@@ -879,9 +976,13 @@ export function useWorldBible(props) {
     const taskId = projectionTask.value?.task_id || projectionTask.value?.id
     const page = activePage.value
     if (!taskId || !page || projectionRetryPending.value || !projectionTask.value?.available_actions?.includes("retry")) return false
+    const novelId = projectId.value
+    const pageId = page.id
     projectionRetryPending.value = true
     try {
-      const result = await api.tasks.retry(taskId, projectId.value)
+      const result = await api.tasks.retry(taskId, novelId)
+      projectionRetryPending.value = false
+      if (!ownsPage(novelId, pageId)) return false
       projectionTask.value = {
         ...projectionTask.value,
         ...result,
@@ -890,14 +991,13 @@ export function useWorldBible(props) {
         error_message: null,
         available_actions: ["cancel"],
       }
-      projectionRetryPending.value = false
       projectionConflictHint.value = null
-      startProjectionPolling(taskId, page.id)
+      startProjectionPolling(taskId, pageId)
       toast("投影刷新任务已重新加入队列", "success")
       return true
     } catch (err) {
       projectionRetryPending.value = false
-      toast(err.message || "重试投影刷新失败", "error")
+      if (ownsPage(novelId, pageId)) toast(err.message || "重试投影刷新失败", "error")
       return false
     }
   }
@@ -908,26 +1008,32 @@ export function useWorldBible(props) {
       toast('当前固定在历史版本；请先"取消固定并刷新"', "warning")
       return false
     }
+    const novelId = projectId.value
     try {
-      synopsisTask.value = await api.world.refreshBibleSynopsis(projectId.value)
+      const task = await api.world.refreshBibleSynopsis(novelId)
+      if (!ownsProject(novelId)) return false
+      synopsisTask.value = task
       synopsisTerminalTaskId.value = null
       toast(synopsisTask.value.existing ? "已有简介刷新任务在运行" : "简介刷新任务已提交", "success")
       startSynopsisPolling(synopsisTask.value.task_id)
-      router.refresh()
     } catch (err) {
-      toast(err.message || "刷新世界观简介失败", "error")
+      if (ownsProject(novelId)) toast(err.message || "刷新世界观简介失败", "error")
+      return false
     }
   }
 
   function stopSynopsisPolling() {
+    synopsisGeneration += 1
     if (synopsisPoller.value?.stop) synopsisPoller.value.stop()
     synopsisPoller.value = null
   }
 
   function startSynopsisPolling(taskId) {
     if (!taskId) return
-    stopSynopsisPolling()
     const novelId = projectId.value
+    if (!ownsProject(novelId)) return
+    stopSynopsisPolling()
+    const generation = synopsisGeneration
     synopsisPoller.value = pollTaskProgress({
       taskId,
       workflowType: "world_bible_synopsis_refresh",
@@ -938,39 +1044,53 @@ export function useWorldBible(props) {
       },
       intervalMs: 800,
       onUpdate: (_progress, task) => {
+        if (generation !== synopsisGeneration || !ownsProject(novelId)) return
         if (task) synopsisTask.value = { ...task, task_id: task.id || task.task_id }
       },
       onDone: async () => {
+        if (generation !== synopsisGeneration || !ownsProject(novelId)) return
         synopsisPoller.value = null
         synopsisTerminalTaskId.value = taskId
         synopsisTask.value = { task_id: taskId, status: "done" }
-        synopsis.value = await api.world.getBibleSynopsis(novelId)
+        const nextSynopsis = await api.world.getBibleSynopsis(novelId)
+        if (generation !== synopsisGeneration || !ownsProject(novelId)) return
+        synopsis.value = nextSynopsis
         toast("世界观简介已刷新", "success")
       },
       onFailed: async (progress) => {
+        if (generation !== synopsisGeneration || !ownsProject(novelId)) return
         synopsisPoller.value = null
         synopsisTerminalTaskId.value = taskId
         synopsisTask.value = { task_id: taskId, status: "failed" }
-        synopsis.value = await api.world.getBibleSynopsis(novelId)
+        const nextSynopsis = await api.world.getBibleSynopsis(novelId)
+        if (generation !== synopsisGeneration || !ownsProject(novelId)) return
+        synopsis.value = nextSynopsis
         toast(`世界观简介刷新失败：${progress.errorMessage || "未知错误"}`, "error")
       },
     })
   }
 
   async function toggleSynopsisAuto() {
+    const novelId = projectId.value
+    const enabled = !synopsis.value?.auto_refresh_enabled
     try {
-      synopsis.value = await api.world.setBibleSynopsisAutoRefresh(projectId.value, !synopsis.value?.auto_refresh_enabled)
+      const updated = await api.world.setBibleSynopsisAutoRefresh(novelId, enabled)
+      if (!ownsProject(novelId)) return false
+      synopsis.value = updated
       if (synopsis.value?.active_task_id) synopsisTerminalTaskId.value = null
       toast(synopsis.value.auto_refresh_enabled ? "已授权自动维护世界观简介" : "已关闭自动维护", "success")
-      router.refresh()
     } catch (err) {
-      toast(err.message || "更新自动维护授权失败", "error")
+      if (ownsProject(novelId)) toast(err.message || "更新自动维护授权失败", "error")
+      return false
     }
   }
 
   async function openSynopsisHistory() {
+    const novelId = projectId.value
+    const modalOwner = captureModalOwner()
     try {
-      const data = await api.world.listBibleSynopsisRevisions(projectId.value)
+      const data = await api.world.listBibleSynopsisRevisions(novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
       const items = data.items || []
       const body = items.length ? items.map((item) => `
         <article class="world-bible-suggestion-item">
@@ -981,34 +1101,44 @@ export function useWorldBible(props) {
       `).join("") : `<div class="empty-state"><p>暂无简介版本</p></div>`
       showModalHtml("世界观简介版本", body, [], { size: "large" })
       document.querySelectorAll("[data-synopsis-restore]").forEach((button) => {
-        button.addEventListener("click", () => restoreSynopsis(button.getAttribute("data-synopsis-restore")))
+        button.addEventListener("click", () => restoreSynopsis(button.getAttribute("data-synopsis-restore"), novelId, button))
       })
     } catch (err) {
-      toast(err.message || "加载简介历史失败", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载简介历史失败", "error")
+      return false
     }
   }
 
-  async function restoreSynopsis(revisionId) {
+  async function restoreSynopsis(revisionId, novelId = projectId.value, ownerNode = null) {
+    if (!ownsProject(novelId)) return false
+    const modalOwner = captureModalOwner(ownerNode)
     try {
-      synopsis.value = await api.world.restoreBibleSynopsisRevision(revisionId, projectId.value)
+      const restored = await api.world.restoreBibleSynopsisRevision(revisionId, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
+      synopsis.value = restored
       closeModal()
       toast("已恢复并固定旧版本；自动晋升暂停", "success")
-      router.refresh()
     } catch (err) {
-      toast(err.message || "恢复简介版本失败", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "恢复简介版本失败", "error")
+      return false
     }
   }
 
   async function unpinSynopsis() {
+    const novelId = projectId.value
     try {
-      synopsis.value = await api.world.unpinBibleSynopsis(projectId.value)
-      synopsisTask.value = await api.world.refreshBibleSynopsis(projectId.value)
+      const unpinned = await api.world.unpinBibleSynopsis(novelId)
+      if (!ownsProject(novelId)) return false
+      synopsis.value = unpinned
+      const task = await api.world.refreshBibleSynopsis(novelId)
+      if (!ownsProject(novelId)) return false
+      synopsisTask.value = task
       synopsisTerminalTaskId.value = null
       startSynopsisPolling(synopsisTask.value.task_id)
       toast(synopsisTask.value.existing ? "已取消固定，刷新任务正在运行" : "已取消固定并提交刷新", "success")
-      router.refresh()
     } catch (err) {
-      toast(err.message || "取消固定失败", "error")
+      if (ownsProject(novelId)) toast(err.message || "取消固定失败", "error")
+      return false
     }
   }
 
@@ -1020,10 +1150,13 @@ export function useWorldBible(props) {
   async function dryRunActivationProfile() {
     const profile = activeActivationProfile()
     if (!profile) return
+    const generation = ++activationGeneration
+    const novelId = projectId.value
+    const profileId = profile.id
     try {
-      activationTrace.value = await api.context.previewActivationProfile({
-        novel_id: projectId.value,
-        profile_id: profile.id,
+      const trace = await api.context.previewActivationProfile({
+        novel_id: novelId,
+        profile_id: profileId,
         action: profile.applicable_actions_json?.[0] || "writing.generate",
         reveal_mode: "author_safe",
         task_text: document.getElementById("bible-activation-task")?.value || "",
@@ -1031,10 +1164,20 @@ export function useWorldBible(props) {
         top_k: 64,
         depth: 2,
       })
+      if (generation !== activationGeneration || !ownsProject(novelId) || activeActivationProfileId.value !== profileId) return false
+      activationTrace.value = trace
     } catch (err) {
-      toast(err.message || "Dry-run 失败", "error")
+      if (generation === activationGeneration && ownsProject(novelId) && activeActivationProfileId.value === profileId) {
+        toast(err.message || "Dry-run 失败", "error")
+      }
+      return false
     }
   }
+
+  watch(activeActivationProfileId, () => {
+    activationGeneration += 1
+    activationTrace.value = null
+  })
 
   // ---- open in generation center ----
   function openInGenerationCenter() {
@@ -1059,8 +1202,11 @@ export function useWorldBible(props) {
           text: "保存并继续",
           class: "btn-primary",
           handler: async () => {
-            const saved = await savePage(false)
-            if (!saved) return false
+            const owner = captureEditorOwner()
+            const modalOwner = captureModalOwner()
+            const saved = await savePage(false, modalOwner)
+            if (!ownsModalOwner(modalOwner)) return true
+            if (!saved) return ownsEditor(owner) ? false : true
             closeModal()
             return proceed()
           },
@@ -1071,21 +1217,26 @@ export function useWorldBible(props) {
   }
 
   // ---- suggestions ----
-  async function openSuggestions() {
+  async function openSuggestions(ownerNovelId) {
+    const novelId = typeof ownerNovelId === "string" ? ownerNovelId : projectId.value
+    if (!ownsProject(novelId)) return false
+    const modalOwner = captureModalOwner()
     try {
       const data = await api.world.listSuggestions({
-        novel_id: projectId.value,
+        novel_id: novelId,
         source_module: "world",
         review_group: "generation_center",
         status: "pending",
       })
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
       suggestions.value = (data.items || []).filter((item) => item.target_type === "world_bible_page_draft")
       suggestionBatchKey.value = suggestions.value[0] ? suggestionGroupKey(suggestions.value[0]) : null
       const body = renderSuggestionsModal()
       showModalHtml("创设建议", body, [], { size: "large" })
-      bindSuggestionModal()
+      bindSuggestionModal(novelId)
     } catch (err) {
-      toast(err.message || "加载建议失败", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载建议失败", "error")
+      return false
     }
   }
 
@@ -1119,17 +1270,19 @@ export function useWorldBible(props) {
     `
   }
 
-  function bindSuggestionModal() {
-    document.querySelector("[data-action='bible-batch-confirm']")?.addEventListener("click", () => decideSuggestionBatch(true))
-    document.querySelector("[data-action='bible-batch-reject']")?.addEventListener("click", () => decideSuggestionBatch(false))
+  function bindSuggestionModal(novelId) {
+    const confirmButton = document.querySelector("[data-action='bible-batch-confirm']")
+    const rejectButton = document.querySelector("[data-action='bible-batch-reject']")
+    confirmButton?.addEventListener("click", () => decideSuggestionBatch(true, novelId, confirmButton))
+    rejectButton?.addEventListener("click", () => decideSuggestionBatch(false, novelId, rejectButton))
     document.querySelectorAll("[data-bible-edit-suggestion]").forEach((node) => {
       node.addEventListener("click", () => {
         const item = suggestions.value.find((entry) => entry.id === node.getAttribute("data-bible-edit-suggestion"))
-        if (item) editSuggestionIntoDraft(item)
+        if (item && ownsModalOwner(captureModalOwner(node))) editSuggestionIntoDraft(item, novelId)
       })
     })
     document.querySelectorAll("[data-bible-reject-suggestion]").forEach((node) => {
-      node.addEventListener("click", () => decideSuggestion(node.getAttribute("data-bible-reject-suggestion"), false))
+      node.addEventListener("click", () => decideSuggestion(node.getAttribute("data-bible-reject-suggestion"), false, novelId, node))
     })
     document.querySelectorAll("[data-bible-batch-suggestion]").forEach((node) => {
       node.addEventListener("change", () => {
@@ -1190,7 +1343,8 @@ export function useWorldBible(props) {
     return `<div class="world-bible-suggestion-preview">${esc(String(excerpt).slice(0, 320))}</div>${refs.length ? `<div class="world-bible-suggestion-refs">${refs.map((ref) => `<span class="badge">${esc(ref.title || ref.source_type || "来源")}</span>`).join("")}</div>` : ""}`
   }
 
-  function editSuggestionIntoDraft(item) {
+  function editSuggestionIntoDraft(item, novelId = projectId.value) {
+    if (!ownsProject(novelId)) return false
     const payload = item.payload_json || {}
     const page = payload.page || {}
     const body = `
@@ -1201,10 +1355,12 @@ export function useWorldBible(props) {
       <div class="form-group"><label>资产关联 JSON</label><textarea class="form-textarea" id="bible-suggestion-assets" rows="6">${esc(JSON.stringify(page.linked_asset_refs_json || [], null, 2))}</textarea></div>
       <p class="world-bible-empty-hint">应用只写入工作稿；发布前仍可继续编辑或丢弃。</p>
     `
-    showModalHtml("编辑创设建议", body, [{ text: "应用到工作稿", class: "btn-primary", handler: () => applyEditedSuggestion(item) }], { size: "large" })
+    showModalHtml("编辑创设建议", body, [{ text: "应用到工作稿", class: "btn-primary", handler: () => applyEditedSuggestion(item, novelId) }], { size: "large" })
   }
 
-  async function applyEditedSuggestion(item) {
+  async function applyEditedSuggestion(item, novelId = projectId.value) {
+    if (!ownsProject(novelId)) return true
+    const modalOwner = captureModalOwner(document.getElementById("bible-suggestion-title"))
     const text = document.getElementById("bible-suggestion-text")?.value || ""
     let sections, assets
     try {
@@ -1212,7 +1368,7 @@ export function useWorldBible(props) {
       assets = JSON.parse(document.getElementById("bible-suggestion-assets")?.value || "[]")
     } catch {
       toast("sections 或资产关联不是有效 JSON", "warning")
-      return
+      return false
     }
     try {
       const originalPage = item.payload_json?.page || {}
@@ -1225,21 +1381,29 @@ export function useWorldBible(props) {
           sections_json: sections,
           linked_asset_refs_json: assets,
         },
-      }, projectId.value)
+      }, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return true
       closeModal()
       toast("建议已应用到工作稿；正式页面尚未变化", "success")
-      const draftId = result?.draft?.id
-      if (draftId) openDraft(draftId)
+      const draft = result?.draft
+      if (draft?.id) {
+        savedDrafts.set(draft.id, draft)
+        openDraft(draft.id)
+      }
     } catch (err) {
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return true
       if (err?.status === 409) {
         toast("来源工作稿已变更，本次提案未覆盖新修改。请重新生成。", "warning")
       } else {
         toast(err.message || "应用建议失败", "error")
       }
+      return false
     }
   }
 
-  async function decideSuggestionBatch(accepted) {
+  async function decideSuggestionBatch(accepted, novelId = projectId.value, ownerNode = null) {
+    if (!ownsProject(novelId)) return false
+    const modalOwner = captureModalOwner(ownerNode)
     const selected = Array.from(document.querySelectorAll("[data-bible-batch-suggestion]:checked"))
       .map((node) => node.getAttribute("data-bible-batch-suggestion"))
       .filter(Boolean)
@@ -1260,42 +1424,51 @@ export function useWorldBible(props) {
     let failed = 0
     for (const id of selected) {
       try {
-        if (accepted) await api.world.confirmSuggestion(id, projectId.value)
-        else await api.world.rejectSuggestion(id, projectId.value)
+        if (accepted) await api.world.confirmSuggestion(id, novelId)
+        else await api.world.rejectSuggestion(id, novelId)
       } catch { failed++ }
     }
+    if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
     toast(failed ? `批量处理完成，${failed} 条失败` : "批量处理完成", failed ? "warning" : "success")
-    await openSuggestions()
+    await openSuggestions(novelId)
   }
 
-  async function decideSuggestion(id, accepted) {
+  async function decideSuggestion(id, accepted, novelId = projectId.value, ownerNode = null) {
+    if (!ownsProject(novelId)) return false
+    const modalOwner = captureModalOwner(ownerNode)
     try {
       const item = suggestions.value.find((entry) => entry.id === id)
       if (accepted && item?.target_type === "world_bible_page_draft") {
-        editSuggestionIntoDraft(item)
+        editSuggestionIntoDraft(item, novelId)
         return
       }
-      if (accepted) await api.world.confirmSuggestion(id, projectId.value)
-      else await api.world.rejectSuggestion(id, projectId.value)
+      if (accepted) await api.world.confirmSuggestion(id, novelId)
+      else await api.world.rejectSuggestion(id, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
       toast(accepted ? "建议已采用" : "建议已忽略", "success")
       if (accepted) router.refresh()
-      await openSuggestions()
+      await openSuggestions(novelId)
     } catch (err) {
-      toast(err.message || "处理建议失败", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "处理建议失败", "error")
+      return false
     }
   }
 
   // ---- conflicts ----
   async function openConflicts() {
+    const novelId = projectId.value
+    const modalOwner = captureModalOwner()
     try {
-      const data = await api.world.listWorldConflicts({ novel_id: projectId.value, status: "pending" })
+      const data = await api.world.listWorldConflicts({ novel_id: novelId, status: "pending" })
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
       conflicts.value = data.items || []
       const body = conflicts.value.length
         ? conflicts.value.map((item) => `<p class="world-bible-conflict-item">${esc(item.severity)} · ${esc(item.summary)}</p>`).join("")
         : `<div class="empty-state"><p>暂无冲突检查项</p></div>`
       showModalHtml("冲突检查", body, [])
     } catch (err) {
-      toast(err.message || "加载冲突失败", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载冲突失败", "error")
+      return false
     }
   }
 
@@ -1331,7 +1504,7 @@ export function useWorldBible(props) {
       button.addEventListener("click", () => archiveCategory(button.getAttribute("data-bible-category-archive")))
     })
     document.querySelectorAll("[data-bible-category-restore]").forEach((button) => {
-      button.addEventListener("click", () => restoreCategory(button.getAttribute("data-bible-category-restore")))
+      button.addEventListener("click", () => restoreCategory(button.getAttribute("data-bible-category-restore"), button))
     })
   }
 
@@ -1340,11 +1513,13 @@ export function useWorldBible(props) {
     const name = document.getElementById("bible-category-name")?.value?.trim() || ""
     if (!categoryKey || !name) {
       toast("请填写类别键和名称", "warning")
-      return
+      return false
     }
+    const owner = captureEditorOwner()
+    const modalOwner = captureModalOwner(document.getElementById("bible-category-key"))
     try {
       await api.world.createBibleCategory({
-        novel_id: projectId.value,
+        novel_id: owner.novelId,
         category_key: categoryKey,
         name,
         description: document.getElementById("bible-category-description")?.value || null,
@@ -1352,11 +1527,16 @@ export function useWorldBible(props) {
         icon: document.getElementById("bible-category-icon")?.value || "",
         sort_order: Number(document.getElementById("bible-category-order")?.value || 100),
       })
+      if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
       closeModal()
       toast("类别已创建；类别键后续不可修改", "success")
       router.refresh()
     } catch (err) {
-      toast(err.message || "创建类别失败", "error")
+      if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+        toast(err.message || "创建类别失败", "error")
+        return false
+      }
+      return true
     }
   }
 
@@ -1376,7 +1556,9 @@ export function useWorldBible(props) {
 
   async function saveCategory(categoryId) {
     const name = document.getElementById("bible-category-edit-name")?.value?.trim() || ""
-    if (!name) { toast("类别名称不能为空", "warning"); return }
+    if (!name) { toast("类别名称不能为空", "warning"); return false }
+    const owner = captureEditorOwner()
+    const modalOwner = captureModalOwner(document.getElementById("bible-category-edit-name"))
     try {
       await api.world.updateBibleCategory(categoryId, {
         name,
@@ -1384,37 +1566,53 @@ export function useWorldBible(props) {
         color: document.getElementById("bible-category-edit-color")?.value || "#64748B",
         icon: document.getElementById("bible-category-edit-icon")?.value || "",
         sort_order: Number(document.getElementById("bible-category-edit-order")?.value || 0),
-      }, projectId.value)
+      }, owner.novelId)
+      if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
       closeModal()
       toast("类别已更新", "success")
       router.refresh()
     } catch (err) {
-      toast(err.message || "更新类别失败", "error")
+      if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+        toast(err.message || "更新类别失败", "error")
+        return false
+      }
+      return true
     }
   }
 
   function archiveCategory(categoryId) {
     // vanilla 走 confirmAction 应用模态（worldBibleView.js:1876），非原生 confirm
     return confirmAction("归档该类别？现有页面不会删除，但不能再将工作稿切换到该类别。", async () => {
+      const owner = captureEditorOwner()
+      const modalOwner = captureModalOwner()
       try {
-        await api.world.updateBibleCategory(categoryId, { status: "archived" }, projectId.value)
+        await api.world.updateBibleCategory(categoryId, { status: "archived" }, owner.novelId)
+        if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
         closeModal()
         toast("类别已归档，现有页面已保留", "success")
         router.refresh()
       } catch (err) {
-        toast(err.message || "归档类别失败", "error")
+        if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+          toast(err.message || "归档类别失败", "error")
+          return false
+        }
+        return true
       }
     })
   }
 
-  async function restoreCategory(categoryId) {
+  async function restoreCategory(categoryId, ownerNode = null) {
+    const novelId = projectId.value
+    const modalOwner = captureModalOwner(ownerNode)
     try {
-      await api.world.updateBibleCategory(categoryId, { status: "active" }, projectId.value)
+      await api.world.updateBibleCategory(categoryId, { status: "active" }, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
       closeModal()
       toast("类别已恢复，可重新用于工作稿", "success")
       router.refresh()
     } catch (err) {
-      toast(err.message || "恢复类别失败", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "恢复类别失败", "error")
+      return false
     }
   }
 
@@ -1445,7 +1643,7 @@ export function useWorldBible(props) {
       button.addEventListener("click", () => editPageTemplate(button.getAttribute("data-page-template-rename")))
     })
     document.querySelectorAll("[data-page-template-history]").forEach((button) => {
-      button.addEventListener("click", () => openPageTemplateHistory(button.getAttribute("data-page-template-history")))
+      button.addEventListener("click", () => openPageTemplateHistory(button.getAttribute("data-page-template-history"), button))
     })
   }
 
@@ -1455,11 +1653,13 @@ export function useWorldBible(props) {
     const title = document.getElementById("bible-template-section-title")?.value?.trim() || ""
     if (!key || !name || !title) {
       toast("请填写模板 key、名称和默认分区标题", "warning")
-      return
+      return false
     }
+    const owner = captureEditorOwner()
+    const modalOwner = captureModalOwner(document.getElementById("bible-template-key"))
     try {
-      await api.world.createBiblePageTemplate({
-        novel_id: projectId.value,
+      const template = await api.world.createBiblePageTemplate({
+        novel_id: owner.novelId,
         template_key: key,
         name,
         default_sections_json: [{
@@ -1473,13 +1673,16 @@ export function useWorldBible(props) {
           sensitivity_hint: "author_safe",
         }],
       })
+      if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
+      savedPageTemplates.set(template.id || template.template_key, template)
       closeModal()
-      // 先完成 island 数据刷新再提示：e2e/用户看到 toast 即认为模板可选，
-      // 若 toast 先于 refresh，新建模板尚未进入 props，创建页面模态读不到它。
-      await router.refresh()
       toast("页面模板已创建", "success")
     } catch (err) {
-      toast(err.message || "创建模板失败", "error")
+      if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+        toast(err.message || "创建模板失败", "error")
+        return false
+      }
+      return true
     }
   }
 
@@ -1493,27 +1696,37 @@ export function useWorldBible(props) {
       <label class="bible-ai-toggle"><input id="bible-template-edit-archived" type="checkbox" ${template.status === "archived" ? "checked" : ""} /> 归档模板</label>
     `
     showModalHtml("编辑页面模板", body, [{ text: "保存新版本", class: "btn-primary", handler: async () => {
+      const owner = captureEditorOwner()
+      const modalOwner = captureModalOwner(document.getElementById("bible-template-edit-name"))
       try {
-        await api.world.updateBiblePageTemplate(template.id, {
+        const updated = await api.world.updateBiblePageTemplate(template.id, {
           base_version_number: template.version_number,
           name: document.getElementById("bible-template-edit-name")?.value?.trim() || template.name,
           description: document.getElementById("bible-template-edit-description")?.value || null,
           status: document.getElementById("bible-template-edit-archived")?.checked ? "archived" : "active",
-        }, projectId.value)
+        }, owner.novelId)
+        if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
+        savedPageTemplates.set(updated.id || updated.template_key, updated)
         closeModal()
         toast("模板新版本已保存", "success")
-        router.refresh()
       } catch (err) {
-        toast(err.message || "更新模板失败", "error")
+        if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+          toast(err.message || "更新模板失败", "error")
+          return false
+        }
+        return true
       }
     }}])
   }
 
-  async function openPageTemplateHistory(templateId) {
+  async function openPageTemplateHistory(templateId, ownerNode = null) {
     const template = pageTemplates.value.find((t) => t.id === templateId)
     if (!template || template.builtin) return
+    const novelId = projectId.value
+    const modalOwner = captureModalOwner(ownerNode)
     try {
-      const revisions = await api.world.listBiblePageTemplateRevisions(template.id, projectId.value)
+      const revisions = await api.world.listBiblePageTemplateRevisions(template.id, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
       const body = revisions.map((item) => `
         <div class="world-bible-suggestion-item">
           <strong>v${esc(item.version_number)}</strong> · ${esc(item.revision_reason)} · ${esc(item.content_hash.slice(0, 12))}
@@ -1523,18 +1736,23 @@ export function useWorldBible(props) {
       showModalHtml("模板历史", body, [], { size: "large" })
       document.querySelectorAll("[data-template-restore-version]").forEach((button) => {
         button.addEventListener("click", async () => {
+          if (!ownsProject(novelId)) return false
+          const restoreOwner = captureModalOwner(button)
           try {
-            await api.world.restoreBiblePageTemplateRevision(template.id, Number(button.getAttribute("data-template-restore-version")), projectId.value)
+            const restored = await api.world.restoreBiblePageTemplateRevision(template.id, Number(button.getAttribute("data-template-restore-version")), novelId)
+            if (!ownsProject(novelId) || !ownsModalOwner(restoreOwner)) return false
+            savedPageTemplates.set(restored.id || restored.template_key, restored)
             closeModal()
             toast("历史模板已恢复为新版本", "success")
-            router.refresh()
           } catch (err) {
-            toast(err.message || "恢复模板失败", "error")
+            if (ownsProject(novelId) && ownsModalOwner(restoreOwner)) toast(err.message || "恢复模板失败", "error")
+            return false
           }
         })
       })
     } catch (err) {
-      toast(err.message || "加载模板历史失败", "error")
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载模板历史失败", "error")
+      return false
     }
   }
 
@@ -1542,8 +1760,12 @@ export function useWorldBible(props) {
   async function openPageHistory() {
     const page = activePage.value
     if (!page?.id) return
+    const novelId = projectId.value
+    const pageId = page.id
+    const modalOwner = captureModalOwner()
     try {
-      const revisions = await api.world.listBiblePageRevisions(page.id, projectId.value)
+      const revisions = await api.world.listBiblePageRevisions(pageId, novelId)
+      if (!ownsPage(novelId, pageId) || !ownsModalOwner(modalOwner)) return false
       const body = Array.isArray(revisions) && revisions.length ? revisions.map((item) => `
         <article class="world-bible-suggestion-item">
           <strong>v${esc(item.version_number)}</strong> · ${esc(item.revision_reason)}
@@ -1553,24 +1775,30 @@ export function useWorldBible(props) {
       `).join("") : `<div class="empty-state"><p>暂无页面版本</p></div>`
       showModalHtml("世界书页面版本", body, [], { size: "large" })
       document.querySelectorAll("[data-bible-page-restore]").forEach((button) => {
-        button.addEventListener("click", () => restorePageRevision(Number(button.getAttribute("data-bible-page-restore"))))
+        button.addEventListener("click", () => restorePageRevision(Number(button.getAttribute("data-bible-page-restore")), novelId, pageId, button))
       })
     } catch (err) {
-      toast(err.message || "加载页面历史失败", "error")
+      if (ownsPage(novelId, pageId) && ownsModalOwner(modalOwner)) toast(err.message || "加载页面历史失败", "error")
+      return false
     }
   }
 
-  async function restorePageRevision(version) {
-    const page = activePage.value
-    if (!page?.id || !version) return
+  async function restorePageRevision(version, novelId = projectId.value, pageId = activePage.value?.id, ownerNode = null) {
+    if (!pageId || !version || !ownsPage(novelId, pageId)) return false
+    const modalOwner = captureModalOwner(ownerNode)
     try {
-      const draft = await api.world.restoreBiblePageRevision(page.id, version, projectId.value)
+      const draft = await api.world.restoreBiblePageRevision(pageId, version, novelId)
+      if (!ownsPage(novelId, pageId) || !ownsModalOwner(modalOwner)) return false
       closeModal()
+      savedDrafts.set(draft.id, draft)
       activeDraftId.value = draft.id
+      setEditorBaseline(draft)
+      syncSession()
       toast("旧版本已恢复为工作稿，再次发布后才会生效", "success")
-      router.refresh()
+      return true
     } catch (err) {
-      toast(err.message || "恢复页面版本失败", "error")
+      if (ownsPage(novelId, pageId) && ownsModalOwner(modalOwner)) toast(err.message || "恢复页面版本失败", "error")
+      return false
     }
   }
 
@@ -1579,29 +1807,31 @@ export function useWorldBible(props) {
     if (!page?.id || draftForActivePage.value) return
     // vanilla 走 confirmAction 应用模态（worldBibleView.js:1640），非原生 confirm
     return confirmAction("归档此已发布页面？历史版本会保留，且页面将不再进入世界观简介。", async () => {
+      const owner = captureEditorOwner()
+      const modalOwner = captureModalOwner()
       try {
-        const updated = await api.world.updateBiblePage(page.id, { status: "archived" }, projectId.value)
+        const updated = await api.world.updateBiblePage(page.id, { status: "archived" }, owner.novelId)
+        if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
         activePageId.value = updated.id
+        syncSession()
         toast("页面已归档", "success")
         router.refresh()
       } catch (err) {
-        toast(err.message || "归档页面失败", "error")
+        if (ownsEditor(owner) && ownsModalOwner(modalOwner)) {
+          toast(err.message || "归档页面失败", "error")
+          return false
+        }
+        return true
       }
     })
   }
 
   // ---- lifecycle ----
   function onBeforeUnmount() {
+    disposed = true
+    activationGeneration += 1
     stopSynopsisPolling()
     stopProjectionPolling()
-    if (assetRefPicker) {
-      assetRefPicker.destroy?.()
-      assetRefPicker = null
-    }
-    if (activationTargetPicker) {
-      activationTargetPicker.destroy?.()
-      activationTargetPicker = null
-    }
     syncSession()
   }
 
@@ -1626,6 +1856,7 @@ export function useWorldBible(props) {
     projectionTask,
     projectionConflictHint,
     projectionRetryPending,
+    editorMutationPending,
     sectionsSignal,
     suggestions,
     conflicts,
@@ -1682,6 +1913,9 @@ export function useWorldBible(props) {
     categoryOptions,
     formatAssetRefs,
     parseAssetRefs,
+    ownsProject,
+    captureModalOwner,
+    ownsModalOwner,
     captureSectionsFromDom,
     readSectionsFromDom,
     rerenderSectionEditor: () => { sectionsSignal.value = Date.now() },

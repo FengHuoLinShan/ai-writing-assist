@@ -11,7 +11,12 @@
       <button v-if="contextUsage" class="btn btn-sm" data-action="view-generation-context" @click="$emit('view-context')">查看本次上下文</button>
     </div>
   </div>
-  <div v-else class="generate-result-card generate-page-result">
+  <div
+    v-else
+    class="generate-result-card generate-page-result"
+    :inert="busy || undefined"
+    :aria-busy="busy"
+  >
     <div class="generate-result-title">{{ page.title || '未命名页面' }}</div>
     <div class="generate-result-meta">{{ page.page_type || 'custom' }} · {{ summary }}</div>
     <p v-if="proposal.design_rationale" class="generate-result-summary">{{ proposal.design_rationale }}</p>
