@@ -365,14 +365,17 @@ test.describe("世界对象模块", () => {
     const characterCard = page.locator(".world-object-card", { hasText: "主角" })
     await characterCard.locator(".action-menu-btn").click()
     await characterCard.locator('[data-action="knowledge-entity"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("添加知识边界")
-    await page.locator("#knowledge-target-id").selectOption(target.id)
+    await expect(page.locator(SEL.modalTitle)).toHaveText("人物认知进程")
+    const knowledgePicker = page.locator("#knowledge-target-picker")
+    await knowledgePicker.locator("[data-reference-query]").fill(target.name)
+    await knowledgePicker.locator("[data-reference-result]", { hasText: target.name }).click()
+    await expect(knowledgePicker.locator("[data-reference-selected]")).toContainText(target.name)
     await page.locator("#knowledge-level").selectOption("partial")
     await page.locator("#knowledge-content").fill("知道组织存在，但不了解核心")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
 
     // Then: 提示添加成功
-    await expect(page.locator(SEL.toastContainer)).toContainText("知识边界已添加", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("认知检查点已添加", { timeout: 10000 })
   })
 
   test("按类型过滤对象", async ({ page }) => {
