@@ -107,7 +107,7 @@ def test_frontend_functional_browser_is_the_only_pinned_browser_ci_job() -> None
             "name": "Install uv and Python",
             "with": {
                 "version": "0.11.28",
-                "python-version": "3.14.6",
+                "python-version": "3.14.7",
                 "enable-cache": "true",
                 "prune-cache": "true",
                 "cache-dependency-glob": "backend/uv.lock",

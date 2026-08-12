@@ -623,12 +623,12 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
         encoding="utf-8"
     )
     python_image = (
-        "python:3.14.6-slim-bookworm@sha256:"
-        "4c92ffcde4dd6f1ff72a24518f49fd4990b27134987dfa31a733badde66df9f8"
+        "python:3.14.7-slim-bookworm@sha256:"
+        "23c59390fc717bf09f9336908199a0ae75d9c4264bf296123f94ad772fea3b52"
     )
     node_image = (
-        "node:24.18.1-alpine3.23@sha256:"
-        "c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110"
+        "node:24.19.0-alpine3.23@sha256:"
+        "244cc2b53f46f9e876304391d17682b0ddae9ac33491f4857e25e35a36ba7995"
     )
     nginx_image = (
         "nginx:1.31.3-alpine@sha256:"
@@ -655,14 +655,14 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     )
     assert "USER nginx\n\nEXPOSE 8080" in frontend_dockerfile
 
-    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.14.6\n"
+    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.14.7\n"
     assert (repo_root / "frontend-console/.node-version").read_text(
         encoding="utf-8"
-    ) == "24.18.1\n"
+    ) == "24.19.0\n"
     assert workflow.count("runs-on: ubuntu-24.04") == 5
     assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
-    assert workflow.count('python-version: "3.14.6"') == 3
-    assert e2e_workflow.count('python-version: "3.14.6"') == 1
+    assert workflow.count('python-version: "3.14.7"') == 3
+    assert e2e_workflow.count('python-version: "3.14.7"') == 1
     assert workflow.count("prune-cache: true") == 3
     assert e2e_workflow.count("prune-cache: true") == 1
     assert len(re.findall(r"uses: actions/setup-node@[0-9a-f]{40}", workflow)) == 2
