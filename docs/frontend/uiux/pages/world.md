@@ -258,7 +258,7 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
   `#merge-target-picker`、`#merge-target-id`、`#rollback-scene-index`、
   `#knowledge-target-id/level/content/chapter/misconception`（worldEntityOps.js）；
   `#rel-source/target/type/desc`、`#alias-entity/text/type`（worldRelationsAliasesOps.js）；
-  `#relation-review-action/final-type/final-strength/final-description/preview`（useWorldReview.js）
+  `#relation-review-action`、`#relation-final-type/final-strength/final-description`、`#relation-preview`（useWorldReview.js）
 
 ### 7.2 data-action（按区域，全量保留）
 

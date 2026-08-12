@@ -1321,7 +1321,7 @@ table tbody tr:hover td {
   .btn-sm,
   .btn-icon,
   .action-menu-btn {
-    min-height: 38px;
+    min-height: 42px;
   }
 
   .input-field,
@@ -1344,7 +1344,7 @@ table tbody tr:hover td {
   .subnav-item,
   .generate-subtabs .generate-subtab,
   .settings-tab-nav .tab-btn {
-    min-height: 40px;
+    min-height: 42px;
     scroll-snap-align: start;
   }
 

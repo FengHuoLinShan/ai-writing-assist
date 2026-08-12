@@ -82,7 +82,19 @@
 
 - [G2-1] `writing-desk.css` 为 `.writing-sheet .novel-editor` 补 `:focus-visible` 朱红环
   （2px `--archive-red`），并在 `tests/editorialTheme.test.js` 加契约断言；
-  vitest 163 文件 / 1799 用例全绿。commit 见本节后记。
+  vitest 163 文件 / 1799 用例全绿。commit `a95be2867`。
+- [P-world-1] `WorldView.vue` 两个切换组补 `role="group"`。
+- [P-touch-1] 触控档（≤760px）触控目标统一到标：`editorial-theme.css`
+  `.btn-sm/.btn-icon/.action-menu-btn` 38→42、`.subnav-item` 等共享 tab 40→42；
+  `styles.css` 连带修正同违规类：`project-card/hero/bulk` 三处 40→42、
+  rail summary 38→42、390px 档按钮组 40→42（min-width 同步）、
+  `.novel-search-panel` 拆分按钮 42 / 输入 44、`.writing-version-diff-swap` 38→42、
+  `.rp-mode-toggle` 40→42、`.world-attention-menu__panel button` 补 ≤760px 42 覆写、
+  `.rp-message__actions button` 补 ≤760px min-height 42。
+- [P-generate-21] 删除 `.topbar-generate-note` 死规则两条（定义 + 900px 隐藏选择器）。
+- [P-outline-scene-5] 修文档：`mark-reviewed` → 实现实际拼写 `mark-arc-reviewed/mark-thread-reviewed`。
+- [P-world-2] 修文档：world.md §7.1 关系定稿 id 简写改为显式 `#relation-final-*` 形式。
+- vitest 全绿（163/1799）；e2e core 子集结果见 `## 最终验证`。
 
 ## 最终验证
 

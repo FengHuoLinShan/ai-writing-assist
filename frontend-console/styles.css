@@ -238,18 +238,6 @@ html, body {
   margin-left: var(--space-2);
 }
 
-.topbar-generate-note {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-style: italic;
-  margin-left: 10px;
-}
-
 .topbar-wordcount {
   display: flex;
   align-items: center;
@@ -4975,7 +4963,7 @@ kbd {
   }
 
   .project-card__actions .btn {
-    min-height: 40px;
+    min-height: 42px;
   }
 
   .project-catalog-state {
@@ -5003,7 +4991,7 @@ kbd {
   }
 
   .project-archive-hero__actions .btn {
-    min-height: 40px;
+    min-height: 42px;
   }
 
   .project-catalog .project-search-toolbar {
@@ -5020,7 +5008,7 @@ kbd {
   }
 
   .project-index-bar__bulk .bulk-toolbar__actions .btn {
-    min-height: 40px;
+    min-height: 42px;
   }
 
   .project-card__content {
@@ -5861,7 +5849,7 @@ kbd {
   }
 
   .workspace-rail:not([open]) .workspace-rail__summary {
-    min-height: 38px;
+    min-height: 42px;
     height: auto;
     flex-direction: row;
     justify-content: flex-start;
@@ -10319,8 +10307,8 @@ kbd {
   .workspace-rail:not([open]) .workspace-rail__summary,
   #map-quick-preview .btn-sm,
   #map-quick-extra-add {
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 42px;
+    min-height: 42px;
   }
 
   #modal-overlay:has(.review-decision-layout) {
@@ -11301,10 +11289,13 @@ kbd {
   .map-project-inbox .btn:not(.btn-primary),
   #modal-footer .btn:not(.btn-primary),
   .scene-workbench-row,
-  .novel-search-panel .btn,
+  .novel-search-panel .btn {
+    min-height: 42px;
+  }
+
   .novel-search-panel input,
   .novel-search-panel select {
-    min-height: 40px;
+    min-height: 44px;
   }
 
   .map-edit-panel {
@@ -11833,7 +11824,7 @@ kbd {
 
   .writing-version-diff-swap {
     justify-self: center;
-    min-height: 38px;
+    min-height: 42px;
     transform: rotate(90deg);
   }
 
@@ -13684,7 +13675,7 @@ button.rp-journey-card__main:hover {
   }
 
   .rp-composer-tools .rp-mode-toggle {
-    min-height: 40px;
+    min-height: 42px;
   }
 
   .rp-sea-notice {
@@ -13797,6 +13788,10 @@ button.rp-journey-card__main:hover {
 
   .rp-message__actions {
     opacity: 1;
+  }
+
+  .rp-message__actions button {
+    min-height: 42px;
   }
 
   .rp-composer-dock {
@@ -14180,6 +14175,9 @@ button.rp-journey-card__main:hover {
   box-shadow: var(--shadow-lg);
 }
 .world-attention-menu__panel button { display: flex; justify-content: space-between; gap: var(--space-4); min-height: 40px; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+@media (max-width: 760px) {
+  .world-attention-menu__panel button { min-height: 42px; }
+}
 .world-attention-menu__panel button:hover { background: var(--bg-hover); }
 .world-view-options__panel span { display: flex; gap: var(--space-2); }
 
@@ -14294,6 +14292,6 @@ button.rp-journey-card__main:hover {
 @media (max-width: 900px) {
   .generate-chatbox,.generate-chatbox:has(.generate-side-rail:not([open])),.generate-task-workspace,.generate-pov-workspace,.generate-form-grid { grid-template-columns:1fr;height:auto;min-height:0;overflow:visible }
   .generate-side-rail { grid-column:1/-1 }
-  .topbar-generate-note,.generate-suggestion-note { display:none }
+  .generate-suggestion-note { display:none }
   .generate-world-source-bar,.generate-world-config { align-items:stretch;flex-direction:column }
 }
