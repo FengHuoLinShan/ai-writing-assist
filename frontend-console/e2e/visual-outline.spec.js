@@ -17,11 +17,10 @@ import {
 } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
 
-const THEMES = ["minimal", "warm", "dark"]
+const THEMES = ["sticky", "night", "ink"]
 
 async function applyTheme(page, theme) {
-  await page.locator("#theme-toggle").click()
-  await page.locator(`#theme-menu [data-theme-value="${theme}"]`).click()
+  await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
 }
 

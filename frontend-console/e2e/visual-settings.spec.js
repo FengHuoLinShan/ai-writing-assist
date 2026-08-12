@@ -14,13 +14,12 @@
 import { test, expect, request } from "./fixtures.js"
 import { API_BASE, waitForBackend } from "./helpers/api-client.js"
 
-const THEMES = ["minimal", "warm", "dark"]
+const THEMES = ["sticky", "night", "ink"]
 
 const xhrHeaders = { "X-Requested-With": "XMLHttpRequest" }
 
 async function applyTheme(page, theme) {
-  await page.locator("#theme-toggle").click()
-  await page.locator(`#theme-menu [data-theme-value="${theme}"]`).click()
+  await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
 }
 
@@ -97,7 +96,7 @@ test.describe("settings 视觉基线", () => {
       await screenshotSettingsPage(page, `settings-project-${theme}.png`)
     }
 
-    await applyTheme(page, "minimal")
+    await applyTheme(page, "sticky")
     await page.getByRole("tab", { name: "高级导入" }).click()
     await expect(page.locator("#deep-import-phase0-target-input-chars")).toHaveValue("72000")
     await expect(page.getByText(/Phase 0/)).toBeVisible()

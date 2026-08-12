@@ -21,10 +21,19 @@ describe("editorial archive theme", () => {
     expect(indexHtml).not.toContain('id="view-actions"')
   })
 
-  it("keeps the paper, navy and vermillion language across all three themes", () => {
-    expect(theme).toMatch(/:root\s*\{[\s\S]*--archive-paper:[^;]+;[\s\S]*--archive-ink:[^;]+;[\s\S]*--archive-red:[^;]+;/)
-    expect(theme).toMatch(/\[data-theme="warm"\]\s*\{[\s\S]*--archive-paper:[^;]+;[\s\S]*--archive-red:[^;]+;/)
-    expect(theme).toMatch(/\[data-theme="dark"\]\s*\{[\s\S]*--archive-paper:[^;]+;[\s\S]*--archive-red:[^;]+;/)
+  it("defines the --nc-* token layer for sticky, night and ink themes", () => {
+    expect(theme).toMatch(/:root\s*\{[\s\S]*--nc-bg:\s*#FFFFFF;[\s\S]*--nc-ink:\s*#37352F;[\s\S]*--nc-accent:\s*#2383E2;[\s\S]*--nc-hairline:\s*#E9E9E7;/)
+    expect(theme).toMatch(/\[data-theme="night"\]\s*\{[\s\S]*--nc-bg:\s*#111114;[\s\S]*--nc-ink:\s*#E5E2DC;[\s\S]*--nc-accent:\s*#D9A441;[\s\S]*--nc-hairline:\s*#26262A;/)
+    expect(theme).toMatch(/\[data-theme="ink"\]\s*\{[\s\S]*--nc-bg:\s*#F7F3EA;[\s\S]*--nc-ink:\s*#1F2321;[\s\S]*--nc-accent:\s*#C03F2B;[\s\S]*--nc-hairline:\s*#D8D2CC;/)
+  })
+
+  it("keeps the --archive-* compatibility aliases as pure forwards", () => {
+    expect(theme).toMatch(/--archive-paper:\s*var\(--nc-bg\);/)
+    expect(theme).toMatch(/--archive-paper-raised:\s*var\(--nc-surface\);/)
+    expect(theme).toMatch(/--archive-ink:\s*var\(--nc-ink\);/)
+    expect(theme).toMatch(/--archive-red:\s*var\(--nc-accent\);/)
+    expect(theme).toMatch(/--archive-rule:\s*var\(--nc-hairline\);/)
+    expect(theme).toMatch(/--archive-rule-strong:\s*var\(--nc-hairline-strong\);/)
   })
 
   it("leaves color, radius and shadow tokens solely to the editorial layer", () => {
@@ -36,18 +45,19 @@ describe("editorial archive theme", () => {
   })
 
   it("gives functional buttons and form fields visible interaction hierarchy", () => {
-    expect(theme).toMatch(/\.btn-primary\s*\{[^}]*background:\s*var\(--archive-ink\);[^}]*box-shadow:[^}]*var\(--archive-red\)/s)
-    expect(theme).toMatch(/\.form-input,[\s\S]*\.form-select,[\s\S]*\.form-textarea,[\s\S]*border-left:\s*3px solid var\(--archive-ink\);/)
-    expect(theme).toMatch(/\.form-input:focus,[\s\S]*\.form-select:focus,[\s\S]*border-left:\s*3px solid var\(--archive-red\);/)
+    expect(theme).toMatch(/\.btn-primary\s*\{[^}]*background:\s*var\(--nc-accent\);[^}]*color:\s*#FFFFFF;/s)
+    expect(theme).toMatch(/\.form-input,[\s\S]*\.form-select,[\s\S]*\.form-textarea,[\s\S]*border:\s*1px solid var\(--nc-hairline-strong\);/)
+    expect(theme).toMatch(/\.form-input:focus,[\s\S]*\.form-select:focus,[\s\S]*border:\s*1px solid var\(--nc-accent\);/)
   })
 
-  it("styles shared and nested tabs as archive index controls", () => {
+  it("styles shared and nested tabs as clean index controls", () => {
     expect(theme).toContain(".subnav-item")
     expect(theme).toContain(".generate-subtabs .generate-subtab")
     expect(theme).toContain(".settings-tab-nav .tab-btn")
     expect(theme).toContain(".cockpit-tab")
     expect(theme).toContain(".map-view-mode.is-active")
     expect(theme).toContain(".world-object-view-toggle .btn")
+    expect(theme).toMatch(/\.subnav-item\.active,[\s\S]*box-shadow:\s*inset 0 -2px 0 var\(--nc-accent\);/)
   })
 
   it("covers every workspace family and preserves compact mobile controls", () => {
@@ -58,47 +68,36 @@ describe("editorial archive theme", () => {
     expect(theme).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
   })
 
-  it("assigns non-project workspaces a restrained folio and poster mark", () => {
-    const marks = {
-      writing: "文",
-      world: "界",
-      map: "图",
-      rag: "索",
-      outline: "纲",
-      scene: "景",
-      generate: "生",
-      settings: "设",
-      "project-settings": "策",
-    }
-
-    for (const [view, mark] of Object.entries(marks)) {
-      expect(theme).toMatch(new RegExp(`data-workspace-view="${view}"\\]\\s*\\{[^}]*--archive-folio:[^;]+;[^}]*--archive-mark:\\s*"${mark}";`, "s"))
-    }
-    expect(theme).toContain('#workspace-content:not([data-workspace-view="project"])::before')
-    expect(theme).toContain('#workspace-content[data-workspace-view="project"]::before')
+  it("drops the retired archive folio, poster mark and settings ornaments", () => {
+    expect(theme).not.toContain("--archive-folio")
+    expect(theme).not.toContain("--archive-section")
+    expect(theme).not.toContain("--archive-mark")
+    expect(theme).not.toContain("archive-settings-section")
+    expect(theme).not.toContain("⚙")
+    expect(theme).not.toContain('content: var(--archive-mark);')
+    expect(theme).not.toContain('[data-theme="warm"]')
+    expect(theme).not.toContain('[data-theme="dark"]')
+    expect(styles).not.toMatch(/main-layout--immersive\s+#workspace-content::before/)
   })
 
-  it("removes author folio decorations from full-screen home and RP routes", () => {
-    expect(styles).toMatch(
-      /#main-layout\.main-layout--immersive #workspace-content::before,\s*#main-layout\.main-layout--immersive #workspace-content::after\s*\{[^}]*display:\s*none;[^}]*content:\s*none;/s,
-    )
+  it("restyles the global chrome with hairline separation and theme surfaces", () => {
+    expect(theme).toMatch(/#topbar\s*\{[^}]*background:\s*var\(--nc-bg\);[^}]*border-bottom:\s*1px solid var\(--nc-hairline\);[^}]*backdrop-filter:\s*none;/s)
+    expect(theme).toMatch(/#sidebar\s*\{[^}]*background:\s*var\(--nc-surface\);[^}]*border-right:\s*1px solid var\(--nc-hairline\);/s)
+    expect(theme).toMatch(/#main-layout,[\s\S]*#workspace\s*\{[^}]*background-color:\s*var\(--nc-bg\);/s)
+    expect(theme).toMatch(/outline:\s*2px solid var\(--nc-accent\);/)
   })
 
-  it("uses the art direction on low-risk presentation surfaces", () => {
-    expect(theme).toContain('#workspace-content:not([data-workspace-view="project"]) > .empty-state::before')
-    expect(theme).toContain("content: var(--archive-mark);")
-    expect(theme).toContain("counter-reset: archive-settings-section;")
-    expect(theme).toContain("counter-increment: archive-settings-section;")
-    expect(theme).toContain('#workspace-content[data-workspace-view="generate"] .generate-chat-panel::after')
-    expect(theme).toContain("#modal-content")
-    expect(theme).toMatch(/#main-layout,[\s\S]*#workspace\s*\{[^}]*background-color:\s*var\(--archive-paper\);/s)
+  it("ships the three-dot theme switcher skin behind the shell contract", () => {
+    expect(theme).toMatch(/\.topbar-theme\s*\{[^}]*display:\s*flex;[^}]*gap:\s*8px;/s)
+    expect(theme).toMatch(/button\.theme-dot\s*\{[^}]*width:\s*14px;[^}]*border:\s*1px solid var\(--nc-hairline-strong\);[^}]*border-radius:\s*50%;/s)
+    expect(theme).toMatch(/\.theme-dot\[data-theme-value="sticky"\]\s*\{[^}]*background:\s*#FFFFFF;/s)
+    expect(theme).toMatch(/\.theme-dot\[data-theme-value="night"\]\s*\{[^}]*background:\s*#111114;/s)
+    expect(theme).toMatch(/\.theme-dot\[data-theme-value="ink"\]\s*\{[^}]*background:\s*#C03F2B;/s)
+    expect(theme).toMatch(/\.theme-dot\.is-active\s*\{[^}]*box-shadow:\s*0 0 0 2px var\(--nc-bg\),\s*0 0 0 4px var\(--nc-accent\);/s)
   })
 
-  it("keeps settings technology ornaments behind the interaction layer", () => {
-    expect(theme).toContain('#workspace-content[data-workspace-view="settings"]::after')
-    expect(theme).toContain('#workspace-content[data-workspace-view="project-settings"]::after')
-    expect(theme).toContain('content: "⚙︎";')
-    expect(theme).toMatch(/\.global-settings-view,[\s\S]*\.project-settings-view\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s)
-    expect(theme).toMatch(/content:\s*"⚙︎";[\s\S]*pointer-events:\s*none;[\s\S]*z-index:\s*0;/s)
+  it("animates theme switching and honors reduced motion", () => {
+    expect(theme).toMatch(/html,[\s\S]*body,[\s\S]*#topbar,[\s\S]*#sidebar,[\s\S]*#workspace-content\s*\{[^}]*transition:\s*background-color 250ms ease, color 250ms ease, border-color 250ms ease;/s)
+    expect(theme).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*transition:\s*none;/s)
   })
 })
