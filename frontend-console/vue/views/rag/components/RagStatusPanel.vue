@@ -180,6 +180,9 @@ const statusItems = computed(() => fields.statusItems || [])
           </div>
         </div>
         <p v-if="healthReasons" class="rag-empty-copy">原因：{{ healthReasons }}</p>
+        <p v-if="health.health_state === 'degraded'" class="rag-empty-copy" data-author-action="can_improve">
+          这表示当前查找证据还不完整，不代表作品内容有错，也不会阻止手写正文。
+        </p>
       </div>
 
       <div id="rag-diagnostics">

@@ -424,6 +424,24 @@ describe("前后端 API 契约", () => {
       timeoutKind: "llmGenerate",
       timeout: 2100000,
     })
+    expect(getApiContract("generate.convergeWorld")).toMatchObject({
+      method: "POST",
+      timeoutKind: "llmGenerate",
+      timeout: 2100000,
+    })
+    expect(contractPath("generate.convergeWorld")).toBe("/world/generation-center/convergence")
+    expect(contractPath("generate.exploreWorld")).toBe("/world/generation-center/exploration")
+    expect(contractPath("generate.inspectWorldPage")).toBe("/world/generation-center/semantic-inspection")
+    expect(contractPath("generate.askWorld")).toBe("/world/ask-world")
+    expect(getApiContract("generate.askWorld")).toMatchObject({
+      method: "POST",
+      timeoutKind: "llmGenerate",
+      timeout: 2100000,
+    })
+    expect(contractPath("generate.openAskWorldCitation"))
+      .toBe("/world/ask-world/citations/open")
+    expect(contractPath("generate.saveAskWorldSuggestion"))
+      .toBe("/world/ask-world/suggestions")
     expect(getApiContract("generate.generateWorldSuggestion")).toMatchObject({
       method: "POST",
       timeoutKind: "llmGenerate",

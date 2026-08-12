@@ -1,14 +1,16 @@
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.models import (
     CoreEntity,
     WorldBiblePage,
+    WorldBiblePageDraft,
     WorldBiblePageProjection,
     WorldBiblePageRevision,
 )
@@ -28,6 +30,21 @@ from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
 from shared.target_ref import TargetRef
+
+
+@pytest.mark.asyncio
+async def test_page_universe_lock_uses_project_scoped_postgres_advisory_key() -> None:
+    novel_id = uuid.uuid4()
+    db = SimpleNamespace(
+        get_bind=lambda: SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+        execute=AsyncMock(),
+    )
+
+    await WorldBibleLifecycleService._lock_page_universe(db, novel_id)
+
+    statement, params = db.execute.await_args.args
+    assert "pg_advisory_xact_lock" in str(statement)
+    assert params == {"key": f"world_bible_pages:{novel_id}"}
 
 
 def _section(
@@ -217,6 +234,202 @@ async def test_sections_survive_publish_revision_and_restore_draft(
     )
     assert restored.sections_json[0].section_id == "currency"
     assert restored.template_key == "world_basic"
+
+
+@pytest.mark.asyncio
+async def test_publish_impact_lists_shortest_backlinks_and_rejects_graph_drift(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    lifecycle = WorldBibleLifecycleService()
+
+    async def publish(
+        title: str,
+        *,
+        ref_id: str | None = None,
+        section_title: str | None = None,
+    ):
+        refs = [{"type": "world_bible_page", "id": ref_id}] if ref_id else []
+        ref_hash = (
+            TargetRef(
+                target_type="world_bible_page",
+                target_id=ref_id,
+            ).target_hash()
+            if ref_id
+            else None
+        )
+        draft = await lifecycle.create_draft(
+            db_session,
+            WorldBiblePageDraftCreate(
+                novel_id=project_novel_id,
+                title=title,
+                page_type="background",
+                linked_asset_refs_json=refs,
+                sections_json=(
+                    [_section("source", section_title, ref_hashes=[ref_hash])]
+                    if section_title and ref_hash
+                    else []
+                ),
+            ),
+        )
+        return await lifecycle.publish_draft(
+            db_session,
+            project_novel_id,
+            draft.id,
+        )
+
+    source = await publish("道路规则")
+    direct = await publish("港区日常", ref_id=source.id, section_title="来源规则")
+    indirect = await publish("轮班制度", ref_id=direct.id)
+    cycle_draft = await lifecycle.get_or_create_page_draft(
+        db_session,
+        project_novel_id,
+        source.id,
+    )
+    cycle_draft = await lifecycle.update_draft(
+        db_session,
+        project_novel_id,
+        cycle_draft.id,
+        WorldBiblePageDraftUpdate(
+            linked_asset_refs_json=[{"type": "world_bible_page", "id": indirect.id}]
+        ),
+    )
+    source = await lifecycle.publish_draft(
+        db_session,
+        project_novel_id,
+        cycle_draft.id,
+    )
+    assert source.validation_receipt is not None
+    assert source.validation_receipt.scope == "targeted"
+    assert "所属领域的完整检查" in source.validation_receipt.not_checked
+    working = await lifecycle.get_or_create_page_draft(
+        db_session,
+        project_novel_id,
+        source.id,
+    )
+    revisions_before = await db_session.scalar(
+        select(func.count(WorldBiblePageRevision.id))
+    )
+    drafts_before = await db_session.scalar(select(func.count(WorldBiblePageDraft.id)))
+
+    impact = await lifecycle.preview_publish_impact(
+        db_session,
+        project_novel_id,
+        working.id,
+    )
+
+    assert [(item.title, item.distance) for item in impact.affected_pages] == [
+        ("港区日常", 1),
+        ("轮班制度", 2),
+    ]
+    assert [node.title for node in impact.affected_pages[1].path] == [
+        "道路规则",
+        "港区日常",
+        "轮班制度",
+    ]
+    assert impact.affected_pages[0].path[-1].section_titles == ["来源规则"]
+    assert impact.complete is True
+    assert (
+        await db_session.scalar(select(func.count(WorldBiblePageRevision.id)))
+        == revisions_before
+    )
+    assert (
+        await db_session.scalar(select(func.count(WorldBiblePageDraft.id)))
+        == drafts_before
+    )
+
+    await publish("新增引用页", ref_id=source.id)
+    with pytest.raises(ConflictError) as exc_info:
+        await lifecycle.publish_draft(
+            db_session,
+            project_novel_id,
+            working.id,
+            expected_impact_scope_hash=impact.impact_scope_hash,
+        )
+    assert exc_info.value.code == "world_bible_impact_scope_changed"
+    stored_draft = await lifecycle.get_draft(
+        db_session,
+        project_novel_id,
+        working.id,
+    )
+    assert stored_draft.id == working.id
+    stored_source = await lifecycle.get_page_model(
+        db_session,
+        project_novel_id,
+        source.id,
+    )
+    assert stored_source.version_number == source.version_number
+
+
+@pytest.mark.asyncio
+async def test_publish_impact_is_honest_about_untracked_and_unavailable_refs(
+    db_session,
+    two_projects: tuple[str, str],
+) -> None:
+    novel_id, other_novel_id = two_projects
+    lifecycle = WorldBibleLifecycleService()
+    source_draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=novel_id,
+            title="源页面",
+            page_type="background",
+        ),
+    )
+    source = await lifecycle.publish_draft(db_session, novel_id, source_draft.id)
+    mention_draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=novel_id,
+            title="只有自由文本",
+            page_type="background",
+            free_text="这里提到源页面，但没有显式引用。",
+        ),
+    )
+    await lifecycle.publish_draft(db_session, novel_id, mention_draft.id)
+    working = await lifecycle.get_or_create_page_draft(db_session, novel_id, source.id)
+
+    empty = await lifecycle.preview_publish_impact(db_session, novel_id, working.id)
+    assert empty.affected_pages == []
+    assert empty.complete is True
+    assert "正文和自由文本中的语义提及" in empty.not_checked
+
+    foreign_draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=other_novel_id,
+            title="不可泄漏标题",
+            page_type="background",
+        ),
+    )
+    foreign = await lifecycle.publish_draft(
+        db_session,
+        other_novel_id,
+        foreign_draft.id,
+    )
+    broken = WorldBiblePage(
+        novel_id=uuid.UUID(novel_id),
+        page_type="background",
+        page_key="broken-ref",
+        title="损坏引用页",
+        status="canonical",
+        linked_asset_refs_json=[
+            {"type": "world_bible_page", "id": foreign.id},
+            {"type": "world_bible_page", "id": "not-a-uuid"},
+        ],
+    )
+    db_session.add(broken)
+    await db_session.flush()
+
+    incomplete = await lifecycle.preview_publish_impact(db_session, novel_id, working.id)
+    serialized = incomplete.model_dump_json()
+    assert incomplete.complete is False
+    assert {item.reason for item in incomplete.omissions} == {
+        "invalid_page_reference",
+        "unavailable_page_reference",
+    }
+    assert "不可泄漏标题" not in serialized
+    assert foreign.id not in serialized
 
 
 @pytest.mark.asyncio

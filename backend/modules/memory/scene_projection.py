@@ -366,6 +366,16 @@ class SceneMemoryProjectionService:
                 previous.state_json if previous else self._empty_dimension(dimension)
             )
             base_state.setdefault("_coverage", {}).update(exc.coverage)
+            evidence_refs = list(previous.evidence_refs or []) if previous else []
+            if (
+                current is not None
+                and current.status == "manual_required"
+                and current.scene_index == scene_index
+                and current.gap_reason == str(exc)
+                and current.state_json == base_state
+                and list(current.evidence_refs or []) == evidence_refs
+            ):
+                return current
             return await self._checkpoints.replace_system(
                 db,
                 novel_id=nid,
@@ -377,9 +387,7 @@ class SceneMemoryProjectionService:
                     "confirmed": False,
                     "is_current": True,
                     "state_json": base_state,
-                    "evidence_refs": list(previous.evidence_refs or [])
-                    if previous
-                    else [],
+                    "evidence_refs": evidence_refs,
                     "display_summary": self._display_summary(dimension, base_state),
                     "source_hash": self._hash(
                         {"gap": str(exc), "retry_count": retry_count}
@@ -413,15 +421,9 @@ class SceneMemoryProjectionService:
                 db, novel_id, scene_index
             )
             confirmed_coverage = (
-                previous.state_json.get("_coverage_confirmed") or {}
-                if previous
-                else {}
+                previous.state_json.get("_coverage_confirmed") or {} if previous else {}
             )
-            covered_undated = int(
-                confirmed_coverage.get(
-                    "undated_map_fact_count", 0
-                )
-            )
+            covered_undated = int(confirmed_coverage.get("undated_map_fact_count", 0))
             if replay.undated_count > covered_undated:
                 missing_count = replay.undated_count - covered_undated
                 raise _CoverageGapError(
@@ -463,14 +465,10 @@ class SceneMemoryProjectionService:
             db, parse_uuid(novel_id, "novel_id"), max_chapter
         )
         confirmed_coverage = (
-            previous.state_json.get("_coverage_confirmed") or {}
-            if previous
-            else {}
+            previous.state_json.get("_coverage_confirmed") or {} if previous else {}
         )
         covered_unanchored = int(
-            confirmed_coverage.get(
-                "unanchored_memory_event_count", 0
-            )
+            confirmed_coverage.get("unanchored_memory_event_count", 0)
         )
         if unanchored > covered_unanchored:
             missing_count = unanchored - covered_unanchored

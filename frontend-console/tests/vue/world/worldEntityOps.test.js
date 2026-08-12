@@ -18,6 +18,7 @@ import {
   promoteEntity,
   registerCandidateListHooks,
   showEntityCreateForm,
+  showKnowledgeForm,
   showResolveAliasForm,
   syncWorldListRegistry,
 } from "../../../vue/views/world/logic/worldEntityOps.js"
@@ -26,6 +27,7 @@ import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/in
 const ENTITIES = [
   { id: "e1", name: "沉钟港", entity_type: "location", status: "canonical", summary: "旧港" },
   { id: "e2", name: "月廷", entity_type: "organization", status: "candidate", summary: "教团" },
+  { id: "e3", name: "秦岚", entity_type: "character", status: "canonical", summary: "调查员" },
 ]
 const CANDIDATES = [
   { id: "c1", name: "潮声会", entity_type: "organization", status: "candidate", suggested_action: "create_new" },
@@ -56,6 +58,9 @@ beforeEach(() => {
       resolveEntityAsAlias: vi.fn(async () => ({})),
       getEntityMapPresence: vi.fn(async () => ({ items: [] })),
       getMapOpenTarget: vi.fn(async () => ({ map_id: null, mode: "overview" })),
+      listKnowledge: vi.fn(async () => ({ items: [], total: 0 })),
+      createKnowledge: vi.fn(async () => ({})),
+      updateKnowledge: vi.fn(async () => ({})),
     },
   }
   setBridgeOverrides({
@@ -69,7 +74,7 @@ beforeEach(() => {
     confirm: vi.fn(() => true),
     router: { refresh: vi.fn(async () => true) },
   })
-  syncWorldListRegistry({ entities: ENTITIES, candidates: CANDIDATES, entityTypes: [{ value: "location", label: "地点" }, { value: "organization", label: "组织" }] })
+  syncWorldListRegistry({ entities: ENTITIES, candidates: CANDIDATES, entityTypes: [{ value: "location", label: "地点" }, { value: "organization", label: "组织" }, { value: "character", label: "人物" }] })
   registerCandidateListHooks({})
 })
 
@@ -130,6 +135,149 @@ describe("showEntityCreateForm", () => {
     document.body.innerHTML = modalCalls[1].html
     await modalCalls[1].buttons[0].handler()
     expect(apiMock.world.createEntity).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("showKnowledgeForm", () => {
+  const knowledge = (overrides = {}) => ({
+    id: "knowledge-1",
+    character_id: "e3",
+    target_id: "e1",
+    target_type: "location",
+    target_name: "沉钟港",
+    target_entity_type: "location",
+    knowledge_level: "rumor",
+    known_content: "听说港底有钟",
+    misconception: null,
+    source_chapter_index: 2,
+    is_public_baseline: false,
+    status: "canonical",
+    updated_at: "2026-01-02T00:00:00Z",
+    ...overrides,
+  })
+
+  it("以作者语言展示当前、历史与同位置重复，不显示 raw enum 或 ID", async () => {
+    apiMock.world.listKnowledge.mockResolvedValue({
+      items: [
+        knowledge(),
+        knowledge({ id: "knowledge-2", knowledge_level: "false_belief", misconception: "相信钟会赐福", updated_at: "2026-01-01T00:00:00Z" }),
+        knowledge({ id: "knowledge-3", source_chapter_index: 1, status: "archived" }),
+      ],
+      total: 3,
+    })
+
+    await showKnowledgeForm("e3")
+    document.body.innerHTML = modalCalls[0].html
+    const text = document.body.textContent
+
+    expect(text).toContain("人物会怎样理解")
+    expect(text).toContain("沉钟港")
+    expect(text).toContain("地点")
+    expect(text).toContain("听说过")
+    expect(text).toContain("相信错误版本")
+    expect(text).toContain("同一生效点有 2 条有效记录")
+    expect(text).toContain("已归档")
+    expect(text).not.toContain("false_belief")
+    expect(text).not.toContain("knowledge-1")
+  })
+
+  it("从目标真实类型创建检查点，并在同一位置默认更新", async () => {
+    await showKnowledgeForm("e3")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("knowledge-target-id").value = "e1"
+    document.getElementById("knowledge-level").value = "rumor"
+    document.getElementById("knowledge-content").value = "码头传闻"
+    document.getElementById("knowledge-chapter").value = "2"
+    await modalCalls[0].buttons[0].handler()
+    expect(apiMock.world.createKnowledge).toHaveBeenCalledWith("e3", expect.objectContaining({
+      target_id: "e1",
+      target_type: "location",
+      source_chapter_index: 2,
+    }), "p-ops")
+
+    modalCalls = []
+    apiMock.world.createKnowledge.mockClear()
+    apiMock.world.listKnowledge.mockResolvedValue({
+      items: [
+        knowledge({ id: "knowledge-older", updated_at: "2025-01-01T00:00:00Z" }),
+        knowledge({ id: "knowledge-newer", updated_at: "2026-01-01T00:00:00Z" }),
+      ],
+      total: 2,
+    })
+    await showKnowledgeForm("e3")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("knowledge-target-id").value = "e1"
+    document.getElementById("knowledge-level").value = "partial"
+    document.getElementById("knowledge-content").value = "修正后的有限内容"
+    document.getElementById("knowledge-chapter").value = "2"
+    await modalCalls[0].buttons[0].handler()
+    expect(apiMock.world.updateKnowledge).toHaveBeenCalledWith("knowledge-newer", expect.objectContaining({
+      knowledge_level: "partial",
+      source_chapter_index: 2,
+    }), "p-ops")
+    expect(apiMock.world.createKnowledge).not.toHaveBeenCalled()
+  })
+
+  it("连续点击保存只创建一个认知检查点", async () => {
+    let finishCreate
+    apiMock.world.createKnowledge.mockImplementation(() => new Promise((resolve) => {
+      finishCreate = resolve
+    }))
+    await showKnowledgeForm("e3")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("knowledge-target-id").value = "e1"
+    document.getElementById("knowledge-level").value = "rumor"
+    document.getElementById("knowledge-content").value = "码头传闻"
+    document.getElementById("knowledge-chapter").value = "3"
+    const handler = modalCalls[0].buttons[0].handler
+
+    const firstSave = handler()
+    const secondSave = handler()
+    await Promise.resolve()
+
+    expect(apiMock.world.createKnowledge).toHaveBeenCalledTimes(1)
+    expect(await secondSave).toBe(false)
+    finishCreate({})
+    await firstSave
+  })
+
+  it("归档使用 PUT status，不调用硬删除", async () => {
+    apiMock.world.listKnowledge.mockResolvedValue({ items: [knowledge()], total: 1 })
+    setBridgeOverrides({
+      showModalHtml: (title, html, buttons, options) => {
+        captureModal(title, html, buttons, options)
+        document.body.innerHTML = html
+      },
+    })
+    await showKnowledgeForm("e3")
+    document.querySelector("[data-knowledge-archive]").click()
+    await vi.waitFor(() => expect(apiMock.world.updateKnowledge).toHaveBeenCalledWith(
+      "knowledge-1",
+      { status: "archived" },
+      "p-ops",
+    ))
+    expect(apiMock.world.deleteKnowledge).toBeUndefined()
+  })
+
+  it("项目切换后忽略晚到的保存反馈和模态重开", async () => {
+    const state = { currentProjectId: "p-ops", currentView: "world" }
+    setBridgeOverrides({ state })
+    apiMock.world.listKnowledge.mockResolvedValue({ items: [knowledge()], total: 1 })
+    let finishUpdate
+    apiMock.world.updateKnowledge.mockImplementation(() => new Promise((resolve) => { finishUpdate = resolve }))
+
+    await showKnowledgeForm("e3")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("knowledge-target-id").value = "e1"
+    document.getElementById("knowledge-level").value = "partial"
+    document.getElementById("knowledge-chapter").value = "2"
+    const saving = modalCalls[0].buttons[0].handler()
+    state.currentProjectId = "p-other"
+    finishUpdate({})
+    await saving
+
+    expect(modalCalls).toHaveLength(1)
+    expect(toastCalls).not.toContainEqual(["认知检查点已修正", "success"])
   })
 })
 

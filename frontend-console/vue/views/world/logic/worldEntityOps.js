@@ -797,77 +797,301 @@ export function showRollbackForm(entityIdParam) {
   }])
 }
 
-/** 对应 vanilla showKnowledgeForm。 */
-export function showKnowledgeForm(characterId) {
+const KNOWLEDGE_LEVEL_LABELS = {
+  unknown: "还不知道",
+  rumor: "听说过",
+  partial: "知道一部分",
+  full: "清楚知道",
+  false_belief: "相信错误版本",
+  restricted: "只知道这段",
+  misunderstood: "理解偏了",
+}
+
+const TYPED_KNOWLEDGE_TARGETS = new Set(["character", "event", "location", "item", "faction"])
+
+function knowledgeTargetType(entity) {
+  return TYPED_KNOWLEDGE_TARGETS.has(entity?.entity_type) ? entity.entity_type : "entity"
+}
+
+function knowledgeCheckpoint(record) {
+  if (record.source_chapter_index != null) return `chapter:${record.source_chapter_index}`
+  return record.is_public_baseline ? "baseline" : "unlocated"
+}
+
+function knowledgeOrder(record) {
+  const position = record.source_chapter_index != null
+    ? Number(record.source_chapter_index)
+    : record.is_public_baseline ? -1 : -2
+  return [position, Date.parse(record.updated_at || record.created_at || "") || 0, String(record.id || "")]
+}
+
+function compareKnowledge(left, right) {
+  const a = knowledgeOrder(left)
+  const b = knowledgeOrder(right)
+  return b[0] - a[0] || b[1] - a[1] || b[2].localeCompare(a[2])
+}
+
+function knowledgeTargetLabel(record) {
+  return record.target_name || findEntity(record.target_id)?.name || "目标已不可用"
+}
+
+function knowledgeTypeLabel(record) {
+  const type = record.target_entity_type || record.target_type
+  return worldListRegistry.entityTypes.find((item) => item.value === type)?.label
+    || ({ entity: "世界对象", character: "人物", event: "事件", location: "地点", item: "物品", faction: "势力" })[type]
+    || "世界对象"
+}
+
+function knowledgeEffectiveLabel(record) {
+  if (record.source_chapter_index != null) return `第 ${record.source_chapter_index} 章结束后生效`
+  return record.is_public_baseline ? "从开场起生效" : "尚未指定生效时间，不会进入角色视角"
+}
+
+function knowledgeVersionText(record) {
+  if (["false_belief", "misunderstood"].includes(record.knowledge_level)) {
+    return record.misconception || "尚未填写人物会使用的版本"
+  }
+  return record.known_content || "尚未填写人物能使用的内容"
+}
+
+function knowledgeRecordHtml(record, stateLabel) {
+  const esc = getEsc()
+  return `
+    <div class="world-knowledge-record" data-knowledge-record="${esc(record.id)}">
+      <div><strong>${esc(KNOWLEDGE_LEVEL_LABELS[record.knowledge_level] || "未标明")}</strong> · ${esc(stateLabel)} · ${esc(knowledgeEffectiveLabel(record))}</div>
+      <p>${esc(knowledgeVersionText(record))}</p>
+      ${record.status === "canonical" ? `<div class="actions">
+        <button type="button" class="btn btn-sm" data-knowledge-edit="${esc(record.id)}">修正</button>
+        <button type="button" class="btn btn-sm btn-danger" data-knowledge-archive="${esc(record.id)}">归档</button>
+      </div>` : ""}
+    </div>
+  `
+}
+
+function knowledgeHistoryHtml(records) {
+  const esc = getEsc()
+  if (!records.length) return '<div class="empty-state"><p>还没有人物认知记录。</p><p>先添加开场已知，或标明人物在哪一章获得信息。</p></div>'
+  const groups = new Map()
+  for (const record of records) {
+    const key = record.target_id
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(record)
+  }
+  return [...groups.values()]
+    .sort((left, right) => knowledgeTargetLabel(left[0]).localeCompare(knowledgeTargetLabel(right[0]), "zh-CN"))
+    .map((group) => {
+      const sorted = [...group].sort(compareKnowledge)
+      const current = sorted.find((record) => record.status === "canonical" && knowledgeCheckpoint(record) !== "unlocated")
+      const earlier = sorted.filter((record) => record !== current)
+      const checkpointCounts = new Map()
+      for (const record of sorted.filter((item) => item.status === "canonical")) {
+        const checkpoint = knowledgeCheckpoint(record)
+        checkpointCounts.set(checkpoint, (checkpointCounts.get(checkpoint) || 0) + 1)
+      }
+      const duplicateCount = [...checkpointCounts.values()].filter((count) => count > 1).reduce((sum, count) => sum + count, 0)
+      return `
+        <article class="world-knowledge-target">
+          <h4>${esc(knowledgeTargetLabel(group[0]))} <span class="world-text-dim">${esc(knowledgeTypeLabel(group[0]))}</span></h4>
+          ${duplicateCount ? `<p class="ai-ref-warning-note">同一生效点有 ${duplicateCount} 条有效记录；请保留一条并归档其余记录。</p>` : ""}
+          ${current ? knowledgeRecordHtml(current, "当前") : '<p class="world-text-dim">当前没有会进入角色视角的记录。</p>'}
+          ${earlier.length ? `<details><summary>较早记录与历史（${earlier.length}）</summary>${earlier.map((record) => knowledgeRecordHtml(record, record.status === "canonical" ? "较早记录" : "已归档")).join("")}</details>` : ""}
+        </article>
+      `
+    }).join("")
+}
+
+function bindKnowledgeManager(characterId, records, projectId) {
+  const api = getApi()
+  const toast = getToast()
+  const byId = new Map(records.map((record) => [String(record.id), record]))
+  const editId = document.getElementById("knowledge-edit-id")
+  const targetId = document.getElementById("knowledge-target-id")
+  const chapter = document.getElementById("knowledge-chapter")
+  const baseline = document.getElementById("knowledge-public-baseline")
+  const editing = document.getElementById("knowledge-editing")
+  const reset = document.querySelector("[data-knowledge-reset]")
+
+  const lockTarget = (locked) => {
+    document.querySelectorAll("#knowledge-target-picker input, #knowledge-target-picker button").forEach((element) => { element.disabled = locked })
+    if (chapter) chapter.disabled = locked
+    if (baseline) baseline.disabled = locked || Boolean(chapter?.value)
+  }
+  const mountTarget = (record = null) => {
+    mountEntityReferencePicker({
+      rootId: "knowledge-target-picker",
+      inputId: "knowledge-target-id",
+      selectedId: record?.target_id || "",
+      selectedName: record ? knowledgeTargetLabel(record) : "",
+      canonicalOnly: true,
+    })
+  }
+  const clearEdit = () => {
+    if (editId) editId.value = ""
+    if (targetId) targetId.value = ""
+    if (editing) editing.textContent = "新增认知检查点"
+    if (reset) reset.hidden = true
+    document.getElementById("knowledge-level").value = "unknown"
+    document.getElementById("knowledge-content").value = ""
+    document.getElementById("knowledge-misconception").value = ""
+    if (chapter) chapter.value = ""
+    if (baseline) baseline.checked = false
+    mountTarget()
+    lockTarget(false)
+  }
+
+  mountTarget()
+  chapter?.addEventListener("input", () => {
+    if (!baseline || editId?.value) return
+    if (chapter.value) baseline.checked = false
+    baseline.disabled = Boolean(chapter.value)
+  })
+  reset?.addEventListener("click", clearEdit)
+  document.querySelectorAll("[data-knowledge-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = byId.get(button.dataset.knowledgeEdit)
+      if (!record) return
+      editId.value = record.id
+      editing.textContent = `正在修正：${knowledgeTargetLabel(record)} · ${knowledgeEffectiveLabel(record)}`
+      reset.hidden = false
+      document.getElementById("knowledge-level").value = record.knowledge_level
+      document.getElementById("knowledge-content").value = record.known_content || ""
+      document.getElementById("knowledge-misconception").value = record.misconception || ""
+      chapter.value = record.source_chapter_index ?? ""
+      baseline.checked = Boolean(record.is_public_baseline)
+      mountTarget(record)
+      lockTarget(true)
+      document.getElementById("knowledge-editor")?.scrollIntoView({ block: "start" })
+    })
+  })
+  document.querySelectorAll("[data-knowledge-archive]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true
+      try {
+        await api.world.updateKnowledge(button.dataset.knowledgeArchive, { status: "archived" }, projectId)
+        if (getAppState()?.currentProjectId !== projectId) return
+        toast("认知记录已归档", "success")
+        await showKnowledgeForm(characterId)
+      } catch (err) {
+        if (getAppState()?.currentProjectId === projectId) {
+          toast(err.message || "归档失败", "error")
+          button.disabled = false
+        }
+      }
+    })
+  })
+}
+
+/** 人物知识进程：复用既有 list/create/update 与引用选择器。 */
+export async function showKnowledgeForm(characterId) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
-  const character = worldListRegistry.entities.find((e) => entityId(e) === characterId)
-  if (!character) return
-
-  const entityOptions = worldListRegistry.entities.length === 0
-    ? `<option value="">暂无对象</option>`
-    : worldListRegistry.entities
-      .map((e) => `<option value="${esc(entityId(e))}">${esc(e.name || "未命名")}</option>`)
-      .join("")
-  const formHtml = `
-    <p style="margin-bottom:10px;">为 <strong>${esc(character.name)}</strong> 添加知识边界。</p>
-    <div class="form-group">
-      <label>目标对象 *</label>
-      <select class="form-select" id="knowledge-target-id"><option value="">请选择</option>${entityOptions}</select>
-    </div>
-    <div class="form-group">
-      <label>了解程度 *</label>
-      <select class="form-select" id="knowledge-level">
-        <option value="unknown">未知</option>
-        <option value="rumor">传闻</option>
-        <option value="partial">部分了解</option>
-        <option value="full">完全了解</option>
-        <option value="false_belief">错误认知</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>已知内容</label>
-      <textarea class="form-textarea" id="knowledge-content" rows="2" placeholder="角色知道什么"></textarea>
-    </div>
-    <div class="form-group">
-      <label>误解内容（仅错误认知）</label>
-      <textarea class="form-textarea" id="knowledge-misconception" rows="2" placeholder="角色的误解"></textarea>
-    </div>
-    <div class="form-group">
-      <label>来源章节索引</label>
-      <input class="form-input" id="knowledge-chapter" type="number" min="0" placeholder="可选" />
+  const projectId = getAppState()?.currentProjectId
+  if (!projectId) return
+  let character = worldListRegistry.entities.find((e) => entityId(e) === characterId)
+  try {
+    const [loadedCharacter, result] = await Promise.all([
+      character ? Promise.resolve(character) : getApi().world.getEntity(characterId, projectId),
+      getApi().world.listKnowledge(characterId, projectId),
+    ])
+    if (getAppState()?.currentProjectId !== projectId) return
+    character = loadedCharacter
+    const records = result?.items || []
+    if (!character) throw new Error("人物已不可用")
+    let knowledgeSavePending = false
+    const formHtml = `
+    <div class="world-knowledge-manager">
+      <p>查看 <strong>${esc(character.name || "未命名人物")}</strong> 在故事不同阶段会怎样理解世界。</p>
+      <section aria-labelledby="knowledge-current-title">
+        <h3 id="knowledge-current-title">人物会怎样理解</h3>
+        ${knowledgeHistoryHtml(records)}
+      </section>
+      <section id="knowledge-editor" aria-labelledby="knowledge-editing">
+        <div class="actions"><h3 id="knowledge-editing">新增认知检查点</h3><button type="button" class="btn btn-sm" data-knowledge-reset hidden>改为新增</button></div>
+        <input id="knowledge-edit-id" type="hidden" />
+        <input id="knowledge-target-id" type="hidden" />
+        <div class="form-group"><label>目标人物或设定 *</label><div id="knowledge-target-picker"></div></div>
+        <div class="form-group"><label for="knowledge-level">人物此刻的认知 *</label><select class="form-select" id="knowledge-level">
+          ${Object.entries(KNOWLEDGE_LEVEL_LABELS).map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("")}
+        </select></div>
+        <div class="form-group"><label for="knowledge-content">人物能使用的内容</label><textarea class="form-textarea" id="knowledge-content" rows="3" placeholder="只写这个人物能知道或说出的部分"></textarea></div>
+        <div class="form-group"><label for="knowledge-misconception">人物会使用的错误版本</label><textarea class="form-textarea" id="knowledge-misconception" rows="3" placeholder="“相信错误版本”或“理解偏了”时必填"></textarea></div>
+        <div class="form-group"><label for="knowledge-chapter">在哪一章获知</label><input class="form-input" id="knowledge-chapter" type="number" min="0" placeholder="例如 5；从第 5 章结束后生效" /></div>
+        <label class="form-check"><input id="knowledge-public-baseline" type="checkbox" /> 从开场就知道（不填写获知章节）</label>
+        <p class="writing-form-hint">同章新获得的信息从下一章起可用；未填写章节且未勾选开场已知时，不会交给角色视角模型。</p>
+      </section>
     </div>
   `
-  showModalHtml("添加知识边界", formHtml, [{
-    text: "添加",
-    class: "btn-primary",
-    handler: async () => {
-      const payload = {
-        character_id: characterId,
-        target_id: document.getElementById("knowledge-target-id")?.value,
-        target_type: "entity",
-        knowledge_level: document.getElementById("knowledge-level")?.value,
-        known_content: document.getElementById("knowledge-content")?.value || "",
-        misconception: document.getElementById("knowledge-misconception")?.value || "",
-        source_chapter_index: document.getElementById("knowledge-chapter")?.value
-          ? parseInt(document.getElementById("knowledge-chapter").value, 10)
-          : null,
+    showModalHtml("人物认知进程", formHtml, [{
+      text: "保存检查点",
+      class: "btn-primary",
+      handler: async () => {
+      const editingRecord = records.find((record) => record.id === document.getElementById("knowledge-edit-id")?.value)
+      const selectedTargetId = editingRecord?.target_id || document.getElementById("knowledge-target-id")?.value
+      if (!selectedTargetId) { toast("请选择目标人物或设定", "warning"); return false }
+      const level = document.getElementById("knowledge-level")?.value
+      const misconception = document.getElementById("knowledge-misconception")?.value?.trim() || ""
+      if (["false_belief", "misunderstood"].includes(level) && !misconception) {
+        toast("请填写人物会使用的错误版本", "warning")
+        return false
       }
-      if (!payload.target_id) { toast("请选择目标对象", "warning"); return }
-      if (payload.knowledge_level === "false_belief" && !payload.misconception) {
-        toast("错误认知必须填写误解内容", "warning")
-        return
+      const chapterValue = document.getElementById("knowledge-chapter")?.value
+      const sourceChapter = editingRecord?.source_chapter_index ?? (chapterValue === "" ? null : parseInt(chapterValue, 10))
+      if (sourceChapter != null && Number.isNaN(sourceChapter)) {
+        toast("请填写有效的获知章节", "warning")
+        return false
       }
+      if (knowledgeSavePending) return false
+      knowledgeSavePending = true
       try {
-        await getApi().world.createKnowledge(characterId, payload, getAppState()?.currentProjectId)
-        toast("知识边界已添加", "success")
-        getRouter()?.refresh?.()
-      } catch (err) {
-        toast(err.message || "添加知识边界失败", "error")
+        let target = null
+        try {
+          target = editingRecord
+            ? null
+            : findEntity(selectedTargetId) || await getApi().world.getEntity(selectedTargetId, projectId)
+        } catch (err) {
+          toast(err.message || "目标人物或设定加载失败", "error")
+          return false
+        }
+        if (!editingRecord && (!target || target.status !== "canonical")) {
+          toast("请选择仍在使用的人物或设定", "warning")
+          return false
+        }
+        const targetType = editingRecord?.target_type || knowledgeTargetType(target)
+        const payload = {
+          knowledge_level: level,
+          known_content: document.getElementById("knowledge-content")?.value || "",
+          misconception,
+          source_chapter_index: sourceChapter,
+          is_public_baseline: editingRecord?.is_public_baseline
+            ?? (sourceChapter == null && Boolean(document.getElementById("knowledge-public-baseline")?.checked)),
+          status: "canonical",
+        }
+        try {
+          const checkpoint = sourceChapter != null ? `chapter:${sourceChapter}` : payload.is_public_baseline ? "baseline" : "unlocated"
+          const sameCheckpoint = records
+            .filter((record) => record.status === "canonical" && record.target_id === selectedTargetId && knowledgeCheckpoint(record) === checkpoint)
+            .sort(compareKnowledge)[0]
+          const updateId = editingRecord?.id || sameCheckpoint?.id
+          if (updateId) await getApi().world.updateKnowledge(updateId, payload, projectId)
+          else await getApi().world.createKnowledge(characterId, { ...payload, character_id: characterId, target_id: selectedTargetId, target_type: targetType }, projectId)
+          if (getAppState()?.currentProjectId !== projectId) return false
+          toast(updateId ? "认知检查点已修正" : "认知检查点已添加", "success")
+          await showKnowledgeForm(characterId)
+          return false
+        } catch (err) {
+          if (getAppState()?.currentProjectId === projectId) toast(err.message || "保存认知检查点失败", "error")
+          return false
+        }
+      } finally {
+        knowledgeSavePending = false
       }
-    },
-  }])
+      },
+    }], { size: "large" })
+    bindKnowledgeManager(characterId, records, projectId)
+  } catch (err) {
+    if (getAppState()?.currentProjectId === projectId) toast(err.message || "人物认知进程加载失败", "error")
+  }
 }
 
 /** 对应 vanilla _openEntityPresence。 */

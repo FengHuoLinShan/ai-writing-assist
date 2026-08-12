@@ -62,6 +62,22 @@ afterEach(() => {
 })
 
 describe("表格渲染契约", () => {
+  it("知识 deep link 打开既有角色知识进程", async () => {
+    const listKnowledge = vi.fn(async () => ({ items: [], total: 0 }))
+    const getEntity = vi.fn(async () => ENTITIES[1])
+    const showModalHtml = vi.fn()
+    setBridgeOverrides({
+      api: { world: { listKnowledge, getEntity } },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+      toast: toastMock,
+      showModalHtml,
+    })
+    mountTab({ knowledgeCharacterId: "e2" })
+    await vi.waitFor(() => expect(listKnowledge).toHaveBeenCalledWith("e2", "p-obj"))
+    await vi.waitFor(() => expect(showModalHtml).toHaveBeenCalledWith("人物认知进程", expect.any(String), expect.any(Array), { size: "large" }))
+  })
+
   it("行/复选框/状态/来源/注意列与 vanilla 一致", () => {
     const wrapper = mountTab()
     const rows = wrapper.findAll("tbody tr[data-id]")

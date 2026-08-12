@@ -131,7 +131,7 @@ function presetSummary(presetId, preset) {
         <datalist id="llm-model-options">
           <option v-for="model in modelOptions" :key="model" :value="model"></option>
         </datalist>
-        <small id="llm-model-cost-hint" class="settings-section-hint" :hidden="!modelCostHintVisible">deepseek-v4-pro 预计约为 Flash 的 8 倍耗时；高质量开关不会自动切换模型。</small>
+        <small id="llm-model-cost-hint" class="settings-section-hint" :hidden="!modelCostHintVisible">deepseek-v4-pro 预计约为 Flash 的 8 倍耗时；生成中心的加强复核不会自动切换模型。</small>
         <div v-if="sourceMap.model" class="settings-field-source">
           <SourceLabel :source="sourceMap.model.source" :value="sourceMap.model.value" />
         </div>

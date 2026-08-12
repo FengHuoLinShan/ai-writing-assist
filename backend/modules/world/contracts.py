@@ -285,6 +285,7 @@ class GenerationBackgroundProvider(Protocol):
         character_ids: list[str] | None = None,
         entity_ids: list[str] | None = None,
         source_snapshot: dict[str, Any] | None = None,
+        capture_snapshot: bool = True,
     ) -> dict[str, Any]: ...
 
 

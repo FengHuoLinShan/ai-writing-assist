@@ -104,12 +104,15 @@ class CharacterKnowledgeService(
             str(existing.target_id),
         )
         # Schema 已校验；服务层保留 defense-in-depth 二次校验，统一返回 HTTP 422。
-        if data.knowledge_level in {"false_belief", "misunderstood"}:
-            misconception = data.misconception
-            if misconception is None:
-                misconception = existing.misconception
+        effective_level = data.knowledge_level or existing.knowledge_level
+        if effective_level in {"false_belief", "misunderstood"}:
+            misconception = (
+                data.misconception
+                if "misconception" in data.model_fields_set
+                else existing.misconception
+            )
             _require_misconception_for_false_level(
-                data.knowledge_level,
+                effective_level,
                 misconception,
             )
         updated = await self.repo.update(db, rid, data)
@@ -138,11 +141,6 @@ class CharacterKnowledgeService(
         target_type: str,
         target_id: str,
     ) -> None:
-        generic_target_types = {
-            "entity",
-            "world_entity",
-            "object",
-        }
         typed_target_types = {
             "character",
             "event",
@@ -150,8 +148,6 @@ class CharacterKnowledgeService(
             "item",
             "faction",
         }
-        if target_type not in generic_target_types | typed_target_types:
-            return
         tid = parse_uuid(target_id, "target_id")
         target = await self._entity_repo.get(db, tid)
         if target is None or target.novel_id != novel_id or target.status != "canonical":
@@ -195,7 +191,24 @@ class CharacterKnowledgeService(
                 skip=skip,
                 limit=limit,
             )
+        targets = await self._entity_repo.get_by_ids(
+            db,
+            nid,
+            list({item.target_id for item in items}),
+            statuses=("canonical",),
+        )
+        target_map = {target.id: target for target in targets}
         return CharacterKnowledgeListResponse(
-            items=[CharacterKnowledgeResponse.model_validate(k) for k in items],
+            items=[
+                CharacterKnowledgeResponse.model_validate(item).model_copy(
+                    update={
+                        "target_name": target_map[item.target_id].name,
+                        "target_entity_type": target_map[item.target_id].entity_type,
+                    }
+                )
+                if item.target_id in target_map
+                else CharacterKnowledgeResponse.model_validate(item)
+                for item in items
+            ],
             total=total,
         )

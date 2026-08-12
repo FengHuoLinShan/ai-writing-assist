@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError
 from modules.context.contracts import (
     CompileOptions,
     ContextConfirmationContract,
@@ -117,11 +118,15 @@ class ContextConfirmationService:
             options,
             budget_tokens=budget_tokens,
         )
+        if self._requires_character_profile(options):
+            self._require_character_profile(compiled)
         if action == "outline.analyze":
             self._require_outline_analysis_range(compiled, options)
-            options.outline_analysis_fingerprint = (
-                self._outline_analysis_fingerprint(compiled)
+            options.outline_analysis_fingerprint = self._outline_analysis_fingerprint(
+                compiled
             )
+        if self._requires_scene_state_fingerprint(options):
+            options.scene_state_fingerprint = self._scene_state_fingerprint(compiled)
         selected_asset_ids = self._selected_asset_ids(compiled, options)
         warnings = list(compiled.warnings)
         record = await self._repo.create(
@@ -210,6 +215,8 @@ class ContextConfirmationService:
             options,
             budget_tokens=options.budget_tokens,
         )
+        if self._requires_character_profile(options):
+            self._require_character_profile(compiled)
         if action == "outline.analyze":
             self._require_outline_analysis_range(compiled, options)
         if options.outline_analysis_fingerprint:
@@ -218,6 +225,13 @@ class ContextConfirmationService:
                 raise ValueError(
                     "outline analysis context changed; "
                     "review and confirm the latest context"
+                )
+        if options.scene_state_fingerprint:
+            current_fingerprint = self._scene_state_fingerprint(compiled)
+            if current_fingerprint != options.scene_state_fingerprint:
+                raise ConflictError(
+                    "Scene time state changed; review and confirm the latest context",
+                    code="scene_state_changed",
                 )
         return compiled
 
@@ -358,9 +372,7 @@ class ContextConfirmationService:
         if options.location_ids:
             selected["locations"] = list(options.location_ids)
         if options.selected_world_bible_draft_ids:
-            selected["world_bible_draft"] = list(
-                options.selected_world_bible_draft_ids
-            )
+            selected["world_bible_draft"] = list(options.selected_world_bible_draft_ids)
         if options.activation_profile_id:
             selected["activation_profile"] = [options.activation_profile_id]
         if options.activation_included_target_hashes:
@@ -388,9 +400,7 @@ class ContextConfirmationService:
                 asset_id = str(source.get("id") or "")
                 if asset_key and asset_id:
                     selected.setdefault(asset_key, []).append(asset_id)
-        selected = {
-            key: list(dict.fromkeys(values)) for key, values in selected.items()
-        }
+        selected = {key: list(dict.fromkeys(values)) for key, values in selected.items()}
         selected["context_sections"] = [section.key for section in compiled.sections]
         return selected
 
@@ -483,6 +493,7 @@ class ContextConfirmationService:
                 options.activation_included_target_hashes
             ),
             "outline_analysis_fingerprint": options.outline_analysis_fingerprint,
+            "scene_state_fingerprint": options.scene_state_fingerprint,
         }
 
     @staticmethod
@@ -496,6 +507,62 @@ class ContextConfirmationService:
                 "truncated_reason": section.truncated_reason,
             }
             for section in compiled.sections
+        ]
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _requires_scene_state_fingerprint(options: CompileOptions) -> bool:
+        return bool(
+            options.consumer_action == "writing.generate"
+            and options.scene_id
+            and options.reveal_mode == "character"
+        )
+
+    @staticmethod
+    def _requires_character_profile(options: CompileOptions) -> bool:
+        return bool(
+            options.consumer_action == "writing.generate"
+            and options.reveal_mode == "character"
+        )
+
+    @staticmethod
+    def _require_character_profile(compiled: CompiledContext) -> None:
+        if not any(section.key == "role_profile" for section in compiled.sections):
+            raise ValueError(
+                "POV character is unavailable; select an active character and recompile"
+            )
+
+    @staticmethod
+    def _scene_state_fingerprint(compiled: CompiledContext) -> str:
+        section = next(
+            (item for item in compiled.sections if item.key == "scene_world_state"),
+            None,
+        )
+        if section is None:
+            raise ValueError(
+                "Scene time state unavailable; review and confirm the latest context"
+            )
+        versions = section.retrieval_metadata.get("checkpoint_versions") or []
+        by_dimension = {
+            str(item.get("dimension")): item
+            for item in versions
+            if isinstance(item, dict) and item.get("dimension")
+        }
+        payload = [
+            {
+                "dimension": dimension,
+                "id": str((by_dimension.get(dimension) or {}).get("id") or ""),
+                "status": str(
+                    (by_dimension.get(dimension) or {}).get("status") or "missing"
+                ),
+            }
+            for dimension in ("entities", "relations", "locations", "knowledge", "map")
         ]
         encoded = json.dumps(
             payload,

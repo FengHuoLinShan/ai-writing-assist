@@ -302,6 +302,35 @@
       timeout: LLM_GENERATE_TIMEOUT,
       timeoutKind: "llmGenerate",
     }),
+    "generate.convergeWorld": define("POST", () => "/world/generation-center/convergence", {
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
+    }),
+    "generate.exploreWorld": define("POST", () => "/world/generation-center/exploration", {
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
+    }),
+    "generate.inspectWorldPage": define("POST", () => "/world/generation-center/semantic-inspection", {
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
+    }),
+    "generate.askWorld": define("POST", () => "/world/ask-world", {
+      hasBody: true,
+      requiredBody: ["novel_id", "question"],
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
+    }),
+    "generate.openAskWorldCitation": define("POST", () => "/world/ask-world/citations/open", {
+      hasBody: true,
+      requiredBody: ["novel_id", "citation"],
+    }),
+    "generate.saveAskWorldSuggestion": define("POST", () => "/world/ask-world/suggestions", {
+      hasBody: true,
+      requiredBody: ["novel_id", "question", "answer", "claims", "citations", "response_hash"],
+    }),
     "generate.generateWorldSuggestion": define("POST", () => "/world/generation-center/suggestions", {
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,

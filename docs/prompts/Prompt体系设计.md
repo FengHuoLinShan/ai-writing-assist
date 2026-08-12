@@ -30,7 +30,8 @@
 | `map_scene_observation_enrichment.md` | 已完成深度导入项目的独立 Scene 地图事实补充；只生成带当前 Scene 逐字证据的待复核候选；高质量模式固定执行首轮抽取与第二遍全文完整性审计 | imports |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
-| `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创与结构化建议 | world 生成中心 |
+| `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、只读收束、一跳探索、当前页检修与结构化建议；加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
+| `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
@@ -360,16 +361,60 @@ RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 1
 聊天正文使用普通文本生成，Prompt 明确要求直接回应作者而不输出 JSON 或协议包装；
 调用层把返回文本放入只含 `reply` 的 schema 校验非空与长度。自由聊天不启用 provider
 JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把任意原始输出直接当作业务响应。
+聊天还执行最低充分内容约束：短灵感优先给一个主方向、必要条件、普通日常切片、最高风险或
+作者边界和自然下一步，真正阻塞时最多追问一个问题；明确的完整范围请求优先于该默认收束。
+横向规则已充分时固定一个具体锚点，沿日常、故障和历史反馈纵切，压力测试实例不视为已采用
+事实。若内容已经属于人物选择、事件或 Scene，只输出可编辑交接摘要并建议使用既有 Scene
+规划流程；该 Prompt 不获得创建 Scene、修改 StoryOutline 或调用跨模块工具的能力。
+
+`world.generation.convergence.map/reduce` 只在作者显式点击“收束本轮”后运行，不继续横向创作，
+也不创建 suggestion。确定性服务先把当前对话窗口、粘贴材料、页面 baseline、章节、显式资产
+和实际项目背景切成带 hash 的 source manifest；单次预算可容纳时只运行一个 map，超出时按固定
+字符预算顺序 map，再做固定二叉 reduce。每个输出必须把所有 source key 分配给最多 7 张决定卡
+或 `retained_source_keys`；跨卡复用必须显式列入 `shared_source_keys`。漏项、未知 key、未声明
+重复及计数倒挂由代码校验并只修复一次，仍失败返回不完整预览。Prompt 不能改变来源集合、
+决定下一步工具或把“开放／放弃”写成已确认事实，因此多次模型调用仍是确定性 workflow，
+不是 Agent 或多 Agent runtime。外部粘贴材料里的临时 ID、`checks_run`、“已检查”或“已通过”
+只作为来源声明，不能冒充本地对象或本地校验回执。map、reduce 和必要的修复调用共用一个
+1800 秒端到端预算。
+
+`world.generation.exploration.preview` 只在作者从当前世界书页请求相邻新页面时运行。服务端冻结
+同一份 typed source manifest，并要求模型返回最多 3 个深度 1 缺口或明确停止原因；每项必须
+引用已知 source key，不能写页面正文、递归寻找下一跳、调用工具或创建 suggestion。未知 key
+只修复一次。作者单选后，后续结构化 Prompt 只收到该项及其证据；来源 snapshot 或请求内容
+变化会在调用前由 fingerprint 拒绝。`world_bible_new_page` 的同一结构化输出可选携带一份完整
+来源页修订，但只有具体内容改变时才各自写成两条 pending suggestion；不会自动应用或再探索。
+
+`world.ask` 只处理作者查事实、比较关系和追来源的问题，不承担补设定或推荐下一项创作。
+确定性服务先固定当前项目、作者可见性、正式 source version 和最多 5 个回读来源，再把问题与
+有界 `SOURCE_EVIDENCE` 作为不可信数据交给模型。每条实质主张必须使用服务端提供的
+`citation_key`；未知 key 只修复一次，仍无合法引用就失败。无相关证据时服务在模型调用前拒答；
+有证据但不足以支持结论时 schema 要求 `no_answer=true` 且 claims 为空。模型不能调用工具、
+保存回答、更新 Wiki 或声称已经修改设定。provider 返回后服务重新回读来源 hash，漂移则 409；
+只读回答与作者随后显式保存为 pending suggestion 是两个独立动作。
 
 当建议来自包含作者修订和助手回应的多轮对话时，结构化生成前先运行
 `world.generation.conversation_decision_state`。该 step 不继续创作，只按时间顺序编译作者
-当前目标、已确认要求、受支持发展、已否定内容、禁用专名、未决项和命名权限。后续生成只
-消费这个决策状态，不直接重放可能含作废方案的助手历史；检索 focus 也只使用最新作者消息，
+当前目标、已确认要求、受支持发展、已否定内容、禁用专名、未决项、命名权限，以及可选的
+“谁能知道／如何表达”边界。该边界只约束本轮提案，不写 CharacterKnowledge、术语表或世界
+事实。后续生成只消费这个决策状态，不直接重放可能含作废方案的助手历史；检索 focus 也只
+使用最新作者消息，
 避免修正语句中的旧名称再次污染背景。禁用专名或未经允许的专名会触发确定性守卫并在同一
 1800 秒总预算内重生成。候选还会经过一次窄语义审计，只检查是否违反作者已确认要求、复活
-已否定内容或擅自解决未决项，不因篇幅、字段完整度或审计模型的创意偏好要求修改；连续违反
+已否定内容、擅自解决未决项或越过知识表达边界，不因篇幅、字段完整度或审计模型的创意偏好
+要求修改；连续违反
 则不创建 suggestion。决策编译、候选和审计的实际 JSON schema 从首次请求即进入
 `OUTPUT_CONTRACT`，避免只启用 provider `json_object` 后让模型猜字段、再付出完整修复调用。
+
+结构化建议响应和待处理建议列表都以可选 `decision_state` 暴露这份摘要。页面建议把同一状态
+保存在 typed payload，对象建议沿用既有 `_meta.author_decision_state`；恢复路径由服务端统一
+投影，前端不推断 payload 形状。旧建议不调用模型回填。置信度仍保留给协议和确定性展示判断，
+作者界面只在低置信或存在未决项时显示“请核对”，不显示分数。
+
+作者是否要“修订此版”不是 Prompt 或模型判断。该动作由请求的可选
+`revises_suggestion_id` 明确声明，并由确定性服务校验 parent、目标、页面 baseline、pending CAS 和
+compatibility shadow 归档。“另起方案”不带 parent；已采用设定的修改走既有 revision 流程。
+LLM 只在既定作者意图中生成内容，不能创建分支、复活旧版或选择应当采用哪一版。
 
 三个结构化 step 分工如下：
 
@@ -392,7 +437,7 @@ sections / linked_asset_keys`。Prompt 不设置固定篇幅、必填创作维�
 工具、发布页面或写 canonical。多轮决策编译、最终生成和守卫重试共享 1800 秒端到端预算；
 浏览器同步等待为 35 分钟，异步任务轮询不设总截止时间。
 
-四个 step 共用 `generation_center` 上下文：显式选择与来源页引用优先，其后为当前 Scene、
+自由聊天、只读收束与三个结构化 step 共用 `generation_center` 上下文：显式选择与来源页引用优先，其后为当前 Scene、
 剧情线、篇章/RAG 证据、相关人物和世界对象 Top-K、项目风格及可选世界观简介。人物自动
 候选最多 6 个，非人物世界对象最多 16 个；没有章节、Scene、引用或检索证据时不默认注入
 第一章剧情线。选中章节在总预算内优先取命中作者意图的窗口，无命中时保留头尾。

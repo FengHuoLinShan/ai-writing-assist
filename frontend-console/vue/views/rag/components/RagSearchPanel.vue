@@ -12,9 +12,10 @@ const props = defineProps({
   characters: { type: Array, default: () => [] },
   scenes: { type: Array, default: () => [] },
   chapterRangeError: { type: String, default: "" },
+  askWorldPending: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["submit"])
+const emit = defineEmits(["submit", "ask-world"])
 
 const summary = computed(() => advancedFilterSummary(form.value, {
   characters: props.characters,
@@ -72,12 +73,16 @@ function characterIdOf(character) {
         class="form-input"
         id="rag-search-input"
         aria-label="检索关键词"
-        placeholder="输入原文、对象或结构关键词…"
+        placeholder="输入问题、原文或对象关键词…"
         v-model="form.query"
         @keydown.enter="emit('submit')"
       />
-      <button class="btn btn-primary" data-action="do-search" @click="emit('submit')">检索</button>
+      <div class="rag-search-actions">
+        <button class="btn btn-primary" data-action="do-search" @click="emit('submit')">检索</button>
+        <button class="btn" data-action="ask-world" :disabled="askWorldPending" @click="emit('ask-world')">{{ askWorldPending ? "问答中…" : "问世界" }}</button>
+      </div>
     </div>
+    <p class="rag-ask-world-note">“问世界”只按当前项目的作者视角回读正式世界笔记与已发布正文，并为回答附上可打开的来源。</p>
     <div class="novel-search-filters">
       <label>检索方式
         <select class="form-input" id="rag-search-kind" v-model="form.searchKind">

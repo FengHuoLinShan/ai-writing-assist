@@ -89,6 +89,7 @@ afterEach(() => {
 describe("二级导航", () => {
   it("渲染计数徽标并 navigate", async () => {
     const wrapper = mountTab()
+    expect(wrapper.get('[data-author-action="needs_decision"]').text()).toContain("已采用、忽略或过期内容不计入当前待办")
     expect(wrapper.find('[data-action="nav-review-objects"]').element.tagName).toBe("BUTTON")
     expect(wrapper.find('[data-action="nav-review-objects"]').attributes("type")).toBe("button")
     expect(wrapper.find('[data-action="nav-review-objects"]').attributes("aria-current")).toBe("page")
@@ -152,6 +153,8 @@ describe("review-objects", () => {
   it("错误态：candidateLoadError 渲染重试按钮", () => {
     const wrapper = mountTab({ candidates: [], candidateTotal: 0, candidateLoadError: "加载失败" })
     expect(wrapper.find('[data-action="retry-candidate-load"]').exists()).toBe(true)
+    expect(wrapper.get('[data-author-action="must_fix"]').text()).toContain("必须修复")
+    expect(wrapper.find('[data-author-action="needs_decision"]').exists()).toBe(false)
   })
 
   it("筛选应用 navigate 写 query", async () => {

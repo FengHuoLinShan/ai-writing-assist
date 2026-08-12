@@ -124,6 +124,21 @@ async def test_managed_generate_records_secret_free_runtime_scope() -> None:
     assert "api_key" not in runtime["profile_summary"]
 
 
+def test_managed_provenance_preserves_account_profile_source() -> None:
+    client = _FakeLLMClient()
+    client.runtime_scope["profile_source"] = "account"
+    client.profile_summary["sources"] = {"model": "account"}
+
+    provenance = build_managed_llm_provenance(
+        client,
+        step_name="test.account-runtime",
+        request=LLMCallRequest(model="test-model", messages=[]),
+    )
+
+    assert provenance["profile_source"] == "account"
+    assert provenance["profile_summary"]["sources"]["model"] == "account"
+
+
 @pytest.mark.asyncio
 async def test_managed_provenance_is_secret_safe_stable_and_deduplicated() -> None:
     response = LLMCallResponse(content="ok", model="phase-model-override")

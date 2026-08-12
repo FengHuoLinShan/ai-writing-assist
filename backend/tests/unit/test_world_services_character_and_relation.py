@@ -679,7 +679,13 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
         svc._knowledge_repo.get_by_target.return_value = [kn]
 
         context_items = [
-            {"target_type": "character", "target_id": tid, "content": "original"},
+            {
+                "target_type": "character",
+                "target_id": tid,
+                "content": "original",
+                "public_info": "public fallback",
+                "hidden_truth": "hidden truth",
+            },
         ]
 
         # Act
@@ -695,12 +701,13 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
         assert replaced == 1
         assert filtered[0]["content"] == "lie"
         assert filtered[0]["is_misconception"] is True
-        assert filtered[0]["original_content"] == "original"
+        assert "original_content" not in filtered[0]
+        assert "public_info" not in filtered[0]
 
-    async def test_filter_false_belief_fallback_to_known_content(
+    async def test_filter_false_belief_without_misconception_fails_closed(
         self, db_session: AsyncSession
     ):
-        """Boundary: false_belief without misconception falls back to known_content."""
+        """Corrupt legacy rows must not expose known_content as the believed version."""
         # Arrange
         svc = CharacterService()
         nid = str(uuid.uuid4())
@@ -731,7 +738,9 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
         )
 
         # Assert
-        assert filtered[0]["content"] == "truth"
+        assert filtered == []
+        assert removed == 1
+        assert replaced == 0
 
     async def test_filter_empty_context_items_returns_empty(
         self, db_session: AsyncSession
@@ -1134,6 +1143,40 @@ class TestCharacterKnowledgeServiceCreate:
             await svc.create(db_session, str(uuid.uuid4()), data)
         assert exc_info.value.status_code == 404
 
+    async def test_create_custom_target_still_enforces_project_boundary(
+        self,
+        db_session: AsyncSession,
+    ):
+        svc = CharacterKnowledgeService()
+        nid = str(uuid.uuid4())
+        cid = str(uuid.uuid4())
+        svc._character_repo = AsyncMock()
+        svc._character_repo.get.return_value = _make_character(
+            entity_id=uuid.UUID(cid),
+            novel_id=uuid.UUID(nid),
+        )
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(str(uuid.uuid4()), "custom-lore"),
+        ]
+        svc.repo = AsyncMock()
+
+        with pytest.raises(NotFoundError, match="Knowledge target not found"):
+            await svc.create(
+                db_session,
+                nid,
+                CharacterKnowledgeCreate(
+                    character_id=cid,
+                    target_type="custom-lore",
+                    target_id=str(uuid.uuid4()),
+                    knowledge_level="partial",
+                    known_content="人物已知版本",
+                ),
+            )
+
+        svc.repo.create.assert_not_awaited()
+
     async def test_create_false_belief_without_misconception_raises_domain_validation(
         self,
         db_session: AsyncSession,
@@ -1246,6 +1289,37 @@ class TestCharacterKnowledgeServiceInheritedVerbs:
 
         # Assert
         assert isinstance(result, CharacterKnowledgeResponse)
+
+    async def test_update_cannot_clear_required_false_belief_version(
+        self,
+        db_session: AsyncSession,
+    ):
+        svc = CharacterKnowledgeService()
+        nid = str(uuid.uuid4())
+        kid = str(uuid.uuid4())
+        kn = _make_knowledge(
+            id=uuid.UUID(kid),
+            novel_id=uuid.UUID(nid),
+            knowledge_level="false_belief",
+            misconception="人物当前相信的错误版本",
+        )
+        svc.repo = AsyncMock()
+        svc.repo.get.return_value = kn
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(nid, "character"),
+        ]
+
+        with pytest.raises(DomainValidationError, match="must provide misconception"):
+            await svc.update(
+                db_session,
+                kid,
+                CharacterKnowledgeUpdate(misconception=""),
+                novel_id=nid,
+            )
+
+        svc.repo.update.assert_not_awaited()
 
     async def test_delete_found(self, db_session: AsyncSession):
         """Base delete: found is deleted."""

@@ -23,6 +23,12 @@ from modules.project.facade import (
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.map_schemas import MapEntityPresenceResponse
 from modules.world.schemas import (
+    AskWorldCitationOpenRequest,
+    AskWorldCitationOpenResponse,
+    AskWorldQuestionRequest,
+    AskWorldResponse,
+    AskWorldSaveRequest,
+    AskWorldSaveResponse,
     CharacterCreate,
     CharacterKnowledgeCreate,
     CharacterKnowledgeListResponse,
@@ -107,6 +113,7 @@ from modules.world.schemas import (
     WorldBiblePageTemplateRevisionResponse,
     WorldBiblePageTemplateUpdate,
     WorldBiblePageUpdate,
+    WorldBiblePublishImpactResponse,
     WorldBibleSynopsisAutoRefreshRequest,
     WorldBibleSynopsisRefreshResponse,
     WorldBibleSynopsisResponse,
@@ -115,6 +122,12 @@ from modules.world.schemas import (
     WorldGenerationApplyPageDraftResponse,
     WorldGenerationChatRequest,
     WorldGenerationChatResponse,
+    WorldGenerationConvergenceRequest,
+    WorldGenerationConvergenceResponse,
+    WorldGenerationExplorationRequest,
+    WorldGenerationExplorationResponse,
+    WorldGenerationSemanticInspectionRequest,
+    WorldGenerationSemanticInspectionResponse,
     WorldGenerationSuggestionRequest,
     WorldGenerationSuggestionResponse,
     WorldProfileListResponse,
@@ -135,6 +148,7 @@ from modules.world.services import (
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import review_type_catalog
 from modules.world.services.map.map_entity_presence import MapEntityPresenceService
+from modules.world.services.worldbuilding.ask_world_service import AskWorldService
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
     TemplateVersionConflictError,
@@ -177,6 +191,7 @@ _suggestion_service = SuggestionQueueService()
 _conflict_queue_service = ConflictQueueService()
 _knowledge_tag_service = KnowledgeTagService()
 _world_generation_service = WorldGenerationCenterService()
+_ask_world_service = AskWorldService()
 _generation_template_service = GenerationPromptTemplateService()
 _map_presence_service = MapEntityPresenceService()
 
@@ -222,6 +237,103 @@ async def chat_world_generation_center(
         return await _world_generation_service.chat(db, data)
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/generation-center/convergence",
+    response_model=WorldGenerationConvergenceResponse,
+)
+async def converge_world_generation_center(
+    db: DbSession,
+    data: WorldGenerationConvergenceRequest,
+) -> WorldGenerationConvergenceResponse:
+    """Read-only convergence over the author-selected source window."""
+    await require_active_project(db, data.novel_id)
+    try:
+        return await _world_generation_service.converge(db, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/generation-center/exploration",
+    response_model=WorldGenerationExplorationResponse,
+)
+async def explore_world_generation_center(
+    db: DbSession,
+    data: WorldGenerationExplorationRequest,
+) -> WorldGenerationExplorationResponse:
+    """Return at most three read-only, one-hop world gaps."""
+    await require_active_project(db, data.novel_id)
+    try:
+        return await _world_generation_service.explore(db, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/generation-center/semantic-inspection",
+    response_model=WorldGenerationSemanticInspectionResponse,
+)
+async def inspect_world_generation_center_page(
+    db: DbSession,
+    data: WorldGenerationSemanticInspectionRequest,
+) -> WorldGenerationSemanticInspectionResponse:
+    """Inspect one exact current page; findings remain author-reviewable."""
+    await require_active_project(db, data.novel_id)
+    try:
+        return await _world_generation_service.inspect_current_page(db, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/ask-world", response_model=AskWorldResponse)
+async def ask_world(
+    db: DbSession,
+    data: AskWorldQuestionRequest,
+) -> AskWorldResponse:
+    """Answer from current author-visible evidence without writing assets."""
+    await require_active_project(db, data.novel_id)
+    try:
+        return await _ask_world_service.ask(db, data)
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ask-world/citations/open",
+    response_model=AskWorldCitationOpenResponse,
+)
+async def open_ask_world_citation(
+    db: DbSession,
+    data: AskWorldCitationOpenRequest,
+) -> AskWorldCitationOpenResponse:
+    """Re-open one citation inside the active project and report freshness."""
+    await require_active_project(db, data.novel_id)
+    return await _ask_world_service.open_citation(db, data.novel_id, data.citation)
+
+
+@router.post(
+    "/ask-world/suggestions",
+    response_model=AskWorldSaveResponse,
+    status_code=201,
+)
+async def save_ask_world_suggestion(
+    db: DbSession,
+    data: AskWorldSaveRequest,
+) -> AskWorldSaveResponse:
+    """Explicitly save an answer as a pending, reviewable suggestion."""
+    await require_active_project(db, data.novel_id)
+    try:
+        return await _suggestion_service.save_ask_world_answer(db, data)
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -598,12 +710,36 @@ async def publish_bible_draft(
     *,
     novel_id: ActiveNovelIdQuery,
     published_by: str | None = Query(default=None, max_length=64),
+    expected_impact_scope_hash: str | None = Query(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    ),
 ) -> WorldBiblePageResponse:
     return await _bible_lifecycle_service.publish_draft(
         db,
         novel_id,
         draft_id,
         published_by=published_by,
+        expected_impact_scope_hash=expected_impact_scope_hash,
+    )
+
+
+@router.get(
+    "/bible/drafts/{draft_id}/publish-impact",
+    response_model=WorldBiblePublishImpactResponse,
+)
+async def preview_bible_draft_publish_impact(
+    db: DbSession,
+    draft_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBiblePublishImpactResponse:
+    return await _bible_lifecycle_service.preview_publish_impact(
+        db,
+        novel_id,
+        draft_id,
     )
 
 

@@ -10,6 +10,7 @@ CharacterKnowledge 新等级（restricted / misunderstood）行为测试。
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -205,7 +206,7 @@ class TestCharacterKnowledgeApiLevels:
         assert resp.status_code == 201
         assert resp.json()["knowledge_level"] == "restricted"
 
-    async def test_visibility_excludes_unknown_chapter_except_public_baseline(
+    async def test_visibility_selects_latest_effective_checkpoint_deterministically(
         self,
         async_client,
         db_session: AsyncSession,
@@ -234,41 +235,74 @@ class TestCharacterKnowledgeApiLevels:
         assert character.status_code == 201
         target = await async_client.post(
             f"/api/world/entities?novel_id={novel_id}",
-            json={"entity_type": "secret", "name": "旧塔密钥", "status": "canonical"},
+            json={"entity_type": "faction", "name": "旧塔密钥", "status": "canonical"},
         )
         target_id = target.json()["id"]
         records = (
-            ("早期已知", 49, False),
-            ("同章才知", 50, False),
-            ("旧数据未定位", None, False),
-            ("开场公开基线", None, True),
+            ("开场公开基线", None, True, "canonical"),
+            ("较早传闻", 2, False, "canonical"),
+            ("最新修正传闻", 2, False, "canonical"),
+            ("第五章真相", 5, False, "canonical"),
+            ("旧数据未定位", None, False, "canonical"),
+            ("已归档版本", 1, False, "archived"),
         )
-        for known_content, chapter, is_public_baseline in records:
+        created_ids: dict[str, str] = {}
+        for known_content, chapter, is_public_baseline, status in records:
             response = await async_client.post(
                 f"/api/world/characters/{character_id}/knowledge?novel_id={novel_id}",
                 json={
                     "character_id": character_id,
-                    "target_type": "entity",
+                    "target_type": "faction",
                     "target_id": target_id,
                     "knowledge_level": "partial",
                     "known_content": known_content,
                     "source_chapter_index": chapter,
                     "is_public_baseline": is_public_baseline,
+                    "status": status,
                 },
             )
             assert response.status_code == 201
+            created_ids[known_content] = response.json()["id"]
 
-        visible = await CharacterKnowledgeRepository().get_by_target(
-            db_session,
-            uuid.UUID(novel_id),
-            uuid.UUID(character_id),
-            [uuid.UUID(target_id)],
-            visible_until_chapter=50,
+        base_time = datetime(2026, 1, 1, tzinfo=UTC)
+        earlier = await db_session.get(
+            CharacterKnowledge,
+            uuid.UUID(created_ids["较早传闻"]),
         )
+        latest = await db_session.get(
+            CharacterKnowledge,
+            uuid.UUID(created_ids["最新修正传闻"]),
+        )
+        earlier.updated_at = base_time
+        latest.updated_at = base_time + timedelta(seconds=1)
+        await db_session.flush()
 
-        assert {item.known_content for item in visible} == {
-            "早期已知",
-            "开场公开基线",
+        repo = CharacterKnowledgeRepository()
+
+        async def visible_at(chapter: int) -> str:
+            visible = await repo.get_by_target(
+                db_session,
+                uuid.UUID(novel_id),
+                uuid.UUID(character_id),
+                [uuid.UUID(target_id)],
+                visible_until_chapter=chapter,
+            )
+            assert len(visible) == 1
+            return visible[0].known_content or ""
+
+        assert await visible_at(1) == "开场公开基线"
+        assert await visible_at(3) == "最新修正传闻"
+        assert await visible_at(5) == "最新修正传闻"
+        assert await visible_at(6) == "第五章真相"
+
+        listed = await async_client.get(
+            f"/api/world/characters/{character_id}/knowledge?novel_id={novel_id}"
+        )
+        assert listed.status_code == 200
+        assert listed.json()["total"] == len(records)
+        assert {item["target_name"] for item in listed.json()["items"]} == {"旧塔密钥"}
+        assert {item["target_entity_type"] for item in listed.json()["items"]} == {
+            "faction"
         }
 
 
@@ -394,6 +428,7 @@ class TestCharacterServiceFilterContextByKnowledgeLevel:
         assert filtered[0]["content"] == "错误认知：这是正义组织"
         assert filtered[0]["is_misconception"] is True
         assert filtered[0]["knowledge_level"] == "misunderstood"
+        assert "original_content" not in filtered[0]
 
     async def test_filter_partial_uses_known_content_and_redacts_hidden_truth(
         self, db_session: AsyncSession
@@ -477,6 +512,116 @@ class TestCharacterServiceFilterContextByKnowledgeLevel:
         assert filtered[0]["summary"] == "街头传闻"
         assert filtered[0]["character_known_content"] == "街头传闻"
         assert filtered[0]["knowledge_level"] == "rumor"
+
+    async def test_filter_full_uses_frozen_character_version_not_current_world(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        svc = CharacterService()
+        nid = str(uuid.uuid4())
+        cid = str(uuid.uuid4())
+        tid = str(uuid.uuid4())
+        svc._knowledge_repo = AsyncMock()
+        svc._knowledge_repo.get_by_target.return_value = [
+            _make_knowledge(
+                novel_id=uuid.UUID(nid),
+                character_id=uuid.UUID(cid),
+                target_id=uuid.UUID(tid),
+                target_type="entity",
+                knowledge_level="full",
+                known_content="人物在当时已经完整掌握的版本",
+            )
+        ]
+
+        original, removed, replaced = await svc.filter_context_by_character_knowledge(
+            db_session,
+            nid,
+            cid,
+            [
+                {
+                    "target_type": "entity",
+                    "target_id": tid,
+                    "name": "当前目标标题",
+                    "content": "后来才更新的当前正典",
+                    "summary": "当前摘要",
+                    "public_info": "后来新增的公开信息",
+                    "aliases": ["后来新增的别名"],
+                    "related_entity_ids": [str(uuid.uuid4())],
+                    "hidden_truth": "人物不应随正典更新获得的真相",
+                }
+            ],
+        )
+        (
+            renamed,
+            renamed_removed,
+            renamed_replaced,
+        ) = await svc.filter_context_by_character_knowledge(
+            db_session,
+            nid,
+            cid,
+            [
+                {
+                    "target_type": "entity",
+                    "target_id": tid,
+                    "name": "正典重命名后的新名",
+                    "entity_type": "正典后来改动的类型",
+                    "status": "正典后来改动的状态",
+                    "importance_level": "正典后来改动的重要度",
+                    "content": "更新后的当前正典",
+                }
+            ],
+        )
+
+        assert removed == 0
+        assert replaced == 0
+        assert renamed_removed == 0
+        assert renamed_replaced == 0
+        assert original == renamed
+        assert "正典重命名后的新名" not in str(renamed)
+        assert original[0]["content"] == "人物在当时已经完整掌握的版本"
+        assert original[0]["summary"] == "人物在当时已经完整掌握的版本"
+        assert "hidden_truth" not in original[0]
+        assert "public_info" not in original[0]
+        assert "aliases" not in original[0]
+        assert "related_entity_ids" not in original[0]
+
+    async def test_filter_full_without_frozen_version_fails_closed(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        svc = CharacterService()
+        nid = str(uuid.uuid4())
+        cid = str(uuid.uuid4())
+        tid = str(uuid.uuid4())
+        svc._knowledge_repo = AsyncMock()
+        svc._knowledge_repo.get_by_target.return_value = [
+            _make_knowledge(
+                novel_id=uuid.UUID(nid),
+                character_id=uuid.UUID(cid),
+                target_id=uuid.UUID(tid),
+                target_type="entity",
+                knowledge_level="full",
+                known_content=None,
+            )
+        ]
+
+        filtered, removed, replaced = await svc.filter_context_by_character_knowledge(
+            db_session,
+            nid,
+            cid,
+            [
+                {
+                    "target_type": "entity",
+                    "target_id": tid,
+                    "content": "不能当作人物知识的当前正典",
+                    "hidden_truth": "隐藏真相",
+                }
+            ],
+        )
+
+        assert filtered == []
+        assert removed == 1
+        assert replaced == 0
 
     async def test_filter_multiple_target_types_fetches_knowledge_once(
         self, db_session: AsyncSession

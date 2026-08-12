@@ -116,6 +116,7 @@ test.describe("writing 视觉基线", () => {
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator(SEL.writingTreeRail)).toBeHidden()
     await expect(page.locator(SEL.writingPanelRail)).toBeHidden()
+    await expect(page.locator(SEL.writingEditor)).toBeVisible()
     await screenshotPage(page, "writing-focus-sticky.png")
   })
 

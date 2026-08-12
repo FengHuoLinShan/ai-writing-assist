@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { buildPovInstruction, buildTaskPayload, buildWorldPayload, sectionDiff, validateTaskPayload } from "../../../vue/views/generate/logic/generateLogic.js"
+import {
+  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldHandoffMarkdown, buildWorldPayload, compileConvergenceMessage,
+  convergenceDraftFromResponse, convergenceSourceMatchesPayload, externalPacketBatchSummary, externalPacketCharacterCount, hashExternalPacket,
+  parseExternalPacketPosition, sectionDiff, validateTaskPayload, visualBriefFromConvergence,
+} from "../../../vue/views/generate/logic/generateLogic.js"
 
 describe("generate Vue pure contracts", () => {
   it("preserves world source baseline, explicit references, and service limits", () => {
+    const relatedPages = Array.from({ length: 18 }, (_, index) => ({ id: `page-${index + 2}` }))
     const payload = buildWorldPayload({
       projectId: "p1", sourcePageId: "page-1", targetKind: "world_bible_page",
       sourcePage: { id: "page-1", version_number: 7 }, sourceDraft: { id: "draft-1", updated_at: "t1" },
@@ -10,6 +15,7 @@ describe("generate Vue pure contracts", () => {
       worldPageTemplates: [], messages: Array.from({ length: 41 }, (_, index) => ({ role: "user", content: String(index) })),
       selectedChapters: Array.from({ length: 21 }, (_, index) => ({ chapter_index: index + 1 })), qualityMode: "pro", includeWorldSynopsis: true,
       selectedSceneId: "scene-1", selectedThreadIds: ["thread-1"], selectedCharacterIds: ["character-1"], selectedEntityIds: ["entity-1"],
+      worldPages: [{ id: "page-1" }, ...relatedPages], selectedWorldPageIds: ["page-1", ...relatedPages.map((item) => item.id), "page-2", "missing-page"],
     })
     expect(payload.novel_id).toBe("p1")
     expect(payload.source_context).toEqual({ kind: "world_bible_page", page_id: "page-1", baseline: { kind: "draft", page_version: 7, draft_id: "draft-1", draft_updated_at: "t1" } })
@@ -17,6 +23,9 @@ describe("generate Vue pure contracts", () => {
     expect(payload.messages).toHaveLength(40)
     expect(payload.selected_chapter_indices).toHaveLength(20)
     expect(payload).toEqual(expect.objectContaining({ scene_id: "scene-1", thread_ids: ["thread-1"], character_ids: ["character-1"], entity_ids: ["entity-1"] }))
+    expect(payload.selected_asset_refs).toHaveLength(16)
+    expect(payload.selected_asset_refs.at(0)).toEqual({ type: "world_bible_page", id: "page-2" })
+    expect(payload.selected_asset_refs.at(-1)).toEqual({ type: "world_bible_page", id: "page-17" })
   })
 
   it("excludes interrupted local recovery entries from subsequent world-chat payloads", () => {
@@ -35,6 +44,118 @@ describe("generate Vue pure contracts", () => {
       { role: "user", content: "继续完善" },
       { role: "assistant", content: "可继续参考的历史回复" },
     ])
+  })
+
+  it("compiles selective convergence choices without turning open details into facts", () => {
+    const draft = convergenceDraftFromResponse({
+      coverage: { complete: true, scope_label: "最近 40 条对话", source_count: 1, excluded_message_count: 4, manifest_hash: "a".repeat(64) },
+      manifest: [{ key: "m1", kind: "conversation", label: "对话", content_hash: "1".repeat(64), source_ref: { source_type: "author_message" } }],
+      detail_summary: { before_grouping: 3, after_deduplication: 3, retained_in_sources: 0 },
+      decision_cards: [{
+        card_id: "C1", title: "制度", common_ground: [], dependencies: [], affected_targets: ["current_world_target", "outline"], source_keys: ["m1"], why_now: "现在决定",
+        items: [
+          { item_id: "i1", text: "采用制度骨架", suggested_disposition: "include" },
+          { item_id: "i2", text: "税率数字", suggested_disposition: "open" },
+          { item_id: "i3", text: "废弃旧组织", suggested_disposition: "discard" },
+        ],
+      }],
+      source_snapshot: { kind: "world_bible_page", page_id: "page-1", page_version: 2, draft_id: "draft-1", draft_updated_at: "t1" },
+    })
+
+    const message = compileConvergenceMessage(draft)
+    expect(message).toContain("本次纳入：\n- 采用制度骨架")
+    expect(message).toContain("继续开放（不得写成已确认事实）：\n- 税率数字")
+    expect(message).toContain("明确放弃（后续不要恢复）：\n- 废弃旧组织")
+    expect(message).toContain("故事结构")
+    expect(convergenceSourceMatchesPayload(draft, { source_context: { kind: "world_bible_page", page_id: "page-1", baseline: { kind: "draft", page_version: 2, draft_id: "draft-1", draft_updated_at: "t1" } } })).toBe(true)
+    expect(convergenceSourceMatchesPayload(draft, { source_context: { kind: "world_bible_page", page_id: "page-1", baseline: { kind: "draft", page_version: 2, draft_id: "draft-1", draft_updated_at: "t2" } } })).toBe(false)
+  })
+
+  it("builds one ID-free handoff string from the covered convergence snapshot", () => {
+    const draft = convergenceDraftFromResponse({
+      coverage: { complete: true, scope_label: "当前页与对话", source_count: 2, excluded_message_count: 3, manifest_hash: "a".repeat(64) },
+      manifest: [
+        { key: "m1", kind: "conversation", label: "作者目标", content_hash: "1".repeat(64), source_ref: { source_type: "author_message", source_id: "internal-message-id" } },
+        { key: "m2", kind: "source_page", label: "潮港制度", content_hash: "2".repeat(64), source_ref: { source_type: "world_bible_page", source_id: "internal-page-id" } },
+      ],
+      detail_summary: { before_grouping: 2, after_deduplication: 2, retained_in_sources: 0 },
+      decision_cards: [{ card_id: "C1", title: "港口边界", common_ground: ["保留潮汐贸易"], items: [{ item_id: "I1", text: "税率继续开放", suggested_disposition: "open" }], dependencies: [], affected_targets: ["current_world_target"], source_keys: ["m1", "m2"], why_now: "先固定边界" }],
+      source_snapshot: { kind: "world_bible_page", page_id: "internal-page-id", page_version: 3, draft_id: "internal-draft-id", content_hash: "3".repeat(64) },
+    }, { now: () => Date.parse("2026-08-11T10:00:00Z") })
+    const markdown = buildWorldHandoffMarkdown({
+      projectTitle: "长篇项目", targetKind: "world_bible_page", convergenceDraft: draft,
+      sourcePage: { id: "internal-page-id", title: "潮港制度" },
+      sourceDraft: { id: "internal-draft-id", title: "潮港制度", free_text: "港口按潮窗开放。", sections_json: [{ section_id: "internal-section-id", title: "开放边界", body_markdown: "税率尚未决定。", projection_policy: "excluded", sensitivity_hint: "author_only" }] },
+    })
+
+    expect(markdown).toContain("handoff_version: world-handoff-v1")
+    expect(markdown).toContain("港口按潮窗开放")
+    expect(markdown).toContain("不进入普通 AI 上下文；仅作者")
+    expect(markdown).toContain(`SHA-256 ${"2".repeat(64)}`)
+    expect(markdown).toContain("55,000 字符")
+    expect(markdown).toContain("外部回包里的 checks_run")
+    expect(markdown).not.toContain("internal-page-id")
+    expect(markdown).not.toContain("internal-draft-id")
+    expect(markdown).not.toContain("internal-section-id")
+    expect(buildWorldHandoffMarkdown({ convergenceDraft: { ...draft, stale: true } })).toBe("")
+  })
+
+  it("counts Unicode characters, hashes exact bytes, and reads optional packet position", async () => {
+    expect(externalPacketCharacterCount("甲🙂乙")).toBe(3)
+    const first = await hashExternalPacket("回包\n")
+    expect(first).toMatch(/^[0-9a-f]{64}$/)
+    expect(await hashExternalPacket("回包\n")).toBe(first)
+    expect(await hashExternalPacket("回包")).not.toBe(first)
+    expect(parseExternalPacketPosition("packet_index: 2\npacket_total: 5", 1)).toEqual({ packetIndex: 2, packetTotal: 5 })
+    expect(parseExternalPacketPosition("没有包序号", 3)).toEqual({ packetIndex: 3, packetTotal: null })
+  })
+
+  it("keeps multi-packet completion honest and counts exact duplicates as no-op slots", () => {
+    const record = (packetIndex, status = "decision_ready") => ({
+      hash: String(packetIndex).padStart(64, "0"), packetIndex, packetTotal: 5,
+      characterCount: 12, status, previewedAt: packetIndex,
+    })
+    const partial = externalPacketBatchSummary([
+      record(1), record(2), record(4, "exact_duplicate"), record(5, "previewed"),
+    ])
+    expect(partial).toMatchObject({ packetTotal: 5, complete: false, missingPacketIndexes: [3] })
+    expect(partial.label).toContain("缺第 3 包")
+
+    const complete = externalPacketBatchSummary([
+      record(1), record(2), record(3), record(4, "exact_duplicate"), record(5),
+    ])
+    expect(complete).toMatchObject({ packetTotal: 5, complete: true, missingPacketIndexes: [] })
+    expect(complete.label).toContain("5/5")
+  })
+
+  it("builds one confirmed visual purpose from author decisions without promoting image details", () => {
+    const draft = convergenceDraftFromResponse({
+      coverage: { complete: true, scope_label: "白堤当前页", source_count: 1, manifest_hash: "a".repeat(64) },
+      manifest: [{ key: "m1", kind: "source_page", label: "白堤", content_hash: "1".repeat(64) }],
+      decision_cards: [{
+        card_id: "C1", title: "空间边界", common_ground: ["保留三河汇流"], dependencies: [], affected_targets: ["map"], source_keys: ["m1"],
+        items: [
+          { item_id: "I1", text: "保留堤上聚落", suggested_disposition: "include" },
+          { item_id: "I2", text: "邻城方向继续开放", suggested_disposition: "open" },
+          { item_id: "I3", text: "不画正式国界", suggested_disposition: "discard" },
+        ],
+      }],
+      source_snapshot: { kind: "world_bible_page", page_id: "internal-page-id", page_version: 2 },
+    })
+    const brief = visualBriefFromConvergence(draft, { sourceLabel: "白堤 · 已发布世界笔记", sourceTitle: "白堤" })
+    brief.confirmedAt = "2026-08-11T12:00:00.000Z"
+    const handoff = "# AI 小说创作交接快照\n\n- handoff_version: world-handoff-v1\n"
+    const markdown = buildVisualBriefMarkdown({ handoffMarkdown: handoff, visualBrief: brief, convergenceDraft: draft })
+
+    expect(brief).toMatchObject({ purpose: "overview", exactLabels: "白堤", stale: false })
+    expect(brief.mustKeep).toContain("三河汇流")
+    expect(brief.openItems).toContain("邻城方向继续开放")
+    expect(brief.avoid).toContain("不画正式国界")
+    expect(markdown).toContain("brief_version: world-visual-brief-v1")
+    expect(markdown).toContain("候选图核对")
+    expect(markdown).toContain("不创建图片资产")
+    expect(markdown).not.toContain("internal-page-id")
+    expect(buildVisualBriefMarkdown({ handoffMarkdown: handoff, visualBrief: { ...brief, stale: true }, convergenceDraft: draft })).toBe("")
   })
 
   it("keeps viewpoint separate, adds it to character context, and suppresses synopsis", () => {

@@ -29,8 +29,41 @@
         <button class="btn btn-sm" data-action="bible-manage-page-templates" @click="openPageTemplateManager">页面模板</button>
         <button class="btn btn-sm" data-action="bible-open-suggestions" @click="openSuggestions">创设建议</button>
         <button class="btn btn-sm" data-action="bible-open-conflicts" @click="openConflicts">冲突检查</button>
+        <button
+          class="btn btn-sm"
+          data-action="bible-inspect-current-page"
+          :disabled="!activePage && !semanticInspectionPending"
+          @click="inspectCurrentPage"
+        >{{ semanticInspectionPending ? "停止检修" : "检修当前页" }}</button>
       </div>
     </div>
+
+    <details class="panel world-bible-open-questions" data-section="bible-open-questions">
+      <summary>
+        <strong>待我决定</strong>
+        <span class="badge">{{ authorOpenQuestions.length }} 项</span>
+        <span class="world-bible-open-questions__hint">
+          {{ authorOpenQuestions.length
+            ? `来自 ${authorOpenQuestionSourceCount} 个已保存页面`
+            : "当前没有已保存的未决项" }}
+        </span>
+      </summary>
+      <div v-if="authorOpenQuestions.length" class="world-bible-open-questions__list">
+        <button
+          v-for="entry in authorOpenQuestions"
+          :key="entry.key"
+          type="button"
+          class="btn world-bible-open-question"
+          :data-bible-open-question-page-id="entry.pageId || undefined"
+          :data-bible-open-question-draft-id="entry.draftId || undefined"
+          @click="openAuthorOpenQuestion(entry)"
+        >
+          <span>{{ entry.question }}</span>
+          <small>{{ entry.sourceTitle }} · {{ entry.draftId ? "工作稿" : "已发布页" }}</small>
+        </button>
+      </div>
+      <p v-else class="world-bible-empty-hint">AI 保留下来的未决选择会在这里汇总；这里只统计保存过的未勾选项目。</p>
+    </details>
 
     <!-- ==================== display modes ==================== -->
 
@@ -298,7 +331,7 @@
                   <div class="world-bible-sections__header">
                     <div>
                       <strong>页面分区</strong>
-                      <div class="world-bible-page-meta">分区 ID 在发布与恢复时保持稳定，用于 diff 和来源定位。</div>
+                      <div class="world-bible-page-meta">按内容用途分段整理；创作辅助范围和技术标识默认收起。</div>
                     </div>
                     <button class="btn btn-sm" data-action="bible-section-add" @click="addSection">新增分区</button>
                   </div>
@@ -312,7 +345,7 @@
                         :data-section-id="section.section_id"
                       >
                         <div class="world-bible-section-editor__toolbar">
-                          <span class="badge">{{ section.section_id }}</span>
+                          <span class="badge">第 {{ index + 1 }} 节</span>
                           <span class="world-bible-section-editor__actions">
                             <button class="btn btn-sm" data-action="bible-section-up" aria-label="上移分区" @click="moveSection(section.section_id, -1)">↑</button>
                             <button class="btn btn-sm" data-action="bible-section-down" aria-label="下移分区" @click="moveSection(section.section_id, 1)">↓</button>
@@ -321,29 +354,38 @@
                         </div>
                         <div class="generate-form-grid">
                           <label>标题<input class="form-input" data-section-field="title" maxlength="120" :value="section.title" /></label>
-                          <label>类型<select class="form-select" data-section-field="section_type">
-                            <option value="markdown" :selected="section.section_type === 'markdown'">markdown</option>
-                            <option value="checklist" :selected="section.section_type === 'checklist'">checklist</option>
-                            <option value="asset_collection" :selected="section.section_type === 'asset_collection'">asset_collection</option>
-                          </select></label>
-                          <label>敏感度<select class="form-select" data-section-field="sensitivity_hint">
-                            <option value="author_safe" :selected="section.sensitivity_hint === 'author_safe'">author_safe</option>
-                            <option value="author_only" :selected="section.sensitivity_hint === 'author_only'">author_only</option>
-                            <option value="public_baseline" :selected="section.sensitivity_hint === 'public_baseline'">public_baseline</option>
-                          </select></label>
-                          <label>投影<select class="form-select" data-section-field="projection_policy">
-                            <option value="eligible" :selected="section.projection_policy === 'eligible'">eligible</option>
-                            <option value="excluded" :selected="section.projection_policy === 'excluded'">excluded</option>
+                          <label>内容形式<select class="form-select" data-section-field="section_type">
+                            <option value="markdown" :selected="section.section_type === 'markdown'">普通资料</option>
+                            <option value="checklist" :selected="section.section_type === 'checklist'">检查清单</option>
+                            <option value="asset_collection" :selected="section.section_type === 'asset_collection'">资产清单</option>
                           </select></label>
                         </div>
                         <label class="bible-ai-field">
                           分区正文
                           <textarea class="form-textarea" data-section-field="body_markdown" rows="6">{{ section.body_markdown || '' }}</textarea>
                         </label>
-                        <label class="bible-ai-field">
-                          局部引用 hash（每行一个，必须来自页面级引用）
-                          <textarea class="form-textarea" data-section-field="linked_asset_ref_hashes" rows="2">{{ (section.linked_asset_ref_hashes || []).join('\n') }}</textarea>
-                        </label>
+                        <details class="world-bible-section-advanced" data-section="bible-section-advanced">
+                          <summary>创作辅助与高级设置</summary>
+                          <div class="world-bible-section-advanced__body">
+                            <p class="world-bible-page-meta">默认设置适合普通资料。“公开世界常识”只描述故事内的知识范围，不会把页面公开给其他用户；“自动整理”控制页面摘要等派生资料，你显式选择整页作参考时仍可能读取本段。</p>
+                            <div class="generate-form-grid">
+                              <label>默认可见范围<select class="form-select" data-section-field="sensitivity_hint">
+                                <option value="author_safe" :selected="section.sensitivity_hint === 'author_safe'">作者规划可见</option>
+                                <option value="author_only" :selected="section.sensitivity_hint === 'author_only'">仅作者全知任务</option>
+                                <option value="public_baseline" :selected="section.sensitivity_hint === 'public_baseline'">公开世界常识</option>
+                              </select></label>
+                              <label>自动整理<select class="form-select" data-section-field="projection_policy">
+                                <option value="eligible" :selected="section.projection_policy === 'eligible'">允许生成派生资料</option>
+                                <option value="excluded" :selected="section.projection_policy === 'excluded'">不生成派生资料</option>
+                              </select></label>
+                            </div>
+                            <p class="world-bible-page-meta">稳定分区标识：<code>{{ section.section_id }}</code></p>
+                            <label class="bible-ai-field">
+                              局部引用标识（通常无需修改；每行一个，必须来自本页“关联资产”）
+                              <textarea class="form-textarea" data-section-field="linked_asset_ref_hashes" rows="2">{{ (section.linked_asset_ref_hashes || []).join('\n') }}</textarea>
+                            </label>
+                          </div>
+                        </details>
                       </article>
                     </template>
                     <div v-else class="world-bible-empty-hint">暂无分区；旧页面可继续只使用概览。</div>
@@ -409,18 +451,18 @@
             <button class="btn btn-sm" data-action="bible-activation-new" @click="openActivationProfileEditor()">新建</button>
           </div>
           <label class="bible-ai-field">
-            生效规则集
+            规则方案
             <select class="form-select" id="bible-activation-profile" v-model="activeActivationProfileId">
               <option value="">未选择</option>
               <option v-for="prof in activationProfiles" :key="prof.id" :value="prof.id">
-                {{ prof.name }} · v{{ prof.version_number }} · {{ prof.status }}
+                {{ prof.name || '未命名规则方案' }} · 第 {{ prof.version_number }} 版 · {{ activationProfileStatusLabel(prof.status) }}
               </option>
             </select>
           </label>
           <template v-if="currentProfile">
             <div class="world-bible-profile-summary">
-              <div><span class="badge">{{ currentProfile.status }}</span> {{ currentProfile.profile_key }}</div>
-              <div>{{ currentProfile.rules_json?.length || 0 }} 条规则 · {{ (currentProfile.applicable_actions_json || []).join('、') }}</div>
+              <div><span class="badge">{{ activationProfileStatusLabel(currentProfile.status) }}</span> {{ currentProfile.name || '未命名规则方案' }}</div>
+              <div>{{ currentProfile.rules_json?.length || 0 }} 条规则 · 适用于 {{ currentProfile.applicable_actions_json?.length || 0 }} 类 AI 操作</div>
             </div>
             <div class="world-bible-inspector__actions">
               <button class="btn btn-sm" data-action="bible-activation-edit" @click="openActivationProfileEditor(currentProfile)">编辑工作稿</button>
@@ -436,17 +478,17 @@
           <!-- activation trace -->
           <div v-if="activationTrace" class="world-bible-activation-trace">
             <div class="world-bible-section-title">本次参考资料</div>
-            <div v-for="item in (activationTrace.rule_evaluations || [])" :key="item.rule_id" class="world-bible-trace-rule" :class="{ 'is-matched': item.matched }">
-              {{ item.rule_id }} · {{ item.matched ? '命中' : '未命中' }} · {{ item.candidate_count || 0 }} 个候选
-              <div v-if="(item.blocked_clauses || []).length">{{ item.blocked_clauses.join('、') }}</div>
+            <div v-for="(item, index) in (activationTrace.rule_evaluations || [])" :key="item.rule_id || index" class="world-bible-trace-rule" :class="{ 'is-matched': item.matched }">
+              规则 {{ index + 1 }} · {{ item.matched ? '命中' : '未命中' }} · {{ item.candidate_count || 0 }} 个候选
+              <div v-if="(item.blocked_clauses || []).length">{{ item.blocked_clauses.map(activationTraceReasonLabel).join('、') }}</div>
             </div>
             <div class="world-bible-trace-group">
               <strong>已加入 ({{ (activationTrace.items || []).length }})</strong>
               <template v-if="(activationTrace.items || []).length">
                 <div v-for="item in (activationTrace.items || [])" :key="item.label || item.target?.target_id" class="world-bible-trace-item">
-                  <strong>{{ item.label || item.target?.target_id || '未知目标' }}</strong>
-                  <div>{{ item.activation_reason || item.source || '' }} · 参考容量 {{ item.token_after ?? item.token_before ?? 0 }}</div>
-                  <span v-if="item.excluded_reason" class="badge">{{ item.excluded_reason }}</span>
+                  <strong>{{ item.label || '未命名资料' }}</strong>
+                  <div>符合当前参考规则并已加入</div>
+                  <span v-if="item.excluded_reason" class="badge">{{ activationTraceReasonLabel(item.excluded_reason) }}</span>
                 </div>
               </template>
               <div v-else class="world-bible-empty-hint">无</div>
@@ -455,9 +497,8 @@
               <strong>被排除 / 裁剪 ({{ (activationTrace.excluded_items || []).length }})</strong>
               <template v-if="(activationTrace.excluded_items || []).length">
                 <div v-for="item in (activationTrace.excluded_items || [])" :key="item.label || item.target?.target_id" class="world-bible-trace-item">
-                  <strong>{{ item.label || item.target?.target_id || '未知目标' }}</strong>
-                  <div>{{ item.activation_reason || item.source || '' }} · 参考容量 {{ item.token_after ?? item.token_before ?? 0 }}</div>
-                  <span v-if="item.excluded_reason" class="badge">{{ item.excluded_reason }}</span>
+                  <strong>{{ item.label || '未命名资料' }}</strong>
+                  <div>{{ activationTraceReasonLabel(item.excluded_reason) }}</div>
                 </div>
               </template>
               <div v-else class="world-bible-empty-hint">无</div>
@@ -471,7 +512,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { getApi, getRouter, getToast, getConfirm, getShowModalHtml, getCloseModal, getEsc, getErrorLog, getConfirmAction } from "../../../bridge/index.js"
 import { worldSession } from "../worldSession.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
@@ -508,6 +549,7 @@ const {
   projectionTask,
   projectionConflictHint,
   projectionRetryPending,
+  semanticInspectionPending,
 
   pages,
   categories,
@@ -541,6 +583,7 @@ const {
   openInGenerationCenter,
   openSuggestions,
   openConflicts,
+  inspectCurrentPage,
   openCategoryManager,
   openPageTemplateManager,
   openPageHistory,
@@ -565,7 +608,58 @@ const {
 // ---- computed locals ----
 const freeDrafts = computed(() => drafts.value.filter((d) => !d.page_id))
 const canPublish = computed(() => activePage.value?.status !== "archived")
+const authorOpenQuestions = computed(() => {
+  const sources = [
+    ...pages.value
+      .filter((page) => page.status !== "archived")
+      .map((page) => {
+        const draft = draftForPage(page.id)
+        return { source: draft || page, pageId: page.id, draftId: draft?.id || null }
+      }),
+    ...freeDrafts.value.map((draft) => ({ source: draft, pageId: null, draftId: draft.id })),
+  ]
+  return sources.flatMap(({ source, pageId, draftId }) => {
+    const section = source.sections_json?.find((item) => item.section_id === "author-open-questions")
+    if (!section) return []
+    const sourceKey = `${draftId ? "draft" : "page"}:${source.id}`
+    return String(section.body_markdown || "").split(/\r?\n/).flatMap((line, index) => {
+      const match = line.match(/^\s*[-*]\s+\[\s\]\s+(.+?)\s*$/)
+      return match ? [{
+        key: `${sourceKey}:${index}`,
+        sourceKey,
+        question: match[1],
+        sourceTitle: source.title || "未命名页面",
+        pageId,
+        draftId,
+      }] : []
+    })
+  })
+})
+const authorOpenQuestionSourceCount = computed(
+  () => new Set(authorOpenQuestions.value.map((item) => item.sourceKey)).size,
+)
 const currentProfile = computed(() => activationProfiles.value.find((p) => p.id === activeActivationProfileId.value) || null)
+function activationProfileStatusLabel(status) {
+  return ({ draft: "工作稿", published: "已发布", archived: "已归档" })[status] || "状态未知"
+}
+function activationTraceReasonLabel(reason) {
+  return ({
+    rule_disabled: "规则当前未启用",
+    action: "不适用于当前操作",
+    mode: "不适用于当前可见范围",
+    scope_mismatch: "当前任务不适用",
+    positive_not_matched: "关键词未命中",
+    negative_matched: "命中了排除词",
+    reader_cutoff: "超出读者可见范围",
+    character_knowledge_hidden: "超出人物当前认知",
+    target_missing: "资料已不可用",
+    target_archived: "资料已归档",
+    rule_top_k: "超出当前条目数量上限",
+    rule_token_cap: "超出当前参考篇幅",
+    global_budget_evicted: "超出本次总参考篇幅",
+    global_budget_truncated: "因本次总参考篇幅而缩短",
+  })[reason] || "未满足当前参考规则"
+}
 const galleryMeta = computed(() => {
   const meta = typeMeta(galleryCategory.value || "custom")
   return meta
@@ -589,6 +683,20 @@ const sortedSections = computed(() => {
 function draftForPage(pageId) {
   if (!pageId) return null
   return drafts.value.find((d) => d.page_id === pageId) || null
+}
+
+async function openAuthorOpenQuestion(entry) {
+  if (entry.draftId && activeDraft.value?.id !== entry.draftId) openDraft(entry.draftId)
+  if (!entry.draftId && (activePage.value?.id !== entry.pageId || activeDraft.value)) openPageCard(entry.pageId)
+  await nextTick()
+  const opened = entry.draftId
+    ? activeDraft.value?.id === entry.draftId
+    : activePage.value?.id === entry.pageId && !activeDraft.value
+  if (opened) {
+    rootEl.value
+      ?.querySelector('[data-section-id="author-open-questions"]')
+      ?.scrollIntoView?.({ block: "center" })
+  }
 }
 
 // workspace rail key (match vanilla workspaceRailKey)
@@ -623,13 +731,21 @@ const taskStorageKeyValue = computed(() => {
 // ---- activation profile editor ----
 function openActivationProfileEditor(profile = null) {
   const rule = profile?.rules_json?.[0] || null
+  const profileKey = profile?.profile_key || `writing.world_bible.${Date.now().toString(36)}`
+  const action = profile?.applicable_actions_json?.[0] || "writing.generate"
+  const tokenCap = rule?.rank?.token_cap ?? 1200
+  const referenceLengthOptions = [
+    [600, "精简"], [1200, "标准"], [2400, "充分"], [4800, "较长"],
+  ]
+  if (!referenceLengthOptions.some(([value]) => value === tokenCap)) {
+    referenceLengthOptions.unshift([tokenCap, "沿用当前篇幅"])
+  }
   const target = rule?.select?.target_refs?.[0]
     || (activePage.value?.id ? { target_type: "world_bible_page", target_id: activePage.value.id } : {})
   const body = `
-    <p class="world-bible-empty-hint">简单模式支持关键词匹配、固定参考资料、优先级和容量限制；更复杂的规则需在高级工具中处理。</p>
-    <div class="form-group"><label>规则标识</label><input class="form-input" id="bible-profile-key" value="${esc(profile?.profile_key || "writing.world_bible")}" ${profile ? "disabled" : ""} /></div>
+    <p class="world-bible-empty-hint">简单模式支持关键词匹配、固定参考资料、优先程度和参考篇幅；更复杂的规则需在高级工具中处理。</p>
     <div class="form-group"><label>名称</label><input class="form-input" id="bible-profile-name" value="${esc(profile?.name || "场景写作世界资料")}" /></div>
-    <div class="form-group"><label>适用操作</label><input class="form-input" id="bible-profile-action" value="${esc(profile?.applicable_actions_json?.[0] || "writing.generate")}" /></div>
+    <p class="form-help">这套规则用于世界共创、页面建议和相关 AI 操作。</p>
     <div class="form-group"><label>规则名称</label><input class="form-input" id="bible-rule-name" value="${esc(rule?.name || "命中关键词时加入资料")}" /></div>
     <div class="form-group"><label>正向词（逗号分隔）</label><input class="form-input" id="bible-rule-positive" value="${esc((rule?.match?.positive_terms || []).join(","))}" /></div>
     <div class="form-group"><label>排除词（逗号分隔）</label><input class="form-input" id="bible-rule-negative" value="${esc((rule?.match?.negative_terms || []).join(","))}" /></div>
@@ -642,7 +758,7 @@ function openActivationProfileEditor(profile = null) {
     <div class="generate-form-grid">
       <label>优先级<input class="form-input" id="bible-rule-priority" type="number" min="0" max="1000" value="${esc(rule?.rank?.priority ?? 700)}" /></label>
       <label>最多选取条数<input class="form-input" id="bible-rule-top-k" type="number" min="1" max="256" value="${esc(rule?.rank?.top_k ?? 12)}" /></label>
-      <label>参考内容上限<input class="form-input" id="bible-rule-token-cap" type="number" min="64" max="32000" value="${esc(rule?.rank?.token_cap ?? 1200)}" /></label>
+      <label>单次参考篇幅<select class="form-select" id="bible-rule-token-cap">${referenceLengthOptions.map(([value, label]) => `<option value="${value}" ${value === tokenCap ? "selected" : ""}>${label}</option>`).join("")}</select></label>
     </div>
   `
   const showModalHtml = getShowModalHtml()
@@ -650,7 +766,7 @@ function openActivationProfileEditor(profile = null) {
   showModalHtml(profile ? "编辑 AI 参考规则工作稿" : "新建 AI 参考规则", body, [{
     text: "保存工作稿",
     class: "btn-primary",
-    handler: () => saveActivationProfileEditor(profile),
+    handler: () => saveActivationProfileEditor(profile, { profileKey, action }),
   }], { size: "large" })
   mountActivationTargetPicker(target)
 }
@@ -724,15 +840,14 @@ function assetRefSources() {
   ]
 }
 
-async function saveActivationProfileEditor(profile) {
+async function saveActivationProfileEditor(profile, { profileKey, action }) {
   const splitTerms = (id) => String(document.getElementById(id)?.value || "")
     .split(/[,，\n]+/).map((v) => v.trim()).filter(Boolean)
-  const action = document.getElementById("bible-profile-action")?.value?.trim() || ""
   const positive = splitTerms("bible-rule-positive")
   const rawTarget = document.getElementById("bible-rule-target")?.value?.trim() || ""
   const separator = rawTarget.indexOf(":")
-  if (!action || !positive.length || separator < 1) {
-    getToast()("请填写适用操作、至少一个正向词和有效资料目标", "warning")
+  if (!positive.length || separator < 1) {
+    getToast()("请填写至少一个正向词并选择有效资料目标", "warning")
     return
   }
   const rule = {
@@ -752,7 +867,7 @@ async function saveActivationProfileEditor(profile) {
     const api = getApi()
     const saved = profile
       ? await api.context.updateActivationProfile(profile.id, { base_version_number: profile.version_number, name, applicable_actions_json: [action], rules_json: [rule] }, props.projectId)
-      : await api.context.createActivationProfile({ novel_id: props.projectId, profile_key: document.getElementById("bible-profile-key")?.value?.trim() || "", name, applicable_actions_json: [action], rules_json: [rule] })
+      : await api.context.createActivationProfile({ novel_id: props.projectId, profile_key: profileKey, name, applicable_actions_json: [action], rules_json: [rule] })
     closeModal()
     window.__bibleActivationTargetPicker?.destroy?.()
     window.__bibleActivationTargetPicker = null
