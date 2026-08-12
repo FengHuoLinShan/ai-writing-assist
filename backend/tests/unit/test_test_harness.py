@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import shlex
 import subprocess
 import tomllib
@@ -435,3 +436,109 @@ def test_timeout_is_not_forced_onto_explicit_acceptance_layers() -> None:
         command = _make_dry_run(target)
         assert "--timeout" not in command
         assert "--cov" not in command
+
+
+def test_production_toolchain_contract_is_pinned_everywhere() -> None:
+    repo_root = BACKEND_ROOT.parent
+    backend_dockerfile = (BACKEND_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    frontend_dockerfile = (repo_root / "frontend-console" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    workflow = "\n".join(
+        (repo_root / workflow_path).read_text(encoding="utf-8")
+        for workflow_path in (
+            ".github/workflows/backend-ci.yml",
+            ".github/workflows/frontend-ci.yml",
+            ".github/workflows/production-image-ci.yml",
+        )
+    )
+    e2e_workflow = (repo_root / ".github/workflows/backend-postgresql-e2e.yml").read_text(
+        encoding="utf-8"
+    )
+    python_image = (
+        "python:3.14.7-slim-bookworm@sha256:"
+        "23c59390fc717bf09f9336908199a0ae75d9c4264bf296123f94ad772fea3b52"
+    )
+    node_image = (
+        "node:24.19.0-alpine3.23@sha256:"
+        "244cc2b53f46f9e876304391d17682b0ddae9ac33491f4857e25e35a36ba7995"
+    )
+    nginx_image = (
+        "nginx:1.31.3-alpine@sha256:"
+        "4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752"
+    )
+    postgres_image = (
+        "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
+        "7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+    )
+
+    assert backend_dockerfile.count(f"FROM {python_image}") == 2
+    assert "AS build" in backend_dockerfile
+    assert "AS runtime" in backend_dockerfile
+    assert "ARG UV_VERSION=0.12.3" in backend_dockerfile
+    assert "python -m pip uninstall --yes pip" in backend_dockerfile
+    assert "USER app" in backend_dockerfile
+    assert "COPY --from=build --chown=app:app /app /app" in backend_dockerfile
+    assert f"FROM {node_image} AS build" in frontend_dockerfile
+    assert f"FROM {nginx_image}" in frontend_dockerfile
+    assert "asset-manifest.json asset-inventory.txt index.html" in frontend_dockerfile
+    assert "nginx -t" in frontend_dockerfile
+    assert "chown nginx:nginx /run /var/cache/nginx" in frontend_dockerfile
+    assert frontend_dockerfile.rstrip().endswith(
+        "CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"
+    )
+    assert "USER nginx\n\nEXPOSE 8080" in frontend_dockerfile
+
+    assert (BACKEND_ROOT / ".python-version").read_text(encoding="utf-8") == "3.14.7\n"
+    assert (repo_root / "frontend-console/.node-version").read_text(
+        encoding="utf-8"
+    ) == "24.19.0\n"
+    assert workflow.count("runs-on: ubuntu-24.04") == 5
+    assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
+    assert workflow.count('python-version: "3.14.7"') == 3
+    assert e2e_workflow.count('python-version: "3.14.7"') == 1
+    assert workflow.count("prune-cache: true") == 3
+    assert e2e_workflow.count("prune-cache: true") == 1
+    assert len(re.findall(r"uses: actions/setup-node@[0-9a-f]{40}", workflow)) == 2
+    assert workflow.count("node-version-file: frontend-console/.node-version") == 2
+    assert (
+        workflow.count("cache-dependency-path: frontend-console/package-lock.json") == 2
+    )
+    assert workflow.count(f"image: {postgres_image}") == 2
+    assert e2e_workflow.count(f"image: {postgres_image}") == 1
+
+    command = _make_dry_run("test-production-images")
+    assert command.count("docker build") == 2
+    assert command.count("docker run --rm") == 2
+    docker_run_lines = [
+        line for line in command.splitlines() if line.startswith("docker run --rm")
+    ]
+    assert len(docker_run_lines) == 2
+    backend_run, frontend_run = docker_run_lines
+    assert "--entrypoint sh contract-smoke-backend:fixed-toolchain -ec" in backend_run
+    assert "--entrypoint" not in frontend_run
+    assert "contract-smoke-frontend:fixed-toolchain sh -ec" in frontend_run
+    assert command.count("--read-only") == 2
+    assert command.count("--cap-drop ALL") == 2
+    assert command.count("--security-opt no-new-privileges=true") == 2
+    assert "--tmpfs /tmp:mode=1777" in command
+    assert "--tmpfs /run:mode=0755,uid=101,gid=101" in command
+    assert "--tmpfs /var/cache/nginx:mode=0755,uid=101,gid=101" in command
+    assert 'test "$(id -u)" -ne 0' in command
+    assert 'test "$(id -u)" -eq 101' in command
+    assert "CapEff:" in command
+    assert "0000000000000000" in command
+    assert "NoNewPrivs:" in command
+    assert "test ! -w /app" in command
+    assert "test ! -w /usr/share/nginx/html" in command
+    assert "! command -v uv" in command
+    assert "! command -v pip" in command
+    assert "from app.main import app" in command
+    assert "NamedTemporaryFile" in command
+    assert 'Path(\\"/tmp\\")' in command
+    assert "nginx -t" in command
+    assert 'nginx -g "daemon off;" &' in command
+    assert "/healthz" in command
+    assert "/asset-inventory.txt" in command
+    assert "production-image-contract:" in workflow
+    assert "run: make test-production-images" in workflow
