@@ -1128,8 +1128,15 @@ const api = {
       }))
     },
 
-    async publishBibleDraft(draftId, novelId) {
-      return post(withQuery(`/world/bible/drafts/${draftId}/publish`, { novel_id: novelId }))
+    async previewBibleDraftPublishImpact(draftId, novelId) {
+      return request(withQuery(`/world/bible/drafts/${draftId}/publish-impact`, { novel_id: novelId }))
+    },
+
+    async publishBibleDraft(draftId, novelId, expectedImpactScopeHash = null) {
+      return post(withQuery(`/world/bible/drafts/${draftId}/publish`, {
+        novel_id: novelId,
+        expected_impact_scope_hash: expectedImpactScopeHash || undefined,
+      }))
     },
 
     async listBiblePageRevisions(pageId, novelId) {
@@ -1343,6 +1350,10 @@ const api = {
 
     async createKnowledge(characterId, payload, novelId) {
       return post(withQuery(`/world/characters/${characterId}/knowledge`, { novel_id: novelId }), payload)
+    },
+
+    async updateKnowledge(knowledgeId, payload, novelId) {
+      return put(withQuery(`/world/knowledge/${knowledgeId}`, { novel_id: novelId }), payload)
     },
 
     // ============================================================
@@ -1912,6 +1923,30 @@ const api = {
 
     async worldChat(payload, options = {}) {
       return contractJson("generate.worldChat", {}, {}, payload, options)
+    },
+
+    async convergeWorld(payload, options = {}) {
+      return contractJson("generate.convergeWorld", {}, {}, payload, options)
+    },
+
+    async exploreWorld(payload, options = {}) {
+      return contractJson("generate.exploreWorld", {}, {}, payload, options)
+    },
+
+    async inspectWorldPage(payload, options = {}) {
+      return contractJson("generate.inspectWorldPage", {}, {}, payload, options)
+    },
+
+    async askWorld(payload, options = {}) {
+      return contractJson("generate.askWorld", {}, {}, payload, options)
+    },
+
+    async openAskWorldCitation(payload, options = {}) {
+      return contractJson("generate.openAskWorldCitation", {}, {}, payload, options)
+    },
+
+    async saveAskWorldSuggestion(payload, options = {}) {
+      return contractJson("generate.saveAskWorldSuggestion", {}, {}, payload, options)
     },
 
     async generateWorldSuggestion(payload, options = {}) {

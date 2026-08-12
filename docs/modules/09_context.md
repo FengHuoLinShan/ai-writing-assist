@@ -90,6 +90,11 @@ source refs/hash，不把未校验的 chunk text 当作事实。
 grep/search/read/inspect/trace。它不自主选工具，受控 LLM 工作流只能消费
 已编译、已校验的证据包。
 
+作者端“问世界”通过 `retrieve_planned_context_evidence()` 复用同一 RAG 回读路径，再由
+`compile_author_question_evidence()` 对 world 已回读的正式页面和正文证据做稳定排序、去重、
+hash 形状校验与最多 5 个来源／24,000 字符的预算裁剪。返回 trace 只列纳入、排除、缩短和
+篇幅统计，不复制正文；该 helper 不调用 LLM、不判断权威，也不建立第二索引。
+
 `VisibilityContextContract` 支持 `author/reader/character`。reader 必须提供截止章，
 character 还必须提供人物 ID；两者可选同章 Scene/offset 截止。writing、RAG、
 SceneSpan/checkpoint、ReaderRevealPolicy 和 CharacterKnowledge 各层先硬过滤，
@@ -97,6 +102,34 @@ context 返回前再校验 source location。同章无可判定先后、或缺�
 public baseline 的 CharacterKnowledge 默认排除。
 这类保守排除会返回 warning。inspect/trace 会再从 writing 回读 evidence link；
 伪造或失效引用不计入证据，并通过 `index_fresh=false` 与 warnings 报告。
+
+CharacterKnowledge 还会按目标确定性选择唯一 canonical 有效检查点：公开基线从开场生效，
+章节检查点仅在学习章严格早于目标章时生效，多个候选按生效章、更新时间和稳定 ID 决胜，
+不依赖数据库返回顺序。`false_belief` / `misunderstood` 只提供明确填写的误解内容；缺失时
+失败关闭，不以作者知道的真实内容兜底。
+
+只在 `writing.generate + scene_id + reveal_mode=character` 中，context 才经
+`memory.facade.ensure_scene_checkpoints()` 编译 P0 `scene_world_state`。system
+`ready` 或明确人工确认的 `entities / relations / locations / map` 会以
+`director_only` 进入模型；`knowledge` 维度只显示 coverage，角色所信仍只由
+CharacterKnowledge 决定。`retry_pending / manual_required / gap` 以及当前相关
+对象未命中 checkpoint 的项不进入模型；后者只在作者 UI 标为“尚无时间锚”，
+不表示当时不存在。普通 author-safe 写作目前只获得 `memory_records`
+dict/list 形状修正，不宣称有完整历史门禁。
+
+新确认把五维 checkpoint ID/status 的排序 SHA-256 写入可选
+`compile_options.scene_state_fingerprint`。回放时任一 checkpoint 被重建或人工修复即
+拒绝旧确认；旧记录没有该字段仍可回放。这里借鉴
+[KurrentDB projection/checkpoint](https://docs.kurrent.io/server/v26.1/features/projections/intro)
+的派生投影纪律和
+[optimistic concurrency](https://docs.kurrent.io/getting-started/concepts)
+的期望版本思路，但不引入事件数据库。
+[XTDB 的 valid time / system time](https://docs.xtdb.com/about/time-in-xtdb.html)
+说明“故事中何时有效”不等于“作者何时修改”；首批只用 Scene 离散锚，不引入
+双时态数据库。[MediaWiki 页面历史](https://www.mediawiki.org/wiki/Help%3AHistory/en)
+只适合对比修订，不能充当故事 valid-time，因此当前 World revision 仅供修复参考。
+全流程的 Scene 选择、事件重放、coverage、修复和指纹核对都是确定步骤，
+因此本轮不引入 Pi 或任何 Agent 运行时。
 
 深度导入在事实写入同一 savepoint 记录 evidence link；quote 只有在当前可见、
 版本绑定的 Scene 原文中唯一命中才可形成 active source ref。无法定位时标记
@@ -136,6 +169,10 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 
 确认弹窗展示的是结构化参考资料清单，不展示 raw Markdown textarea，也不允许用户直接编辑最终 prompt。用户确认的是“本次 AI 调用可参考哪些 section、哪些 section 被裁剪、哪些来源被激活”，不是直接确认一段 prompt 文本。
 
+character 模式下，前端完整展示 `role_visible_knowledge`，并把它与 `director_only` 等
+“仅供作者约束”的 section 分组。作者可从确认弹窗打开既有的人物知识管理器修正检查点；
+修正不会自动重新编译或调用模型，返回后仍需作者明确触发“重新整理”。
+
 `WorldEntitiesLoader` 会把该开关下推为 world facade 的 `include_review`。关闭时查询层只取
 已采用对象；开启时额外取 review 对象但始终排除历史，并在编译结果中加入“包含未采用的
 世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
@@ -174,7 +211,7 @@ V1 复用 `excluded_asset_ids`，新增约定：
 - Phase 3 记录结构分析使用的 working context，并设置 `include_pending_objects=true`。
 - 默认只保存摘要、资产 ID、hash 和 token/section metadata；完整 `rendered_context` 需要调用方显式开启，并由保留策略清理。
 - `context_snapshots` 不替代 `context_confirmations`，也不替代 `memory_snapshots`。
-- 生成中心的对象聊天/建议会为实际编译的世界观背景建立快照，保存实际 synopsis revision/source/block hash、section/token metadata 和产物引用。
+- 生成中心的聊天、只读收束和建议会为实际编译的世界观背景建立快照，保存实际 synopsis revision/source/block hash、section/token metadata 和产物引用。
 
 生成中心背景由 context 内部深模块 `GenerationBackgroundService` 完整拥有：它把 focus
 规范化、tier 编译、渲染、usage/provenance 投影和 durable snapshot request 组装保持在同一

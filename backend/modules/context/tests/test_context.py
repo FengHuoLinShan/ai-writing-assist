@@ -249,17 +249,15 @@ async def test_outline_analysis_related_assets_use_existing_topk(
         scope=options.scope,
         outline_analysis={
             "related_entity_ids": [f"item-{index}" for index in range(20)],
-            "related_character_ids": [
-                f"character-{index}" for index in range(10)
-            ],
+            "related_character_ids": [f"character-{index}" for index in range(10)],
         },
         budget_used={key: 0 for key in CONTEXT_BUDGET},
     )
 
     await WorldEntitiesLoader(fake_world_context).load(db_session, options, bundle)
-    await CharactersLoader(
-        get_characters_context_fn=fake_character_context
-    ).load(db_session, options, bundle)
+    await CharactersLoader(get_characters_context_fn=fake_character_context).load(
+        db_session, options, bundle
+    )
 
     assert seen_entity_ids == [f"item-{index}" for index in range(16)]
     assert seen_character_ids == [f"character-{index}" for index in range(6)]
@@ -433,9 +431,7 @@ def test_outline_analysis_sections_keep_scene_order_and_range_visible() -> None:
         by_key["outline_analysis_scenes"].content.index("后发生")
     )
     keys = [section.key for section in sections]
-    assert keys.index("outline_analysis_threads") < keys.index(
-        "outline_analysis_arcs"
-    )
+    assert keys.index("outline_analysis_threads") < keys.index("outline_analysis_arcs")
 
 
 def test_outline_analysis_markdown_uses_author_facing_section_titles() -> None:
@@ -542,6 +538,123 @@ async def test_outline_analysis_replay_rejects_changed_range_context(
 
 
 @pytest.mark.asyncio
+async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
+    db_session: AsyncSession,
+) -> None:
+    from core.errors import ConflictError
+    from modules.context.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+    from modules.context.services.confirmation_service import (
+        ContextConfirmationService,
+    )
+
+    novel_id = str(uuid.uuid4())
+    scene_id = str(uuid.uuid4())
+    await _add_active_project(db_session, novel_id)
+
+    def compiled(suffix: str, *, with_profile: bool = True) -> CompiledContext:
+        sections = []
+        if with_profile:
+            sections.append(
+                ContextSection(
+                    key="role_profile",
+                    tier=Tier.P0,
+                    content="- 姓名: 秦岚",
+                )
+            )
+        sections.append(
+            ContextSection(
+                key="scene_world_state",
+                tier=Tier.P0,
+                content="Scene 时点导演约束",
+                retrieval_metadata={
+                    "checkpoint_versions": [
+                        {
+                            "dimension": dimension,
+                            "id": f"{dimension}-{suffix}",
+                            "status": "ready",
+                        }
+                        for dimension in (
+                            "entities",
+                            "relations",
+                            "locations",
+                            "knowledge",
+                            "map",
+                        )
+                    ]
+                },
+            )
+        )
+        return CompiledContext(
+            sections=sections,
+        )
+
+    class FakeCompiler:
+        current = compiled("original")
+
+        async def compile_with_tiers(self, *_args, **_kwargs):
+            return self.current
+
+    compiler = FakeCompiler()
+    service = ContextConfirmationService(compiler=compiler)
+    confirmation = await service.confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="生成角色视角正文",
+        scope="chapter",
+        scene_id=scene_id,
+        reveal_mode="character",
+        viewpoint_character_id=str(uuid.uuid4()),
+    )
+
+    assert confirmation.compile_options["scene_state_fingerprint"]
+    compiler.current = compiled("changed")
+    with pytest.raises(ConflictError, match="Scene time state changed") as conflict:
+        await service.compile_from_confirmation(
+            db_session,
+            novel_id=novel_id,
+            action="writing.generate",
+            confirmation_id=confirmation.id,
+        )
+    assert conflict.value.status_code == 409
+    assert conflict.value.code == "scene_state_changed"
+
+    record = await service._repo.get(  # noqa: SLF001 - compatibility fixture
+        db_session,
+        uuid.UUID(confirmation.id),
+        novel_id=uuid.UUID(novel_id),
+    )
+    assert record is not None
+    record.compile_options = {
+        key: value
+        for key, value in record.compile_options.items()
+        if key != "scene_state_fingerprint"
+    }
+    await db_session.flush()
+
+    replayed = await service.compile_from_confirmation(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        confirmation_id=confirmation.id,
+    )
+    assert replayed is compiler.current
+
+    compiler.current = compiled("changed", with_profile=False)
+    with pytest.raises(ValueError, match="POV character is unavailable"):
+        await service.compile_from_confirmation(
+            db_session,
+            novel_id=novel_id,
+            action="writing.generate",
+            confirmation_id=confirmation.id,
+        )
+
+
+@pytest.mark.asyncio
 async def test_ranged_outline_analysis_fails_closed_when_range_loader_failed(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -623,7 +736,7 @@ async def test_generation_center_loads_relevance_before_object_topk(
         novel_id=str(uuid.uuid4()),
         task="设计黑曜钥匙",
         scope="generation_center",
-        consumer_action="world.generation.core_entity",
+        consumer_action="world.generation.convergence",
     )
 
     await compiler.compile(db_session, options)
@@ -741,7 +854,7 @@ async def test_generation_center_entity_and_character_selection_uses_relevance_t
         novel_id=str(uuid.uuid4()),
         task="生成世界设定",
         scope="generation_center",
-        consumer_action="world.generation.core_entity",
+        consumer_action="world.generation.convergence",
         entity_ids=["explicit-item"],
         character_ids=["explicit-character"],
     )
@@ -1077,6 +1190,7 @@ class TestConfirmedAiAction:
                 target_type="entity",
                 target_id=target_id,
                 knowledge_level="unknown",
+                status="canonical",
             )
         )
         await db_session.flush()
@@ -1258,9 +1372,7 @@ class TestContextSnapshot:
             novel_id=novel_id,
             snapshot_id=redacted_target.id,
             error_kind=f"provider_error token={secret}",
-            error_message=(
-                f"Authorization: Bearer {secret} api_key={secret}"
-            ),
+            error_message=(f"Authorization: Bearer {secret} api_key={secret}"),
         )
         assert secret not in redacted.error_kind
         assert secret not in redacted.error_message
@@ -2450,8 +2562,7 @@ class TestContextConfirmation:
             "outline_analysis_foreshadowing",
         ):
             lines = [
-                f"{key}-{index}: " + "结构关系与因果变化。" * 30
-                for index in range(4)
+                f"{key}-{index}: " + "结构关系与因果变化。" * 30 for index in range(4)
             ]
             content = "\n".join(lines)
             sections.append(
@@ -2462,8 +2573,7 @@ class TestContextConfirmation:
                     token_count=estimate_token_count(content),
                     truncatable_per_item=True,
                     sources=[
-                        {"type": "test", "id": f"{key}-{index}"}
-                        for index in range(4)
+                        {"type": "test", "id": f"{key}-{index}"} for index in range(4)
                     ],
                 )
             )
@@ -2482,9 +2592,7 @@ class TestContextConfirmation:
         ]
         kept = result.sections[1]
         assert len(kept.content.splitlines()) == 1
-        assert [source["id"] for source in kept.sources] == [
-            "outline_analysis_arcs-0"
-        ]
+        assert [source["id"] for source in kept.sources] == ["outline_analysis_arcs-0"]
         assert {event.section_key for event in result.budget_events} == {
             "outline_analysis_arcs",
             "outline_analysis_threads",
@@ -2530,9 +2638,7 @@ class TestContextConfirmation:
             budget_tokens=50,
         ).enforce_budget()
 
-        assert [section.key for section in result.sections] == [
-            "outline_analysis_range"
-        ]
+        assert [section.key for section in result.sections] == ["outline_analysis_range"]
         assert result.total_tokens == 100
         assert result.evicted_keys == ["outline_analysis_threads"]
         assert result.budget_events[-1].event_type == "evicted"
@@ -3041,8 +3147,6 @@ class TestStructureContextBundle:
 # ============================================================
 
 
-
-
 # ============================================================
 # GeoReachabilityFilter 测试
 # ============================================================
@@ -3122,6 +3226,7 @@ async def _setup_character_knowledge(
             known_content=known_content,
             misconception=misconception,
             source_chapter_index=1,
+            status="canonical",
         )
     )
     await db_session.flush()
@@ -3235,6 +3340,9 @@ class TestContextApiIntegration:
         text = _response_text(data)
         assert hidden_truth not in text
         assert misconception in text
+        assert "认知=理解偏了" in text
+        assert "第1章后生效" in text
+        assert "misunderstood" not in text
 
     @pytest.mark.asyncio
     async def test_render_endpoint_returns_markdown(

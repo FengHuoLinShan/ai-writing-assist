@@ -1,5 +1,6 @@
 import { renderContextSummary } from "./contextSummaryRenderer.js"
 import { contextContentModeLabel } from "./assetDisplayState.js"
+import { buildMapUrl } from "../views/mapRouteContext.js"
 
 const CANCELLED = "已取消 AI 参考资料确认"
 let sessionNumber = 0
@@ -87,7 +88,7 @@ export function confirmAiReference(options) {
         } finally {
           releaseBusy()
         }
-      })
+      }, options)
     }
 
     const refresh = async () => {
@@ -285,10 +286,16 @@ async function loadActivationProfiles(options, root, active) {
   }
 }
 
-function renderSummary(root, confirmation, onExcludeSection) {
+function renderSummary(root, confirmation, onExcludeSection, options = {}) {
   const el = root?.querySelector("#ai-ref-summary")
   if (!el) return
-  el.innerHTML = renderContextSummary(confirmation)
+  const knowledgeRepairHref = options.viewpoint_character_id && options.novel_id
+    ? `#workbench/${encodeURIComponent(options.novel_id)}/world/objects?knowledge_character_id=${encodeURIComponent(options.viewpoint_character_id)}`
+    : ""
+  const sceneStateRepairHref = options.scene_id && options.novel_id
+    ? buildMapUrl({ projectId: options.novel_id, sceneId: options.scene_id, mode: "live" })
+    : ""
+  el.innerHTML = renderContextSummary(confirmation, { knowledgeRepairHref, sceneStateRepairHref })
   if (!onExcludeSection) return
   el.querySelectorAll("[data-ai-ref-exclude-section]").forEach((button) => {
     button.addEventListener("click", () => {

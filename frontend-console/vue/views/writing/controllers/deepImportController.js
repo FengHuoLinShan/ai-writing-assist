@@ -2,6 +2,7 @@ import {
   clearActiveWorkflow,
   persistActiveWorkflow,
   recoverActiveWorkflows,
+  TASK_CANCELLED_MESSAGE,
 } from "../../../../shared/workflowProgress.js"
 
 const SUPPORTED = new Set([
@@ -262,7 +263,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       await api.tasks.cancel(snapshot.taskId, snapshot.projectId)
       if (!operationIsCurrent(snapshot)) return true
       stop()
-      progress = { ...(progress || {}), phase: "cancelled", status: "cancelled", message: "任务已取消" }
+      progress = { ...(progress || {}), phase: "cancelled", status: "cancelled", message: TASK_CANCELLED_MESSAGE }
       emit()
       return true
     } catch (err) {

@@ -89,6 +89,8 @@ class CompileOptions:
     """预算执行前实际入选的 target hashes"""
     outline_analysis_fingerprint: str | None = None
     """手动大纲分析确认时固定的完整编译上下文指纹"""
+    scene_state_fingerprint: str | None = None
+    """Scene 时点预演确认时固定的五维 checkpoint 指纹"""
 
 
 @dataclass
@@ -377,6 +379,8 @@ class StructureContextBundle:
     """地理地点列表"""
     memory_records: list = field(default_factory=list)
     """长期记忆记录列表"""
+    scene_checkpoint_set: dict | None = None
+    """当前 Scene 的五维记忆 checkpoint 派生投影"""
     timeline_events: list = field(default_factory=list)
     """时间线事件列表"""
     plot_threads: list = field(default_factory=list)

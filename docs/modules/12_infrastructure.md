@@ -72,6 +72,8 @@ project runtime 创建的 client 带有 secret-free `runtime_scope`。managed he
 task-local context collector 聚合这些记录，并在成功、失败和取消路径
 都合并到 result 的 `managed_llm_steps`；记录不包含 API Key、完整
 Base URL/query、prompt 或正文。
+profile 字段来源 `account` 表示项目 owner 当前账户连接，属于受管白名单值；
+只有未登记的动态来源才降级为 `unknown`。
 
 step envelope 可表达 read / suggest / draft / act-with-confirmation 权限，但当前 harness
 明确拒绝 `autonomous`。它记录确定性执行与输出守门，不实现 agent loop、工具自主选择或

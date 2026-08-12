@@ -57,6 +57,25 @@ async function expectNoAppErrors(page, label) {
   expect(appErrors, `${label} 应用错误日志: ${JSON.stringify(appErrors)}`).toHaveLength(0)
 }
 
+async function publishCurrentDraft(page) {
+  const publishedPageResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && response.url().includes("/api/world/bible/drafts/")
+    && response.url().includes("/publish")
+    && response.status() === 200
+  ))
+  await page.locator("[data-action='bible-publish-page']").click()
+  await expect(page.locator(SEL.modalTitle)).toHaveText("发布前影响核对")
+  await page.getByRole("button", { name: "确认发布", exact: true }).click()
+  const publishedPage = await (await publishedPageResponse).json()
+  if (publishedPage.validation_receipt) {
+    await expect(page.locator(SEL.modalTitle)).toHaveText("发布完成 · 检查回执")
+    await page.getByRole("button", { name: "知道了", exact: true }).click()
+  }
+  await expect(page.locator(SEL.modalOverlay)).toBeHidden()
+  return publishedPage
+}
+
 async function stopWorker(worker) {
   if (!worker || worker.exitCode !== null) return
   worker.kill("SIGINT")
@@ -149,13 +168,12 @@ test.describe("世界书工作台", () => {
     await page.locator("[data-action='bible-save-page']").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
     await expect(page.locator("[data-action='bible-publish-page']")).toBeVisible()
-    await page.locator("[data-action='bible-publish-page']").click()
+    await publishCurrentDraft(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 10000 })
     await expect(page.locator(".world-bible-editor-panel > .world-bible-panel__header .world-bible-page-meta")).toContainText("已采用")
 
     await page.locator("[data-action='bible-activation-new']").click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建 AI 参考规则")
-    await page.locator("#bible-profile-key").fill("writing.e2e_trade")
     await page.locator("#bible-profile-name").fill("E2E 贸易规则")
     await page.locator("#bible-rule-positive").fill("北境")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
@@ -167,7 +185,7 @@ test.describe("世界书工作台", () => {
     await page.locator("[data-action='bible-activation-publish']").click()
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("AI 参考规则已发布", { timeout: 10000 })
-    await expect(page.locator(".world-bible-profile-summary")).toContainText("published")
+    await expect(page.locator(".world-bible-profile-summary")).toContainText("已发布")
 
     const displayModes = page.getByRole("group", { name: "世界书展示模式", exact: true })
     const editorMode = displayModes.locator("[data-mode='editor']")
@@ -224,7 +242,7 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(".world-bible-workspace")).toContainText("E2E 世界基本背景")
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await expect(page.locator("[data-section-field='body_markdown']").first()).toHaveValue("北境使用银币进行贸易。")
-    await expect(page.locator("#bible-activation-profile option", { hasText: "E2E 贸易规则" })).toContainText("published")
+    await expect(page.locator("#bible-activation-profile option", { hasText: "E2E 贸易规则" })).toContainText("已发布")
     await expectNoAppErrors(page, "页面刷新恢复后")
 
     await page.locator("[data-action='bible-page-history']").click()
@@ -278,14 +296,7 @@ test.describe("世界书工作台", () => {
     await page.locator("[data-action='bible-new-page']").click()
     await page.locator("#bible-create-title").fill("移动端世界书")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
-    const publishedPageResponse = page.waitForResponse((response) => (
-      response.request().method() === "POST"
-      && response.url().includes("/api/world/bible/drafts/")
-      && response.url().includes("/publish")
-      && response.status() === 200
-    ))
-    await page.locator("[data-action='bible-publish-page']").click()
-    const publishedPage = await (await publishedPageResponse).json()
+    const publishedPage = await publishCurrentDraft(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 10000 })
     const sourcePageId = publishedPage.id || null
     expect(sourcePageId).toBeTruthy()

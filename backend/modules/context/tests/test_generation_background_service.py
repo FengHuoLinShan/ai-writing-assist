@@ -200,6 +200,37 @@ async def test_service_preserves_none_and_empty_context_selection_shapes() -> No
     assert explicit_empty.entity_ids == []
 
 
+async def test_new_world_workflows_keep_generation_scope_and_provenance() -> None:
+    compiler = _ProvenanceCompiler(CompiledContext(sections=[], budget_tokens=4000))
+    service = GenerationBackgroundService(
+        compiler=compiler,
+        renderer=lambda _compiled: "",
+        snapshot_writer=_CapturingSnapshotWriter(),
+    )
+
+    for operation in (
+        "world.generation.exploration",
+        "world.generation.semantic_inspection",
+    ):
+        await service.compile(
+            object(),
+            GenerationBackgroundRequest(
+                novel_id="00000000-0000-0000-0000-00000000c109",
+                task="世界设定流程",
+                operation=operation,
+            ),
+        )
+
+    assert [options.scope for options in compiler.options_history] == [
+        "generation_center",
+        "generation_center",
+    ]
+    assert [options.retrieval_purpose for options in compiler.options_history] == [
+        "world_generation",
+        "world_generation",
+    ]
+
+
 async def test_facade_preserves_none_and_empty_context_selection_shapes(
     monkeypatch,
 ) -> None:
@@ -315,9 +346,12 @@ async def test_snapshot_does_not_claim_unresolved_profile_as_included() -> None:
     assert snapshots.request.compile_options["activation_profile_version"] == 7
     assert snapshots.request.compile_options["activation_profile_rule_hash"] is None
     assert snapshots.request.included_asset_ids["activation_profile"] == []
-    assert snapshots.request.context_summary["actual_included_asset_ids"][
-        "activation_profile"
-    ] == []
+    assert (
+        snapshots.request.context_summary["actual_included_asset_ids"][
+            "activation_profile"
+        ]
+        == []
+    )
 
 
 async def test_snapshot_does_not_claim_truncated_content_as_included() -> None:

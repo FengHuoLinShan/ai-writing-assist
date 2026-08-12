@@ -311,6 +311,11 @@ canonical `contains/contained_in/located_in` 关系关联的直接子地点，�
 `location_entity_ids` 显式加入其他 canonical 地点。candidate 只读预览，不得确认保存。
 替换复用目标地图类型、网格和父层级，并保留底图、覆盖层、标记与领地。
 
+生成中心确认视觉简报后可在原页面复用同一个 quick-create 对话框；视觉简报只提供作者意图与
+来源边界，不改变上述 API payload，也不自动选择或放置地点。打开 context／preview 仍为零写入，
+candidate 仍只读；作者在对话框内点击“创建”才进入既有 confirm。当前地图模块不接收、保存或
+版本化候选图片，图片细节不能作为 observation、fact 或权威状态来源。
+
 ### 原子编辑命令
 
 `POST /{map_id}/editor/apply` 接受 `base_terrain_replace`、地点 layout/binding replace、
@@ -548,6 +553,7 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 - `worldView`：对象行先读取全部 map presence；一张时直接定位，多张时展示地图角色与绑定数量选择器，无 presence 时回退 `open-target`。
 - `writingView`：Scene 面板展示地图摘要、危机、风险和 warning，并通过 `open_target` 打开地图工作台。
 - `mapView`：浏览模式以 typed selection 区分地点、marker、territory、terrain 与底图，fact/observation 仍走 dashboard inspector。地图设置可将既有地图移到其他层级并关联上级地点，后代地图不进入可选父项。Canvas 使用单 RAF、视口裁剪和 revision/viewport 缓存，隐藏、zoom 外和视口外节点不进入绘制队列。
+- 具体地图已选中 Scene 时，同一个 `SceneMemoryRepairPanel` 在“总控台”和“活地图”中可用，不在“叙事透镜”重复展示。AI 参考资料的修复入口通过既有 `buildMapUrl(..., mode='live')` 路由深链接到该面板，未新增路由或 API。
 - 标记编辑器按 `character` / `event` / `item` 过滤同类型世界对象，切换类型时清空旧选择；桌面编辑态释放隐藏动态栏的布局宽度，编辑侧栏在画布高度内独立滚动。
 - 地点标签与聚合簇使用专用 `mapLabels` Leaflet pane；pane 本身不拦截背景，
   仅可交互 marker 消费点击。地点点击先打开信息框，详图/创建预览由信息框内按钮触发。

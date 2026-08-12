@@ -229,6 +229,24 @@ async def retrieve_planned_context_evidence(
     return await PlannedContextRetrievalService().retrieve(db, options)
 
 
+def compile_author_question_evidence(
+    sources: list[dict],
+    *,
+    max_sources: int = 5,
+    max_chars: int = 24_000,
+) -> dict:
+    """Budget hydrated author-visible evidence without exposing prompt internals."""
+    from modules.context.services.author_question_evidence import (
+        compile_author_question_evidence as compile_evidence,
+    )
+
+    return compile_evidence(
+        sources,
+        max_sources=max_sources,
+        max_chars=max_chars,
+    )
+
+
 async def prepare_import_context_activation(
     db: AsyncSession,
     *,
@@ -355,9 +373,7 @@ async def compile_generation_background(
             reference_chapter_index=reference_chapter_index,
             scene_id=scene_id,
             thread_ids=tuple(thread_ids) if thread_ids is not None else None,
-            character_ids=(
-                tuple(character_ids) if character_ids is not None else None
-            ),
+            character_ids=(tuple(character_ids) if character_ids is not None else None),
             entity_ids=tuple(entity_ids) if entity_ids is not None else None,
             source_snapshot=dict(source_snapshot or {}),
         ),

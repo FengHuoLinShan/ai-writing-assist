@@ -27,6 +27,13 @@ function mockVisibilityState(initial = "visible") {
 }
 
 describe("normalizeTaskProgress", () => {
+  it("将取消态说明为停止后续处理并保留已保存阶段", () => {
+    const progress = normalizeTaskProgress({ status: "cancelled", result: { message: "任务已取消" } })
+
+    expect(progress.message).toContain("不会再排下一步")
+    expect(progress.message).toContain("可能不会瞬时断开")
+  })
+
   it("normalizes legacy asset-state words from backend progress text", () => {
     const progress = normalizeTaskProgress({
       id: "task-copy",

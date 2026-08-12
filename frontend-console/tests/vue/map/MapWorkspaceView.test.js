@@ -57,7 +57,17 @@ describe("MapWorkspaceView", () => {
     localStorage.clear()
     resetBridgeOverrides()
     state = { currentProjectId: "p1", currentView: "map" }
-    api = { world: worldApi() }
+    api = {
+      world: worldApi(),
+      memory: {
+        ensureSceneCheckpoints: vi.fn(async () => ({
+          scene_title: "旧桥对峙",
+          coverage_status: "ready",
+          items: [{ dimension: "entities", status: "ready", display_summary: "人物与对象 1 条" }],
+        })),
+        repairSceneCheckpoint: vi.fn(async () => ({})),
+      },
+    }
     router = { navigate: vi.fn(), replace: vi.fn(), getCurrentQuery: () => new URLSearchParams() }
     showModalHtml = vi.fn()
     toast = vi.fn()
@@ -380,6 +390,25 @@ describe("MapWorkspaceView", () => {
     expect(dashboard.attributes("aria-pressed")).toBe("true")
     expect(live.attributes("aria-pressed")).toBe("false")
     expect(lens.attributes("aria-pressed")).toBe("false")
+    wrapper.unmount()
+  })
+
+  it("keeps the existing Scene repair panel available in live mode", async () => {
+    const wrapper = mount(MapWorkspaceView, {
+      attachTo: document.body,
+      props: {
+        projectId: "p1",
+        route: { mapId: "m1", sceneId: "scene-1", mode: "live" },
+        maps: [{ id: "m1", name: "九州" }],
+        locations: [],
+        archivedMaps: [],
+        inbox: {},
+      },
+    })
+
+    await vi.waitFor(() => expect(api.memory.ensureSceneCheckpoints).toHaveBeenCalledWith("p1", "scene-1"))
+    expect(wrapper.get('[data-testid="scene-memory-repair"]').text()).toContain("旧桥对峙")
+    expect(wrapper.get('[data-testid="scene-memory-repair"]').text()).toContain("状态完整")
     wrapper.unmount()
   })
 

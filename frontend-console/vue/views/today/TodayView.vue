@@ -2,34 +2,45 @@
 import { computed } from "vue"
 import { clearActiveWorkflow } from "../../../shared/workflowProgress.js"
 import { getRouter } from "../../bridge/index.js"
+import { writeCreativeContinuation } from "../generate/generateSession.js"
 
 const props = defineProps({
   project: { type: Object, default: null },
   summary: { type: Object, default: null },
   workflows: { type: Array, default: () => [] },
+  creativeContinuation: { type: Object, default: null },
+  worldContinuations: { type: Array, default: () => [] },
+  continuationWarning: { type: String, default: null },
+  worldLoadError: { type: String, default: null },
   loadError: { type: String, default: null },
 })
 
 const router = getRouter()
+const projectId = computed(() => props.summary?.project_id || props.project?.id || null)
 const projectTitle = computed(() => props.project?.title || props.project?.name || "当前作品")
 const continuation = computed(() => props.summary?.continuation || null)
 const writing = computed(() => props.summary?.writing || { chapter_count: 0, word_count: 0 })
 const attention = computed(() => props.summary?.attention || {})
+const primaryWorld = computed(() => props.creativeContinuation || (!continuation.value ? props.worldContinuations[0] || null : null))
+const unfinishedWorld = computed(() => props.worldContinuations.filter((item) => item.key !== primaryWorld.value?.key))
 const importWorkflow = computed(() => (
-  continuation.value
+  continuation.value || primaryWorld.value
     ? null
     : props.workflows.find((workflow) => workflow.workflowType === "deep_import") || null
 ))
 const resumeTitle = computed(() => {
+  if (primaryWorld.value) return primaryWorld.value.title
   if (continuation.value) return continuation.value.title
   if (importWorkflow.value) return "继续整理导入内容"
   return "开始第一章"
 })
 const primaryLabel = computed(() => {
+  if (primaryWorld.value) return primaryWorld.value.destination === "world_suggestion_review" ? "去审查" : "继续创作"
   if (continuation.value) return "继续写作"
   if (importWorkflow.value) return "继续整理"
   return "开始第一章"
 })
+const resumeLabel = computed(() => primaryWorld.value ? "接着上次创作" : "接着上次写")
 const attentionItems = computed(() => [
   { key: "world_objects", label: "人物与设定", value: attention.value.world_objects || 0, view: "world", subView: "review-objects" },
   { key: "world_aliases", label: "别名", value: attention.value.world_aliases || 0, view: "world", subView: "review-aliases" },
@@ -62,11 +73,36 @@ function openWriting() {
 }
 
 function runPrimaryAction() {
+  if (primaryWorld.value) {
+    openCreativeContinuation(primaryWorld.value)
+    return
+  }
   if (importWorkflow.value) {
     openWorkflow(importWorkflow.value)
     return
   }
   openWriting()
+}
+
+function openCreativeContinuation(item) {
+  if (!item) return
+  writeCreativeContinuation(projectId.value, { destination: item.destination, route: item.route })
+  if (item.destination === "generate") {
+    const query = new URLSearchParams({ tab: "world", target: item.route.target })
+    if (item.route.source_page_id) query.set("source_page_id", item.route.source_page_id)
+    router.navigate("generate", null, true, query)
+    return
+  }
+  if (item.destination === "world_bible_draft") {
+    const query = new URLSearchParams({ draft_id: item.route.draft_id })
+    if (item.route.page_id) query.set("page_id", item.route.page_id)
+    router.navigate("world", "bible", true, query)
+    return
+  }
+  router.navigate("world", "bible", true, new URLSearchParams({
+    open: "suggestions",
+    suggestion_id: item.route.suggestion_id,
+  }))
 }
 
 function openAttention(item) {
@@ -123,9 +159,13 @@ function retry() {
 
     <section class="today-resume" aria-labelledby="today-resume-title">
       <div>
-        <span class="today-resume__label">接着上次写</span>
+        <span class="today-resume__label">{{ resumeLabel }}</span>
         <h2 id="today-resume-title">{{ resumeTitle }}</h2>
-        <p v-if="continuation">
+        <template v-if="primaryWorld">
+          <p>{{ primaryWorld.description }}</p>
+          <p v-if="!creativeContinuation">本机未发送的文字和对话不会出现在其他设备。</p>
+        </template>
+        <p v-else-if="continuation">
           第 {{ continuation.chapter_index }} 章
           · {{ continuation.has_unpublished_changes ? '有尚未设为正式正文的修改' : '正文已保存' }}
         </p>
@@ -133,7 +173,7 @@ function retry() {
         <p v-else>准备好第一章后，作品的资料与结构会在创作过程中逐步生长。</p>
         <p v-if="summary" class="today-resume__stats">{{ writing.chapter_count }} 章 · {{ Number(writing.word_count || 0).toLocaleString() }} 字</p>
       </div>
-      <button class="btn btn-primary today-resume__action" type="button" data-action="continue-writing" @click="runPrimaryAction">
+      <button class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : 'continue-writing'" @click="runPrimaryAction">
         {{ primaryLabel }}
       </button>
     </section>
@@ -142,6 +182,28 @@ function retry() {
       <div><strong>作品概览暂时没有更新</strong><p>{{ loadError }} 仍然可以直接进入写作。</p></div>
       <button class="btn btn-sm" type="button" @click="retry">重新加载</button>
     </div>
+
+    <div v-if="continuationWarning || worldLoadError" class="today-inline-warning" role="status">
+      <div><strong>世界设定恢复提示</strong><p v-if="continuationWarning">{{ continuationWarning }}</p><p v-if="worldLoadError">{{ worldLoadError }}</p></div>
+      <button v-if="worldLoadError" class="btn btn-sm" type="button" @click="retry">重新加载</button>
+    </div>
+
+    <section v-if="unfinishedWorld.length" class="today-section" aria-labelledby="today-unfinished-world-title">
+      <div class="today-section__heading">
+        <div>
+          <h2 id="today-unfinished-world-title">未完成创作</h2>
+          <p>{{ creativeContinuation ? '这些服务器工作稿和建议可以稍后继续。' : '服务器工作稿与建议可跨设备继续；本机未发送的文字和对话不会出现在其他设备。' }}</p>
+        </div>
+      </div>
+      <div class="today-workflow-list">
+        <article v-for="item in unfinishedWorld" :key="item.key" class="today-workflow-card">
+          <div class="today-workflow-card__copy"><strong>{{ item.title }}</strong><span>{{ item.description }}</span></div>
+          <div class="today-workflow-card__actions">
+            <button class="btn btn-sm" type="button" @click="openCreativeContinuation(item)">{{ item.destination === 'world_suggestion_review' ? '去审查' : '打开工作稿' }}</button>
+          </div>
+        </article>
+      </div>
+    </section>
 
     <section v-if="summary" class="today-section" aria-labelledby="today-attention-title">
       <div class="today-section__heading">

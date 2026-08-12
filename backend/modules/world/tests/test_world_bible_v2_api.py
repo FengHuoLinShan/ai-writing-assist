@@ -13,10 +13,8 @@ async def test_page_template_and_section_api_workflow(
         params={"novel_id": novel_id},
     )
     assert templates.status_code == 200
-    assert any(
-        item["template_key"] == "world_basic"
-        for item in templates.json()["items"]
-    )
+    template_items = templates.json()["items"]
+    assert any(item["template_key"] == "world_basic" for item in template_items)
 
     created = await async_client.post(
         "/api/world/bible/page-templates",
@@ -81,6 +79,60 @@ async def test_page_template_and_section_api_workflow(
     assert restored.status_code == 200
     assert restored.json()["version_number"] == 3
     assert restored.json()["name"] == "贸易指南"
+
+
+@pytest.mark.asyncio
+async def test_publish_impact_preview_is_project_scoped_and_binds_new_client(
+    async_client: AsyncClient,
+) -> None:
+    first = await async_client.post("/api/projects", json={"title": "影响预演"})
+    second = await async_client.post("/api/projects", json={"title": "另一个项目"})
+    novel_id = first.json()["id"]
+    other_id = second.json()["id"]
+    initial = await async_client.post(
+        "/api/world/bible/drafts",
+        json={
+            "novel_id": novel_id,
+            "title": "道路规则",
+            "page_type": "background",
+        },
+    )
+    published = await async_client.post(
+        f"/api/world/bible/drafts/{initial.json()['id']}/publish",
+        params={"novel_id": novel_id},
+    )
+    working = await async_client.post(
+        "/api/world/bible/drafts",
+        json={"novel_id": novel_id, "page_id": published.json()["id"]},
+    )
+    draft_id = working.json()["id"]
+
+    hidden = await async_client.get(
+        f"/api/world/bible/drafts/{draft_id}/publish-impact",
+        params={"novel_id": other_id},
+    )
+    assert hidden.status_code == 404
+
+    preview = await async_client.get(
+        f"/api/world/bible/drafts/{draft_id}/publish-impact",
+        params={"novel_id": novel_id},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["affected_pages"] == []
+    assert preview.json()["not_checked"]
+
+    republished = await async_client.post(
+        f"/api/world/bible/drafts/{draft_id}/publish",
+        params={
+            "novel_id": novel_id,
+            "expected_impact_scope_hash": preview.json()["impact_scope_hash"],
+        },
+    )
+    assert republished.status_code == 200
+    assert republished.json()["version_number"] == 2
+    assert republished.json()["validation_receipt"]["scope"] == "targeted"
+    assert republished.json()["validation_receipt"]["source_version"] == 2
+    assert "所属领域的完整检查" in republished.json()["validation_receipt"]["not_checked"]
 
 
 @pytest.mark.asyncio

@@ -13,11 +13,69 @@ from modules.world.models import (
 )
 from modules.world.schemas import (
     ConflictQueueResponse,
+    WorldGenerationSemanticInspectionFinding,
+    WorldGenerationSemanticInspectionReceipt,
 )
 from shared.utils import parse_uuid
 
 
 class ConflictQueueService:
+    async def replace_semantic_inspection(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        target: dict[str, Any],
+        target_hash: str,
+        findings: list[WorldGenerationSemanticInspectionFinding],
+        receipt: WorldGenerationSemanticInspectionReceipt,
+    ) -> list[ConflictQueueResponse]:
+        """Replace the pending inspection for one page while retaining history."""
+        nid = parse_uuid(novel_id, "novel_id")
+        result = await db.execute(
+            select(ConflictCheckQueueItem).where(
+                ConflictCheckQueueItem.novel_id == nid,
+                ConflictCheckQueueItem.conflict_type == "semantic_inspection",
+                ConflictCheckQueueItem.status == "pending",
+            )
+        )
+        page_id = str(target.get("page_id") or "")
+        for item in result.scalars().all():
+            if str((item.target or {}).get("page_id") or "") == page_id:
+                item.status = "stale"
+
+        created: list[ConflictCheckQueueItem] = []
+        for finding in findings:
+            item = ConflictCheckQueueItem(
+                novel_id=nid,
+                conflict_type="semantic_inspection",
+                severity=(
+                    "medium" if finding.author_action == "needs_decision" else "low"
+                ),
+                source_module="world.semantic_inspection",
+                target=target,
+                target_hash=target_hash,
+                summary=finding.summary,
+                evidence_refs_json=[
+                    evidence.source_ref.model_dump(mode="json")
+                    for evidence in finding.evidence_refs
+                ],
+                resolution_json={
+                    "author_action": finding.author_action,
+                    "finding_type": finding.finding_type,
+                    "evidence": finding.evidence,
+                    "location": finding.location,
+                    "next_step": finding.next_step,
+                    "source_keys": finding.source_keys,
+                    "receipt": receipt.model_dump(mode="json"),
+                },
+                status="pending",
+            )
+            db.add(item)
+            created.append(item)
+        await db.flush()
+        return [ConflictQueueResponse.model_validate(item) for item in created]
+
     async def list(
         self,
         db: AsyncSession,

@@ -29,7 +29,10 @@ from modules.context.services.snapshot_service import DurableContextSnapshotServ
 _WORLD_GENERATION_OPERATIONS = frozenset(
     {
         "world.generation.chat",
+        "world.generation.convergence",
         "world.generation.core_entity",
+        "world.generation.exploration",
+        "world.generation.semantic_inspection",
         "world.generation.world_bible_page",
     }
 )
@@ -169,9 +172,7 @@ class GenerationBackgroundService:
                 list(request.thread_ids) if request.thread_ids is not None else None
             ),
             character_ids=(
-                list(request.character_ids)
-                if request.character_ids is not None
-                else None
+                list(request.character_ids) if request.character_ids is not None else None
             ),
             entity_ids=(
                 list(request.entity_ids) if request.entity_ids is not None else None
@@ -280,9 +281,8 @@ class GenerationBackgroundService:
             ),
         }
         for section in compiled.sections:
-            if (
-                section.key in content_owned_section_keys
-                and not retained_content(section.key)
+            if section.key in content_owned_section_keys and not retained_content(
+                section.key
             ):
                 continue
             for source in section.sources:

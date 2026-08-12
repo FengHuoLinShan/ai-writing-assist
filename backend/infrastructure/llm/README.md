@@ -80,6 +80,8 @@ OpenAI-compatible SDK 的内建重试固定关闭；普通调用、流式建连�
 `OutputGuard` 是直接使用 `ManagedLLMStep` 时可选的低层 output schema guard；
 `run_managed_structured()` 默认不启用第二层 `OutputGuard`，避免和
 `LLMClient.generate_structured()` 的结构化校验/修复语义重叠。
+受管 provenance 会保留白名单内的字段来源；`account` 表示 provider/model 来自项目
+owner 当前账户连接，不得被净化为 `unknown`。
 
 `context_budget` 默认只作为 step envelope 元数据传入，不会自动截断或重写
 request messages。需要主动裁剪上下文时，应显式使用 `ContextBudgetGuard`。

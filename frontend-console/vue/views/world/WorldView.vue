@@ -12,7 +12,7 @@
         <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界笔记</button>
         <details ref="attentionMenu" class="world-attention-menu">
-          <summary class="subnav-item" :class="{ active: !!reviewSubView }">需要处理 <span class="badge">{{ reviewTotal }}</span></summary>
+          <summary class="subnav-item" :class="{ active: !!reviewSubView }">需要决定 <span class="badge">{{ reviewTotal }}</span></summary>
           <div class="world-attention-menu__panel">
             <button type="button" @click="navigateSub('review-objects')">人物与设定 <strong>{{ reviewCounts.objects || 0 }}</strong></button>
             <button type="button" @click="navigateSub('review-aliases')">别名 <strong>{{ reviewCounts.aliases || 0 }}</strong></button>
@@ -104,6 +104,7 @@ const props = defineProps({
   aliasesLoadError: { type: String, default: null },
   bible: { type: Object, default: null },
   bibleDeepLink: { type: Object, default: () => ({ draftId: "", pageId: "" }) },
+  knowledgeCharacterId: { type: String, default: "" },
 })
 
 const rootEl = ref(null)
@@ -128,9 +129,9 @@ const reviewTotal = computed(() => (
 /** 对应 vanilla _renderHeaderTitle（worldView.js:756-779）。 */
 const headerTitle = computed(() => {
   if (props.subView === "objects") return { text: "人物与设定", count: props.entitiesTotal }
-  if (props.reviewSubView === "review-objects") return { text: "待处理的人物与设定", count: props.candidateTotal }
-  if (props.reviewSubView === "review-aliases") return { text: "待处理别名", count: props.aliasItemTotal }
-  if (props.reviewSubView === "review-relations") return { text: "待处理关系", count: props.relationItemTotal }
+  if (props.reviewSubView === "review-objects") return { text: "待决定的人物与设定", count: props.candidateTotal }
+  if (props.reviewSubView === "review-aliases") return { text: "待决定别名", count: props.aliasItemTotal }
+  if (props.reviewSubView === "review-relations") return { text: "待决定关系", count: props.relationItemTotal }
   if (props.subView === "relations") return { text: "关系", count: props.relationsTotal }
   if (props.subView === "aliases") return { text: "别名", count: props.aliasesTotal }
   return null

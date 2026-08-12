@@ -92,6 +92,10 @@ async def test_undated_confirmed_map_fact_fails_closed_then_manual_repair_rebuil
     assert gap.status == "manual_required"
     assert "缺少 Scene 锚点" in (gap.gap_reason or "")
 
+    rechecked = await service.ensure_scene(db_session, test_project_id, str(first.id))
+    rechecked_gap = next(item for item in rechecked.items if item.dimension == "map")
+    assert rechecked_gap.id == gap.id
+
     repaired = await service.repair(
         db_session,
         test_project_id,
@@ -132,9 +136,7 @@ async def test_undated_confirmed_map_fact_fails_closed_then_manual_repair_rebuil
     third_result = await service.get_scene(db_session, test_project_id, str(third.id))
     third_map = next(item for item in third_result.items if item.dimension == "map")
     assert third_map.status == "ready"
-    assert third_map.state_json["_coverage_confirmed"][
-        "undated_map_fact_count"
-    ] == 1
+    assert third_map.state_json["_coverage_confirmed"]["undated_map_fact_count"] == 1
     snapshots = list(
         (
             await db_session.execute(

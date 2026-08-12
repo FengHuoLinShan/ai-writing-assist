@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -170,6 +170,10 @@ eval-pilot:  ## Generate/judge the 400-raw-case Pilot with resumable local cache
 
 eval-fast:  ## Run deterministic eval toolkit tests without remote LLM calls
 	cd $(BACKEND_DIR) && pytest evals/tests -q
+
+eval-ask-world:  ## Run Ask World API contracts, then the offline evidence-ranking gate
+	cd $(BACKEND_DIR) && pytest modules/world/tests/test_world_generation_center_api.py -k ask_world -q
+	cd $(BACKEND_DIR) && python -m evals.ask_world $(if $(DATASET),$(DATASET),) $(if $(OUTPUT),--output $(OUTPUT),)
 
 eval-context-planner:  ## Compare task-direct and planner-v1 on accepted RAG cases
 	cd $(BACKEND_DIR) && python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json)

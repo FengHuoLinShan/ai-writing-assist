@@ -910,6 +910,21 @@ class SceneCheckpointRepository:
             current.source != "system_generated" or current.confirmed
         ):
             return current
+        if current is not None and current.scene_index == scene_index:
+            comparable_fields = (
+                "status",
+                "state_json",
+                "evidence_refs",
+                "display_summary",
+                "source_hash",
+                "gap_reason",
+                "retry_count",
+            )
+            if all(
+                getattr(current, field) == values.get(field)
+                for field in comparable_fields
+            ):
+                return current
         if current is not None:
             current.is_current = False
             current.status = "superseded"

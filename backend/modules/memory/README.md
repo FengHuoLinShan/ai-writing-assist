@@ -107,6 +107,10 @@ Scene 重提即使返回零 Delta，imports 也会通过
 会作为显式 coverage boundary 传递给所有后续系统 checkpoint；新增未锚定
 事实仍会再次 fail closed。
 
+context 只在带 Scene 的角色视角正文生成确认中消费这份投影。它会调用
+`ensure_scene_checkpoints()`，但不改变 memory 对事件、coverage 和人工修复的所有权；
+当前 World 对象只用来向作者指出未锚定项，不会回写 checkpoint 或填充历史空白。
+
 Facade 只保留跨模块稳定函数名和返回形状；`delta_log` 写入、deep-import 统计和
 provenance 规则由 `MemoryService` 拥有，避免 facade 直接持有 ORM 业务逻辑。
 

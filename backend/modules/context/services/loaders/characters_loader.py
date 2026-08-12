@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from typing import Any
@@ -74,11 +75,32 @@ class CharactersLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
+        try:
+            await self._load(db, options, bundle)
+        except Exception as exc:
+            if options.reveal_mode != "character":
+                raise
+            logger.warning(
+                "Failed to load character knowledge safely: %s",
+                redact_diagnostic(exc, limit=300),
+            )
+            bundle.characters = []
+            bundle.world_entities = []
+            bundle.budget_used["characters"] = 0
+            bundle.warnings.append("人物知识加载失败，已按保守策略排除对象")
+
+    async def _load(
+        self,
+        db: AsyncSession,
+        options: CompileOptions,
+        bundle: StructureContextBundle,
+    ) -> None:
         char_limit = CONTEXT_BUDGET.get("characters", 6)
         relevance_action = options.consumer_action in {
             "writing.generate",
             "outline.analyze",
             "world.generation.chat",
+            "world.generation.convergence",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
         }
@@ -86,6 +108,16 @@ class CharactersLoader(Loader):
             (character_id, "explicit")
             for character_id in dict.fromkeys(options.character_ids or [])
         ]
+        viewpoint_character_id = (
+            options.viewpoint_character_id
+            if isinstance(options.viewpoint_character_id, str)
+            else None
+        )
+        if viewpoint_character_id:
+            candidates = self._merge_candidates(
+                [(viewpoint_character_id, "viewpoint")],
+                candidates,
+            )
 
         if options.character_ids:
             if relevance_action:
@@ -115,10 +147,12 @@ class CharactersLoader(Loader):
             )
             if ctx:
                 characters = [c.model_dump() for c in ctx.characters]
-                rank = {item: index for index, item in enumerate(limited_ids)}
+                rank = {
+                    self._id_key(item): index for index, item in enumerate(limited_ids)
+                }
                 characters.sort(
                     key=lambda item: rank.get(
-                        str(item.get("character_id") or item.get("id") or ""),
+                        self._id_key(item.get("character_id") or item.get("id") or ""),
                         len(rank),
                     )
                 )
@@ -141,6 +175,21 @@ class CharactersLoader(Loader):
             )
 
         # 知识边界过滤：仅在 character reveal 模式下执行，使用视角人物作为过滤主体。
+        loaded_character_ids = {
+            self._id_key(item.get("character_id") or item.get("id") or "")
+            for item in bundle.characters
+            if isinstance(item, dict)
+        }
+        if (
+            options.reveal_mode == "character"
+            and viewpoint_character_id
+            and self._id_key(viewpoint_character_id) not in loaded_character_ids
+        ):
+            bundle.characters = []
+            bundle.world_entities = []
+            bundle.warnings.append("视角人物已不可用，已保守排除人物知识")
+            bundle.budget_used["characters"] = 0
+            return
         if (
             options.reveal_mode == "character"
             and limited_ids
@@ -165,14 +214,13 @@ class CharactersLoader(Loader):
                 # 世界对象字段 (entity_type/entity_id) 需要映射为知识过滤器的
                 # target_type/target_id 才能正确匹配 character_knowledge 记录。
                 # character_knowledge 的 target_type 使用粗粒度分类：
-                # character/location/event 保持原样，其它世界对象统一归为 entity。
+                # CharacterKnowledge 支持的 typed CoreEntity 保持原样，
+                # 其它世界对象统一归为 entity。
                 filter_input: list[dict] = []
                 for ent in bundle.world_entities:
                     mapped = dict(ent)
                     etype = ent.get("entity_type", "")
-                    if etype == "character":
-                        mapped["target_type"] = "character"
-                    elif etype in ("location", "event"):
+                    if etype in {"character", "location", "event", "item", "faction"}:
                         mapped["target_type"] = etype
                     else:
                         mapped["target_type"] = "entity"
@@ -194,7 +242,6 @@ class CharactersLoader(Loader):
                     mapped = dict(ent)
                     mapped.pop("target_type", None)
                     mapped.pop("target_id", None)
-                    mapped.pop("original_content", None)
                     if ent.get("knowledge_level") in {"false_belief", "misunderstood"}:
                         misconception = ent.get("content", "")
                         if misconception:
@@ -234,8 +281,9 @@ class CharactersLoader(Loader):
 
         def add(value: object, reason: str) -> None:
             character_id = str(value or "").strip()
-            if character_id and character_id not in seen:
-                seen.add(character_id)
+            identity = self._id_key(character_id)
+            if character_id and identity not in seen:
+                seen.add(identity)
                 candidates.append((character_id, reason))
 
         def extend(values: object, reason: str) -> None:
@@ -276,9 +324,7 @@ class CharactersLoader(Loader):
 
         # 2. Current Scene, arc, active threads and RAG evidence references.
         analysis = (
-            bundle.outline_analysis
-            if isinstance(bundle.outline_analysis, dict)
-            else {}
+            bundle.outline_analysis if isinstance(bundle.outline_analysis, dict) else {}
         )
         extend(analysis.get("related_character_ids"), "outline_range")
         scene_meta = scene.get("structure_meta") if scene else None
@@ -311,12 +357,21 @@ class CharactersLoader(Loader):
         secondary: list[tuple[str, str]],
     ) -> list[tuple[str, str]]:
         result = list(primary)
-        seen = {item_id for item_id, _reason in result}
+        seen = {CharactersLoader._id_key(item_id) for item_id, _reason in result}
         for item in secondary:
-            if item[0] not in seen:
-                seen.add(item[0])
+            identity = CharactersLoader._id_key(item[0])
+            if identity not in seen:
+                seen.add(identity)
                 result.append(item)
         return result
+
+    @staticmethod
+    def _id_key(value: object) -> str:
+        text = str(value or "").strip()
+        try:
+            return uuid.UUID(text).hex
+        except ValueError:
+            return text
 
     @staticmethod
     def _selection_trace(
@@ -326,22 +381,26 @@ class CharactersLoader(Loader):
         *,
         top_k: int,
     ) -> dict[str, object]:
-        actual = set(actual_ids)
-        selected_ids = {item_id for item_id, _reason in selected}
+        actual = {CharactersLoader._id_key(item_id) for item_id in actual_ids}
+        selected_ids = {
+            CharactersLoader._id_key(item_id) for item_id, _reason in selected
+        }
         included = [
             {"id": item_id, "reason": reason}
             for item_id, reason in selected
-            if item_id in actual
+            if CharactersLoader._id_key(item_id) in actual
         ]
         excluded = [
             {
                 "id": item_id,
                 "reason": reason,
                 "exclusion_reason": (
-                    "not_loaded" if item_id in selected_ids else "top_k"
+                    "not_loaded"
+                    if CharactersLoader._id_key(item_id) in selected_ids
+                    else "top_k"
                 ),
             }
             for item_id, reason in candidates
-            if item_id not in actual
+            if CharactersLoader._id_key(item_id) not in actual
         ]
         return {"top_k": top_k, "included": included, "excluded": excluded}

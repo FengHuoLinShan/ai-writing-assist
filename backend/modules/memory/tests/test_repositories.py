@@ -6,12 +6,65 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.models import DeltaLog, MemorySnapshot
+from modules.memory.models import DeltaLog, MemorySceneCheckpoint, MemorySnapshot
 from modules.memory.repositories import (
     DeltaLogRepository,
     EventRepository,
+    SceneCheckpointRepository,
     SnapshotRepository,
 )
+
+
+class TestSceneCheckpointRepository:
+    async def test_identical_system_replacement_reuses_current_version(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        repo = SceneCheckpointRepository()
+        scene_id = uuid.uuid4()
+        values = {
+            "status": "ready",
+            "confirmed": False,
+            "is_current": True,
+            "state_json": {"entities": {}},
+            "evidence_refs": [],
+            "display_summary": "人物与对象 0 条",
+            "source_hash": "same-projection",
+            "retry_count": 0,
+        }
+
+        first = await repo.replace_system(
+            db_with_project,
+            novel_id=sample_novel_id,
+            scene_id=scene_id,
+            scene_index=0,
+            dimension="entities",
+            values=values,
+        )
+        second = await repo.replace_system(
+            db_with_project,
+            novel_id=sample_novel_id,
+            scene_id=scene_id,
+            scene_index=0,
+            dimension="entities",
+            values=values,
+        )
+
+        assert second.id == first.id
+        rows = list(
+            (
+                await db_with_project.execute(
+                    select(MemorySceneCheckpoint).where(
+                        MemorySceneCheckpoint.novel_id == sample_novel_id,
+                        MemorySceneCheckpoint.scene_id == scene_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rows == [first]
 
 
 class TestEventRepository:
@@ -612,9 +665,7 @@ class TestSnapshotRepository:
             "character_knowledge": [],
         }
         other_novel_id = uuid.uuid4()
-        db_with_project.add(
-            Project(id=other_novel_id, title="另一项目", genre="奇幻")
-        )
+        db_with_project.add(Project(id=other_novel_id, title="另一项目", genre="奇幻"))
         await db_with_project.flush()
         other = await snapshot_repo.create(
             db_with_project,
@@ -748,9 +799,7 @@ class TestSnapshotRepository:
         )
         stale.status = "stale"
         other_novel_id = uuid.uuid4()
-        db_with_project.add(
-            Project(id=other_novel_id, title="另一项目", genre="奇幻")
-        )
+        db_with_project.add(Project(id=other_novel_id, title="另一项目", genre="奇幻"))
         await db_with_project.flush()
         other = await snapshot_repo.create(
             db_with_project,

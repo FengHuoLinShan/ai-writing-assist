@@ -69,6 +69,7 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=
 make test-deploy                 # Deployment static/CLI contracts; no Compose or recovery drill
 make test-production-images      # Build pinned production Dockerfiles and run independent image smoke checks
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
+make eval-ask-world             # Offline Ask World retrieval/citation launch gate
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
 make test-all                    # Fast backend layer, then frontend tests
