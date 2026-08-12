@@ -631,8 +631,8 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
         "c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110"
     )
     nginx_image = (
-        "nginx:1.30.4-alpine@sha256:"
-        "97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46"
+        "nginx:1.31.3-alpine@sha256:"
+        "4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752"
     )
     postgres_image = (
         "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
