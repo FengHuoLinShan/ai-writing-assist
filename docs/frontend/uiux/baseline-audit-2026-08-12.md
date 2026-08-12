@@ -55,7 +55,9 @@
 
 ## 修复记录
 
-（随修复 Task 更新）
+- [G2-1] `writing-desk.css` 为 `.writing-sheet .novel-editor` 补 `:focus-visible` 朱红环
+  （2px `--archive-red`），并在 `tests/editorialTheme.test.js` 加契约断言；
+  vitest 163 文件 / 1799 用例全绿。commit 见本节后记。
 
 ## 最终验证
 
