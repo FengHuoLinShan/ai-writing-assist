@@ -8862,6 +8862,7 @@ kbd {
     align-items: stretch;
     justify-content: flex-end;
   }
+}
 
 /* Tab 面板 */
 .llm-main-tab,
@@ -10690,45 +10691,6 @@ kbd {
   word-break: keep-all;
 }
 
-  #modal-overlay:has(.review-decision-layout) {
-    align-items: stretch;
-    padding: 0;
-  }
-
-  #modal-content.modal-content--large:has(.review-decision-layout) {
-    width: 100vw;
-    max-width: none;
-    max-height: 100vh;
-    border-radius: 0;
-  }
-
-  #modal-content:has(.review-decision-layout) #modal-header,
-  #modal-content:has(.review-decision-layout) #modal-body,
-  #modal-content:has(.review-decision-layout) #modal-footer {
-    padding-inline: var(--space-4);
-  }
-
-  #modal-content:has(.review-decision-layout) #modal-footer .btn,
-  .review-search-bar .btn,
-  .review-search-control .btn,
-  .review-group-card .btn,
-  .review-quick-filters .btn,
-  .review-filter-chip {
-    min-height: 44px;
-  }
-
-  .review-search-bar,
-  .review-search-control {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .review-search-bar .form-input,
-  .review-search-control .form-input {
-    flex-basis: auto;
-  }
-}
-
 /* 自动入库折叠区 */
 .world-batch-group {
   margin-bottom: var(--space-3);
@@ -11378,7 +11340,6 @@ kbd {
   }
 
   .world-bible-panel__actions .btn {
-    min-height: 40px;
     width: 100%;
   }
 

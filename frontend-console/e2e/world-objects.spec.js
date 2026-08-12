@@ -71,7 +71,7 @@ test.describe("世界对象入口", () => {
     await page.locator(SEL.navItem("map")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("地图")
     await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/map`))
-    await expect(page.getByRole("heading", { name: "空间总览" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "AI 地图册" })).toBeVisible()
 
     await page.locator(SEL.navItem("world")).click()
 

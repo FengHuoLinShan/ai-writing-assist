@@ -434,8 +434,8 @@ test.describe("写作台模块", () => {
     expect(geometry).not.toBeNull()
     expect(geometry.cockpitBottom).toBeLessThanOrEqual(geometry.workspaceBottom + 2)
 
-    await page.getByRole("tab", { name: "地图" }).click()
-    await expect(page.getByRole("tab", { name: "地图" })).toHaveClass(/active/)
+    await page.getByRole("tab", { name: "地点" }).click()
+    await expect(page.getByRole("tab", { name: "地点" })).toHaveClass(/active/)
   })
 
   test("专注模式隐藏两侧面板后保持桌面阅读宽度", async ({ page }) => {
