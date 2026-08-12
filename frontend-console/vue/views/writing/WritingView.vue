@@ -9,7 +9,7 @@
       <button class="btn btn-sm btn-primary" @click="vm.createChapter">新建章节</button>
       <details class="writing-page-menu">
         <summary class="btn btn-sm">写作视图</summary>
-        <div class="writing-page-menu__body">
+        <div class="writing-page-menu__body" @click="closeViewMenu">
           <button class="btn btn-sm" @click="vm.toggleFocusMode">{{ vm.focusMode.value ? '退出专注' : '进入专注' }}</button>
           <button class="btn btn-sm" data-action="toggle-outline-float" @click="vm.toggleOutlineFloat">故事结构浮窗</button>
           <button class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
@@ -305,6 +305,10 @@ const stored = (rail, fallback) => {
 }
 const leftRailOpen = ref(stored("chapters", typeof window === "undefined" || window.innerWidth > 760))
 const rightRailOpen = ref(stored("reference", typeof window === "undefined" || window.innerWidth > 1099))
+
+function closeViewMenu(event) {
+  event.currentTarget.closest("details").open = false
+}
 
 function toggleRail(rail) {
   const current = rail === "chapters" ? leftRailOpen : rightRailOpen

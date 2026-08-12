@@ -912,6 +912,11 @@ test.describe("写作台模块", () => {
     const saveBox = await saveButton.boundingBox()
     expect(saveBox).not.toBeNull()
     expect(saveBox.height).toBeGreaterThanOrEqual(44)
+    const actionsBox = await page.locator(".mobile-note-actions").boundingBox()
+    const navigationBox = await page.locator("#sidebar").boundingBox()
+    expect(actionsBox).not.toBeNull()
+    expect(navigationBox).not.toBeNull()
+    expect(actionsBox.y + actionsBox.height).toBeLessThanOrEqual(navigationBox.y)
     await saveButton.click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存到工作稿", {
       timeout: 10000,

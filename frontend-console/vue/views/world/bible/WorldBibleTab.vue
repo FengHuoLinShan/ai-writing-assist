@@ -409,7 +409,7 @@
             <button class="btn btn-sm" data-action="bible-activation-new" @click="openActivationProfileEditor()">新建</button>
           </div>
           <label class="bible-ai-field">
-            Activation Profile
+            生效规则集
             <select class="form-select" id="bible-activation-profile" v-model="activeActivationProfileId">
               <option value="">未选择</option>
               <option v-for="prof in activationProfiles" :key="prof.id" :value="prof.id">

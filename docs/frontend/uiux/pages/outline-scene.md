@@ -214,7 +214,7 @@ move-scene-to-history` 等；模态内 `filter-draft-review-differences`、`canc
 deprecation`、`dismiss/cancel-scene-auto-extract`。
 **data-action（outline）**：`create-thread/create-arc`、`ai-create-plot-thread/ai-create-outline-arc`、
 `analyze-outline`、`plot-structure-auto-extract`、`apply/reset-outline-structure-filters`、
-`retry-outline-load`、`nav-scenes`、`edit/mark-reviewed/delete-arc|thread`、`bulk-toggle-all/
+`retry-outline-load`、`nav-scenes`、`edit/mark-arc-reviewed/mark-thread-reviewed/delete-arc|thread`、`bulk-toggle-all/
 bulk-toggle-one/bulk-run/bulk-clear`、`prev/next-outline-structure-page`、story 的
 `edit/generate/reload/cancel/dismiss/apply/discard/view/restore-story-outline-*`、AI 卡
 `cancel/dismiss-outline-analysis`、`view-outline-generate-preview`。

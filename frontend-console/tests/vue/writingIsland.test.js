@@ -32,6 +32,10 @@ describe("writingIsland", () => {
     content.innerHTML = island.render()
     await island.onRendered()
     await vi.waitFor(() => expect(content.querySelector("#writing-editor")).toBeTruthy())
+    const viewMenu = content.querySelector(".writing-page-menu")
+    viewMenu.open = true
+    viewMenu.querySelector("button").click()
+    expect(viewMenu.open).toBe(false)
     const editor = content.querySelector("#writing-editor")
     editor.value = "未保存正文"
     editor.dispatchEvent(new Event("input"))

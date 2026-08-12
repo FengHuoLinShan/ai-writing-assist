@@ -27,7 +27,7 @@ import {
 // ─── P20 结构层级映射 ─────────────────────────────────
 const P20_TARGET_LABELS = {
   plot_thread: "剧情线",
-  outline_arc: "篇章纲",
+  outline_arc: "篇章",
   planned_scene: "细纲",
 }
 const P20_TARGET_BY_SUBVIEW = {
@@ -417,7 +417,7 @@ export function outlineAnalysisContextSummary(confirmation) {
 // ─── Plot Auto Extract Manager ───────────────────────────────────────────
 
 /**
- * 剧情线/篇章纲自动提取管理器。
+ * 剧情线/篇章自动提取管理器。
  * 终态完成触发 router.refresh()（等价 vanilla onEnter + refresh）。
  */
 export const plotAutoExtractManager = createOutlineWorkflowManager({
@@ -443,7 +443,7 @@ export const plotAutoExtractManager = createOutlineWorkflowManager({
 /** 基于 currentSubView 返回提取动作标签（对应 vanilla _plotAutoExtractLabel L1070-1072）。 */
 export function plotAutoExtractLabel(subView) {
   const s = subView || getAppState()?.currentSubView || "threads"
-  return s === "arcs" ? "从正文提取篇章纲" : "从正文提取剧情线"
+  return s === "arcs" ? "从正文提取篇章" : "从正文提取剧情线"
 }
 
 // ─── 当前 P20 target 辅助 ────────────────────────────────────────────────

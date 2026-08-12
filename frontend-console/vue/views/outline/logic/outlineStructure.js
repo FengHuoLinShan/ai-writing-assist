@@ -20,7 +20,7 @@ export const FORESHADOWING_STATUS_LABELS = { draft: "工作稿", planted: "已�
 export const REVEAL_STATUS_LABELS = { draft: "工作稿", planned: "计划中", revealed: "已揭示", resolved: "已解决", abandoned: "历史" }
 export const P20_TARGET_LABELS = {
   plot_thread: "剧情线",
-  outline_arc: "篇章纲",
+  outline_arc: "篇章",
   planned_scene: "细纲",
 }
 export const P20_TARGET_BY_SUBVIEW = {
@@ -157,7 +157,7 @@ export function structureStatusOptions(subView) {
  *
  * 返回的 key 清单（island 集成用）：
  * - threads: Array — 剧情线列表
- * - arcs: Array — 篇章纲列表
+ * - arcs: Array — 篇章列表
  * - foreshadowing: Array — 伏笔列表
  * - reveals: Array — 揭示列表
  * - unassignedForeshadowing: Array — 未归入剧情线的伏笔
@@ -186,7 +186,7 @@ export async function loadStructureProps({ projectId, subView, filters }) {
   const fetchReveals = subView === "threads"
   const params = structureFilterParams(subView, filters)
   const setError = (sv, err) => {
-    const labels = { threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" }
+    const labels = { threads: "剧情线", arcs: "篇章", foreshadowing: "伏笔", reveals: "揭示" }
     props.structureLoadErrors[sv] = (err?.message || "").trim() || `${labels[sv] || "结构数据"}加载失败`
   }
 

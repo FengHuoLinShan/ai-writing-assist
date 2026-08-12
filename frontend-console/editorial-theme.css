@@ -327,6 +327,40 @@ button.theme-dot {
   box-shadow: none;
 }
 
+.view-header:has(details[open]) {
+  overflow: visible;
+  z-index: 81;
+}
+
+#workspace-content:not([data-workspace-view="project"]) .view-header:has(details[open])::before,
+#workspace-content:not([data-workspace-view="project"]) .view-header:has(details[open])::after {
+  display: none;
+}
+
+#workspace-content:not([data-workspace-view="project"]) .view-header::before {
+  content: "";
+  position: absolute;
+  top: -56px;
+  right: clamp(60px, 13%, 180px);
+  width: 104px;
+  height: 104px;
+  border: 1px solid var(--archive-rule);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+#workspace-content:not([data-workspace-view="project"]) .view-header::after {
+  content: var(--archive-folio);
+  position: absolute;
+  right: 14px;
+  bottom: -14px;
+  color: var(--archive-ink);
+  font: 500 52px/1 var(--font-body);
+  letter-spacing: -0.08em;
+  opacity: 0.065;
+  pointer-events: none;
+}
+
 .view-header__title,
 .view-header h1,
 .view-header h2,
@@ -505,6 +539,20 @@ button:disabled {
   opacity: 0.48;
   box-shadow: none;
   transform: none;
+}
+
+/* 暗夜主题禁用态回归中性纸面：primary/fab 的浅色墨块不退成浅灰 slab */
+[data-theme="night"] .btn:disabled,
+[data-theme="night"] .btn.disabled {
+  border-color: var(--archive-rule);
+  background: var(--archive-paper-raised);
+  color: var(--archive-ink-soft);
+}
+
+[data-theme="night"] .btn-text:disabled,
+[data-theme="night"] .btn-text.disabled {
+  border-color: transparent;
+  background: transparent;
 }
 
 /* ===== 输入与编辑：hairline 边界、焦点用 accent 标出 ===== */
@@ -906,6 +954,107 @@ table tbody tr:hover td {
   color: var(--nc-ink);
 }
 
+/* 重点工作面保留纸面留白，用角标和切线建立各模块自己的档案编号。 */
+#workspace-content[data-workspace-view="rag"] .novel-search-panel,
+#workspace-content[data-workspace-view="generate"] .generate-chat-panel,
+#workspace-content[data-workspace-view="world"] .world-bible-gallery,
+#workspace-content[data-workspace-view="map"] .map-project-inbox {
+  position: relative;
+  background-image:
+    linear-gradient(118deg, transparent 0 84%, var(--archive-red-soft) 84.2% 84.5%, transparent 84.8%),
+    linear-gradient(90deg, transparent 0 94%, var(--archive-grid) 94% 100%);
+}
+
+#workspace-content[data-workspace-view="rag"] .novel-search-panel::after,
+#workspace-content[data-workspace-view="generate"] .generate-chat-panel::after,
+#workspace-content[data-workspace-view="world"] .world-bible-gallery::after {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  color: var(--text-tertiary);
+  font: 8px/1 var(--font-mono);
+  letter-spacing: 0.2em;
+  pointer-events: none;
+}
+
+#workspace-content[data-workspace-view="rag"] .novel-search-panel::after {
+  content: "QUERY / 04";
+}
+
+#workspace-content[data-workspace-view="generate"] .generate-chat-panel::after {
+  content: "CO-CREATION / 07";
+}
+
+#workspace-content[data-workspace-view="world"] .world-bible-gallery::after {
+  content: "WORLD BIBLE / 02";
+}
+
+/* 设置页背景：单色机械水印与电路节点，不进入表单交互层。 */
+#workspace-content[data-workspace-view="settings"]::after,
+#workspace-content[data-workspace-view="project-settings"]::after {
+  content: "⚙︎";
+  top: 42px;
+  right: 0;
+  bottom: auto;
+  left: auto;
+  display: block;
+  box-sizing: border-box;
+  width: min(46vw, 560px);
+  height: 660px;
+  padding: 30px 24px 0 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--archive-ink) 7%, transparent);
+  border: 0;
+  background:
+    radial-gradient(circle at 90% 12%, var(--archive-red) 0 2px, transparent 3px),
+    radial-gradient(circle at 62% 12%, var(--archive-ink) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 62% 35%, var(--archive-red) 0 2px, transparent 3px),
+    radial-gradient(circle at 40% 35%, var(--archive-ink) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 40% 61%, var(--archive-red) 0 2px, transparent 3px),
+    linear-gradient(var(--archive-rule-strong), var(--archive-rule-strong)) 62% 12% / 28% 1px no-repeat,
+    linear-gradient(var(--archive-rule), var(--archive-rule)) 62% 12% / 1px 23% no-repeat,
+    linear-gradient(var(--archive-rule-strong), var(--archive-rule-strong)) 40% 35% / 22% 1px no-repeat,
+    linear-gradient(var(--archive-rule), var(--archive-rule)) 40% 35% / 1px 26% no-repeat,
+    linear-gradient(135deg, transparent 0 49.6%, var(--archive-rule) 49.8% 50.2%, transparent 50.4%) 73% 31% / 112px 112px no-repeat,
+    repeating-linear-gradient(90deg, var(--archive-rule) 0 1px, transparent 1px 17px) 100% 66% / 184px 2px no-repeat;
+  font: 400 clamp(138px, 14vw, 196px)/1 var(--font-body);
+  letter-spacing: 0;
+  text-align: right;
+  text-shadow: -104px 332px 0 color-mix(in srgb, var(--archive-ink) 4.5%, transparent);
+  text-transform: none;
+  opacity: 0.92;
+  pointer-events: none;
+  z-index: 0;
+  /* 装饰线左侧裁切，避免横线穿过设置表单文字（基线审计 2026-08-12；文字可延伸至装饰层 ~38% 处，
+     mask-image 在本伪元素上不生效，故用 clip-path 硬裁） */
+  clip-path: inset(0 0 0 40%);
+}
+
+.global-settings-view,
+.project-settings-view {
+  position: relative;
+  z-index: 1;
+  counter-reset: archive-settings-section;
+}
+
+.global-settings-view .settings-section,
+.project-settings-view .settings-section {
+  counter-increment: archive-settings-section;
+}
+
+.global-settings-view .settings-section::after,
+.project-settings-view .settings-section::after {
+  content: "0" counter(archive-settings-section);
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  color: var(--archive-ink);
+  font: 500 44px/1 var(--font-body);
+  letter-spacing: -0.08em;
+  opacity: 0.055;
+  pointer-events: none;
+}
+
 .world-bible-category-card,
 .world-bible-page-card {
   border-radius: 2px;
@@ -969,7 +1118,7 @@ table tbody tr:hover td {
   .btn-sm,
   .btn-icon,
   .action-menu-btn {
-    min-height: 38px;
+    min-height: 42px;
   }
 
   .input-field,
@@ -992,7 +1141,7 @@ table tbody tr:hover td {
   .subnav-item,
   .generate-subtabs .generate-subtab,
   .settings-tab-nav .tab-btn {
-    min-height: 40px;
+    min-height: 42px;
     scroll-snap-align: start;
   }
 

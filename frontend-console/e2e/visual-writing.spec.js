@@ -110,7 +110,9 @@ test.describe("writing 视觉基线", () => {
     await applyTheme(page, "sticky")
 
     await page.locator(SEL.writingToolbar).getByText("写作视图", { exact: true }).click()
+    await expect(page.locator(SEL.writingToolbar)).toHaveCSS("overflow", "visible")
     await page.locator(SEL.writingToolbar).getByRole("button", { name: "进入专注" }).click()
+    await expect(page.locator(".writing-page-menu")).not.toHaveAttribute("open", "")
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator(SEL.writingTreeRail)).toBeHidden()
     await expect(page.locator(SEL.writingPanelRail)).toBeHidden()
@@ -131,6 +133,7 @@ test.describe("writing 视觉基线", () => {
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await expect(page.locator(SEL.mobileQuickNote)).toBeVisible()
     await expect(page.locator(SEL.mobileNoteEditor)).toHaveValue(/潮声退到石阶之外/)
+    await expect(page.locator(".mobile-note-actions")).toBeInViewport()
     await applyTheme(page, "sticky")
     await screenshotPage(page, "writing-mobile-390-sticky.png")
   })

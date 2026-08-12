@@ -75,11 +75,11 @@
     「专注模式」按钮；`body.focus-mode-active` 下点缀一律隐藏（新增，主规范 §2 点缀系统）；
     持久化与快捷键仍为待办。
 12. **移动速记能力割裂**：mobileMode 下丢失标题编辑、无字数目标、无版本/冲突入口；操作条吸底
-    `bottom:64px` 为避让全局底部导航。（本轮未涉及。）
+    现随工作区剩余高度布局并保持在移动底栏上方，不再重复硬编码底栏高度。
 13. **密度断层**：正文由 17px/1.9 调整为 14px/行高 2.0（§4.2），与章节树（12px 标题/10-11px
     元数据）、copilot 高密度的对比有所缓解；10px 元数据低于主规范字阶下限 11px，仍待归并。
-14. **details 菜单无障碍缺陷**：`.writing-tools-menu` 与 `.writing-page-menu` 用原生 `<details>`，
-    无点击外部关闭、无 `aria-expanded` 同步。（本轮未涉及。）
+14. **details 菜单无障碍缺陷**：`.writing-tools-menu` 与 `.writing-page-menu` 用原生 `<details>`；
+    点击外部关闭已补齐，`aria-expanded` 同步仍待处理。
 15. **空态无插图/icon 体系**：三处空态齐全（ChapterTree / WritingEditor / SceneCockpit）但均未
     使用 `.empty-state .empty-icon`。（本轮未涉及。）
 
