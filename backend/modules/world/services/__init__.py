@@ -18,11 +18,6 @@ from modules.world.services.core.entity_revision_service import EntityRevisionSe
 from modules.world.services.core.entity_service import WorldEntityService
 from modules.world.services.core.entity_stats_service import EntityStatsService
 from modules.world.services.core.event_service import EventService
-from modules.world.services.map.map_config_service import MapConfigService
-from modules.world.services.map.map_location_binding_service import (
-    MapLocationBindingService,
-)
-from modules.world.services.map.map_tile_service import MapTileService
 
 # 去重服务: 仍可通过 modules.world.services.core.dedup_service 直接导入
 # (本文件不重导出以保持 facade 简洁 — 调用方按需 import)
@@ -38,9 +33,6 @@ __all__ = [
     "EventService",
     "CharacterService",
     "CharacterKnowledgeService",
-    "MapConfigService",
-    "MapTileService",
-    "MapLocationBindingService",
     "parse_uuid",
     "normalize_name",
     "merge_text_field",

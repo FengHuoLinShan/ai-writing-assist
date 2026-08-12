@@ -471,7 +471,6 @@ body {
 .generate-subtabs,
 .settings-tab-nav,
 .cockpit-tabs,
-.map-view-modes,
 .world-object-view-toggle {
   gap: 3px;
   padding: 3px;
@@ -485,7 +484,6 @@ body {
 .generate-subtabs .generate-subtab,
 .settings-tab-nav .tab-btn,
 .cockpit-tab,
-.map-view-mode,
 .world-object-view-toggle .btn {
   min-height: 34px;
   padding: 7px 13px;
@@ -502,7 +500,6 @@ body {
 .generate-subtabs .generate-subtab:hover,
 .settings-tab-nav .tab-btn:hover,
 .cockpit-tab:hover,
-.map-view-mode:hover,
 .world-object-view-toggle .btn:hover {
   color: var(--archive-ink);
   border-color: var(--archive-rule);
@@ -513,8 +510,6 @@ body {
 .generate-subtabs .generate-subtab.active,
 .settings-tab-nav .tab-btn.active,
 .cockpit-tab.active,
-.map-view-mode.active,
-.map-view-mode.is-active,
 .world-object-view-toggle .btn.active,
 .world-object-view-toggle .btn[aria-pressed="true"] {
   color: var(--archive-paper-raised);
@@ -809,8 +804,6 @@ input[type="file"]::file-selector-button {
 .scene-detail-panel,
 .scene-workbench__organize,
 .scene-workbench__detail,
-.map-dynamic-panel,
-.map-edit-panel,
 .generate-chat-panel,
 .generate-settings-card,
 .writing-tools-menu__body,
@@ -827,8 +820,6 @@ input[type="file"]::file-selector-button {
 .settings-section,
 .workspace-rail,
 .scene-detail-panel,
-.map-dynamic-panel,
-.map-edit-panel,
 .generate-settings-card {
   position: relative;
 }
@@ -836,7 +827,6 @@ input[type="file"]::file-selector-button {
 .card::before,
 .settings-section::before,
 .scene-detail-panel::before,
-.map-dynamic-panel::before,
 .generate-settings-card::before {
   content: "";
   position: absolute;
@@ -1103,8 +1093,7 @@ table tbody tr:hover td {
 
 /* ===== 页面特化：不改变布局，只统一材质与功能层级 ===== */
 #workspace-content[data-workspace-view="writing"] .writing-workspace-layout,
-#workspace-content[data-workspace-view="scene"] .scene-workbench,
-#workspace-content[data-workspace-view="map"] .map-workspace {
+#workspace-content[data-workspace-view="scene"] .scene-workbench {
   border-top: 1px solid var(--archive-rule-strong);
 }
 
@@ -1122,14 +1111,6 @@ table tbody tr:hover td {
   border-top: 2px solid var(--archive-ink);
 }
 
-#workspace-content[data-workspace-view="map"] .map-canvas,
-#workspace-content[data-workspace-view="map"] .map-leaflet,
-#workspace-content[data-workspace-view="world"][data-workspace-subview="map"] .map-canvas {
-  border: 1px solid var(--archive-rule-strong);
-  border-radius: 2px;
-  background-color: var(--archive-paper-muted);
-}
-
 #workspace-content[data-workspace-view="generate"] .generate-chat-panel {
   border-top: 3px solid var(--archive-ink);
 }
@@ -1143,8 +1124,7 @@ table tbody tr:hover td {
 /* 重点工作面保留纸面留白，用角标和切线建立各模块自己的档案编号。 */
 #workspace-content[data-workspace-view="rag"] .novel-search-panel,
 #workspace-content[data-workspace-view="generate"] .generate-chat-panel,
-#workspace-content[data-workspace-view="world"] .world-bible-gallery,
-#workspace-content[data-workspace-view="map"] .map-project-inbox {
+#workspace-content[data-workspace-view="world"] .world-bible-gallery {
   position: relative;
   background-image:
     linear-gradient(118deg, transparent 0 84%, var(--archive-red-soft) 84.2% 84.5%, transparent 84.8%),

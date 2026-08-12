@@ -139,7 +139,7 @@ test.describe("世界书工作台", () => {
     await expect(page.locator(".world-bible-section-editor")).toHaveCount(1)
     await expect(page.locator("[data-section-field='title']").first()).toHaveValue("货币与交换")
 
-    const freeText = "E2E 世界书正文：种族、势力、历史事件、重要物品和地图事实。"
+    const freeText = "E2E 世界书正文：种族、势力、历史事件和重要物品。"
     await page.locator("#bible-free-text").fill(freeText)
     await page.locator("[data-section-field='body_markdown']").first().fill("北境使用银币进行贸易。")
     await page.locator("[data-action='bible-section-add']").click()

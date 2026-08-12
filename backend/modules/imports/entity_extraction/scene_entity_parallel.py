@@ -364,8 +364,6 @@ class ParallelSceneEntityExtractionMixin:
         total_relations = 0
         total_deltas = 0
         total_uncertain_items = 0
-        map_candidate_created = 0
-        map_candidate_reused = 0
         completed_scenes = 0
         failed_scene_indices: list[int] = []
         unresolved_scene_indices: list[int] = []
@@ -482,23 +480,6 @@ class ParallelSceneEntityExtractionMixin:
                     context_snapshot_id=snapshot_id,
                     result_refs=result_refs,
                 )
-                proposals = getattr(extraction, "map_observation_proposals", None)
-                if isinstance(proposals, list) and proposals:
-                    counts = await service._record_map_observation_proposals(
-                        db,
-                        nid,
-                        proposals,
-                        scene_index=scene_index,
-                        source_chapter_index=item["source_chapter_index"],
-                        workflow_id=workflow_id,
-                        scene_id=scene_id,
-                        scene_source_fingerprint=item["input_fingerprint"],
-                        authorization_snapshot=authorization_snapshot,
-                        context_snapshot_id=snapshot_id,
-                        result_refs=result_refs,
-                    )
-                    map_candidate_created += counts["created"]
-                    map_candidate_reused += counts["reused"]
                 if snapshot_id is not None:
                     from modules.context.facade import succeed_context_snapshot
 
@@ -602,8 +583,6 @@ class ParallelSceneEntityExtractionMixin:
             "total_aliases": 0,
             "total_deltas": total_deltas,
             "total_uncertain_items": total_uncertain_items,
-            "map_observation_candidates_created": map_candidate_created,
-            "map_observation_candidates_reused": map_candidate_reused,
             "total_scenes": len(scenes),
             "degraded": bool(
                 failed_scene_indices

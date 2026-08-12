@@ -34,3 +34,9 @@ class ProjectLLMConfigurationError(ValidationError):
     """The requested project has no usable business LLM profile."""
 
     code = "project_llm_configuration_error"
+
+
+class ProjectImageConfigurationError(ValidationError):
+    """The project's owner has no usable GPT Image 2 connection."""
+
+    code = "project_image_configuration_error"

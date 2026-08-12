@@ -539,36 +539,6 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
     assert task.result["asset_summary"]["adopted"] == 0
 
 
-@pytest.mark.asyncio
-async def test_map_observation_stage_enqueues_separate_non_deep_import_task(
-    async_client: AsyncClient,
-    db_session,
-    sample_project: dict,
-) -> None:
-    novel_id = sample_project["id"]
-
-    response = await async_client.post(
-        "/api/imports/stages/map-observations",
-        json={
-            "novel_id": novel_id,
-            "start_chapter": 1,
-            "end_chapter": 5,
-            "authorization_confirmed": True,
-        },
-    )
-
-    assert response.status_code == 201
-    payload = response.json()
-    assert payload["workflow_type"] == "map_observation_enrichment"
-    assert "不重跑深度导入" in payload["message"]
-    task = await db_session.get(AsyncTask, uuid.UUID(payload["task_id"]))
-    assert task is not None
-    assert task.task_type == "map_observation_enrichment"
-    assert task.meta["stage"] == "map_observations"
-    assert task.meta["high_quality"] is True
-    assert task.meta["authorization_snapshot"]["scope"]["stage"] == ("map_observations")
-    assert task.result["workflow_type"] == "map_observation_enrichment"
-
 
 @pytest.mark.asyncio
 async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
@@ -599,37 +569,6 @@ async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
     )
     assert result.scalars().all() == []
 
-
-@pytest.mark.asyncio
-async def test_map_observation_stage_rejects_missing_llm_key_without_enqueue(
-    async_client: AsyncClient,
-    db_session,
-) -> None:
-    project_resp = await async_client.post(
-        "/api/projects",
-        json={"title": "无 LLM 配置地图补充项目"},
-    )
-    novel_id = project_resp.json()["id"]
-
-    resp = await async_client.post(
-        "/api/imports/stages/map-observations",
-        json={
-            "novel_id": novel_id,
-            "start_chapter": 1,
-            "end_chapter": 5,
-            "authorization_confirmed": True,
-        },
-    )
-
-    assert resp.status_code == 400
-    payload = resp.json()
-    assert payload["error"] == "project_llm_configuration_error"
-    assert "账户模型尚未连接" in payload["detail"]
-    assert "账户设置" in payload["detail"]
-    result = await db_session.execute(
-        select(AsyncTask).where(AsyncTask.meta["novel_id"].as_string() == novel_id)
-    )
-    assert result.scalars().all() == []
 
 
 @pytest.mark.asyncio

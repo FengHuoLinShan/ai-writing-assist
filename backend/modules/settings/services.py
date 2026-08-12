@@ -17,6 +17,7 @@ from infrastructure.llm.balance import (
     query_provider_balance,
 )
 from infrastructure.llm.health import LLMHealthChecker
+from infrastructure.llm.image_client import ImageGenerationError, OpenAIImageClient
 from infrastructure.llm.secret_store import (
     decrypt_secret,
     encrypt_secret,
@@ -43,6 +44,8 @@ from modules.settings.repositories import (
     ProjectAuthorPrefsRepository,
 )
 from modules.settings.schemas import (
+    AccountImageConnectionResponse,
+    AccountImageRuntimeProfile,
     AccountLLMBalanceItem,
     AccountLLMBalancesResponse,
     AccountLLMConnectionsResponse,
@@ -59,6 +62,8 @@ from modules.settings.schemas import (
     ProjectsUsingDefaultsResponse,
 )
 from shared.deep_import_settings import DEEP_IMPORT_SETTINGS_KEY
+
+_IMAGE_PROVIDER_ID = "openai-image"
 
 
 def _current_owner_id(owner_id: uuid.UUID | None = None) -> uuid.UUID:
@@ -104,6 +109,116 @@ class SettingsService:
         self._credential_repo = AccountLLMCredentialRepository()
         self._g_prefs_repo = GlobalAuthorPrefsRepository()
         self._p_prefs_repo = ProjectAuthorPrefsRepository()
+
+    # ----- account image connection -----
+    async def get_account_image_connection(
+        self,
+        db: AsyncSession,
+        owner_id: uuid.UUID | None = None,
+    ) -> AccountImageConnectionResponse:
+        resolved_owner = _current_owner_id(owner_id)
+        row = await self._credential_repo.get(
+            db,
+            resolved_owner,
+            _IMAGE_PROVIDER_ID,
+        )
+        return AccountImageConnectionResponse(
+            connected=row is not None,
+            verified_at=row.verified_at if row is not None else None,
+        )
+
+    async def connect_account_image_provider(
+        self,
+        db: AsyncSession,
+        api_key: str,
+    ) -> AccountImageConnectionResponse:
+        owner_id = _current_owner_id()
+        fingerprint = fingerprint_secret(
+            api_key,
+            purpose="account-image-api-key",
+        )
+        await self._credential_repo.lock_owner_provider(
+            db,
+            owner_id,
+            _IMAGE_PROVIDER_ID,
+        )
+        existing = await self._credential_repo.get(
+            db,
+            owner_id,
+            _IMAGE_PROVIDER_ID,
+        )
+        unchanged_verified = (
+            existing is not None
+            and existing.key_fingerprint == fingerprint
+            and existing.verified_at is not None
+        )
+        if not unchanged_verified:
+            client = OpenAIImageClient(api_key=api_key, timeout=30)
+            try:
+                await client.verify_connection()
+            except ImageGenerationError as exc:
+                raise ValueError(str(exc)) from exc
+            finally:
+                await client.close()
+        now = datetime.now(UTC)
+        await self._credential_repo.upsert(
+            db,
+            {
+                "owner_id": owner_id,
+                "provider_id": _IMAGE_PROVIDER_ID,
+                "encrypted_api_key": (
+                    existing.encrypted_api_key
+                    if unchanged_verified and existing is not None
+                    else encrypt_secret(api_key)
+                ),
+                "key_fingerprint": fingerprint,
+                "verified_at": (
+                    existing.verified_at
+                    if unchanged_verified and existing is not None
+                    else now
+                ),
+            },
+        )
+        return await self.get_account_image_connection(db, owner_id)
+
+    async def clear_account_image_provider(
+        self,
+        db: AsyncSession,
+    ) -> AccountImageConnectionResponse:
+        owner_id = _current_owner_id()
+        await self._credential_repo.lock_owner_provider(
+            db,
+            owner_id,
+            _IMAGE_PROVIDER_ID,
+        )
+        await self._credential_repo.delete(db, owner_id, _IMAGE_PROVIDER_ID)
+        return await self.get_account_image_connection(db, owner_id)
+
+    async def resolve_account_image_runtime_profile(
+        self,
+        db: AsyncSession,
+        *,
+        owner_id: uuid.UUID | None = None,
+    ) -> AccountImageRuntimeProfile:
+        resolved_owner = _current_owner_id(owner_id)
+        row = await self._credential_repo.get(
+            db,
+            resolved_owner,
+            _IMAGE_PROVIDER_ID,
+        )
+        if row is None:
+            raise ValueError(
+                "账户图片服务尚未连接，请先在账户设置中填写 OpenAI API Key"
+            )
+        try:
+            api_key = decrypt_secret(row.encrypted_api_key)
+        except ValueError as exc:
+            raise ValueError("账户图片连接无法读取，请重新填写 API Key") from exc
+        if not api_key:
+            raise ValueError(
+                "账户图片服务尚未连接，请先在账户设置中填写 OpenAI API Key"
+            )
+        return AccountImageRuntimeProfile(api_key=api_key)
 
     # ----- account LLM connections -----
     @staticmethod

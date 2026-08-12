@@ -100,23 +100,6 @@ describe("normalizeTaskProgress", () => {
     expect(progress.resultSummary).toBe("扫描 20，建议 6，疑似重复 5")
   })
 
-  it("renders map observation enrichment as a candidate-only workflow", () => {
-    const progress = normalizeTaskProgress({
-      task_id: "map-task",
-      task_type: "map_observation_enrichment",
-      status: "done",
-      result: {
-        scene_count: 12,
-        candidate_created_count: 18,
-        candidate_reused_count: 2,
-        uncertain_count: 3,
-      },
-    })
-
-    expect(progress.label).toBe("补充地图资料")
-    expect(progress.resultSummary).toBe("检查 12 个场景，新增待处理 18 条，复用待处理 2 条，待判定 3 条")
-  })
-
   it("collects failure details and warnings", () => {
     const progress = normalizeTaskProgress({
       task_id: "t4",

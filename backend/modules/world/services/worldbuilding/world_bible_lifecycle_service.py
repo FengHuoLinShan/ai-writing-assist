@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
-from modules.world.map_models import MapFact
 from modules.world.models import (
     CoreEntity,
     EntityRelation,
@@ -1118,14 +1117,6 @@ class WorldBibleLifecycleService:
                         EntityRelation.id == rid,
                         EntityRelation.novel_id == novel_id,
                         EntityRelation.status == "canonical",
-                    )
-                )
-            elif ref_type == "map_fact":
-                exists = await db.scalar(
-                    select(MapFact.id).where(
-                        MapFact.id == rid,
-                        MapFact.novel_id == novel_id,
-                        MapFact.fact_status == "confirmed",
                     )
                 )
             elif ref_type in {"world_bible_page", "page"}:

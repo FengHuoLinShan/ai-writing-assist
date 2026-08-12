@@ -1,7 +1,7 @@
 # Third-Party Licenses
 
 This inventory covers direct production dependencies at the versions resolved
-by the repository lockfiles on 2026-08-06. Transitive, build, test, and optional
+by the repository lockfiles on 2026-08-12. Transitive, build, test, and optional
 dependencies remain recorded in `backend/uv.lock` and
 `frontend-console/package-lock.json`; their package metadata and license files
 are authoritative if this summary differs.
@@ -10,13 +10,8 @@ are authoritative if this summary differs.
 
 | Component | Locked version | License | Production license asset |
 |---|---:|---|---|
-| Leaflet | 1.9.4 | BSD-2-Clause | `/licenses/leaflet-BSD-2-Clause.txt` |
 | Pinia | 4.0.2 | MIT | package metadata/lockfile |
 | Vue | 3.5.40 | MIT | package metadata/lockfile |
-
-The Leaflet asset is copied byte-for-byte from `node_modules/leaflet/LICENSE`
-during the locked Vite build. Leaflet JavaScript and CSS are served from the
-application origin and loaded only when the map viewport is entered.
 
 ## Backend runtime
 
@@ -24,7 +19,8 @@ application origin and loaded only when the map viewport is entered.
 |---|---:|---|
 | Authlib | 1.7.2 | BSD-3-Clause |
 | Beautiful Soup | 4.15.0 | MIT |
-| chardet | 7.4.3 | 0BSD |
+| Boto3 | 1.43.69 | Apache-2.0 |
+| chardet | 7.5.1 | 0BSD |
 | EbookLib | 0.20 | AGPL-3.0-or-later |
 | FastAPI | 0.141.1 | MIT |
 | email-validator | 2.3.0 | Unlicense |
@@ -32,13 +28,13 @@ application origin and loaded only when the map viewport is entered.
 | SQLAlchemy | 2.0.51 | MIT |
 | asyncpg | 0.31.0 | Apache-2.0 |
 | psycopg2-binary | 2.9.12 | LGPL with exceptions |
-| Alembic | 1.18.5 | MIT |
+| Alembic | 1.19.0 | MIT |
 | pgvector | 0.5.0 | MIT |
 | Pydantic | 2.13.4 | MIT |
-| pydantic-settings | 2.14.2 | MIT |
+| pydantic-settings | 2.15.0 | MIT |
 | python-dotenv | 1.2.2 | BSD-3-Clause |
 | python-multipart | 0.0.32 | Apache-2.0 |
-| OpenAI Python | 2.52.0 | Apache-2.0 |
+| OpenAI Python | 2.53.0 | Apache-2.0 |
 | HTTPX | 0.28.1 | BSD-3-Clause |
 | cryptography | 50.0.0 | Apache-2.0 OR BSD-3-Clause |
 | tiktoken | 0.13.0 | MIT |

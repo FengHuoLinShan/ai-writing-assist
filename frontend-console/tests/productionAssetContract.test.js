@@ -5,8 +5,6 @@ import { resolve } from "node:path"
 
 import {
   ROUTE_ISLAND_KEYS,
-  LEAFLET_LICENSE_PATH,
-  LEAFLET_MANIFEST_KEY,
   MAX_INVENTORY_BYTES,
   MAX_INVENTORY_ENTRIES,
   verifyProductionOutput,
@@ -20,13 +18,8 @@ async function makeOutput({ manifestMutator, extraAsset } = {}) {
   temporaryRoots.push(root)
   await mkdir(resolve(root, "assets"), { recursive: true })
   await mkdir(resolve(root, "shared"), { recursive: true })
-  await mkdir(resolve(root, "licenses"), { recursive: true })
   await writeFile(resolve(root, "styles.css"), "body{}")
   await writeFile(resolve(root, "shared/esc.js"), "")
-  await writeFile(
-    resolve(root, LEAFLET_LICENSE_PATH),
-    "BSD 2-Clause License\nCopyright Volodymyr Agafonkin\n",
-  )
   await writeFile(resolve(root, "index.html"), [
     '<link rel="stylesheet" href="styles.css">',
     '<script src="shared/esc.js"></script>',
@@ -46,20 +39,7 @@ async function makeOutput({ manifestMutator, extraAsset } = {}) {
     manifest[key] = { file: filename, src: key, isDynamicEntry: true }
     await writeFile(resolve(root, filename), `export default ${index}`)
   }
-  manifest[LEAFLET_MANIFEST_KEY] = {
-    file: "assets/leaflet.js",
-    src: LEAFLET_MANIFEST_KEY,
-    isDynamicEntry: true,
-  }
-  manifest["vue/mapIsland.js"].dynamicImports = [LEAFLET_MANIFEST_KEY]
-  await writeFile(resolve(root, "assets/leaflet.js"), "export const version = '1.9.4'")
   await writeFile(resolve(root, "assets/entry.js"), "export default null")
-  manifest["node_modules/leaflet/dist/leaflet.css"] = {
-    file: "assets/leaflet.css",
-    src: "node_modules/leaflet/dist/leaflet.css",
-    isDynamicEntry: true,
-  }
-  await writeFile(resolve(root, "assets/leaflet.css"), ".leaflet-container{}")
   if (extraAsset) await writeFile(resolve(root, extraAsset), "extra")
   manifestMutator?.(manifest)
   await writeFile(resolve(root, "asset-manifest.json"), JSON.stringify(manifest))
@@ -84,7 +64,6 @@ describe("production asset contract", () => {
       "/asset-manifest.json",
       "/asset-inventory.txt",
       "/assets/entry.js",
-      `/${LEAFLET_LICENSE_PATH}`,
       "/shared/esc.js",
     ]))
   })
@@ -106,36 +85,16 @@ describe("production asset contract", () => {
     await expect(verifyProductionOutput(root)).rejects.toThrow(/absent from manifest/)
   })
 
-  it("requires Leaflet to remain an on-demand dependency of only the map island", async () => {
-    const eager = await makeOutput({
-      manifestMutator(manifest) {
-        manifest["index.html"].dynamicImports.push(LEAFLET_MANIFEST_KEY)
-      },
-    })
-    await expect(verifyProductionOutput(eager)).rejects.toThrow(/only by the map route island/)
-
-    const missing = await makeOutput({
-      manifestMutator(manifest) {
-        delete manifest[LEAFLET_MANIFEST_KEY]
-      },
-    })
-    await expect(verifyProductionOutput(missing)).rejects.toThrow(/dynamic Leaflet entry/)
-  })
-
   it("retains the localhost API gate for every generated JavaScript chunk", async () => {
     const root = await makeOutput()
     await writeFile(resolve(root, "assets/entry.js"), "http://localhost:8000/api")
     await expect(verifyProductionOutput(root)).rejects.toThrow(/localhost API defaults/)
   })
 
-  it("rejects external Leaflet references and incomplete production licenses", async () => {
+  it("rejects external package references", async () => {
     const external = await makeOutput()
-    await writeFile(resolve(external, "assets/entry.js"), "https://unpkg.com/leaflet")
+    await writeFile(resolve(external, "assets/entry.js"), "https://unpkg.com/package")
     await expect(verifyProductionOutput(external)).rejects.toThrow(/references unpkg\.com/)
-
-    const invalidLicense = await makeOutput()
-    await writeFile(resolve(invalidLicense, LEAFLET_LICENSE_PATH), "missing notices")
-    await expect(verifyProductionOutput(invalidLicense)).rejects.toThrow(/license is incomplete/)
   })
 
   it("rejects unsafe index references and symlinked manifest assets", async () => {

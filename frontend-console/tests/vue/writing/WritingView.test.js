@@ -3,7 +3,6 @@ import { flushPromises, mount } from "@vue/test-utils"
 import WritingView from "../../../vue/views/writing/WritingView.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { clearWritingSession } from "../../../vue/views/writing/writingSession.js"
-import mapQuickCreateView from "../../../views/mapQuickCreateView.js"
 
 function props(overrides = {}) {
   return {
@@ -47,7 +46,6 @@ describe("WritingView", () => {
     }))
     api.writing.getVersionHistory.mockResolvedValue({ versions: [{ id: "d1", version_number: 1, status: "draft" }] })
     api.writing.listConflictChecks.mockResolvedValue({ items: [] })
-    api.world.getMapSceneSummary.mockResolvedValue({ summary: "安全" })
     confirmMock = vi.fn(() => true)
     confirmActionMock = vi.fn((_message, onConfirm) => onConfirm())
     toastMock = vi.fn()
@@ -204,33 +202,6 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
-  it("从 Scene 地图摘要沿用 open_target 打开精确深链", async () => {
-    globalThis.api.world.getMapSceneSummary.mockResolvedValue({
-      summary: "安全",
-      open_target: {
-        map_id: "m1",
-        scene_id: "s1",
-        focus_entity_id: "e1",
-        focus_path_id: "path1",
-        focus_layer_node_id: "layer1",
-        mode: "map",
-      },
-    })
-    const open = vi.spyOn(window, "open").mockImplementation(() => null)
-    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
-    await flushPromises()
-    await expandWritingCopilot(wrapper)
-    await wrapper.findAll("button").find((button) => button.text() === "地图").trigger("click")
-    await wrapper.find(".writing-map-summary button").trigger("click")
-
-    expect(open).toHaveBeenCalledWith(
-      "#workbench/p1/map?map_id=m1&scene_id=s1&focus_entity_id=e1&focus_path_id=path1&focus_layer_node_id=layer1&mode=live",
-      "_blank",
-      "noopener",
-    )
-    wrapper.unmount()
-  })
-
   it("未选章节时保留项目级提取入口，章节级操作保持禁用", async () => {
     const wrapper = mount(WritingView, { props: props({ requestedLocation: null }), attachTo: document.body })
     await flushPromises()
@@ -286,17 +257,6 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
-  it("组件卸载后丢弃 Scene 晚到响应", async () => {
-    let resolveSummary
-    globalThis.api.world.getMapSceneSummary.mockReturnValue(new Promise((resolve) => { resolveSummary = resolve }))
-    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
-    await vi.waitFor(() => expect(globalThis.api.world.getMapSceneSummary).toHaveBeenCalled())
-    wrapper.unmount()
-    resolveSummary({ summary: "不应写回" })
-    await flushPromises()
-    expect(document.body.textContent).not.toContain("不应写回")
-  })
-
   it("保留原写作台可达命令，对话框仍由 Vue 模板渲染", async () => {
     globalThis.api.writing.getVersionHistory.mockResolvedValue({ versions: [
       { id: "d2", version_number: 2, status: "draft" },
@@ -314,7 +274,7 @@ describe("WritingView", () => {
     const wrapper = mount(WritingView, { props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }), attachTo: document.body })
     await flushPromises()
 
-    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "完整整理", "整理场景", "整理人物、设定与关系", "整理剧情线", "导出本章", "打开地图"]) {
+    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "完整整理", "整理场景", "整理人物、设定与关系", "整理剧情线", "导出本章"]) {
       expect(wrapper.findAll("button").some((button) => button.text() === label)).toBe(true)
     }
 
@@ -621,21 +581,6 @@ describe("WritingView", () => {
       }),
     }))
     expect(toastMock).toHaveBeenCalledWith("已连接到现有“从正文整理场景”任务", "success")
-    wrapper.unmount()
-  })
-
-  it("深导地图下一步从 Vue 入口调用快速创建窄 seam", async () => {
-    const quickCreate = vi.spyOn(mapQuickCreateView, "open").mockResolvedValue(true)
-    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
-    await flushPromises()
-    wrapper.vm.$.setupState.vm.deepImportState.progress = {
-      status: "done",
-      message: "完成",
-      mapNextStep: { action: "quick-create", count: 2 },
-    }
-    await wrapper.vm.$nextTick()
-    await wrapper.findAll("button").find((button) => button.text().includes("一键创建地图")).trigger("click")
-    expect(quickCreate).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", onCreated: expect.any(Function) }))
     wrapper.unmount()
   })
 

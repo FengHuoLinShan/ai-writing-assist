@@ -11,6 +11,7 @@ infrastructure/llm/
 ├── README.md
 ├── __init__.py
 ├── client.py       # LLMClient 主入口
+├── image_client.py # 固定 gpt-image-2 的 Image API adapter
 ├── profiles.py     # 解析、校验与脱敏 LLM Profile
 ├── balance.py      # DeepSeek/Kimi 窄余额查询适配
 ├── providers.py    # Provider 抽象基类 + OpenAI 实现
@@ -31,6 +32,7 @@ infrastructure/llm/
 - 记录 token 和调用耗时
 - 提供受控 LLM step harness，用于 text / structured generation 的统一
   envelope、journal、timeout 和错误分类
+- 提供地图册使用的 `OpenAIImageClient`，支持生成、整图编辑、蒙版、多参考图和连续派生
 
 ## 对外接口
 
@@ -117,6 +119,13 @@ HMAC-SHA256；数据库字段和公开 wire 不变。旧的无密钥 SHA-256 指
 provider 初始化日志只记录固定事件名，不记录 model、完整 endpoint 或动态异常值。进入日志、
 task status 或诊断响应前必须先做 secret redaction 和控制字符规范化；降级日志只允许规范 UUID、
 受限枚举/原因 token 与异常类型，不能记录 exception message。
+
+### 图片客户端
+
+`OpenAIImageClient` 直接使用 OpenAI Images API 并固定 `gpt-image-2`，不经过 Responses API，
+也不建立多 provider registry。业务模块只能通过 `project.facade.open_project_image_client()`
+取得它。adapter 将权限、组织验证、额度、限流、moderation 和可能已计费的失败分开分类；
+`provider_in_flight` 后是否重调由地图册领域状态决定，基础设施不做盲目自动重试。
 
 ### 健康检查边界
 

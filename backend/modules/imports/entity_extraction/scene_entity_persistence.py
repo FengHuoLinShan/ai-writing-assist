@@ -15,7 +15,6 @@ from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     DeltaEvent,
     ExtractedEntity,
-    ExtractedMapObservationProposal,
     ExtractedRelation,
 )
 
@@ -34,22 +33,6 @@ _EXTRACTION_ALIAS_PLACEHOLDERS = frozenset(
         "none",
     }
 )
-
-_MAP_INTENT_META_KEYS = (
-    "map_id",
-    "map_dynamic_type",
-    "dynamic_type",
-    "map_value",
-    "normalized_value",
-)
-
-
-def _delta_event_has_map_intent(meta: dict[str, Any]) -> bool:
-    """Return whether a generic memory delta explicitly carries map semantics."""
-    if any(meta.get(key) not in (None, "", {}, []) for key in _MAP_INTENT_META_KEYS):
-        return True
-    return bool(meta.get("spatial_anchor"))
-
 
 def entity_key(entity_type: str, name: str) -> tuple[str, str]:
     return (entity_type.strip().lower(), " ".join(name.strip().lower().split()))
@@ -1035,10 +1018,7 @@ class SceneEntityPersistenceMixin:
             ingest_delta_events,
             replace_scene_memory_events,
         )
-        from modules.world.facade import create_map_observation_from_delta_event
-
         ingest_events: list[MemoryDeltaEventIngest] = []
-        map_payloads: list[tuple[int, dict[str, Any]]] = []
         for event in delta_events or []:
             event_meta = event.meta or {}
             scene_key = (
@@ -1060,28 +1040,6 @@ class SceneEntityPersistenceMixin:
                     source_chapter_index=source_chapter_index,
                 )
             )
-            source_ref = {
-                "workflow_id": workflow_id,
-                "scene_id": scene_id,
-                "scene_provenance_key": scene_key,
-                "auto_ingested": True,
-            }
-            observation_meta = {
-                **event_meta,
-                "source": "deep_import",
-                "workflow_id": workflow_id,
-                "scene_provenance_key": scene_key,
-                "auto_ingested": True,
-                "source_ref": {
-                    **(event_meta.get("source_ref") or {}),
-                    **source_ref,
-                },
-            }
-            if _delta_event_has_map_intent(event_meta):
-                map_payload = event.model_dump()
-                observation_meta.pop("scene_id", None)
-                map_payload["meta"] = observation_meta
-                map_payloads.append((len(ingest_events) - 1, map_payload))
 
         if not ingest_events and scene_id and source_chapter_index is not None:
             await replace_scene_memory_events(
@@ -1100,86 +1058,7 @@ class SceneEntityPersistenceMixin:
             ingest_events,
             result_refs=result_refs,
         )
-        for delta_index, event_payload in map_payloads:
-            delta = result.delta_logs[delta_index]
-            delta_log_id = delta.get("id")
-            try:
-                observation = await create_map_observation_from_delta_event(
-                    db,
-                    str(nid),
-                    event=event_payload,
-                    scene_index=scene_index,
-                    context_snapshot_id=context_snapshot_id,
-                    delta_log_id=delta_log_id,
-                )
-                if result_refs is not None:
-                    result_refs.append(
-                        build_result_ref("map_observation", observation["id"])
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to create map observation for delta event %s: %s",
-                    redact_diagnostic(event_payload.get("category"), limit=120),
-                    redact_diagnostic(exc, limit=300),
-                )
         return result.count
-
-    async def _record_map_observation_proposals(
-        self,
-        db: AsyncSession,
-        nid,
-        proposals: list[ExtractedMapObservationProposal],
-        *,
-        scene_index: int,
-        source_chapter_index: int | None,
-        workflow_id: str | None,
-        scene_id: str | None,
-        scene_source_fingerprint: str | None,
-        authorization_snapshot: dict[str, Any] | None,
-        context_snapshot_id: str | None = None,
-        result_refs: list[dict[str, str]] | None = None,
-    ) -> dict[str, int]:
-        if not isinstance(proposals, list) or not proposals:
-            return {"created": 0, "reused": 0}
-        if not workflow_id or not scene_id or source_chapter_index is None:
-            raise ValueError(
-                "typed map proposals require workflow_id, scene_id, and source chapter"
-            )
-        if not scene_source_fingerprint:
-            raise ValueError(
-                "typed map proposals require a frozen Scene source fingerprint"
-            )
-        if not isinstance(authorization_snapshot, dict) or not authorization_snapshot:
-            raise ValueError("typed map proposals require an authorization snapshot")
-
-        from modules.imports.map_observation_candidates import (
-            build_map_observation_candidates,
-        )
-        from modules.world.facade import create_map_observation_candidates
-
-        candidates = build_map_observation_candidates(
-            proposals,
-            novel_id=str(nid),
-            workflow_id=workflow_id,
-            scene_id=scene_id,
-            scene_index=scene_index,
-            source_chapter_index=source_chapter_index,
-            scene_source_fingerprint=scene_source_fingerprint,
-            context_snapshot_id=context_snapshot_id,
-            task_id=workflow_id,
-            authorization_snapshot=authorization_snapshot,
-        )
-        result = await create_map_observation_candidates(
-            db,
-            str(nid),
-            candidates=candidates,
-        )
-        if result_refs is not None:
-            result_refs.extend(
-                build_result_ref("map_observation", item.observation_id)
-                for item in result.items
-            )
-        return {"created": result.created_count, "reused": result.reused_count}
 
 
 class SceneEntityPersistenceGateway(SceneEntityPersistenceMixin):
@@ -1202,6 +1081,3 @@ class SceneEntityPersistenceGateway(SceneEntityPersistenceMixin):
 
     async def record_deltas(self, *args, **kwargs):
         return await self._record_deltas(*args, **kwargs)
-
-    async def record_map_observation_proposals(self, *args, **kwargs):
-        return await self._record_map_observation_proposals(*args, **kwargs)

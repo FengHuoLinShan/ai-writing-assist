@@ -27,7 +27,7 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 - 业务逻辑在 `services.py`
 - P20 当前层创作由 `p20_context.py` / `p20_service.py` 编排；`generation/` 只保留深度导入
   Scene 证据结构化与 v1 完成预览兼容
-- 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 rag、world/map 等模块跨 seam 调用
+- 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 rag、world 等模块跨 seam 调用
 
 ## 职责
 
@@ -171,7 +171,7 @@ loader 完成，默认 loader 在调用时 lazy import `modules.outline.facade`�
 - `structure_meta` 保存结构整理元信息，如 `needs_organize`、`reviewed_at`、`merged_into_scene_id`、`merged_from_scene_ids`、`split_from_scene_id`、`split_at_chapter_index`
 - 深度导入 / 手动融合等自动整理来源通过 `source` 与 `structure_meta` / `provenance_meta` 暴露给管理筛选；手动融合新 Scene 使用 `source="manual_fusion"`
 - `scene_chapter_links` 与 `scene_spans` 表达章节映射；旧章卡 JSON 语境不属于当前 ORM schema
-- 写作页、地图摘要、RAG `scene_id` 关联都依赖 `scenes` 表；RAG 精确正文归因通过
+- 写作页与 RAG `scene_id` 关联依赖 `scenes` 表；RAG 精确正文归因通过
   outline facade 只读获取 `SceneSpanContract`
 
 `scene_spans` 不替代 `scene_chunks`，也不是前端编辑入口。`SceneRepository` 按字段责任同步：
@@ -221,7 +221,7 @@ Scene 内容复核由 `scene-workbench/review` 统一设置 `status`、`reviewed
 映射重算，不会因 Scene 已采用而被隐藏。
 
 跨多章 Scene 是正常创作形态，不作为默认风险。合并 / 拆分必须先请求影响预览，
-再二次确认执行；预览只提示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，
+再二次确认执行；预览只提示章节映射、字段、剧情线和伏笔 / 揭示影响，
 不自动阻断。合并来源 Scene 标记为 `deprecated` 而不是硬删除；拆分只调整映射并
 创建新 Scene，不修改正文内容。
 

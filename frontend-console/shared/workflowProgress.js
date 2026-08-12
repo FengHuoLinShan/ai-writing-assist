@@ -12,7 +12,6 @@ const WORKFLOW_LABELS = {
   world_object_auto_extraction: "整理人物、设定与关系",
   world_entity_fusion_suggestions: "世界对象 AI 合并建议",
   plot_structure_auto_extraction: "从正文整理剧情线",
-  map_observation_enrichment: "补充地图资料",
   publish_chapter: "设为正式正文",
   rag_reindex_novel: "修复查找资料",
   rag_retry_embeddings: "修复查找资料",
@@ -150,7 +149,6 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (workflowType === "smart_dedup_scan") return "正在扫描重复资产"
   if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
   if (workflowType === "world_entity_fusion_suggestions") return "正在生成世界对象合并建议"
-  if (workflowType === "map_observation_enrichment") return "正在从既有场景补充地图资料"
   if (workflowType === "plot_structure_auto_extraction") return "正在自动提取剧情线"
   if (workflowType === "publish_chapter") {
     if (percent != null && percent < 50) return "正在存入 RAG 系统"
@@ -230,14 +228,6 @@ function buildResultSummary(result, workflowType) {
   if (workflowType === "world_entity_fusion_suggestions") {
     if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
     return result.summary || null
-  }
-  if (workflowType === "map_observation_enrichment") {
-    const parts = []
-    if (result.scene_count != null) parts.push(`检查 ${result.scene_count} 个场景`)
-    if (result.candidate_created_count != null) parts.push(`新增候选 ${result.candidate_created_count} 条`)
-    if (result.candidate_reused_count) parts.push(`复用候选 ${result.candidate_reused_count} 条`)
-    if (result.uncertain_count) parts.push(`待判定 ${result.uncertain_count} 条`)
-    return parts.length ? parts.join("，") : result.summary || null
   }
   if (workflowType === "deep_import") {
     if (result.summary) return result.summary

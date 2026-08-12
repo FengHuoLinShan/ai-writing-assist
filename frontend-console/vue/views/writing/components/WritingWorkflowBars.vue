@@ -38,16 +38,6 @@
         <button v-if="needsRecovery" class="btn btn-sm btn-primary" @click="$emit('resume')">继续</button>
         <button v-if="needsRecovery" class="btn btn-sm" @click="$emit('abandon')">放弃恢复</button>
         <button v-if="canCancel" class="btn btn-sm" @click="$emit('cancel')">取消任务</button>
-        <button
-          v-if="deepImport.progress.mapNextStep"
-          class="btn btn-sm btn-primary"
-          data-action="deep-import-map-next"
-          @click="$emit('map-next')"
-        >{{ mapNextLabel }}</button>
-        <template v-if="deepImport.progress.mapNextStepError">
-          <span class="writing-empty-hint">地图下一步暂时无法加载：{{ deepImport.progress.mapNextStepError }}</span>
-          <button class="btn btn-sm btn-primary" @click="$emit('retry-map')">重试</button>
-        </template>
         <button v-if="hasAudit" class="btn btn-sm" @click="$emit('open-audit')">查看快照状态</button>
         <button v-if="terminal" class="btn btn-sm" @click="$emit('dismiss')">关闭</button>
       </div>
@@ -84,7 +74,7 @@ const props = defineProps({
   deepImport: { type: Object, required: true },
   showConflict: { type: Boolean, default: true },
 })
-defineEmits(["cancel", "resume", "abandon", "dismiss", "map-next", "retry-map", "open-audit", "open-conflict", "retry-publish", "dismiss-publish"])
+defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-conflict", "retry-publish", "dismiss-publish"])
 
 const terminal = computed(() => ["done", "failed", "cancelled"].includes(props.deepImport.progress?.status || props.deepImport.progress?.phase))
 const needsRecovery = computed(() => {
@@ -99,12 +89,6 @@ const canCancel = computed(() => (
 const recoveryAttention = computed(() => Boolean(
   props.deepImport.progress?.recoveryRequired || needsRecovery.value,
 ))
-const mapNextLabel = computed(() => {
-  const next = props.deepImport.progress?.mapNextStep
-  if (next?.action === "quick-create") return `一键创建地图（${next.count || 0} 个地点）`
-  if (next?.action === "review-locations") return `先审核 ${next.count || 0} 个地点`
-  return next?.count ? `查看地图收件箱（${next.count}）` : "查看地图收件箱"
-})
 const currentPositions = computed(() => {
   const value = props.deepImport.progress || {}
   return [
@@ -212,8 +196,6 @@ const attentionRequired = computed(() => Boolean(
   || props.deepImport.progress?.qualityStatus === "partial"
   || props.deepImport.progress?.phase1aFallback
   || props.deepImport.progress?.phaseErrors?.length
-  || props.deepImport.progress?.mapNextStep
-  || props.deepImport.progress?.mapNextStepError,
 ))
 
 const deepImportClassName = computed(() => (

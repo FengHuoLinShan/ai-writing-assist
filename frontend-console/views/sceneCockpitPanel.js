@@ -4,7 +4,6 @@ const DEFAULT_ORDER = [
   "must_happen",
   "must_not_happen",
   "core_conflict",
-  "map_summary",
   "continuity",
   "references",
   "foreshadowing",
@@ -16,13 +15,12 @@ const LABELS = {
   must_happen: "必须发生",
   must_not_happen: "禁止发生",
   core_conflict: "核心冲突",
-  map_summary: "地图摘要 / 世界状态风险",
   continuity: "前后连续性摘要",
   references: "参考资料",
   foreshadowing: "伏笔 / 揭示",
 }
 
-const COCKPIT_TABS = ["alerts", "people", "place", "lore", "map"]
+const COCKPIT_TABS = ["alerts", "people", "place", "lore"]
 
 const ALERT_SEVERITY = {
   high: { label: "高", symbol: "!" },
@@ -65,7 +63,6 @@ export function renderSceneCockpitPanel({
   scene,
   people: explicitPeople,
   location: explicitLocation,
-  mapSummaryHtml = "",
   compact = false,
   activeTab = "lore",
   alerts = [],
@@ -76,8 +73,7 @@ export function renderSceneCockpitPanel({
   const selectedTab = normalizeActiveTab(activeTab)
   const order = loadSceneCockpitOrder(projectId)
   const modules = order
-    .filter((key) => key !== "map_summary")
-    .map((key) => renderModule(key, scene, "", compact))
+    .map((key) => renderModule(key, scene, compact))
     .filter(Boolean)
     .join("")
   const people = Array.isArray(explicitPeople)
@@ -105,7 +101,6 @@ export function renderSceneCockpitPanel({
           <button class="cockpit-tab ${selectedTab === "people" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="people" type="button">人物</button>
           <button class="cockpit-tab ${selectedTab === "place" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="place" type="button">地点</button>
           <button class="cockpit-tab ${selectedTab === "lore" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="lore" type="button">设定</button>
-          <button class="cockpit-tab ${selectedTab === "map" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="map" type="button">地图</button>
         </div>
         <div class="cockpit-body">
           <section class="cockpit-panel ${selectedTab === "alerts" ? "" : "hidden"}" data-panel="alerts">
@@ -119,9 +114,6 @@ export function renderSceneCockpitPanel({
           </section>
           <section class="cockpit-panel ${selectedTab === "lore" ? "" : "hidden"}" data-panel="lore">
             ${modules || '<div class="cockpit-empty">暂无关联设定</div>'}
-          </section>
-          <section class="cockpit-panel ${selectedTab === "map" ? "" : "hidden"}" data-panel="map">
-            ${mapSummaryHtml || '<div class="cockpit-empty">暂无地图摘要</div>'}
           </section>
         </div>
       ` : ""}
@@ -250,9 +242,9 @@ function avatarColor(name) {
   return colors[Math.abs(hash) % colors.length]
 }
 
-function renderModule(key, scene, mapSummaryHtml, compact) {
-  if (!scene && key !== "map_summary") return ""
-  const body = moduleBody(key, scene, mapSummaryHtml)
+function renderModule(key, scene, compact) {
+  if (!scene) return ""
+  const body = moduleBody(key, scene)
   if (!body) return ""
   const tail = ["continuity", "references", "foreshadowing"].includes(key)
   const collapsed = compact && tail
@@ -268,7 +260,7 @@ function renderModule(key, scene, mapSummaryHtml, compact) {
   `
 }
 
-function moduleBody(key, scene, mapSummaryHtml) {
+function moduleBody(key, scene) {
   if (key === "scene_header") {
     return `
       <div class="scene-cockpit-scene-title">${esc(scene?.title || "未命名场景")}</div>
@@ -278,7 +270,6 @@ function moduleBody(key, scene, mapSummaryHtml) {
       </div>
     `
   }
-  if (key === "map_summary") return mapSummaryHtml || '<div class="muted">暂无地图摘要</div>'
   const value = {
     goal: scene?.goal,
     must_happen: scene?.must_happen,

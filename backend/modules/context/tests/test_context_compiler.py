@@ -327,6 +327,7 @@ class TestContextCompiler:
                 {
                     "id": "chunk-1",
                     "source_type": "chapter_text",
+                    "chapter_index": 3,
                     "text": "已从 writing 回读的原文",
                     "source_ref": source_ref,
                 }
@@ -346,6 +347,16 @@ class TestContextCompiler:
 
         assert section.sources[0]["source_ref"] == source_ref
         assert section.sources[0]["source_hash"] == "a" * 64
+
+        options.consumer_action = "world.map_atlas.generate"
+        atlas_section = next(
+            item
+            for item in ContextCompiler()._build_sections(bundle, options)
+            if item.key == "retrieval_evidence_packs"
+        )
+        assert atlas_section.sources[0]["type"] == "rag"
+        assert atlas_section.sources[0]["id"] == "chunk-1"
+        assert atlas_section.sources[0]["chapter_index"] == "3"
 
     @pytest.mark.asyncio
     async def test_world_loader_requires_explicit_pending_opt_in(
@@ -423,6 +434,46 @@ class TestContextCompiler:
         ]
         assert with_pending.world_entities[0]["display_state"] == "review"
         assert "上下文包含未采用的世界对象" in with_pending.warnings
+
+    @pytest.mark.asyncio
+    async def test_map_atlas_world_loader_keeps_canonical_author_full_contract(
+        self,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.context.services.loaders.world_entities_loader import (
+            WorldEntitiesLoader,
+        )
+        from modules.world import facade as world_facade
+
+        observed: dict[str, object] = {}
+
+        async def fake_background(_db, _novel_id, **kwargs):
+            observed.update(kwargs)
+            return SimpleNamespace(entries=[])
+
+        monkeypatch.setattr(world_facade, "get_world_background", fake_background)
+        options = CompileOptions(
+            novel_id=str(uuid.uuid4()),
+            task="规划 AI 地图册",
+            scope="generation_center",
+            consumer_action="world.map_atlas.generate",
+            context_mode="canonical",
+            reveal_mode="author_full",
+        )
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+        )
+
+        await WorldEntitiesLoader().load(db_session, options, bundle)
+
+        assert observed == {
+            "context_mode": "canonical",
+            "reveal_mode": "author_full",
+            "limit": 160,
+        }
 
     @pytest.mark.asyncio
     async def test_rag_loader_propagates_retrieval_warnings(

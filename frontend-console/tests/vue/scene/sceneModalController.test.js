@@ -197,7 +197,7 @@ describe("scene modal workflows", () => {
         draft_scenes: [{ title: "AI 候选", goal: "逃离", chapter_ids: ["1"] }],
       },
     }
-    api.outline.applySceneReplacement.mockResolvedValue({ downstream_refresh_required: ["地图摘要"] })
+    api.outline.applySceneReplacement.mockResolvedValue({ downstream_refresh_required: ["世界对象"] })
     controller = createSceneModalController({
       projectId: "p1",
       getItems: () => items,

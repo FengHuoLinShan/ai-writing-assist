@@ -24,7 +24,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 关系原始状态仍兼容 `candidate` / `canonical` / `deprecated`；作者界面统一投影为待处理 / 已采用 / 历史。`canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
 - 待处理对象合并响应可带 `affected_ids` / `merged_ids`，前端只按精确 ID 更新；缺少 affected ids 时刷新当前待处理 tab。
 - CoreEntity、关系、别名、创设建议和 Map Observation/Fact 响应按需提供 `display_state / source / attention_reasons / suggested_action`；原始状态字段保持兼容
-- 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件、地图等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
+- 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
 - `entity_type="character"` 的 CoreEntity 进入 canonical 时必须同步具备最小 `characters` 档案，保证人物、POV 与生成中心上下文可立即使用。作者显式创建人物档案会原位升级自动 scaffold；未被作者扩展的 scaffold 不视为类型纠正的硬依赖
 
 ## 数据表
@@ -41,7 +41,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
-- `map_configs` / `map_tiles` / `map_location_bindings` / `map_location_layouts` / `map_terrain_layers` / `map_terrain_regions` / `map_terrain_patches` / `map_terrain_bindings` / `map_markers` / `map_territory_tiles` / `map_observations` / `map_facts` — 动态地图子系统表，详见 `docs/modules/15_map.md`
+- `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` — AI 地图册计划、层级、图片与前端标注，详见 `docs/modules/15_map.md`
 - ~~`entity_candidates`~~ — 已废弃，候选对象直接用 `core_entities.status="candidate"` 表达
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
 - ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB
@@ -72,7 +72,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - **EntityTypeTransitionService** — 已有对象类型转换、strong/generic Profile 双向 snapshot 迁移、硬依赖门禁与冲突检测；update/promote/建议影子同步/版本回滚共用
 - **EntityDedupService** — 混合去重（pg_trgm 词法 + pgvector 语义 RRF 融合）+ 9 步深度事务合并
 - **DedupScorer** — 多路信号级联评分（rapidfuzz 形似 + pinyin 音似 + 子串包含 + 语义余弦 + 长度差异 + trigram Jaccard），可选 LR 模型
-- **Scene Entity Persistence Facades** — 接收 imports Phase 2a/2b 通过稳定 seam 提交的对象、别名、关系和地图观察；正文抽取编排归 imports 拥有
+- **Scene Entity Persistence Facades** — 接收 imports Phase 2a/2b 通过稳定 seam 提交的对象、别名和关系；正文抽取编排归 imports 拥有
 - **SuggestionQueueService** — 校验创设建议、可选兼容影子、并发安全裁决，以及对象/关系/别名的领域采用
 - **WorldGenerationCenterService** — 按作者选择的对象/现有页/新页面 target 确定性分派
   Prompt，重载服务器来源，编译 context，创建 suggestion 并追踪 snapshot；聊天只返回回复
@@ -85,7 +85,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 `CharacterKnowledge.source_chapter_index` 表示人物学到该知识的章节。角色视角查询只纳入
 严格早于可见截止章的记录；同章但没有更精确学习位置、或缺少来源章的旧数据默认排除。
 只有明确 `is_public_baseline=true` 的开场公开知识可作为无来源章例外。
-- 动态地图服务 — 详见 `docs/modules/15_map.md`
+- **MapAtlasService / MapAtlasWorkflow** — 地图册审查生命周期与确定性计划/图片任务，详见 `docs/modules/15_map.md`
 
 ### services 子包布局
 
@@ -93,7 +93,6 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 helper 和历史兼容入口：
 
 - `services/core/`：核心实体、关系、事件、版本回滚、去重与抽取。
-- `services/map/`：动态地图、地图状态、标记、territory、observation/fact 和播放。
 - `services/worldbuilding/`：世界书、模板、投影和作者资料整理。
   `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
   `profile_service.py`、`world_bible_service.py`、`world_bible_lifecycle_service.py`、
@@ -102,7 +101,7 @@ helper 和历史兼容入口：
   `activation_preview_service.py`、`activation_target_service.py` 和
   `page_template_service.py`。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
-- `services/map_service.py`：历史兼容导出层，不承载业务逻辑。
+- `map_atlas_*.py`：地图册 API、模型、service、workflow、storage、task 与 deletion cleanup seam。
 
 拆分保持 world facade、API wire shape、novel_id 隔离和现有测试入口稳定；跨模块调用仍只能通过 facade/contracts/API/DI port。
 
@@ -114,7 +113,7 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 和 `worldbuilding_facade.py`。
 
 `attention_facade.get_author_attention_summary()` 返回冻结的
-`WorldAttentionSummaryContract`，只统计同一 `novel_id` 下待处理的对象、别名、关系与地图资料，
+`WorldAttentionSummaryContract`，只统计同一 `novel_id` 下待处理的对象、别名与关系，
 供 Project 工作台摘要使用。它不返回对象内容、原始状态、owner 或内部 ID，也不把聚合编排放进
 root facade。
 
@@ -311,7 +310,7 @@ task ID 后，浏览器可立即经独立连接查询任务。
 ## World Background Aggregation
 
 `world.facade.get_world_background()` 是 context 的只读世界背景接口。它从世界对象/
-Profile/事件强字段、关系、已确认地图事实、已发布世界书页和人物知识边界派生带来源、
+Profile/事件强字段、关系、已发布世界书页和人物知识边界派生带来源、
 状态、敏感级别、分组、优先级与 token 估算的条目；该聚合不新增正史表，也不把
 projection 写回事实层。作者版简介只消费其中已采用世界事实，明确排除
 `CharacterKnowledge`、草稿、待处理建议和已归档资产。

@@ -15,7 +15,7 @@
     </div>
 
     <div v-if="!railCollapsed && !chapter" class="empty-state writing-scene-panel-empty">
-      <p>请先从左侧选择章节，再查看对应场景、人物和地图参考。</p>
+      <p>请先从左侧选择章节，再查看对应场景、人物和设定。</p>
     </div>
     <div v-else-if="!railCollapsed && scene" class="scene-alert-summary" :class="`scene-alert-summary--${alertSummary.highest}`" aria-live="polite">
       <span v-if="loading">警报加载中…</span>
@@ -100,19 +100,6 @@
           </article>
         </section>
 
-        <section v-else class="cockpit-panel" data-panel="map">
-          <div v-if="loading && !mapSummary" class="writing-map-summary__empty">地图摘要加载中...</div>
-          <div v-else-if="error" class="writing-map-summary__warning">{{ error }}</div>
-          <div v-else-if="!mapSummary" class="cockpit-empty">当前场景暂无地图位置</div>
-          <div v-else class="writing-map-summary">
-            <div class="writing-map-summary__title">地图摘要</div>
-            <div class="writing-map-summary__row">地点：{{ mapSummary.primary_location?.name || '未绑定地点' }}</div>
-            <div v-if="mapSummary.summary" class="writing-map-summary__row">{{ mapSummary.summary }}</div>
-            <div v-for="row in mapRows" :key="row.label" v-show="row.value" class="writing-map-summary__row">{{ row.label }}：{{ row.value }}</div>
-            <div v-for="(warning, index) in mapWarnings" :key="index" class="writing-map-summary__warning">{{ mapWarningMessage(warning) }}</div>
-            <button class="btn btn-sm" @click="$emit('open-map')">打开地图</button>
-          </div>
-        </section>
       </div>
     </template>
   </div>
@@ -127,8 +114,6 @@ const props = defineProps({
   chapter: { type: Number, default: null },
   scene: { type: Object, default: null },
   loading: { type: Boolean, default: false },
-  mapSummary: { type: Object, default: null },
-  error: { type: String, default: null },
   alertError: { type: String, default: null },
   alerts: { type: Array, default: () => [] },
   people: { type: Array, default: () => [] },
@@ -136,11 +121,11 @@ const props = defineProps({
   conflict: { type: Object, default: () => ({ latest: null }) },
   railCollapsed: { type: Boolean, default: false },
 })
-defineEmits(["open-map", "run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse"])
+defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse"])
 
 const tabs = [
   { key: "alerts", label: "警报" }, { key: "people", label: "人物" }, { key: "place", label: "地点" },
-  { key: "lore", label: "设定" }, { key: "map", label: "地图" },
+  { key: "lore", label: "设定" },
 ]
 const severities = ["high", "medium", "low", "info"]
 const labels = {
@@ -153,7 +138,7 @@ const collapsed = ref(new Set())
 const dragging = ref(null)
 
 function resetOrder() {
-  moduleOrder.value = loadSceneCockpitOrder(props.projectId).filter((key) => key !== "map_summary")
+  moduleOrder.value = loadSceneCockpitOrder(props.projectId)
   const compact = typeof window !== "undefined" && window.innerHeight < 760
   collapsed.value = compact ? new Set(["continuity", "references", "foreshadowing"]) : new Set()
 }
@@ -168,10 +153,6 @@ const alertSummary = computed(() => {
     stale: props.alerts.some((item) => item?.stale),
   }
 })
-const mapRows = computed(() => [
-  ["人物", props.mapSummary?.characters], ["事件", props.mapSummary?.events], ["势力", props.mapSummary?.factions], ["危机", props.mapSummary?.crises],
-].map(([label, values]) => ({ label, value: (values || []).map((item) => item?.name).filter(Boolean).slice(0, 3).join("、") })))
-const mapWarnings = computed(() => [...(props.mapSummary?.risks || []), ...(props.mapSummary?.warnings || [])])
 
 const severityLabel = (severity) => ({ high: "高", medium: "中", low: "提示", info: "信息" }[severity] || severity)
 const personName = (person) => person?.name || person?.title || "未命名"
@@ -220,14 +201,5 @@ function dropModule(target) {
   next.splice(to, 0, next.splice(from, 1)[0])
   moduleOrder.value = next
   persistOrder()
-}
-function mapWarningMessage(warning) {
-  if (typeof warning === "string") return warning
-  if (warning?.message) return warning.message
-  return ({
-    scene_without_map_context: "当前场景暂无地图参考",
-    scene_without_location: "当前场景暂无主要地点",
-    character_cross_map: "人物上一场在其他地图，需确认移动合理性",
-  }[warning?.code] || "地图空间连续性需要人工检查")
 }
 </script>

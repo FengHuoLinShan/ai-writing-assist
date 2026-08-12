@@ -144,7 +144,7 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.findAll("button").some((button) => button.text() === "取消任务")).toBe(false)
   })
 
-  it("展示实时位置与质量统计，并暴露审计和地图重试入口", async () => {
+  it("展示实时位置与质量统计，并暴露审计入口", async () => {
     const wrapper = mount(WritingWorkflowBars, {
       props: {
         publish: { active: false, phase: null },
@@ -161,7 +161,6 @@ describe("WritingWorkflowBars", () => {
           acceptanceChecks: [{ name: "coverage" }],
           diagnosticCounts: { warnings: 1 },
           throttleReasons: ["budget"],
-          mapNextStepError: "网络错误",
         } },
       },
     })
@@ -171,10 +170,7 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.text()).not.toContain("schema_failure")
     expect(wrapper.text()).not.toContain("provider_error")
     expect(wrapper.text()).toContain("结果格式未通过校验")
-    expect(wrapper.text()).toContain("地图下一步暂时无法加载")
-    await wrapper.findAll("button").find((button) => button.text() === "重试").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "查看快照状态").trigger("click")
-    expect(wrapper.emitted("retry-map")).toHaveLength(1)
     expect(wrapper.emitted("open-audit")).toHaveLength(1)
   })
 
@@ -197,27 +193,6 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.text()).toContain("结构健康检查失败：原因：结果格式未通过校验")
     expect(wrapper.text()).not.toContain("error_kind")
     expect(wrapper.text()).not.toContain("schema_failure")
-  })
-
-  it("完成态保留地图下一步操作", async () => {
-    const wrapper = mount(WritingWorkflowBars, {
-      props: {
-        publish: { active: false, phase: null },
-        conflict: { latest: null, error: null },
-        deepImport: {
-          taskId: "map-task",
-          progress: {
-            status: "done",
-            percent: 100,
-            mapNextStep: { action: "review-locations", count: 3 },
-          },
-        },
-      },
-    })
-    const button = wrapper.findAll("button").find((item) => item.text() === "先审核 3 个地点")
-    expect(button).toBeTruthy()
-    await button.trigger("click")
-    expect(wrapper.emitted("map-next")).toHaveLength(1)
   })
 
   it("降级完成态自动展开并隐藏内部原因码", () => {

@@ -30,13 +30,6 @@ describe("index.html CSP baseline", () => {
     expect(policy).toContain("connect-src 'self' http://localhost:* http://127.0.0.1:*")
   })
 
-  it("does not globally load Leaflet resources before the map view is opened", () => {
-    expect(indexHtml).not.toContain("leaflet@1.9.4/dist/leaflet.css")
-    expect(indexHtml).not.toContain("leaflet@1.9.4/dist/leaflet.js")
-    expect(indexHtml).not.toMatch(/<link[^>]+leaflet/i)
-    expect(indexHtml).not.toMatch(/<script[^>]+leaflet/i)
-  })
-
   it("blocks plugin objects and fixes base URI to this origin", () => {
     const policy = getCspPolicy()
 

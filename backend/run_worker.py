@@ -109,6 +109,7 @@ def _build_task_worker():
     from modules.imports.facade import reconcile_workflow_task_owners
     from modules.interaction.facade import reconcile_interaction_task_owners
     from modules.rag.facade import reconcile_index_task_owners
+    from modules.world.map_atlas_facade import reconcile_map_atlas_task_owners
 
     return TaskWorker(
         task_preflight=_require_active_task_project,
@@ -117,6 +118,7 @@ def _build_task_worker():
             reconcile_workflow_task_owners,
             reconcile_interaction_task_owners,
             reconcile_index_task_owners,
+            reconcile_map_atlas_task_owners,
         ),
         control_loop_observer=write_control_loop_liveness,
     )

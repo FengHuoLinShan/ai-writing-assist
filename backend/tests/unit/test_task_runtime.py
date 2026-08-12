@@ -49,8 +49,8 @@ def _registered_catalog(composition: str) -> dict[str, dict[str, int | str]]:
 def test_runtime_manifest_matches_direct_task_handler_modules() -> None:
     """Test-only static discovery prevents the explicit manifest from drifting."""
     discovered = {
-        f"modules.{task_file.parent.name}.tasks"
-        for task_file in (BACKEND_ROOT / "modules").glob("*/tasks.py")
+        ".".join(task_file.relative_to(BACKEND_ROOT).with_suffix("").parts)
+        for task_file in (BACKEND_ROOT / "modules").glob("**/*tasks.py")
         if "@task_handler" in task_file.read_text(encoding="utf-8")
     }
 
@@ -99,7 +99,10 @@ def test_api_and_worker_compose_the_same_complete_task_catalog() -> None:
 
     assert api_catalog
     assert api_catalog == worker_catalog
-    assert {item["owner_scope"] for item in api_catalog.values()} == {"project"}
+    assert {item["owner_scope"] for item in api_catalog.values()} == {
+        "global",
+        "project",
+    }
     assert api_catalog["deep_import"] == {
         "recovery_policy": "manual_resume",
         "max_attempts": 1,

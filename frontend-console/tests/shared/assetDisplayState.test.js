@@ -4,7 +4,6 @@ import {
   authorFacingStateText,
   assetAttentionReasons,
   contextContentModeLabel,
-  mapAssetDisplay,
   structureAssetDisplay,
   worldAssetDisplay,
   writingAssetDisplay,
@@ -38,16 +37,6 @@ describe("author-facing asset display state", () => {
     expect(writingAssetDisplay({ status: "published" }).label).toBe("正式正文")
   })
 
-  it("keeps map observation and fact models distinct while simplifying their labels", () => {
-    expect(mapAssetDisplay({ item_kind: "observation", review_state: "candidate" }).label).toBe("待处理")
-    expect(mapAssetDisplay({ item_kind: "observation", review_state: "conflicted" })).toMatchObject({
-      label: "待处理",
-      attentionReasons: ["存在冲突"],
-    })
-    expect(mapAssetDisplay({ item_kind: "fact", fact_status: "confirmed" }).label).toBe("已采用")
-    expect(mapAssetDisplay({ item_kind: "fact", fact_status: "rolled_back" }).label).toBe("历史")
-  })
-
   it("derives attention reasons independently from lifecycle", () => {
     expect(assetAttentionReasons({
       status: "canonical",
@@ -64,8 +53,8 @@ describe("author-facing asset display state", () => {
   })
 
   it("normalizes legacy lifecycle words embedded in backend-authored display text", () => {
-    expect(authorFacingStateText("候选对象依赖待确认地图观察，需复核后进入正史")).toBe(
-      "待处理对象依赖待处理地图观察，需要人工检查后进入已采用",
+    expect(authorFacingStateText("候选对象依赖待确认世界关系，需复核后进入正史")).toBe(
+      "待处理对象依赖待处理世界关系，需要人工检查后进入已采用",
     )
   })
 })

@@ -799,7 +799,7 @@ describe("renderCurrentView error handling", () => {
 })
 
 describe("subview memory", () => {
-  it("does not restore the world/map compatibility entry from primary world navigation", async () => {
+  it("normalizes the removed world/map entry to the world default", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
     document.body.append(content)
@@ -807,13 +807,15 @@ describe("subview memory", () => {
     window.router.registerView("world", { async render() { return "" } })
     window.router.registerView("map", { async render() { return "" } })
 
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
     state.currentView = "world"
     state.currentSubView = "objects"
 
     await window.router.navigate("world", "map", false)
-    await window.router.navigate("map", null, false)
 
-    expect(window.router.getLastSubView("world")).toBe("objects")
+    expect(state.currentView).toBe("world")
+    expect(state.currentSubView).toBe("objects")
   })
 })
 
@@ -843,26 +845,6 @@ describe("route guard and normalization", () => {
     expect(content.textContent).toContain("journeys:new")
   })
 
-  it("首次进入 legacy map 深链时以 replace 收敛到 canonical live", async () => {
-    addWorkspace()
-    registerBasicView("map")
-    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
-    window.history.replaceState(
-      null,
-      "",
-      "#workbench/p1/map?map_id=m1&scene_id=s1&mode=map",
-    )
-    const beforeLength = window.history.length
-
-    await window.router.initRouter()
-
-    expect(window.location.hash).toBe(
-      "#workbench/p1/map?map_id=m1&scene_id=s1&mode=live",
-    )
-    expect(window.router.getCurrentQuery().get("mode")).toBe("live")
-    expect(window.history.length).toBe(beforeLength)
-  })
-
   it("replace shares route normalization and canLeave while preserving history length", async () => {
     addWorkspace()
     const canLeave = vi.fn(() => true)
@@ -878,13 +860,13 @@ describe("route guard and normalization", () => {
     const result = await window.router.replace(
       "map",
       null,
-      new URLSearchParams({ map_id: "m1", mode: "live" }),
+      new URLSearchParams({ tab: "atlas" }),
     )
 
     expect(result).toBe(true)
     expect(canLeave).toHaveBeenCalledTimes(1)
     expect(window.history.length).toBe(beforeLength)
-    expect(window.location.hash).toBe("#workbench/p1/map?map_id=m1&mode=live")
+    expect(window.location.hash).toBe("#workbench/p1/map?tab=atlas")
   })
 
   it("keeps the current route when its renderer rejects leaving", async () => {

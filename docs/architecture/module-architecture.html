@@ -206,7 +206,7 @@
       <rect x="445" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="445" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
       <text x="532" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">settings 设置</text>
-      <text x="532" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">账户模型连接 · 余额</text>
+      <text x="532" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">文本/图片连接 · 余额</text>
 
       <!-- interaction box -->
       <rect x="640" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
@@ -218,7 +218,7 @@
       <rect x="835" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="835" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
       <text x="922" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">tasks / llm</text>
-      <text x="922" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">队列 · worker · 受控 step</text>
+      <text x="922" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">队列 · worker · 文本/图片调用</text>
 
       <!-- ===== FACTS + DERIVED RETRIEVAL ===== -->
       <rect x="40" y="210" width="1020" height="175" rx="10" fill="rgba(76, 29, 149, 0.08)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
@@ -229,7 +229,7 @@
       <rect x="60" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
       <text x="190" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">world 世界观引擎</text>
       <text x="190" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">实体 / 人物 / 事件 / 关系</text>
-      <text x="190" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">世界书 · map 子系统</text>
+      <text x="190" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">世界书 · AI 地图册 · 私有 S3</text>
       <text x="190" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">事实持久化 · 受控采用</text>
 
       <!-- memory box -->
@@ -331,7 +331,7 @@
       </div>
       <ul>
         <li>• 11 个活动业务模块（新增 interaction 私人 RP 领域）</li>
-        <li>• account 是 owner 边界；interaction 不读取作者资产；map 是 world 子系统；tasks / llm 是共享基础设施</li>
+        <li>• account 是 owner 边界；interaction 不读取作者资产；AI 地图册属于 world；tasks / llm 是共享基础设施</li>
         <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
       </ul>
     </div>
@@ -354,14 +354,14 @@
       </div>
       <ul>
         <li>• 公开请求同时受 account owner、project novel_id 与 author / interaction kind 门禁</li>
-        <li>• map 是 world 子系统；tasks / llm 是共享基础设施</li>
+        <li>• AI 地图册是 world 子系统；图片候选不会自动成为世界事实</li>
         <li>• 箭头表示主要调用或资料流，不是生产代码 import 图</li>
         <li>• 当前分层与可编辑图源以 module-architecture.drawio 为准</li>
       </ul>
     </div>
   </div>
 
-  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-07-29</p>
+  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-08-12</p>
 </div>
 
 <script>

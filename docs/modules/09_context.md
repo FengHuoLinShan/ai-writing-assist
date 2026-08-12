@@ -33,6 +33,12 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 
 ## 编译模式
 
+地图册不新增公开 scope。generation-background 对 `world.map_atlas.generate` 固定使用
+`author_full` 与 canonical world background（上限 160），再通过 RAG `purpose=map_atlas`
+补充已确认资料；工作稿只在作者显式开启时加入，候选对象始终排除。run 保存 secret-free
+snapshot、source manifest 与 hash，用于更新时识别来源变化。manifest 按真实来源类型/ID
+记录 loader 的内容敏感 hash；文本模型只能引用当次 manifest，不能决定 hash。
+
 ### 1. 兼容 bundle
 
 `StructureContextBundle` 仍然保留一些历史字段名以兼容现有渲染器和测试，例如：

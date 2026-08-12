@@ -237,9 +237,8 @@ deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candid
 `POST /api/writing/conflict-checks` 默认只做规则层检查。请求体的 `include_candidates` 默认为 `false`；写作页会在检查前弹出确认，只有用户勾选“包含待确认对象”时才传 `true`。
 
 - 通过注入的 Scene contract loader 读取当前 Scene 的目标、必须发生、禁止发生和核心冲突；默认 loader 仍 lazy 调用 `outline.facade.get_scene_contract`。
-- 通过 `world.map_facade.summarize_scene_map_for_writing` 读取写作页地图摘要，默认不纳入待确认对象；`include_candidates=true` 时会纳入候选 observation，相关问题标记 `needs_review=true` 并写入复核原因。
 - 通过 `memory.facade.get_continuity_evidence_for_writing` 获取上一章位置连续性证据；来源不可用时写入 `summary_json.degraded_sources`。
-- 每条问题的 `location_json` 保存轻量证据：`source` 描述来源模块/类型/标签/字段/摘录，`open_target` 描述前端可打开目标（`text_range` / `outline_scene` / `map_scene` / `map_object` / `memory_chapter`），`needs_review_reason` 描述候选证据复核原因。
+- 每条问题的 `location_json` 保存轻量证据：`source` 描述来源模块/类型/标签/字段/摘录，`open_target` 描述前端可打开目标（`text_range` / `outline_scene` / `memory_chapter`），`needs_review_reason` 描述候选证据复核原因。
 - 问题状态为 `open / resolved / ignored / later`；发布章节时会把最近一次检查快照写入 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，不保留正文 `text_range`，之后问题状态变化不会改写该发布快照。
 
 Phase 2 AI 能力是显式追加，不影响规则层检查：
@@ -248,7 +247,7 @@ Phase 2 AI 能力是显式追加，不影响规则层检查：
 - `/ai-review-task` 在入队事务中保存 secret-free 项目 LLM execution snapshot 和内部 task owner；worker 只允许在带 lease commit fence 的 task session 中运行。prepare 阶段读取并锁定当前检查/问题、重建已确认上下文后提交，真实 LLM 等待期间不持有数据库事务；finalize 再检查项目、确认上下文、检查及问题的语义指纹。输入漂移或任务被更新任务取代时不会追加旧结果，内部 owner 不进入 API 或发布快照。同步 `/ai-review` 的既有单事务语义不变。
 - AI 软冲突判断保存为 `is_ai_judgment=true` 的问题项，保留 `source_confirmation_id`、`confidence`、`llm_rationale`；包含待确认对象或依赖待确认对象时标记 `needs_review=true`。
 - LLM 输出逐条校验；非法条目丢弃并记录到 `summary_json.ai_review.discarded_count`，LLM 失败只把 `ai_review_status` 置为 `failed`，不删除规则层结果。
-- `POST /api/writing/conflict-check-items/{id}/ai-suggestion` 需要 action 为 `writing.conflict_check.ai_suggestion` 的确认记录，只把最新建议写入该问题项，不修改正文、Scene、地图、世界对象、记忆或正史资产。
+- `POST /api/writing/conflict-check-items/{id}/ai-suggestion` 需要 action 为 `writing.conflict_check.ai_suggestion` 的确认记录，只把最新建议写入该问题项，不修改正文、Scene、世界对象、记忆或正史资产。
 - 前端把 AI 修复建议当作可编辑草稿展示；用户可修改后显式插入当前正文编辑器，插入只影响当前草稿和自动保存队列，不发布章节，也不自动把问题标记为已解决。
 
 ## 后续扩展方向

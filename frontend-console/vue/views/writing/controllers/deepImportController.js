@@ -106,7 +106,6 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       phaseErrors: result.phase_errors || [],
       recoverySummary: result.recovery_summary || {},
       lifecycle: task.lifecycle || {},
-      mapNextStep: result.map_next_step || null,
       recoveryRequired: Boolean(
         task.lifecycle?.recovery_required
         || result.recovery_required
@@ -115,42 +114,6 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       ),
       error: result.error || task.error_message || null,
     }
-  }
-
-  async function prepareMapNextStep(token) {
-    if (!progress || progress.workflowType !== "deep_import" || progress.status !== "done" || token !== generation) return
-    try {
-      const context = await api.world.getMapQuickCreateContext(projectId, true)
-      if (disposed || token !== generation || getProjectId() !== projectId) return
-      const maps = context?.existing_maps || []
-      const locations = context?.locations || []
-      const candidates = context?.candidate_locations || []
-      if (maps.length) {
-        let count = 0
-        try {
-          const inbox = await api.world.listProjectMapObservationInbox(projectId, { limit: 1 })
-          if (disposed || token !== generation || getProjectId() !== projectId) return
-          count = Number(inbox?.total || 0)
-        } catch { /* 地图下一步是增强信息，不影响导入完成态 */ }
-        progress = { ...progress, mapNextStep: { action: "inbox", count, workflow_id: progress.workflowId } }
-      } else if (locations.length) {
-        progress = { ...progress, mapNextStep: { action: "quick-create", count: locations.length, workflow_id: progress.workflowId } }
-      } else if (candidates.length) {
-        progress = { ...progress, mapNextStep: { action: "review-locations", count: candidates.length, workflow_id: progress.workflowId } }
-      }
-      emit()
-    } catch (err) {
-      if (disposed || token !== generation || getProjectId() !== projectId) return
-      progress = { ...progress, mapNextStepError: err?.message || "地图下一步加载失败" }
-      emit()
-    }
-  }
-
-  function retryMapNextStep() {
-    if (!progress || progress.status !== "done") return null
-    progress = { ...progress, mapNextStepError: null }
-    emit()
-    return prepareMapNextStep(generation)
   }
 
   function schedule(token, delayMs = POLL_INTERVAL_MS) {
@@ -177,7 +140,6 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       if (["done", "failed", "cancelled"].includes(task.status)) {
         if (task.status === "done") {
           await onDone?.()
-          await prepareMapNextStep(token)
         }
         return
       }
@@ -319,5 +281,5 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
     stop()
   }
 
-  return { startTask, recover, cancel, resume, abandon, dismiss, retryMapNextStep, dispose }
+  return { startTask, recover, cancel, resume, abandon, dismiss, dispose }
 }

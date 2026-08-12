@@ -1,5 +1,7 @@
 # 代码审查报告：`feat: add world dynamics map dashboard`
 
+> **Superseded（已取代）：** 旧动态地图评审记录，不是当前契约。现行实现见 `docs/modules/15_map.md` 与 ADR-0012。
+
 > 审阅对象：`minimal-core` 分支，commit `de03229..bb96f12`
 > 审阅日期：2026-06-29
 > 对应设计：`docs/superpowers/specs/2026-06-29-world-dynamics-map-design.md`

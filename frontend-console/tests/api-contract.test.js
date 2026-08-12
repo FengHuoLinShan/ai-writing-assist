@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { readFileSync, readdirSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -6,10 +6,6 @@ import { fileURLToPath } from "node:url"
 import "../apiContracts.js"
 import "../api.js"
 import { resolveApiBaseUrl } from "../shared/apiBaseUrl.js"
-import {
-  applyMapEditor as applyMapEditorForE2E,
-  listMaps as listMapsForE2E,
-} from "../e2e/helpers/api-client.js"
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const {
@@ -267,52 +263,21 @@ describe("前后端 API 契约", () => {
       .toBe("/world/aliases/review-batch?novel_id=novel-1")
     expect(getApiContract("world.reviewAliasesBatch").requiredBody)
       .toEqual(["confirmed", "decisions"])
-    expect(contractPath("world.replaceLocationLayouts", { mapId: "map-1" }, { novel_id: "novel-1" }))
-      .toBe("/world/maps/map-1/location-layouts?novel_id=novel-1")
-    expect(getApiContract("world.updateTerrainLayer").method).toBe("PATCH")
-    expect(contractPath("world.updateTerrainLayer", { mapId: "map-1", layerId: "layer-1" }, { novel_id: "novel-1" }))
-      .toBe("/world/maps/map-1/terrain/layers/layer-1?novel_id=novel-1")
-    expect(getApiContract("world.deleteTerrainLayer").method).toBe("DELETE")
-    expect(getApiContract("world.applyMapEditor")).toMatchObject({
+    expect(getApiContract("world.createMapAtlasRun")).toMatchObject({
       method: "POST",
-      requiredBody: ["expected_revision", "commands"],
+      requiredBody: ["layout", "quality"],
     })
-    expect(contractPath("world.applyMapEditor", { mapId: "map-1" }, { novel_id: "novel-1" }))
-      .toBe("/world/maps/map-1/editor/apply?novel_id=novel-1")
-    expect(contractPath("world.getMapLayerTree", { mapId: "map-1" }, { novel_id: "novel-1" }))
-      .toBe("/world/maps/map-1/layer-tree?novel_id=novel-1")
-    expect(contractPath("world.getMapPaths", { mapId: "map-1" }, { novel_id: "novel-1", status: "all" }))
-      .toBe("/world/maps/map-1/paths?novel_id=novel-1&status=all")
-    expect(contractPath("world.getMapPathArchiveImpact", { mapId: "map-1", pathId: "path-1" }, { novel_id: "novel-1" }))
-      .toBe("/world/maps/map-1/paths/path-1/archive-impact?novel_id=novel-1")
-    expect(contractPath("world.getEntityMapPresence", { id: "entity-1" }, { novel_id: "novel-1" }))
-      .toBe("/world/entities/entity-1/map-presence?novel_id=novel-1")
-    expect(contractPath("world.getMapTimeline", { mapId: "map-1" }, {
-      novel_id: "novel-1",
-      from_scene_index: 2,
-      to_scene_index: 9,
-      tracks: "journey,status",
-      include_candidates: true,
-      skip: 0,
-      limit: 500,
-    })).toBe("/world/maps/map-1/timeline?novel_id=novel-1&from_scene_index=2&to_scene_index=9&tracks=journey%2Cstatus&include_candidates=true&skip=0&limit=500")
-    expect(contractPath("world.getMapStateAt", { mapId: "map-1" }, {
-      novel_id: "novel-1",
-      scene_index: 9,
-      focus_entity_id: "entity-1",
-    })).toBe("/world/maps/map-1/state-at?novel_id=novel-1&scene_index=9&focus_entity_id=entity-1")
-    expect(getApiContract("world.getMapStateAt").requiredQuery)
-      .toEqual(["novel_id", "scene_index"])
-    expect(contractPath("world.listProjectMapObservationInbox", {}, { novel_id: "novel-1" }))
-      .toBe("/world/maps/project-observations/inbox?novel_id=novel-1")
-    expect(contractPath("world.assignProjectMapObservation", { observationId: "obs-1" }, { novel_id: "novel-1" }))
-      .toBe("/world/maps/project-observations/obs-1/assign?novel_id=novel-1")
-    expect(getApiContract("world.assignProjectMapObservation").requiredBody)
-      .toEqual(["map_id", "expected_updated_at"])
-    expect(getApiContract("world.assignProjectMapObservation").hasBody).toBe(true)
-    expect(getApiContract("world.confirmMapObservation").requiredBody)
-      .toEqual(["expected_updated_at"])
-    expect(getApiContract("world.confirmMapObservation").hasBody).toBe(true)
+    expect(contractPath("world.getMapAtlas", { novelId: "novel-1" }))
+      .toBe("/world/map-atlas/novel-1/atlas")
+    expect(contractPath("world.getMapAtlasRunResults", {
+      novelId: "novel-1",
+      runId: "run-1",
+    })).toBe("/world/map-atlas/novel-1/runs/run-1/results")
+    expect(contractPath("world.reviewMapAtlasPage", {
+      novelId: "novel-1",
+      pageId: "page-1",
+      action: "adopt",
+    })).toBe("/world/map-atlas/novel-1/pages/page-1/adopt")
 
     expect(contractPath("imports.startStage", { stage: "scenes" }))
       .toBe("/imports/stages/scenes")
@@ -320,14 +285,10 @@ describe("前后端 API 契约", () => {
       .toBe("/imports/stages/world-objects")
     expect(contractPath("imports.startStage", { stage: "plot_structure" }))
       .toBe("/imports/stages/plot-structure")
-    expect(contractPath("imports.startMapObservationEnrichment"))
-      .toBe("/imports/stages/map-observations")
     expect(getApiContract("imports.deepImport").requiredBody)
       .toEqual(["adoption_policy", "authorization_confirmed"])
     expect(getApiContract("imports.startStage").requiredBody)
       .toEqual(["adoption_policy", "authorization_confirmed"])
-    expect(getApiContract("imports.startMapObservationEnrichment").requiredBody)
-      .toEqual(["novel_id", "start_chapter", "end_chapter", "high_quality", "adoption_policy", "authorization_confirmed"])
     expect(contractPath("outline.analyze")).toBe("/outline/analyze")
     expect(getApiContract("outline.analyze")).toMatchObject({
       method: "POST",
@@ -513,115 +474,32 @@ describe("前后端 API 契约", () => {
     )).toThrow(/confirmed.*outline\.applyStoryOutlinePreview/)
 
     expect(() => contractRequest(
-      "world.applyMapEditor",
-      { mapId: "map-1" },
-      { novel_id: "novel-1" },
-      { body: { expected_revision: 3 } },
-    )).toThrow(/commands.*world\.applyMapEditor/)
-    expect(() => contractRequest(
-      "world.applyMapEditor",
-      { mapId: "map-1" },
-      { novel_id: "novel-1" },
-      { body: { expected_revision: 3, commands: undefined } },
-    )).toThrow(/commands.*world\.applyMapEditor/)
+      "world.createMapAtlasRun",
+      { novelId: "novel-1" },
+      {},
+      { body: { layout: "landscape" } },
+    )).toThrow(/quality.*world\.createMapAtlasRun/)
 
     const requestSpec = contractRequest(
-      "world.applyMapEditor",
-      { mapId: "map-1" },
-      { novel_id: "novel-1" },
+      "world.reviewMapAtlasPage",
+      { novelId: "novel-1", pageId: "page-1", action: "adopt" },
+      {},
       {
         method: "DELETE",
         timeout: 4321,
-        body: { expected_revision: 3, commands: [] },
+        body: { confirm_conflicts: true },
       },
     )
 
     expect(requestSpec).toEqual({
-      path: "/world/maps/map-1/editor/apply?novel_id=novel-1",
+      path: "/world/map-atlas/novel-1/pages/page-1/adopt",
       method: "POST",
       options: {
         method: "POST",
         timeout: 4321,
-        body: JSON.stringify({ expected_revision: 3, commands: [] }),
+        body: JSON.stringify({ confirm_conflicts: true }),
       },
     })
-    expect(() => contractRequest(
-      "world.assignProjectMapObservation",
-      { observationId: "obs-1" },
-      { novel_id: "novel-1" },
-      { body: { map_id: null, expected_updated_at: "2026-07-16T00:00:00Z" } },
-    )).not.toThrow()
-  })
-
-  it("E2E 地图适配器通过共享契约生成请求", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue({ editor_revision: 4 }),
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    try {
-      await expect(applyMapEditorForE2E("novel-1", "map-1", {
-        expected_revision: 3,
-        commands: [],
-      })).resolves.toEqual({ editor_revision: 4 })
-
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-      const [url, options] = fetchMock.mock.calls[0]
-      expect(url).toMatch(/\/api\/world\/maps\/map-1\/editor\/apply\?novel_id=novel-1$/)
-      expect(options).toMatchObject({
-        method: "POST",
-        body: JSON.stringify({ expected_revision: 3, commands: [] }),
-        headers: {
-          "Content-Type": "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-        },
-      })
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it("E2E GET 请求与浏览器客户端使用相同的安全头规则", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue([]),
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    try {
-      await listMapsForE2E("novel-1")
-
-      const [, options] = fetchMock.mock.calls[0]
-      expect(options.headers).toEqual({ Accept: "application/json" })
-      expect(options).not.toHaveProperty("timeout")
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it("E2E 共享契约的 timeout 会真正中止 fetch", async () => {
-    vi.useFakeTimers()
-    const fetchMock = vi.fn((_url, options) => new Promise((_resolve, reject) => {
-      options.signal.addEventListener("abort", () => {
-        const error = new Error("Aborted")
-        error.name = "AbortError"
-        reject(error)
-      }, { once: true })
-    }))
-    vi.stubGlobal("fetch", fetchMock)
-
-    try {
-      const assertion = expect(listMapsForE2E("novel-1"))
-        .rejects.toThrow("timed out after 15000ms")
-      await vi.advanceTimersByTimeAsync(15000)
-      await assertion
-    } finally {
-      vi.useRealTimers()
-      vi.unstubAllGlobals()
-    }
   })
 
   it("视图调用的 api.* 方法必须在 api.js 中定义", () => {

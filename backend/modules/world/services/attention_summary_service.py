@@ -8,7 +8,6 @@ from modules.world.contracts import WorldAttentionSummaryContract
 from modules.world.services.core.entity_alias_service import EntityAliasService
 from modules.world.services.core.entity_relation_service import EntityRelationService
 from modules.world.services.core.entity_service import WorldEntityService
-from modules.world.services.map.map_dynamic_service import MapDynamicFactService
 
 
 class WorldAttentionSummaryService:
@@ -20,12 +19,10 @@ class WorldAttentionSummaryService:
         entity_service: WorldEntityService | None = None,
         alias_service: EntityAliasService | None = None,
         relation_service: EntityRelationService | None = None,
-        map_service: MapDynamicFactService | None = None,
     ) -> None:
         self._entity_service = entity_service or WorldEntityService()
         self._alias_service = alias_service or EntityAliasService()
         self._relation_service = relation_service or EntityRelationService()
-        self._map_service = map_service or MapDynamicFactService()
 
     async def get_summary(
         self,
@@ -51,16 +48,9 @@ class WorldAttentionSummaryService:
             skip=0,
             limit=1,
         )
-        map_items = await self._map_service.list_project_observation_inbox(
-            db,
-            novel_id,
-            skip=0,
-            limit=1,
-        )
         return WorldAttentionSummaryContract(
             novel_id=novel_id,
             world_objects=int(entities.total or 0),
             world_aliases=int(aliases.item_total or 0),
             world_relations=int(relations.item_total or 0),
-            map_items=int(map_items.total or 0),
         )

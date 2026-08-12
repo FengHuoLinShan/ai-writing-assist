@@ -1,7 +1,7 @@
 /**
  * Scene 驾驶舱确定性警报。
  *
- * 这里只组合当前编辑缓冲区、Scene 卡、地图摘要和已有冲突检查；
+ * 这里只组合当前编辑缓冲区、Scene 卡和已有冲突检查；
  * 不调用 LLM、不持久化结果，也不生成修改建议。
  */
 
@@ -11,8 +11,6 @@ export function buildSceneAlerts({
   scene,
   chapterIndex,
   content = "",
-  mapSummary = null,
-  mapError = null,
   latestCheck = null,
   checkError = null,
   checkLoading = false,
@@ -25,7 +23,6 @@ export function buildSceneAlerts({
   const alerts = [
     ...structureAlerts(scene, chapterIndex),
     ...proseAlerts(scene, chapterIndex, content),
-    ...mapAlerts(mapSummary, mapError),
     ...checkAlerts(latestCheck, {
       content,
       draftId,
@@ -187,29 +184,6 @@ function semanticFieldStatus(scene, field) {
   return ["present", "not_applicable", "uncertain"].includes(status) ? status : null
 }
 
-function mapAlerts(mapSummary, mapError) {
-  if (mapError) {
-    return [alert("map-unavailable", "low", "地图", "地图风险摘要暂不可用")]
-  }
-  const alerts = []
-  const entries = [
-    ...(Array.isArray(mapSummary?.risks) ? mapSummary.risks : []),
-    ...(Array.isArray(mapSummary?.warnings) ? mapSummary.warnings : []),
-  ]
-  const seen = new Set()
-  for (const [index, entry] of entries.entries()) {
-    const message = mapWarningMessage(entry)
-    if (!message || seen.has(message)) continue
-    seen.add(message)
-    alerts.push(alert(
-      `map-${entry?.code || index}`,
-      entry?.level === "info" ? "low" : "medium",
-      "地图",
-      message,
-    ))
-  }
-  return alerts
-}
 
 function checkAlerts(check, current) {
   if (current.checkError) {
@@ -329,17 +303,6 @@ function normalizeForLiteralMatch(value) {
   return String(value || "").replace(/\s+/g, "").toLocaleLowerCase()
 }
 
-function mapWarningMessage(value) {
-  if (typeof value === "string") return value
-  if (!value || typeof value !== "object") return ""
-  if (value.message) return String(value.message)
-  const messages = {
-    scene_without_map_context: "当前场景暂无地图上下文",
-    scene_without_location: "当前场景暂无主地点",
-    character_cross_map: "人物上一场在其他地图，需确认移动合理性",
-  }
-  return messages[value.code] || "已有地图空间连续性风险记录"
-}
 
 function alert(id, severity, source, message) {
   return { id, severity, source, message }

@@ -25,14 +25,6 @@ function mountCockpit() {
       alerts: [{ code: "a1", severity: "high", source: "现场", message: "高风险 <img>" }],
       people: [{ id: "c1", name: "阿青 <script>", role: "POV" }],
       location: { id: "l1", name: "黑塔", description: "顶层" },
-      mapSummary: {
-        primary_location: { name: "黑塔" },
-        characters: [{ name: "阿青" }],
-        events: [{ name: "门打开" }],
-        factions: [{ name: "守夜人" }],
-        crises: [{ name: "倒计时" }],
-        warnings: [{ code: "character_cross_map" }],
-      },
       conflict: { latest: { id: "check-1" } },
     },
   })
@@ -41,7 +33,7 @@ function mountCockpit() {
 describe("SceneCockpit", () => {
   beforeEach(() => localStorage.clear())
 
-  it("在 Vue tabs 中渲染人物、地点、设定、地图和警报操作", async () => {
+  it("在 Vue tabs 中渲染人物、地点、设定和警报操作", async () => {
     const wrapper = mountCockpit()
     expect(wrapper.find("script").exists()).toBe(false)
     expect(wrapper.text()).toContain("Scene <script>")
@@ -50,10 +42,6 @@ describe("SceneCockpit", () => {
     expect(wrapper.text()).toContain("阿青 <script>")
     await wrapper.findAll("button").find((button) => button.text() === "插入").trigger("click")
     expect(wrapper.emitted("insert-text")[0]).toEqual(["阿青 <script>"])
-
-    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "地图").trigger("click")
-    expect(wrapper.text()).toContain("势力：守夜人")
-    expect(wrapper.text()).toContain("人物上一场在其他地图")
 
     await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "警报").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "运行规则检查").trigger("click")

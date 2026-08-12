@@ -23,6 +23,11 @@ IMAGE_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REGISTRY_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 HEALTHCHECKS_CHECK_PATH_RE = re.compile(r"^/[A-Za-z0-9_-]+$")
+ONE_TIME_MIGRATION_FIELDS = (
+    "MAP_ATLAS_DESTRUCTIVE_MIGRATION_CONFIRMATION",
+    "MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_NAME",
+    "MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_SHA256",
+)
 
 
 def validate_env_file_metadata(
@@ -109,7 +114,9 @@ def is_pinned_image_reference(value: str) -> bool:
         or "." in first_component
         or ":" in first_component
     )
-    repository_components = path_components[1:-1] if has_registry else path_components[:-1]
+    repository_components = (
+        path_components[1:-1] if has_registry else path_components[:-1]
+    )
     if any(
         not IMAGE_PATH_COMPONENT_RE.fullmatch(component)
         for component in repository_components
@@ -159,8 +166,39 @@ def normalize_healthchecks_check_base_url(value: str) -> str | None:
     return f"https://hc-ping.com{normalized_path}"
 
 
+def is_valid_map_atlas_s3_endpoint_url(value: str) -> bool:
+    """Accept AWS defaults, HTTPS endpoints, and exact local HTTP dev hosts."""
+    cleaned = value.strip()
+    if not cleaned:
+        return True
+    try:
+        parsed = urlsplit(cleaned)
+        _ = parsed.port
+    except ValueError:
+        return False
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or any(ord(character) <= 0x20 for character in cleaned)
+        or parsed.username is not None
+        or parsed.password is not None
+        or "?" in cleaned
+        or "#" in cleaned
+    ):
+        return False
+    return parsed.scheme == "https" or parsed.hostname.lower() in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+
+
 def validate(values: dict[str, str]) -> list[str]:
     errors: list[str] = []
+
+    for name in ONE_TIME_MIGRATION_FIELDS:
+        if name in values:
+            errors.append(f"{name} is one-time release state and must not be persisted")
 
     def require(name: str) -> str:
         value = values.get(name, "")
@@ -296,6 +334,38 @@ def validate(values: dict[str, str]) -> list[str]:
             decoded = b""
         if len(decoded) != 32:
             errors.append("LLM_SETTINGS_ENCRYPTION_KEY must be a valid Fernet key")
+
+    require("MAP_ATLAS_S3_BUCKET")
+    map_atlas_endpoint_url = values.get("MAP_ATLAS_S3_ENDPOINT_URL", "")
+    if not is_valid_map_atlas_s3_endpoint_url(map_atlas_endpoint_url):
+        errors.append(
+            "MAP_ATLAS_S3_ENDPOINT_URL must be HTTPS without userinfo, query, or "
+            "fragment; HTTP is only allowed for localhost, 127.0.0.1, or [::1]"
+        )
+    map_atlas_access_key = values.get("MAP_ATLAS_S3_ACCESS_KEY_ID", "")
+    map_atlas_secret_key = values.get("MAP_ATLAS_S3_SECRET_ACCESS_KEY", "")
+    if bool(map_atlas_access_key) != bool(map_atlas_secret_key):
+        errors.append(
+            "MAP_ATLAS_S3_ACCESS_KEY_ID and MAP_ATLAS_S3_SECRET_ACCESS_KEY "
+            "must be configured together"
+        )
+    for name, value in (
+        ("MAP_ATLAS_S3_ACCESS_KEY_ID", map_atlas_access_key),
+        ("MAP_ATLAS_S3_SECRET_ACCESS_KEY", map_atlas_secret_key),
+    ):
+        if value and is_missing(value):
+            errors.append(f"{name} must not contain a placeholder")
+    if values.get("MAP_ATLAS_S3_FORCE_PATH_STYLE", "false").lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        errors.append("MAP_ATLAS_S3_FORCE_PATH_STYLE must be a boolean")
 
     embedding_deployment = require("EMBEDDING_DEPLOYMENT")
     if embedding_deployment != "local_tei":

@@ -1,10 +1,4 @@
-"""Imports-owned workflow run lifecycle and owner fencing.
-
-The shared task queue owns scheduling, attempts, and leases.  This module owns
-deep-import/map-enrichment recovery data and turns a claimed queue attempt into
-an immutable domain token.  Every checkpoint/finalizer locks the run and checks
-the complete token before allowing domain writes to become durable.
-"""
+"""Imports-owned workflow run lifecycle and owner fencing."""
 
 from __future__ import annotations
 
@@ -27,11 +21,8 @@ IMPORT_WORKFLOW_TYPES = {
     "scene_auto_extraction",
     "world_object_auto_extraction",
     "plot_structure_auto_extraction",
-    "map_observation_enrichment",
 }
-MANUAL_RECOVERY_WORKFLOW_TYPES = IMPORT_WORKFLOW_TYPES - {
-    "map_observation_enrichment",
-}
+MANUAL_RECOVERY_WORKFLOW_TYPES = IMPORT_WORKFLOW_TYPES
 
 
 def _parse_uuid(value: str | uuid.UUID) -> uuid.UUID:
@@ -192,12 +183,7 @@ class ImportWorkflowRunService:
         if task_id is not None:
             selection_predicate = ImportWorkflowRun.task_id == _parse_uuid(task_id)
         elif include_restartable_history or novel_id is not None:
-            # Generic task retry can move a terminal auto-requeue map task back
-            # to pending without touching its domain run. Include those rows so
-            # startup and novel-scoped lazy recovery can restore the owner.
-            selection_predicate = active_predicate | (
-                ImportWorkflowRun.workflow_type == "map_observation_enrichment"
-            )
+            selection_predicate = active_predicate
         else:
             selection_predicate = active_predicate
         stmt = select(ImportWorkflowRun).where(selection_predicate)

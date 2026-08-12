@@ -24,7 +24,7 @@ function model(overrides = {}) {
           location_json: {
             text_range: { start: 7, end: 12 },
             source: { module: "world", label: "世界设定", field: "rule", type: "lore", excerpt: "禁止传送" },
-            open_target: { kind: "map_object" },
+            open_target: { kind: "world_object" },
             needs_review_reason: "pending_source",
           },
           ai_suggestion: {
@@ -112,10 +112,10 @@ describe("ConflictDetailDialog", () => {
         location_json: { start: 3, end: 6 },
       },
       {
-        id: "map-source",
-        kind: "map_risk",
+        id: "world-source",
+        kind: "world_rule",
         source_module: "world",
-        location_json: { open_target: { kind: "map_object" } },
+        location_json: { open_target: { kind: "world_object" } },
       },
       {
         id: "outline-source",
@@ -157,7 +157,7 @@ describe("ConflictDetailDialog", () => {
     expect(navigation("legacy-range", "open-conflict-source").text()).toBe("无可打开来源")
     expect(navigation("legacy-range", "open-conflict-source").attributes("disabled")).toBeDefined()
 
-    for (const itemId of ["map-source", "outline-source", "memory-source"]) {
+    for (const itemId of ["world-source", "outline-source", "memory-source"]) {
       expect(navigation(itemId, "locate-conflict").text()).toBe("无正文定位")
       expect(navigation(itemId, "locate-conflict").attributes("disabled")).toBeDefined()
       expect(navigation(itemId, "open-conflict-source").text()).toBe("打开来源")
@@ -173,7 +173,7 @@ describe("ConflictDetailDialog", () => {
     await navigation("nested-range", "locate-conflict").trigger("click")
     await navigation("legacy-range", "locate-conflict").trigger("click")
     await navigation("nested-range", "open-conflict-source").trigger("click")
-    await navigation("map-source", "open-conflict-source").trigger("click")
+    await navigation("world-source", "open-conflict-source").trigger("click")
     await navigation("outline-source", "open-conflict-source").trigger("click")
     await navigation("memory-source", "open-conflict-source").trigger("click")
     for (const itemId of ["broken-text-range", "unknown-ai"]) {
@@ -182,6 +182,6 @@ describe("ConflictDetailDialog", () => {
     }
 
     expect(wrapper.emitted("locate")).toEqual([["nested-range"], ["legacy-range"]])
-    expect(wrapper.emitted("source")).toEqual([["nested-range"], ["map-source"], ["outline-source"], ["memory-source"]])
+    expect(wrapper.emitted("source")).toEqual([["nested-range"], ["world-source"], ["outline-source"], ["memory-source"]])
   })
 })

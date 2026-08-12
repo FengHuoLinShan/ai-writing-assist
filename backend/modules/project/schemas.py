@@ -152,7 +152,6 @@ class WorkspaceAttentionSummaryResponse(BaseModel):
     world_aliases: int = Field(default=0, ge=0)
     world_relations: int = Field(default=0, ge=0)
     outline_scenes: int = Field(default=0, ge=0)
-    map_items: int = Field(default=0, ge=0)
     total: int = Field(default=0, ge=0)
 
 

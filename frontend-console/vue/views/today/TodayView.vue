@@ -35,7 +35,6 @@ const attentionItems = computed(() => [
   { key: "world_aliases", label: "别名", value: attention.value.world_aliases || 0, view: "world", subView: "review-aliases" },
   { key: "world_relations", label: "关系", value: attention.value.world_relations || 0, view: "world", subView: "review-relations" },
   { key: "outline_scenes", label: "场景", value: attention.value.outline_scenes || 0, view: "outline", subView: "scenes" },
-  { key: "map_items", label: "地图资料", value: attention.value.map_items || 0, view: "map", subView: null },
 ])
 
 const WORKFLOW_COPY = {
@@ -44,7 +43,6 @@ const WORKFLOW_COPY = {
   smart_dedup_scan: "正在检查重复资料",
   world_object_auto_extraction: "正在整理人物与设定",
   plot_structure_auto_extraction: "正在整理故事结构",
-  map_observation_enrichment: "正在补充地图资料",
   publish_chapter: "正在更新正式正文",
   rag_reindex_novel: "正在准备查找资料",
   rag_retry_embeddings: "正在修复查找资料",
@@ -89,7 +87,6 @@ function workflowStatus(workflow) {
 function workflowDestination(workflow) {
   if (["outline_generate", "story_outline_generate", "plot_structure_auto_extraction"].includes(workflow.workflowType)) return ["outline", "story-outline"]
   if (["rag_reindex_novel", "rag_retry_embeddings"].includes(workflow.workflowType)) return ["rag", "status"]
-  if (workflow.workflowType === "map_observation_enrichment") return ["map", null]
   if (["world_object_auto_extraction", "smart_dedup_scan"].includes(workflow.workflowType)) return ["world", "review-objects"]
   if (workflow.view) return [workflow.view, null]
   return ["writing", null]

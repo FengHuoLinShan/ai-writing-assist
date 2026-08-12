@@ -28,6 +28,7 @@ class ContextSelectionRequest(BaseModel):
         "outline_generation",
         "world_fusion",
         "world_generation",
+        "map_atlas",
         "import_scene_activation",
         "reader_context",
         "character_context",

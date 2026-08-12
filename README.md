@@ -34,7 +34,7 @@ NovelCraft 是一个 AI 长篇小说创作 Alpha：作者路径把正文版本�
 | 它解决什么问题？ | 长篇内容持续数十万字后，人物设定、时间线、伏笔、章节结构和对话历史很容易失控；普通 Chat 或简单 RAG 只能生成文本，难以管理长期状态、分支选择和写回副作用。 |
 | 它怎么解决？ | 作者路径用版本化正文和 Scene 锚定世界事实与剧情结构，再由 RAG、Context 和受控 LLM 生成可审查候选；RP 路径用不可变消息树、显式选中分支、流式 checkpoint 和回顾维持私人故事连续性。 |
 | 核心差异是什么？ | 两条路径都不把“模型刚刚输出的内容”当作无条件真相：作者路径区分候选与正式资产；RP 路径只让代码级选中历史进入后续上下文，未选分支不会悄悄影响故事。 |
-| 当前做到哪一步？ | 当前仓库具备双入口、作者导入/写作/世界设定/大纲/检索主链，以及模型知识 RP 旅程、分支、流式恢复、自动回顾和看海循环；仍是工程验证系统。 |
+| 当前做到哪一步？ | 当前仓库具备双入口、作者导入/写作/世界设定/大纲/检索主链、基于确认资料的一键 AI 地图册，以及模型知识 RP 旅程、分支、流式恢复、自动回顾和看海循环；仍是工程验证系统。 |
 | 个人职责是什么？ | 负责产品构思、用户流程、需求拆解、架构与安全约束、AI Coding 编排、代码 Diff Review、测试验收和持续迭代；大规模实现主要由 AI Coding 工具完成。 |
 
 **项目角色：产品负责人 + AI 应用工程编排者｜能力方向：AI 产品与 AI 应用开发。** 这个项目重点证明的不是“调用过一个模型”，而是能否把不稳定的模型能力约束成可解释、可恢复、可验收的产品系统。
@@ -166,7 +166,7 @@ flowchart TB
     subgraph Creative["创作系统：所有业务读写显式过滤 novel_id"]
         subgraph Facts["事实层"]
             Project["project<br/>项目根、owner 门禁、novel_id"]
-            World["world<br/>人物、地点、关系、时间线、地图子系统"]
+            World["world<br/>人物、地点、关系、时间线、AI 地图册"]
             Memory["memory<br/>可追踪记忆与状态快照"]
         end
 
@@ -208,6 +208,7 @@ flowchart TB
     subgraph Platform["共享受控基础设施"]
         Tasks["PostgreSQL 异步任务<br/>lease、checkpoint、恢复"]
         LLM["LLM gateway<br/>账户连接、schema、预算、超时、日志"]
+        Images["gpt-image-2 + 私有 S3<br/>候选图片、鉴权读取、删除清理"]
         DB[("PostgreSQL 17<br/>pgvector")]
     end
 
@@ -216,8 +217,11 @@ flowchart TB
     RAG --> Tasks
     Writing --> Tasks
     Interaction --> Tasks
-    Settings -->|"账户级已验证 provider / model / Key"| LLM
-    Project -->|"project client / execution snapshot"| LLM
+    Settings -->|"文本连接"| LLM
+    Settings -->|"独立图片连接"| Images
+    Project -->|"文本 client snapshot"| LLM
+    Project -->|"图片 client snapshot"| Images
+    World --> Images
     API --> DB
     Tasks --> DB
 ```
@@ -229,13 +233,13 @@ flowchart TB
 | `account` | 邮箱 / 可选 Authing 微信身份、单浏览器会话、重新认证与延期删除；位于三层创作架构之外。 |
 | `project` | 作者 / interaction 项目聚合根、非 secret 工作流设置和 `owner_id + novel_id` 双重边界。 |
 | `imports` | 文件解析、确定性 Phase 0 和可恢复的深度导入工作流。 |
-| `world` | 人物、地点、关系、时间线、事件与地图子系统等长期世界事实。 |
+| `world` | 人物、地点、关系、时间线、事件等长期世界事实，以及来源可追溯、采用前不进入正史的 AI 地图册。 |
 | `memory` | 带来源的记忆、状态快照与可追踪上下文资产。 |
 | `outline` | 总纲、剧情线、篇章纲、Scene 和结构覆盖关系。 |
 | `rag` | 正文分块、embedding、向量召回和候选证据。 |
 | `context` | 上下文选择、可见性、token 预算、确认快照和证据链。 |
 | `writing` | 当前正文、版本、发布状态、写作生成与候选内容。 |
-| `settings` | 账户级模型连接、只读余额、全局作者偏好和非 secret 项目级继承。 |
+| `settings` | 相互独立的账户级文本/图片连接、只读余额、全局作者偏好和非 secret 项目级继承。 |
 | `interaction` | 私人 RP 旅程、不可变选中历史、流式正文恢复、回顾和看海循环。 |
 
 可继续深挖：

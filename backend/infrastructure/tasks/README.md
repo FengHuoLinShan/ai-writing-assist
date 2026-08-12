@@ -36,7 +36,7 @@ infrastructure/tasks/
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
-  `world_bible_synopsis_refresh`
+  `world_bible_synopsis_refresh`、`map_atlas_generate`、`map_atlas_storage_cleanup`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
   `outline_generate`
@@ -44,8 +44,13 @@ infrastructure/tasks/
   `rag_reannotate_entities`
 - writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
-  `plot_structure_auto_extraction`、`map_observation_enrichment`
+  `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
+
+`map_atlas_storage_cleanup` 是唯一 `owner_scope=global` 处理器：`novel_id=NULL`。项目永久
+删除任务只保存 canonical 项目前缀与删除批次；上传失败的精确补偿任务只保存
+canonical page object key 与删除批次。两者均不保存 S3 凭证，不进入普通 task API。
+其余当前处理器均为 project scope。
 
 实际注册名以各模块 `tasks.py` 的 `@task_handler(...)` 为准；不要从旧计划或示例中的
 任务名推断当前可执行处理器。
@@ -122,6 +127,10 @@ fence 旧 attempt；imports 以自己的 workflow run 保存 generation、owner 
 ## 任务领取
 
 使用 `SELECT ... FOR UPDATE SKIP LOCKED` 并发安全领取。
+项目任务优先于全局清理任务，避免持续失败的最旧清理阻塞作者工作流。
+`auto_requeue` handler 失败以 `updated_at + attempt` 执行持久化的 1/2/4/8/16/30 秒
+有界退避；retry 在等待期不可领取，不占 worker 并发槽，重新可领取后按
+本次入队时间排序，而非永久使用首次 `created_at` 抢占 FIFO。
 
 ## Lease 与恢复策略
 

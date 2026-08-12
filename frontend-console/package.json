@@ -14,8 +14,7 @@
     "test:e2e:smoke": "playwright test --config=playwright.functional.config.js e2e/home.spec.js e2e/project.spec.js e2e/import.spec.js e2e/writing.spec.js",
     "test:e2e:visual": "playwright test --config=playwright.visual.config.js",
     "test:e2e:visual:update": "playwright test --config=playwright.visual.config.js --update-snapshots",
-    "test:e2e:map": "playwright test --config=playwright.functional.config.js map.spec.js map-dynamic-timeline.spec.js map-path-mobile.spec.js world-dynamics-map-chaos.spec.js --workers=1 --retries=0",
-    "test:e2e:map-perf": "playwright test --config=playwright.map-perf.config.js",
+    "test:e2e:map": "playwright test --config=playwright.functional.config.js map-atlas.spec.js --workers=1 --retries=0",
     "test:e2e:real-llm": "ENABLE_REAL_LLM=1 playwright test --config=playwright.real-llm.config.js",
     "test:e2e:worker": "RUN_WORKER_E2E=1 playwright test --config=playwright.worker.config.js",
     "test:e2e:ui": "playwright test --config=playwright.functional.config.js --ui",
@@ -30,7 +29,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "leaflet": "1.9.4",
     "pinia": "^4.0.2",
     "vue": "^3.5.41"
   }

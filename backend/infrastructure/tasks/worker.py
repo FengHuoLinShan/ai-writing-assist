@@ -19,6 +19,7 @@ import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
 
@@ -170,6 +171,43 @@ def _task_error_for_log(exc: Exception) -> str:
 
 def _task_novel_id(task: AsyncTask) -> Any:
     return task.novel_id
+
+
+def _should_auto_requeue_handler_failure(task: AsyncTask) -> bool:
+    policy = getattr(task, "recovery_policy", None)
+    attempt = getattr(task, "attempt", None)
+    max_attempts = getattr(task, "max_attempts", None)
+    return (
+        policy == "auto_requeue"
+        and isinstance(attempt, int)
+        and isinstance(max_attempts, int)
+        and attempt < max_attempts
+    )
+
+
+def _handler_failure_result(task: AsyncTask, *, requeued: bool) -> dict[str, Any]:
+    result = _task_result_snapshot(task)
+    lifecycle = dict(result.get("lifecycle") or {})
+    transitions = list(lifecycle.get("transitions") or [])
+    transitions.append(
+        {
+            "at": datetime.now(UTC).isoformat(),
+            "from": "running",
+            "to": "pending" if requeued else "failed",
+            "reason": "handler_error",
+            "attempt": int(getattr(task, "attempt", 0) or 0),
+        }
+    )
+    lifecycle.update(
+        {
+            "reason": "handler_error",
+            "recovery_policy": str(getattr(task, "recovery_policy", "")),
+            "recovery_required": False,
+            "transitions": transitions[-50:],
+        }
+    )
+    result["lifecycle"] = lifecycle
+    return result
 
 
 class TaskWorker:
@@ -574,19 +612,22 @@ class TaskWorker:
                 )
 
             except Exception as e:
+                requeue = terminal_recovery_policy is None and (
+                    _should_auto_requeue_handler_failure(task)
+                )
                 failure_result = (
                     merge_managed_llm_provenance(
-                        _task_result_snapshot(task),
+                        _handler_failure_result(task, requeued=requeue),
                         managed_llm_steps,
                     )
                     if managed_llm_steps
-                    else None
+                    else _handler_failure_result(task, requeued=requeue)
                 )
                 await session.rollback()
                 finalize_kwargs = {
                     "task_id": task.id,
                     "lease_id": lease_id,
-                    "status": "failed",
+                    "status": "pending" if requeue else "failed",
                     "result_data": failure_result,
                     "error_message": _public_task_error_message(e),
                 }
@@ -597,11 +638,13 @@ class TaskWorker:
                     task=task,
                     **finalize_kwargs,
                 )
-                if accepted:
+                if accepted and not requeue:
                     self._stats["failed"] += 1
                 attempt_accepted = accepted
-                logger.error(
-                    "Task failed: %s (type=%s, accepted=%s, novel_id=%s) — %s",
+                log = logger.warning if requeue else logger.error
+                log(
+                    "Task %s: %s (type=%s, accepted=%s, novel_id=%s) — %s",
+                    "requeued after handler failure" if requeue else "failed",
                     task.id,
                     _task_type_for_log(task.task_type),
                     accepted,

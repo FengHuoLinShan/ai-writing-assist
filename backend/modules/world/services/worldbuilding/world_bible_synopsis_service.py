@@ -216,7 +216,8 @@ class WorldBibleSynopsisService:
         background = await self._background.build(
             db,
             novel_id,
-            context_mode="author_full",
+            context_mode="canonical",
+            reveal_mode="author_full",
             limit=240,
         )
         manifest: list[dict[str, Any]] = []

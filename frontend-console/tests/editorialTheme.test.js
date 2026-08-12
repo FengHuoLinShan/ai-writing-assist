@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const indexHtml = readFileSync(resolve(__dirname, "../index.html"), "utf8")
 const styles = readFileSync(resolve(__dirname, "../styles.css"), "utf8")
 const theme = readFileSync(resolve(__dirname, "../editorial-theme.css"), "utf8")
+const mapWorkspace = readFileSync(resolve(__dirname, "../vue/views/map/MapWorkspaceView.vue"), "utf8")
 
 describe("editorial archive theme", () => {
   it("loads after the legacy stylesheet so the rollout stays incremental", () => {
@@ -46,7 +47,8 @@ describe("editorial archive theme", () => {
     expect(theme).toContain(".generate-subtabs .generate-subtab")
     expect(theme).toContain(".settings-tab-nav .tab-btn")
     expect(theme).toContain(".cockpit-tab")
-    expect(theme).toContain(".map-view-mode.is-active")
+    expect(theme).not.toContain(".map-view-mode")
+    expect(mapWorkspace).toContain(".atlas-tabs button.active")
     expect(theme).toContain(".world-object-view-toggle .btn")
   })
 

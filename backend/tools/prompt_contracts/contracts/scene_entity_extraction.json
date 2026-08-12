@@ -6,7 +6,6 @@
   "declared_prompt_fields": [
     "entities",
     "delta_events",
-    "map_observation_proposals",
     "uncertain_items"
   ],
   "forbidden_fields": ["status", "relations", "aliases", "suggested_action", "needs_review"],
@@ -19,10 +18,7 @@
     {"source": "entities.hidden_truth", "target": "core_entities.hidden_truth"},
     {"source": "entities.importance", "target": "core_entities.importance"},
     {"source": "delta_events.category", "target": "delta_log.category"},
-    {"source": "delta_events.field", "target": "delta_log.field_path"},
-    {"source": "map_observation_proposals.proposal_type", "target": "map_observations.value_json.proposal_type"},
-    {"source": "map_observation_proposals.quote", "target": "map_observations.evidence_text"},
-    {"source": "map_observation_proposals.confidence", "target": "map_observations.confidence"}
+    {"source": "delta_events.field", "target": "delta_log.field_path"}
   ],
   "observed_fields": [
     "entities.identity_disposition",
@@ -37,15 +33,6 @@
     "delta_events.uncertainties",
     "delta_events.evidence_quotes",
     "delta_events.confidence",
-    "map_observation_proposals.character_name",
-    "map_observation_proposals.event_name",
-    "map_observation_proposals.path_name",
-    "map_observation_proposals.controller_name",
-    "map_observation_proposals.location_name",
-    "map_observation_proposals.movement_mode",
-    "map_observation_proposals.state",
-    "map_observation_proposals.reason",
-    "map_observation_proposals.area_description",
     "uncertain_items.description",
     "uncertain_items.reason",
     "uncertain_items.evidence_quotes"

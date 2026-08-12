@@ -296,6 +296,73 @@ async def test_claim_freezes_lease_and_rejects_old_lease_completion(
 
 
 @pytest.mark.asyncio
+async def test_claim_prioritizes_project_task_over_eligible_global_retry(
+    db_session: AsyncSession,
+) -> None:
+    service = TaskLifecycleService()
+    now = datetime.now(UTC)
+    cleanup = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="map_atlas_storage_cleanup",
+        status="pending",
+        meta={},
+        attempt=6,
+        max_attempts=100,
+        recovery_policy="auto_requeue",
+        transition_reason="handler_error_retry",
+        created_at=now - timedelta(hours=1),
+        updated_at=now - timedelta(minutes=1),
+    )
+    novel_id = str(uuid.uuid4())
+    project_task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="project-task",
+        status="pending",
+        meta={"novel_id": novel_id},
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add_all([cleanup, project_task])
+    await db_session.commit()
+
+    claimed = await service.claim_next(db_session)
+
+    assert claimed is not None
+    assert claimed.id == project_task.id
+    assert cleanup.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_claim_does_not_starve_aged_global_task(
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    cleanup = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="map_atlas_storage_cleanup",
+        status="pending",
+        meta={},
+        created_at=now - timedelta(minutes=6),
+        updated_at=now - timedelta(minutes=6),
+    )
+    project_task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="project-task",
+        status="pending",
+        meta={"novel_id": str(uuid.uuid4())},
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add_all([cleanup, project_task])
+    await db_session.commit()
+
+    claimed = await TaskLifecycleService().claim_next(db_session)
+
+    assert claimed is not None
+    assert claimed.id == cleanup.id
+
+
+@pytest.mark.asyncio
 async def test_manual_resume_policy_becomes_failed_recoverable(
     db_session: AsyncSession,
 ) -> None:

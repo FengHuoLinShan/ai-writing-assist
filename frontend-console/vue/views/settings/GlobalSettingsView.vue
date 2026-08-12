@@ -26,6 +26,9 @@ const balances = ref(props.llmBalances?.items || [])
 const selectedProviderId = ref(connections.value.active_provider_id || "deepseek")
 const providerButtons = ref([])
 const apiKey = ref("")
+const imageApiKey = ref("")
+const imageConnection = ref({ connected: false, model: "gpt-image-2" })
+const imageSaving = ref(false)
 const balanceLoading = ref(false)
 const authorForm = ref(authorFormFromDefaults(props.authorPrefs))
 const authorBaseline = ref(JSON.stringify(authorForm.value))
@@ -169,6 +172,24 @@ async function clearConnection() {
   }
 }
 
+async function saveImageConnection() {
+  const key = imageApiKey.value.trim()
+  if (!key) return getToast()("请先填写 OpenAI API Key", "warning")
+  imageSaving.value = true
+  try {
+    imageConnection.value = await getApi().settings.connectImageProvider(key)
+    imageApiKey.value = ""
+    getToast()("密钥连接成功", "success")
+  } catch (err) {
+    getToast()(err.message || "图片服务连接失败", "error")
+  } finally { imageSaving.value = false }
+}
+
+async function clearImageConnection() {
+  if (!getConfirm()("断开 OpenAI 图片服务？已生成的地图不受影响。")) return
+  try { imageConnection.value = await getApi().settings.clearImageProvider(); getToast()("图片服务已断开", "success") } catch (err) { getToast()(err.message || "断开失败", "error") }
+}
+
 async function saveAuthor() {
   const toast = getToast()
   const submittedForm = JSON.stringify(authorForm.value)
@@ -191,7 +212,7 @@ async function saveAuthor() {
 }
 
 function hasUnsavedChanges() {
-  return Boolean(apiKey.value)
+  return Boolean(apiKey.value || imageApiKey.value)
     || JSON.stringify(authorForm.value) !== authorBaseline.value
 }
 
@@ -206,7 +227,10 @@ function beforeUnload(event) {
   event.returnValue = ""
 }
 
-onMounted(() => window.addEventListener("beforeunload", beforeUnload))
+onMounted(async () => {
+  window.addEventListener("beforeunload", beforeUnload)
+  try { imageConnection.value = await getApi().settings.getImageConnection() } catch { /* 地图册使用时仍会给出明确提示 */ }
+})
 onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
 </script>
 
@@ -321,6 +345,21 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload))
           :aria-busy="balanceLoading"
           @click="refreshBalances"
         >刷新余额</button>
+      </div>
+    </section>
+
+    <section v-if="!returningToRp" class="settings-section" :aria-busy="imageSaving">
+      <h3>OpenAI 图片服务</h3>
+      <p class="settings-section-hint">地图册固定使用 <strong>gpt-image-2</strong>，不会改变上方文本模型的当前选择。</p>
+      <p><span class="badge">{{ imageConnection.connected ? '密钥连接成功' : '未连接' }}</span></p>
+      <label class="form-group account-key-field">
+        <span>OpenAI API Key</span>
+        <input v-model="imageApiKey" class="form-input" type="password" autocomplete="new-password" :placeholder="imageConnection.connected ? '填写新 Key 可替换' : '请填写 Key'" />
+      </label>
+      <p class="settings-section-hint">此处只检查密钥与服务的连接。图片权限、组织验证和额度会在首次真实生成时确认。</p>
+      <div class="settings-actions">
+        <button class="btn btn-primary" :disabled="imageSaving || !imageApiKey.trim()" @click="saveImageConnection">{{ imageSaving ? '连接中…' : '检查连接并保存' }}</button>
+        <button v-if="imageConnection.connected" class="btn btn-link" :disabled="imageSaving" @click="clearImageConnection">断开图片服务</button>
       </div>
     </section>
 

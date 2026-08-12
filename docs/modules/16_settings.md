@@ -2,7 +2,7 @@
 
 ## 定位
 
-settings 模块拥有账户级模型连接、只读余额、全局作者偏好和项目级作者偏好覆盖。它不拥有
+settings 模块拥有账户级文本/图片模型连接、只读余额、全局作者偏好和项目级作者偏好覆盖。它不拥有
 项目本身；业务模块通过 project facade 间接消费当前账户连接，不能直接读取凭据。
 
 ## 数据表
@@ -39,6 +39,9 @@ settings 模块拥有账户级模型连接、只读余额、全局作者偏好�
 - `high_quality` 表示 DeepSeek `max` reasoning 和 Phase 1c；它不切换账户当前模板。
 - 余额查询只面向已连接且已启用的 provider，原币种返回总可用额；失败为 unavailable，
   不影响连接或生成。前端不轮询、不换算、不拆分，也不显示充值入口。
+- 图片连接固定为 `openai-image / gpt-image-2`，只复用凭证表和加密仓库；不进入 DeepSeek/Kimi
+  文本模板，也不改变 active provider。连接检查只证明 Key 可达，权限/组织验证/额度在首次
+  实际生图时确认。
 
 ## 对外接口
 
@@ -49,6 +52,7 @@ settings 模块拥有账户级模型连接、只读余额、全局作者偏好�
 | POST | `/api/settings/llm-connections/{provider_id}/activate` | 切换已有连接 |
 | DELETE | `/api/settings/llm-connections/{provider_id}` | 清除该 provider Key |
 | GET | `/api/settings/llm-balances` | 查询原币种余额；非阻塞失败 |
+| GET/PUT/DELETE | `/api/settings/image-connection` | 查询、验证保存或清除独立图片连接 |
 | GET/PUT | `/api/settings/llm-defaults` | 读取或更新全局 LLM 默认 |
 | GET/PUT | `/api/settings/author-preferences` | 读取或更新全局作者偏好 |
 | GET | `/api/settings/projects-using-defaults` | 列出会继承默认值的项目 |
@@ -67,7 +71,7 @@ settings 模块拥有账户级模型连接、只读余额、全局作者偏好�
 - `modules.settings.services` 拥有 credential、连接验证、模板门禁、余额与 effective 规则，
   不能直接读取 project 的内部 models/repositories/services。
 - `modules.settings.contracts` 向 project 暴露 effective response 类型和非 secret
-  字段白名单；facade 只暴露 account runtime profile/effective 设置函数。
+  字段白名单；facade 另向 project 暴露独立 image runtime connection，不暴露明文 Key 给业务模块。
 - 需要项目列表的聚合通过 project facade 保持 active/author/owner 条件、排序和分页；
   settings 可提供其自身“完全覆盖”的 ID subquery 供该 facade 在数据库侧排除，不读取 project
   的 ORM 实现或跨 owner 扫描。

@@ -1,5 +1,7 @@
 # World Dynamics Map Fixes Implementation Plan
 
+> **Superseded（已取代）：** 旧动态地图实施记录，不是当前契约。现行实现见 `docs/modules/15_map.md` 与 ADR-0012。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Bring the world dynamics map from a partial scaffold to the P0/P1 user paths: default dashboard entry, contextual map opening, object info, inspector editing, candidate review, batch actions, and risk handling.

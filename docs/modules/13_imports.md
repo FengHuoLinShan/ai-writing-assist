@@ -91,7 +91,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 - 提交不再补造 `core_conflict / must_happen / must_not_happen`。显式 `not_applicable` 的空字段是完整语义；缺状态或 `uncertain` 的空字段继续进入健康复核。
 
 ### Phase 2a / 2b: 世界对象、Delta、别名与关系（40%）
-- Phase 2a 基于已提交 Scene 抽取长期世界对象、持久 Delta、四类局部地图观察与不确定项；不输出关系或新别名。
+- Phase 2a 基于已提交 Scene 抽取长期世界对象、持久 Delta 与不确定项；不输出关系或新别名。
 - Phase 2 Scene 实体抽取实现位于 `entity_extraction/` 子包；`modules.imports.entity_extraction` 是稳定公共导出入口，旧顶层 `scene_entity_extraction.py` 兼容 hub 已删除。
 - Phase 2a 路由选择集中在 `entity_extraction/scene_entity_strategy.py`，只决定 empty、small-sample parallel、bulk、batched 或 checkpoint resume；LLM 调用、persistence、checkpoint、prompt、timeout 和返回契约仍由子包内执行模块负责。
 - Phase 2b 复用 Phase 2a 的完整精确 Scene activation，并加入冻结的既有对象与关系引用，补抽别名和关系连续性；这是关系/新别名的唯一 LLM 阶段。它不裁剪输入，失败只降级，不丢弃已抽取对象。
@@ -205,7 +205,7 @@ coverage、checkpoint 和脱敏 provider summary。
 - Phase 2 / Phase 3 通过 `context.facade` 创建、标记并汇总 `context_snapshots`
 - Phase 3 通过 outline facade / DI handler 写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`
 - 新增跨模块依赖应优先走 facade 或 DI container 注册服务；不得直接 import 其他模块 repositories/services
-- 放弃可恢复 workflow 通过各领域 facade 整批软回滚：outline/world 资产废弃、Memory DeltaLog 标记 `rolled_back`、MapObservation 转 `ignored`；所有操作按 novel/workflow 隔离并保留来源审计
+- 放弃可恢复 workflow 通过各领域 facade 整批软回滚：outline/world 资产废弃、Memory DeltaLog 标记 `rolled_back`；所有操作按 novel/workflow 隔离并保留来源审计
 
 ## 真实服务验收与恢复证据
 

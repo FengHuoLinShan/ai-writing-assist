@@ -47,6 +47,9 @@ def _valid_values() -> dict[str, str]:
         "TASK_WORKER_MAX_CONCURRENT_TASKS": "1",
         "BACKUP_RETENTION_DAYS": "30",
         "LLM_SETTINGS_ENCRYPTION_KEY": base64.urlsafe_b64encode(b"k" * 32).decode(),
+        "MAP_ATLAS_S3_BUCKET": "private-map-atlas-fixture",
+        "MAP_ATLAS_S3_REGION": "us-east-1",
+        "MAP_ATLAS_S3_FORCE_PATH_STYLE": "false",
         "EMBEDDING_DEPLOYMENT": "local_tei",
         "EMBEDDING_IMAGE": (
             "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9"
@@ -79,6 +82,17 @@ def _valid_values() -> dict[str, str]:
 
 def test_closed_test_environment_is_valid() -> None:
     assert validator.validate(_valid_values()) == []
+
+
+def test_destructive_migration_proof_cannot_be_persisted() -> None:
+    values = _valid_values()
+    values["MAP_ATLAS_DESTRUCTIVE_MIGRATION_CONFIRMATION"] = (
+        "DROP_LEGACY_MAP_DATA_20260812"
+    )
+
+    errors = validator.validate(values)
+
+    assert any("one-time release state" in error for error in errors)
 
 
 def test_example_placeholders_fail_closed() -> None:
@@ -120,6 +134,57 @@ def test_public_example_keeps_operator_bound_mail_settings_as_placeholders() -> 
 def test_production_can_disable_global_llm_rpm() -> None:
     values = _valid_values()
     values["LLM_RATE_LIMIT_PER_MINUTE"] = "0"
+
+    assert validator.validate(values) == []
+
+
+def test_map_atlas_s3_static_credentials_must_be_a_pair() -> None:
+    values = _valid_values()
+    values["MAP_ATLAS_S3_ACCESS_KEY_ID"] = "fixture-key"
+
+    errors = validator.validate(values)
+
+    assert any("MAP_ATLAS_S3_ACCESS_KEY_ID" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "endpoint_url",
+    [
+        "http://169.254.169.254",
+        "http://localhost.evil.example",
+        "https://user:secret@s3.example.com",
+        "https://s3.example.com?bucket=other",
+        "https://s3.example.com?",
+        "https://s3.example.com#fragment",
+        "https://s3.example.com#",
+    ],
+)
+def test_map_atlas_s3_endpoint_rejects_credential_egress_targets(
+    endpoint_url: str,
+) -> None:
+    values = _valid_values()
+    values["MAP_ATLAS_S3_ENDPOINT_URL"] = endpoint_url
+
+    errors = validator.validate(values)
+
+    assert any("MAP_ATLAS_S3_ENDPOINT_URL" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "endpoint_url",
+    [
+        "",
+        "http://localhost:9000",
+        "http://127.0.0.1:9000",
+        "http://[::1]:9000",
+        "https://s3.example.com",
+    ],
+)
+def test_map_atlas_s3_endpoint_accepts_aws_https_and_local_development(
+    endpoint_url: str,
+) -> None:
+    values = _valid_values()
+    values["MAP_ATLAS_S3_ENDPOINT_URL"] = endpoint_url
 
     assert validator.validate(values) == []
 
@@ -192,10 +257,14 @@ def test_invalid_image_reference_errors_describe_the_full_supported_contract() -
     values["EMBEDDING_IMAGE"] = "registry.example/Repo:tag@sha256:" + "a" * 64
 
     assert validator.validate(values) == [
-        "POSTGRES_IMAGE must use a supported lowercase repository, explicit tag, "
-        "and lowercase sha256 digest",
-        "EMBEDDING_IMAGE must use a supported lowercase repository, explicit tag, "
-        "and lowercase sha256 digest",
+        (
+            "POSTGRES_IMAGE must use a supported lowercase repository, explicit "
+            "tag, and lowercase sha256 digest"
+        ),
+        (
+            "EMBEDDING_IMAGE must use a supported lowercase repository, explicit "
+            "tag, and lowercase sha256 digest"
+        ),
     ]
 
 
@@ -397,6 +466,7 @@ def test_get_refuses_unsafe_file_without_printing_value(tmp_path: Path) -> None:
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 1

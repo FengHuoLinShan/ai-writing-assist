@@ -30,7 +30,6 @@ from modules.world.llm_schemas import (
     GeneratedWorldGenerationDecisionAudit,
     GeneratedWorldGenerationDecisionState,
 )
-from modules.world.map_models import MapFact
 from modules.world.models import (
     CoreEntity,
     EntityRelation,
@@ -1099,7 +1098,6 @@ class WorldGenerationCenterService:
             if asset_identity[0] not in {
                 "core_entity",
                 "entity_relation",
-                "map_fact",
                 "world_bible_page",
             }:
                 raise ValidationError(
@@ -1153,26 +1151,6 @@ class WorldGenerationCenterService:
                     "id": str(row.id),
                     "title": row.relation_type,
                     "summary": row.description or row.relation_type,
-                }
-
-        fact_ids = [
-            value for identity, value in parsed_ids.items() if identity[0] == "map_fact"
-        ]
-        if fact_ids:
-            rows = await db.scalars(
-                select(MapFact).where(
-                    MapFact.novel_id == nid,
-                    MapFact.id.in_(fact_ids),
-                    MapFact.fact_status == "confirmed",
-                )
-            )
-            for row in rows.all():
-                resolved[("map_fact", str(row.id))] = {
-                    "type": "map_fact",
-                    "id": str(row.id),
-                    "title": row.target_name or row.dynamic_type,
-                    "summary": row.evidence_text
-                    or str(row.value_json or row.spatial_anchor or ""),
                 }
 
         page_ids = [

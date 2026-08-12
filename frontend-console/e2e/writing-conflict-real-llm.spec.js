@@ -8,10 +8,6 @@ import {
   createDraft,
   createScene,
   createEntity,
-  createMap,
-  createLocationBindings,
-  createMapMarker,
-  createMapObservation,
   getLatestDraft,
   listConflictChecks,
 } from "./helpers/api-client.js"
@@ -42,7 +38,6 @@ async function confirmPublishIfPrompted(page) {
 test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
   let testProjectId = null
   let testSceneId = null
-  let testMapId = null
 
   test.beforeAll(async () => {
     if (!ENABLED) {
@@ -65,11 +60,6 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
       entity_type: "character",
       status: "canonical",
     })
-    const location = await createEntity(testProjectId, {
-      name: "旧约门",
-      entity_type: "location",
-      status: "canonical",
-    })
     const scene = await createScene(testProjectId, {
       scene_index: 1,
       title: "旧约门交涉",
@@ -83,56 +73,6 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
       pov_character_id: character.id,
     })
     testSceneId = scene.id
-    const map = await createMap(testProjectId, {
-      name: "旧约门风险图",
-      map_type: "world",
-      grid_width: 5,
-      grid_height: 5,
-      template: "blank",
-    })
-    testMapId = map.id
-    await createLocationBindings(testProjectId, map.id, {
-      location_entity_id: location.id,
-      hexes: [{ hex_q: 1, hex_r: 1, is_center: true }],
-    })
-    await createMapMarker(testProjectId, map.id, {
-      entity_id: character.id,
-      marker_type: "character",
-      hex_q: 1,
-      hex_r: 1,
-      label: "沈砚",
-      start_scene_id: scene.id,
-      start_scene_index: 1,
-      visible: true,
-    })
-    await createMapObservation(testProjectId, map.id, {
-      target_entity_id: location.id,
-      target_entity_type: "location",
-      target_name: "旧约门粮仓火势",
-      dynamic_type: "risk",
-      time_anchor: {
-        chapter_index: 1,
-        scene_id: scene.id,
-        scene_index: 1,
-      },
-      spatial_anchor: {
-        hex_q: 1,
-        hex_r: 1,
-        location_name: "旧约门",
-      },
-      value_json: { risk: "粮仓火势正在扩大" },
-      confidence: 0.84,
-      review_state: "candidate",
-      source_ref: {
-        source: "writing_conflict_real_llm_e2e",
-        chapter_index: 1,
-        scene_id: scene.id,
-      },
-      evidence_text: "真实 LLM 验收候选地图证据：旧约门粮仓火势正在扩大。",
-      scene_id: scene.id,
-      scene_index: 1,
-      source_chapter_index: 1,
-    })
 
     await openWorkbench(page, project, "writing")
     await waitWritingReady(page)
@@ -143,7 +83,6 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
       testSceneId = null
-      testMapId = null
     }
   })
 
@@ -166,7 +105,6 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     await expect(conflictDialog).toBeVisible({ timeout: 15000 })
     await expect(page.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })).toBeVisible()
     await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项缺失" }).first()).toBeVisible()
-    await expect(page.locator(".writing-conflict-item", { hasText: "地图/世界状态风险" })).toBeVisible()
 
     await page.getByRole("button", { name: "补充 AI 软冲突判断" }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("AI 参考资料", { timeout: 10000 })
@@ -187,12 +125,6 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     })
     const reviewedCheck = reviewedHistory.items[0]
     expect(reviewedCheck.items.some((item) => item.is_ai_judgment)).toBe(true)
-    expect(reviewedCheck.items.some((item) => (
-      item.kind === "map_risk" &&
-      item.source_module === "world" &&
-      item.location_json?.open_target?.map_id === testMapId &&
-      item.needs_review === true
-    ))).toBe(true)
 
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
@@ -260,14 +192,6 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
     ))).toBe(true)
     expect(snapshot?.items.some((item) => item.is_ai_judgment)).toBe(true)
     expect(snapshot?.items.some((item) => item.has_ai_suggestion)).toBe(true)
-    expect(snapshot?.items.some((item) => (
-      item.kind === "map_risk" &&
-      item.source_module === "world" &&
-      item.needs_review === true &&
-      item.location_json?.source?.module === "world" &&
-      item.location_json?.source?.type === "map.scene_summary" &&
-      item.location_json?.open_target?.map_id === testMapId
-    ))).toBe(true)
 
     console.log(
       `[REAL-LLM-WRITING-CONFLICT] check=${snapshot.check_id}, ` +

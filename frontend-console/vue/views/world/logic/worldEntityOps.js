@@ -14,7 +14,6 @@
  */
 import { getApi, getAppState, getCloseModal, getConfirm, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
-import { buildMapUrl } from "../../../../views/mapRouteContext.js"
 import {
   candidateAction,
   candidateMeta,
@@ -871,101 +870,6 @@ export function showKnowledgeForm(characterId) {
 }
 
 /** 对应 vanilla _openEntityPresence。 */
-function openEntityPresence(presence, entityIdParam) {
-  const projectId = getAppState()?.currentProjectId
-  const target = presence?.open_target || {}
-  const pathRef = presence?._pathRef || presence?.path_refs?.[0] || {}
-  const focusesPath = Boolean(pathRef.path_id || target.focus_path_id)
-  const url = buildMapUrl({
-    projectId,
-    mapId: target.map_id || presence.map_id,
-    sceneId: target.scene_id,
-    focusEntityId: target.focus_entity_id || entityIdParam,
-    focusHexQ: focusesPath ? null : presence.representative_world_q ?? presence.representative_hex_q,
-    focusHexR: focusesPath ? null : presence.representative_world_r ?? presence.representative_hex_r,
-    focusPathId: pathRef.path_id || target.focus_path_id,
-    focusLayerNodeId: pathRef.layer_node_id || target.focus_layer_node_id,
-    mode: target.mode || "live",
-  })
-  window.open(url, "_blank", "noopener")
-}
-
-/** 对应 vanilla _openEntityMap。 */
-export async function openEntityMap(entityIdParam) {
-  const toast = getToast()
-  const showModalHtml = getShowModalHtml()
-  const closeModal = getCloseModal()
-  const projectId = getAppState()?.currentProjectId
-  if (!projectId) {
-    toast("请先选择项目", "warning")
-    return
-  }
-  try {
-    const entity = findEntity(entityIdParam)
-    const includeCandidates = entity?.status === "candidate" || entity?.status === "draft"
-    const presence = await getApi().world.getEntityMapPresence(entityIdParam, projectId, includeCandidates)
-    const items = presence?.items || []
-    const choices = items.flatMap((item) => (
-      item.path_refs?.length
-        ? item.path_refs.map((pathRef) => ({ ...item, _pathRef: pathRef }))
-        : [item]
-    ))
-    if (choices.length === 1) {
-      openEntityPresence(choices[0], entityIdParam)
-      return
-    }
-    if (choices.length > 1) {
-      const esc = getEsc()
-      const roleLabels = {
-        location: "地点",
-        "marker.character": "人物标记",
-        "marker.event": "事件标记",
-        "marker.item": "物品标记",
-        territory: "领地",
-        terrain: "覆盖素材",
-        "path.start": "线路起点",
-        "path.end": "线路终点",
-      }
-      const body = `
-        <div class="world-map-presence-list">
-          ${choices.map((item, index) => `
-            <button class="world-map-presence-row" data-map-presence-index="${index}">
-              <strong>${esc(item.map_name)}${item._pathRef?.path_name ? ` · ${esc(item._pathRef.path_name)}` : ""}</strong>
-              <span>${esc((item._pathRef?.roles || item.roles || []).map((role) => roleLabels[role] || role).join("、") || "地图位置")} · ${Number(item.binding_count || 0)} 个空间绑定</span>
-              ${item.scene_index_min != null || item.scene_index_max != null
-                ? `<small>场景 ${esc(item.scene_index_min ?? "?")}–${esc(item.scene_index_max ?? "?")}</small>`
-                : ""}
-            </button>
-          `).join("")}
-        </div>
-      `
-      showModalHtml("选择关联地图", body, [{ text: "取消", class: "btn", handler: closeModal }])
-      document.querySelectorAll("[data-map-presence-index]").forEach((button) => {
-        button.onclick = () => {
-          closeModal()
-          openEntityPresence(choices[Number(button.dataset.mapPresenceIndex)], entityIdParam)
-        }
-      })
-      return
-    }
-    const target = await getApi().world.getMapOpenTarget(projectId, { focusEntityId: entityIdParam })
-    const url = buildMapUrl({
-      projectId,
-      mapId: target.map_id,
-      sceneId: target.scene_id,
-      focusEntityId: target.focus_entity_id || entityIdParam,
-      focusPathId: target.focus_path_id,
-      focusLayerNodeId: target.focus_layer_node_id,
-      mode: target.mode || (target.map_id ? "dashboard" : "overview"),
-    })
-    if (target.fallback_message) {
-      toast(target.fallback_message, "warning")
-    }
-    window.open(url, "_blank", "noopener")
-  } catch (err) {
-    toast(`打开地图失败：${err.message || "未知错误"}`, "error")
-  }
-}
 
 // ============================================================
 // fusion 建议模态

@@ -1013,27 +1013,8 @@ class WritingConflictCheckService:
             else:
                 items.extend(self._scene_rule_items(scene, data.content or ""))
 
-            map_items, map_degraded, map_summary = await self._map_rule_items(
-                db,
-                data.novel_id,
-                data.scene_id,
-                include_candidates=data.include_candidates,
-            )
-            items.extend(map_items)
-            degraded_sources.extend(map_degraded)
         else:
             scene = None
-            map_summary = None
-
-        memory_items, memory_degraded = await self._memory_rule_items(
-            db,
-            data.novel_id,
-            data.chapter_index,
-            scene=scene,
-            map_summary=map_summary,
-        )
-        items.extend(memory_items)
-        degraded_sources.extend(memory_degraded)
 
         status = "degraded" if degraded_sources else "completed"
         summary_json = self._summary(items, degraded_sources)
@@ -1051,7 +1032,7 @@ class WritingConflictCheckService:
                 "version_number": data.version_number,
                 "content_excerpt": (data.content or "")[:4000],
                 "content_char_count": len(data.content or ""),
-                "sources": ["outline", "world.map", "memory"],
+                "sources": ["outline"],
             },
             include_candidates=data.include_candidates,
             status=status,
@@ -1341,143 +1322,6 @@ class WritingConflictCheckService:
                     }
                 )
         return items
-
-    async def _map_rule_items(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        scene_id: str,
-        *,
-        include_candidates: bool,
-    ) -> tuple[list[dict], list[str], object | None]:
-        try:
-            from modules.world.map_facade import summarize_scene_map_for_writing
-
-            summary = await summarize_scene_map_for_writing(
-                db,
-                novel_id,
-                scene_id,
-                include_candidates=include_candidates,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to load map summary for conflict check: %s",
-                redact_diagnostic(exc, limit=500),
-            )
-            return [], ["world.map"], None
-
-        degraded = []
-        if (
-            include_candidates
-            and _read_field(summary, "candidate_support") == "unsupported"
-        ):
-            degraded.append("world.map.candidates")
-
-        items = []
-        risks = _read_field(summary, "risks", []) or []
-        warnings = _read_field(summary, "warnings", []) or []
-        for warning in [*risks, *warnings]:
-            warning_code = _read_field(warning, "code")
-            if warning_code in {
-                "scene_without_map_context",
-                "scene_without_location",
-            }:
-                # Missing optional map decoration remains visible in the writing
-                # side panel, but is not a manuscript/setting contradiction.
-                continue
-            message = (
-                _read_field(warning, "message")
-                or warning_code
-                or "地图状态需要人工检查"
-            )
-            depends_on_candidate = bool(_read_field(warning, "depends_on_candidate"))
-            evidence_excerpt = _read_field(warning, "evidence_excerpt") or message
-            open_target = _read_field(warning, "open_target") or {
-                "kind": "map_scene",
-                "scene_id": scene_id,
-            }
-            needs_review_reason = "依赖待处理地图观察" if depends_on_candidate else None
-            severity = "medium" if _read_field(warning, "level") == "warning" else "low"
-            items.append(
-                {
-                    "kind": "map_risk",
-                    "severity": severity,
-                    "source_module": "world",
-                    "source_type": "map.scene_summary",
-                    "source_id": scene_id,
-                    "evidence_summary": message,
-                    "location_json": evidence_location(
-                        source_module="world",
-                        source_type="map.scene_summary",
-                        source_id=scene_id,
-                        source_label="地图摘要",
-                        source_field="地图风险",
-                        source_excerpt=str(evidence_excerpt),
-                        open_target=open_target,
-                        needs_review_reason=needs_review_reason,
-                    ),
-                    "needs_review": depends_on_candidate,
-                }
-            )
-        return items, degraded, summary
-
-    async def _memory_rule_items(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        chapter_index: int,
-        *,
-        scene: object | None,
-        map_summary: object | None,
-    ) -> tuple[list[dict], list[str]]:
-        if scene is None or map_summary is None:
-            return [], []
-
-        pov_character_id = getattr(scene, "pov_character_id", None)
-        primary_location = _read_field(map_summary, "primary_location")
-        current_location_id = _read_field(primary_location, "entity_id")
-        current_label = _read_field(primary_location, "name") or current_location_id
-
-        try:
-            from modules.memory.facade import get_continuity_evidence_for_writing
-
-            evidence = await get_continuity_evidence_for_writing(
-                db,
-                novel_id,
-                chapter_index,
-                pov_character_id=pov_character_id,
-                current_location_id=current_location_id,
-                current_location_name=current_label,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to load memory evidence for conflict check: %s",
-                redact_diagnostic(exc, limit=500),
-            )
-            return [], ["memory"]
-
-        if evidence is None:
-            return [], []
-
-        return [
-            {
-                "kind": "continuity_location_mismatch",
-                "severity": "medium",
-                "source_module": evidence.source_module,
-                "source_type": evidence.source_type,
-                "source_id": evidence.source_id,
-                "evidence_summary": evidence.source_excerpt,
-                "location_json": evidence_location(
-                    source_module=evidence.source_module,
-                    source_type=evidence.source_type,
-                    source_id=evidence.source_id,
-                    source_label=evidence.source_label,
-                    source_field=evidence.source_field,
-                    source_excerpt=evidence.source_excerpt,
-                    open_target=evidence.open_target,
-                ),
-            }
-        ], []
 
     def _summary(self, items: list[dict], degraded_sources: list[str]) -> dict:
         by_severity: dict[str, int] = {}

@@ -29,16 +29,6 @@
       "confidence": 0.92
     }
   ],
-  "map_observation_proposals": [
-    {
-      "proposal_type": "route_state",
-      "path_name": "北境商道",
-      "state": "blocked",
-      "reason": "暴雪封路",
-      "quote": "北境商道已被暴雪封死。",
-      "confidence": 0.92
-    }
-  ],
   "uncertain_items": [
     {
       "description": "石桥下的黑影可能是持续性威胁。",

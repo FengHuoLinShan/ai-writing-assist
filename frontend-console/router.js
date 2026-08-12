@@ -16,7 +16,7 @@ const routes = {
   journeys: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
   interaction: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
   today: { title: "今日工作", subViews: [], requiresProject: true },
-  world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "人物与设定", candidates: "需要处理", "review-objects": "需要处理 · 人物与设定", "review-aliases": "需要处理 · 别名", "review-relations": "需要处理 · 关系", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记", map: "地图" } },
+  world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible"], subViewTitles: { objects: "人物与设定", candidates: "需要处理", "review-objects": "需要处理 · 人物与设定", "review-aliases": "需要处理 · 别名", "review-relations": "需要处理 · 关系", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记" } },
   rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "修复查找功能" } },
   outline: { title: "故事结构", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "故事总览", arcs: "篇章", threads: "剧情线", scenes: "场景" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
@@ -136,23 +136,6 @@ function getCurrentView() {
  */
 const _navListeners = []
 
-function _queueMapTelemetry(routeState) {
-  if (routeState?.viewName !== "map") {
-    delete globalThis.__mapTelemetryPendingNavigation
-    return
-  }
-  const mapId = routeState.query?.get?.("map_id") || null
-  if (!mapId) {
-    delete globalThis.__mapTelemetryPendingNavigation
-    return
-  }
-  globalThis.__mapTelemetryPendingNavigation = {
-    mapId,
-    route: _hashForRoute(routeState),
-    startedAt: globalThis.performance?.now?.() ?? Date.now(),
-  }
-}
-
 /**
  * 注册导航监听
  * @param {function} listener
@@ -253,9 +236,6 @@ let _routeTransitionGeneration = 0
 
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
 const _lastSubViewMap = new Map()
-
-/** @type {Object<string, Set<string>>} 不应作为一级导航恢复目标的兼容子标签 */
-const _nonRestorableSubViews = new Map([["world", new Set(["map"])]])
 
 /** @type {URLSearchParams} 当前 hash 的 query 参数 */
 let _currentQuery = new URLSearchParams()
@@ -361,13 +341,6 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     targetView = effectiveProjectId ? "project-settings" : "settings"
     targetProjectId = effectiveProjectId
     targetSubView = null
-  }
-
-  // `mode=map` 仅作为旧深链输入保留。统一在路由边界改为 canonical live，
-  // 让首次 init/popstate 的 replace 与 router 内部 query 使用同一值。
-  if (targetView === "map" && targetQuery.get("mode") === "map") {
-    targetQuery = new URLSearchParams(targetQuery)
-    targetQuery.set("mode", "live")
   }
 
   let route = routes[targetView]
@@ -677,7 +650,6 @@ function getLastSubView(viewName) {
 
 function _rememberSubView(viewName, subView) {
   if (!viewName || !subView) return
-  if (_nonRestorableSubViews.get(viewName)?.has(subView)) return
   _lastSubViewMap.set(viewName, subView)
 }
 
@@ -981,7 +953,6 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
 
   const sourceRoute = _representedRouteState()
   if (!_prepareRouteTransition(routeState)) return false
-  _queueMapTelemetry(routeState)
 
   if (sourceRoute.viewName) {
     if (
@@ -1126,7 +1097,6 @@ async function _handlePopState() {
       _restoreMountedRouteHash()
       return false
     }
-    _queueMapTelemetry(routeState)
     const canonicalHash = _hashForRoute(routeState)
     if (window.location.hash !== canonicalHash) {
       window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
@@ -1166,7 +1136,6 @@ async function initRouter() {
     _restoreMountedRouteHash()
     return false
   }
-  _queueMapTelemetry(routeState)
   let canonicalHash = _hashForRoute(routeState)
   if (window.location.hash !== canonicalHash) {
     window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)

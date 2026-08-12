@@ -9,6 +9,7 @@ interface into :class:`GenerationBackgroundRequest`.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
@@ -22,7 +23,10 @@ from modules.context.contracts import (
     ContextSnapshotRequest,
 )
 from modules.context.markdown_renderer import render_compiled_context
-from modules.context.services.compiled_context import CompiledContext
+from modules.context.services.compiled_context import (
+    LINE_ITEM_SOURCE_KEYS,
+    CompiledContext,
+)
 from modules.context.services.context_compiler import ContextCompiler
 from modules.context.services.snapshot_service import DurableContextSnapshotService
 
@@ -31,6 +35,7 @@ _WORLD_GENERATION_OPERATIONS = frozenset(
         "world.generation.chat",
         "world.generation.core_entity",
         "world.generation.world_bible_page",
+        "world.map_atlas.generate",
     }
 )
 _MAX_FOCUS_CHARS = 4000
@@ -121,6 +126,10 @@ class GenerationBackgroundService:
             is_world_generation=is_world_generation,
         )
         included_asset_ids = self._included_asset_ids(compiled, options)
+        included_asset_manifest = self._included_asset_manifest(
+            compiled,
+            operation=request.operation,
+        )
         snapshot_request = self._snapshot_request(
             request,
             options,
@@ -137,7 +146,11 @@ class GenerationBackgroundService:
         usage["context_snapshot_id"] = snapshot.id
         return {
             "rendered_context": rendered,
-            "context_usage": usage,
+            "context_usage": {
+                **usage,
+                "included_asset_ids": included_asset_ids,
+                "included_asset_manifest": included_asset_manifest,
+            },
         }
 
     @staticmethod
@@ -158,9 +171,17 @@ class GenerationBackgroundService:
             novel_id=request.novel_id,
             task=compile_task,
             scope="generation_center" if is_world_generation else "world",
-            reveal_mode="author_safe",
+            reveal_mode=(
+                "author_full"
+                if request.operation == "world.map_atlas.generate"
+                else "author_safe"
+            ),
             retrieval_purpose=(
-                "world_generation" if is_world_generation else "world_fusion"
+                "map_atlas"
+                if request.operation == "world.map_atlas.generate"
+                else "world_generation"
+                if is_world_generation
+                else "world_fusion"
             ),
             consumer_action=request.operation,
             chapter_index=request.reference_chapter_index,
@@ -291,6 +312,78 @@ class GenerationBackgroundService:
                 if source_id:
                     included.setdefault(source_type, []).append(source_id)
         return {key: list(dict.fromkeys(values)) for key, values in included.items()}
+
+    @staticmethod
+    def _included_asset_manifest(
+        compiled: CompiledContext,
+        *,
+        operation: str = "",
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Project retained source identities with content-sensitive hashes.
+
+        A loader-provided hash is authoritative. Legacy sources fall back to the
+        retained section hash, which may refresh extra atlas pages but cannot
+        hide a changed source from the update workflow.
+        """
+
+        manifest: dict[str, list[dict[str, Any]]] = {}
+        seen: set[tuple[str, str]] = set()
+        for section in compiled.sections:
+            if (
+                operation == "world.map_atlas.generate"
+                and section.key
+                not in {
+                    "scene_blueprint",
+                    "world_entities",
+                    "retrieval_evidence_packs",
+                    "world_bible_working_pages",
+                }
+            ):
+                continue
+            if not section.content.strip():
+                continue
+            if section.truncated_reason and section.key not in LINE_ITEM_SOURCE_KEYS:
+                # Only one-line-per-item sections retain exact provenance after
+                # budget truncation. Wrapped JSON/summary sections fail closed.
+                continue
+            section_hash = hashlib.sha256(section.content.encode("utf-8")).hexdigest()
+            for source in section.sources:
+                source_type = str(source.get("type") or "context_source").strip()
+                source_id = str(source.get("id") or "").strip()
+                source_status = str(source.get("status") or section.status)
+                identity = (source_type, source_id)
+                if (
+                    not source_type
+                    or not source_id
+                    or source_status == "system"
+                    or identity in seen
+                ):
+                    continue
+                source_hash = str(source.get("source_hash") or "").strip()
+                if len(source_hash) != 64:
+                    source_hash = hashlib.sha256(
+                        json.dumps(
+                            {"section_hash": section_hash, "source": source},
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            default=str,
+                        ).encode("utf-8")
+                    ).hexdigest()
+                entry: dict[str, Any] = {
+                    "source_id": source_id,
+                    "source_hash": source_hash,
+                    "status": source_status,
+                    "label": str(source.get("label") or source_id)[:80],
+                }
+                if source.get("summary"):
+                    entry["summary"] = str(source["summary"])[:1000]
+                for source_field in ("chapter_index", "scene_id"):
+                    if source.get(source_field) is not None:
+                        entry[source_field] = str(source[source_field])
+                manifest.setdefault(source_type, []).append(entry)
+                seen.add(identity)
+        return manifest
 
     @staticmethod
     def _snapshot_request(

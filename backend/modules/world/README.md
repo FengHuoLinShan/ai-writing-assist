@@ -20,21 +20,6 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - “待处理”入口按对象 / 别名 / 关系三个子 tab 处理复核队列；对象库、别名、关系页仍保留全量管理能力
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
 - 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
-- 深度导入与独立地图补充的类型化地图候选都通过稳定 `contracts.py` / `facade.py` seam
-  进入 world；`MapObservationCandidateInput.source_workflow` 只允许
-  `deep_import | map_enrichment`，并分别写入真实来源字符串。world 按
-  `novel_id + workflow_id + scene_id + source_item_key + proposal_type` 生成 UUIDv5，并保存原始
-  payload hash。相同重试复用已有 observation；同一身份内容变化返回 409，且不覆盖作者编辑。
-  world 同时校验冻结授权快照的 novel/章节 scope；map enrichment 还必须固定
-  `stage="map_observations"`、与逐字证据等长的精确偏移、Scene 内序号和 64 位
-  SHA-256 来源/证据指纹，并将快照指纹写入只读来源。
-  PostgreSQL 首次并发写入使用确定性身份锁，避免空行无法行锁导致的唯一冲突。导入
-  proposal 类型是来源身份的一部分，作者可编辑内容，但不能原地切换类型。map enrichment
-  可携带已由 imports 冻结词典唯一解析的 canonical 目标/地点 ID；world 会重验项目、
-  类型与 canonical 状态，但跨 organization/faction 的同名歧义必须由 imports 在 seam
-  之前拒绝。地点恰有一个作者可见 active 地图中心绑定时，world 确定性分配
-  map/hex，其他候选进入项目收件箱。所有结果仍为 candidate，
-  不自动生成 Fact。
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
 - 待处理关系按有向 `(source_id, target_id)` 分组，别名按 owner 对象分组；Scene 只用于筛选和展示，反向关系不自动归并
 - 类型目录只是推荐与保守同义词建议；关系和别名的数据库/Pydantic 契约仍接受自由字符串，自定义值未经用户点击不得替换
@@ -47,8 +32,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 ### 作者态投影
 
-对象、关系、创设建议与地图 observation/fact 响应在保留原始
-`status` / `review_state` / `fact_status` 的同时，附加稳定的作者视图字段：
+对象、关系与创设建议在保留原始状态的同时，附加稳定的作者视图字段：
 
 - `display_state`: `active` / `review` / `archived`
 - `source`: 来源模块或创建者
@@ -56,8 +40,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `suggested_action`: 建议的下一步动作
 
 `GET /api/world/entities?display_state=active|review|archived` 可以按作者态筛选；
-旧 `status` 筛选与原始状态字段保持兼容。地图界面将 candidate / conflicted
-统一表达为“待处理”，confirmed 表达为“已采用”；冲突仍作为
+旧 `status` 筛选与原始状态字段保持兼容；冲突仍作为
 `attention_reasons=["conflict"]` 保留，不丢失原始审查态。
 
 未显式传入 `status` / `display_state` 时，实体列表默认排除
@@ -101,10 +84,9 @@ RAG 术语只消费 canonical 对象名称和仍有效的别名；`ignored/rejec
 ### 项目活跃门禁
 
 除不带项目语义的全局世界书模板目录，以及未提供 `novel_id` 的纯
-Prompt 校验外，`/api/world` 与
-`/api/world/maps` 的项目级读、写、预览和入队入口都在业务操作前通过
+Prompt 校验外，`/api/world` 与 `/api/world/map-atlas` 的项目级读、写、预览和入队入口都在业务操作前通过
 `modules.project.facade.require_active_project()` 校验项目。不存在和已进入
-回收站的项目统一返回 404，不暴露该项目的实体、别名、关系、地图或任务存在性。
+回收站的项目统一返回 404，不暴露该项目的实体、别名、关系、地图册或任务存在性。
 
 ## 职责
 
@@ -124,8 +106,8 @@ Prompt 校验外，`/api/world` 与
 
 ## World Bible 工作稿与世界观简介
 
-World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity`、Profile、关系、
-事件和已确认地图事实仍是结构化正史来源。新版编辑流程不直接覆盖正式页：
+World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity`、Profile、关系和事件仍是
+结构化正史来源。AI 地图册只消费这些来源，不反向写入。新版编辑流程不直接覆盖正式页：
 
 1. 作者创建或打开 `world_bible_page_drafts` 工作稿；标题、类别、概览、结构化 sections、
    关联资产引用和排序均可编辑，结构化资产只提供引用与跳转编辑。
@@ -270,7 +252,7 @@ tasks ORM。
   `draft` / `candidate` 兼容影子，并以 `_meta.compatibility_shadow=true` 与
   `suggestion_id` 关联；采用或编辑后采用时提升同一条对象，合并/设为别名时由队列原子裁决并归档同一影子，忽略时同步标记该影子为 `ignored`。待处理影子不能绕过队列直接 CRUD，所有裁决都必须经过建议队列的 compare-and-set 门禁。
 - imports 模块拥有深度导入和阶段化正文抽取的编排、授权快照、Scene 证据与
-  candidate 写入契约；world 只提供受控的对象、别名、关系和地图观察持久化 seam。
+  candidate 写入契约；world 只提供受控的对象、别名和关系持久化 seam。
 
 ## 数据表
 
@@ -291,23 +273,10 @@ tasks ORM。
 | `world_bible_synopsis_heads` | 每项目简介指针、stale/pin/task 与自动维护授权 |
 | `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
-| `map_configs` | 动态地图配置（世界/城市/区域/地下城，自引用树，PRD §4.1） |
-| `map_tiles` | 六边形地形网格（轴向坐标 q,r，PRD §4.2） |
-| `map_location_bindings` | 地点绑定（core_entities.entity_type=location → hex，PRD §4.3） |
-| `map_location_layouts` | 地点布局节点（中心 hex、占用半径、锁定状态、快速创建/拖拽来源） |
-| `map_markers` | 动态标记（P1 预留：character/event/item，按 Scene 时间层显隐，PRD §4.5） |
-| `map_territory_tiles` | 势力范围（组织控制区域，可与地形/地点/标记叠加） |
-| `map_terrain_layers` | 手绘地形图层（素材、透明度、显隐、锁定、层级） |
-| `map_terrain_regions` | 手绘地形区域（一次连续手绘或可命名区域） |
-| `map_terrain_patches` | 手绘地形 patch（region 覆盖的离散 hex） |
-| `map_terrain_bindings` | 手绘地形区域与地点的用户确认绑定（footprint / influence） |
-| `map_layer_nodes` | 地图递归图层树（局部显隐、锁定、透明度、排序与缩放范围的唯一权威） |
-| `map_path_layers` | 连续线路图层资源（仅保存 transport / water 类别，显示属性由图层树 leaf 拥有） |
-| `map_paths` | 可归档道路/水系资产、端点绑定和独立内容 revision |
-| `map_path_nodes` | 线路有序连续轴向控制点、宽度、张力与分段类型 |
-| `map_visual_revisions` | 每次已提交视觉编辑的不可变状态与资源级正向/反向变更；随地图永久删除级联清理 |
-| `map_observations` | 地图观察事实候选（来源证据、置信度、审查状态；默认不污染正式事实） |
-| `map_facts` | 已确认时间化地图事实（由 observation 确认生成，供世界动态地图消费） |
+| `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
+| `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态 |
+| `map_atlas_pages` | 独立候选/已采用/拒绝/移出图片与派生链 |
+| `map_atlas_annotations` | 前端文字标注、归一化坐标与下钻目标 |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
 | ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
@@ -338,6 +307,7 @@ ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
 - `models/profiles.py`：世界资产 profile 与模板表。
 - `models/worldbuilding.py`：生成模板、World Bible、知识标签、创设建议和冲突队列。
 - `models/common.py`：共享 SQLAlchemy imports 与 pgvector/SQLite embedding column helper。
+- `map_atlas_models.py`：地图册 run、node、page 与 annotation；图片字节存私有 S3。
 
 旧路径 `from modules.world.models import CoreEntity` 与 `import modules.world.models`
 保持可用；兼容别名 `WorldEntity` 等仍从 package 顶层导出。
@@ -414,52 +384,11 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 - `POST /api/world/entities/{entity_id}/rollback-by-revision` 是 `entity_revisions` 的兼容路由，按显式 `revision_id` 回滚
 - `EntityRevisionService` 同时承担活跃回滚实现与 legacy 兼容，不应再被描述为仅 read/compat
 
-### map_observations / map_facts 表
+### AI 地图册表
 
-- `map_location_bindings` / `map_location_layouts` / `map_markers` /
-  `map_territory_tiles` / `map_terrain_bindings` 是实体拥有的正式地图图层：
-  新建或更新时关联实体必须为 `canonical`，且继续校验 `novel_id` 与实体类型。
-  默认聚合状态和各图层独立列表只返回 canonical owner；历史
-  `draft` / `candidate` owner 只进入显式 candidate preview，归档 owner 默认隐藏。
-  `GET /api/world/maps/{map_id}/terrain?include_candidates=true` 可显式返回
-  `candidate_bindings`，默认 `bindings` 只包含 confirmed 且 canonical-owner 的绑定。
-- `map_configs.parent_entity_id` 和已确认的 `map_terrain_bindings` 同样只能引用已采用的 location；候选地形绑定可保留预览，但采用前会重新校验地点状态。
-- `map_observations` 是世界动态地图的证据层：类型化地图建议、显式携带地图/空间元数据的 legacy `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。普通剧情状态变化只保存在 memory delta log，不重复进入地图收件箱。
-- observation 必须能说明目标名称/类型、动态类型、时间锚点、空间锚点、来源引用、证据摘要、置信度和审查状态；目标实体或地图尚未解析时可为空，但不得存入跨 `novel_id` 的实体引用。
-- 同一 Scene 内具有精确正文 offset 的 observation 使用 `time_anchor.scene_sequence` 表达叙事先后；
-  时间线只把相同 Scene 和相同 sequence 的同维度异值视为同一时刻冲突。旧事实缺少 sequence
-  时保持原兼容冲突语义。
-- 未分配且仍为 `candidate` / `conflicted` 的 observation 进入项目级地图收件箱；具体地图的
-  observation、dashboard 和 playback 只读取精确 `map_id`，不会混入项目收件箱候选。
-- `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`；数据库以 `(novel_id, observation_id)` 保证一条 observation 只对应一个逻辑 Fact。重复采用内容一致时复用原 Fact，内容冲突返回 409。
-- 人物位置、事件发生地、线路状态和势力边界的待解析值使用显式
-  `payload_kind="proposal"` proposal union。proposal 保持 `normalization_state="untyped"`；
-  作者把它补齐为 canonical `MapDynamicValueV1` 后，服务端才可能允许确认。
-- `value_json.schema_version=1` 使用类型化地图动态 schema，覆盖 location、route_state、status、
-  boundary、resource、terrain、crisis 和 semantic；响应附加 `normalized_value`、
-  `dimension_key` 与 `normalization_state`。无版本旧值继续兼容读取，无法安全解释时只进入
-  未结构化展示，不会让整条时间线失败。
-- `MapFact` 是唯一持久化动态事实。Scene 状态、`MapDelta`、冲突、连续性问题和
-  `WorldDynamic` 都由 confirmed facts 确定性派生；candidate 只进入显式待处理预览，不参与
-  正式状态或连续性判断。
-- 公共作者 PATCH 只允许修改目标对象、作者值、空间锚点和候选审查状态；来源引用、证据、
-  workflow、原始置信度、Scene/章节来源与来源时间只读，额外字段返回 422。响应中的
-  `eligibility` 由服务端统一检查 canonical value、同项目已采用对象、active 地图、空间引用
-  及 Scene/章节或人工 initial-state；前端不复制这套资格规则。
-- 空间锚点使用类型化 `MapSpatialAnchor`。带 `path_id` 的锚点必须解析到同一
-  `novel_id + map_id` 的线路；deep import 无法解析的引用不会入库，并在来源 metadata
-  记录 `invalid_spatial_anchor`。确认 Fact 时固化 path revision、名称和代表坐标；线路后续
-  编辑或归档不改写历史 Fact，待处理 observation 引用已归档线路时必须重新关联后才能确认。
-- PATCH、assign、ignore、confirm 和 batch-review 必须携带当前 `expected_updated_at`；陈旧写入
-  返回 409 和最新只读 observation。confirm 在 observation 行锁内重验 revision 与
-  eligibility 后生成或复用 Fact；批量审查按 UUID 稳定加锁并先全量验证，避免部分写入。
-- `PATCH /observations/{id}` 只能更新作者拥有的候选字段或把 `review_state` 设为
-  `candidate` / `ignored` / `conflicted`；不得通过 PATCH 直接设为 `confirmed`。正式确认必须
-  走 `/confirm`，以保证生成或复用对应 `map_facts`。
-- 忽略候选只更新 `review_state="ignored"`，不硬删除候选记录。
-- 深度导入仍完整保留 `memory.delta_log`；只有显式携带 `map_id`、空间锚点或类型化地图值的 legacy `delta_event` 才兼容接入 `map_observations`，新流程优先使用独立的类型化地图 proposal。历史无空间意图的自动 observation 保留审计，但不再进入默认地图收件箱。该接入不自动写正式 `map_facts`。
-- 地图移动解释使用 `dynamic_type="movement_explanation"`，地图冲突使用 `dynamic_type="map_conflict"`；二者复用 observation/fact 流，不新增独立冲突表。
-- 写作冲突检查通过 `summarize_scene_map_for_writing(..., include_candidates=False)` 消费 Scene 地图摘要，默认只返回已确认事实；用户在写作页显式勾选包含待确认对象时才会纳入 candidate observation，并在 writing 问题项标记 `needs_review`。
+`map_atlas_runs`、`map_atlas_nodes`、`map_atlas_pages` 与 `map_atlas_annotations` 只承载
+图片生成与作者采用生命周期。候选页分别保存直接资料、AI 视觉补全和冲突；加入地图册只新增
+已采用页面，不修改 World 事实。图片字节存私有 S3，完整契约见 `docs/modules/15_map.md`。
 
 ## 对外契约（contracts.py）
 
@@ -535,58 +464,17 @@ class ResolveResult:
     suggestions: list = field(default_factory=list)
 ```
 
-## 地图内部结构
+## AI 地图册内部结构
 
-`backend/modules/world/services/` 已按领域拆成子包：
+- `map_atlas_service.py`：owner 门禁、run/树查询、页面审查、派生候选、标注和图片读取。
+- `map_atlas_workflow.py`：Context 编译、计划校验、父子串行生图、checkpoint 与 finalization。
+- `map_atlas_storage.py`：PNG 校验与 map-atlas 自有 boto3 adapter，所有同步 I/O 在线程池执行。
+- `map_atlas_tasks.py`：`manual_resume` 生成任务和不依赖项目 FK 的全局前缀清理。
+- `map_atlas_facade.py`：项目永久删除唯一需要的全局 cleanup enqueue seam。
 
-- `services/core/`：核心实体、人物、事件、关系、去重、抽取、版本和回滚。
-- `services/map/`：地图配置、快速创建、地点布局/绑定、底图 tile、覆盖地形、marker、territory、observation/fact、dashboard、playback、动态队列。
-- `services/worldbuilding/`：世界书页面、模板、投影、作者资料整理和上下文摘要。
-  其中 `worldbuilding_service.py` 是旧 import path 兼容 hub；实际实现按概念拆到
-  `profile_service.py`、`world_bible_service.py`、`suggestion_queue_service.py`、
-  `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`
-  和 `activation_preview_service.py`。
-- `services/common.py`：跨子包通用 helper。
-- `services/__init__.py`：顶层 re-export hub，保留常用 service 和 helper 的旧聚合入口。
-- `services/map_service.py`：历史兼容导出层，不承载业务逻辑。
-
-`modules.world.services.map_service` 保留旧测试和 API 路由 import 路径；具体地图实现位于 `services/map/`：
-
-- `map_templates.py`：初始地形模板和详图 tile 生成。
-- `map_config_service.py` / `map_tile_service.py` / `map_location_binding_service.py`：地图配置、tile 批量编辑、地点绑定。
-- `map_marker_service.py` / `map_territory_service.py`：动态标记和势力范围。
-- `map_archive.py` / `map_revision.py` / `map_editor_apply.py`：地图子树归档恢复、视觉 revision 与原子编辑命令批次。
-- `map_layer_tree.py`：递归图层树、继承锁定/显隐/透明度/缩放及旧 terrain 字段兼容投影。
-- `map_path.py`：连续道路/水系、控制点、端点吸附、归档恢复、容量与路径引用影响统计。
-- `map_entity_presence.py`：世界对象跨 active 地图的只读空间 presence 聚合。
-- `map_dynamic_service.py`：`MapDynamicFactService` 是 observation、fact、dashboard、playback、open target 的深层生命周期拥有者，并保留原稳定方法表面。
-- `map_observation_service.py` / `map_fact_service.py`：观察事实候选、确认流转和正式事实状态的内部 mixin；旧 helper 类只作 import/test 兼容。
-- `map_dashboard_service.py` / `map_playback_service.py` / `map_open_target_service.py`：只读派生视图、播放事件流和地图打开目标的内部 mixin。
-- `map_timeline_service.py`：以明确 context/repository 依赖保留独立时间线投影；不依赖 owner Protocol。
-- `map_dynamic_helpers.py`：动态地图 formatter、risk/priority/label、UUID 安全解析、空间锚点校验等私有 helper。
-- `map_state_assembler.py`、`map_scene_summary.py`、`map_terrain.py`、`map_location_layout.py`、`map_quick_create.py`：独立地图入口，不通过 `map_service.py` 承载业务实现。
-
-地图 observation 创建的普通非流式 HTTP 请求由 `DbSession` 的 request-owned transaction 在 function-scope dependency 结束时提交；返回 201 后，后续确认、列表和地图状态请求可以立即从独立连接读取该 observation。
-
-地点布局与绑定的职责固定如下：`map_location_layouts.center_hex` 是编辑锚点，
-`map_location_bindings` 是实际渲染范围。旧地图读取时不会自动补写；显式以
-`sync_bindings=true` 保存才会物化缺失中心并整体平移既有 footprint。该操作保留绑定样式，
-越界时原子失败，只把实际移动地点的 `map_quick_create` fact 软废弃，不产生世界事实。
-
-`map_configs.editor_revision` 是地图视觉写入的 CAS 版本；tiles、地点布局/绑定、覆盖层、
-marker、territory、generate、quick-create replace 和图层树成功修改时递增，
-observation/fact 审查不计入该版本。统一编辑入口在同一事务内按顺序执行命令，成功只递增一次，
-任何命令失败都回滚整批。每次递增同时写入不可变 `map_visual_revisions`，保存提交后的完整
-可恢复状态和资源级 `before/after` 正反变更；旧单项 API 与 editor apply 共用该入口。
-恢复历史版本必须携带当前 `expected_revision`，恢复成功产生新的 revision，不覆盖旧历史。
-`map_layer_nodes` 是图层属性权威，旧 terrain 图层字段仅作兼容投影。
-图层树还保存 exclusive/floor 结构和每个子层的楼层编号；当前激活子层与 isolate 是不写库的
-前端会话状态。连续线路使用同一 editor apply CAS，线路本体只归档，空线路图层才允许删除。
-
-开发管理工具 `python -m scripts.reset_map_subsystem` 当前只支持 dry-run 和可选的
-`--backup-restore-drill`。它以固定 16 张 `map_*` 表 allowlist 比对 ORM/实库 schema、FK、
-活跃资产引用与运行任务，并校验显式环境和 database fingerprint。CLI 不提供
-`--execute` / `--yes` 或目标库删除分支；任何未来清空仍需单独授权和完整 cutover 流程。
+生成上传持 project share lock 并复核 task lease；永久删除持 exclusive lock，先取消生成并排入
+全局清理再删除项目，阻止晚到 worker 留下对象。`provider_in_flight` 失联必须由作者确认潜在重复
+费用后重试。
 
 ## Facade
 
@@ -594,7 +482,7 @@ Root `facade.py` 是纯 re-export hub，不定义 async wrapper 或承载业务�
 现有 `modules.world.facade.*` 生产路径保持可用，并由显式 `__all__` 与 public API
 snapshot 测试冻结。新增跨模块函数前必须先证明现有 deep seam 无法表达，不能为单一
 调用方增加 pass-through。具体薄委托按子域落在
-`entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_facade.py`
+`entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_atlas_facade.py`
 和 `worldbuilding_facade.py`。
 
 `contracts.py` 只定义跨模块稳定 dataclass，不重导出 HTTP Pydantic schema。
@@ -609,13 +497,13 @@ facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` /
 `mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
 避免扩大 context ↔ world 循环 import 风险。
 
-`get_world_background()` 返回只读的 `WorldBackgroundBundleContract`。它从世界对象、
-关系、已确认地图事实和人物知识边界派生 token-aware 条目，供 context 编译；不拥有
-新的正史表，也不写回任何事实。
+`get_world_background()` 返回只读的 `WorldBackgroundBundleContract`。它从已采用世界对象、
+关系、事件、秘密、已发布 World Bible 页面和人物知识边界派生 token-aware 条目，供 context
+编译；地图册 operation 使用 author-full canonical 模式，不写回任何事实。
 
 `get_author_attention_summary()` 是 Project“今日工作”消费的只读稳定投影，返回冻结的
-`WorldAttentionSummaryContract`：同一 `novel_id` 下待处理的世界对象、别名、关系和地图资料
-数量及确定性 `total`。实现位于 world 自己的 attention service，复用既有查询服务并保持
+`WorldAttentionSummaryContract`：同一 `novel_id` 下待处理的世界对象、别名和关系数量及
+确定性 `total`。实现位于 world 自己的 attention service，复用既有查询服务并保持
 项目过滤；root `facade.py` 仅 re-export，响应不包含对象内容、原始状态、owner 或内部 ID。
 
 ```python
@@ -657,11 +545,6 @@ async def create_event(db, novel_id, data: dict) -> dict
 async def get_events_context(db, novel_id, limit=50) -> EventsContextBundle
 async def get_full_state(db, novel_id) -> dict
 
-# ---- Map dynamic facts ----
-async def create_map_observation_from_delta_event(db, novel_id, *, event: dict, scene_index: int, ...) -> dict
-async def summarize_scene_map_for_writing(db, novel_id, scene_id, *, include_candidates=False) -> dict
-async def get_confirmed_map_facts_through_scene(db, novel_id, scene_index) -> ConfirmedMapFactReplayContract
-
 # ---- Worldbuilding ----
 async def preview_worldbuilding_activation(db, novel_id, *, entity_ids=None, ...) -> dict
 async def get_world_bible_projection_candidates(db, novel_id, target_refs, *, expand_page_links=False, relation_types=None, max_depth=0, ...) -> WorldBibleActivationResolutionContract
@@ -685,14 +568,6 @@ async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
 async def get_character_location_id(db, novel_id, character_id) -> str | None
 async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | None
 ```
-
-`summarize_scene_map_for_writing` 返回写作模块可消费的轻量 Scene 地图摘要，包括主地点、角色/事件/势力/风险、打开地图目标和候选支持状态。它是 world → writing 的稳定边界；writing 不直接读取 `map_observations` / `map_facts` 内部表。
-`get_confirmed_map_facts_through_scene` 是 memory Scene 重放的只读稳定边界，只返回同项目、
-confirmed 且带 Scene 锚点的事实，并单独返回 undated 数量供调用方 fail closed；candidate
-永不进入历史阶段投影。
-默认主地点只从 `canonical` 绑定推导；只有调用方显式传入
-`include_candidates=True` 时才可纳入历史 `draft` / `candidate` 绑定，且响应会以
-`depends_on_candidate=true` 和 `candidate_review_state` 标明尚未采用。
 
 `get_world_context` 默认在查询层只返回 `canonical`，不会泄漏待处理对象。
 `get_entity_importance_map` 同样只投影 `canonical` 对象的 ID、importance 和
@@ -838,77 +713,16 @@ cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright tes
 | POST | `/api/world/characters/{character_id}/knowledge` | 添加人物知识 |
 | PUT | `/api/world/knowledge/{knowledge_id}` | 更新人物知识 |
 | DELETE | `/api/world/knowledge/{knowledge_id}` | 删除人物知识 |
-| GET | `/api/world/maps` | 分页地图列表（`parent_map_id` / `status` / `skip` / `limit`；默认 active） |
-| POST | `/api/world/maps` | 创建地图（含初始地形生成） |
-| GET | `/api/world/maps/{map_id}` | 地图详情 |
-| GET | `/api/world/maps/scene-summary` | 写作页 Scene 地图摘要 |
-| GET | `/api/world/maps/open-target` | 统一地图打开目标（scene / focus entity / fallback） |
-| GET | `/api/world/maps/quick-create/context` | 快速创建上下文（默认 canonical，可显式包含 candidate） |
-| POST | `/api/world/maps/quick-create/preview` | 快速创建预览草稿；不落库、不识别正文、不创建世界对象 |
-| POST | `/api/world/maps/quick-create/confirm` | 确认快速创建，一次只写入一张地图；`replace_map_id` 显式替换地点布局/绑定/quick-create fact，并保留其他地图图层 |
-| PATCH | `/api/world/maps/{map_id}` | 更新地图配置 |
-| DELETE | `/api/world/maps/{map_id}` | 兼容归档入口：归档完整子树并保留旧 204 响应形状 |
-| GET | `/api/world/maps/{map_id}/archive-impact` | 查询归档子树及关联资产数量 |
-| POST | `/api/world/maps/{map_id}/archive` | 锁定并归档完整地图子树 |
-| POST | `/api/world/maps/{map_id}/restore` | 恢复完整子树；可用 `root_name` 仅重命名恢复根 |
-| POST | `/api/world/maps/{map_id}/editor/apply` | 按 `expected_revision` 原子应用有序视觉编辑命令 |
-| GET | `/api/world/maps/{map_id}/revisions` | 分页读取不可变视觉编辑历史（不返回完整状态快照） |
-| POST | `/api/world/maps/{map_id}/revisions/{revision_number}/restore` | 重验依赖后恢复所选状态并生成新 revision |
-| GET | `/api/world/maps/{map_id}/layer-tree` | 读取递归图层树及继承后的有效属性 |
-| GET | `/api/world/maps/{map_id}/paths` | 按 active / archived / all 读取连续线路状态 |
-| GET | `/api/world/maps/{map_id}/paths/{path_id}` | 读取单条 active 或 archived 线路及节点 |
-| GET | `/api/world/maps/{map_id}/paths/{path_id}/archive-impact` | 查询线路归档前的 observation / fact 引用数量 |
-| POST | `/api/world/maps/{map_id}/paths/{path_id}/archive` | 通过 editor history seam 归档线路 |
-| POST | `/api/world/maps/{map_id}/paths/{path_id}/restore` | 重验图层、端点和几何后恢复线路 |
-| POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |
-| GET | `/api/world/maps/{map_id}/state` | 地图聚合状态（map+面包屑+地形+绑定，PRD §6.2） |
-| GET | `/api/world/maps/{map_id}/dashboard` | 世界动态总控台派生状态（首屏层、动态队列、检查器、批量分组） |
-| GET | `/api/world/maps/{map_id}/playback` | 世界动态播放派生状态（typed observation 轨道和事件） |
-| GET | `/api/world/maps/{map_id}/timeline` | 类型化 Scene 时间线：差分、冲突、候选预览、未定时间事实和空间连续性问题 |
-| GET | `/api/world/maps/{map_id}/state-at` | 指定 Scene 的正式有效地图状态；candidate 永不参与状态选择 |
-
-`timeline` 默认不包含 candidate，并选择最近 50 个存在 confirmed fact 的 Scene stop；显式范围
-最多跨 500 个 Scene。两个接口默认每页 100、最大 500 条，超限通过 `total/has_more` 明示，
-不会静默把 candidate 合入正式状态。旧 `playback` 继续保持 `include_candidates=true` 的兼容
-默认和原响应形状。
-| GET | `/api/world/maps/{map_id}/location-layouts` | 地点布局节点列表 |
-| PUT | `/api/world/maps/{map_id}/location-layouts` | 覆盖保存地点布局节点；`sync_bindings=true` 时事务化平移地点 footprint |
-| PATCH | `/api/world/maps/{map_id}/tiles` | 批量编辑地形（PRD §6.3） |
-| GET | `/api/world/maps/{map_id}/terrain` | 手绘地形图层/区域/patch/绑定聚合状态 |
-| PATCH | `/api/world/maps/{map_id}/terrain/layers/{layer_id}` | 部分更新覆盖图层名称、显隐、锁定、透明度、排序、素材与 metadata |
-| DELETE | `/api/world/maps/{map_id}/terrain/layers/{layer_id}` | 删除已解锁覆盖图层并返回 region/patch/binding 级联计数 |
-| POST | `/api/world/maps/{map_id}/terrain/layers/{layer_id}/restore` | 重验图层/地点依赖后恢复归档覆盖图层 |
-| PUT | `/api/world/maps/{map_id}/terrain/layers/{layer_id}/patches` | 覆盖保存某手绘地形图层最终 patches |
-| POST | `/api/world/maps/{map_id}/terrain/regions/{region_id}/bindings` | 创建地形区域与地点绑定 |
-| PATCH | `/api/world/maps/{map_id}/terrain/bindings/{binding_id}` | 更新地形绑定状态或类型 |
-| POST | `/api/world/maps/{map_id}/location-bindings` | 批量创建地点绑定（PRD §6.4） |
-| PATCH | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 更新地点绑定 |
-| DELETE | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 删除地点绑定 |
-| GET | `/api/world/maps/{map_id}/markers` | 动态标记列表（P1，可带 scene_id） |
-| POST | `/api/world/maps/{map_id}/markers` | 创建动态标记（P1） |
-| PATCH | `/api/world/maps/{map_id}/markers/{marker_id}` | 更新动态标记（P1） |
-| DELETE | `/api/world/maps/{map_id}/markers/{marker_id}` | 归档动态标记（保留旧 204 形状） |
-| POST | `/api/world/maps/{map_id}/markers/{marker_id}/restore` | 重验对象/Scene/坐标后恢复标记 |
-| GET | `/api/world/maps/{map_id}/territories` | 势力范围列表（P2） |
-| POST | `/api/world/maps/{map_id}/territories` | 批量创建势力范围（P2） |
-| PATCH | `/api/world/maps/{map_id}/territories/{territory_id}` | 更新单格势力范围样式（P2） |
-| DELETE | `/api/world/maps/{map_id}/territories/{territory_id}` | 删除单格势力范围（P2） |
-| DELETE | `/api/world/maps/{map_id}/territories` | 按组织删除全部势力范围（P2） |
-| GET | `/api/world/maps/{map_id}/focus` | 聚焦模式：仅返回指定组织势力范围（P2） |
-| GET | `/api/world/maps/{map_id}/observations` | 地图观察事实候选列表，可按 `review_state` 过滤 |
-| POST | `/api/world/maps/{map_id}/observations` | 创建地图观察事实候选 |
-| GET | `/api/world/maps/project-observations/inbox` | 项目级未分配地图候选收件箱，支持类型、Scene、来源、置信度、完整度与稳定分页过滤 |
-| PATCH | `/api/world/maps/project-observations/{observation_id}` | 以 `expected_updated_at` 更新未确认候选的作者字段 |
-| POST | `/api/world/maps/project-observations/{observation_id}/assign` | 以 `expected_updated_at` 分配、换图或退回项目收件箱 |
-| POST | `/api/world/maps/project-observations/{observation_id}/ignore` | 以 `expected_updated_at` 忽略项目候选 |
-| PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 以 `expected_updated_at` 更新 observation 作者字段（不直接确认） |
-| POST | `/api/world/maps/{map_id}/observations/batch-review` | 以 `items=[{observation_id, expected_updated_at}]` 批量确认、忽略或标记冲突 |
-| POST | `/api/world/maps/{map_id}/batch-actions` | 批量动作入口：候选确认/忽略/冲突、fact 状态、图层可见性 patch |
-| POST | `/api/world/maps/{map_id}/observations/{observation_id}/confirm` | 确认 observation 并生成/复用正式 `map_facts` |
-| POST | `/api/world/maps/{map_id}/observations/{observation_id}/ignore` | 忽略 observation，不生成正式事实 |
-| GET | `/api/world/maps/{map_id}/facts` | 已确认地图事实列表，可按 `fact_status` 过滤 |
-| PATCH | `/api/world/maps/{map_id}/facts/{fact_id}` | 软更新地图事实状态（confirmed / rolled_back / deprecated） |
-| GET | `/api/world/entities/{entity_id}/map-presence` | 查询世界对象在 active 地图上的布局、绑定、标记、领地和地形 presence |
+| POST | `/api/world/map-atlas/{novel_id}/runs` | 创建地图册计划与生成任务 |
+| GET | `/api/world/map-atlas/{novel_id}/runs/latest` | 查询最新 run 与恢复状态 |
+| GET | `/api/world/map-atlas/{novel_id}/runs/{run_id}/results` | 查询本次生成候选层级 |
+| GET | `/api/world/map-atlas/{novel_id}/atlas` | 查询已采用地图册与画廊 |
+| POST | `/api/world/map-atlas/{novel_id}/runs/{run_id}/stop` | 生成完当前页后停止 |
+| POST | `/api/world/map-atlas/{novel_id}/runs/{run_id}/resume` | 恢复；潜在重复费用需显式确认 |
+| POST | `/api/world/map-atlas/{novel_id}/pages/{page_id}/{adopt|reject|archive|restore}` | 独立页面审查与恢复 |
+| POST | `/api/world/map-atlas/{novel_id}/pages/{page_id}/{edit|regenerate}` | 创建派生候选 |
+| PATCH | `/api/world/map-atlas/{novel_id}/annotations/{annotation_id}` | 更新前端标注 |
+| GET | `/api/world/map-atlas/{novel_id}/pages/{page_id}/image` | 鉴权读取私有 PNG |
 
 ## 依赖
 
@@ -929,6 +743,6 @@ python -m pytest modules/world/tests/ -v
 ## 当前范围
 
 world 当前拥有世界对象、关系、别名、人物与知识边界、建议队列、去重/融合、版本回滚、
-World Bible、生成模板，以及地图地形、地点、标记、势力范围、observation/fact 和 playback。
+World Bible、生成模板，以及 AI 地图册的计划、候选、画廊和标注。
 它是事实模块，不拥有正文、Scene、context confirmation 或 RAG 候选；AI 输出默认进入
 待处理建议，只有用户明确授权的流水线才可按领域门禁写入可回滚资产。

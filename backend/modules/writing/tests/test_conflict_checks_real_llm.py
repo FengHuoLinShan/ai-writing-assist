@@ -99,98 +99,6 @@ async def _create_entity(
     return resp.json()
 
 
-async def _seed_map_evidence(
-    async_client: AsyncClient,
-    novel_id: str,
-    *,
-    scene_id: str,
-    character_id: str,
-) -> dict:
-    location = await _create_entity(
-        async_client,
-        novel_id,
-        {
-            "name": "旧约门",
-            "entity_type": "location",
-            "status": "canonical",
-        },
-    )
-    map_resp = await async_client.post(
-        f"/api/world/maps?novel_id={novel_id}",
-        json={
-            "name": "旧约门风险图",
-            "map_type": "world",
-            "grid_width": 5,
-            "grid_height": 5,
-            "template": "blank",
-        },
-    )
-    assert map_resp.status_code == 201, map_resp.text
-    map_data = map_resp.json()
-
-    binding_resp = await async_client.post(
-        f"/api/world/maps/{map_data['id']}/location-bindings?novel_id={novel_id}",
-        json={
-            "location_entity_id": location["id"],
-            "hexes": [{"hex_q": 1, "hex_r": 1, "is_center": True}],
-        },
-    )
-    assert binding_resp.status_code == 201, binding_resp.text
-
-    marker_resp = await async_client.post(
-        f"/api/world/maps/{map_data['id']}/markers?novel_id={novel_id}",
-        json={
-            "entity_id": character_id,
-            "marker_type": "character",
-            "hex_q": 1,
-            "hex_r": 1,
-            "label": "沈砚",
-            "start_scene_id": scene_id,
-            "start_scene_index": CHAPTER_INDEX,
-            "visible": True,
-        },
-    )
-    assert marker_resp.status_code == 201, marker_resp.text
-
-    observation_resp = await async_client.post(
-        f"/api/world/maps/{map_data['id']}/observations?novel_id={novel_id}",
-        json={
-            "target_entity_id": location["id"],
-            "target_entity_type": "location",
-            "target_name": "旧约门粮仓火势",
-            "dynamic_type": "risk",
-            "time_anchor": {
-                "chapter_index": CHAPTER_INDEX,
-                "scene_id": scene_id,
-                "scene_index": CHAPTER_INDEX,
-            },
-            "spatial_anchor": {
-                "hex_q": 1,
-                "hex_r": 1,
-                "location_name": "旧约门",
-            },
-            "value_json": {"risk": "粮仓火势正在扩大"},
-            "confidence": 0.86,
-            "review_state": "candidate",
-            "source_ref": {
-                "source": "writing_conflict_real_llm_pytest",
-                "chapter_index": CHAPTER_INDEX,
-                "scene_id": scene_id,
-            },
-            "evidence_text": "真实 LLM pytest 候选地图证据：旧约门粮仓火势正在扩大。",
-            "scene_id": scene_id,
-            "scene_index": CHAPTER_INDEX,
-            "source_chapter_index": CHAPTER_INDEX,
-        },
-    )
-    assert observation_resp.status_code == 201, observation_resp.text
-    return {
-        "map": map_data,
-        "location": location,
-        "observation": observation_resp.json(),
-    }
-
-
 async def _seed_memory_evidence(
     db_session: AsyncSession,
     novel_id: str,
@@ -259,12 +167,6 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
     novel_id = await _create_project(async_client)
     scene = await _create_scene(async_client, novel_id)
     scene_id = scene["id"]
-    map_seed = await _seed_map_evidence(
-        async_client,
-        novel_id,
-        scene_id=scene_id,
-        character_id=scene["pov_character_id"],
-    )
     await _seed_memory_evidence(
         db_session,
         novel_id,
@@ -304,20 +206,7 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
     rule_kinds = {item["kind"] for item in check["items"]}
     assert "forbidden_present" in rule_kinds, check
     assert "required_missing" in rule_kinds, check
-    assert "map_risk" in rule_kinds, check
     assert "continuity_location_mismatch" in rule_kinds, check
-    map_item = next(item for item in check["items"] if item["kind"] == "map_risk")
-    assert map_item["source_module"] == "world"
-    assert map_item["needs_review"] is True
-    assert map_item["location_json"]["source"]["module"] == "world"
-    assert map_item["location_json"]["source"]["type"] == "map.scene_summary"
-    assert map_item["location_json"]["open_target"] == {
-        "kind": "map_object",
-        "map_id": map_seed["map"]["id"],
-        "scene_id": scene_id,
-        "observation_id": map_seed["observation"]["id"],
-        "focus_entity_id": map_seed["location"]["id"],
-    }
     memory_item = next(
         item for item in check["items"] if item["kind"] == "continuity_location_mismatch"
     )
@@ -434,20 +323,6 @@ async def test_real_llm_conflict_review_suggestion_status_and_publish_snapshot(
         item["kind"] == "forbidden_present" and item["source_module"] == "outline"
         for item in snapshot["items"]
     )
-    snapshot_map_item = next(
-        item for item in snapshot["items"] if item["kind"] == "map_risk"
-    )
-    assert snapshot_map_item["source_module"] == "world"
-    assert snapshot_map_item["needs_review"] is True
-    assert snapshot_map_item["location_json"]["source"]["module"] == "world"
-    assert snapshot_map_item["location_json"]["open_target"] == {
-        "kind": "map_object",
-        "map_id": map_seed["map"]["id"],
-        "scene_id": scene_id,
-        "observation_id": map_seed["observation"]["id"],
-        "focus_entity_id": map_seed["location"]["id"],
-    }
-    assert "text_range" not in snapshot_map_item["location_json"]
     snapshot_memory_item = next(
         item
         for item in snapshot["items"]

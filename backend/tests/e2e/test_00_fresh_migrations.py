@@ -117,7 +117,31 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
     assert set(Base.metadata.tables) <= tables
     assert missing_columns == {}
     assert "smart_dedup_workbench_decisions" in tables
-    assert "map_layer_nodes" in tables
+    assert {
+        "map_atlas_runs",
+        "map_atlas_nodes",
+        "map_atlas_pages",
+        "map_atlas_annotations",
+    } <= tables
+    assert not {
+        "map_facts",
+        "map_observations",
+        "map_visual_revisions",
+        "map_territory_tiles",
+        "map_markers",
+        "map_terrain_bindings",
+        "map_terrain_patches",
+        "map_terrain_regions",
+        "map_path_nodes",
+        "map_paths",
+        "map_layer_nodes",
+        "map_path_layers",
+        "map_terrain_layers",
+        "map_location_layouts",
+        "map_location_bindings",
+        "map_tiles",
+        "map_configs",
+    } & tables
     assert ("novel_id",) not in interaction_journey_unique_constraints
     assert ("owner_id",) not in interaction_preference_unique_constraints
     assert interaction_journey_indexes["ix_interaction_journeys_novel_id"][
@@ -152,12 +176,7 @@ def test_old_dynamic_baseline_objects_do_not_break_upgrade(monkeypatch) -> None:
     """Keep databases initialized by the former live-ORM baseline upgradeable."""
     with _disposable_database() as (migration_url, target_engine):
         config, expected_heads = _migration_config(monkeypatch, migration_url)
-        with target_engine.begin() as connection:
-            connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
-            connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-            Base.metadata.create_all(connection)
-
-        command.stamp(config, "20260703_scene_chapter_links")
+        command.upgrade(config, "20260703_scene_chapter_links")
         command.upgrade(config, "head")
 
         _assert_current_schema(target_engine, expected_heads)

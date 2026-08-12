@@ -1,5 +1,7 @@
 # 动态地图 P0 前端偏差修复实施计划
 
+> **Superseded（已取代）：** 旧动态地图实施记录，不是当前契约。现行实现见 `docs/modules/15_map.md` 与 ADR-0012。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 补齐 PRD `docs/references/map-prd-v1.1.md` 文末列出的 7 个 P0 前端已知偏差，使地图浏览与编辑体验闭环。

@@ -1,6 +1,9 @@
 # ADR-0003 — 动态地图视口引擎选用 Leaflet 1.9.4
 
-- **状态**: Accepted
+> **状态：Superseded。** 旧地图运行时已删除；当前决策见
+> [ADR-0012](0012-ai-map-atlas-image-storage.md)。本文只保留历史追溯。
+
+- **状态**: Superseded
 - **日期**: 2026-06-14
 - **交付修订**: 2026-08-06（固定 npm 依赖与本源静态资产取代 CDN）
 - **背景**: 动态地图功能 PRD v1.1（[`map-prd-v1.1.md`](../references/map-prd-v1.1.md)）

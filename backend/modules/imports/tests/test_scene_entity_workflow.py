@@ -42,7 +42,6 @@ from modules.imports.entity_extraction.scene_entity_text import (
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     DeltaEvent,
-    ExtractedCharacterLocationProposal,
     ExtractedEntity,
     SceneEntityExtractionOutput,
 )
@@ -1011,7 +1010,7 @@ async def test_phase2_flush_timeout_returns_degraded(
 
 
 @pytest.mark.asyncio
-async def test_record_deltas_creates_memory_log_without_generic_map_noise(
+async def test_record_deltas_creates_memory_log(
     db_session: AsyncSession,
     novel_with_drafts: str,
 ) -> None:
@@ -1051,62 +1050,6 @@ async def test_record_deltas_creates_memory_log_without_generic_map_noise(
     assert items[0].meta["scene_id"] == "00000000-0000-0000-0000-000000000002"
     assert items[0].meta["scene_provenance_key"] == "wf-delta:scene:2"
     assert items[0].meta["auto_ingested"] is True
-
-    from modules.world.map_models import MapObservation
-
-    obs_stmt = select(MapObservation).where(MapObservation.novel_id == nid)
-    obs_result = await db_session.execute(obs_stmt)
-    observations = obs_result.scalars().all()
-    assert observations == []
-
-
-@pytest.mark.asyncio
-async def test_record_deltas_bridges_explicit_map_intent(
-    db_session: AsyncSession,
-    novel_with_drafts: str,
-) -> None:
-    svc = SceneEntityExtractionService()
-    count = await svc._record_deltas(
-        db_session,
-        novel_with_drafts,
-        [
-            DeltaEvent(
-                category="POSITION_CHANGED",
-                field="position",
-                old="街口",
-                new="教堂",
-                meta={
-                    "dynamic_type": "location",
-                    "spatial_anchor": {"hex_q": 1, "hex_r": 2},
-                    "evidence_text": "他从街口走进教堂。",
-                },
-            )
-        ],
-        scene_index=3,
-        workflow_id="wf-map-delta",
-        scene_id="00000000-0000-0000-0000-000000000003",
-        scene_provenance_key="wf-map-delta:scene:3",
-    )
-
-    assert count == 1
-    from modules.world.map_models import MapObservation
-    from shared.utils import parse_uuid
-
-    observations = list(
-        (
-            await db_session.execute(
-                select(MapObservation).where(
-                    MapObservation.novel_id
-                    == parse_uuid(novel_with_drafts, "novel_id")
-                )
-            )
-        ).scalars()
-    )
-    assert len(observations) == 1
-    assert observations[0].dynamic_type == "location"
-    assert observations[0].spatial_anchor == {"hex_q": 1, "hex_r": 2}
-    assert observations[0].source_ref["source"] == "deep_import_delta_event"
-
 
 @pytest.mark.asyncio
 async def test_process_scene_builds_scene_memory_checkpoints(
@@ -2514,104 +2457,6 @@ async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> Non
     assert "第2章正文" in scene_texts[1]
     assert "第3章正文" in scene_texts[1]
 
-
-@pytest.mark.asyncio
-async def test_bulk_map_proposals_keep_their_source_scene_provenance() -> None:
-    scenes = [
-        {
-            "id": "scene-1",
-            "novel_id": "novel-1",
-            "scene_index": 1,
-            "chapter_ids": ["1"],
-        },
-        {
-            "id": "scene-2",
-            "novel_id": "novel-1",
-            "scene_index": 2,
-            "chapter_ids": ["2"],
-        },
-    ]
-
-    async def list_latest_drafts_for_chapters(_db, novel_id, chapter_indices):
-        return [
-            WritingDraftContract(
-                novel_id=novel_id,
-                chapter_index=index,
-                title=f"第{index}章",
-                content=f"第{index}章正文",
-            )
-            for index in chapter_indices
-        ]
-
-    outputs = [
-        SceneEntityExtractionOutput(
-            map_observation_proposals=[
-                ExtractedCharacterLocationProposal(
-                    proposal_type="character_location",
-                    character_name="沈砚",
-                    location_name=f"地点{index}",
-                    quote=f"沈砚到达地点{index}。",
-                    confidence=0.9,
-                )
-            ]
-        )
-        for index in (1, 2)
-    ]
-    service = Mock()
-    service._scene_source_chapter_index.side_effect = lambda scene: scene["scene_index"]
-    service._scene_chunks_by_chapter.side_effect = scene_chunks_by_chapter
-    service._scene_chapter_ids.side_effect = scene_chapter_ids
-    service._select_scene_text.side_effect = select_scene_text
-    service._scene_context_header.side_effect = scene_context_header
-    service._scene_input_fingerprint.side_effect = lambda scene, _text: (
-        f"fingerprint-{scene['id']}"
-    )
-    service._bulk_entity_memory_context.return_value = "批量上下文"
-    service._create_phase2_snapshot = AsyncMock(return_value=Mock(id="snapshot-1"))
-    service._call_bulk_llm_extractions = AsyncMock(return_value=list(enumerate(outputs)))
-    service._persist_entities = AsyncMock(return_value=0)
-    service._persist_relations = AsyncMock(return_value=0)
-    service._record_deltas = AsyncMock(return_value=0)
-    service._record_map_observation_proposals = AsyncMock(
-        return_value={"created": 1, "reused": 0}
-    )
-    service._scene_id.side_effect = lambda scene: scene["id"]
-    service._scene_provenance_key.side_effect = lambda _workflow_id, scene: (
-        f"wf:{scene['id']}"
-    )
-    service._result_ref_ids.return_value = []
-    authorization_snapshot = {"authorization_confirmed": True}
-
-    with (
-        patch(
-            "modules.writing.facade.list_latest_drafts_for_chapters",
-            autospec=True,
-            side_effect=list_latest_drafts_for_chapters,
-        ),
-        patch("modules.context.facade.succeed_context_snapshot", autospec=True),
-        patch("modules.memory.facade.capture_snapshot", autospec=True),
-    ):
-        result = await BulkSceneEntityExtractor(service).run(
-            Mock(),
-            "novel-1",
-            scenes,
-            "无已有对象",
-            workflow_id="wf-bulk",
-            authorization_snapshot=authorization_snapshot,
-        )
-
-    calls = service._record_map_observation_proposals.await_args_list
-    assert [call.kwargs["scene_id"] for call in calls] == ["scene-1", "scene-2"]
-    assert [call.kwargs["scene_index"] for call in calls] == [1, 2]
-    assert [call.kwargs["source_chapter_index"] for call in calls] == [1, 2]
-    assert [call.kwargs["scene_source_fingerprint"] for call in calls] == [
-        "fingerprint-scene-1",
-        "fingerprint-scene-2",
-    ]
-    assert all(
-        call.kwargs["authorization_snapshot"] is authorization_snapshot for call in calls
-    )
-    assert result["map_observation_candidates"] == {"created": 2, "reused": 0}
 
 
 @pytest.mark.asyncio

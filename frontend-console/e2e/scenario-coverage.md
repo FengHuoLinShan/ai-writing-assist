@@ -90,12 +90,12 @@ cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTI
 # 生成中心合约验收
 cd /path/to/repo && make generate-e2e
 
-# 前端反馈优化定向 Playwright
-cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional -- map.spec.js -g "should create a world map" --reporter=list
+# AI 地图册定向 Playwright
+cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map -- --reporter=list
 # 以当前运行输出为准
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:functional -- project-chaos.spec.js --reporter=list
 # 若本地 PostgreSQL 不可用，先运行 backend/scripts/doctor.py --json
-DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8011 FRONTEND_PORT=8091 npm run test:e2e:functional -- map.spec.js scene-workbench.spec.js world.spec.js project-chaos.spec.js writing-chaos.spec.js world-outline-chaos.spec.js --reporter=list
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8011 FRONTEND_PORT=8091 npm run test:e2e:functional -- map-atlas.spec.js scene-workbench.spec.js world.spec.js project-chaos.spec.js writing-chaos.spec.js world-outline-chaos.spec.js --reporter=list
 # 使用显式专用 PostgreSQL 测试库和隔离端口；chaos 规格均为可执行风险覆盖
 
 # Lint

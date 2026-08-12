@@ -207,7 +207,6 @@ SCENE_MEMORY_DIMENSIONS = (
     "relations",
     "locations",
     "knowledge",
-    "map",
 )
 
 

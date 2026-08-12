@@ -14,11 +14,7 @@ from modules.imports.entity_extraction.scene_entity_phase2b_context import (
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     DeltaEvent,
-    ExtractedBoundaryProposal,
-    ExtractedCharacterLocationProposal,
     ExtractedEntity,
-    ExtractedEventLocationProposal,
-    ExtractedRouteStateProposal,
     Phase2aSceneExtractionOutput,
     Phase2aUncertainItem,
     SceneEntityExtractionOutput,
@@ -113,7 +109,6 @@ async def call_llm_extraction(
             partial_list_fields={
                 "entities",
                 "delta_events",
-                "map_observation_proposals",
                 "uncertain_items",
             },
             diagnostics=diagnostics,
@@ -121,18 +116,15 @@ async def call_llm_extraction(
             fix_prompt=(
                 "上一轮 Scene 世界连续性观察不是合法 JSON 或不符合 schema。"
                 "请从头重新输出一个完整 JSON 对象，顶层只包含 entities、"
-                "delta_events、map_observation_proposals、uncertain_items。"
+                "delta_events、uncertain_items。"
                 "entities 项只能使用 name、entity_type、summary、public_info、"
                 "hidden_truth、importance、identity_disposition、matched_existing_ref、"
                 "basis、uncertainties、evidence_quotes、confidence；delta_events 项"
                 "只能使用 subject_name、category、field、old、new、description、"
-                "basis、uncertainties、evidence_quotes、confidence；地图项公共字段"
-                "是 proposal_type、quote、confidence，并按 proposal_type 使用 "
-                "character_name/location_name/movement_mode/state、event_name/"
-                "location_name/state、path_name/state/reason 或 controller_name/"
-                "area_description；uncertain_items 项只能使用 description、reason、"
+                "basis、uncertainties、evidence_quotes、confidence；"
+                "uncertain_items 项只能使用 description、reason、"
                 "evidence_quotes。所有 uncertainties 和 evidence_quotes 都必须是"
-                " JSON 字符串数组。除顶层四个集合及上述字符串数组外，其余字段"
+                " JSON 字符串数组。除顶层三个集合及上述字符串数组外，其余字段"
                 "必须是 schema 指定的单值字符串、数值或 null，不能写成数组或对象。"
                 "不要 Markdown 或解释。"
             ),
@@ -279,40 +271,10 @@ def _materialize_phase2a_output(
             )
         )
 
-    map_proposals = []
-    proposal_models = {
-        "character_location": ExtractedCharacterLocationProposal,
-        "event_location": ExtractedEventLocationProposal,
-        "route_state": ExtractedRouteStateProposal,
-        "boundary": ExtractedBoundaryProposal,
-    }
-    for proposal in raw.map_observation_proposals:
-        evidence_quotes = _exact_evidence_quotes(
-            [proposal.quote],
-            current_scene_text,
-        )
-        if not evidence_quotes:
-            uncertain_items.append(
-                Phase2aUncertainItem(
-                    description=f"无法物化地图观察：{proposal.proposal_type}",
-                    reason="evidence_not_found_in_current_scene",
-                    evidence_quotes=[],
-                )
-            )
-            continue
-        proposal_model = proposal_models[proposal.proposal_type]
-        map_proposals.append(
-            proposal_model(
-                **proposal.model_dump(mode="python"),
-                supporting_scene_ids=[],
-            )
-        )
-
     return SceneEntityExtractionOutput(
         entities=entities,
         relations=[],
         delta_events=delta_events,
-        map_observation_proposals=map_proposals,
         uncertain_items=uncertain_items,
     )
 

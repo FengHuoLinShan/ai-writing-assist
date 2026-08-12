@@ -14,7 +14,6 @@ import {
   ignoreCandidate,
   acceptCandidate,
   markEntityReviewed,
-  openEntityMap,
   promoteEntity,
   registerCandidateListHooks,
   showEntityCreateForm,
@@ -54,8 +53,6 @@ beforeEach(() => {
       deleteEntity: vi.fn(async () => ({})),
       getEntity: vi.fn(async () => null),
       resolveEntityAsAlias: vi.fn(async () => ({})),
-      getEntityMapPresence: vi.fn(async () => ({ items: [] })),
-      getMapOpenTarget: vi.fn(async () => ({ map_id: null, mode: "overview" })),
     },
   }
   setBridgeOverrides({
@@ -130,13 +127,6 @@ describe("showEntityCreateForm", () => {
     document.body.innerHTML = modalCalls[1].html
     await modalCalls[1].buttons[0].handler()
     expect(apiMock.world.createEntity).toHaveBeenCalledTimes(2)
-  })
-})
-
-describe("openEntityMap", () => {
-  it("候选对象查地图时显式包含候选绑定", async () => {
-    await openEntityMap("c1")
-    expect(apiMock.world.getEntityMapPresence).toHaveBeenCalledWith("c1", "p-ops", true)
   })
 })
 

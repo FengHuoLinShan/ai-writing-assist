@@ -155,7 +155,7 @@
 `memory` / `outline` / `rag` / `context` / `writing` / `settings` / `interaction`。
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
-- 动态地图是 `world` 的子系统，API 前缀为 `/api/world/maps`
+- AI 地图册是 `world` 的子系统，API 前缀为 `/api/world/map-atlas`
 - 前端注册视图包括 `home / project / journeys / interaction` 以及
   `world / rag / outline / scene / writing / map / generate / llm / settings / project-settings`；
   主导航不显示兼容 `llm` 路由

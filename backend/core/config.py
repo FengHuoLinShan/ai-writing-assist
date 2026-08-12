@@ -111,6 +111,33 @@ def _is_loopback_hostname(hostname: str) -> bool:
         return False
 
 
+def validate_map_atlas_s3_endpoint_url(value: str) -> str:
+    """Allow AWS defaults, HTTPS endpoints, and exact local HTTP development hosts."""
+    cleaned = value.strip()
+    if not cleaned:
+        return ""
+    parsed = _parse_auth_url("MAP_ATLAS_S3_ENDPOINT_URL", cleaned)
+    if (
+        any(ord(character) <= 0x20 for character in cleaned)
+        or parsed.username is not None
+        or parsed.password is not None
+        or "?" in cleaned
+        or "#" in cleaned
+    ):
+        raise RuntimeError(
+            "MAP_ATLAS_S3_ENDPOINT_URL must not include userinfo, query, or fragment"
+        )
+    if parsed.scheme.lower() == "http" and (parsed.hostname or "").lower() not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }:
+        raise RuntimeError(
+            "MAP_ATLAS_S3_ENDPOINT_URL must use https except for local development"
+        )
+    return cleaned
+
+
 def _validate_auth_https_url(
     name: str,
     value: str,
@@ -290,6 +317,26 @@ class Settings:
     )
     llm_circuit_breaker_reset_seconds: float = field(
         default_factory=lambda: _env_float("LLM_CIRCUIT_BREAKER_RESET_SECONDS", 60.0)
+    )
+
+    # --- AI 地图册私有对象存储 ---
+    map_atlas_s3_bucket: str = field(
+        default_factory=lambda: _env("MAP_ATLAS_S3_BUCKET", "")
+    )
+    map_atlas_s3_region: str = field(
+        default_factory=lambda: _env("MAP_ATLAS_S3_REGION", "us-east-1")
+    )
+    map_atlas_s3_endpoint_url: str = field(
+        default_factory=lambda: _env("MAP_ATLAS_S3_ENDPOINT_URL", "")
+    )
+    map_atlas_s3_access_key_id: str = field(
+        default_factory=lambda: _env("MAP_ATLAS_S3_ACCESS_KEY_ID", "")
+    )
+    map_atlas_s3_secret_access_key: str = field(
+        default_factory=lambda: _env("MAP_ATLAS_S3_SECRET_ACCESS_KEY", "")
+    )
+    map_atlas_s3_force_path_style: bool = field(
+        default_factory=lambda: _env_bool("MAP_ATLAS_S3_FORCE_PATH_STYLE", False)
     )
 
     # --- Embedding ---

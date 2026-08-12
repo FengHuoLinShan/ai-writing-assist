@@ -44,7 +44,6 @@
               <div class="writing-tools-menu__group">
                 <button id="btn-conflict-check" class="btn btn-sm" :disabled="!hasChapter || state.readonly || conflictLoading" @click="$emit('conflict-check')">{{ conflictLoading ? '检查中...' : '检查前后设定' }}</button>
                 <button class="btn btn-sm" :disabled="!hasChapter" @click="$emit('export')">导出本章</button>
-                <button class="btn btn-sm" @click="$emit('open-map')">打开地图</button>
                 <button class="btn btn-sm" @click="$emit('toggle-focus')">专注模式</button>
               </div>
             </div>
@@ -126,7 +125,7 @@ const props = defineProps({
 defineEmits([
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov",
-  "auto-extract", "adopt", "reject", "export", "open-map", "toggle-focus",
+  "auto-extract", "adopt", "reject", "export", "toggle-focus",
 ])
 
 const titleEl = ref(null)

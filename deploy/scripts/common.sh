@@ -581,6 +581,14 @@ read_live_non_system_table_count() {
         -c "BEGIN READ ONLY; SET LOCAL statement_timeout = '5s'; SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema'); COMMIT;"
 }
 
+read_live_legacy_map_table_count() {
+    postgres_user=$(env_value POSTGRES_USER) || return 1
+    postgres_db=$(env_value POSTGRES_DB) || return 1
+    compose exec -T -e PGCONNECT_TIMEOUT=5 postgres psql -w -X -qAt -v ON_ERROR_STOP=1 \
+        -U "$postgres_user" -d "$postgres_db" \
+        -c "BEGIN READ ONLY; SET LOCAL statement_timeout = '5s'; SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND left(table_name, 4) = 'map_' AND left(table_name, 10) <> 'map_atlas_'; COMMIT;"
+}
+
 verify_release_migration_compatibility() {
     active_commit=$1
     target_commit=$2
