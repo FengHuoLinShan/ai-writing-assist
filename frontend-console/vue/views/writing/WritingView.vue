@@ -52,12 +52,12 @@
       </div>
     </aside>
 
-    <main id="writing-editor-container">
+    <main id="writing-editor-container" :data-watermark="watermarkChar">
       <WritingEditor
         :state="vm.editorState"
         :has-chapters="vm.chapterList.value.length > 0"
         :save-status="vm.saveStatus.value"
-        :editor-font="authorPreferences.editorFont"
+        :editor-font="effectiveEditorFont"
         :daily-goal="authorPreferences.dailyGoal"
         :focus-mode="vm.focusMode.value"
         :generation-loading="vm.generationLoading.value"
@@ -167,6 +167,30 @@
         />
       </div>
     </aside>
+
+    <footer class="writing-statusbar">
+      <div id="writing-wordcount-bar" class="writing-wordcount-bar">
+        <span><strong>{{ statusWordCount.toLocaleString() }}</strong> 字</span>
+        <span v-if="dailyGoalNumber" class="wc-daily-goal">
+          日目标 {{ statusWordCount.toLocaleString() }} / {{ dailyGoalNumber.toLocaleString() }}
+          <span class="wc-goal-progress" aria-hidden="true"><span class="wc-goal-fill" :style="{ width: `${goalPercent}%` }" /></span>
+        </span>
+        <span>{{ statusParagraphCount }} 段</span>
+        <span>约 {{ statusReadMinutes }} 分钟阅读</span>
+      </div>
+      <div class="writing-statusbar__right">
+        <span v-if="hasEditableChapter" id="writing-version-info" class="writing-version-badge">{{ versionLabel }}</span>
+        <span v-if="hasEditableChapter" id="writing-save-status" class="writing-save-badge" :class="saveBadgeClass">{{ vm.saveStatus.value }}</span>
+        <button
+          type="button"
+          class="writing-statusbar__font"
+          aria-label="切换正文字体"
+          :title="`正文字体：${editorFontLabel}（跟随创作偏好，点此临时切换）`"
+          @click="cycleEditorFont"
+        >字体 · {{ editorFontLabel }}</button>
+        <button type="button" class="writing-statusbar__focus" @click="vm.toggleFocusMode">{{ vm.focusMode.value ? '退出专注' : '专注模式' }}</button>
+      </div>
+    </footer>
   </div>
 
   <OutlineFloat
@@ -214,6 +238,7 @@ import WritingEditor from "./components/WritingEditor.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import "./writing-desk.css"
+import "./writing-decorations.css"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -232,6 +257,46 @@ const conflictSummary = computed(() => (
   || vm.conflictState.latest?.status
   || "已完成"
 ))
+
+/* 状态栏：纯展示派生，不触发任何请求 */
+const hasEditableChapter = computed(() => Number.isInteger(Number(vm.editorState.chapter)) && Number(vm.editorState.chapter) > 0)
+const statusWordCount = computed(() => String(vm.editorState.content || "").length)
+const statusParagraphCount = computed(() => String(vm.editorState.content || "").replace(/\r\n?/g, "\n").split(/\n+/).filter((item) => item.trim()).length)
+const statusReadMinutes = computed(() => Math.max(1, Math.ceil(statusWordCount.value / 400)))
+const dailyGoalNumber = computed(() => {
+  const goal = Number(props.authorPreferences?.dailyGoal)
+  return Number.isFinite(goal) && goal > 0 ? goal : null
+})
+const goalPercent = computed(() => (
+  dailyGoalNumber.value ? Math.min(100, Math.round((statusWordCount.value / dailyGoalNumber.value) * 100)) : 0
+))
+const versionLabel = computed(() => (
+  vm.editorState.versionNumber ? `v${vm.editorState.versionNumber}${vm.editorState.readonly ? "（只读）" : ""}` : "未选择版本"
+))
+const saveBadgeClass = computed(() => ({
+  "writing-save-badge--saving": Boolean(vm.editorState.saving),
+  "writing-save-badge--unsaved": !vm.editorState.saving && vm.editorState.dirty,
+  "writing-save-badge--saved": !vm.editorState.saving && !vm.editorState.dirty,
+}))
+
+/* 正文字体：默认跟随创作偏好，状态栏按钮只做本次会话的临时切换，不写入偏好存储 */
+const editorFontChoices = ["system", "serif", "sans", "mono"]
+const editorFontLabels = { system: "默认", serif: "衬线", sans: "无衬线", mono: "等宽" }
+const editorFontOverride = ref(null)
+const effectiveEditorFont = computed(() => editorFontOverride.value || props.authorPreferences?.editorFont || "system")
+const editorFontLabel = computed(() => editorFontLabels[effectiveEditorFont.value] || "默认")
+function cycleEditorFont() {
+  const index = editorFontChoices.indexOf(effectiveEditorFont.value)
+  editorFontOverride.value = editorFontChoices[(index + 1) % editorFontChoices.length]
+}
+
+/* ink 主题水印字：取当前章标题首字，无标题则为空（CSS 不渲染） */
+const watermarkChar = computed(() => {
+  const chapter = vm.selectedChapter.value
+  const meta = chapter != null ? vm.chapters?.[chapter] : null
+  const title = String(vm.editorState.title || meta?.title || "").trim()
+  return title ? title.slice(0, 1) : ""
+})
 const stored = (rail, fallback) => {
   try {
     const value = sessionStorage.getItem(`workspace-rail:${props.projectId}:writing:${rail}`)

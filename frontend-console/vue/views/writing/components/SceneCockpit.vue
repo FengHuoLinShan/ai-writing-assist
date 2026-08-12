@@ -37,7 +37,7 @@
             <section v-if="alertsBySeverity[severity].length" class="scene-alert-group" :class="`scene-alert-group--${severity}`">
               <div class="scene-alert-group__title">{{ severityLabel(severity) }}严重度 · {{ alertsBySeverity[severity].length }}</div>
               <article v-for="(alert, index) in alertsBySeverity[severity]" :key="alert.code || index" class="scene-alert-card" :class="`scene-alert-card--${severity}`">
-                <div class="scene-alert-card__head"><span>{{ alert.source || '现场' }}</span><span v-if="alert.stale">已过期</span></div>
+                <div class="scene-alert-card__head"><span>{{ alert.source || '现场' }}<template v-if="alert.stale"> · 已过期</template></span><button type="button" class="scene-alert-card__action" @click="$emit('open-conflict')">查看 →</button></div>
                 <div class="scene-alert-card__message">{{ alert.message || alert.label || alert.code }}</div>
                 <div v-if="alert.detail" class="scene-alert-card__detail">{{ alert.detail }}</div>
               </article>

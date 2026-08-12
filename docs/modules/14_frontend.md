@@ -28,8 +28,11 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 ## 架构
 
 - 入口：`index.html`
-- 基础样式：`styles.css`
-- 全站主题覆层：`editorial-theme.css`
+- 基础样式：`styles.css`（结构/排版/布局尺寸；ink 主题字体族覆写）
+- 全站主题覆层：`editorial-theme.css`（视觉表达唯一权威；`--nc-*` 原语层 + 语义转发层 +
+  `--archive-*` 兼容别名；末尾含 shell 级点缀分节）
+- 写作页样式：`vue/views/writing/writing-desk.css`（页面级）与
+  `vue/views/writing/writing-decorations.css`（编辑区点缀与水印字）
 - 全局状态：`state.js`
 - 状态切片 helper：`stateSlices.js`
 - 路由：`router.js`
@@ -146,14 +149,26 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 项目页使用“作品档案”首屏和非对称项目网格：当前项目始终置顶，首张卡占更大版面；
   其余项目按最近更新时间排序。视觉层只消费既有标题、题材、阶段、简介和统计字段，
   不新增封面数据或 API；`760px` 以下收敛为单栏，`390px` 不产生页面级横向溢出。
-- 全部一级页面、子标签、弹窗、表格和辅助栏共用“编辑档案”主题：米白纸张、深蓝结构线、
-  朱红索引与低圆角几何编排。`styles.css` 保持结构布局，`editorial-theme.css` 作为后加载
-  覆层拥有视觉表达；路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
+- 全部一级页面、子标签、弹窗、表格和辅助栏共用三主题换肤体系：`sticky`（晨光便签，浅色默认）、
+  `night`（暗夜书房，深色）、`ink`（水墨写意，纸色），经 `<html data-theme="…">` 切换。
+  `editorial-theme.css` 作为后加载覆层拥有视觉表达：`--nc-*` 原语层是唯一写色值的一层
+  （`:root` = sticky，`[data-theme="night"|"ink"]` 只覆写 `--nc-*`），语义层全从 `--nc-*` 转发，
+  `--archive-*` 保留为转发别名；`styles.css` 保持结构布局。全站线条为 1px hairline，阴影只用于
+  浮层。主题持久化 key 为 `nc-theme`（首次从旧 key `novel_theme` 迁移并删除；legacy 值映射
+  `light/minimal→sticky`、`dark/dark-soft→night`、`paper/warm→ink`）；无存储时跟随系统
+  `prefers-color-scheme`（dark → night）。切换入口为顶栏三点切换器（`.topbar-theme` radiogroup +
+  `button.theme-dot[data-theme-value]`，支持方向键），切换过渡 250ms、reduced-motion 关闭。
+  点缀只允许顶栏品牌区、写作页编辑区（上 1 组 + 下 1 组）与左栏导航底部三处，近底色、
+  `pointer-events:none`，专注模式与 ≤760px 一律隐藏。设计细则唯一权威：
+  `docs/frontend/uiux/design-standard.md`。
+- 路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
   定位，不得被业务逻辑、数据请求或测试 fixture 当作状态来源。
-- 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用深蓝
-  实体面与朱红索引线，普通操作保留可见边框；可编辑字段使用纸张底、完整边框与左侧功能线，
-  focus-visible/聚焦切换朱红并显示焦点环。暗色主题保持相同层级；`760px` 以下常用按钮高度
-  不低于 `42px`，输入控件不低于 `44px`。
+- 全局布局尺寸：`--topbar-height:57px`、`--sidebar-width:211px`、rail 折叠 `44px`；
+  写作页固定三栏：章节树 238px / 正文弹性 / 写作副驾驶 257px。
+- 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用主题
+  accent 实体面（sticky 蓝 / night 金 / ink 朱砂），普通操作保留可见边框；可编辑字段使用
+  surface 底与完整边框，focus-visible 显示 2px accent 焦点环。暗色主题保持相同层级；
+  `760px` 以下常用按钮高度不低于 `42px`，输入控件不低于 `44px`。
 - 创作工作台以正文、主列表、编辑区、生成结果和地图画布为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
 - Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
   在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
@@ -211,6 +226,10 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 - Scene 树导航
 - 自动保存与未保存提醒
+- 底部状态栏 `.writing-statusbar`（38px 通栏）：左侧为字数进度（当前 / 日目标 + 3px accent
+  进度条）、段落数与预计阅读时长（字数 / 400 向上取整）；右侧为字体循环切换（会话内临时
+  override，不写偏好存储）、专注模式按钮和保存/版本状态徽标——这些 DOM 自编辑器头平移，
+  id 不变；版本选择条保留在编辑器上方工具区
 - 版本历史/恢复
 - 读取项目生效作者偏好并驱动日目标、编辑器字体和默认专注模式；优先使用设置服务的项目/全局继承结果，旧本地值只作为接口失败时的兼容回退
 - 深度导入进度展示：恢复 localStorage 中的 task_id，展示当前章节 / Scene / batch、质量统计、降级状态和中断恢复提示

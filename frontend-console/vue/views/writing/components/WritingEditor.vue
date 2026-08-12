@@ -3,8 +3,16 @@
     <div class="writing-editor-header">
       <div class="writing-editor-title-group">
         <span id="writing-chapter-title" class="writing-editor-chapter-title">{{ state.chapter ? `第 ${state.chapter} 章` : '未选择章节' }}</span>
-        <span v-if="hasChapter" id="writing-version-info" class="writing-version-badge">{{ versionLabel }}</span>
-        <span v-if="hasChapter" id="writing-save-status" class="writing-save-badge" :class="saveBadgeClass">{{ saveStatus }}</span>
+        <input
+          v-if="hasChapter"
+          id="writing-title-input"
+          ref="titleEl"
+          class="writing-title-input"
+          type="text"
+          :value="state.title"
+          :readonly="state.readonly"
+          placeholder="章节标题"
+        >
       </div>
       <div id="writing-editor-buttons" class="writing-editor-buttons">
         <button id="btn-publish" class="btn btn-primary btn-sm writing-primary-action" :disabled="!hasChapter || state.readonly || !state.content.trim()" @click="$emit('publish')">设为正式正文</button>
@@ -61,15 +69,6 @@
     </div>
     <template v-else>
       <div class="writing-sheet">
-        <input
-          id="writing-title-input"
-          ref="titleEl"
-          class="writing-title-input"
-          type="text"
-          :value="state.title"
-          :readonly="state.readonly"
-          placeholder="章节标题"
-        >
         <textarea
           id="writing-editor"
           ref="editorEl"
@@ -93,16 +92,6 @@
             <button class="btn btn-danger" @click="$emit('reject')">拒绝建议</button>
           </div>
         </section>
-
-        <div id="writing-wordcount-bar" class="writing-wordcount-bar">
-          <span><strong>{{ state.content.length.toLocaleString() }}</strong> 字</span>
-          <span>{{ paragraphCount }} 段</span>
-          <span>约 {{ readMinutes }} 分钟阅读</span>
-          <span v-if="dailyGoal" class="wc-daily-goal">
-            日目标 {{ state.content.length.toLocaleString() }} / {{ Number(dailyGoal).toLocaleString() }}
-            <span class="wc-goal-progress" aria-hidden="true"><span class="wc-goal-fill" :style="{ width: `${goalPercent}%` }" /></span>
-          </span>
-        </div>
       </div>
     </template>
   </div>
@@ -136,18 +125,4 @@ const attachElements = () => props.attach({ title: titleEl.value, editor: editor
 onMounted(() => nextTick(attachElements))
 watch(() => props.state.chapter, () => nextTick(attachElements))
 onBeforeUnmount(() => props.detach())
-
-const versionLabel = computed(() => props.state.versionNumber ? `v${props.state.versionNumber}${props.state.readonly ? '（只读）' : ''}` : "未选择版本")
-const saveBadgeClass = computed(() => ({
-  "writing-save-badge--saving": Boolean(props.state.saving),
-  "writing-save-badge--unsaved": !props.state.saving && props.state.dirty,
-  "writing-save-badge--saved": !props.state.saving && !props.state.dirty,
-}) )
-const paragraphCount = computed(() => String(props.state.content || "").replace(/\r\n?/g, "\n").split(/\n+/).filter((item) => item.trim()).length)
-const readMinutes = computed(() => Math.max(1, Math.ceil(String(props.state.content || "").length / 300)))
-const goalPercent = computed(() => {
-  const goal = Number(props.dailyGoal)
-  if (!Number.isFinite(goal) || goal <= 0) return 0
-  return Math.min(100, Math.round((String(props.state.content || "").length / goal) * 100))
-})
 </script>

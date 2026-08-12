@@ -1546,14 +1546,14 @@ describe("RP 故事页", () => {
 
     expect(menu.get(".rp-more-menu__header button").attributes("aria-label"))
       .toBe("关闭更多操作")
-    expect(menu.text()).toContain("现代极简")
-    expect(menu.text()).toContain("黄金时刻")
-    expect(menu.text()).toContain("午夜星河")
+    expect(menu.text()).toContain("晨光便签")
+    expect(menu.text()).toContain("暗夜书房")
+    expect(menu.text()).toContain("水墨写意")
     await menu.findAll(".rp-more-menu__themes button")
-      .find((button) => button.text().includes("午夜星河"))
+      .find((button) => button.text().includes("暗夜书房"))
       .trigger("click")
 
-    expect(requestedThemes).toEqual(["dark"])
+    expect(requestedThemes).toEqual(["night"])
     expect(menu.element.open).toBe(false)
   })
 

@@ -112,7 +112,7 @@ describe("WritingView", () => {
     expect(sessionStorage.getItem(key)).toBeNull()
     expect(rail.element.tagName).toBe("ASIDE")
     expect(wrapper.findAll(".workspace-rail__summary")).toHaveLength(0)
-    expect(wrapper.get(".chapter-tree-title .writing-rail-heading-label").text()).toBe("章节（1）")
+    expect(wrapper.get(".chapter-tree-title .writing-rail-heading-label").text()).toBe("章节 · 共 1 章")
     expect(wrapper.get(".writing-rail-heading-label--copilot").text()).toBe("写作副驾驶")
     expect(wrapper.text()).not.toContain("写作参考")
 

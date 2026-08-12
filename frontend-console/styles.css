@@ -7,7 +7,7 @@
 
 :root {
   /* 字体 */
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-ui: "MiSans", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-body: "Noto Serif SC", "Source Han Serif SC", "PingFang SC", "Microsoft YaHei", "Georgia", "SimSun", serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Courier New", monospace;
 
@@ -64,8 +64,8 @@
   --dur-slow: 320ms;
 
   /* 布局尺寸 */
-  --topbar-height: 56px;
-  --sidebar-width: 184px;
+  --topbar-height: 57px;
+  --sidebar-width: 211px;
   --workspace-main-share: 64fr;
   --workspace-side-share: 18fr;
   --workspace-rail-left-min: 176px;
@@ -73,10 +73,10 @@
   --workspace-rail-collapsed: 44px;
 }
 
-/* 暖色主题字体偏好（颜色/圆角/阴影/线条由 editorial-theme.css 统一覆写） */
-[data-theme="warm"] {
+/* ink 主题字体偏好：正文霞鹜文楷，系统未装时优雅回退（颜色/圆角/阴影/线条由 editorial-theme.css 统一覆写） */
+[data-theme="ink"] {
   --font-ui: "PingFang SC", -apple-system, "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
-  --font-body: "Noto Serif SC", "Source Han Serif SC", "Georgia", "STSong", serif;
+  --font-body: "LXGW Bright", "LXGW WenKai", "Noto Serif SC", "Source Han Serif SC", "Georgia", "STSong", serif;
 }
 
 /* ===== 全局重置 ===== */
@@ -1631,26 +1631,32 @@ label.llm-clear-key {
   margin-top: 8px;
 }
 
+/*
+ * 写作台三栏：章节树 238px / 正文弹性（不写死 max-width）/ 写作副驾驶 257px，
+ * 底部状态栏通栏。共享 rail 变量（--workspace-rail-*）保持其他视图不变，
+ * 写作页在这里固定自己的列宽。
+ */
 .writing-workspace-layout {
   display: grid;
-  grid-template-columns:
-    minmax(var(--workspace-rail-left-min), var(--workspace-side-share))
-    minmax(0, var(--workspace-main-share))
-    minmax(var(--workspace-rail-right-min), var(--workspace-side-share));
+  grid-template-columns: 238px minmax(0, 1fr) 257px;
   gap: 20px;
   align-items: start;
 }
 
 .writing-workspace-layout:has(.writing-tree-rail.is-collapsed) {
-  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 82fr) minmax(var(--workspace-rail-right-min), var(--workspace-side-share));
+  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr) 257px;
 }
 
 .writing-workspace-layout:has(.writing-panel-rail.is-collapsed) {
-  grid-template-columns: minmax(var(--workspace-rail-left-min), var(--workspace-side-share)) minmax(0, 82fr) var(--workspace-rail-collapsed);
+  grid-template-columns: 238px minmax(0, 1fr) var(--workspace-rail-collapsed);
 }
 
 .writing-workspace-layout:has(.writing-tree-rail.is-collapsed):has(.writing-panel-rail.is-collapsed) {
   grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr) var(--workspace-rail-collapsed);
+}
+
+.writing-statusbar {
+  grid-column: 1 / -1;
 }
 
 #writing-tree-container,
@@ -3936,7 +3942,7 @@ kbd {
     repeating-linear-gradient(90deg, transparent 0 79px, rgba(19, 44, 60, 0.03) 79px 80px);
 }
 
-[data-theme="dark"] .project-catalog {
+[data-theme="night"] .project-catalog {
   --project-paper: #181d23;
   --project-paper-raised: #212832;
   --project-ink: #e6e1d6;
@@ -3949,7 +3955,7 @@ kbd {
     var(--project-paper);
 }
 
-[data-theme="warm"] .project-catalog {
+[data-theme="ink"] .project-catalog {
   --project-paper: #eee7da;
   --project-paper-raised: #fffaf0;
   --project-ink: #203442;
@@ -3971,7 +3977,7 @@ kbd {
   border-bottom: 1px solid var(--project-line);
 }
 
-[data-theme="dark"] .project-archive-hero {
+[data-theme="night"] .project-archive-hero {
   background: rgba(33, 40, 50, 0.5);
 }
 
@@ -4408,7 +4414,7 @@ kbd {
   --project-visual-accent: #132c3c;
 }
 
-[data-theme="dark"] .project-card--variant-1 {
+[data-theme="night"] .project-card--variant-1 {
   --project-visual-bg: #c7c1b5;
 }
 
@@ -12048,12 +12054,6 @@ kbd {
   padding: 0;
 }
 
-#main-layout.main-layout--immersive #workspace-content::before,
-#main-layout.main-layout--immersive #workspace-content::after {
-  display: none;
-  content: none;
-}
-
 .main-layout--immersive #workspace-content > .vue-island {
   display: flex;
   flex: 1 1 auto;
@@ -12213,8 +12213,8 @@ kbd {
   color: var(--rp-text);
 }
 
-[data-theme="dark"] .rp-list-page,
-[data-theme="dark"] .rp-story-page {
+[data-theme="night"] .rp-list-page,
+[data-theme="night"] .rp-story-page {
   --rp-bg: var(--bg-base);
   --rp-panel: var(--bg-panel);
   --rp-soft: var(--bg-hover);
@@ -12229,8 +12229,8 @@ kbd {
   --rp-warning-soft: rgba(252, 211, 77, 0.1);
 }
 
-[data-theme="warm"] .rp-list-page,
-[data-theme="warm"] .rp-story-page {
+[data-theme="ink"] .rp-list-page,
+[data-theme="ink"] .rp-story-page {
   --rp-bg: var(--bg-base);
   --rp-panel: var(--bg-panel);
   --rp-soft: var(--bg-hover);
@@ -12401,7 +12401,7 @@ kbd {
   cursor: default;
 }
 
-[data-theme="dark"] .rp-send-button:disabled {
+[data-theme="night"] .rp-send-button:disabled {
   background: var(--rp-accent-soft);
   color: var(--rp-dim);
 }
@@ -13910,7 +13910,7 @@ button.rp-journey-card__main:hover {
   overscroll-behavior: contain;
 }
 
-[data-theme="dark"] .rp-adaptive-confirm {
+[data-theme="night"] .rp-adaptive-confirm {
   --rp-confirm-accent: var(--accent);
   --rp-confirm-accent-soft: var(--bg-active);
   --rp-confirm-border: var(--text-quaternary);
@@ -13918,7 +13918,7 @@ button.rp-journey-card__main:hover {
   --rp-confirm-panel: var(--bg-panel);
 }
 
-[data-theme="warm"] .rp-adaptive-confirm {
+[data-theme="ink"] .rp-adaptive-confirm {
   --rp-confirm-accent: var(--accent);
   --rp-confirm-accent-soft: var(--accent-soft);
   --rp-confirm-border: var(--text-quaternary);
