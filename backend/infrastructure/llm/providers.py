@@ -195,12 +195,8 @@ class OpenAIProvider:
 
         （Bug C2: 防止 HTTP 连接泄漏）
         """
-        if hasattr(self, "_client"):
-            await self._client.close()
-        if (
-            hasattr(self, "_embedding_client")
-            and self._embedding_client is not self._client
-        ):
+        await self._client.close()
+        if self._embedding_client is not self._client:
             await self._embedding_client.close()
             logger.debug("OpenAIProvider embedding HTTP connection closed")
 

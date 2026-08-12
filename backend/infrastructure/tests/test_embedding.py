@@ -216,6 +216,7 @@ async def bge_client_context(
         inference_worker_queue_maxsize=200,
         embedding_batch_queue_delay_ms=delay_ms,
         embedding_batch_queue_max_items=max_items,
+        embedding_batch_queue_timeout_seconds=30.0,
     )
     with (
         patch(

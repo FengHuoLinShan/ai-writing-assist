@@ -651,7 +651,13 @@ class TestTasks:
             from modules.rag.tasks import handle_rag_index_chapter
 
             db = AsyncMock()
-            task = SimpleNamespace(meta={"novel_id": "n1", "chapter_index": "3"})
+            task = SimpleNamespace(
+                id="task-1",
+                task_type="rag_index_chapter",
+                attempt=1,
+                lease_id="lease-1",
+                meta={"novel_id": "n1", "chapter_index": "3"},
+            )
             result = await handle_rag_index_chapter(db, task)
 
             assert result["chapter_index"] == 3
@@ -711,7 +717,13 @@ class TestTasks:
             from modules.rag.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
-            task = SimpleNamespace(meta={"novel_id": "n1"})
+            task = SimpleNamespace(
+                id="task-1",
+                task_type="rag_reindex_novel",
+                attempt=1,
+                lease_id="lease-1",
+                meta={"novel_id": "n1"},
+            )
             task.update_progress = MagicMock()
 
             result = await handle_rag_reindex_novel(db, task)
@@ -742,7 +754,13 @@ class TestTasks:
             from modules.rag.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
-            task = SimpleNamespace(meta={"novel_id": "n1"})
+            task = SimpleNamespace(
+                id="task-1",
+                task_type="rag_reindex_novel",
+                attempt=1,
+                lease_id="lease-1",
+                meta={"novel_id": "n1"},
+            )
             task.update_progress = MagicMock()
 
             result = await handle_rag_reindex_novel(db, task)
@@ -783,11 +801,15 @@ class TestTasks:
 
             db = AsyncMock()
             task = SimpleNamespace(
+                id="task-1",
+                task_type="rag_reindex_novel",
+                attempt=1,
+                lease_id="lease-1",
                 meta={
                     "novel_id": "n1",
                     "start_chapter": "2",
                     "end_chapter": "4",
-                }
+                },
             )
             task.update_progress = MagicMock()
 
@@ -996,6 +1018,9 @@ class TestTuningExtra:
             async def generate_embedding(self, *_args, **_kwargs):
                 raise RuntimeError("embedding unavailable")
 
+            async def close(self) -> None:
+                return None
+
         class _CapturingRetrieval:
             query_embedding = object()
             calls = 0
@@ -1060,6 +1085,9 @@ class TestTuningExtra:
         class _FailingEmbeddingClient:
             async def generate_embedding(self, *_args, **_kwargs):
                 raise RuntimeError("embedding unavailable")
+
+            async def close(self) -> None:
+                return None
 
         class _EmptyRetrieval:
             async def hybrid_search(self, *_args, **_kwargs):

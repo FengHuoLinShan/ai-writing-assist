@@ -1,7 +1,7 @@
 """
 BGE Embedding Client
 
-封装 BgeOnnxWorker 为异步接口，提供 EmbeddingProvider 抽象基类。
+封装 BgeOnnxWorker 为异步接口。
 通过 asyncio.to_thread 桥接同步 Worker 到 async 调用。
 """
 
@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -22,11 +21,6 @@ from infrastructure.llm.redaction import redact_diagnostic
 logger = logging.getLogger(__name__)
 
 _last_prewarm: dict | None = None
-
-
-def _settings_int(settings: object, name: str, default: int) -> int:
-    value = getattr(settings, name, default)
-    return value if isinstance(value, int) and not isinstance(value, bool) else default
 
 
 class EmbeddingBatchQueueClosedError(RuntimeError):
@@ -46,22 +40,7 @@ class _BatchQueueState:
     task: asyncio.Task[None] | None = None
 
 
-class EmbeddingProvider(ABC):
-    """Embedding 提供者抽象基类"""
-
-    @abstractmethod
-    async def generate_embedding(
-        self,
-        text: str | list[str],
-        *,
-        is_query: bool = False,
-    ) -> list[float] | list[list[float]]: ...
-
-    @abstractmethod
-    async def close(self) -> None: ...
-
-
-class BgeEmbeddingClient(EmbeddingProvider):
+class BgeEmbeddingClient:
     """本地 BGE embedding 客户端
 
     封装 BgeOnnxWorker 子进程管理 + LRU 缓存 + 异步桥接。
@@ -85,24 +64,14 @@ class BgeEmbeddingClient(EmbeddingProvider):
         self._cache = EmbeddingCache()
         self._started = False
         self._direct_encode_lock = asyncio.Lock()
-        self._batch_delay_seconds = (
-            max(
-                0,
-                _settings_int(settings, "embedding_batch_queue_delay_ms", 5),
-            )
-            / 1000
-        )
+        self._batch_delay_seconds = max(0, settings.embedding_batch_queue_delay_ms) / 1000
         self._batch_max_items = max(
             1,
-            _settings_int(
-                settings,
-                "embedding_batch_queue_max_items",
-                _settings_int(settings, "inference_worker_max_batch", 64),
-            ),
+            settings.embedding_batch_queue_max_items,
         )
         self._batch_wait_timeout_seconds = max(
             0.1,
-            float(getattr(settings, "embedding_batch_queue_timeout_seconds", 30.0)),
+            settings.embedding_batch_queue_timeout_seconds,
         )
         self._batch_queues = {
             False: _BatchQueueState(),

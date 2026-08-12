@@ -80,19 +80,6 @@ async def list_chunks(
     return [RagChunkResponse.model_validate(c) for c in items], total
 
 
-async def get_chunk_contract(
-    db: AsyncSession,
-    novel_id: str,
-    chunk_id: str,
-) -> RagChunkContract | None:
-    """Get one RAG chunk through the stable contract seam."""
-    nid = uuid.UUID(hex=novel_id)
-    chunk = await _repo.get(db, uuid.UUID(hex=chunk_id))
-    if chunk is None or chunk.novel_id != nid:
-        return None
-    return _to_chunk_contract(chunk)
-
-
 async def request_entity_activity_reannotation(
     db: AsyncSession,
     novel_id: str,
@@ -340,29 +327,6 @@ async def index_chapter_with_report(
         nid,
         chapter_index,
         content_mode=content_mode,
-    )
-
-
-async def index_chapter_incremental(
-    db: AsyncSession,
-    novel_id: str,
-    chapter_index: int,
-    old_content: str,
-    new_content: str,
-) -> RagIndexReport:
-    """增量索引章节，仅重建变更区域。
-
-    Args:
-        old_content: 上次索引时的章节原文
-        new_content: 当前的章节原文
-    """
-    nid = uuid.UUID(hex=novel_id)
-    return await _indexing.index_chapter_incremental(
-        db,
-        nid,
-        chapter_index,
-        old_content,
-        new_content,
     )
 
 

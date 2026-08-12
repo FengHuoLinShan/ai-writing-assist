@@ -509,39 +509,6 @@ class IndexingService:
             chunks_created_ids=[str(c.id) for c in created_chunks],
         )
 
-    async def index_chapter_incremental(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        chapter_index: int,
-        old_content: str,
-        new_content: str,
-        *,
-        content_mode: str = "working",
-    ) -> RagIndexReport:
-        """Compatibility entry point that performs a version-bound full replace.
-
-        Reusing chunks across draft IDs would make their source hash and offsets
-        unverifiable. ``old_content``/``new_content`` remain accepted for wire
-        compatibility, but the current concrete writing source is authoritative.
-        """
-        from dataclasses import replace
-
-        del old_content, new_content
-        report = await self.index_chapter_with_report(
-            db,
-            novel_id,
-            chapter_index,
-            content_mode=content_mode,
-        )
-        return replace(
-            report,
-            warnings=[
-                "版本绑定索引已使用当前正文执行全量替换",
-                *report.warnings,
-            ],
-        )
-
     async def retry_embeddings(
         self,
         db: AsyncSession,

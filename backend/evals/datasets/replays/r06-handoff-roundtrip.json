@@ -1,0 +1,173 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r06-handoff-roundtrip",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "packet-1",
+      "kind": "draft",
+      "synthetic_title": "外部回包 01",
+      "content_digest": "sha256('novel-replay:' + ref_id + ':' + synthetic_title)",
+      "state": "candidate",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "packet-5",
+      "kind": "draft",
+      "synthetic_title": "外部回包 05",
+      "content_digest": "sha256('novel-replay:' + ref_id + ':' + synthetic_title)",
+      "state": "candidate",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-bridge-v3",
+      "kind": "page",
+      "synthetic_title": "灰河桥春汛（v3 导出基线）",
+      "content_digest": "d0994a3834d42653e28d807741b10a5cc118acc1ac43f45e23c091e551f89acd",
+      "state": "current",
+      "visibility": "author"
+    }
+  ],
+  "source_manifest_rule": {
+    "kind": "packets",
+    "count": 5,
+    "id_pattern": "packet-{:d}",
+    "ids_from": 1,
+    "ids_to": 5,
+    "declared_total_bytes": 205256,
+    "per_packet_byte_cap": 55000,
+    "declared_bytes": [
+      45211,
+      38102,
+      38102,
+      41800,
+      42041
+    ],
+    "exact_duplicate_pairs": [
+      [
+        "packet-2",
+        "packet-3"
+      ]
+    ],
+    "digest_derivation": {
+      "scheme": "sha256",
+      "template": "novel-replay:{ref_id}:{synthetic_title}"
+    }
+  },
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "author_exports_handoff_snapshot",
+      "target": "page-bridge-v3",
+      "detail": "单 target 创作交接快照：作者目标、来源标题与 hash、检查回执与回包说明。"
+    },
+    {
+      "seq": 2,
+      "action": "external_returns_packet_1",
+      "detail": "第一份外部回包粘贴进当前会话，先做长度、项目、target 与 baseline 确定性检查。"
+    },
+    {
+      "seq": 3,
+      "action": "system_hashes_and_previews_packet",
+      "detail": "Web Crypto 计算精确 SHA-256；进入零写入分流预览，source key 覆盖本包。"
+    },
+    {
+      "seq": 4,
+      "action": "external_returns_exact_duplicate",
+      "detail": "第二包与第三包字节完全相同，第二包已处理则第三包为 no-op。"
+    },
+    {
+      "seq": 5,
+      "action": "external_declares_checks_run",
+      "detail": "外部声明已校验只显示为来源声明；本地回执只能来自本地实际任务。"
+    },
+    {
+      "seq": 6,
+      "action": "author_selects_one_result",
+      "detail": "作者只选择一个当前 target 的结果，选择编成可编辑消息，发送后最多创建一条建议。"
+    },
+    {
+      "seq": 7,
+      "action": "oversized_packet_rejected_before_request",
+      "detail": "196,683 字符累计包在发请求前被拒绝，原文保留可复制，提示按 target 拆包。"
+    }
+  ],
+  "expected_read_model": {
+    "packets": {
+      "count": 5,
+      "declared_total_bytes": 205256,
+      "per_packet_cap_bytes": 55000,
+      "each_within_cap": true
+    },
+    "exact_duplicate": {
+      "second_occurrence": "noop",
+      "llm_requests": 0,
+      "detection": "byte_exact_hash_only"
+    },
+    "external_ids": {
+      "mapped_to_local": false,
+      "shown_as_source_labels": true
+    },
+    "external_checks": {
+      "checks_run_shown_as": "source_claim",
+      "local_receipt_created": false
+    },
+    "preview": {
+      "writes": 0,
+      "top_level_cards_max": 7
+    },
+    "author_flow": {
+      "select_one_then_author_message_then_generate": true,
+      "suggestions_per_send_max": 1
+    },
+    "oversized": {
+      "rejected_before_request": true,
+      "original_text_preserved": true,
+      "guidance": "split_by_target_under_cap",
+      "truncated": false
+    },
+    "page_stale": {
+      "returns_409": true,
+      "author_input_preserved": true
+    },
+    "project_level_stale": {
+      "claimed_closed": false
+    }
+  },
+  "forbidden_outcomes": [
+    "截断成一次粘贴",
+    "外部 ID 取得本地权威",
+    "外部校验声明冒充本地回执",
+    "粘贴即生成多条建议",
+    "超限静默截断"
+  ],
+  "metrics": {
+    "packet_total_bytes": 205256,
+    "per_packet_max_bytes": 55000,
+    "duplicate_llm_calls": 0,
+    "external_id_mis_mapped": 0,
+    "external_checks_impersonating_local": 0,
+    "oversized_rejected_before_llm": true
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_external_packet_is_hash_bound_and_returns_five_way_receipt"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_generation_center_convergence_revalidates_source_after_model"
+    },
+    {
+      "pytest": "backend/modules/context/tests/test_context_compiler.py::test_compiler_serializes_loaders_sharing_one_async_session"
+    },
+    {
+      "pytest": "frontend-console/tests/vue/generate/GenerateView.test.js::rejects an oversized external return before any LLM call and keeps the original text"
+    },
+    {
+      "pytest": "frontend-console/tests/vue/generate/GenerateView.test.js::routes one bounded external return and skips it only after an author message exists"
+    },
+    {
+      "manual": "混淆矩阵：兼容/修复/候选/未映射分流；另记无依据新增、临时 ID 误映射与项目级 stale 未覆盖率"
+    }
+  ]
+}

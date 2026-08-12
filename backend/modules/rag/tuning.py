@@ -225,9 +225,7 @@ async def evaluate_weights(
                 failure_log_state.warning_emitted = True
         finally:
             if embedding_client is not None:
-                close = getattr(embedding_client, "close", None)
-                if callable(close):
-                    await close()
+                await embedding_client.close()
 
         scored = await retrieval.hybrid_search(
             db,

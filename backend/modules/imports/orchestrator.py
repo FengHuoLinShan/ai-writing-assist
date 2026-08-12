@@ -844,26 +844,17 @@ class DeepImportOrchestrator:
 
         from infrastructure.tasks.facade import require_running_task_attempt
 
+        await require_running_task_attempt(
+            db,
+            task_id=str(task.id),
+            task_type="scene_auto_extraction",
+            novel_id=novel_id,
+            lease_id=str(task.lease_id or ""),
+            attempt=int(task.attempt or 0),
+        )
         owner = getattr(task, "workflow_owner", None)
         if isinstance(owner, ImportWorkflowOwnerToken):
-            await require_running_task_attempt(
-                db,
-                task_id=str(task.id),
-                task_type="scene_auto_extraction",
-                novel_id=novel_id,
-                lease_id=str(task.lease_id or ""),
-                attempt=int(task.attempt or 0),
-            )
             await self._runs.require_owner(db, owner)
-        elif hasattr(db, "execute"):
-            await require_running_task_attempt(
-                db,
-                task_id=str(task.id),
-                task_type="scene_auto_extraction",
-                novel_id=novel_id,
-                lease_id=str(task.lease_id or ""),
-                attempt=int(task.attempt or 0),
-            )
         current_task = getattr(db, "current_task", task)
         current_meta = dict(current_task.meta or {})
         current_prepare = current_meta.get(SCENE_STAGE_TASK_PREPARE_KEY)

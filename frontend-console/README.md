@@ -19,14 +19,13 @@ npm run dev
 ```bash
 npm run test
 npm run test:watch
-npm run test:e2e
+npm run test:e2e:functional
 npm run test:e2e:smoke
 npm run test:e2e:map
 npm run test:e2e:visual
 npm run test:e2e:visual:update
 npm run test:e2e:real-llm
 npm run test:e2e:worker
-npm run test:all
 ```
 
 `npm run build`（vite build）可作 Vue 构建链冒烟验证；它会生成根级
@@ -67,12 +66,15 @@ DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
 ```
 
 启动命令会在后端启动前执行 `APP_ENV=test alembic upgrade head`；
-`test:e2e` 与兼容别名 `test:e2e:functional` 都只收集功能测试，排除真实 LLM 和 worker 套件。完整套件在 pull request 与 `main` push 上由 `Frontend functional browser` job
-各运行一次：每次使用全新的专用 PostgreSQL 和 Chromium，固定 workers=1、retries=0；失败时
-保留 `test-results/` 诊断产物 14 天。`test:e2e:smoke` 和 `test:e2e:map` 是本地定向入口，其用例已包含在完整套件中。视觉、真实 LLM 和 worker suite 仍是显式验收入口。
+`test:e2e:functional` 只收集功能测试，排除真实 LLM 和 worker 套件。完整套件在
+pull request 上由 `Frontend functional browser` job 运行一次：使用全新的专用 PostgreSQL 和
+Chromium，固定 workers=1、retries=0；失败时
+保留 `test-results/` 诊断产物 14 天。`test:e2e:smoke` 和 `test:e2e:map` 保留为本地定向入口，
+其用例已包含在完整套件中，不再单独占用 CI job。视觉、真实 LLM 和 worker suite
+仍是显式验收入口。
 
 ```bash
-DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:visual
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:real-llm

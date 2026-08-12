@@ -261,7 +261,7 @@
 ```bash
 npm test -- tests/vue/project tests/vue/projectIsland.test.js   # 视图/island 单测
 npm test -- tests/editorialTheme.test.js tests/typographyTokens.test.js
-npm run test:e2e -- e2e/project.spec.js e2e/import.spec.js e2e/import-errors.spec.js
-npm run test:e2e -- e2e/home.spec.js                            # 壳层快捷键 n → data-action="new"
+npm run test:e2e:functional -- e2e/project.spec.js e2e/import.spec.js e2e/import-errors.spec.js
+npm run test:e2e:functional -- e2e/home.spec.js                 # 壳层快捷键 n → data-action="new"
 npm run test:e2e:visual -- e2e/visual-project-rag.spec.js       # project-catalog 三主题基线
 ```

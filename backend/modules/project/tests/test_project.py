@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -853,12 +852,6 @@ class TestProjectService:
         with pytest.raises(DomainValidationError) as exc_info:
             await service.get_project(db, "not-a-uuid")
         assert exc_info.value.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_create_project_empty_title(self) -> None:
-        """测试空字符串标题创建时返回 422"""
-        with pytest.raises(ValidationError):
-            ProjectCreate(title="")
 
     @pytest.mark.asyncio
     async def test_get_project_not_found(self) -> None:

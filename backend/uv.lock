@@ -75,21 +75,11 @@ eval = [
     { name = "langchain-community" },
     { name = "ragas" },
 ]
-test = [
-    { name = "aiosqlite" },
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", marker = "extra == 'ci'", specifier = ">=0.20.0" },
     { name = "aiosqlite", marker = "extra == 'dev'", specifier = ">=0.20.0" },
-    { name = "aiosqlite", marker = "extra == 'test'", specifier = ">=0.20.0" },
     { name = "alembic", specifier = ">=1.19.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "authlib", specifier = ">=1.7.0,<1.8" },
@@ -103,7 +93,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'ci'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
     { name = "itsdangerous", specifier = ">=2.2.0,<2.3" },
     { name = "joblib", marker = "extra == 'ci'", specifier = ">=1.3.0" },
     { name = "joblib", marker = "extra == 'dev'", specifier = ">=1.3.0" },
@@ -117,19 +106,14 @@ requires-dist = [
     { name = "pypinyin", specifier = ">=0.50" },
     { name = "pytest", marker = "extra == 'ci'", specifier = ">=8.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'ci'", specifier = ">=0.23.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.23.0" },
     { name = "pytest-cov", marker = "extra == 'ci'", specifier = ">=4.1.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.1.0" },
     { name = "pytest-timeout", marker = "extra == 'ci'", specifier = ">=2.3.0" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0" },
-    { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.3.0" },
     { name = "pytest-xdist", marker = "extra == 'ci'", specifier = ">=3.6.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6.0" },
-    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.6.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "ragas", marker = "extra == 'eval'", specifier = "==0.4.3" },
@@ -143,7 +127,7 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.6.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
 ]
-provides-extras = ["ci", "dev", "test", "eval"]
+provides-extras = ["ci", "dev", "eval"]
 
 [[package]]
 name = "aiohappyeyeballs"

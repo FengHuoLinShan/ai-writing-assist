@@ -47,7 +47,7 @@ async def _require_active_task_project(db, task) -> None:
 
     from core.errors import NotFoundError
 
-    if str(getattr(task, "task_type", "")).startswith("interaction_"):
+    if str(task.task_type).startswith("interaction_"):
         from modules.project.facade import get_any_project_context
 
         context = await get_any_project_context(db, novel_id)
@@ -70,7 +70,7 @@ async def _guard_active_task_project_finalize(db, task) -> bool:
     from core.errors import NotFoundError
 
     try:
-        if str(getattr(task, "task_type", "")).startswith("interaction_"):
+        if str(task.task_type).startswith("interaction_"):
             from modules.project.facade import require_interaction_project
 
             await require_interaction_project(db, novel_id)

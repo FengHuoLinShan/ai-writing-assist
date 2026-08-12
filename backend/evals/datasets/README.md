@@ -106,6 +106,20 @@ and prompt-contract fixtures. It stores only logical roles, repository-relative
 paths, sizes, and SHA-256 hashes; fixture payloads are not copied into the
 manifest.
 
+## Replay fixtures (R01–R14)
+
+`datasets/replays/` holds 14 redacted author-flow replay fixtures (schema
+`replay-v1`) covering resume, retarget, convergence, selective adopt, semantic
+drift, handoff roundtrip, visual candidates, cadence and stop, author revision,
+adjacent exploration, impact preview, minimal sufficient depth, character
+knowledge, and scene state. They are pure data: the structure guard lives in
+`tests/test_replay_fixtures.py` (run by `make eval-fast`), the fixtures never
+drive pytest, and no runner, EvalSuite, or new `make eval-*` command is created
+for them. B-layer human diagnosis reuses the existing
+`make eval-review-export` / `make eval-review-import` workflow. Redaction rules,
+the field dictionary, the 14-fixture overview, and the assertion-map
+maintenance contract are in `datasets/replays/README.md`.
+
 The resumable full Pilot pipeline is:
 
 ```bash
@@ -209,6 +223,64 @@ visibility leakage is zero, source hashes and fixture reopening are perfect,
 precision@5 is at least 0.8, no-answer false positives are at most 0.05, and
 every metric is available. It does not impersonate a model judge or replace the
 API contract tests that precede it.
+
+## Ask World offline gate datasets
+
+### ask-world-v1（确定性证据契约门禁）
+
+`baselines/ask-world-v1.jsonl` 是 `make eval-ask-world` 的离线证据契约门禁数据
+集：23 行（16 正例 + 7 负例），全部为合成短句（北境港/南岸果园/西岭驿站/灰河桥/
+旧塔铜铃风格），不含本地路径与 Vault 专名。每条 source 的 `source_hash` 是
+`sha256(content.encode("utf-8"))` 的真实值，`openable=true` 且
+`open_hash==source_hash`；`source_hash_validity` 覆盖全部 eligible 源（含低分
+干扰），不只是被 ranked 的源。
+
+五门（`backend/evals/ask_world.py` 的 THRESHOLDS，冻结不改）：
+
+| 指标 | 门禁 | 含义 |
+|---|---|---|
+| visibility_leakage | = 0.0 | retrieved 只含同 novel 且 visibility=author 的源 |
+| source_hash_validity | = 1.0 | 所有 eligible 源的 source_hash 与内容一致 |
+| citation_open_rate | = 1.0 | retrieved 源 openable 且 open_hash 与 source_hash 一致 |
+| p_at_5 | >= 0.8 | 前 5 个证据源中相关源占比 |
+| no_answer_false_positive_rate | <= 0.05 | 负例被误答的比例 |
+
+23 行构成：
+
+- 既有 9 行锚点（6 正例 + 3 负例）：单源命中、双相关源、world_object、无证据、
+  跨 novel 隔离、role 可见性隔离。
+- P1 单源正例 ×2：`ask-salt-well-guard-shifts`（world_object）、
+  `ask-ferry-tariff`（manuscript），各配 2 个无关干扰。
+- P2 多源/多跳 ×3：`ask-spring-flood-bridge-toll`（双源拼接：灰河桥通行规则 +
+  春汛巡堤）、`ask-pigeon-order-route`（三源传递：驿站信鸽 → 盐税仓订货 →
+  红炉工坊铸造）、`ask-guild-objects`（灰河桥巡堤灯与北境港浮标同属潮汐行会）。
+  干扰源共享部分 bigram 但低于 0.2 阈值。
+- N1 干扰密度阶梯 ×3：同一问题「旧塔铜铃取出条件」×1/4/8 个干扰源
+  （`ask-bell-density-1/4/8`）；最密档 8 个 ranked 源触发 max_sources=5 的
+  rank-budget 路径，5 个相关源全部保留在前 5（p@5=1）。
+- N2 近失负例 ×2：`ask-fog-lake-fish-count`（源内有雾湖与鱼、无数量）、
+  `ask-dawn-road-reorder-date`（有黎明钟声、无日期），词面门对二者返回空
+  retrieved。
+- N3 隔离变体 ×2：`ask-reader-only-evidence-blocked`（同 novel 但
+  visibility=reader）、`ask-same-name-cross-novel`（两个 novel 都有「白塔议会」
+  页，仅 novel-b 含答案）。
+- B 边界歧义 ×2：`ask-mill-conflict`（风车/水车双源部分冲突，双 relevant key，
+  测冲突容忍，p@5=1）、`ask-partial-credit`（2 个 relevant key 中 1 个词面可
+  分离、1 个不可分离，p@5=0.5，全数据集唯一不拿满分的正例，使 p_at_5 成为有区
+  分力的指标）。
+
+诚实边界：**no_answer_false_positive_rate 测的是确定性空集合同（词面检索后无证
+据即不答），不是 LLM 拒答质量；LLM 拒答/忠实度属 model-probes 的未来模型层。**
+
+### ask-world-model-probes-v1（模型质量层预备数据）
+
+`baselines/ask-world-model-probes-v1.jsonl` 与 ask-world-v1 同 schema，但**不接
+门禁**、不进 `test_ask_world.py`，也不被 `make eval-ask-world` 消费。它保存词面
+门无法裁决、必须由模型判断的场景，供未来模型质量层使用：近失拒答（源内有主体词
+但无答案要素且词面会命中，如雾湖鱼市无数量、黎明钟声无日期）、证据不足必须
+no_answer（货船记录无数量、角色知识受限不算正史）、版本冲突必须并列说明而非
+二选一（灰河桥封闭日期、白塔议会档案保管处、灰河桥渡船票价各两版）。7 行
+（3 正例 + 4 负例），自带与 ask-world-v1 相同的 blocklist 自守。
 
 The first local run produced a legacy 300-case raw candidate set before the
 2x oversampling and strict scenario/persona guards were added. It remains a

@@ -4,10 +4,6 @@
 >
 > FastAPI 后端 · Vue 3 SFC 控制台 · PostgreSQL + pgvector · 异步任务队列
 
-[![Backend CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-ci.yml)
-[![Frontend CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/frontend-ci.yml)
-[![Production Image CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/production-image-ci.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/production-image-ci.yml)
-[![Architecture docs](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/architecture-docs.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/architecture-docs.yml)
 [![PostgreSQL E2E](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml)
 [![CodeQL](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml/badge.svg)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
@@ -429,6 +425,9 @@ sequenceDiagram
 | Backend quality | 密钥与敏感信息卫生检查、Ruff、快速测试和覆盖率门禁。 |
 | PostgreSQL critical | 从空库执行 migration，并验证关键 PostgreSQL 并发与任务契约。 |
 | Frontend unit quality | 前端单元测试和生产构建。 |
+| Frontend functional browser | 专用 PostgreSQL 上的完整功能浏览器回归。 |
+| Production image contract | 两份生产镜像的运行时、SBOM 与可修复高危漏洞门禁。 |
+| Architecture docs | 当前架构清单与 PR 文档影响检查。 |
 | PostgreSQL full E2E | 独立工作流按夜间或手动触发，运行更完整的 PostgreSQL 端到端验证。 |
 | RP 并发与恢复 | 定向测试覆盖单旅程活动 attempt、账号并发上限、selection epoch、流式 offset、取消和部分结果保留。 |
 | 视觉回归 | Playwright 基线覆盖写作、世界设定、检索、大纲等作者页面；RP 独立视觉基线仍待补齐。 |
