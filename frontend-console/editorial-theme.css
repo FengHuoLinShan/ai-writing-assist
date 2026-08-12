@@ -628,6 +628,20 @@ button:disabled {
   transform: none;
 }
 
+/* dark 主题禁用态回归中性纸面：primary/fab 的浅色墨块不退成浅灰 slab */
+[data-theme="dark"] .btn:disabled,
+[data-theme="dark"] .btn.disabled {
+  border-color: var(--archive-rule);
+  background: var(--archive-paper-raised);
+  color: var(--archive-ink-soft);
+}
+
+[data-theme="dark"] .btn-text:disabled,
+[data-theme="dark"] .btn-text.disabled {
+  border-color: transparent;
+  background: transparent;
+}
+
 /* ===== 输入与编辑：以红线标出可操作区域 ===== */
 .input-field,
 .form-input,

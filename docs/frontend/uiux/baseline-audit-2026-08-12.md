@@ -156,8 +156,13 @@ warm/dark 主题与剩余快照待第二轮（spec 修复后）跑到对应断�
   改用 `clip-path: inset(0 0 0 40%)` 硬裁，线段恰从节点圆点起笔，观感自然。
 - [W4] world 世界书右栏英文 label「Activation Profile」→「生效规则集」
   （#bible-activation-profile id 不动，e2e 无影响）。
-- [W5]（观察项，未改）dark 主题禁用态批量按钮沿用浅灰底、与 dark 按钮体系不统一；
-  RP 顶栏 mono 装饰字对比度偏低——均属可接受的降级/装饰文本，记录在案。
+- [W5]（已修复）dark 主题禁用态批量按钮沿用浅灰底：dark 下 `--archive-ink` 反相为浅色，
+  `.btn-primary`/`.btn-fab` 禁用后仅靠 opacity 0.48 压暗，视觉上是浅灰 slab。
+  修复：`[data-theme="dark"] .btn:disabled` 统一回归中性纸面
+  （`--archive-paper-raised` 底 + `--archive-rule` 边 + `--archive-ink-soft` 字），
+  `.btn-text` 保持透明例外；`.rp-send-button:disabled` 硬编码 `#d9dee7` 增加 dark 覆盖
+  （`--rp-accent-soft` 底 + `--rp-dim` 字）。editorialTheme.test.js 新增契约断言。
+  RP 顶栏 mono 装饰字对比度偏低仍为观察项，记录在案。
 - [W6]（测试修复）visual-writing 移动用例移除冗余的 applyTheme 点击（beforeEach 已重置为
   minimal），消除主题菜单操作导致的底栏渲染干扰。
 
@@ -170,5 +175,5 @@ warm/dark 主题与剩余快照待第二轮（spec 修复后）跑到对应断�
 - 基线快照 40 张重建（5 组 spec × minimal/warm/dark + writing focus/mobile），
   minimal 全组 + warm/dark 全组均经逐张人工过目（分诊与走查记录见上文）。
 - `make docs-check BASE_REF=origin/main`：通过（页面文档行号漂移为既有现象，见 P-doc-drift）。
-- 遗留观察项：W5（dark 禁用按钮浅底、RP 装饰字对比度）记录在案未改；
+- 遗留观察项：W5 的 dark 禁用按钮浅底已修复（见 W5 条目），RP 装饰字对比度记录在案未改；
   A3（arc_index 为空时篇章排序随机）为后端潜在产品问题，建议另行立项。

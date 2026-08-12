@@ -12385,6 +12385,11 @@ kbd {
   cursor: default;
 }
 
+[data-theme="dark"] .rp-send-button:disabled {
+  background: var(--rp-accent-soft);
+  color: var(--rp-dim);
+}
+
 .rp-stop-button span {
   width: 11px;
   height: 11px;
