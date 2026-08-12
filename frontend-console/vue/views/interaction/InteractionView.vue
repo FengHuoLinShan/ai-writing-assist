@@ -109,7 +109,7 @@ const hasNewerMessages = ref(false)
 const moreMenu = ref(null)
 const currentTheme = ref(normalizeTheme(
   globalThis.document?.documentElement?.getAttribute?.("data-theme")
-  || globalThis.localStorage?.getItem?.("novel_theme"),
+  || globalThis.localStorage?.getItem?.("nc-theme"),
 ))
 const pathIndex = ref(props.initialPathIndex?.items || [])
 const pathIndexEpoch = ref(

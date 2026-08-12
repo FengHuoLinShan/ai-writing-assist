@@ -29,22 +29,32 @@
 .writing-editor-chapter-title {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  color: var(--archive-ink);
+  flex: 0 0 auto;
+  color: var(--nc-ink);
   font-family: var(--font-body);
-  font-size: 19px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.03em;
 }
 
-.writing-editor-chapter-title::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  background: var(--archive-red);
-  box-shadow: 3px 3px 0 var(--archive-red-soft);
-  transform: rotate(45deg);
-  flex: 0 0 auto;
+/* 章节标题输入框上移工具区：编辑区（稿纸）内只放正文 */
+.writing-editor-title-group .writing-title-input {
+  flex: 1 1 220px;
+  width: auto;
+  min-width: 140px;
+  margin-bottom: 0;
+  padding: 6px 2px;
+  border-bottom: 1px solid transparent;
+  font-size: 15px;
+}
+
+.writing-editor-title-group .writing-title-input:hover {
+  border-bottom-color: var(--nc-hairline);
+}
+
+.writing-editor-title-group .writing-title-input:focus-visible {
+  border-bottom-color: var(--nc-accent);
+  box-shadow: none;
 }
 
 /* 版本 / 保存状态 chip：档案签条 */
@@ -156,54 +166,33 @@
 }
 
 /* ----------------------------------------------------------
-   2. 稿纸：标题 + 正文 + 字数条统一为一张纸
+   2. 稿纸：正文框只放正文，左右 59px 留白，1px hairline
    ---------------------------------------------------------- */
 
 .writing-sheet {
   position: relative;
-  border: 1px solid var(--archive-rule);
-  border-top: 3px solid var(--archive-ink);
+  border: 1px solid var(--nc-hairline);
   border-radius: 2px;
-  background: var(--archive-paper-raised);
-  box-shadow:
-    var(--shadow-sm),
-    10px 12px 0 color-mix(in srgb, var(--archive-ink) 4%, transparent);
-  padding: 6px clamp(18px, 4.5%, 44px) 14px;
+  background: var(--nc-surface);
+  box-shadow: none;
+  padding: 30px 59px 34px;
   transition: border-color 0.2s var(--ease-default), box-shadow 0.2s var(--ease-default);
 }
 
 .writing-sheet:focus-within {
-  border-top-color: var(--archive-red);
-  box-shadow:
-    var(--shadow-sm),
-    10px 12px 0 color-mix(in srgb, var(--archive-ink) 4%, transparent),
-    0 0 0 3px var(--accent-glow);
-}
-
-.writing-sheet .writing-title-input {
-  margin-bottom: 0;
-  padding: 16px 4px 12px;
-  border-bottom: 1px solid var(--archive-rule-strong);
-  font-size: 22px;
-  letter-spacing: 0.02em;
-}
-
-.writing-sheet .writing-title-input:focus-visible {
-  border-bottom-color: var(--archive-red);
-  box-shadow: 0 3px 0 var(--archive-red-soft);
+  border-color: var(--nc-hairline-strong);
+  box-shadow: 0 0 0 3px var(--nc-accent-soft);
 }
 
 .writing-sheet .novel-editor {
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  background:
-    linear-gradient(90deg, transparent 0 34px, color-mix(in srgb, var(--archive-red) 17%, transparent) 34px calc(34px + 1px), transparent calc(34px + 1px)),
-    transparent;
-  padding: 20px 4px 20px 50px;
+  background: transparent;
+  padding: 0;
   min-height: 58vh;
-  font-size: 17px;
-  line-height: 1.9;
+  font-size: 14px;
+  line-height: 2.0;
 }
 
 .writing-sheet .novel-editor:focus {
@@ -220,21 +209,72 @@
   color: var(--text-secondary);
 }
 
-/* 字数条：稿纸页脚的 ledger 行 */
-.writing-sheet .writing-wordcount-bar {
+/* ----------------------------------------------------------
+   2b. 状态栏：38px 通栏，字数进度 · 段落 · 阅读时长 + 保存状态
+   ---------------------------------------------------------- */
+
+.writing-statusbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-height: 38px;
+  padding: 4px 2px;
+  border-top: 1px solid var(--nc-hairline);
+  background: var(--nc-bg);
+  color: var(--nc-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.writing-statusbar .writing-wordcount-bar {
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 6px 16px;
-  margin-top: 2px;
-  padding: 10px 4px 0;
-  border-top: 1px solid var(--archive-rule);
-  color: var(--text-tertiary);
+  gap: 4px 16px;
+  margin-top: 0;
+  padding: 0;
+  border-top: 0;
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}
+
+.writing-statusbar__right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.writing-statusbar__font,
+.writing-statusbar__focus {
+  min-height: 26px;
+  padding: 2px 9px;
+  border: 1px solid var(--nc-hairline);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--nc-dim);
+  font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0.045em;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.writing-statusbar__font:hover,
+.writing-statusbar__focus:hover {
+  border-color: var(--nc-hairline-strong);
+  color: var(--nc-ink);
 }
 
 .writing-wordcount-bar strong {
-  color: var(--archive-ink);
+  color: var(--nc-ink);
   font-weight: 700;
 }
 
@@ -246,7 +286,7 @@
   width: 72px;
   height: 3px;
   border-radius: 2px;
-  background: var(--bg-active);
+  background: var(--nc-surface-muted);
   overflow: hidden;
 }
 
@@ -254,7 +294,7 @@
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: var(--archive-red);
+  background: var(--nc-accent);
   transition: width 0.25s var(--ease-default);
 }
 
@@ -366,23 +406,27 @@
 }
 
 /* ----------------------------------------------------------
-   3. 章节树：档案索引
+   3. 章节树：当前章 --nc-surface 底 + --nc-ink 加粗，其余 dim，
+      零装饰，1px hairline 分隔
    ---------------------------------------------------------- */
 
-.chapter-tree-card {
+.writing-tree-rail .chapter-tree-card {
   padding: var(--space-3);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .chapter-tree-header {
   flex-wrap: nowrap;
   gap: 6px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--archive-rule-strong);
+  border-bottom: 1px solid var(--nc-hairline-strong);
 }
 
 .chapter-tree-title {
   white-space: nowrap;
-  color: var(--archive-ink);
+  color: var(--nc-ink);
   font-family: var(--font-body);
   font-size: 14px;
   letter-spacing: 0.03em;
@@ -474,7 +518,8 @@
 }
 
 .scene-tree-label--current {
-  color: var(--archive-red);
+  color: var(--nc-ink);
+  font-weight: 700;
 }
 
 .scene-tree-count {
@@ -491,22 +536,27 @@
   padding-left: 10px;
 }
 
-/* 章节行：状态点 + 章号 + 标题 + 字数的索引行 */
+/* 章节行：状态点 + 章号 + 标题 + 字数；当前章 surface 底 + ink 加粗 */
 .chapter-row {
   min-height: 40px;
   padding: 6px 8px;
-  border-left: 3px solid transparent;
-  border-radius: 0 2px 2px 0;
-  transition: background 0.12s var(--ease-default), border-color 0.12s var(--ease-default);
+  border-radius: 2px;
+  color: var(--nc-dim);
+  transition: background 0.12s var(--ease-default);
+}
+
+.chapter-row:hover {
+  background: var(--bg-hover);
 }
 
 .chapter-row--active {
-  background: var(--bg-active);
-  border-left-color: var(--archive-red);
+  background: var(--nc-surface);
 }
 
-.chapter-row--active .chapter-number {
-  color: var(--archive-red);
+.chapter-row--active .chapter-number,
+.chapter-row--active .chapter-title-text {
+  color: var(--nc-ink);
+  font-weight: 700;
 }
 
 .chapter-status {
@@ -527,13 +577,14 @@
 }
 
 .chapter-number {
-  color: var(--archive-ink);
+  color: var(--nc-dim);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
 
 .chapter-title-text {
+  color: var(--nc-dim);
   font-family: var(--font-body);
   font-size: 12px;
 }
@@ -589,18 +640,6 @@
   gap: 8px;
 }
 
-.writing-rail-heading-label--copilot::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  background: var(--archive-red);
-  transform: rotate(45deg);
-}
-
-.writing-panel-rail.is-collapsed .writing-rail-heading-label--copilot::before {
-  display: none;
-}
-
 @media (max-width: 760px) {
   .writing-tree-rail.is-collapsed .chapter-tree-card,
   .writing-panel-rail.is-collapsed .scene-cockpit {
@@ -637,51 +676,90 @@
   letter-spacing: 0.02em;
 }
 
-/* 选项卡：单行等分，窄栏可横滚，不再竖排挤压 */
-.cockpit-tabs {
+/* 选项卡：hairline 下划页签，active 用 accent 下划线，文字 ink/dim */
+.scene-cockpit .cockpit-tabs {
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
-  margin: 10px 12px 0;
-  border-bottom: 0;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--nc-hairline);
+  border-radius: 0;
+  background: transparent;
 }
 
-.cockpit-tabs::-webkit-scrollbar {
+.scene-cockpit .cockpit-tabs::-webkit-scrollbar {
   display: none;
 }
 
-.cockpit-tab {
+.scene-cockpit .cockpit-tab {
   flex: 1 1 0;
   min-width: 0;
-  min-height: 30px;
+  min-height: 32px;
   padding: 6px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--nc-dim);
   font-size: 11px;
   white-space: nowrap;
   text-align: center;
+}
+
+.scene-cockpit .cockpit-tab:hover {
+  background: transparent;
+  color: var(--nc-ink);
+}
+
+.scene-cockpit .cockpit-tab.active {
+  border-color: transparent;
+  background: transparent;
+  color: var(--nc-ink);
+  box-shadow: inset 0 -2px 0 var(--nc-accent);
 }
 
 .cockpit-body {
   padding: 10px 12px 12px;
 }
 
-/* 警报卡 */
+/* 警报卡：--nc-alert-bg 底 + --nc-alert-ink 标题 + 右上「查看 →」 */
 .scene-alert-group__title {
   font-family: var(--font-mono);
   letter-spacing: 0.08em;
 }
 
-.scene-alert-card {
+.scene-cockpit .scene-alert-card {
+  border: 1px solid var(--nc-hairline);
   border-radius: 2px;
-  border-color: var(--archive-rule);
-  background: var(--archive-paper-raised);
+  background: var(--nc-alert-bg);
+  box-shadow: none;
 }
 
-.scene-alert-card__head {
+.scene-cockpit .scene-alert-card__head {
   justify-content: space-between;
-  color: var(--text-tertiary);
+  color: var(--nc-alert-ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.scene-alert-card__action {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nc-alert-ink);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.scene-alert-card__action:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .scene-alert-card__message {
@@ -702,23 +780,29 @@
   text-align: center;
 }
 
-/* 人物卡：圆形墨章头像 */
+/* 人物卡：左侧圆角头像块（ink 主题圆形），在场状态纯文字 */
 .cockpit-person-card {
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--archive-rule);
+  border: 1px solid var(--nc-hairline);
   border-radius: 2px;
-  background: var(--archive-paper-raised);
+  background: var(--nc-surface);
 }
 
 .person-avatar {
   width: 34px;
   height: 34px;
-  background: var(--archive-ink);
-  color: var(--archive-paper-raised);
+  border: 1px solid var(--nc-hairline);
+  border-radius: 4px;
+  background: var(--nc-surface-muted);
+  color: var(--nc-ink);
   font-family: var(--font-body);
   font-size: 15px;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--archive-paper-raised) 30%, transparent);
+  box-shadow: none;
+}
+
+[data-theme="ink"] .person-avatar {
+  border-radius: 50%;
 }
 
 .person-name {
@@ -1628,15 +1712,12 @@
   .writing-editor-buttons__menus { width: 100%; }
 
   .writing-sheet {
-    padding: 4px 14px 10px;
-    box-shadow: var(--shadow-sm);
+    padding: 18px 16px 22px;
   }
 
   .writing-sheet .novel-editor {
-    padding: 14px 2px 14px 40px;
-    background:
-      linear-gradient(90deg, transparent 0 26px, color-mix(in srgb, var(--archive-red) 17%, transparent) 26px calc(26px + 1px), transparent calc(26px + 1px)),
-      transparent;
+    min-height: 56vh;
+    padding: 0;
   }
 
   .writing-editor-buttons__group {
