@@ -1328,7 +1328,6 @@ class TestBgeEmbeddingClientSingleton:
         BgeEmbeddingClient._instance = None
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
             patch.object(BgeEmbeddingClient, "start", return_value=None, autospec=True),
         ):
@@ -1347,7 +1346,6 @@ class TestBgeEmbeddingClientSingleton:
         start_mock = AsyncMock()
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             instance = BgeEmbeddingClient()
@@ -1379,6 +1377,7 @@ class TestBgeEmbeddingClientStartClose:
             inference_worker_queue_maxsize=123,
             embedding_batch_queue_delay_ms=5,
             embedding_batch_queue_max_items=64,
+            embedding_batch_queue_timeout_seconds=30.0,
         )
 
         with (
@@ -1409,7 +1408,6 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1427,7 +1425,6 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1445,7 +1442,6 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1465,7 +1461,6 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1486,7 +1481,6 @@ class TestBgeEmbeddingClientProperties:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1501,7 +1495,6 @@ class TestBgeEmbeddingClientProperties:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1514,7 +1507,6 @@ class TestBgeEmbeddingClientProperties:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1533,7 +1525,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1554,7 +1545,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1575,7 +1565,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1598,7 +1587,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1617,7 +1605,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1654,7 +1641,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
                 active_calls -= 1
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1678,7 +1664,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1696,7 +1681,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
@@ -1715,7 +1699,6 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings", autospec=True),
             patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
-from inspect import signature
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +31,6 @@ from modules.rag.scoring import Scorer, keyword_query_terms, smart_tokenize_chin
 EmbedderFn = Callable[..., Awaitable[list[float]]]
 RerankerFn = Callable[..., Awaitable[list[tuple]]]
 MetricsFn = Callable[[], object]
-CircuitBreakerFn = Callable[..., object]
 CircuitBreakerProviderFn = Callable[[uuid.UUID | str | None], object]
 
 _MAX_TOP_K = 50
@@ -62,28 +60,6 @@ def _is_rerank_enabled(mode: str) -> bool:
     return get_settings().reranker_enabled
 
 
-def _wrap_circuit_breaker_provider(
-    provider: CircuitBreakerFn,
-) -> CircuitBreakerProviderFn:
-    try:
-        params = signature(provider).parameters.values()
-    except (TypeError, ValueError):
-        return provider  # type: ignore[return-value]
-
-    accepts_positional = any(
-        param.kind
-        in (
-            param.POSITIONAL_ONLY,
-            param.POSITIONAL_OR_KEYWORD,
-            param.VAR_POSITIONAL,
-        )
-        for param in params
-    )
-    if accepts_positional:
-        return provider  # type: ignore[return-value]
-    return lambda _novel_id=None: provider()
-
-
 class RetrievalOrchestrator:
     """混合检索编排器。
 
@@ -100,7 +76,7 @@ class RetrievalOrchestrator:
         reranker_fn: RerankerFn | None = None,
         embedder_fn: EmbedderFn | None = None,
         metrics: MetricsFn | None = None,
-        circuit_breaker: CircuitBreakerFn | None = None,
+        circuit_breaker: CircuitBreakerProviderFn | None = None,
     ) -> None:
         self._repo = repo or RagChunkRepository()
         self._scorer = scorer or Scorer()
@@ -108,9 +84,7 @@ class RetrievalOrchestrator:
         self._reranker_fn = reranker_fn or rerank_results
         self._embedder_fn = embedder_fn or _default_embedder
         self._metrics = metrics or get_metrics
-        self._circuit_breaker = _wrap_circuit_breaker_provider(
-            circuit_breaker or get_circuit_breaker
-        )
+        self._circuit_breaker = circuit_breaker or get_circuit_breaker
 
     async def hybrid_search(
         self,
@@ -175,9 +149,8 @@ class RetrievalOrchestrator:
 
         candidate_chunks = list(keyword_chunks)
 
-        vector_search = getattr(self._repo, "vector_search", None)
-        if query_embedding and vector_search is not None:
-            vector_chunks = await vector_search(
+        if query_embedding:
+            vector_chunks = await self._repo.vector_search(
                 db,
                 novel_id,
                 query_embedding,
@@ -527,8 +500,7 @@ class RetrievalOrchestrator:
                 _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000
                 degraded = True
                 warnings.append(
-                    "重排序失败，使用原始排序: "
-                    f"{redact_diagnostic(exc, limit=300)}"
+                    f"重排序失败，使用原始排序: {redact_diagnostic(exc, limit=300)}"
                 )
         else:
             _rerank_ms = 0.0

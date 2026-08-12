@@ -345,11 +345,12 @@ export function useWritingWorkspace(props) {
   async function selectChapter(chapter, options = {}) {
     const next = Number(chapter) || null
     const generation = ++selectionGeneration
-    if (selectedChapter.value && selectedChapter.value !== next) await editor.autosave()
+    const chapterChanged = selectedChapter.value !== next
+    if (selectedChapter.value && chapterChanged) await editor.autosave()
     if (generation !== selectionGeneration || disposed.value) return false
     selectedChapter.value = next
     selectedSceneId.value = null
-    versions.value = []
+    if (chapterChanged) versions.value = []
     if (!next) {
       await editor.loadChapter(null)
       syncLegacyState()
@@ -749,26 +750,36 @@ export function useWritingWorkspace(props) {
 
   async function runConflictCheck() {
     if (!canEdit.value || conflictState.loading) return
+    const generation = selectionGeneration
+    const chapter = selectedChapter.value
+    const ownsRequest = () => (
+      generation === selectionGeneration
+      && chapter === selectedChapter.value
+      && !disposed.value
+      && getAppState()?.currentProjectId === projectId
+    )
     conflictOptions.open = false
     conflictState.loading = true
     conflictState.error = null
     try {
       await editor.autosave()
+      if (!ownsRequest()) return
       const check = await api.writing.createConflictCheck({
         novel_id: projectId,
-        chapter_index: selectedChapter.value,
+        chapter_index: chapter,
         scene_id: currentScene.value?.id || null,
         draft_id: editorState.draftId,
         version_number: editorState.versionNumber,
         content: editorState.content,
         include_candidates: conflictOptions.includeCandidates,
       })
-      if (getAppState()?.currentProjectId !== projectId) return
+      if (!ownsRequest()) return
       conflictState.latest = check
       refreshSceneAlerts()
       toast("冲突检查已完成", "success")
       openConflictDialog(check)
     } catch (err) {
+      if (!ownsRequest()) return
       conflictState.error = err?.message || "冲突检查失败"
       toast(conflictState.error, "error")
     } finally {

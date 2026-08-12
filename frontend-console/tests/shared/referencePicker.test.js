@@ -56,7 +56,12 @@ describe("referencePicker", () => {
 
     expect(picker.getRefs()).toEqual([{ kind: "entity", id: "e1" }])
     expect(document.querySelector("[data-reference-selected]").textContent).toContain("王都")
+    expect(document.activeElement).toBe(input)
     expect(onChange).toHaveBeenCalled()
+
+    document.querySelector("[data-reference-remove]").click()
+    expect(picker.getRefs()).toEqual([])
+    expect(document.activeElement).toBe(input)
   })
 
   it("supports keyboard selection and enforces multi-select limits", async () => {
@@ -69,9 +74,41 @@ describe("referencePicker", () => {
 
     input.dispatchEvent(new Event("focus"))
     await new Promise((resolve) => setTimeout(resolve, 5))
-    document.querySelector("[data-reference-result]")?.click()
+    const option = document.querySelector("[data-reference-result]")
+    option?.focus()
+    option?.click()
     expect(picker.getRefs()).toHaveLength(1)
     expect(document.querySelector("[data-reference-status]").textContent).toContain("最多选择 1 项")
+    expect(document.activeElement).toBe(option)
+    expect(option?.isConnected).toBe(true)
+  })
+
+  it("moves keyboard highlight in place and keeps each active option visible", async () => {
+    mount()
+    const input = document.querySelector("[data-reference-query]")
+    input.focus()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const options = Array.from(document.querySelectorAll("[data-reference-result]"))
+    const scrollDown = vi.fn()
+    options[1].scrollIntoView = scrollDown
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }))
+
+    expect(document.querySelectorAll("[data-reference-result]")[1]).toBe(options[1])
+    expect(options[1].classList.contains("is-active")).toBe(true)
+    expect(input.getAttribute("aria-activedescendant")).toBe(options[1].id)
+    expect(scrollDown).toHaveBeenCalledWith({ block: "nearest" })
+    expect(document.activeElement).toBe(input)
+
+    const scrollUp = vi.fn()
+    options[0].scrollIntoView = scrollUp
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }))
+
+    expect(document.querySelectorAll("[data-reference-result]")[0]).toBe(options[0])
+    expect(options[0].classList.contains("is-active")).toBe(true)
+    expect(input.getAttribute("aria-activedescendant")).toBe(options[0].id)
+    expect(scrollUp).toHaveBeenCalledWith({ block: "nearest" })
+    expect(document.activeElement).toBe(input)
   })
 
   it("replaces an existing single selection without treating it as a full multi-select", async () => {

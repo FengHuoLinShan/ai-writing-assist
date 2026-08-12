@@ -10,7 +10,6 @@
  */
 import { computed } from "vue"
 import { outlineAnalysisManager, resetOutlineAnalysisState } from "./outlineWorkflowManagers.js"
-import { getRouter } from "../../../bridge/index.js"
 
 const state = outlineAnalysisManager.state
 
@@ -33,7 +32,6 @@ const hasContextDetails = computed(() => !!sectionItems.value.length || !!warnin
 
 function dismissResult() {
   resetOutlineAnalysisState({ clearWorkflowState: true })
-  getRouter()?.refresh?.()
 }
 </script>
 

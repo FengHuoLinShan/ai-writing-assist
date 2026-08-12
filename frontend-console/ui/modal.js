@@ -320,45 +320,51 @@ function showModal(title, body, buttons = [], options = {}) {
     el.className = Array.from(new Set(["btn", ...classes])).join(" ")
     el.textContent = btn.text
     el.addEventListener("click", async (event) => {
-      if (_isCloseButton(btn)) {
-        const closeAttemptsBeforeHandler = _closeAttemptCount
-        const previousUserCloseGeneration = _userCloseGeneration
-        _userCloseGeneration = generation
-        let pendingResult
-        try {
-          pendingResult = btn.handler?.(event)
-        } catch (err) {
-          _toastHandlerError(err)
-          return
-        } finally {
-          _userCloseGeneration = previousUserCloseGeneration
-        }
-        try {
-          await Promise.resolve(pendingResult)
-        } catch (err) {
-          _toastHandlerError(err)
-          return
-        }
-        if (
-          _modalGeneration === generation
-          && _isModalOpen()
-          && _closeAttemptCount === closeAttemptsBeforeHandler
-        ) {
-          closeModal(event)
-        }
-        return
-      }
-
-      _beginAction(generation)
+      if (el.disabled) return
+      el.disabled = true
       try {
-        const result = await Promise.resolve(btn.handler?.())
-        if (result !== false && _modalGeneration === generation) {
-          closeModal({ force: true })
+        if (_isCloseButton(btn)) {
+          const closeAttemptsBeforeHandler = _closeAttemptCount
+          const previousUserCloseGeneration = _userCloseGeneration
+          _userCloseGeneration = generation
+          let pendingResult
+          try {
+            pendingResult = btn.handler?.(event)
+          } catch (err) {
+            _toastHandlerError(err)
+            return
+          } finally {
+            _userCloseGeneration = previousUserCloseGeneration
+          }
+          try {
+            await Promise.resolve(pendingResult)
+          } catch (err) {
+            _toastHandlerError(err)
+            return
+          }
+          if (
+            _modalGeneration === generation
+            && _isModalOpen()
+            && _closeAttemptCount === closeAttemptsBeforeHandler
+          ) {
+            closeModal(event)
+          }
+          return
         }
-      } catch (err) {
-        _toastHandlerError(err)
+
+        _beginAction(generation)
+        try {
+          const result = await Promise.resolve(btn.handler?.())
+          if (result !== false && _modalGeneration === generation) {
+            closeModal({ force: true })
+          }
+        } catch (err) {
+          _toastHandlerError(err)
+        } finally {
+          _endAction(generation)
+        }
       } finally {
-        _endAction(generation)
+        el.disabled = false
       }
     })
     footerEl.appendChild(el)

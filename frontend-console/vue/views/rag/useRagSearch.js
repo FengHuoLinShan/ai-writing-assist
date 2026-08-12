@@ -35,7 +35,6 @@ export function useRagSearch() {
     const current = ++generation
     const projectId = state?.currentProjectId
     ragSearchSession.query = query
-    if (routeSignature) ragSearchSession.lastExecutedRouteSignature = routeSignature
     searching.value = true
     searchError.value = null
 
@@ -99,6 +98,7 @@ export function useRagSearch() {
         : ragSearchSession.hits.length
       ragSearchSession.resultMeta = data || {}
       ragSearchSession.query = query
+      if (routeSignature) ragSearchSession.lastExecutedRouteSignature = routeSignature
     } catch (err) {
       if (!isCurrent() || err?.name === "AbortError") return
       searchError.value = { reason: err, searchKind: ragSearchSession.lastSearchPayload?.search_kind || "smart" }

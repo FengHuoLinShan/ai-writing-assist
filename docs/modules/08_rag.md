@@ -86,6 +86,8 @@ async def list_chunks(db, novel_id, skip=0, limit=20) -> tuple[list[RagChunkResp
 async def split_text_into_chunks(text, method="paragraph", **kwargs) -> list[str]
 ```
 
+`get_index_status()` 返回请求项目自己的检索熔断状态，不读取 legacy 全局熔断器。
+
 ### 任务
 
 - `rag_index_chapter` — 单章 RAG 索引任务，供发布任务和手动维护入口复用

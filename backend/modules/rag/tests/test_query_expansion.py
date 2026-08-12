@@ -86,7 +86,7 @@ class TestLoadProjectTerms:
 
     @pytest.mark.asyncio
     async def test_loads_entity_terms_without_unused_character_query(self) -> None:
-        from app.main import _register_container_services
+        from app.bootstrap import register_container_services
         from core.container import register, reset
 
         calls: list[str] = []
@@ -112,7 +112,7 @@ class TestLoadProjectTerms:
             terms = await _load_project_terms(None, uuid.uuid4())  # type: ignore[arg-type]
         finally:
             reset()
-            _register_container_services()
+            register_container_services()
 
         assert calls == ["entity_terms"]
         assert terms == [
@@ -122,7 +122,7 @@ class TestLoadProjectTerms:
 
     @pytest.mark.asyncio
     async def test_loads_entity_terms_from_novel_scoped_cache(self) -> None:
-        from app.main import _register_container_services
+        from app.bootstrap import register_container_services
         from core.container import register, reset
 
         calls = 0
@@ -142,7 +142,7 @@ class TestLoadProjectTerms:
         finally:
             reset()
             clear_project_terms_cache()
-            _register_container_services()
+            register_container_services()
 
         assert calls == 1
         assert first == second == [{"term": "灰雾", "id": "entity-1", "type": "entity"}]
@@ -152,7 +152,7 @@ class TestLoadProjectTerms:
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        from app.main import _register_container_services
+        from app.bootstrap import register_container_services
         from core.container import register, reset
 
         novel_id = uuid.uuid4()
@@ -175,7 +175,7 @@ class TestLoadProjectTerms:
         finally:
             reset()
             clear_project_terms_cache()
-            _register_container_services()
+            register_container_services()
 
         assert terms == []
         record = next(

@@ -27,6 +27,10 @@ beforeEach(() => {
   mapQuickCreateView._onCreated = null
   mapQuickCreateView._projectId = "p1"
   mapQuickCreateView._openGeneration = 0
+  mapQuickCreateView._previewGeneration = 0
+  mapQuickCreateView._acceptedPreviewGeneration = 0
+  mapQuickCreateView._acceptedPreviewState = null
+  mapQuickCreateView._confirmPending = false
 })
 
 function mockQuickCreateApis() {
@@ -169,6 +173,47 @@ describe("mapQuickCreateView", () => {
     expect([...mapQuickCreateView._selectedLocationIds].sort()).toEqual(["city", "region"])
   })
 
+  it("keeps preview selection focus and modal scroll during local redraws", () => {
+    mapQuickCreateView._context = {
+      locations: [
+        { id: "loc1", name: "洛阳", status: "canonical" },
+        { id: "loc2", name: "长安", status: "canonical" },
+      ],
+      candidate_locations: [],
+    }
+    mapQuickCreateView._preview = {
+      map: { grid_width: 40, grid_height: 30 },
+      warnings: [],
+    }
+    mapQuickCreateView._activeLayouts = [
+      { location_entity_id: "loc1", center_hex_q: 10, center_hex_r: 8, occupy_radius: 1, locked: false },
+      { location_entity_id: "loc2", center_hex_q: 14, center_hex_r: 8, occupy_radius: 1, locked: false },
+    ]
+    mapQuickCreateView._selectedLocationIds = new Set(["loc1", "loc2"])
+    document.body.innerHTML = `<div id="modal-body">${mapQuickCreateView._render()}</div>`
+    mapQuickCreateView._bindModalEvents()
+    const modalBody = document.getElementById("modal-body")
+    modalBody.scrollTop = 360
+
+    const rowCheckbox = document.querySelector('[data-action="map-quick-select"][data-id="loc1"]')
+    rowCheckbox.focus()
+    rowCheckbox.checked = false
+    rowCheckbox.dispatchEvent(new Event("change"))
+
+    const nextRowCheckbox = document.querySelector('[data-action="map-quick-select"][data-id="loc1"]')
+    expect(nextRowCheckbox).not.toBe(rowCheckbox)
+    expect(document.activeElement).toBe(nextRowCheckbox)
+    expect(modalBody.scrollTop).toBe(360)
+
+    const selectAll = document.getElementById("map-quick-select-all")
+    selectAll.focus()
+    selectAll.checked = true
+    selectAll.dispatchEvent(new Event("change"))
+
+    expect(document.activeElement).toBe(document.getElementById("map-quick-select-all"))
+    expect(modalBody.scrollTop).toBe(360)
+  })
+
   it("target changes recompute recommendations without overriding manual choices", async () => {
     const locations = [
       ["auto-world", ["world"]],
@@ -281,6 +326,23 @@ describe("mapQuickCreateView", () => {
     expect(document.getElementById("map-quick-name").value).toBe("廷根空间草图")
   })
 
+  it("远程预览刷新后保留当前设置控件焦点和弹窗位置", async () => {
+    mockQuickCreateApis()
+    await mapQuickCreateView.open()
+    document.body.innerHTML = '<div id="modal-body" style="overflow:auto"><div class="map-quick-create"></div></div>'
+    document.querySelector(".map-quick-create").outerHTML = mapQuickCreateView._render()
+    mapQuickCreateView._bindModalEvents()
+    const modalBody = document.getElementById("modal-body")
+    const target = document.getElementById("map-quick-target")
+    modalBody.scrollTop = 360
+    target.focus()
+
+    await mapQuickCreateView.setTarget("detail")
+
+    expect(document.activeElement).toBe(document.getElementById("map-quick-target"))
+    expect(modalBody.scrollTop).toBe(360)
+  })
+
   it("infers the fixed target level when replacing an existing map", () => {
     expect(mapQuickCreateView._targetForExistingMap({ id: "world" })).toBe("world")
     expect(mapQuickCreateView._targetForExistingMap({
@@ -324,6 +386,36 @@ describe("mapQuickCreateView", () => {
     expect(toast).toHaveBeenCalledWith("快速创建预览刷新失败：preview failed", "error")
   })
 
+  it("快速连改选项时只接收最新预览", async () => {
+    mockQuickCreateApis()
+    await mapQuickCreateView.open()
+    let resolveDetail
+    let resolveWorld
+    api.world.previewQuickCreateMap.mockImplementation((payload) => new Promise((resolve) => {
+      if (payload.target === "detail") resolveDetail = resolve
+      else resolveWorld = resolve
+    }))
+
+    const detailRequest = mapQuickCreateView.setTarget("detail")
+    const worldRequest = mapQuickCreateView.setTarget("world")
+    resolveWorld({
+      map: { name: "最新世界图", grid_width: 40, grid_height: 30 },
+      location_layouts: [],
+      warnings: [],
+    })
+    await worldRequest
+    resolveDetail({
+      map: { name: "过期详图", grid_width: 20, grid_height: 20 },
+      location_layouts: [],
+      warnings: [],
+    })
+    await detailRequest
+
+    expect(mapQuickCreateView._target).toBe("world")
+    expect(mapQuickCreateView._preview.map.name).toBe("最新世界图")
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("预览刷新失败"), "error")
+  })
+
   it("confirm creates one map and invokes callback", async () => {
     mockQuickCreateApis()
     const onCreated = vi.fn()
@@ -364,6 +456,29 @@ describe("mapQuickCreateView", () => {
     expect(result).toBe(false)
     expect(closeModal).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("快速创建地图失败：后端服务器错误", "error")
+  })
+
+  it("阻止连点创建，且已成功的服务端写入不因页面回调失败而允许重试", async () => {
+    mapQuickCreateView._activeLayouts = [
+      { location_entity_id: "loc1", center_hex_q: 2, center_hex_r: 3, occupy_radius: 2 },
+    ]
+    mapQuickCreateView._selectedLocationIds = new Set(["loc1"])
+    mapQuickCreateView._onCreated = vi.fn().mockRejectedValue(new Error("刷新失败"))
+    let resolveConfirm
+    api.world.confirmQuickCreateMap.mockReturnValue(new Promise((resolve) => {
+      resolveConfirm = resolve
+    }))
+
+    const first = mapQuickCreateView._confirm()
+    const second = mapQuickCreateView._confirm()
+    resolveConfirm({ map: { id: "m1", name: "已创建地图" } })
+    const [result, repeatedResult] = await Promise.all([first, second])
+
+    expect(api.world.confirmQuickCreateMap).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ map: { id: "m1", name: "已创建地图" } })
+    expect(repeatedResult).toEqual(result)
+    expect(toast).toHaveBeenCalledWith("地图已创建，但页面更新失败：刷新失败", "warning")
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("快速创建地图失败"), "error")
   })
 
   it("submits only selected layouts", async () => {
@@ -499,7 +614,7 @@ describe("mapQuickCreateView", () => {
 
     const result = await confirming
 
-    expect(result).toBe(false)
+    expect(result).toBe(true)
     expect(api.world.confirmQuickCreateMap).toHaveBeenCalledWith(
       expect.any(Object),
       "p1",

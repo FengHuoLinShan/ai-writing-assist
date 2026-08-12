@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { mount } from "@vue/test-utils"
 import { setBridgeOverrides, resetBridgeOverrides } from "../../../vue/bridge/index.js"
-import { clearAllBulkSelections } from "../../../vue/views/outline/logic/outlineBulkSelection.js"
+import { clearAllBulkSelections, clearOutlineFilterDrafts } from "../../../vue/views/outline/logic/outlineBulkSelection.js"
 import OutlineThreadsTab from "../../../vue/views/outline/components/OutlineThreadsTab.vue"
 
 const SAMPLE_THREADS = [
@@ -28,6 +28,7 @@ let confirmAction
 
 beforeEach(() => {
   clearAllBulkSelections()
+  clearOutlineFilterDrafts()
   routerCalls = []
   toastCalls = []
   confirmAction = vi.fn()
@@ -144,6 +145,25 @@ describe("筛选", () => {
     expect(routerCalls.length).toBeGreaterThanOrEqual(1)
     expect(routerCalls[0][1]).toBe("threads")
   })
+
+  it("分页不偷偷应用编辑中筛选，但重挂载保留草稿", async () => {
+    const props = {
+      projectId: "p1", subView: "threads", threads: SAMPLE_THREADS, threadsTotal: 120,
+      filters: { status: "", source: "", workflow_id: "", needs_review: "", skip: 0, limit: 50 },
+    }
+    const wrapper = mount(OutlineThreadsTab, { props })
+    await wrapper.find("#outline-filter-status").setValue("candidate")
+    await wrapper.find('[data-action="next-outline-structure-page"]').trigger("click")
+    const query = routerCalls.at(-1)[3]
+    expect(query.get("status")).toBeNull()
+    expect(query.get("page")).toBe("2")
+    wrapper.unmount()
+
+    const remounted = mount(OutlineThreadsTab, {
+      props: { ...props, filters: { ...props.filters, skip: 50 } },
+    })
+    expect(remounted.find("#outline-filter-status").element.value).toBe("candidate")
+  })
 })
 
 describe("批量选择", () => {
@@ -161,6 +181,17 @@ describe("批量选择", () => {
     await checkbox.setValue(true)
     expect(toolbar.find(".bulk-toolbar__status strong").text()).toBe("1")
     expect(toolbar.find('[data-bulk-action="review-threads"]').attributes("disabled")).toBeUndefined()
+  })
+
+  it("列表换页后剔除不再可见的选择", async () => {
+    const wrapper = mount(OutlineThreadsTab, {
+      props: { projectId: "p1", subView: "threads", threads: SAMPLE_THREADS },
+    })
+    await wrapper.find('input[data-id="t1"]').setValue(true)
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("1")
+
+    await wrapper.setProps({ threads: [SAMPLE_THREADS[1]], threadsTotal: 1 })
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("0")
   })
 
   it("批量操作只提交已选中的剧情线", async () => {

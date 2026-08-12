@@ -31,6 +31,10 @@ const ERROR_STATES = {
     message: "这次生成未完成，请重新生成。",
     action: "retry",
   },
+  client_security: {
+    message: "当前浏览器无法安全发起操作，请更换浏览器后重试。",
+    action: "retry",
+  },
 }
 
 function normalizedErrorKind(error) {
@@ -47,6 +51,7 @@ function normalizedErrorKind(error) {
   // Provider SDKs do not all expose a stable quota code. Use their text only
   // to select a bounded local message; never show it on the RP page.
   const diagnostic = String(error?.detail || error?.message || "").toLowerCase()
+  if (/安全生成操作标识/.test(diagnostic)) return "client_security"
   if (/quota|credit|insufficient|balance|余额|额度/.test(diagnostic)) {
     return "quota"
   }

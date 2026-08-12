@@ -1648,6 +1648,8 @@ class WorldGenerationCenterService:
         self,
         db: AsyncSession,
         data: WorldGenerationRequestBase,
+        *,
+        for_update: bool = False,
     ) -> dict[str, Any]:
         if not isinstance(data.source_context, WorldGenerationPageSource):
             return {
@@ -1660,6 +1662,7 @@ class WorldGenerationCenterService:
             db,
             data.novel_id,
             data.source_context.page_id,
+            for_update=for_update,
         )
         baseline = data.source_context.baseline
         draft_id = baseline.draft_id if baseline.kind == "draft" else None
@@ -3508,6 +3511,11 @@ class WorldGenerationCenterService:
         from modules.project.facade import require_active_project
 
         await require_active_project(db, data.novel_id)
+        locked_source = await self._load_source(db, data, for_update=True)
+        if locked_source["source_snapshot"] != prepared["source_snapshot"]:
+            raise WorldGenerationSourceConflictError(
+                "World generation source changed while the model was running"
+            )
         try:
             current = await self._prepare(
                 db,

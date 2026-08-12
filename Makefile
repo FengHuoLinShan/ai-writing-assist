@@ -1,9 +1,8 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-all test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
 FRONTEND_DIR := $(ROOT_DIR)frontend-console
-BACKEND_FAST_TESTS := modules infrastructure tests/unit tests/integration tests/modules tests/prompt_contracts tests/test_api.py tests/test_outline_api.py tests/test_world_testonly_route.py
 BACKEND_COVERAGE_PACKAGES := app core shared infrastructure modules
 BACKEND_COVERAGE_ARGS := $(addprefix --cov=,$(BACKEND_COVERAGE_PACKAGES))
 BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/writing/tests/test_conflict_checks_real_llm.py modules/interaction/tests/test_real_llm.py tests/integration/test_extraction_pipeline.py
@@ -44,25 +43,11 @@ schema-check:  ## Fail unless the local database is at the Alembic head
 
 # ─── Testing & Linting ──────────────────────────────
 
-test: test-fast  ## Run the fast backend test layer
-
-test-collect:  ## Verify all backend module tests collect in one pytest session
-	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules -q --collect-only
-
-test-fast:  ## Run SQLite-backed tests without external services or source data
-	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
-
-test-fast-parallel:  ## Run the fast backend layer in isolated pytest-xdist workers
-	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(ARGS)
+test:  ## Run the default backend test layer; optionally set TESTS or ARGS
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest $(TESTS) --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
 
 test-fast-coverage:  ## Run the parallel fast layer with the configured coverage gate
-	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(BACKEND_COVERAGE_ARGS) --cov-report=term-missing:skip-covered $(ARGS)
-
-test-v:  ## Run the fast backend layer verbosely and stop on the first failure
-	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest -xvs $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
-
-test-integration:  ## Run the SQLite cross-module integration layer
-	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest tests/integration -m "not e2e and not real_llm and not external_data" $(ARGS)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(BACKEND_COVERAGE_ARGS) --cov-report=term-missing:skip-covered $(ARGS)
 
 test-e2e:  ## Run PostgreSQL E2E tests; explicit dedicated E2E_DATABASE_URL required
 	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 $(BACKEND_LOCKED_CI_RUN) pytest tests/e2e -m "not real_llm and not external_data" $(ARGS)
@@ -101,7 +86,7 @@ test-frontend:  ## Run frontend tests
 
 test-production-images:  ## Build and smoke-test the pinned production Docker images
 	docker build --file backend/Dockerfile --tag contract-smoke-backend:fixed-toolchain .
-	docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges=true --tmpfs /tmp:mode=1777 --entrypoint sh contract-smoke-backend:fixed-toolchain -ec 'test "$$(id -u)" -ne 0; test "$$(grep "^CapEff:" /proc/1/status | cut -f2)" = 0000000000000000; test "$$(grep "^NoNewPrivs:" /proc/1/status | cut -f2)" = 1; test ! -w /app; ! command -v uv; python -c "from app.main import app"; python -c "from pathlib import Path; from tempfile import NamedTemporaryFile; temporary = NamedTemporaryFile(); assert Path(temporary.name).parent == Path(\"/tmp\")"'
+	docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges=true --tmpfs /tmp:mode=1777 --entrypoint sh contract-smoke-backend:fixed-toolchain -ec 'test "$$(id -u)" -ne 0; test "$$(grep "^CapEff:" /proc/1/status | cut -f2)" = 0000000000000000; test "$$(grep "^NoNewPrivs:" /proc/1/status | cut -f2)" = 1; test ! -w /app; ! command -v uv; ! command -v pip; python -c "from app.main import app"; python -c "from pathlib import Path; from tempfile import NamedTemporaryFile; temporary = NamedTemporaryFile(); assert Path(temporary.name).parent == Path(\"/tmp\")"'
 	docker build --file frontend-console/Dockerfile --tag contract-smoke-frontend:fixed-toolchain .
 	docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges=true --tmpfs /run:mode=0755,uid=101,gid=101 --tmpfs /var/cache/nginx:mode=0755,uid=101,gid=101 contract-smoke-frontend:fixed-toolchain sh -ec 'test "$$(id -u)" -eq 101; test "$$(grep "^CapEff:" /proc/1/status | cut -f2)" = 0000000000000000; test "$$(grep "^NoNewPrivs:" /proc/1/status | cut -f2)" = 1; test ! -w /usr/share/nginx/html; nginx -t; cleanup() { nginx -s quit >/dev/null 2>&1 || true; wait "$$nginx_pid" 2>/dev/null || true; }; trap cleanup EXIT; nginx -g "daemon off;" & nginx_pid=$$!; for path in /healthz /asset-inventory.txt; do for attempt in 1 2 3 4 5; do wget -q -O /dev/null "http://127.0.0.1:8080$$path" >/dev/null 2>&1 && break; test "$$attempt" = 5 && exit 1; sleep 1; done; done; for asset in asset-manifest.json asset-inventory.txt index.html; do path="/usr/share/nginx/html/$$asset"; test -f "$$path"; test ! -L "$$path"; test -r "$$path"; done'
 	$(MAKE) test-restore-drill-real
@@ -114,10 +99,6 @@ audit-backend-deps:  ## Audit every locked backend dependency for known advisori
 
 audit-frontend-deps:  ## Fail on high/critical frontend dependency lockfile advisories
 	cd $(FRONTEND_DIR) && npm audit --package-lock-only --audit-level=high
-
-test-all:  ## Run fast backend tests and frontend Vitest; excludes E2E
-	$(MAKE) test-fast ARGS="$(BACKEND_ARGS)"
-	$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"
 
 test-ci: docs-check secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps  ## Run local quality gates; excludes PostgreSQL, browser, and image suites
 	$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS) ARGS="$(ARGS) -W error::RuntimeWarning"

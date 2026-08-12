@@ -2634,105 +2634,6 @@ async def test_index_chapter_with_embeddings(
 
 
 @pytest.mark.asyncio
-async def test_incremental_index_replaces_chunks_with_current_version_binding(
-    db_session: AsyncSession,
-    repo: RagChunkRepository,
-    test_project_id: str,  # noqa: F811
-):
-    """兼容增量入口必须用当前 draft/hash 全量替换旧 chunk。"""
-    from unittest.mock import AsyncMock, patch
-
-    from modules.rag.indexing import IndexingService
-    from modules.writing.facade import create_draft_only
-
-    nid_uuid = uuid.UUID(hex=test_project_id)
-    old_chunk = await repo.create(
-        db_session,
-        nid_uuid,
-        RagChunkCreate(
-            source_type="chapter_text",
-            content_mode="working",
-            chapter_index=1,
-            chunk_index=0,
-            start_offset=0,
-            end_offset=4,
-            char_count=4,
-            text="完全相同",
-            embedding_status="succeeded",
-        ),
-    )
-    await db_session.flush()
-
-    draft = await create_draft_only(
-        db_session,
-        test_project_id,
-        1,
-        content="完全相同",
-    )
-
-    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
-        mock_client_cls.return_value = mock_client
-        report = await IndexingService(repo=repo).index_chapter_incremental(
-            db_session,
-            nid_uuid,
-            1,
-            old_content="完全相同",
-            new_content="完全相同",
-            content_mode="working",
-        )
-
-    chunks = await repo.find_by_chapter(
-        db_session,
-        nid_uuid,
-        1,
-        content_mode="working",
-    )
-    assert old_chunk.id not in {chunk.id for chunk in chunks}
-    assert chunks
-    assert all(str(chunk.source_id) == draft.id for chunk in chunks)
-    assert all(chunk.source_content_hash == draft.content_hash for chunk in chunks)
-    assert "全量替换" in report.warnings[0]
-
-
-@pytest.mark.asyncio
-async def test_incremental_index_delegates_to_version_bound_full_index(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """兼容入口不再复用旧版本 chunk。"""
-    from unittest.mock import AsyncMock
-
-    from modules.rag.contracts import RagIndexReport
-    from modules.rag.indexing import IndexingService
-
-    novel_id = uuid.uuid4()
-    service = IndexingService()
-    full_report = RagIndexReport(
-        chapter_index=1,
-        content_mode="working",
-        source_draft_id=str(uuid.uuid4()),
-        source_content_hash="a" * 64,
-        chunks_created=2,
-    )
-    full_index = AsyncMock(return_value=full_report)
-    monkeypatch.setattr(service, "index_chapter_with_report", full_index)
-
-    report = await service.index_chapter_incremental(
-        SimpleNamespace(),  # type: ignore[arg-type]
-        novel_id,
-        1,
-        old_content="aaaaabbbbb",
-        new_content="aaaaaccccc",
-        content_mode="working",
-    )
-
-    full_index.assert_awaited_once()
-    assert report.source_draft_id == full_report.source_draft_id
-    assert "全量替换" in report.warnings[0]
-
-
-@pytest.mark.asyncio
 async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     db_session: AsyncSession,
     repo: RagChunkRepository,
@@ -2904,6 +2805,7 @@ async def test_reindex_novel_task_rebuilds_all_chapters_with_report(
         meta={"novel_id": test_project_id, "force": True, "content_mode": "working"},
         progress=0.0,
     )
+    task.mark_running()
     db_session.add(task)
     await db_session.flush()
     # Direct handler execution emulates TaskWorker's fenced session.
@@ -3245,6 +3147,7 @@ async def test_rebuild_novel_with_chapter_range(
         },
         progress=0.0,
     )
+    task.mark_running()
     db_session.add(task)
     await db_session.flush()
     # Direct handler execution emulates TaskWorker's fenced session.

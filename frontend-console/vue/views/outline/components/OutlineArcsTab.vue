@@ -132,7 +132,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from "vue"
+import { computed, reactive, watch } from "vue"
 import { getRouter, getToast } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
@@ -151,6 +151,7 @@ import {
 import {
   getBulkSelection,
   reconcileBulkSelection,
+  outlineFilterDrafts,
   selectAllState as computeSelectAll,
   toggleBulkSelection,
   toggleAllBulkSelection,
@@ -174,12 +175,38 @@ const props = defineProps({
 
 const statusOptions = computed(() => structureStatusOptions("arcs"))
 
-const filterForm = reactive({ ...STRUCTURE_FILTER_DEFAULTS })
-// 用 props.filters 初始化
-Object.assign(filterForm, props.filters)
-
 const scope = "outline-arcs"
+const routeSignature = structureQueryFromState("arcs", props.filters).toString()
+const restoredDraft = outlineFilterDrafts[scope]?.routeSignature === routeSignature
+  ? outlineFilterDrafts[scope].value
+  : null
+if (!restoredDraft) delete outlineFilterDrafts[scope]
+const filterForm = reactive({
+  ...STRUCTURE_FILTER_DEFAULTS,
+  ...props.filters,
+  ...(restoredDraft || {}),
+  skip: props.filters.skip,
+  limit: props.filters.limit,
+})
+watch(filterForm, (value) => {
+  outlineFilterDrafts[scope] = {
+    routeSignature: outlineFilterDrafts[scope]?.routeSignature || routeSignature,
+    value: { ...value },
+  }
+}, { immediate: true, deep: true, flush: "sync" })
+
+function navigateFilters(filters) {
+  const query = structureQueryFromState("arcs", filters)
+  outlineFilterDrafts[scope].routeSignature = query.toString()
+  getRouter()?.navigate("outline", "arcs", true, query)
+}
+
 const isSelected = (id) => getBulkSelection(scope).has(String(id))
+watch(
+  () => props.arcs.map((item) => item.id || item.arc_id),
+  (ids) => reconcileBulkSelection(scope, ids),
+  { immediate: true },
+)
 
 const selectAllState = computed(() => {
   const ids = props.arcs.map((a) => a.id || a.arc_id)
@@ -247,24 +274,20 @@ function retryLoad() {
 function applyFilters() {
   const f = { ...STRUCTURE_FILTER_DEFAULTS, ...filterForm, skip: 0 }
   Object.assign(filterForm, f)
-  const query = structureQueryFromState("arcs", f)
-  getRouter()?.navigate("outline", "arcs", true, query)
+  navigateFilters(f)
 }
 
 function resetFilters() {
   Object.assign(filterForm, STRUCTURE_FILTER_DEFAULTS)
   filterForm.skip = 0
-  const query = structureQueryFromState("arcs", filterForm)
-  getRouter()?.navigate("outline", "arcs", true, query)
+  navigateFilters(filterForm)
 }
 
 function changePage(delta) {
   const total = props.arcsTotal || 0
-  const newSkip = filterForm.skip + delta * filterForm.limit
+  const newSkip = props.filters.skip + delta * props.filters.limit
   if (newSkip < 0 || newSkip >= total) return
-  filterForm.skip = newSkip
-  const query = structureQueryFromState("arcs", filterForm)
-  getRouter()?.navigate("outline", "arcs", true, query)
+  navigateFilters({ ...props.filters, skip: newSkip })
 }
 
 function toggleOne(id, checked) {

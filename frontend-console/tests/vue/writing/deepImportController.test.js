@@ -410,6 +410,41 @@ describe("deepImportController", () => {
   })
 
   it.each([
+    ["cancel", "cancel", "tasks"],
+    ["resume", "resumeDeepImport", "imports"],
+    ["abandon", "abandonDeepImport", "imports"],
+  ])("%s 失败晚到时不向新任务提示或保留旧弹窗", async (method, apiMethod, namespace) => {
+    let rejectOperation
+    const toast = vi.fn()
+    const api = {
+      tasks: {
+        get: vi.fn(() => new Promise(() => {})),
+        cancel: vi.fn(() => new Promise((_resolve, reject) => { rejectOperation = reject })),
+      },
+      world: {},
+      imports: {
+        resumeDeepImport: vi.fn(() => new Promise((_resolve, reject) => { rejectOperation = reject })),
+        abandonDeepImport: vi.fn(() => new Promise((_resolve, reject) => { rejectOperation = reject })),
+      },
+    }
+    const controller = createDeepImportController({
+      api,
+      toast,
+      getProjectId: () => "p1",
+      onChange: vi.fn(),
+    })
+    controller.startTask({ taskId: "task-a", workflowType: "deep_import" })
+    const operation = controller[method]()
+    expect(api[namespace][apiMethod]).toHaveBeenCalled()
+    controller.startTask({ taskId: "task-b", workflowType: "deep_import" })
+    rejectOperation(new Error("旧请求失败"))
+
+    await expect(operation).resolves.toBe(true)
+    expect(toast).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it.each([
     ["404", Object.assign(new Error("旧任务不存在"), { status: 404 })],
     ["网络失败", new Error("旧任务查询失败")],
   ])("旧轮询的晚到%s不会清除或覆盖新任务", async (_label, failure) => {

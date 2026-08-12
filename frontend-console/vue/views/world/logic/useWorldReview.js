@@ -454,7 +454,6 @@ export function showAliasReviewDecisionForm(entityIdParam, aliasText) {
       }
       delete worldSession.aliasReviewErrors[key]
       closeModal()
-      getRouter()?.refresh?.()
     },
   }], { size: "large" })
   bindDiagnosticCopyButtons()
@@ -509,7 +508,7 @@ export function showAliasReviewEditForm(entityIdParam, aliasText) {
       const type = document.getElementById("alias-edit-type")?.value || "alias"
       if (!targetId || !text) {
         toast("请选择目标对象并输入别名", "warning")
-        return
+        return false
       }
       try {
         await getApi().world.editAlias(entityIdParam, aliasText, {
@@ -522,6 +521,7 @@ export function showAliasReviewEditForm(entityIdParam, aliasText) {
         getRouter()?.refresh?.()
       } catch (err) {
         toast(err.message || "保存失败", "error")
+        return false
       }
     },
   }])
@@ -547,8 +547,7 @@ function bindDiagnosticCopyButtons(root = document) {
 }
 
 /** 对应 vanilla _reviewEntityOptionsHtml。 */
-function reviewEntityOptionsHtml(items = [], selectedId = "") {
-  const esc = getEsc()
+function reviewEntityOptions(items = [], selectedId = "") {
   const byId = new Map()
   for (const item of items) {
     const id = entityId(item)
@@ -559,8 +558,25 @@ function reviewEntityOptionsHtml(items = [], selectedId = "") {
   }
   return Array.from(byId.values()).map((item) => {
     const id = entityId(item)
-    return `<option value="${esc(id)}" ${id === selectedId ? "selected" : ""}>${esc(item.name || "未命名对象")} · ${esc(item.entity_type || "-")} · ${esc(item.status || "-")}</option>`
-  }).join("")
+    return { id, label: `${item.name || "未命名对象"} · ${item.entity_type || "-"} · ${item.status || "-"}`, selected: id === selectedId }
+  })
+}
+
+function reviewEntityOptionsHtml(items = [], selectedId = "") {
+  const esc = getEsc()
+  return reviewEntityOptions(items, selectedId).map((item) => (
+    `<option value="${esc(item.id)}" ${item.selected ? "selected" : ""}>${esc(item.label)}</option>`
+  )).join("")
+}
+
+function replaceReviewEntityOptions(select, items, selectedId) {
+  select.replaceChildren(...reviewEntityOptions(items, selectedId).map((item) => {
+    const option = document.createElement("option")
+    option.value = item.id
+    option.textContent = item.label
+    option.selected = item.selected
+    return option
+  }))
 }
 
 /** 对应 vanilla _bindReviewEntitySearch。 */
@@ -570,20 +586,33 @@ function bindReviewEntitySearch(prefix, selectedId = "") {
   const input = document.getElementById(`${prefix}-query`)
   const select = document.getElementById(`${prefix}-select`)
   if (!button || !input || !select) return
+  let searchGeneration = 0
   button.onclick = async () => {
+    const generation = ++searchGeneration
+    const projectId = getAppState()?.currentProjectId
     try {
       const data = await getApi().world.listEntities({
-        novel_id: getAppState()?.currentProjectId,
+        novel_id: projectId,
         q: input.value || "",
         skip: 0,
         limit: 20,
       })
+      if (
+        generation !== searchGeneration
+        || getAppState()?.currentProjectId !== projectId
+        || !select.isConnected
+      ) return
       const items = (data.items || data || []).filter((item) => (
         ["canonical", "draft", "candidate"].includes(item.status)
         && !item.content_json?._meta?.compatibility_shadow
       ))
-      select.innerHTML = reviewEntityOptionsHtml(items, selectedId)
+      replaceReviewEntityOptions(select, items, select.value || selectedId)
     } catch (err) {
+      if (
+        generation !== searchGeneration
+        || getAppState()?.currentProjectId !== projectId
+        || !select.isConnected
+      ) return
       toast(err.message || "搜索对象失败", "error")
     }
   }
@@ -696,7 +725,6 @@ export function showRelationGroupReviewForm(groupId) {
       }
       delete worldSession.relationReviewErrors[groupId]
       closeModal()
-      getRouter()?.refresh?.()
     },
   }], { size: "large" })
   bindReviewEntitySearch("relation-source", existingDraft?.source_id || group.source_id)
@@ -818,7 +846,7 @@ export function showRelationReviewEditForm(relationId) {
       const relationType = document.getElementById("rel-review-type")?.value?.trim() || ""
       if (!sourceId || !targetId || !relationType) {
         toast("请填写源对象、目标对象和关系类型", "warning")
-        return
+        return false
       }
       try {
         await getApi().world.reviewEditRelationship(relationId, {
@@ -834,6 +862,7 @@ export function showRelationReviewEditForm(relationId) {
         getRouter()?.refresh?.()
       } catch (err) {
         toast(err.message || "采用关系失败", "error")
+        return false
       }
     },
   }])

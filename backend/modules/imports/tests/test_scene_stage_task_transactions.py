@@ -397,6 +397,7 @@ def _patch_inputs(
     state: SimpleNamespace,
     events: list[str],
 ) -> tuple[mock.AsyncMock, mock.AsyncMock]:
+    from infrastructure.tasks import facade as task_facade
     from modules.imports import chapter_loader
     from modules.project import facade as project_facade
     from modules.writing import facade as writing_facade
@@ -428,6 +429,11 @@ def _patch_inputs(
     lock = mock.AsyncMock(side_effect=_lock_chapters)
     monkeypatch.setattr(project_facade, "require_active_project", _require_active)
     monkeypatch.setattr(project_facade, "get_project_context", _get_context)
+    monkeypatch.setattr(
+        task_facade,
+        "require_running_task_attempt",
+        mock.AsyncMock(),
+    )
     monkeypatch.setattr(chapter_loader, "load_chapter_range", load)
     monkeypatch.setattr(
         writing_facade,

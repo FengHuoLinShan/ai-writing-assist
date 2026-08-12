@@ -6,6 +6,16 @@ function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 beforeEach(() => {
   resetState({ currentProjectId: "p1", currentView: "world" })
   clearDocument()
@@ -31,7 +41,7 @@ function createManager(overrides = {}) {
   })
 }
 
-async function runScanToDone(result) {
+async function runScanToDone(result, overrides = {}) {
   api.projects.startSmartDedupScan.mockResolvedValue({ task_id: "scan-1" })
   api.tasks.get.mockResolvedValue({
     task_id: "scan-1",
@@ -39,7 +49,7 @@ async function runScanToDone(result) {
     status: "done",
     result,
   })
-  const manager = createManager()
+  const manager = createManager(overrides)
   await manager.startScan()
   await flushPromises()
   return manager
@@ -156,6 +166,68 @@ describe("Smart Dedup Manager", () => {
     expect(state.taskId).toBeNull()
     expect(state.progress).toBeNull()
     expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([])
+  })
+
+  it("同项目离开发起页后忽略晚到的旧版建议 UI 副作用", async () => {
+    document.body.innerHTML = '<input type="checkbox" data-smart-dedup-index="0" checked />'
+    const apply = deferred()
+    api.projects.applySmartDedup.mockReturnValue(apply.promise)
+    let currentRouteKey = "world:objects"
+    const manager = await runScanToDone({
+      suggestions: [{
+        asset_type: "plot_thread",
+        action: "deprecate_duplicate",
+        source_asset_id: "s1",
+        target_asset_id: "t1",
+        source_title: "来源",
+      }],
+    }, { getCurrentRouteKey: () => currentRouteKey })
+    const handler = latestModal().buttons.find((button) => button.text === "应用选中建议").handler
+    vi.clearAllMocks()
+
+    const pending = handler()
+    expect(api.projects.applySmartDedup).toHaveBeenCalledWith("p1", expect.any(Object))
+    currentRouteKey = "settings:"
+    const stateAfterSwitch = manager.getState()
+    apply.resolve({ applied: 1, skipped: 0 })
+    await pending
+
+    expect(manager.getState()).toEqual(stateAfterSwitch)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    expect(api.clearCache).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each(["resolve", "reject"])("同页新弹窗接管后静默收口晚到的建议应用 %s", async (outcome) => {
+    const apply = deferred()
+    api.projects.applySmartDedup.mockReturnValue(apply.promise)
+    await runScanToDone({
+      suggestions: [{
+        asset_type: "plot_thread",
+        action: "deprecate_duplicate",
+        source_asset_id: "s1",
+        target_asset_id: "t1",
+        source_title: "来源",
+      }],
+    }, { getCurrentRouteKey: () => "world:objects" })
+    const modal = latestModal()
+    document.body.innerHTML = `<div id="modal-overlay"><div id="modal-body">${modal.body.html}</div></div>`
+    const handler = modal.buttons.find((button) => button.text === "应用选中建议").handler
+    vi.clearAllMocks()
+
+    const pending = handler()
+    await vi.waitFor(() => expect(api.projects.applySmartDedup).toHaveBeenCalled())
+    document.getElementById("modal-body").innerHTML = '<div class="new-modal"></div>'
+    if (outcome === "resolve") apply.resolve({ applied: 1, skipped: 0 })
+    else apply.reject(new Error("late apply failure"))
+
+    await expect(pending).resolves.toBe(true)
+    expect(document.querySelector(".new-modal")).not.toBeNull()
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    expect(api.clearCache).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 
   it("renders smart dedup suggestions with recommended primary controls and paginates the panel", async () => {
@@ -487,28 +559,47 @@ describe("Smart Dedup Manager", () => {
     expect(rendered.querySelectorAll("[data-smart-dedup-operation]").length).toBe(2)
   })
 
-  it("preserves workbench scroll positions when a checkbox rerenders the modal", async () => {
+  it("preserves workbench scroll positions and focus when a checkbox rerenders the modal", async () => {
     const result = groupResult()
-    const manager = await runScanToDone(result)
-    document.body.innerHTML = `<div id="modal-body">${latestModal().body.html}</div>`
+    document.body.innerHTML = '<div id="modal-body"></div>'
+    const manager = await runScanToDone(result, {
+      modal: {
+        showModalHtml: vi.fn((_title, html) => {
+          document.getElementById("modal-body").innerHTML = html
+        }),
+        closeModal,
+      },
+    })
     const modalBody = document.getElementById("modal-body")
     const queue = document.querySelector(".smart-dedup-queue")
     const decision = document.querySelector(".smart-dedup-decision")
+    const comparison = document.querySelector(".smart-dedup-compare-scroll")
     modalBody.scrollTop = 40
     queue.scrollTop = 70
     decision.scrollTop = 190
-    const restore = vi.spyOn(manager, "_restoreGroupWorkbenchScroll")
-    manager._bindGroupControls(manager._groups(result))
+    comparison.scrollLeft = 25
 
     const checkbox = document.querySelector("[data-smart-dedup-diff]")
+    checkbox.focus()
     checkbox.checked = false
     checkbox.dispatchEvent(new Event("change"))
 
-    expect(restore).toHaveBeenCalledWith(expect.objectContaining({
-      modalBodyTop: 40,
-      queueTop: 70,
-      decisionTop: 190,
-    }))
+    const replacement = document.querySelector("[data-smart-dedup-diff]")
+    expect(replacement).not.toBe(checkbox)
+    expect(checkbox.isConnected).toBe(false)
+    expect(document.activeElement).toBe(replacement)
+    expect(modalBody.scrollTop).toBe(40)
+    expect(document.querySelector(".smart-dedup-queue").scrollTop).toBe(70)
+    expect(document.querySelector(".smart-dedup-decision").scrollTop).toBe(190)
+    expect(document.querySelector(".smart-dedup-compare-scroll").scrollLeft).toBe(25)
+
+    const missingControlSnapshot = manager._captureGroupWorkbenchFocus()
+    replacement.remove()
+    const fallback = document.createElement("button")
+    modalBody.appendChild(fallback)
+    fallback.focus()
+    manager._restoreGroupWorkbenchFocus(missingControlSnapshot)
+    expect(document.activeElement).toBe(fallback)
   })
 
   it("submits all ready schema v2 groups with task-bound fingerprints", async () => {
@@ -546,6 +637,77 @@ describe("Smart Dedup Manager", () => {
     })
     expect(latestModal().body.html).toContain("执行成功")
     expect(closeModal).not.toHaveBeenCalled()
+  })
+
+  it("没有就绪分组时保留裁决工作台", async () => {
+    const result = groupResult()
+    const manager = await runScanToDone(result)
+    const groups = manager._groups(result)
+    manager._groupDraftFor(groups[0]).operations.a.action = "later"
+
+    await expect(manager._applyReadyGroups(groups)).resolves.toBe(false)
+    expect(toast).toHaveBeenCalledWith("请先完成至少一组裁决", "warning")
+    expect(api.projects.applySmartDedup).not.toHaveBeenCalled()
+  })
+
+  it("项目切换后忽略晚到的分组裁决结果", async () => {
+    const apply = deferred()
+    api.projects.applySmartDedup.mockReturnValue(apply.promise)
+    let currentProjectId = "p1"
+    const manager = await runScanToDone(groupResult(), {
+      getCurrentProjectId: () => currentProjectId,
+    })
+    const handler = latestModal().buttons.find((button) => button.text === "执行已就绪组 (1)").handler
+    vi.clearAllMocks()
+
+    const pending = handler()
+    expect(api.projects.applySmartDedup).toHaveBeenCalledWith("p1", expect.objectContaining({
+      scan_task_id: "scan-1",
+    }))
+    currentProjectId = "p2"
+    manager.syncProject("p2")
+    const stateAfterSwitch = manager.getState()
+    apply.resolve({
+      applied: 2,
+      skipped: 0,
+      group_results: [{ group_id: "group-world", status: "success", applied: 2 }],
+    })
+    await pending
+
+    expect(manager.getState()).toEqual(stateAfterSwitch)
+    expect(manager._groupResults).toEqual({})
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    expect(api.clearCache).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each(["resolve", "reject"])("同页新弹窗接管后静默收口晚到的分组裁决 %s", async (outcome) => {
+    const apply = deferred()
+    api.projects.applySmartDedup.mockReturnValue(apply.promise)
+    const manager = await runScanToDone(groupResult(), { getCurrentRouteKey: () => "world:objects" })
+    const modal = latestModal()
+    document.body.innerHTML = `<div id="modal-overlay"><div id="modal-body">${modal.body.html}</div></div>`
+    const handler = modal.buttons.find((button) => button.text === "执行已就绪组 (1)").handler
+    const stateBefore = manager.getState()
+    vi.clearAllMocks()
+
+    const pending = handler()
+    await vi.waitFor(() => expect(api.projects.applySmartDedup).toHaveBeenCalled())
+    document.getElementById("modal-body").innerHTML = '<div class="new-modal"></div>'
+    if (outcome === "resolve") {
+      apply.resolve({ applied: 2, skipped: 0, group_results: [{ group_id: "group-world", status: "success", applied: 2 }] })
+    } else {
+      apply.reject(new Error("late group failure"))
+    }
+
+    await expect(pending).resolves.toBe(true)
+    expect(manager.getState()).toEqual(stateBefore)
+    expect(manager._groupResults).toEqual({})
+    expect(document.querySelector(".new-modal")).not.toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+    expect(api.clearCache).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 
   it("keeps the submitted primary and actions in the locked success receipt", async () => {
@@ -622,6 +784,30 @@ describe("Smart Dedup Manager", () => {
 
     manager._groupDraftFor(groups[0]).operations.s1.scenePreviewConfirmed = true
     expect(manager._groupReadiness(groups[0]).ready).toBe(true)
+  })
+
+  it.each(["resolve", "reject"])("同页新弹窗接管后不回写晚到的场景预览 %s", async (outcome) => {
+    const preview = deferred()
+    api.outline.previewSceneMerge.mockReturnValue(preview.promise)
+    const result = sceneGroupResult()
+    const manager = await runScanToDone(result, { getCurrentRouteKey: () => "world:objects" })
+    const modal = latestModal()
+    document.body.innerHTML = `<div id="modal-overlay"><div id="modal-body">${modal.body.html}</div></div>`
+    const groups = manager._groups(result)
+    manager._bindGroupControls(groups)
+    vi.clearAllMocks()
+
+    document.querySelector("[data-smart-dedup-preview-scene]").click()
+    await vi.waitFor(() => expect(api.outline.previewSceneMerge).toHaveBeenCalled())
+    document.getElementById("modal-body").innerHTML = '<div class="new-modal"></div>'
+    if (outcome === "resolve") preview.resolve({ operation: "merge" })
+    else preview.reject(new Error("late preview failure"))
+    await flushPromises()
+
+    expect(manager._groupDraftFor(groups[0]).operations.s1.scenePreview).toBeNull()
+    expect(document.querySelector(".new-modal")).not.toBeNull()
+    expect(showModal).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
   })
 
   it("routes recommended Scene AI fusion without requiring mechanical preview", async () => {

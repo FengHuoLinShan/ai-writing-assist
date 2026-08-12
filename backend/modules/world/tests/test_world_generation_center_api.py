@@ -5,6 +5,7 @@ import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
+from inspect import isawaitable
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,7 @@ from infrastructure.llm.schemas import LLMCallResponse
 from modules.context.contracts import StructureContextBundle
 from modules.context.models import ContextSnapshot
 from modules.outline.models import Scene
+from modules.project.models import Project
 from modules.world.llm_schemas import (
     GeneratedAskWorldOutput,
     GeneratedObjectDraftOutput,
@@ -34,6 +36,7 @@ from modules.world.models import (
     CoreEntity,
     CreationSuggestion,
     WorldBiblePage,
+    WorldBiblePageDraft,
 )
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
@@ -83,7 +86,9 @@ class _FakeWorldGenerationClient:
 
     async def generate(self, request):
         if self.before_generate is not None:
-            self.before_generate()
+            hook_result = self.before_generate()
+            if isawaitable(hook_result):
+                await hook_result
         self.requests.append(request)
         if self.error is not None:
             raise self.error
@@ -95,7 +100,9 @@ class _FakeWorldGenerationClient:
 
     async def generate_structured(self, request, schema, **_kwargs):
         if self.before_generate is not None:
-            self.before_generate()
+            hook_result = self.before_generate()
+            if isawaitable(hook_result):
+                await hook_result
         self.requests.append(request)
         if self.error is not None:
             raise self.error
@@ -1481,6 +1488,31 @@ async def test_core_entity_generation_creates_only_pending_suggestion(
 
 
 @pytest.mark.asyncio
+async def test_generation_center_drops_result_after_project_is_recycled(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "生成期间回收")
+    project = await db_session.get(Project, uuid.UUID(novel_id))
+    assert project is not None
+
+    def recycle_project() -> None:
+        project.deleted_at = datetime.now(UTC)
+
+    fake.before_generate = recycle_project
+    response = await async_client.post(
+        "/api/world/generation-center/suggestions",
+        json=_project_source_payload(novel_id),
+    )
+
+    assert response.status_code == 404, response.text
+    assert await db_session.scalar(select(func.count(CoreEntity.id))) == 0
+    assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 0
+
+
+@pytest.mark.asyncio
 async def test_core_revision_supersedes_only_previous_pending_version(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -2273,6 +2305,110 @@ async def test_existing_page_baseline_drift_returns_409(
         json={},
     )
     assert applied.status_code == 409, applied.text
+
+
+@pytest.mark.asyncio
+async def test_existing_page_drift_during_provider_call_returns_409(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "模型调用期间基线冲突")
+    page = await _create_published_page(async_client, novel_id)
+
+    async def update_page_from_another_session() -> None:
+        fake.before_generate = None
+        async with AsyncSession(
+            bind=db_session.bind,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as concurrent:
+            current = await concurrent.get(WorldBiblePage, uuid.UUID(page["id"]))
+            assert current is not None
+            current.version_number += 1
+            current.free_text = "作者在模型运行期间发布的新正文。"
+            await concurrent.commit()
+
+    fake.before_generate = update_page_from_another_session
+    response = await async_client.post(
+        "/api/world/generation-center/suggestions",
+        json={
+            "novel_id": novel_id,
+            "source_context": {
+                "kind": "world_bible_page",
+                "page_id": page["id"],
+                "baseline": {
+                    "kind": "published",
+                    "page_version": page["version_number"],
+                },
+            },
+            "target": {"kind": "world_bible_page", "page_id": page["id"]},
+            "messages": [{"role": "user", "content": "重构当前页"}],
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 0
+
+
+@pytest.mark.asyncio
+async def test_existing_draft_drift_during_provider_call_returns_409(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "模型调用期间工作稿冲突")
+    page = await _create_published_page(async_client, novel_id)
+    working = await async_client.post(
+        "/api/world/bible/drafts",
+        json={
+            "novel_id": novel_id,
+            "page_id": page["id"],
+            "title": page["title"],
+            "page_type": page["page_type"],
+            "free_text": "模型调用前的工作稿。",
+            "sections_json": page["sections_json"],
+        },
+    )
+    assert working.status_code == 201, working.text
+    draft = working.json()
+
+    async def update_draft_from_another_session() -> None:
+        fake.before_generate = None
+        async with AsyncSession(
+            bind=db_session.bind,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as concurrent:
+            current = await concurrent.get(WorldBiblePageDraft, uuid.UUID(draft["id"]))
+            assert current is not None
+            current.free_text = "作者在模型运行期间修改的工作稿。"
+            await concurrent.commit()
+
+    fake.before_generate = update_draft_from_another_session
+    response = await async_client.post(
+        "/api/world/generation-center/suggestions",
+        json={
+            "novel_id": novel_id,
+            "source_context": {
+                "kind": "world_bible_page",
+                "page_id": page["id"],
+                "baseline": {
+                    "kind": "draft",
+                    "page_version": page["version_number"],
+                    "draft_id": draft["id"],
+                    "draft_updated_at": draft["updated_at"],
+                },
+            },
+            "target": {"kind": "world_bible_page", "page_id": page["id"]},
+            "messages": [{"role": "user", "content": "重构当前工作稿"}],
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 0
 
 
 @pytest.mark.asyncio

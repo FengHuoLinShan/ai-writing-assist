@@ -182,6 +182,10 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 创作工作台以正文、主列表、编辑区、生成结果和地图画布为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
 - Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
   在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
+- 卡片/表格、展开/收起、选中与其他纯呈现控件只更新局部状态；同路由仅需同步
+  hash query 时使用 router 的就地 query seam，不重新执行 `onEnter/render`。确需重取
+  服务端数据的操作也必须在返回后复核发起时的项目、路由/编辑器 owner，不得用旧响应
+  重挂载用户已切换到的页面。同路由强制刷新恢复工作区纵向滚动位置。
 - 写作专注模式高于普通辅助栏状态；中等宽度重排第三栏，`760px` 及以下使用单栏、抽屉或手风琴，不允许产生页面级横向溢出。
 - Vue 业务页使用 `vue/components/WorkflowProgressCard.vue` 渲染任务卡：普通运行/完成态
   显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态
@@ -190,7 +194,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
   双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
   对比默认“只看差异”；勾选操作与切换合格主对象会保留工作台滚动位置，且主对象 radio
-  必须使用真实 asset ID，不能退化为浏览器默认值。
+  及当前控件焦点，且主对象 radio 必须使用真实 asset ID，不能退化为浏览器默认值。
   Scene merge 进入已就绪前必须调用现有 Scene merge preview 并由用户确认。
   工作台不把 `needs_review` 或“稍后处理”发到 apply API，也不允许手填任意主对象 ID。
 - 折叠栏和进度摘要必须使用现有设计 token，并覆盖 hover、focus-visible、disabled、错误、暗色主题和 `prefers-reduced-motion`，不得暴露浏览器默认折叠标记。
@@ -199,20 +203,21 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 - 开发服务器使用 Vite：`npm run dev`，默认端口 8080，可通过 `FRONTEND_PORT` 覆盖。
 - 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。
-- 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。默认启动 fresh 8000/8080 服务，只有 `PW_REUSE_EXISTING_SERVER=1` 才复用已有服务；后端启动前执行 `APP_ENV=test alembic upgrade head`。`APP_ENV=test` 不改写 `DATABASE_URL`；本机存在开发 worker 时应显式传入独立测试库。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
-- `npm run test:all` 先跑 Vitest，再跑 Playwright。
+- 浏览器 E2E 使用 Playwright：`npm run test:e2e:functional`；烟雾子集为 `npm run test:e2e:smoke`。默认启动 fresh 8000/8080 服务，只有 `PW_REUSE_EXISTING_SERVER=1` 才复用已有服务；后端启动前执行 `APP_ENV=test alembic upgrade head`。`APP_ENV=test` 不改写 `DATABASE_URL`；本机存在开发 worker 时应显式传入独立测试库。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
 - `npm run build`（vite build）仅作 Vue 构建链冒烟验证：`dist` 仍缺少 classic 基础设施 seam scripts，不能视为可部署产物。无独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
 - 当前已落地共享 JS API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 - 小说检索继续消费 context evidence API：单次最多取回 100 条现有命中，DOM 首批只挂载
   20 张结果卡并按 20 条渐进加载。章节范围的非整数、非正数或倒置条件会在请求前提示并保留给作者修正，不会被伪装成空结果。检索词、方式、正文版本、可见视角、章节范围和 scope
-  保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。新查询
-  abort 旧请求，晚到响应还需通过 project/lifecycle generation 才能回写；证据抽屉使用独立
+  保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。同项目内在
+  “查找 / 状态”间往返保留已执行结果和未提交筛选；切换项目时统一清空。新查询会
+  就地 push hash query 并执行检索，不重挂页面或重取状态数据；同时 abort 旧请求，晚到响应还需
+  通过 project/lifecycle generation 才能回写；证据抽屉使用独立
   abort/generation/project/drawer 门禁，关闭抽屉或切换项目后不接受旧正文、引用或导航结果。
   作者视角的聚合卡会为每个实际命中范围展示所属 Scene 位置和摘要，
   并用项目隔离的写作台 Scene 快照标记“当前/前序/后续”关系；同章多 Scene
   会逐个展示摘要和跳转入口。读者/角色视角不显示这些作者专用元数据，
   不将“因可见性被隐藏”误报为“未关联 Scene”。
-- 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。
+- 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。创建 RAG 维护任务的写请求不随视图卸载取消，避免服务端已入队而浏览器丢失 task id；离页只停止轮询与晚到 UI 投影。
 - 生成中心精确上下文可显式选择最多 16 个其他已采用世界书页，当前页不重复出现。选择按“项目 + 来源页 + target”会话恢复，只作聊天、收束与建议的参考；不合并、修改或自动采用页面。
 - 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。次级“收束本轮”只在作者触发后调用只读 convergence：界面显示实际范围、排除的更早消息、覆盖状态、细账统计与最多 7 张决定卡；接近 40 条只提示，不自动请求。卡内每项可改为“纳入／开放／放弃”，先编成可编辑作者消息，再由作者确认加入本地对话；此阶段不调用聊天、建议或采用 API。完整且未 stale 的收束可导航到既有 `outline/story-outline` 承接全书／分部的核心前提、叙事读法、基调和读者承诺；导航不搬运内容、不改世界事实，整页提案有未应用编辑时复用离开确认。来源页的新页面目标可额外执行只读深度 1 探索：最多展示 3 个带来源证据的相邻缺口，作者只能选 1 个，未选项不创建 suggestion；输入或来源改变会标记选择过期。生成返回的可选来源页修订与新页面分别显示为待审结果，均不自动应用或触发下一跳。不同 owner 只显示需分别处理，本次仍只生成当前 world target。刷新恢复 schemaVersion=1 的摘要、来源 refs、选择与消息；对话/来源选择变化或 409 会把旧稿降为只读，512 KiB 超限先删可重建展开说明而保留 refs、选择和作者消息。多轮结构化建议在结果和世界书建议审阅中默认折叠展示服务端 `decision_state` 的作者语言摘要；低置信或有未决项只标“请核对”，不显示分数，旧记录明确提示未保存摘要。当前已有 pending 提案时，生成动作必须由作者明确选“修订此版”或“另起方案”，不默认推断。修订成功后先展示决定摘要、“上一版 → 当前版”和关键字段差异；世界书审阅可展开不可再采用的线性历史。修订 409 或其他生成失败保留当前对话和未应用编辑；只有新版成功才替换本地预览。前端不读取对象 `_meta`、页面 payload 或原始 `result_ref_json` 来拼装决定/修订关系，也不允许编辑 JSON 伪造决定；作者通过补充明确纠正并重新生成更新它。来源页面正文与服务器工作稿始终由服务器重载；本地 v2 会话按项目 + 来源页 + target 隔离，只缓存对话、选择项、suggestion ID、收束草稿，以及 schemaVersion=1、精确绑定当前 pending suggestion 的作者未应用提案编辑。刷新或离开时仍在等待的聊天助手气泡仅在本地副本转为可见的中断终态，不自动重试且不进入后续聊天请求。该版本化 working copy 受 512 KiB / 最多 5 个会话边界约束，不代表 canonical 或服务器工作稿；匹配 suggestion 才恢复，成功应用或作者确认放弃后清理。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
 - 生成中心模式导航是受限 tab/tabpanel surface：方向键和 Home/End 只 rove 焦点，Enter/Space 继续走既有切换和离开确认；任务预设、世界目标和对象模板以可访问选择态公开当前值，任务原生字段与可见标签关联。
@@ -241,6 +246,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   `sensitivity_hint`、`projection_policy`、稳定 `section_id` 与局部引用 hash 保留在默认折叠的
   “创作辅助与高级设置”，不改变 section payload、恢复、排序或发布契约。公开世界常识明确指
   故事内知识范围，不代表向其他用户公开；自动整理策略也不冒充显式整页参考的全局排除门禁。
+  保存回包直接对账页内工作稿集合，不重挂编辑器，也不重置焦点、光标或当前页面选择。
   世界观简介的终止任务 ID 不得在同一页面生命周期内重新挂回轮询，避免失败刷新反复重绘并
   阻断点击。
 - 世界书类别、简介状态与投影状态默认使用作者可读中文；投影恢复键、任务 ID、原始状态和
@@ -284,7 +290,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 主列表默认隐藏历史；只有显式选择历史/raw status 筛选时加载或展示。
 - API 保留原始 `status/review_state/fact_status` 兼容字段，前端优先消费领域 `display_state`，必要时才由共享 helper 回退映射。
 - AI 正文建议在编辑器中以只读预览打开；“采用到工作稿”成功后加载服务端新 draft 并恢复编辑/自动保存，“拒绝建议”经确认后软废弃候选并回到当前工作稿/已发布稿。顶部“AI 续写”只对服务端已保存的可写或已发布 base draft 开放，不拿未保存本地文本或跨章 Scene 作为替换范围；异步任务轮询没有前端总截止时间，完成后自动打开候选审核面板。普通生成的 `pov_validation=not_applicable` 不显示角色视角失败提示。
-- 生成中心的角色视角正文按“章节 + Scene + POV 角色”确认上下文；已有目标章时锁定完整 active 正文，候选仍是该章完整替换稿，Scene 即使跨章也不扩大范围。结果入口跳转写作台统一审核，POV 面板只描述知识边界诊断，不把“未发现明显越权”显示成整体质量通过。
+- 生成中心的角色视角正文按“章节 + Scene + POV 角色”确认上下文；已有目标章时锁定完整 active 正文，候选仍是该章完整替换稿，Scene 即使跨章也不扩大范围。结果卡固定显示该次请求的 Scene 与 POV 角色，不随生成后的表单选择漂移。结果入口跳转写作台统一审核，POV 面板只描述知识边界诊断，不把“未发现明显越权”显示成整体质量通过。
 - 人物知识管理复用现有列表、创建和更新接口，按可读目标名称/类型展示“当前认知”和可展开的较早记录；作者通过类型化对象选择器新增，在同一目标与生效位置就地更新，并以 PUT 归档，不在主界面暴露 raw ID 或内部枚举。重复检查点会明确提示。角色视角的 AI 参考弹窗完整展示“会交给角色视角模型”的知识，并把导演约束分到“仅供作者约束”；“修正人物知识”在新标签页打开既有管理器，原表单和弹窗保留，作者返回后手动“重新整理”，不自动调用模型。
 - 同一弹窗的 Scene 时点状态按“当时可证 / 人物所信 / 当前正典”分层，只把可追溯的历史投影作为导演约束；未覆盖对象显示“尚无时间锚”，不暴露 checkpoint ID 或内部状态。“核对 Scene 时点”在新标签页打开地图活视图中的既有修复台，原表单保留，返回后由作者手动重新整理。
 - 这条人物知识修复流程目前只面向目标画像 A 的角色视角写作；它不新增角色扮演聊天入口，也不把知识图谱或 Agent 配置转嫁给普通作者。重复使用意愿仍是待真实用户验证的产品假设，当前验收覆盖空态、失败、晚到响应、保存反馈和 390px 触控尺寸。
@@ -299,6 +305,12 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 端点搜索覆盖同项目 canonical / draft / candidate 对象，排除历史对象和 suggestion shadow，不依赖对象库当前首页。
 - 未收录的别名/关系类型以“保留原类型”打开；类型建议只有在用户点击后才更改草稿。置信度只用于筛选/预选，不自动采用。
 - 批处理一次确认只发送一个请求，并在客户端先校验关系 20 个决策 / 50 条所选成员、别名 50 条的上限。成功项移出当前选择并自动进入下一组；`stale` / `failed` 项在原卡片显示原因并保留选中与决策草稿，网络异常不丢草稿。筛选、分页和滚动位置在就地刷新后保留。
+- 世界对象的卡片/表格只切换当前组件呈现并就地同步 query；筛选表单的未应用副本
+  放在现有 `worldSession` 中并精确绑定 query 签名。同项目分页、热点/全部资料切换或后台
+  必要刷新可恢复草稿；外部深链、子页或项目变更仍以新 URL 为准。
+- Outline 篇章/剧情线同样区分已应用 query 与编辑中筛选：翻页只改已应用条件的页码，
+  不隐式提交未点“应用”的控件值；同 query 重挂载恢复草稿，各子页草稿相互隔离，
+  外部 query 或项目变更时以新路由为准。
 - compatibility shadow 仍由建议队列拥有；其内联别名在分组复核页只显示“随对象建议处理”，不进入多选或批处理。
 - 默认卡片不展示 UUID，只展示“来源 · Scene · 章节 · 强度/置信度”和短引用；Workflow、Scene UUID 与证据引用收进可复制的诊断区。关系字段始终称为“强度”。
 - 桌面使用右侧抽屉；390px 变为全屏复核页，复核搜索和主操作按钮高度不小于 44px。

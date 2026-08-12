@@ -17,6 +17,7 @@ export const worldSession = reactive({
   advancedFiltersOpen: false,
   filterPanelsOpen: { ...WORLD_FILTER_PANEL_DEFAULTS },
   autoExtractOpen: false,
+  objectFilterDraft: null,
 
   // 审查工作区草稿与错误（vanilla _relationReviewDrafts 等）
   relationReviewDrafts: {},
@@ -105,6 +106,7 @@ export function reconcileWorldEntry(projectId, subView) {
     worldSession.relationReviewErrors = {}
     worldSession.aliasReviewErrors = {}
     worldSession.bulkSelections = {}
+    worldSession.objectFilterDraft = null
     loadFilterPanelState(normalizedProjectId)
   }
   // Bible 的“上次页面”只能在同一项目内保留。跨项目复用旧 id /
@@ -126,6 +128,7 @@ export function resetWorldSession() {
   worldSession.advancedFiltersOpen = false
   worldSession.filterPanelsOpen = { ...WORLD_FILTER_PANEL_DEFAULTS }
   worldSession.autoExtractOpen = false
+  worldSession.objectFilterDraft = null
   worldSession.relationReviewDrafts = {}
   worldSession.aliasReviewDrafts = {}
   worldSession.relationReviewErrors = {}

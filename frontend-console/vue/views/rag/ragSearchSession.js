@@ -4,8 +4,8 @@
  * 为什么需要它：vanilla 用 renderer 单例字段在整视图重渲染间保留结果；
  * Vue island 在 router 每次 render（含 query-only 变化、子标签切换）后都会
  * 卸载重挂，组件内状态会丢失。会话模块替代单例：路由往返/重挂载期间保留，
- * island load()（对应 vanilla onEnter）调用 resetRagSearchSession() 重置
- * （对应 vanilla _resetSearchState），URL query 仍是检索条件权威来源。
+ * 同项目子标签往返时保留，项目变化时重置；新 URL 状态优先覆盖旧草稿。
+ * URL query 仍是已执行检索条件的权威来源。
  */
 import { reactive } from "vue"
 
@@ -18,6 +18,8 @@ export const ragSearchSession = reactive({
   query: "",
   lastSearchPayload: null,
   lastExecutedRouteSignature: "",
+  formState: null,
+  formRouteSignature: "",
   drawerRefs: [],
   // 索引维护：重建/重试进度（跨重挂载保留，与 vanilla 单例一致）
   rebuildProgress: null,
@@ -56,6 +58,8 @@ export function resetRagSearchSession() {
   ragSearchSession.query = ""
   ragSearchSession.lastSearchPayload = null
   ragSearchSession.lastExecutedRouteSignature = ""
+  ragSearchSession.formState = null
+  ragSearchSession.formRouteSignature = ""
   ragSearchSession.drawerRefs = []
   ragSearchSession.taskRetryPending = false
 }

@@ -74,6 +74,7 @@ const App = {
         esc,
         onRenderActions: () => this._renderGlobalActions(),
         getCurrentProjectId: () => state.currentProjectId,
+        getCurrentRouteKey: () => `${state.currentView || ""}:${state.currentSubView || ""}`,
       })
 
       // mountShell 先创建 #workspace-content，再初始化现有 hash router。

@@ -40,8 +40,7 @@ function _clearAccessToken() {
 function _handleUnauthorizedResponse({ invalidateAccount = true } = {}) {
   _clearAccessToken()
   if (!invalidateAccount || _authMode !== "public") return
-  _apiCache.clear()
-  _pendingRequests.clear()
+  _clearRequestCache()
   forceAccountSafeReload({ reason: "public-unauthorized" })
 }
 
@@ -107,25 +106,57 @@ function _authorizationHeaders(headers = {}) {
 
 const _apiCache = new Map()
 const _pendingRequests = new Map()
+const _cacheGenerations = new Map()
 
 function _cacheKey(path, options) {
   const method = (options.method || "GET").toUpperCase()
   return `${method}:${path}`
 }
 
+function _collectionRoot(path) {
+  const base = String(path || "").split("?")[0]
+  const firstSegment = base.split("/").filter(Boolean)[0]
+  return firstSegment ? `/${firstSegment}` : "/"
+}
+
+function _cacheGeneration(path) {
+  const collectionRoot = _collectionRoot(path)
+  let generation = _cacheGenerations.get(collectionRoot)
+  if (!generation) {
+    generation = {}
+    _cacheGenerations.set(collectionRoot, generation)
+  }
+  return generation
+}
+
+function _isRelatedCacheKey(key, collectionRoot) {
+  const keyPath = key.slice(key.indexOf(":") + 1)
+  return keyPath === collectionRoot
+    || keyPath.startsWith(collectionRoot + "/")
+    || keyPath.startsWith(collectionRoot + "?")
+}
+
 function _invalidateRelatedCache(path) {
   // 失效该资源集合的所有 GET 缓存。
   // 写操作(含 /{id}/restore、/{id}/permanent 这类子动作)都会影响同一集合的列表,
   // 因此按集合根(第一路径段,如 /projects)清除,避免子路径动作遗漏集合级列表(如 recycle-bin)缓存。
-  const base = path.split("?")[0]
-  const collectionRoot = "/" + base.split("/").filter(Boolean)[0]
-  for (const key of _apiCache.keys()) {
-    // key 形如 "GET:/projects/recycle-bin?..." — 取出其路径部分按集合根匹配
-    const keyPath = key.slice(key.indexOf(":") + 1)
-    if (keyPath === collectionRoot || keyPath.startsWith(collectionRoot + "/") || keyPath.startsWith(collectionRoot + "?")) {
-      _apiCache.delete(key)
+  const collectionRoot = _collectionRoot(path)
+  // 代次先于写请求的 JSON 解析完成切换：既有 GET 即使晚到，也不能
+  // 在写操作成功后重新回填旧缓存。
+  _cacheGenerations.set(collectionRoot, {})
+  for (const requestStore of [_apiCache, _pendingRequests]) {
+    for (const key of requestStore.keys()) {
+      if (_isRelatedCacheKey(key, collectionRoot)) requestStore.delete(key)
     }
   }
+}
+
+function _clearRequestCache() {
+  _apiCache.clear()
+  _pendingRequests.clear()
+  // 清空 token 映射也会使正在返回的旧 GET 与后续新 token 失配，
+  // 避免账号切换或显式清缓存后被晚到响应回填。
+  _cacheGenerations.clear()
 }
 
 function _getCached(key) {
@@ -327,6 +358,9 @@ async function request(path, options = {}) {
   // and an obsolete response could be written back after a project switch.
   const shouldUseResponseCache = method === "GET" && fetchOptions.cache !== "no-store"
   const shouldSharePending = shouldUseResponseCache && !externalSignal
+  const responseCacheGeneration = shouldUseResponseCache
+    ? _cacheGeneration(path)
+    : null
 
   if (shouldUseResponseCache) {
     const cached = _getCached(cacheKey)
@@ -419,12 +453,22 @@ async function request(path, options = {}) {
       }
 
       if (resp.status === 204) {
-        if (shouldUseResponseCache) _setCache(cacheKey, null)
+        if (shouldUseResponseCache) {
+          if (_cacheGeneration(path) !== responseCacheGeneration) {
+            return request(path, options)
+          }
+          _setCache(cacheKey, null)
+        }
         return null
       }
 
       const data = await resp.json()
-      if (shouldUseResponseCache) _setCache(cacheKey, data)
+      if (shouldUseResponseCache) {
+        if (_cacheGeneration(path) !== responseCacheGeneration) {
+          return request(path, options)
+        }
+        _setCache(cacheKey, data)
+      }
       return data
     } catch (err) {
       if (err.name === "AbortError") {
@@ -2255,8 +2299,7 @@ const api = {
   // 缓存清除（跨模块写操作后需要刷新 GET 缓存）
   // ============================================================
   clearCache() {
-    _apiCache.clear()
-    _pendingRequests.clear()
+    _clearRequestCache()
   },
 
   // ============================================================

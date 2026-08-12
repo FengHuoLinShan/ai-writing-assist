@@ -276,6 +276,8 @@ async def test_saved_draft_publish_task_indexes_latest_content(
         select(AsyncTask).where(AsyncTask.id == uuid.UUID(task_id))
     )
     task = result.scalar_one()
+    task.mark_running()
+    await db_session.flush()
 
     with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()

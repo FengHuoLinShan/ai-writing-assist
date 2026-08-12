@@ -59,6 +59,7 @@ function overrideRouterQuery(queryString, stateOverrides = {}) {
       ...globalThis.router,
       getCurrentQuery: () => new URLSearchParams(queryString),
       navigate: vi.fn(async () => true),
+      commitCurrentQuery: vi.fn(() => true),
     },
   })
 }
@@ -99,6 +100,22 @@ describe("表单初始化（路由为权威来源）", () => {
     expect(wrapper.find("#rag-content-mode").element.value).toBe("working")
   })
 
+  it("外部不同 query 覆盖旧路由的未提交表单", () => {
+    ragSearchSession.formRouteSignature = new URLSearchParams("q=旧塔").toString()
+    ragSearchSession.formState = {
+      query: "未提交草稿",
+      searchKind: "literal",
+      contentMode: "working",
+      scopes: ["manuscript"],
+    }
+    overrideRouterQuery("q=新塔&kind=smart&content_mode=canonical&scope=world")
+    const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
+
+    expect(wrapper.find("#rag-search-input").element.value).toBe("新塔")
+    expect(wrapper.find("#rag-search-kind").element.value).toBe("smart")
+    expect(wrapper.find("#rag-content-mode").element.value).toBe("canonical")
+  })
+
   it("路由含高级筛选时摘要展开", () => {
     overrideRouterQuery("q=旧塔&chapter_from=2&chapter_to=5")
     const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
@@ -108,17 +125,24 @@ describe("表单初始化（路由为权威来源）", () => {
 })
 
 describe("提交", () => {
-  it("签名不同走路由导航", async () => {
+  it("新检索条件就地更新 URL 并搜索，不重挂页面", async () => {
     overrideRouterQuery("")
     const wrapper = mount(RagSearchView, { props: { projectId: "p1", characters: [], scenes: [] } })
-    await wrapper.find("#rag-search-input").setValue("旧塔")
+    const input = wrapper.find("#rag-search-input")
+    await input.setValue("旧塔")
+    const originalInput = input.element
     await wrapper.find('[data-action="do-search"]').trigger("click")
 
     const router = (await import("../../../vue/bridge/index.js")).getRouter()
-    expect(router.navigate).toHaveBeenCalledWith("rag", "search", true, expect.any(URLSearchParams))
-    const route = router.navigate.mock.calls[0][3]
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "push")
+    const route = router.commitCurrentQuery.mock.calls[0][0]
     expect(route.get("q")).toBe("旧塔")
     expect(route.get("kind")).toBe("smart")
+    await vi.waitFor(() => expect(globalThis.api.context.searchEvidence).toHaveBeenCalled())
+    expect(wrapper.find("#rag-search-input").element).toBe(originalInput)
+    await wrapper.find("#rag-search-input").setValue("旧塔旁的钟")
+    expect(ragSearchSession.formRouteSignature).toBe(route.toString())
   })
 
   it("签名未变时本地直接搜索，不重复导航", async () => {
@@ -166,7 +190,8 @@ describe("提交", () => {
     await wrapper.find('[data-action="do-search"]').trigger("click")
     expect(wrapper.find("#rag-chapter-range-error").exists()).toBe(false)
     expect(wrapper.find("#rag-chapter-from").attributes("aria-invalid")).toBeUndefined()
-    expect(router.navigate).toHaveBeenCalledWith("rag", "search", true, expect.any(URLSearchParams))
+    expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "push")
+    expect(router.navigate).not.toHaveBeenCalled()
   })
 })
 
@@ -418,7 +443,8 @@ describe("路由恢复", () => {
     await wrapper.find("#rag-chapter-from").setValue("2")
     await wrapper.find('[data-action="do-search"]').trigger("click")
     expect(wrapper.find("#rag-chapter-range-error").exists()).toBe(false)
-    expect(router.navigate).toHaveBeenCalledWith("rag", "search", true, expect.any(URLSearchParams))
+    expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "push")
+    expect(router.navigate).not.toHaveBeenCalled()
   })
 
   it("签名未变且有结果时不重复搜索", async () => {

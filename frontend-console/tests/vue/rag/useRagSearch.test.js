@@ -122,6 +122,7 @@ describe("doSearch", () => {
     await doSearch("旧塔", { formState: makeForm() })
     expect(searchError.value).toBeTruthy()
     expect(searchError.value.searchKind).toBe("smart")
+    expect(ragSearchSession.lastExecutedRouteSignature).toBe("")
     scope.stop()
   })
 

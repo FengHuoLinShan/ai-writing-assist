@@ -11,6 +11,7 @@ export { runBulkAction, bulkResultMessage, selectedItemsFrom } from "../../../..
 
 /** outline 会话级批量选择状态（scope → Set<string>）。 */
 export const outlineBulkSelections = reactive({})
+export const outlineFilterDrafts = reactive({})
 let ownerProjectId = null
 
 /**
@@ -21,6 +22,7 @@ export function scopeBulkSelectionsToProject(projectId) {
   const nextProjectId = projectId || null
   if (ownerProjectId === nextProjectId) return false
   clearAllBulkSelections()
+  for (const key of Object.keys(outlineFilterDrafts)) delete outlineFilterDrafts[key]
   ownerProjectId = nextProjectId
   return true
 }
@@ -41,6 +43,10 @@ export function clearAllBulkSelections() {
   for (const key of Object.keys(outlineBulkSelections)) {
     delete outlineBulkSelections[key]
   }
+}
+
+export function clearOutlineFilterDrafts() {
+  for (const key of Object.keys(outlineFilterDrafts)) delete outlineFilterDrafts[key]
 }
 
 export function toggleBulkSelection(scope, id, checked) {

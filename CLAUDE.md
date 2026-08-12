@@ -70,7 +70,7 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 | E2E | Docker PostgreSQL；外部 LLM 默认 mock/fixture，真实 LLM 只用于明确集成验收 |
 | Lint | Ruff，line length 90，Python 3.12，规则 E/F/W/I/N/UP，双引号 |
 
-常用命令：`make dev`、`make test`、`make test-v`、`make test-all`、
+常用命令：`make dev`、`make test`、`make test-fast-coverage TEST_WORKERS=2`、
 `make test-frontend FRONTEND_ARGS="<test>"`、`make lint`、`make format`、`make db && make migrate`。
 完整命令和 Review 门禁见 `development-guide.md`、`testing-guide.md`。架构文档完整性可用
 `make docs-check` 随时验证；机器清单位于

@@ -53,7 +53,6 @@ describe("rebuildIndex", () => {
 
     expect(globalThis.api.rag.rebuild).toHaveBeenCalledWith(
       expect.objectContaining({ novel_id: "p1", content_mode: "working", start_chapter: 1, end_chapter: 3 }),
-      expect.any(Object),
     )
     expect(ragSearchSession.rebuildProgress?.taskId).toBe("t1")
     await vi.waitFor(() => {
@@ -164,6 +163,27 @@ describe("rebuildIndex", () => {
     expect(globalThis.api.rag.rebuild).toHaveBeenCalledTimes(2)
     scope.stop()
   })
+
+  it("scope 销毁后忽略晚到提交响应，不复活会话、轮询或提示", async () => {
+    let resolveRebuild
+    globalThis.api.rag.rebuild = vi.fn(() => new Promise((resolve) => { resolveRebuild = resolve }))
+    globalThis.api.tasks.get = vi.fn()
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({ statusFields: makeStatusFields() }))
+
+    const pending = workflow.rebuildIndex({ contentMode: "canonical", start: "", end: "" })
+    expect(globalThis.api.rag.rebuild.mock.calls[0]).toHaveLength(1)
+    expect(workflow.maintenanceSubmitting.value).toBe(true)
+    globalThis.toast.mockClear()
+    scope.stop()
+    resolveRebuild({ task_id: "t-after-dispose" })
+
+    await expect(pending).resolves.toBe(true)
+    expect(workflow.maintenanceSubmitting.value).toBe(false)
+    expect(ragSearchSession.rebuildProgress).toBeNull()
+    expect(globalThis.api.tasks.get).not.toHaveBeenCalled()
+    expect(globalThis.toast).not.toHaveBeenCalled()
+  })
 })
 
 describe("retryEmbeddings", () => {
@@ -185,7 +205,6 @@ describe("retryEmbeddings", () => {
     await workflow.retryEmbeddings()
     expect(globalThis.api.rag.retryEmbeddings).toHaveBeenCalledWith(
       expect.objectContaining({ novel_id: "p1", statuses: ["failed", "pending_vectorization"] }),
-      expect.any(Object),
     )
     expect(ragSearchSession.rebuildProgress?.workflowType).toBe("rag_retry_embeddings")
     scope.stop()
@@ -291,6 +310,34 @@ describe("recoverRebuildWorkflow", () => {
       expect(statusFields.totalChunks).toBe(42)
     })
     expect(globalThis.api.tasks.get).toHaveBeenCalledWith("t7", "p1")
+    scope.stop()
+  })
+
+  it("终态刷新失败也会收口已完成工作流", async () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([
+      { taskId: "t-refresh", workflowType: "rag_retry_embeddings", projectId: "p1", view: "rag" },
+    ]))
+    globalThis.api.tasks.get = vi.fn(async () => ({
+      task_id: "t-refresh",
+      task_type: "rag_retry_embeddings",
+      status: "done",
+      progress: 100,
+      result: { remaining_retryable_count: 0 },
+    }))
+    const scope = effectScope()
+    const workflow = scope.run(() => useRagWorkflow({
+      statusFields: makeStatusFields(),
+      refreshStatus: vi.fn().mockRejectedValue(new Error("暂时不可用")),
+    }))
+
+    workflow.recoverRebuildWorkflow()
+    await vi.waitFor(() => expect(globalThis.toast).toHaveBeenCalledWith(
+      "索引任务已完成，但状态刷新失败：暂时不可用",
+      "warning",
+    ))
+
+    const persisted = JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]")
+    expect(persisted.some((item) => item.taskId === "t-refresh")).toBe(false)
     scope.stop()
   })
 })

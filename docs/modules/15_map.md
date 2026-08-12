@@ -548,11 +548,13 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 ## 前端实现现状
 
 - Vue `MapWorkspaceView.vue` / `useMapWorkspace.js`：总览首屏只突出“继续最近地图”或“创建第一张地图”一个主操作；归档、资料补全、地图树和图层管理渐进展开，收件箱使用作者可读待处理卡片。总览仍可按章节范围启动独立地图资料补充，明确说明不重跑深度导入并持久化/恢复进度。原始场景 ID 只进入诊断筛选。具体地图继续提供“总控台 / 活地图 / 叙事透镜”以及既有编辑能力；Leaflet/Canvas 仍由 `MapViewportAdapter.vue` 下的窄 controller seam 承载。Leaflet 1.9.4 由本源按需 chunk 加载，失败在地图内原位重试且不影响其他页面；API、schema 和地图状态机不变。
+- 最近地图、动态历史、归档影响和视觉历史请求固定发起时的项目/地图；项目或地图切换后只丢弃晚到的弹窗、局部状态与提示，已经提交的服务端操作保持原语义。
 - 从具体地图创建并打开工作台索引中尚不存在的子地图/根地图时，工作台会先刷新地图与地点索引，保证返回总览后地图树、数量和搜索立即包含新地图。
 - 动态历史与当前动态分区展示；“查看历史”加载 ignored observation、rolled-back/deprecated fact 后，历史不会再受当前动态八条展示上限影响。
 - `worldView`：对象行先读取全部 map presence；一张时直接定位，多张时展示地图角色与绑定数量选择器，无 presence 时回退 `open-target`。
 - `writingView`：Scene 面板展示地图摘要、危机、风险和 warning，并通过 `open_target` 打开地图工作台。
 - `mapView`：浏览模式以 typed selection 区分地点、marker、territory、terrain 与底图，fact/observation 仍走 dashboard inspector。地图设置可将既有地图移到其他层级并关联上级地点，后代地图不进入可选父项。Canvas 使用单 RAF、视口裁剪和 revision/viewport 缓存，隐藏、zoom 外和视口外节点不进入绘制队列。
+- `mapView` 的场景跳转、根地图/详图创建、地图设置与图层设置使用共享弹窗返回契约：本地校验或当前请求失败保留输入供原位重试；写入已成功但后续快速生成、局部对账或自动打开失败时只给警告，不把已完成写入误报为失败，也不允许重复创建。项目、视口或弹窗换主后的晚到结果不再驱动旧界面；图层选择、显隐与撤销等页内重绘保留编辑侧栏滚动、控件焦点和当前地图中心/缩放。
 - 具体地图已选中 Scene 时，同一个 `SceneMemoryRepairPanel` 在“总控台”和“活地图”中可用，不在“叙事透镜”重复展示。AI 参考资料的修复入口通过既有 `buildMapUrl(..., mode='live')` 路由深链接到该面板，未新增路由或 API。
 - 标记编辑器按 `character` / `event` / `item` 过滤同类型世界对象，切换类型时清空旧选择；桌面编辑态释放隐藏动态栏的布局宽度，编辑侧栏在画布高度内独立滚动。
 - 地点标签与聚合簇使用专用 `mapLabels` Leaflet pane；pane 本身不拦截背景，

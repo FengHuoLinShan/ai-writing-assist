@@ -136,6 +136,20 @@ export function createReferencePicker({
     `).join("") : ""
   }
 
+  function syncHighlightedOption({ scroll = false } = {}) {
+    const options = resultsRoot.querySelectorAll("[data-reference-result]")
+    options.forEach((option, index) => {
+      option.classList.toggle("is-active", index === highlightedIndex)
+    })
+    const activeOption = highlightedIndex >= 0 ? options[highlightedIndex] : null
+    if (activeOption) {
+      queryInput.setAttribute("aria-activedescendant", activeOption.id)
+      if (scroll) activeOption.scrollIntoView?.({ block: "nearest" })
+    } else {
+      queryInput.removeAttribute("aria-activedescendant")
+    }
+  }
+
   function renderResults() {
     if (destroyed) return
     if (loading) {
@@ -152,7 +166,7 @@ export function createReferencePicker({
       highlightedIndex = visible.findIndex((item) => !item.unavailable)
     }
     resultsRoot.innerHTML = visible.length ? visible.map((item, index) => `
-      <button type="button" class="reference-picker__option ${index === highlightedIndex ? "is-active" : ""}"
+      <button type="button" class="reference-picker__option"
         id="${pickerId}-option-${index}" data-reference-result="${escapeHtml(refKey(item.kind, item.id))}" role="option"
         aria-selected="false" ${item.unavailable ? "aria-disabled=\"true\" disabled" : ""}>
         <strong>${escapeHtml(item.label)}</strong>
@@ -162,11 +176,7 @@ export function createReferencePicker({
     resultsRoot.hidden = false
     queryInput.setAttribute("aria-expanded", "true")
     queryInput.toggleAttribute("aria-busy", loading)
-    if (highlightedIndex >= 0) {
-      queryInput.setAttribute("aria-activedescendant", `${pickerId}-option-${highlightedIndex}`)
-    } else {
-      queryInput.removeAttribute("aria-activedescendant")
-    }
+    syncHighlightedOption()
   }
 
   function closeResults() {
@@ -242,7 +252,7 @@ export function createReferencePicker({
       selected.clear()
     } else if (selected.size >= selectionLimit) {
       error = `最多选择 ${selectionLimit} 项`
-      renderResults()
+      statusRoot.textContent = error
       return false
     }
     selected.set(refKey(item.kind, item.id), item)
@@ -284,12 +294,12 @@ export function createReferencePicker({
     if (event.key === "ArrowDown" && enabledIndexes.length) {
       event.preventDefault()
       highlightedIndex = enabledIndexes[(currentEnabledPosition + 1 + enabledIndexes.length) % enabledIndexes.length]
-      renderResults()
+      syncHighlightedOption({ scroll: true })
     } else if (event.key === "ArrowUp" && enabledIndexes.length) {
       event.preventDefault()
       const previousPosition = currentEnabledPosition < 0 ? 0 : currentEnabledPosition
       highlightedIndex = enabledIndexes[(previousPosition - 1 + enabledIndexes.length) % enabledIndexes.length]
-      renderResults()
+      syncHighlightedOption({ scroll: true })
     } else if (event.key === "Enter" && !resultsRoot.hidden) {
       event.preventDefault()
       addHighlighted()
@@ -329,13 +339,14 @@ export function createReferencePicker({
       statusRoot.textContent = ""
       renderSelected()
       notify()
+      queryInput.focus({ preventScroll: true })
       return
     }
     const option = event.target.closest?.("[data-reference-result]")
     if (!option) return
     const key = option.getAttribute("data-reference-result")
     const item = results.find((candidate) => refKey(candidate.kind, candidate.id) === key)
-    add(item)
+    if (add(item)) queryInput.focus({ preventScroll: true })
   }
 
   root.addEventListener("click", handleRootClick)

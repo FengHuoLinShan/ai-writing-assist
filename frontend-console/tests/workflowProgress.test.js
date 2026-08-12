@@ -327,6 +327,19 @@ describe("active workflow storage", () => {
     expect(recoverActiveWorkflows("p1")).toEqual([])
   })
 
+  it("does not attach legacy projectless workflows to the current project", () => {
+    persistActiveWorkflow({ taskId: "task-p1", workflowType: "deep_import", projectId: "p1" })
+    persistActiveWorkflow({ taskId: "task-p2", workflowType: "deep_import", projectId: "p2" })
+    persistActiveWorkflow({ taskId: "task-legacy", workflowType: "deep_import" })
+
+    expect(recoverActiveWorkflows("p1").map((item) => item.taskId)).toEqual(["task-p1"])
+    expect(recoverActiveWorkflows().map((item) => item.taskId)).toEqual([
+      "task-p1",
+      "task-p2",
+      "task-legacy",
+    ])
+  })
+
 })
 
 describe("pollTaskProgress", () => {

@@ -33,11 +33,10 @@ npm install
 npm run dev                      # Vite dev server with hot reload (port 8080)
 npm run test                     # Vitest unit/component tests
 npm run test:watch               # Vitest watch mode
-npm run test:e2e                 # Playwright E2E
+npm run test:e2e:functional      # Complete functional Playwright E2E
 npm run test:e2e:smoke           # Playwright smoke subset
 npm run test:e2e:map             # Complete map regression list; workers=1/retries=0
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf  # Real map telemetry profile
-npm run test:all                 # Vitest, then Playwright
 
 # Database
 make db                          # docker compose up -d
@@ -52,12 +51,9 @@ make doctor-llm                  # Explicitly includes remote LLM provider conne
 
 # Testing & linting
 make test                        # Fast backend layer: no PostgreSQL, real LLM, or local corpus
-make test-fast                   # Explicit alias for the fast backend layer
-make test-fast-parallel TEST_WORKERS=2  # Same fast layer with xdist; CI uses 2 workers
 make test-fast-coverage TEST_WORKERS=2  # CI-equivalent fast layer with 85% coverage gate
-make test-v                      # Fast layer, verbose, stop on first failure
 make test ARGS="-k test_create"  # Filter by test name
-make test-integration            # SQLite cross-module integration tests
+make test TESTS=tests/integration  # Select a backend path with native pytest syntax
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB at Alembic head
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # Serial PostgreSQL merge-gate subset; retries=0
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"  # Map observation row-lock race
@@ -72,7 +68,6 @@ make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make eval-ask-world             # Offline Ask World retrieval/citation launch gate
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
-make test-all                    # Fast backend layer + frontend Vitest; no E2E
 make docs-check                  # Current architecture inventory and link/diagram checks
 make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review
 make test-ci TEST_WORKERS=2     # One cross-stack quality gate; no PostgreSQL/browser/image suites
@@ -84,16 +79,16 @@ make format-fix                  # ruff format
 ```
 
 上述自动化 backend 质量目标会在进入 `backend/` 后自行通过 `uv run --locked --extra ci --`
-解析 `backend/.python-version` 的 Python `3.14.6` 与 `backend/uv.lock` 的 `ci` 工具链；无需预先
+解析 `backend/.python-version` 的 Python `3.14.7` 与 `backend/uv.lock` 的 `ci` 工具链；无需预先
 激活虚拟环境。首次运行仍需要可用的 `uv` 以及本地缓存或网络来取得锁定环境；这不移除 E2E
 目标的专用 PostgreSQL 等外部前提。
 
 Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证；`make test-production-images` 才会实际构建两份生产镜像并检查运行时合同。
 
 开发中只跑受影响项；提交前按 `testing-guide.md` 选择一次对应门禁。跨栈、安全或 CI 改动运行
-一次 `make test-ci TEST_WORKERS=2` 即可，不再先后重复 `make test` 或 `make test-all`。
+一次 `make test-ci TEST_WORKERS=2` 即可，不再先跑它已包含的 `make test` 或前端 Vitest。
 
-完整 `npm run test:e2e:functional` 在 GitHub pull request 与 `main` push 上各运行一次，使用全新的
+完整 `npm run test:e2e:functional` 在 GitHub pull request 上运行一次，使用全新的
 专用 PostgreSQL 与 Chromium，固定 workers=1、retries=0，失败诊断保留 14 天。
 `npm run test:e2e:smoke` 和 `npm run test:e2e:map` 保留为本地定向入口，其用例已包含在完整
 Functional 套件中，不再作为独立 CI job。视觉、地图性能、真实 LLM 和 worker suite 仍需通过
@@ -140,8 +135,8 @@ facade/contracts、任务、前端路由/wire 或 Prompt 的分支必须在收�
 ## Pinned production toolchains
 
 Production Dockerfiles and PostgreSQL service declarations use reviewed image tags plus
-immutable SHA-256 digests. The backend image uses Python `3.14.6`, uv `0.11.28`, and
-the frontend build uses Node `24.18.1` LTS; `backend/.python-version` and
+immutable SHA-256 digests. The backend image uses Python `3.14.7`, uv `0.12.3`, and
+the frontend build uses Node `24.19.0` LTS; `backend/.python-version` and
 `frontend-console/.node-version` record the matching local-tooling versions. CI runs on
 `ubuntu-24.04` and installs those exact interpreter/tool versions before its relevant
 jobs. These pins make build inputs reviewable and repeatable, but do not promise
