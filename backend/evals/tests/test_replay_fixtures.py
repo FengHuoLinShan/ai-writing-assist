@@ -169,17 +169,24 @@ def test_source_manifest_rules_are_internally_consistent() -> None:
 def test_content_digests_are_hex_or_recomputable_derivations() -> None:
     for data in _fixtures().values():
         rule = data.get("source_manifest_rule")
-        derivation = (rule or {}).get("digest_derivation")
+        rule = rule if isinstance(rule, dict) else None
+        derivation = rule.get("digest_derivation") if rule else None
         for ref in data["initial_state_refs"]:
             digest = ref["content_digest"]
-            covered = derivation is not None and _rule_covers_ref(rule, ref["ref_id"])
+            covered = (
+                bool(rule)
+                and derivation is not None
+                and _rule_covers_ref(rule, ref["ref_id"])
+            )
             if HEX64_RE.match(digest):
                 if covered:
+                    assert derivation is not None
                     assert digest == _recompute_rule_digest(derivation, ref)
                 continue
             recomputed = _evaluate_digest_expression(digest, ref)
             assert HEX64_RE.match(recomputed), f"bad result for {ref['ref_id']}"
             assert covered, f"expression digest outside a covered rule: {ref['ref_id']}"
+            assert derivation is not None
             assert recomputed == _recompute_rule_digest(derivation, ref)
 
 
