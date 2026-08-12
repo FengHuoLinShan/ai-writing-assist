@@ -110,7 +110,8 @@ test.describe("writing 视觉基线", () => {
     await openPopulatedDesk(page, project)
     await applyTheme(page, "minimal")
 
-    await page.locator(SEL.writingToolbar).getByRole("button", { name: "聚焦模式" }).click()
+    await page.locator(SEL.writingToolbar).getByText("写作视图", { exact: true }).click()
+    await page.locator(SEL.writingToolbar).getByRole("button", { name: "进入专注" }).click()
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator(SEL.writingTreeRail)).toBeHidden()
     await expect(page.locator(SEL.writingPanelRail)).toBeHidden()

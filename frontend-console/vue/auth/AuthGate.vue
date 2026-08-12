@@ -114,5 +114,6 @@ async function restore() {
 .auth-card label{display:grid;gap:8px;font-size:14px}.auth-card input{min-width:0;padding:12px;border:1px solid #cfc7b9;border-radius:9px;font:inherit}
 .code-row{display:grid;grid-template-columns:1fr auto;gap:10px}.auth-card button,.button-link{padding:12px 16px;border:0;border-radius:9px;background:#6f4628;color:#fff;font:inherit;text-align:center;text-decoration:none;cursor:pointer}
 .auth-card button:disabled{opacity:.5;cursor:not-allowed}.auth-card .secondary{background:#e9dfd2;color:#4b3525}.consent{grid-template-columns:auto 1fr!important;align-items:start}.consent input{margin-top:3px}.message{color:#315c39}.message.error{color:#a23232}.support{font-size:13px;color:#6d675f}
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media(max-width:520px){.auth-card{padding:24px}.code-row{grid-template-columns:1fr}.auth-card .secondary{width:100%}}
 </style>

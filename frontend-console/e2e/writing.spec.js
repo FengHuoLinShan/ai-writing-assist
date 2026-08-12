@@ -873,7 +873,7 @@ test.describe("写作台模块", () => {
       await reloadWorkbench(page, "writing")
       await waitWritingReady(page)
       await selectWritingChapter(page, 1)
-      if (width < 600) {
+      if (width <= 760) {
         await expect(page.locator("#mobile-note-editor")).toBeVisible({ timeout: 5000 })
         await expect(page.locator(".mobile-quick-note")).toContainText("完整编辑器")
       } else {

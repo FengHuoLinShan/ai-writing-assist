@@ -115,11 +115,11 @@ audit-backend-deps:  ## Audit every locked backend dependency for known advisori
 audit-frontend-deps:  ## Fail on high/critical frontend dependency lockfile advisories
 	cd $(FRONTEND_DIR) && npm audit --package-lock-only --audit-level=high
 
-test-all:  ## Run backend tests, then frontend tests
+test-all:  ## Run fast backend tests and frontend Vitest; excludes E2E
 	$(MAKE) test-fast ARGS="$(BACKEND_ARGS)"
 	$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"
 
-test-ci: docs-check secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps  ## Run the local equivalent of required CI quality jobs
+test-ci: docs-check secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps  ## Run local quality gates; excludes PostgreSQL, browser, and image suites
 	$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS) ARGS="$(ARGS) -W error::RuntimeWarning"
 	$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"
 

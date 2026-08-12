@@ -104,6 +104,6 @@ watch(mode, clearActiveSuggestion)
 defineExpose({ open, close, execute, isOpen: () => active.value, contains })
 </script>
 
-<style>
+<style scoped>
 .shell-suggestion-description{color:var(--text-tertiary);margin-left:8px;font-size:12px}.command-suggestions .suggestion{width:100%;border:0;background:transparent;text-align:left}
 </style>

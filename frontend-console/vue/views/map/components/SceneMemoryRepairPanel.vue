@@ -111,5 +111,6 @@ watch(() => [props.projectId, props.sceneId], load, { immediate: true })
 .scene-memory-decision { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-3); border-radius: var(--radius-md); background: var(--accent-soft); }
 .scene-memory-decision label { display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; }
 .scene-memory-primary { width: 100%; justify-content: center; }
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 560px) { .scene-memory-dimensions { grid-template-columns: 1fr; } }
 </style>

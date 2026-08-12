@@ -46,142 +46,6 @@ jobs:
       - name: Build frontend production bundle
         run: npm run build
 
-  frontend-browser-smoke:
-    name: Frontend browser smoke
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-
-    services:
-      postgres:
-        image: pgvector/pgvector:0.8.6-pg17-bookworm@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38
-        env:
-          POSTGRES_DB: ai_writing_browser_e2e_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: "${{ github.run_id }}"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d ai_writing_browser_e2e_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-
-    env:
-      DATABASE_URL: "postgresql+asyncpg://postgres:${{ github.run_id }}@127.0.0.1:5432/ai_writing_browser_e2e_test"
-      PW_REUSE_EXISTING_SERVER: "0"
-      BACKEND_PORT: "8000"
-      FRONTEND_PORT: "8080"
-      CI: "true"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.11.28"
-          python-version: "3.14.6"
-          enable-cache: true
-          cache-dependency-glob: backend/uv.lock
-
-      - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: frontend-console/.node-version
-          cache: npm
-          cache-dependency-path: frontend-console/package-lock.json
-
-      - name: Install locked backend dependencies
-        run: uv sync --project backend --locked --extra ci
-
-      - name: Install locked frontend dependencies
-        run: npm --prefix frontend-console ci
-
-      - name: Install Chromium for Playwright
-        run: npm --prefix frontend-console exec playwright -- install --with-deps chromium
-
-      - name: Run frontend browser smoke
-        run: uv run --project backend --locked --extra ci -- npm --prefix frontend-console run test:e2e:smoke
-
-      - name: Upload frontend browser smoke diagnostics
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: frontend-browser-smoke-diagnostics
-          path: frontend-console/test-results
-          if-no-files-found: ignore
-          include-hidden-files: true
-          retention-days: 14
-
-  frontend-map-browser:
-    name: Frontend map browser
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-
-    services:
-      postgres:
-        image: pgvector/pgvector:0.8.6-pg17-bookworm@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38
-        env:
-          POSTGRES_DB: ai_writing_map_browser_e2e_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: "${{ github.run_id }}"
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d ai_writing_map_browser_e2e_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-
-    env:
-      DATABASE_URL: "postgresql+asyncpg://postgres:${{ github.run_id }}@127.0.0.1:5432/ai_writing_map_browser_e2e_test"
-      PW_REUSE_EXISTING_SERVER: "0"
-      BACKEND_PORT: "8000"
-      FRONTEND_PORT: "8080"
-      CI: "true"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.11.28"
-          python-version: "3.14.6"
-          enable-cache: true
-          cache-dependency-glob: backend/uv.lock
-
-      - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: frontend-console/.node-version
-          cache: npm
-          cache-dependency-path: frontend-console/package-lock.json
-
-      - name: Install locked backend dependencies
-        run: uv sync --project backend --locked --extra ci
-
-      - name: Install locked frontend dependencies
-        run: npm --prefix frontend-console ci
-
-      - name: Install Chromium for Playwright
-        run: npm --prefix frontend-console exec playwright -- install --with-deps chromium
-
-      - name: Run frontend map browser
-        run: uv run --project backend --locked --extra ci -- npm --prefix frontend-console run test:e2e:map
-
-      - name: Upload frontend map browser diagnostics
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: frontend-map-browser-diagnostics
-          path: frontend-console/test-results
-          if-no-files-found: ignore
-          include-hidden-files: true
-          retention-days: 14
-
   frontend-functional-browser:
     name: Frontend functional browser
     runs-on: ubuntu-24.04
@@ -214,11 +78,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
           python-version: "3.14.6"
           enable-cache: true
+          prune-cache: true
           cache-dependency-glob: backend/uv.lock
 
       - name: Install Node.js

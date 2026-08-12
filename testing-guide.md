@@ -49,7 +49,7 @@ Three layers:
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and visibility thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
-| `make test-ci TEST_WORKERS=2` | Local equivalent of architecture inventory, secret hygiene, backend and frontend dependency audits, Ruff, deployment static/CLI contracts, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies; OSV data for backend audit and npm registry/advisory data for frontend audit |
+| `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.6 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
@@ -59,8 +59,8 @@ Three layers:
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"` | Map observation confirm/ignore row-lock race | Dedicated PostgreSQL at Alembic head |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated on pull requests and `main` pushes |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Complete map browser regression, including touch/390px | Explicit dedicated PostgreSQL and fresh backend/frontend |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated once on pull requests and once on `main` pushes |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map-perf` | Fixed 24×18 and 200×200 map telemetry profiles | Dedicated PostgreSQL; Chromium 1280×720; workers=1; retries=0 |
@@ -68,6 +68,27 @@ Three layers:
 | `RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi` | Paid Kimi K3 account connection, balance, RP streaming/branch/summary, provider hot-switch, and fail-closed recovery gate | Explicit temporary Kimi Open Platform and DeepSeek keys; Kimi remains disabled outside the test process |
 | `RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context` | Paid Kimi usage-token calibration at seven sizes plus a real PostgreSQL 530K emergency-summary journey | Explicit cost approval, current official context limit, temporary Kimi key, and dedicated PostgreSQL at Alembic head |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, dedicated PostgreSQL, and configured provider credentials |
+
+### Recommended regression cadence
+
+Use the smallest existing entry point that covers the change, then stop when that layer is
+green. Do not run overlapping aggregate targets back-to-back.
+
+1. **While editing**: run only the affected pytest or Vitest file. For a changed browser flow,
+   use the existing `test:e2e:smoke` or `test:e2e:map` subset with a dedicated database.
+2. **Before review**: backend-only changes run `make test-fast` plus `make lint`; frontend-only
+   changes run complete Vitest, with `npm run build` only when the bundle, entry points, or build
+   configuration changed. Cross-stack, security, or CI changes run
+   `make test-ci TEST_WORKERS=2` once; it already subsumes the fast backend and frontend Vitest
+   layers, so do not precede it with `make test` or `make test-all`.
+3. **When the risk requires it**: schema or concurrency changes add the PostgreSQL critical
+   subset; deployment or image changes add their existing contract target; visual, map
+   performance, real-LLM, long-context, worker, and real-corpus suites remain explicit
+   acceptance gates.
+
+Every non-trivial branch still finishes with `make docs-check BASE_REF=origin/main` and
+`git diff --check`. GitHub runs the complete functional browser suite once per PR and once again
+for the merged `main` SHA.
 
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
@@ -119,8 +140,8 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 
 GitHub Actions 在 pull request 和 `main` push 上并行运行三个职责清晰的主工作流：
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
-`Frontend unit quality`、`Frontend browser smoke`、`Frontend map browser` 与
-`Frontend functional browser`，`Production Image CI` 包含 `Production image contract`。
+`Frontend unit quality` 与 `Frontend functional browser`，`Production Image CI` 包含
+`Production image contract`。
 它们与独立的 `Architecture docs` 均使用 `ubuntu-24.04`，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
 secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.14.6`，
@@ -152,12 +173,12 @@ text collection metrics with an isolated local Codex evaluator. Frontend job fir
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.18.1` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
-build. `Frontend browser smoke` remains an automated four-domain author smoke (home, project,
-imports, writing), and `Frontend map browser` remains a separate map-specific job; both start
-fresh dedicated PostgreSQL and Chromium, use workers=1 and retries=0, and retain
-`frontend-console/test-results` failure diagnostics for 14 days. `Frontend functional browser`
-runs the complete functional suite with the same isolation and fixed worker/retry settings.
-Visual, map-performance, real-LLM and worker Playwright suites remain explicit/manual acceptance runs.
+build. `Frontend functional browser` starts a fresh dedicated PostgreSQL and Chromium, runs the
+complete functional suite with workers=1 and retries=0, and retains
+`frontend-console/test-results` failure diagnostics for 14 days. `test:e2e:smoke` and
+`test:e2e:map` remain focused local subsets already contained in that suite; they do not run as
+separate CI jobs. Visual, map-performance, real-LLM and worker Playwright suites remain
+explicit/manual acceptance runs.
 The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
 data; both complement rather than replace builds and tests, and a passing audit is
@@ -186,7 +207,7 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。仓库文件不会自动启用
 远端 ruleset/分支保护，需单独配置；启用后，应把 `Architecture docs`、`Backend quality`、`PostgreSQL critical`、
 `Frontend unit quality`、
-`Frontend functional browser`、`Production image contract`、`Frontend map browser`、
+`Frontend functional browser`、`Production image contract`、
 `CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前必需状态检查。
 `Production image contract` 独立执行 `make test-production-images`：它从固定 tag+digest
 构建 backend/frontend 镜像，并在容器内确认 backend 非 root、没有 uv、可导入 app，以及

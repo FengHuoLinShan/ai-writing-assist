@@ -51,6 +51,14 @@
   --selected: var(--bg-active);
   --hover: var(--bg-hover);
   --hover-bg: var(--bg-hover);
+  /* 兼容别名（仍被业务样式引用；经语义层转发，随主题自动切换） */
+  --bg: var(--bg-base);
+  --text: var(--text-body);
+  --text-muted: var(--text-secondary);
+  --text-dim: var(--text-tertiary);
+  --bg-surface: var(--bg-panel);
+  --bg-alt: var(--bg-active);
+  --accent-dim: var(--accent-hover);
   --radius-sm: 2px;
   --radius-md: 3px;
   --radius-lg: 4px;
@@ -172,7 +180,7 @@ body {
 .logo {
   color: var(--archive-ink);
   font-family: var(--font-body);
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-caps);
   font-weight: 700;
 }
 
@@ -187,30 +195,44 @@ body {
 .topbar-right,
 .topbar-wordcount {
   font-family: var(--font-mono);
-  letter-spacing: 0.045em;
+  letter-spacing: var(--tracking-wide);
 }
 
 #theme-toggle.btn-icon {
-  border: 1px solid var(--archive-rule) !important;
-  background: var(--archive-paper-raised) !important;
-  color: var(--archive-ink) !important;
-  border-radius: 2px !important;
+  border: 1px solid var(--archive-rule);
+  background: var(--archive-paper-raised);
+  color: var(--archive-ink);
+  border-radius: 2px;
+  font-size: 14px;
+}
+
+#theme-toggle.btn-icon:hover {
+  background: var(--bg-hover);
 }
 
 #theme-menu {
-  border-color: var(--archive-rule-strong) !important;
-  border-radius: 2px !important;
-  box-shadow: var(--shadow-float) !important;
+  background: var(--archive-paper-raised);
+  border: 1px solid var(--archive-rule-strong);
+  border-radius: 2px;
+  box-shadow: var(--shadow-float);
 }
 
 #theme-menu .theme-option {
+  background: none;
+  border: none;
+  color: var(--text-body);
   font-family: var(--font-mono);
+  font-size: 13px;
   letter-spacing: 0.04em;
 }
 
 #theme-menu .theme-option:hover {
-  background: var(--bg-hover) !important;
-  color: var(--archive-red) !important;
+  background: var(--bg-hover);
+  color: var(--archive-red);
+}
+
+#theme-menu .theme-option:active {
+  background: var(--bg-active);
 }
 
 #sidebar {
@@ -1370,7 +1392,7 @@ table tbody tr:hover td {
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   #topbar {
     border-bottom-color: var(--archive-rule-strong);
   }

@@ -1,10 +1,10 @@
 /**
  * outline 页视觉基线 — Phase 3c Vue 迁移的像素对比锚点。
  *
- * 机制与 visual-world.spec.js 一致：darwin 基线按平台提交、动态内容 mask、
+ * 机制与 visual-world.spec.js 一致：darwin 基线按平台提交、动态内容固定化或 mask、
  * 三主题对比。确定性保障：
  * - 每个测试用独立新项目 + API 种子数据（总纲 revision/篇章纲/剧情线），内容完全确定；
- * - outline 页面不渲染日期；计数由种子数据推导；
+ * - 总纲时间固定为测试文本；计数由种子数据推导；
  * - scenes 子视图归 sceneWorkbenchView（Phase 4），不在本基线范围；
  * - 基线仅提交 darwin 平台；其他平台需 VISUAL_BASELINE=1 --update-snapshots 生成本地基线。
  */
@@ -77,6 +77,9 @@ test.describe("outline 视觉基线", () => {
     await openWorkbench(page, proj, "outline", "story-outline")
     await expect(page.locator(".story-outline-workspace")).toBeVisible({ timeout: 10000 })
     await expect(page.locator(".story-outline-workspace")).toContainText("群岛共同体")
+    await page.locator("#story-outline-current-title + .form-hint").evaluate((element) => {
+      element.textContent = "手工创建 · 2026/1/1 00:00:00"
+    })
     for (const theme of THEMES) {
       await applyTheme(page, theme)
       await screenshotPage(page, `outline-story-outline-${theme}.png`)
@@ -85,8 +88,8 @@ test.describe("outline 视觉基线", () => {
 
   test("outline 篇章纲 × 三主题", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线篇章纲", genre: "fantasy", language: "zh" })
-    await createArc(proj.id, { title: "第一卷 潮起", start_chapter: 1, end_chapter: 10, arc_goal: "主角初入江湖，建立航盟。" })
-    await createArc(proj.id, { title: "第二卷 暗涌", start_chapter: 11, end_chapter: 22, arc_goal: "旧势力反扑，航盟分裂危机。" })
+    await createArc(proj.id, { title: "第一卷 潮起", arc_index: 1, start_chapter: 1, end_chapter: 10, arc_goal: "主角初入江湖，建立航盟。" })
+    await createArc(proj.id, { title: "第二卷 暗涌", arc_index: 2, start_chapter: 11, end_chapter: 22, arc_goal: "旧势力反扑，航盟分裂危机。" })
 
     await openWorkbench(page, proj, "outline", "arcs")
     await expect(page.locator('[data-action="nav-arcs"]')).toHaveClass(/active/)

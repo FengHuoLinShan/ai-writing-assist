@@ -21,7 +21,6 @@ npm run dev
 npm run test
 npm run test:watch
 npm run test:e2e
-npm run test:e2e:functional
 npm run test:e2e:smoke
 npm run test:e2e:visual
 npm run test:e2e:visual:update
@@ -70,17 +69,15 @@ DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
 ```
 
 启动命令会在后端启动前执行 `APP_ENV=test alembic upgrade head`；
-默认 `test:e2e` / `test:e2e:functional` 只收集功能测试，排除地图性能、真实 LLM 和
-worker 套件。各专用入口分别为：
-
-完整 `test:e2e:functional` 现在会在 pull request 与 `main` push 上由独立
-`Frontend functional browser` job 自动运行：每次使用全新的专用 PostgreSQL 和 Chromium，固定
-workers=1、retries=0；失败时保留 `test-results/` 诊断产物 14 天。四个作者域（首页、项目、导入、写作）的
-`test:e2e:smoke` 仍是更快的浏览器信号，`test:e2e:map` 仍由独立 `Frontend map browser` job 提供地图专项信号，
-两者同样使用隔离数据库和 Chromium。视觉、地图性能、真实 LLM 和 worker suite 仍是显式验收入口。
+`test:e2e` 与兼容别名 `test:e2e:functional` 都只收集功能测试，排除地图性能、真实 LLM 和
+worker 套件。完整套件在 pull request 与 `main` push 上由 `Frontend functional browser` job
+各运行一次：每次使用全新的专用 PostgreSQL 和 Chromium，固定 workers=1、retries=0；失败时
+保留 `test-results/` 诊断产物 14 天。`test:e2e:smoke` 和 `test:e2e:map` 保留为本地定向入口，
+其用例已包含在完整套件中，不再单独占用 CI job。视觉、地图性能、真实 LLM 和 worker suite
+仍是显式验收入口。
 
 ```bash
-DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:visual
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:real-llm
@@ -362,7 +359,7 @@ frontend-console/
 
 - 项目页采用编辑式“作品档案”布局：米白纸张、深蓝与朱红索引色、几何拼贴项目封面；
   当前项目置顶并占主版面，搜索、批量选择、导入和回收站仍沿用原有交互与接口。导入历史只为失败记录显示经清洗、限长的作者可读失败原因；完成或进行中的记录不会泄露错误字段。历史加载失败不会伪装成空记录，同项目刷新失败保留上次成功内容并提供安全重试。新建或编辑项目的必填标题校验、保存失败都会保留现有输入，且字段使用关联 label 提供可访问名称。抽屉已选文件可直接复用到“导入为新项目”确认，取消确认不清空文件选择；文件标签完整说明支持 txt/epub/html/htm/mobi/azw3 与 50MB 上限。
-  `720px` 以下改为单栏，390px 保持完整统计与主操作且不横向溢出。
+  `760px` 以下改为单栏，390px 保持完整统计与主操作且不横向溢出。
 - `editorial-theme.css` 将同一档案语言扩展到全部一级页面、子标签、弹窗、表格与辅助栏；
   `styles.css` 继续拥有结构布局，主题覆层不得改变路由、DOM 事件契约或 API/wire shape。
 - 项目页以外的工作区使用独立档案编号、英文索引角标和克制的几何切线；一级空状态采用分栏海报式构图，

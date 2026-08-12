@@ -71,7 +71,7 @@ export function useSceneWorkbench(props) {
   const advancedFiltersOpen = ref(Boolean(props.advancedFiltersOpen))
   const selectedIds = shallowRef(new Set())
   const mobileDetailOpen = ref(Boolean(selectedSceneId.value))
-  const narrow = ref(typeof window !== "undefined" && window.innerWidth < 720)
+  const narrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
   const loading = ref(false)
   const loadError = ref(props.sceneLoadError || null)
   const requestGeneration = ref(0)
@@ -507,7 +507,7 @@ export function useSceneWorkbench(props) {
   }
 
   function onResize() {
-    narrow.value = window.innerWidth < 720
+    narrow.value = window.innerWidth <= 760
   }
 
   const offTerminal = sceneAutoExtractManager.subscribeTerminal(async (progress) => {
