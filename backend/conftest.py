@@ -48,7 +48,8 @@ import modules.settings.models  # noqa: F401
 import modules.world.map_models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
-from app.main import _register_container_services, app
+from app.bootstrap import register_container_services
+from app.main import app
 from core.base import Base
 from core.container import reset as reset_container
 from core.dependencies import get_db
@@ -69,7 +70,7 @@ def _reset_application_state() -> AsyncGenerator[None, None]:
     """Keep global DI and FastAPI overrides isolated between every test."""
     app.dependency_overrides.clear()
     reset_container()
-    _register_container_services()
+    register_container_services()
     try:
         yield
     finally:

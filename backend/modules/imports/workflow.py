@@ -453,13 +453,6 @@ class DeepImportWorkflow:
                 env_name="PHASE1C_AUTO_MERGE_CONFIDENCE",
                 default=0.92,
             ),
-            boundary_context_chars=deep_import_int_setting(
-                project_settings,
-                "phase1c",
-                "boundary_context_chars",
-                env_name="PHASE1C_BOUNDARY_CONTEXT_CHARS",
-                default=2000,
-            ),
             concurrency=deep_import_int_setting(
                 project_settings,
                 "phase1c",

@@ -125,7 +125,7 @@
 验证命令（在 `frontend-console/` 下执行）：
 
 ```bash
-npm run test:e2e -- e2e/generate.spec.js     # 功能契约（tab 导航、聊天、提案、pov、task 编译）
+npm run test:e2e:functional -- e2e/generate.spec.js     # 功能契约（tab 导航、聊天、提案、pov、task 编译）
 npm run test                                 # vitest 单测（含 editorialTheme/typographyTokens 契约，样式迁移后必跑）
 ```
 

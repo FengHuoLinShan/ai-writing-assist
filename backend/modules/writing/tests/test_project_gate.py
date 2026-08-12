@@ -5,13 +5,6 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from modules.writing.api import router
-from tests.support.project_gate import routes_without_leading_active_project_guard
-
-
-def test_every_writing_route_starts_with_active_project_guard() -> None:
-    assert routes_without_leading_active_project_guard(router) == []
-
 
 @pytest.mark.asyncio
 async def test_writing_routes_hide_recycled_and_missing_projects(

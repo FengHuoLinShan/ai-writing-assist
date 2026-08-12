@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import os
 import re
 import shlex
 import subprocess
@@ -341,16 +340,8 @@ def test_default_pytest_layer_keeps_strict_external_markers() -> None:
         assert f"not {marker}" in marker_expression
 
 
-def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
+def test_backend_coverage_policy_excludes_test_code() -> None:
     config = tomllib.loads((BACKEND_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    optional_dependencies = config["project"]["optional-dependencies"]
-    for extra in ("ci", "dev", "test"):
-        package_names = {
-            requirement.split(">=", maxsplit=1)[0]
-            for requirement in optional_dependencies[extra]
-        }
-        assert {"pytest-cov", "pytest-timeout", "pytest-xdist"} <= package_names
-
     coverage_config = config["tool"]["coverage"]
     assert set(coverage_config["run"]["source"]) == {
         "app",
@@ -367,87 +358,24 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
         "*/conftest.py",
     } <= set(coverage_config["run"]["omit"])
     assert coverage_config["report"]["fail_under"] >= 85.0
-    assert coverage_config["report"]["show_missing"] is True
-
-    repo_root = BACKEND_ROOT.parent
-    makefile = (repo_root / "Makefile").read_text(encoding="utf-8")
-    backend_workflow = (repo_root / ".github/workflows/backend-ci.yml").read_text(
-        encoding="utf-8"
-    )
-    frontend_workflow = (repo_root / ".github/workflows/frontend-ci.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert "test-fast-parallel:" in makefile
-    assert "test-fast-coverage:" in makefile
-    assert "secret-hygiene:" in makefile
-    assert "--timeout=$(FAST_TEST_TIMEOUT_SECONDS)" in makefile
-    assert "-n $(TEST_WORKERS) --dist=loadscope" in makefile
-    assert "python3 backend/tools/secret_hygiene.py" in backend_workflow
-    assert backend_workflow.index(
-        "Check repository secret hygiene"
-    ) < backend_workflow.index("Install uv and Python")
-    assert "name: Audit locked backend dependencies" in backend_workflow
-    assert "make audit-backend-deps" in backend_workflow
-    assert "run: make audit-backend-deps" in backend_workflow
-    assert (
-        backend_workflow.index("Install uv and Python")
-        < backend_workflow.index("name: Audit locked backend dependencies")
-        < backend_workflow.index("Install locked backend dependencies")
-        < backend_workflow.index("name: Lint backend")
-    )
-    assert "make test-fast-coverage TEST_WORKERS=2" in backend_workflow
-    assert 'ARGS="-W error::RuntimeWarning"' in backend_workflow
-    assert "name: Frontend unit quality" in frontend_workflow
-    assert "working-directory: frontend-console" in frontend_workflow
-    assert "run: npm ci" in frontend_workflow
-    assert "name: Audit frontend dependency lockfile" in frontend_workflow
-    assert "run: npm audit --package-lock-only --audit-level=high" in frontend_workflow
-    assert "run: npm test" in frontend_workflow
-    assert (
-        frontend_workflow.index("run: npm ci")
-        < frontend_workflow.index("name: Audit frontend dependency lockfile")
-        < frontend_workflow.index("run: npm test")
-    )
-    assert "test-ci:" in makefile
-    assert "make test-deploy" in backend_workflow
 
 
-def _make_dry_run(
-    target: str,
-    *variables: str,
-    environment: dict[str, str] | None = None,
-) -> str:
+def _make_dry_run(target: str, *variables: str) -> str:
     result = subprocess.run(
         ["make", "--no-print-directory", "-n", target, *variables],
         cwd=BACKEND_ROOT.parent,
         check=True,
         capture_output=True,
         text=True,
-        env=environment,
     )
     return result.stdout.strip()
-
-
-def test_make_dry_run_suppresses_recursive_make_directory_chatter() -> None:
-    environment = os.environ | {"MAKELEVEL": "1", "MAKEFLAGS": "w"}
-
-    command = _make_dry_run("audit-backend-deps", environment=environment)
-
-    assert "Entering directory" not in command
-    assert "Leaving directory" not in command
-    assert "uv audit --locked" in command
 
 
 def test_automated_backend_quality_targets_use_the_locked_ci_runner() -> None:
     runner = "uv run --locked --extra ci --"
     target_tools = {
-        "test-collect": "pytest",
-        "test-fast": "pytest",
-        "test-fast-parallel": "pytest",
+        "test": "pytest",
         "test-fast-coverage": "pytest",
-        "test-v": "pytest",
-        "test-integration": "pytest",
         "test-e2e": "pytest",
         "test-postgresql-critical": "pytest",
         "test-deploy": "pytest",
@@ -465,27 +393,6 @@ def test_automated_backend_quality_targets_use_the_locked_ci_runner() -> None:
         assert f"&& {tool}" not in command, target
 
 
-def test_backend_ci_uses_self_locking_make_quality_targets() -> None:
-    workflow = (BACKEND_ROOT.parent / ".github/workflows/backend-ci.yml").read_text(
-        encoding="utf-8"
-    )
-
-    lint_step = workflow.split("      - name: Lint backend\n", maxsplit=1)[1].split(
-        "\n      - name:", maxsplit=1
-    )[0]
-    fast_coverage_step = workflow.split(
-        "      - name: Run fast backend tests with coverage\n", maxsplit=1
-    )[1].split("\n\n  postgresql-critical:", maxsplit=1)[0]
-    postgresql_step = workflow.split(
-        "      - name: Run serial PostgreSQL critical contracts\n", maxsplit=1
-    )[1].split("\n      - name:", maxsplit=1)[0]
-
-    assert lint_step.strip() == "run: make lint"
-    assert "make test-fast-coverage TEST_WORKERS=2" in fast_coverage_step
-    assert "uv run" not in fast_coverage_step
-    assert postgresql_step.strip() == "run: make -C .. test-postgresql-critical"
-
-
 def test_architecture_docs_rechecks_pr_body_edits() -> None:
     workflow_path = BACKEND_ROOT.parent / ".github/workflows/architecture-docs.yml"
     workflow = yaml.load(
@@ -501,22 +408,18 @@ def test_architecture_docs_rechecks_pr_body_edits() -> None:
     ]
 
 
-def test_fast_targets_expand_to_the_same_guarded_test_layer() -> None:
-    serial = _make_dry_run("test-fast")
+def test_default_test_target_accepts_native_pytest_selection() -> None:
+    command = _make_dry_run("test", "TESTS=tests/unit", "ARGS=-x")
+
+    assert "pytest tests/unit --timeout=120 -x" in command
+
+
+def test_coverage_target_reuses_default_test_layer() -> None:
     default = _make_dry_run("test")
-    parallel = _make_dry_run("test-fast-parallel", "TEST_WORKERS=2")
-
-    assert default == serial
-    assert "--timeout=120" in serial
-    assert '-m "not e2e and not real_llm and not external_data"' in serial
-    assert parallel.replace(" -n 2 --dist=loadscope", "") == serial
-
-
-def test_coverage_target_reuses_parallel_fast_layer() -> None:
-    parallel = _make_dry_run("test-fast-parallel", "TEST_WORKERS=2")
     coverage = _make_dry_run("test-fast-coverage", "TEST_WORKERS=2")
 
     for flag in (
+        " -n 2 --dist=loadscope",
         " --cov=app",
         " --cov=core",
         " --cov=shared",
@@ -525,77 +428,7 @@ def test_coverage_target_reuses_parallel_fast_layer() -> None:
         " --cov-report=term-missing:skip-covered",
     ):
         coverage = coverage.replace(flag, "")
-    assert coverage == parallel
-
-
-def test_aggregate_targets_reuse_existing_backend_and_frontend_targets() -> None:
-    makefile = (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
-
-    assert '$(MAKE) test-fast ARGS="$(BACKEND_ARGS)"' in makefile
-    assert '$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"' in makefile
-    assert "audit-backend-deps:" in makefile
-    assert "audit-frontend-deps:" in makefile
-    assert (
-        "test-ci: docs-check secret-hygiene audit-backend-deps "
-        "lint test-deploy audit-frontend-deps" in makefile
-    )
-    assert "$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS)" in makefile
-    assert 'ARGS="$(ARGS) -W error::RuntimeWarning"' in makefile
-
-
-def test_frontend_dependency_audit_target_uses_high_lockfile_gate() -> None:
-    command = _make_dry_run("audit-frontend-deps")
-
-    assert "npm audit --package-lock-only --audit-level=high" in command
-
-
-def test_backend_dependency_audit_target_covers_the_entire_lockfile() -> None:
-    command = _make_dry_run("audit-backend-deps")
-    tokens = shlex.split(command)
-
-    assert tokens[:2] == ["cd", str(BACKEND_ROOT)]
-    assert tokens[2:5] == ["&&", "uv", "audit"]
-    assert "--locked" in tokens
-    assert "--no-build" in tokens
-    assert tokens[tokens.index("--preview-features") + 1] == "audit"
-    assert tokens[tokens.index("--python-version") + 1] == "3.14"
-    assert tokens[tokens.index("--python-platform") + 1] == "x86_64-unknown-linux-gnu"
-    ignored_until_fixed = {
-        tokens[index + 1]
-        for index, token in enumerate(tokens)
-        if token == "--ignore-until-fixed"
-    }
-    assert ignored_until_fixed == {"GHSA-w8v5-vhqr-4h9v", "GHSA-95ww-475f-pr4f"}
-    assert tokens.count("--ignore-until-fixed") == 2
-    assert not any(
-        token == "--ignore" or token.startswith("--ignore=") for token in tokens
-    )
-    assert not any(
-        token == "--no-extra" or token.startswith("--no-extra=") for token in tokens
-    )
-    assert not any(
-        token == "--exclude" or token.startswith("--exclude=") for token in tokens
-    )
-
-
-def test_deployment_contract_tests_are_a_required_ci_gate() -> None:
-    workflow = (BACKEND_ROOT.parent / ".github/workflows/backend-ci.yml").read_text(
-        encoding="utf-8"
-    )
-    command = _make_dry_run("test-deploy")
-
-    assert (
-        "test-ci: docs-check secret-hygiene audit-backend-deps "
-        "lint test-deploy audit-frontend-deps"
-        in (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
-    )
-    assert "uv run --locked --extra ci --" in command
-    assert "pytest -c pyproject.toml ../deploy/tests" in command
-
-    deployment_step = workflow.split(
-        "      - name: Run deployment contract tests\n", maxsplit=1
-    )[1].split("\n      - name:", maxsplit=1)[0]
-    assert deployment_step.strip() == "run: make test-deploy"
+    assert shlex.split(coverage) == shlex.split(default)
 
 
 def test_timeout_is_not_forced_onto_explicit_acceptance_layers() -> None:

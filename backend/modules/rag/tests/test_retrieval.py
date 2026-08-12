@@ -531,57 +531,6 @@ class TestRetrievalOrchestratorInjected:
         assert "BGE 服务熔断中" in bundle.warnings[0]
 
     @pytest.mark.asyncio
-    async def test_legacy_zero_arg_circuit_breaker_provider_still_works(self) -> None:
-        calls = 0
-
-        def _legacy_provider():
-            nonlocal calls
-            calls += 1
-            return type(
-                "CB",
-                (),
-                {
-                    "allow_request": lambda self: False,
-                    "record_success": lambda self: None,
-                    "record_failure": lambda self: None,
-                },
-            )()
-
-        repo = type(
-            "Repo",
-            (),
-            {
-                "has_embeddings": AsyncMock(return_value=True),
-                "keyword_search": AsyncMock(return_value=[]),
-            },
-        )()
-
-        class _Metrics:
-            def record(self, **kwargs) -> None:
-                pass
-
-        async def _fake_expand(db, novel_id, query, **kwargs):
-            return query
-
-        expander = QueryExpander(term_loader=lambda db, nid: [])
-        expander.expand = _fake_expand  # type: ignore[method-assign]
-        orch = RetrievalOrchestrator(
-            repo=repo,  # type: ignore[arg-type]
-            query_expander=expander,
-            embedder_fn=AsyncMock(return_value=[1.0, 0.0]),
-            metrics=lambda: _Metrics(),
-            circuit_breaker=_legacy_provider,
-        )
-
-        await orch.retrieve(
-            None,  # type: ignore[arg-type]
-            uuid.uuid4(),
-            "灰雾",
-        )
-
-        assert calls == 1
-
-    @pytest.mark.asyncio
     async def test_retrieve_includes_vector_only_candidates(self) -> None:
         fake_chunk = type(
             "Chunk",
@@ -637,7 +586,7 @@ class TestRetrievalOrchestratorInjected:
             query_expander=expander,
             embedder_fn=AsyncMock(return_value=[1.0, 0.0]),
             metrics=lambda: _Metrics(),
-            circuit_breaker=lambda: type(
+            circuit_breaker=lambda _novel_id: type(
                 "CB",
                 (),
                 {
@@ -761,7 +710,7 @@ class TestRetrievalOrchestratorInjected:
             query_expander=expander,
             embedder_fn=embedder,
             metrics=_get_metrics,
-            circuit_breaker=lambda: type(
+            circuit_breaker=lambda _novel_id: type(
                 "CB",
                 (),
                 {"allow_request": lambda: True, "record_success": lambda: None},
@@ -815,6 +764,7 @@ class TestRetrievalOrchestratorInjected:
             {
                 "has_embeddings": AsyncMock(return_value=True),
                 "keyword_search": AsyncMock(return_value=[fake_chunk]),
+                "vector_search": AsyncMock(return_value=[]),
             },
         )()
 
@@ -838,7 +788,7 @@ class TestRetrievalOrchestratorInjected:
             query_expander=expander,
             embedder_fn=AsyncMock(return_value=[0.1, 0.2]),
             metrics=lambda: metrics,
-            circuit_breaker=lambda: type(
+            circuit_breaker=lambda _novel_id: type(
                 "CB",
                 (),
                 {

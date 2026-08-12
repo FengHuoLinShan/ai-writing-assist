@@ -931,11 +931,16 @@ class TestHandlePublishChapter:
     def mock_db(self) -> AsyncMock:
         db = AsyncMock()
         db.flush = AsyncMock()
+        db.begin_nested = MagicMock()
         return db
 
     @pytest.fixture
     def mock_task(self) -> MagicMock:
         task = MagicMock()
+        task.id = uuid.uuid4()
+        task.task_type = "publish_chapter"
+        task.attempt = 1
+        task.lease_id = uuid.uuid4()
         task.meta = {"novel_id": str(uuid.uuid4()), "chapter_index": 3}
         task.update_progress = MagicMock()
         return task

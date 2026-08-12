@@ -6,6 +6,6 @@ Embedding 基础设施
 """
 
 from infrastructure.embedding.cache import EmbeddingCache
-from infrastructure.embedding.client import BgeEmbeddingClient, EmbeddingProvider
+from infrastructure.embedding.client import BgeEmbeddingClient
 
-__all__ = ["EmbeddingCache", "BgeEmbeddingClient", "EmbeddingProvider"]
+__all__ = ["EmbeddingCache", "BgeEmbeddingClient"]

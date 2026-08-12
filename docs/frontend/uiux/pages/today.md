@@ -197,6 +197,6 @@
 ```bash
 npm test -- tests/vue/todayIsland.test.js        # island 加载/错误/空态单测
 npm test -- tests/editorialTheme.test.js tests/typographyTokens.test.js   # token 契约
-npm run test:e2e -- e2e/author-workspace.spec.js e2e/home.spec.js         # 进入 today 的功能流
+npm run test:e2e:functional -- e2e/author-workspace.spec.js e2e/home.spec.js  # 进入 today 的功能流
 npm run test:e2e:visual -- e2e/visual-today.spec.js                       # 新增三主题基线（执行时核实）
 ```
