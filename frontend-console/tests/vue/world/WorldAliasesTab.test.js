@@ -134,4 +134,13 @@ describe("批量操作", () => {
     expect(toolbar.exists()).toBe(true)
     expect(toolbar.props("scope")).toBe("world-aliases")
   })
+
+  it("列表换页后剔除不再可见的选择", async () => {
+    const wrapper = mountTab()
+    await wrapper.find('input[data-id="e1::小名"]').setValue(true)
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("1")
+
+    await wrapper.setProps({ aliases: [ALIASES[2]], aliasesTotal: 1 })
+    expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("0")
+  })
 })

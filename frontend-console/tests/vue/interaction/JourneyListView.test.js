@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
+import HomeChoiceView from "../../../vue/views/interaction/HomeChoiceView.vue"
 import JourneyListView from "../../../vue/views/interaction/JourneyListView.vue"
 import {
   resetBridgeOverrides,
@@ -38,12 +39,16 @@ function deferred() {
 
 let api
 let router
+let state
 let toast
 
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
   api = {
+    projects: {
+      get: vi.fn(),
+    },
     interactions: {
       createJourney: vi.fn(),
       listJourneys: vi.fn(),
@@ -59,17 +64,47 @@ beforeEach(() => {
     navigate: vi.fn(),
     getCurrentQuery: vi.fn(() => new URLSearchParams()),
   }
+  state = {
+    currentProjectId: null,
+    currentProject: null,
+    currentView: "journeys",
+    currentSubView: null,
+  }
   toast = vi.fn()
   setBridgeOverrides({
     api,
     router,
+    state,
     toast,
     confirm: vi.fn(() => true),
-    prompt: vi.fn(),
+    prompt: vi.fn(() => existingJourney().title),
   })
 })
 
 afterEach(() => resetBridgeOverrides())
+
+describe("首页入口请求所有权", () => {
+  it("点击 RP 后迟到的作者项目不再改全局状态或抢回路由", async () => {
+    const request = deferred()
+    const previousProject = { id: "author-project", title: "本地作品" }
+    state.currentProjectId = previousProject.id
+    state.currentProject = previousProject
+    state.currentView = "home"
+    api.projects.get.mockReturnValue(request.promise)
+    const wrapper = mount(HomeChoiceView)
+
+    void wrapper.get("[data-entry='author']").trigger("click")
+    await Promise.resolve()
+    await wrapper.get("[data-entry='rp']").trigger("click")
+    request.resolve({ id: previousProject.id, title: "迟到的服务端作品" })
+    await flushPromises()
+
+    expect(state.currentProject).toBe(previousProject)
+    expect(router.navigate).toHaveBeenCalledTimes(1)
+    expect(router.navigate).toHaveBeenCalledWith("journeys")
+    expect(toast).not.toHaveBeenCalled()
+  })
+})
 
 describe("RP 旅程列表与开场", () => {
   it("已有旅程时只显示扁平列表和一个开始新旅程入口", async () => {
@@ -180,6 +215,69 @@ describe("RP 旅程列表与开场", () => {
       .toBe("恢复旅程：旧城余晖")
     expect(actions.find((button) => button.text() === "永久删除").attributes("aria-label"))
       .toBe("永久删除旅程：旧城余晖")
+  })
+
+  it("创建旅程的组件已卸载时，迟到成功只清本次已提交草稿且不跳转", async () => {
+    const request = deferred()
+    state.currentSubView = "new"
+    api.interactions.createJourney.mockReturnValue(request.promise)
+    const wrapper = mount(JourneyListView, {
+      props: {
+        activeJourneys: [],
+        archivedJourneys: [],
+        llmConnections: connections(),
+        startNew: true,
+      },
+    })
+    await wrapper.get("textarea[aria-label='旅程开场']").setValue("我从雨夜醒来。")
+    void wrapper.get(".rp-send-button").trigger("click")
+    await Promise.resolve()
+    wrapper.unmount()
+
+    request.resolve({ journey: existingJourney() })
+    await flushPromises()
+
+    expect(api.interactions.createJourney).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem("novel_rp_opening_draft")).toBeNull()
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["归档", "active", "archiveJourney"],
+    ["恢复", "archived", "restoreJourney"],
+    ["永久删除", "archived", "deleteJourney"],
+  ])("%s 返回时已离开旅程列表，不再重载或提示", async (label, status, method) => {
+    const request = deferred()
+    const journey = { ...existingJourney(), status }
+    api.interactions[method].mockReturnValue(request.promise)
+    const wrapper = mount(JourneyListView, {
+      props: {
+        activeJourneys: status === "active" ? [journey] : [],
+        activeTotal: status === "active" ? 1 : 0,
+        archivedJourneys: status === "archived" ? [journey] : [],
+        archivedTotal: status === "archived" ? 1 : 0,
+        llmConnections: connections(),
+      },
+    })
+    if (status === "archived") {
+      await wrapper.findAll("[role='tab']")
+        .find((button) => button.text() === "已归档")
+        .trigger("click")
+    }
+    void wrapper.findAll(".rp-journey-card__actions button")
+      .find((button) => button.text() === label)
+      .trigger("click")
+    await Promise.resolve()
+    state.currentView = "home"
+
+    request.resolve({})
+    await flushPromises()
+
+    expect(api.interactions[method]).toHaveBeenCalledTimes(1)
+    expect(api.interactions.listJourneys).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it("全新无 Key 账户进入时先去账户连接，已有旅程仍保持可读", async () => {

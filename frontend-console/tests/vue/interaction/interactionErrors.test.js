@@ -23,6 +23,7 @@ describe("RP 安全错误文案", () => {
     [{ status: 503 }, "connection"],
     [{ error_kind: "content_filter" }, "content_filter"],
     [{ error_kind: "context_budget" }, "context_budget"],
+    [{ message: "当前浏览器无法安全生成操作标识，请更换浏览器后重试" }, "client_security"],
   ])("把稳定错误形状映射到本地文案", (error, expectedKind) => {
     const result = safeInteractionError(error)
 

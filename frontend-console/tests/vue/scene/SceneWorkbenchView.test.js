@@ -163,6 +163,29 @@ describe("SceneWorkbenchView", () => {
     expect(wrapper.find(".scene-fusion-toolbar").text()).toContain("1")
   })
 
+  it("switches view mode in place without losing the filter draft or scroll context", async () => {
+    createWrapper()
+    const organize = wrapper.find(".scene-workbench__organize").element
+    const normalMode = wrapper.get('[data-action="set-scene-view-mode"][data-mode="normal"]').element
+    organize.scrollTop = 88
+    normalMode.focus()
+    await wrapper.get("#scene-filter-q").setValue("尚未应用的筛选")
+
+    await wrapper.get('[data-action="set-scene-view-mode"][data-mode="normal"]').trigger("click")
+    await flushPromises()
+
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, expect.objectContaining({
+      view_mode: "normal",
+    }))
+    expect(api.outline.getSceneWorkbench.mock.calls[0][2]).not.toHaveProperty("q")
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(wrapper.get("#scene-filter-q").element.value).toBe("尚未应用的筛选")
+    expect(wrapper.find(".scene-workbench__organize").element).toBe(organize)
+    expect(organize.scrollTop).toBe(88)
+    expect(document.activeElement).toBe(normalMode)
+    expect(window.location.hash).toContain("mode=normal")
+  })
+
   it("saves the Vue-owned detail draft and refreshes in place", async () => {
     createWrapper({ selectedSceneId: "s1" })
     await wrapper.find("#scene-detail-title").setValue("新标题")

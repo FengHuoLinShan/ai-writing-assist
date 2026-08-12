@@ -41,8 +41,12 @@ function deferred() {
   return { promise, resolve }
 }
 
+let appState
+
 beforeEach(() => {
   vi.clearAllMocks()
+  appState = { currentProjectId: "p1", currentView: "project-settings", currentSubView: null }
+  setBridgeOverrides({ state: appState })
   projectSettingsSession.tab = "author"
   globalThis.api.settings.getEffectiveLLMSettings.mockImplementation(
     async () => makeEffectiveLLM(),
@@ -180,6 +184,84 @@ describe("深度导入", () => {
     expect(payload.provider_id).toBeUndefined()
     expect(payload.model).toBeUndefined()
     expect(payload.api_key).toBeUndefined()
+    expect(globalThis.api.settings.getEffectiveAuthorPrefs).not.toHaveBeenCalled()
+  })
+
+  it("写入已成功时不把二次读取失败误报为保存失败", async () => {
+    globalThis.api.settings.getEffectiveLLMSettings.mockRejectedValue(new Error("读取失败"))
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+
+    await wrapper.find("#deep-import-tab-save").trigger("click")
+    await flushPromises()
+
+    expect(globalThis.api.projects.updateLlmSettings).toHaveBeenCalledOnce()
+    expect(globalThis.toast).toHaveBeenCalledWith("深度导入参数已保存", "success")
+    expect(globalThis.toast).toHaveBeenCalledWith(
+      "已保存，但重新读取最新设置失败：读取失败",
+      "warning",
+    )
+    expect(globalThis.toast).not.toHaveBeenCalledWith("读取失败", "error")
+  })
+
+  it("保存响应晚到且已离开项目偏好时不更新或提示", async () => {
+    const save = deferred()
+    globalThis.api.projects.updateLlmSettings.mockReturnValue(save.promise)
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+
+    void wrapper.find("#deep-import-tab-save").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.projects.updateLlmSettings).toHaveBeenCalled())
+    appState.currentView = "today"
+    save.resolve({})
+    await flushPromises()
+
+    expect(globalThis.toast).not.toHaveBeenCalled()
+    expect(globalThis.api.settings.getEffectiveLLMSettings).not.toHaveBeenCalled()
+    expect(globalThis.api.settings.getEffectiveAuthorPrefs).not.toHaveBeenCalled()
+  })
+
+  it("重置在当前页完成时保留成功反馈", async () => {
+    setBridgeOverrides({ confirm: () => true })
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectiveLLM: makeEffectiveLLM({
+          deep_import: { value: {}, source: "project" },
+        }),
+      }),
+    })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+
+    await wrapper.find("#deep-import-tab-reset-all").trigger("click")
+    await vi.waitFor(() => {
+      expect(globalThis.toast).toHaveBeenCalledWith("深度导入参数已恢复默认", "success")
+    })
+    expect(globalThis.api.settings.resetLLMSettingsField)
+      .toHaveBeenCalledWith("p1", "deep_import")
+  })
+
+  it("重置响应晚到且已离开项目偏好时不更新或提示", async () => {
+    const reset = deferred()
+    globalThis.api.settings.resetLLMSettingsField.mockReturnValue(reset.promise)
+    setBridgeOverrides({ confirm: () => true })
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectiveLLM: makeEffectiveLLM({
+          deep_import: { value: {}, source: "project" },
+        }),
+      }),
+    })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+
+    void wrapper.find("#deep-import-tab-reset-all").trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.settings.resetLLMSettingsField).toHaveBeenCalled())
+    appState.currentView = "today"
+    reset.resolve({})
+    await flushPromises()
+
+    expect(globalThis.toast).not.toHaveBeenCalled()
+    expect(globalThis.api.settings.getEffectiveLLMSettings).not.toHaveBeenCalled()
+    expect(globalThis.api.settings.getEffectiveAuthorPrefs).not.toHaveBeenCalled()
   })
 
   it("越界参数不提交", async () => {
@@ -255,5 +337,6 @@ describe("作者偏好", () => {
     })
     expect(wrapper.find("#author-editor-font").element.value).toBe("serif")
     expect(globalThis.api.settings.getEffectiveLLMSettings).not.toHaveBeenCalled()
+    expect(globalThis.toast).toHaveBeenCalledWith("daily_goal 已恢复到全局默认", "success")
   })
 })

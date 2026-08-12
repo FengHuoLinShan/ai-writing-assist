@@ -295,7 +295,9 @@ POST   /api/world/ask-world/suggestions
 保存完整页面提案而非 append/patch；专用 apply 在重验 pending、来源 baseline、类别、section
 和资产引用后只更新或创建服务器工作稿。generic suggestion confirm 拒绝页面工作稿 target，
 canonical 仍只能由作者在世界书发布流程中改变。旧对象草稿、页面 AI 生成和页面建议 apply
-接口不再注册。
+接口不再注册。provider 返回后，最终写入事务会再次校验项目仍 active 并持有共享项目锁，
+且以 page→draft 行锁强制重读来源 baseline；生成期间进入回收站的项目返回
+404，页面或工作稿已漂移时返回 409，均不写 suggestion 或兼容对象。
 
 五个生成中心入口都先冻结项目 owner 当前已验证账户连接的 secret-free
 provider/model 快照，同一次聊天、收束、探索、检修或建议内的后续调用全部沿用该快照。

@@ -3,7 +3,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../vue/bridge/index.js"
-import { ragSearchSession } from "../../vue/views/rag/ragSearchSession.js"
+import {
+  ragSearchSession,
+  scopeRagSessionToProject,
+} from "../../vue/views/rag/ragSearchSession.js"
 import "../../vue/ragIsland.js"
 
 const views = globalThis.router.registerView.mock.calls.reduce(
@@ -25,7 +28,8 @@ describe("ragIsland", () => {
     expect(views.rag).toBeTruthy()
   })
 
-  it("load 重置检索会话并拉取 status/characters/scenes", async () => {
+  it("同项目 load 保留检索会话并拉取 status/characters/scenes", async () => {
+    scopeRagSessionToProject("p1")
     ragSearchSession.hits = [{ title: "残留" }]
     ragSearchSession.lastExecutedRouteSignature = "stale"
     setBridgeOverrides({ state: { currentProjectId: "p1" } })
@@ -42,8 +46,8 @@ describe("ragIsland", () => {
     globalThis.api.outline.listScenesOrdered = vi.fn(async () => [{ id: "s1", title: " Scene 1 " }])
 
     await views.rag.onEnter()
-    expect(ragSearchSession.hits).toEqual([])
-    expect(ragSearchSession.lastExecutedRouteSignature).toBe("")
+    expect(ragSearchSession.hits).toEqual([{ title: "残留" }])
+    expect(ragSearchSession.lastExecutedRouteSignature).toBe("stale")
 
     document.body.innerHTML = '<div id="workspace-content"></div>'
     const content = document.getElementById("workspace-content")
@@ -56,6 +60,85 @@ describe("ragIsland", () => {
     expect(search.type).toBe("button")
     expect(search.getAttribute("aria-current")).toBe("page")
     expect(content.querySelector('[data-action="nav-status"]')).toBeNull()
+    views.rag.onLeave()
+  })
+
+  it("同项目查找与状态往返保留 URL、未提交筛选和结果，切换项目才清空", async () => {
+    const state = {
+      currentProjectId: "p-session",
+      currentSubView: "search",
+      searchQuery: "",
+      viewStates: {},
+    }
+    setBridgeOverrides({ state })
+    const route = new URLSearchParams(
+      "q=旧塔&kind=smart&content_mode=canonical&visibility=author&scope=manuscript",
+    )
+    globalThis.router.navigate("rag", "search", true, route)
+    globalThis.api.rag.status = vi.fn(async () => ({
+      total: 0,
+      degraded: true,
+      warnings: ["需要修复"],
+      items: [],
+    }))
+    globalThis.api.context.evidenceHealth = vi.fn(async () => null)
+    globalThis.api.context.searchEvidence = vi.fn(async () => ({
+      total: 1,
+      hits: [{
+        kind: "manuscript",
+        title: "第一章",
+        snippet: "旧塔的铜铃。",
+        chapter_index: 1,
+        source_ref: { content_mode: "canonical", chapter_index: 1, version_number: 1 },
+      }],
+      warnings: [],
+      degraded: false,
+    }))
+    globalThis.api.world.listCharacters = vi.fn(async () => ({ items: [], total: 0 }))
+    globalThis.api.outline.listScenesOrdered = vi.fn(async () => [])
+
+    document.body.innerHTML = '<div id="workspace-content"></div>'
+    const content = document.getElementById("workspace-content")
+    await views.rag.onEnter()
+    content.innerHTML = views.rag.render()
+    await views.rag.onRendered()
+    await vi.waitFor(() => expect(content.querySelectorAll(".rag-result-card")).toHaveLength(1))
+
+    const searchInput = content.querySelector("#rag-search-input")
+    searchInput.value = "未提交的新词"
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+    const chapterFrom = content.querySelector("#rag-chapter-from")
+    chapterFrom.value = "3"
+    chapterFrom.dispatchEvent(new Event("input", { bubbles: true }))
+    await Promise.resolve()
+
+    content.querySelector('[data-action="nav-status"]').click()
+    expect(globalThis.router.getCurrentQuery().toString()).toBe(route.toString())
+    state.currentSubView = "status"
+    await views.rag.onEnter()
+    content.innerHTML = views.rag.render()
+    await views.rag.onRendered()
+
+    content.querySelector('[data-action="nav-search"]').click()
+    expect(globalThis.router.getCurrentQuery().toString()).toBe(route.toString())
+    state.currentSubView = "search"
+    await views.rag.onEnter()
+    content.innerHTML = views.rag.render()
+    await views.rag.onRendered()
+
+    expect(content.querySelector("#rag-search-input").value).toBe("未提交的新词")
+    expect(content.querySelector("#rag-chapter-from").value).toBe("3")
+    expect(content.querySelectorAll(".rag-result-card")).toHaveLength(1)
+    expect(globalThis.api.context.searchEvidence).toHaveBeenCalledTimes(1)
+    const navigationCount = globalThis.router.navigate.mock.calls.length
+    content.querySelector('[data-action="nav-search"]').click()
+    expect(globalThis.router.navigate).toHaveBeenCalledTimes(navigationCount)
+
+    state.currentProjectId = "p-other"
+    await views.rag.onEnter()
+    expect(ragSearchSession.ownerProjectId).toBe("p-other")
+    expect(ragSearchSession.hits).toEqual([])
+    expect(ragSearchSession.formState).toBeNull()
     views.rag.onLeave()
   })
 

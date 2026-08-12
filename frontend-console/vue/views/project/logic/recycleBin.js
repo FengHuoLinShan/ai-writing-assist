@@ -5,6 +5,7 @@
 import { runBulkAction, bulkResultMessage } from "../../../../shared/bulkSelection.js"
 import {
   getApi,
+  getCloseModal,
   getConfirmAction,
   getEsc,
   getRouter,
@@ -12,20 +13,37 @@ import {
   getToast,
 } from "../../../bridge/index.js"
 import { projectSession } from "../projectSession.js"
+import { loadProjectsIntoState } from "./projectState.js"
 
 const PAGE_SIZE = 20
+let loadGeneration = 0
 
-export async function showRecycleBin(skip = projectSession.recycleBinSkip) {
+export async function showRecycleBin(
+  skip = projectSession.recycleBinSkip,
+  { focusPagination = null } = {},
+) {
+  const generation = ++loadGeneration
+  const modalOwner = document.querySelector("#modal-body .recycle-bin")
+  const routeOwner = document.querySelector(".project-catalog")
+  const ownsLoad = () => {
+    if (generation !== loadGeneration || (routeOwner && !routeOwner.isConnected)) return false
+    const overlay = document.getElementById("modal-overlay")
+    if (!modalOwner) return !overlay || overlay.classList.contains("hidden")
+    return modalOwner.isConnected
+      && document.querySelector("#modal-body .recycle-bin") === modalOwner
+      && !overlay?.classList.contains("hidden")
+  }
   const toast = getToast()
   const esc = getEsc()
   const api = getApi()
   try {
     const data = await api.projects.listDeleted(skip, PAGE_SIZE)
+    if (!ownsLoad()) return
     const items = data.items || data || []
     const total = Number(data.total ?? items.length) || 0
     if (total > 0 && skip >= total) {
       const lastPageSkip = Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE
-      return showRecycleBin(lastPageSkip)
+      return showRecycleBin(lastPageSkip, { focusPagination })
     }
     projectSession.recycleBinSkip = skip
     if (total === 0) {
@@ -83,14 +101,41 @@ export async function showRecycleBin(skip = projectSession.recycleBinSkip) {
     getShowModalHtml()("回收站", listHtml, [], { size: "large" })
 
     bindRecycleBinEvents(items, skip)
+    const paginationButton = focusPagination === "previous"
+      ? document.getElementById("recycle-prev-page")
+      : focusPagination === "next"
+        ? document.getElementById("recycle-next-page")
+        : null
+    if (paginationButton && !paginationButton.disabled) {
+      paginationButton.focus({ preventScroll: true })
+    }
   } catch (err) {
-    toast(`加载回收站失败：${err.message}`, "error")
+    if (ownsLoad()) toast(`加载回收站失败：${err.message}`, "error")
   }
 }
 
 function bindRecycleBinEvents(items, skip) {
   const toast = getToast()
   const api = getApi()
+  const routeOwner = document.querySelector(".project-catalog")
+  const routeRoot = routeOwner?.closest("#workspace-content") || document.getElementById("workspace-content")
+  const modalOwner = document.querySelector("#modal-body .recycle-bin")
+  const ownsModalResult = (owner = modalOwner) => {
+    const router = getRouter()
+    if (router.getCurrentView?.() !== "project") return false
+    const overlay = document.getElementById("modal-overlay")
+    return Boolean(
+      owner?.isConnected
+      && document.getElementById("modal-body")?.contains(owner)
+      && !overlay?.classList.contains("hidden"),
+    )
+  }
+  const ownsMutationResult = (owner = modalOwner) => {
+    if (!ownsModalResult(owner)) return false
+    if (routeOwner && !routeOwner.isConnected) return false
+    if (routeRoot && document.getElementById("workspace-content") !== routeRoot) return false
+    return true
+  }
   const selectedRecycleProjects = () => {
     const ids = new Set(Array.from(document.querySelectorAll(".recycle-project-checkbox:checked")).map((input) => input.dataset.id))
     return items.filter((item) => ids.has(item.id))
@@ -124,15 +169,18 @@ function bindRecycleBinEvents(items, skip) {
       }
       try {
         const result = await runBulkAction(selected, async (project) => api.projects.restore(project.id))
+        if (!ownsMutationResult()) return
         if (result.failed.length && result.success.length === 0) {
           toast(`批量恢复失败：${result.failed[0]?.error?.message || "未知错误"}`, "error")
         } else {
           toast(bulkResultMessage(result, "批量恢复项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
         }
-        await getRouter().refresh()
+        const { error } = await loadProjectsIntoState()
+        if (!ownsMutationResult()) return
+        if (error) toast(`项目已恢复，但作品列表未能更新：${error}`, "warning")
         showRecycleBin(projectSession.recycleBinSkip)
       } catch (err) {
-        toast(`批量恢复失败：${err.message || "未知错误"}`, "error")
+        if (ownsMutationResult()) toast(`批量恢复失败：${err.message || "未知错误"}`, "error")
       }
     }
   }
@@ -144,14 +192,18 @@ function bindRecycleBinEvents(items, skip) {
         return
       }
       getConfirmAction()(`确定永久删除选中的 ${selected.length} 个项目？此操作不可恢复。`, async () => {
+        const actionOwner = document.querySelector("#modal-body > *") || modalOwner
         try {
           const result = await api.projects.permanentDeleteMany(
             selected.map((project) => project.id),
           )
+          if (!ownsMutationResult(actionOwner)) return true
           toast(`已永久删除 ${result.deleted_count} 个项目`, "success")
+          if (getCloseModal()() === false) return true
           await showRecycleBin(projectSession.recycleBinSkip)
           return true
         } catch (err) {
+          if (!ownsMutationResult(actionOwner)) return true
           toast(`批量永久删除失败：${err.message || "未知错误"}`, "error")
           return false
         }
@@ -162,11 +214,14 @@ function bindRecycleBinEvents(items, skip) {
     btn.onclick = async () => {
       try {
         await api.projects.restore(btn.dataset.id)
+        if (!ownsMutationResult()) return
         toast("项目已恢复", "success")
-        await getRouter().refresh()
+        const { error } = await loadProjectsIntoState()
+        if (!ownsMutationResult()) return
+        if (error) toast(`项目已恢复，但作品列表未能更新：${error}`, "warning")
         showRecycleBin(projectSession.recycleBinSkip)
       } catch (err) {
-        toast(`恢复失败：${err.message}`, "error")
+        if (ownsMutationResult()) toast(`恢复失败：${err.message}`, "error")
       }
     }
   })
@@ -176,12 +231,16 @@ function bindRecycleBinEvents(items, skip) {
       getConfirmAction()(
         "确定永久删除此项目？此操作不可恢复，所有关联数据将被级联删除。",
         async () => {
+          const actionOwner = document.querySelector("#modal-body > *") || modalOwner
           try {
             await api.projects.permanentDelete(pid)
+            if (!ownsMutationResult(actionOwner)) return true
             toast("项目已永久删除", "success")
+            if (getCloseModal()() === false) return true
             await showRecycleBin(projectSession.recycleBinSkip)
             return true
           } catch (err) {
+            if (!ownsMutationResult(actionOwner)) return true
             toast(`永久删除失败：${err.message || "未知错误"}`, "error")
             return false
           }
@@ -192,11 +251,17 @@ function bindRecycleBinEvents(items, skip) {
   })
   const previousButton = document.getElementById("recycle-prev-page")
   if (previousButton) {
-    previousButton.onclick = () => showRecycleBin(Math.max(0, skip - PAGE_SIZE))
+    previousButton.onclick = () => showRecycleBin(
+      Math.max(0, skip - PAGE_SIZE),
+      { focusPagination: "previous" },
+    )
   }
   const nextButton = document.getElementById("recycle-next-page")
   if (nextButton) {
-    nextButton.onclick = () => showRecycleBin(skip + PAGE_SIZE)
+    nextButton.onclick = () => showRecycleBin(
+      skip + PAGE_SIZE,
+      { focusPagination: "next" },
+    )
   }
   syncBulkActionAvailability()
 }

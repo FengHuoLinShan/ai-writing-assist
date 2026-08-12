@@ -43,7 +43,8 @@ function currentHashQuery() {
   return new URLSearchParams(index >= 0 ? window.location.hash.slice(index + 1) : "")
 }
 
-function commitSceneHash(projectId, query, mode = "replace") {
+function commitSceneHash(projectId, query, mode = "replace", router = null) {
+  if (router?.commitCurrentQuery?.(query, mode) === true) return
   if (typeof window === "undefined" || !window.history) return
   const base = `#workbench/${encodeURIComponent(projectId)}/outline/scenes`
   const hash = query.toString() ? `${base}?${query.toString()}` : base
@@ -171,7 +172,7 @@ export function useSceneWorkbench(props) {
     mobileDetailOpen.value = false
     const query = currentHashQuery()
     query.delete("scene_id")
-    commitSceneHash(projectId, query, "replace")
+    commitSceneHash(projectId, query, "replace", router)
   }
 
   function selectScene(sceneId, historyMode = "push") {
@@ -181,7 +182,7 @@ export function useSceneWorkbench(props) {
     const query = currentHashQuery()
     query.set("mode", viewMode.value)
     query.set("scene_id", sceneId)
-    commitSceneHash(projectId, query, historyMode)
+    commitSceneHash(projectId, query, historyMode, router)
     return true
   }
 
@@ -266,9 +267,11 @@ export function useSceneWorkbench(props) {
     clearSelection()
     clearSelectedScene()
     syncSession()
-    const query = new URLSearchParams()
+    const query = currentHashQuery()
     query.set("mode", mode)
-    await router.navigate("outline", "scenes", true, query)
+    query.delete("scene_id")
+    commitSceneHash(projectId, query, "push", router)
+    await refresh({ preserveSelection: false })
   }
 
   async function changePage(delta) {
@@ -413,7 +416,7 @@ export function useSceneWorkbench(props) {
     clearSelection()
     selectedSceneId.value = sceneId
     const query = currentHashQuery(); query.set("mode", viewMode.value); query.set("scene_id", sceneId)
-    commitSceneHash(projectId, query, "push")
+    commitSceneHash(projectId, query, "push", router)
     syncSession()
     return refresh()
   }

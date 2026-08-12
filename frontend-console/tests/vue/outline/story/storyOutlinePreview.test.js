@@ -102,6 +102,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetBridgeOverrides()
+  vi.unstubAllGlobals()
 })
 
 describe("预览 · 任务完成创建 preview", () => {
@@ -309,6 +310,45 @@ describe("预览 · 任务完成创建 preview", () => {
     }))
     expect(globalThis.api.outline.applyStoryOutlinePreview.mock.calls[0][0].idempotency_key).not.toBe("key-before-rebase")
     expect(wrapper.text()).toContain("当前版本 · v3")
+    wrapper.unmount()
+  })
+
+  it("安全随机源不可用时重新加载不会部分更新 preview 的 base 和 key", async () => {
+    setBridgeOverrides({ toast: vi.fn(), state: { currentProjectId: "p1" } })
+    const current = revisionFixture("rev-1", 1, "旧总纲")
+    const wrapper = mount(OutlineStoryTab, {
+      props: makeProps({ current: { current_revision_id: "rev-1", revision: current } }),
+      attachTo: document.body,
+    })
+    storyOutlineTaskManager.adopt(
+      { task_id: "task-rebase-no-crypto", status: "running" },
+      {
+        action: "outline.story_outline.generate",
+        novel_id: "p1",
+        apply_base_revision_id: "rev-1",
+        apply_idempotency_key: "key-before-rebase",
+      },
+      "p1",
+    )
+    vi.mocked(pollTaskProgress).mock.calls[0][0].onDone(
+      { taskId: "task-rebase-no-crypto", done: true, terminal: true },
+      taskFixture(contentFixture({ title: "AI 初稿" })),
+    )
+    await wrapper.vm.$nextTick()
+
+    mockReloadTo(revisionFixture("rev-2", 2, "最新总纲"))
+    vi.stubGlobal("crypto", {})
+    await wrapper.find('[data-action="reload-story-outline"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find("#story-outline-apply-error").text()).toContain("无法安全生成操作标识")
+    globalThis.api.outline.applyStoryOutlinePreview.mockRejectedValue({ status: 409 })
+    await wrapper.find('[data-action="apply-story-outline-preview"]').trigger("click")
+    await flushPromises()
+    expect(globalThis.api.outline.applyStoryOutlinePreview).toHaveBeenCalledWith(expect.objectContaining({
+      base_revision_id: "rev-1",
+      idempotency_key: "key-before-rebase",
+    }))
     wrapper.unmount()
   })
 })

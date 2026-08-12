@@ -8,7 +8,6 @@ import { computed, ref } from "vue"
 import { outlineAnalysisManager, resetOutlineAnalysisState } from "./outlineWorkflowManagers.js"
 import { cancelOutlineAnalysisTask } from "./outlineAiOps.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
-import { getRouter } from "../../../bridge/index.js"
 
 const state = outlineAnalysisManager.state
 const cancelPending = ref(false)
@@ -40,7 +39,6 @@ async function cancel() {
 
 function dismiss() {
   resetOutlineAnalysisState({ clearWorkflowState: true })
-  getRouter()?.refresh?.()
 }
 </script>
 

@@ -24,7 +24,8 @@ const props = defineProps({
 const initialRouteQuery = getRouter().getCurrentQuery?.()
 const initialRoute = parseRouteQuery(initialRouteQuery)
 const routeChapterValue = (query, name, fallback) => query?.get(name) ?? fallback ?? ""
-const form = reactive({
+const session = ragSearchSession
+const routeFormState = {
   query: initialRoute.query,
   searchKind: initialRoute.searchKind,
   contentMode: initialRoute.contentMode,
@@ -37,9 +38,22 @@ const form = reactive({
   characterId: initialRoute.characterId,
   scopes: [...initialRoute.scopes],
   includePending: initialRoute.includePending,
+}
+const restoredFormState = session.formRouteSignature === initialRoute.signature
+  ? session.formState
+  : null
+let currentFormRouteSignature = initialRoute.signature
+const form = reactive({
+  ...routeFormState,
+  ...(restoredFormState || {}),
+  scopes: [...(restoredFormState?.scopes || routeFormState.scopes)],
 })
 
-const session = ragSearchSession
+watch(form, (value) => {
+  session.formState = { ...value, scopes: [...value.scopes] }
+  session.formRouteSignature = currentFormRouteSignature
+}, { deep: true, immediate: true })
+
 const { searching, searchError, doSearch, loadMore } = useRagSearch()
 const drawer = useEvidenceDrawer()
 const chapterRangeError = computed(() => (
@@ -249,7 +263,7 @@ function routeToFormState(routeState, query) {
   }
 }
 
-/** 对应 _submitSearchFromForm：签名未变时本地直接搜索，否则经路由导航。 */
+/** 对应 _submitSearchFromForm：提交时就地更新 URL 和检索结果，不重挂搜索页。 */
 async function submit() {
   const query = form.query.trim()
   if (!query) return
@@ -262,12 +276,16 @@ async function submit() {
   const signature = route.toString()
   const state = getAppState()
   if (state) state.searchQuery = query
-  if (getRouter().getCurrentQuery?.().toString() === signature) {
-    session.lastExecutedRouteSignature = signature
-    await doSearch(query, { routeSignature: signature, formState: form })
-    return
+  const router = getRouter()
+  if (router.getCurrentQuery?.().toString() !== signature) {
+    if (router.commitCurrentQuery?.(route, "push") !== true) {
+      await router.navigate("rag", "search", true, route)
+      return
+    }
   }
-  await getRouter().navigate("rag", "search", true, route)
+  currentFormRouteSignature = signature
+  session.formRouteSignature = signature
+  await doSearch(query, { routeSignature: signature, formState: form })
 }
 
 /** 对应 _retrySearch：保留表单重试；literal 变体切换为字面搜索。 */
@@ -291,10 +309,9 @@ onMounted(() => {
   const routeQuery = getRouter().getCurrentQuery?.()
   const routeState = parseRouteQuery(routeQuery)
   if (!routeState.query) {
-    resetRagSearchSession()
+    if (!restoredFormState) resetRagSearchSession()
     const state = getAppState()
     if (state) state.searchQuery = ""
-    form.query = ""
     return
   }
   if (routeState.signature === session.lastExecutedRouteSignature) return
@@ -305,7 +322,6 @@ onMounted(() => {
     getToast()(chapterRangeError.value, "warning")
     return
   }
-  session.lastExecutedRouteSignature = routeState.signature
   const state = getAppState()
   if (state) state.searchQuery = routeState.query
   void doSearch(routeState.query, {

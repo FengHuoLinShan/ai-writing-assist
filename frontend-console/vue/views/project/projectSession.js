@@ -9,6 +9,7 @@ export const PROJECT_CARDS_SCOPE = "project-cards"
 
 export const projectSession = reactive({
   importSectionOpen: false,
+  manageMode: false,
   searchQuery: "",
   recycleBinSkip: 0,
   _bulkSelections: {},

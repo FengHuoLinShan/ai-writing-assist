@@ -268,6 +268,17 @@ const mapView = {
     return lifecycleEpoch === this._lifecycleEpoch && this._mountContext === mountContext
   },
 
+  _captureModalOwner(controlId) {
+    const lifecycleEpoch = this._lifecycleEpoch
+    const mountContext = this._mountContext
+    const projectId = state.currentProjectId
+    const control = document.getElementById(controlId)
+    return () => this._isLifecycleCurrent(lifecycleEpoch, mountContext)
+      && state.currentProjectId === projectId
+      && control?.isConnected
+      && document.getElementById(controlId) === control
+  },
+
   _setEditorApplyBusy(active, attemptId = null) {
     if (!active && attemptId != null && this._editorApplyToken !== attemptId) {
       return false
@@ -773,7 +784,7 @@ const mapView = {
   // 渲染
   // ============================================================
 
-  _render(rootId) {
+  _render(rootId, viewport = null) {
     this._clearPendingTimers()
     const root = document.getElementById(rootId)
     if (!root) return
@@ -794,7 +805,7 @@ const mapView = {
 
     // 已选地图：渲染地图视图
     root.innerHTML = this._renderMapShell()
-    this._defer(() => this._initLeaflet())
+    this._defer(() => this._initLeaflet(loadLeafletForMapView, viewport))
     this._bindMapEvents()
   },
 
@@ -1123,7 +1134,7 @@ const mapView = {
   // Leaflet 初始化 + canvas overlay
   // ============================================================
 
-  async _initLeaflet(loadLeaflet = loadLeafletForMapView) {
+  async _initLeaflet(loadLeaflet = loadLeafletForMapView, viewport = null) {
     let container = document.getElementById("map-leaflet")
     if (!container || !this._state || this._leaflet) return
     const lifecycleEpoch = this._lifecycleEpoch
@@ -1181,6 +1192,14 @@ const mapView = {
     }
     this._leaflet.fitBounds(bounds)
     this._focusViewportFromContext(size)
+    if (
+      Number.isFinite(viewport?.center?.lat)
+      && Number.isFinite(viewport?.center?.lng)
+      && Number.isFinite(viewport?.zoom)
+      && this._leaflet.setView
+    ) {
+      this._leaflet.setView(viewport.center, viewport.zoom, { animate: false })
+    }
 
     // canvas overlay：用 L.LayerGroup 持有一个 canvas
     this._canvas = document.createElement("canvas")
@@ -2405,9 +2424,15 @@ const mapView = {
     showModalHtml("场景时间轴", formHtml, [{
       text: "跳转", class: "btn-primary", handler: async () => {
         const sel = document.getElementById("map-scene-pick-select")
-        if (sel && sel.value) {
+        if (!sel?.value) return false
+        try {
           const changed = await this._notifySceneChanged(sel.value)
-          if (changed !== false) closeModal()
+          if (changed === false) return false
+          closeModal()
+          return true
+        } catch (err) {
+          toast(`切换场景失败：${err.message}`, "error")
+          return false
         }
       },
     }])
@@ -3824,8 +3849,39 @@ const mapView = {
   },
 
   _rerenderEditor() {
+    const root = document.getElementById(this._mountRootId || "map-root")
+    const center = this._leaflet?.getCenter?.()
+    const zoom = this._leaflet?.getZoom?.()
+    const viewport = Number.isFinite(center?.lat) && Number.isFinite(center?.lng) && Number.isFinite(zoom)
+      ? { center, zoom }
+      : null
+    const panelScrollTop = root?.querySelector(".map-edit-panel")?.scrollTop ?? null
+    const activeControl = root?.contains(document.activeElement) ? document.activeElement : null
+    const focusedControl = activeControl ? {
+      id: activeControl.id,
+      tagName: activeControl.tagName,
+      dataset: { ...activeControl.dataset },
+      type: activeControl.type || "",
+      name: activeControl.name || "",
+      value: activeControl.value || "",
+    } : null
     this._teardownInteractiveSurface()
-    this._render(this._mountRootId || "map-root")
+    this._render(this._mountRootId || "map-root", viewport)
+    const panel = root?.querySelector(".map-edit-panel")
+    const datasetEntries = Object.entries(focusedControl?.dataset || {})
+    const nextControl = focusedControl
+      ? [...(root?.querySelectorAll(focusedControl.tagName) || [])].find((element) => (
+        (focusedControl.id && element.id === focusedControl.id)
+        || (datasetEntries.length && datasetEntries.every(([key, value]) => element.dataset[key] === value))
+        || (!focusedControl.id
+          && !datasetEntries.length
+          && element.type === focusedControl.type
+          && element.name === focusedControl.name
+          && element.value === focusedControl.value)
+      ))
+      : null
+    if (nextControl && !nextControl.disabled) nextControl.focus({ preventScroll: true })
+    if (panel && panelScrollTop !== null) panel.scrollTop = panelScrollTop
   },
 
   _toggleLayerNode(nodeId, field) {
@@ -3970,7 +4026,7 @@ const mapView = {
         const maxZoom = maxRaw === "" ? null : Number(maxRaw)
         if (minZoom != null && maxZoom != null && minZoom > maxZoom) {
           toast("最小缩放不能大于最大缩放", "warning")
-          return
+          return false
         }
         node.name = document.getElementById("map-layer-node-name")?.value?.trim() || node.name
         node.opacity = Math.max(0, Math.min(1, Number(document.getElementById("map-layer-node-opacity")?.value ?? node.opacity)))
@@ -3994,7 +4050,7 @@ const mapView = {
           mapState.pendingLayerTree = before
           this._refreshLayerTreeDraft()
           toast("楼层组的直接子层必须填写楼层编号", "warning")
-          return
+          return false
         }
         this._refreshLayerTreeDraft()
         this._recordLayerTreeChange(before)
@@ -5872,20 +5928,36 @@ const mapView = {
     `
     showModalHtml("创建世界地图", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
+        const ownsModal = this._captureModalOwner("map-create-name")
+        if (!ownsModal()) return true
         const name = document.getElementById("map-create-name")?.value.trim()
-        if (!name) { toast("请输入地图名称", "warning"); return }
+        if (!name) { toast("请输入地图名称", "warning"); return false }
         const [w, h] = (document.getElementById("map-create-size")?.value || "30,20").split(",").map(Number)
         const template = document.getElementById("map-create-template")?.value || "blank"
+        const projectId = state.currentProjectId
+        let created
         try {
-          const created = await api.world.createMap({
+          created = await api.world.createMap({
             name, map_type: "world", grid_width: w, grid_height: h, template,
-          }, state.currentProjectId)
-          closeModal()
-          toast("世界地图已创建", "success")
+          }, projectId)
+        } catch (err) {
+          if (!ownsModal()) return true
+          toast(`创建失败：${err.message}`, "error")
+          return false
+        }
+        if (!ownsModal()) return true
+        closeModal()
+        toast("世界地图已创建", "success")
+        const lifecycleEpoch = this._lifecycleEpoch
+        const mountContext = this._mountContext
+        try {
           await this._openMap(created.id)
         } catch (err) {
-          toast(`创建失败：${err.message}`, "error")
+          if (this._isLifecycleCurrent(lifecycleEpoch, mountContext)) {
+            toast(`地图已创建，但未能自动打开：${err.message}`, "warning")
+          }
         }
+        return true
       },
     }])
   },
@@ -5916,34 +5988,58 @@ const mapView = {
     `
     showModalHtml("创建地点详图", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
+        const ownsModal = this._captureModalOwner("map-detail-name")
+        if (!ownsModal()) return true
         const name = document.getElementById("map-detail-name")?.value.trim() || locName
         const importance = document.getElementById("map-detail-importance")?.value || "important"
         const autogen = document.getElementById("map-detail-autogen")?.value === "1"
         const sizes = { core: [60, 45], important: [40, 30], normal: [20, 30] }
         const [w, h] = sizes[importance] || sizes.important
+        const projectId = state.currentProjectId
+        const parentMapId = this._state.map.id
+        let created
         try {
-          const created = await api.world.createMap({
+          created = await api.world.createMap({
             name, map_type: "city", grid_width: w, grid_height: h,
-            parent_map_id: this._state.map.id, parent_entity_id: entityId,
-          }, state.currentProjectId)
-          if (autogen) {
-            await this._generateMapWhenAvailable(created.id)
+            parent_map_id: parentMapId, parent_entity_id: entityId,
+          }, projectId)
+        } catch (err) {
+          if (!ownsModal()) return true
+          toast(`创建失败：${err.message}`, "error")
+          return false
+        }
+        let generateError = null
+        if (autogen) {
+          try {
+            await this._generateMapWhenAvailable(created.id, projectId)
+          } catch (err) {
+            generateError = err
           }
-          closeModal()
-          toast("详图已创建", "success")
+        }
+        if (!ownsModal()) return true
+        closeModal()
+        toast(generateError
+          ? `详图已创建，但快速生成失败：${generateError.message}`
+          : "详图已创建", generateError ? "warning" : "success")
+        const lifecycleEpoch = this._lifecycleEpoch
+        const mountContext = this._mountContext
+        try {
           await this._openMap(created.id)
         } catch (err) {
-          toast(`创建失败：${err.message}`, "error")
+          if (this._isLifecycleCurrent(lifecycleEpoch, mountContext)) {
+            toast(`详图已创建，但未能自动打开：${err.message}`, "warning")
+          }
         }
+        return true
       },
     }])
   },
 
-  async _generateMapWhenAvailable(mapId) {
+  async _generateMapWhenAvailable(mapId, projectId = state.currentProjectId) {
     let lastError = null
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        return await api.world.generateMap(mapId, state.currentProjectId)
+        return await api.world.generateMap(mapId, projectId)
       } catch (err) {
         lastError = err
         const message = (err?.message || "").toLowerCase()
@@ -6017,8 +6113,10 @@ const mapView = {
     `
     showModalHtml("地图设置", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
+        const ownsModal = this._captureModalOwner("map-settings-name")
+        if (!ownsModal()) return true
         const name = document.getElementById("map-settings-name")?.value.trim()
-        if (!name) { toast("请输入地图名称", "warning"); return }
+        if (!name) { toast("请输入地图名称", "warning"); return false }
         const description = document.getElementById("map-settings-desc")?.value.trim()
         const parentMapField = document.getElementById("map-settings-parent-map")
         const parentEntityField = document.getElementById("map-settings-parent-entity")
@@ -6029,16 +6127,28 @@ const mapView = {
             ? (parentEntityField?.value || null)
             : null
         }
+        const projectId = state.currentProjectId
         try {
           await api.world.updateMap(
             cfg.id,
             payload,
-            state.currentProjectId
+            projectId
           )
-          closeModal()
-          toast("地图信息已更新", "success")
+        } catch (err) {
+          if (!ownsModal()) return true
+          toast(`更新失败：${err.message}`, "error")
+          return false
+        }
+        if (!ownsModal()) return true
+        closeModal()
+        toast("地图信息已更新", "success")
+        const lifecycleEpoch = this._lifecycleEpoch
+        const mountContext = this._mountContext
+        try {
           await this._reloadMapStatePreservingSession(cfg.id)
+          if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
           await this._loadMaps()
+          if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
           // Keep the current map selected after saving its metadata. A full
           // unmount clears `_state` and unexpectedly sends the author back to
           // the map list, interrupting an otherwise local settings edit.
@@ -6046,8 +6156,11 @@ const mapView = {
           mapState.mode = previousMode
           this._render("map-root")
         } catch (err) {
-          toast(`更新失败：${err.message}`, "error")
+          if (this._isLifecycleCurrent(lifecycleEpoch, mountContext)) {
+            toast(`地图信息已更新，但页面对账失败：${err.message}`, "warning")
+          }
         }
+        return true
       },
     }])
   },

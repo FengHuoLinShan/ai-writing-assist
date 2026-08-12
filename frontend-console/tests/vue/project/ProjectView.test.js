@@ -3,7 +3,7 @@
  * 状态经 setBridgeOverrides 注入（state + onStateChange）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import ProjectView from "../../../vue/views/project/ProjectView.vue"
 import ImportDrawer from "../../../vue/views/project/components/ImportDrawer.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
@@ -19,6 +19,8 @@ function makeState({ projects = [], currentProjectId = null } = {}) {
     projects,
     currentProjectId,
     currentProject: null,
+    currentView: "project",
+    currentSubView: null,
     viewStates: {},
   }
   return {
@@ -46,6 +48,12 @@ function makeProject(id, overrides = {}) {
   }
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 function mountView({ projects = [], currentProjectId = null, loadError = null } = {}) {
   const harness = makeState({ projects, currentProjectId })
   setBridgeOverrides({ state: harness.state, onStateChange: harness.onStateChange })
@@ -60,7 +68,9 @@ async function enterManageMode(wrapper) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  document.getElementById("modal-body")?.remove()
   projectSession.importSectionOpen = false
+  projectSession.manageMode = false
   projectSession.searchQuery = ""
   projectSession.recycleBinSkip = 0
   getBulkSelection(projectSession, PROJECT_CARDS_SCOPE).clear()
@@ -82,6 +92,14 @@ describe("渲染状态", () => {
     await enterManageMode(wrapper)
     expect(wrapper.find('[data-action="select-visible-projects"]').text()).toBe("全选当前可见项目")
     expect(wrapper.find('[data-action="select-visible-projects"]').attributes("aria-label")).toBe("全选当前可见的 2 个项目")
+  })
+
+  it("管理模式在同页重挂载后保留", () => {
+    projectSession.manageMode = true
+    const { wrapper } = mountView({ projects: [makeProject("p1")] })
+
+    expect(wrapper.find('[data-action="manage-projects"]').text()).toBe("完成管理")
+    expect(wrapper.find('[data-action="select-visible-projects"]').exists()).toBe(true)
   })
 
   it("无项目无错误显示首开空态", () => {
@@ -248,7 +266,68 @@ describe("选择与批量操作", () => {
       expect(globalThis.toast).toHaveBeenCalledWith(expect.stringContaining("批量移入回收站"), "success")
     })
     expect(globalThis.api.projects.remove).toHaveBeenCalledWith("p1")
-    expect(globalThis.router.refresh).toHaveBeenCalled()
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("批量删除响应晚到且已离开项目页时不刷新或提示", async () => {
+    const removal = deferred()
+    const { wrapper, harness } = mountView({ projects: [makeProject("p1")] })
+    globalThis.api.projects.remove.mockReturnValue(removal.promise)
+    globalThis.api.projects.list = vi.fn(async () => ({ items: [] }))
+    setBridgeOverrides({ confirmAction: (_msg, onConfirm) => onConfirm() })
+    await enterManageMode(wrapper)
+    getBulkSelection(projectSession, PROJECT_CARDS_SCOPE).add("p1")
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('[data-action="bulk-run"]').trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.projects.remove).toHaveBeenCalledWith("p1"))
+    harness.state.currentView = "today"
+    removal.resolve({})
+    await flushPromises()
+
+    expect(globalThis.api.projects.list).not.toHaveBeenCalled()
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+    expect(globalThis.toast).not.toHaveBeenCalled()
+  })
+
+  it("批量删除全部失败时保留选择与确认框供重试", async () => {
+    let confirmDelete = null
+    const { wrapper } = mountView({ projects: [makeProject("p1")] })
+    globalThis.api.projects.remove.mockRejectedValue(new Error("delete failed"))
+    setBridgeOverrides({ confirmAction: (_msg, onConfirm) => { confirmDelete = onConfirm } })
+    await enterManageMode(wrapper)
+    getBulkSelection(projectSession, PROJECT_CARDS_SCOPE).add("p1")
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('[data-action="bulk-run"]').trigger("click")
+
+    await expect(confirmDelete()).resolves.toBe(false)
+    expect(getBulkSelection(projectSession, PROJECT_CARDS_SCOPE)).toEqual(new Set(["p1"]))
+    expect(globalThis.api.projects.list).not.toHaveBeenCalled()
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+    expect(globalThis.toast).toHaveBeenCalledWith(expect.stringContaining("失败 1"), "error")
+  })
+
+  it("批量删除响应晚到且同页已打开新弹窗时不刷新", async () => {
+    const removal = deferred()
+    let confirmDelete = null
+    const { wrapper } = mountView({ projects: [makeProject("p1")] })
+    globalThis.api.projects.remove.mockReturnValue(removal.promise)
+    document.body.insertAdjacentHTML("beforeend", '<div id="modal-body"><p class="confirm-owner"></p></div>')
+    setBridgeOverrides({ confirmAction: (_msg, onConfirm) => { confirmDelete = onConfirm } })
+    await enterManageMode(wrapper)
+    getBulkSelection(projectSession, PROJECT_CARDS_SCOPE).add("p1")
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('[data-action="bulk-run"]').trigger("click")
+    const pending = confirmDelete()
+    document.getElementById("modal-body").innerHTML = '<div class="replacement-modal"></div>'
+    removal.resolve({})
+
+    await expect(pending).resolves.toBe(true)
+    expect(globalThis.api.projects.list).not.toHaveBeenCalled()
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+    expect(globalThis.toast).not.toHaveBeenCalled()
   })
 })
 
@@ -329,7 +408,22 @@ describe("重试与回收站入口", () => {
       expect(globalThis.api.projects.list).toHaveBeenCalled()
     })
     expect(harness.state.projects.map((p) => p.id)).toEqual(["p9"])
-    expect(globalThis.router.refresh).toHaveBeenCalled()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("重试响应晚到且已离开项目页时不刷新", async () => {
+    const load = deferred()
+    globalThis.api.projects.list.mockReturnValue(load.promise)
+    const { wrapper, harness } = mountView({ loadError: "超时" })
+
+    await wrapper.find('[data-action="retry-projects"]').trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.projects.list).toHaveBeenCalled())
+    harness.state.currentView = "today"
+    load.resolve({ items: [makeProject("p9")] })
+    await flushPromises()
+
+    expect(globalThis.router.refresh).not.toHaveBeenCalled()
   })
 
   it("回收站按钮触发回收站加载", async () => {

@@ -115,7 +115,7 @@ test.describe("worldView 子视图切换", () => {
     await expect(tableRow).toContainText("热点主角")
     await expect(tableRow).toContainText("重要")
 
-    await page.locator(".world-view-options > summary").click()
+    await expect(page.locator(".world-view-options")).toHaveAttribute("open", "")
     await page.locator('[data-action="set-object-view"][data-view-mode="card"]').click()
     await expect(card).toBeVisible()
   })

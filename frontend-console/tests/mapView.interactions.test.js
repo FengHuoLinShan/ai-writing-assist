@@ -61,6 +61,7 @@ function createLeafletHarness(container, { fittedZoom = -5 } = {}) {
     getBoundsZoom: vi.fn(() => fittedZoom),
     setMinZoom: vi.fn(),
     fitBounds: vi.fn(),
+    setView: vi.fn(),
     on: vi.fn(),
     off: vi.fn(function () { return this }),
     getZoom: vi.fn(() => 0),
@@ -98,6 +99,104 @@ beforeEach(() => {
   mapView._mountContext = {}
   mapView._leafletApi = null
   mapView._setEditorApplyBusy(false)
+})
+
+describe("mapView 页内重绘", () => {
+  it("保留已平移缩放的地图视口", async () => {
+    vi.useFakeTimers()
+    document.body.append(renderHtml('<div id="map-root"></div>'))
+    const center = { lat: -128, lng: 256 }
+    mapView._mountRootId = "map-root"
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      breadcrumbs: [],
+      tiles: [],
+      location_bindings: [],
+      markers: [],
+      territories: [],
+      terrain_layers: [],
+    }
+    mapView._leaflet = {
+      getCenter: vi.fn(() => center),
+      getZoom: vi.fn(() => 2),
+      off: vi.fn(),
+      remove: vi.fn(),
+    }
+    const container = document.createElement("div")
+    const { leafletApi, leafletMap } = createLeafletHarness(container)
+    const originalGetContext = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => createCanvasMock({
+      methods: ["setTransform", "clearRect", "translate", "scale"],
+    }))
+    const initLeaflet = mapView._initLeaflet.bind(mapView)
+    const init = vi.spyOn(mapView, "_initLeaflet").mockImplementation(
+      (_loadLeaflet, viewport) => initLeaflet(async () => leafletApi, viewport),
+    )
+
+    try {
+      mapView._rerenderEditor()
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => {
+        expect(leafletMap.setView).toHaveBeenCalledWith(center, 2, { animate: false })
+      })
+    } finally {
+      init.mockRestore()
+      mapView._teardownInteractiveSurface()
+      mapView._state = null
+      HTMLCanvasElement.prototype.getContext = originalGetContext
+      vi.useRealTimers()
+    }
+  })
+
+  it("没有活动控件时仍可重绘编辑器", () => {
+    document.body.append(renderHtml('<div id="map-root"><div class="map-edit-panel"></div></div>'))
+    const root = document.getElementById("map-root")
+    mapView._mountRootId = "map-root"
+    const teardown = vi.spyOn(mapView, "_teardownInteractiveSurface").mockImplementation(() => {})
+    const render = vi.spyOn(mapView, "_render").mockImplementation(() => {
+      root.innerHTML = '<div class="map-edit-panel"></div>'
+    })
+
+    expect(() => mapView._rerenderEditor()).not.toThrow()
+    teardown.mockRestore()
+    render.mockRestore()
+  })
+
+  it("保留编辑面板的滚动位置和控件焦点", () => {
+    document.body.append(renderHtml('<div id="map-root"><div class="map-edit-panel"><select data-layer-active-group="group-1"></select></div></div>'))
+    const root = document.getElementById("map-root")
+    root.querySelector(".map-edit-panel").scrollTop = 420
+    root.querySelector("[data-layer-active-group='group-1']").focus()
+    mapView._mountRootId = "map-root"
+    const teardown = vi.spyOn(mapView, "_teardownInteractiveSurface").mockImplementation(() => {})
+    const render = vi.spyOn(mapView, "_render").mockImplementation(() => {
+      root.innerHTML = '<div class="map-edit-panel"><select data-layer-active-group="group-1"></select></div>'
+    })
+
+    mapView._rerenderEditor()
+
+    expect(root.querySelector(".map-edit-panel").scrollTop).toBe(420)
+    expect(document.activeElement).toBe(root.querySelector("[data-layer-active-group='group-1']"))
+    teardown.mockRestore()
+    render.mockRestore()
+  })
+
+  it("按钮触发局部重绘后仍聚焦同一操作", () => {
+    document.body.append(renderHtml('<div id="map-root"><div class="map-edit-panel"><button type="button" data-action="map-layer-toggle-visible" data-id="layer-1">◉</button></div></div>'))
+    const root = document.getElementById("map-root")
+    root.querySelector("[data-action='map-layer-toggle-visible']").focus()
+    mapView._mountRootId = "map-root"
+    const teardown = vi.spyOn(mapView, "_teardownInteractiveSurface").mockImplementation(() => {})
+    const render = vi.spyOn(mapView, "_render").mockImplementation(() => {
+      root.innerHTML = '<div class="map-edit-panel"><button type="button" data-action="map-layer-toggle-visible" data-id="layer-1">○</button></div>'
+    })
+
+    mapView._rerenderEditor()
+
+    expect(document.activeElement).toBe(root.querySelector("[data-action='map-layer-toggle-visible']"))
+    teardown.mockRestore()
+    render.mockRestore()
+  })
 })
 // ============================================================
 // 六边形几何
@@ -980,6 +1079,112 @@ describe("mapView dynamic state loading", () => {
   })
 })
 
+describe("mapView 弹窗失败保留本地输入", () => {
+  it("场景切换被拒绝时返回 false 并保留选择弹窗", async () => {
+    mapState.sceneList = [{ id: "s1", index: 1, title: "开端" }]
+    mapView._mountContext = { onSceneChange: vi.fn(async () => false) }
+    mapView._showScenePicker()
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+
+    await expect(showModal.mock.calls[0][2][0].handler()).resolves.toBe(false)
+    expect(closeModal).not.toHaveBeenCalled()
+  })
+
+  it("场景切换接口失败时返回 false 供原位重试", async () => {
+    mapState.sceneList = [{ id: "s1", index: 1, title: "开端" }]
+    mapView._mountContext = { onSceneChange: vi.fn(async () => { throw new Error("切换失败") }) }
+    mapView._showScenePicker()
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+
+    await expect(showModal.mock.calls[0][2][0].handler()).resolves.toBe(false)
+    expect(toast).toHaveBeenCalledWith("切换场景失败：切换失败", "error")
+    expect(closeModal).not.toHaveBeenCalled()
+  })
+
+  it("创建世界地图的本地校验和接口失败都返回 false", async () => {
+    state.currentProjectId = "p1"
+    mapView._showCreateWorldForm()
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+    const handler = showModal.mock.calls[0][2][0].handler
+
+    await expect(handler()).resolves.toBe(false)
+    document.getElementById("map-create-name").value = "九州"
+    api.world.createMap.mockRejectedValueOnce(new Error("网络失败"))
+    await expect(handler()).resolves.toBe(false)
+  })
+
+  it("创建地点详图接口失败时返回 false", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    mapView._locationById = new Map([["loc1", { id: "loc1", name: "廷根" }]])
+    api.world.createMap.mockRejectedValueOnce(new Error("网络失败"))
+    mapView._showCreateDetailForm("loc1")
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+
+    await expect(showModal.mock.calls[0][2][0].handler()).resolves.toBe(false)
+  })
+
+  it("详图创建成功但快速生成失败时收口且不允许重复创建", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    mapView._locationById = new Map([["loc1", { id: "loc1", name: "廷根" }]])
+    api.world.createMap.mockResolvedValueOnce({ id: "detail-1" })
+    api.world.generateMap.mockRejectedValueOnce(new Error("生成服务不可用"))
+    const openMap = vi.spyOn(mapView, "_openMap").mockResolvedValue(true)
+    mapView._showCreateDetailForm("loc1")
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+
+    await expect(showModal.mock.calls[0][2][0].handler()).resolves.toBe(true)
+    expect(api.world.createMap).toHaveBeenCalledTimes(1)
+    expect(closeModal).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "详图已创建，但快速生成失败：生成服务不可用",
+      "warning",
+    )
+    expect(openMap).toHaveBeenCalledWith("detail-1")
+    openMap.mockRestore()
+  })
+
+  it("创建世界地图等待期间被新弹窗替换时不提示或打开旧结果", async () => {
+    state.currentProjectId = "p1"
+    let resolveCreate
+    api.world.createMap.mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve }))
+    const openMap = vi.spyOn(mapView, "_openMap").mockResolvedValue(true)
+    mapView._showCreateWorldForm()
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+    document.getElementById("map-create-name").value = "旧世界"
+    const pending = showModal.mock.calls[0][2][0].handler()
+    await vi.waitFor(() => expect(resolveCreate).toBeTypeOf("function"))
+    document.getElementById("map-create-name").replaceWith(document.createElement("input"))
+    resolveCreate({ id: "old-map" })
+
+    await expect(pending).resolves.toBe(true)
+    expect(openMap).not.toHaveBeenCalled()
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("世界地图已创建", "success")
+    openMap.mockRestore()
+  })
+
+  it("图层缩放范围无效时返回 false", async () => {
+    mapView._state = { map: { id: "m1" } }
+    mapView._layerTree = { nodes: [{
+      id: "layer-1",
+      node_type: "group",
+      name: "设定层",
+      visible: true,
+      locked: false,
+      opacity: 1,
+      sort_order: 0,
+    }] }
+    mapView._showLayerNodeSettings("layer-1")
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+    document.getElementById("map-layer-node-min-zoom").value = "2"
+    document.getElementById("map-layer-node-max-zoom").value = "1"
+
+    expect(showModal.mock.calls[0][2][0].handler()).toBe(false)
+  })
+})
+
 describe("mapView 地图设置", () => {
   it("_renderMapShell 显示设置按钮", () => {
     mapView._state = {
@@ -1060,7 +1265,7 @@ describe("mapView 地图设置", () => {
     `
     mapView._showSettingsModal()
     const handler = showModal.mock.calls[0][2][0].handler
-    await handler()
+    await expect(handler()).resolves.toBe(false)
     expect(toast).toHaveBeenCalledWith("请输入地图名称", "warning")
     expect(api.world.updateMap).not.toHaveBeenCalled()
   })
@@ -1102,8 +1307,28 @@ describe("mapView 地图设置", () => {
     `
     mapView._showSettingsModal()
     const handler = showModal.mock.calls[0][2][0].handler
-    await handler()
+    await expect(handler()).resolves.toBe(false)
     expect(toast).toHaveBeenCalledWith("更新失败：网络失败", "error")
+  })
+
+  it("_showSettingsModal 远端更新成功但页面对账失败时不把写入误报为失败", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1", name: "九州" } }
+    api.world.updateMap.mockResolvedValueOnce({ id: "m1", name: "新九州" })
+    const reload = vi.spyOn(mapView, "_reloadMapStatePreservingSession")
+      .mockRejectedValueOnce(new Error("列表暂不可用"))
+    document.body.innerHTML = `
+      <input id="map-settings-name" value="新九州" />
+      <textarea id="map-settings-desc"></textarea>
+    `
+    mapView._showSettingsModal()
+
+    await expect(showModal.mock.calls[0][2][0].handler()).resolves.toBe(true)
+    expect(closeModal).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("地图信息已更新", "success")
+    expect(toast).toHaveBeenCalledWith("地图信息已更新，但页面对账失败：列表暂不可用", "warning")
+    expect(toast).not.toHaveBeenCalledWith(expect.stringMatching(/^更新失败/), "error")
+    reload.mockRestore()
   })
 
   it("保存设置后保留当前 mode（编辑模式）", async () => {

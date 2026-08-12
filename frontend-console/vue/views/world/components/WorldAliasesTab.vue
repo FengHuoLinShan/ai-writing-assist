@@ -98,7 +98,7 @@ import { computed, watch } from "vue"
 import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
 import { deleteAlias, inlineEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, aliasKey } from "../logic/worldRelationsAliasesOps.js"
-import { selectedItemsFrom, getBulkSelection } from "../logic/worldBulkSelection.js"
+import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldPager from "./WorldPager.vue"
@@ -141,6 +141,7 @@ const aliasGroups = computed(() => {
 const aliasIds = computed(() => (
   props.aliases.map((a) => aliasKey(a)).filter(Boolean)
 ))
+watch(aliasIds, (ids) => reconcileBulkSelection("world-aliases", ids), { immediate: true })
 
 const typeLabelMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
 

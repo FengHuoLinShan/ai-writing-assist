@@ -69,8 +69,12 @@ function connected() {
 
 function deferred() {
   let resolve
-  const promise = new Promise((done) => { resolve = done })
-  return { promise, resolve }
+  let reject
+  const promise = new Promise((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
 }
 
 function makeApi(overrides = {}) {
@@ -826,6 +830,36 @@ describe("RP 故事页", () => {
     expect(input.element.value).toBe("先保存为草稿，不立即发送。")
   })
 
+  it("重新生成只重试当前任务，不清空输入框草稿", async () => {
+    const retried = deferred()
+    api = makeApi({ retryAttempt: vi.fn(() => retried.promise) })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey({
+          active_attempt: {
+            id: "attempt-awaiting-retry",
+            journey_id: journey().id,
+            status: "awaiting_continue",
+            visible_text: "这段尚未写完。",
+          },
+        }),
+        llmConnections: connected(),
+      },
+    })
+    const input = wrapper.get("textarea[aria-label='继续旅程']")
+    await input.setValue("稍后还要发送的草稿")
+    await wrapper.findAll(".rp-attempt-actions button")
+      .find((button) => button.text() === "重新生成")
+      .trigger("click")
+    retried.resolve({ journey: journey(), attempt: null })
+    await flushPromises()
+
+    expect(input.element.value).toBe("稍后还要发送的草稿")
+    expect(localStorage.getItem(`novel_rp_draft:${journey().id}`))
+      .toBe("稍后还要发送的草稿")
+  })
+
   it("完整刷新后同一节点的分支缓存会重新读取", async () => {
     let branchLoad = 0
     api = makeApi({
@@ -928,6 +962,35 @@ describe("RP 故事页", () => {
         base_selected_path_hash: "a".repeat(64),
       }),
     )
+  })
+
+  it("回顾保存连点只发送一次并显示真实忙碌状态", async () => {
+    const saving = deferred()
+    api.interactions.updateOverview.mockReturnValue(saving.promise)
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    await wrapper.findAll(".rp-composer-tools button")
+      .find((button) => button.text() === "回顾")
+      .trigger("click")
+    await flushPromises()
+    await wrapper.get("[aria-label='当前回顾'] footer button").trigger("click")
+    await wrapper.findAll(".rp-overview-sections textarea")[2].setValue("新回顾")
+    const save = wrapper.findAll("[aria-label='当前回顾'] footer button")
+      .find((button) => button.text() === "保存修改")
+
+    void save.trigger("click")
+    await Promise.resolve()
+    void save.trigger("click")
+
+    expect(api.interactions.updateOverview).toHaveBeenCalledTimes(1)
+    expect(save.attributes("aria-busy")).toBe("true")
+    expect(save.element.disabled).toBe(true)
+    saving.resolve(await makeApi().interactions.updateOverview("id", {
+      sections: { current_situation: "新回顾" },
+    }))
+    await flushPromises()
+    expect(toast).toHaveBeenCalledWith("回顾已保存", "success")
   })
 
   it("上下文超限时可直接查看回顾，并在首次载入时给出反馈", async () => {
@@ -1145,6 +1208,183 @@ describe("RP 故事页", () => {
 
     expect(api.interactions.leaveJourney).toHaveBeenCalledOnce()
     expect(api.interactions.leaveJourney).toHaveBeenCalledWith(journey().id)
+  })
+
+  it("离页后不会因迟到的首次确认开启看海", async () => {
+    const acknowledgement = deferred()
+    api = makeApi({
+      acknowledgeSeeSeaNotice: vi.fn(() => acknowledgement.promise),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey(),
+        llmConnections: connected(),
+        preferences: { see_sea_notice_acknowledged: false },
+      },
+    })
+
+    await wrapper.findAll(".rp-mode-toggle")
+      .find((button) => button.text() === "故事自主发展")
+      .trigger("click")
+    const confirmButton = [...document.querySelectorAll(".rp-sea-notice button")]
+      .find((button) => button.textContent === "开始自主发展")
+    confirmButton.click()
+    await Promise.resolve()
+    wrapper.unmount()
+
+    acknowledgement.resolve({ see_sea_notice_acknowledged: true })
+    await flushPromises()
+
+    expect(api.interactions.updateModes).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it("看海开启响应晚于离页时补发撤销且不继续生成", async () => {
+    const update = deferred()
+    api = makeApi({ updateModes: vi.fn(() => update.promise) })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: {
+        initialJourney: journey(),
+        llmConnections: connected(),
+        preferences: { see_sea_notice_acknowledged: true },
+      },
+    })
+
+    await wrapper.findAll(".rp-mode-toggle")
+      .find((button) => button.text() === "故事自主发展")
+      .trigger("click")
+    await Promise.resolve()
+    wrapper.unmount()
+
+    update.resolve({
+      journey: journey({ see_sea_enabled: true }),
+      attempt: { id: "late-attempt", status: "pending" },
+    })
+    await flushPromises()
+
+    expect(api.interactions.leaveJourney).toHaveBeenCalledOnce()
+    expect(api.interactions.leaveJourney).toHaveBeenCalledWith(journey().id)
+    expect(api.interactions.streamAttempt).not.toHaveBeenCalled()
+  })
+
+  it("归档旅程响应晚于离页时不再导航或提示", async () => {
+    const archive = deferred()
+    api = makeApi({ archiveJourney: vi.fn(() => archive.promise) })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+
+    await wrapper.findAll(".rp-more-menu > div > button")
+      .find((button) => button.text() === "归档旅程")
+      .trigger("click")
+    await Promise.resolve()
+    wrapper.unmount()
+
+    archive.resolve({ archived: true })
+    await flushPromises()
+
+    expect(api.interactions.archiveJourney).toHaveBeenCalledOnce()
+    expect(router.navigate).not.toHaveBeenCalledWith("journeys")
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["成功", ""],
+    ["失败", "离页前仍要保留的草稿"],
+  ])("发送%s响应晚于离页时正确收口本地草稿", async (outcome, expectedDraft) => {
+    const send = deferred()
+    api = makeApi({ sendMessage: vi.fn(() => send.promise) })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    const composer = wrapper.get("textarea[aria-label='继续旅程']")
+    await composer.setValue("离页前仍要保留的草稿")
+    await wrapper.get(".rp-send-button").trigger("click")
+    await vi.waitFor(() => expect(api.interactions.sendMessage).toHaveBeenCalledOnce())
+
+    wrapper.unmount()
+    if (outcome === "成功") {
+      send.resolve({
+        journey: journey({ selection_epoch: 4 }),
+        attempt: { id: "late-send-attempt", status: "pending", visible_text: "" },
+      })
+    } else {
+      send.reject(new Error("late private failure"))
+    }
+    await flushPromises()
+
+    expect(localStorage.getItem(`novel_rp_draft:${journey().id}`))
+      .toBe(expectedDraft || null)
+    expect(api.interactions.streamAttempt).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it("发送响应晚于分支切换时不覆盖新分支、草稿或生成跟随", async () => {
+    const send = deferred()
+    const selectedBranch = journey({
+      selection_epoch: 4,
+      selected_leaf_node_id: "a1",
+      messages: [
+        message("u-branch", "user", "我选择另一条路。"),
+        message("a1", "assistant", "新分支正文。"),
+      ],
+    })
+    const staleSendJourney = journey({
+      selection_epoch: 4,
+      selected_leaf_node_id: "a-old-send",
+      messages: [
+        message("u-old-send", "user", "旧分支发送。"),
+        message("a-old-send", "assistant", "旧发送响应正文。"),
+      ],
+    })
+    api = makeApi({
+      getJourney: vi.fn(async () => staleSendJourney),
+      listBranches: vi.fn(async () => ({
+        variants: [
+          { node_id: "a1", selected: false, ordinal: 1, total: 2, excerpt: "转向另一条路。" },
+          { node_id: "a2", selected: true, ordinal: 2, total: 2, excerpt: "最新的一段故事。" },
+        ],
+      })),
+      selectBranch: vi.fn(async () => selectedBranch),
+      sendMessage: vi.fn(() => send.promise),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    await vi.waitFor(() => expect(wrapper.text()).toContain("其他分支 2/2"))
+    await wrapper.findAll(".rp-message__actions button")
+      .find((button) => button.text() === "其他分支 2/2")
+      .trigger("click")
+
+    const composer = wrapper.get("textarea[aria-label='继续旅程']")
+    await composer.setValue("原分支待发送内容")
+    await wrapper.get(".rp-send-button").trigger("click")
+    await vi.waitFor(() => expect(api.interactions.sendMessage).toHaveBeenCalledOnce())
+    await wrapper.findAll(".rp-branch-popover button")
+      .find((button) => button.text().includes("转向另一条路"))
+      .trigger("click")
+    await flushPromises()
+    await composer.setValue("新分支继续写的草稿")
+
+    send.resolve({
+      journey: staleSendJourney,
+      attempt: { id: "stale-branch-attempt", status: "pending", visible_text: "" },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("新分支正文。")
+    expect(wrapper.text()).not.toContain("旧发送响应正文。")
+    expect(composer.element.value).toBe("新分支继续写的草稿")
+    expect(localStorage.getItem(`novel_rp_draft:${journey().id}`))
+      .toBe("新分支继续写的草稿")
+    expect(api.interactions.streamAttempt).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it("生成或等待续写时不允许切换分支", async () => {
@@ -1492,6 +1732,80 @@ describe("RP 故事页", () => {
       .toBe("关闭内容与数据")
   })
 
+  it("关闭回顾后切换分支并重开时只接受新抽屉的响应", async () => {
+    const staleOverview = deferred()
+    const baseOverview = await makeApi().interactions.getOverview()
+    const selectedBranch = journey({
+      selection_epoch: 4,
+      selected_leaf_node_id: "a1",
+      messages: [
+        message("u-branch", "user", "我选择另一条路。"),
+        message("a1", "assistant", "新分支正文。"),
+      ],
+    })
+    api = makeApi({
+      listBranches: vi.fn(async () => ({
+        variants: [
+          { node_id: "a1", selected: false, ordinal: 1, total: 2, excerpt: "转向另一条路。" },
+          { node_id: "a2", selected: true, ordinal: 2, total: 2, excerpt: "最新的一段故事。" },
+        ],
+      })),
+      selectBranch: vi.fn(async () => selectedBranch),
+    })
+    api.interactions.getOverview
+      .mockImplementationOnce(() => staleOverview.promise)
+      .mockResolvedValueOnce({
+        ...baseOverview,
+        sections: {
+          ...baseOverview.sections,
+          current_situation: "新分支回顾。",
+        },
+        anchor_node_id: "a1",
+        base_selected_leaf_node_id: "a1",
+        base_selected_path_hash: "c".repeat(64),
+      })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    await vi.waitFor(() => expect(wrapper.text()).toContain("其他分支 2/2"))
+
+    await wrapper.findAll(".rp-composer-tools button")
+      .find((button) => button.text() === "回顾")
+      .trigger("click")
+    await vi.waitFor(() => expect(api.interactions.getOverview).toHaveBeenCalledTimes(1))
+    await wrapper.get("[aria-label='当前回顾'] header button").trigger("click")
+
+    await wrapper.findAll(".rp-message__actions button")
+      .find((button) => button.text() === "其他分支 2/2")
+      .trigger("click")
+    await wrapper.findAll(".rp-branch-popover button")
+      .find((button) => button.text().includes("转向另一条路"))
+      .trigger("click")
+    await flushPromises()
+
+    await wrapper.findAll(".rp-composer-tools button")
+      .find((button) => button.text() === "回顾")
+      .trigger("click")
+    await vi.waitFor(() => expect(api.interactions.getOverview).toHaveBeenCalledTimes(2))
+    await flushPromises()
+    expect(wrapper.get("[aria-label='当前回顾']").text()).toContain("新分支回顾。")
+
+    staleOverview.resolve({
+      ...baseOverview,
+      sections: {
+        ...baseOverview.sections,
+        current_situation: "旧分支迟到的回顾。",
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get("[aria-label='当前回顾']").text()).toContain("新分支回顾。")
+    expect(wrapper.get("[aria-label='当前回顾']").text()).not.toContain("旧分支迟到的回顾。")
+    expect(toast).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it("为准备和实际失败的故事状态公开状态角色", () => {
     const preparing = mount(InteractionView, {
       props: {
@@ -1700,5 +2014,40 @@ describe("RP 故事页", () => {
       "最新发展暂时无法载入；你的输入仍保留，请重试。",
       "error",
     )
+  })
+
+  it("冲突后继续使用输入框最新内容，并只在成功后清空", async () => {
+    const selectionConflict = Object.assign(new Error("conflict"), {
+      status: 409,
+      body: {
+        error: "interaction_selection_conflict",
+        context: { current_selection_epoch: 4 },
+      },
+    })
+    api = makeApi({
+      sendMessage: vi.fn().mockRejectedValue(selectionConflict),
+      continueFromNode: vi.fn(async () => ({ journey: journey({ selection_epoch: 4 }), attempt: null })),
+    })
+    setBridgeOverrides({ api, router, toast, confirm, prompt: vi.fn() })
+    const wrapper = mount(InteractionView, {
+      props: { initialJourney: journey(), llmConnections: connected() },
+    })
+    const composer = wrapper.get("textarea[aria-label='继续旅程']")
+    await composer.setValue("触发冲突的旧内容")
+    await wrapper.get(".rp-send-button").trigger("click")
+    await flushPromises()
+    await composer.setValue("冲突后重新整理的新内容")
+
+    await wrapper.findAll(".rp-conflict-banner button")
+      .find((button) => button.text() === "仍从我看到的位置继续")
+      .trigger("click")
+    await flushPromises()
+
+    expect(api.interactions.continueFromNode).toHaveBeenCalledWith(
+      journey().id,
+      "a2",
+      expect.objectContaining({ content: "冲突后重新整理的新内容", expected_selection_epoch: 4 }),
+    )
+    expect(composer.element.value).toBe("")
   })
 })

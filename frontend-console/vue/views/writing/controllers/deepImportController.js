@@ -267,6 +267,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       emit()
       return true
     } catch (err) {
+      if (!operationIsCurrent(snapshot)) return true
       toast(err?.message || "取消任务失败", "error")
       return false
     }
@@ -284,6 +285,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       poll(generation)
       return true
     } catch (err) {
+      if (!operationIsCurrent(snapshot)) return true
       toast(err?.message || "继续恢复失败", "error")
       return false
     }
@@ -302,6 +304,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
       emit()
       return true
     } catch (err) {
+      if (!operationIsCurrent(snapshot)) return true
       toast(err?.message || "放弃恢复失败", "error")
       return false
     }
