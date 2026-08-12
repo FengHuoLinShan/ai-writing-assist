@@ -72,11 +72,48 @@
 
 ## 快照回归分诊
 
-（待 Task 6）
+第一轮（14 失败 / 15）：6 个为 spec 漂移（非视觉回归），8 个为像素 diff。
+
+**spec 漂移修复**（本分支出品，对齐当前产品事实）：
+
+- visual-project-rag 项目页：首页已变为作者/RP 入口选择页，补「我是作家」入口点击。
+- visual-project-rag rag 状态页：`nav-status` 断言移除（rag.md §2-1/3 已记录产品缺口，
+  status 子页无常设 subnav 入口），改断言 `#rag-diagnostics` 可见。
+- visual-settings：标题「账户设置→账户与模型连接」「项目设置→项目偏好」、
+  tab「深度导入→高级导入」、删除失效 mask `.projects-using-list`（对应列表已随重构移除）。
+- visual-world 对象库：默认「最近相关」发现模式渲染卡片，断言改为 `.world-object-card[data-id]` ×4。
+- visual-writing 专注模式：按钮文案「聚焦模式→进入专注」（pages/writing.md §2-4 记录的测试债关闭）。
+
+**像素 diff 分诊**（expected/actual/diff 三图逐张过目，minimal 主题）：
+
+| 快照 | 裁决 | 说明 |
+|---|---|---|
+| writing-desk-minimal | 预期变化 | 侧栏加宽 + 工具栏重构 + 文案本地化；顶部深色块新旧基线均存在（既有元素） |
+| writing-mobile-390-minimal | 预期变化 | 390px 无横向溢出，稿纸形态完整 |
+| outline-threads-minimal | 预期变化 | 导航重构 + tab 文案演进 + 信息推进区去装饰 |
+| outline-arcs-minimal | 预期变化 | 同上；另发现术语混排与行排序变化（转 Task 7） |
+| outline-story-outline-minimal | 预期变化 | 导航重构 + 文案演进 |
+| rag-search-minimal | 预期变化 | 导航重构；面包屑「查找 · 查找」重复（转 Task 7） |
+| world-review-objects-minimal | 预期变化 | 导航重构 + 文案演进；表格对齐正常 |
+| world-bible-minimal | 预期变化 | 导航重构；标题两字折行（转 Task 7） |
+
+warm/dark 主题与剩余快照待第二轮（spec 修复后）跑到对应断言后补充分诊。
 
 ## 美感微调清单
 
-（待 Task 7）
+（来自 Task 2 G4-2 与 Task 6 分诊，逐项待用户确认）
+
+- [A1] outline 剧情线「信息推进」区：描述行紧贴标题、折叠组行间无呼吸感，
+  建议加 4–8px 间距（归 `--space-1`/`--space-2`）。
+- [A2] outline 篇章：tab 已改名「篇章」，但「共 2 个 · 视觉基线篇章纲」
+  「0 篇章纲已选」仍用旧词「篇章纲」，新旧术语混排。
+- [A3] outline 篇章：默认行顺序与旧基线相比发生变化（第二卷排到第一卷前），
+  疑似排序逻辑行为变化，需确认是否有意。
+- [A4] rag 检索页：面包屑「视觉基线检索 · 查找 · 查找」末两段同词重复。
+- [A5] world 世界书：「世界基本背景」标题两字折行 + 操作按钮折成两行，头部拥挤。
+- [A6] world 页签「需要处理 0」计数与文字间距偏大，确认是否设计意图。
+- [A7]（G4-2 转入）styles.css `.generate-*` 区块直写像素等值 token 化
+  （`gap: 12px → var(--space-3)` 等），不改变视觉。
 
 ## 修复记录
 
