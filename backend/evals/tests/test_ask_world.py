@@ -173,3 +173,35 @@ def test_ask_world_rejects_openable_source_without_open_hash(
     assert "metric_failed:citation_open_rate" in report["failures"]
 
 
+def test_committed_ask_world_dataset_structure() -> None:
+    cases = load_ask_world_cases()
+    assert len(cases) == 23
+    assert sum(case.should_answer for case in cases) == 16
+    assert sum(not case.should_answer for case in cases) == 7
+
+
+def test_ask_world_density_case_survives_rank_budget() -> None:
+    """The densest interference case keeps all relevant keys inside top-5."""
+    report = run_ask_world_eval()
+    case = next(
+        result
+        for result in report["case_results"]
+        if result["scenario_id"] == "ask-bell-density-8"
+    )
+    relevant = {
+        "object:bell",
+        "manuscript:guard-rotation",
+        "page:tower-rules",
+        "manuscript:bell-ledger",
+        "object:guard-room-key",
+    }
+    assert set(case["retrieved_source_keys"]) == relevant
+
+
+def test_ask_world_model_probes_blocklist() -> None:
+    probes = DEFAULT_DATASET.parent / "ask-world-model-probes-v1.jsonl"
+    source = probes.read_text(encoding="utf-8")
+    for forbidden in FORBIDDEN_TERMS:
+        assert forbidden not in source
+
+
