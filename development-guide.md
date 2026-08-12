@@ -140,7 +140,7 @@ facade/contracts、任务、前端路由/wire 或 Prompt 的分支必须在收�
 ## Pinned production toolchains
 
 Production Dockerfiles and PostgreSQL service declarations use reviewed image tags plus
-immutable SHA-256 digests. The backend image uses Python `3.14.7`, uv `0.11.28`, and
+immutable SHA-256 digests. The backend image uses Python `3.14.7`, uv `0.12.3`, and
 the frontend build uses Node `24.19.0` LTS; `backend/.python-version` and
 `frontend-console/.node-version` record the matching local-tooling versions. CI runs on
 `ubuntu-24.04` and installs those exact interpreter/tool versions before its relevant

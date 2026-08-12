@@ -144,7 +144,7 @@ GitHub Actions 在 pull request 和 `main` push 上并行运行三个职责清�
 `Production image contract`。
 它们与独立的 `Architecture docs` 均使用 `ubuntu-24.04`，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
-secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.14.7`，
+secret hygiene gate，再安装 uv `0.12.3` 与 Python `3.14.7`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。

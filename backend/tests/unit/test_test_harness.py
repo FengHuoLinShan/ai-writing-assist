@@ -642,7 +642,7 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert backend_dockerfile.count(f"FROM {python_image}") == 2
     assert "AS build" in backend_dockerfile
     assert "AS runtime" in backend_dockerfile
-    assert "ARG UV_VERSION=0.11.28" in backend_dockerfile
+    assert "ARG UV_VERSION=0.12.3" in backend_dockerfile
     assert "USER app" in backend_dockerfile
     assert "COPY --from=build --chown=app:app /app /app" in backend_dockerfile
     assert f"FROM {node_image} AS build" in frontend_dockerfile
