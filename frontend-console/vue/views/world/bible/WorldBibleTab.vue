@@ -900,7 +900,6 @@ async function saveActivationProfileEditor(profile, { profileKey, action }) {
   const owner = captureActivationOwner(document.getElementById("bible-profile-name"))
   try {
     const name = document.getElementById("bible-profile-name")?.value?.trim() || "AI 参考规则"
-    const profileKey = document.getElementById("bible-profile-key")?.value?.trim() || ""
     const api = getApi()
     const saved = profile
       ? await api.context.updateActivationProfile(profile.id, { base_version_number: profile.version_number, name, applicable_actions_json: [action], rules_json: [rule] }, owner.novelId)

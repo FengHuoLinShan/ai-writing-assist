@@ -1587,6 +1587,22 @@ describe("模态操作", () => {
     expect(html).not.toContain("writing.world_bible")
   })
 
+  it("新建激活规则使用内部生成的合法标识", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.context.createActivationProfile = vi.fn().mockResolvedValue({ id: "prof-new" })
+    installModalHost()
+    const wrapper = mountTab()
+
+    await wrapper.find("[data-action='bible-activation-new']").trigger("click")
+    document.getElementById("bible-rule-positive").value = "北境"
+    await showModalHtmlMock.mock.calls.at(-1)[2][0].handler()
+
+    expect(api.context.createActivationProfile).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      profile_key: expect.stringMatching(/^writing\.world_bible\./),
+    }))
+  })
+
   it("发布激活规则调用 confirmAction", async () => {
     const wrapper = mountTab()
     await wrapper.find("[data-action='bible-activation-publish']").trigger("click")
