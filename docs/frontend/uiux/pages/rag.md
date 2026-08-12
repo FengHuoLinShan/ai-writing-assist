@@ -139,7 +139,7 @@ status 子页信息层级：
 验证命令（在 `frontend-console/` 下执行）：
 
 ```bash
-npm run test:e2e -- e2e/rag.spec.js                 # 功能契约（钩子、分页、390px 响应式）
+npm run test:e2e:functional -- e2e/rag.spec.js      # 功能契约（钩子、分页、390px 响应式）
 npm run test:e2e:visual -- e2e/visual-project-rag.spec.js   # 三主题快照：rag-status-{minimal,warm,dark}.png、rag-search-{minimal,warm,dark}.png（darwin 限定）
 npm run test:e2e:visual:update -- e2e/visual-project-rag.spec.js   # 改版后重建基线，须人工核对 diff
 ```

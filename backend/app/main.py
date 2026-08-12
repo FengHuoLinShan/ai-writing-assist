@@ -50,12 +50,7 @@ from infrastructure.embedding.client import (
 from infrastructure.llm.redaction import redact_diagnostic
 
 
-def _register_container_services() -> None:
-    """兼容测试 fixture 的旧入口，实际注册逻辑在 app.bootstrap。"""
-    register_container_services()
-
-
-_register_container_services()
+register_container_services()
 register_task_handlers()
 
 logger = logging.getLogger(__name__)

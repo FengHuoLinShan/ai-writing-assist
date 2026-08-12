@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 
 from core.container import get as _container_get
 from infrastructure.llm.redaction import redact_diagnostic
@@ -50,16 +48,6 @@ async def _require_llm_execution_snapshot(
     return snapshot, bool(legacy_meta_key)
 
 
-@asynccontextmanager
-async def _attempt_savepoint(db) -> AsyncIterator[None]:
-    """Run one publish sub-step in a savepoint when the session supports it."""
-    if getattr(type(db), "begin_nested", None) is None:
-        yield
-        return
-    async with db.begin_nested():
-        yield
-
-
 @task_handler("publish_chapter", recovery_policy="restart_origin")
 async def handle_publish_chapter(db, task):
     """处理章节发布任务
@@ -91,23 +79,10 @@ async def handle_publish_chapter(db, task):
                 novel_id,
                 chapter_index,
                 content_mode="canonical",
-                **(
-                    {
-                        "task_id": str(task.id),
-                        "task_type": str(task.task_type),
-                        "task_attempt": int(task.attempt or 0),
-                        "task_lease_id": str(task.lease_id),
-                    }
-                    if all(
-                        (
-                            getattr(task, "id", None),
-                            getattr(task, "task_type", None),
-                            getattr(task, "attempt", None) is not None,
-                            getattr(task, "lease_id", None),
-                        )
-                    )
-                    else {}
-                ),
+                task_id=str(task.id),
+                task_type=str(task.task_type),
+                task_attempt=int(task.attempt),
+                task_lease_id=str(task.lease_id),
             )
             report = outcome.report
             results["rag_chunks"] = report.chunks_created
@@ -150,7 +125,7 @@ async def handle_publish_chapter(db, task):
     snapshot_ok = False
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            async with _attempt_savepoint(db):
+            async with db.begin_nested():
                 _memory = _container_get("memory.service")
                 snap = await _memory.capture_snapshot(db, novel_id, chapter_index)
             results["snapshot_id"] = snap.id

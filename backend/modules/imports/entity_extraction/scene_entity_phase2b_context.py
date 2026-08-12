@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from modules.imports.entity_extraction.scene_entity_config import (
@@ -328,12 +327,3 @@ def _prompt_authorization_scope(
         }.items()
         if value not in (None, "", [], {})
     }
-
-
-def activation_to_dict(activation: Any) -> dict[str, Any]:
-    """Small compatibility helper for snapshots and tests."""
-    if isinstance(activation, dict):
-        return dict(activation)
-    if is_dataclass(activation):
-        return asdict(activation)
-    return dict(vars(activation))

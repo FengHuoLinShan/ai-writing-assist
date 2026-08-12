@@ -1368,6 +1368,8 @@ async def test_publish_creates_rag_chunks(
 
         task = await db_session.get(AsyncTask, _uuid.UUID(hex=task_id))
         assert task is not None
+        task.mark_running()
+        await db_session.flush()
 
         # Direct handler execution emulates TaskWorker's fenced session.
         db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
@@ -1392,6 +1394,9 @@ async def test_publish_creates_rag_chunks(
             "周明瑞从梦中醒来，发现世界已经完全不同。" * 20,
         )
         task_2 = await db_session.get(AsyncTask, _uuid.UUID(hex=task_id_2))
+        assert task_2 is not None
+        task_2.mark_running()
+        await db_session.flush()
         result_2 = await handle_publish_chapter(db_session, task_2)
         assert result_2["rag_chunks"] > 0
 

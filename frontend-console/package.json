@@ -9,7 +9,6 @@
     "build": "vite build && node scripts/verify-production-build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test --config=playwright.functional.config.js",
     "test:e2e:functional": "playwright test --config=playwright.functional.config.js",
     "test:e2e:smoke": "playwright test --config=playwright.functional.config.js e2e/home.spec.js e2e/project.spec.js e2e/import.spec.js e2e/writing.spec.js",
     "test:e2e:visual": "playwright test --config=playwright.visual.config.js",
@@ -18,8 +17,7 @@
     "test:e2e:map-perf": "playwright test --config=playwright.map-perf.config.js",
     "test:e2e:real-llm": "ENABLE_REAL_LLM=1 playwright test --config=playwright.real-llm.config.js",
     "test:e2e:worker": "RUN_WORKER_E2E=1 playwright test --config=playwright.worker.config.js",
-    "test:e2e:ui": "playwright test --config=playwright.functional.config.js --ui",
-    "test:all": "vitest run && playwright test --config=playwright.functional.config.js"
+    "test:e2e:ui": "playwright test --config=playwright.functional.config.js --ui"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

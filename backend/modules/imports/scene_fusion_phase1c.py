@@ -31,14 +31,6 @@ SuggestionKind = Literal["intra_chapter", "cross_chapter", "duplicate_window"]
 Phase1cLLMCallable = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
-class Phase1cDecision(BaseModel):
-    """Legacy pair shape retained only for test/caller compatibility."""
-
-    decision: FusionDecision = "needs_review"
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    reason: str = ""
-
-
 class Phase1cSuggestion(BaseModel):
     suggestion_kind: SuggestionKind
     source_candidate_ids: list[str] = Field(..., min_length=2)
@@ -69,13 +61,10 @@ class Phase1cSceneFusionService:
         llm: Phase1cLLMCallable,
         *,
         auto_merge_confidence: float = 0.92,
-        boundary_context_chars: int = 2000,
         concurrency: int = 20,
     ) -> None:
         self.llm = llm
         self.auto_merge_confidence = max(0.0, min(float(auto_merge_confidence), 1.0))
-        # Kept as a compatibility setting; v2 never truncates Scene evidence.
-        self.boundary_context_chars = max(100, int(boundary_context_chars))
         self.concurrency = max(1, int(concurrency))
 
     async def run(

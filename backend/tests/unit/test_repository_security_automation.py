@@ -152,10 +152,7 @@ def test_split_ci_workflows_keep_triggers_permissions_and_unique_concurrency() -
     ) in SPLIT_WORKFLOW_CONTRACTS.items():
         workflow = _load_yaml(path)
         assert workflow["name"] == name
-        assert workflow["on"] == {
-            "pull_request": "",
-            "push": {"branches": ["main"]},
-        }
+        assert workflow["on"] == {"pull_request": ""}
         assert workflow["permissions"] == {"contents": "read"}
         assert workflow["concurrency"] == {
             "group": concurrency_group,
@@ -167,6 +164,24 @@ def test_split_ci_workflows_keep_triggers_permissions_and_unique_concurrency() -
         observed_groups.add(concurrency_group)
 
     assert len(observed_groups) == len(SPLIT_WORKFLOW_CONTRACTS)
+
+
+def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
+    workflow = _load_yaml(REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml")
+    job = workflow["jobs"]["frontend-functional-browser"]
+
+    postgres = job["services"]["postgres"]
+    assert postgres["env"]["POSTGRES_DB"] == (
+        "ai_writing_functional_browser_e2e_test"
+    )
+    assert job["env"]["PW_REUSE_EXISTING_SERVER"] == "0"
+
+    steps = {step["name"]: step for step in job["steps"]}
+    assert steps["Run frontend functional browser"]["run"].endswith(
+        "npm --prefix frontend-console run test:e2e:functional -- "
+        "--workers=1 --retries=0"
+    )
+    assert steps["Upload frontend functional browser diagnostics"]["if"] == "failure()"
 
 
 def test_codeql_workflow_uses_least_privilege_matrix_analysis() -> None:

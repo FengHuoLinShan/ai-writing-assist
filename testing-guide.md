@@ -44,7 +44,7 @@ Three layers:
 
 | Command | Scope | External prerequisites |
 |---|---|---|
-| `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
+| `make test` | Modules, infrastructure, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and visibility thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
@@ -55,11 +55,10 @@ Three layers:
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.14/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
-| `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"` | Map observation confirm/ignore row-lock race | Dedicated PostgreSQL at Alembic head |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated once on pull requests and once on `main` pushes |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated once on pull requests |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
@@ -76,19 +75,20 @@ green. Do not run overlapping aggregate targets back-to-back.
 
 1. **While editing**: run only the affected pytest or Vitest file. For a changed browser flow,
    use the existing `test:e2e:smoke` or `test:e2e:map` subset with a dedicated database.
-2. **Before review**: backend-only changes run `make test-fast` plus `make lint`; frontend-only
+2. **Before review**: backend-only changes run `make test` plus `make lint`; frontend-only
    changes run complete Vitest, with `npm run build` only when the bundle, entry points, or build
    configuration changed. Cross-stack, security, or CI changes run
    `make test-ci TEST_WORKERS=2` once; it already subsumes the fast backend and frontend Vitest
-   layers, so do not precede it with `make test` or `make test-all`.
+   layers, so do not precede it with `make test` or frontend Vitest.
 3. **When the risk requires it**: schema or concurrency changes add the PostgreSQL critical
    subset; deployment or image changes add their existing contract target; visual, map
    performance, real-LLM, long-context, worker, and real-corpus suites remain explicit
    acceptance gates.
 
 Every non-trivial branch still finishes with `make docs-check BASE_REF=origin/main` and
-`git diff --check`. GitHub runs the complete functional browser suite once per PR and once again
-for the merged `main` SHA.
+`git diff --check`. GitHub runs the complete functional browser suite once per PR; strict branch
+protection requires that result to cover the current base before merge, so the merged `main` SHA
+does not repeat the same suite.
 
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
@@ -138,11 +138,11 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 
 ### Continuous integration
 
-GitHub Actions 在 pull request 和 `main` push 上并行运行三个职责清晰的主工作流：
+GitHub Actions 在 pull request 上并行运行三个职责清晰的主工作流：
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
 `Frontend unit quality` 与 `Frontend functional browser`，`Production Image CI` 包含
 `Production image contract`。
-它们与独立的 `Architecture docs` 均使用 `ubuntu-24.04`，因此前端或镜像失败不会再以
+它们与独立的 `Architecture docs` 分开运行，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
 secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.14.6`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
@@ -150,7 +150,7 @@ secret hygiene gate，再安装 uv `0.11.28` 与 Python `3.14.6`，
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
 这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
 的 pytest/Ruff 可执行文件。
-架构文档 job 使用 Python 3.12 标准库验证当前清单；PR 还相对 base SHA 检查代码差异影响，未修改的必查文档
+架构文档 job 使用 Python 标准库相对 PR base SHA 验证当前清单和代码差异影响，未修改的必查文档
 只有在 PR 模板逐项核对并提供无影响原因后才能通过。该 workflow 显式监听
 `opened / synchronize / reopened / edited`，因此维护者补齐 Dependabot PR 的文档
 影响说明后会用当前 PR 正文重新验证，无需修改 bot 生成的提交。
@@ -200,15 +200,15 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 常见私钥文件名、私钥块与高置信服务凭据；测试/文档中的显式占位值仅在受控路径豁免。
 失败日志只包含安全化路径、规则名和不可逆短指纹，不输出凭据原文。等价本地入口是
 `make secret-hygiene`；它不替代真实凭据发生泄露后的吊销、轮换和历史处置。
-并行目标与串行 `make test-fast` 使用完全相同的测试路径、marker 排除和单测试超时，
-`loadscope` 只把独立 module/class 分配到隔离 worker。coverage 只统计
+`make test` 直接复用 `pyproject.toml` 的测试路径和 marker 排除；覆盖率门禁只额外增加
+单测试超时、`loadscope` 并行和 coverage 参数。coverage 只统计
 `app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。仓库文件不会自动启用
 远端 ruleset/分支保护，需单独配置；启用后，应把 `Architecture docs`、`Backend quality`、`PostgreSQL critical`、
 `Frontend unit quality`、
-`Frontend functional browser`、`Production image contract`、
-`CodeQL (actions)`、`CodeQL (javascript-typescript)` 和 `CodeQL (python)` 设为合并前必需状态检查。
+`Frontend functional browser` 和 `Production image contract` 设为合并前必需状态检查；CodeQL
+由 ruleset 的 code-scanning merge protection 阻断高严重度结果，不再重复登记三个矩阵状态。
 `Production image contract` 独立执行 `make test-production-images`：它从固定 tag+digest
 构建 backend/frontend 镜像，并在容器内确认 backend 非 root、没有 uv、可导入 app，以及
 frontend 的 nginx 配置和入口资产都可用。它不归入本地 `make test-ci`，因为实际镜像拉取和构建
@@ -258,7 +258,7 @@ Fixture 使用者只通过测试函数参数名请求 fixture。不得使用
 `from conftest import ...`、`from tests.conftest import ...` 或其他普通 Python
 import 复用 fixture；这会让 `conftest` 的解析取决于 pytest 收集顺序。所有
 `backend/modules/*/tests/` 目录必须包含 `__init__.py`，统一收集可用
-`make test-collect` 快速验证。
+`make test ARGS="--collect-only -q"` 快速验证。
 
 ### Test import convention
 

@@ -43,9 +43,7 @@ class EmbeddingWriter:
     async def close(self) -> None:
         if not self._owns_llm_client:
             return
-        close = getattr(self._llm, "close", None)
-        if callable(close):
-            await close()
+        await self._llm.close()
         self._owns_llm_client = False
 
     async def write_per_chunk(
