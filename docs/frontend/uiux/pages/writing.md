@@ -88,8 +88,8 @@
     （「进入专注」WritingView.vue:13 vs「专注模式」WritingEditor.vue:48）。
 12. **移动速记能力割裂**：mobileMode 下丢失标题编辑（MobileQuickNote 无 title input，
     editorController.js:127-131 专门兜底）、无字数目标、无版本/冲突入口；「保存工作稿」按钮文案与桌面
-    一致但语义是 `createIfMissing` 首存（useWritingWorkspace.js:706-708）；操作条吸底 `bottom:64px`
-    （desk:1567）为避让全局底部导航，但该值无变量无注释。
+    一致但语义是 `createIfMissing` 首存（useWritingWorkspace.js:706-708）；操作区现随工作区剩余高度
+    布局并保持在移动底栏上方，不再重复硬编码底栏高度。
 13. **密度断层**：正文 17px/1.9 宽松稿纸 vs 章节树 10-12px mono 与 copilot 10-13px 高密度索引，
     同屏对比强烈；章节树三层行内信息在 176px 最小 rail 宽下标题必然截断
     （省略号在 `.chapter-title-text`，styles.css:2020-2025）。

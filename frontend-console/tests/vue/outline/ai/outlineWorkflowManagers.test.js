@@ -511,8 +511,8 @@ describe("plotAutoExtractLabel", () => {
   it("threads 返回剧情线", () => {
     expect(plotAutoExtractLabel("threads")).toBe("从正文提取剧情线")
   })
-  it("arcs 返回篇章纲", () => {
-    expect(plotAutoExtractLabel("arcs")).toBe("从正文提取篇章纲")
+  it("arcs 返回篇章", () => {
+    expect(plotAutoExtractLabel("arcs")).toBe("从正文提取篇章")
   })
   it("默认回落 threads", () => {
     expect(plotAutoExtractLabel()).toBe("从正文提取剧情线")

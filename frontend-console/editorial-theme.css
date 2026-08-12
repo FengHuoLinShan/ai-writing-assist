@@ -410,6 +410,16 @@ body {
   box-shadow: none;
 }
 
+.view-header:has(details[open]) {
+  overflow: visible;
+  z-index: 81;
+}
+
+#workspace-content:not([data-workspace-view="project"]) .view-header:has(details[open])::before,
+#workspace-content:not([data-workspace-view="project"]) .view-header:has(details[open])::after {
+  display: none;
+}
+
 #workspace-content:not([data-workspace-view="project"]) .view-header::before {
   content: "";
   position: absolute;
@@ -626,6 +636,20 @@ button:disabled {
   opacity: 0.48;
   box-shadow: none;
   transform: none;
+}
+
+/* dark 主题禁用态回归中性纸面：primary/fab 的浅色墨块不退成浅灰 slab */
+[data-theme="dark"] .btn:disabled,
+[data-theme="dark"] .btn.disabled {
+  border-color: var(--archive-rule);
+  background: var(--archive-paper-raised);
+  color: var(--archive-ink-soft);
+}
+
+[data-theme="dark"] .btn-text:disabled,
+[data-theme="dark"] .btn-text.disabled {
+  border-color: transparent;
+  background: transparent;
 }
 
 /* ===== 输入与编辑：以红线标出可操作区域 ===== */
@@ -1211,6 +1235,9 @@ table tbody tr:hover td {
   opacity: 0.92;
   pointer-events: none;
   z-index: 0;
+  /* 装饰线左侧裁切，避免横线穿过设置表单文字（基线审计 2026-08-12；文字可延伸至装饰层 ~38% 处，
+     mask-image 在本伪元素上不生效，故用 clip-path 硬裁） */
+  clip-path: inset(0 0 0 40%);
 }
 
 .global-settings-view,
@@ -1321,7 +1348,7 @@ table tbody tr:hover td {
   .btn-sm,
   .btn-icon,
   .action-menu-btn {
-    min-height: 38px;
+    min-height: 42px;
   }
 
   .input-field,
@@ -1344,7 +1371,7 @@ table tbody tr:hover td {
   .subnav-item,
   .generate-subtabs .generate-subtab,
   .settings-tab-nav .tab-btn {
-    min-height: 40px;
+    min-height: 42px;
     scroll-snap-align: start;
   }
 

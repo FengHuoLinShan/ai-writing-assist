@@ -101,4 +101,15 @@ describe("editorial archive theme", () => {
     expect(theme).toMatch(/\.global-settings-view,[\s\S]*\.project-settings-view\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s)
     expect(theme).toMatch(/content:\s*"⚙︎";[\s\S]*pointer-events:\s*none;[\s\S]*z-index:\s*0;/s)
   })
+
+  it("keeps the writing sheet editor focus-visible ring intact (pages/writing.md §8.7)", () => {
+    const desk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
+    expect(desk).toMatch(/\.writing-sheet \.novel-editor:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--archive-red\);/s)
+  })
+
+  it("keeps dark-theme disabled buttons on neutral paper instead of a light slab", () => {
+    expect(theme).toMatch(/\[data-theme="dark"\] \.btn:disabled,\s*\[data-theme="dark"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
+    expect(theme).toMatch(/\[data-theme="dark"\] \.btn-text:disabled,\s*\[data-theme="dark"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)
+    expect(styles).toMatch(/\[data-theme="dark"\] \.rp-send-button:disabled\s*\{[^}]*background:\s*var\(--rp-accent-soft\);/s)
+  })
 })

@@ -210,6 +210,12 @@
   box-shadow: none;
 }
 
+/* pages/writing.md §8.7：desk 层不得吃掉全站统一的 focus-visible 朱红环 */
+.writing-sheet .novel-editor:focus-visible {
+  outline: 2px solid var(--archive-red);
+  outline-offset: 2px;
+}
+
 .writing-sheet .novel-editor:read-only {
   color: var(--text-secondary);
 }
@@ -533,6 +539,7 @@
 }
 
 .chapter-row__meta {
+  color: var(--text-secondary);
   font-size: 10px;
   letter-spacing: 0.04em;
 }
@@ -1563,9 +1570,6 @@
 }
 
 .mobile-note-actions {
-  position: sticky;
-  bottom: 64px;
-  z-index: 12;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

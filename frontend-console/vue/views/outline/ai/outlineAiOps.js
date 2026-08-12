@@ -34,7 +34,7 @@ import {
 // ─── P20 结构层级标签 ─────────────────────────────────
 const P20_TARGET_LABELS = {
   plot_thread: "剧情线",
-  outline_arc: "篇章纲",
+  outline_arc: "篇章",
   planned_scene: "细纲",
 }
 let outlineAnalysisSubmissionGeneration = 0
@@ -296,7 +296,7 @@ export async function applyOutlineGeneratePreview() {
 
     const counts = [
       response?.total_threads != null ? `剧情线 ${response.total_threads}` : "",
-      response?.total_arcs != null ? `篇章纲 ${response.total_arcs}` : "",
+      response?.total_arcs != null ? `篇章 ${response.total_arcs}` : "",
       response?.total_scenes != null ? `场景 ${response.total_scenes}` : "",
     ].filter(Boolean).join(" · ")
     toast(`${P20_TARGET_LABELS[response?.target] || "结构"}已采用${counts ? `：${counts}` : ""}`, "success")
@@ -389,7 +389,7 @@ export async function analyzeOutline({ instruction, startChapter, endChapter }) 
   const requestText = String(instruction || "").trim()
   const tabLabel = {
     threads: "剧情线",
-    arcs: "篇章纲",
+    arcs: "篇章",
     foreshadowing: "伏笔",
     reveals: "揭示",
   }[state?.currentSubView || ""] || "大纲"
@@ -516,7 +516,7 @@ export async function cancelOutlineAnalysisTask() {
 // ═════════════════════════════════════════════════════════════════════════
 
 /**
- * 显示"从正文提取剧情线/篇章纲"表单。
+ * 显示"从正文提取剧情线/篇章"表单。
  * 对应 vanilla _showPlotStructureAutoExtractForm (L2444-2502)。
  */
 export function showPlotStructureAutoExtractForm() {

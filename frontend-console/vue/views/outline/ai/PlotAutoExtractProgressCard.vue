@@ -1,6 +1,6 @@
 <script setup>
 /**
- * PlotAutoExtractProgressCard — 剧情线/篇章纲自动提取进度卡片。
+ * PlotAutoExtractProgressCard — 剧情线/篇章自动提取进度卡片。
  * 监听 plotAutoExtractManager.state 自渲染；无任务时渲染空字符。
  * DOM 对齐 vanilla _renderPlotAutoExtractProgress (L770-779)。
  */

@@ -207,7 +207,7 @@ export function useStoryOutline(props) {
           <span>把当前总纲纳入本次生成参考</span>
         </label>
       ` : ""}
-      <p class="form-hint">AI 不会预先创建篇章纲或场景，也不会自动采用结果。</p>
+      <p class="form-hint">AI 不会预先创建篇章或场景，也不会自动采用结果。</p>
     `
 
     showModalHtml("AI 生成故事总览", html, [{

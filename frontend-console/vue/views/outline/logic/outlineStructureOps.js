@@ -516,7 +516,7 @@ export function deleteThread(id) {
 }
 
 // ============================================================
-// 篇章纲 CRUD (vanilla L1813-1923)
+// 篇章 CRUD (vanilla L1813-1923)
 // ============================================================
 
 export function showCreateArcForm() {
@@ -526,7 +526,7 @@ export function showCreateArcForm() {
   const formHtml = `
     <div class="form-group">
       <label>名称 *</label>
-      <input class="form-input" id="create-arc-name" placeholder="篇章纲名称" />
+      <input class="form-input" id="create-arc-name" placeholder="篇章名称" />
     </div>
     <div class="form-group">
       <label>起始章节</label>
@@ -538,10 +538,10 @@ export function showCreateArcForm() {
     </div>
     <div class="form-group">
       <label>描述</label>
-      <textarea class="form-textarea" id="create-arc-desc" rows="3" placeholder="篇章纲描述"></textarea>
+      <textarea class="form-textarea" id="create-arc-desc" rows="3" placeholder="篇章描述"></textarea>
     </div>
   `
-  showModalHtml("新建篇章纲", formHtml, [{
+  showModalHtml("新建篇章", formHtml, [{
     text: "创建", class: "btn-primary", handler: async () => {
       const title = document.getElementById("create-arc-name")?.value
       if (!title) { toast("请输入名称", "warning"); return }
@@ -552,7 +552,7 @@ export function showCreateArcForm() {
           end_chapter: parseInt(document.getElementById("create-arc-end")?.value || "10", 10),
           arc_goal: document.getElementById("create-arc-desc")?.value || "",
         })
-        toast("篇章纲已创建", "success")
+        toast("篇章已创建", "success")
         refreshCurrentView()
       } catch (err) { toast(err.message || "创建失败", "error") }
     },
@@ -584,7 +584,7 @@ export function editArc(id, arcsList) {
       <textarea class="form-textarea" id="edit-arc-desc" rows="3">${esc(arc?.description || arc?.summary || arc?.arc_goal || arc?.core_conflict || "")}</textarea>
     </div>
   `
-  showModalHtml("编辑篇章纲", formHtml, [{
+  showModalHtml("编辑篇章", formHtml, [{
     text: "保存", class: "btn-primary", handler: async () => {
       try {
         await getApi().outline.updateArc(id, getAppState()?.currentProjectId, {
@@ -620,19 +620,19 @@ export async function markArcReviewed(id, arcsList) {
   const toast = getToast()
   const arc = findArc(arcsList, id)
   if (!arc) {
-    toast("未找到目标篇章纲", "error")
+    toast("未找到目标篇章", "error")
     return
   }
   const projectId = getAppState()?.currentProjectId
   await getApi().outline.updateArc(id, projectId, reviewThreadPayload(arc, "outline_arcs"))
-  toast(structureAssetDisplay(arc).displayState === "active" ? "篇章纲已标记为已检查" : "篇章纲已采用", "success")
+  toast(structureAssetDisplay(arc).displayState === "active" ? "篇章已标记为已检查" : "篇章已采用", "success")
   await refreshCurrentView()
 }
 
 export function deleteArc(id) {
   const toast = getToast()
   const confirmAction = getConfirmAction()
-  confirmAction("确定删除此篇章纲？", async () => {
+  confirmAction("确定删除此篇章？", async () => {
     try {
       await getApi().outline.deleteArc(id, getAppState()?.currentProjectId)
       toast("已删除", "success")
@@ -661,7 +661,7 @@ export function runBulkOutlineAction(scope, action, items) {
     "delete-threads": "批量删除剧情线",
     "review-threads": "批量采用 / 标记已检查",
     "review-arcs": "批量采用 / 标记已检查",
-    "delete-arcs": "批量删除篇章纲",
+    "delete-arcs": "批量删除篇章",
     "delete-foreshadowing": "批量删除伏笔",
     "delete-reveals": "批量删除揭示",
   }
@@ -683,7 +683,7 @@ export async function executeBulkOutlineAction(scope, action, items) {
     "delete-threads": "批量删除剧情线",
     "review-threads": "批量采用 / 标记已检查",
     "review-arcs": "批量采用 / 标记已检查",
-    "delete-arcs": "批量删除篇章纲",
+    "delete-arcs": "批量删除篇章",
     "delete-foreshadowing": "批量删除伏笔",
     "delete-reveals": "批量删除揭示",
   }

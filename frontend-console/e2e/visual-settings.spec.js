@@ -7,7 +7,8 @@
  * 确定性保障：
  * - beforeAll 显式重置后端全局 LLM 默认与作者偏好（其他 E2E 会修改这些持久化值），
  *   截图内容不依赖执行顺序或复用数据库状态。
- * - 动态内容 mask：项目 ID 为随机 UUID（"引用此默认的项目"列表逐次不同）与 toast 容器。
+ * - 动态内容：截图前等待 toast 容器清空（历史上还 mask 过"引用此默认的项目"列表，
+ *   该列表已随设置页重构移除）。
  * - 基线仅提交 darwin 平台；其他平台默认跳过，需 `VISUAL_BASELINE=1` 配合
  *   `--update-snapshots` 生成并提交本平台基线后再作为门禁运行。
  */
@@ -31,9 +32,6 @@ async function screenshotSettingsPage(page, name) {
     fullPage: true,
     animations: "disabled",
     caret: "hide",
-    mask: [
-      page.locator(".projects-using-list"),
-    ],
   })
 }
 
@@ -86,7 +84,7 @@ test.describe("settings 视觉基线", () => {
     }
   })
 
-  test("项目设置页 × 三主题 + 三个 Tab", async ({ page, projectFactory }) => {
+  test("项目设置页 × 三主题 + 两个 Tab", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线项目", language: "zh" })
     await page.goto(`/#workbench/${proj.id}/project-settings`)
     await page.reload()

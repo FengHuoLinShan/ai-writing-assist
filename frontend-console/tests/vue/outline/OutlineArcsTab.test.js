@@ -42,7 +42,7 @@ describe("渲染", () => {
     const wrapper = mount(OutlineArcsTab, {
       props: { projectId: "p1", subView: "arcs", arcs: [], arcsTotal: 0 },
     })
-    expect(wrapper.text()).toContain("暂无篇章纲")
+    expect(wrapper.text()).toContain("暂无篇章")
   })
 
   it("错误态优先显示错误消息", () => {
@@ -121,7 +121,7 @@ describe("筛选", () => {
 })
 
 describe("批量选择", () => {
-  it("行内操作菜单保留删除动作并提供篇章纲上下文名称", async () => {
+  it("行内操作菜单保留删除动作并提供篇章上下文名称", async () => {
     const wrapper = mount(OutlineArcsTab, {
       props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
     })
@@ -143,7 +143,7 @@ describe("批量选择", () => {
     expect(wrapper.find(".bulk-toolbar").exists()).toBe(true)
   })
 
-  it("批量操作确认数量只包含已选中的篇章纲", async () => {
+  it("批量操作确认数量只包含已选中的篇章", async () => {
     const wrapper = mount(OutlineArcsTab, {
       props: { projectId: "p1", subView: "arcs", arcs: SAMPLE_ARCS, arcsTotal: 2 },
     })
