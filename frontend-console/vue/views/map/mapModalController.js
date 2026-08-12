@@ -133,7 +133,7 @@ export function createMapModalController({
       <div class="map-detail-section"><div class="map-detail-label">来源</div><div class="map-detail-value">${esc(item.change_summary || item.source_summary || "暂无来源摘要")}</div></div>
       <div class="map-detail-section"><div class="map-detail-label">证据</div><div class="map-detail-value">${esc(item.evidence_text || "未提供正文证据")}</div></div>
     </div>`
-    const buttons = [{ text: "修改", class: "btn-primary", handler: () => onEditItem?.(item) ?? false }]
+    const buttons = [{ text: "修改", class: "btn-primary", handler: () => onEditItem?.(item) }]
     if (item.item_kind === "observation") buttons.push(
       { text: "采用", class: "btn-primary", handler: () => onConfirmObservation?.(item) },
       { text: "忽略", class: "", handler: () => onIgnoreObservation?.(item) },

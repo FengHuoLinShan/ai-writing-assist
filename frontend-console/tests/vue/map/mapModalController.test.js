@@ -20,6 +20,7 @@ function renderModalShell() {
 describe("map modal controller ownership", () => {
   let api
   let onCreated
+  let onEditItem
   let toast
   let controller
 
@@ -28,6 +29,7 @@ describe("map modal controller ownership", () => {
     resetBridgeOverrides()
     api = { world: { createMap: vi.fn() } }
     onCreated = vi.fn(async () => true)
+    onEditItem = vi.fn()
     toast = vi.fn()
     setBridgeOverrides({
       api,
@@ -41,6 +43,7 @@ describe("map modal controller ownership", () => {
       getMaps: () => [{ id: "m1", name: "九州" }],
       getArchivedMaps: () => [{ id: "a1", name: "旧地图" }],
       onCreated,
+      onEditItem,
     })
   })
 
@@ -74,5 +77,14 @@ describe("map modal controller ownership", () => {
     await vi.waitFor(() => expect(document.getElementById("modal-title").textContent).toBe("分配地图待处理项"))
     expect(document.getElementById("map-inbox-assignment-map")).not.toBeNull()
     expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+  })
+
+  it("closes the detail modal when opening the item editor", async () => {
+    const item = { id: "f1", item_kind: "fact", title: "沈砚" }
+    controller.showDynamicItem(item)
+    Array.from(document.querySelectorAll("#modal-footer button")).find((button) => button.textContent === "修改").click()
+
+    await vi.waitFor(() => expect(onEditItem).toHaveBeenCalledWith(item))
+    expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
   })
 })
