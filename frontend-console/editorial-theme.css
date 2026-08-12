@@ -1211,6 +1211,9 @@ table tbody tr:hover td {
   opacity: 0.92;
   pointer-events: none;
   z-index: 0;
+  /* 装饰线左侧裁切，避免横线穿过设置表单文字（基线审计 2026-08-12；文字可延伸至装饰层 ~38% 处，
+     mask-image 在本伪元素上不生效，故用 clip-path 硬裁） */
+  clip-path: inset(0 0 0 40%);
 }
 
 .global-settings-view,

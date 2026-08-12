@@ -14121,7 +14121,7 @@ button.rp-journey-card__main:hover {
 
 @media (max-width: 760px) {
   .sidebar-project-switcher,
-  .sidebar-desktop-nav,
+  #nav-list,
   .sidebar-footer { display: none; }
   .sidebar-mobile-nav {
     display: grid;
@@ -14139,7 +14139,8 @@ button.rp-journey-card__main:hover {
     gap: 3px;
     border: 0;
     background: transparent;
-    color: var(--text-tertiary);
+    /* 移动底栏自绘 --bg-panel 浅底（上一行 background），用纸面文字色 */
+    color: var(--text-secondary);
     font-size: 10px;
   }
   .sidebar-mobile-nav button.active { color: var(--accent); background: var(--accent-soft); }

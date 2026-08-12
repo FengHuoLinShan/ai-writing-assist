@@ -85,7 +85,7 @@ test.describe("settings 视觉基线", () => {
     }
   })
 
-  test("项目设置页 × 三主题 + 三个 Tab", async ({ page, projectFactory }) => {
+  test("项目设置页 × 三主题 + 两个 Tab", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线项目", language: "zh" })
     await page.goto(`/#workbench/${proj.id}/project-settings`)
     await page.reload()

@@ -539,6 +539,7 @@
 }
 
 .chapter-row__meta {
+  color: var(--text-secondary);
   font-size: 10px;
   letter-spacing: 0.04em;
 }

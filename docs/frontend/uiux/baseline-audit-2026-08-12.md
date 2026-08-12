@@ -145,7 +145,30 @@ warm/dark 主题与剩余快照待第二轮（spec 修复后）跑到对应断�
   判定为设计意图，未改动。
 - [A7] `styles.css` `.generate-*` 区块直写像素等值 token 化（28 处 gap/padding/margin
   归 `--space-*`，非 4px 基数与尺寸类值保留），零视觉变化。
+- [W1] 移动端底部导航「只剩首页」：根因是 `#nav-list { display:flex }`（id 特异度 1-0-0）
+  压过 ≤760px 媒体查询里 `.sidebar-desktop-nav { display:none }`（0-1-0），桌面导航溢出
+  覆盖移动底栏。修复：媒体查询选择器改为 `#nav-list`；底栏按钮颜色从 `--text-tertiary`
+  提至 `--text-secondary`（自绘浅底）。属 main 既有缺陷（e98fb361a 引入），本次顺手修复。
+- [W2] dark 主题章节列表字数元数据几乎不可读：`.chapter-row__meta` 补
+  `color: var(--text-secondary)`。
+- [W3] settings 齿轮装饰连接线横穿「系统默认 关闭」文字：实为 `::after` 蓝图线段
+  （40% 35% 横线）；mask-image 在该伪元素上计算但不参与渲染（原因未查明），
+  改用 `clip-path: inset(0 0 0 40%)` 硬裁，线段恰从节点圆点起笔，观感自然。
+- [W4] world 世界书右栏英文 label「Activation Profile」→「生效规则集」
+  （#bible-activation-profile id 不动，e2e 无影响）。
+- [W5]（观察项，未改）dark 主题禁用态批量按钮沿用浅灰底、与 dark 按钮体系不统一；
+  RP 顶栏 mono 装饰字对比度偏低——均属可接受的降级/装饰文本，记录在案。
+- [W6]（测试修复）visual-writing 移动用例移除冗余的 applyTheme 点击（beforeEach 已重置为
+  minimal），消除主题菜单操作导致的底栏渲染干扰。
 
 ## 最终验证
 
-（待 Task 8）
+- `npm run test`（vitest，含 editorialTheme/typographyTokens 契约）：163 文件 / 1799 用例全绿。
+- `test:e2e:core`（home/project/world/outline-scenes/writing）：63 全绿；
+  `test:e2e:smoke`（home/project/import/writing）：47 全绿（微调全部落地后）。
+- `test:e2e:visual` 干净复跑：14/14 全绿（outline 3 + project-rag 3 + settings 2 + world 3 + writing 3）。
+- 基线快照 40 张重建（5 组 spec × minimal/warm/dark + writing focus/mobile），
+  minimal 全组 + warm/dark 全组均经逐张人工过目（分诊与走查记录见上文）。
+- `make docs-check BASE_REF=origin/main`：通过（页面文档行号漂移为既有现象，见 P-doc-drift）。
+- 遗留观察项：W5（dark 禁用按钮浅底、RP 装饰字对比度）记录在案未改；
+  A3（arc_index 为空时篇章排序随机）为后端潜在产品问题，建议另行立项。
