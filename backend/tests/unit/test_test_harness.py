@@ -631,8 +631,8 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
         "c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110"
     )
     nginx_image = (
-        "nginx:1.30.4-alpine@sha256:"
-        "97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46"
+        "nginx:1.31.3-alpine@sha256:"
+        "4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752"
     )
     postgres_image = (
         "pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
@@ -663,6 +663,8 @@ def test_production_toolchain_contract_is_pinned_everywhere() -> None:
     assert e2e_workflow.count("runs-on: ubuntu-24.04") == 1
     assert workflow.count('python-version: "3.14.6"') == 3
     assert e2e_workflow.count('python-version: "3.14.6"') == 1
+    assert workflow.count("prune-cache: true") == 3
+    assert e2e_workflow.count("prune-cache: true") == 1
     assert len(re.findall(r"uses: actions/setup-node@[0-9a-f]{40}", workflow)) == 2
     assert workflow.count("node-version-file: frontend-console/.node-version") == 2
     assert (

@@ -12,16 +12,16 @@ uvicorn[standard]>=0.52.1
 sqlalchemy[asyncio]>=2.0.51
 asyncpg>=0.29.0
 psycopg2-binary>=2.9.9
-alembic>=1.13.0
+alembic>=1.19.0
 pgvector>=0.3.0
 
 # --- Schema & 配置 ---
 pydantic>=2.6.0
-pydantic-settings>=2.1.0
+pydantic-settings>=2.15.0
 python-dotenv>=1.0.0
 
 # --- LLM ---
-openai>=2.52.0
+openai>=2.53.0
 httpx>=0.27.0
 cryptography>=50.0.0
 tiktoken>=0.6.0

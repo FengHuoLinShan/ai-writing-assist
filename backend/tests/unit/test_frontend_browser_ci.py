@@ -109,6 +109,7 @@ def test_frontend_functional_browser_is_the_only_pinned_browser_ci_job() -> None
                 "version": "0.11.28",
                 "python-version": "3.14.6",
                 "enable-cache": "true",
+                "prune-cache": "true",
                 "cache-dependency-glob": "backend/uv.lock",
             },
         },
