@@ -78,7 +78,7 @@ test.describe("settings 视觉基线", () => {
     await page.goto("/#settings")
     // hash-only goto 在 SPA 中偶发不触发重新渲染，reload 强制 initRouter 按 URL hash 渲染（确定性）
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户设置" })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "账户与模型连接" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("button", { name: "保存作者偏好" })).toBeVisible()
     for (const theme of THEMES) {
       await applyTheme(page, theme)
@@ -90,19 +90,20 @@ test.describe("settings 视觉基线", () => {
     const proj = await projectFactory({ title: "视觉基线项目", language: "zh" })
     await page.goto(`/#workbench/${proj.id}/project-settings`)
     await page.reload()
-    await expect(page.locator("#workspace-content").getByRole("heading", { name: "项目设置" })).toBeVisible({ timeout: 10000 })
-    await expect(page.locator("#deep-import-phase0-target-input-chars")).toHaveValue("72000")
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: /^项目偏好/ })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole("tab", { name: "创作偏好" })).toHaveAttribute("aria-selected", "true")
     for (const theme of THEMES) {
       await applyTheme(page, theme)
       await screenshotSettingsPage(page, `settings-project-${theme}.png`)
     }
 
     await applyTheme(page, "minimal")
-    await page.getByRole("tab", { name: "深度导入" }).click()
+    await page.getByRole("tab", { name: "高级导入" }).click()
+    await expect(page.locator("#deep-import-phase0-target-input-chars")).toHaveValue("72000")
     await expect(page.getByText(/Phase 0/)).toBeVisible()
     await screenshotSettingsPage(page, "settings-project-tab-deep-import.png")
 
-    await page.getByRole("tab", { name: "作者偏好" }).click()
+    await page.getByRole("tab", { name: "创作偏好" }).click()
     await expect(page.getByText(/日更目标/)).toBeVisible()
     await screenshotSettingsPage(page, "settings-project-tab-author.png")
   })

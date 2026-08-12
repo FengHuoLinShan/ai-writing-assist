@@ -54,6 +54,7 @@ test.describe("project / rag 视觉基线", () => {
     await projectFactory({ title: "视觉基线项目·乙", genre: "fantasy", language: "zh" })
 
     await page.goto("/")
+    await page.getByRole("button", { name: /我是作家/ }).click()
     await expect(page.locator("#project-catalog-title")).toBeVisible({ timeout: 10000 })
     // 复用库中可能残留其他测试项目：搜索过滤到本测试的两个项目，保证内容确定
     await page.locator("#project-search-input").fill("视觉基线项目")
@@ -74,7 +75,7 @@ test.describe("project / rag 视觉基线", () => {
   test("rag 状态页 × 三主题", async ({ page, projectFactory }) => {
     const proj = await projectFactory({ title: "视觉基线检索", genre: "scifi", language: "zh" })
     await openWorkbench(page, proj, "rag", "status")
-    await expect(page.locator('[data-action="nav-status"]')).toHaveClass(/active/, { timeout: 10000 })
+    await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible({ timeout: 10000 })
     await expect(page.locator('[data-action="rebuild-index"]')).toBeVisible({ timeout: 10000 })
     for (const theme of THEMES) {
       await applyTheme(page, theme)

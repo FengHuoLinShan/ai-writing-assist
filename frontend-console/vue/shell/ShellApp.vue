@@ -136,7 +136,3 @@ defineExpose({
   showHelp,
 })
 </script>
-
-<style>
-.vue-shell-root{display:contents}
-</style>

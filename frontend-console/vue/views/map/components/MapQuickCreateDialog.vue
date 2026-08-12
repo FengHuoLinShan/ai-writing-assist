@@ -66,6 +66,7 @@ watch(() => [props.quick.state.open, props.quick.state.activeLayouts, [...props.
 .vue-map-dialog > header, .vue-map-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--border-color); }
 .vue-map-dialog > footer { justify-content: flex-end; border-top: 1px solid var(--border-color); border-bottom: 0; }
 .vue-map-dialog__body { overflow: auto; padding: var(--space-4); min-inline-size: 0; border: 0; margin: 0; }
+/* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 390px) {
   .map-quick-row-control { min-width: 40px; min-height: 40px; }
   .vue-map-dialog > header .btn { min-width: 40px; min-height: 40px; }

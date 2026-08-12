@@ -28,10 +28,10 @@ describe("Scene workbench spacing", () => {
 
   it("moves the health breakdown below its title on narrow screens", () => {
     expect(styles).toMatch(
-      /@media \(max-width: 720px\)[\s\S]*\.scene-health-filter\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/s,
+      /@media \(max-width: 760px\)[\s\S]*\.scene-health-filter\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/s,
     )
     expect(styles).toMatch(
-      /@media \(max-width: 720px\)[\s\S]*\.scene-health-filter small\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*margin-left:\s*0;/s,
+      /@media \(max-width: 760px\)[\s\S]*\.scene-health-filter small\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*margin-left:\s*0;/s,
     )
   })
 
