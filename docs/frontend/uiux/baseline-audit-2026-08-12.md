@@ -43,7 +43,32 @@
 
 ## 页面层发现
 
-（待 Task 4）
+10 页契约（#id / data-action / role / 可访问名称）经逐页核实：**契约钩子零缺失、零改名**
+（today 页 `data-action="switch-project"` 缺失为文档自认的新增契约，尚未到引入时点）。
+各页 §2 已知问题复核属实，不重复计为发现。新发现如下：
+
+- [P-world-1] `vue/views/world/WorldView.vue:34,38` — `.world-object-view-toggle` /
+  `.world-discovery-mode-toggle` 的 `aria-label` 挂在无 role 的 `<span>` 上，
+  §7.3 契约 role="group" 未满足 — **修代码**（补 role="group"）。
+- [P-touch-1] `editorial-theme.css:1321-1325`（≤760px 档）`.btn-sm`/`.btn-icon`
+  min-height 38px；`:1344-1349` `.generate-subtabs .generate-subtab` 等共享 tab 规则
+  min-height 40px — 低于 design-standard「触控档按钮 ≥42px」（合并 generate-19/20、
+  settings-19 三处报告）— **修代码**（38/40 → 42）。
+- [P-project-24] `styles.css:4977-4979,5005-5007,5022-5024` — project 页 760/460 档
+  按钮 min-height 40px < 42px — **修代码**。
+- [P-rp-21] `styles.css:13041-13046` — RP 消息操作钮 padding 5px 7px + 11px 字 ≈23px 高，
+  移动档低于 ≥42px — **修代码**（移动档补 min-height）。
+- [P-generate-21] `styles.css:241,14297` — `.topbar-generate-note` 死规则（模板/JS 零引用） —
+  **修代码**（删除两条规则）。
+- [P-outline-scene-5] 文档契约写 `mark-reviewed-arc|thread`，实现为
+  `mark-arc-reviewed|mark-thread-reviewed`（词序相反），无 e2e 引用该钩子 —
+  **修文档**（改 pages/outline-scene.md 拼写，不动代码钩子）。
+- [P-world-2] pages/world.md §7.1 简写 `#relation-review-final-type` 等有歧义，
+  实际 id 为 `#relation-final-type`，e2e 与实现一致 — **修文档**。
+- [P-doc-drift] today/world/outline-scene/map/rag/project/settings/rp-experience 多份
+  页面文档的 styles.css 行号与断点描述已漂移（600→760 合并后文档滞后）— 留 Task 8
+  docs-check 统一处理。
+- [P-走查] 各页 390px 溢出、dark 主题细节、骨架/reduced-motion 实际观感 — 转 Task 7 走查。
 
 ## 快照回归分诊
 
