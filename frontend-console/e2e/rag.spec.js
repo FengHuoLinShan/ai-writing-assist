@@ -66,8 +66,8 @@ test.describe("RAG 检索模块", () => {
     await expectWithinViewport(input)
     await expectWithinViewport(searchButton)
     await expectNoPageOverflow(page)
-    await expect(input).toHaveCSS("min-height", "40px")
-    await expect(searchButton).toHaveCSS("min-height", "40px")
+    await expect(input).toHaveCSS("min-height", "44px")
+    await expect(searchButton).toHaveCSS("min-height", "42px")
   })
 
   test("倒置章节范围在请求前提示并保留条件，修正后才检索", async ({ page }) => {
