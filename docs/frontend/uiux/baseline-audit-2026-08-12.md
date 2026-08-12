@@ -132,6 +132,19 @@ warm/dark 主题与剩余快照待第二轮（spec 修复后）跑到对应断�
 - [P-outline-scene-5] 修文档：`mark-reviewed` → 实现实际拼写 `mark-arc-reviewed/mark-thread-reviewed`。
 - [P-world-2] 修文档：world.md §7.1 关系定稿 id 简写改为显式 `#relation-final-*` 形式。
 - vitest 全绿（163/1799）；e2e core 子集结果见 `## 最终验证`。
+- [A1] `styles.css` 新增 `.outline-information-*` 节奏样式（该区块此前全仓零样式）。
+- [A2] 篇章术语统一：outline 模块 UI 文案「篇章纲→篇章」全量替换（6 个源文件 +
+  2 个 e2e/2 个 vitest 同步），对齐 pages/outline-scene.md 目标术语。
+- [A3] 篇章行排序核查结论：后端 `order_by(arc_index, id)`，`arc_index` 可空且手动创建
+  不赋值，NULL 时落到 UUID `id` → 顺序随机。**非本次分支引入，非有意变更**，
+  属潜在产品问题（建议另行立项：arc_index 兜底或 created_at 次级排序），本次不动后端。
+- [A4] `Topbar.vue` 子视图标题与模块同名时隐藏子段（消除「查找 · 查找」重复面包屑）。
+- [A5] `.world-bible-panel__header` 加 `flex-wrap`，h2 加 `word-break: keep-all`，
+  消除「世界基本背/景」两字折行。
+- [A6] world 页签「需要处理 N」为标准 `.badge` 计数芯片（mono 字体+padding），
+  判定为设计意图，未改动。
+- [A7] `styles.css` `.generate-*` 区块直写像素等值 token 化（28 处 gap/padding/margin
+  归 `--space-*`，非 4px 基数与尺寸类值保留），零视觉变化。
 
 ## 最终验证
 
