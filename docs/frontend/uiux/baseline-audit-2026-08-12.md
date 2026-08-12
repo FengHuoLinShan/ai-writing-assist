@@ -16,7 +16,30 @@
 
 ## 全局层发现
 
-（待 Task 2）
+- [G1] token 别名迁移 — **合规**。pre-G1 `styles.css` 中 `--bg`/`--text` 等兼容别名已是
+  转发形式（`--bg: var(--bg-base)`），G1 仅将其上移至 editorial 层，有效值前后一致，
+  无色值漂移。三套死色板（style-a/b/c 原型值）删除后无残留引用失去定义（抽查 29 个
+  token，def≥1）。
+- [G2-1] **违规（修代码）**：写作稿纸编辑器焦点指示完全消失。链条：
+  `styles.css:1911` `.novel-editor:focus { outline: none }`（特异度 0-2-0）杀掉
+  全局朱红环；`writing-desk.css:209-211` `.writing-sheet .novel-editor:focus
+  { box-shadow: none }`（0-3-0）再杀掉替代辉光；desk 层 `border: 0` 使
+  `border-color` 变化也无效。`.novel-editor` 是 `<textarea>`（WritingEditor.vue:73-82），
+  键盘用户完全失去焦点反馈。pages/writing.md §8.7 明确要求朱红环不被 desk 层覆写。
+- [G2-2] 其余 14 处 `outline: none/0` — **合规**。`:focus` 规则均有替代焦点样式
+  （accent-glow 辉光 / 朱红边）；基础规则特异度与全局环持平但 styles.css 先加载，
+  全局环（editorial-theme.css:163）胜出。
+- [G3] 朱红白名单 — **合规**。`--archive-red` 使用全部收敛于 editorial-theme.css，
+  业务 vue/js/styles.css 零引用（soft 变体除外）。
+- [G4-1] 新增阴影 — **合规**。codex diff 唯一新增 `box-shadow` 在 `#theme-menu`
+  （浮层），符合「阴影只用于浮层」。
+- [G4-2] **留债（审美确认）**：G2 收编 GenerateView 非 scoped 样式时带入直写像素
+  （`padding: 4px 8px`、`9px 12px`、`gap: 12px` 等，styles.css `.generate-*` 区块），
+  未归 `--space-*` token。等值 token 化不改变视觉，建议 Task 7 一并确认。
+- [G5] 断点 — **合规**。残留 `600px`（×2）与 `900px`（×4）媒体查询均有
+  「局部组件自适应断点保留」加注，符合 design-standard §6。
+- [G6] 布局占比与 !important — **合规**。`--workspace-main-share: 64fr` 保持；
+  `!important` 存量 styles.css 15 + editorial-theme.css 5，与 G2 完成后持平，无新增。
 
 ## 页面层发现
 
