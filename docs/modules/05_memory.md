@@ -66,9 +66,7 @@ POST /api/novels/{novel_id}/memories/scene-checkpoints/repair
 ## 设计要点
 
 - memory 不维护旧版 `memory_records` 或 `memory_update_proposals`
-- `memory_scene_checkpoints` 以 `entities / relations / locations / knowledge / map`
-  分维度重放已锚定 Scene 事件和已确认 MapFact；缺锚会进入 coverage gap，
-  人工修复带期望 checkpoint ID 并从该 Scene 起重建下游
+- memory 不再消费地图维度；AI 地图册是 world 拥有的视觉资产，不参与事件重放或连续性事实
 - `panorama` 是由事件流和快照重放得到的“某章世界状态视图”；快照后的增量事件按 `(chapter_index, sequence, id)` keyset 分页应用，避免大世界范围重放一次性加载全部事件
 - 快照 `events_until` 和手动重建终点使用聚合查询计算，显式事件列表查询仍保留按章节范围返回完整列表的 API 语义
 - `delta_log` 不是单独模块，而是 memory 提供给 world/imports/context 使用的结构化差分设施

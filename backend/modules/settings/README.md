@@ -1,6 +1,6 @@
 # Settings Module
 
-管理账户级模型连接、只读余额、全局作者偏好和项目级作者偏好覆盖。
+管理账户级文本/图片模型连接、只读余额、全局作者偏好和项目级作者偏好覆盖。
 
 ## 数据表
 
@@ -37,6 +37,9 @@
   失败统一为 unavailable，不影响连接状态或故事生成。前端标注“可能有延迟”，不轮询、
   不拆分余额、不显示充值入口。
 - **通用输出上限默认 `12000`**：由固定账户模板提供；深度导入继续使用自己的阶段预算。
+- **图片连接独立**：`openai-image` 只复用 `account_llm_credentials` 的加密存储，固定 OpenAI
+  base URL 与 `gpt-image-2`；不进入文本模板目录，也不改变 `active_provider_id`。连接检查只
+  显示“密钥连接成功”；图片权限、组织验证与额度在首次实际生成时确认。
 
 ## effective 响应结构（契约）
 
@@ -71,6 +74,7 @@
 - `POST /api/settings/llm-connections/{provider_id}/activate` — 切到已有连接，不重复验证
 - `DELETE /api/settings/llm-connections/{provider_id}` — 清除该 provider 的账户 Key
 - `GET /api/settings/llm-balances` — 非阻塞查询已连接 provider 的原币种余额
+- `GET/PUT/DELETE /api/settings/image-connection` — 查询、验证保存或清除独立图片连接
 - `GET/PUT /api/settings/llm-defaults` — 全局 LLM 默认
 - `GET/PUT /api/settings/author-preferences` — 全局作者偏好
 - `GET /api/settings/projects-using-defaults` — 引用此默认的项目聚合（D18: 任一字段 NULL 即列出）
@@ -97,7 +101,7 @@ refresh 不绑定单个项目，不使用该门禁。
   settings 规则，不直接读取 project 模块。
 - `modules.settings.contracts` 暴露 project API 使用的 effective response 类型和
   非 secret 字段白名单；`modules.settings.facade` 暴露
-  `resolve_account_llm_runtime_profile`、`get_effective_llm_settings` /
+  `resolve_account_llm_runtime_profile`、`resolve_account_image_runtime_connection`、`get_effective_llm_settings` /
   `get_effective_author_prefs` 供 `modules.project` 调用。业务模块不得绕过
   project 的 client/snapshot seam 直接取得明文凭据。
 - 跨模块聚合（如 `/api/settings/projects-using-defaults`）只在

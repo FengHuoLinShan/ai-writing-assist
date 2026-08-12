@@ -30,43 +30,5 @@
       "supporting_scene_ids": ["scene-1"]
     }
   ],
-  "map_observation_proposals": [
-    {
-      "proposal_type": "character_location",
-      "character_name": "克莱恩",
-      "location_name": "廷根",
-      "movement_mode": "walk",
-      "state": "present",
-      "quote": "克莱恩走进了廷根。",
-      "confidence": 0.86,
-      "supporting_scene_ids": ["scene-1"]
-    },
-    {
-      "proposal_type": "event_location",
-      "event_name": "塔罗会聚会",
-      "location_name": "灰雾之上",
-      "state": "occurred",
-      "quote": "塔罗会聚会在灰雾之上举行。",
-      "confidence": 0.84,
-      "supporting_scene_ids": ["scene-1"]
-    },
-    {
-      "proposal_type": "route_state",
-      "path_name": "北境商道",
-      "state": "blocked",
-      "reason": "暴雪封路",
-      "quote": "北境商道已被暴雪封死。",
-      "confidence": 0.82,
-      "supporting_scene_ids": ["scene-1"]
-    },
-    {
-      "proposal_type": "boundary",
-      "controller_name": "玄甲军",
-      "area_description": "控制北岸三镇",
-      "quote": "玄甲军控制了北岸三镇。",
-      "confidence": 0.8,
-      "supporting_scene_ids": ["scene-1"]
-    }
-  ],
   "uncertain_items": []
 }

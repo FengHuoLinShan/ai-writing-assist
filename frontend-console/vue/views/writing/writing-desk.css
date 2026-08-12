@@ -924,47 +924,6 @@
   letter-spacing: 0.05em;
 }
 
-/* 地图摘要：定义列表化 */
-.writing-map-summary {
-  display: grid;
-  gap: 4px;
-}
-
-.writing-map-summary__title {
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--archive-rule);
-  color: var(--archive-ink-soft);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
-.writing-map-summary__row {
-  color: var(--text-body);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.writing-map-summary__warning {
-  padding: 6px 8px;
-  border: 1px solid var(--warning);
-  border-radius: 2px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 11px;
-}
-
-.writing-map-summary__empty {
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-
-.writing-map-summary .btn {
-  margin-top: 6px;
-  justify-self: start;
-}
-
 .scene-cockpit-empty {
   padding: 16px 12px;
   color: var(--text-secondary);

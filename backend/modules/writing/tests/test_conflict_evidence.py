@@ -35,14 +35,14 @@ def test_evidence_location_builds_stable_payload() -> None:
 def test_snapshot_location_keeps_lightweight_evidence() -> None:
     location = evidence_location(
         source_module="world",
-        source_type="map.scene_summary",
-        source_id="scene-1",
-        source_label="地图：九州",
-        source_field="地图风险",
+        source_type="world_bible.page",
+        source_id="page-1",
+        source_label="世界书：九州粮仓",
+        source_field="资料冲突",
         source_excerpt="粮仓起火：待确认",
-        open_target={"kind": "map_object", "map_id": "map-1", "observation_id": "obs-1"},
+        open_target={"kind": "world_bible_page", "page_id": "page-1"},
         text_range={"start": 1, "end": 9},
-        needs_review_reason="依赖待处理地图观察",
+        needs_review_reason="依赖待处理世界对象",
     )
 
     trimmed = snapshot_location(location)
@@ -50,6 +50,6 @@ def test_snapshot_location_keeps_lightweight_evidence() -> None:
     assert trimmed == {
         "source": location["source"],
         "open_target": location["open_target"],
-        "needs_review_reason": "依赖待处理地图观察",
+        "needs_review_reason": "依赖待处理世界对象",
     }
     assert "text_range" not in trimmed

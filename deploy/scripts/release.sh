@@ -22,6 +22,10 @@ if [ "${#RELEASE_REF}" -ne 40 ]; then
     exit 2
 fi
 
+unset MAP_ATLAS_DESTRUCTIVE_MIGRATION_CONFIRMATION \
+    MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_NAME \
+    MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_SHA256
+
 acquire_production_operation_lock "$@"
 validate_environment
 verify_deployment_checkout
@@ -159,6 +163,23 @@ if [ "$FIRST_RELEASE_FRESH" != "true" ]; then
     BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")
     bash "$SCRIPT_DIR/restore_drill.sh" \
         --target-commit "$TARGET_COMMIT" "$BACKUP_PATH"
+
+    LEGACY_MAP_TABLE_COUNT=$(read_live_legacy_map_table_count)
+    if [ "$LEGACY_MAP_TABLE_COUNT" != "0" ]; then
+        DESTRUCTIVE_CONFIRMATION_PHRASE=DROP_LEGACY_MAP_DATA_20260812
+        printf 'The 20260812 migration permanently removes legacy map data.\nVerified backup: %s\nType %s to continue: ' \
+            "$BACKUP_PATH" "$DESTRUCTIVE_CONFIRMATION_PHRASE" >&2
+        destructive_confirmation=
+        IFS= read -r destructive_confirmation || true
+        if [ "$destructive_confirmation" != "$DESTRUCTIVE_CONFIRMATION_PHRASE" ]; then
+            echo "Destructive map migration confirmation did not match; release cancelled." >&2
+            exit 1
+        fi
+        export MAP_ATLAS_DESTRUCTIVE_MIGRATION_CONFIRMATION=$destructive_confirmation
+        export MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_NAME=${BACKUP_PATH##*/}
+        MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_SHA256=$(sha256_digest "$BACKUP_PATH")
+        export MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_SHA256
+    fi
 else
     FIRST_RELEASE_ROLLBACK_REQUIRED=true
 fi

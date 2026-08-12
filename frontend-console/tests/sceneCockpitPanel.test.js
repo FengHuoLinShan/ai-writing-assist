@@ -22,7 +22,6 @@ describe("sceneCockpitPanel", () => {
         goal: "拿到令牌",
         must_not_happen: "主角死亡",
       },
-      mapSummaryHtml: "",
     })
 
     const firstMustNot = html.indexOf("禁止发生")
@@ -47,13 +46,11 @@ describe("sceneCockpitPanel", () => {
         scene_characters: [{ name: "<img src=x>", status: "受伤" }],
         primary_location: { name: "旧城门", description: "<b>危险</b>" },
       },
-      mapSummaryHtml: "<div>地图摘要</div>",
     })
 
     expect(html).toContain("人物")
     expect(html).toContain("地点")
     expect(html).toContain("设定")
-    expect(html).toContain("地图")
     expect(html).toContain("&lt;img src=x&gt;")
     expect(html).toContain("&lt;b&gt;危险&lt;/b&gt;")
     expect(html).not.toContain("<img src=x>")
@@ -168,7 +165,6 @@ describe("sceneCockpitPanel", () => {
         core_conflict: "冲突",
         emotional_beat: "情绪",
       },
-      mapSummaryHtml: "<div>地图摘要</div>",
       compact: true,
     })
 

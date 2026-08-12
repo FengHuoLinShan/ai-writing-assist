@@ -12,13 +12,10 @@ WORLD_FACADE_API = {
     "apply_entity_fusion",
     "apply_entity_fusion_group",
     "backfill_entity_embeddings",
-    "count_deep_import_map_observations_by_workflow",
     "count_entities",
     "create_character",
     "create_entity",
     "create_event",
-    "create_map_observation_candidates",
-    "create_map_observation_from_delta_event",
     "create_or_merge_relation",
     "create_relation",
     "deprecate_deep_import_entities_by_workflow",
@@ -38,7 +35,6 @@ WORLD_FACADE_API = {
     "get_characters_context",
     "get_deep_import_alias_metadata_summary",
     "get_entity_importance_map",
-    "get_confirmed_map_facts_through_scene",
     "get_entity_relations",
     "get_entity_revisions",
     "get_events_context",
@@ -53,13 +49,13 @@ WORLD_FACADE_API = {
     "list_characters",
     "list_entities",
     "list_entity_terms",
+    "list_world_bible_working_page_ids",
     "mark_worldbuilding_context_stale",
     "mark_world_bible_synopsis_stale",
     "merge_candidate_into_entity",
     "preview_worldbuilding_activation",
     "repair_deep_import_alias_metadata",
     "rollback_deep_import_aliases_by_workflow",
-    "rollback_deep_import_map_observations_by_workflow",
     "rollback_deep_import_relations_by_workflow",
     "rollback_to_revision",
     "suggest_entity_fusion",
@@ -111,23 +107,10 @@ WORLD_CONTRACT_API = {
     "CharacterContract",
     "CharacterKnowledgeContract",
     "CoreEntityContract",
-    "ConfirmedMapFactContract",
-    "ConfirmedMapFactReplayContract",
     "EntityRelationContract",
     "EntityRevisionContract",
     "EventContract",
     "GenerationBackgroundProvider",
-    "MapBoundaryProposal",
-    "MapCharacterLocationProposal",
-    "MapEventLocationProposal",
-    "MapObservationCandidateAuthorization",
-    "MapObservationCandidateAuthorizationScope",
-    "MapObservationCandidateBatchResult",
-    "MapObservationCandidateInput",
-    "MapObservationCandidateResult",
-    "MapObservationProposalBase",
-    "MapObservationProposalV1",
-    "MapRouteStateProposal",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",
@@ -162,14 +145,13 @@ def test_world_contracts_do_not_reexport_http_schemas() -> None:
     assert set(world_contracts.__all__) == WORLD_CONTRACT_API
 
 
-def test_world_alias_task_port_and_map_candidate_result_keep_separate_surfaces() -> None:
+def test_world_alias_task_port_keeps_domain_surface() -> None:
     for method in (
         "prepare_alias_relation_task",
         "execute_alias_relation_task",
         "finalize_alias_relation_task",
     ):
         assert hasattr(world_contracts.WorldAliasRelationTaskPort, method)
-        assert not hasattr(world_contracts.MapObservationCandidateBatchResult, method)
     for schema_name in (
         "CharacterContextBundle",
         "CharacterResponse",

@@ -479,7 +479,7 @@ async def test_snapshot_deduplicates_generic_final_section_sources() -> None:
         snapshot_writer=snapshots,
     )
 
-    await service.compile(
+    result = await service.compile(
         object(),
         GenerationBackgroundRequest(
             novel_id="00000000-0000-0000-0000-00000000c103",
@@ -490,3 +490,121 @@ async def test_snapshot_deduplicates_generic_final_section_sources() -> None:
     assert snapshots.request is not None
     assert snapshots.request.included_asset_ids["world_bible_page"] == ["page-1"]
     assert snapshots.request.included_asset_ids["rag_chunk"] == ["chunk-1"]
+    manifest = result["context_usage"]["included_asset_manifest"]
+    assert [item["source_id"] for item in manifest["world_bible_page"]] == ["page-1"]
+    assert len(manifest["world_bible_page"][0]["source_hash"]) == 64
+    assert len(manifest["rag_chunk"][0]["source_hash"]) == 64
+
+
+async def test_source_manifest_prefers_loader_authoritative_hash() -> None:
+    source_hash = "a" * 64
+    compiled = CompiledContext(
+        sections=[
+            ContextSection(
+                key="world_entities",
+                tier=Tier.P2,
+                content="canonical location",
+                token_count=2,
+                sources=[
+                    {
+                        "type": "entity",
+                        "id": "entity-1",
+                        "label": "北境",
+                        "status": "canonical",
+                        "source_hash": source_hash,
+                    }
+                ],
+            )
+        ],
+        total_tokens=2,
+        budget_tokens=4000,
+    )
+    service = GenerationBackgroundService(
+        compiler=_ProvenanceCompiler(compiled),
+        renderer=lambda _compiled: "<rendered>",
+        snapshot_writer=_CapturingSnapshotWriter(),
+    )
+
+    result = await service.compile(
+        object(),
+        GenerationBackgroundRequest(
+            novel_id="00000000-0000-0000-0000-00000000c104",
+            task="规划地图册",
+            operation="world.map_atlas.generate",
+        ),
+    )
+
+    assert result["context_usage"]["included_asset_manifest"] == {
+        "entity": [
+            {
+                "source_id": "entity-1",
+                "source_hash": source_hash,
+                "status": "canonical",
+                "label": "北境",
+            }
+        ]
+    }
+
+
+async def test_map_atlas_manifest_keeps_retained_item_sources_only() -> None:
+    compiled = CompiledContext(
+        sections=[
+            ContextSection(
+                key="world_entities",
+                tier=Tier.P2,
+                content="retained location",
+                token_count=2,
+                truncatable_per_item=True,
+                truncated_reason="超过预算后按条目裁剪",
+                sources=[
+                    {
+                        "type": "entity",
+                        "id": "entity-1",
+                        "label": "北境",
+                        "status": "canonical",
+                    }
+                ],
+            ),
+            ContextSection(
+                key="world_bible_working_pages",
+                tier=Tier.P1,
+                content="truncated wrapped json",
+                token_count=2,
+                truncated_reason="超过预算后保留前段摘要",
+                sources=[
+                    {
+                        "type": "world_bible_draft",
+                        "id": "draft-partial",
+                        "status": "working",
+                    }
+                ],
+            ),
+            ContextSection(
+                key="style_assets",
+                tier=Tier.P3,
+                content="project style",
+                token_count=2,
+                sources=[{"type": "project", "id": "project-1"}],
+            ),
+        ],
+        total_tokens=6,
+        budget_tokens=4000,
+    )
+    service = GenerationBackgroundService(
+        compiler=_ProvenanceCompiler(compiled),
+        renderer=lambda _compiled: "<rendered>",
+        snapshot_writer=_CapturingSnapshotWriter(),
+    )
+
+    result = await service.compile(
+        object(),
+        GenerationBackgroundRequest(
+            novel_id="00000000-0000-0000-0000-00000000c105",
+            task="规划地图册",
+            operation="world.map_atlas.generate",
+        ),
+    )
+
+    manifest = result["context_usage"]["included_asset_manifest"]
+    assert list(manifest) == ["entity"]
+    assert manifest["entity"][0]["source_id"] == "entity-1"

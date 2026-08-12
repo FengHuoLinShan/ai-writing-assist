@@ -39,7 +39,8 @@ PR 若确实没有当前文档变化，必须按脚本列出的未更新文档�
   （`imports/rag/context/writing/settings`）。`account` 是三层之外的公开身份与 owner
   边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、
   `infrastructure/llm` 是共享基础设施。
-- `map` 是 `world` 子系统；`geo/review/character/timeline` 已移除或并入现有模块。
+- `map` 是 `world` 拥有的 AI 地图册子系统；图片运行时与私有 S3 边界见 ADR-0012。
+  `geo/review/character/timeline` 已移除或并入现有模块。
 - 世界观恢复、收束、检修、交接、影响预演和“问世界”仍是既有 `world/context/frontend`
   seam 上的固定工作流；本轮没有新增顶级模块、Agent 运行时、持久工作流表或数据库迁移。
 - 箭头表达主要调用或资料流，标签说明具体语义；完整生产依赖仍以

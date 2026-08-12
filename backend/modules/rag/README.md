@@ -20,6 +20,7 @@ RAG P@5/MRR/R@10 语义质量评测。
 - 混合检索（关键词 + 项目词典 + 关系 + 重要性 + 向量）
 - metadata 过滤（entity_id、character_id、thread_id、chapter_index、visible_until_chapter）
 - 有序章节 chunk 读取（供人物、世界对象、章节卡抽取）
+- 为地图册提供 `purpose=map_atlas` 的已确认/已发布证据检索，不改变公共检索 scope
 
 ## 不负责
 

@@ -364,7 +364,6 @@ button.theme-dot {
 .generate-subtabs,
 .settings-tab-nav,
 .cockpit-tabs,
-.map-view-modes,
 .world-object-view-toggle {
   gap: 3px;
   padding: 3px;
@@ -377,7 +376,6 @@ button.theme-dot {
 .generate-subtabs .generate-subtab,
 .settings-tab-nav .tab-btn,
 .cockpit-tab,
-.map-view-mode,
 .world-object-view-toggle .btn {
   min-height: 34px;
   padding: 7px 13px;
@@ -394,7 +392,6 @@ button.theme-dot {
 .generate-subtabs .generate-subtab:hover,
 .settings-tab-nav .tab-btn:hover,
 .cockpit-tab:hover,
-.map-view-mode:hover,
 .world-object-view-toggle .btn:hover {
   color: var(--nc-ink);
   background: var(--nc-surface);
@@ -404,8 +401,6 @@ button.theme-dot {
 .generate-subtabs .generate-subtab.active,
 .settings-tab-nav .tab-btn.active,
 .cockpit-tab.active,
-.map-view-mode.active,
-.map-view-mode.is-active,
 .world-object-view-toggle .btn.active,
 .world-object-view-toggle .btn[aria-pressed="true"] {
   color: var(--nc-ink);
@@ -699,8 +694,6 @@ input[type="file"]::file-selector-button {
 .scene-detail-panel,
 .scene-workbench__organize,
 .scene-workbench__detail,
-.map-dynamic-panel,
-.map-edit-panel,
 .generate-chat-panel,
 .generate-settings-card,
 .writing-tools-menu__body,
@@ -893,9 +886,12 @@ table tbody tr:hover td {
 
 /* ===== 页面特化：不改变布局，只统一材质与功能层级 ===== */
 #workspace-content[data-workspace-view="writing"] .writing-workspace-layout,
-#workspace-content[data-workspace-view="scene"] .scene-workbench,
-#workspace-content[data-workspace-view="map"] .map-workspace {
+#workspace-content[data-workspace-view="scene"] .scene-workbench {
   border-top: 1px solid var(--nc-hairline);
+}
+
+#workspace-content[data-workspace-view="map"] .atlas-workspace {
+  color: var(--nc-body);
 }
 
 #workspace-content[data-workspace-view="world"] .world-object-filters,
@@ -905,14 +901,6 @@ table tbody tr:hover td {
 #workspace-content[data-workspace-view="settings"] .settings-section,
 #workspace-content[data-workspace-view="project-settings"] .settings-section {
   border-top: 1px solid var(--nc-hairline-strong);
-}
-
-#workspace-content[data-workspace-view="map"] .map-canvas,
-#workspace-content[data-workspace-view="map"] .map-leaflet,
-#workspace-content[data-workspace-view="world"][data-workspace-subview="map"] .map-canvas {
-  border: 1px solid var(--nc-hairline-strong);
-  border-radius: 2px;
-  background-color: var(--nc-surface-muted);
 }
 
 #workspace-content[data-workspace-view="generate"] .generate-chat-panel {

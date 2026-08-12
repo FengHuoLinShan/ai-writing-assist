@@ -1274,7 +1274,6 @@ class DeepImportOrchestrator:
         from modules.world.facade import (
             deprecate_deep_import_entities_by_workflow,
             rollback_deep_import_aliases_by_workflow,
-            rollback_deep_import_map_observations_by_workflow,
             rollback_deep_import_relations_by_workflow,
         )
 
@@ -1300,13 +1299,6 @@ class DeepImportOrchestrator:
             novel_id,
             workflow_id,
         )
-        rolled_back_map_observations = (
-            await rollback_deep_import_map_observations_by_workflow(
-                db,
-                novel_id,
-                workflow_id,
-            )
-        )
         rolled_back_aliases = await rollback_deep_import_aliases_by_workflow(
             db,
             novel_id,
@@ -1324,12 +1316,10 @@ class DeepImportOrchestrator:
             "hard_deleted_assets": 0,
             "cleanup_mode": "soft_deprecate",
             "rolled_back_delta_logs": rolled_back_delta_logs,
-            "rolled_back_map_observations": rolled_back_map_observations,
             "rolled_back_aliases": rolled_back_aliases,
             "rolled_back_relations": rolled_back_relations,
             # Deprecated wire aliases retained during the compatibility window.
             "skipped_delta_logs": 0,
-            "skipped_map_observations": 0,
             "cleanup_todo": None,
         }
 

@@ -175,6 +175,7 @@ class ContextCompiler:
             "world.generation.convergence",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
+            "world.map_atlas.generate",
         }
         if relevance_generation:
             # Generation relevance is assembled before entity Top-K: Scene,
@@ -704,7 +705,12 @@ class ContextCompiler:
                     content=content,
                     token_count=estimate_token_count(content),
                     truncatable_per_item=True,
-                    max_items=16,
+                    max_items=(
+                        160
+                        if options
+                        and options.consumer_action == "world.map_atlas.generate"
+                        else 16
+                    ),
                     title="相关世界对象",
                     preview=content[:160],
                     status=options.context_mode if options else "canonical",
@@ -766,6 +772,14 @@ class ContextCompiler:
 
         if bundle.rag_chunks:
             content = "\n".join(str(c) for c in bundle.rag_chunks)
+            rag_sources = self._sources_from_items(
+                bundle.rag_chunks,
+                default_type="rag",
+                status=options.context_mode if options else "canonical",
+            )
+            if options and options.consumer_action == "world.map_atlas.generate":
+                for source in rag_sources:
+                    source["type"] = "rag"
             sections.append(
                 ContextSection(
                     key="retrieval_evidence_packs",
@@ -777,11 +791,7 @@ class ContextCompiler:
                     preview=content[:160],
                     status=options.context_mode if options else "canonical",
                     activation_reason=self._retrieval_activation_reason(bundle),
-                    sources=self._sources_from_items(
-                        bundle.rag_chunks,
-                        default_type="rag",
-                        status=options.context_mode if options else "canonical",
-                    ),
+                    sources=rag_sources,
                     retrieval_metadata=dict(bundle.retrieval_trace or {}),
                 )
             )
@@ -836,6 +846,7 @@ class ContextCompiler:
             "world.generation.convergence",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
+            "world.map_atlas.generate",
         }:
             generation_order = {
                 "writing_objective": 0,
@@ -2153,6 +2164,13 @@ class ContextCompiler:
                 "label": str(label)[:80],
                 "status": item_status,
             }
+            if isinstance(item, dict):
+                summary = item.get("summary") or item.get("text") or item.get("free_text")
+                if summary:
+                    source["summary"] = str(summary)[:1000]
+                for field in ("chapter_index", "scene_id"):
+                    if item.get(field) is not None:
+                        source[field] = str(item[field])
             if isinstance(item, dict) and isinstance(item.get("source_ref"), dict):
                 source["source_ref"] = dict(item["source_ref"])
                 source["source_hash"] = item["source_ref"].get("source_hash")

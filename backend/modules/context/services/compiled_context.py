@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from infrastructure.llm.token_estimation import estimate_token_count
 
-_LINE_ITEM_SOURCE_KEYS = frozenset(
+LINE_ITEM_SOURCE_KEYS = frozenset(
     {
         "world_entities",
         "open_narrative_obligations",
@@ -96,7 +96,7 @@ class CompiledContext(BaseModel):
         kept_line_count: int,
     ) -> list[dict[str, Any]]:
         """Keep item provenance aligned with one-line-per-item section content."""
-        if section.key not in _LINE_ITEM_SOURCE_KEYS:
+        if section.key not in LINE_ITEM_SOURCE_KEYS:
             return list(section.sources)
         return list(section.sources[:kept_line_count])
 

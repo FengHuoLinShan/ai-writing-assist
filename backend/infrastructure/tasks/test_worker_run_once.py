@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import delete, insert, select
@@ -73,6 +75,77 @@ async def test_run_once_returns_reloaded_terminal_task(
         else:
             assert returned.progress == 1.0
             assert returned.result == {"task_id": str(task_id), "ok": True}
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+
+
+@pytest.mark.asyncio
+async def test_handler_failure_auto_requeues_only_until_frozen_attempt_limit(
+    test_engine,
+) -> None:
+    sessions = async_sessionmaker(
+        test_engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    task_id = uuid.uuid4()
+    task_type = f"run-once-auto-requeue-{uuid.uuid4()}"
+    registry = TaskRegistry()
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def handler(*, db, task):
+        del db, task
+        raise RuntimeError("transient cleanup failure")
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy="auto_requeue",
+        max_attempts=2,
+    )
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    recovery_policy="auto_requeue",
+                    max_attempts=2,
+                    meta={},
+                )
+            )
+
+        worker = TaskWorker(db_manager=TestManager(), heartbeat_interval=60.0)
+        worker._heartbeat_loop = AsyncMock(return_value=None)
+        first = await worker.run_once()
+        assert first is not None
+        assert first.status == "pending"
+        assert first.attempt == 1
+        assert first.finished_at is None
+        assert first.lease_id is None
+        assert first.result["lifecycle"]["reason"] == "handler_error"
+
+        assert await worker.run_once() is None
+        async with sessions.begin() as retry_db:
+            persisted = await retry_db.get(AsyncTask, task_id)
+            assert persisted is not None
+            persisted.updated_at = datetime.now(UTC) - timedelta(seconds=2)
+
+        second = await worker.run_once()
+        assert second is not None
+        assert second.status == "failed"
+        assert second.attempt == 2
+        assert second.finished_at is not None
+        assert "transient cleanup failure" in str(second.error_message)
+        assert worker.stats["failed"] == 1
     finally:
         registry.unregister(task_type)
         async with sessions.begin() as cleanup_db:

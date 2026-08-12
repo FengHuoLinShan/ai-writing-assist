@@ -20,12 +20,7 @@ const legacyRuntimeAssets = [
   "router.js",
   "commands.js",
 ]
-const thirdPartyLicenseAssets = [
-  {
-    source: resolve(frontendRoot, "node_modules/leaflet/LICENSE"),
-    destination: "licenses/leaflet-BSD-2-Clause.txt",
-  },
-]
+const thirdPartyLicenseAssets = []
 const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self'",

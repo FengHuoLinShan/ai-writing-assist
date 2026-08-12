@@ -26,8 +26,8 @@
 | `p20_scope_rule_audit.md` | P20 候选的层级权限、世界规则与人物边界审计 | `P20GenerationService` |
 | `p20_author_instruction_audit.md` | P20 候选逐字段遵守本次作者明确边界的独立审计 | `P20GenerationService` |
 | `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.rag.reranker` |
-| `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象/Delta 与四类显式地图 proposal 抽取 | imports |
-| `map_scene_observation_enrichment.md` | 已完成深度导入项目的独立 Scene 地图事实补充；只生成带当前 Scene 逐字证据的待复核候选；高质量模式固定执行首轮抽取与第二遍全文完整性审计 | imports |
+| `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象、Delta 与不确定项抽取 | imports |
+| `map_atlas_workflow.py` | 内联 step `world.map_atlas.plan.structured`：把已确认资料规划为最多 20 页的地图册层级；图片 Prompt 交给固定 Image API | world 地图册 |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 | `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、只读收束、一跳探索、当前页检修与结构化建议；加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
@@ -71,6 +71,7 @@ shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂�
 | `structure_world_character.md` | 已删除 | 无生产调用和物化契约；原有世界对象、人物、关系、知识、地理与剧情职责已拆归 generation center、world、map 与 outline |
 | `structure_plot.md` | 已删除 | 一次生成整套结构的职责已拆为 P20 三个页面内当前层工作流；深度导入 Phase 3 使用独立 Scene 证据契约 |
 | `structure_chapter_scene.md` | 已删除 | 依赖已移除 ChapterCard；Planned Scene 创作由 P20 v2 接管，正文 Scene 提取由 imports 接管 |
+| `map_scene_observation_enrichment.md` | 已删除 | 旧 Map Observation/Fact 领域已移除；地图册不从正文抽取时间化地图事实 |
 
 ## 5. 当前设计约束
 
@@ -195,19 +196,28 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 ### 抽取类
 
 - `scene_entity_extraction.md`
-- `map_scene_observation_enrichment.md`
 - `alias_relation_extraction.md`
 
 这类 Prompt 面向“从已有正文中识别长期资产”，重点是：
 
 - 不是 NER，而是长期创作资产识别
-- `scene_entity_extraction.md`（P13）只读取一个锁定 Scene 的完整精确正文及相关结构上下文，输出长期世界对象、持久 Delta、四类局部地图观察和不确定项；关系、新别名、数据库 ID、持久化动作和审核状态不属于该契约
-- `map_scene_observation_enrichment.md` 面向已经完成深度导入、但地图时间事实不足的项目；它不重跑 Scene、世界对象或结构提取，只读取一个既有锁定 Scene 的完整正文和冻结名称上下文，输出同四类地图待复核候选。逐字证据守卫失败的条目只保留为诊断，不进入持久化输入
+- `scene_entity_extraction.md`（P13）只读取一个锁定 Scene 的完整精确正文及相关结构上下文，输出长期世界对象、持久 Delta 和不确定项；关系、新别名、数据库 ID、持久化动作和审核状态不属于该契约
 - P13 的既有身份只允许引用服务端生成的 `entity-xxx`；每个可物化观察必须提供当前 Scene 中可逐字定位的证据。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
 - P13 不按固定类别或数量凑结果，也不对输入做应用层字符/token 裁剪。直接名称/别名命中全部保留；其余人物 Top-6、非人物对象 Top-16 是相关性边界
 - `alias_relation_extraction.md`（P14 v3）独占新别名和对象关系；它复用同一份冻结的完整 Scene 正文、相关结构、`entity-xxx` 身份候选和 `relation-xxx` 既有关系引用，不接受数据库 ID，也不做应用层输入裁剪。关系输出是当前 Scene 带来的增量，不是本 Scene 中仍成立关系的摘要；模型用“删去本 Scene 是否会改变关系可信度、状态、强度或后续创作约束”做反事实判断。模型先判断联系是否在 Scene 结束后仍成立，区分 `enduring / stateful / episodic / uncertain`；只有持久结构和持续状态能进入关系候选，会面、提及、检测、支付、感谢等一次性动作只保留诊断。模型同时区分新建、有实质新证据的再次确认、改变和终止；日常称呼、例行共处和重复记载不算再次确认。关系类型优先复用已有类型和稳定语义族，但不以数量上限裁剪真实关系。确定性 materializer 重新校验项目归属、冻结关系、逐字证据、持续性和快照来源，只写待复核候选或补充证据，不自动覆盖或废弃已采用关系。别名不创建重复对象，并作为带 `identity_scope`、判断依据和快照来源的待复核内联证据写入目标对象
 - 临时对象优先忽略或标记为临时
 - 深度导入只有在任务保存授权快照后才可执行允许的候选写入，并保留 `auto_ingested`、workflow、证据和回滚元数据；P13 的身份引用、类型和证据由确定性 materializer 校验，异常结果进入 `uncertain_items` 或待处理
+
+### AI 地图册规划与图片 Prompt
+
+`world.map_atlas.plan.structured` 消费 `world.map_atlas.generate` 编译出的 author-full canonical
+资料、RAG `map_atlas` 证据和可选工作稿。输出由 `AtlasPlan` 校验：最多 20 页、无环、父级先于
+子级、默认不深于街道，并为每页分别列出直接来源、AI 视觉补全、冲突和标注。来源短引用必须
+属于当前 `novel_id`；run 固化 secret-free context snapshot、source manifest 与 hash。
+
+图片 Prompt 使用地点完整名称作为语义锚点，但明确要求成图不出现文字、字母、数字或符号，
+名称由前端标注层显示。生成、整图编辑、蒙版与多参考图直接调用固定 `gpt-image-2` Image API；
+图片模型不输出结构化业务状态，也不能把视觉补全写回正式世界资料。
 
 ### Scene 切分与深化
 

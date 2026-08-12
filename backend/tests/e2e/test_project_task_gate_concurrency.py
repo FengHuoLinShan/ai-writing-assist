@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import uuid
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import modules.world.map_atlas_tasks  # noqa: F401
+from infrastructure.llm.image_client import GeneratedImage
 from infrastructure.tasks.enqueuer import enqueue_task
-from infrastructure.tasks.facade import cancel_unfinished_tasks_for_novel
+from infrastructure.tasks.facade import (
+    cancel_unfinished_tasks_for_novel,
+)
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from infrastructure.tasks.worker import TaskWorker
@@ -16,6 +24,11 @@ from modules.project.facade import require_active_project
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.services import ProjectService
+from modules.world.map_atlas_facade import enqueue_map_atlas_project_cleanup
+from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasRun
+from modules.world.map_atlas_storage import validate_png
+from modules.world.map_atlas_tasks import handle_map_atlas_storage_cleanup
+from modules.world.map_atlas_workflow import _generate_page
 from run_worker import (
     _guard_active_task_project_finalize,
     _require_active_task_project,
@@ -23,6 +36,217 @@ from run_worker import (
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
+_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
+
+
+async def test_atlas_upload_lock_and_global_cleanup_close_permanent_delete_race() -> None:
+    """A paused upload completes before deletion; global cleanup removes its object."""
+    engine = create_async_engine(DATABASE_URL, pool_size=4, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    project_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    node_id = uuid.uuid4()
+    page_id = uuid.uuid4()
+    objects: set[str] = set()
+    upload_started = asyncio.Event()
+    release_upload = asyncio.Event()
+    finalizer: asyncio.Task[None] | None = None
+    deletion: asyncio.Task[None] | None = None
+
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                Project(
+                    id=project_id,
+                    title="map atlas delete race",
+                    language="zh",
+                    default_reveal_policy="author_safe",
+                    settings={},
+                )
+            )
+            await setup_db.flush()
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type="map_atlas_generate",
+                    status="running",
+                    attempt=1,
+                    lease_id=str(uuid.uuid4()),
+                    recovery_policy="manual_resume",
+                    meta={"novel_id": str(project_id), "run_id": str(run_id)},
+                )
+            )
+            await setup_db.flush()
+            setup_db.add(
+                MapAtlasRun(
+                    id=run_id,
+                    novel_id=project_id,
+                    task_id=task_id,
+                    run_kind="initial",
+                    status="generating",
+                )
+            )
+            await setup_db.flush()
+            setup_db.add(
+                MapAtlasNode(
+                    id=node_id,
+                    novel_id=project_id,
+                    created_by_run_id=run_id,
+                    semantic_key="world",
+                    title="世界",
+                    level="world",
+                    status="provisional",
+                )
+            )
+            await setup_db.flush()
+            setup_db.add(
+                MapAtlasPage(
+                    id=page_id,
+                    novel_id=project_id,
+                    run_id=run_id,
+                    node_id=node_id,
+                    title="世界",
+                    visual_brief="world",
+                    prompt="no text",
+                    generation_status="prepared",
+                )
+            )
+
+        class MemoryStorage:
+            async def put_png(self, key, payload):
+                upload_started.set()
+                await release_upload.wait()
+                objects.add(key)
+                return validate_png(payload)
+
+            async def delete_object(self, key):
+                objects.discard(key)
+
+            async def delete_prefix(self, prefix):
+                matching = {key for key in objects if key.startswith(prefix)}
+                objects.difference_update(matching)
+                return len(matching)
+
+            async def get_png(self, key):
+                assert key in objects
+                return _PNG
+
+            async def get_png_if_exists(self, key):
+                return _PNG if key in objects else None
+
+        image_client = SimpleNamespace(
+            generate=AsyncMock(return_value=GeneratedImage(_PNG, "request-e2e")),
+            edit=AsyncMock(return_value=GeneratedImage(_PNG, "request-e2e")),
+        )
+
+        @asynccontextmanager
+        async def image_client_context(*_args, **_kwargs):
+            yield image_client
+
+        async def finalize_upload() -> None:
+            async with sessions() as final_db:
+                task = await final_db.get(AsyncTask, task_id)
+                assert task is not None
+                run = await final_db.get(MapAtlasRun, run_id)
+                page = await final_db.get(MapAtlasPage, page_id)
+                assert run is not None and page is not None
+                with (
+                    patch(
+                        "modules.world.map_atlas_workflow.MapAtlasStorage",
+                        return_value=MemoryStorage(),
+                        autospec=True,
+                    ),
+                    patch(
+                        "modules.world.map_atlas_workflow.open_project_image_client",
+                        autospec=True,
+                    ) as open_client,
+                ):
+                    open_client.side_effect = image_client_context
+                    assert await _generate_page(final_db, task, run, page)
+                page = await final_db.get(MapAtlasPage, page_id)
+                assert page is not None and page.generation_status == "review_ready"
+
+        async def permanently_delete() -> None:
+            service = ProjectService(
+                map_atlas_cleanup_enqueuer=enqueue_map_atlas_project_cleanup
+            )
+            async with sessions.begin() as soft_delete_db:
+                await service.delete_project(soft_delete_db, str(project_id))
+            async with sessions.begin() as permanent_delete_db:
+                await service.permanent_delete_project(
+                    permanent_delete_db,
+                    str(project_id),
+                    confirmed=True,
+                )
+
+        finalizer = asyncio.create_task(finalize_upload())
+        try:
+            await asyncio.wait_for(upload_started.wait(), timeout=2.0)
+        except TimeoutError:
+            if finalizer.done():
+                finalizer.result()
+            raise
+        deletion = asyncio.create_task(permanently_delete())
+        done, _pending = await asyncio.wait({deletion}, timeout=0.1)
+        assert not done, "project deletion must wait for the upload share lock"
+
+        release_upload.set()
+        await asyncio.wait_for(finalizer, timeout=2.0)
+        await asyncio.wait_for(deletion, timeout=2.0)
+
+        async with sessions.begin() as cleanup_db:
+            cleanup_task = (
+                await cleanup_db.execute(
+                    select(AsyncTask).where(
+                        AsyncTask.task_type == "map_atlas_storage_cleanup",
+                        AsyncTask.novel_id.is_(None),
+                        AsyncTask.meta["object_prefix"].as_string()
+                        == f"map-atlas/{project_id}/",
+                    )
+                )
+            ).scalar_one()
+            with patch(
+                "modules.world.map_atlas_tasks.MapAtlasStorage",
+                return_value=MemoryStorage(),
+                autospec=True,
+            ):
+                result = await handle_map_atlas_storage_cleanup(
+                    cleanup_db,
+                    cleanup_task,
+                )
+            assert result["deleted_objects"] == 1
+            await cleanup_db.delete(cleanup_task)
+
+        async with sessions() as verify_db:
+            assert await verify_db.get(Project, project_id) is None
+            assert await verify_db.scalar(
+                select(func.count(MapAtlasPage.id)).where(
+                    MapAtlasPage.novel_id == project_id
+                )
+            ) == 0
+            assert objects == set()
+    finally:
+        release_upload.set()
+        for pending_task in (finalizer, deletion):
+            if pending_task is not None and not pending_task.done():
+                pending_task.cancel()
+        await asyncio.gather(
+            *(task for task in (finalizer, deletion) if task is not None),
+            return_exceptions=True,
+        )
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(
+                delete(AsyncTask).where(
+                    (AsyncTask.novel_id == project_id)
+                    | (AsyncTask.task_type == "map_atlas_storage_cleanup")
+                )
+            )
+            await cleanup_db.execute(delete(Project).where(Project.id == project_id))
+        await engine.dispose()
 
 
 async def test_guarded_enqueue_is_cancelled_by_waiting_soft_delete() -> None:

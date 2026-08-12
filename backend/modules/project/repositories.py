@@ -288,6 +288,26 @@ class ProjectRepository:
         result = await db.execute(stmt)
         return set(result.scalars().all())
 
+    async def lock_deleted_ids_for_update(
+        self,
+        db: AsyncSession,
+        project_ids: list[uuid.UUID],
+        owner_id: uuid.UUID | None = None,
+        project_kind: str = "author",
+    ) -> set[uuid.UUID]:
+        """Fence storage finalizers before hard deletion and global cleanup enqueue."""
+        conditions = [
+            Project.id.in_(project_ids),
+            Project.deleted_at.isnot(None),
+            Project.project_kind == project_kind,
+        ]
+        if owner_id is not None:
+            conditions.append(Project.owner_id == owner_id)
+        result = await db.execute(
+            select(Project.id).where(*conditions).with_for_update()
+        )
+        return set(result.scalars().all())
+
     async def permanent_delete_many(
         self,
         db: AsyncSession,

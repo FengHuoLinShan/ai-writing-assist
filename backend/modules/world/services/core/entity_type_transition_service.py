@@ -10,14 +10,7 @@ from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
-from modules.world.map_models import (
-    MapConfig,
-    MapLocationBinding,
-    MapLocationLayout,
-    MapMarker,
-    MapTerrainBinding,
-    MapTerritoryTile,
-)
+from modules.world.map_atlas_models import MapAtlasNode
 from modules.world.models import (
     AssetKnowledgeTag,
     Character,
@@ -130,13 +123,6 @@ class EntityTypeTransitionService:
                 CharacterKnowledgeTag.novel_id == nid,
                 CharacterKnowledgeTag.character_id == eid,
             )
-            await count(
-                "map_character_marker",
-                MapMarker,
-                MapMarker.novel_id == nid,
-                MapMarker.entity_id == eid,
-                MapMarker.marker_type == "character",
-            )
         elif old_type == "event":
             await count(
                 "event_extension", Event, Event.novel_id == nid, Event.entity_id == eid
@@ -147,13 +133,6 @@ class EntityTypeTransitionService:
                 EntityRelation.novel_id == nid,
                 EntityRelation.caused_by_event_id == eid,
             )
-            await count(
-                "map_event_marker",
-                MapMarker,
-                MapMarker.novel_id == nid,
-                MapMarker.entity_id == eid,
-                MapMarker.marker_type == "event",
-            )
         elif old_type == "location":
             await count(
                 "event_location",
@@ -162,43 +141,10 @@ class EntityTypeTransitionService:
                 Event.location_entity_id == eid,
             )
             await count(
-                "map_parent_entity",
-                MapConfig,
-                MapConfig.novel_id == nid,
-                MapConfig.parent_entity_id == eid,
-            )
-            await count(
-                "map_location_binding",
-                MapLocationBinding,
-                MapLocationBinding.novel_id == nid,
-                MapLocationBinding.location_entity_id == eid,
-            )
-            await count(
-                "map_location_layout",
-                MapLocationLayout,
-                MapLocationLayout.novel_id == nid,
-                MapLocationLayout.location_entity_id == eid,
-            )
-            await count(
-                "map_terrain_binding",
-                MapTerrainBinding,
-                MapTerrainBinding.novel_id == nid,
-                MapTerrainBinding.location_entity_id == eid,
-            )
-        elif old_type == "item":
-            await count(
-                "map_item_marker",
-                MapMarker,
-                MapMarker.novel_id == nid,
-                MapMarker.entity_id == eid,
-                MapMarker.marker_type == "item",
-            )
-        elif old_type == "organization":
-            await count(
-                "map_territory_tile",
-                MapTerritoryTile,
-                MapTerritoryTile.novel_id == nid,
-                MapTerritoryTile.faction_entity_id == eid,
+                "map_atlas_location",
+                MapAtlasNode,
+                MapAtlasNode.novel_id == nid,
+                MapAtlasNode.location_entity_id == eid,
             )
 
         if old_type in {

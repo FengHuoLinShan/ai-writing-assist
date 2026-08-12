@@ -53,7 +53,6 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
             world_objects=2,
             world_aliases=3,
             world_relations=4,
-            map_items=5,
         )
     )
     outline_attention_reader = AsyncMock(return_value=6)
@@ -79,8 +78,7 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
         "world_aliases": 3,
         "world_relations": 4,
         "outline_scenes": 6,
-        "map_items": 5,
-        "total": 20,
+        "total": 15,
     }
     project_reader.assert_awaited_once_with(db, "novel-1")
     latest_drafts_reader.assert_awaited_once_with(

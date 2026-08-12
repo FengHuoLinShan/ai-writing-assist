@@ -319,7 +319,7 @@ def test_root_conftest_registers_all_orm_metadata() -> None:
         "modules.project.models",
         "modules.rag.models",
         "modules.settings.models",
-        "modules.world.map_models",
+        "modules.world.map_atlas_models",
         "modules.world.models",
         "modules.writing.models",
     }

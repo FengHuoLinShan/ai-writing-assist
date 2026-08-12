@@ -13,7 +13,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 管理目标规模（字数/章节数）和当前创作阶段
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
-- 根据项目 owner 打开账户级 LLM 连接；项目只保留非 secret 工作流设置和可恢复 snapshot
+- 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
 
@@ -93,6 +93,11 @@ def create_project_snapshot_llm_client(
     timeout_override: int | None = None,
     novel_id: str | None = None,
 ): ...
+
+@asynccontextmanager
+async def open_project_image_client(db, novel_id: str, *, snapshot: dict | None = None): ...
+
+async def build_project_image_execution_snapshot(db, novel_id: str) -> dict: ...
 ```
 
 供其他模块获取项目上下文信息，包含项目基本元信息和项目拥有的非 secret
@@ -123,6 +128,15 @@ task finalizer 需要一个项目级短临界区。它在 PostgreSQL 上使用 `
 fail-closed 校验；传入 `novel_id` 时同时绑定脱敏的
 `profile_source="project_snapshot"` runtime scope。调用方拥有并必须关闭返回的
 client。
+
+`open_project_image_client()` 是地图册固定 `gpt-image-2` 的独立运行时 seam。它按项目 owner
+解析 `openai-image` 加密凭据，固定 OpenAI base URL/model，不读取或修改文本
+`active_provider_id`。可恢复任务只保存 provider/model/连接版本等 secret-free 字段，运行时
+读取当前轮换后的账户 Key；缺少连接或 snapshot 漂移时 fail closed。
+
+项目永久删除持 exclusive project lock，取消普通任务并经 world 的窄 facade 创建
+`owner_scope=global`、`novel_id=NULL` 的 S3 前缀清理任务，再删除项目。该顺序和地图册上传的
+share lock 共同阻止晚到对象；普通业务模块不能自行创建全局任务。
 
 `build_project_llm_execution_snapshot()` 用于可恢复任务的提交时冻结：
 只持久化账户 provider/model/非 secret 参数、字段来源、deep-import 设置、

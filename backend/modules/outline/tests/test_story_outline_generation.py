@@ -265,7 +265,7 @@ async def test_context_uses_only_prewrite_sources_explicit_priority_and_top_k() 
             autospec=True,
             return_value=WorldBackgroundBundleContract(
                 novel_id=data.novel_id,
-                context_mode="author_full",
+                context_mode="canonical",
                 entries=background_entries,
             ),
         ),
@@ -439,7 +439,7 @@ async def test_context_uses_automatic_top_k_characters_and_entities_when_unselec
             autospec=True,
             return_value=WorldBackgroundBundleContract(
                 novel_id=data.novel_id,
-                context_mode="author_full",
+                context_mode="canonical",
                 entries=background_entries,
             ),
         ),

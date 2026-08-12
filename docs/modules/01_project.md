@@ -25,6 +25,10 @@ JSONB 配置字段，存储项目级可调参数，如 `temporary_entity_expiry_
 provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 provider 的当前账户 Key，
 因此轮换 Key 不要求重建既有任务，也不会把密钥写进任务 API、日志或项目详情。
 
+地图册图片运行时使用独立 `open_project_image_client()` 与 secret-free 图片快照，固定
+`gpt-image-2`，不改变文本 provider。永久删除取得项目排他锁，取消普通任务并创建
+`owner_scope=global`、`novel_id=NULL` 的 S3 前缀清理任务后再级联删除，阻止晚到上传。
+
 ### deleted_at 字段
 
 软删除标记。`DELETE` 接口仅设置 `deleted_at`，数据不动。回收站 API 可列出/恢复/永久删除已软删除的项目。

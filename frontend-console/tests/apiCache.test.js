@@ -1063,36 +1063,6 @@ describe("api.js request headers", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
-  it("starts map observation enrichment without deep-import force fields", async () => {
-    mockJsonResponse({ task_id: "map-observations-1" })
-
-    await window.api.imports.startMapObservationEnrichment("p1", 2, 8, true, {
-      adoption_policy: "user_authorized_pipeline",
-      authorization_confirmed: true,
-    })
-
-    const [url, init] = globalThis.fetch.mock.calls[0]
-    expect(url).toContain("/api/imports/stages/map-observations")
-    const body = JSON.parse(init.body)
-    expect(body).toEqual({
-      novel_id: "p1",
-      start_chapter: 2,
-      end_chapter: 8,
-      high_quality: true,
-      adoption_policy: "user_authorized_pipeline",
-      authorization_confirmed: true,
-    })
-    expect(body).not.toHaveProperty("force")
-  })
-
-  it("fails closed before map observation enrichment without authorization", async () => {
-    mockJsonResponse({ task_id: "should-not-start" })
-
-    await expect(window.api.imports.startMapObservationEnrichment("p1", 1, 0))
-      .rejects.toThrow("必须获得用户授权")
-    expect(globalThis.fetch).not.toHaveBeenCalled()
-  })
-
   it("posts edited outline preview data to the explicit apply endpoint", async () => {
     mockJsonResponse({ status: "applied", total_threads: 1, total_arcs: 0, total_scenes: 0 })
 

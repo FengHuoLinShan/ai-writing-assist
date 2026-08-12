@@ -103,12 +103,11 @@ POST   /api/writing/generate                            # 生成正文建议预�
 
 ## 剧情设定冲突检查
 
-`POST /api/writing/conflict-checks` 是写作页的规则层检查入口。前端会在发起检查前弹出选项，默认不包含待处理对象；用户勾选“包含待处理对象”后，后端以兼容字段 `include_candidates=true` 纳入地图 observation 等未采用证据，依赖这些证据的问题会标记注意原因。
+`POST /api/writing/conflict-checks` 是写作页的规则层检查入口。前端会在发起检查前弹出选项；兼容字段 `include_candidates` 仍控制待处理世界对象，但地图册图片不参与正文事实检查。
 
 规则层检查聚合三类跨模块证据：
 
 - 注入的 Scene contract loader：Scene 的目标、必须发生、禁止发生和核心冲突，命中项带 `outline_scene` 打开目标或正文 `text_range`；默认 loader lazy 调用 `outline.facade.get_scene_contract`。
-- `world.map_facade.summarize_scene_map_for_writing`：当前 Scene 的地图摘要、风险和待处理 observation，地图项带 `map_scene` / `map_object` 打开目标。
 - `memory.facade.get_continuity_evidence_for_writing`：上一章角色位置连续性证据，连续性问题带 `memory_chapter` 打开目标。
 
 问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
@@ -117,7 +116,7 @@ AI 能力是显式追加流程，不替代规则层结果：
 
 - `ai-review` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。
 - `ai-suggestion` 必须使用 action 为 `writing.conflict_check.ai_suggestion` 的 `context_confirmation_id`。
-- AI 软冲突和建议只写入检查项，不修改正文、Scene、地图、世界对象、记忆或已采用资产。
+- AI 软冲突和建议只写入检查项，不修改正文、Scene、地图册、世界对象、记忆或已采用资产。
 
 ## AI 正文建议与采用
 
@@ -163,7 +162,7 @@ writingView（frontend-console/views/writingView.js）扩展为手动工作台�
 
 ## 真实 LLM 验收
 
-真实 LLM 写作冲突检查默认跳过，不进入常规 CI。手动验收覆盖规则层冲突、跨模块地图/记忆证据、AI 软冲突、AI 修复建议、状态更新和发布快照归档：
+真实 LLM 写作冲突检查默认跳过，不进入常规 CI。手动验收覆盖规则层冲突、记忆证据、AI 软冲突、AI 修复建议、状态更新和发布快照归档：
 
 ```bash
 cd backend

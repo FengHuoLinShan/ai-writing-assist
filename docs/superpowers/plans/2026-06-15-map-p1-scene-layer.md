@@ -1,5 +1,7 @@
 # 动态地图 P1 Scene 时间层实施计划
 
+> **Superseded（已取代）：** 旧动态地图实施记录，不是当前契约。现行实现见 `docs/modules/15_map.md` 与 ADR-0012。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 P0 静态地图基础上实现 P1 Scene 时间层——按 Scene 显示人物/事件/物品动态标记，提供时间轴筛选和标记交互。

@@ -60,45 +60,28 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 
 `chapter_cards` 不是当前 ORM 表。不要把旧章节卡 JSON 或历史计划当作 Scene 的事实来源。
 
-## 4. 记忆、检索、上下文与地图
+## 4. 记忆、检索、上下文与地图册
 
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
-| 记忆事件 / 快照 | `memory_events` / `memory_scene_checkpoints` / `memory_scene_snapshots` / `memory_snapshots` | Scene 是唯一基础阶段；stage0 是空初始状态，每个 Scene 有分维度轻量 checkpoint，stage0/周期/章末/latest 才保存稀疏全量快照。历史状态只由带 Scene 锚点的 MemoryEvent 与 confirmed MapFact 确定性重放，禁止用当前 World 补历史。 |
+| 记忆事件 / 快照 | `memory_events` / `memory_scene_checkpoints` / `memory_scene_snapshots` / `memory_snapshots` | Scene 是唯一基础阶段；历史状态只由带 Scene 锚点的 MemoryEvent 确定性重放，禁止用当前 World 补历史。 |
 | 字段差分 | `delta_log` | memory 拥有的结构化 before/after 记录；不替代 TextArchive。 |
 | RAG 分块 | `rag_chunks` | 文字、来源、offset、Scene/Span、可见性、索引版本和 embedding 状态。 |
-| AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择、结果引用与 `compile_options` 摘要。跨章 Scene 可将 `chapter_index` 用作末章检索锚点，同时以 `requested_chapter_index` 固定作者确认的目标章节；写作任务按后者校验，旧记录才回退前者。 |
+| AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择、结果引用与 `compile_options` 摘要。 |
 | 自动上下文快照 | `context_snapshots` | 真实 LLM 调用的审计记录，保存摘要、hash、预算、资产选择与结果引用；完整 rendered context 仅显式保留。 |
 | 编译上下文 | CompiledContext | context 模块按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
-| 地图观察 | `map_observations` | 带时间/空间锚点和证据的观察层；尚未转化为 Fact 的可操作 observation 在作者界面显示为待处理。 |
-| 地图事实 | `map_facts` | 经领域规则或作者采用后形成的时间化地图事实，作者界面显示为已采用。 |
-| 地图差分 / 世界动态 | `MapDelta` / `WorldDynamic` 只读投影 | world/map 按 Scene 对 confirmed MapFact 做确定性归一化、冲突检测和前后差分；不是新的持久事实表。 |
-| 地图基础资产 | `map_configs`、tiles、地点布局/绑定、递归图层树、地形、连续线路、标记、势力范围表 | world/map 子系统；完整表清单在 `docs/01_数据库设计.md`。 |
+| AI 地图册 | `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` | 基于已确认资料生成的候选图片及作者采用后的画廊；不作为时间化世界事实。 |
 
-地图中的 `map_location_layouts.center_hex` 是可编辑锚点，实际显示范围仍以
-`map_location_bindings` 为权威；显式保存地点移动时整体平移该地点的全部 bindings，
-不得借地图拖动改写世界地理设定。`map_tiles` 是正式底图，
-`map_terrain_layers/regions/patches/bindings` 是可叠加覆盖素材，两者属于独立编辑层。
-`map_layer_nodes` 是图层局部显隐、锁定、透明度、排序和缩放范围的唯一权威，旧 terrain
-字段仅作兼容投影。`map_configs.editor_revision` 只覆盖视觉资产写入，统一编辑入口以 CAS
-和单事务防止多会话静默覆盖；observation/fact 审查不递增视觉 revision。已采用地图只归档
-完整子树，不硬删除资产；归档地图默认不参与地图树、presence、open-target 或编辑。
+地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
+canonical world background，并以 RAG `map_atlas` purpose 补充已确认正文和 Scene。工作稿仅在
+作者显式开启时加入，候选对象始终排除。每次 run 固化 secret-free context snapshot、source
+manifest 与 hash；manifest 按真实来源类型和 ID 记录 context/world loader 计算的内容 hash，
+不信任文本模型回传的来源 hash。候选图分别记录直接支持、AI 视觉补全和资料冲突。采用图片只改变地图册
+画廊，不会写回 World、Memory 或正文事实。
 
-`map_path_layers/map_paths/map_path_nodes` 保存道路与水系的连续轴向几何。线路图层的名称、
-显隐、锁定、透明度、顺序与 zoom 仍由对应 `map_layer_nodes` leaf 唯一管理；线路本体只归档，
-不因视觉删除破坏 observation/fact 中的稳定 `path_id`。Fact 确认时固化线路
-`content_revision`、名称与代表坐标，后续几何编辑不会反向改写既有事实。地图楼层和独占组的
-当前子层、临时 isolate 属于前端会话投影，不写入视觉 revision。
-
-世界对象到地图的反向导航复用 world/map 的只读 map presence 聚合；地图内对象选择继续按
-地点、marker、territory、terrain、fact 和 observation 分型，fact/observation 仍由现有
-dashboard inspector 解释，不新增第二套 inspector 领域模型。
-
-`MapFact` 是时间化地图动态的唯一持久化权威。类型化 `value_json`、旧事实的安全归一化、
-Scene 状态切片、`MapDelta`、连续性问题和 `WorldDynamic` 均为确定性只读投影；candidate 只能
-进入待处理预览，不能参与有效状态、差分或连续性结论。Scene `scene_index` 只表示逻辑顺序，
-不是经过时长；当前没有可靠时间预算和地图比例尺时，不产生移动速度或分钟级可达性结论。
-`map_configs.editor_revision` 仍只覆盖视觉资产，不能作为事实投影缓存的唯一失效键。
+图片固定由 `gpt-image-2` 生成并存入私有 S3。浏览器通过 owner 与 `novel_id` 双门禁的后端
+接口读取。项目永久删除以 share/exclusive project lock 封住晚到上传，并用不依赖项目 FK 的
+全局前缀清理任务移除对象。
 
 RAG 通过 nullable `scene_span_id` 关联 Scene 物理片段，但不建跨模块硬 FK。context
 负责“选、裁、确认、追踪”，RAG 负责“找”；imports、writing 等模块只能通过 facade 或
@@ -111,7 +94,7 @@ contract 消费它们。
 - **作者展示状态**：结构化资产统一投影为 `display_state = review / active / archived`，界面分别显示“待处理 / 已采用 / 历史”。`display_state` 是领域派生语义，不替代兼容期原始 `status` 字段。
 - **正文成熟度**：正文使用“工作稿 / 已发布”；Scene 等确有编辑生命周期的内容可显示工作稿。未采用的 AI 正文是待处理建议，不是普通工作稿。
 - **来源与注意原因**：`source`、`attention_reasons` 和 `suggested_action` 与生命周期分离。`conflicted`、低置信、POV 风险、`needs_review` 是注意原因，不是新的主状态。
-- **内部兼容状态**：`candidate` / `proposal` / `canonical`、地图 observation/fact 状态、任务 `pending/running/failed` 和审计 confirmation/snapshot 可继续用于实现、接口兼容和诊断，但不得作为并列的作者心智模型。
+- **内部状态**：`candidate` / `proposal` / `canonical`、地图册页面 checkpoint、任务 `pending/running/failed` 和审计 confirmation/snapshot 可用于实现和诊断，但不得作为并列的作者心智模型。
 - **授权自动流水线**：深度导入等流水线必须在启动时持久化授权策略与范围；规则明确且可回滚的结果可自动采用，冲突、低置信和无法消歧结果进入待处理，完成结果按已采用/待处理/未采用汇总。
 - **历史状态**：`deprecated` / `ignored` / `merged` / `rolled_back` 等进入历史并默认从主工作区隐藏；除项目永久删除和地图等明确操作外不默认硬删除。
 - **novel_id**：项目隔离键。任何跨模块 facade、查询、合并、任务和恢复流程都不得跨项目

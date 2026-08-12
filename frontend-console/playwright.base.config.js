@@ -43,7 +43,7 @@ export function createE2EConfig({
     },
     webServer: [
       {
-        command: `cd ../backend && APP_ENV=test python -m alembic upgrade head && APP_ENV=test python -m uvicorn app.main:app --host 0.0.0.0 --port ${backendPort}`,
+        command: `cd ../backend && APP_ENV=test uv run python -m alembic upgrade head && APP_ENV=test uv run python -m uvicorn app.main:app --host 0.0.0.0 --port ${backendPort}`,
         env: {
           ...process.env,
           ALLOWED_ORIGINS: frontendBase,

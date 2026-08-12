@@ -8,7 +8,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, exists, or_, select, update
+from sqlalchemy import and_, case, delete, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -23,6 +23,38 @@ from infrastructure.tasks.identity import require_matching_task_identity
 from infrastructure.tasks.models import AsyncTask
 
 _INVALID_TASK_META = object()
+_AUTO_REQUEUE_DELAYS_SECONDS = (1, 2, 4, 8, 16, 30)
+
+
+def _handler_retry_ready(now: datetime) -> Any:
+    """Keep handler retries out of the runnable queue until their backoff expires."""
+    retry_age_checks = [
+        and_(
+            AsyncTask.attempt == attempt,
+            AsyncTask.updated_at <= now - timedelta(seconds=delay),
+        )
+        for attempt, delay in enumerate(_AUTO_REQUEUE_DELAYS_SECONDS[:-1], start=1)
+    ]
+    retry_age_checks.extend(
+        (
+            and_(
+                AsyncTask.attempt <= 0,
+                AsyncTask.updated_at
+                <= now - timedelta(seconds=_AUTO_REQUEUE_DELAYS_SECONDS[0]),
+            ),
+            and_(
+                AsyncTask.attempt >= len(_AUTO_REQUEUE_DELAYS_SECONDS),
+                AsyncTask.updated_at
+                <= now - timedelta(seconds=_AUTO_REQUEUE_DELAYS_SECONDS[-1]),
+            ),
+        )
+    )
+    return or_(
+        AsyncTask.transition_reason.is_(None),
+        AsyncTask.transition_reason != "handler_error_retry",
+        AsyncTask.updated_at.is_(None),
+        *retry_age_checks,
+    )
 
 
 class TaskLifecycleService:
@@ -519,10 +551,19 @@ class TaskLifecycleService:
 
     async def claim_next(self, db: AsyncSession) -> AsyncTask | None:
         running = aliased(AsyncTask)
+        now = datetime.now(UTC)
+        queue_time = case(
+            (
+                AsyncTask.transition_reason == "handler_error_retry",
+                AsyncTask.updated_at,
+            ),
+            else_=AsyncTask.created_at,
+        )
         stmt = (
             select(AsyncTask)
             .where(
                 AsyncTask.status == "pending",
+                _handler_retry_ready(now),
                 or_(
                     AsyncTask.coalescing_key.is_(None),
                     ~exists(
@@ -533,7 +574,20 @@ class TaskLifecycleService:
                     ),
                 ),
             )
-            .order_by(AsyncTask.created_at)
+            .order_by(
+                case(
+                    (
+                        and_(
+                            AsyncTask.novel_id.is_(None),
+                            queue_time > now - timedelta(minutes=5),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                ),
+                queue_time,
+                AsyncTask.id,
+            )
             .limit(1)
             .with_for_update(skip_locked=True)
         )
@@ -638,6 +692,38 @@ class TaskLifecycleService:
         error_message: str | None = None,
         recovery_policy: str | None = None,
     ) -> bool:
+        if status == "pending":
+            task = (
+                await db.execute(
+                    select(AsyncTask)
+                    .where(
+                        AsyncTask.id == task_id,
+                        AsyncTask.status == "running",
+                        AsyncTask.lease_id == lease_id,
+                    )
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if task is None:
+                await db.rollback()
+                return False
+            if await self._has_pending_follower(db, task):
+                task.mark_cancelled()
+                task.transition_reason = "superseded"
+            else:
+                task.status = "pending"
+                task.finished_at = None
+                task.heartbeat_at = None
+                task.lease_id = None
+                task.transition_reason = "handler_error_retry"
+                task.error_message = error_message
+            if result_data is not None:
+                task.result = result_data
+            if recovery_policy is not None:
+                task.recovery_policy = recovery_policy
+            await db.commit()
+            return True
+
         values: dict[str, Any] = {
             "status": status,
             "finished_at": datetime.now(UTC),

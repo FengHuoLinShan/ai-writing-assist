@@ -39,7 +39,7 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 | 辅助层 | imports, rag, context, writing, settings | 导入、检索、上下文、正文、配置 |
 | 独立 RP 领域 | interaction | 隐藏项目、不可变选中历史、流式故事与回顾 |
 
-`infrastructure/llm` 与 `infrastructure/tasks` 是共享基础层；`map` 是 `world` 子系统。
+`infrastructure/llm` 与 `infrastructure/tasks` 是共享基础层；`map` 是 `world` 拥有的 AI 地图册子系统。
 当前业务模块共 11 个：`account`、`project`、`imports`、`world`、`memory`、`outline`、`rag`、
 `context`、`writing`、`settings`、`interaction`。`account` 是公开身份与 owner 边界，
 `interaction` 是 RP 私人故事领域，二者都不属于作者小说创作资产三层；

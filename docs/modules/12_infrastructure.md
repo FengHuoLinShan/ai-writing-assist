@@ -333,11 +333,11 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | 模块 | 当前注册处理器 |
 |------|------|
 | project | `smart_dedup_scan` |
-| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh` |
+| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`map_atlas_generate`、`map_atlas_storage_cleanup` |
 | outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate` |
 | rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities` |
 | writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review` |
-| imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction`、`map_observation_enrichment` |
+| imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
 
 任务处理器仍由 owning 模块的 `tasks.py` 声明；`app.task_runtime` 拥有 API 与 worker 共同

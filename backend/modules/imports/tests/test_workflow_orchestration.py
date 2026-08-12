@@ -785,11 +785,9 @@ class TestDeepImportOrchestrator:
             "hard_deleted_assets": 0,
             "cleanup_mode": "soft_deprecate",
             "rolled_back_delta_logs": 0,
-            "rolled_back_map_observations": 0,
             "rolled_back_aliases": 0,
             "rolled_back_relations": 0,
             "skipped_delta_logs": 0,
-            "skipped_map_observations": 0,
             "cleanup_todo": None,
         }
         assert task.status == "cancelled"
@@ -1676,11 +1674,9 @@ class TestDeepImportRecoveryApi:
             "hard_deleted_assets": 0,
             "cleanup_mode": "soft_deprecate",
             "rolled_back_delta_logs": 0,
-            "rolled_back_map_observations": 0,
             "rolled_back_aliases": 0,
             "rolled_back_relations": 0,
             "skipped_delta_logs": 0,
-            "skipped_map_observations": 0,
             "cleanup_todo": None,
         }
         resolve_owner.assert_awaited_once()

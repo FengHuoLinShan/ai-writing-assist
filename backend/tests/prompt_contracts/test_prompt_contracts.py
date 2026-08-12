@@ -38,7 +38,6 @@ def test_registry_loads_all_deep_import_contracts() -> None:
         "p20_outline_arc",
         "p20_planned_scene",
         "scene_entity_extraction",
-        "map_scene_observation_enrichment",
         "story_outline",
         "rag_reranker",
     }
@@ -87,12 +86,6 @@ def test_schema_validator_extracts_nested_list_field_paths() -> None:
     assert "relations.relation_type" in paths
     assert "deltas.subject_name" in paths
     assert "uncertain_items.supporting_scene_ids" in paths
-    assert "map_observation_proposals.proposal_type" in paths
-    assert "map_observation_proposals.quote" in paths
-    assert "map_observation_proposals.character_name" in paths
-    assert "map_observation_proposals.event_name" in paths
-    assert "map_observation_proposals.path_name" in paths
-    assert "map_observation_proposals.controller_name" in paths
 
 
 def test_strict_schema_coverage_rejects_undeclared_schema_root() -> None:
@@ -102,7 +95,7 @@ def test_strict_schema_coverage_rejects_undeclared_schema_root() -> None:
         declared_prompt_fields=[
             field
             for field in contract.declared_prompt_fields
-            if field != "map_observation_proposals"
+            if field != "delta_events"
         ],
     )
 
@@ -110,7 +103,7 @@ def test_strict_schema_coverage_rejects_undeclared_schema_root() -> None:
 
     assert any(
         issue.code == "schema.strict_root_undeclared"
-        and issue.path == "map_observation_proposals"
+        and issue.path == "delta_events"
         for issue in issues
     )
 
@@ -124,16 +117,6 @@ def test_generation_center_schema_contract_forbids_llm_controlled_fields() -> No
         ("summary", "core_entities.summary"),
         ("details", "core_entities.content_json.details"),
     } <= {(mapping.source, mapping.target) for mapping in contract.required_mappings}
-
-
-def test_map_enrichment_contract_records_proposal_type_in_source_ref() -> None:
-    contract = _load_contract("map_scene_observation_enrichment")
-
-    assert contract.version == 2
-    assert (
-        "map_observation_proposals.proposal_type",
-        "map_observations.source_ref.proposal_type",
-    ) in {(mapping.source, mapping.target) for mapping in contract.required_mappings}
 
 
 def test_forbidden_field_validator_reports_status_as_p1() -> None:
@@ -156,30 +139,6 @@ def test_forbidden_field_validator_reports_status_as_p1() -> None:
     )
 
 
-def test_required_mapping_validator_reports_missing_phase2_delta_map_target() -> None:
-    contract = _load_contract("phase2_world_extraction")
-    contract = replace(
-        contract,
-        required_mappings=[
-            mapping
-            for mapping in contract.required_mappings
-            if not (
-                mapping.source == "deltas.subject_name"
-                and mapping.target == "map_observations.target_name"
-            )
-        ],
-    )
-
-    issues = validate_contract(contract)
-
-    assert any(
-        issue.severity == "P1"
-        and issue.code == "mapping.required_missing"
-        and issue.path == "deltas.subject_name -> map_observations.target_name"
-        for issue in issues
-    )
-
-
 def test_target_table_validator_accepts_allowlisted_table_columns() -> None:
     contract = PromptContract(
         id="targets",
@@ -190,7 +149,7 @@ def test_target_table_validator_accepts_allowlisted_table_columns() -> None:
             FieldMapping("objects.name", "core_entities.name"),
             FieldMapping("relations.relation_type", "entity_relations.relation_type"),
             FieldMapping("deltas.category", "delta_log.category"),
-            FieldMapping("deltas.subject_name", "map_observations.target_name"),
+            FieldMapping("deltas.subject_name", "core_entities.name"),
         ],
     )
 
@@ -205,18 +164,6 @@ def test_golden_fixtures_validate_against_all_schema_models() -> None:
     issues = [issue for contract in contracts for issue in validate_fixture(contract)]
 
     assert issues == []
-
-
-def test_phase2_delta_subject_probe_passes() -> None:
-    contract = _load_contract("phase2_world_extraction")
-
-    issues = validate_contract(contract)
-
-    assert not [
-        issue
-        for issue in issues
-        if issue.code == "probe.phase2_delta_subject_to_map_target"
-    ]
 
 
 def test_all_prompt_contracts_pass_static_validation() -> None:

@@ -40,7 +40,7 @@ describe("sceneAlerts", () => {
     expect(alerts.some((item) => item.message.includes("拿到账本"))).toBe(false)
   })
 
-  it("组合 Scene 健康与地图风险，但不做主观质量判断", () => {
+  it("组合 Scene 健康提示，但不做主观质量判断", () => {
     const alerts = buildSceneAlerts({
       scene: {
         id: "s1",
@@ -49,15 +49,11 @@ describe("sceneAlerts", () => {
         needs_organize: true,
       },
       chapterIndex: 1,
-      mapSummary: {
-        warnings: [{ level: "warning", code: "character_cross_map", message: "林澈上一场仍在北港" }],
-      },
     })
 
     expect(alerts).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: "结构", message: "场景尚未完成人工复核" }),
       expect.objectContaining({ source: "结构", message: "场景已标记为待整理" }),
-      expect.objectContaining({ source: "地图", message: "林澈上一场仍在北港" }),
     ]))
     expect(alerts.some((item) => /张力|更好|自然/.test(item.message))).toBe(false)
   })

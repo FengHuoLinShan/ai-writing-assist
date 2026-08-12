@@ -155,11 +155,6 @@ async def test_phase2a_prompt_keeps_full_scene_and_fences_untrusted_context(
         "matched_existing_ref",
         "uncertainties",
         "evidence_quotes",
-        "proposal_type",
-        "character_name",
-        "event_name",
-        "path_name",
-        "controller_name",
     ):
         assert field in system_text
     assert "JSON 字符串数组" in system_text
@@ -234,7 +229,6 @@ def test_phase2a_materializer_validates_identity_refs_and_verbatim_evidence() ->
                 },
             ],
             "delta_events": [],
-            "map_observation_proposals": [],
             "uncertain_items": [],
         }
     )
@@ -317,23 +311,6 @@ def test_phase2a_schema_rejects_relations_and_entity_aliases() -> None:
                 "relations": [],
             }
         )
-
-    with pytest.raises(ValidationError):
-        Phase2aSceneExtractionOutput.model_validate(
-            {
-                "map_observation_proposals": [
-                    {
-                        "proposal_type": "route_state",
-                        "path_name": "北境商道",
-                        "state": "blocked",
-                        "quote": "北境商道已经封闭。",
-                        "confidence": 0.9,
-                        "supporting_scene_ids": ["model-supplied-id"],
-                    }
-                ]
-            }
-        )
-
 
 @pytest.mark.asyncio
 async def test_manual_alias_relation_entry_establishes_and_resets_project_context(

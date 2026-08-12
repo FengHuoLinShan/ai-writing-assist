@@ -12,10 +12,9 @@
 - 不捕获并吞掉数据库异常；数据错误可转为业务错误，DB flush / commit 异常必须向上传播
 - 不在缺少精确匹配、模糊匹配、跨 `novel_id`、候选合并、LLM 抽取 mock 测试时合并去重/抽取逻辑改动
 
-## 动态地图（map_*）禁止事项
+## AI 地图册禁止事项
 
-- `map_markers.start_scene_id` / `end_scene_id` 不建数据库 FK 到 `outline.scenes`（PRD §7.2 跨模块不强耦合）；Scene 信息通过 outline facade/DI port 校验
-- 地点绑定只能绑定 `core_entities.entity_type = "location"` 的实体，由 `MapLocationBindingService` 校验
-- 同一地点在同一地图最多一个 `is_center=true` 中心点；DB 层 PG 部分唯一索引 + 业务层 `clear_center` 双重保证（SQLite 测试仅业务层）
-- 六边形第三坐标 `s = -q - r` 不在后端存储（ORM 无 `hex_s` 列），由前端计算；后端只存 `(q, r)`
-- 已采用地图及其视觉资产不硬删除；旧 DELETE 路由是整棵子树归档的兼容入口，前端仍必须二次确认
+- 旧动态地图 `map_*` 与 `/api/world/maps*` 已删除，不得重新引入兼容调用。
+- 地图册业务边界、状态机和存储契约以 `README.md`、`docs/modules/15_map.md`
+  与 ADR-0012 为准。
+- 图片候选不自动成为正式世界设定；已采用页也只能通过显式操作移出。

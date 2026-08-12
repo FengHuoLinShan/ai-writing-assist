@@ -35,6 +35,7 @@ frontend 只绑定宿主机 loopback，不对公网开放；PostgreSQL、worker 
 | 已确认 | `LLM_RATE_LIMIT_PER_MINUTE=0` | 用户使用项目 LLM 配置；仍保留并发上限 |
 | 已确认 | `EMBEDDING_*` | zy 本机 CPU TEI + `BAAI/bge-base-zh-v1.5`，768 维 |
 | 待填写 | `AUTH_SECRET_KEY` | 新生成至少 32 字符 |
+| 待填写 | `MAP_ATLAS_S3_*` | AI 地图册私有 bucket；静态 access key 与 secret 必须成对填写 |
 | 待填写 | `BOOTSTRAP_OWNER_EMAIL` | 新库 bootstrap 的私有 owner 邮箱，只写入服务器 `0600` 环境文件 |
 | 待填写 | `SMTP_*`、`SUPPORT_EMAIL` | 兼容 SMTP 的 host、登录、发件与支持邮箱，只写入服务器 `0600` 环境文件 |
 | 待开通 | `B2_*`、`RESTIC_*` | 私有 Backblaze B2 bucket、限定 bucket 的 key、restic 密码 |
@@ -81,6 +82,14 @@ env 文件不是 symlink、归当前有效用户所有、且权限精确为 `060
 发布只能接受完整的 40 位 commit SHA。脚本会检查干净工作树、拉取远端、构建固定
 tag 镜像、启动 PostgreSQL、创建并验证 custom-format 备份、运行 Alembic、处理公开
 模式 bootstrap 认领、启动应用并进行容器内健康检查。
+
+`20260812_ai_map_atlas` 会永久删除旧地图数据。对已有项目的生产库，`release.sh`
+必须先完成当次 custom-format 备份与隔离恢复演练，然后要求操作者输入
+`DROP_LEGACY_MAP_DATA_20260812`。发布只把本次备份文件名、SHA-256 与确认短语
+传给当次 migrate 容器；migration 会在 drop 前再校验，缺任一项即拒绝。不得把这些
+一次性变量写入 `deploy/.env.production`。无项目数据的 fresh 首次迁移不 drop
+业务数据，因此不弹出确认；dev/test/CI 同样保持可重建。如果不经支持的
+`release.sh` 直接对非开发数据库运行 Alembic，该 migration 会 fail closed。
 
 在切换 checkout、构建、停服、备份或迁移之前，`release.sh` 还会把 finalized active
 commit 与 target 的已提交 Alembic migration blobs 做静态图比较；它不 import migration
@@ -399,6 +408,6 @@ ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为�
 7. B2 加密备份成功，并完成恢复演练。
 8. systemd 的 backup、account-maintenance 和 runtime-health 三个 timer 正常，Healthchecks
    邮件告警已完成 `/fail` 与 missed ping 演练。
-9. 一个真实账户在设置页完成 LLM 连接验证；验收记录和日志不保存 Key、请求正文或用户内容。
+9. 一个真实账户在设置页完成文本与图片连接验证；首次付费生图另行确认权限和额度，验收记录和日志不保存 Key、请求正文或用户内容。
 
 本目录不自动申请域名/证书、不创建 SMTP/Authing/LLM 账户，也不保存任何真实凭据。

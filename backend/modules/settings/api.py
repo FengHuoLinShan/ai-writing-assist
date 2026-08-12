@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.settings.schemas import (
+    AccountImageConnectionResponse,
+    AccountImageConnectionUpdate,
     AccountLLMBalancesResponse,
     AccountLLMConnectionsResponse,
     AccountLLMConnectionUpdate,
@@ -36,6 +38,42 @@ async def api_get_account_llm_connections(
     db: DbSession,
 ) -> AccountLLMConnectionsResponse:
     return await _service.get_account_llm_connections(db)
+
+
+@router.get(
+    "/image-connection",
+    response_model=AccountImageConnectionResponse,
+)
+async def api_get_account_image_connection(
+    db: DbSession,
+) -> AccountImageConnectionResponse:
+    return await _service.get_account_image_connection(db)
+
+
+@router.put(
+    "/image-connection",
+    response_model=AccountImageConnectionResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_connect_account_image_provider(
+    db: DbSession,
+    data: AccountImageConnectionUpdate,
+) -> AccountImageConnectionResponse:
+    try:
+        return await _service.connect_account_image_provider(db, data.api_key)
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.delete(
+    "/image-connection",
+    response_model=AccountImageConnectionResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_clear_account_image_provider(
+    db: DbSession,
+) -> AccountImageConnectionResponse:
+    return await _service.clear_account_image_provider(db)
 
 
 @router.put(

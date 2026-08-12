@@ -461,6 +461,34 @@ def test_release_requires_restore_drill_and_public_gate_before_final_state() -> 
     assert migration < fresh_gate < fresh_backup < fresh_drill < internal_health
 
 
+def test_legacy_map_drop_requires_verified_backup_and_one_time_confirmation() -> None:
+    release = (DEPLOY_ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+    common = COMMON_SCRIPT.read_text(encoding="utf-8")
+    compose = yaml.safe_load(
+        (DEPLOY_ROOT / "compose.production.yml").read_text(encoding="utf-8")
+    )
+
+    backup = release.index('BACKUP_PATH=$(bash "$SCRIPT_DIR/backup.sh")')
+    drill = release.index('bash "$SCRIPT_DIR/restore_drill.sh"', backup)
+    legacy_check = release.index("read_live_legacy_map_table_count", drill)
+    prompt = release.index("DROP_LEGACY_MAP_DATA_20260812", legacy_check)
+    migration = release.index("compose --profile ops run --rm migrate", prompt)
+    clear_stale_proof = release.index(
+        "unset MAP_ATLAS_DESTRUCTIVE_MIGRATION_CONFIRMATION"
+    )
+    acquire_lock = release.index("acquire_production_operation_lock")
+
+    assert backup < drill < legacy_check < prompt < migration
+    assert clear_stale_proof < acquire_lock < backup
+    assert "information_schema.tables" in common
+    migrate_environment = compose["services"]["migrate"]["environment"]
+    assert {
+        "MAP_ATLAS_DESTRUCTIVE_MIGRATION_CONFIRMATION",
+        "MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_NAME",
+        "MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_SHA256",
+    } <= set(migrate_environment)
+
+
 def test_restore_drill_uses_only_an_isolated_pinned_postgres_container() -> None:
     script = RESTORE_DRILL_SCRIPT.read_text(encoding="utf-8")
 

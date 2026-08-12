@@ -577,9 +577,7 @@ describe("aiReferenceModal", () => {
     const repair = document.querySelector('a[href*="knowledge_character_id=char-1"]')
     expect(repair?.textContent).toBe("修正人物知识")
     expect(repair?.target).toBe("_blank")
-    const sceneRepair = document.querySelector('a[href*="scene_id=scene-1"][href*="mode=live"]')
-    expect(sceneRepair?.textContent).toBe("核对 Scene 时点")
-    expect(sceneRepair?.target).toBe("_blank")
+    expect(document.querySelector('a[href*="scene_id=scene-1"]')).toBeNull()
   })
 
   it("点击 section 本次排除后重新整理并提交 context_sections 排除项", async () => {

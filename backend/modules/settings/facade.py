@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
 from modules.settings.schemas import (
+    AccountImageRuntimeProfile,
     AccountLLMRuntimeProfile,
     EffectiveAuthorPrefsResponse,
     EffectiveLLMSettingsResponse,
@@ -21,6 +22,19 @@ from modules.settings.schemas import (
 from modules.settings.services import SettingsService
 
 _service = SettingsService()
+
+
+async def resolve_account_image_runtime_profile(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID | None = None,
+) -> AccountImageRuntimeProfile:
+    """Resolve the verified image credential without changing text-provider state."""
+
+    return await _service.resolve_account_image_runtime_profile(
+        db,
+        owner_id=owner_id,
+    )
 
 
 async def resolve_account_llm_runtime_profile(

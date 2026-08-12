@@ -103,7 +103,6 @@ class SingleSceneEntityExtractionMixin:
 
         result_refs: list[dict[str, str]] = []
         context_snapshot_id = snapshot_id
-        map_candidate_counts = {"created": 0, "reused": 0}
         try:
             async with _optional_lock(db_lock):
                 created_count = await service._persist_entities(
@@ -144,23 +143,6 @@ class SingleSceneEntityExtractionMixin:
                     context_snapshot_id=context_snapshot_id,
                     result_refs=result_refs,
                 )
-                proposals = getattr(extraction, "map_observation_proposals", None)
-                if isinstance(proposals, list) and proposals:
-                    map_candidate_counts = (
-                        await service._record_map_observation_proposals(
-                            db,
-                            nid,
-                            proposals,
-                            scene_index=scene_index,
-                            source_chapter_index=source_chapter_index,
-                            workflow_id=workflow_id,
-                            scene_id=scene_id,
-                            scene_source_fingerprint=input_fingerprint,
-                            authorization_snapshot=authorization_snapshot,
-                            context_snapshot_id=context_snapshot_id,
-                            result_refs=result_refs,
-                        )
-                    )
                 if snapshot_id is not None:
                     from modules.context.facade import succeed_context_snapshot
 
@@ -223,7 +205,6 @@ class SingleSceneEntityExtractionMixin:
             "created": created_count,
             "relations": relation_count,
             "deltas": delta_count,
-            "map_observation_candidates": map_candidate_counts,
             "created_entity_ids": service._result_ref_ids(result_refs, "core_entity"),
             "created_relation_ids": service._result_ref_ids(
                 result_refs,

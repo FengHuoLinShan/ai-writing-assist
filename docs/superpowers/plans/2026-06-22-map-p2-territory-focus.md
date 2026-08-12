@@ -1,5 +1,7 @@
 # 动态地图 P2 势力范围与聚焦模式实施计划
 
+> **Superseded（已取代）：** 旧动态地图实施记录，不是当前契约。现行实现见 `docs/modules/15_map.md` 与 ADR-0012。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 P0+P1 基础上实现 P2 势力范围与聚焦模式——组织控制区域可视化、聚焦浏览、势力调色盘。

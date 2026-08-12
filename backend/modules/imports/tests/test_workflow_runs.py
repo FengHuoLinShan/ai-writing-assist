@@ -282,66 +282,6 @@ async def test_reconcile_ordinary_manual_policy_failure_is_not_recoverable(
     )
 
 
-async def test_reconcile_failed_restartable_map_task_never_blocks_manual_recovery(
-    db_session,
-    test_project_id: str,
-) -> None:
-    task, run = await _create_pending_run(
-        db_session,
-        test_project_id,
-        task_type="map_observation_enrichment",
-    )
-    task.status = "failed"
-    task.recovery_policy = "auto_requeue"
-    task.result = {"recovery_required": True}
-    task.meta = {
-        "novel_id": test_project_id,
-        "recovery_required": True,
-    }
-    await db_session.flush()
-
-    changed = await ImportWorkflowRunService().reconcile_task_owners(db_session)
-
-    assert changed == 1
-    assert run.status == "failed"
-    assert run.recovery_required is False
-    assert (
-        await ImportWorkflowRunService().get_active_for_novel(
-            db_session,
-            novel_id=test_project_id,
-        )
-        is None
-    )
-
-
-async def test_reconcile_restores_terminal_map_run_after_generic_retry(
-    db_session,
-    test_project_id: str,
-) -> None:
-    task, run = await _create_pending_run(
-        db_session,
-        test_project_id,
-        task_type="map_observation_enrichment",
-    )
-    task.status = "pending"
-    run.status = "failed"
-    run.recovery_required = False
-    await db_session.flush()
-
-    changed = await ImportWorkflowRunService().reconcile_scoped_task_owners(
-        db_session,
-        novel_id=test_project_id,
-    )
-
-    assert changed == 1
-    assert run.status == "pending"
-    assert (
-        await ImportWorkflowRunService().get_active_for_novel(
-            db_session,
-            novel_id=test_project_id,
-        )
-    ) is run
-
 
 async def test_reconcile_does_not_steal_project_from_newer_active_workflow(
     db_session,
@@ -350,7 +290,7 @@ async def test_reconcile_does_not_steal_project_from_newer_active_workflow(
     retried_task, retried_run = await _create_pending_run(
         db_session,
         test_project_id,
-        task_type="map_observation_enrichment",
+        task_type="scene_auto_extraction",
     )
     retried_task.status = "failed"
     retried_run.status = "failed"
@@ -374,7 +314,7 @@ async def test_reconcile_does_not_steal_project_from_newer_active_workflow(
         await ImportWorkflowRunService().claim_attempt(
             db_session,
             task_id=str(retried_task.id),
-            workflow_type="map_observation_enrichment",
+            workflow_type="scene_auto_extraction",
             attempt=2,
             lease_id=str(uuid.uuid4()),
         )
@@ -387,7 +327,7 @@ async def test_reconcile_running_auto_retry_replaces_stale_attempt_owner(
     task, _run = await _create_pending_run(
         db_session,
         test_project_id,
-        task_type="map_observation_enrichment",
+        task_type="scene_auto_extraction",
     )
     task.recovery_policy = "auto_requeue"
     task.status = "running"
@@ -399,7 +339,7 @@ async def test_reconcile_running_auto_retry_replaces_stale_attempt_owner(
     first = await service.claim_attempt(
         db_session,
         task_id=str(task.id),
-        workflow_type="map_observation_enrichment",
+        workflow_type="scene_auto_extraction",
         attempt=1,
         lease_id=str(task.lease_id),
     )
@@ -411,7 +351,7 @@ async def test_reconcile_running_auto_retry_replaces_stale_attempt_owner(
     second = await service.claim_attempt(
         db_session,
         task_id=str(task.id),
-        workflow_type="map_observation_enrichment",
+        workflow_type="scene_auto_extraction",
         attempt=2,
         lease_id=str(task.lease_id),
     )
@@ -429,7 +369,6 @@ async def test_reconcile_running_auto_retry_replaces_stale_attempt_owner(
     "relative_path",
     [
         "orchestrator.py",
-        "map_observation_enrichment_workflow.py",
     ],
 )
 def test_workflow_orchestrators_do_not_import_async_task_orm(

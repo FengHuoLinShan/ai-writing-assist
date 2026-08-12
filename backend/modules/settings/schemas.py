@@ -181,6 +181,43 @@ class AccountLLMRuntimeProfile(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+class AccountImageConnectionUpdate(BaseModel):
+    """Write-only OpenAI image connection input."""
+
+    model_config = {"extra": "forbid"}
+    api_key: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("api_key")
+    @classmethod
+    def strip_image_api_key(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("API Key 不能为空")
+        return stripped
+
+
+class AccountImageConnectionResponse(BaseModel):
+    model_config = {"extra": "forbid"}
+    provider_id: str = "openai-image"
+    label: str = "OpenAI 图片"
+    model: str = "gpt-image-2"
+    connected: bool
+    verified_at: datetime | None = None
+    verification_scope: str = "credential_only"
+
+
+class AccountImageRuntimeProfile(BaseModel):
+    """Internal image connection resolved through the settings facade."""
+
+    model_config = {"extra": "forbid"}
+    provider_id: str = "openai-image"
+    label: str = "OpenAI 图片"
+    api_key: str
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "gpt-image-2"
+    timeout: int = 180
+
+
 class AccountLLMBalanceItem(BaseModel):
     model_config = {"extra": "forbid"}
     provider_id: str

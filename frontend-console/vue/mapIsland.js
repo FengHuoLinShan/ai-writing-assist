@@ -1,11 +1,14 @@
-/** Map Phase 5 Vue island. Vue owns the route workspace; mapView remains viewport-only. */
+/** Author-only AI map-atlas workspace. */
 import { mountIsland } from "./mountIsland.js"
-import { getRouter } from "./bridge/index.js"
+import { getAppState, getRouter } from "./bridge/index.js"
 import MapWorkspaceView from "./views/map/MapWorkspaceView.vue"
-import { loadMapProps } from "./views/map/mapModel.js"
 
 export function createMapIsland() {
-  return mountIsland({ viewName: "map", component: MapWorkspaceView, load: loadMapProps })
+  return mountIsland({
+    viewName: "map",
+    component: MapWorkspaceView,
+    load: async () => ({ projectId: getAppState()?.currentProjectId || null }),
+  })
 }
 
 export function registerMapIsland() {

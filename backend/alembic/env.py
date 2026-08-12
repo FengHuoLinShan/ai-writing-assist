@@ -35,7 +35,7 @@ import modules.outline.models  # noqa: E402, F401
 import modules.project.models  # noqa: E402, F401
 import modules.rag.models  # noqa: E402, F401
 import modules.settings.models  # noqa: E402, F401
-import modules.world.map_models  # noqa: E402, F401
+import modules.world.map_atlas_models  # noqa: E402, F401
 import modules.world.models  # noqa: E402, F401
 import modules.writing.models  # noqa: E402, F401
 from core.base import Base  # noqa: E402
@@ -61,8 +61,6 @@ MIGRATION_MANAGED_INDEXES: dict[str, set[str]] = {
     "entity_relations": {"uq_entity_relations_canonical_edge"},
     "events": {"ix_events_timeline_order"},
     "imported_chapters": {"ix_imported_chapters_novel"},
-    "map_location_bindings": {"ix_map_binding_center"},
-    "map_configs": {"uq_map_config_top_level_name"},
     "memory_events": {"ix_memory_events_novel_chapter"},
     "memory_snapshots": {"ix_memory_snapshots_novel_chapter"},
     "projects": {"ix_projects_deleted_at"},

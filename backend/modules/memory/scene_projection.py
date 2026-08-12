@@ -6,7 +6,6 @@ import hashlib
 import json
 import uuid
 from copy import deepcopy
-from dataclasses import asdict
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -366,16 +365,6 @@ class SceneMemoryProjectionService:
                 previous.state_json if previous else self._empty_dimension(dimension)
             )
             base_state.setdefault("_coverage", {}).update(exc.coverage)
-            evidence_refs = list(previous.evidence_refs or []) if previous else []
-            if (
-                current is not None
-                and current.status == "manual_required"
-                and current.scene_index == scene_index
-                and current.gap_reason == str(exc)
-                and current.state_json == base_state
-                and list(current.evidence_refs or []) == evidence_refs
-            ):
-                return current
             return await self._checkpoints.replace_system(
                 db,
                 novel_id=nid,
@@ -387,7 +376,9 @@ class SceneMemoryProjectionService:
                     "confirmed": False,
                     "is_current": True,
                     "state_json": base_state,
-                    "evidence_refs": evidence_refs,
+                    "evidence_refs": list(previous.evidence_refs or [])
+                    if previous
+                    else [],
                     "display_summary": self._display_summary(dimension, base_state),
                     "source_hash": self._hash(
                         {"gap": str(exc), "retry_count": retry_count}
@@ -414,61 +405,19 @@ class SceneMemoryProjectionService:
             previous.state_json if previous else self._empty_dimension(dimension)
         )
         refs: list[dict[str, Any]] = []
-        if dimension == "map":
-            from modules.world.facade import get_confirmed_map_facts_through_scene
-
-            replay = await get_confirmed_map_facts_through_scene(
-                db, novel_id, scene_index
-            )
-            confirmed_coverage = (
-                previous.state_json.get("_coverage_confirmed") or {} if previous else {}
-            )
-            covered_undated = int(confirmed_coverage.get("undated_map_fact_count", 0))
-            if replay.undated_count > covered_undated:
-                missing_count = replay.undated_count - covered_undated
-                raise _CoverageGapError(
-                    f"{missing_count} 条已采用地图事实缺少 Scene 锚点",
-                    coverage={"undated_map_fact_count": replay.undated_count},
-                )
-            facts = [
-                item
-                for item in replay.facts
-                if after_scene_index is None or item.scene_index > after_scene_index
-            ]
-            fact_map = dict(state.get("facts_by_key") or {})
-            for fact in facts:
-                key = ":".join(
-                    [
-                        fact.dynamic_type,
-                        fact.target_entity_id or fact.target_name or "unknown",
-                        fact.map_id or "project",
-                    ]
-                )
-                payload = asdict(fact)
-                fact_map[key] = payload
-                refs.append(
-                    {
-                        "type": "map_fact",
-                        "id": fact.id,
-                        "label": fact.evidence_text
-                        or fact.target_name
-                        or fact.dynamic_type,
-                    }
-                )
-            result = {"facts_by_key": fact_map}
-            if confirmed_coverage:
-                result["_coverage_confirmed"] = deepcopy(confirmed_coverage)
-            return result, refs
-
         max_chapter = max(self._chapter_indices(scene) or [0])
         unanchored = await self._events.count_unanchored_through_chapter(
             db, parse_uuid(novel_id, "novel_id"), max_chapter
         )
         confirmed_coverage = (
-            previous.state_json.get("_coverage_confirmed") or {} if previous else {}
+            previous.state_json.get("_coverage_confirmed") or {}
+            if previous
+            else {}
         )
         covered_unanchored = int(
-            confirmed_coverage.get("unanchored_memory_event_count", 0)
+            confirmed_coverage.get(
+                "unanchored_memory_event_count", 0
+            )
         )
         if unanchored > covered_unanchored:
             missing_count = unanchored - covered_unanchored
@@ -633,7 +582,6 @@ class SceneMemoryProjectionService:
             "relations": "relations",
             "locations": "character_locations",
             "knowledge": "character_knowledge",
-            "map": "facts_by_key",
         }[dimension]
         count = len(state.get(key) or {})
         changes = len(state.get("changes") or [])
@@ -642,7 +590,6 @@ class SceneMemoryProjectionService:
             "relations": "关系",
             "locations": "人物位置",
             "knowledge": "知识边界",
-            "map": "地图事实",
         }
         suffix = f"，另有 {changes} 条变更" if changes else ""
         return f"{labels[dimension]} {count} 条{suffix}"
@@ -728,7 +675,6 @@ class SceneMemoryProjectionService:
             "relations": {"relations": [], "changes": []},
             "locations": {"character_locations": {}, "changes": []},
             "knowledge": {"character_knowledge": [], "changes": []},
-            "map": {"facts_by_key": {}},
         }[dimension]
 
     @staticmethod

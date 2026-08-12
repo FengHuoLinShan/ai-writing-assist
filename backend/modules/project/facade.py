@@ -26,6 +26,11 @@ _repo = ProjectRepository()
 
 # Imported after service/repository setup so callers get one stable project seam
 # without exposing llm_runtime implementation details.
+from modules.project.image_runtime import (  # noqa: E402,F401
+    build_project_image_execution_snapshot,
+    open_project_image_client,
+    restore_project_image_runtime_profile,
+)
 from modules.project.llm_runtime import (  # noqa: E402,F401
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
@@ -185,10 +190,32 @@ async def purge_projects_for_owner(
     owner_id: uuid.UUID,
 ) -> int:
     """Permanently remove every owner project after account purge becomes due."""
-    from infrastructure.tasks.facade import delete_tasks_for_novels
+    from core.container import get
+    from infrastructure.tasks.facade import (
+        cancel_unfinished_tasks_for_novel,
+        delete_tasks_for_novels,
+    )
 
-    project_ids = await list_project_ids_for_owner(db, owner_id)
+    project_ids = list(
+        (
+            await db.execute(
+                select(Project.id)
+                .where(Project.owner_id == owner_id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
     if project_ids:
+        for project_id in project_ids:
+            await cancel_unfinished_tasks_for_novel(
+                db,
+                novel_id=str(project_id),
+                transition_reason="account_permanent_delete",
+            )
+        await get("world.enqueue_map_atlas_cleanup")(
+            db,
+            [str(project_id) for project_id in project_ids],
+        )
         await delete_tasks_for_novels(
             db,
             novel_ids=[str(project_id) for project_id in project_ids],

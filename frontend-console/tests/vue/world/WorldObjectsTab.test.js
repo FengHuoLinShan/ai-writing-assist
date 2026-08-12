@@ -115,7 +115,6 @@ describe("表格渲染契约", () => {
   it("卡片模式渲染 world-object-card", () => {
     const wrapper = mountTab({ objectViewMode: "card" })
     expect(wrapper.findAll(".world-object-card[data-id]")).toHaveLength(2)
-    expect(wrapper.find('[data-action="open-entity-map"]').exists()).toBe(true)
   })
 })
 

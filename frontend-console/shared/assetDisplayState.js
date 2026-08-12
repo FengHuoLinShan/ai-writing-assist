@@ -26,7 +26,7 @@ const ATTENTION_REASON_LABELS = {
 }
 
 function rawStatus(asset = {}) {
-  return asset.status || asset.review_state || asset.fact_status || ""
+  return asset.status || asset.review_state || ""
 }
 
 function unique(values) {
@@ -111,14 +111,6 @@ export function writingAssetDisplay(asset = {}) {
     return display("published", "正式正文", asset)
   }
   return display("working", "工作稿", asset)
-}
-
-export function mapAssetDisplay(item = {}) {
-  const isFact = item.item_kind === "fact" || Boolean(item.fact_status)
-  const status = isFact ? (item.fact_status || "confirmed") : (item.review_state || "candidate")
-  if (HISTORY_STATUSES.has(status)) return display("archived", "历史", item, { isFact })
-  if (isFact) return display("active", "已采用", item, { isFact })
-  return display("review", "待处理", item, { isFact })
 }
 
 export function contextContentModeLabel(mode, { compact = false } = {}) {

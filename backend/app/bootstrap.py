@@ -45,6 +45,9 @@ from modules.world.facade import (
     list_entities as _world_list_entities,
     list_entity_terms as _world_list_entity_terms,
 )
+from modules.world.map_atlas_facade import (
+    enqueue_map_atlas_project_cleanup as _map_atlas_cleanup,
+)
 
 
 def _register_orm_models() -> None:
@@ -55,7 +58,7 @@ def _register_orm_models() -> None:
     import modules.interaction.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
     import modules.settings.models  # noqa: F401, I001
-    import modules.world.map_models  # noqa: F401, I001
+    import modules.world.map_atlas_models  # noqa: F401, I001
     import modules.world.models  # noqa: F401, I001
 
 
@@ -99,6 +102,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("memory.service", memory),
         ("memory.capture_snapshot", memory.capture_snapshot),
         ("project.require_active", _project_require_active),
+        ("world.enqueue_map_atlas_cleanup", _map_atlas_cleanup),
     )
 
 

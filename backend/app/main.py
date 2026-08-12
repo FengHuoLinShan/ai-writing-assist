@@ -743,7 +743,7 @@ from modules.project.api import router as project_router  # noqa: E402
 from modules.rag import api as rag_api  # noqa: E402
 from modules.settings.api import router as settings_router  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
-from modules.world import map_api as world_map_api  # noqa: E402
+from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
 
 app.include_router(project_router)
@@ -755,7 +755,7 @@ app.include_router(legal_router)
 app.include_router(imports_api.router)
 app.include_router(interaction_api.router)
 app.include_router(world_api.router)
-app.include_router(world_map_api.router)
+app.include_router(world_map_atlas_api.router)
 app.include_router(memory_api.router)
 app.include_router(outline_api.router)
 app.include_router(rag_api.router)

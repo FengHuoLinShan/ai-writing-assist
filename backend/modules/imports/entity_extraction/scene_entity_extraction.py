@@ -332,8 +332,6 @@ class SceneEntityExtractionService(
         total_created = 0
         total_relations = 0
         total_deltas = 0
-        map_candidate_created = 0
-        map_candidate_reused = 0
         accumulated_memory: list[dict] = []
         seen_entity_keys: set[tuple[str, str]] = set()
         failed_scene_indices: list[int] = []
@@ -464,16 +462,6 @@ class SceneEntityExtractionService(
                     "total_relations": bulk_result["relations"],
                     "total_aliases": 0,
                     "total_deltas": bulk_result["deltas"],
-                    "map_observation_candidates_created": int(
-                        (bulk_result.get("map_observation_candidates") or {}).get(
-                            "created", 0
-                        )
-                    ),
-                    "map_observation_candidates_reused": int(
-                        (bulk_result.get("map_observation_candidates") or {}).get(
-                            "reused", 0
-                        )
-                    ),
                     "total_scenes": total_scenes,
                     "degraded": bool(
                         supplement_result["created"] or flush_status["degraded"]
@@ -600,9 +588,6 @@ class SceneEntityExtractionService(
                 total_created += scene_result["created"]
                 total_relations += scene_result["relations"]
                 total_deltas += scene_result["deltas"]
-                candidate_counts = scene_result.get("map_observation_candidates") or {}
-                map_candidate_created += int(candidate_counts.get("created", 0) or 0)
-                map_candidate_reused += int(candidate_counts.get("reused", 0) or 0)
                 structured_format_diagnostics.extend(
                     scene_result.get("structured_format_diagnostics") or []
                 )
@@ -711,8 +696,6 @@ class SceneEntityExtractionService(
             "total_relations": total_relations,
             "total_aliases": 0,
             "total_deltas": total_deltas,
-            "map_observation_candidates_created": map_candidate_created,
-            "map_observation_candidates_reused": map_candidate_reused,
             "total_scenes": total_scenes,
             "degraded": bool(
                 failed_scene_indices or stopped_early or flush_status["degraded"]
@@ -1016,8 +999,6 @@ class SceneEntityExtractionService(
         total_created = 0
         total_relations = 0
         total_deltas = 0
-        map_candidate_created = 0
-        map_candidate_reused = 0
         failed_scene_indices: list[int] = []
         failed_scene_ids: list[str] = []
         scene_checkpoints: list[dict[str, Any]] = []
@@ -1060,12 +1041,6 @@ class SceneEntityExtractionService(
             total_created += int(result.get("created", 0) or 0)
             total_relations += int(result.get("relations", 0) or 0)
             total_deltas += int(result.get("deltas", 0) or 0)
-            map_candidate_created += int(
-                result.get("map_observation_candidates_created", 0) or 0
-            )
-            map_candidate_reused += int(
-                result.get("map_observation_candidates_reused", 0) or 0
-            )
             failed_scene_indices.extend(result.get("failed_scene_indices") or [])
             failed_scene_ids.extend(result.get("failed_scene_ids") or [])
             scene_checkpoints.extend(result.get("checkpoints") or [])
@@ -1110,8 +1085,6 @@ class SceneEntityExtractionService(
             "total_relations": total_relations,
             "total_aliases": 0,
             "total_deltas": total_deltas,
-            "map_observation_candidates_created": map_candidate_created,
-            "map_observation_candidates_reused": map_candidate_reused,
             "total_scenes": total_scenes,
             "degraded": bool(
                 failed_scene_indices
@@ -1197,8 +1170,6 @@ class SceneEntityExtractionService(
         error_kind_value: str | None = None
         error_message: str | None = None
         persistence_stats = self._empty_phase2_persistence_stats()
-        map_candidate_created = 0
-        map_candidate_reused = 0
 
         for scene_idx, scene in enumerate(batch):
             scene_provenance_key = self._scene_provenance_key(workflow_id, scene)
@@ -1251,9 +1222,6 @@ class SceneEntityExtractionService(
                 created += int(scene_result.get("created", 0) or 0)
                 relations += int(scene_result.get("relations", 0) or 0)
                 deltas += int(scene_result.get("deltas", 0) or 0)
-                candidate_counts = scene_result.get("map_observation_candidates") or {}
-                map_candidate_created += int(candidate_counts.get("created", 0) or 0)
-                map_candidate_reused += int(candidate_counts.get("reused", 0) or 0)
                 local_context = scene_result.get("updated_context") or local_context
                 local_memory = scene_result.get("updated_memory") or local_memory
                 checkpoint = scene_result.get("checkpoint")
@@ -1299,8 +1267,6 @@ class SceneEntityExtractionService(
             "created": created,
             "relations": relations,
             "deltas": deltas,
-            "map_observation_candidates_created": map_candidate_created,
-            "map_observation_candidates_reused": map_candidate_reused,
             "failed_scene_indices": failed_scene_indices,
             "failed_scene_ids": failed_scene_ids,
             "checkpoints": checkpoints,

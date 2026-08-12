@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +13,6 @@ from modules.world.contracts import (
     WorldBackgroundBundleContract,
     WorldBackgroundEntryContract,
 )
-from modules.world.map_models import MapFact
 from modules.world.models import (
     CharacterKnowledge,
     CoreEntity,
@@ -40,8 +40,13 @@ class WorldBackgroundAggregation:
         novel_id: str,
         *,
         context_mode: str = "canonical",
+        reveal_mode: str = "author_safe",
         limit: int = 160,
     ) -> WorldBackgroundBundleContract:
+        if context_mode not in {"canonical", "working"}:
+            raise ValueError("context_mode must be canonical or working")
+        if reveal_mode not in {"author_safe", "author_full"}:
+            raise ValueError("reveal_mode must be author_safe or author_full")
         nid = parse_uuid(novel_id, "novel_id")
         statuses = ["canonical"]
         if context_mode == "working":
@@ -60,11 +65,11 @@ class WorldBackgroundAggregation:
         for entity in entities.scalars().all():
             profile_summary = profile_summaries.get(entity.id)
             event_summary = event_summaries.get(entity.id)
-            if context_mode == "author_full":
+            if reveal_mode == "author_full":
                 parts = [
-                    (entity.summary or entity.name)[:400],
-                    (entity.public_info or "")[:250],
-                    (entity.hidden_truth or "")[:500],
+                    entity.summary or entity.name,
+                    entity.public_info or "",
+                    entity.hidden_truth or "",
                 ]
             else:
                 parts = [entity.summary or entity.public_info or entity.name]
@@ -91,7 +96,7 @@ class WorldBackgroundAggregation:
                     self._keywords(entity.name, entity.content_json),
                 )
             )
-            if context_mode == "author_full" and profile_summary:
+            if reveal_mode == "author_full" and profile_summary:
                 entries.append(
                     self._entry(
                         novel_id,
@@ -110,7 +115,7 @@ class WorldBackgroundAggregation:
                         [entity.name, entity.entity_type],
                     )
                 )
-            if context_mode == "author_full" and event_summary:
+            if reveal_mode == "author_full" and event_summary:
                 entries.append(
                     self._entry(
                         novel_id,
@@ -155,34 +160,6 @@ class WorldBackgroundAggregation:
                     relation.status,
                     "author_safe",
                     [relation.relation_type],
-                )
-            )
-
-        facts = await db.execute(
-            select(MapFact)
-            .where(MapFact.novel_id == nid, MapFact.fact_status == "confirmed")
-            .order_by(MapFact.confidence.desc())
-            .limit(limit)
-        )
-        for fact in facts.scalars().all():
-            title = fact.target_name or fact.dynamic_type
-            summary = fact.evidence_text or str(
-                fact.value_json or fact.spatial_anchor or ""
-            )
-            entries.append(
-                self._entry(
-                    novel_id,
-                    "map_fact",
-                    str(fact.id),
-                    title,
-                    summary,
-                    f"map:{fact.dynamic_type}",
-                    float(
-                        fact.confidence if fact.confidence is not None else 0.5
-                    ),
-                    fact.fact_status,
-                    "author_safe",
-                    [title, fact.dynamic_type],
                 )
             )
 
@@ -237,7 +214,7 @@ class WorldBackgroundAggregation:
             summary = (
                 projection.content
                 if current_projection
-                else (page.free_text or "")[:2400]
+                else (page.free_text or "")
             )
             if not summary:
                 continue
@@ -276,7 +253,22 @@ class WorldBackgroundAggregation:
         sensitivity: str,
         keywords: list[str],
     ) -> WorldBackgroundEntryContract:
-        clean_summary = " ".join(str(summary or "").split())[:1000]
+        full_summary = " ".join(str(summary or "").split())
+        clean_summary = full_summary[:1000]
+        source_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "asset_id": asset_id,
+                    "asset_type": asset_type,
+                    "status": status,
+                    "summary": full_summary,
+                    "title": title,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         return WorldBackgroundEntryContract(
             entry_id=f"{asset_type}:{asset_id}",
             novel_id=novel_id,
@@ -290,7 +282,10 @@ class WorldBackgroundAggregation:
             status=status,
             sensitivity=sensitivity,
             keywords=[item for item in keywords if item][:12],
-            source_ids=[{"type": asset_type, "id": asset_id}],
+            source_ids=[
+                {"type": asset_type, "id": asset_id, "source_hash": source_hash}
+            ],
+            source_hash=source_hash,
             token_count=estimate_token_count(f"{title} {clean_summary}"),
         )
 
@@ -344,7 +339,7 @@ class WorldBackgroundAggregation:
                         continue
                     fields.append(f"{column.name}={value}")
                 if fields:
-                    summaries[row.entity_id] = "；".join(fields)[:1600]
+                    summaries[row.entity_id] = "；".join(fields)
         return summaries
 
     @staticmethod

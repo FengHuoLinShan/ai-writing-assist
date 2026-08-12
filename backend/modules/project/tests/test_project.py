@@ -462,7 +462,19 @@ class TestProjectCrud:
 
         result = await db_session.execute(select(AsyncTask))
         tasks = result.scalars().all()
-        assert [task.id for task in tasks] == [task_for_other_project.id]
+        remaining_ids = {
+            task.id
+            for task in tasks
+            if task.task_type != "map_atlas_storage_cleanup"
+        }
+        assert remaining_ids == {
+            task_for_other_project.id
+        }
+        cleanup = next(
+            task for task in tasks if task.task_type == "map_atlas_storage_cleanup"
+        )
+        assert cleanup.novel_id is None
+        assert cleanup.meta["object_prefix"] == f"map-atlas/{created.id}/"
 
 
 # ============================================================
@@ -557,6 +569,7 @@ class TestProjectService:
         repo.soft_delete = AsyncMock(return_value=False)
         repo.restore = AsyncMock(return_value=False)
         repo.permanent_delete = AsyncMock(return_value=False)
+        repo.lock_deleted_ids_for_update = AsyncMock(return_value=set())
         service = ProjectService(repo=repo)
         db = MagicMock()
 
@@ -637,9 +650,19 @@ class TestProjectService:
         """测试服务层永久删除项目成功"""
         project_id = str(uuid.uuid4())
         repo = MagicMock()
+        repo.lock_deleted_ids_for_update = AsyncMock(
+            return_value={uuid.UUID(project_id)}
+        )
         repo.permanent_delete = AsyncMock(return_value=True)
+        task_canceller = AsyncMock(return_value=1)
         task_deleter = AsyncMock(return_value=1)
-        service = ProjectService(repo=repo, task_deleter=task_deleter)
+        cleanup_enqueuer = AsyncMock()
+        service = ProjectService(
+            repo=repo,
+            task_canceller=task_canceller,
+            task_deleter=task_deleter,
+            map_atlas_cleanup_enqueuer=cleanup_enqueuer,
+        )
         db = MagicMock()
 
         result = await service.permanent_delete_project(
@@ -654,6 +677,12 @@ class TestProjectService:
             uuid.UUID(project_id),
             BOOTSTRAP_ACCOUNT_ID,
         )
+        task_canceller.assert_awaited_once_with(
+            db,
+            novel_id=project_id,
+            transition_reason="project_permanent_delete",
+        )
+        cleanup_enqueuer.assert_awaited_once_with(db, [project_id])
         task_deleter.assert_awaited_once_with(db, novel_id=project_id)
 
     @pytest.mark.asyncio
@@ -661,10 +690,17 @@ class TestProjectService:
         """批量永久删除应去重并一次清理异步任务。"""
         project_ids = [uuid.uuid4(), uuid.uuid4()]
         repo = MagicMock()
-        repo.list_deleted_ids = AsyncMock(return_value=set(project_ids))
+        repo.lock_deleted_ids_for_update = AsyncMock(return_value=set(project_ids))
         repo.permanent_delete_many = AsyncMock(return_value=2)
+        task_canceller = AsyncMock(return_value=1)
         tasks_deleter = AsyncMock(return_value=3)
-        service = ProjectService(repo=repo, tasks_deleter=tasks_deleter)
+        cleanup_enqueuer = AsyncMock()
+        service = ProjectService(
+            repo=repo,
+            task_canceller=task_canceller,
+            tasks_deleter=tasks_deleter,
+            map_atlas_cleanup_enqueuer=cleanup_enqueuer,
+        )
         db = MagicMock()
 
         result = await service.permanent_delete_projects(
@@ -680,6 +716,11 @@ class TestProjectService:
             project_ids,
             BOOTSTRAP_ACCOUNT_ID,
         )
+        assert task_canceller.await_count == 2
+        cleanup_enqueuer.assert_awaited_once_with(
+            db,
+            [str(project_id) for project_id in project_ids],
+        )
         tasks_deleter.assert_awaited_once_with(
             db,
             novel_ids=[str(project_id) for project_id in project_ids],
@@ -690,7 +731,7 @@ class TestProjectService:
         """选中项目不全在回收站时不应执行任何删除。"""
         project_ids = [uuid.uuid4(), uuid.uuid4()]
         repo = MagicMock()
-        repo.list_deleted_ids = AsyncMock(return_value={project_ids[0]})
+        repo.lock_deleted_ids_for_update = AsyncMock(return_value={project_ids[0]})
         repo.permanent_delete_many = AsyncMock()
         tasks_deleter = AsyncMock()
         service = ProjectService(repo=repo, tasks_deleter=tasks_deleter)

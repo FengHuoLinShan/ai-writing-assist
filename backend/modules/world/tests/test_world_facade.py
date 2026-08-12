@@ -20,16 +20,13 @@ from sqlalchemy.pool import StaticPool
 
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
-from modules.outline.facade import create_scene, update_scene
 from modules.world.facade import (
     expand_related_entities,
     find_entity_id_by_name,
-    get_confirmed_map_facts_through_scene,
     get_entity_importance_map,
     get_world_context,
     list_entity_terms,
 )
-from modules.world.map_models import MapFact
 from modules.world.models import CoreEntity, EntityRelation
 from modules.world.repositories import (
     CoreEntityRepository,
@@ -96,103 +93,6 @@ def sample_entity_data() -> WorldEntityCreate:
     )
 
 
-@pytest.mark.asyncio
-async def test_confirmed_map_fact_replay_revalidates_current_scene_order_and_status(
-    db_session: AsyncSession,
-    two_projects: tuple[str, str],
-) -> None:
-    novel_id, other_novel_id = two_projects
-    moved_earlier = await create_scene(
-        db_session,
-        novel_id,
-        {"scene_index": 30, "title": "移到前面", "status": "draft"},
-    )
-    moved_future = await create_scene(
-        db_session,
-        novel_id,
-        {"scene_index": 5, "title": "移到未来", "status": "canonical"},
-    )
-    deprecated = await create_scene(
-        db_session,
-        novel_id,
-        {"scene_index": 4, "title": "已归档", "status": "canonical"},
-    )
-    await create_scene(
-        db_session,
-        novel_id,
-        {"scene_index": 10, "title": "当前阶段", "status": "canonical"},
-    )
-    other_scene = await create_scene(
-        db_session,
-        other_novel_id,
-        {"scene_index": 1, "title": "其他项目", "status": "canonical"},
-    )
-    earlier_fact = MapFact(
-        novel_id=uuid.UUID(novel_id),
-        scene_id=uuid.UUID(moved_earlier["id"]),
-        scene_index=30,
-        dynamic_type="status",
-        target_name="应进入",
-        fact_status="confirmed",
-    )
-    future_fact = MapFact(
-        novel_id=uuid.UUID(novel_id),
-        scene_id=uuid.UUID(moved_future["id"]),
-        scene_index=5,
-        dynamic_type="status",
-        target_name="未来事实",
-        fact_status="confirmed",
-    )
-    deprecated_fact = MapFact(
-        novel_id=uuid.UUID(novel_id),
-        scene_id=uuid.UUID(deprecated["id"]),
-        scene_index=4,
-        dynamic_type="status",
-        target_name="归档事实",
-        fact_status="confirmed",
-    )
-    cross_novel_fact = MapFact(
-        novel_id=uuid.UUID(other_novel_id),
-        scene_id=uuid.UUID(other_scene["id"]),
-        scene_index=1,
-        dynamic_type="status",
-        target_name="跨项目事实",
-        fact_status="confirmed",
-    )
-    db_session.add_all(
-        [earlier_fact, future_fact, deprecated_fact, cross_novel_fact]
-    )
-    await db_session.flush()
-
-    await update_scene(
-        db_session,
-        novel_id,
-        moved_earlier["id"],
-        {"scene_index": 6},
-    )
-    await update_scene(
-        db_session,
-        novel_id,
-        moved_future["id"],
-        {"scene_index": 20},
-    )
-    await update_scene(
-        db_session,
-        novel_id,
-        deprecated["id"],
-        {"status": "deprecated"},
-    )
-
-    replay = await get_confirmed_map_facts_through_scene(
-        db_session,
-        novel_id,
-        10,
-    )
-
-    assert [item.id for item in replay.facts] == [str(earlier_fact.id)]
-    assert replay.facts[0].scene_index == 6
-    assert replay.undated_count == 0
-
 
 @pytest.mark.asyncio
 async def test_world_background_preserves_explicit_zero_float_signals(
@@ -226,14 +126,7 @@ async def test_world_background_preserves_explicit_zero_float_signals(
         strength=0.0,
         status="canonical",
     )
-    fact = MapFact(
-        novel_id=nid,
-        target_name="零置信度事实",
-        dynamic_type="status",
-        confidence=0.0,
-        fact_status="confirmed",
-    )
-    db_session.add_all([relation, fact])
+    db_session.add(relation)
     await db_session.flush()
 
     bundle = await WorldBackgroundAggregation().build(
@@ -246,7 +139,76 @@ async def test_world_background_preserves_explicit_zero_float_signals(
     assert by_id[str(source.id)].importance == 0.0
     assert by_id[str(target.id)].importance == 0.0
     assert by_id[str(relation.id)].importance == 0.0
-    assert by_id[str(fact.id)].importance == 0.0
+
+
+@pytest.mark.asyncio
+async def test_world_background_keeps_status_and_reveal_modes_independent(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nid = uuid.UUID(project_novel_id)
+    canonical = CoreEntity(
+        novel_id=nid,
+        entity_type="location",
+        name="白塔",
+        summary="公开摘要",
+        public_info="公开资料",
+        hidden_truth="隐藏真相",
+        importance=1.0,
+        status="canonical",
+    )
+    draft = CoreEntity(
+        novel_id=nid,
+        entity_type="location",
+        name="工作稿地点",
+        summary="未采用",
+        importance=0.9,
+        status="draft",
+    )
+    db_session.add_all([canonical, draft])
+    await db_session.flush()
+
+    aggregation = WorldBackgroundAggregation()
+
+    async def profile_summaries(_db, _novel_id):
+        return {canonical.id: "地点档案"}
+
+    async def event_summaries(_db, _novel_id):
+        return {canonical.id: "事件时间线"}
+
+    monkeypatch.setattr(aggregation, "_profile_summaries", profile_summaries)
+    monkeypatch.setattr(aggregation, "_event_summaries", event_summaries)
+
+    safe = await aggregation.build(
+        db_session,
+        project_novel_id,
+        context_mode="canonical",
+        reveal_mode="author_safe",
+    )
+    full = await aggregation.build(
+        db_session,
+        project_novel_id,
+        context_mode="canonical",
+        reveal_mode="author_full",
+    )
+
+    safe_entries = [item for item in safe.entries if item.asset_id == str(canonical.id)]
+    full_entries = [item for item in full.entries if item.asset_id == str(canonical.id)]
+    assert [item.asset_type for item in safe_entries] == ["entity"]
+    assert "隐藏真相" not in safe_entries[0].summary
+    assert {item.asset_type for item in full_entries} == {"entity", "profile", "event"}
+    assert "隐藏真相" in next(
+        item.summary for item in full_entries if item.asset_type == "entity"
+    )
+    assert all(item.asset_id != str(draft.id) for item in full.entries)
+
+    with pytest.raises(ValueError, match="context_mode"):
+        await aggregation.build(
+            db_session,
+            project_novel_id,
+            context_mode="author_full",
+        )
 
 
 @pytest.fixture

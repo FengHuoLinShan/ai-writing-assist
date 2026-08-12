@@ -644,12 +644,6 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "total_relations": int(phase2_result.get("total_relations", 0) or 0),
         "total_aliases": int(phase2_result.get("total_aliases", 0) or 0),
         "total_deltas": int(phase2_result.get("total_deltas", 0) or 0),
-        "map_observation_candidates_created": int(
-            phase2_result.get("map_observation_candidates_created", 0) or 0
-        ),
-        "map_observation_candidates_reused": int(
-            phase2_result.get("map_observation_candidates_reused", 0) or 0
-        ),
         "total_scenes": int(phase2_result.get("total_scenes", 0) or 0),
         "completed_scenes": int(phase2_result.get("completed_scenes", 0) or 0),
         "alias_relation_scenes": int(phase2_result.get("alias_relation_scenes", 0) or 0),
@@ -926,8 +920,6 @@ def _merge_phase2_repair_result(
         "total_relations",
         "total_deltas",
         "total_uncertain_items",
-        "map_observation_candidates_created",
-        "map_observation_candidates_reused",
         "supplemental_llm_created",
         "fallback_created",
     ):

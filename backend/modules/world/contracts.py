@@ -8,10 +8,7 @@ World 对外契约 — v3 因果时空网
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,29 +50,6 @@ class EventContract:
 
 
 @dataclass(frozen=True)
-class ConfirmedMapFactContract:
-    """Stable, author-adopted map fact for deterministic Scene replay."""
-
-    id: str
-    scene_id: str
-    scene_index: int
-    dynamic_type: str
-    target_entity_id: str | None = None
-    target_name: str | None = None
-    map_id: str | None = None
-    value_json: dict[str, Any] = field(default_factory=dict)
-    spatial_anchor: dict[str, Any] = field(default_factory=dict)
-    time_anchor: dict[str, Any] = field(default_factory=dict)
-    evidence_text: str | None = None
-
-
-@dataclass(frozen=True)
-class ConfirmedMapFactReplayContract:
-    facts: list[ConfirmedMapFactContract] = field(default_factory=list)
-    undated_count: int = 0
-
-
-@dataclass(frozen=True)
 class EntityRelationContract:
     """关系契约"""
 
@@ -102,7 +76,6 @@ class WorldAttentionSummaryContract:
     world_objects: int = 0
     world_aliases: int = 0
     world_relations: int = 0
-    map_items: int = 0
 
     @property
     def total(self) -> int:
@@ -110,7 +83,6 @@ class WorldAttentionSummaryContract:
             self.world_objects
             + self.world_aliases
             + self.world_relations
-            + self.map_items
         )
 
 
@@ -199,6 +171,7 @@ class WorldBackgroundEntryContract:
     sensitivity: str = "author_safe"
     keywords: list[str] = field(default_factory=list)
     source_ids: list[dict[str, str]] = field(default_factory=list)
+    source_hash: str = ""
     token_count: int = 0
 
 
@@ -310,201 +283,14 @@ class WorldAliasRelationTaskPort(Protocol):
     ) -> dict[str, Any]: ...
 
 
-class MapObservationProposalBase(BaseModel):
-    """Stable unresolved map proposal shared with deterministic import workflows."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    payload_kind: Literal["proposal"] = "proposal"
-    schema_version: Literal[1] = 1
-
-
-class MapCharacterLocationProposal(MapObservationProposalBase):
-    proposal_type: Literal["character_location"]
-    location_name: str | None = Field(None, max_length=255)
-    movement_mode: Literal[
-        "walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"
-    ] = "unknown"
-    state: str = Field("present", min_length=1, max_length=64)
-
-
-class MapEventLocationProposal(MapObservationProposalBase):
-    proposal_type: Literal["event_location"]
-    location_name: str | None = Field(None, max_length=255)
-    state: str = Field("occurred", min_length=1, max_length=64)
-
-
-class MapRouteStateProposal(MapObservationProposalBase):
-    proposal_type: Literal["route_state"]
-    path_name: str | None = Field(None, max_length=255)
-    state: Literal["open", "restricted", "blocked"]
-    reason: str | None = Field(None, max_length=1000)
-
-
-class MapBoundaryProposal(MapObservationProposalBase):
-    proposal_type: Literal["boundary"]
-    controller_name: str | None = Field(None, max_length=255)
-    area_description: str | None = Field(None, max_length=2000)
-
-
-MapObservationProposalV1 = Annotated[
-    MapCharacterLocationProposal
-    | MapEventLocationProposal
-    | MapRouteStateProposal
-    | MapBoundaryProposal,
-    Field(discriminator="proposal_type"),
-]
-
-
-class MapObservationCandidateAuthorizationScope(BaseModel):
-    """Frozen user-authorization scope carried across the imports/world seam."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    novel_id: str
-    start_chapter: int = Field(..., ge=1)
-    end_chapter: int = Field(..., ge=1)
-    stage: str | None = Field(None, max_length=64)
-
-    @field_validator("novel_id")
-    @classmethod
-    def _validate_novel_id(cls, value: str) -> str:
-        import uuid
-
-        return str(uuid.UUID(value))
-
-    @model_validator(mode="after")
-    def _validate_chapter_range(self) -> MapObservationCandidateAuthorizationScope:
-        if self.end_chapter < self.start_chapter:
-            raise ValueError("authorization end_chapter must not precede start_chapter")
-        return self
-
-
-class MapObservationCandidateAuthorization(BaseModel):
-    """Persisted authorization proof for the non-autonomous import workflow."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    adoption_policy: Literal["user_authorized_pipeline"]
-    authorization_confirmed: Literal[True]
-    authorized_at: datetime
-    scope: MapObservationCandidateAuthorizationScope
-    snapshot_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
-
-
-class MapObservationCandidateInput(BaseModel):
-    """Stable imports -> world input; provenance fields are immutable after creation."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    workflow_id: str = Field(..., min_length=1, max_length=255)
-    source_workflow: Literal["deep_import", "map_enrichment"] = "deep_import"
-    task_id: str | None = Field(None, max_length=255)
-    source_item_key: str = Field(..., min_length=1, max_length=255)
-    scene_id: str
-    scene_index: int = Field(..., ge=0)
-    scene_sequence: int | None = Field(None, ge=0)
-    source_chapter_index: int = Field(..., ge=0)
-    source_start_offset: int | None = Field(None, ge=0)
-    source_end_offset: int | None = Field(None, ge=1)
-    scene_source_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
-    context_snapshot_id: str | None = Field(None, max_length=255)
-    evidence_text: str = Field(..., min_length=1, max_length=8000)
-    evidence_anchor: str = Field(..., pattern=r"^[0-9a-f]{64}$")
-    confidence: float = Field(..., ge=0.0, le=1.0)
-    target_entity_id: str | None = Field(
-        None,
-        description=(
-            "Only set after the caller uniquely resolves one canonical target; "
-            "world revalidates project, type, and canonical status."
-        ),
-    )
-    resolved_location_entity_id: str | None = None
-    target_name: str | None = Field(None, max_length=255)
-    proposal: MapObservationProposalV1
-    authorization: MapObservationCandidateAuthorization
-
-    @field_validator(
-        "scene_id",
-        "target_entity_id",
-        "resolved_location_entity_id",
-    )
-    @classmethod
-    def _validate_uuid(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        import uuid
-
-        return str(uuid.UUID(value))
-
-    @model_validator(mode="after")
-    def _validate_source_position(self) -> MapObservationCandidateInput:
-        offsets = (self.source_start_offset, self.source_end_offset)
-        if (offsets[0] is None) != (offsets[1] is None):
-            raise ValueError("source offsets must be provided together")
-        if offsets[0] is not None and offsets[1] is not None:
-            if offsets[1] <= offsets[0]:
-                raise ValueError("source_end_offset must exceed source_start_offset")
-        if self.source_workflow == "map_enrichment":
-            if self.scene_sequence is None or offsets[0] is None or offsets[1] is None:
-                raise ValueError(
-                    "map enrichment candidates require exact source position and sequence"
-                )
-            if self.authorization.scope.stage != "map_observations":
-                raise ValueError(
-                    "map enrichment authorization scope stage must be map_observations"
-                )
-            if offsets[1] - offsets[0] != len(self.evidence_text):
-                raise ValueError(
-                    "map enrichment source offsets must match evidence text length"
-                )
-        if self.resolved_location_entity_id is not None and (
-            self.proposal.proposal_type not in {"character_location", "event_location"}
-        ):
-            raise ValueError("resolved location is only valid for location proposals")
-        return self
-
-
-class MapObservationCandidateResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    observation_id: str
-    action: Literal["created", "reused"]
-    proposal_type: Literal[
-        "character_location", "event_location", "route_state", "boundary"
-    ]
-    payload_hash: str
-
-
-class MapObservationCandidateBatchResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    created_count: int = 0
-    reused_count: int = 0
-    items: list[MapObservationCandidateResult] = Field(default_factory=list)
-
-
 __all__ = [
     "CharacterContract",
     "CharacterKnowledgeContract",
     "CoreEntityContract",
-    "ConfirmedMapFactContract",
-    "ConfirmedMapFactReplayContract",
     "EntityRelationContract",
     "EntityRevisionContract",
     "EventContract",
     "GenerationBackgroundProvider",
-    "MapBoundaryProposal",
-    "MapCharacterLocationProposal",
-    "MapEventLocationProposal",
-    "MapObservationCandidateAuthorization",
-    "MapObservationCandidateAuthorizationScope",
-    "MapObservationCandidateBatchResult",
-    "MapObservationCandidateInput",
-    "MapObservationCandidateResult",
-    "MapObservationProposalBase",
-    "MapObservationProposalV1",
-    "MapRouteStateProposal",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",

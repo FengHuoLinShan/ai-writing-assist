@@ -57,13 +57,13 @@ Three layers:
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
-| `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"` | Map observation confirm/ignore row-lock race | Dedicated PostgreSQL at Alembic head |
+| `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated once on pull requests |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map-perf` | Fixed 24×18 and 200×200 map telemetry profiles | Dedicated PostgreSQL; Chromium 1280×720; workers=1; retries=0 |
 | `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
+| `RUN_MAP_ATLAS_LIVE_IMAGE=1 MAP_ATLAS_LIVE_OPENAI_API_KEY='<temporary-key>' make test-map-atlas-live-image` | One paid GPT Image 2 smoke image; never part of aggregate gates | Explicit cost approval flag and temporary OpenAI key |
 | `RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi` | Paid Kimi K3 account connection, balance, RP streaming/branch/summary, provider hot-switch, and fail-closed recovery gate | Explicit temporary Kimi Open Platform and DeepSeek keys; Kimi remains disabled outside the test process |
 | `RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context` | Paid Kimi usage-token calibration at seven sizes plus a real PostgreSQL 530K emergency-summary journey | Explicit cost approval, current official context limit, temporary Kimi key, and dedicated PostgreSQL at Alembic head |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, dedicated PostgreSQL, and configured provider credentials |
@@ -81,8 +81,8 @@ green. Do not run overlapping aggregate targets back-to-back.
    `make test-ci TEST_WORKERS=2` once; it already subsumes the fast backend and frontend Vitest
    layers, so do not precede it with `make test` or frontend Vitest.
 3. **When the risk requires it**: schema or concurrency changes add the PostgreSQL critical
-   subset; deployment or image changes add their existing contract target; visual, map
-   performance, real-LLM, long-context, worker, and real-corpus suites remain explicit
+   subset; deployment or image changes add their existing contract target; visual,
+   real-LLM, long-context, worker, and real-corpus suites remain explicit
    acceptance gates.
 
 Every non-trivial branch still finishes with `make docs-check BASE_REF=origin/main` and
@@ -122,15 +122,6 @@ rebuilding it from ordinary application settings. This covers production paths
 that intentionally open an independent session instead of using FastAPI's
 overridden `get_db`; tests must not suppress async connection cleanup warnings
 or silently fall back to the developer database.
-
-地图性能验收与普通功能 E2E 分开。它使用固定 manifest/checksum 通过现有 API
-建立普通 24×18 和压力 200×200 混合地形语义样本，并用首次加载到的真实 Leaflet 1.9.4
-运行页面公开 telemetry。fixture 校验会重新读取完整 API payload、规范化后核对 checksum，
-真实 pointer/wheel/touch 则产生 100 帧与输入到下一帧样本。附件
-`map-performance-standard.json` / `map-performance-stress.json` 保留冷启动、预热、10 次热导航、
-原始 frame/input 数组、分段耗时和环境元数据。普通/压力热样本 p75 分别执行 `≤2s` / `≤3s`，任一热样本不得超过
-预算两倍；真实输入到下一帧 p95 执行 `≤33ms`。样本不足、retry 非零、未真实点击 hex、
-指标缺失或数据库不是独立 `audit/e2e/test` 库都会直接失败。
 
 视觉回归由独立 `playwright.visual.config.js` 固定 Chromium、语言、时区、DPR、viewport、
 reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。功能修复不得通过放宽
@@ -179,7 +170,7 @@ build. `Frontend functional browser` starts a fresh dedicated PostgreSQL and Chr
 complete functional suite with workers=1 and retries=0, and retains
 `frontend-console/test-results` failure diagnostics for 14 days. `test:e2e:smoke` and
 `test:e2e:map` remain focused local subsets already contained in that suite; they do not run as
-separate CI jobs. Visual, map-performance, real-LLM and worker Playwright suites remain
+separate CI jobs. Visual, real-LLM and worker Playwright suites remain
 explicit/manual acceptance runs.
 The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory

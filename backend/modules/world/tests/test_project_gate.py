@@ -7,7 +7,7 @@ from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_recycled_project_is_hidden_from_world_query_body_and_map_apis(
+async def test_recycled_project_is_hidden_from_world_query_body_and_atlas_apis(
     async_client: AsyncClient,
 ) -> None:
     created = await async_client.post(
@@ -24,10 +24,7 @@ async def test_recycled_project_is_hidden_from_world_query_body_and_map_apis(
             "/api/world/entities",
             params={"novel_id": novel_id},
         ),
-        await async_client.get(
-            "/api/world/maps",
-            params={"novel_id": novel_id},
-        ),
+        await async_client.get(f"/api/world/map-atlas/{novel_id}/atlas"),
         await async_client.post(
             "/api/world/generation-center/chat",
             json={

@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -9,7 +9,7 @@ BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/
 BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
 BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
-BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_map_editor_revision_concurrency.py tests/e2e/test_map_observation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_world_route_commit_visibility.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py
+BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
@@ -58,6 +58,11 @@ test-postgresql-critical:  ## Run the serial PostgreSQL merge-gate contract subs
 
 test-real-llm:  ## Run SQLite real-LLM acceptance tests explicitly
 	cd $(BACKEND_DIR) && RUN_REAL_LLM_TESTS=1 RUN_INTERACTION_REAL_LLM=1 pytest $(BACKEND_REAL_LLM_TESTS) -m real_llm $(ARGS)
+
+test-map-atlas-live-image:  ## Run the explicit paid GPT Image 2 smoke test
+	@test "$$RUN_MAP_ATLAS_LIVE_IMAGE" = "1" || (echo "RUN_MAP_ATLAS_LIVE_IMAGE=1 is required" >&2; exit 2)
+	@test -n "$$MAP_ATLAS_LIVE_OPENAI_API_KEY" || (echo "MAP_ATLAS_LIVE_OPENAI_API_KEY must be provided" >&2; exit 2)
+	cd $(BACKEND_DIR) && pytest infrastructure/llm/test_image_live.py -m real_llm --maxfail=1 $(ARGS)
 
 test-real-kimi:  ## Run the explicit paid Kimi K3 compatibility gate
 	@test "$$RUN_INTERACTION_REAL_KIMI" = "1" || (echo "RUN_INTERACTION_REAL_KIMI=1 is required" >&2; exit 2)

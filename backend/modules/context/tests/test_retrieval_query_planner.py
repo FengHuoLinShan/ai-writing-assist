@@ -17,6 +17,7 @@ from modules.context.services.retrieval_query_planner import RetrievalQueryPlann
         "outline_generation",
         "world_fusion",
         "world_generation",
+        "map_atlas",
         "import_scene_activation",
         "reader_context",
         "character_context",

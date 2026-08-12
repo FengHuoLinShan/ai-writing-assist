@@ -1031,7 +1031,6 @@ class SuggestionQueueService:
             "event",
             "relation",
             "entity_relation",
-            "map_fact",
         }
         return [
             item.model_dump(mode="json", exclude_none=True)

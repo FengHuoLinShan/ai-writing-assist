@@ -131,24 +131,6 @@ def _import_task_row(task_type: str, status: str) -> dict:
     }
 
 
-def test_migration_requeues_running_map_workflow_instead_of_stranding_recovery() -> None:
-    migration = _load_migration()
-    bind = MagicMock()
-    row = _import_task_row("map_observation_enrichment", "running")
-
-    migration._backfill_import_workflow_runs(bind, [row])
-
-    assert row["status"] == "pending"
-    assert row["lease_id"] is None
-    assert row["recovery_required"] is False
-    sql_calls = [
-        str(call.args[0])
-        for call in bind.execute.call_args_list
-        if call.args
-    ]
-    assert any("migration_restartable_requeue" in statement for statement in sql_calls)
-
-
 def test_migration_running_manual_workflow_remains_explicitly_recoverable() -> None:
     migration = _load_migration()
     bind = MagicMock()
@@ -161,15 +143,6 @@ def test_migration_running_manual_workflow_remains_explicitly_recoverable() -> N
     assert row["recovery_required"] is True
     assert row["meta"]["recovery_required"] is True
     assert row["result"]["recovery_required"] is True
-
-
-def test_migration_failed_map_flags_do_not_create_unresumable_active_owner() -> None:
-    migration = _load_migration()
-    row = _import_task_row("map_observation_enrichment", "failed")
-    row["meta"]["recovery_required"] = True
-    row["result"]["recovery_required"] = True
-
-    assert migration._requires_manual_recovery(row) is False
 
 
 def test_migration_duplicate_tasks_use_specified_superseded_reason() -> None:

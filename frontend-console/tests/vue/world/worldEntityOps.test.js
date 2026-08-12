@@ -14,7 +14,6 @@ import {
   ignoreCandidate,
   acceptCandidate,
   markEntityReviewed,
-  openEntityMap,
   promoteEntity,
   registerCandidateListHooks,
   runObjectsBulkAction,
@@ -71,8 +70,6 @@ beforeEach(() => {
       rollbackEntity: vi.fn(async () => ({ warnings: [] })),
       createKnowledge: vi.fn(async () => ({})),
       applyEntityFusionSuggestions: vi.fn(async () => ({ applied: 0 })),
-      getEntityMapPresence: vi.fn(async () => ({ items: [] })),
-      getMapOpenTarget: vi.fn(async () => ({ map_id: null, mode: "overview" })),
       listKnowledge: vi.fn(async () => ({ items: [], total: 0 })),
       createKnowledge: vi.fn(async () => ({})),
       updateKnowledge: vi.fn(async () => ({})),
@@ -294,30 +291,6 @@ describe("showKnowledgeForm", () => {
 
     expect(modalCalls).toHaveLength(1)
     expect(toastCalls).not.toContainEqual(["认知检查点已修正", "success"])
-  })
-})
-
-describe("openEntityMap", () => {
-  it("候选对象查地图时显式包含候选绑定", async () => {
-    await openEntityMap("c1")
-    expect(apiMock.world.getEntityMapPresence).toHaveBeenCalledWith("c1", "p-ops", true)
-  })
-
-  it("项目切换后不处理原项目晚到的地图位置", async () => {
-    const state = { currentProjectId: "p-ops", currentView: "world", currentSubView: "objects" }
-    const presence = deferred()
-    apiMock.world.getEntityMapPresence.mockReturnValueOnce(presence.promise)
-    setBridgeOverrides({ state })
-
-    const opening = openEntityMap("e1")
-    state.currentProjectId = "p-next"
-    presence.resolve({ items: [{ map_id: "map-old", map_name: "原项目地图", binding_count: 1 }] })
-    await opening
-
-    expect(window.open).not.toHaveBeenCalled()
-    expect(modalCalls).toHaveLength(0)
-    expect(apiMock.world.getMapOpenTarget).not.toHaveBeenCalled()
-    expect(toastCalls).toHaveLength(0)
   })
 })
 

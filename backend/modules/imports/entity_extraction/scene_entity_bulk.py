@@ -182,7 +182,6 @@ class BulkSceneEntityExtractionMixin:
         created_count = 0
         relation_count = 0
         delta_count = 0
-        map_candidate_counts = {"created": 0, "reused": 0}
         if indexed_extractions and not isinstance(indexed_extractions[0], tuple):
             indexed_extractions = list(enumerate(indexed_extractions))
         for source_index, extraction in indexed_extractions:
@@ -227,23 +226,6 @@ class BulkSceneEntityExtractionMixin:
                 context_snapshot_id=snapshot_id,
                 result_refs=result_refs,
             )
-            proposals = getattr(extraction, "map_observation_proposals", None)
-            if isinstance(proposals, list) and proposals:
-                counts = await service._record_map_observation_proposals(
-                    db,
-                    nid,
-                    proposals,
-                    scene_index=scene_index,
-                    source_chapter_index=source_chapter_index,
-                    workflow_id=workflow_id,
-                    scene_id=scene_id,
-                    scene_source_fingerprint=input_fingerprints.get(scene_id),
-                    authorization_snapshot=authorization_snapshot,
-                    context_snapshot_id=snapshot_id,
-                    result_refs=result_refs,
-                )
-                map_candidate_counts["created"] += counts["created"]
-                map_candidate_counts["reused"] += counts["reused"]
         if snapshot_id is not None:
             from modules.context.facade import succeed_context_snapshot
 
@@ -268,7 +250,6 @@ class BulkSceneEntityExtractionMixin:
             "created": created_count,
             "relations": relation_count,
             "deltas": delta_count,
-            "map_observation_candidates": map_candidate_counts,
             "created_entity_ids": service._result_ref_ids(result_refs, "core_entity"),
             "created_relation_ids": service._result_ref_ids(
                 result_refs,

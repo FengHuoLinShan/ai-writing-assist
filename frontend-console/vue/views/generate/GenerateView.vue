@@ -50,7 +50,6 @@
   <div v-else :id="tabPanelId('preview')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('preview')">
     <ContextPreviewTab :bundle="lastContextBundle" :markdown="lastContextMarkdown" :source-text="contextSourceText" :busy="taskPending" @render-markdown="renderTaskMarkdown" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" @return="switchTab(lastContextSource === 'world' ? 'world' : 'task')" />
   </div>
-  <MapQuickCreateDialog :quick="visualQuickCreate" />
 </template>
 
 <script setup>
@@ -58,10 +57,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { getApi, getAppState, getCloseModal, getConfirm, getEsc, getRouter, getShowModalHtml, getToast } from "../../bridge/index.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
-import { buildMapQuery } from "../../../views/mapRouteContext.js"
 import WorldWorkspace from "./components/WorldWorkspace.vue"
-import MapQuickCreateDialog from "../map/components/MapQuickCreateDialog.vue"
-import { useMapQuickCreate } from "../map/useMapQuickCreate.js"
 import PovProseTab from "./components/PovProseTab.vue"
 import TaskContextTab from "./components/TaskContextTab.vue"
 import ContextPreviewTab from "./components/ContextPreviewTab.vue"
@@ -132,11 +128,6 @@ const contextSourceText = computed(() => lastContextSource.value === "world" ? "
 const worldHandoffMarkdown = computed(() => buildWorldHandoffMarkdown({ projectTitle: projectTitle.value, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, convergenceDraft: session.convergenceDraft }))
 const visualBriefMarkdown = computed(() => buildVisualBriefMarkdown({ handoffMarkdown: worldHandoffMarkdown.value, visualBrief: session.visualBrief, convergenceDraft: session.convergenceDraft }))
 const visualBriefCurrent = computed(() => visualBriefMatchesConvergence(session.visualBrief, session.convergenceDraft))
-const visualQuickCreate = useMapQuickCreate({
-  projectId: props.projectId,
-  onCreated: (map) => router.navigate("map", null, true, buildMapQuery({ projectId: props.projectId, mapId: map.id, mode: "live" })),
-})
-
 function notifyOnce(code, message) { const key = `${props.sessionKey}:${code}`; if (notices.has(key)) return; notices.add(key); toast(message, "warning") }
 function persistContextPreview() {
   writeGenerateContextPreview(props.projectId, {
@@ -554,8 +545,9 @@ function downloadVisualBrief() {
   })
 }
 async function previewVisualMap() {
-  if (!visualBriefMarkdown.value || visualQuickCreate.state.open) return false
-  return visualQuickCreate.open()
+  if (!visualBriefMarkdown.value) return false
+  toast("视觉简报已保留；地图册只会在你确认后开始生成", "success")
+  return router.navigate("map", null, true)
 }
 function openConvergenceSource(source) {
   const ref = source?.sourceRef || {}
@@ -582,7 +574,7 @@ function openConvergenceSource(source) {
     return
   }
   if (["entity_relation", "relation"].includes(type)) return router.navigate("world", "relations", true)
-  if (type === "map_fact") return router.navigate("map", null, true, buildMapQuery({ projectId: props.projectId, mode: "overview" }))
+  if (type === "map_fact") return router.navigate("map", null, true)
   toast("该来源已纳入本轮范围，但当前没有更精确的打开入口", "info")
 }
 function requestWorldSuggestion() {
@@ -784,5 +776,5 @@ async function openChapterPicker() {
 }
 function viewGenerationContext(kind) { const usage = kind === "chat" ? chatContextUsage.value : entityContextUsage.value; if (!usage) return toast("本次生成没有返回可审计的上下文记录", "warning"); const body = `<div class="generate-context-header"><span class="generate-context-stat">${esc(usage.section_key || "world_bible_synopsis")}</span><span class="generate-context-meta">状态：${esc(usage.status || "unknown")}</span><span class="generate-context-meta">Tokens：${esc(usage.token_count || 0)}</span></div><table class="data-table"><tbody><tr><th>Revision</th><td>${esc(usage.revision_id || "确定性降级/未包含")}</td></tr><tr><th>Source hash</th><td>${esc(usage.source_hash || "-")}</td></tr><tr><th>Block hash</th><td>${esc(usage.block_hash || "-")}</td></tr><tr><th>Context snapshot</th><td>${esc(usage.context_snapshot_id || "-")}</td></tr><tr><th>Stale</th><td>${usage.stale ? "是" : "否"}</td></tr><tr><th>Fallback</th><td>${usage.fallback ? "是" : "否"}</td></tr></tbody></table>`; openOwnedModal("本次实际使用的上下文", body, [], { size: "large" }) }
 
-onBeforeUnmount(() => { disarmBeforeUnload(); persist(); owner.dispose(); visualQuickCreate.close(); if (ownsModal(ownedModal)) closeModal() })
+onBeforeUnmount(() => { disarmBeforeUnload(); persist(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
 </script>

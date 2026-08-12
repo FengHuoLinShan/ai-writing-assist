@@ -36,7 +36,6 @@ npm run test:watch               # Vitest watch mode
 npm run test:e2e:functional      # Complete functional Playwright E2E
 npm run test:e2e:smoke           # Playwright smoke subset
 npm run test:e2e:map             # Complete map regression list; workers=1/retries=0
-DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf  # Real map telemetry profile
 
 # Database
 make db                          # docker compose up -d
@@ -56,8 +55,7 @@ make test ARGS="-k test_create"  # Filter by test name
 make test TESTS=tests/integration  # Select a backend path with native pytest syntax
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB at Alembic head
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # Serial PostgreSQL merge-gate subset; retries=0
-RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"  # Map observation row-lock race
-RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' python -m pytest tests/e2e/test_map_subsystem_reset_postgresql.py -m "not real_llm and not external_data"  # Map reset dry-run/restore drill
+RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"  # Project delete vs atlas upload/cleanup race
 make test-real-llm               # Explicit SQLite real-model acceptance
 RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi  # Explicit paid Kimi K3 compatibility gate; enabled only in the test process
 RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context  # Paid usage calibration + PostgreSQL 530K journey gate
@@ -91,7 +89,7 @@ Frontend has no independent lint/format dependency in `frontend-console/package.
 完整 `npm run test:e2e:functional` 在 GitHub pull request 上运行一次，使用全新的
 专用 PostgreSQL 与 Chromium，固定 workers=1、retries=0，失败诊断保留 14 天。
 `npm run test:e2e:smoke` 和 `npm run test:e2e:map` 保留为本地定向入口，其用例已包含在完整
-Functional 套件中，不再作为独立 CI job。视觉、地图性能、真实 LLM 和 worker suite 仍需通过
+Functional 套件中，不再作为独立 CI job。视觉、真实 LLM 和 worker suite 仍需通过
 各自显式命令验收。
 
 `make audit-frontend-deps` uses npm registry/advisory data to check the committed

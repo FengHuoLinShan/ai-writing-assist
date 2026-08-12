@@ -114,7 +114,6 @@ class ProjectWorkspaceSummaryService:
                 world_aliases=world_attention.world_aliases,
                 world_relations=world_attention.world_relations,
                 outline_scenes=int(outline_scenes or 0),
-                map_items=world_attention.map_items,
                 total=attention_total,
             ),
         )

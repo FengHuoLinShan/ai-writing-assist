@@ -113,9 +113,6 @@ beforeEach(() => {
     context: { compile: vi.fn(), render: vi.fn() },
     world: {
       listBiblePages: vi.fn(), listBibleDrafts: vi.fn(), listBibleCategories: vi.fn(), listBiblePageTemplates: vi.fn(), listCharacters: vi.fn(), listEntities: vi.fn(), getEntity: vi.fn(),
-      getMapQuickCreateContext: vi.fn(async () => ({ locations: [{ id: "location-1", name: "白堤" }], candidate_locations: [], existing_maps: [] })),
-      previewQuickCreateMap: vi.fn(async () => ({ map: { name: "白堤结构预览", grid_width: 40, grid_height: 30, map_type: "world" }, location_layouts: [{ location_entity_id: "location-1", center_hex_q: 2, center_hex_r: 3, occupy_radius: 1 }], warnings: [] })),
-      confirmQuickCreateMap: vi.fn(),
     },
     outline: { listScenesOrdered: vi.fn(), listThreads: vi.fn(), listScenesByChapter: vi.fn(), getSceneWorkbench: vi.fn(), getScene: vi.fn() },
     writing: { listChapters: vi.fn(), get: vi.fn(), getDraft: vi.fn(), generate: vi.fn() },
@@ -286,8 +283,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const sourceButton = wrapper.findAll(".generate-convergence-sources button").find((button) => button.text().includes("白堤港口仍被封锁"))
     await sourceButton.trigger("click")
 
-    expect(router.navigate).toHaveBeenCalledWith("map", null, true, expect.any(URLSearchParams))
-    expect(router.navigate.mock.calls.at(-1)[3].toString()).toBe("mode=overview")
+    expect(router.navigate).toHaveBeenCalledWith("map", null, true)
   })
 
   it("adds only author-selected related World Bible pages to the existing convergence request", async () => {
@@ -626,7 +622,7 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("快照已保留"), "warning")
   })
 
-  it("confirms a source-bound visual brief without writes, then reuses quick-create preview and fails closed on drift", async () => {
+  it("confirms a source-bound visual brief without writes, then opens the atlas and fails closed on drift", async () => {
     api.generate.convergeWorld.mockResolvedValue(convergenceResponse())
     const key = generateSessionKey("p1")
     const wrapper = mount(GenerateView, {
@@ -644,17 +640,11 @@ describe("GenerateView Vue behavior matrix", () => {
     await visual.get('[data-action="confirm-visual-brief"]').trigger("click")
     expect(readGenerateSession(key).visualBrief).toMatchObject({ purpose: "overview", exactLabels: "白堤旧名不得出现在图中", stale: false })
     expect(readGenerateSession(key).visualBrief.confirmedAt).toEqual(expect.any(String))
-    expect(api.world.getMapQuickCreateContext).not.toHaveBeenCalled()
-    expect(api.world.previewQuickCreateMap).not.toHaveBeenCalled()
-    expect(api.world.confirmQuickCreateMap).not.toHaveBeenCalled()
     expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
 
     await visual.get('[data-action="preview-visual-map"]').trigger("click")
-    await vi.waitFor(() => expect(api.world.previewQuickCreateMap).toHaveBeenCalledOnce())
-    expect(document.body.textContent).toContain("快速创建地图")
-    expect(api.world.confirmQuickCreateMap).not.toHaveBeenCalled()
-    document.querySelector('.vue-map-dialog [aria-label="关闭"]').click()
-    await flushPromises()
+    expect(router.navigate).toHaveBeenCalledWith("map", null, true)
+    expect(toast).toHaveBeenCalledWith("视觉简报已保留；地图册只会在你确认后开始生成", "success")
 
     await wrapper.get("#generate-chat-input").setValue("来源新增了一条边界")
     await flushPromises()

@@ -18,7 +18,6 @@ import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { findCurrentScene } from "../../../shared/sceneLocator.js"
 import { buildSceneAlerts } from "../../../views/writing/sceneAlerts.js"
 import { buildVersionDiff } from "../../../views/writing/versionDiff.js"
-import { buildMapUrl } from "../../../views/mapRouteContext.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
 import { importAuthorizationPayload } from "../../../shared/importAuthorization.js"
 import { sanitizeTaskErrorMessage } from "../../../shared/workflowProgress.js"
@@ -27,7 +26,6 @@ import { createEditorController, substantiveWritingText } from "./controllers/ed
 import { createWritingCommandController } from "./controllers/writingCommandController.js"
 import { createDeepImportController } from "./controllers/deepImportController.js"
 import { createConflictController } from "./controllers/conflictController.js"
-import { openWritingMapQuickCreate } from "./controllers/mapQuickCreateBridge.js"
 import { getWritingSession, rememberWritingLocation } from "./writingSession.js"
 
 function normalizeChapters(data = {}) {
@@ -145,7 +143,7 @@ export function useWritingWorkspace(props) {
   const conflictState = reactive({ loading: false, latest: null, error: null })
   const conflictOptions = reactive({ open: false, includeCandidates: false })
   const conflictDialog = reactive({ open: false, check: null, busy: false, error: null, sourcePreview: null })
-  const sceneState = reactive({ loading: false, mapSummary: null, error: null, alerts: [], people: [], location: null })
+  const sceneState = reactive({ loading: false, alerts: [], people: [], location: null })
   const deepImportState = reactive({ taskId: null, projectId: null, progress: null })
   const deepAuditOpen = ref(false)
   const autoExtraction = reactive({ open: false, stage: "scenes", start: 1, end: 1, highQuality: false, busy: false })
@@ -801,7 +799,7 @@ export function useWritingWorkspace(props) {
     const location = item?.location_json || {}
     const target = location.open_target || {}
     if (target.kind === "text_range") return locateConflictItem(check, itemId)
-    if (target.kind === "map_scene" || target.kind === "map_object" || item?.source_module === "world") return openMap(target)
+    if (item?.source_module === "world") return router?.navigate?.("world", "objects")
     if (target.kind === "outline_scene" || item?.source_module === "outline") {
       const query = new URLSearchParams()
       if (target.scene_id) query.set("scene_id", target.scene_id)
@@ -904,8 +902,6 @@ export function useWritingWorkspace(props) {
       scene: currentScene.value,
       chapterIndex: selectedChapter.value,
       content: editorState.content,
-      mapSummary: sceneState.mapSummary,
-      mapError: sceneState.error,
       latestCheck: conflictState.latest,
       checkError: conflictState.error,
       checkLoading: conflictState.loading,
@@ -918,8 +914,6 @@ export function useWritingWorkspace(props) {
   async function loadSceneContext() {
     const scene = currentScene.value
     const generation = ++sceneGeneration
-    sceneState.mapSummary = null
-    sceneState.error = null
     sceneState.people = []
     sceneState.location = null
     refreshSceneAlerts()
@@ -934,15 +928,12 @@ export function useWritingWorkspace(props) {
         skip: 0,
         limit: 12,
       })
-      const [mapResult, checkResult, peopleResult, locationResult] = await Promise.allSettled([
-        api.world.getMapSceneSummary(projectId, scene.id),
+      const [checkResult, peopleResult, locationResult] = await Promise.allSettled([
         api.writing.listConflictChecks({ novel_id: projectId, chapter_index: selectedChapter.value, scene_id: scene.id, limit: 1 }),
         entityQuery("character"),
         entityQuery("location"),
       ])
       if (generation !== sceneGeneration || disposed.value || getAppState()?.currentProjectId !== projectId) return
-      if (mapResult.status === "fulfilled") sceneState.mapSummary = mapResult.value
-      else sceneState.error = mapResult.reason?.message || "地图摘要加载失败"
       if (checkResult.status === "fulfilled") {
         const candidate = checkResult.value?.items?.[0] || null
         const mismatch = candidate && (
@@ -965,10 +956,9 @@ export function useWritingWorkspace(props) {
       }
       sceneState.people = dedupe([
         ...(Array.isArray(scene.scene_characters) ? scene.scene_characters : []),
-        ...(Array.isArray(sceneState.mapSummary?.characters) ? sceneState.mapSummary.characters : []),
         ...(peopleResult.status === "fulfilled" ? listItems(peopleResult.value) : []),
       ])
-      sceneState.location = scene.primary_location || scene.location || sceneState.mapSummary?.primary_location
+      sceneState.location = scene.primary_location || scene.location
         || (locationResult.status === "fulfilled" ? listItems(locationResult.value)[0] : null)
     } finally {
       if (generation === sceneGeneration) {
@@ -976,27 +966,6 @@ export function useWritingWorkspace(props) {
         refreshSceneAlerts()
       }
     }
-  }
-
-  function openMap(value = {}) {
-    if (!projectId) return
-    const provided = value && typeof value === "object" && !(value instanceof Event) ? value : {}
-    const target = {
-      ...(sceneState.mapSummary?.open_target || {}),
-      ...provided,
-    }
-    if (target.fallback_message) toast(target.fallback_message, "warning")
-    window.open(buildMapUrl({
-      projectId,
-      mapId: target.map_id || null,
-      sceneId: target.scene_id || currentScene.value?.id || null,
-      focusEntityId: target.entity_id || target.focus_entity_id || null,
-      focusHexQ: target.focus_hex_q ?? null,
-      focusHexR: target.focus_hex_r ?? null,
-      focusPathId: target.focus_path_id || null,
-      focusLayerNodeId: target.focus_layer_node_id || null,
-      mode: target.mode || (target.map_id ? "live" : "overview"),
-    }), "_blank", "noopener")
   }
 
   function navigateSceneWorkbench() {
@@ -1019,41 +988,6 @@ export function useWritingWorkspace(props) {
     } finally {
       outlineFloat.loading = false
     }
-  }
-
-  async function runDeepImportNextStep() {
-    const next = deepImportState.progress?.mapNextStep
-    if (!next) return
-    if (next.action === "review-locations") {
-      const query = new URLSearchParams({ entity_type: "location", source: "deep_import" })
-      if (next.workflow_id) query.set("workflow_id", next.workflow_id)
-      router?.navigate?.("world", "review-objects", true, query)
-      deepImport.dismiss()
-      return
-    }
-    if (next.action === "quick-create") {
-      await openWritingMapQuickCreate({
-        projectId,
-        onCreated: async (createdMap) => {
-          let remaining = 0
-          try {
-            const inbox = await api.world.listProjectMapObservationInbox(projectId, { limit: 1 })
-            if (getAppState()?.currentProjectId !== projectId) return false
-            remaining = Number(inbox?.total || 0)
-          } catch { /* 地图已创建，收件箱计数不应阻塞打开 */ }
-          const mapUrl = buildMapUrl({ projectId, mapId: createdMap?.id || null, mode: createdMap?.id ? "dashboard" : "overview" })
-          const opened = window.open(mapUrl, "_blank", "noopener")
-          if (!opened) window.location.assign(mapUrl)
-          toast(remaining > 0 ? `地图已创建，收件箱还有 ${remaining} 条待处理动态` : "地图已创建", "success")
-          deepImport.dismiss()
-          return true
-        },
-      })
-      return
-    }
-    const opened = window.open(buildMapUrl({ projectId, mapId: next.map_id || null, mode: next.map_id ? "dashboard" : "overview" }), "_blank", "noopener")
-    if (opened) deepImport.dismiss()
-    else toast("浏览器阻止了新窗口，请允许后重试", "warning")
   }
 
   async function deleteChapters(selected = []) {
@@ -1224,8 +1158,6 @@ export function useWritingWorkspace(props) {
     resumeDeepImport: deepImport.resume,
     abandonDeepImport,
     dismissDeepImport: deepImport.dismiss,
-    retryDeepImportMapNext: deepImport.retryMapNextStep,
-    runDeepImportNextStep,
     requestConflictCheck,
     runConflictCheck,
     openConflictDialog,
@@ -1240,7 +1172,6 @@ export function useWritingWorkspace(props) {
     restoreVersion,
     deleteVersion,
     compareVersions,
-    openMap,
     exportChapter,
     toggleFocusMode,
     toggleOutlineFloat,

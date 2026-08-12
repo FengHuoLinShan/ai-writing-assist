@@ -19,7 +19,6 @@ TARGET_MODELS = {
     "world_bible_synopsis_revisions": "modules.world.models.WorldBibleSynopsisRevision",
     "entity_relations": "modules.world.models.EntityRelation",
     "delta_log": "modules.memory.models.DeltaLog",
-    "map_observations": "modules.world.map_models.MapObservation",
     "scenes": "modules.outline.models.Scene",
     "plot_threads": "modules.outline.models.PlotThread",
     "outline_arcs": "modules.outline.models.OutlineArc",
@@ -31,23 +30,6 @@ CRITICAL_MAPPINGS = {
         ("name", "core_entities.name"),
         ("summary", "core_entities.summary"),
         ("details", "core_entities.content_json.details"),
-    },
-    "phase2_world_extraction": {
-        ("deltas.subject_name", "map_observations.target_name"),
-        (
-            "map_observation_proposals.proposal_type",
-            "map_observations.value_json.proposal_type",
-        ),
-        ("map_observation_proposals.quote", "map_observations.evidence_text"),
-        ("map_observation_proposals.confidence", "map_observations.confidence"),
-    },
-    "scene_entity_extraction": {
-        (
-            "map_observation_proposals.proposal_type",
-            "map_observations.value_json.proposal_type",
-        ),
-        ("map_observation_proposals.quote", "map_observations.evidence_text"),
-        ("map_observation_proposals.confidence", "map_observations.confidence"),
     },
 }
 

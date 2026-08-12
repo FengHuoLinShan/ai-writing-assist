@@ -294,7 +294,7 @@ Scene 结构、正文定位和待处理跨章融合建议；`health.needs_organi
 novel 或筛选结果时返回 404。
 
 合并 / 拆分都必须先走 preview；执行请求必须包含 `confirmed: true`。
-preview 只展示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，不修改数据，
+preview 只展示章节映射、字段、剧情线和伏笔 / 揭示影响，不修改数据，
 也不因存在关联资产自动阻断。合并不硬删除来源 Scene，只把来源 Scene 标记为
 `deprecated` 并保留可追踪 meta。拆分不修改正文内容，只调整 Scene 映射并创建新 Scene。
 

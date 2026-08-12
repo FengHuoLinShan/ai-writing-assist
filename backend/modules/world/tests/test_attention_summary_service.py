@@ -24,20 +24,16 @@ async def test_attention_summary_uses_review_queues_for_one_novel() -> None:
     relation_service = SimpleNamespace(
         list_review_groups=AsyncMock(return_value=SimpleNamespace(item_total=4))
     )
-    map_service = SimpleNamespace(
-        list_project_observation_inbox=AsyncMock(return_value=SimpleNamespace(total=5))
-    )
     service = WorldAttentionSummaryService(
         entity_service=entity_service,
         alias_service=alias_service,
         relation_service=relation_service,
-        map_service=map_service,
     )
 
     result = await service.get_summary(db, "novel-1")
 
     assert result.novel_id == "novel-1"
-    assert result.total == 14
+    assert result.total == 9
     entity_service.list.assert_awaited_once_with(
         db,
         "novel-1",
@@ -49,8 +45,5 @@ async def test_attention_summary_uses_review_queues_for_one_novel() -> None:
         db, "novel-1", skip=0, limit=1
     )
     relation_service.list_review_groups.assert_awaited_once_with(
-        db, "novel-1", skip=0, limit=1
-    )
-    map_service.list_project_observation_inbox.assert_awaited_once_with(
         db, "novel-1", skip=0, limit=1
     )

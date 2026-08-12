@@ -36,15 +36,17 @@ async def get_world_background(
     novel_id: str,
     *,
     context_mode: str = "canonical",
+    reveal_mode: str = "author_safe",
     limit: int = 160,
 ):
-    """Return derived world entries for context; never writes canonical state."""
+    """Return derived world entries for one status view and author reveal mode."""
     from modules.world.world_background import WorldBackgroundAggregation
 
     return await WorldBackgroundAggregation().build(
         db,
         novel_id,
         context_mode=context_mode,
+        reveal_mode=reveal_mode,
         limit=limit,
     )
 
@@ -95,6 +97,16 @@ async def get_world_bible_working_pages_context(
         draft = await service.get_draft(db, novel_id, draft_id)
         items.append(draft.model_dump(mode="json"))
     return items
+
+
+async def list_world_bible_working_page_ids(db, novel_id: str) -> list[str]:
+    """List current working-page IDs for one explicit author opt-in."""
+    from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+        WorldBibleLifecycleService,
+    )
+
+    items, _total = await WorldBibleLifecycleService().list_drafts(db, novel_id)
+    return [item.id for item in items[:20]]
 
 
 async def get_world_bible_projection_candidates(

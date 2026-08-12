@@ -118,12 +118,6 @@ class SceneEntityExtractionRuntime(Protocol):
 
     def _record_deltas(self, *args: Any, **kwargs: Any) -> Awaitable[Any]: ...
 
-    def _record_map_observation_proposals(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Awaitable[Any]: ...
-
     def _persist_alias_relation_output(
         self,
         *args: Any,

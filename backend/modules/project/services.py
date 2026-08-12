@@ -123,6 +123,7 @@ class ProjectService:
         ),
         task_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novel,
         tasks_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novels,
+        map_atlas_cleanup_enqueuer: Callable[..., Awaitable[None]] | None = None,
     ) -> None:
         self._uses_default_repo = repo is None
         self._repo = repo or ProjectRepository()
@@ -137,6 +138,7 @@ class ProjectService:
         self._task_canceller = task_canceller
         self._task_deleter = task_deleter
         self._tasks_deleter = tasks_deleter
+        self._map_atlas_cleanup_enqueuer = map_atlas_cleanup_enqueuer
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
         return LLMProviderTemplateListResponse(items=list_account_provider_templates())
@@ -413,6 +415,15 @@ class ProjectService:
             raise ValidationError("permanent delete requires confirmed=true")
         pid = _parse_uuid(project_id, "project_id")
         owner_id = self._request_owner_id()
+        locked = await self._repo.lock_deleted_ids_for_update(db, [pid], owner_id)
+        if pid not in locked:
+            raise NotFoundError(f"Project {project_id} not found in recycle bin")
+        await self._task_canceller(
+            db,
+            novel_id=str(pid),
+            transition_reason="project_permanent_delete",
+        )
+        await self._enqueue_map_atlas_cleanup(db, [str(pid)])
         deleted = (
             await self._repo.permanent_delete(db, pid, owner_id)
             if owner_id is not None
@@ -436,10 +447,10 @@ class ProjectService:
         parsed_ids = [_parse_uuid(project_id, "project_id") for project_id in project_ids]
         unique_ids = list(dict.fromkeys(parsed_ids))
         owner_id = self._request_owner_id()
-        deleted_ids = (
-            await self._repo.list_deleted_ids(db, unique_ids, owner_id)
-            if owner_id is not None
-            else await self._repo.list_deleted_ids(db, unique_ids)
+        deleted_ids = await self._repo.lock_deleted_ids_for_update(
+            db,
+            unique_ids,
+            owner_id,
         )
         missing_ids = [
             project_id for project_id in unique_ids if project_id not in deleted_ids
@@ -447,6 +458,17 @@ class ProjectService:
         if missing_ids:
             missing = ", ".join(str(project_id) for project_id in missing_ids)
             raise NotFoundError(f"Projects not found in recycle bin: {missing}")
+
+        for project_id in unique_ids:
+            await self._task_canceller(
+                db,
+                novel_id=str(project_id),
+                transition_reason="project_permanent_delete",
+            )
+        await self._enqueue_map_atlas_cleanup(
+            db,
+            [str(project_id) for project_id in unique_ids],
+        )
 
         deleted_count = (
             await self._repo.permanent_delete_many(db, unique_ids, owner_id)
@@ -466,6 +488,19 @@ class ProjectService:
             deleted_ids=[str(project_id) for project_id in unique_ids],
             deleted_count=deleted_count,
         )
+
+    async def _enqueue_map_atlas_cleanup(
+        self,
+        db: AsyncSession,
+        novel_ids: list[str],
+    ) -> None:
+        if self._map_atlas_cleanup_enqueuer is not None:
+            await self._map_atlas_cleanup_enqueuer(db, novel_ids)
+            return
+        from core.container import get
+
+        cleanup = get("world.enqueue_map_atlas_cleanup")
+        await cleanup(db, novel_ids)
 
     async def list_deleted_projects(
         self,
@@ -630,6 +665,20 @@ class ProjectService:
     ) -> None:
         pid = _parse_uuid(novel_id, "novel_id")
         owner_id = self._request_owner_id()
+        locked = await self._repo.lock_deleted_ids_for_update(
+            db,
+            [pid],
+            owner_id,
+            project_kind="interaction",
+        )
+        if pid not in locked:
+            raise NotFoundError(f"Archived interaction journey {novel_id} not found")
+        await self._task_canceller(
+            db,
+            novel_id=str(pid),
+            transition_reason="interaction_permanent_delete",
+        )
+        await self._enqueue_map_atlas_cleanup(db, [str(pid)])
         deleted = await self._repo.permanent_delete(
             db,
             pid,

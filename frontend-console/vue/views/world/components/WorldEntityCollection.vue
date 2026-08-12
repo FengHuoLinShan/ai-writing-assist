@@ -76,7 +76,6 @@
         <div class="world-object-card__actions">
           <button v-if="showReviewAction(entity)" class="btn btn-sm btn-primary" data-action="mark-entity-reviewed" :data-id="idOf(entity)" @click="markEntityReviewed(idOf(entity))">标记已检查</button>
           <button class="btn btn-sm btn-primary" data-action="edit-entity" :data-id="idOf(entity)" @click="editEntity(idOf(entity))">{{ canPromote(entity) ? "编辑后采用" : "编辑" }}</button>
-          <button class="btn btn-sm" data-action="open-entity-map" :data-id="idOf(entity)" @click="openEntityMap(idOf(entity))">地图</button>
           <button v-if="canMerge(entity)" class="btn btn-sm" data-action="merge-entity" :data-id="idOf(entity)" @click="showMergeForm(idOf(entity))">合并</button>
           <ActionMenu :menu-id="`entity-card-actions-${idOf(entity)}`" :label="`${entity.name || '对象'}的更多操作`" :items="cardMenuItems(entity)" @select="onMenuSelect" />
         </div>
@@ -93,7 +92,6 @@ import {
   deleteEntity,
   editEntity,
   markEntityReviewed,
-  openEntityMap,
   promoteEntity,
   showKnowledgeForm,
   showMergeForm,
@@ -159,11 +157,10 @@ const isCharacter = (entity) => entity.entity_type === "character" || entity.ent
 /** 对应 vanilla _renderEntityReviewAction。 */
 const showReviewAction = (entity) => Boolean(entityId(entity)) && !isSuggestionShadow(entity) && entityNeedsReview(entity)
 
-/** 表格行菜单（含"打开地图"，vanilla 1496-1502）。 */
+/** 表格行菜单。 */
 function tableMenuItems(entity) {
   const id = entityId(entity)
   return [
-    { action: "open-entity-map", label: "打开地图", data: { id } },
     ...(canPromote(entity) ? [{ action: "promote-entity", label: "采用", data: { id } }] : []),
     ...(!isSuggestionShadow(entity) ? [{ action: "rollback-entity", label: "回滚", data: { id } }] : []),
     ...(isCharacter(entity) ? [{ action: "knowledge-entity", label: "知识", data: { id } }] : []),
@@ -171,7 +168,7 @@ function tableMenuItems(entity) {
   ]
 }
 
-/** 卡片菜单（"地图"为独立按钮，菜单内不含，vanilla 1590-1595）。 */
+/** 卡片菜单。 */
 function cardMenuItems(entity) {
   const id = entityId(entity)
   return [
@@ -183,7 +180,6 @@ function cardMenuItems(entity) {
 }
 
 const MENU_HANDLERS = {
-  "open-entity-map": (id) => openEntityMap(id),
   "promote-entity": (id) => promoteEntity(id),
   "rollback-entity": (id) => showRollbackForm(id),
   "knowledge-entity": (id) => showKnowledgeForm(id),

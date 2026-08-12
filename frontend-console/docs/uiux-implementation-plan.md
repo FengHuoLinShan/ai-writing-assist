@@ -1,6 +1,6 @@
 # NovelCraft UI/UX 详细优化实现方案
 
-> **历史实施计划**：记录当时的 UI/UX 优化拆解，不是当前前端需求、路由或代码结构的权威来源。
+> **历史实施计划（superseded）**：记录当时的 UI/UX 优化拆解，不是当前前端需求、路由或代码结构的权威来源。
 > 判断当前实现以 `frontend-console/README.md`、`docs/modules/14_frontend.md`、测试和源码为准；
 > 不因后续代码变化回写本计划正文。
 

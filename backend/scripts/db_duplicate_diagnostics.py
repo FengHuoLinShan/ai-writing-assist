@@ -97,18 +97,6 @@ CHECKS = [
         """,
         blocks_migration=False,
     ),
-    DuplicateCheck(
-        "map_configs top-level name",
-        """
-        SELECT novel_id, name, COUNT(*) AS count
-        FROM map_configs
-        WHERE parent_map_id IS NULL
-        GROUP BY novel_id, name
-        HAVING COUNT(*) > 1
-        ORDER BY count DESC
-        LIMIT 20
-        """,
-    ),
 ]
 
 

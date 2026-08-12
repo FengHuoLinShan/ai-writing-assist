@@ -16,9 +16,14 @@ from infrastructure.llm.profiles import PROVIDER_TEMPLATES
 _BLOCKED_HOSTS = {"localhost", "localhost.localdomain"}
 _BLOCKED_SUFFIXES = (".localhost", ".local", ".internal", ".home.arpa")
 _TRUSTED_PROVIDER_HOSTS = frozenset(
-    (urlsplit(str(template.get("base_url") or "")).hostname or "").lower()
-    for template in PROVIDER_TEMPLATES
-    if template.get("base_url") and "{" not in str(template["base_url"])
+    {
+        "api.openai.com",
+        *(
+            (urlsplit(str(template.get("base_url") or "")).hostname or "").lower()
+            for template in PROVIDER_TEMPLATES
+            if template.get("base_url") and "{" not in str(template["base_url"])
+        ),
+    }
 )
 _TRUSTED_PROVIDER_SUFFIXES = (".cn-beijing.maas.aliyuncs.com",)
 

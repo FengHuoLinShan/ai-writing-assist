@@ -400,7 +400,7 @@
                 <!-- asset refs -->
                 <label class="bible-ai-field">
                   关联资产
-                  <span class="world-bible-page-meta">按名称选择已采用的对象、关系、地图事实或已发布页面；这里只保存引用，不内联修改资产。</span>
+                  <span class="world-bible-page-meta">按名称选择已采用的对象、关系或已发布页面；这里只保存引用，不内联修改资产。</span>
                   <div id="bible-asset-ref-picker"></div>
                   <textarea id="bible-asset-refs" hidden>{{ formatAssetRefs(editSource.linked_asset_refs_json) }}</textarea>
                 </label>
@@ -995,7 +995,6 @@ function openAssetRef(type, id) {
   const router = getRouter()
   if (["world_bible_page", "page"].includes(type)) { openPageCard(id); return }
   if (["relation", "entity_relation"].includes(type)) { router.navigate("world", "relations"); return }
-  if (type === "map_fact") { router.navigate("map", null, true, new URLSearchParams({ projectId: props.projectId, mode: "overview" })); return }
   if (["core_entity", "entity", "profile", "event"].includes(type)) { router.navigate("world", "objects"); return }
   getToast()("该引用类型暂无可用的编辑入口", "warning")
 }

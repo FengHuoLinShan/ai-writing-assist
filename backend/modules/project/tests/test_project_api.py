@@ -106,7 +106,6 @@ async def test_workspace_summary_for_empty_project_is_safe_and_additive(
             "world_aliases": 0,
             "world_relations": 0,
             "outline_scenes": 0,
-            "map_items": 0,
             "total": 0,
         },
     }

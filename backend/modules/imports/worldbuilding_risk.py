@@ -10,7 +10,6 @@ LOW_RISK_TARGETS = {
     "profile",
     "generic_profile",
     "relation_candidate",
-    "map_observation",
     "material_page",
 }
 

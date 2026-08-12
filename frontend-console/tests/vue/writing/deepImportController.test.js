@@ -78,32 +78,6 @@ describe("deepImportController", () => {
     controller.dispose()
   })
 
-  it("完成深度导入后生成可达的地图下一步", async () => {
-    const changes = []
-    const api = {
-      tasks: { get: vi.fn(async () => ({ status: "done", progress: 1, task_type: "deep_import", result: { workflow_id: "wf-1" } })) },
-      world: {
-        getMapQuickCreateContext: vi.fn(async () => ({ existing_maps: [], locations: [{ id: "l1" }], candidate_locations: [] })),
-        listProjectMapObservationInbox: vi.fn(),
-      },
-      imports: {},
-    }
-    const controller = createDeepImportController({
-      api,
-      toast: vi.fn(),
-      getProjectId: () => "p1",
-      onChange: (value) => changes.push(value),
-      onDone: vi.fn(),
-    })
-    controller.startTask({ taskId: "task-1", workflowType: "deep_import", label: "深度导入" })
-    await vi.waitFor(() => expect(changes.at(-1)?.progress?.mapNextStep?.action).toBe("quick-create"))
-    expect(changes.at(-1).progress.mapNextStep.count).toBe(1)
-    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([
-      expect.objectContaining({ taskId: "task-1" }),
-    ])
-    controller.dispose()
-  })
-
   it("完成态在再次打开时仍可恢复，直到作者明确关闭", async () => {
     localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
       id: "p1:deep_import:task-done",
@@ -120,14 +94,7 @@ describe("deepImportController", () => {
     }
     const api = {
       tasks: { get: vi.fn(async () => task) },
-      world: {
-        getMapQuickCreateContext: vi.fn(async () => ({
-          existing_maps: [],
-          locations: [{ id: "location-1" }],
-          candidate_locations: [],
-        })),
-        listProjectMapObservationInbox: vi.fn(),
-      },
+      world: {},
       imports: {},
     }
     const firstChanges = []
@@ -141,7 +108,6 @@ describe("deepImportController", () => {
     expect(firstChanges.at(-1).progress).toEqual(expect.objectContaining({
       status: "done",
       degraded: true,
-      mapNextStep: expect.objectContaining({ action: "quick-create" }),
     }))
     first.dispose()
 
@@ -154,7 +120,7 @@ describe("deepImportController", () => {
     })
     await second.recover()
     expect(api.tasks.get).toHaveBeenLastCalledWith("task-done", "p1")
-    expect(secondChanges.at(-1).progress.mapNextStep.action).toBe("quick-create")
+    expect(secondChanges.at(-1).progress.status).toBe("done")
 
     second.dismiss()
     expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([])
@@ -168,7 +134,7 @@ describe("deepImportController", () => {
           .mockResolvedValueOnce({ status: "done", progress: 1, task_type: "deep_import", result: {} })
           .mockImplementation(() => new Promise(() => {})),
       },
-      world: { getMapQuickCreateContext: vi.fn(async () => ({ existing_maps: [], locations: [], candidate_locations: [] })) },
+      world: {},
       imports: {},
     }
     const controller = createDeepImportController({
@@ -264,7 +230,7 @@ describe("deepImportController", () => {
     controller.dispose()
   })
 
-  it("保留完整质量与审计 payload，并可重试地图下一步", async () => {
+  it("保留完整质量与审计 payload", async () => {
     const changes = []
     const result = {
       workflow_id: "wf-2",
@@ -286,17 +252,12 @@ describe("deepImportController", () => {
     }
     const api = {
       tasks: { get: vi.fn(async () => ({ status: "done", progress: 1, task_type: "deep_import", result })) },
-      world: {
-        getMapQuickCreateContext: vi.fn()
-          .mockRejectedValueOnce(new Error("下一步失败"))
-          .mockResolvedValueOnce({ existing_maps: [], locations: [{ id: "l1" }], candidate_locations: [] }),
-        listProjectMapObservationInbox: vi.fn(),
-      },
+      world: {},
       imports: {},
     }
     const controller = createDeepImportController({ api, toast: vi.fn(), getProjectId: () => "p1", onChange: (value) => changes.push(value), onDone: vi.fn() })
     controller.startTask({ taskId: "task-2", workflowType: "deep_import" })
-    await vi.waitFor(() => expect(changes.at(-1)?.progress?.mapNextStepError).toBe("下一步失败"))
+    await vi.waitFor(() => expect(changes.at(-1)?.progress?.currentPhase).toBe("structure_analysis"))
     expect(changes.at(-1).progress).toEqual(expect.objectContaining({
       currentPhase: "structure_analysis",
       currentRound: 2,
@@ -306,8 +267,6 @@ describe("deepImportController", () => {
       diagnosticCounts: { warnings: 1 },
       throttleReasons: ["budget"],
     }))
-    await controller.retryMapNextStep()
-    expect(changes.at(-1).progress.mapNextStep.action).toBe("quick-create")
     controller.dispose()
   })
 

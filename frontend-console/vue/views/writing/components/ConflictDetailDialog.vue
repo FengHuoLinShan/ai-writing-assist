@@ -119,7 +119,6 @@ const statusLabels = { open: "未处理", resolved: "已处理", ignored: "忽�
 const kindLabels = {
   forbidden_present: "禁止项出现在正文",
   required_missing: "必须发生项缺失",
-  map_risk: "地图/世界状态风险",
   continuity_location_mismatch: "前后连续性风险",
   motivation_gap: "动机衔接风险",
   emotion_jump: "情绪跳变",
@@ -184,9 +183,7 @@ const ConflictRows = defineComponent({
       const canLocate = Number.isFinite(Number(textRange.start))
       const canOpenSource = target.kind === "text_range"
         ? canLocate
-        : target.kind === "map_scene"
-          || target.kind === "map_object"
-          || item.source_module === "world"
+        : item.source_module === "world"
           || target.kind === "outline_scene"
           || item.source_module === "outline"
           || target.kind === "memory_chapter"

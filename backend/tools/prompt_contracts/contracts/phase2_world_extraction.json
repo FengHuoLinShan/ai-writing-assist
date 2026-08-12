@@ -7,7 +7,6 @@
     "objects",
     "relations",
     "deltas",
-    "map_observation_proposals",
     "uncertain_items"
   ],
   "forbidden_fields": ["status"],
@@ -22,31 +21,15 @@
     {"source": "relations.description", "target": "entity_relations.description"},
     {"source": "deltas.category", "target": "delta_log.category"},
     {"source": "deltas.field", "target": "delta_log.field_path"},
-    {"source": "deltas.subject_name", "target": "map_observations.target_name"},
-    {"source": "map_observation_proposals.proposal_type", "target": "map_observations.value_json.proposal_type"},
-    {"source": "map_observation_proposals.quote", "target": "map_observations.evidence_text"},
-    {"source": "map_observation_proposals.confidence", "target": "map_observations.confidence"}
+    {"source": "deltas.subject_name", "target": "core_entities.name"}
   ],
   "observed_fields": [
     "objects.confidence",
     "relations.confidence",
-    "deltas.confidence",
-    "map_observation_proposals.proposal_type",
-    "map_observation_proposals.quote",
-    "map_observation_proposals.confidence",
-    "map_observation_proposals.supporting_scene_ids",
-    "map_observation_proposals.character_name",
-    "map_observation_proposals.event_name",
-    "map_observation_proposals.path_name",
-    "map_observation_proposals.controller_name",
-    "map_observation_proposals.location_name",
-    "map_observation_proposals.movement_mode",
-    "map_observation_proposals.state",
-    "map_observation_proposals.reason",
-    "map_observation_proposals.area_description"
+    "deltas.confidence"
   ],
   "ignored_fields": [
     {"source": "uncertain_items", "reason": "diagnostics only"}
   ],
-  "probes": ["phase2_delta_subject_to_map_target"]
+  "probes": []
 }

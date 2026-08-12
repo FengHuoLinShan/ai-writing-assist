@@ -231,6 +231,9 @@
     "settings.listGlobalLLMDefaults": define("GET", () => "/settings/llm-defaults"),
     "settings.updateGlobalLLMDefaults": define("PUT", () => "/settings/llm-defaults", { hasBody: true }),
     "settings.listLLMConnections": define("GET", () => "/settings/llm-connections"),
+    "settings.getImageConnection": define("GET", () => "/settings/image-connection"),
+    "settings.connectImageProvider": define("PUT", () => "/settings/image-connection", { hasBody: true }),
+    "settings.clearImageProvider": define("DELETE", () => "/settings/image-connection"),
     "settings.connectLLMProvider": define("PUT", ({ providerId }) => `/settings/llm-connections/${required(providerId, "providerId", "settings.connectLLMProvider")}`, {
       requiredParams: ["providerId"],
       hasBody: true,
@@ -258,10 +261,6 @@
       requiredParams: ["stage"],
       hasBody: true,
       requiredBody: ["adoption_policy", "authorization_confirmed"],
-    }),
-    "imports.startMapObservationEnrichment": define("POST", () => "/imports/stages/map-observations", {
-      hasBody: true,
-      requiredBody: ["novel_id", "start_chapter", "end_chapter", "high_quality", "adoption_policy", "authorization_confirmed"],
     }),
     "imports.resumeDeepImport": define("POST", () => "/imports/deep/resume", { hasBody: true }),
     "imports.abandonDeepImport": define("POST", () => "/imports/deep/abandon", { hasBody: true }),
@@ -388,126 +387,26 @@
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
     }),
-    "world.getEntityMapPresence": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.getEntityMapPresence")}/map-presence`, {
-      requiredParams: ["id"],
-      requiredQuery: ["novel_id"],
+    "world.getMapAtlas": define("GET", ({ novelId }) => `/world/map-atlas/${required(novelId, "novelId", "world.getMapAtlas")}/atlas`, {
+      requiredParams: ["novelId"],
     }),
-    "world.listMaps": define("GET", () => "/world/maps", {
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapArchiveImpact": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapArchiveImpact")}/archive-impact`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.archiveMap": define("POST", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.archiveMap")}/archive`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.restoreMap": define("POST", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.restoreMap")}/restore`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
+    "world.createMapAtlasRun": define("POST", ({ novelId }) => `/world/map-atlas/${required(novelId, "novelId", "world.createMapAtlasRun")}/runs`, {
+      requiredParams: ["novelId"],
+      requiredBody: ["layout", "quality"],
       hasBody: true,
     }),
-    "world.applyMapEditor": define("POST", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.applyMapEditor")}/editor/apply`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
+    "world.getMapAtlasRun": define("GET", ({ novelId, runId }) => `/world/map-atlas/${required(novelId, "novelId", "world.getMapAtlasRun")}/runs/${required(runId, "runId", "world.getMapAtlasRun")}`, {
+      requiredParams: ["novelId", "runId"],
+    }),
+    "world.getLatestMapAtlasRun": define("GET", ({ novelId }) => `/world/map-atlas/${required(novelId, "novelId", "world.getLatestMapAtlasRun")}/runs/latest`, {
+      requiredParams: ["novelId"],
+    }),
+    "world.getMapAtlasRunResults": define("GET", ({ novelId, runId }) => `/world/map-atlas/${required(novelId, "novelId", "world.getMapAtlasRunResults")}/runs/${required(runId, "runId", "world.getMapAtlasRunResults")}/results`, {
+      requiredParams: ["novelId", "runId"],
+    }),
+    "world.reviewMapAtlasPage": define("POST", ({ novelId, pageId, action }) => `/world/map-atlas/${required(novelId, "novelId", "world.reviewMapAtlasPage")}/pages/${required(pageId, "pageId", "world.reviewMapAtlasPage")}/${required(action, "action", "world.reviewMapAtlasPage")}`, {
+      requiredParams: ["novelId", "pageId", "action"],
       hasBody: true,
-      requiredBody: ["expected_revision", "commands"],
-    }),
-    "world.getMapLayerTree": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapLayerTree")}/layer-tree`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapPaths": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapPaths")}/paths`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapPathArchiveImpact": define("GET", ({ mapId, pathId }) => `/world/maps/${required(mapId, "mapId", "world.getMapPathArchiveImpact")}/paths/${required(pathId, "pathId", "world.getMapPathArchiveImpact")}/archive-impact`, {
-      requiredParams: ["mapId", "pathId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapState": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapState")}/state`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapDashboard": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapDashboard")}/dashboard`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapPlayback": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapPlayback")}/playback`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapTimeline": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapTimeline")}/timeline`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.getMapStateAt": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapStateAt")}/state-at`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id", "scene_index"],
-    }),
-    "world.listMapObservations": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.listMapObservations")}/observations`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-    }),
-    "world.listProjectMapObservationInbox": define("GET", () => "/world/maps/project-observations/inbox", {
-      requiredQuery: ["novel_id"],
-    }),
-    "world.updateProjectMapObservation": define("PATCH", ({ observationId }) => `/world/maps/project-observations/${required(observationId, "observationId", "world.updateProjectMapObservation")}`, {
-      requiredParams: ["observationId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-      requiredBody: ["expected_updated_at"],
-    }),
-    "world.assignProjectMapObservation": define("POST", ({ observationId }) => `/world/maps/project-observations/${required(observationId, "observationId", "world.assignProjectMapObservation")}/assign`, {
-      requiredParams: ["observationId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-      requiredBody: ["map_id", "expected_updated_at"],
-    }),
-    "world.ignoreProjectMapObservation": define("POST", ({ observationId }) => `/world/maps/project-observations/${required(observationId, "observationId", "world.ignoreProjectMapObservation")}/ignore`, {
-      requiredParams: ["observationId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-      requiredBody: ["expected_updated_at"],
-    }),
-    "world.confirmMapObservation": define("POST", ({ mapId, observationId }) => `/world/maps/${required(mapId, "mapId", "world.confirmMapObservation")}/observations/${required(observationId, "observationId", "world.confirmMapObservation")}/confirm`, {
-      requiredParams: ["mapId", "observationId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-      requiredBody: ["expected_updated_at"],
-    }),
-    "world.updateMapFactStatus": define("PATCH", ({ mapId, factId }) => `/world/maps/${required(mapId, "mapId", "world.updateMapFactStatus")}/facts/${required(factId, "factId", "world.updateMapFactStatus")}`, {
-      requiredParams: ["mapId", "factId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-    }),
-    "world.previewQuickCreateMap": define("POST", () => "/world/maps/quick-create/preview", {
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-    }),
-    "world.confirmQuickCreateMap": define("POST", () => "/world/maps/quick-create/confirm", {
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-    }),
-    "world.replaceLocationLayouts": define("PUT", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.replaceLocationLayouts")}/location-layouts`, {
-      requiredParams: ["mapId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-    }),
-    "world.replaceTerrainLayerPatches": define("PUT", ({ mapId, layerId }) => `/world/maps/${required(mapId, "mapId", "world.replaceTerrainLayerPatches")}/terrain/layers/${required(layerId, "layerId", "world.replaceTerrainLayerPatches")}/patches`, {
-      requiredParams: ["mapId", "layerId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-    }),
-    "world.updateTerrainLayer": define("PATCH", ({ mapId, layerId }) => `/world/maps/${required(mapId, "mapId", "world.updateTerrainLayer")}/terrain/layers/${required(layerId, "layerId", "world.updateTerrainLayer")}`, {
-      requiredParams: ["mapId", "layerId"],
-      requiredQuery: ["novel_id"],
-      hasBody: true,
-    }),
-    "world.deleteTerrainLayer": define("DELETE", ({ mapId, layerId }) => `/world/maps/${required(mapId, "mapId", "world.deleteTerrainLayer")}/terrain/layers/${required(layerId, "layerId", "world.deleteTerrainLayer")}`, {
-      requiredParams: ["mapId", "layerId"],
-      requiredQuery: ["novel_id"],
     }),
 
     "writing.publish": define("POST", () => "/writing/drafts", { hasBody: true }),

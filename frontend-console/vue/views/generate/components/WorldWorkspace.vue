@@ -158,7 +158,7 @@
               <button class="btn btn-sm btn-primary" data-action="confirm-visual-brief" type="button" :disabled="!visualBriefCurrent" @click="$emit('confirm-visual-brief')">{{ visualBrief.confirmedAt ? "重新确认简报" : "确认视觉简报" }}</button>
               <button class="btn btn-sm" data-action="copy-visual-brief" type="button" :disabled="!visualBriefConfirmed" @click="$emit('copy-visual-brief')">复制外部简报</button>
               <button class="btn btn-sm" data-action="download-visual-brief" type="button" :disabled="!visualBriefConfirmed" @click="$emit('download-visual-brief')">下载 Markdown</button>
-              <button class="btn btn-sm" data-action="preview-visual-map" type="button" :disabled="!visualBriefConfirmed || busy" @click="$emit('preview-visual-map')">预览地图结构</button>
+              <button class="btn btn-sm" data-action="preview-visual-map" type="button" :disabled="!visualBriefConfirmed || busy" @click="$emit('preview-visual-map')">打开 AI 地图册</button>
               <button v-if="!visualBriefCurrent && convergenceUsable" class="btn btn-sm btn-ghost" data-action="rebuild-visual-brief" type="button" @click="$emit('create-visual-brief')">按当前收束重做</button>
             </div>
             <p class="generate-empty-copy">外部候选图由你下载并保管；画面细节不会自动成为地点、距离、设施或世界事实。需要采用时，请在地图预览、观察审查或世界建议中逐项确认。</p>

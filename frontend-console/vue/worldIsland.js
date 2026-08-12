@@ -90,7 +90,7 @@ function reviewGroupParams(projectId, filters, keys, numberKeys, boolKeys) {
   return params
 }
 
-async function loadWorld() {
+export async function loadWorld() {
   const appState = getAppState()
   const router = getRouter()
   const api = getApi()
@@ -206,9 +206,12 @@ async function loadWorld() {
   // 子标签数据（vanilla render 阶段按子标签加载）
   if (subView === "objects") {
     try {
-      const data = await api.world.listEntities(entityListParams(projectId, objectFilters, discoveryMode))
-      props.entities = data.items || data || []
-      props.entitiesTotal = data.total ?? props.entities.length
+      const targetEntityId = query.get("entity_id") || ""
+      const data = targetEntityId
+        ? await api.world.getEntity(targetEntityId, projectId)
+        : await api.world.listEntities(entityListParams(projectId, objectFilters, discoveryMode))
+      props.entities = targetEntityId ? [data] : (data.items || data || [])
+      props.entitiesTotal = targetEntityId ? 1 : (data.total ?? props.entities.length)
       props.rankingFacets = data.facets ?? null
       props.rankingContext = data.ranking_context ?? null
     } catch (err) {

@@ -97,7 +97,37 @@ class WorldEntitiesLoader(Loader):
             "world.generation.convergence",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
+            "world.map_atlas.generate",
         }
+        if options.consumer_action == "world.map_atlas.generate":
+            from modules.world.facade import get_world_background
+
+            background = await get_world_background(
+                db,
+                options.novel_id,
+                context_mode=options.context_mode,
+                reveal_mode=options.reveal_mode,
+                limit=160,
+            )
+            bundle.world_entities = [
+                {
+                    "id": item.asset_id,
+                    "entry_id": item.entry_id,
+                    "entity_type": item.asset_type,
+                    "name": item.title,
+                    "summary": item.summary,
+                    "status": item.status,
+                    "sensitivity": item.sensitivity,
+                    "importance": item.importance,
+                    "source_ids": item.source_ids,
+                    "source_type": item.asset_type,
+                    "source_ref": {"source_hash": item.source_hash},
+                    "title": item.title,
+                }
+                for item in background.entries
+            ]
+            bundle.budget_used["core_entities"] = len(bundle.world_entities)
+            return
         related_candidates = _related_entity_candidates(options, bundle)
         related_ids = [entity_id for entity_id, _reason in related_candidates]
 

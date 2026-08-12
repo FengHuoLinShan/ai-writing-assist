@@ -190,7 +190,8 @@ class StoryOutlineGenerationService:
         background = await get_world_background(
             db,
             data.novel_id,
-            context_mode="author_full",
+            context_mode="canonical",
+            reveal_mode="author_full",
             limit=1000,
         )
         if str(background.novel_id) != data.novel_id:

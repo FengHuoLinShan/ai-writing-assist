@@ -357,7 +357,7 @@ def test_active_project_guard_inventory_is_closed() -> None:
         "modules.rag.api",
         "modules.settings.api",
         "modules.world.api",
-        "modules.world.map_api",
+        "modules.world.map_atlas_api",
         "modules.writing.api",
     }
     assert required_modules <= covered_modules

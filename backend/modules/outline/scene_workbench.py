@@ -1146,11 +1146,6 @@ class SceneWorkbenchService:
                 db, novel_id, start, end
             ),
             related_reveals=await self._related_reveal_summary(db, novel_id, start, end),
-            map_summary_impact={
-                "message": (
-                    "目标 Scene 将承接来源 Scene 的章节映射；地图摘要将在写作页重新读取。"
-                )
-            },
             warnings=[
                 *mapping_scope_warnings([target, *sources]),
                 *self._merge_chunk_precision_warnings(
@@ -1304,9 +1299,6 @@ class SceneWorkbenchService:
                 db, novel_id, start, end
             ),
             related_reveals=await self._related_reveal_summary(db, novel_id, start, end),
-            map_summary_impact={
-                "message": "拆分后两个 Scene 的地图摘要将在写作页按新映射重新读取。"
-            },
             warnings=["拆分不会修改正文内容。"],
             scene=SceneResponse.model_validate(source),
             new_scene=new_scene,

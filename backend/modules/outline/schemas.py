@@ -423,7 +423,6 @@ class SceneImpactPreview(BaseModel):
     related_threads: dict[str, Any] = {}
     related_foreshadowing: dict[str, Any] = {}
     related_reveals: dict[str, Any] = {}
-    map_summary_impact: dict[str, Any] = {}
     warnings: list[str] = []
     scene: SceneResponse | None = None
     new_scene: dict[str, Any] | None = None

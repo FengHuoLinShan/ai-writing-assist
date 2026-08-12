@@ -5,10 +5,9 @@
 前端为 Vue 3 SPA 控制台，通过 REST API 驱动整个创作工作台。Vue shell 拥有静态外壳，
 所有一级业务页主 DOM 由 SFC 拥有；既有 hash router、Proxy 状态、命令服务和 API wrapper
 保留为集中式基础设施 seam。业务视图经 `vue/mountIsland.js` 接入 `#workspace-content`
-route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容禁止 `v-html`。动态地图的
-Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` controller；这是地图唯一
-命令式 DOM seam，不拥有 route-host 页面 DOM。Writing 只通过 `mapQuickCreateBridge` 调用
-`mapQuickCreateView`，并复用 `sceneAlerts` / `versionDiff` 纯 helper，没有其他旧视图运行时依赖。
+route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容禁止 `v-html`。AI 地图册由
+`MapWorkspaceView.vue` 直接拥有层级、候选对比、来源、标注和审查交互，不保留命令式地图视口
+或 Writing 跨模块桥接。
 
 用户体验的目标画像、双入口方向和功能判断门禁以
 [`../product/user-personas.md`](../product/user-personas.md) 为准。前端正确性不仅指请求与状态
@@ -40,11 +39,8 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - API 契约注册表：`apiContracts.js`
 - 静态外壳：`vue/shell/`（topbar/sidebar/命令栏/主题/快捷键/service hosts）
 - 业务视图：`vue/views/**`（Vue SFC，经 `vue/mountIsland.js` 注册）
-- 命令式接缝：`router.js`、`state.js`、`api.js`、集中式 `shared/` / `ui/` 服务，
-  以及仅在 Vue 地图视口内运行的 `views/mapView.js`
-- Writing 兼容接缝：`vue/views/writing/controllers/mapQuickCreateBridge.js` 是
-  `views/mapQuickCreateView.js` 的唯一业务调用路径；`views/writing/sceneAlerts.js` 和
-  `views/writing/versionDiff.js` 是无 DOM 纯 helper
+- 命令式接缝：`router.js`、`state.js`、`api.js` 与集中式 `shared/` / `ui/` 服务
+- Writing 纯 helper：`views/writing/sceneAlerts.js` 与 `views/writing/versionDiff.js`
 - Vue 基建：`vue/bridge/`、`vue/composables/`、`vue/mountIsland.js`
 - 通用交互：`shared/`、`ui/`
 
@@ -82,8 +78,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；版本、冲突、导出和导入收进分组菜单，菜单动作完成后关闭且不会被页头裁切 |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
-| `vue/views/map/MapWorkspaceView.vue` | 地图一级工作台，总览、最近地图、地图树、收件箱、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查。动态队列、历史、活地图当前事实与叙事透镜时间线的标题均为同名原生按钮，可用键盘打开详情；整卡点击仍是鼠标快捷方式，采用/忽略不会触发详情。 |
-| `views/mapView.js` | 仅作为 `MapViewportAdapter` 下的 Leaflet/Canvas viewport controller：地形、地点、标记、线路、势力范围与编辑会话；不拥有一级页面 DOM |
+| `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 预览使用结构化重复项编辑器，提交时适配回原 wire payload；版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；普通路径只显示查找。资料未准备好时提供“修复查找功能”，索引、worker、embedding 等技术状态只在诊断详情中出现 |
@@ -179,7 +174,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   accent 实体面（sticky 蓝 / night 金 / ink 朱砂），普通操作保留可见边框；可编辑字段使用
   surface 底与完整边框，focus-visible 显示 2px accent 焦点环。暗色主题保持相同层级；
   `760px` 以下常用按钮高度不低于 `42px`，输入控件不低于 `44px`。
-- 创作工作台以正文、主列表、编辑区、生成结果和地图画布为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
+- 创作工作台以正文、主列表、编辑区、生成结果和地图册图片为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
 - Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
   在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
 - 卡片/表格、展开/收起、选中与其他纯呈现控件只更新局部状态；同路由仅需同步
@@ -205,7 +200,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。
 - 浏览器 E2E 使用 Playwright：`npm run test:e2e:functional`；烟雾子集为 `npm run test:e2e:smoke`。默认启动 fresh 8000/8080 服务，只有 `PW_REUSE_EXISTING_SERVER=1` 才复用已有服务；后端启动前执行 `APP_ENV=test alembic upgrade head`。`APP_ENV=test` 不改写 `DATABASE_URL`；本机存在开发 worker 时应显式传入独立测试库。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
 - `npm run build`（vite build）仅作 Vue 构建链冒烟验证：`dist` 仍缺少 classic 基础设施 seam scripts，不能视为可部署产物。无独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
-- 当前已落地共享 JS API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
+- 当前已落地共享 JS API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图册、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 - 小说检索继续消费 context evidence API：单次最多取回 100 条现有命中，DOM 首批只挂载
   20 张结果卡并按 20 条渐进加载。章节范围的非整数、非正数或倒置条件会在请求前提示并保留给作者修正，不会被伪装成空结果。检索词、方式、正文版本、可见视角、章节范围和 scope
   保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。同项目内在
@@ -273,14 +268,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 版本历史/恢复
 - 读取项目生效作者偏好并驱动日目标、编辑器字体和默认专注模式；优先使用设置服务的项目/全局继承结果，旧本地值只作为接口失败时的兼容回退
 - 深度导入进度展示：恢复 localStorage 中的 task_id，展示当前章节 / Scene / batch、质量统计、降级状态和中断恢复提示
-- 深度导入完成后只展示一个地图下一步：已有地图进入项目收件箱；有 canonical 地点但无地图时
-  打开 quick-create；只有 candidate 地点时按地点类型、deep-import 来源和 workflow 精确进入审核。
-  有下一步时完成条保留到用户执行或关闭，刷新后可恢复；上下文加载失败、
-  弹窗被拦截或回调失败不得清理完成条。恢复/轮询/下一步的异步响应绑定启动时
-  project/task/workflow，项目切换或新任务后的晚到响应不再写回当前页面。
 - 中断恢复操作：用户显式点击“继续”才调用 `/api/imports/deep/resume`；“放弃恢复”必须二次确认并展示清理摘要
-- `GET /api/world/maps/scene-summary` 的地图摘要展示，包括危机、风险和空间 warning
-- 跳转到地图工作台并携带 `scene_id` / `focus_entity_id`
 
 ## 作者展示状态
 
@@ -336,66 +324,22 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
   workflow_id / needs_review 筛选；后两者只在剧情线页内部消费，不再占顶层导航。
 - 筛选只改变视图，不自动 promote、deprecated 或删除资产；状态变更必须来自明确按钮、选择器或二次确认操作。
 
-## 地图工作台补充
+## AI 地图册工作台
 
-- `vue/views/map/MapWorkspaceView.vue` 保存“最近地图”到本地存储；总览主操作按状态如实显示“打开最近地图 / 打开可用地图 / 查找可用地图”，陈旧记录清除后立即刷新卡片与按钮文字，点击仍复用既有最近/可用地图回退流程
-- `MapQuickCreateDialog.vue` 的字段、地点选择、半径、方向移动与锁定均以作者可读的可访问名称公开；画布、视觉工作流和既有坐标/半径/锁定命令保持不变
-- 可按地图名或地点名搜索
-- 支持图层开关
-- 右侧消费 `GET /api/world/maps/{map_id}/dashboard`，展示世界动态总控台、动态队列、检查器和批量分组
-- 默认进入地图页时通过 `GET /api/world/maps/open-target` 打开最近/可用地图；世界对象行也通过该接口生成带 `focus_entity_id` 的地图 URL
-- 地图工作台消费同一套 dashboard / map state，支持“世界动态总控台 / 活地图 / 叙事透镜”三视图、上方语义气泡带、低动效模式
-- 地图工作台同时消费 `GET /api/world/maps/{map_id}/playback`，按 typed observation 展示人物旅程、势力变化、危机推进、资源控制和状态变化播放轨道
-- 地图工作台消费 `GET /api/world/maps/{map_id}/timeline` 与 `/state-at`，按真实 Scene stop
-  步进或播放类型化差分；正式状态、冲突和 candidate preview 分区展示，candidate 不进入
-  当前 Scene 的有效状态
-- 时间轴只读覆盖地点轨迹、范围变化、危机和线路状态，不写回 marker、territory、terrain
-  或 path。编辑开始、地图切换或请求失效时暂停播放并清理覆盖；连续性面板只报告缺失锚点、
-  路线未知/不通/阻断和线路版本变化，不把 Scene 顺序解释成旅行时长
-- 动态队列、语义气泡和播放事件可打开对象信息框；信息框展示名称、类型、时间、状态、来源、地点/空间锚点，并提供修改和打开检查器
-- observation 在界面统一显示为待处理，支持采用、忽略、标记冲突。作者编辑器只发送
-  复核状态、目标名和类型化作者值；UUID、raw JSON、内部枚举、来源证据/时间与原始
-  置信度不再作为可回写输入。fact 显示为已采用，支持回滚、废弃、恢复；“复制诊断信息”
-  仅从 allowlist 组装一次性、只读、递归脱敏的剪贴板内容。
-- 地图总览显示项目级“地图收件箱”，只包含未分配 candidate/conflicted。可按类型、Scene、
-  来源、置信度和服务端 eligibility 筛选与分页；“分配并继续”先分配 active 地图，再打开规范
-  地图 URL 和同一 observation 编辑器。换图、退回收件箱、忽略、编辑、确认和批量审查都携带
-  当前 `updated_at`；409 保留作者输入并展示最新服务器摘要。
-- 地图收件箱把 `deep_import_delta_event` 等内部来源转换为作者可读标签；已有 Scene/章节
-  锚点时不再同时显示“缺少来源”提示。原始 Scene ID 只出现在诊断筛选或复制诊断信息中。
-- 人物位置、事件发生地、线路/阻隔和势力范围使用各自的对象、地点、active path 或 hex
-  选择器生成完整 canonical value。采用按钮只消费服务端 `eligibility.can_confirm`，前端不复制
-  资格判断；390px 保留轻量审核，复杂线路和势力空间编辑继续转交桌面端。
-- 写作冲突 AI 修复建议以可编辑草稿展示，用户显式插入当前正文编辑器后才影响草稿内容。冲突详情的导航动作只在持久化证据带有可用正文范围，或受支持的来源模块/打开目标时启用；不可用时保留禁用且明确的标签，既有处理函数与 API 契约不变。
-- 世界书展示模式和筛选分类公开当前选中状态；未保存修改确认、偏好持久化及 API 契约不变。
-- RP 旅程目录的归档、恢复与永久删除操作公开关联旅程名；故事页的分支选择、抽屉关闭和加载/失败状态提供程序化语义，不对流式正文或字数统计增加 live announcement，既有故事、分支、归档和 API/wire 契约不变。
-- 公共认证和账号删除的邮箱验证码输入、认证忙碌状态与成功/失败通告可被辅助技术识别；账号设置关闭操作具有明确名称，既有认证、注销、删除恢复期及 API/wire 契约不变。
-- 账户模型模板与项目设置页签支持方向键、Home/End 的选择和回焦，并保持 tab/panel 稳定关联；已有连接、刷新、保存和数据加载状态公开忙碌或状态语义，不改变模型连接、项目继承、保存/重置或 API/wire 契约。
-- 章节前后导航、Scene 展开和大纲浮窗章节链接提供作者可读名称，并公开当前章节或展开状态；既有选择、收起与路由/API 契约不变。
-- 地图总览搜索与 Scene 阶段修复输入提供程序化名称；地图视图模式和阶段修复维度公开当前选中状态，不改变既有路由或 API 契约。
-- 390px 写作页默认折叠章节辅助栏；作者展开章节后使用带程序化名称的速记编辑器保存短文本
-  工作稿，刷新后从后端版本恢复。速记输入实时同步同一编辑状态，首次保存返回的 draft
-  id/version 会回写以支持连续保存，切换完整编辑器时保留未保存正文。速记主操作不低于
-  44px，且首屏操作区保持在移动底栏上方；发布、版本恢复和长篇结构编辑仍转交桌面端。
-- 批量修改分组按对象类型和地图时间展示，可通过 `batch-actions` 对待处理 observation 执行批量采用、忽略和标记冲突；“打开检查器”会按对象聚焦刷新右侧检查器
-- `mapLayoutEngine.js` 负责前端自动布局、标签避让、聚合簇和语义气泡排队；`mapView` 浏览态地点中心标签使用该布局结果避免高密度重叠
-- 地图 URL 规范模式为 `overview/recent/dashboard/live/lens`；旧 `mode=map` 会
-  replace 为 `mode=live`。跨地图和返回总览使用 push，同地图 mode/Scene/focus 使用 replace。
-- 浏览态标签/聚合簇使用专用 Leaflet pane，点击先打开地点信息流；空白背景指针
-  继续由 Canvas 处理。390px 保留地图浏览、证据查看、确认/忽略及人物/事件地点的轻量修改；
-  势力 hex、线路创建/节点精修等复杂空间编辑显示只读摘要和桌面端转交。
-- 地图编辑的当前图层、图层结构和保存全部共用同一 apply 会话；从冻结 revision/命令到服务端
-  状态、图层树和线路重载完成期间，整个地图工作区保持 busy/inert 并拒绝二次提交或离开。
-  “待应用变更”覆盖当前内容图层的全部草稿类型；409 只刷新 CAS 基线并保留本地草稿；
-  地图设置保存后保持当前 Scene、聚焦对象、视图模式和编辑会话，退出编辑前必须再次确认没有残留草稿。
-- 支持从写作流打开最近相关地图
+- 首次主操作为“一键生成地图册”；已有 adopted 页面后为“补全/更新地图册”，完整重做在次级入口。
+- “本次生成结果”和“我的地图册”分离；采用只增加候选，不替换旧图，同节点多张 adopted 页面组成画廊。
+- 候选固定显示资料直接支持、AI 视觉补全和资料冲突；完整来源渐进展开，有冲突页面采用前二次确认。
+- 有旧图时显示“地图册已有图片 / 新候选”对比与同步缩放；移出只在旧图区次级菜单，且单独确认、可恢复。
+- 生成进度显示计划页数和当前页，支持“生成完当前页后停止”；`provider_in_flight` 恢复会明确提示潜在重复费用。
+- 地图名称由 Vue 标注层显示；桌面支持精确拖动与蒙版，窄屏只保留浏览、采用和拒绝，不用滑动手势做决定。
+- 图片以鉴权 Blob 读取，不向浏览器暴露 S3 key 或长期预签名 URL；切换项目和视图时释放 Object URL。
 
 ## API 封装风格
 
 - 统一 `request()` 处理超时、错误映射、FormData；封闭测试令牌遭遇 401 时使用应用内密码模态框收集一次性内存令牌，不调用浏览器原生 `prompt()`
 - 高风险 wrapper 的 method、path、必需参数和长耗时 timeout 由 `apiContracts.js` 注册，`api.js` 通过 helper 生成实际请求；同步 LLM 生成等待 35 分钟，为后端 30 分钟生成窗口留出收尾余量，异步任务提交和后续无总截止轮询分开处理。这只校验请求契约，不覆盖响应字段级 schema drift
 - 按模块分组：`api.projects.*` / `api.world.*` / `api.outline.*` / `api.context.*`
-- 地图接口统一挂在 `api.world.*` 下，后端前缀仍是 `/api/world/maps`
+- 地图册接口挂在 `api.world.*` 下，后端前缀为 `/api/world/map-atlas`；图片 wrapper 使用 Blob response
 
 ## 安全与渲染约束
 
@@ -403,9 +347,6 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 必须插入 HTML 时先走 `esc()`
 - 不把用户/AI/API 返回的未转义内容直接写入 `innerHTML`
 - `index.html` 通过 CSP meta 建立 baseline：脚本仅允许本源，样式不允许外部 origin，连接仅允许
-  本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`。Leaflet 1.9.4 由锁定 npm
-  依赖构建为地图按需 JS/CSS chunk，不暴露 `window.L`；失败可原位重试，非地图页面不下载。
+  本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`。地图册图片由同源鉴权接口读取。
 - 当前 `style-src` 仍保留 `'unsafe-inline'`，用于兼容入口与少量 inline style；收紧
   `style-src` 需作为独立 CSP 变更评审，不是前端页面 Vue 所有权迁移的未完成阶段
-- 生产构建复制 `/licenses/leaflet-BSD-2-Clause.txt`，资产契约同时验证 Leaflet CSS、许可文件
-  和零 `unpkg.com` 引用；直接第三方运行时依赖见根 `THIRD_PARTY_LICENSES.md`

@@ -20,6 +20,7 @@ RAG 负责“找”，context 负责“选、裁、确认、追踪”。
   编译结果、确认记录和生成响应 provenance
 - 管理版本化 Activation Profile，用受限匹配规则把固定世界书页面/CoreEntity 编译为
   可解释、可预算裁剪的 P1 参考资料
+- 为 `world.map_atlas.generate` operation 编译 author-full canonical 背景；只在作者显式开启时加入工作稿
 
 ## 不负责
 
@@ -97,6 +98,12 @@ async def preview_activation_profile(...) -> dict
 
 - `context_confirmations` 面向手动 AI 操作，表示用户确认过的参考资料选择。
 - `context_snapshots` 面向自动流水线审计，表示一次真实 LLM 调用使用过的上下文视图。
+
+地图册不增加新的公开 scope。generation-background 识别 `world.map_atlas.generate`，固定
+`reveal_mode=author_full`，调用 atlas 专用 world loader 读取至多 160 个 canonical/已发布
+条目，并以 RAG `purpose=map_atlas` 补证。run 只保存 secret-free snapshot、source manifest
+与 hash；manifest 按来源类型/ID 保存 loader 计算的内容 hash，更新判断不接受
+LLM 自报 hash。候选对象始终排除。
 
 `selected_asset_ids` 与 `result_refs` 继续保持既有 JSON 对外形状，但不再承担失效查询。
 新 confirmation 创建时同步写入 `selected` 引用，结果绑定时必须携带 `novel_id` 并在

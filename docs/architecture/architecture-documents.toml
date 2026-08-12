@@ -83,7 +83,7 @@ kind = "business"
 source_roots = ["backend/modules/world"]
 design_docs = ["docs/modules/02_world.md", "docs/modules/15_map.md"]
 code_docs = ["backend/modules/world/README.md"]
-api_prefixes = ["/api/world", "/api/world/maps"]
+api_prefixes = ["/api/world", "/api/world/map-atlas"]
 
 [[components]]
 name = "memory"

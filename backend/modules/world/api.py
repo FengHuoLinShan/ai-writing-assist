@@ -21,7 +21,6 @@ from modules.project.facade import (
     require_active_project,
 )
 from modules.world.entity_fusion import WorldEntityFusionService
-from modules.world.map_schemas import MapEntityPresenceResponse
 from modules.world.schemas import (
     AskWorldCitationOpenRequest,
     AskWorldCitationOpenResponse,
@@ -147,7 +146,6 @@ from modules.world.services import (
 )
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import review_type_catalog
-from modules.world.services.map.map_entity_presence import MapEntityPresenceService
 from modules.world.services.worldbuilding.ask_world_service import AskWorldService
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
@@ -193,7 +191,6 @@ _knowledge_tag_service = KnowledgeTagService()
 _world_generation_service = WorldGenerationCenterService()
 _ask_world_service = AskWorldService()
 _generation_template_service = GenerationPromptTemplateService()
-_map_presence_service = MapEntityPresenceService()
 
 
 async def _require_active_novel_id(
@@ -1475,25 +1472,6 @@ async def get_entity(
     novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
     return await _entity_service.get(db, entity_id, novel_id=novel_id)
-
-
-@router.get(
-    "/entities/{entity_id}/map-presence",
-    response_model=MapEntityPresenceResponse,
-)
-async def get_entity_map_presence(
-    db: DbSession,
-    entity_id: str,
-    *,
-    novel_id: ActiveNovelIdQuery,
-    include_candidates: bool = Query(False),
-) -> MapEntityPresenceResponse:
-    return await _map_presence_service.list_for_entity(
-        db,
-        novel_id,
-        entity_id,
-        include_candidates=include_candidates,
-    )
 
 
 @router.put("/entities/{entity_id}", response_model=CoreEntityResponse)
