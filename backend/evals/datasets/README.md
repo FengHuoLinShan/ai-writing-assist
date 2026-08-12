@@ -200,6 +200,16 @@ resolution, rollback bounds, or rubric scores are emitted with
 `available=false` and an explicit reason when the workflow output cannot prove
 them. Missing evidence is never converted to zero or a passing result.
 
+`make eval-ask-world` is the separate author-question launch gate. It first runs
+the real API contract tests for project isolation, structured claims, citation
+reopening, and current-source revalidation, then runs the fully offline synthetic
+dataset through the production relevance and evidence-budget helpers. The JSON
+report covers evidence ranking and dataset integrity only: it fails unless
+visibility leakage is zero, source hashes and fixture reopening are perfect,
+precision@5 is at least 0.8, no-answer false positives are at most 0.05, and
+every metric is available. It does not impersonate a model judge or replace the
+API contract tests that precede it.
+
 The first local run produced a legacy 300-case raw candidate set before the
 2x oversampling and strict scenario/persona guards were added. It remains a
 local diagnostic artifact and must not be frozen as the Pilot baseline.

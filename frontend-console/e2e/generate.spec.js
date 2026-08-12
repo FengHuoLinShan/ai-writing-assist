@@ -106,7 +106,7 @@ test.describe("生成中心模块", () => {
         contentType: "application/json",
         body: JSON.stringify({
           reply: "可以设计成旧友型反派，动机来自一次被误解的牺牲。",
-          model: "deepseek-v4-flash",
+          model: "account-model",
           provider: "fake",
           source_snapshot: { kind: "project" },
         }),
@@ -123,7 +123,7 @@ test.describe("生成中心模块", () => {
           status: 201,
           contentType: "application/json",
           body: JSON.stringify({
-            model: "deepseek-v4-flash",
+            model: "account-model",
             provider: "fake",
             source_snapshot: postBody.source_context,
             result: {
@@ -166,7 +166,7 @@ test.describe("生成中心模块", () => {
         status: 201,
         contentType: "application/json",
         body: JSON.stringify({
-          model: postBody.quality_mode === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash",
+          model: "account-model",
           provider: "fake",
           source_snapshot: { kind: "project" },
           result: {
@@ -252,7 +252,7 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#topbar-module")).toContainText("高级生成工具")
     await expect(page.locator("#topbar-view-note")).toContainText("面向高级用法")
     await expect(page.locator("#workspace-content")).toContainText("人物")
-    await expect(page.locator("#workspace-content")).toContainText("高质量")
+    await expect(page.locator("#workspace-content")).toContainText("加强复核")
     await expect(page.locator("#workspace-content")).toContainText("生成世界对象建议")
     await expect(page.locator("#workspace-content")).toContainText("世界设定")
     await expect(page.locator("#workspace-content")).toContainText("任务")
@@ -548,7 +548,7 @@ test.describe("生成中心模块", () => {
   test("没有聊天或粘贴内容时给出警告", async ({ page }) => {
     await page.getByRole("button", { name: "生成世界对象建议" }).click()
 
-    await expect(page.locator(SEL.toastContainer)).toContainText("请先聊天或粘贴已有对话到输入框", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("请先聊天、粘贴已有对话，或选择一条相邻探索", { timeout: 10000 })
   })
 
   test("角色视角模式缺少视角人物时不提交编译", async ({ page }) => {

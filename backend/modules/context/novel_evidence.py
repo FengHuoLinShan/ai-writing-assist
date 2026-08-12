@@ -79,9 +79,7 @@ def _query_focused_snippet(
     candidate_starts = {0, max(0, len(text) - max(max_chars - 1, 1))}
     for position, term in matches:
         candidate_starts.add(max(0, position - max_chars // 2))
-        candidate_starts.add(
-            max(0, position + len(term) - max(max_chars - 1, 1))
-        )
+        candidate_starts.add(max(0, position + len(term) - max(max_chars - 1, 1)))
 
     def _window_score(start: int) -> tuple[int, int]:
         prefix_chars = 1 if start > 0 else 0
@@ -1356,7 +1354,8 @@ class NovelEvidenceService:
                 entity_type = str(item.get("entity_type") or "")
                 knowledge_target_type = (
                     entity_type
-                    if entity_type in {"character", "location", "event"}
+                    if entity_type
+                    in {"character", "location", "event", "item", "faction"}
                     else "entity"
                 )
                 filtered = await filter_context_by_character_knowledge(

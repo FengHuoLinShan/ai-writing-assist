@@ -241,6 +241,7 @@ async def test_characters_loader_knowledge_boundary_filters_world_entities(
         target_id=eid,
         knowledge_level="full",
         known_content="He knows about the sword",
+        status="canonical",
     )
     db_session.add(knowledge)
     await db_session.flush()
@@ -465,7 +466,7 @@ async def test_memory_records_loader_loads_panorama(
     await loader.load(db_session, options, bundle)
 
     # Assert
-    assert bundle.memory_records is not None
+    assert isinstance(bundle.memory_records, list)
     assert bundle.memory_records != []
     assert bundle.budget_used["memory"] >= 1
 

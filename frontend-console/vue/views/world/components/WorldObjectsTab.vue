@@ -181,7 +181,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import { getRouter } from "../../../bridge/index.js"
 import { importAuthorizationNotice } from "../../../../shared/importAuthorization.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
@@ -194,7 +194,7 @@ import {
 } from "../logic/worldQuery.js"
 import { reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { entityId, formatBatchTime, formatBatchTimeFull, isFreshBatch } from "../logic/worldEntityHelpers.js"
-import { runObjectsBulkAction, showEntityCreateForm, syncWorldListRegistry } from "../logic/worldEntityOps.js"
+import { runObjectsBulkAction, showEntityCreateForm, showKnowledgeForm, syncWorldListRegistry } from "../logic/worldEntityOps.js"
 import WorldEntityCollection from "./WorldEntityCollection.vue"
 import WorldPager from "./WorldPager.vue"
 
@@ -211,6 +211,7 @@ const props = defineProps({
   discoveryMode: { type: String, default: "hot" },
   entityTypes: { type: Array, default: () => [] },
   reviewTypeCatalog: { type: Object, default: () => ({}) },
+  knowledgeCharacterId: { type: String, default: "" },
 })
 
 const statuses = [
@@ -395,6 +396,10 @@ watch(() => [props.entities, props.entityTypes, props.reviewTypeCatalog], () => 
   })
   reconcileBulkSelection("world-objects", props.entities.map((item) => entityId(item)).filter(Boolean))
 }, { immediate: true, deep: true })
+
+onMounted(() => {
+  if (props.knowledgeCharacterId) void showKnowledgeForm(props.knowledgeCharacterId)
+})
 
 function onBulkRun(action) {
   runObjectsBulkAction(action, props.entities)

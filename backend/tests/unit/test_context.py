@@ -15,7 +15,7 @@ Context 模块单元测试
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -362,6 +362,9 @@ class TestCompileWithTiers:
         keys = {s.key for s in p1_sections}
         assert "pov_knowledge" in keys
         assert "delta_timeline" in keys
+        timeline = next(s for s in p1_sections if s.key == "delta_timeline")
+        assert "测试事件" in timeline.content
+        assert "{'event':" not in timeline.content
         for s in p1_sections:
             assert s.content.startswith("[Delta 模式] "), (
                 f"Expected Delta prefix, got: {s.content[:20]}"
@@ -1273,6 +1276,89 @@ class TestCharactersLoader:
         assert any("保守排除" in warning for warning in bundle.warnings)
 
     @pytest.mark.asyncio
+    async def test_character_reveal_prioritizes_viewpoint_over_explicit_topk(
+        self,
+    ) -> None:
+        requested_ids: list[str] = []
+        viewpoint = "pov"
+
+        async def get_characters_context(_db, _novel_id, *, character_ids, **_kwargs):
+            requested_ids.extend(character_ids)
+            character = MagicMock()
+            character.model_dump.return_value = {
+                "name": "视角人物",
+                "character_id": viewpoint,
+            }
+            return MagicMock(characters=[character])
+
+        loader = CharactersLoader(
+            get_characters_context_fn=get_characters_context,
+            filter_context_by_character_knowledge_fn=AsyncMock(return_value=[]),
+        )
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            world_entities=[{"entity_id": "secret", "entity_type": "item"}],
+        )
+        options = CompileOptions(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            consumer_action="writing.generate",
+            chapter_index=3,
+            character_ids=[f"other-{index}" for index in range(6)],
+            reveal_mode="character",
+            viewpoint_character_id=viewpoint,
+        )
+
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        assert requested_ids[0] == viewpoint
+        assert len(requested_ids) == 6
+        assert viewpoint in {item["character_id"] for item in bundle.characters}
+
+    @pytest.mark.asyncio
+    async def test_character_reveal_fails_closed_when_viewpoint_is_unavailable(
+        self,
+    ) -> None:
+        knowledge_filter = AsyncMock(return_value=[{"hidden_truth": "不得进入"}])
+        other_character = MagicMock()
+        other_character.model_dump.return_value = {
+            "character_id": "other",
+            "name": "其他人物",
+        }
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(
+                return_value=MagicMock(characters=[other_character]),
+            ),
+            filter_context_by_character_knowledge_fn=knowledge_filter,
+        )
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            world_entities=[{"entity_id": "secret", "hidden_truth": "不得进入"}],
+        )
+        options = CompileOptions(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            consumer_action="writing.generate",
+            chapter_index=3,
+            character_ids=["archived-pov"],
+            reveal_mode="character",
+            viewpoint_character_id="archived-pov",
+        )
+
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        assert bundle.characters == []
+        assert bundle.world_entities == []
+        assert any("视角人物已不可用" in item for item in bundle.warnings)
+        knowledge_filter.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_character_knowledge_filter_failure_fails_closed(self) -> None:
         """知识边界过滤失败时不得保留可能剧透的世界对象。"""
         mock_char = MagicMock()
@@ -1303,6 +1389,36 @@ class TestCharactersLoader:
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.characters == [{"name": "主角", "character_id": "c1"}]
+        assert bundle.world_entities == []
+        assert "保守策略" in bundle.warnings[0]
+
+    @pytest.mark.asyncio
+    async def test_character_profile_load_failure_also_fails_closed(self) -> None:
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(
+                side_effect=RuntimeError("character query failed"),
+            ),
+        )
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            world_entities=[{"name": "秘密", "hidden_truth": "不得进入"}],
+        )
+        options = CompileOptions(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            consumer_action="writing.generate",
+            chapter_index=3,
+            character_ids=["pov"],
+            reveal_mode="character",
+            viewpoint_character_id="pov",
+        )
+
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        assert bundle.characters == []
         assert bundle.world_entities == []
         assert "保守策略" in bundle.warnings[0]
 
@@ -1402,21 +1518,112 @@ class TestMemoryRecordsLoader:
 
     @pytest.mark.asyncio
     async def test_load_panorama_success(self) -> None:
-        """加载成功应注入全景数据"""
+        """加载成功应注入可读记忆列表"""
         mock_panorama = MagicMock()
-        mock_panorama.model_dump.return_value = {"entities": [], "relations": []}
-        mock_panorama.entities = []
+        mock_panorama.model_dump.return_value = {
+            "chapter_index": 0,
+            "entities": [{"id": "e1", "name": "旧桥", "summary": "桥身完好"}],
+            "relations": [],
+        }
 
+        get_panorama = AsyncMock(return_value=mock_panorama)
         loader = MemoryRecordsLoader(
-            get_memory_panorama_fn=AsyncMock(return_value=mock_panorama),
+            get_memory_panorama_fn=get_panorama,
         )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
-        options = MagicMock(novel_id="id", chapter_index=3)
+        options = MagicMock(novel_id="id", chapter_index=0)
 
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
-        assert isinstance(bundle.memory_records, dict)
-        assert bundle.budget_used["memory"] == 0
+        assert bundle.memory_records == [
+            {
+                "id": "e1",
+                "memory_type": "人物与对象",
+                "title": "旧桥",
+                "summary": "桥身完好",
+                "chapter_index": 0,
+            }
+        ]
+        assert bundle.budget_used["memory"] == 1
+        get_panorama.assert_awaited_once_with(ANY, "id", 0)
+
+    @pytest.mark.asyncio
+    async def test_load_panorama_only_exposes_hidden_truth_to_author_full(self) -> None:
+        panorama = MagicMock()
+        panorama.model_dump.return_value = {
+            "chapter_index": 3,
+            "entities": [
+                {
+                    "id": "e1",
+                    "name": "旧桥",
+                    "summary": "桥身完好",
+                    "hidden_truth": "桥下藏着密室",
+                }
+            ],
+        }
+        loader = MemoryRecordsLoader(
+            get_memory_panorama_fn=AsyncMock(return_value=panorama),
+        )
+
+        safe_bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
+        await loader.load(
+            db=MagicMock(),
+            options=CompileOptions(
+                novel_id="id",
+                task="t",
+                scope="chapter",
+                chapter_index=3,
+                reveal_mode="author_safe",
+            ),
+            bundle=safe_bundle,
+        )
+        full_bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
+        await loader.load(
+            db=MagicMock(),
+            options=CompileOptions(
+                novel_id="id",
+                task="t",
+                scope="chapter",
+                chapter_index=3,
+                reveal_mode="author_full",
+            ),
+            bundle=full_bundle,
+        )
+
+        assert "桥下藏着密室" not in safe_bundle.memory_records[0]["summary"]
+        assert "桥下藏着密室" in full_bundle.memory_records[0]["summary"]
+
+    @pytest.mark.asyncio
+    async def test_character_scene_loads_checkpoint_set(self) -> None:
+        """只有带 Scene 的角色视角正文生成才核对 checkpoint。"""
+        mock_panorama = MagicMock()
+        mock_panorama.model_dump.return_value = {"chapter_index": 3}
+        checkpoint_set = MagicMock()
+        checkpoint_set.model_dump.return_value = {
+            "coverage_status": "ready",
+            "items": [{"dimension": "entities", "status": "ready"}],
+        }
+        ensure = AsyncMock(return_value=checkpoint_set)
+        loader = MemoryRecordsLoader(
+            get_memory_panorama_fn=AsyncMock(return_value=mock_panorama),
+            ensure_scene_checkpoints_fn=ensure,
+        )
+        bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
+        options = CompileOptions(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            consumer_action="writing.generate",
+            scene_id="scene-1",
+            reveal_mode="character",
+            viewpoint_character_id="char-1",
+        )
+        db = MagicMock()
+
+        await loader.load(db=db, options=options, bundle=bundle)
+
+        ensure.assert_awaited_once_with(db, "id", "scene-1")
+        assert bundle.scene_checkpoint_set == checkpoint_set.model_dump.return_value
 
     @pytest.mark.asyncio
     async def test_load_panorama_failure_graceful(self) -> None:

@@ -18,6 +18,39 @@ function makeHits(count) {
   }))
 }
 
+function makeAskWorldResult(overrides = {}) {
+  return {
+    question: "旧塔铜铃来自哪里",
+    answer: "现有证据显示，铜铃来自旧塔守卫室。",
+    claims: [{ text: "铜铃来自旧塔守卫室。", citation_keys: ["page:source"] }],
+    uncertainty: "当前只找到一页直接来源。",
+    no_answer: false,
+    citations: [{
+      citation_key: "page:source",
+      kind: "world_bible_page",
+      title: "旧塔守卫",
+      snippet: "铜铃存放在旧塔守卫室。",
+      source_hash: "a".repeat(64),
+      source_version: 3,
+      page_id: "page-1",
+    }],
+    response_hash: "b".repeat(64),
+    evidence_trace: {
+      included_titles: ["旧塔守卫"],
+      excluded_count: 1,
+      truncated_titles: [],
+      warnings: [],
+      degraded: false,
+      checks_run: ["作者可见性与项目隔离"],
+      not_run: ["工作稿", "角色视角问答"],
+    },
+    model: "internal-model-name",
+    provider: "internal-provider",
+    context_snapshot_id: "internal-snapshot-id",
+    ...overrides,
+  }
+}
+
 function overrideRouterQuery(queryString, stateOverrides = {}) {
   const state = { currentProjectId: "p1", searchQuery: "", viewStates: {}, ...stateOverrides }
   setBridgeOverrides({
@@ -39,6 +72,18 @@ beforeEach(() => {
     hits: makeHits(3),
     warnings: [],
     degraded: false,
+  }))
+  globalThis.api.generate.askWorld = vi.fn(async () => makeAskWorldResult())
+  globalThis.api.generate.openAskWorldCitation = vi.fn(async () => ({
+    status: "current",
+    kind: "world_bible_page",
+    title: "旧塔守卫",
+    text: "铜铃存放在旧塔守卫室。",
+    page_id: "page-1",
+    warnings: [],
+  }))
+  globalThis.api.generate.saveAskWorldSuggestion = vi.fn(async () => ({
+    suggestion: { status: "pending" },
   }))
 })
 
@@ -147,6 +192,206 @@ describe("提交", () => {
     expect(wrapper.find("#rag-chapter-from").attributes("aria-invalid")).toBeUndefined()
     expect(router.commitCurrentQuery).toHaveBeenCalledWith(expect.any(URLSearchParams), "push")
     expect(router.navigate).not.toHaveBeenCalled()
+  })
+})
+
+describe("问世界", () => {
+  it("按作者可见正式资料回答、显示可打开引用且隐藏内部字段", async () => {
+    overrideRouterQuery("")
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("旧塔铜铃来自哪里")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+
+    await vi.waitFor(() => expect(wrapper.find(".ask-world-answer").exists()).toBe(true))
+    expect(globalThis.api.generate.askWorld).toHaveBeenCalledWith(
+      { novel_id: "p1", question: "旧塔铜铃来自哪里" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(wrapper.text()).toContain("铜铃来自旧塔守卫室")
+    expect(wrapper.text()).toContain("查看来源：旧塔守卫")
+    expect(wrapper.text()).toContain("本次未查：工作稿、角色视角问答")
+    expect(wrapper.text()).not.toContain("internal-model-name")
+    expect(wrapper.text()).not.toContain("internal-provider")
+    expect(wrapper.text()).not.toContain("internal-snapshot-id")
+    expect(wrapper.text()).not.toContain("b".repeat(64))
+
+    await wrapper.find('[data-action="open-ask-world-citation"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find(".ask-world-source__text").exists()).toBe(true))
+    expect(wrapper.find(".ask-world-source__text").text()).toContain("铜铃存放在旧塔守卫室")
+    const pageLink = wrapper.get('[data-action="open-ask-world-page"]')
+    expect(pageLink.attributes()).toMatchObject({
+      href: "#workbench/p1/world/bible?page_id=page-1",
+      target: "_blank",
+      rel: "noopener",
+    })
+    expect(pageLink.text()).toContain("新标签页")
+  })
+
+  it("只有作者明确保存时才创建待处理建议", async () => {
+    overrideRouterQuery("")
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("旧塔铜铃来自哪里")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find('[data-action="save-ask-world-answer"]').exists()).toBe(true))
+    expect(globalThis.api.generate.saveAskWorldSuggestion).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-action="save-ask-world-answer"]').trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.generate.saveAskWorldSuggestion).toHaveBeenCalled())
+    expect(globalThis.api.generate.saveAskWorldSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        novel_id: "p1",
+        question: "旧塔铜铃来自哪里",
+        response_hash: "b".repeat(64),
+      }),
+    )
+    expect(wrapper.text()).toContain("已进入待处理，不会直接改写正式设定")
+    expect(globalThis.toast).toHaveBeenCalledWith(
+      "已保存为待处理世界笔记建议，不会直接改写正式设定。",
+      "success",
+    )
+
+    await wrapper.find('[data-action="open-ask-world-suggestions"]').trigger("click")
+    const router = (await import("../../../vue/bridge/index.js")).getRouter()
+    expect(router.navigate.mock.calls.at(-1)[0]).toBe("world")
+    expect(router.navigate.mock.calls.at(-1)[1]).toBe("bible")
+    expect(router.navigate.mock.calls.at(-1)[3].get("open")).toBe("suggestions")
+  })
+
+  it("证据不足时明确拒答且不能保存", async () => {
+    overrideRouterQuery("")
+    globalThis.api.generate.askWorld = vi.fn(async () => makeAskWorldResult({
+      answer: "当前可回读的项目证据不足，无法可靠回答。",
+      claims: [],
+      citations: [],
+      no_answer: true,
+    }))
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("月海有几颗卫星")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain("证据不足"))
+    expect(wrapper.find('[data-action="save-ask-world-answer"]').exists()).toBe(false)
+    expect(globalThis.api.generate.saveAskWorldSuggestion).not.toHaveBeenCalled()
+  })
+
+  it("停止后保留诚实终态，切换项目不会接收迟到回答", async () => {
+    overrideRouterQuery("")
+    let resolveRequest
+    let signal
+    globalThis.api.generate.askWorld = vi.fn((_payload, options) => {
+      signal = options.signal
+      return new Promise((resolve, reject) => {
+        resolveRequest = resolve
+        signal.addEventListener("abort", () => {
+          const error = new Error("aborted")
+          error.name = "AbortError"
+          reject(error)
+        })
+      })
+    })
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("旧塔铜铃来自哪里")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find('[data-action="stop-ask-world"]').exists()).toBe(true))
+    expect(wrapper.get('[data-action="ask-world"]').attributes("disabled")).toBeDefined()
+    expect(wrapper.get('[data-action="ask-world"]').text()).toBe("问答中…")
+    expect(globalThis.api.generate.askWorld).toHaveBeenCalledTimes(1)
+    await wrapper.find('[data-action="stop-ask-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.text()).toContain("远端请求可能仍在结束"))
+    expect(signal.aborted).toBe(true)
+
+    globalThis.api.generate.askWorld = vi.fn(() => new Promise((resolve) => {
+      resolveRequest = resolve
+    }))
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+    await wrapper.setProps({ projectId: "p2" })
+    resolveRequest(makeAskWorldResult({ answer: "不应显示的迟到回答" }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(wrapper.text()).not.toContain("不应显示的迟到回答")
+  })
+
+  it("离开页面后丢弃迟到的问答", async () => {
+    overrideRouterQuery("")
+    let resolveAsk
+    globalThis.api.generate.askWorld = vi.fn((_payload, options) => new Promise((resolve) => {
+      resolveAsk = resolve
+      // 模拟远端已开始、无法被本地 abort 立刻中断。
+      expect(options.signal).toBeInstanceOf(AbortSignal)
+    }))
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("旧塔铜铃来自哪里")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.generate.askWorld).toHaveBeenCalledOnce())
+    const signal = globalThis.api.generate.askWorld.mock.calls[0][1].signal
+
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    resolveAsk(makeAskWorldResult({ answer: "不应回写的迟到回答" }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(globalThis.toast).not.toHaveBeenCalledWith(expect.stringContaining("迟到回答"), expect.anything())
+  })
+
+  it("停止后即使远端仍成功返回也丢弃同项目迟到回答", async () => {
+    overrideRouterQuery("")
+    let resolveAsk
+    globalThis.api.generate.askWorld = vi.fn((_payload, options) => new Promise((resolve) => {
+      resolveAsk = resolve
+      expect(options.signal).toBeInstanceOf(AbortSignal)
+    }))
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("旧塔铜铃来自哪里")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+    await vi.waitFor(() => expect(globalThis.api.generate.askWorld).toHaveBeenCalledOnce())
+
+    await wrapper.find('[data-action="stop-ask-world"]').trigger("click")
+    expect(globalThis.api.generate.askWorld.mock.calls[0][1].signal.aborted).toBe(true)
+    expect(wrapper.find('[data-action="stop-ask-world"]').exists()).toBe(false)
+    resolveAsk(makeAskWorldResult({ answer: "不应显示的同项目迟到回答" }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(wrapper.text()).toContain("远端请求可能仍在结束")
+    expect(wrapper.text()).not.toContain("不应显示的同项目迟到回答")
+  })
+
+  it("离开页面后不显示迟到的引用或保存错误", async () => {
+    overrideRouterQuery("")
+    let rejectCitation
+    let rejectSave
+    globalThis.api.generate.openAskWorldCitation = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectCitation = reject
+    }))
+    globalThis.api.generate.saveAskWorldSuggestion = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectSave = reject
+    }))
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("旧塔铜铃来自哪里")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find('[data-action="save-ask-world-answer"]').exists()).toBe(true))
+
+    await wrapper.find('[data-action="open-ask-world-citation"]').trigger("click")
+    await wrapper.find('[data-action="save-ask-world-answer"]').trigger("click")
+    wrapper.unmount()
+    rejectCitation(new Error("迟到的引用失败"))
+    rejectSave(new Error("迟到的保存失败"))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(globalThis.toast).not.toHaveBeenCalledWith("来源打开失败，请稍后重试", "error")
+    expect(globalThis.toast).not.toHaveBeenCalledWith("保存失败，回答仍保留在当前页面。", "error")
   })
 })
 

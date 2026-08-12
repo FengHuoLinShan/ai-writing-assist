@@ -60,6 +60,7 @@ _MANAGED_LLM_PROVENANCE: ContextVar[list[dict[str, Any]] | None] = ContextVar(
 _PROFILE_TEXT_FIELDS = ("provider_id", "label")
 _PROFILE_NUMBER_FIELDS = ("timeout", "max_tokens", "temperature", "top_p")
 _KNOWN_PROFILE_SOURCES = {
+    "account",
     "default",
     "global",
     "project",

@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  CREATIVE_CONTINUATION_STORAGE_PREFIX,
   GENERATE_INTERRUPTED_CHAT_MESSAGE,
+  clearCreativeContinuation,
   generateSessionKey,
+  hasGenerateSession,
+  normalizeConvergenceDraft,
+  normalizeExternalPackets,
+  normalizeVisualBrief,
+  readCreativeContinuation,
   readGenerateContextPreview,
   readGenerateSession,
   serializeGenerateSession,
+  writeCreativeContinuation,
   writeGenerateContextPreview,
   writeGenerateSession,
 } from "../../../vue/views/generate/generateSession.js"
@@ -13,6 +21,30 @@ const pageProposalDraft = {
   schemaVersion: 1,
   suggestionId: "suggestion-1",
   editor: { title: "作者标题", pageType: "custom", freeText: "概览", sectionsText: "[{\"title\":\"章节\"}]", assetsText: "[]" },
+}
+const convergenceDraft = {
+  schemaVersion: 1,
+  manifestHash: "a".repeat(64),
+  sourceSnapshot: { kind: "project" },
+  stale: false,
+  coverage: { complete: true, scopeLabel: "最近两条对话", sourceCount: 2, excludedMessageCount: 0, missingCount: 0, issues: [] },
+  detailSummary: { before_grouping: 10, after_deduplication: 4, retained_in_sources: 2 },
+  cards: [{ cardId: "C1", title: "制度边界", items: [{ itemId: "C1I1", text: "数字继续开放", disposition: "open" }], sourceRefs: [] }],
+  nextBoundary: "人物选择改变时再扩展",
+  authorMessage: "可编辑作者消息",
+}
+const visualBrief = {
+  schemaVersion: 1,
+  manifestHash: "a".repeat(64),
+  sourceLabel: "白堤 · 已发布世界笔记",
+  purpose: "overview",
+  mustKeep: "保留三河汇流",
+  exactLabels: "白堤",
+  openItems: "邻城方向继续开放",
+  avoid: "不要新增国界",
+  createdAt: "2026-08-11T12:00:00.000Z",
+  confirmedAt: null,
+  stale: false,
 }
 
 beforeEach(() => localStorage.clear())
@@ -31,11 +63,106 @@ describe("generate Vue bounded session", () => {
 
   it("round-trips a suggestion-bound page proposal draft while old v2 sessions remain compatible", () => {
     const key = generateSessionKey("p1", "page-1", "world_bible_page")
-    expect(writeGenerateSession(key, { ...readGenerateSession(key), suggestionId: "suggestion-1", pageProposalDraft })).toBe(true)
-    expect(readGenerateSession(key).pageProposalDraft).toEqual(pageProposalDraft)
+    expect(writeGenerateSession(key, { ...readGenerateSession(key), composer: "尚未发送的输入", selectedWorldPageIds: ["page-2"], suggestionId: "suggestion-1", pageProposalDraft })).toBe(true)
+    expect(readGenerateSession(key)).toMatchObject({ composer: "尚未发送的输入", selectedWorldPageIds: ["page-2"], pageProposalDraft })
 
     localStorage.setItem(generateSessionKey("old"), JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧会话" }] }))
     expect(readGenerateSession(generateSessionKey("old"))).toMatchObject({ messages: [{ role: "user", content: "旧会话" }], pageProposalDraft: null })
+  })
+
+  it("round-trips a bounded convergence draft without source bodies", () => {
+    const key = generateSessionKey("p1")
+    expect(normalizeConvergenceDraft(convergenceDraft)).toBe(convergenceDraft)
+    expect(writeGenerateSession(key, { messages: [{ role: "user", content: "原对话" }], convergenceDraft })).toBe(true)
+
+    const restored = readGenerateSession(key)
+    expect(restored.convergenceDraft).toEqual(convergenceDraft)
+    expect(JSON.stringify(restored.convergenceDraft)).not.toContain("source body")
+  })
+
+  it("keeps one external return body plus a bounded, content-free packet history", () => {
+    const key = generateSessionKey("p1")
+    const record = {
+      hash: "b".repeat(64), packetIndex: 2, packetTotal: 5, characterCount: 12,
+      status: "previewed", previewedAt: 123, manifestHash: "c".repeat(64),
+      sourceCount: 3, coveredSourceCount: 3,
+      dispositionCounts: { compatible: 1, repair: 1, candidate: 0, unmapped: 0, exact_duplicate: 0 },
+    }
+    expect(writeGenerateSession(key, { messages: [], externalPacketDraft: "外部回包原文", externalPackets: [record, { hash: "bad" }] })).toBe(true)
+
+    expect(readGenerateSession(key)).toMatchObject({ externalPacketDraft: "外部回包原文", externalPackets: [record] })
+    expect(normalizeExternalPackets(Array.from({ length: 25 }, (_, index) => ({ ...record, hash: index.toString(16).padStart(64, "0"), packetIndex: index + 1, packetTotal: null })))).toHaveLength(20)
+    expect(JSON.stringify(readGenerateSession(key).externalPackets)).not.toContain("外部回包原文")
+    expect(normalizeExternalPackets([{ ...record, status: "exact_duplicate", packetIndex: 3 }])[0].status).toBe("exact_duplicate")
+  })
+
+  it("round-trips one bounded local visual brief and drops malformed purposes", () => {
+    const key = generateSessionKey("p1")
+    expect(normalizeVisualBrief(visualBrief)).toEqual(visualBrief)
+    expect(writeGenerateSession(key, { messages: [], convergenceDraft, visualBrief })).toBe(true)
+    expect(readGenerateSession(key).visualBrief).toEqual(visualBrief)
+
+    localStorage.setItem(key, JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "保留" }], visualBrief: { ...visualBrief, purpose: "agent_decides" } }))
+    const notify = vi.fn()
+    expect(readGenerateSession(key, { notify })).toMatchObject({ messages: [{ role: "user", content: "保留" }], visualBrief: null })
+    expect(notify).toHaveBeenCalledWith("invalid-visual-brief", expect.stringContaining("无法恢复"))
+  })
+
+  it("drops only a malformed convergence draft and keeps the conversation", () => {
+    const key = generateSessionKey("p1")
+    localStorage.setItem(key, JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "保留对话" }], convergenceDraft: { schemaVersion: 1, manifestHash: "x", stale: false, authorMessage: "", cards: [{ cardId: "C1", title: "坏卡片", items: [] }] } }))
+    const notify = vi.fn()
+
+    expect(readGenerateSession(key, { notify })).toMatchObject({ messages: [{ role: "user", content: "保留对话" }], convergenceDraft: null })
+    expect(notify).toHaveBeenCalledWith("invalid-convergence-draft", expect.stringContaining("无法恢复"))
+  })
+
+  it("compacts only rebuildable convergence detail before dropping author choices", () => {
+    const key = generateSessionKey("p1")
+    const notify = vi.fn()
+    const large = {
+      ...convergenceDraft,
+      cards: [{
+        ...convergenceDraft.cards[0],
+        commonGround: ["展开说明".repeat(140_000)],
+        dependencies: ["依赖说明".repeat(140_000)],
+        sourceRefs: [{ key: "m1", label: "对话来源", sourceRef: { source_type: "author_message" } }],
+      }],
+    }
+
+    expect(writeGenerateSession(key, { messages: [], convergenceDraft: large }, { notify })).toBe(true)
+    const restored = readGenerateSession(key)
+    expect(restored.convergenceDraft.cards[0]).toMatchObject({
+      commonGround: [], dependencies: [],
+      items: [{ itemId: "C1I1", text: "数字继续开放", disposition: "open" }],
+      sourceRefs: [{ key: "m1", label: "对话来源", sourceRef: { source_type: "author_message" } }],
+    })
+    expect(restored.convergenceDraft.authorMessage).toBe("可编辑作者消息")
+    expect(notify).toHaveBeenCalledWith("compacted-convergence", expect.stringContaining("来源、选择和作者消息"))
+  })
+
+  it("stores only an allowlisted project route and drops invalid or evicted continuations", () => {
+    const key = generateSessionKey("p1", "page-1", "world_bible_page")
+    writeGenerateSession(key, { composer: "继续白堤校验", messages: [] })
+    expect(writeCreativeContinuation("p1", {
+      destination: "generate",
+      route: { source_page_id: "page-1", target: "world_bible_page", ignored: "不会持久化" },
+    }, { now: () => 123 })).toBe(true)
+    expect(readCreativeContinuation("p1")).toEqual({
+      schema_version: 1,
+      project_id: "p1",
+      destination: "generate",
+      route: { source_page_id: "page-1", target: "world_bible_page" },
+      last_meaningful_at: 123,
+    })
+    expect(readCreativeContinuation("p2")).toBeNull()
+    expect(hasGenerateSession(key)).toBe(true)
+
+    localStorage.removeItem(key)
+    expect(hasGenerateSession(key)).toBe(false)
+    expect(clearCreativeContinuation("p1")).toBe(true)
+    expect(localStorage.getItem(`${CREATIVE_CONTINUATION_STORAGE_PREFIX}p1`)).toBeNull()
+    expect(writeCreativeContinuation("p1", { destination: "shell", route: {} })).toBe(false)
   })
 
   it("serializes a pending assistant as an interruption without mutating the live message", () => {

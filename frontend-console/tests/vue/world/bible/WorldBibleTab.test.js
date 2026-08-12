@@ -29,10 +29,12 @@ import { resetBridgeOverrides, setBridgeOverrides } from "../../../../vue/bridge
 import { resetWorldSession, worldSession } from "../../../../vue/views/world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
+import { readCreativeContinuation, writeCreativeContinuation } from "../../../../vue/views/generate/generateSession.js"
 
 // ---- test data ----
 const PAGE_1 = {
   id: "page-1", novel_id: "p1", page_type: "background", title: "世界基本背景",
+  version_number: 1,
   status: "canonical", free_text: "已有设定正文", sort_order: 0,
   sections_json: [{
     section_id: "s1", section_type: "markdown", title: "货币",
@@ -43,6 +45,7 @@ const PAGE_1 = {
 }
 const PAGE_2 = {
   id: "page-2", novel_id: "p1", page_type: "species", title: "种族设定",
+  version_number: 1,
   status: "canonical", free_text: "灵族与人族长期共存。", sort_order: 1,
   sections_json: [], linked_asset_refs_json: [],
 }
@@ -95,6 +98,18 @@ const CUSTOM_TEMPLATE = {
 const ACTIVATION_PROFILES = [
   { id: "prof-1", profile_key: "writing.world", name: "写作规则", status: "draft", version_number: 1, applicable_actions_json: ["writing.generate"], rules_json: [] },
 ]
+
+const EMPTY_IMPACT = {
+  source: { draft_id: "draft-1", page_id: "page-1", title: "世界基本背景", page_version: 1 },
+  added_outgoing_refs: 0,
+  removed_outgoing_refs: 0,
+  affected_pages: [],
+  omissions: [],
+  automatic_actions: ["保存不可变页面版本", "标记世界观简介需要刷新"],
+  not_checked: ["故事总纲与 Scene", "正文和自由文本中的语义提及"],
+  complete: true,
+  impact_scope_hash: "a".repeat(64),
+}
 
 function defaultBible() {
   return {
@@ -196,6 +211,45 @@ describe("渲染契约", () => {
     expect(toolbar.find("[data-action='bible-manage-page-templates']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-suggestions']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-conflicts']").exists()).toBe(true)
+    expect(toolbar.find("[data-action='bible-inspect-current-page']").exists()).toBe(true)
+  })
+
+  it("汇总已保存的未决项，以工作稿覆盖正式页并可打开来源", async () => {
+    const openSection = (body) => ({
+      section_id: "author-open-questions", section_type: "checklist", title: "仍待作者决定",
+      body_markdown: body, sort_order: 20, linked_asset_ref_hashes: [],
+      projection_policy: "excluded", sensitivity_hint: "author_only",
+    })
+    const bible = defaultBible()
+    bible.pages = [
+      { ...PAGE_1, sections_json: [openSection("- [ ] 正式页里的旧税率问题")] },
+      { ...PAGE_2, sections_json: [openSection("- [ ] 灵族故乡如何命名")] },
+      { ...PAGE_2, id: "page-archived", status: "archived", title: "历史页面", sections_json: [openSection("- [ ] 已归档的旧问题")] },
+    ]
+    bible.drafts = [
+      { ...DRAFT_1, sections_json: [openSection("- [ ] 新税率由谁批准\n- [x] 已决定的税率")] },
+      { ...DRAFT_FREE, sections_json: [openSection("* [ ] 禁术的代价是什么")] },
+    ]
+
+    const wrapper = mountTab({ bible })
+    const panel = wrapper.get("[data-section='bible-open-questions']")
+
+    expect(panel.find("summary").text()).toContain("3 项")
+    expect(panel.find("summary").text()).toContain("3 个已保存页面")
+    expect(panel.text()).toContain("新税率由谁批准")
+    expect(panel.text()).toContain("灵族故乡如何命名")
+    expect(panel.text()).toContain("禁术的代价是什么")
+    expect(panel.text()).not.toContain("正式页里的旧税率问题")
+    expect(panel.text()).not.toContain("已决定的税率")
+    expect(panel.text()).not.toContain("已归档的旧问题")
+
+    await panel.get("[data-bible-open-question-page-id='page-2']").trigger("click")
+    await nextTick()
+    expect(wrapper.get("#bible-title").element.value).toBe("种族设定")
+
+    await panel.get("[data-bible-open-question-draft-id='draft-free']").trigger("click")
+    await nextTick()
+    expect(wrapper.get("#bible-title").element.value).toBe("新页工作稿")
   })
 
   it("展示模式切换按钮组", () => {
@@ -218,6 +272,18 @@ describe("渲染契约", () => {
     expect(wrapper.find(".world-bible-page-nav").exists()).toBe(true)
     expect(wrapper.find(".world-bible-editor-panel").exists()).toBe(true)
     expect(wrapper.find(".world-bible-inspector").exists()).toBe(true)
+  })
+
+  it("AI 参考规则使用作者可读状态，不暴露内部标识", () => {
+    const wrapper = mountTab()
+    const inspector = wrapper.get(".world-bible-inspector")
+
+    expect(inspector.text()).toContain("规则方案")
+    expect(inspector.text()).toContain("工作稿")
+    expect(inspector.text()).toContain("适用于 1 类 AI 操作")
+    expect(inspector.text()).not.toContain("Activation Profile")
+    expect(inspector.text()).not.toContain("writing.world")
+    expect(inspector.text()).not.toContain("writing.generate")
   })
 
   it("编辑器面板显示 active page 标题、元数据、表单和分区", () => {
@@ -250,6 +316,7 @@ describe("渲染契约", () => {
     const wrapper = mountTab({ bible: { pages: [], categories: [], drafts: [], synopsis: null, pageTemplates: [], activationProfiles: [] } })
     expect(wrapper.find(".empty-state").exists()).toBe(true)
     expect(wrapper.text()).toContain("创建一个世界书页面")
+    expect(wrapper.get("[data-section='bible-open-questions'] summary").text()).toContain("0 项")
   })
 })
 
@@ -399,6 +466,33 @@ describe("编辑器行为", () => {
     expect(sections.length).toBeGreaterThanOrEqual(1)
     expect(sections[0].find("[data-section-field='title']").element.value).toBe("货币")
     expect(sections[0].find("[data-section-field='body_markdown']").element.value).toBe("北境使用银币")
+    expect(sections[0].find(".world-bible-section-editor__toolbar .badge").text()).toBe("第 1 节")
+    expect(sections[0].find("[data-section-field='section_type']").text()).toContain("普通资料")
+    expect(sections[0].find("[data-section-field='section_type']").text()).not.toContain("asset_collection")
+    expect(sections[0].find("[data-section='bible-section-advanced']").attributes("open")).toBeUndefined()
+    expect(sections[0].find("[data-section='bible-section-advanced'] summary").text()).toBe("创作辅助与高级设置")
+  })
+
+  it("折叠高级设置仍按原 wire 字段保存分区控制", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.updateBibleDraft = vi.fn().mockResolvedValue({ ...DRAFT_1 })
+    const wrapper = mountTab()
+    const section = wrapper.findAll(".world-bible-section-editor")[0]
+
+    await section.find("[data-section-field='section_type']").setValue("checklist")
+    await section.find("[data-section-field='sensitivity_hint']").setValue("author_only")
+    await section.find("[data-section-field='projection_policy']").setValue("excluded")
+    await section.find("[data-section-field='linked_asset_ref_hashes']").setValue("a".repeat(64))
+    await wrapper.find("[data-action='bible-save-page']").trigger("click")
+    await vi.waitFor(() => expect(api.world.updateBibleDraft).toHaveBeenCalledTimes(1))
+
+    expect(api.world.updateBibleDraft.mock.calls[0][1].sections_json[0]).toEqual(expect.objectContaining({
+      section_id: "s1",
+      section_type: "checklist",
+      sensitivity_hint: "author_only",
+      projection_policy: "excluded",
+      linked_asset_ref_hashes: ["a".repeat(64)],
+    }))
   })
 
   it("新增分区通过模板块操作", async () => {
@@ -421,6 +515,10 @@ describe("编辑器行为", () => {
     await nextTick()
     expect(api.world.updateBibleDraft).toHaveBeenCalled()
     expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("已保存"), "success")
+    expect(readCreativeContinuation("p1")).toMatchObject({
+      destination: "world_bible_draft",
+      route: { draft_id: "draft-1", page_id: "page-1" },
+    })
   })
 
   it("首次保存只对账本地工作稿并保留编辑器焦点", async () => {
@@ -521,18 +619,107 @@ describe("编辑器行为", () => {
     await vi.waitFor(() => expect(wrapper.find(".world-bible-workspace").attributes("aria-busy")).toBe("false"))
   })
 
-  it("发布工作稿调用 API", async () => {
+  it("发布工作稿先显示诚实空态，再携带 scope hash 确认", async () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     api.world.createBibleDraft = vi.fn()
     api.world.updateBibleDraft = vi.fn().mockResolvedValue({ id: "draft-1", page_id: "page-1", ...DRAFT_1 })
-    api.world.publishBibleDraft = vi.fn().mockResolvedValue({ ...PAGE_1, version_number: 2 })
+    api.world.previewBibleDraftPublishImpact = vi.fn().mockResolvedValue(EMPTY_IMPACT)
+    api.world.publishBibleDraft = vi.fn().mockResolvedValue({
+      ...PAGE_1,
+      version_number: 2,
+      validation_receipt: {
+        scope: "targeted", scope_label: "当前页面与 0 个显式下游", source_version: 2,
+        checked: ["来源基线与写入版本"], not_checked: ["所属领域的完整检查"], omissions: [],
+      },
+    })
     const wrapper = mountTab()
     await wrapper.find("#bible-title").setValue("世界基本背景")
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
     await nextTick()
     expect(api.world.updateBibleDraft).toHaveBeenCalled()
-    expect(api.world.publishBibleDraft).toHaveBeenCalled()
+    expect(api.world.previewBibleDraftPublishImpact).toHaveBeenCalledWith("draft-1", "p1")
+    expect(api.world.publishBibleDraft).not.toHaveBeenCalled()
+    const [, body, actions] = showModalHtmlMock.mock.calls.at(-1)
+    expect(body).toContain("未发现显式引用；自由文本和其他创作领域未检查")
+    expect(body).toContain("本次未检查")
+    await actions.find((item) => item.text === "确认发布").handler()
+    expect(api.world.publishBibleDraft).toHaveBeenCalledWith("draft-1", "p1", "a".repeat(64))
     expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("已发布"), "success")
+    const [receiptTitle, receiptBody] = showModalHtmlMock.mock.calls.at(-1)
+    expect(receiptTitle).toContain("检查回执")
+    expect(receiptBody).toContain("定向检查")
+    expect(receiptBody).toContain("所属领域的完整检查")
+    expect(receiptBody).toContain("不表示整个世界观语义完全正确")
+  })
+
+  it("影响预演用作者语言折叠显示最短路径，不暴露 ID 或 hash", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.updateBibleDraft = vi.fn().mockResolvedValue({ id: "draft-1", page_id: "page-1", ...DRAFT_1 })
+    api.world.previewBibleDraftPublishImpact = vi.fn().mockResolvedValue({
+      ...EMPTY_IMPACT,
+      affected_pages: [{
+        page_id: "page-secret-id",
+        title: "轮班制度<img src=x>",
+        page_type: "rule",
+        version_number: 3,
+        distance: 2,
+        path: [
+          { page_id: "page-1", title: "世界基本背景", version_number: 1, section_titles: [] },
+          { page_id: "page-2", title: "港区日常", version_number: 2, section_titles: ["道路"] },
+          { page_id: "page-secret-id", title: "轮班制度<img src=x>", version_number: 3, section_titles: ["值守"] },
+        ],
+      }],
+    })
+    const wrapper = mountTab()
+
+    await wrapper.find("[data-action='bible-publish-page']").trigger("click")
+    await nextTick()
+
+    const body = showModalHtmlMock.mock.calls.at(-1)[1]
+    expect(body).toContain("建议核对（1）")
+    expect(body).toContain("世界基本背景 ← 港区日常 ← 轮班制度&lt;img src=x&gt;")
+    expect(body).toContain("分区：值守")
+    expect(body).not.toContain("<img src=x>")
+    expect(body).not.toContain("page-secret-id")
+    expect(body).not.toContain("a".repeat(64))
+  })
+
+  it("影响预演暂不可用时保留工作稿与人工发布出口", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.updateBibleDraft = vi.fn().mockResolvedValue({ id: "draft-1", page_id: "page-1", ...DRAFT_1 })
+    api.world.previewBibleDraftPublishImpact = vi.fn().mockRejectedValue(new Error("offline"))
+    api.world.publishBibleDraft = vi.fn().mockResolvedValue({ ...PAGE_1, version_number: 2 })
+    const wrapper = mountTab()
+
+    await wrapper.find("[data-action='bible-publish-page']").trigger("click")
+    await nextTick()
+
+    const [title, body, actions] = showModalHtmlMock.mock.calls.at(-1)
+    expect(title).toBe("影响预演暂不可用")
+    expect(body).toContain("工作稿已经保存")
+    expect(api.world.publishBibleDraft).not.toHaveBeenCalled()
+    await actions.find((item) => item.text === "仍然发布").handler()
+    expect(api.world.publishBibleDraft).toHaveBeenCalledWith("draft-1", "p1", null)
+  })
+
+  it("确认前引用关系变化时保留工作稿并要求重新核对", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.updateBibleDraft = vi.fn().mockResolvedValue({ id: "draft-1", page_id: "page-1", ...DRAFT_1 })
+    api.world.previewBibleDraftPublishImpact = vi.fn().mockResolvedValue(EMPTY_IMPACT)
+    const conflict = Object.assign(new Error("conflict"), { status: 409 })
+    api.world.publishBibleDraft = vi.fn().mockRejectedValue(conflict)
+    const wrapper = mountTab()
+
+    await wrapper.find("[data-action='bible-publish-page']").trigger("click")
+    await nextTick()
+    const actions = showModalHtmlMock.mock.calls.at(-1)[2]
+    await actions.find((item) => item.text === "确认发布").handler()
+
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("显式引用关系已变化"), "warning")
+    expect(readCreativeContinuation("p1")).toMatchObject({
+      destination: "world_bible_draft",
+      route: { draft_id: "draft-1", page_id: "page-1" },
+    })
   })
 
   it("应用模板只就地更新工作稿分区", async () => {
@@ -642,6 +829,117 @@ describe("模态操作", () => {
     expect(navigateMock).not.toHaveBeenCalled()
     expect(toastMock).not.toHaveBeenCalledWith("工作稿已保存；正式页面尚未变化", "success")
     expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("固定当前页基线检修并只显示作者决定或改进项", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.generate.inspectWorldPage = vi.fn().mockResolvedValue({
+      findings: [{
+        item_id: "S1",
+        author_action: "needs_decision",
+        summary: "开放税率被写成唯一事实",
+        evidence: "待定标记与三成税率同时存在",
+        location: "货币分区",
+        next_step: "决定是否继续开放并重检",
+      }],
+      receipt: {
+        scope_label: "当前世界书页《世界基本背景》",
+        source_version: 1,
+        checks_run: ["权威顺序"],
+        not_run: ["章节正文"],
+        omissions: ["不能证明页面完整无误。"],
+      },
+    })
+    const wrapper = mountTab()
+
+    await wrapper.get("[data-action='bible-inspect-current-page']").trigger("click")
+    await vi.waitFor(() => expect(api.generate.inspectWorldPage).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalledWith(
+      "当前页检修",
+      expect.stringContaining("需要你决定"),
+      expect.any(Array),
+      { size: "large" },
+    ))
+
+    expect(api.generate.inspectWorldPage).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      source_context: {
+        kind: "world_bible_page",
+        page_id: "page-1",
+        baseline: {
+          kind: "draft",
+          page_version: 1,
+          draft_id: "draft-1",
+          draft_updated_at: DRAFT_1.updated_at,
+        },
+      },
+      target: { kind: "world_bible_page", page_id: "page-1" },
+      include_world_synopsis: false,
+    }), { signal: expect.any(AbortSignal) })
+    const html = showModalHtmlMock.mock.calls.at(-1)[1]
+    expect(html).toContain("开放税率被写成唯一事实")
+    expect(html).toContain("章节正文")
+    expect(html).not.toContain("必须修复")
+  })
+
+  it("允许作者停止当前页检修且不承诺瞬时断开远端", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    let resolveInspection
+    api.generate.inspectWorldPage = vi.fn(() => new Promise((resolve) => {
+      resolveInspection = resolve
+    }))
+    const wrapper = mountTab()
+    const button = wrapper.get("[data-action='bible-inspect-current-page']")
+
+    await button.trigger("click")
+    await vi.waitFor(() => expect(api.generate.inspectWorldPage).toHaveBeenCalledOnce())
+    const signal = api.generate.inspectWorldPage.mock.calls[0][1].signal
+    expect(button.text()).toBe("停止检修")
+
+    await button.trigger("click")
+
+    expect(signal.aborted).toBe(true)
+    expect(toastMock).toHaveBeenCalledWith(
+      "已停止后续检修；远端请求可能正在结束",
+      "warning",
+    )
+    resolveInspection({ findings: [{ summary: "不应显示的迟到检修" }], receipt: {} })
+    await Promise.resolve()
+    await nextTick()
+    expect(showModalHtmlMock).not.toHaveBeenCalledWith(
+      "当前页检修",
+      expect.stringContaining("不应显示的迟到检修"),
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(toastMock).not.toHaveBeenCalledWith("已完成本次当前页检修", "success")
+  })
+
+  it("离开页面后不打开迟到的检修结果", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    let resolveInspection
+    api.generate.inspectWorldPage = vi.fn(() => new Promise((resolve) => {
+      resolveInspection = resolve
+    }))
+    const wrapper = mountTab()
+
+    await wrapper.get("[data-action='bible-inspect-current-page']").trigger("click")
+    await vi.waitFor(() => expect(api.generate.inspectWorldPage).toHaveBeenCalledOnce())
+    const signal = api.generate.inspectWorldPage.mock.calls[0][1].signal
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+
+    resolveInspection({ findings: [], receipt: {} })
+    await Promise.resolve()
+    await nextTick()
+
+    expect(showModalHtmlMock).not.toHaveBeenCalledWith(
+      "当前页检修",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(toastMock).not.toHaveBeenCalledWith("已完成本次当前页检修", "success")
   })
 
   it("创建新页面弹模态", async () => {
@@ -1164,6 +1462,109 @@ describe("模态操作", () => {
     expect(body.textContent).toContain("类别键")
   })
 
+  it("用作者语言折叠展示生成时的决定摘要", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.listSuggestions = vi.fn().mockResolvedValue({ items: [{
+      id: "suggestion-decision",
+      target_type: "world_bible_page_draft",
+      risk_level: "low",
+      action_schema: "world_generation.page_draft.v1",
+      review_group: "generation_center",
+      payload_json: { page: { title: "潮汐制度", free_text: "港工依照潮谚安排轮班。" } },
+      decision_state: {
+        current_author_goal: "建立潮汐制度",
+        confirmed_requirements: ["保留港工轮班"],
+        supported_developments: [],
+        rejected_elements: [],
+        forbidden_exact_terms: [],
+        unresolved_choices: ["潮汐来源仍由我决定"],
+        knowledge_expression_boundaries: ["作者知道完整机制；港工只用潮谚表达"],
+        naming_policy: "unnamed_placeholder",
+        confidence: 0.95,
+      },
+    }] })
+    const wrapper = mountTab()
+
+    await wrapper.find("[data-action='bible-open-suggestions']").trigger("click")
+    await nextTick()
+
+    const body = showModalHtmlMock.mock.calls.at(-1)[1]
+    expect(body).toContain("<details class=\"world-bible-author-decisions\"")
+    expect(body).toContain("AI 本次理解 · 请核对")
+    expect(body).toContain("仍由我决定")
+    expect(body).toContain("作者知道完整机制；港工只用潮谚表达")
+    expect(body).toContain("暂不命名，只使用描述性占位")
+    expect(body).not.toContain("0.95")
+  })
+
+  it("展示可比较的线性修订历史，且历史版没有处理按钮", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.listSuggestions = vi.fn(async ({ status }) => ({ items: status === "pending" ? [{
+      id: "suggestion-current",
+      status: "pending",
+      target_type: "world_bible_page_draft",
+      risk_level: "low",
+      action_schema: "world_generation.page_draft.v1",
+      review_group: "generation_center",
+      payload_json: { page: { title: "潮汐新制", page_type: "rule", free_text: "按潮汐表排班。" } },
+      revision_link: { predecessor_suggestion_id: "suggestion-old", successor_suggestion_id: null },
+    }] : [{
+      id: "suggestion-old",
+      status: "rejected",
+      target_type: "world_bible_page_draft",
+      risk_level: "low",
+      action_schema: "world_generation.page_draft.v1",
+      review_group: "generation_center",
+      payload_json: { page: { title: "港口旧制", page_type: "rule", free_text: "按日历排班。" } },
+      revision_link: { predecessor_suggestion_id: null, successor_suggestion_id: "suggestion-current" },
+    }], total: 1 }))
+    const wrapper = mountTab()
+
+    await wrapper.find("[data-action='bible-open-suggestions']").trigger("click")
+    await nextTick()
+
+    const body = showModalHtmlMock.mock.calls.at(-1)[1]
+    expect(body).toContain("上一版 → 当前修订版")
+    expect(body).toContain("修订历史（1）")
+    expect(body).toContain("港口旧制")
+    expect(body).toContain("潮汐新制")
+    expect(body).toContain("不可再采用")
+    expect(body).not.toContain("data-bible-edit-suggestion=\"suggestion-old\"")
+  })
+
+  it("按 Today 深链打开并定位一条待处理建议", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.listSuggestions = vi.fn().mockResolvedValue({ items: [
+      { id: "suggestion-1", target_type: "world_bible_page_draft", payload_json: { page: { title: "第一条" } } },
+      { id: "suggestion-2", target_type: "world_bible_page_draft", payload_json: { page: { title: "目标建议" } } },
+    ] })
+
+    mountTab({ bibleDeepLink: { draftId: "", pageId: "", openSuggestions: true, suggestionId: "suggestion-2" } })
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalledWith("创设建议", expect.any(String), [], { size: "large" }))
+
+    const body = showModalHtmlMock.mock.calls.at(-1)[1]
+    expect(body.indexOf("目标建议")).toBeLessThan(body.indexOf("第一条"))
+    expect(body).toContain("本次生成未保存决定摘要")
+    expect(readCreativeContinuation("p1")).toMatchObject({
+      destination: "world_suggestion_review",
+      route: { suggestion_id: "suggestion-2" },
+    })
+  })
+
+  it("深链建议已处理时清除旧入口并显示其余待处理项", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.listSuggestions = vi.fn().mockResolvedValue({ items: [] })
+    writeCreativeContinuation("p1", {
+      destination: "world_suggestion_review",
+      route: { suggestion_id: "suggestion-gone" },
+    })
+
+    mountTab({ bibleDeepLink: { draftId: "", pageId: "", openSuggestions: true, suggestionId: "suggestion-gone" } })
+    await vi.waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("已处理或不可用"), "info"))
+
+    expect(readCreativeContinuation("p1")).toBeNull()
+  })
+
   it("打开冲突弹窗", async () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     api.world.listWorldConflicts = vi.fn().mockResolvedValue({ items: [], total: 0 })
@@ -1178,6 +1579,12 @@ describe("模态操作", () => {
     await wrapper.find("[data-action='bible-activation-new']").trigger("click")
     expect(showModalHtmlMock).toHaveBeenCalled()
     expect(showModalHtmlMock.mock.calls[0][0]).toBe("新建 AI 参考规则")
+    const html = showModalHtmlMock.mock.calls[0][1]
+    expect(html).toContain("单次参考篇幅")
+    expect(html).not.toContain("规则标识")
+    expect(html).not.toContain("适用操作")
+    expect(html).not.toContain("writing.generate")
+    expect(html).not.toContain("writing.world_bible")
   })
 
   it("发布激活规则调用 confirmAction", async () => {
@@ -1242,20 +1649,17 @@ describe("模态操作", () => {
 })
 
 describe("激活面板", () => {
-  it("显示激活 profile 选择器", () => {
+  it("显示 AI 参考规则选择器", () => {
     const wrapper = mountTab()
-    expect(wrapper.find("#bible-activation-profile").exists()).toBe(true)
     expect(wrapper.find("#bible-activation-profile").exists()).toBe(true)
     const select = wrapper.find("#bible-activation-profile").element
     expect(select.options.length).toBeGreaterThanOrEqual(2) // empty + profiles
   })
 
-  it("选择 profile 后显示摘要和 dry-run", async () => {
+  it("选择规则方案后显示可读摘要和试运行", () => {
     const wrapper = mountTab()
-    const select = wrapper.find("#bible-activation-profile")
-    // Default should select first profile
     expect(wrapper.find(".world-bible-profile-summary").exists()).toBe(true)
-    expect(wrapper.find(".world-bible-profile-summary").text()).toContain("writing.world")
+    expect(wrapper.find(".world-bible-profile-summary").text()).toContain("工作稿 写作规则")
     expect(wrapper.find("#bible-activation-task").exists()).toBe(true)
     expect(wrapper.find("[data-action='bible-activation-dry-run']").exists()).toBe(true)
   })
@@ -1356,6 +1760,32 @@ describe("激活面板", () => {
 
     expect(wrapper.find("#bible-activation-profile").element.value).toBe("prof-2")
     expect(toastMock).not.toHaveBeenCalledWith("AI 参考规则已发布", "success")
+  })
+
+  it("试运行结果不显示内部规则、原因、资料编号或容量单位", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.context.previewActivationProfile = vi.fn().mockResolvedValue({
+      rule_evaluations: [{ rule_id: "writing.generate.internal", matched: false, candidate_count: 1, blocked_clauses: ["scope_mismatch"] }],
+      items: [{ label: "北境税制", target: { target_id: "raw-included-id" }, activation_reason: "rule:internal -> page", token_after: 321 }],
+      excluded_items: [{ target: { target_id: "raw-excluded-id" }, activation_reason: "rule:internal", excluded_reason: "rule_token_cap", token_before: 654 }],
+    })
+    const wrapper = mountTab()
+
+    await wrapper.find("#bible-activation-task").setValue("检查北境税制")
+    await wrapper.find("[data-action='bible-activation-dry-run']").trigger("click")
+    await vi.waitFor(() => expect(wrapper.find(".world-bible-activation-trace").exists()).toBe(true))
+
+    const text = wrapper.find(".world-bible-activation-trace").text()
+    expect(text).toContain("规则 1 · 未命中")
+    expect(text).toContain("当前任务不适用")
+    expect(text).toContain("符合当前参考规则并已加入")
+    expect(text).toContain("超出当前参考篇幅")
+    expect(text).not.toContain("writing.generate.internal")
+    expect(text).not.toContain("rule_token_cap")
+    expect(text).not.toContain("raw-included-id")
+    expect(text).not.toContain("raw-excluded-id")
+    expect(text).not.toContain("321")
+    expect(text).not.toContain("654")
   })
 })
 

@@ -1085,6 +1085,72 @@ html, body {
   flex-wrap: wrap;
 }
 
+.world-bible-open-questions {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+}
+
+.world-bible-open-questions > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.world-bible-open-questions > summary:hover {
+  color: var(--text-primary);
+}
+
+.world-bible-open-questions > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.world-bible-open-questions > summary::-webkit-details-marker {
+  display: none;
+}
+
+.world-bible-open-questions > summary::after {
+  content: "展开";
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.world-bible-open-questions[open] > summary::after {
+  content: "收起";
+}
+
+.world-bible-open-questions__hint,
+.world-bible-open-question small {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.world-bible-open-questions__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.world-bible-open-question {
+  display: grid;
+  min-width: 0;
+  min-height: 44px;
+  gap: 2px;
+  justify-items: start;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: left;
+}
+
 .world-bible-layout {
   display: grid;
   grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
@@ -9622,6 +9688,94 @@ kbd {
 
 .rag-search-form .form-input {
   flex: 1;
+  min-width: 0;
+}
+
+.rag-search-actions,
+.ask-world-actions,
+.ask-world-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.rag-ask-world-note {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.ask-world-card,
+.ask-world-source {
+  margin-top: var(--space-3);
+}
+
+.ask-world-card__header,
+.ask-world-source__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.ask-world-card__header p,
+.ask-world-card__status,
+.ask-world-card__notice,
+.ask-world-source__header span {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.ask-world-answer {
+  margin: var(--space-4) 0;
+  line-height: var(--leading-relaxed);
+}
+
+.ask-world-claims {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ask-world-claim {
+  padding: var(--space-3);
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.ask-world-claim p {
+  margin: 0 0 var(--space-2);
+  line-height: var(--leading-relaxed);
+}
+
+.ask-world-uncertainty,
+.ask-world-trace,
+.ask-world-actions {
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.ask-world-trace p {
+  margin: var(--space-2) 0 0;
+}
+
+.ask-world-source__header > div {
+  display: grid;
+  min-width: 0;
+}
+
+.ask-world-source__text {
+  max-height: min(55vh, 34rem);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  line-height: var(--leading-relaxed);
 }
 
 .rag-search-empty {
@@ -9634,6 +9788,31 @@ kbd {
   color: var(--danger);
   font-size: var(--text-sm);
   margin: 0;
+}
+
+@media (max-width: 600px) {
+  .rag-search-form {
+    flex-direction: column;
+  }
+
+  .rag-search-actions .btn {
+    flex: 1;
+  }
+
+  .ask-world-card__header,
+  .ask-world-source__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 390px) {
+  .ask-world-card .btn,
+  .ask-world-source .btn {
+    justify-content: center;
+    width: 100%;
+    min-height: 44px;
+  }
 }
 
 .rag-results-list {
@@ -10634,6 +10813,25 @@ kbd {
   gap: var(--space-1);
 }
 
+.world-bible-section-advanced {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.world-bible-section-advanced > summary {
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.world-bible-section-advanced__body {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 .world-bible-trace-rule.is-matched {
   border-color: color-mix(in srgb, var(--success) 50%, var(--border));
 }
@@ -10851,6 +11049,42 @@ kbd {
   margin-bottom: var(--space-2);
 }
 
+.world-bible-author-decisions {
+  margin: var(--space-2) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.world-bible-author-decisions summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.world-bible-author-decisions dl {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-2) 0;
+}
+
+.world-bible-author-decisions dt {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.world-bible-author-decisions dd,
+.world-bible-author-decisions ul,
+.world-bible-author-decisions p {
+  margin: 0;
+}
+
+.world-bible-author-decisions ul {
+  padding: 0;
+  list-style-position: inside;
+}
+
 .world-bible-suggestion-selector {
   display: flex;
   align-items: center;
@@ -10867,12 +11101,72 @@ kbd {
   margin-top: var(--space-2);
 }
 
+.world-bible-suggestion-revision {
+  margin: var(--space-2) 0;
+  padding: var(--space-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+
+.world-bible-suggestion-history {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.world-bible-suggestion-history > summary,
+.world-bible-suggestion-comparison > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.world-bible-suggestion-item--historical {
+  opacity: 0.85;
+}
+
+.world-bible-suggestion-comparison {
+  margin: var(--space-2) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.world-bible-suggestion-comparison dl {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.world-bible-suggestion-comparison dt {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.world-bible-suggestion-comparison dd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.world-bible-suggestion-comparison ins {
+  color: var(--text);
+  text-decoration: none;
+}
+
 .world-bible-conflict-item {
   margin: var(--space-2) 0;
   color: var(--text-body);
 }
 
 @media (max-width: 760px) {
+  .world-bible-author-decisions dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .world-bible-layout,
   .world-bible-layout:has(.world-bible-nav-rail:not([open])) {
     grid-template-columns: minmax(0, 1fr);
@@ -14234,6 +14528,16 @@ button.rp-journey-card__main:hover {
 .story-outline-list-item__actions { display: flex; gap: var(--space-1); }
 .story-outline-list-empty { padding: var(--space-4); border: 1px dashed var(--border); border-radius: var(--radius-lg); text-align: center; }
 
+.world-knowledge-manager { display: grid; gap: var(--space-5); }
+.world-knowledge-manager > section + section { padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.world-knowledge-target { margin-top: var(--space-3); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); }
+.world-knowledge-target h4 { display: flex; align-items: baseline; gap: var(--space-2); margin: 0 0 var(--space-2); }
+.world-knowledge-record { margin-top: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md); background: var(--bg-hover); }
+.world-knowledge-record p { margin: var(--space-2) 0; white-space: pre-wrap; }
+.world-knowledge-target details { margin-top: var(--space-3); }
+.world-knowledge-target details > summary { cursor: pointer; color: var(--text-secondary); }
+.world-knowledge-manager .form-check { display: flex; align-items: center; gap: var(--space-2); }
+
 .map-overview-primary { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); min-height: 190px; padding: clamp(24px, 5vw, 46px); background: linear-gradient(135deg, var(--accent-soft), var(--bg-elevated)); }
 .map-overview-primary h2 { margin: var(--space-2) 0; font-size: clamp(24px, 4vw, 38px); }
 .map-overview-primary p { max-width: 640px; color: var(--text-secondary); }
@@ -14267,7 +14571,8 @@ button.rp-journey-card__main:hover {
   .rag-repair-card { align-items: stretch; flex-direction: column; }
   .story-outline-list-item__actions { flex-wrap: wrap; }
   .map-overview-primary .btn,
-  .rag-repair-card__actions .btn { min-height: 44px; }
+  .rag-repair-card__actions .btn,
+  .world-knowledge-record .btn { min-height: 44px; }
   .world-attention-menu__panel,
   .world-view-options__panel,
   .map-overview-more__panel,
@@ -14275,6 +14580,26 @@ button.rp-journey-card__main:hover {
 }
 
 /* ===== Generate 视图（自 GenerateView.vue 收编，视觉规则与 editorial 层无冲突） ===== */
+.generate-visual-brief { flex:0 0 auto;margin:0 0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text-muted);font-size:12px }
+.generate-visual-brief>summary { cursor:pointer;color:var(--text);font-weight:600 }
+.generate-visual-brief__axes { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0 }
+.generate-visual-brief__axes span { display:grid;gap:2px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px }
+.generate-visual-brief__grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px }
+.generate-visual-brief__grid label { display:grid;gap:4px }
+.generate-visual-brief__wide { grid-column:1/-1 }
+.generate-external-handoff { flex:0 0 auto;margin:0 0 10px;border-top:1px solid var(--border);padding-top:8px;color:var(--text-muted);font-size:12px }
+.generate-external-handoff>summary { cursor:pointer;color:var(--text) }
+.generate-external-handoff__input { display:grid;gap:5px;margin-top:8px }
+.generate-external-handoff__meta { display:grid;gap:2px;margin-top:5px;color:var(--text-dim) }
+.generate-external-handoff__meta.is-over-limit { color:var(--warning) }
+.generate-external-packet-history { display:grid;gap:6px;margin-top:10px }
+.generate-external-packet-history article { display:grid;gap:2px;border-top:1px solid var(--border);padding-top:6px }
+.generate-external-packet-history code { overflow-wrap:anywhere;color:var(--text-dim);font-size:10px }
+.generate-handoff-manual { width:100%;font:12px/1.5 var(--font-mono) }
+.generate-exploration { flex:0 0 auto;margin:0 0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text-muted);font-size:12px }
+.generate-exploration>summary { cursor:pointer;color:var(--text);font-weight:600 }
+.generate-exploration__results { display:grid;gap:8px;margin-top:8px }
+.generate-exploration .generate-convergence-card.is-selected { border-color:var(--accent);background:var(--selected) }
 .generate-suggestion-note { max-width:260px;color:var(--text-dim);font-size:11px;line-height:1.35 }
 .generate-tab-panel { min-width:0 }
 .generate-chatbox { display:grid;grid-template-columns:minmax(0,78fr) minmax(180px,22fr);gap:var(--space-3);align-items:stretch;height:calc(100vh - 180px);min-height:480px;overflow:hidden }
@@ -14292,6 +14617,23 @@ button.rp-journey-card__main:hover {
 .generate-chat-role,.generate-result-meta,.generate-empty-copy { color:var(--text-dim);font-size:12px }
 .generate-chat-bubble { white-space:pre-wrap;border:1px solid var(--border);border-radius:var(--radius-md);padding:10px var(--space-3);background:var(--panel);font-size:13px;line-height:1.55 }
 .generate-chat-message.error .generate-chat-bubble,.generate-error-text { color:var(--danger) }
+.generate-convergence-action { display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-2px 0 10px;color:var(--text-muted);font-size:12px }
+.generate-convergence-action strong,.generate-convergence-action span { display:block }
+.generate-convergence { flex:0 1 48vh;min-height:0;overflow:auto;margin-bottom:10px;border:1px solid var(--accent);border-radius:var(--radius-md);padding:12px;background:var(--panel) }
+.generate-convergence__header,.generate-convergence-card__title,.generate-convergence-actions,.generate-convergence-sources,.generate-convergence__stats { display:flex;align-items:center;gap:8px;flex-wrap:wrap }
+.generate-convergence__header,.generate-convergence-card__title { justify-content:space-between }
+.generate-convergence__header p,.generate-convergence-card p { margin:3px 0;color:var(--text-muted);font-size:12px }
+.generate-convergence__stats { margin:8px 0;color:var(--text-dim);font-size:11px }
+.generate-convergence-card { margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px }
+.generate-convergence-card__title span,.generate-convergence-sources>span { color:var(--text-dim);font-size:11px }
+.generate-convergence-list { margin:6px 0;padding-left:20px }
+.generate-convergence-items { display:grid;gap:7px;margin-top:8px }
+.generate-convergence-items label { display:grid;grid-template-columns:minmax(0,1fr) minmax(132px,180px);align-items:center;gap:8px }
+.generate-convergence-sources { margin-top:8px }
+.generate-convergence-boundary { border-left:3px solid var(--accent);padding-left:8px }
+.generate-convergence-message { display:grid;gap:5px;font-size:12px }
+.generate-convergence-message textarea { min-height:150px }
+.generate-convergence-actions { margin-top:8px }
 .generate-composer { position:relative;display:flex;align-items:flex-end;flex:0 0 auto;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--panel);padding:var(--space-2) }
 .generate-chat-input { width:100%;min-height:72px;padding-right:76px;resize:vertical;border:0;outline:0;background:transparent;color:var(--text);font:inherit }
 .generate-composer-send { position:absolute;right:10px;bottom:10px;min-width:58px }
@@ -14337,8 +14679,16 @@ button.rp-journey-card__main:hover {
 
 /* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media (max-width: 900px) {
-  .generate-chatbox,.generate-chatbox:has(.generate-side-rail:not([open])),.generate-task-workspace,.generate-pov-workspace,.generate-form-grid { grid-template-columns:1fr;height:auto;min-height:0;overflow:visible }
+  .generate-chatbox,.generate-chatbox:has(.generate-side-rail:not([open])),.generate-task-workspace,.generate-pov-workspace,.generate-form-grid,.generate-visual-brief__axes,.generate-visual-brief__grid { grid-template-columns:1fr;height:auto;min-height:0;overflow:visible }
+  .generate-visual-brief__wide { grid-column:auto }
   .generate-side-rail { grid-column:1/-1 }
-  .generate-suggestion-note { display:none }
-  .generate-world-source-bar,.generate-world-config { align-items:stretch;flex-direction:column }
+  .topbar-generate-note,.generate-suggestion-note { display:none }
+  .generate-world-source-bar,.generate-world-config,.generate-convergence-action { align-items:stretch;flex-direction:column }
+  .generate-convergence { max-height:none }
+  .generate-convergence-items label { grid-template-columns:1fr }
+}
+
+@media (max-width: 390px) {
+  .generate-visual-brief .btn,.generate-exploration .btn { min-height:44px }
+  .generate-convergence-actions .btn { flex:1 1 100%;min-height:44px }
 }

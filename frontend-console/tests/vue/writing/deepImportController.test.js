@@ -313,6 +313,7 @@ describe("deepImportController", () => {
 
   it("取消、继续与放弃都通过后端任务契约执行", async () => {
     const pending = new Promise(() => {})
+    const changes = []
     const api = {
       tasks: { get: vi.fn(() => pending), cancel: vi.fn(async () => ({})) },
       world: {},
@@ -321,12 +322,13 @@ describe("deepImportController", () => {
         abandonDeepImport: vi.fn(async () => ({})),
       },
     }
-    const makeController = () => createDeepImportController({ api, toast: vi.fn(), getProjectId: () => "p1", onChange: vi.fn() })
+    const makeController = () => createDeepImportController({ api, toast: vi.fn(), getProjectId: () => "p1", onChange: (value) => changes.push(value) })
 
     const cancelled = makeController()
     cancelled.startTask({ taskId: "task-cancel", workflowType: "deep_import" })
     await cancelled.cancel()
     expect(api.tasks.cancel).toHaveBeenCalledWith("task-cancel", "p1")
+    expect(changes.at(-1).progress.message).toContain("不会再排下一步")
     cancelled.dispose()
 
     const resumed = makeController()

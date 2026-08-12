@@ -84,7 +84,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 `CharacterKnowledge.source_chapter_index` 表示人物学到该知识的章节。角色视角查询只纳入
 严格早于可见截止章的记录；同章但没有更精确学习位置、或缺少来源章的旧数据默认排除。
-只有明确 `is_public_baseline=true` 的开场公开知识可作为无来源章例外。
+只有明确 `is_public_baseline=true` 的开场公开知识可作为无来源章例外。模型上下文按目标只取
+一条 canonical 有效检查点，以生效章、更新时间、稳定 ID 确定胜者；列表接口仍返回历史和
+归档记录，并附带作者可读的目标名称/类型。错误认知只消费明确的 `misconception`，缺失时
+失败关闭，不使用真实内容兜底。
 - 动态地图服务 — 详见 `docs/modules/15_map.md`
 
 ### services 子包布局
@@ -263,6 +266,7 @@ PATCH  /api/world/bible/page-templates/{template_id}
 GET    /api/world/bible/page-templates/{template_id}/revisions
 POST   /api/world/bible/page-templates/{template_id}/revisions/{version}/restore-draft
 POST   /api/world/bible/drafts/{draft_id}/apply-template
+GET    /api/world/bible/drafts/{draft_id}/publish-impact
 POST   /api/world/bible/drafts/{draft_id}/publish
 POST   /api/world/bible/pages/{page_id}/refresh-projection
 GET    /api/world/bible/pages/{page_id}/revisions
@@ -275,8 +279,16 @@ POST   /api/world/bible/synopsis/unpin
 
 # 生成中心 world 工作区
 POST   /api/world/generation-center/chat
+POST   /api/world/generation-center/convergence
+POST   /api/world/generation-center/exploration
+POST   /api/world/generation-center/semantic-inspection
 POST   /api/world/generation-center/suggestions
 POST   /api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft
+
+# 作者端只读问世界
+POST   /api/world/ask-world
+POST   /api/world/ask-world/citations/open
+POST   /api/world/ask-world/suggestions
 ```
 
 生成中心 target 是 `core_entity`、`world_bible_page` 或 `world_bible_new_page`。页面 suggestion
@@ -286,6 +298,72 @@ canonical 仍只能由作者在世界书发布流程中改变。旧对象草稿�
 接口不再注册。provider 返回后，最终写入事务会再次校验项目仍 active 并持有共享项目锁，
 且以 page→draft 行锁强制重读来源 baseline；生成期间进入回收站的项目返回
 404，页面或工作稿已漂移时返回 409，均不写 suggestion 或兼容对象。
+
+五个生成中心入口都先冻结项目 owner 当前已验证账户连接的 secret-free
+provider/model 快照，同一次聊天、收束、探索、检修或建议内的后续调用全部沿用该快照。
+`quality_mode=pro` 是 provider-neutral 的加强复核：同一模型对初稿多做一遍有界审查并返回
+完整修订结果；它不再映射或覆盖账户模型。
+
+“问世界”复用 context 规划检索、证据回读和预算，不建立第二套 Wiki 或向量库。首版只服务
+作者：候选必须属于当前 `novel_id`、作者可见且为当前正式版本，回答的关键主张必须引用可重新
+打开的来源；没有足够证据时明确拒答。问答 endpoint 不写业务资产，作者另行点击保存后也只会
+生成 pending `CreationSuggestion`，不会直接改变页面、对象、地图或正典。
+
+`publish-impact` 是发布前的只读确定性预演：universe 固定为当前 `novel_id` 内
+`canonical/confirmed` 页面，服务规范化 typed page refs 后用循环安全的广度遍历返回最短直接／
+间接反向路径、引用所在分区、出站引用增删、omission 和明确未检查的 outline、writing、自由文本
+及其他未登记领域。空结果只表示“未发现显式引用”。scope hash 同时绑定工作稿内容、页面版本、
+当前 universe、显式边和 omission；新界面以可选 `expected_impact_scope_hash` 发布，漂移返回 409。
+该流程不调用 LLM、不新建表或 task，也不修改引用页；旧客户端不传 hash 时保持兼容。
+
+`convergence` 是聊天和 suggestion 之间的只读步骤。它从请求中的对话窗口、粘贴材料、页面
+baseline、章节、显式资产和实际项目背景生成 typed manifest；内容超过单次预算时只执行预定的
+顺序 map 与二叉 reduce。模型输出必须精确覆盖 manifest、解释跨卡重复且最多产生 7 张决定卡，
+否则响应 `complete=false`，不能编译决定消息。该路径不创建 suggestion、对象、页面或工作稿，
+也不引入服务器 creative session、分块任务状态或 Agent runtime；页面来源在模型返回后继续以
+现有 baseline 规则重验。生成中心还可在同一项目内显式勾选最多 16 个其他已采用世界书页；
+它们的概览和 sections 作为只读分块来源，当前页仍是唯一编辑 baseline。模型返回后同时重验已选来源 hash，
+任一来源漂移都返回 409，不继续形成决定或 suggestion。
+
+`exploration` 是页面来源与 `world_bible_new_page` 目标之间的可选深度 1 预览。它复用冻结的
+source manifest，最多列 3 个相邻缺口并允许零结果；预览不写业务数据、不递归、不调工具。
+作者单选后，suggestion 请求必须携带服务端 fingerprint 和所选证据 key；来源、对话或上下文
+变化会以 409 拒绝旧选择。生成仍只创建所选新页面建议；若模型在同一结构化结果中指出具体的
+来源页改写，最多再创建 1 条完整来源页修订建议。两条建议独立待审，不自动 apply 或继续扩展。
+
+外部模型回流的 P1 只复用这条请求的 `pasted_context`：作者目标仍在普通消息，浏览器在请求前
+执行 55,000 字符上限和当前本地会话内的 SHA-256 精确去重。回包只形成 convergence 预览；
+选择仍编成普通作者消息，后续最多由既有单 target 动作创建一条 suggestion。范围完整且未过期
+的预览可复制或下载同一份人类可读交接快照；不建上传、source、batch 或 export 记录。外部
+临时 ID 和检查声明不取得本地权威，项目来源也不冒充已完成全项目 stale 校验。
+
+自由聊天继续复用同一个无业务写入的 `chat` endpoint，不新增模式或 wire shape。Prompt 默认
+要求最低充分回应：短灵感先产出一个推荐方向、必要条件、普通日常切片、最高风险或作者边界与
+自然下一步，最多一个真正阻塞的问题；作者明确要求完整完善时保留其范围。已有横向框架但具体
+实例不足时，只固定一个地点或载体、一个群体或视角、一个时间窗口和一个扰动，沿日常、故障与
+可观察后果纵向推演；压力测试实例不是已采用事实。内容转成全书／分部的核心前提、叙事读法、
+基调或读者承诺时，聊天只提供可编辑摘要并指向既有故事总览；只有落到人物选择、事件或场景
+行动时才指向 Scene 规划。不创建 Scene、不改 StoryOutline，也不引入 Agent。
+
+多轮生成建议的响应和 `CreationSuggestion` 列表可返回同一份可选 `decision_state`，供作者
+核对模型实际采用的当前目标、保留／否定／未决项、命名和知识表达边界。对象建议从既有
+`content_json._meta.author_decision_state` 投影，页面建议在 typed payload 内保存；旧记录
+保持空值且不调用 LLM 回填。`knowledge_expression_boundaries` 只是本轮生成约束，不写入
+`CharacterKnowledge`、术语表或已采用世界事实。
+
+页面提案不会让 `unresolved_choices` 随一次建议处理而消失：服务把它们确定性整理为
+`author-open-questions` 检查清单，固定使用 `author_only` 与 `projection_policy=excluded`，
+因此作者能在工作稿和发布页面继续编辑，而写作上下文不会把问题误当成已采用答案。完整页面
+修订会保留既有清单；若 64 个分区已经占满，生成显式失败而不是静默删除作者必决项。世界书
+读取端直接从现有全量页面与工作稿响应派生“待我决定”：同页工作稿覆盖正式页，只统计未归档
+来源中的未勾选清单行，点击后回到原分区；不新增查询 API、数据库状态或跨页副本。
+
+当当前已有 pending 生成建议时，作者可明确选“修订此版”或“另起方案”。前者以可选
+`revises_suggestion_id` 声明线性 parent；服务在 LLM 前校验同项目、同目标、pending 与页面
+baseline，在 LLM 后复用 pending CAS，使新版创建、旧版 `rejected` 封存、旧兼容影子归档和
+`revision_link` 双向更新在同一请求事务成功或回滚。读取端使用 typed `revision_link`，不解析原始
+`result_ref_json`。关系只允许一个 predecessor 和一个 successor；拒绝新版不复活旧版。另起方案无 parent、
+可独立处理；已采用设定的变更仍走现有对象更新或 World Bible 工作稿/revision。
 
 `POST /api/world/bible/pages/{page_id}/refresh-projection` 的普通非流式请求由
 `DbSession` 的 request-owned transaction 在 function-scope dependency 结束时提交；返回

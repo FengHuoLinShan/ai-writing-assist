@@ -17,10 +17,16 @@
         <template v-else>
           <div class="writing-conflict-modal__meta">
             <span>检查范围：第 {{ check.chapter_index || '-' }} 章</span>
+            <span>来源版本：{{ sourceVersionLabel }}</span>
+            <span>定向复检：{{ recheckScopeLabel }}</span>
             <span>问题 {{ items.length }} 条</span>
             <span v-if="check.include_candidates" class="pill pill-warning">包含待处理内容
             </span>
           </div>
+
+          <p v-if="check.status === 'degraded'" class="writing-conflict-empty" role="status" data-author-action="needs_decision">
+            <strong>需要决定</strong> · 本次检查未覆盖{{ degradedSourceLabels }}；请决定是否先重新运行当前范围的检查。
+          </p>
 
           <section class="writing-conflict-group">
             <div class="writing-conflict-group__head">
@@ -127,6 +133,19 @@ const kindLabels = {
   continuity_soft_risk: "软连续性风险",
 }
 
+const authorActionLabels = {
+  needs_decision: { key: "needs_decision", label: "需要决定", className: "pill pill-warning" },
+  can_improve: { key: "can_improve", label: "可以改进", className: "pill" },
+}
+
+function authorActionOf(item) {
+  if ((item.status || "open") !== "open") return null
+  if (item.is_ai_judgment) {
+    return item.needs_review ? authorActionLabels.needs_decision : authorActionLabels.can_improve
+  }
+  return authorActionLabels.needs_decision
+}
+
 function parseSuggestion(value) {
   if (value && typeof value === "object") return { suggested_text: value.suggested_text ?? "", ...value }
   try {
@@ -172,6 +191,7 @@ const ConflictRows = defineComponent({
           || item.source_module === "outline"
           || target.kind === "memory_chapter"
       const reason = humanReason(location.needs_review_reason || item.needs_review_reason)
+      const authorAction = authorActionOf(item)
       const suggestion = item.ai_suggestion ? parseSuggestion(item.ai_suggestion) : null
       const evidence = source.module || source.label || source.field || source.type || source.excerpt || target.kind || reason
         ? h("details", { class: "writing-conflict-evidence-drawer" }, [
@@ -210,6 +230,10 @@ const ConflictRows = defineComponent({
           : null
       return h("article", { key: item.id, class: "writing-conflict-item", "data-conflict-item-id": item.id }, [
         h("div", { class: "writing-conflict-item__head" }, [
+          authorAction ? h("span", {
+            class: authorAction.className,
+            "data-author-action": authorAction.key,
+          }, authorAction.label) : null,
           h("span", { class: "badge badge-conflicted" }, severityLabels[item.severity] || item.severity || "-"),
           h("strong", kindLabels[item.kind] || item.kind || "问题"),
           h("span", { class: "pill" }, item.source_module || "-"),
@@ -240,6 +264,21 @@ const ConflictRows = defineComponent({
 
 const check = computed(() => props.model.check)
 const items = computed(() => Array.isArray(check.value?.items) ? check.value.items : [])
+const sourceVersionLabel = computed(() => (
+  Number(check.value?.version_number) >= 1 ? `工作稿 v${check.value.version_number}` : "当前编辑内容"
+))
+const recheckScopeLabel = computed(() => (
+  check.value?.scene_id ? `第 ${check.value.chapter_index || "-"} 章当前场景` : `第 ${check.value?.chapter_index || "-"} 章`
+))
+const degradedSourceLabels = computed(() => {
+  const labels = (check.value?.summary_json?.degraded_sources || []).map((source) => {
+    if (String(source).startsWith("outline")) return "故事结构"
+    if (String(source).startsWith("world.map")) return "地图资料"
+    if (String(source).startsWith("memory")) return "场景记忆"
+    return "部分来源"
+  })
+  return Array.from(new Set(labels)).join("、") || "部分来源"
+})
 const ruleItems = computed(() => items.value.filter((item) => !item.is_ai_judgment))
 const aiItems = computed(() => items.value.filter((item) => item.is_ai_judgment))
 const suggestionDrafts = reactive({})

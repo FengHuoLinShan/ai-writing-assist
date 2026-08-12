@@ -391,9 +391,13 @@ class CharacterService(
             for rec in records:
                 key = f"{rec.target_type}:{rec.target_id}"
                 knowledge_map[key] = {
+                    "target_type": rec.target_type,
+                    "target_id": str(rec.target_id),
                     "knowledge_level": rec.knowledge_level,
                     "known_content": rec.known_content,
                     "misconception": rec.misconception,
+                    "source_chapter_index": rec.source_chapter_index,
+                    "is_public_baseline": rec.is_public_baseline,
                 }
 
         filtered_items: list[dict] = []
@@ -402,7 +406,9 @@ class CharacterService(
 
         for item in context_items:
             key = f"{item.get('target_type', '')}:{item.get('target_id', '')}"
-            knowledge = knowledge_map.get(key)
+            knowledge = knowledge_map.get(key) or knowledge_map.get(
+                f"entity:{item.get('target_id', '')}"
+            )
 
             if knowledge is None:
                 filtered_item = self._public_character_visible_item(item)
@@ -413,25 +419,28 @@ class CharacterService(
                 continue
 
             level = knowledge["knowledge_level"]
+            metadata = {
+                "knowledge_level": level,
+                "knowledge_source_chapter_index": knowledge["source_chapter_index"],
+                "knowledge_is_public_baseline": knowledge["is_public_baseline"],
+            }
 
             if level == "unknown":
                 removed_count += 1
             elif level in {"false_belief", "misunderstood"}:
-                filtered_item = dict(item)
-                filtered_item.pop("hidden_truth", None)
-                filtered_item["original_content"] = filtered_item.get("content", "")
-                filtered_item["content"] = (
-                    knowledge["misconception"] or knowledge["known_content"] or ""
-                )
+                if not knowledge["misconception"]:
+                    removed_count += 1
+                    continue
+                filtered_item = self._character_knowledge_identity(knowledge)
+                filtered_item["content"] = knowledge["misconception"]
                 filtered_item["summary"] = filtered_item["content"]
-                filtered_item["knowledge_level"] = level
+                filtered_item.update(metadata)
                 filtered_item["is_misconception"] = True
                 filtered_items.append(filtered_item)
                 replaced_count += 1
             elif level == "restricted":
-                filtered_item = dict(item)
-                filtered_item.pop("hidden_truth", None)
-                filtered_item["knowledge_level"] = level
+                filtered_item = self._character_knowledge_identity(knowledge)
+                filtered_item.update(metadata)
                 if knowledge["known_content"]:
                     filtered_item["content"] = knowledge["known_content"]
                     filtered_item["summary"] = knowledge["known_content"]
@@ -440,9 +449,8 @@ class CharacterService(
                     filtered_item.pop("summary", None)
                 filtered_items.append(filtered_item)
             elif level in {"partial", "rumor"}:
-                filtered_item = dict(item)
-                filtered_item.pop("hidden_truth", None)
-                filtered_item["knowledge_level"] = level
+                filtered_item = self._character_knowledge_identity(knowledge)
+                filtered_item.update(metadata)
                 if knowledge["known_content"]:
                     filtered_item["character_known_content"] = knowledge["known_content"]
                     filtered_item["content"] = knowledge["known_content"]
@@ -451,14 +459,25 @@ class CharacterService(
                     filtered_item.pop("content", None)
                     filtered_item.pop("summary", None)
                 filtered_items.append(filtered_item)
-            else:
-                filtered_item = dict(item)
-                filtered_item.pop("author_notes", None)
-                filtered_item.pop("author_metadata", None)
-                filtered_item["knowledge_level"] = level
+            elif level == "full" and knowledge["known_content"]:
+                filtered_item = self._character_knowledge_identity(knowledge)
+                filtered_item.update(metadata)
+                filtered_item["character_known_content"] = knowledge["known_content"]
+                filtered_item["content"] = knowledge["known_content"]
+                filtered_item["summary"] = knowledge["known_content"]
                 filtered_items.append(filtered_item)
+            else:
+                removed_count += 1
 
         return filtered_items, removed_count, replaced_count
+
+    @staticmethod
+    def _character_knowledge_identity(knowledge: dict) -> dict:
+        """Keep only target identity before adding the frozen knowledge version."""
+        return {
+            "target_type": knowledge["target_type"],
+            "target_id": knowledge["target_id"],
+        }
 
     @staticmethod
     def _public_character_visible_item(item: dict) -> dict | None:
