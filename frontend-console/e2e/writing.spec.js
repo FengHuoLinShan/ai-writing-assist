@@ -450,6 +450,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator("#writing-tree-container")).toBeHidden()
     await expect(page.locator("#writing-panel-container")).toBeHidden()
+    await expect(page.locator("#writing-editor")).toBeVisible()
 
     const geometry = await page.evaluate(() => {
       const workspace = document.querySelector("#workspace-content")
