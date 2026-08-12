@@ -32,7 +32,6 @@ async function screenshotSettingsPage(page, name) {
     fullPage: true,
     animations: "disabled",
     caret: "hide",
-    mask: [],
   })
 }
 

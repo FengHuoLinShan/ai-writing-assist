@@ -6011,8 +6011,24 @@ kbd {
   .mobile-quick-note {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - var(--topbar-height) - 24px);
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
     gap: 8px;
+  }
+
+  #workspace-content:has(.mobile-quick-note) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+
+  #workspace-content:has(.mobile-quick-note) > .vue-island {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
   }
 
   .mobile-note-header,

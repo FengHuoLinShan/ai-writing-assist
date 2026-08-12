@@ -410,6 +410,16 @@ body {
   box-shadow: none;
 }
 
+.view-header:has(details[open]) {
+  overflow: visible;
+  z-index: 81;
+}
+
+#workspace-content:not([data-workspace-view="project"]) .view-header:has(details[open])::before,
+#workspace-content:not([data-workspace-view="project"]) .view-header:has(details[open])::after {
+  display: none;
+}
+
 #workspace-content:not([data-workspace-view="project"]) .view-header::before {
   content: "";
   position: absolute;

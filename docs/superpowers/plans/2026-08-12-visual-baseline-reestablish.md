@@ -17,7 +17,7 @@
 - 不顺手做无关重构；新触碰代码不得直写像素（归 `--space-*`），不得新增 `!important`。
 - 工作树既有无关脏文件（`docs/README.md` 一行改动、未跟踪 worldbook 计划文档）保持不动，不进任何 commit。
 - 分支：沿用 `codex/uiux-global-layer`，不新建。
-- 已确认事实：49 张基线快照均为 codex 六个 commit **之前**生成（`git diff --stat origin/main...HEAD -- frontend-console/e2e` 仅 `writing.spec.js` 1 行变化），因此 visual diff = codex 改动引入的全部视觉差异。
+- 已确认事实：40 张基线快照均为 codex 六个 commit **之前**生成（`git diff --stat origin/main...HEAD -- frontend-console/e2e` 仅 `writing.spec.js` 1 行变化），因此 visual diff = codex 改动引入的全部视觉差异。
 - 已确认事实：全局焦点环是 `outline`（`editorial-theme.css:163-166`，`:where(button, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--archive-red); outline-offset: 2px; }`），contenteditable（如 `.novel-editor`）不在该选择器内，是已知疑点。
 
 ---
@@ -349,7 +349,7 @@ git commit -m "docs(uiux): 美感走查清单与用户确认结果"
 
 **Interfaces:**
 - Consumes: Task 7 用户批准的微调项
-- Produces: 新视觉基线快照 49 张；报告 `## 最终验证` 记录全部命令与结果。
+- Produces: 新视觉基线快照 40 张；报告 `## 最终验证` 记录全部命令与结果。
 
 - [ ] **Step 1: 执行批准的审美微调**
 

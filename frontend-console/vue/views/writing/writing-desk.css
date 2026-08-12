@@ -1570,9 +1570,6 @@
 }
 
 .mobile-note-actions {
-  position: sticky;
-  bottom: 64px;
-  z-index: 12;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

@@ -9,7 +9,7 @@
 `docs/frontend/uiux/` 是全站唯一权威 UI/UX 规范（「Editorial Archive 提纯版」），
 当前分支已按规范完成 G1（token 收敛）、G2（组件层收编）、G3（断点归一）六个 commit。
 用户判断其中可能有细节被 codex 破坏美感，需要对照规范重新审计全局层与全部页面，
-修复后重建 playwright 视觉基线（49 张快照）。
+修复后重建 playwright 视觉基线（40 张快照）。
 
 视觉基线代码：
 
@@ -51,7 +51,7 @@ generate / project / settings / rp-experience）逐页核对「必须保留的�
 
 ### 阶段 3：快照回归
 
-- 先确认 49 张基线快照是 codex 改动前还是之后生成（决定 diff 方向的意义）
+- 先确认 40 张基线快照是 codex 改动前还是之后生成（决定 diff 方向的意义）
 - 跑 `npm run test:e2e:visual`，失败用例逐张查看 diff 图
 
 ### 阶段 4：人审美感走查
