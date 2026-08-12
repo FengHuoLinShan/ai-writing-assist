@@ -1,0 +1,145 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r05-semantic-drift",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "fact-bridge-closure",
+      "kind": "object",
+      "synthetic_title": "灰河桥春汛封闭事实（已采用）",
+      "content_digest": "caea5e2bf744f4f77bcc3d7768f392d93a055f8d22fda9647e1b0d213db2f415",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "causality-toll-collection",
+      "kind": "object",
+      "synthetic_title": "税单登记因果（开放被写死）",
+      "content_digest": "1fc09faf4c3910c95457bdac3c4c64e467e57d1196a0cc07c2601d61d4de996d",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-tax-register",
+      "kind": "page",
+      "synthetic_title": "汛期税单",
+      "content_digest": "c45917c7dbbf73b6a91b3aef5829d777d7571a04c2dcfc4dc130efab2d3ec9a8",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "index-station-pigeons",
+      "kind": "draft",
+      "synthetic_title": "西岭驿站信鸽索引（滞后）",
+      "content_digest": "43ebfe836f43a16fec614e7c51b2daaaee721d068914b48b8a9d7b9294340afe",
+      "state": "superseded",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "gate-future-settlement",
+      "kind": "suggestion",
+      "synthetic_title": "未来结算情景门槛（未触发）",
+      "content_digest": "5a68b613e7923ec55fc97103e1b1f65f1718e517e648a892dcdfaa38a2d1ddb4",
+      "state": "pending",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "structural_check_all_green",
+      "detail": "确定性结构检查全绿；全绿只表示可检查的合同通过。"
+    },
+    {
+      "seq": 2,
+      "action": "adopted_item_still_marked_candidate",
+      "detail": "已采用事实仍显示为候选，需要决定而非修复。"
+    },
+    {
+      "seq": 3,
+      "action": "open_causality_written_as_fixed",
+      "detail": "开放因果被写死，需要作者决定归属。"
+    },
+    {
+      "seq": 4,
+      "action": "authority_source_ambiguous",
+      "detail": "授权来源含混，需要作者确认哪一版为当前权威。"
+    },
+    {
+      "seq": 5,
+      "action": "index_projection_lagging",
+      "detail": "索引与投影滞后，只影响依赖它的当前动作，列为可以改进。"
+    },
+    {
+      "seq": 6,
+      "action": "author_opens_three_bucket_projection",
+      "detail": "投影为必须修复/需要决定/可以改进三类；未触发门槛、历史 stale 与纯诊断不进当前待办。"
+    }
+  ],
+  "expected_read_model": {
+    "buckets": {
+      "must_fix": [],
+      "needs_decision": [
+        "adopted_item_still_candidate",
+        "open_causality_written_as_fixed",
+        "authority_source_ambiguous"
+      ],
+      "can_improve": [
+        "index_projection_lagging"
+      ]
+    },
+    "excluded": {
+      "threshold_not_met": "not_in_current_todo",
+      "historical_stale": "not_in_current_todo",
+      "diagnostics": "not_in_current_todo",
+      "closed_history": "audit_only"
+    },
+    "llm_source": {
+      "maps_to_must_fix": false
+    },
+    "active_items": {
+      "each_has": [
+        "readable_title",
+        "activation_reason",
+        "impact_target",
+        "source_version",
+        "openable_evidence",
+        "next_action",
+        "targeted_recheck_scope"
+      ]
+    },
+    "green_check": {
+      "means_only": "contract_checks_passed",
+      "claims_world_correct": false
+    }
+  },
+  "forbidden_outcomes": [
+    "机器检查全绿宣称一切正确",
+    "LLM 自动修正作者选择",
+    "延期门槛常驻待办制造红点",
+    "历史 stale 混入当前待办"
+  ],
+  "metrics": {
+    "llm_mapped_to_must_fix": 0,
+    "threshold_not_met_in_todo": 0,
+    "historical_stale_in_todo": 0,
+    "diagnosis_in_todo": 0,
+    "adopted_still_candidate_flag": 1,
+    "evidence_complete": true
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_current_page_semantic_inspection_replaces_stale_queue_results"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_selected_asset_resolution_is_not_limited_by_background_top_k"
+    },
+    {
+      "pytest": "frontend-console/tests/vue/world/bible/WorldBibleTab.test.js::AI 参考规则使用作者可读状态，不暴露内部标识"
+    },
+    {
+      "manual": "authority order 正反例：正例为最新明确作者裁定优先；反例为更新时间、语义相似度或召回分改变权威顺序"
+    }
+  ]
+}

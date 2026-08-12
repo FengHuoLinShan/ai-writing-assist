@@ -1,0 +1,158 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r13-character-knowledge",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "character-bridge-keeper",
+      "kind": "character",
+      "synthetic_title": "守桥人",
+      "content_digest": "9a1f17b94217464632c8068836f025c29d803077d6e1e8a80bdb202b6d9dd81c",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "knowledge-baseline-flood",
+      "kind": "knowledge",
+      "synthetic_title": "公开基线：春汛会封桥",
+      "content_digest": "ecad4bc7864355b20a053b96de8d7efb4a6386f3a629be18e7cd349814afe420",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "knowledge-rumor-date",
+      "kind": "knowledge",
+      "synthetic_title": "传言：封桥延至第九日",
+      "content_digest": "4e5a6bda4818586c3e799332a87e7a1704b281994f67aa5403ac5868964529b8",
+      "state": "current",
+      "visibility": "role"
+    },
+    {
+      "ref_id": "knowledge-truth-pier",
+      "kind": "knowledge",
+      "synthetic_title": "真相：桥墩损毁原因",
+      "content_digest": "fbba6b7f8cb624e2460b44143d187cde2e374e6548ea9d42d8c6ba7e8e0e84fe",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "target-bridge-closure",
+      "kind": "object",
+      "synthetic_title": "灰河桥封闭（知识目标）",
+      "content_digest": "c79db3fc242db96d9956b3b7bf568eac88d2821d4ba5b62c41e3bc3d2969c7c3",
+      "state": "current",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "baseline_public_knowledge_recorded",
+      "detail": "公开基线从故事开始可用：春汛会封桥。"
+    },
+    {
+      "seq": 2,
+      "action": "chapter_2_rumor_recorded",
+      "detail": "第 2 章传入传言：封桥延至第九日。"
+    },
+    {
+      "seq": 3,
+      "action": "chapter_5_truth_recorded",
+      "detail": "第 5 章获知真相：桥墩裂缝与行会决定。"
+    },
+    {
+      "seq": 4,
+      "action": "chapters_queried_out_of_order",
+      "detail": "第 1、3、5、6 章以三种乱序查询，输出完全一致。"
+    },
+    {
+      "seq": 5,
+      "action": "same_chapter_new_finding_deferred",
+      "detail": "第 5 章新发现从下一章起生效，不提前进入同章早先 Scene。"
+    },
+    {
+      "seq": 6,
+      "action": "author_edits_checkpoint_in_place",
+      "detail": "作者从 POV 确认就地修改知识检查点并重新整理；零 LLM、零建议、零任务。"
+    },
+    {
+      "seq": 7,
+      "action": "hidden_truth_never_in_role_payload",
+      "detail": "角色模型上下文只含人物所信版本，不含隐藏真相。"
+    }
+  ],
+  "expected_read_model": {
+    "effective_checkpoint": {
+      "per_character_target": 1,
+      "status_filter": "canonical",
+      "chapter_rule": "latest_effective_before_target",
+      "tie_break": [
+        "updated_at",
+        "stable_id"
+      ]
+    },
+    "chapter_results": {
+      "chapter_1": "baseline_public",
+      "chapter_3": "rumor_version",
+      "chapter_5": "rumor_version",
+      "chapter_6": "truth_version"
+    },
+    "same_chapter": {
+      "new_finding_effective_from_next_chapter": true
+    },
+    "role_payload": {
+      "contains_only_believed_version": true,
+      "hidden_truth_absent": true,
+      "author_constraint_explains_replacement": true
+    },
+    "order_independence": {
+      "shuffled_inputs_same_output": true
+    },
+    "management": {
+      "llm_calls": 0,
+      "suggestion_writes": 0,
+      "task_writes": 0
+    },
+    "fail_closed": {
+      "archived_winner_falls_back": true,
+      "cross_project_excluded": true,
+      "broken_target_excluded": true
+    }
+  },
+  "forbidden_outcomes": [
+    "查询顺序改变结果",
+    "隐藏真相与误信一起送入模型",
+    "RAG 命中自动授予知识",
+    "正典更新自动改写人物认知",
+    "向作者暴露 raw enum 或 ID"
+  ],
+  "metrics": {
+    "checkpoints_per_target": 1,
+    "order_variance": 0,
+    "same_chapter_early_effect": 0,
+    "hidden_truth_in_role_payload": 0,
+    "management_llm_calls": 0,
+    "canonical_auto_rewrites_knowledge": 0
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_character_knowledge_levels.py::test_visibility_selects_latest_effective_checkpoint_deterministically"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_character_knowledge_levels.py::test_filter_rumor_uses_known_content_and_redacts_hidden_truth"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_character_knowledge_levels.py::test_filter_full_uses_frozen_character_version_not_current_world"
+    },
+    {
+      "pytest": "backend/modules/context/tests/test_context_compiler.py::test_compile_character_false_belief_hides_hidden_truth"
+    },
+    {
+      "pytest": "backend/modules/context/tests/test_context_compiler.py::test_character_scene_keeps_proven_state_separate_from_belief"
+    },
+    {
+      "pytest": "backend/modules/context/tests/test_context_compiler.py::test_compile_character_reveal_allows_public_info_without_knowledge"
+    }
+  ]
+}

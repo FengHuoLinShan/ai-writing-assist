@@ -1,0 +1,162 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r14-scene-state",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "checkpoint-scene-1",
+      "kind": "checkpoint",
+      "synthetic_title": "Scene 1 检查点：巡堤船队管理灰河桥",
+      "content_digest": "d0cf975ee0302359648c2541a4d46a1ab705bea5f5c2bf1157a1e7ac6521f99d",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "checkpoint-scene-3",
+      "kind": "checkpoint",
+      "synthetic_title": "Scene 3 检查点：税亭迁至西岸",
+      "content_digest": "ccb65e00ef12ac208f169fade0faf6cd664bd668d46f2aefcd450a068bca4102",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "checkpoint-scene-5",
+      "kind": "checkpoint",
+      "synthetic_title": "Scene 5 检查点：守桥人岗位取消",
+      "content_digest": "ba0e9f73eac8e5d024bd7c8c67604faa1872aa305ef9df0967e95eb9ec0cbd2c",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-bridge-current",
+      "kind": "page",
+      "synthetic_title": "灰河桥（当前正典只述新态）",
+      "content_digest": "b062387387f993bbd47deb190cd7b2edc2e2dc336b99fb53c10396bd9e73337e",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "object-warehouse-gate",
+      "kind": "object",
+      "synthetic_title": "盐税仓仓门（未锚定）",
+      "content_digest": "99b06831e64220fca77c542ec33b1b5deb2b3844d5a312245418bde69e4eb49c",
+      "state": "current",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "scene_1_state_established",
+      "detail": "Scene 1：巡堤船队管理灰河桥，税亭在桥东岸。"
+    },
+    {
+      "seq": 2,
+      "action": "scene_3_state_changed",
+      "detail": "Scene 3：税亭迁至西岸。"
+    },
+    {
+      "seq": 3,
+      "action": "scene_5_state_changed",
+      "detail": "Scene 5：守桥人岗位取消。"
+    },
+    {
+      "seq": 4,
+      "action": "current_world_describes_final_state",
+      "detail": "当前正典只描述最终状态，不得回填旧 Scene。"
+    },
+    {
+      "seq": 5,
+      "action": "unanchored_object_shows_no_time_anchor",
+      "detail": "盐税仓仓门无事件与基线，只显示尚无时间锚，不进模型。"
+    },
+    {
+      "seq": 6,
+      "action": "old_event_manually_corrected",
+      "detail": "旧事件人工纠正后下游 checkpoint 重建，旧确认指纹失效。"
+    },
+    {
+      "seq": 7,
+      "action": "scene_2_regenerated_with_proven_state",
+      "detail": "Scene 2 生成只收到可证旧状态，payload 不含当前正典内容。"
+    }
+  ],
+  "expected_read_model": {
+    "scene_states": {
+      "scene_1": "tide_patrol_manages_bridge",
+      "scene_2": "toll_booth_still_east_bank",
+      "scene_3": "toll_booth_moved_west_bank",
+      "scene_4": "no_evidence_change",
+      "scene_5": "bridge_keeper_post_abolished",
+      "scene_6": "post_abolished_visible"
+    },
+    "current_world": {
+      "describes_only_final_state": true,
+      "fallback_used_for_past_scene": 0
+    },
+    "unanchored": {
+      "object": "salt_tax_warehouse_gate",
+      "shown_as": "尚无时间锚",
+      "entered_model": false,
+      "shown_as_absent": false,
+      "claimed_complete": false
+    },
+    "manual_repair": {
+      "downstream_rebuilt": true,
+      "old_fingerprint_invalidated": true,
+      "reconfirm_required": true
+    },
+    "director_vs_belief": {
+      "director_constraint": "bridge_stands",
+      "role_belief": "bridge_destroyed",
+      "kept_separate": true
+    },
+    "order": {
+      "out_of_order_replay_stable": true
+    },
+    "writes": {
+      "recompile_llm_calls": 0,
+      "suggestion_writes": 0,
+      "formal_world_writes": 0
+    }
+  },
+  "forbidden_outcomes": [
+    "用当前正典回填旧 Scene",
+    "把未记录说成当时不存在",
+    "把页面修订时间当故事时间",
+    "自动补 gap",
+    "预览后 checkpoint 变化仍沿用旧确认"
+  ],
+  "metrics": {
+    "current_world_fallback": 0,
+    "unknown_as_absent": 0,
+    "revision_time_as_story_time": 0,
+    "projection_drift_silent_execution": 0,
+    "recompile_llm_calls": 0,
+    "gap_auto_filled": 0
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/memory/tests/test_scene_projection.py::test_scene_checkpoint_builds_all_dimensions_and_sparse_stage0"
+    },
+    {
+      "pytest": "backend/modules/memory/tests/test_scene_projection.py::test_undated_confirmed_map_fact_fails_closed_then_manual_repair_rebuilds"
+    },
+    {
+      "pytest": "backend/modules/memory/tests/test_scene_projection.py::test_manual_repair_rejects_stale_checkpoint_version"
+    },
+    {
+      "pytest": "backend/modules/memory/tests/test_scene_projection.py::test_empty_scene_rerun_clears_events_and_invalidates_downstream_projection"
+    },
+    {
+      "pytest": "backend/modules/context/tests/test_context_compiler.py::test_character_scene_keeps_proven_state_separate_from_belief"
+    },
+    {
+      "pytest": "backend/modules/context/tests/test_context_compiler.py::test_scene_time_boundary_preserves_first_scene_indices"
+    },
+    {
+      "pytest": "backend/modules/context/tests/test_context_compiler.py::test_manual_scene_summary_does_not_hide_unanchored_objects"
+    }
+  ]
+}

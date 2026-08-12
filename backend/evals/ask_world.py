@@ -102,7 +102,7 @@ def run_ask_world_eval(path: Path = DEFAULT_DATASET) -> dict[str, Any]:
 
     precisions: list[float] = []
     false_answers = 0
-    ranked_sources = 0
+    eligible_sources = 0
     valid_hashes = 0
     opened_citations = 0
     citations = 0
@@ -114,18 +114,18 @@ def run_ask_world_eval(path: Path = DEFAULT_DATASET) -> dict[str, Any]:
             for source in case.sources
             if source.novel_id == case.novel_id and source.visibility == "author"
         ]
+        valid_hashes += sum(
+            source.source_hash
+            == hashlib.sha256(source.content.encode("utf-8")).hexdigest()
+            for source in eligible
+        )
+        eligible_sources += len(eligible)
         ranked: list[tuple[AskWorldEvalSource, float]] = []
         for source in eligible:
             score = ask_world_relevance(case.question, source.title, source.content)
             if score >= MIN_RELEVANCE:
                 ranked.append((source, score))
         ranked.sort(key=lambda item: (-item[1], item[0].key))
-        ranked_sources += len(ranked)
-        valid_hashes += sum(
-            source.source_hash
-            == hashlib.sha256(source.content.encode("utf-8")).hexdigest()
-            for source, _score in ranked
-        )
         packet = compile_author_question_evidence(
             [
                 {
@@ -167,7 +167,7 @@ def run_ask_world_eval(path: Path = DEFAULT_DATASET) -> dict[str, Any]:
     values: dict[str, float | None] = {
         "visibility_leakage": float(leakage),
         "source_hash_validity": (
-            valid_hashes / ranked_sources if ranked_sources else None
+            valid_hashes / eligible_sources if eligible_sources else None
         ),
         "citation_open_rate": opened_citations / citations if citations else None,
         "p_at_5": fmean(precisions) if precisions else None,

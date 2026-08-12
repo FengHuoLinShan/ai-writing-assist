@@ -148,6 +148,8 @@ secret hygiene gate，再安装 uv `0.12.3` 与 Python `3.14.7`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
+覆盖率门禁通过后还会以 `continue-on-error` 运行 `make eval-ask-world` 并始终上传 JSON
+报告；它只提供离线证据排序与引用完整性诊断，不阻断 PR，也不代表模型语义回答质量。
 这些 CI step 直接调用同一 Make target，由 target 自行解析锁定工具链，避免 CI 与本地走不同
 的 pytest/Ruff 可执行文件。
 架构文档 job 使用 Python 标准库相对 PR base SHA 验证当前清单和代码差异影响，未修改的必查文档

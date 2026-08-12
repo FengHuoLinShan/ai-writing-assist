@@ -49,6 +49,17 @@ jobs:
           make test-fast-coverage TEST_WORKERS=2
           ARGS="-W error::RuntimeWarning"
 
+      - name: Ask World offline launch gate (non-blocking diagnostic)
+        continue-on-error: true
+        run: make eval-ask-world OUTPUT=backend/evals/artifacts/ask-world-gate.json
+
+      - name: Upload Ask World gate report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ask-world-gate-report
+          path: backend/evals/artifacts/ask-world-gate.json
+
   postgresql-critical:
     name: PostgreSQL critical
     runs-on: ubuntu-24.04

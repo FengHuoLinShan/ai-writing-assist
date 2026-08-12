@@ -1,0 +1,144 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r02-retarget",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "outline-first-stage",
+      "kind": "object",
+      "synthetic_title": "故事总纲首舞台",
+      "content_digest": "f13164437bd10103cdb25f226db242fc0f9c80d037e302eba003ce6cc47acd55",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-harbor-currency",
+      "kind": "page",
+      "synthetic_title": "北境港货币",
+      "content_digest": "ebb37cb807e9f0839166b1e766aabb118df530f69efe17a583d91baa90e35c3a",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-station-pigeons",
+      "kind": "page",
+      "synthetic_title": "西岭驿站信鸽",
+      "content_digest": "fbd360b58042df2a9b2045282e5f74bb3c2830864e5db0051ff7ea4aa6bc7b2a",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "knowledge-tide-settlement",
+      "kind": "knowledge",
+      "synthetic_title": "潮汐行会结算机制（作者层）",
+      "content_digest": "0e484e178b7b6c789478c0e3c02aa8a512e594ae0a4339cc91ee5c3012e616fb",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "role-harbor-merchant",
+      "kind": "character",
+      "synthetic_title": "北境港货商（角色层表述）",
+      "content_digest": "18eff3e8bcb55f060217ac57c310206e9e6fce46d525f208bb67312ecd751093",
+      "state": "current",
+      "visibility": "role"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "author_reviews_story_outline",
+      "target": "outline-first-stage",
+      "detail": "旧故事总纲把北境港作为首舞台（旧目标 A）。"
+    },
+    {
+      "seq": 2,
+      "action": "author_retargets_to_b",
+      "target": "west_ridge_station_first_stage",
+      "detail": "作者最新明确改为西岭驿站作为首舞台（新目标 B）。"
+    },
+    {
+      "seq": 3,
+      "action": "author_limits_author_layer_terms",
+      "detail": "潮汐行会结算机制只属作者层约束，不得直接成为角色常识。"
+    },
+    {
+      "seq": 4,
+      "action": "author_requests_world_suggestion",
+      "detail": "world 建议返回当前目标、已作废目标、未决项与知识表达边界。"
+    },
+    {
+      "seq": 5,
+      "action": "author_requests_outline_suggestion",
+      "detail": "outline 建议进入 outline 自有 owner 与修订路径。"
+    },
+    {
+      "seq": 6,
+      "action": "author_reruns_after_rejected_term",
+      "detail": "已拒绝表述再次出现时被拦截，不复活旧意图。"
+    }
+  ],
+  "expected_read_model": {
+    "decision_state": {
+      "current_author_goal": "west_ridge_station_first_stage",
+      "deprecated_goal": "northern_harbor_first_stage",
+      "deprecated_goal_still_visible": true,
+      "confirmed_requirements": [
+        "station_pigeon_schedule",
+        "gate_drum_curfew"
+      ],
+      "rejected_elements": [
+        "tide_guild_settlement_as_role_common"
+      ],
+      "unresolved_choices": [
+        "station_expansion_scale"
+      ]
+    },
+    "knowledge_expression_boundaries": {
+      "author_layer_terms_not_role_knowledge": true,
+      "role_layer_terms_remain_readable": true
+    },
+    "page_proposal": {
+      "decision_state_persisted": true,
+      "same_projection_as_core_object": true
+    },
+    "owner_boundaries": {
+      "world_writes_story_outline": false,
+      "outline_suggestion_enters_outline": true
+    },
+    "role_layer": {
+      "unauthorized_mechanism_visible": false
+    }
+  },
+  "forbidden_outcomes": [
+    "world 越权改总纲",
+    "自动覆盖旧事实",
+    "把较早陈述当最新意图",
+    "把作者层解释当角色已知"
+  ],
+  "metrics": {
+    "latest_goal_wins": true,
+    "deprecated_goal_kept_visible": true,
+    "author_layer_leak_to_role": 0,
+    "world_outline_writes": 0,
+    "decision_state_persisted": true
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_multiturn_generation_compiles_author_decisions_and_keeps_name_unset"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_multiturn_page_generation_keeps_knowledge_expression_boundary"
+    },
+    {
+      "pytest": "backend/modules/outline/tests/test_story_outline.py::test_story_outline_current_is_empty_until_explicit_create"
+    },
+    {
+      "pytest": "backend/modules/outline/tests/test_story_outline.py::test_story_outline_requires_explicit_base_revision"
+    },
+    {
+      "manual": "知识层级：作者层精确机制与角色层通俗说法并存不互相冲突；角色层不得看到未授权机制"
+    }
+  ]
+}
