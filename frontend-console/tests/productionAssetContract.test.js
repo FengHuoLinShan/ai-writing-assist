@@ -95,6 +95,13 @@ describe("production asset contract", () => {
     const external = await makeOutput()
     await writeFile(resolve(external, "assets/entry.js"), "https://unpkg.com/package")
     await expect(verifyProductionOutput(external)).rejects.toThrow(/references unpkg\.com/)
+
+    const unrelated = await makeOutput()
+    await writeFile(
+      resolve(unrelated, "assets/entry.js"),
+      "https://notunpkg.com/package https://unpkg.com.evil/package",
+    )
+    await expect(verifyProductionOutput(unrelated)).resolves.toBeDefined()
   })
 
   it("rejects unsafe index references and symlinked manifest assets", async () => {

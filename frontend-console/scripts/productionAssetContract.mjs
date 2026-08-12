@@ -15,6 +15,7 @@ export const ROUTE_ISLAND_KEYS = Object.freeze([
 ])
 
 const EXTERNAL_REFERENCE = /^(?:https?:|data:|#)/i
+const UNPKG_REFERENCE = /(?:https?:)?\/\/unpkg\.com(?=[/:?#]|$)/i
 const SAFE_RELATIVE_PATH = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/
 
 export const MAX_INVENTORY_BYTES = 65536
@@ -200,7 +201,7 @@ export async function verifyProductionOutput(outputRoot) {
   const externalPackageReferences = []
   for (const path of publishedFiles.filter((value) => /\.(?:html|js|css|json)$/.test(value))) {
     const contents = await readFile(resolve(outputRoot, path), "utf8")
-    if (contents.includes("unpkg.com")) externalPackageReferences.push(path)
+    if (UNPKG_REFERENCE.test(contents)) externalPackageReferences.push(path)
   }
   if (externalPackageReferences.length) {
     throw new Error(
