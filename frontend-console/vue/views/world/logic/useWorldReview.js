@@ -547,8 +547,7 @@ function bindDiagnosticCopyButtons(root = document) {
 }
 
 /** 对应 vanilla _reviewEntityOptionsHtml。 */
-function reviewEntityOptionsHtml(items = [], selectedId = "") {
-  const esc = getEsc()
+function reviewEntityOptions(items = [], selectedId = "") {
   const byId = new Map()
   for (const item of items) {
     const id = entityId(item)
@@ -559,8 +558,25 @@ function reviewEntityOptionsHtml(items = [], selectedId = "") {
   }
   return Array.from(byId.values()).map((item) => {
     const id = entityId(item)
-    return `<option value="${esc(id)}" ${id === selectedId ? "selected" : ""}>${esc(item.name || "未命名对象")} · ${esc(item.entity_type || "-")} · ${esc(item.status || "-")}</option>`
-  }).join("")
+    return { id, label: `${item.name || "未命名对象"} · ${item.entity_type || "-"} · ${item.status || "-"}`, selected: id === selectedId }
+  })
+}
+
+function reviewEntityOptionsHtml(items = [], selectedId = "") {
+  const esc = getEsc()
+  return reviewEntityOptions(items, selectedId).map((item) => (
+    `<option value="${esc(item.id)}" ${item.selected ? "selected" : ""}>${esc(item.label)}</option>`
+  )).join("")
+}
+
+function replaceReviewEntityOptions(select, items, selectedId) {
+  select.replaceChildren(...reviewEntityOptions(items, selectedId).map((item) => {
+    const option = document.createElement("option")
+    option.value = item.id
+    option.textContent = item.label
+    option.selected = item.selected
+    return option
+  }))
 }
 
 /** 对应 vanilla _bindReviewEntitySearch。 */
@@ -590,7 +606,7 @@ function bindReviewEntitySearch(prefix, selectedId = "") {
         ["canonical", "draft", "candidate"].includes(item.status)
         && !item.content_json?._meta?.compatibility_shadow
       ))
-      select.innerHTML = reviewEntityOptionsHtml(items, select.value || selectedId)
+      replaceReviewEntityOptions(select, items, select.value || selectedId)
     } catch (err) {
       if (
         generation !== searchGeneration

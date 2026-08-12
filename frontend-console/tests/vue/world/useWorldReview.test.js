@@ -290,6 +290,7 @@ describe("决策模态", () => {
   })
 
   it("关系对象搜索只允许最新响应更新选择", async () => {
+    const untrustedName = '<img data-review-search-payload src="x" onerror="alert(1)">'
     let resolveOlder
     let resolveLatest
     const olderResponse = new Promise((resolve) => { resolveOlder = resolve })
@@ -326,12 +327,13 @@ describe("决策模态", () => {
     const input = document.getElementById("relation-source-query")
     const button = document.getElementById("relation-source-search")
     const select = document.getElementById("relation-source-select")
+    Object.defineProperty(select, "innerHTML", { set: () => { throw new Error("HTML sink used") } })
 
     input.value = "旧查询"
     const olderSearch = button.onclick()
     input.value = "新查询"
     const latestSearch = button.onclick()
-    resolveLatest({ items: [{ id: "e-new", name: "新源对象", entity_type: "character", status: "canonical" }] })
+    resolveLatest({ items: [{ id: "e-new", name: untrustedName, entity_type: "character", status: "canonical" }] })
     await latestSearch
     select.value = "e-new"
 
@@ -341,6 +343,8 @@ describe("决策模态", () => {
     expect(Array.from(select.options, (option) => option.value)).toContain("e-new")
     expect(Array.from(select.options, (option) => option.value)).not.toContain("e-old")
     expect(select.value).toBe("e-new")
+    expect(select.querySelector("[data-review-search-payload]")).toBeNull()
+    expect(select.selectedOptions[0].textContent).toContain(untrustedName)
     await modalCalls[0].buttons[0].handler()
     expect(worldSession.relationReviewDrafts["group-search"].source_id).toBe("e-new")
     expect(routerMock.refresh).not.toHaveBeenCalled()
