@@ -1,0 +1,141 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r09-author-revision",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "suggestion-v1-causal",
+      "kind": "suggestion",
+      "synthetic_title": "第一版：封桥由守桥人决定",
+      "content_digest": "c91a18de4669f113ff2c93a405101242c96f2fb20b140a1fba32ae03cd080f95",
+      "state": "pending",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "shadow-v1-entity",
+      "kind": "object",
+      "synthetic_title": "旧版兼容影子",
+      "content_digest": "e0104a51ee4cc3456e894a06398f6b10f794789db7a80a3f11810cfb2f7f446e",
+      "state": "pending",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-bridge-baseline",
+      "kind": "page",
+      "synthetic_title": "灰河桥春汛（页面修订基线）",
+      "content_digest": "218059ae76ad85ea2bf8129a387ed35c898d1b1cfff4666346879398ae9cb3a5",
+      "state": "current",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "first_version_pending",
+      "detail": "第一版候选建立了错误的因果前提并保持 pending。"
+    },
+    {
+      "seq": 2,
+      "action": "author_points_out_wrong_premise",
+      "detail": "作者指出封桥由潮汐行会依汛情决定，不由守桥人决定。"
+    },
+    {
+      "seq": 3,
+      "action": "author_chooses_revise_this_version",
+      "detail": "作者明确选择修订此版；请求携带父建议 ID。"
+    },
+    {
+      "seq": 4,
+      "action": "system_generates_revision_in_one_transaction",
+      "detail": "同一事务：新版创建、旧版以 pending CAS 领取并标为已被替代、旧影子封存、双向链接写入。"
+    },
+    {
+      "seq": 5,
+      "action": "author_rejects_revision",
+      "detail": "拒绝新版；旧版仍可查看但不自动回到待办。"
+    },
+    {
+      "seq": 6,
+      "action": "author_starts_another_direction",
+      "detail": "另起方案：创建独立建议，不携带替代关系，可分别采用。"
+    },
+    {
+      "seq": 7,
+      "action": "author_modifies_adopted_setting",
+      "detail": "修改已采用设定走既有工作稿与修订路径，不改写旧建议状态。"
+    }
+  ],
+  "expected_read_model": {
+    "revise_this_version": {
+      "parent_validated": [
+        "same_novel",
+        "same_target",
+        "pending",
+        "compatible_type"
+      ],
+      "new_version_created_and_old_cas_rejected_in_one_transaction": true,
+      "old_version_exits_todo": true,
+      "old_shadow_archived": true,
+      "second_active_shadow": 0,
+      "typed_revision_link_bidirectional": true
+    },
+    "reject_new_version": {
+      "old_version_not_revived": true,
+      "old_still_viewable": true
+    },
+    "another_direction": {
+      "independent_suggestion": true,
+      "no_parent_link": true,
+      "adoptable_separately": true
+    },
+    "modify_adopted_setting": {
+      "uses_revision_path": true,
+      "old_suggestion_status_untouched": true
+    },
+    "concurrent_conflict": {
+      "whole_batch_rollback": true
+    },
+    "baseline_drift": {
+      "returns_409": true,
+      "author_edit_preserved": true
+    }
+  },
+  "forbidden_outcomes": [
+    "只改本地最新 ID",
+    "静默覆盖旧版",
+    "把纠错丢掉",
+    "旧版新版同时 pending 或同时落地"
+  ],
+  "metrics": {
+    "old_new_both_pending": 0,
+    "old_new_both_landed": 0,
+    "second_active_shadow": 0,
+    "correction_loss": 0,
+    "concurrent_rollback": true,
+    "revision_link_persisted": true
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_core_revision_supersedes_only_previous_pending_version"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_new_direction_keeps_both_suggestions_independent"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_revision_cas_conflict_rolls_back_new_suggestion_and_shadow"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_new_page_revision_requires_the_same_page_type"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_existing_page_revision_requires_same_target_and_baseline"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_page_revision_source_drift_does_not_create_successor"
+    },
+    {
+      "manual": "纠错保留率：修订版保留作者纠错的比例、被替代前提复活率与无依据改写率分项报告"
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r10-adjacent-explore",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "page-tide-guild",
+      "kind": "page",
+      "synthetic_title": "潮汐行会",
+      "content_digest": "e3c802a77f6f80cd0c72b3dcfed28f881bd0c6489a332c11b67445acb962da6b",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "gap-road-tax",
+      "kind": "object",
+      "synthetic_title": "邻接缺口：灰河桥税制",
+      "content_digest": "2ca72d0be38f824788c698409d120d9665649662ad331412b73d96fc14a4a464",
+      "state": "candidate",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "gap-guard-profession",
+      "kind": "object",
+      "synthetic_title": "邻接缺口：守桥人职业",
+      "content_digest": "975f69590142b9f8aaf5e8bfca2cbc5d860b0f1e781cd97fc631acc4ec64b01b",
+      "state": "candidate",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "gap-buoy-rules",
+      "kind": "object",
+      "synthetic_title": "邻接缺口：浮标管理制度",
+      "content_digest": "85d1231fe5f02bae5d82ff8e86a2ecb6bc26d188922a41a084a710dbc432ba0a",
+      "state": "candidate",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "author_binds_tide_guild_page",
+      "detail": "绑定潮汐行会页面与 source snapshot，召回邻接项。"
+    },
+    {
+      "seq": 2,
+      "action": "system_returns_three_gaps",
+      "detail": "LLM 只返回最多 3 个结构化探索目标：税制、守桥人职业、浮标制度。"
+    },
+    {
+      "seq": 3,
+      "action": "author_selects_guard_profession",
+      "detail": "作者只选择守桥人职业一项；未选择项不入队。"
+    },
+    {
+      "seq": 4,
+      "action": "system_generates_only_selected",
+      "detail": "只调用所选 owner 的现有生成入口，创建一条独立建议。"
+    },
+    {
+      "seq": 5,
+      "action": "system_back_checks_source",
+      "detail": "对原 source snapshot 做反向影响检查；只有具体变化才另建一个源修订建议。"
+    },
+    {
+      "seq": 6,
+      "action": "author_stops_exploration",
+      "detail": "停止后立即结束，不产生后台续跑与跨会话状态播报。"
+    }
+  ],
+  "expected_read_model": {
+    "exploration": {
+      "depth": 1,
+      "entries_max": 3,
+      "entries_returned": 3,
+      "selected_suggestions": 1,
+      "unselected_not_enqueued": true
+    },
+    "back_check": {
+      "source_revision_suggestions_max": 1,
+      "only_on_concrete_change": true
+    },
+    "fail_closed": {
+      "stale_before_selection": true,
+      "stale_during_generation": true
+    },
+    "stop": {
+      "background_continuation": 0,
+      "cross_session_announcement": 0
+    },
+    "owner": {
+      "cross_owner_direct_write": false,
+      "world_to_world_only": true
+    }
+  },
+  "forbidden_outcomes": [
+    "无界递归",
+    "一次生成候选山",
+    "跨 owner 直接写入",
+    "停止后续跑"
+  ],
+  "metrics": {
+    "exploration_depth": 1,
+    "entries": 3,
+    "selected_suggestions": 1,
+    "source_revision_suggestions": 1,
+    "background_runs_after_stop": 0,
+    "stale_selection_accepted": 0
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_one_hop_exploration_is_read_only_and_creates_only_selected_pair"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_exploration_selection_fails_closed_after_context_drift"
+    },
+    {
+      "pytest": "frontend-console/tests/vue/generate/GenerateView.test.js::previews three adjacent gaps but sends only the author-selected one"
+    },
+    {
+      "manual": "入口相关性：邻接缺口相关性与反向影响是否有证据；不评分模型自主规划"
+    }
+  ]
+}

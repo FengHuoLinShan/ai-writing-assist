@@ -1,0 +1,156 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r11-impact-preview",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "page-bridge-v3-draft",
+      "kind": "draft",
+      "synthetic_title": "灰河桥春汛 v3 工作稿",
+      "content_digest": "c0509f0faad265a9c936e2b12e84a544ffe85bc8508f2200a694ebd075bf7efe",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-a-toll",
+      "kind": "page",
+      "synthetic_title": "灰河桥通行规则（直接引用）",
+      "content_digest": "6da65b6853148072aad07b0dc3b5145232d0a67ac9e3b144261996ae4a927533",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-b-boat",
+      "kind": "page",
+      "synthetic_title": "灰河桥渡船（间接引用）",
+      "content_digest": "7382bad4713cca8e7d8f835a2976c5c08a3487c06feeec1005abe3eb96b516a6",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "outline-free-text",
+      "kind": "manuscript",
+      "synthetic_title": "故事总纲自由文本",
+      "content_digest": "fe227166597031ada94a51d18e3c425146649c61e0ffc3355a92b9ab65cc6805",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-c-bell",
+      "kind": "page",
+      "synthetic_title": "旧塔铜铃（预演后新增引用边）",
+      "content_digest": "14162f910464a81b2fd35a83e7fcefe6c6a4222f0342b23491ff062374182cd5",
+      "state": "current",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "author_opens_publish_confirm_v3",
+      "detail": "在灰河桥春汛 v3 工作稿发布确认区进入影响预演。"
+    },
+    {
+      "seq": 2,
+      "action": "system_previews_explicit_downstream",
+      "detail": "零写入列出 A 直接引用、B 经 A 间接引用，含最短路径与 source version。"
+    },
+    {
+      "seq": 3,
+      "action": "author_checks_zero_backlink_page",
+      "detail": "另一页面无 typed backlink 时显示未发现显式引用，自由文本与创作领域未检查。"
+    },
+    {
+      "seq": 4,
+      "action": "author_adds_edge_c",
+      "detail": "作者看过预演后又新增引用边 C；旧 scope S1 失效。"
+    },
+    {
+      "seq": 5,
+      "action": "author_reconfirms_scope_s2",
+      "detail": "刷新后得到 S2 并包含 C；scope 不匹配时保留工作稿并要求重新核对。"
+    },
+    {
+      "seq": 6,
+      "action": "author_publishes_v3",
+      "detail": "发布仍只调用现有 lifecycle；A、B、C 只列为建议核对，不被改写。"
+    }
+  ],
+  "expected_read_model": {
+    "affected_set": {
+      "direct": [
+        "page-a-toll"
+      ],
+      "indirect": [
+        "page-b-boat"
+      ],
+      "shortest_paths": [
+        "page-a-toll -> source",
+        "page-b-boat -> page-a-toll -> source"
+      ],
+      "source_versions_visible": true,
+      "same_dependent_once": true
+    },
+    "untracked_domains": {
+      "outline_free_text": "not_checked",
+      "writing": "not_checked",
+      "map_free_text": "not_checked"
+    },
+    "zero_backlink": {
+      "shown_as": "未发现显式引用；自由文本和其他创作领域未检查",
+      "green_no_impact": false
+    },
+    "preview": {
+      "writes": 0,
+      "llm_calls": 0
+    },
+    "scope_drift": {
+      "new_edge_c_added": true,
+      "old_scope_s1_stale": true,
+      "refresh_gets_s2_with_c": true,
+      "draft_preserved": true
+    },
+    "publish": {
+      "uses_existing_lifecycle": true,
+      "downstream_pages_unchanged": true,
+      "auto_fixes": false,
+      "outline_and_writing_writes": 0
+    }
+  },
+  "forbidden_outcomes": [
+    "零显式引用显示成无影响",
+    "LLM 猜全图",
+    "隐藏自由文本未检查",
+    "旧 scope 继续显示当前",
+    "递归自动修复"
+  ],
+  "metrics": {
+    "preview_writes": 0,
+    "llm_calls_in_preview": 0,
+    "old_scope_kept_current": 0,
+    "zero_backlink_shown_as_no_impact": 0,
+    "cross_project_leaks": 0,
+    "scope_drift_reconfirm_required": true
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_world_bible_v2.py::test_publish_impact_lists_shortest_backlinks_and_rejects_graph_drift"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_bible_v2.py::test_publish_impact_is_honest_about_untracked_and_unavailable_refs"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_bible_synopsis_workspace.py::test_draft_publish_creates_revision_and_conflict_keeps_draft"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_bible_synopsis_workspace.py::test_selected_working_draft_change_marks_confirmation_stale"
+    },
+    {
+      "pytest": "frontend-console/tests/vue/world/bible/WorldBibleTab.test.js::发布工作稿先显示诚实空态，再携带 scope hash 确认"
+    },
+    {
+      "pytest": "frontend-console/tests/vue/world/bible/WorldBibleTab.test.js::影响预演用作者语言折叠显示最短路径，不暴露 ID 或 hash"
+    }
+  ]
+}

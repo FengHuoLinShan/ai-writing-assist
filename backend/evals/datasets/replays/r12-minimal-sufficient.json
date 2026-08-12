@@ -1,0 +1,143 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r12-minimal-sufficient",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "inspiration-dawn-roads",
+      "kind": "draft",
+      "synthetic_title": "灵感：黎明时道路会重排",
+      "content_digest": "7a5e2739b4f1355241441298715e9ad90c74519f7466543780b0ef3f70fe5867",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "page-road-reorder",
+      "kind": "page",
+      "synthetic_title": "黎明道路重排",
+      "content_digest": "1ce0b80cf313297fdc17ae9eb0d6b2f75ec0daeb965921d1d0a5d67690bb89bd",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "framework-station-rules",
+      "kind": "page",
+      "synthetic_title": "西岭驿站制度说明（横向丰富）",
+      "content_digest": "52b614edd1085e62fcf03077a4ca4a3f85efe4a0950dbc3ec728f7fb1b4fde26",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "framework-harbor-rules",
+      "kind": "page",
+      "synthetic_title": "北境港港务规则（横向丰富）",
+      "content_digest": "ee04df3a32a2861aeeb16c53e7f7fd8d4b6a0c3d388ca89684fc9cd9f15bd860",
+      "state": "current",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "author_sends_one_line_inspiration",
+      "text": "每到黎明道路会重排",
+      "detail": "短输入直接发送，不要求先选择创作阶段。"
+    },
+    {
+      "seq": 2,
+      "action": "system_returns_minimal_sufficient",
+      "detail": "首轮给一个推荐方向、三至七条成立条件、一个生活切片、最高风险与下一步；最多一个问题。"
+    },
+    {
+      "seq": 3,
+      "action": "author_opens_rich_framework_project",
+      "detail": "横向资料已多、具体实例仍薄；聊天建议用一个实例试运行。"
+    },
+    {
+      "seq": 4,
+      "action": "system_suggests_one_vertical_slice",
+      "detail": "只固定一个锚点：西岭驿站换岗人群与普通日、故障、历史反馈使用同一组约束。"
+    },
+    {
+      "seq": 5,
+      "action": "author_requests_full_page",
+      "detail": "作者明确要求完整页面；明确大范围请求不被缩窄。"
+    },
+    {
+      "seq": 6,
+      "action": "slice_routes_to_outline_deep_link",
+      "detail": "纵切已足以形成叙事 Scene 时只生成可编辑摘要与 outline deep link。"
+    },
+    {
+      "seq": 7,
+      "action": "author_chat_never_writes",
+      "detail": "全部聊天与纵切过程零业务写入。"
+    }
+  ],
+  "expected_read_model": {
+    "short_input": {
+      "recommended_direction": true,
+      "alternative_directions_max": 2,
+      "conditions_min": 3,
+      "conditions_max": 7,
+      "ordinary_day_slice": true,
+      "top_risk": true,
+      "next_step": true,
+      "questions_max": 1,
+      "full_questionnaire": false
+    },
+    "rich_framework": {
+      "anchor_count": 1,
+      "anchor_drift": 0,
+      "ordinary_day_and_failure_observable": true,
+      "historical_feedback_same_constraints": true,
+      "new_peer_entries": 0,
+      "new_concept_only_to_repair_breakage": true
+    },
+    "explicit_large_request": {
+      "not_narrowed": true,
+      "respects_target_baseline_and_decision_state": true
+    },
+    "writes": {
+      "chat": 0
+    },
+    "owner_routing": {
+      "world_writes_outline": false,
+      "outline_deep_link_only": true,
+      "outline_apply_not_triggered": true
+    }
+  },
+  "forbidden_outcomes": [
+    "把一句话变成完整问卷",
+    "继续新增同级百科条目",
+    "同时铺多个实例",
+    "把生活夹具写成正典",
+    "由 world 直接创建 outline Scene"
+  ],
+  "metrics": {
+    "chat_writes": 0,
+    "questions_first_round": 1,
+    "full_questionnaire": 0,
+    "anchors": 1,
+    "anchor_drift": 0,
+    "large_request_narrowed": 0
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_generation_center_chat_is_read_only_and_records_snapshot"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_chat_prompt_preserves_explicit_scope_and_one_vertical_slice"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_generation_center_chat_retries_blank_text_without_json_mode"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_world_generation_center_api.py::test_generation_center_rejects_deprecated_scene_before_llm"
+    },
+    {
+      "manual": "B 层人工诊断分项：最低充分回应、首轮问题数、问卷化、无依据横向新增、单一锚点漂移、普通日与故障可观察性、明确大范围请求是否被缩窄；正/负/边界样本各至少一个"
+    }
+  ]
+}

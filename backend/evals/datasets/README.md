@@ -106,6 +106,20 @@ and prompt-contract fixtures. It stores only logical roles, repository-relative
 paths, sizes, and SHA-256 hashes; fixture payloads are not copied into the
 manifest.
 
+## Replay fixtures (R01–R14)
+
+`datasets/replays/` holds 14 redacted author-flow replay fixtures (schema
+`replay-v1`) covering resume, retarget, convergence, selective adopt, semantic
+drift, handoff roundtrip, visual candidates, cadence and stop, author revision,
+adjacent exploration, impact preview, minimal sufficient depth, character
+knowledge, and scene state. They are pure data: the structure guard lives in
+`tests/test_replay_fixtures.py` (run by `make eval-fast`), the fixtures never
+drive pytest, and no runner, EvalSuite, or new `make eval-*` command is created
+for them. B-layer human diagnosis reuses the existing
+`make eval-review-export` / `make eval-review-import` workflow. Redaction rules,
+the field dictionary, the 14-fixture overview, and the assertion-map
+maintenance contract are in `datasets/replays/README.md`.
+
 The resumable full Pilot pipeline is:
 
 ```bash

@@ -1,0 +1,145 @@
+{
+  "schema_version": "replay-v1",
+  "scenario_id": "r07-visual-candidates",
+  "novel_id": "novel-replay",
+  "tier": "deterministic",
+  "initial_state_refs": [
+    {
+      "ref_id": "source-v1-regional",
+      "kind": "page",
+      "synthetic_title": "北境港地区设定（v1 候选）",
+      "content_digest": "f658c362a0e768f2b443fb15202d0985e438950f17a1d254a593131093144c1d",
+      "state": "candidate",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "source-v2-regional",
+      "kind": "page",
+      "synthetic_title": "北境港地区设定（v2 部分升级）",
+      "content_digest": "7b0de21c23b795f98ec051e48df5330b37b43c19c3af7ac524052e70c73e2dc8",
+      "state": "current",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "map-preview-layout",
+      "kind": "object",
+      "synthetic_title": "北境港总览布局（结构化预览）",
+      "content_digest": "aa73f2a1a1002daf1830c1112bfc07f04f28cf9f924e9114e3d9a4930ff9c8f1",
+      "state": "candidate",
+      "visibility": "author"
+    },
+    {
+      "ref_id": "observation-harbor-buoy",
+      "kind": "object",
+      "synthetic_title": "北境港浮标观察项",
+      "content_digest": "6f14544638b414bce7121fde9f9e2d40e8410657140d3304ccb6f9367f2ac82f",
+      "state": "candidate",
+      "visibility": "author"
+    }
+  ],
+  "author_events": [
+    {
+      "seq": 1,
+      "action": "author_opens_prepare_visual",
+      "detail": "进入准备视觉稿次级动作，先讨论画什么；业务写入与图像调用均为零。"
+    },
+    {
+      "seq": 2,
+      "action": "author_confirms_single_purpose_brief",
+      "detail": "确认单一用途视觉简报：必须保留的已采用约束、仍开放项、禁止新增项。"
+    },
+    {
+      "seq": 3,
+      "action": "system_creates_overview_candidate",
+      "detail": "来源 v1 仍为候选时生成总览候选图。"
+    },
+    {
+      "seq": 4,
+      "action": "system_saves_structural_section_revision",
+      "detail": "保留原图并另存结构剖面修订；图片只作为外部可下载交接。"
+    },
+    {
+      "seq": 5,
+      "action": "source_upgrades_to_v2",
+      "detail": "来源部分升级为地区正典，但正式坐标、邻接与测绘仍开放。"
+    },
+    {
+      "seq": 6,
+      "action": "source_drift_flagged_needs_review",
+      "detail": "旧图只标记需复核；不自动晋升也不静默丢弃。"
+    },
+    {
+      "seq": 7,
+      "action": "author_applies_structured_items",
+      "detail": "只按结构化项采用：地点进入 quick-create，动态状态进入观察审查。"
+    }
+  ],
+  "expected_read_model": {
+    "axes": {
+      "source_authority": "v2_partial_regional_canon",
+      "visual_review_status": "candidate",
+      "cascade_between_axes": false
+    },
+    "brief": {
+      "single_purpose": true,
+      "writes_before_confirm": 0,
+      "confirm_writes": 0
+    },
+    "candidates": {
+      "quick_create_selectable": false,
+      "confirm_payload_contains_candidate": false
+    },
+    "source_drift": {
+      "old_image_auto_promoted": false,
+      "old_image_silently_dropped": false,
+      "flagged_as": "needs_review",
+      "v2_open_items_not_filled": true
+    },
+    "image_assets": {
+      "created_in_product": false,
+      "png_persisted": false,
+      "base64_in_session": false
+    },
+    "structured_adoption": {
+      "per_item_owner_and_cas": true,
+      "whole_image_adopt_main_action": false
+    },
+    "generate_call": {
+      "overwrite_terrain_generate_used": false
+    }
+  },
+  "forbidden_outcomes": [
+    "来源升级后自动晋升旧图",
+    "把旧图静默丢弃",
+    "把画面细节当证据",
+    "把同意提示词当采用地图事实"
+  ],
+  "metrics": {
+    "old_image_auto_promoted": 0,
+    "old_image_silently_dropped": 0,
+    "brief_approval_writes": 0,
+    "candidate_selections": 0,
+    "image_details_as_facts": 0,
+    "source_drift_flagged": true
+  },
+  "assertion_map": [
+    {
+      "pytest": "backend/modules/world/tests/test_map_quick_create_service.py::test_quick_create_preview_includes_candidates_when_enabled"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_map_quick_create_service.py::test_candidate_preview_does_not_move_canonical_locations"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_map_quick_create_service.py::test_quick_create_confirm_requires_pending_location_adoption"
+    },
+    {
+      "pytest": "backend/modules/world/tests/test_map_visual_revisions.py::test_visual_revision_restores_baseline_and_creates_new_revision"
+    },
+    {
+      "pytest": "frontend-console/tests/vue/map/useMapQuickCreate.test.js::keeps candidate layouts read-only and rolls back failed preview changes"
+    },
+    {
+      "manual": "标签与泄漏核对：文件可用性、精确标签、空间关系与方向、开放细节泄漏、叙事用途五栏人工核对"
+    }
+  ]
+}
