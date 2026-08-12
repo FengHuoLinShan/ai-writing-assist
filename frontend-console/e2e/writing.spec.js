@@ -445,11 +445,12 @@ test.describe("写作台模块", () => {
     await waitWritingReady(page)
     await selectWritingChapter(page, 1)
     await openWritingToolMenu(page, "#btn-conflict-check")
-    await page.getByRole("button", { name: "专注模式" }).click()
+    await page.locator("#writing-editor-buttons").getByRole("button", { name: "专注模式" }).click()
 
     await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
     await expect(page.locator("#writing-tree-container")).toBeHidden()
     await expect(page.locator("#writing-panel-container")).toBeHidden()
+    await expect(page.locator("#writing-editor")).toBeVisible()
 
     const geometry = await page.evaluate(() => {
       const workspace = document.querySelector("#workspace-content")
@@ -497,12 +498,18 @@ test.describe("写作台模块", () => {
         + right.getBoundingClientRect().width
       return {
         editorWidth: editor.getBoundingClientRect().width,
+        leftWidth: left.getBoundingClientRect().width,
+        rightWidth: right.getBoundingClientRect().width,
         contentWidth,
       }
     })
 
     expect(before).not.toBeNull()
-    expect(before.editorWidth / before.contentWidth).toBeGreaterThanOrEqual(0.62)
+    // 三主题规范骨架：章节树固定 238px、写作副驾驶固定 257px，正文吃掉剩余弹性宽
+    expect(before.leftWidth).toBe(238)
+    expect(before.rightWidth).toBe(257)
+    // 1280 视口下固定双 rail 后正文仍占最大份额（1440 基准下约 0.57）
+    expect(before.editorWidth / before.contentWidth).toBeGreaterThanOrEqual(0.45)
 
     await page.getByLabel("收起写作副驾驶").click()
     await expect(page.locator(".writing-panel-rail")).toHaveClass(/is-collapsed/)
@@ -906,6 +913,11 @@ test.describe("写作台模块", () => {
     const saveBox = await saveButton.boundingBox()
     expect(saveBox).not.toBeNull()
     expect(saveBox.height).toBeGreaterThanOrEqual(44)
+    const actionsBox = await page.locator(".mobile-note-actions").boundingBox()
+    const navigationBox = await page.locator("#sidebar").boundingBox()
+    expect(actionsBox).not.toBeNull()
+    expect(navigationBox).not.toBeNull()
+    expect(actionsBox.y + actionsBox.height).toBeLessThanOrEqual(navigationBox.y)
     await saveButton.click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存到工作稿", {
       timeout: 10000,

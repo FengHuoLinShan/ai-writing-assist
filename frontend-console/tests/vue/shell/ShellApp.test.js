@@ -148,11 +148,10 @@ describe("ShellApp", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, shiftKey: true, bubbles: true }))
     expect(services.workspace.toggleOutlineFloat).toHaveBeenCalledWith(wrapper.get("#workspace-content").element)
 
-    await wrapper.get("#theme-toggle").trigger("click")
-    await wrapper.get('[data-theme-value="dark"]').trigger("click")
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark")
-    expect(localStorage.getItem("novel_theme")).toBe("dark")
-    expect(services.toast).toHaveBeenCalledWith("已切换至「午夜星河」主题", "success")
+    await wrapper.get('[data-theme-value="night"]').trigger("click")
+    expect(document.documentElement.getAttribute("data-theme")).toBe("night")
+    expect(localStorage.getItem("nc-theme")).toBe("night")
+    expect(services.toast).toHaveBeenCalledWith("已切换至「暗夜书房」主题", "success")
 
     wrapper.unmount()
     window.dispatchEvent(new CustomEvent("writing:dashboard-update", { detail: { chapterIndex: 99, chapterWords: 999 } }))
@@ -183,19 +182,17 @@ describe("ShellApp", () => {
     expect(unavailable.defaultPrevented).toBe(false)
   })
 
-  it("keeps shell shortcuts out of the theme toggle and menu", async () => {
+  it("keeps shell shortcuts out of the theme dots", async () => {
     const services = createShellTestServices()
     const wrapper = mount(ShellApp, { props: { services, healthIntervalMs: 60_000 }, attachTo: document.body })
-    const toggle = wrapper.get("#theme-toggle")
-    const toggleEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
-    toggle.element.dispatchEvent(toggleEnter)
-    expect(toggleEnter.defaultPrevented).toBe(false)
+    const dot = wrapper.get('[data-theme-value="sticky"]')
+    const dotEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
+    dot.element.dispatchEvent(dotEnter)
+    expect(dotEnter.defaultPrevented).toBe(false)
     expect(services.workspace.triggerAction).not.toHaveBeenCalled()
 
-    await toggle.trigger("click")
-    const menuItem = wrapper.get('[data-theme-value="minimal"]')
     for (const key of ["g", "Enter", "Escape"]) {
-      menuItem.element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
+      dot.element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
     }
     expect(services.workspace.triggerAction).not.toHaveBeenCalled()
     expect(services.router.navigate).not.toHaveBeenCalled()

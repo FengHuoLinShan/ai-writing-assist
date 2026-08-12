@@ -53,7 +53,7 @@ cd frontend-console
 npm run test                          # vitest（含 CSS 契约测试）
 npm run test:e2e:smoke                # 功能冒烟（home/project/import/writing）
 npm run test:e2e:core                 # 核心集（含 world/outline-scenes/map）
-npm run test:e2e:visual               # 视觉回归（39 张三主题快照）
+npm run test:e2e:visual               # 视觉回归（40 张快照）
 npm run test:e2e:visual:update        # 重建视觉基线（改动确认后执行，逐张过目）
 make docs-check BASE_REF=origin/main  # 仓库根目录，文档同步核对
 ```

@@ -1,5 +1,5 @@
 <!--
-  OutlineArcsTab — outline/arcs 篇章纲子标签（vanilla _renderArcs L1290-1354）。
+  OutlineArcsTab — outline/arcs 篇章子标签（vanilla _renderArcs L1290-1354）。
   DOM 结构/class/id/data-action 逐节点对齐。
   筛选变更一律 router.navigate("outline", "arcs", true, query)。
 -->
@@ -46,7 +46,7 @@
     <template v-if="arcs.length === 0 && !loadError">
       <div class="empty-state">
         <div class="empty-icon">&#128204;</div>
-        <p>暂无篇章纲。</p>
+        <p>暂无篇章。</p>
         <p class="outline-empty-detail">{{ emptyDetail }}</p>
         <button class="btn btn-sm btn-primary" data-action="nav-scenes" @click="navigateScenes">从已采用场景开始整理</button>
       </div>
@@ -62,13 +62,13 @@
 
     <!-- 列表 -->
     <template v-else>
-      <OutlineBulkToolbar scope="outline-arcs" :actions="ARC_BULK_ACTIONS" noun="篇章纲" @run="runBulk" />
+      <OutlineBulkToolbar scope="outline-arcs" :actions="ARC_BULK_ACTIONS" noun="篇章" @run="runBulk" />
 
       <table class="data-table table-card-list">
         <thead>
           <tr>
             <th class="selection-cell">
-              <label class="selection-checkbox" title="全选当前篇章纲">
+              <label class="selection-checkbox" title="全选当前篇章">
                 <input type="checkbox"
                   data-action="bulk-toggle-all"
                   data-scope="outline-arcs"
@@ -77,7 +77,7 @@
                   :disabled="selectAllState.disabled"
                   @change="toggleAll"
                 />
-                <span class="sr-only">全选当前篇章纲</span>
+                <span class="sr-only">全选当前篇章</span>
               </label>
             </th>
             <th>状态</th>
@@ -91,7 +91,7 @@
         <tbody>
           <tr v-for="a in arcs" :key="a.id || a.arc_id" class="outline-structure-row" :data-id="a.id || a.arc_id">
             <td class="selection-cell">
-              <label class="selection-checkbox" :title="`选择 ${a.name || a.title || '篇章纲'}`">
+              <label class="selection-checkbox" :title="`选择 ${a.name || a.title || '篇章'}`">
                 <input type="checkbox"
                   data-action="bulk-toggle-one"
                   data-scope="outline-arcs"
@@ -99,7 +99,7 @@
                   :checked="isSelected(a.id || a.arc_id)"
                   @change="toggleOne(a.id || a.arc_id, $event.target.checked)"
                 />
-                <span class="sr-only">选择 {{ a.name || a.title || '篇章纲' }}</span>
+                <span class="sr-only">选择 {{ a.name || a.title || '篇章' }}</span>
               </label>
             </td>
             <td data-label="状态"><span class="badge" :class="statusBadgeClass(a)">{{ statusLabel(a) }}</span></td>
@@ -115,7 +115,7 @@
             <td data-label="操作">
               <button v-if="reviewActionHtml(a)" class="btn btn-sm" :class="reviewActionHtml(a).className" data-action="mark-arc-reviewed" :data-id="a.id || a.arc_id" @click="markReviewed(a.id || a.arc_id)">{{ reviewActionHtml(a).label }}</button>
               <button class="btn btn-sm btn-primary" data-action="edit-arc" :data-id="a.id || a.arc_id" @click="editArc(a.id || a.arc_id)">编辑</button>
-              <ActionMenu :menu-id="`arc-actions-${a.id || a.arc_id}`" :label="`${a.name || a.title || '篇章纲'}的更多操作`" :items="arcMenuItems(a)" @select="onArcMenuSelect" />
+              <ActionMenu :menu-id="`arc-actions-${a.id || a.arc_id}`" :label="`${a.name || a.title || '篇章'}的更多操作`" :items="arcMenuItems(a)" @select="onArcMenuSelect" />
             </td>
           </tr>
         </tbody>
@@ -193,7 +193,7 @@ const loadError = computed(() => props.arcsLoadError)
 const emptyDetail = computed(() => (
   filterForm.source === "deep_import" || Boolean(filterForm.workflow_id)
     ? "结构分析不完整或无匹配结果，可重新分析，或重置筛选查看其他结构资产。"
-    : "篇章纲用于整理深度导入和人工维护后的叙事结构。"
+    : "篇章用于整理深度导入和人工维护后的叙事结构。"
 ))
 
 function statusLabel(a) {

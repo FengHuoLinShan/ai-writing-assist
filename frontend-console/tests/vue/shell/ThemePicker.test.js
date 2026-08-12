@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { enableAutoUnmount, mount } from "@vue/test-utils"
 import ThemePicker from "../../../vue/shell/components/ThemePicker.vue"
+import { SHELL_THEMES } from "../../../vue/shell/composables/useTheme.js"
 
 enableAutoUnmount(afterEach)
 
@@ -8,148 +9,85 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-function mountPicker(modelValue = "minimal") {
+function mountPicker(modelValue = "sticky") {
   return mount(ThemePicker, {
     attachTo: document.body,
     props: { modelValue },
   })
 }
 
-async function openMenu(wrapper) {
-  await wrapper.get("#theme-toggle").trigger("click")
-  await Promise.resolve()
-}
-
-function options(wrapper) {
-  return wrapper.findAll("[role='menuitemradio']")
+function dots(wrapper) {
+  return wrapper.findAll(".theme-dot")
 }
 
 describe("ThemePicker", () => {
-  it("names and associates the toggle, then focuses the checked item on open", async () => {
-    const wrapper = mountPicker("warm")
-    const toggle = wrapper.get("#theme-toggle")
+  it("renders one labelled radio dot per theme inside a radiogroup", () => {
+    const wrapper = mountPicker("night")
+    const group = wrapper.get(".topbar-theme")
+    expect(group.attributes("role")).toBe("radiogroup")
+    expect(group.attributes("aria-label")).toBe("主题")
 
-    expect(toggle.attributes("aria-label")).toBe("切换主题")
-    expect(toggle.attributes("aria-controls")).toBe("theme-menu")
-    await openMenu(wrapper)
-
-    const menuItems = options(wrapper)
-    expect(toggle.attributes("aria-expanded")).toBe("true")
-    expect(menuItems[1].attributes("aria-checked")).toBe("true")
-    expect(menuItems[1].attributes("tabindex")).toBe("0")
-    expect(document.activeElement).toBe(menuItems[1].element)
-
-    await toggle.trigger("click")
-    expect(toggle.attributes("aria-expanded")).toBe("false")
+    const items = dots(wrapper)
+    expect(items).toHaveLength(SHELL_THEMES.length)
+    items.forEach((item, index) => {
+      const theme = SHELL_THEMES[index]
+      expect(item.attributes("role")).toBe("radio")
+      expect(item.attributes("data-theme-value")).toBe(theme.value)
+      expect(item.attributes("title")).toBe(theme.label)
+      expect(item.attributes("aria-label")).toBe(`切换到${theme.label}`)
+      expect(item.attributes("type")).toBe("button")
+    })
+    expect(items[1].attributes("aria-checked")).toBe("true")
+    expect(items[1].classes()).toContain("is-active")
+    expect(items[0].attributes("aria-checked")).toBe("false")
+    expect(items[0].classes()).not.toContain("is-active")
   })
 
-  it("falls back to the first item for an unknown theme value", async () => {
-    const wrapper = mountPicker("unknown")
-    await openMenu(wrapper)
-
-    const menuItems = options(wrapper)
-    expect(menuItems[0].attributes("tabindex")).toBe("0")
-    expect(document.activeElement).toBe(menuItems[0].element)
+  it("emits update:modelValue when a dot is clicked", async () => {
+    const wrapper = mountPicker("sticky")
+    await dots(wrapper)[2].trigger("click")
+    expect(wrapper.emitted("update:modelValue")).toEqual([["ink"]])
   })
 
-  it("moves roving focus with wrapping and Home/End without selecting a theme", async () => {
-    const wrapper = mountPicker("minimal")
-    await openMenu(wrapper)
-    const menuItems = options(wrapper)
+  it("moves selection and focus with arrow keys, wrapping at both ends", async () => {
+    const wrapper = mountPicker("sticky")
+    const items = dots(wrapper)
 
-    await menuItems[0].trigger("keydown", { key: "ArrowUp" })
+    await items[0].trigger("keydown", { key: "ArrowRight" })
+    expect(wrapper.emitted("update:modelValue")).toEqual([["night"]])
     await Promise.resolve()
-    expect(document.activeElement).toBe(menuItems[2].element)
-    expect(menuItems[2].attributes("tabindex")).toBe("0")
+    expect(document.activeElement).toBe(items[1].element)
 
-    await menuItems[2].trigger("keydown", { key: "ArrowDown" })
+    await items[1].trigger("keydown", { key: "ArrowLeft" })
+    expect(wrapper.emitted("update:modelValue")).toEqual([["night"], ["sticky"]])
     await Promise.resolve()
-    expect(document.activeElement).toBe(menuItems[0].element)
+    expect(document.activeElement).toBe(items[0].element)
 
-    await menuItems[0].trigger("keydown", { key: "End" })
+    await items[0].trigger("keydown", { key: "ArrowUp" })
+    expect(wrapper.emitted("update:modelValue")).toEqual([["night"], ["sticky"], ["ink"]])
     await Promise.resolve()
-    expect(document.activeElement).toBe(menuItems[2].element)
+    expect(document.activeElement).toBe(items[2].element)
 
-    await menuItems[2].trigger("keydown", { key: "Home" })
+    await items[2].trigger("keydown", { key: "ArrowDown" })
+    expect(wrapper.emitted("update:modelValue")).toEqual([["night"], ["sticky"], ["ink"], ["sticky"]])
     await Promise.resolve()
-    expect(document.activeElement).toBe(menuItems[0].element)
-    expect(wrapper.emitted("update:modelValue")).toBeUndefined()
-    expect(menuItems[0].attributes("aria-checked")).toBe("true")
+    expect(document.activeElement).toBe(items[0].element)
   })
 
-  it("keeps activation and menu keydowns out of document shortcuts without preventing native activation", async () => {
-    const wrapper = mountPicker("minimal")
+  it("keeps dot keydowns out of document shortcuts without preventing native activation", () => {
+    const wrapper = mountPicker("sticky")
     const documentKeydown = vi.fn()
     document.addEventListener("keydown", documentKeydown)
     try {
-      for (const key of ["Enter", " "]) {
+      const items = dots(wrapper)
+      for (const [key, prevented] of [["Enter", false], [" ", false], ["g", false], ["ArrowRight", true]]) {
         const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
-        wrapper.get("#theme-toggle").element.dispatchEvent(event)
-        expect(event.defaultPrevented).toBe(false)
-      }
-      expect(documentKeydown).not.toHaveBeenCalled()
-
-      await openMenu(wrapper)
-      const menuItems = options(wrapper)
-      for (const [key, prevented] of [["Enter", false], [" ", false], ["Tab", false], ["g", false], ["Escape", true]]) {
-        const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
-        menuItems[1].element.dispatchEvent(event)
+        items[0].element.dispatchEvent(event)
         expect(event.defaultPrevented).toBe(prevented)
       }
       expect(documentKeydown).not.toHaveBeenCalled()
     } finally {
       document.removeEventListener("keydown", documentKeydown)
     }
-  })
-
-  it("leaves native Enter and Space activation to one click selection and returns focus", async () => {
-    const wrapper = mountPicker("minimal")
-    await openMenu(wrapper)
-    const menuItems = options(wrapper)
-    for (const key of ["Enter", " "]) {
-      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
-      menuItems[1].element.dispatchEvent(event)
-      expect(event.defaultPrevented).toBe(false)
-    }
-
-    await menuItems[1].trigger("click")
-    expect(wrapper.emitted("update:modelValue")).toEqual([["warm"]])
-    expect(wrapper.get("#theme-toggle").attributes("aria-expanded")).toBe("false")
-    await Promise.resolve()
-    expect(document.activeElement).toBe(wrapper.get("#theme-toggle").element)
-  })
-
-  it("returns focus on Escape, lets Tab leave normally, and closes without leaving hidden focus", async () => {
-    const wrapper = mountPicker("minimal")
-    await openMenu(wrapper)
-    const menuItems = options(wrapper)
-
-    await menuItems[0].trigger("keydown", { key: "Escape" })
-    await Promise.resolve()
-    expect(wrapper.get("#theme-toggle").attributes("aria-expanded")).toBe("false")
-    expect(document.activeElement).toBe(wrapper.get("#theme-toggle").element)
-
-    await openMenu(wrapper)
-    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
-    menuItems[0].element.dispatchEvent(tabEvent)
-    expect(tabEvent.defaultPrevented).toBe(false)
-    const outside = document.createElement("button")
-    document.body.appendChild(outside)
-    outside.focus()
-    await Promise.resolve()
-    expect(wrapper.get("#theme-toggle").attributes("aria-expanded")).toBe("false")
-
-    await openMenu(wrapper)
-    expect(document.activeElement).toBe(menuItems[0].element)
-    wrapper.vm.close()
-    await vi.waitFor(() => {
-      expect(wrapper.get("#theme-toggle").attributes("aria-expanded")).toBe("false")
-      expect(document.activeElement).toBe(wrapper.get("#theme-toggle").element)
-    })
-
-    await openMenu(wrapper)
-    outside.focus()
-    wrapper.vm.close()
-    await vi.waitFor(() => expect(document.activeElement).toBe(outside))
   })
 })

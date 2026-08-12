@@ -28,8 +28,11 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 ## 架构
 
 - 入口：`index.html`
-- 基础样式：`styles.css`
-- 全站主题覆层：`editorial-theme.css`
+- 基础样式：`styles.css`（结构/排版/布局尺寸；ink 主题字体族覆写）
+- 全站主题覆层：`editorial-theme.css`（视觉表达唯一权威；`--nc-*` 原语层 + 语义转发层 +
+  `--archive-*` 兼容别名；末尾含 shell 级点缀分节）
+- 写作页样式：`vue/views/writing/writing-desk.css`（页面级）与
+  `vue/views/writing/writing-decorations.css`（编辑区点缀与水印字）
 - 全局状态：`state.js`
 - 状态切片 helper：`stateSlices.js`
 - 路由：`router.js`
@@ -77,7 +80,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
 | `vue/views/today/TodayView.vue` | `today` 路由（Vue island）；一个正文或世界设定续接主卡、服务器世界书工作稿/待处理页面建议入口、待处理汇总和最多 3 个项目隔离的长任务恢复；摘要失败不阻断写作，未知状态保留并允许重试 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
-| `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；版本、冲突、导出和导入收进分组菜单 |
+| `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；版本、冲突、导出和导入收进分组菜单，菜单动作完成后关闭且不会被页头裁切 |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | 地图一级工作台，总览、最近地图、地图树、收件箱、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查。动态队列、历史、活地图当前事实与叙事透镜时间线的标题均为同名原生按钮，可用键盘打开详情；整卡点击仍是鼠标快捷方式，采用/忽略不会触发详情。 |
 | `views/mapView.js` | 仅作为 `MapViewportAdapter` 下的 Leaflet/Canvas viewport controller：地形、地点、标记、线路、势力范围与编辑会话；不拥有一级页面 DOM |
@@ -156,14 +159,26 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 项目页使用“作品档案”首屏和非对称项目网格：当前项目始终置顶，首张卡占更大版面；
   其余项目按最近更新时间排序。视觉层只消费既有标题、题材、阶段、简介和统计字段，
   不新增封面数据或 API；`760px` 以下收敛为单栏，`390px` 不产生页面级横向溢出。
-- 全部一级页面、子标签、弹窗、表格和辅助栏共用“编辑档案”主题：米白纸张、深蓝结构线、
-  朱红索引与低圆角几何编排。`styles.css` 保持结构布局，`editorial-theme.css` 作为后加载
-  覆层拥有视觉表达；路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
+- 全部一级页面、子标签、弹窗、表格和辅助栏共用三主题换肤体系：`sticky`（晨光便签，浅色默认）、
+  `night`（暗夜书房，深色）、`ink`（水墨写意，纸色），经 `<html data-theme="…">` 切换。
+  `editorial-theme.css` 作为后加载覆层拥有视觉表达：`--nc-*` 原语层是唯一写色值的一层
+  （`:root` = sticky，`[data-theme="night"|"ink"]` 只覆写 `--nc-*`），语义层全从 `--nc-*` 转发，
+  `--archive-*` 保留为转发别名；`styles.css` 保持结构布局。全站线条为 1px hairline，阴影只用于
+  浮层。主题持久化 key 为 `nc-theme`（首次从旧 key `novel_theme` 迁移并删除；legacy 值映射
+  `light/minimal→sticky`、`dark/dark-soft→night`、`paper/warm→ink`）；无存储时跟随系统
+  `prefers-color-scheme`（dark → night）。切换入口为顶栏三点切换器（`.topbar-theme` radiogroup +
+  `button.theme-dot[data-theme-value]`，支持方向键），切换过渡 250ms、reduced-motion 关闭。
+  点缀只允许顶栏品牌区、写作页编辑区（上 1 组 + 下 1 组）与左栏导航底部三处，近底色、
+  `pointer-events:none`，专注模式与 ≤760px 一律隐藏。设计细则唯一权威：
+  `docs/frontend/uiux/design-standard.md`。
+- 路由在 `#workspace-content` 写入 `data-workspace-view/subview` 只供样式
   定位，不得被业务逻辑、数据请求或测试 fixture 当作状态来源。
-- 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用深蓝
-  实体面与朱红索引线，普通操作保留可见边框；可编辑字段使用纸张底、完整边框与左侧功能线，
-  focus-visible/聚焦切换朱红并显示焦点环。暗色主题保持相同层级；`760px` 以下常用按钮高度
-  不低于 `42px`，输入控件不低于 `44px`。
+- 全局布局尺寸：`--topbar-height:57px`、`--sidebar-width:211px`、rail 折叠 `44px`；
+  写作页固定三栏：章节树 238px / 正文弹性 / 写作副驾驶 257px。
+- 功能性按钮、输入框、选择器和编辑区要比只读内容更易辨识，但不脱离主题：主操作使用主题
+  accent 实体面（sticky 蓝 / night 金 / ink 朱砂），普通操作保留可见边框；可编辑字段使用
+  surface 底与完整边框，focus-visible 显示 2px accent 焦点环。暗色主题保持相同层级；
+  `760px` 以下常用按钮高度不低于 `42px`，输入控件不低于 `44px`。
 - 创作工作台以正文、主列表、编辑区、生成结果和地图画布为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
 - Vue 页内的主题化辅助栏由 SFC 模板渲染，并以 `项目 + 页面 + 栏位` 为 key
   在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
@@ -245,6 +260,10 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 
 - Scene 树导航
 - 自动保存与未保存提醒
+- 底部状态栏 `.writing-statusbar`（38px 通栏）：左侧为字数进度（当前 / 日目标 + 3px accent
+  进度条）、段落数与预计阅读时长（字数 / 400 向上取整）；右侧为字体循环切换（会话内临时
+  override，不写偏好存储）、专注模式按钮和保存/版本状态徽标——这些 DOM 自编辑器头平移，
+  id 不变；版本选择条保留在编辑器上方工具区
 - 版本历史/恢复
 - 读取项目生效作者偏好并驱动日目标、编辑器字体和默认专注模式；优先使用设置服务的项目/全局继承结果，旧本地值只作为接口失败时的兼容回退
 - 深度导入进度展示：恢复 localStorage 中的 task_id，展示当前章节 / Scene / batch、质量统计、降级状态和中断恢复提示
@@ -345,7 +364,7 @@ Leaflet/Canvas 视口通过 `MapViewportAdapter` 封装保留的 `mapView` contr
 - 390px 写作页默认折叠章节辅助栏；作者展开章节后使用带程序化名称的速记编辑器保存短文本
   工作稿，刷新后从后端版本恢复。速记输入实时同步同一编辑状态，首次保存返回的 draft
   id/version 会回写以支持连续保存，切换完整编辑器时保留未保存正文。速记主操作不低于
-  44px，发布、版本恢复和长篇结构编辑仍转交桌面端。
+  44px，且首屏操作区保持在移动底栏上方；发布、版本恢复和长篇结构编辑仍转交桌面端。
 - 批量修改分组按对象类型和地图时间展示，可通过 `batch-actions` 对待处理 observation 执行批量采用、忽略和标记冲突；“打开检查器”会按对象聚焦刷新右侧检查器
 - `mapLayoutEngine.js` 负责前端自动布局、标签避让、聚合簇和语义气泡排队；`mapView` 浏览态地点中心标签使用该布局结果避免高密度重叠
 - 地图 URL 规范模式为 `overview/recent/dashboard/live/lens`；旧 `mode=map` 会

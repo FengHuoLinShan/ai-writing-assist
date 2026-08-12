@@ -31,11 +31,11 @@
               <summary class="btn btn-sm">视图与整理</summary>
               <div class="world-view-options__panel">
                 <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">{{ session.autoExtractOpen ? "收起" : "打开" }} AI 资料整理</button>
-                <span class="world-object-view-toggle" aria-label="人物与设定视图">
+                <span class="world-object-view-toggle" role="group" aria-label="人物与设定视图">
                   <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'card' }" data-action="set-object-view" data-view-mode="card" @click="setObjectViewMode('card')">卡片</button>
                   <button class="btn btn-sm" :class="{ 'btn-primary': objectViewMode === 'table' }" data-action="set-object-view" data-view-mode="table" @click="setObjectViewMode('table')">表格</button>
                 </span>
-                <span class="world-discovery-mode-toggle" aria-label="资料排序">
+                <span class="world-discovery-mode-toggle" role="group" aria-label="资料排序">
                   <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'hot' }" data-action="set-discovery-mode" data-mode="hot" @click="setDiscoveryMode('hot')">最近相关</button>
                   <button class="btn btn-sm" :class="{ 'btn-primary': discoveryMode === 'normal' }" data-action="set-discovery-mode" data-mode="normal" @click="setDiscoveryMode('normal')">全部资料</button>
                 </span>

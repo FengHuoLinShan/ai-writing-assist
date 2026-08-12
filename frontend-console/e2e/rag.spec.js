@@ -66,8 +66,8 @@ test.describe("RAG 检索模块", () => {
     await expectWithinViewport(input)
     await expectWithinViewport(searchButton)
     await expectNoPageOverflow(page)
-    await expect(input).toHaveCSS("min-height", "40px")
-    await expect(searchButton).toHaveCSS("min-height", "40px")
+    await expect(input).toHaveCSS("min-height", "44px")
+    await expect(searchButton).toHaveCSS("min-height", "42px")
   })
 
   test("390px 下问世界先给可打开引用，明确保存后才进入待处理", async ({ page }) => {
