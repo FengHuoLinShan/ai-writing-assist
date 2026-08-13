@@ -1513,6 +1513,7 @@ async def test_task_index_uses_project_first_lock_order_and_two_checkpoints() ->
         "embed",
         "project",
         "claim",
+        "prepare",
         "persist",
         "finish",
         "commit",
@@ -1650,6 +1651,138 @@ async def test_task_index_skips_embedding_when_prepared_source_is_fresh() -> Non
     db.expire_all.assert_not_called()
     embed_plan.assert_not_awaited()
     state_class.return_value.begin_prepared.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scene_annotation_only_preserves_embedding_and_other_chunk_fields() -> None:
+    """Scene commits update only Scene references when the chunk stream matches."""
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+
+    novel_id = uuid.uuid4()
+    source_id = str(uuid.uuid4())
+    scene_id = str(uuid.uuid4())
+    span_id = str(uuid.uuid4())
+    plan = _ChapterIndexPlan(
+        chapter_index=7,
+        content_mode="canonical",
+        source_draft_id=source_id,
+        source_content_hash="a" * 64,
+        items=[
+            RagChunkCreate(
+                source_type="chapter_text",
+                source_id=source_id,
+                source_content_hash="a" * 64,
+                chapter_index=7,
+                chunk_index=0,
+                start_offset=0,
+                end_offset=8,
+                text="不应重算的正文",
+                index_version="cn-novel-v1",
+                scene_id=scene_id,
+                scene_span_id=span_id,
+            )
+        ],
+    )
+    chunk = SimpleNamespace(
+        id=uuid.uuid4(),
+        source_type="chapter_text",
+        source_id=uuid.UUID(source_id),
+        source_content_hash="a" * 64,
+        content_mode="canonical",
+        chapter_index=7,
+        chunk_index=0,
+        start_offset=0,
+        end_offset=8,
+        text="不应重算的正文",
+        index_version="cn-novel-v1",
+        scene_id=uuid.uuid4(),
+        scene_span_id=uuid.uuid4(),
+        embedding=[0.1, 0.2],
+        summary="保留摘要",
+        entity_ids=["entity"],
+        character_ids=["character"],
+        thread_ids=["thread"],
+        importance=0.9,
+        embedding_status="succeeded",
+        embedding_error=None,
+        index_warnings=["保留告警"],
+    )
+    repo = MagicMock(spec=RagChunkRepository)
+    repo.find_by_chapter = AsyncMock(return_value=[chunk])
+    service = IndexingService(repo=repo)
+    db = AsyncMock()
+    db.task_checkpoint_enabled = True
+
+    with (
+        patch("modules.project.facade.require_active_project", autospec=True),
+        patch(
+            "infrastructure.tasks.facade.require_running_task_attempt",
+            autospec=True,
+        ),
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            return_value=plan,
+        ),
+        patch.object(IndexingService, "_embed_plan", autospec=True) as embed,
+    ):
+        outcome = await service.index_chapter_for_task(
+            db,
+            novel_id,
+            7,
+            scene_annotation_only=True,
+        )
+
+    assert outcome.report.chunks_created == 0
+    assert chunk.scene_id == uuid.UUID(scene_id)
+    assert chunk.scene_span_id == uuid.UUID(span_id)
+    assert chunk.embedding == [0.1, 0.2]
+    assert chunk.summary == "保留摘要"
+    assert chunk.entity_ids == ["entity"]
+    assert chunk.embedding_status == "succeeded"
+    embed.assert_not_awaited()
+    repo.replace_entity_appearances.assert_awaited_once()
+    db.commit.assert_awaited_once_with()
+
+
+def test_scene_annotation_plan_rejects_chunk_stream_mismatch() -> None:
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+
+    source_id = str(uuid.uuid4())
+    item = RagChunkCreate(
+        source_type="chapter_text",
+        source_id=source_id,
+        source_content_hash="b" * 64,
+        chapter_index=8,
+        chunk_index=0,
+        start_offset=0,
+        end_offset=6,
+        text="原始正文",
+        index_version="cn-novel-v1",
+    )
+    plan = _ChapterIndexPlan(
+        chapter_index=8,
+        content_mode="canonical",
+        source_draft_id=source_id,
+        source_content_hash="b" * 64,
+        items=[item],
+    )
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        source_type="chapter_text",
+        source_id=uuid.UUID(source_id),
+        source_content_hash="b" * 64,
+        content_mode="canonical",
+        chapter_index=8,
+        chunk_index=0,
+        start_offset=0,
+        end_offset=6,
+        text="已改变的正文",
+        index_version="cn-novel-v1",
+    )
+
+    assert not IndexingService._matches_scene_annotation_plan(plan, [existing])
 
 
 @pytest.mark.asyncio

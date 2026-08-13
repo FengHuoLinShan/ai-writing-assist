@@ -10,6 +10,11 @@ from infrastructure.tasks.registry import task_handler
 
 logger = logging.getLogger(__name__)
 
+_SCENE_ANNOTATION_SOURCES = {
+    "deep_import_scene_commit",
+    "scene_replacement_apply",
+}
+
 
 @task_handler("rag_index_chapter", recovery_policy="auto_requeue", max_attempts=2)
 async def handle_rag_index_chapter(db, task):
@@ -86,6 +91,7 @@ async def handle_rag_reindex_novel(db, task):
     start_chapter = meta.get("start_chapter")
     end_chapter = meta.get("end_chapter")
     content_mode = str(meta.get("content_mode") or "canonical")
+    scene_annotation_only = str(meta.get("source") or "") in _SCENE_ANNOTATION_SOURCES
 
     if not novel_id:
         raise ValueError("novel_id is required for rag_reindex_novel")
@@ -121,6 +127,7 @@ async def handle_rag_reindex_novel(db, task):
             task_type=str(task.task_type),
             task_attempt=int(task.attempt),
             task_lease_id=str(task.lease_id),
+            scene_annotation_only=scene_annotation_only,
         )
         report = outcome.report
         if outcome.status == "coalesced":

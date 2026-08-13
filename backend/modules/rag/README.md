@@ -110,6 +110,14 @@ nullable `scene_span_id` 指向 outline 派生的 `SceneSpan`。`scene_span_id` 
 4. 只有 source draft/hash 一致且 mapping 精确的 span 可写入自动 Scene 归因。
 5. `chapter_only` / `unresolved` 或无匹配时 `scene_id` / `scene_span_id` 留空并进入复核。
 
+Scene 提交或 Scene replacement 触发的既有 `rag_reindex_novel` 任务以
+`meta.source=deep_import_scene_commit` 或 `scene_replacement_apply` 识别。两种来源只在
+正文 source/hash、content mode、索引版本、chunk 序号、offset 与正文完全一致时，于同一章节
+advisory lock 内原地刷新 `scene_id/scene_span_id` 并重建受影响的 entity appearance；不重新
+生成 embedding，也不领取或完成 `rag_index_state` owner。缺失或未知 source 继续走完整重建。
+若 chunk 流已变化，则先释放章节锁并回退现有强制索引；并发的完整索引在 embedding 返回后、
+最终替换前会在同一锁内重读最新 Scene 映射，避免旧预计算计划覆盖新归因。
+
 `chapter_index` 是精确章节过滤；`reference_chapter_index` 只参与时间衰减评分；
 `visible_until_chapter` 是读者进度上界硬过滤，检索时只召回该章及以前的 chunk。
 `chapter_index IS NULL` 的 chunk 默认保留；如果调用方同时指定 exact
