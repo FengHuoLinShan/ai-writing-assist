@@ -106,6 +106,10 @@ Prompt 校验外，`/api/world` 与 `/api/world/map-atlas` 的项目级读、写
 
 ## World Bible 工作稿与世界观简介
 
+`GET /api/world/knowledge-graph` 是只读关联图：仅展示已采用 World Bible 页面、已采用
+CoreEntity，以及页面引用和已采用实体关系。它明确不推断 dependency 或变更影响；local
+scope 支持 page/entity root 的 1–2 hop，结果有固定 cap、截断回执和来源 hash。
+
 World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity`、Profile、关系和事件仍是
 结构化正史来源。AI 地图册只消费这些来源，不反向写入。新版编辑流程不直接覆盖正式页：
 

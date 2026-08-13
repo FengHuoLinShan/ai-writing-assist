@@ -139,6 +139,7 @@ from modules.world.schemas import (
     WorldGenerationSuggestionResponse,
     WorldGenerationSuggestionTaskRequest,
     WorldGenerationTaskResponse,
+    WorldKnowledgeGraphResponse,
     WorldProfileListResponse,
     WorldProfileMigrateResponse,
     WorldProfileResponse,
@@ -163,6 +164,9 @@ from modules.world.services.worldbuilding.ask_world_service import AskWorldServi
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
     TemplateVersionConflictError,
+)
+from modules.world.services.worldbuilding.knowledge_graph_service import (
+    WorldKnowledgeGraphService,
 )
 from modules.world.services.worldbuilding.world_generation_center_service import (
     WorldGenerationCenterService,
@@ -204,6 +208,7 @@ _knowledge_tag_service = KnowledgeTagService()
 _world_generation_service = WorldGenerationCenterService()
 _ask_world_service = AskWorldService()
 _adoption_package_service = WorldAdoptionPackageService()
+_knowledge_graph_service = WorldKnowledgeGraphService()
 _generation_template_service = GenerationPromptTemplateService()
 
 
@@ -216,6 +221,21 @@ async def _require_active_novel_id(
 
 
 ActiveNovelIdQuery = Annotated[str, Depends(_require_active_novel_id)]
+
+
+@router.get("/knowledge-graph", response_model=WorldKnowledgeGraphResponse)
+async def get_world_knowledge_graph(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    scope: Literal["local", "global"] = Query(default="global"),
+    root_type: Literal["world_bible_page", "core_entity"] | None = Query(default=None),
+    root_id: str | None = Query(default=None),
+    depth: Literal[1, 2] = Query(default=1),
+) -> WorldKnowledgeGraphResponse:
+    return await _knowledge_graph_service.get(
+        db, novel_id, scope=scope, root_type=root_type, root_id=root_id, depth=depth
+    )
 
 
 def _template_version_conflict(exc: TemplateVersionConflictError) -> HTTPException:
@@ -1604,9 +1624,9 @@ async def extract_alias_relations(
             novel_id=data.novel_id,
             request_payload=payload,
             meta={
-            **payload,
-            "llm_execution_snapshot": llm_execution_snapshot,
-        },
+                **payload,
+                "llm_execution_snapshot": llm_execution_snapshot,
+            },
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

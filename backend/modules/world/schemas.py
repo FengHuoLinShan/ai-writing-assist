@@ -2492,6 +2492,39 @@ class WorldBiblePageListResponse(BaseModel):
     total: int
 
 
+class WorldKnowledgeGraphNode(BaseModel):
+    id: str
+    kind: Literal["world_bible_page", "core_entity"]
+    label: str
+    status: str
+
+
+class WorldKnowledgeGraphEdge(BaseModel):
+    id: str
+    kind: Literal["page_reference", "page_entity_reference", "entity_relation"]
+    source_id: str
+    target_id: str
+    status: str = "canonical"
+    authority: str | None = None
+    source_ref: dict[str, str] | None = None
+    revision: int | None = None
+    source_hash: str | None = None
+    provenance: dict[str, Any] | None = None
+    via_relation_id: str | None = None
+
+
+class WorldKnowledgeGraphResponse(BaseModel):
+    nodes: list[WorldKnowledgeGraphNode] = Field(default_factory=list)
+    edges: list[WorldKnowledgeGraphEdge] = Field(default_factory=list)
+    truncated: bool = False
+    truncation_reasons: list[str] = Field(default_factory=list)
+    omitted_counts: dict[str, int] = Field(default_factory=dict)
+    source_manifest: list[dict[str, str]] = Field(default_factory=list)
+    source_hash: str
+    dependency_coverage: bool = False
+    note: str = "Relationships are associations, not change-impact dependencies."
+
+
 class WorldBibleCategoryCreate(BaseModel):
     novel_id: str
     category_key: str = Field(
