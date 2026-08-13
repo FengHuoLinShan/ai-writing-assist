@@ -254,6 +254,11 @@ tasks ORM。
 - 确认为别名不是深合并：仅写入目标别名、迁移/去重关系并标记源候选为 `merged`，不得合并 summary/public_info/hidden_truth 或人物扩展字段。
 - `CreationSuggestion` 中的 `core_entity` / `core_entity_draft` 经用户确认后直接写入 `canonical`，并保留建议 ID、来源、证据与 `approved_by` 审计。
 - `entity_relation` / `entity_alias` 建议必须通过各自的 schema 验证和领域服务写入；未支持的 `target_type` 直接拒绝，不得标记为已接受后空操作。
+- `world_core_checkpoint.v1` 是可回看的 typed 收束来源 checkpoint，不能采用；
+  `world_adoption_package.v1` 是作者显式保存的 pending 包。preview 不写库，按 source refs、
+  checkpoint lineage 和 payload hash 给出预期 diff；apply 只采用 `include + proposed` 的
+  CoreEntity（create/promote）/ EntityRelation，使用 package-local ref，在同一事务 CAS pending 并写 receipt。
+  `open` / `rejected` 不写事实；v1 不支持 RuleProfile、别名或世界书页面操作。
 - 生成中心的新对象先写 `creation_suggestion_queue`。队列服务同时物化一条
   `draft` / `candidate` 兼容影子，并以 `_meta.compatibility_shadow=true` 与
   `suggestion_id` 关联；采用或编辑后采用时提升同一条对象，合并/设为别名时由队列原子裁决并归档同一影子，忽略时同步标记该影子为 `ignored`。待处理影子不能绕过队列直接 CRUD，所有裁决都必须经过建议队列的 compare-and-set 门禁。
@@ -606,6 +611,16 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/suggestions/{suggestion_id}/merge` | 将世界对象建议合并到已采用对象 |
 | POST | `/api/world/suggestions/{suggestion_id}/resolve-as-alias` | 将世界对象建议设为已采用对象的别名 |
 | POST | `/api/world/suggestions/{suggestion_id}/reject` | 拒绝建议 |
+| POST | `/api/world/core-checkpoints` | 显式保存不可采用的 `world_core_checkpoint.v1` |
+| POST/GET | `/api/world/adoption-packages` | 保存或读取 typed WorldAdoptionPackage 建议 |
+| GET | `/api/world/adoption-packages/{suggestion_id}/preview` | 零写入预演 package 的覆盖、diff 与 hash |
+| POST | `/api/world/adoption-packages/{suggestion_id}/apply` | 以 preview hash 原子采用 package 的 include 项；重复 apply 返回 receipt |
+
+`world_adoption_package.v1` 首版只采用核心对象 create/promote 与实体关系 create。
+promote 和外部关系端点以服务端指纹参与 preview hash，apply 在锁后复验；既有同一
+canonical relation 是 `existing_ref` no-op，不合并或改写。每个新建对象/关系均保存
+package、item、来源、authority 与 manifest provenance；RuleProfile、World Bible 页面与
+alias 仍不属于该 package contract。
 | POST | `/api/world/generation-center/chat` | 世界工作区共创聊天；按作者选择的来源/目标加载上下文，不创建建议、不写业务资产 |
 | POST | `/api/world/generation-center/convergence` | 对当前显式来源范围做只读收束；返回确定性 manifest、覆盖状态与最多 7 张决定卡，不创建建议或工作稿 |
 | POST | `/api/world/generation-center/exploration` | 从当前世界书页只读探索一跳相邻缺口；最多返回 3 项，不创建建议或工作稿 |

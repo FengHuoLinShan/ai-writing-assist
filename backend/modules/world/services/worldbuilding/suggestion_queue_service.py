@@ -37,11 +37,13 @@ from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationSuggestionPayload,
     EntityResolveAsAliasRequest,
+    WorldAdoptionPackagePayload,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftSuggestionPayload,
     WorldBiblePageDraftUpdate,
     WorldBiblePageProposalContent,
     WorldBibleSourceRef,
+    WorldCoreCheckpointPayload,
     WorldGenerationApplyPageDraftRequest,
     WorldGenerationApplyPageDraftResponse,
     WorldProfileUpsertRequest,
@@ -1017,6 +1019,14 @@ class SuggestionQueueService:
                     "profile_field suggestion requires entity_id/profile"
                 )
             return payload
+        if target_type == "world_core_checkpoint":
+            return WorldCoreCheckpointPayload.model_validate(payload).model_dump(
+                mode="json"
+            )
+        if target_type == "world_adoption_package":
+            return WorldAdoptionPackagePayload.model_validate(payload).model_dump(
+                mode="json"
+            )
         raise ValidationError(f"Unsupported suggestion target_type: {target_type}")
 
     @staticmethod

@@ -388,6 +388,11 @@ JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把�
 只作为来源声明，不能冒充本地对象或本地校验回执。map、reduce 和必要的修复调用共用一个
 1800 秒端到端预算。
 
+收束结果如需成为采用依据，作者须另行显式保存为不可采用的
+`world_core_checkpoint.v1`，再保存 `world_adoption_package.v1`。这两个操作不调用模型；
+preview 与 apply 都由 world 的确定性 schema、source refs、lineage 与 CAS 校验完成，模型不能
+创建或采用 package。
+
 `world.generation.exploration.preview` 只在作者从当前世界书页请求相邻新页面时运行。服务端冻结
 同一份 typed source manifest，并要求模型返回最多 3 个深度 1 缺口或明确停止原因；每项必须
 引用已知 source key，不能写页面正文、递归寻找下一跳、调用工具或创建 suggestion。未知 key

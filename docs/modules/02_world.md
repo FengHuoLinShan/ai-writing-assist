@@ -11,6 +11,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 普通 AI 创设统一先写 `creation_suggestion_queue`。生成中心返回判别式 suggestion result，
   不物化兼容 CoreEntity 影子；队列拥有采用决策。仍依赖旧批次/结果引用的抽取路径可在其
   自身契约内保留 `compatibility_shadow`，不得扩散回生成中心 HTTP wire
+- 作者可显式保存 typed `world_core_checkpoint.v1`（不可采用）和
+  `world_adoption_package.v1`（pending）；package preview 零写入，apply 仅原子采用
+  `include + proposed` 的 CoreEntity / EntityRelation。`open/rejected`、RuleProfile、别名和
+  World Bible 页面不属于 v1 package 操作。
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象

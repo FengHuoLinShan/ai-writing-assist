@@ -38,6 +38,12 @@ def _optional_uuid_validator(v: object) -> str | None:
     return _uuid_validator(v)
 
 
+def _validate_lower_sha256(value: str, field_name: str) -> str:
+    if value != value.lower() or any(char not in "0123456789abcdef" for char in value):
+        raise ValueError(f"{field_name} must be a lowercase SHA-256 hex digest")
+    return value
+
+
 def _normalize_system_entity_type(v: str) -> str:
     """Lazy import to avoid schemas <-> services package initialization cycles."""
     from modules.world.services.core.entity_types import normalize_system_entity_type
@@ -3031,6 +3037,189 @@ class CreationSuggestionCreate(BaseModel):
     evidence_refs_json: list[dict[str, Any]] = Field(default_factory=list)
     risk_level: str = Field(default="medium", max_length=32)
     status: str = Field(default="pending", max_length=32)
+
+
+class WorldCoreCheckpointPayload(BaseModel):
+    """Read-only convergence checkpoint; it can never be adopted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["world_core_checkpoint.v1"]
+    round_no: int = Field(..., ge=0)
+    action: Literal["expand", "connect", "pressure", "consolidate"]
+    parent_checkpoint_id: str | None = None
+    source_manifest_hash: str = Field(..., min_length=64, max_length=64)
+    seeds: list[WorldAdoptionSeed] = Field(default_factory=list, max_length=64)
+    decision_state: GeneratedWorldGenerationDecisionState | None = None
+
+    @field_validator("source_manifest_hash")
+    @classmethod
+    def validate_source_manifest_hash(cls, value: str) -> str:
+        return _validate_lower_sha256(value, "source_manifest_hash")
+
+
+class WorldAdoptionSourceRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: Literal[
+        "world_bible_page", "core_entity", "manuscript", "conversation", "external"
+    ]
+    source_id: str = Field(..., min_length=1, max_length=128)
+    source_version: str | None = Field(default=None, max_length=128)
+    source_hash: str = Field(..., min_length=64, max_length=64)
+    range_start: int | None = Field(default=None, ge=0)
+    range_end: int | None = Field(default=None, ge=0)
+    scene_id: str | None = None
+    workflow_id: str | None = Field(default=None, max_length=128)
+    authorization_ref: str | None = Field(default=None, max_length=128)
+
+    @field_validator("source_hash")
+    @classmethod
+    def validate_source_hash(cls, value: str) -> str:
+        return _validate_lower_sha256(value, "source_hash")
+
+    @model_validator(mode="after")
+    def validate_range(self) -> WorldAdoptionSourceRef:
+        if (
+            self.range_start is not None
+            and self.range_end is not None
+            and self.range_end < self.range_start
+        ):
+            raise ValueError("range_end must be greater than or equal to range_start")
+        return self
+
+
+class WorldAdoptionSeed(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seed_key: str = Field(..., pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    source_ref: WorldAdoptionSourceRef
+    disposition: Literal["experience_promise", "included", "open", "rejected"]
+
+
+class WorldCoreCheckpointSaveRequest(BaseModel):
+    novel_id: str
+    checkpoint: WorldCoreCheckpointPayload
+
+
+class WorldAdoptionRelationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_ref: str = Field(..., min_length=1, max_length=128)
+    target_ref: str = Field(..., min_length=1, max_length=128)
+    relation_type: str = Field(..., min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=5000)
+
+
+class WorldAdoptionCoreEntityPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["create", "promote"] = "create"
+    entity_id: str | None = None
+    entity: CoreEntityCreate | None = None
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> WorldAdoptionCoreEntityPayload:
+        if self.operation == "create" and (self.entity is None or self.entity_id):
+            raise ValueError(
+                "create core entity item requires entity and forbids entity_id"
+            )
+        if self.operation == "promote" and (
+            not self.entity_id or self.entity is not None
+        ):
+            raise ValueError(
+                "promote core entity item requires entity_id and forbids entity"
+            )
+        return self
+
+
+class WorldAdoptionBaseline(BaseModel):
+    """Client-declared promotion expectation; server fingerprints remain authoritative."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_status: Literal["draft", "candidate"]
+    expected_fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @field_validator("expected_fingerprint")
+    @classmethod
+    def validate_expected_fingerprint(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return _validate_lower_sha256(value, "expected_fingerprint")
+
+
+class WorldAdoptionPackageItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str = Field(..., pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    kind: Literal["core_entity", "entity_relation"]
+    disposition: Literal["include", "open", "rejected"] = "open"
+    authority_kind: Literal[
+        "author_seed", "canonical_baseline", "manuscript_observation", "generated_bridge"
+    ]
+    source_refs: list[WorldAdoptionSourceRef] = Field(default_factory=list, max_length=16)
+    baseline: WorldAdoptionBaseline | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_typed_payload(self) -> WorldAdoptionPackageItem:
+        if self.kind == "core_entity":
+            payload = WorldAdoptionCoreEntityPayload.model_validate(self.payload)
+            if payload.operation == "promote" and self.baseline is None:
+                raise ValueError("promote core entity item requires a typed baseline")
+            if payload.operation == "create" and self.baseline is not None:
+                raise ValueError("create core entity item forbids baseline")
+        else:
+            WorldAdoptionRelationPayload.model_validate(self.payload)
+            if self.baseline is not None:
+                raise ValueError("entity relation item forbids baseline")
+        return self
+
+
+class WorldAdoptionPackagePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["world_adoption_package.v1"]
+    checkpoint_suggestion_id: str | None = None
+    checkpoint_manifest_hash: str | None = Field(
+        default=None, min_length=64, max_length=64
+    )
+    source_manifest_hash: str = Field(..., min_length=64, max_length=64)
+    items: list[WorldAdoptionPackageItem] = Field(..., min_length=1, max_length=32)
+
+    @field_validator("source_manifest_hash", "checkpoint_manifest_hash")
+    @classmethod
+    def validate_manifest_hash(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return _validate_lower_sha256(value, "manifest_hash")
+
+    @model_validator(mode="after")
+    def validate_item_keys(self) -> WorldAdoptionPackagePayload:
+        if len({item.item_key for item in self.items}) != len(self.items):
+            raise ValueError("world adoption package item_key values must be unique")
+        if bool(self.checkpoint_suggestion_id) != bool(self.checkpoint_manifest_hash):
+            raise ValueError(
+                "package checkpoint lineage must include id and manifest hash"
+            )
+        return self
+
+
+class WorldAdoptionPackageSaveRequest(BaseModel):
+    novel_id: str
+    package: WorldAdoptionPackagePayload
+
+
+class WorldAdoptionPackagePreviewResponse(BaseModel):
+    suggestion: CreationSuggestionResponse
+    expected_preview_hash: str
+    canon_diff: list[dict[str, Any]] = Field(default_factory=list)
+    omissions: list[str] = Field(default_factory=list)
+
+
+class WorldAdoptionPackageApplyRequest(BaseModel):
+    expected_preview_hash: str = Field(..., min_length=64, max_length=64)
 
 
 def _suggestion_decision_state(

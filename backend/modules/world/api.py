@@ -47,6 +47,7 @@ from modules.world.schemas import (
     CoreEntitySuggestionEditConfirmRequest,
     CoreEntityUpdate,
     CreationSuggestionListResponse,
+    CreationSuggestionResponse,
     EntityAliasCreate,
     EntityAliasEditRequest,
     EntityAliasReviewBatchRequest,
@@ -94,6 +95,9 @@ from modules.world.schemas import (
     SuggestionDecisionResponse,
     TextArchiveSeedRequest,
     TextArchiveSeedResponse,
+    WorldAdoptionPackageApplyRequest,
+    WorldAdoptionPackagePreviewResponse,
+    WorldAdoptionPackageSaveRequest,
     WorldAliasRelationExtractRequest,
     WorldAliasRelationExtractResponse,
     WorldBibleApplyTemplateRequest,
@@ -120,6 +124,7 @@ from modules.world.schemas import (
     WorldBibleSynopsisRefreshResponse,
     WorldBibleSynopsisResponse,
     WorldBibleSynopsisRevisionListResponse,
+    WorldCoreCheckpointSaveRequest,
     WorldGenerationApplyPageDraftRequest,
     WorldGenerationApplyPageDraftResponse,
     WorldGenerationChatRequest,
@@ -151,6 +156,9 @@ from modules.world.services import (
 )
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import review_type_catalog
+from modules.world.services.worldbuilding.adoption_package_service import (
+    WorldAdoptionPackageService,
+)
 from modules.world.services.worldbuilding.ask_world_service import AskWorldService
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
@@ -195,6 +203,7 @@ _conflict_queue_service = ConflictQueueService()
 _knowledge_tag_service = KnowledgeTagService()
 _world_generation_service = WorldGenerationCenterService()
 _ask_world_service = AskWorldService()
+_adoption_package_service = WorldAdoptionPackageService()
 _generation_template_service = GenerationPromptTemplateService()
 
 
@@ -1083,6 +1092,77 @@ async def organize_bible_page(
         "suggestions": [],
         "conflicts": [],
     }
+
+
+@router.post(
+    "/core-checkpoints",
+    response_model=CreationSuggestionResponse,
+    status_code=201,
+)
+async def save_world_core_checkpoint(
+    db: DbSession,
+    data: WorldCoreCheckpointSaveRequest,
+) -> CreationSuggestionResponse:
+    await require_active_project(db, data.novel_id)
+    return await _adoption_package_service.save_checkpoint(db, data)
+
+
+@router.get(
+    "/adoption-packages/{suggestion_id}", response_model=CreationSuggestionResponse
+)
+async def get_world_adoption_artifact(
+    db: DbSession,
+    suggestion_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> CreationSuggestionResponse:
+    return await _adoption_package_service.get(db, novel_id, suggestion_id)
+
+
+@router.post(
+    "/adoption-packages",
+    response_model=CreationSuggestionResponse,
+    status_code=201,
+)
+async def save_world_adoption_package(
+    db: DbSession,
+    data: WorldAdoptionPackageSaveRequest,
+) -> CreationSuggestionResponse:
+    await require_active_project(db, data.novel_id)
+    return await _adoption_package_service.save(db, data)
+
+
+@router.get(
+    "/adoption-packages/{suggestion_id}/preview",
+    response_model=WorldAdoptionPackagePreviewResponse,
+)
+async def preview_world_adoption_package(
+    db: DbSession,
+    suggestion_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldAdoptionPackagePreviewResponse:
+    return await _adoption_package_service.preview(db, novel_id, suggestion_id)
+
+
+@router.post(
+    "/adoption-packages/{suggestion_id}/apply",
+    response_model=CreationSuggestionResponse,
+)
+async def apply_world_adoption_package(
+    db: DbSession,
+    suggestion_id: str,
+    data: WorldAdoptionPackageApplyRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> CreationSuggestionResponse:
+    try:
+        async with db.begin_nested():
+            return await _adoption_package_service.apply(
+                db, novel_id, suggestion_id, data
+            )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/suggestions", response_model=CreationSuggestionListResponse)
