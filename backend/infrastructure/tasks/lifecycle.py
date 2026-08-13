@@ -758,6 +758,38 @@ class TaskLifecycleService:
             await db.rollback()
         return accepted
 
+    async def requeue_transient_failure(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: Any,
+        lease_id: str,
+    ) -> bool:
+        result = await db.execute(
+            update(AsyncTask)
+            .where(
+                AsyncTask.id == task_id,
+                AsyncTask.status == "running",
+                AsyncTask.lease_id == lease_id,
+                AsyncTask.attempt < AsyncTask.max_attempts,
+            )
+            .values(
+                status="pending",
+                finished_at=None,
+                heartbeat_at=None,
+                lease_id=None,
+                error_message=None,
+                transition_reason="transient_retry",
+            )
+            .execution_options(synchronize_session=False)
+        )
+        accepted = bool(result.rowcount)
+        if accepted:
+            await db.commit()
+        else:
+            await db.rollback()
+        return accepted
+
     async def cancel(
         self,
         db: AsyncSession,

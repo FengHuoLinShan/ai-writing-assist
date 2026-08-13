@@ -242,6 +242,7 @@ POST  /api/outline/scene-workbench/merge
 POST  /api/outline/scene-workbench/split/preview
 POST  /api/outline/scene-workbench/split
 POST  /api/outline/scene-workbench/fusion/preview
+POST  /api/outline/scene-workbench/fusion/preview-task
 POST  /api/outline/scene-workbench/fusion/save
 GET   /api/outline/scene-workbench/fusion-suggestions
 POST  /api/outline/scene-workbench/fusion-suggestions/dismiss

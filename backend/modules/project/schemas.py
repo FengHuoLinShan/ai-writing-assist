@@ -285,6 +285,7 @@ class SmartDedupScanRequest(BaseModel):
     )
     limit_per_scope: int = Field(default=1000, ge=2, le=5000)
     max_suggestions: int = Field(default=120, ge=1, le=300)
+    operation_id: uuid.UUID | None = None
 
 
 class SmartDedupScanResponse(BaseModel):

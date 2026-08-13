@@ -16,7 +16,7 @@
  * 提交后 adopt 结果到对应的模块级管理器。
  */
 import { getApi, getAppState, getRouter, getToast, getShowModalHtml, getCloseModal, getConfirmAction, getEsc } from "../../../bridge/index.js"
-import { normalizeTaskProgress, persistActiveWorkflow } from "../../../../shared/workflowProgress.js"
+import { createOperationId, normalizeTaskProgress, persistActiveWorkflow } from "../../../../shared/workflowProgress.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../../../../shared/importAuthorization.js"
 import { getBulkSelection } from "../logic/outlineBulkSelection.js"
@@ -172,6 +172,16 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       ...selectionContext,
     })
     if (state?.currentProjectId !== projectId) throw new Error("项目已切换，请在当前项目重新发起创作")
+    const operationId = createOperationId()
+    const meta = {
+      start_chapter: startChapter,
+      end_chapter: endChapter,
+      context_confirmation_id: confirmation.id,
+      target,
+      mode,
+      label,
+    }
+    persistActiveWorkflow({ taskId: operationId, workflowType: "outline_generate", label: `${label}建议`, projectId, view: "outline", meta })
     const result = await api.outline.generate({
       contract_version: "outline_layer_v2",
       novel_id: projectId,
@@ -184,17 +194,10 @@ export async function generateOutlineLayer({ target, mode, instruction, selected
       selected_scene_ids: target === "planned_scene" ? (selectedIds || []) : [],
       start_chapter: startChapter,
       end_chapter: endChapter,
+      operation_id: operationId,
     })
     if (!result?.task_id) throw new Error("内容生成未能开始，请稍后重试")
 
-    const meta = {
-      start_chapter: startChapter,
-      end_chapter: endChapter,
-      context_confirmation_id: confirmation.id,
-      target,
-      mode,
-      label,
-    }
     if (state?.currentProjectId !== projectId) {
       persistActiveWorkflow({
         taskId: result.task_id,
@@ -434,14 +437,7 @@ export async function analyzeOutline({ instruction, startChapter, endChapter }) 
 
     const confirmedStart = Number(confirmation?.compile_options?.chapter_index || startChapter)
     const confirmedEnd = Number(confirmation?.compile_options?.visible_until_chapter || endChapter)
-    const result = await api.outline.analyze({
-      novel_id: projectId,
-      context_confirmation_id: confirmation.id,
-      start_chapter: confirmedStart,
-      end_chapter: confirmedEnd,
-    })
-    if (!result?.task_id) throw new Error("分析未能开始，请稍后重试")
-
+    const operationId = createOperationId()
     const analysisMeta = {
       project_id: projectId,
       start_chapter: confirmedStart,
@@ -450,6 +446,16 @@ export async function analyzeOutline({ instruction, startChapter, endChapter }) 
       context_confirmation_id: confirmation.id,
       context_summary: outlineAnalysisContextSummary(confirmation),
     }
+    persistActiveWorkflow({ taskId: operationId, workflowType: "outline_analyze", label: "AI 大纲分析", projectId, view: "outline", meta: analysisMeta })
+    const result = await api.outline.analyze({
+      novel_id: projectId,
+      context_confirmation_id: confirmation.id,
+      start_chapter: confirmedStart,
+      end_chapter: confirmedEnd,
+      operation_id: operationId,
+    })
+    if (!result?.task_id) throw new Error("分析未能开始，请稍后重试")
+
 
     if (state?.currentProjectId === projectId) {
       resetOutlineAnalysisState({ clearWorkflowState: true })

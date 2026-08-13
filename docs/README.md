@@ -89,6 +89,7 @@
   [`2026-07-14-novalist-map-capability-analysis.md`](references/2026-07-14-novalist-map-capability-analysis.md)、
   [`2026-07-14-novalist-sillytavern-worldbook-design-analysis.md`](references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)、
   [`2026-07-15-four-authoring-workbench-directions-design.md`](references/2026-07-15-four-authoring-workbench-directions-design.md)、
+  [`2026-08-10-worldbook-system-continuous-improvement-plan.md`](references/2026-08-10-worldbook-system-continuous-improvement-plan.md)、
   [`deep-import-progress-backend-query-analysis.md`](references/deep-import-progress-backend-query-analysis.md)
   与 Scene 健康标记参考。
 - `audit/` — 代码、性能、安全和文档审计的时间点记录。

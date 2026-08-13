@@ -7,6 +7,19 @@ const RUNNING_STATUSES = new Set(["pending", "running"])
 
 export const TASK_CANCELLED_MESSAGE = "已停止后续处理，不会再排下一步；已保存的阶段结果仍保留。正在结束的远程请求可能不会瞬时断开。"
 
+export function createOperationId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID()
+  }
+  const bytes = new Uint8Array(16)
+  globalThis.crypto?.getRandomValues?.(bytes)
+  if (!bytes.some(Boolean)) throw new Error("当前浏览器无法安全创建任务凭据")
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   scene_auto_extraction: "从正文整理场景",
@@ -14,6 +27,7 @@ const WORKFLOW_LABELS = {
   world_object_auto_extraction: "整理人物、设定与关系",
   world_entity_fusion_suggestions: "世界对象 AI 合并建议",
   plot_structure_auto_extraction: "从正文整理剧情线",
+  map_observation_enrichment: "补充地图资料",
   publish_chapter: "设为正式正文",
   rag_reindex_novel: "修复查找资料",
   rag_retry_embeddings: "修复查找资料",
@@ -25,6 +39,10 @@ const WORKFLOW_LABELS = {
   chapter_scene_generate: "生成章节与场景结构",
   writing_generate: "生成正文",
   plot_analysis: "剧情分析",
+  world_generation_suggestion: "生成世界设定建议",
+  scene_fusion_preview: "生成场景融合预览",
+  writing_conflict_ai_review: "AI 软冲突判断",
+  writing_conflict_item_ai_suggestion: "AI 修复建议",
 }
 
 const STATUS_LABELS = {
@@ -151,6 +169,7 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (workflowType === "smart_dedup_scan") return "正在扫描重复资产"
   if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
   if (workflowType === "world_entity_fusion_suggestions") return "正在生成世界对象合并建议"
+  if (workflowType === "map_observation_enrichment") return "正在从既有场景补充地图资料"
   if (workflowType === "plot_structure_auto_extraction") return "正在自动提取剧情线"
   if (workflowType === "publish_chapter") {
     if (percent != null && percent < 50) return "正在存入 RAG 系统"
@@ -167,6 +186,9 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   ) return "正在生成章节与场景结构"
   if (workflowType === "writing_generate") return "正在生成正文"
   if (workflowType === "plot_analysis") return "正在分析剧情"
+  if (workflowType === "scene_fusion_preview") return "正在生成场景融合预览"
+  if (workflowType === "writing_conflict_ai_review") return "正在补充 AI 软冲突判断"
+  if (workflowType === "writing_conflict_item_ai_suggestion") return "正在生成 AI 修复建议"
   return RUNNING_STATUSES.has(status) ? "任务运行中" : STATUS_LABELS[status] || "任务状态未知"
 }
 
@@ -230,6 +252,14 @@ function buildResultSummary(result, workflowType) {
   if (workflowType === "world_entity_fusion_suggestions") {
     if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
     return result.summary || null
+  }
+  if (workflowType === "map_observation_enrichment") {
+    const parts = []
+    if (result.scene_count != null) parts.push(`检查 ${result.scene_count} 个场景`)
+    if (result.candidate_created_count != null) parts.push(`新增待处理 ${result.candidate_created_count} 条`)
+    if (result.candidate_reused_count) parts.push(`复用待处理 ${result.candidate_reused_count} 条`)
+    if (result.uncertain_count) parts.push(`待判定 ${result.uncertain_count} 条`)
+    return parts.length ? parts.join("，") : result.summary || null
   }
   if (workflowType === "deep_import") {
     if (result.summary) return result.summary
@@ -412,6 +442,7 @@ export function pollTaskProgress({
   taskId,
   workflowType,
   novelId = null,
+  receiptStorage = globalThis.localStorage,
   intervalMs = 1500,
   apiClient = globalThis.api,
   pauseWhenHidden = true,
@@ -498,6 +529,18 @@ export function pollTaskProgress({
         error_message: err.message || "任务状态查询失败",
       }, workflowType)
       onUpdate?.(progress, null)
+      if (Number(err?.status) === 404) {
+        clearActiveWorkflow(taskId, receiptStorage)
+        stop()
+        onFailed?.({
+          ...progress,
+          failed: true,
+          terminal: true,
+          stateUnknown: true,
+          errorMessage: "未找到原任务，请重新开始。",
+        }, null)
+        return
+      }
     } finally {
       inFlight = false
     }

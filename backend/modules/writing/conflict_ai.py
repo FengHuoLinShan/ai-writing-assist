@@ -60,6 +60,15 @@ class _ConflictReviewTaskPlan:
     check_identity: _TaskCheckIdentity
 
 
+@dataclass(frozen=True)
+class _ConflictSuggestionTaskPlan:
+    novel_id: str
+    item_id: str
+    confirmation_id: str
+    prompt: str
+    source_fingerprint: str
+
+
 def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
     return _shared_parse_uuid(value, field_name)
 
@@ -282,6 +291,7 @@ class ConflictCheckAiReviewService:
         task_id: str,
         llm_execution_snapshot: dict[str, Any],
         allow_unowned_legacy: bool = False,
+        finalize_transient_failure: bool = True,
     ) -> tuple[object, list[object]]:
         """Run task review with the provider wait outside any DB transaction."""
         from infrastructure.tasks.facade import require_task_checkpoint_session
@@ -316,6 +326,10 @@ class ConflictCheckAiReviewService:
             )
             raise
         except Exception as exc:
+            from infrastructure.llm.retry import is_retryable_llm_error
+
+            if is_retryable_llm_error(exc) and not finalize_transient_failure:
+                raise
             safe_error = redact_diagnostic(
                 f"{type(exc).__name__}: {exc}",
                 limit=500,
@@ -799,7 +813,195 @@ class ConflictSuggestionService:
                 logger.warning("Failed to attach AI suggestion result ref")
             return updated or item
 
+    async def validate(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        item_id: str,
+        context_confirmation_id: str,
+    ) -> None:
+        await self._prepare_task(
+            db,
+            novel_id=novel_id,
+            item_id=item_id,
+            context_confirmation_id=context_confirmation_id,
+        )
 
+    async def run_for_task(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        item_id: str,
+        context_confirmation_id: str,
+        llm_execution_snapshot: dict[str, Any],
+        finalize_transient_failure: bool,
+    ) -> object:
+        from infrastructure.tasks.facade import require_task_checkpoint_session
+        from modules.project.facade import (
+            create_project_snapshot_llm_client,
+            require_active_project,
+            restore_project_llm_execution_settings,
+        )
+
+        require_task_checkpoint_session(db)
+        plan = await self._prepare_task(
+            db,
+            novel_id=novel_id,
+            item_id=item_id,
+            context_confirmation_id=context_confirmation_id,
+        )
+        await db.commit()
+        db.expire_all()
+        settings = await restore_project_llm_execution_settings(
+            db, novel_id, llm_execution_snapshot
+        )
+        client = create_project_snapshot_llm_client(settings, novel_id=novel_id)
+        await db.commit()
+        db.expire_all()
+        try:
+            output = await run_managed_structured(
+                client,
+                LLMCallRequest(
+                    model=getattr(client, "model_name", "deepseek-v4-flash"),
+                    messages=[
+                        LLMMessage(role="system", content=_AI_SUGGESTION_SYSTEM_PROMPT),
+                        LLMMessage(role="user", content=plan.prompt),
+                    ],
+                    temperature=0.3,
+                ),
+                WritingConflictSuggestionOutput,
+                step_name="writing.conflict_check.ai_suggestion.structured",
+            )
+        except Exception as exc:
+            from infrastructure.llm.retry import is_retryable_llm_error
+
+            if is_retryable_llm_error(exc) and not finalize_transient_failure:
+                raise
+            await require_active_project(db, novel_id)
+            current = await self._prepare_task(
+                db,
+                novel_id=novel_id,
+                item_id=item_id,
+                context_confirmation_id=context_confirmation_id,
+                for_update=True,
+            )
+            if current.source_fingerprint != plan.source_fingerprint:
+                raise ValidationError(
+                    "Conflict suggestion source changed while task ran"
+                ) from exc
+            item = await self._repo.get_item(
+                db,
+                _parse_uuid(item_id, "item_id"),
+                _parse_uuid(novel_id, "novel_id"),
+                for_update=True,
+            )
+            if item is None:
+                raise NotFoundError("Conflict item not found") from exc
+            return await self._repo.update_loaded_item_suggestion(
+                db,
+                item,
+                status="failed",
+                confirmation_id=_parse_uuid(
+                    context_confirmation_id, "context_confirmation_id"
+                ),
+                error=redact_diagnostic(exc, limit=500),
+            )
+        finally:
+            await client.close()
+
+        await require_active_project(db, novel_id)
+        current = await self._prepare_task(
+            db,
+            novel_id=novel_id,
+            item_id=item_id,
+            context_confirmation_id=context_confirmation_id,
+            for_update=True,
+        )
+        if current.source_fingerprint != plan.source_fingerprint:
+            raise ValidationError("Conflict suggestion source changed while task ran")
+        item = await self._repo.get_item(
+            db,
+            _parse_uuid(item_id, "item_id"),
+            _parse_uuid(novel_id, "novel_id"),
+            for_update=True,
+        )
+        if item is None:
+            raise NotFoundError("Conflict item not found")
+        updated = await self._repo.update_loaded_item_suggestion(
+            db,
+            item,
+            status="done",
+            confirmation_id=_parse_uuid(
+                context_confirmation_id, "context_confirmation_id"
+            ),
+            ai_suggestion=output.suggestion.model_dump_json(ensure_ascii=False),
+            llm_rationale=output.suggestion.rationale,
+            error=None,
+        )
+        from modules.context.facade import bind_confirmed_action_result
+
+        await bind_confirmed_action_result(
+            db,
+            novel_id=novel_id,
+            confirmation_id=context_confirmation_id,
+            result_type="writing_conflict_item",
+            result_id=item_id,
+            status="done",
+        )
+        return updated
+
+    async def _prepare_task(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        item_id: str,
+        context_confirmation_id: str,
+        for_update: bool = False,
+    ) -> _ConflictSuggestionTaskPlan:
+        from modules.context.facade import prepare_confirmed_ai_action
+
+        nid = _parse_uuid(novel_id, "novel_id")
+        item_uuid = _parse_uuid(item_id, "item_id")
+        item = await self._repo.get_item(db, item_uuid, nid)
+        if item is None:
+            raise NotFoundError("Conflict item not found")
+        check_result = (
+            await self._repo.get_check_for_ai_review_update(db, item.check_id, nid)
+            if for_update
+            else await self._repo.get_check(db, item.check_id, nid)
+        )
+        if check_result is None:
+            raise NotFoundError("Conflict check not found")
+        check, items = check_result
+        if for_update:
+            item = next((current for current in items if current.id == item_uuid), None)
+            if item is None:
+                raise NotFoundError("Conflict item not found")
+        try:
+            confirmed = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action=AI_SUGGESTION_ACTION,
+                confirmation_id=context_confirmation_id,
+            )
+            _validate_confirmation_scope(confirmed.confirmation, check)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        return _ConflictSuggestionTaskPlan(
+            novel_id=novel_id,
+            item_id=item_id,
+            confirmation_id=context_confirmation_id,
+            prompt=_build_ai_suggestion_prompt(
+                check=check,
+                item=item,
+                items=items,
+                context_markdown=confirmed.rendered_markdown,
+            ),
+            source_fingerprint=_task_source_fingerprint(confirmed, check, items),
+        )
 def _task_owner(summary: dict | None) -> str | None:
     value = (summary or {}).get(AI_REVIEW_TASK_OWNER_KEY)
     return str(value) if value else None

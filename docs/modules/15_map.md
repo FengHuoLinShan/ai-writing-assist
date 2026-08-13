@@ -51,6 +51,9 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 
 ## 图片工作流与计费恢复
 
+地图册不叠加 ADR-0013 的通用 operation receipt：图片生成已有 run/page checkpoint、
+胜出 attempt 和可能重复计费的专用确认状态，继续由本模块状态机拥有恢复与重试语义。
+
 父级到子级串行生成；父图以及已采用的封面/世界图可作为风格参考。页面 checkpoint 为：
 
 `prepared → provider_in_flight → uploaded → review_ready`

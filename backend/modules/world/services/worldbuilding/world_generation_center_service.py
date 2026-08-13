@@ -751,11 +751,40 @@ class WorldGenerationCenterService:
         db: AsyncSession,
         data: WorldGenerationSuggestionRequest,
     ) -> WorldGenerationSuggestionResponse:
-        operation = self._operation_for_target(data)
-        execution_snapshot, model = await self._freeze_execution_snapshot(
+        return await self._generate_suggestion(db, data)
+
+    async def generate_suggestion_for_task(
+        self,
+        db: AsyncSession,
+        data: WorldGenerationSuggestionRequest,
+        *,
+        llm_execution_snapshot: dict[str, Any],
+        task_id: str,
+    ) -> WorldGenerationSuggestionResponse:
+        return await self._generate_suggestion(
             db,
-            data.novel_id,
+            data,
+            llm_execution_snapshot=llm_execution_snapshot,
+            task_id=task_id,
         )
+
+    async def _generate_suggestion(
+        self,
+        db: AsyncSession,
+        data: WorldGenerationSuggestionRequest,
+        *,
+        llm_execution_snapshot: dict[str, Any] | None = None,
+        task_id: str | None = None,
+    ) -> WorldGenerationSuggestionResponse:
+        operation = self._operation_for_target(data)
+        if llm_execution_snapshot is None:
+            execution_snapshot, model = await self._freeze_execution_snapshot(
+                db,
+                data.novel_id,
+            )
+        else:
+            execution_snapshot = llm_execution_snapshot
+            model = str(llm_execution_snapshot["profile"]["model"])
         prepared = await self._prepare(
             db,
             data,
@@ -836,7 +865,8 @@ class WorldGenerationCenterService:
                 {"type": "creation_suggestion", "id": item.suggestion.id}
                 for item in [result, source_revision]
                 if item is not None
-            ],
+            ]
+            + ([{"type": "task", "id": task_id}] if task_id else []),
         )
         return WorldGenerationSuggestionResponse(
             result=result,

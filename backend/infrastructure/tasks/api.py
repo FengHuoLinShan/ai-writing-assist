@@ -51,6 +51,13 @@ def _public_task_result(value: Any) -> dict[str, Any]:
     }
 
 
+def _public_task_meta(value: Any) -> dict[str, Any]:
+    """Hide operation-receipt internals from the author-facing status API."""
+    projected = dict(value) if isinstance(value, Mapping) else {}
+    projected.pop("operation_fingerprint", None)
+    return projected
+
+
 async def _require_active_project(db: DbSession, novel_id: str) -> None:
     guard = get_container_service("project.require_active")
     await guard(db, novel_id)
@@ -67,6 +74,7 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "plot_structure_auto_extraction",
     "world_alias_relation_extraction",
     "world_entity_fusion_suggestions",
+    "world_generation_suggestion",
     "world_bible_projection_refresh",
     "world_bible_synopsis_refresh",
     "plot_structure_generate",
@@ -77,6 +85,8 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "story_outline_generate",
     "writing_generate",
     "writing_conflict_ai_review",
+    "writing_conflict_item_ai_suggestion",
+    "scene_fusion_preview",
     "publish_chapter",
     "rag_index_chapter",
     "rag_reindex_novel",
@@ -283,7 +293,7 @@ async def get_task_status(
         task_type=task.task_type,
         status=task.status or "pending",
         progress=task.progress,
-        meta=task.meta or {},
+        meta=_public_task_meta(task.meta),
         result=_public_task_result(task.result),
         error_message=task.error_message,
         created_at=str(task.created_at) if task.created_at else None,

@@ -17,6 +17,10 @@ from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.enqueuer import enqueue_task
+from infrastructure.tasks.facade import (
+    enqueue_task_with_optional_operation,
+    get_operation_task,
+)
 from modules.context.facade import (
     bind_confirmed_action_result,
     prepare_confirmed_ai_action,
@@ -34,6 +38,8 @@ from modules.writing.schemas import (
     WritingConflictAiReviewRequest,
     WritingConflictAiReviewTaskResponse,
     WritingConflictAiSuggestionRequest,
+    WritingConflictAiSuggestionTaskRequest,
+    WritingConflictAiSuggestionTaskResponse,
     WritingConflictCheckCreate,
     WritingConflictCheckListResponse,
     WritingConflictCheckResponse,
@@ -137,6 +143,7 @@ async def get_conflict_check(
 @router.post(
     "/conflict-checks/{check_id}/ai-review",
     response_model=WritingConflictCheckResponse,
+    deprecated=True,
 )
 async def run_conflict_check_ai_review(
     db: DbSession,
@@ -164,44 +171,80 @@ async def enqueue_conflict_check_ai_review(
 ) -> WritingConflictAiReviewTaskResponse:
     """提交 AI 软冲突判断任务，避免前端等待真实 LLM 调用超时。"""
     await require_active_project(db, data.novel_id)
+    payload = data.model_dump(mode="json", exclude={"operation_id"}) | {
+        "check_id": check_id,
+    }
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="writing_conflict_ai_review",
+            novel_id=data.novel_id,
+            request_payload=payload,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        check = await _conflict_service.get_check(
+            db,
+            novel_id=data.novel_id,
+            check_id=check_id,
+        )
+        return WritingConflictAiReviewTaskResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+            check=check,
+        )
     check = await _conflict_service.start_ai_review_task(
         db,
         check_id=check_id,
         data=data,
+        activate=False,
     )
     llm_execution_snapshot = await build_project_llm_execution_snapshot(
         db,
         data.novel_id,
     )
-    task_id = enqueue_task(
-        db,
-        "writing_conflict_ai_review",
-        meta={
-            "novel_id": data.novel_id,
-            "check_id": check_id,
-            "context_confirmation_id": data.context_confirmation_id,
-            "llm_execution_snapshot": llm_execution_snapshot,
-        },
-        novel_id=data.novel_id,
-    )
-    await _conflict_service.bind_ai_review_task_owner(
-        db,
-        novel_id=data.novel_id,
-        check_id=check_id,
-        task_id=task_id,
-    )
-    await bind_confirmed_action_result(
-        db,
-        novel_id=data.novel_id,
-        confirmation_id=data.context_confirmation_id,
-        result_type="task",
-        result_id=task_id,
-        status="running",
-    )
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="writing_conflict_ai_review",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta={**payload, "llm_execution_snapshot": llm_execution_snapshot},
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not receipt.reused:
+        await _conflict_service.bind_ai_review_task_owner(
+            db,
+            novel_id=data.novel_id,
+            check_id=check_id,
+            task_id=receipt.task_id,
+            confirmation_id=data.context_confirmation_id,
+        )
+        await bind_confirmed_action_result(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
+        check = await _conflict_service.get_check(
+            db,
+            novel_id=data.novel_id,
+            check_id=check_id,
+        )
     await db.flush()
     return WritingConflictAiReviewTaskResponse(
-        task_id=task_id,
-        status="pending",
+        task_id=receipt.task_id,
+        status=receipt.status,
         check=check,
     )
 
@@ -230,6 +273,7 @@ async def update_conflict_item(
 @router.post(
     "/conflict-check-items/{item_id}/ai-suggestion",
     response_model=WritingConflictItemResponse,
+    deprecated=True,
 )
 async def create_conflict_item_ai_suggestion(
     db: DbSession,
@@ -242,6 +286,64 @@ async def create_conflict_item_ai_suggestion(
         db,
         item_id=item_id,
         data=data,
+    )
+
+
+@router.post(
+    "/conflict-check-items/{item_id}/ai-suggestion-task",
+    response_model=WritingConflictAiSuggestionTaskResponse,
+    status_code=202,
+)
+async def enqueue_conflict_item_ai_suggestion(
+    db: DbSession,
+    data: WritingConflictAiSuggestionTaskRequest,
+    item_id: str = Path(..., description="问题项 ID"),
+) -> WritingConflictAiSuggestionTaskResponse:
+    """提交单条冲突修复建议任务。"""
+    await require_active_project(db, data.novel_id)
+    payload = data.model_dump(mode="json", exclude={"operation_id"}) | {
+        "item_id": item_id,
+    }
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id),
+            task_type="writing_conflict_item_ai_suggestion",
+            novel_id=data.novel_id,
+            request_payload=payload,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        return WritingConflictAiSuggestionTaskResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
+    await _conflict_service.validate_ai_suggestion_request(
+        db,
+        item_id=item_id,
+        data=data,
+    )
+    snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id),
+            task_type="writing_conflict_item_ai_suggestion",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta={**payload, "llm_execution_snapshot": snapshot},
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await db.flush()
+    return WritingConflictAiSuggestionTaskResponse(
+        task_id=receipt.task_id,
+        status=receipt.status,
     )
 
 
@@ -285,6 +387,24 @@ async def generate_writing_candidate(
 ) -> WritingGenerateResponse:
     """提交 AI 正文建议生成任务；采用前不进入工作稿。"""
     await require_active_project(db, data.novel_id)
+    payload = data.model_dump(mode="json", exclude={"operation_id"})
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="writing_generate",
+            novel_id=data.novel_id,
+            request_payload=payload,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        return WritingGenerateResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
     try:
         await prepare_confirmed_ai_action(
             db,
@@ -301,10 +421,14 @@ async def generate_writing_candidate(
         db,
         data.novel_id,
     )
-    task_id = enqueue_task(
-        db,
-        "writing_generate",
-        meta={
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="writing_generate",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta={
             "novel_id": data.novel_id,
             "chapter_index": data.chapter_index,
             "title": data.title,
@@ -314,18 +438,22 @@ async def generate_writing_candidate(
             "base_draft_id": data.base_draft_id,
             "llm_execution_snapshot": llm_execution_snapshot,
         },
-        novel_id=data.novel_id,
-    )
-    await bind_confirmed_action_result(
-        db,
-        novel_id=data.novel_id,
-        confirmation_id=data.context_confirmation_id,
-        result_type="task",
-        result_id=task_id,
-        status="running",
-    )
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not receipt.reused:
+        await bind_confirmed_action_result(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     await db.flush()
-    return WritingGenerateResponse(task_id=task_id, status="pending")
+    return WritingGenerateResponse(task_id=receipt.task_id, status=receipt.status)
 
 
 @router.post("/drafts", response_model=PublishResponse, status_code=201)

@@ -9,7 +9,10 @@ from fastapi import status as http_status
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.llm.redaction import redact_diagnostic
-from infrastructure.tasks.enqueuer import enqueue_task
+from infrastructure.tasks.facade import (
+    enqueue_task_with_optional_operation,
+    get_operation_task,
+)
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.outline.p20_schemas import OutlineLayerGenerateRequest
 from modules.outline.p20_service import P20ConflictError, P20GenerationService
@@ -41,6 +44,8 @@ from modules.outline.schemas import (
     SceneCreate,
     SceneFusionPreviewRequest,
     SceneFusionPreviewResponse,
+    SceneFusionPreviewTaskRequest,
+    SceneFusionPreviewTaskResponse,
     SceneFusionSaveRequest,
     SceneFusionSaveResponse,
     SceneFusionSuggestionDismissRequest,
@@ -86,7 +91,10 @@ from modules.outline.story_outline_service import (
     StoryOutlineNotFoundError,
     StoryOutlineService,
 )
-from modules.project.facade import require_active_project
+from modules.project.facade import (
+    build_project_llm_execution_snapshot,
+    require_active_project,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/outline", tags=["outline"])
@@ -155,6 +163,26 @@ async def _enqueue_confirmed_outline_task(
     action: str,
     task_type: str,
 ) -> OutlineAiTaskResponse:
+    request_payload = data.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude={"operation_id"},
+    )
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type=task_type,
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
+    if existing is not None:
+        return OutlineAiTaskResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
     try:
         await require_fresh_confirmation(
             db,
@@ -168,30 +196,61 @@ async def _enqueue_confirmed_outline_task(
             detail=redact_diagnostic(exc),
         ) from exc
 
-    meta = data.model_dump(exclude_none=True)
+    meta = dict(request_payload)
     from modules.project.facade import build_project_llm_execution_snapshot
 
     meta["llm_execution_snapshot"] = await build_project_llm_execution_snapshot(
         db,
         data.novel_id,
     )
-    task_id = enqueue_task(db, task_type, meta=meta, novel_id=data.novel_id)
-    await attach_result_ref(
-        db,
-        novel_id=data.novel_id,
-        confirmation_id=data.context_confirmation_id,
-        result_type="task",
-        result_id=task_id,
-        status="running",
-    )
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type=task_type,
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+            meta=meta,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
+    if not receipt.reused:
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     await db.flush()
-    return OutlineAiTaskResponse(task_id=task_id)
+    return OutlineAiTaskResponse(task_id=receipt.task_id, status=receipt.status)
 
 
 async def _enqueue_outline_layer_task(
     db: DbSession,
     data: OutlineLayerGenerateRequest,
 ) -> OutlineAiTaskResponse:
+    request_payload = data.model_dump(
+        exclude_none=True,
+        mode="json",
+        exclude={"operation_id"},
+    )
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="outline_generate",
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
+    if existing is not None:
+        return OutlineAiTaskResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
     try:
         await require_fresh_confirmation(
             db,
@@ -206,7 +265,7 @@ async def _enqueue_outline_layer_task(
             detail=redact_diagnostic(exc),
         ) from exc
 
-    meta = data.model_dump(exclude_none=True, mode="json")
+    meta = dict(request_payload)
     meta.update(
         {
             "action": "outline.generate",
@@ -220,17 +279,28 @@ async def _enqueue_outline_layer_task(
         db,
         data.novel_id,
     )
-    task_id = enqueue_task(db, "outline_generate", meta=meta, novel_id=data.novel_id)
-    await attach_result_ref(
-        db,
-        novel_id=data.novel_id,
-        confirmation_id=data.context_confirmation_id,
-        result_type="task",
-        result_id=task_id,
-        status="running",
-    )
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="outline_generate",
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+            meta=meta,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
+    if not receipt.reused:
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     await db.flush()
-    return OutlineAiTaskResponse(task_id=task_id)
+    return OutlineAiTaskResponse(task_id=receipt.task_id, status=receipt.status)
 
 
 # ============================================================
@@ -354,6 +424,26 @@ async def api_generate_story_outline(
     )
     from modules.project.facade import build_project_llm_execution_snapshot
 
+    request_payload = data.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude={"operation_id"},
+    )
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="story_outline_generate",
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
+    if existing is not None:
+        return OutlineAiTaskResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
     try:
         submission_plan = await StoryOutlineGenerationService().prepare(db, data)
     except Exception as exc:
@@ -363,7 +453,7 @@ async def api_generate_story_outline(
                 detail=redact_diagnostic(exc),
             ) from exc
         raise _story_outline_error(exc) from exc
-    meta = data.model_dump(mode="json", exclude_none=True)
+    meta = dict(request_payload)
     meta.update(
         {
             "action": STORY_OUTLINE_GENERATE_ACTION,
@@ -374,14 +464,19 @@ async def api_generate_story_outline(
             ),
         }
     )
-    task_id = enqueue_task(
-        db,
-        "story_outline_generate",
-        meta=meta,
-        novel_id=data.novel_id,
-    )
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="story_outline_generate",
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+            meta=meta,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
     await db.flush()
-    return OutlineAiTaskResponse(task_id=task_id)
+    return OutlineAiTaskResponse(task_id=receipt.task_id, status=receipt.status)
 
 
 @router.post(
@@ -748,6 +843,7 @@ async def api_split_scene(
 @router.post(
     "/scene-workbench/fusion/preview",
     response_model=SceneFusionPreviewResponse,
+    deprecated=True,
 )
 async def api_preview_scene_fusion(
     data: SceneFusionPreviewRequest,
@@ -760,6 +856,53 @@ async def api_preview_scene_fusion(
         return await _scene_workbench_service.preview_llm_fusion(db, novel_id, data)
     except Exception as exc:
         raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/fusion/preview-task",
+    response_model=SceneFusionPreviewTaskResponse,
+    status_code=202,
+)
+async def api_preview_scene_fusion_task(
+    data: SceneFusionPreviewTaskRequest,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+) -> SceneFusionPreviewTaskResponse:
+    await require_active_project(db, novel_id)
+    payload = data.model_dump(mode="json", exclude={"operation_id"})
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id),
+            task_type="scene_fusion_preview",
+            novel_id=novel_id,
+            request_payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        return SceneFusionPreviewTaskResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
+    snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id),
+            task_type="scene_fusion_preview",
+            novel_id=novel_id,
+            request_payload=payload,
+            meta={**payload, "novel_id": novel_id, "llm_execution_snapshot": snapshot},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await db.flush()
+    return SceneFusionPreviewTaskResponse(
+        task_id=receipt.task_id,
+        status=receipt.status,
+    )
 
 
 @router.post(

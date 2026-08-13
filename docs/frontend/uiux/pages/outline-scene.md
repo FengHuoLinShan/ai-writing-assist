@@ -33,11 +33,11 @@
    `<pre>JSON.stringify(chapter_mapping_change / field_changes)`；拆分预览摘要同样机器化
    （`:474-477`）。违反 AGENTS.md「不暴露 raw ID、JSON」与主规范 §0 清晰度优先级。
 4. **窄屏断点不一致**：JS `window.innerWidth < 720`（`useSceneWorkbench.js:74`，resize 监听 :509-511）
-   vs CSS `@media (max-width: 720px)`（`styles.css:7208`）——恰好 720px 时 grid 已塌成 block，
+   vs CSS `@media (max-width: 760px)`（`.scene-workbench` 响应式规则）——边界值时 grid 已塌成 block，
    但 `narrow=false` 仍渲染右栏 rail 而非抽屉。
 5. **窄屏详情抽屉不是对话框**：`SceneWorkbenchView.vue:135` 为裸 div——无 `role="dialog"`/
    `aria-modal`、无 Esc 关闭、无焦点管理，唯一出口是「关闭」按钮（:301）；遮罩用
-   `box-shadow: 0 0 0 100vmax`（`styles.css:7272`）实现且不可点。
+   `box-shadow: 0 0 0 100vmax`（`.scene-detail-panel` 窄屏规则）实现且不可点。
 6. **信息推进区（伏笔揭示归并产物）完全无样式 + 默认展开逻辑反转**：
    `.outline-information-progress/-timeline/-node/-unassigned/-preview-section` 在全部 CSS 中零命中，
    叙事时间线退化为默认 `<ol>`；且 `<details :open="plans.length === 0">`
@@ -45,14 +45,14 @@
    深链参数设置后无人消费（全仓库 grep 无 `query.get("information")`），不滚动不高亮。
 7. **场景页 subnav 双事实源 + 信息层级拥挤**：`SceneWorkbenchView.vue:4-7` 与
    `OutlineHeader.vue:9-12` 各写一份四标签文案；场景页一行挤 4 个导航项 + 模式 toggle +
-   2 个 AI 操作 + dedup 插槽（:3-17），`.subnav` 横向滚动（`styles.css:3921`）在窄屏会把
+   2 个 AI 操作 + dedup 插槽（:3-17），`.subnav` 横向滚动（`styles.css` 的 `.subnav` 规则）在窄屏会把
    操作区裁出视口；scene 页无标题/计数 header（页面标题只在 topbar `#topbar-module`）。
-8. **密度与字号低于主规范矩阵**：行 meta 11px 五段无分隔（`styles.css:6710-6713`）、
+8. **密度与字号低于主规范矩阵**：行 meta 11px 五段无分隔（`styles.css` 的 scene 列表 meta 规则）、
    摘要 12px、健康 chip 11px、健康条 small 10px、分页信息 12px；`.scene-progress-filter`
    min-height 36px（:6512）低于 44px 触控基准且不是 `.btn`，editorial 窄屏触控抬升规则
    （`editorial-theme.css:1294-1303`）覆盖不到。
 9. **剧情进度 chip 无分段配色**：模板输出 `scene-progress-chip--{segment}`
-   （`SceneWorkbenchView.vue:101`），CSS 只有基类（`styles.css:10561-10567`）——
+   （`SceneWorkbenchView.vue:101`），CSS 只有基类（`styles.css` 的 `.scene-progress-chip` 规则）——
    当前/后续/已写过/未定位四态同色，热点模式失去分段辨识度。
 10. **视角人物字段是裸 ID 文本框**：SceneDetailPanel 用 free-text input 收 `pov_character_id`
     （`SceneWorkbenchView.vue:304`），直接向用户暴露内部 ID 心智模型。

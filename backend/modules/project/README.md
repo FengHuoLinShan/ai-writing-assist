@@ -189,6 +189,10 @@ LLM execution snapshot，worker 恢复冻结配置后调用各模块 facade。�
 返回 `groups`，同时保留 `suggestions` 供旧客户端降级展示。实际资产判断、
 语义/执行指纹和写入规则仍属于资产拥有模块：
 
+官方前端提交扫描前先持久化页内 `operation_id`；同一 ID 和请求指纹可在刷新后恢复
+原任务（含终态），不同请求复用同一 ID 返回 409。该 receipt 只约束当前操作，不建立
+账户级、项目级或跨设备扫描锁。
+
 - `world_entity` 走 world 的实体融合建议和确认合并 / 别名登记逻辑。
 - `plot_thread`、`outline_arc`、`scene`、`foreshadowing_plan`、`reveal_plan`
   走 outline 的结构资产去重逻辑。

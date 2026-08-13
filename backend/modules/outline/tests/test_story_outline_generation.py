@@ -145,11 +145,12 @@ def test_story_outline_prompt_keeps_json_injection_inside_data_block() -> None:
     assert decoded["action"] == STORY_OUTLINE_GENERATE_ACTION
 
 
-def test_story_outline_task_uses_restart_origin_recovery() -> None:
+def test_story_outline_task_retries_one_transient_provider_failure() -> None:
     definition = TaskRegistry().get_definition("story_outline_generate")
     assert definition is not None
-    assert definition.recovery_policy == "restart_origin"
-    assert definition.max_attempts == 1
+    assert definition.recovery_policy == "auto_requeue"
+    assert definition.max_attempts == 2
+    assert definition.retry_transient_llm_errors is True
 
 
 async def test_task_handler_passes_submission_context_fence_to_generation() -> None:

@@ -186,6 +186,11 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
   显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态
   默认展开；用户保存状态优先于自动规则。取消终态统一说明为停止后续处理并保留已保存阶段，
   不把任务租约失效表述成远端模型连接已瞬时中断。
+- 作者显式发起的 World/Outline/Writing 长耗时 AI 操作在请求前生成
+  `operation_id` 并写入当前项目的页内 workflow 记录。刷新或离开返回只查询原 task；
+  404 显示“未找到原任务，请重新开始”，不自动重放不确定提交。进度和结果只在
+  发起位置显示，默认隐藏 raw task ID；Scene 融合完成后在工作台显示“查看预览”，
+  不因晚到响应重开旧弹窗。任务完成不刷新整座 island，不覆盖当前输入、筛选、焦点、滚动和多选。
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
   双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
   对比默认“只看差异”；勾选操作与切换合格主对象会保留工作台滚动位置，且主对象 radio

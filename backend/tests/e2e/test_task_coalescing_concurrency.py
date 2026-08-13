@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from infrastructure.tasks.facade import enqueue_coalesced_task
+from infrastructure.tasks.facade import enqueue_coalesced_task, enqueue_operation_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
 from modules.project.models import Project
@@ -69,6 +69,58 @@ async def test_concurrent_transactions_reuse_one_pending_task() -> None:
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(
                 delete(AsyncTask).where(AsyncTask.task_type == task_type)
+            )
+            await cleanup_db.execute(
+                delete(Project).where(Project.id == uuid.UUID(novel_id))
+            )
+        await engine.dispose()
+
+
+async def test_concurrent_operation_receipt_creates_one_task() -> None:
+    engine = create_async_engine(DATABASE_URL, pool_size=4, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    operation_id = str(uuid.uuid4())
+    novel_id = str(uuid.uuid4())
+    task_type = f"operation-race-{uuid.uuid4()}"
+    release = asyncio.Event()
+    ready = 0
+    ready_lock = asyncio.Lock()
+
+    async def submit() -> str:
+        nonlocal ready
+        async with ready_lock:
+            ready += 1
+            if ready == 2:
+                release.set()
+        await release.wait()
+        async with sessions.begin() as db:
+            receipt = await enqueue_operation_task(
+                db,
+                operation_id=operation_id,
+                task_type=task_type,
+                novel_id=novel_id,
+                request_payload={"novel_id": novel_id, "input": "same"},
+                meta={"novel_id": novel_id},
+            )
+            return receipt.task_id
+
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(Project(id=uuid.UUID(novel_id), title="operation receipt race"))
+
+        first_id, second_id = await asyncio.gather(submit(), submit())
+
+        assert first_id == second_id == operation_id
+        async with sessions() as verify_db:
+            assert await verify_db.scalar(
+                select(func.count())
+                .select_from(AsyncTask)
+                .where(AsyncTask.id == uuid.UUID(operation_id))
+            ) == 1
+    finally:
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(
+                delete(AsyncTask).where(AsyncTask.id == uuid.UUID(operation_id))
             )
             await cleanup_db.execute(
                 delete(Project).where(Project.id == uuid.UUID(novel_id))

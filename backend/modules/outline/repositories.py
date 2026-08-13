@@ -1076,6 +1076,8 @@ class SceneRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         scene_ids: list[uuid.UUID],
+        *,
+        for_update: bool = False,
     ) -> list[Scene]:
         if not scene_ids:
             return []
@@ -1083,6 +1085,8 @@ class SceneRepository:
             Scene.novel_id == novel_id,
             Scene.id.in_(scene_ids),
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 

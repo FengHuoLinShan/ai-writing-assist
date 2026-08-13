@@ -1119,6 +1119,49 @@ async def test_ai_suggestion_stores_manual_suggestion_without_mutating_draft(
 
 
 @pytest.mark.asyncio
+async def test_ai_suggestion_task_uses_operation_receipt(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id)
+    check = await _create_check(async_client, novel_id, scene["id"])
+    item_id = check["items"][0]["id"]
+    confirmation_id = await _create_context_confirmation(
+        async_client,
+        novel_id,
+        action="writing.conflict_check.ai_suggestion",
+        scene_id=scene["id"],
+    )
+    operation_id = str(uuid.uuid4())
+    payload = {
+        "novel_id": novel_id,
+        "context_confirmation_id": confirmation_id,
+        "operation_id": operation_id,
+    }
+
+    first = await async_client.post(
+        f"/api/writing/conflict-check-items/{item_id}/ai-suggestion-task",
+        json=payload,
+    )
+    repeated = await async_client.post(
+        f"/api/writing/conflict-check-items/{item_id}/ai-suggestion-task",
+        json=payload,
+    )
+
+    assert first.status_code == repeated.status_code == 202
+    assert first.json() == repeated.json() == {
+        "task_id": operation_id,
+        "status": "pending",
+    }
+    task = await db_session.scalar(
+        select(AsyncTask).where(AsyncTask.id == uuid.UUID(operation_id))
+    )
+    assert task is not None
+    assert task.task_type == "writing_conflict_item_ai_suggestion"
+
+
+@pytest.mark.asyncio
 async def test_ai_suggestion_uses_large_budget_and_concise_prompt_constraints(
     async_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

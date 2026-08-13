@@ -75,6 +75,7 @@ export function useSceneWorkbench(props) {
   const narrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
   const loading = ref(false)
   const loadError = ref(props.sceneLoadError || null)
+  const fusionTask = reactive({ taskId: null, meta: null, progress: null, preview: null })
   const requestGeneration = ref(0)
   let disposed = false
 
@@ -211,6 +212,7 @@ export function useSceneWorkbench(props) {
     refresh,
     selectScene,
     clearSelection,
+    fusionTask,
   })
 
   async function applyFilters() {
@@ -519,6 +521,7 @@ export function useSceneWorkbench(props) {
 
   onMounted(() => {
     sceneAutoExtractManager.recover(projectId)
+    modalController.recoverFusionTask()
     window.addEventListener("resize", onResize)
     document.querySelector(".outline-scene-layout > .subnav")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   })
@@ -546,6 +549,7 @@ export function useSceneWorkbench(props) {
     filterForm,
     filters,
     fusionSuggestions,
+    fusionTask,
     healthLabel,
     healthReasons,
     items,

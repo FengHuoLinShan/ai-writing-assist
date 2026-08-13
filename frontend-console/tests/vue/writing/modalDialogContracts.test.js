@@ -86,7 +86,7 @@ describe("writing modal dialog contracts", () => {
     expect(document.activeElement).toBe(wrapper.get('[aria-label="关闭"]').element)
   })
 
-  it("contains busy ConflictDetail Escape and emits one close only when it becomes closable", async () => {
+  it("lets authors leave a busy ConflictDetail while its task continues in the page card", async () => {
     const model = detailModel()
     model.busy = true
     const { wrapper } = mountInShell(ConflictDetailDialog, { model })
@@ -94,13 +94,6 @@ describe("writing modal dialog contracts", () => {
     const busyEscape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
     wrapper.get(".modal-overlay").element.dispatchEvent(busyEscape)
     expect(busyEscape.defaultPrevented).toBe(true)
-    expect(wrapper.emitted("close")).toBeUndefined()
-
-    model.busy = false
-    await nextTick()
-    const closeEscape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
-    wrapper.get(".modal-overlay").element.dispatchEvent(closeEscape)
-    expect(closeEscape.defaultPrevented).toBe(true)
     expect(wrapper.emitted("close")).toHaveLength(1)
   })
 

@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
+from infrastructure.llm.errors import LLMTimeoutError
 from modules.world.entity_fusion import (
     EntityFusionDecision,
     WorldEntityFusionService,
@@ -260,6 +261,28 @@ async def test_entity_fusion_llm_failure_does_not_log_provider_details(
     assert result.action == "needs_review"
     assert secret not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+async def test_task_entity_fusion_propagates_retryable_provider_failure() -> None:
+    timeout = LLMTimeoutError("provider timed out")
+
+    with mock.patch(
+        "modules.world.entity_fusion.run_managed_structured",
+        autospec=True,
+        side_effect=timeout,
+    ):
+        with pytest.raises(LLMTimeoutError) as exc_info:
+            await WorldEntityFusionService(
+                llm_client=mock.MagicMock(model_name="test-model")
+            )._decide(
+                _fusion_entity(name="林七"),
+                _fusion_entity(name="林七长老"),
+                {"similarity_score": 0.88, "match_method": "substring_name"},
+                [],
+                allow_degraded=False,
+            )
+
+    assert exc_info.value is timeout
 
 
 async def test_entity_fusion_alias_only_persists_alias(
@@ -1143,7 +1166,10 @@ async def test_task_entity_fusion_freezes_and_reuses_project_llm_snapshot(
         _target,
         _match,
         _evidence,
+        *,
+        allow_degraded: bool = True,
     ) -> EntityFusionDecision:
+        assert allow_degraded is False
         return EntityFusionDecision(
             action="needs_review",
             confidence=0.9,

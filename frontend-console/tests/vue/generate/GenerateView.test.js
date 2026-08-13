@@ -103,11 +103,20 @@ function explorationResponse() {
 
 beforeEach(() => {
   localStorage.clear()
+  sessionStorage.clear()
   writeGenerateContextPreview("p1", {})
   document.body.innerHTML = '<div id="topbar-module"></div><div id="modal-body"></div>'
+  const worldTaskResults = new Map()
+  const generateWorldSuggestion = vi.fn()
+  const enqueueWorldSuggestion = vi.fn(async (payload) => {
+    const { operation_id: operationId, ...request } = payload
+    const result = await generateWorldSuggestion(request, { signal: new AbortController().signal })
+    worldTaskResults.set(operationId, result)
+    return { task_id: operationId, status: "pending" }
+  })
   api = {
     generate: {
-      worldChat: vi.fn(), convergeWorld: vi.fn(), exploreWorld: vi.fn(), generateWorldSuggestion: vi.fn(), applyWorldPageDraft: vi.fn(),
+      worldChat: vi.fn(), convergeWorld: vi.fn(), exploreWorld: vi.fn(), generateWorldSuggestion, enqueueWorldSuggestion, applyWorldPageDraft: vi.fn(),
       listPromptTemplates: vi.fn(), createPromptTemplate: vi.fn(), copyPromptTemplate: vi.fn(), updatePromptTemplate: vi.fn(), listPromptTemplateRevisions: vi.fn(),
     },
     context: { compile: vi.fn(), render: vi.fn() },
@@ -116,7 +125,12 @@ beforeEach(() => {
     },
     outline: { listScenesOrdered: vi.fn(), listThreads: vi.fn(), listScenesByChapter: vi.fn(), getSceneWorkbench: vi.fn(), getScene: vi.fn() },
     writing: { listChapters: vi.fn(), get: vi.fn(), getDraft: vi.fn(), generate: vi.fn() },
-    tasks: { get: vi.fn() },
+    tasks: {
+      get: vi.fn(async (taskId) => worldTaskResults.has(taskId)
+        ? { task_id: taskId, task_type: "world_generation_suggestion", status: "done", result: worldTaskResults.get(taskId) }
+        : { task_id: taskId, status: "pending", progress: 0 }),
+      cancel: vi.fn(),
+    },
   }
   state = { currentProjectId: "p1", currentProject: { title: "项目一" }, viewStates: {} }
   router = { navigate: vi.fn(), getCurrentQuery: vi.fn(() => new URLSearchParams()) }
@@ -772,6 +786,63 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(wrapper.get("#generate-result").text()).toContain("唯一结果")
   })
 
+  it("keeps the current world generation session locked after the receipt returns", async () => {
+    api.generate.enqueueWorldSuggestion.mockResolvedValue({ task_id: "world-running", status: "pending" })
+    api.tasks.get.mockResolvedValue({ task_id: "world-running", task_type: "world_generation_suggestion", status: "running" })
+    const wrapper = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    await wrapper.get("#generate-chat-input").setValue("生成期间不要重复提交")
+
+    await wrapper.get('[data-action="generate-world-suggestion"]').trigger("click")
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("world-running", "p1"))
+
+    const button = wrapper.get('[data-action="generate-world-suggestion"]')
+    expect(button.element.disabled).toBe(true)
+    await button.trigger("click")
+    expect(api.generate.enqueueWorldSuggestion).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not recover another tab's world receipt from shared local storage", async () => {
+    const sessionKey = generateSessionKey("p1")
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:world_generation_suggestion:world-other-tab",
+      taskId: "world-other-tab",
+      workflowType: "world_generation_suggestion",
+      projectId: "p1",
+      view: "generate",
+      meta: { session_key: sessionKey, target_kind: "core_entity" },
+    }]))
+
+    mount(GenerateView, { props: baseProps({ sessionKey }), attachTo: document.body })
+    await flushPromises()
+
+    expect(api.tasks.get).not.toHaveBeenCalled()
+  })
+
+  it("recovers the page-local world receipt without replaying generation", async () => {
+    const sessionKey = generateSessionKey("p1")
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:world_generation_suggestion:world-recover",
+      taskId: "world-recover",
+      workflowType: "world_generation_suggestion",
+      projectId: "p1",
+      view: "generate",
+      meta: { session_key: sessionKey, target_kind: "core_entity", proposal_draft_baseline: "null" },
+    }]))
+    api.tasks.get.mockResolvedValue({
+      task_id: "world-recover",
+      task_type: "world_generation_suggestion",
+      status: "done",
+      result: { result: { kind: "core_entity", suggestion: { id: "suggestion-recover", payload_json: { name: "恢复雾港" } } } },
+    })
+
+    const wrapper = mount(GenerateView, { props: baseProps({ sessionKey }), attachTo: document.body })
+    await vi.waitFor(() => expect(wrapper.get("#generate-result").text()).toContain("恢复雾港"))
+
+    expect(api.generate.enqueueWorldSuggestion).not.toHaveBeenCalled()
+    expect(api.tasks.get).toHaveBeenCalledWith("world-recover", "p1")
+    expect(sessionStorage.getItem("novel_active_workflows_v1")).toBe("[]")
+  })
+
   it("keeps world chat, suggestion generation, and apply mutually exclusive", async () => {
     let resolveChat
     api.generate.worldChat.mockImplementation(() => new Promise((resolve) => { resolveChat = resolve }))
@@ -930,6 +1001,7 @@ describe("GenerateView Vue behavior matrix", () => {
     const generated = deferred()
     confirmAiReference.mockResolvedValue({ id: "confirm-1", user_note: "" })
     api.writing.generate.mockReturnValue(generated.promise)
+    api.tasks.get.mockResolvedValue({ status: "done", progress: 1, result: { draft_id: "draft-1" } })
     const wrapper = mount(GenerateView, {
       props: baseProps({
         tab: "pov_prose",
@@ -947,7 +1019,7 @@ describe("GenerateView Vue behavior matrix", () => {
     await vi.waitFor(() => expect(api.writing.generate).toHaveBeenCalled())
 
     await wrapper.get("#generate-pov-character").setValue("char-b")
-    generated.resolve({ draft_id: "draft-1" })
+    generated.resolve({ task_id: "task-1" })
     await pending
     await flushPromises()
 

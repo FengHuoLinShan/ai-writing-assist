@@ -277,7 +277,7 @@ describe("Smart Dedup Manager", () => {
     })
     await modal.buttons.find((button) => button.text === "重新扫描").handler()
 
-    expect(api.projects.startSmartDedupScan).toHaveBeenCalledWith("p1", {})
+    expect(api.projects.startSmartDedupScan).toHaveBeenCalledWith("p1", { operation_id: expect.any(String) })
     expect(manager.getState().taskId).toBe("scan-2")
     manager.dispose()
   })
@@ -516,7 +516,7 @@ describe("Smart Dedup Manager", () => {
     expect(toast).not.toHaveBeenCalledWith("智能去重扫描已提交", "success")
     expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([
       expect.objectContaining({
-        taskId: "scan-p1-late",
+        taskId: expect.any(String),
         workflowType: "smart_dedup_scan",
         projectId: "p1",
       }),

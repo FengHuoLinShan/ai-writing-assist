@@ -17,17 +17,17 @@
 **P0 功能/门禁**
 
 1. **项目页加载失败死锁**：`loadProjectSettings` 失败时返回 `effectiveLLM/effectivePrefs = null`（vue/settingsIslands.js:61-70），`dataReady` 永假（ProjectSettingsView.vue:52），页面永久停在 `<p role="status">加载中…</p>`（:334），无错误文案、无重试入口。
-2. **`e2e/visual-settings.spec.js` 整体漂移**：断言标题「账户设置」（:81）、「项目设置」（:93）与现行「账户与模型连接」（GlobalSettingsView.vue:224）、「项目偏好」（ProjectSettingsView.vue:241）不符；tab 名「深度导入」「作者偏好」（:101, :105）与现行「高级导入」「创作偏好」（ProjectSettingsView.vue:24-27）不符；mask 的 `.projects-using-list`（spec :35）在视图中已不存在，仅 styles.css:9312-9319 残留死样式。视觉门禁当前必然红或长期未跑。
+2. **`e2e/visual-settings.spec.js` 整体漂移**：断言标题「账户设置」（:81）、「项目设置」（:93）与现行「账户与模型连接」（GlobalSettingsView.vue:224）、「项目偏好」（ProjectSettingsView.vue:241）不符；tab 名「深度导入」「作者偏好」（:101, :105）与现行「高级导入」「创作偏好」（ProjectSettingsView.vue:24-27）不符；mask 的 `.projects-using-list`（spec :35）在视图中已不存在，仅 `styles.css` 的 `.projects-using-list` 规则残留。视觉门禁当前必然红或长期未跑。
 3. **账户页连接加载失败裸空白**：`listLLMConnections` 失败降级为空 providers 数组（GlobalSettingsView.vue:21-24），radiogroup 渲染为空白区域，仅 console.error + 一次 toast（vue/settingsIslands.js:28-31），无空态无重试。
 
 **P1 交互与反馈**
 
 4. **校验与失败全靠瞬时 toast**：空 Key（GlobalSettingsView.vue:130-133）、偏好越界（:176-177）、保存失败（:146, :186；ProjectSettingsView.vue:134, :146, :180）均无字段级内联错误，toast 消失后无从回看原因；成功亦无持久确认（无"已保存"就态标记）。
 5. **dirty 状态不可见**：两页均有 leave guard（GlobalSettingsView.vue:198-210；ProjectSettingsView.vue:213-225），但页面上没有任何"有未保存修改"的持续指示，用户只能离开时被动发现。
-6. **`.form-row` 窄屏不换行**：styles.css:1103-1107 为无 wrap 的 flex 横排，无任何媒体查询；作者偏好三栏与高级导入多栏在 <640px 被压成窄列。editorial 仅对 world/generate 的 tab 做了窄屏降级（editorial-theme.css:1334-1348），表单行没有同等待遇。
+6. **`.form-row` 窄屏不换行**：`styles.css` 的 `.form-row` 为无 wrap 的 flex 横排，无对应响应式规则；作者偏好三栏与高级导入多栏在 <640px 被压成窄列。editorial 仅对 world/generate 的 tab 做了窄屏降级（editorial-theme.css:1334-1348），表单行没有同等待遇。
 7. **`#theme-toggle` 三方样式争抢**（完整证据链）：
    - A. SFC 非 scoped 内联样式（ThemePicker.vue:121-125，`<style>` 无 scoped，全局注入，均有 `.topbar-theme` 前缀，无 `!important`）；
-   - B. 结构层 hover/active 规则（styles.css:8766-8785，4 条全 `!important`，含 `[data-theme="dark"]` 变体 :8779-8785）；
+   - B. 结构层 hover/active 规则（`styles.css` 的 `#theme-toggle` 规则，4 条全 `!important`，含 `[data-theme="dark"]` 变体）；
    - C. editorial 覆层（editorial-theme.css:193-214，`#theme-toggle.btn-icon` 4 个 `!important`、菜单 hover 朱红文字 `!important`）；
    - 胜负关系：基样式 C 靠 `!important` 无条件压 A ✓；但 **C 未写 `#theme-toggle:hover`**，B 的灰调 `--bg-hover` 在 editorial 主题下漏出，toggle hover 是结构层灰色而非主题风格（真实断裂点）；菜单项 hover B/C 同特异性同 `!important`，C 靠加载顺序赢 → dark 主题下菜单 hover 也变成 editorial 朱红文字，B 的暗色适配被吃掉。另有 toggle 图标恒为「☀」不随主题变化（ThemePicker.vue:15）。
 8. **高级导入组名面向开发者**：「Global」「Phase 0 Plan」「Phase 1A Scene Slicing」「Reducer max tokens」等中英混排（logic/deepImport.js:7-97），向作者暴露内部流水线心智，违反 AGENTS.md「不暴露内部枚举/工程术语」；h4 组标题与字段之间无 helper，参数用途全靠字段名。
@@ -37,8 +37,8 @@
 9. **Key 安全信息权重不足**：「Key 加密保存、验证产生费用」与操作引导共用 `.settings-section-hint`（GlobalSettingsView.vue:239-242 vs :294-296），费用提示无视觉区分；已连接时的就态说明放在 placeholder（:291），输入后即消失。
 10. **两页分组层级不统一**：全局页 h2→section h3（:238, :328）；项目页 h2→tab→（仅高级导入有 h4），「创作偏好」tab 内无区块标题（:313-332 vs GlobalSettingsView.vue:328）。且项目页 tab 内容不在 `.settings-section` 内，吃不到 editorial 卡片化 + 红角标 + 序号水印（editorial-theme.css:781-801, :814-827, :1206-1217），两页视觉密度不一致。
 11. **重复 id 隐患**：`#project-settings-goto-global` 出现两次（ProjectSettingsView.vue:232 空态分支、:266 notice 条），靠 v-if/v-else 互斥保命，重构易踩雷。
-12. **表单细节**：「默认专注模式」用 span + 嵌套 label 伪 label 结构（AuthorPreferencesForm.vue:56-61），可访问名称依赖 DOM 顺序而非 `for`/`aria-labelledby`；`select` 复用 `.form-input`（:42），editorial 下得到文本框式 3px 左边线但无下拉箭头（`.form-select` 的箭头 SVG 在 styles.css:1068-1084，未被使用）。
-13. **结构层与覆层风格相反**：`.form-input` 结构层是下划线式（styles.css:1019-1032），editorial 覆层是盒式（editorial-theme.css:610-629），结构层在 editorial 下成死代码，维护双份心智（属主规范 §1.1/§10 全局项，本页执行时随表单触碰一并归并）。
+12. **表单细节**：「默认专注模式」用 span + 嵌套 label 伪 label 结构（AuthorPreferencesForm.vue:56-61），可访问名称依赖 DOM 顺序而非 `for`/`aria-labelledby`；`select` 复用 `.form-input`（:42），editorial 下得到文本框式 3px 左边线但无下拉箭头（`.form-select` 的箭头 SVG 规则未被使用）。
+13. **结构层与覆层风格相反**：`.form-input` 结构层是下划线式（`styles.css` 的 `.form-input` 规则），editorial 覆层是盒式（editorial-theme.css:610-629），结构层在 editorial 下成死代码，维护双份心智（属主规范 §1.1/§10 全局项，本页执行时随表单触碰一并归并）。
 14. **测试钩子无集中选择器**：selectors.js 仅主题两条（e2e/helpers/selectors.js:73-74），settings 各 spec 自行硬编码 id/role。
 
 ## 3. 目标布局与信息层级
@@ -74,7 +74,7 @@ h2 项目偏好 ·项目名 + tablist（创作偏好 | 高级导入）
 - 层级：页面标题 h2（衬线 24）→ 区块 h3（16/600，项目页两个 tab 面板各补一个）→ 子分组 h4（仅高级导入，14/600）→ 字段 label。
 - 缩进链：label（`--text-sm`、`--text-secondary`，位于控件上方、间距 `--space-1`）→ 控件（底 `--bg-elevated`、边 `--line-default`、`--radius-sm`，高 36px 桌面 / ≥44px 触控）→ helper（`--text-xs`、`--text-secondary`）/ error（`--text-xs`、`--error`，与 helper 同位互斥）。
 - SourceLabel 与「恢复到全局默认」与 helper 同级缩进，顺序：控件 → SourceLabel 行 → error/helper。
-- 现状 `.form-group label` 间距为 `--space-2`（styles.css:1095-1101），执行时收敛到 `--space-1`，全站表单统一。
+- 现状 `.form-group label` 间距为 `--space-2`（`styles.css` 的表单标签规则），执行时收敛到 `--space-1`，全站表单统一。
 
 ## 4. 逐区域标准
 
@@ -91,20 +91,20 @@ h2 项目偏好 ·项目名 + tablist（创作偏好 | 高级导入）
 - **验证状态反馈**（目标三态，替代纯 toast）：
   - 验证中：主按钮 spinner + `aria-busy`（现状 :300-309 保留），Key 输入框禁用，卡片行内显示「正在验证连接…」；
   - 成功：toast 保留，卡片状态即时翻转为「已连接 · 当前使用」，Key 框旁出现持久「已验证」helper（`--success` 色点 + 文字），placeholder 不再承担就态说明；
-  - 失败：字段级内联 error（`--error` 边 + helper 变错文，§5.2 状态链）+ toast 保留，按钮抖动动画（styles.css:9224-9233）可保留但不得是唯一反馈。
+  - 失败：字段级内联 error（`--error` 边 + helper 变错文，§5.2 状态链）+ toast 保留，按钮抖动动画（`styles.css` 的保存失败规则）可保留但不得是唯一反馈。
 - **费用与安全提示**：第二条 hint（:294-296）升格为 warning 语义行（左 2px `--warning` 线），与操作引导 hint 视觉分级；文案保持用户语言，不出现「加密存储实现细节」。
 - **清除 Key**：二次确认保留（:156-158，文案已说明影响范围，符合 AGENTS.md 危险操作约束）。
 
 ### 4.3 作者偏好（全局 + 项目共用 AuthorPreferencesForm）
 
 - 三字段目标结构全部改真 label：`for` 指向 `#author-daily-goal` / `#author-editor-font` / `#author-default-focus`（AuthorPreferencesForm.vue:27, :41, :56-61 现状）。
-- `select` 改挂 `.form-select`（或补齐箭头样式），获得下拉箭头视觉（styles.css:1068-1084）。
+- `select` 改挂 `.form-select`（或补齐箭头样式），获得下拉箭头视觉（`styles.css` 的 `.form-select` 规则）。
 - 校验（日更目标 0-100000 等）失败：字段级内联 error + warning toast，不再只有 toast（:176-177 现状）。
 - 桌面三栏横排保持；窄屏纵排（§6）。
 
 ### 4.4 项目偏好（来源与覆盖）
 
-- SourceLabel 四态配色（styles.css:9174-9192）保留，统一为「文字 + 色点」而非 pill 底（§5.8）；unset 态维持 warning 语义。
+- SourceLabel 四态配色（`styles.css` 的 `.source-label` 规则）保留，统一为「文字 + 色点」而非 pill 底（§5.8）；unset 态维持 warning 语义。
 - 「恢复到全局默认」保持 `.btn-link` 三级操作（AuthorPreferencesForm.vue:32-38 等），成功 toast 文案含字段中文名（现状 :202 用字段 key，执行时核实后端返回后改用户语言）。
 - 模型提示条（ProjectSettingsView.vue:263-270）保留灰底横条形态；「· 未连接」状态前置 warning 色点，引导按钮文案不变。
 
@@ -136,12 +136,12 @@ h2 项目偏好 ·项目名 + tablist（创作偏好 | 高级导入）
 
 | 档位 | 行为 |
 |---|---|
-| Desktop ≥1440 | 表单页内容限宽居中（Key 输入 640px 上限 styles.css:9443-9445 保留并归 token）；provider 栅格 2 列 |
+| Desktop ≥1440 | 表单页内容限宽居中（Key 输入 640px 上限的 `styles.css` 规则保留并归 token）；provider 栅格 2 列 |
 | Laptop 1100-1440 | 默认形态，同上 |
 | Tablet 760-1100 | provider 栅格降 1 列；`.form-row` 允许 2 列或纵排 |
-| Mobile <760 | 单栏：`.form-row` 纵排（修复 styles.css:1103-1107 无 wrap 缺陷）；`.settings-actions` 纵排按钮 100% 宽（styles.css:9477-9484 已有）；输入 ≥44px / 16px（editorial-theme.css:1305-1314 已有）；tab 横向滚动 + scroll-snap（:1316-1327 已有）；模型提示条纵排（styles.css:9495-9498 已有） |
+| Mobile <760 | 单栏：`.form-row` 纵排（修复 `styles.css` 的无 wrap 缺陷）；`.settings-actions` 纵排按钮 100% 宽（现有 `styles.css` 响应式规则）；输入 ≥44px / 16px（editorial-theme.css:1305-1314 已有）；tab 横向滚动 + scroll-snap（:1316-1327 已有）；模型提示条纵排（现有 `styles.css` 响应式规则） |
 
-- 现状双断点（styles.css ≤640 :9461-9499 + editorial ≤760 :1263-1371）随主规范 §6 断点归一合并到 760 一档；390px 页面级横向溢出零容忍。
+- 现状双断点（`styles.css` 的 ≤640px 设置规则 + editorial ≤760px 规则）随主规范 §6 断点归一合并到 760 一档；390px 页面级横向溢出零容忍。
 
 ## 7. 必须保留的契约
 
@@ -171,7 +171,7 @@ h2 项目偏好 ·项目名 + tablist（创作偏好 | 高级导入）
 1. §5 状态表 12 项全部有目标形态实现；项目页加载失败出现 `.error-card` + 重试，不再死锁「加载中…」。
 2. 表单缩进链符合 §5.2：label 与控件间距 `--space-1`、控件 36px/触控 ≥44px、helper/error 分色（`--text-secondary` / `--error`）。
 3. 校验失败、保存失败均有字段级内联 error；保存成功有持久就态标记。
-4. `#theme-toggle` 收敛为单一来源规则（收编 ThemePicker.vue:121-125 非 scoped 样式，消除 styles.css:8766-8785 与 editorial-theme.css:193-214 的 `!important` 博弈）；editorial 下 toggle hover 不再是结构层灰；dark 主题菜单 hover 不被朱红覆层吃掉；三主题快照逐一过目。
+4. `#theme-toggle` 收敛为单一来源规则（收编 ThemePicker.vue:121-125 非 scoped 样式，消除 `styles.css` 的 `#theme-toggle` 规则与 editorial-theme.css:193-214 的 `!important` 博弈）；editorial 下 toggle hover 不再是结构层灰；dark 主题菜单 hover 不再被朱红覆层吃掉；三主题快照逐一过目。
 5. `.form-row` 在 <760px 纵排，390px 无横向溢出。
 6. 高级导入组名/字段名改用户语言（key 不变）；重复 id `#project-settings-goto-global` 拆分并同步测试。
 7. §7 全部契约保留；settings 语义钩子收进 `e2e/helpers/selectors.js`。

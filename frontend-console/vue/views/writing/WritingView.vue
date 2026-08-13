@@ -124,6 +124,8 @@
         :publish="vm.publishProgress"
         :conflict="vm.conflictState"
         :deep-import="vm.deepImportState"
+        :generation="vm.generationTask"
+        :conflict-task="vm.conflictTask"
         :show-conflict="false"
         @cancel="vm.cancelDeepImport"
         @resume="vm.resumeDeepImport"
@@ -133,6 +135,11 @@
         @open-conflict="vm.openConflictDialog"
         @retry-publish="vm.retryPublish"
         @dismiss-publish="vm.dismissPublishError"
+        @open-generation="vm.openGenerationResult"
+        @cancel-generation="vm.cancelGeneration"
+        @dismiss-generation="vm.dismissGeneration"
+        @cancel-conflict-task="vm.cancelConflictTask"
+        @dismiss-conflict-task="vm.dismissConflictTask"
       />
     </main>
 

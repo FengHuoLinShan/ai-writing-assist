@@ -393,10 +393,16 @@ class OpenAIProvider:
                 model=model,
                 error_kind=kind,
             )
+        status_code = getattr(error, "status_code", None)
         return LLMError(
             f"OpenAI API error: {redact_diagnostic(error)}",
             provider=self.name,
             model=model,
+            error_kind=(
+                "server_error"
+                if isinstance(status_code, int) and 500 <= status_code < 600
+                else "provider_error"
+            ),
         )
 
     def _build_kwargs(self, request: LLMCallRequest, model: str) -> dict[str, Any]:

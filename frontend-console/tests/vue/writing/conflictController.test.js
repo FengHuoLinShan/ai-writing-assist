@@ -21,12 +21,12 @@ function makeController(overrides = {}) {
   const api = {
     writing: {
       updateConflictItem: vi.fn(async (_itemId, _projectId, payload) => ({ id: "item-1", status: payload.status })),
-      runConflictAiReview: vi.fn(async () => ({ ...state.check, ai_review_status: "done" })),
-      requestConflictAiSuggestion: vi.fn(async () => ({ id: "item-1", suggestion_status: "done", ai_suggestion: { suggested_text: "改写" } })),
-      getConflictCheck: vi.fn(),
+      enqueueConflictAiReview: vi.fn(async (_checkId, payload) => ({ task_id: payload.operation_id, check: { ...state.check, ai_review_status: "running" } })),
+      enqueueConflictAiSuggestion: vi.fn(async (_itemId, payload) => ({ task_id: payload.operation_id, status: "pending" })),
+      getConflictCheck: vi.fn(async () => ({ ...state.check, ai_review_status: "done" })),
       ...overrides.writing,
     },
-    tasks: { get: vi.fn(), ...overrides.tasks },
+    tasks: { get: vi.fn(async (taskId) => ({ id: taskId, status: "done", result: { check_id: "check-1", id: "item-1", suggestion_status: "done", ai_suggestion: { suggested_text: "改写" } } })), ...overrides.tasks },
   }
   const toast = vi.fn()
   const onCheck = vi.fn((check) => { state.check = check })
@@ -43,7 +43,26 @@ function makeController(overrides = {}) {
 describe("conflictController", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+    sessionStorage.clear()
     confirmAiReference.mockResolvedValue({ id: "confirmation-1" })
+  })
+
+  it("does not let another tab's conflict receipt block this tab", async () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_conflict_ai_review:other-tab-task",
+      taskId: "other-tab-task",
+      workflowType: "writing_conflict_ai_review",
+      projectId: "p1",
+      view: "writing",
+      meta: { checkId: "check-1", kind: "review" },
+    }]))
+    const { controller, api } = makeController()
+
+    await controller.runAiReview()
+
+    expect(api.writing.enqueueConflictAiReview).toHaveBeenCalledOnce()
+    controller.dispose()
   })
 
   it("状态决策始终携带当前 novel_id 并合并回检查记录", async () => {
@@ -64,9 +83,10 @@ describe("conflictController", () => {
       scene_id: "scene-1",
       include_pending_objects: true,
     }))
-    expect(api.writing.runConflictAiReview).toHaveBeenCalledWith("check-1", {
+    expect(api.writing.enqueueConflictAiReview).toHaveBeenCalledWith("check-1", {
       novel_id: "p1",
       context_confirmation_id: "confirmation-1",
+      operation_id: expect.any(String),
     })
 
     await controller.requestSuggestion("item-1")
@@ -74,9 +94,10 @@ describe("conflictController", () => {
       novel_id: "p1",
       action: "writing.conflict_check.ai_suggestion",
     }))
-    expect(api.writing.requestConflictAiSuggestion).toHaveBeenCalledWith("item-1", {
+    expect(api.writing.enqueueConflictAiSuggestion).toHaveBeenCalledWith("item-1", {
       novel_id: "p1",
       context_confirmation_id: "confirmation-1",
+      operation_id: expect.any(String),
     })
     expect(state.check.items[0].ai_suggestion).toEqual({ suggested_text: "改写" })
     controller.dispose()
@@ -87,8 +108,8 @@ describe("conflictController", () => {
     const { controller, api, toast } = makeController()
     await expect(controller.runAiReview()).resolves.toBeNull()
     await expect(controller.requestSuggestion("item-1")).resolves.toBeNull()
-    expect(api.writing.runConflictAiReview).not.toHaveBeenCalled()
-    expect(api.writing.requestConflictAiSuggestion).not.toHaveBeenCalled()
+    expect(api.writing.enqueueConflictAiReview).not.toHaveBeenCalled()
+    expect(api.writing.enqueueConflictAiSuggestion).not.toHaveBeenCalled()
     expect(toast).not.toHaveBeenCalled()
     controller.dispose()
   })
@@ -106,6 +127,7 @@ describe("conflictController", () => {
     expect(api.writing.enqueueConflictAiReview).toHaveBeenCalledWith("check-1", {
       novel_id: "p1",
       context_confirmation_id: "confirmation-1",
+      operation_id: expect.any(String),
     })
     expect(api.tasks.get).toHaveBeenCalledWith("task-1", "p1")
     expect(api.writing.getConflictCheck).toHaveBeenCalledWith("check-1", "p1")

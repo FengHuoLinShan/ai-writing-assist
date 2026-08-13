@@ -454,6 +454,7 @@ class WorldEntityFusionService:
                     pair.target,
                     pair.match,
                     list(pair.evidence),
+                    allow_degraded=False,
                 )
                 decisions.append((pair, decision))
                 processed += 1
@@ -1303,6 +1304,8 @@ class WorldEntityFusionService:
         target: CoreEntity | _FusionEntityDTO,
         match: dict[str, Any],
         evidence: list[dict[str, Any]],
+        *,
+        allow_degraded: bool = True,
     ) -> EntityFusionDecision:
         deterministic = _deterministic_decision(source, target, match)
         if deterministic.action == "merge" and deterministic.confidence >= 0.98:
@@ -1348,6 +1351,8 @@ class WorldEntityFusionService:
                 max_fix_attempts=1,
             )
         except Exception as exc:
+            if not allow_degraded:
+                raise
             # Provider errors can contain request details.  Keep task/API logs
             # secret-free and let the deterministic result provide degradation.
             logger.warning(

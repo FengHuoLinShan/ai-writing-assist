@@ -318,6 +318,7 @@ class WritingGenerateRequest(BaseModel):
         None,
         description="续写模式使用的锁定正文版本 ID",
     )
+    operation_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def validate_generation_base(self) -> WritingGenerateRequest:
@@ -365,6 +366,7 @@ class WritingConflictAiReviewRequest(BaseModel):
 
     novel_id: str
     context_confirmation_id: str
+    operation_id: uuid.UUID | None = None
 
 
 class WritingConflictAiSuggestionRequest(BaseModel):
@@ -372,6 +374,15 @@ class WritingConflictAiSuggestionRequest(BaseModel):
 
     novel_id: str
     context_confirmation_id: str
+
+
+class WritingConflictAiSuggestionTaskRequest(WritingConflictAiSuggestionRequest):
+    operation_id: uuid.UUID
+
+
+class WritingConflictAiSuggestionTaskResponse(BaseModel):
+    task_id: str
+    status: str = "pending"
 
 
 class WritingConflictAiReviewRawOutput(BaseModel):

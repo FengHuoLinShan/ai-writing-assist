@@ -1,5 +1,12 @@
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { findCurrentScene } from "../../../../shared/sceneLocator.js"
+import {
+  clearActiveWorkflow,
+  createOperationId,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  recoverActiveWorkflows,
+} from "../../../../shared/workflowProgress.js"
 
 const ABORTED = Symbol("writing-command-aborted")
 
@@ -12,11 +19,14 @@ export function createWritingCommandController({
   editor,
   onResult,
   onLoadingChange = () => {},
+  onProgress = () => {},
 }) {
+  const receiptStorage = globalThis.sessionStorage
   let generation = 0
   let generating = false
   let disposed = false
   let waitTimer = null
+  let readyResult = null
 
   function context() {
     const chapter = getChapter()
@@ -48,18 +58,26 @@ export function createWritingCommandController({
       let task = null
       try {
         task = await api.tasks.get(submitted.task_id, projectId)
-      } catch {
+      } catch (err) {
+        if (Number(err?.status) === 404) {
+          clearActiveWorkflow(submitted.task_id, receiptStorage)
+          onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress({ id: submitted.task_id, task_type: "writing_generate", status: "failed", error_message: "未找到原任务，请重新开始。" }, "writing_generate") })
+          throw new Error("未找到原任务，请重新开始。")
+        }
         await wait(1500, token)
         continue
       }
       if (disposed || token !== generation || getProjectId() !== projectId) throw ABORTED
+      onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress(task, "writing_generate") })
       if (task?.status === "done") {
         const draftId = task.result?.draft_id
         if (!draftId) throw new Error("任务已完成，但未返回正文建议 ID")
         return { ...submitted, ...task.result }
       }
-      if (task?.status === "failed") throw new Error(task.error_message || task.result?.error_message || "正文生成失败")
-      if (task?.status === "cancelled") throw new Error("正文生成已取消")
+      if (task?.status === "failed" || task?.status === "cancelled") {
+        clearActiveWorkflow(submitted.task_id, receiptStorage)
+        throw new Error(task.error_message || task.result?.error_message || (task.status === "cancelled" ? "正文生成已取消" : "正文生成失败"))
+      }
       await wait(1500, token)
     }
     throw ABORTED
@@ -75,6 +93,8 @@ export function createWritingCommandController({
       toast("正文建议正在生成，请稍候", "warning")
       return null
     }
+    const pendingResult = recoverActiveWorkflows(projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "writing")
+    if (pendingResult) { toast("已有正文建议待处理，请先在进度卡中查看或关闭", "info"); return null }
     if (editor.isReadonly()) {
       toast("当前内容只读；待处理建议不会作为工作稿参考", "warning")
       return null
@@ -92,6 +112,7 @@ export function createWritingCommandController({
       return null
     }
     generating = true
+    readyResult = null
     onLoadingChange(true)
     const token = ++generation
     try {
@@ -112,21 +133,28 @@ export function createWritingCommandController({
       const instruction = pov
         ? `${confirmation.user_note ? `${confirmation.user_note}\n\n` : ""}请严格使用视角人物在当前场景可见的信息生成正文建议。`
         : (confirmation.user_note || "")
-      const submitted = await api.writing.generate({
-        novel_id: projectId,
-        chapter_index: chapter,
-        title: editor.getTitle() || `第 ${chapter} 章`,
-        instruction,
-        context_confirmation_id: confirmation.id,
-        generation_mode: mode === "continue" ? "continue" : undefined,
-        base_draft_id: mode === "continue" ? editor.getDraftId() : undefined,
-      })
+      const operationId = createOperationId()
+      const workflowMeta = { chapter, mode }
+      const editorBaseline = { chapter, draftId: editor.getDraftId(), content: editor.getContent() }
+      persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议", projectId, view: "writing", meta: workflowMeta }, receiptStorage)
+      onProgress({ taskId: operationId, progress: normalizeTaskProgress({ id: operationId, task_type: "writing_generate", status: "pending" }, "writing_generate") })
+      let submitted
+      try { submitted = await api.writing.generate({ novel_id: projectId, chapter_index: chapter, title: editor.getTitle() || `第 ${chapter} 章`, instruction, context_confirmation_id: confirmation.id, generation_mode: mode === "continue" ? "continue" : undefined, base_draft_id: mode === "continue" ? editor.getDraftId() : undefined, operation_id: operationId }) } catch (err) {
+        if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); onProgress({ taskId: null, progress: null, result: null }); throw err }
+        submitted = { task_id: operationId, status: "pending" }
+      }
       if (disposed || token !== generation) return null
+      if (submitted?.task_id && submitted.task_id !== operationId) {
+        clearActiveWorkflow(operationId, receiptStorage)
+        persistActiveWorkflow({ taskId: submitted.task_id, workflowType: "writing_generate", label: pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议", projectId, view: "writing", meta: workflowMeta }, receiptStorage)
+      }
       toast(`${pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议"}任务已提交`, "success")
       const completed = await waitForDraft(submitted, projectId, token)
       if (disposed || token !== generation) return null
-      await onResult({ chapter_index: chapter, draft_id: completed.draft_id })
-      toast("正文建议已生成，已打开待审阅版本", "success")
+      readyResult = { chapter_index: chapter, draft_id: completed.draft_id }
+      onProgress({ taskId: submitted.task_id || operationId, result: readyResult })
+      const editorUnchanged = getChapter() === editorBaseline.chapter && editor.getDraftId() === editorBaseline.draftId && editor.getContent() === editorBaseline.content
+      if (editorUnchanged) { await openResult(); toast("正文建议已生成，已打开待审阅版本", "success") } else toast("正文建议已生成，已保留当前编辑内容", "success")
       return completed
     } catch (err) {
       if (err === ABORTED || disposed || token !== generation) return null
@@ -141,6 +169,17 @@ export function createWritingCommandController({
     }
   }
 
+  async function recover() {
+    const projectId = getProjectId()
+    const workflow = recoverActiveWorkflows(projectId, receiptStorage).filter((item) => item.workflowType === "writing_generate" && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]
+    if (!workflow || generating) return false
+    generating = true; onLoadingChange(true); const token = ++generation
+    try { const completed = await waitForDraft({ task_id: workflow.taskId }, projectId, token); if (disposed || token !== generation) return false; readyResult = { chapter_index: workflow.meta?.chapter, draft_id: completed.draft_id }; onProgress({ taskId: workflow.taskId, progress: normalizeTaskProgress({ id: workflow.taskId, task_type: "writing_generate", status: "done" }, "writing_generate"), result: readyResult }); toast("已恢复正文建议，可在进度卡中查看", "success"); return true } catch (err) { if (err !== ABORTED && !disposed && token === generation) toast(err?.message || "正文建议恢复失败", "error"); return false } finally { if (token === generation) { generating = false; onLoadingChange(false) } }
+  }
+  async function cancel() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => item.workflowType === "writing_generate" && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (!workflow) return false; await api.tasks.cancel(workflow.taskId, getProjectId()); return true }
+  function dismiss() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "writing"); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); readyResult = null; onProgress({ taskId: null, progress: null, result: null }) }
+  async function openResult() { if (!readyResult || disposed || !getProjectId()) return false; await onResult(readyResult); const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => item.workflowType === "writing_generate" && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); return true }
+
   function dispose() {
     disposed = true
     generation += 1
@@ -154,6 +193,10 @@ export function createWritingCommandController({
     generateDraft: () => generate("draft"),
     generateContinuation: () => generate("continue"),
     generatePovDraft: () => generate("pov"),
+    recover,
+    openResult,
+    cancel,
+    dismiss,
     dispose,
   }
 }

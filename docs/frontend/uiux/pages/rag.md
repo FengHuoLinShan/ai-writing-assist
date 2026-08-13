@@ -18,14 +18,14 @@
 | # | 严重度 | 问题 | 证据 |
 |---|---|---|---|
 | 1 | 高 | status（索引修复）子页无常设入口：subnav 只有「查找/返回查找」一个按钮，非降级时只能从降级通知条或直达 URL 进入 | `frontend-console/vue/views/rag/RagView.vue:118-120`、`:123-126` |
-| 2 | 高 | 证据抽屉可访问性缺失：无 `role="dialog"`/aria-modal、无 ESC 关闭、无焦点管理、无遮罩；error 形态连关闭按钮都没有 | `components/RagEvidenceDrawer.vue:32`、`:77-79`；`styles.css:9962-9975` |
+| 2 | 高 | 证据抽屉可访问性缺失：无 `role="dialog"`/aria-modal、无 ESC 关闭、无焦点管理、无遮罩；error 形态连关闭按钮都没有 | `components/RagEvidenceDrawer.vue:32`、`:77-79`；`styles.css` 的 `.rag-evidence-drawer` 规则 |
 | 3 | 高 | 视觉回归测试钩子失效：`visual-project-rag.spec.js:77` 断言 `[data-action="nav-status"]` 带 active class，现行模板中该按钮只在 search 子页渲染且无 active 类，匹配 0 个元素 | `frontend-console/e2e/visual-project-rag.spec.js:77` 对照 `RagView.vue:119-125` |
 | 4 | 中 | 抽屉挂载位置脆弱：drawer 经 slot 注入结果列表「有结果」分支内，加载/错误/空结果分支中抽屉 DOM 不存在；打开抽屉时触发重搜索会导致内容突变 | `components/RagResultList.vue:129`（slot 注入处）、`RagSearchView.vue:148-159` |
 | 5 | 中 | status 页信息埋藏过深：重建范围表单（`#rag-rebuild-content-mode/start/end`）藏在「诊断详情」details 底部，主操作「修复查找功能」在 details 外，点修复时使用哪个范围不可见；「返回查找」按钮重复出现两次 | `components/RagStatusPanel.vue:281-294`、`:125-126`、`:293` |
-| 6 | 中 | 结果卡信息层级扁平：rag 覆层把卡片标题压到 `text-xs`，标题/计数/正文/元信息同档，仅靠「命中依据」小标签分区；相关度「xx%」无含义解释 | `styles.css:9791-9797`；`components/RagResultList.vue:90,114` |
+| 6 | 中 | 结果卡信息层级扁平：rag 覆层把卡片标题压到 `text-xs`，标题/计数/正文/元信息同档，仅靠「命中依据」小标签分区；相关度「xx%」无含义解释 | `styles.css` 的 `.rag-result-*` 规则；`components/RagResultList.vue:90,114` |
 | 7 | 中 | 加载态粗糙：「搜索中/读取中/追踪中」均为纯文本 `.loading`，无骨架、无进度指示，违反主规范 §5.9 Loading 归一 | `components/RagResultList.vue:54`；`components/RagEvidenceDrawer.vue:33` |
 | 8 | 低 | 查询表单层级拥挤：两个常驻下拉 + 说明行 + details 高级筛选 + 范围 checkbox 全挤一张卡；「包含待处理世界对象」只有 title 提示，说明不可见 | `components/RagSearchPanel.vue:70-141`、`:137` |
-| 9 | 低 | 抽屉圆角 14px + 深阴影与 Editorial Archive 低圆角体系（2-4px，浮层 lg=4px）不一致 | `styles.css:9962-9975`（约 :9972）对照主规范 §1.4 |
+| 9 | 低 | 抽屉圆角 14px + 深阴影与 Editorial Archive 低圆角体系（2-4px，浮层 lg=4px）不一致 | `styles.css` 的 `.rag-evidence-drawer` 规则对照主规范 §1.4 |
 | 10 | 低 | subnav 单按钮恒为 `active` + `aria-current="page"`，在 status 页上语义失真（「返回查找」被声明为当前页） | `RagView.vue:119` |
 
 ## 3. 目标布局与信息层级
@@ -56,7 +56,7 @@ status 子页信息层级：
 
 ### 4.2 结果列表（`RagResultList.vue`）
 
-- 结果卡层级修正：标题回到条目标题档（`--text-base` 600），命中片段正文档，meta 行 `--text-xs` tertiary；删除把标题压到 xs 的覆层（`styles.css:9791-9797`）。
+- 结果卡层级修正：标题回到条目标题档（`--text-base` 600），命中片段正文档，meta 行 `--text-xs` tertiary；删除把标题压到 xs 的覆层（`styles.css` 的 `.rag-result-*` 规则）。
 - 相关度百分比加一句人话解释（如「相关度」label 或 title+可见辅助文案），不裸显数字。
 - 分页保持每页 20（`RAG_RESULT_PAGE_SIZE`，`logic/routeState.js:6`）+ `data-action="load-more-results"` 渐进加载 + 底部余量提示 + 服务端上限提示（`.rag-search-limit-note`）。
 - 加载态改为 `.loading-skeleton` 骨架屏（主规范 §5.9），reduced-motion 下禁动画。

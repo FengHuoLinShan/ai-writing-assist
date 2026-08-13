@@ -11,11 +11,14 @@ import asyncio
 import logging
 import random
 from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
 from infrastructure.llm.errors import (
     LLMAuthError,
+    LLMConnectionError,
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
@@ -30,9 +33,13 @@ logger = logging.getLogger(__name__)
 
 P = ParamSpec("P")
 T = TypeVar("T")
+_transport_retries_enabled: ContextVar[bool] = ContextVar(
+    "llm_transport_retries_enabled",
+    default=True,
+)
 
 
-def _is_retryable(error: Exception) -> bool:
+def is_retryable_llm_error(error: Exception) -> bool:
     """判断错误是否可重试
 
     可重试：
@@ -44,7 +51,16 @@ def _is_retryable(error: Exception) -> bool:
     - LLMContentFilterError: 内容审查，应调整输入
     - LLMInvalidResponseError: 响应格式错误，模型本身的问题
     """
-    if isinstance(error, (LLMTimeoutError, LLMRateLimitError)):
+    if isinstance(
+        error,
+        (
+            TimeoutError,
+            ConnectionError,
+            LLMConnectionError,
+            LLMTimeoutError,
+            LLMRateLimitError,
+        ),
+    ):
         return True
     if isinstance(
         error,
@@ -56,10 +72,42 @@ def _is_retryable(error: Exception) -> bool:
         ),
     ):
         return False
-    # LLMError 可重试（通用 API 错误）
+    # Only explicitly-classified temporary failures are safe to replay.
     if isinstance(error, LLMError):
-        return True
+        return error.error_kind in {
+            "circuit_breaker_open",
+            "server_error",
+            "temporarily_unavailable",
+        }
     return False
+
+
+def _is_retryable(error: Exception) -> bool:
+    """Preserve the legacy client transport retry policy."""
+    if isinstance(
+        error,
+        (
+            LLMAuthError,
+            LLMContentFilterError,
+            LLMInvalidResponseError,
+            LLMQuotaError,
+        ),
+    ):
+        return False
+    return is_retryable_llm_error(error) or isinstance(error, LLMError)
+
+
+def transport_retries_enabled() -> bool:
+    return _transport_retries_enabled.get()
+
+
+@contextmanager
+def llm_transport_retry_scope(*, enabled: bool):
+    token = _transport_retries_enabled.set(enabled)
+    try:
+        yield
+    finally:
+        _transport_retries_enabled.reset(token)
 
 
 def _get_retry_after(error: Exception) -> float:

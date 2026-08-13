@@ -155,8 +155,9 @@ POST /api/writing/drafts/autosave                 → 创建纯草稿版本，�
 POST /api/writing/conflict-checks                 → 创建剧情设定冲突检查
 GET /api/writing/conflict-checks                  → 获取章节/Scene 检查历史
 GET /api/writing/conflict-checks/{id}             → 获取检查详情
-POST /api/writing/conflict-checks/{id}/ai-review  → 为检查追加 AI 软冲突判断
+POST /api/writing/conflict-checks/{id}/ai-review  → 旧同步入口（deprecated）
 POST /api/writing/conflict-checks/{id}/ai-review-task → 异步执行 AI 软冲突判断
+POST /api/writing/conflict-check-items/{id}/ai-suggestion-task → 异步生成单条 AI 修复建议
 PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
 POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题 AI 修复建议
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate

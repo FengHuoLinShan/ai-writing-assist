@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError, ValidationError
@@ -217,32 +218,7 @@ class GenerationPromptTemplateService:
         db: AsyncSession,
         data: GenerationPromptTemplateCreate,
     ) -> GenerationPromptTemplateResponse:
-        nid = parse_uuid(data.novel_id, "novel_id")
-        prompt_text = data.prompt_text.strip()
-        variables = [item.model_dump() for item in data.variables_json]
-        issues = validate_template(
-            prompt_text=prompt_text,
-            object_template=data.object_template,
-            variables_json=variables,
-        )
-        state = validation_state(issues)
-        row = GenerationPromptTemplate(
-            novel_id=nid,
-            target_kind=data.target_kind,
-            template_key=f"custom-{uuid.uuid4().hex[:12]}",
-            name=data.name.strip(),
-            description=(data.description or "").strip() or None,
-            object_template=data.object_template,
-            prompt_text=prompt_text,
-            variables_json=variables,
-            validation_state=state,
-            validation_issues_json=[issue.model_dump() for issue in issues],
-            version_number=1,
-            content_hash=template_content_hash(prompt_text, variables),
-            status="active",
-            created_by=data.created_by,
-            updated_by=data.created_by,
-        )
+        row = self._new_row(data, template_key=f"custom-{uuid.uuid4().hex[:12]}")
         db.add(row)
         await db.flush()
         await self._add_revision(db, row, reason="created")
@@ -316,19 +292,102 @@ class GenerationPromptTemplateService:
         if not _is_builtin_id(template_id):
             raise ValidationError("only built-in templates can be copied")
         builtin = self._builtin_response(_builtin_key_from_id(template_id), data.novel_id)
-        return await self.create(
-            db,
-            GenerationPromptTemplateCreate(
-                novel_id=data.novel_id,
-                target_kind="world_object",
-                name=data.name or builtin.name,
-                description=builtin.description,
-                object_template=builtin.object_template,
-                prompt_text=builtin.prompt_text,
-                variables_json=builtin.variables_json,
-                created_by=data.created_by,
-            ),
+        create_data = GenerationPromptTemplateCreate(
+            novel_id=data.novel_id,
+            target_kind="world_object",
+            name=data.name or builtin.name,
+            description=builtin.description,
+            object_template=builtin.object_template,
+            prompt_text=data.prompt_text or builtin.prompt_text,
+            variables_json=builtin.variables_json,
+            created_by=data.created_by,
         )
+        if data.operation_id is None:
+            return await self.create(db, create_data)
+
+        nid = parse_uuid(data.novel_id, "novel_id")
+        key = f"operation-{data.operation_id.hex}"
+        existing = await self._get_by_key(db, nid, key)
+        if existing is not None:
+            self._validate_copy_receipt(existing, create_data)
+            return self._response(existing)
+        row = self._new_row(create_data, template_key=key)
+        try:
+            async with db.begin_nested():
+                db.add(row)
+                await db.flush()
+                await self._add_revision(db, row, reason="created")
+                await db.flush()
+        except IntegrityError:
+            existing = await self._get_by_key(db, nid, key)
+            if existing is None:
+                raise
+            self._validate_copy_receipt(existing, create_data)
+            return self._response(existing)
+        return self._response(row)
+
+    def _new_row(
+        self,
+        data: GenerationPromptTemplateCreate,
+        *,
+        template_key: str,
+    ) -> GenerationPromptTemplate:
+        prompt_text = data.prompt_text.strip()
+        variables = [item.model_dump() for item in data.variables_json]
+        issues = validate_template(
+            prompt_text=prompt_text,
+            object_template=data.object_template,
+            variables_json=variables,
+        )
+        return GenerationPromptTemplate(
+            novel_id=parse_uuid(data.novel_id, "novel_id"),
+            target_kind=data.target_kind,
+            template_key=template_key,
+            name=data.name.strip(),
+            description=(data.description or "").strip() or None,
+            object_template=data.object_template,
+            prompt_text=prompt_text,
+            variables_json=variables,
+            validation_state=validation_state(issues),
+            validation_issues_json=[issue.model_dump() for issue in issues],
+            version_number=1,
+            content_hash=template_content_hash(prompt_text, variables),
+            status="active",
+            created_by=data.created_by,
+            updated_by=data.created_by,
+        )
+
+    async def _get_by_key(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        template_key: str,
+    ) -> GenerationPromptTemplate | None:
+        return (
+            await db.execute(
+                select(GenerationPromptTemplate).where(
+                    GenerationPromptTemplate.novel_id == novel_id,
+                    GenerationPromptTemplate.target_kind == TARGET_KIND,
+                    GenerationPromptTemplate.template_key == template_key,
+                )
+            )
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def _validate_copy_receipt(
+        row: GenerationPromptTemplate,
+        data: GenerationPromptTemplateCreate,
+    ) -> None:
+        variables = [item.model_dump() for item in data.variables_json]
+        if (
+            row.name != data.name.strip()
+            or row.description != ((data.description or "").strip() or None)
+            or row.prompt_text != data.prompt_text.strip()
+            or row.object_template != data.object_template
+            or list(row.variables_json or []) != variables
+            or row.created_by != data.created_by
+        ):
+            raise TemplateVersionConflictError(expected=1, actual=row.version_number)
 
     async def revisions(
         self,

@@ -322,6 +322,12 @@ export const storyOutlineTaskManager = (() => {
     _startPolling(result.task_id, projectId)
   }
 
+  function prepare(taskId, meta, projectId) {
+    if (!taskId || !projectId) return false
+    persistActiveWorkflow({ taskId, workflowType: STORY_OUTLINE_TASK_TYPE, label: "AI 故事总览", projectId, view: "outline", meta: meta || undefined })
+    return true
+  }
+
   function resetMemoryScope() {
     stop()
     state.taskId = null
@@ -405,7 +411,7 @@ export const storyOutlineTaskManager = (() => {
     lastTerminal = null
   }
 
-  return { state, stop, recover, adopt, cancel, dismiss, setOnTerminal, resetMemoryScope }
+  return { state, stop, recover, prepare, adopt, cancel, dismiss, setOnTerminal, resetMemoryScope }
 })()
 
 // ---- island 预取 ----

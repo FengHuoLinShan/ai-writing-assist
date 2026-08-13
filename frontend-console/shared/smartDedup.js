@@ -6,6 +6,7 @@
  */
 import {
   clearActiveWorkflow,
+  createOperationId,
   normalizeTaskProgress,
   persistActiveWorkflow,
   pollTaskProgress,
@@ -151,12 +152,15 @@ export function createSmartDedupManager({
         this._groupDraft = {}
         this._activeGroupId = null
         this._groupResults = {}
-        const result = await api.projects.startSmartDedupScan(projectId, {})
+        const operationId = createOperationId()
         persistActiveWorkflow({
-          taskId: result.task_id,
+          taskId: operationId,
           workflowType: "smart_dedup_scan",
           label: "智能去重扫描",
           projectId,
+        })
+        const result = await api.projects.startSmartDedupScan(projectId, {
+          operation_id: operationId,
         })
         if (this._currentProjectId() !== projectId) {
           this.syncProject(this._currentProjectId())

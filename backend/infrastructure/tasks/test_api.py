@@ -155,6 +155,36 @@ async def test_task_status_hides_private_top_level_result_checkpoints(
 
 
 @pytest.mark.asyncio
+async def test_task_status_hides_operation_fingerprint(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    await _add_project(db_session, novel_id)
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="writing_generate",
+        status="pending",
+        meta={
+            "novel_id": novel_id,
+            "operation_fingerprint": "a" * 64,
+            "chapter_index": 1,
+        },
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    response = await async_client.get(
+        f"/api/tasks/{task.id}",
+        params={"novel_id": novel_id},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["meta"] == {"novel_id": novel_id, "chapter_index": 1}
+    assert "a" * 64 not in response.text
+
+
+@pytest.mark.asyncio
 async def test_cancel_task_requires_matching_novel_id(
     async_client: AsyncClient,
     db_session: AsyncSession,

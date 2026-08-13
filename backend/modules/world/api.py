@@ -14,7 +14,10 @@ from core.api_params import NovelIdQuery
 from core.config import get_settings
 from core.dependencies import DbSession
 from core.errors import ConflictError
-from infrastructure.tasks.enqueuer import enqueue_task
+from infrastructure.tasks.facade import (
+    enqueue_task_with_optional_operation,
+    get_operation_task,
+)
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
@@ -129,6 +132,8 @@ from modules.world.schemas import (
     WorldGenerationSemanticInspectionResponse,
     WorldGenerationSuggestionRequest,
     WorldGenerationSuggestionResponse,
+    WorldGenerationSuggestionTaskRequest,
+    WorldGenerationTaskResponse,
     WorldProfileListResponse,
     WorldProfileMigrateResponse,
     WorldProfileResponse,
@@ -339,6 +344,7 @@ async def save_ask_world_suggestion(
     "/generation-center/suggestions",
     response_model=WorldGenerationSuggestionResponse,
     status_code=201,
+    deprecated=True,
 )
 async def generate_world_suggestion(
     db: DbSession,
@@ -352,6 +358,54 @@ async def generate_world_suggestion(
         raise _template_version_conflict(exc) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/generation-center/suggestions/task",
+    response_model=WorldGenerationTaskResponse,
+    status_code=202,
+)
+async def enqueue_world_suggestion(
+    db: DbSession,
+    data: WorldGenerationSuggestionTaskRequest,
+) -> WorldGenerationTaskResponse:
+    await require_active_project(db, data.novel_id)
+    payload = data.model_dump(mode="json", exclude={"operation_id"})
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id),
+            task_type="world_generation_suggestion",
+            novel_id=data.novel_id,
+            request_payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        return WorldGenerationTaskResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
+    snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id),
+            task_type="world_generation_suggestion",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta={
+                **payload,
+                "llm_execution_snapshot": snapshot,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await db.flush()
+    return WorldGenerationTaskResponse(
+        task_id=receipt.task_id,
+        status=receipt.status,
+    )
 
 
 @router.get(
@@ -478,7 +532,10 @@ async def copy_builtin_generation_prompt_template(
     data: PromptTemplateCopyRequest,
 ) -> GenerationPromptTemplateResponse:
     await require_active_project(db, data.novel_id)
-    return await _generation_template_service.copy_builtin(db, template_id, data)
+    try:
+        return await _generation_template_service.copy_builtin(db, template_id, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
 
 
 # ============================================================
@@ -1429,6 +1486,22 @@ async def extract_alias_relations(
             status_code=400,
             detail="context_confirmation_id is required",
         )
+    payload = data.model_dump(mode="json", exclude_none=True, exclude={"operation_id"})
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="world_alias_relation_extraction",
+            novel_id=data.novel_id,
+            request_payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        return WorldAliasRelationExtractResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
     try:
         await require_fresh_confirmation(
             db,
@@ -1443,25 +1516,34 @@ async def extract_alias_relations(
         db,
         data.novel_id,
     )
-    task_id = enqueue_task(
-        db,
-        "world_alias_relation_extraction",
-        meta={
-            **data.model_dump(exclude_none=True),
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="world_alias_relation_extraction",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta={
+            **payload,
             "llm_execution_snapshot": llm_execution_snapshot,
         },
-        novel_id=data.novel_id,
-    )
-    await attach_result_ref(
-        db,
-        novel_id=data.novel_id,
-        confirmation_id=data.context_confirmation_id,
-        result_type="task",
-        result_id=task_id,
-        status="running",
-    )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not receipt.reused:
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=receipt.task_id,
+            status="running",
+        )
     await db.flush()
-    return WorldAliasRelationExtractResponse(task_id=task_id)
+    return WorldAliasRelationExtractResponse(
+        task_id=receipt.task_id,
+        status=receipt.status,
+    )
 
 
 @router.get("/entities/{entity_id}", response_model=CoreEntityResponse)
@@ -1546,14 +1628,38 @@ async def create_entity_fusion_suggestions(
     data: EntityFusionSuggestionRequest,
 ) -> EntityFusionSuggestionResponse:
     await require_active_project(db, data.novel_id)
-    task_id = enqueue_task(
-        db,
-        "world_entity_fusion_suggestions",
-        meta=data.model_dump(exclude_none=True),
-        novel_id=data.novel_id,
-    )
+    payload = data.model_dump(mode="json", exclude_none=True, exclude={"operation_id"})
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="world_entity_fusion_suggestions",
+            novel_id=data.novel_id,
+            request_payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        return EntityFusionSuggestionResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="world_entity_fusion_suggestions",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     await db.flush()
-    return EntityFusionSuggestionResponse(task_id=task_id)
+    return EntityFusionSuggestionResponse(
+        task_id=receipt.task_id,
+        status=receipt.status,
+    )
 
 
 @router.post(

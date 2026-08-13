@@ -1123,6 +1123,7 @@ class WritingConflictCheckService:
         task_id: str,
         llm_execution_snapshot: dict[str, Any],
         allow_unowned_legacy: bool = False,
+        finalize_transient_failure: bool = True,
     ) -> WritingConflictCheckResponse:
         """Run the commit-owning task seam; never exposed through the facade."""
         check, items = await self._ai_review_service.run_for_task(
@@ -1133,6 +1134,7 @@ class WritingConflictCheckService:
             task_id=task_id,
             llm_execution_snapshot=llm_execution_snapshot,
             allow_unowned_legacy=allow_unowned_legacy,
+            finalize_transient_failure=finalize_transient_failure,
         )
         return self._to_check_response(check, items)
 
@@ -1142,6 +1144,7 @@ class WritingConflictCheckService:
         *,
         check_id: str,
         data: WritingConflictAiReviewRequest,
+        activate: bool = True,
     ) -> WritingConflictCheckResponse:
         from modules.context.facade import prepare_confirmed_ai_action
 
@@ -1172,6 +1175,8 @@ class WritingConflictCheckService:
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
 
+        if not activate:
+            return self._to_check_response(check, items)
         updated = await self._repo.update_ai_review(
             db,
             check_id=cid,
@@ -1190,6 +1195,7 @@ class WritingConflictCheckService:
         novel_id: str,
         check_id: str,
         task_id: str,
+        confirmation_id: str | None = None,
     ) -> None:
         """Fence a queued review to the task created in the same transaction."""
         nid = _parse_uuid(novel_id, "novel_id")
@@ -1205,7 +1211,11 @@ class WritingConflictCheckService:
             check,
             status="running",
             summary_json=summary,
-            confirmation_id=check.ai_review_confirmation_id,
+            confirmation_id=(
+                _parse_uuid(confirmation_id, "context_confirmation_id")
+                if confirmation_id
+                else check.ai_review_confirmation_id
+            ),
             model=None,
             error=None,
         )
@@ -1222,6 +1232,39 @@ class WritingConflictCheckService:
             novel_id=data.novel_id,
             item_id=item_id,
             context_confirmation_id=data.context_confirmation_id,
+        )
+        return WritingConflictItemResponse.model_validate(item)
+
+    async def validate_ai_suggestion_request(
+        self,
+        db: AsyncSession,
+        *,
+        item_id: str,
+        data: WritingConflictAiSuggestionRequest,
+    ) -> None:
+        await self._suggestion_service.validate(
+            db,
+            novel_id=data.novel_id,
+            item_id=item_id,
+            context_confirmation_id=data.context_confirmation_id,
+        )
+
+    async def run_ai_suggestion_for_task(
+        self,
+        db: AsyncSession,
+        *,
+        item_id: str,
+        data: WritingConflictAiSuggestionRequest,
+        llm_execution_snapshot: dict[str, Any],
+        finalize_transient_failure: bool,
+    ) -> WritingConflictItemResponse:
+        item = await self._suggestion_service.run_for_task(
+            db,
+            novel_id=data.novel_id,
+            item_id=item_id,
+            context_confirmation_id=data.context_confirmation_id,
+            llm_execution_snapshot=llm_execution_snapshot,
+            finalize_transient_failure=finalize_transient_failure,
         )
         return WritingConflictItemResponse.model_validate(item)
 
@@ -1890,11 +1933,15 @@ class WritingGenerationService:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            from infrastructure.llm.retry import is_retryable_llm_error
+
             safe_error = redact_diagnostic(
                 f"{type(exc).__name__}: {exc}",
                 limit=500,
             )
             logger.warning("Writing generation task failed: %s", safe_error)
+            if is_retryable_llm_error(exc):
+                raise
             raise RuntimeError(safe_error) from None
 
         return await self._finalize_generation_task(

@@ -8,13 +8,20 @@ import pytest
 
 from infrastructure.llm.errors import (
     LLMAuthError,
+    LLMConnectionError,
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
-from infrastructure.llm.retry import _is_retryable, retry_with_backoff, retryable
+from infrastructure.llm.limits import LLMCircuitBreakerOpenError
+from infrastructure.llm.retry import (
+    _is_retryable,
+    is_retryable_llm_error,
+    retry_with_backoff,
+    retryable,
+)
 
 
 @pytest.fixture
@@ -42,6 +49,12 @@ class TestIsRetryable:
             LLMRateLimitError("rate limited", provider="test", model="m", retry_after=5),
         )
 
+    def test_connection_is_retryable(self) -> None:
+        assert _is_retryable(LLMConnectionError("disconnected", provider="test"))
+
+    def test_open_circuit_is_retryable_for_task_attempt(self) -> None:
+        assert is_retryable_llm_error(LLMCircuitBreakerOpenError(retry_after=1.0))
+
     def test_auth_not_retryable(self) -> None:
         assert not _is_retryable(LLMAuthError("auth", provider="test", model="m"))
 
@@ -55,14 +68,42 @@ class TestIsRetryable:
             LLMInvalidResponseError("bad response", provider="test"),
         )
 
-    def test_generic_llm_error_is_retryable(self) -> None:
-        assert _is_retryable(LLMError("generic", provider="test", model="m"))
+    def test_only_explicit_temporary_provider_error_is_retryable(self) -> None:
+        assert is_retryable_llm_error(
+            LLMError(
+                "temporary",
+                provider="test",
+                model="m",
+                error_kind="server_error",
+            )
+        )
+        assert not is_retryable_llm_error(
+            LLMError("generic", provider="test", model="m")
+        )
 
     def test_unknown_error_not_retryable(self) -> None:
         assert not _is_retryable(ValueError("something else"))
 
 
 class TestRetryWithBackoff:
+    @pytest.mark.asyncio
+    async def test_generic_llm_error_keeps_legacy_transport_retry(
+        self,
+        retry_waits: list[float],
+    ) -> None:
+        calls = 0
+
+        async def eventually_succeed() -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise LLMError("generic", provider="test", model="m")
+            return "ok"
+
+        assert await retry_with_backoff(eventually_succeed, max_attempts=2) == "ok"
+        assert calls == 2
+        assert retry_waits == [1.0]
+
     @pytest.mark.asyncio
     async def test_success_first_attempt(self, retry_waits: list[float]) -> None:
         """第一次成功，不应重试"""

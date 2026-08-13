@@ -495,6 +495,16 @@ class SceneDraftReviewResponse(BaseModel):
 class SceneFusionPreviewRequest(BaseModel):
     source_scene_ids: list[str] = Field(..., min_length=2, max_length=20)
     primary_scene_id: str | None = None
+    operation_id: uuid.UUID | None = None
+
+
+class SceneFusionPreviewTaskRequest(SceneFusionPreviewRequest):
+    operation_id: uuid.UUID
+
+
+class SceneFusionPreviewTaskResponse(BaseModel):
+    task_id: str
+    status: str = "pending"
 
 
 class SceneFusionPreviewResponse(SceneDraftReviewResponse):
@@ -617,6 +627,7 @@ class OutlineAiTaskRequest(BaseModel):
     start_chapter: int | None = Field(None, ge=1)
     end_chapter: int | None = Field(None, ge=1)
     instruction: str | None = None
+    operation_id: uuid.UUID | None = None
 
 
 class OutlineAiTaskResponse(BaseModel):

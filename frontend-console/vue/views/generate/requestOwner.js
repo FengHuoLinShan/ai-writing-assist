@@ -40,5 +40,5 @@ export function createGenerateRequestOwner({ projectId, sessionKey }) {
     invalidate()
   }
 
-  return { begin, isActive, finish, invalidate, dispose, get pendingCount() { return controllers.size } }
+  return { begin, isActive, finish, invalidate, dispose, isDisposed: () => disposed, get pendingCount() { return controllers.size } }
 }

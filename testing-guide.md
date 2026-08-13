@@ -58,6 +58,7 @@ Three layers:
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
+| `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_task_coalescing_concurrency.py -m e2e` | Keyed coalescing and concurrent operation-receipt uniqueness | Dedicated PostgreSQL at Alembic head |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated once on pull requests |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
@@ -320,6 +321,10 @@ This does not relax module boundaries: cross-module behavior tests still go thro
    - manual `world_alias_relation_extraction` tasks require `novel_id` and invoke the DI handler with chapter range / scene ids
    - frontend world object auto-extract panel exposes the secondary “补抽别名/关系” entry and disables it while extraction is running
 8. **Authoring lifecycle**: `test_authoring_lifecycle.py` serially verifies import → imported chapter publish/index/snapshot → confirmed generation using imported evidence → explicit adoption → publish/index/snapshot → canonical retrieval. It must also prove foreign-novel evidence and project LLM credentials never enter the generation prompt.
+9. **Recoverable author tasks**: operation receipt tests cover concurrent one-row enqueue, terminal reuse,
+   request drift 409, project-scoped 404, exactly two transient attempts and immediate terminal handling
+   for auth/quota/content/schema/source failures. Frontend tests cover persisted pre-submit receipt, 404
+   no-replay recovery and page-local completion without island refresh.
 
 ## Security Tests
 

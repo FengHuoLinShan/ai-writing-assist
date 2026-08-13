@@ -114,7 +114,7 @@ def test_api_and_worker_compose_the_same_complete_task_catalog() -> None:
         "owner_scope": "project",
     }
     assert api_catalog["writing_generate"] == {
-        "recovery_policy": "restart_origin",
-        "max_attempts": 1,
+        "recovery_policy": "auto_requeue",
+        "max_attempts": 2,
         "owner_scope": "project",
     }

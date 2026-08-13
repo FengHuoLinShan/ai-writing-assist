@@ -915,11 +915,15 @@ class WritingConflictCheckRepository:
         db: AsyncSession,
         item_id: uuid.UUID,
         novel_id: uuid.UUID,
+        *,
+        for_update: bool = False,
     ) -> WritingConflictItem | None:
         stmt = select(WritingConflictItem).where(
             WritingConflictItem.id == item_id,
             WritingConflictItem.novel_id == novel_id,
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 

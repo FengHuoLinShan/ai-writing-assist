@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from core.errors import NotFoundError, ValidationError
+from infrastructure.llm.errors import LLMTimeoutError
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
 from modules.context.services.compiled_context import (
@@ -659,6 +660,33 @@ async def test_provider_error_is_redacted_and_writes_no_candidate(
 
     assert secret not in str(exc_info.value)
     assert secret not in caplog.text
+    repo.create_with_status.assert_not_awaited()
+
+
+async def test_retryable_provider_error_keeps_task_retry_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _CheckpointSession()
+    repo = _repo()
+    _patch_facades(monkeypatch, _confirmed("same context"))
+    timeout = LLMTimeoutError("provider timed out")
+
+    with pytest.raises(LLMTimeoutError) as exc_info:
+        await WritingGenerationService(
+            repo=repo,
+            llm_client=_Client(db, timeout),
+        ).generate_candidate_for_task(
+            db,
+            novel_id="11111111-1111-1111-1111-111111111111",
+            chapter_index=3,
+            title=None,
+            instruction=None,
+            context_confirmation_id="33333333-3333-3333-3333-333333333333",
+            source_task_id="task-1",
+            llm_execution_snapshot=_snapshot(),
+        )
+
+    assert exc_info.value is timeout
     repo.create_with_status.assert_not_awaited()
 
 

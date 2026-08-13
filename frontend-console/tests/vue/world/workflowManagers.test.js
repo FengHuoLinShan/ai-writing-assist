@@ -358,7 +358,7 @@ describe("startEntityFusionSuggestions", () => {
       toast: vi.fn(),
     })
     expect(await startEntityFusionSuggestions("location")).toBe(true)
-    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs", entity_type: "location" })
+    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs", entity_type: "location", operation_id: expect.any(String) })
     expect(fusionManager.state.taskId).toBe("task-f1")
   })
 
@@ -370,7 +370,7 @@ describe("startEntityFusionSuggestions", () => {
       toast: vi.fn(),
     })
     await startEntityFusionSuggestions("")
-    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs2", entity_type: undefined })
+    expect(createEntityFusionSuggestions).toHaveBeenCalledWith({ novel_id: "p-fs2", entity_type: undefined, operation_id: expect.any(String) })
   })
 
   it("同步双击只提交一次", async () => {

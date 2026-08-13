@@ -38,6 +38,10 @@ from infrastructure.llm.agent_step_harness import (
     merge_managed_llm_provenance,
 )
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.llm.retry import (
+    is_retryable_llm_error,
+    llm_transport_retry_scope,
+)
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -505,6 +509,7 @@ class TaskWorker:
         self._heartbeat_tasks[task.id] = heartbeat_task
 
         with managed_llm_provenance_scope() as managed_llm_steps:
+            definition = None
             terminal_recovery_policy: str | None = None
             try:
                 definition = self._registry.get_definition(task.task_type)
@@ -545,7 +550,12 @@ class TaskWorker:
                 )
 
                 # 执行任务处理器
-                result = await handler(task=task, db=session)
+                with llm_transport_retry_scope(
+                    enabled=not bool(
+                        definition and definition.retry_transient_llm_errors
+                    )
+                ):
+                    result = await handler(task=task, db=session)
 
                 # 更新任务为完成
                 result_data = (
@@ -624,6 +634,26 @@ class TaskWorker:
                     else _handler_failure_result(task, requeued=requeue)
                 )
                 await session.rollback()
+                if (
+                    definition is not None
+                    and definition.retry_transient_llm_errors
+                    and is_retryable_llm_error(e)
+                    and int(task.attempt or 0) < int(task.max_attempts or 1)
+                ):
+                    accepted = await self._requeue_transient_failure(
+                        session,
+                        task=task,
+                        task_id=task.id,
+                        lease_id=lease_id,
+                    )
+                    attempt_accepted = accepted
+                    logger.warning(
+                        "Task transient failure requeued: %s (type=%s, accepted=%s)",
+                        task.id,
+                        _task_type_for_log(task.task_type),
+                        accepted,
+                    )
+                    return attempt_accepted
                 finalize_kwargs = {
                     "task_id": task.id,
                     "lease_id": lease_id,
@@ -664,6 +694,27 @@ class TaskWorker:
                     except asyncio.CancelledError:
                         pass
         return attempt_accepted
+
+    async def _requeue_transient_failure(
+        self,
+        session: AsyncSession,
+        *,
+        task: AsyncTask,
+        task_id: Any,
+        lease_id: str,
+    ) -> bool:
+        if isinstance(session, _TaskHandlerSession):
+            session.disable_task_commit_hook()
+        if self._task_commit_guard is not None and not await self._task_commit_guard(
+            session, task
+        ):
+            await session.rollback()
+            return False
+        return await self._lifecycle.requeue_transient_failure(
+            session,
+            task_id=task_id,
+            lease_id=lease_id,
+        )
 
     @staticmethod
     async def _finish_task_preflight(session: AsyncSession) -> None:
