@@ -28,6 +28,10 @@ class _DeterministicWritingClient:
             model=self.model_name,
         )
 
+    async def generate_structured(self, request, schema, **_kwargs):
+        self.requests.append(request)
+        return schema.model_validate({"findings": [], "not_checked": []})
+
     async def close(self) -> None:
         return None
 
@@ -106,7 +110,11 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     from core.config import get_settings
     from modules.project import llm_runtime
     from modules.rag.facade import retrieve
-    from modules.writing.tasks import handle_publish_chapter, handle_writing_generate
+    from modules.writing.tasks import (
+        handle_publish_chapter,
+        handle_writing_generate,
+        handle_writing_semantic_review,
+    )
 
     writing_client = _DeterministicWritingClient()
     monkeypatch.setattr(
@@ -248,6 +256,28 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     assert account_llm_connection["api_key"] not in generation_prompt
     assert account_llm_connection["base_url"] not in generation_prompt
     assert "api_key" not in generation_prompt
+
+    review = await async_client.post(
+        "/api/writing/semantic-reviews",
+        json={
+            "novel_id": novel_id,
+            "draft_ids": [candidate_id],
+            "scope": "selection",
+        },
+    )
+    assert review.status_code == 201, review.text
+    review_task = await db_session.get(
+        AsyncTask,
+        uuid.UUID(review.json()["task_id"]),
+    )
+    assert review_task is not None
+    review_result = await _run_handler_as_task_worker(
+        db_session,
+        review_task,
+        handle_writing_semantic_review,
+    )
+    assert review_result["verdict"] == "pass"
+    assert review_result["mechanical_checks_can_sign_literary_pass"] is False
 
     adopted = await async_client.post(
         f"/api/writing/drafts/{candidate_id}/adopt",
