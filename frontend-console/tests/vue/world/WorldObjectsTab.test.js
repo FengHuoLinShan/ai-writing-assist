@@ -170,6 +170,31 @@ describe("筛选", () => {
 })
 
 describe("页内视图控件", () => {
+  it("需要决定是直达待处理对象的顶层当前页按钮", async () => {
+    const wrapper = shallowMount(WorldView, {
+      props: {
+        projectId: "p-obj",
+        subView: "review-objects",
+        reviewSubView: "review-objects",
+        reviewCounts: { objects: 2, aliases: 3, relations: 1 },
+      },
+    })
+    const review = wrapper.get('[data-action="nav-review"]')
+    const objects = wrapper.get('[data-action="nav-objects"]')
+
+    expect(review.element.tagName).toBe("BUTTON")
+    expect(review.attributes("type")).toBe("button")
+    expect(review.attributes("aria-current")).toBe("page")
+    expect(review.classes()).toContain("active")
+    expect(review.text()).toContain("6")
+    expect(objects.attributes("aria-current")).toBeUndefined()
+    expect(objects.classes()).not.toContain("active")
+    expect(wrapper.find(".world-attention-menu").exists()).toBe(false)
+
+    await review.trigger("click")
+    expect(navigateMock).toHaveBeenCalledWith("world", "review-objects")
+  })
+
   it("卡片/表格只切本地呈现并同步 query，不重挂载", async () => {
     const commitCurrentQuery = vi.fn(() => true)
     setBridgeOverrides({
