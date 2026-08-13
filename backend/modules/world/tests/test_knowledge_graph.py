@@ -413,6 +413,24 @@ async def test_knowledge_graph_api_enforces_owner_and_novel_isolation(
         node_ids = {node["id"] for node in response.json()["nodes"]}
         assert first_page.id in node_ids
         assert second_page.id not in node_ids
+        for depth in (1, 2):
+            response = await async_client.get(
+                "/api/world/knowledge-graph",
+                params={
+                    "novel_id": first.id,
+                    "scope": "local",
+                    "root_type": "world_bible_page",
+                    "root_id": first_page.id,
+                    "depth": depth,
+                },
+            )
+            assert response.status_code == 200
+        for depth in (0, 3):
+            response = await async_client.get(
+                "/api/world/knowledge-graph",
+                params={"novel_id": first.id, "depth": depth},
+            )
+            assert response.status_code == 422
     finally:
         reset_principal(owner_token)
 

@@ -8,17 +8,10 @@
   <div ref="rootEl" class="world-view">
     <div class="view-header view-header--with-tabs world-toolbar">
       <div class="subnav">
-        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' || reviewSubView === 'review-objects' || reviewSubView === 'review-aliases' }" :aria-current="subView === 'objects' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">人物与设定</button>
+        <button type="button" class="subnav-item" :class="{ active: subView === 'objects' || subView === 'aliases' }" :aria-current="subView === 'objects' ? 'page' : undefined" data-subview="objects" data-action="nav-objects" @click="navigateSub('objects')">人物与设定</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'relations' }" :aria-current="subView === 'relations' ? 'page' : undefined" data-subview="relations" data-action="nav-relations" @click="navigateSub('relations')">关系</button>
         <button type="button" class="subnav-item" :class="{ active: subView === 'bible' }" :aria-current="subView === 'bible' ? 'page' : undefined" data-subview="bible" data-action="nav-bible" @click="navigateSub('bible')">世界笔记</button>
-        <details ref="attentionMenu" class="world-attention-menu">
-          <summary class="subnav-item" :class="{ active: !!reviewSubView }">需要决定 <span class="badge">{{ reviewTotal }}</span></summary>
-          <div class="world-attention-menu__panel">
-            <button type="button" @click="navigateSub('review-objects')">人物与设定 <strong>{{ reviewCounts.objects || 0 }}</strong></button>
-            <button type="button" @click="navigateSub('review-aliases')">别名 <strong>{{ reviewCounts.aliases || 0 }}</strong></button>
-            <button type="button" @click="navigateSub('review-relations')">关系 <strong>{{ reviewCounts.relations || 0 }}</strong></button>
-          </div>
-        </details>
+        <button type="button" class="subnav-item" :class="{ active: !!reviewSubView }" :aria-current="reviewSubView ? 'page' : undefined" data-action="nav-review" @click="navigateSub('review-objects')">需要决定 <span class="badge">{{ reviewTotal }}</span></button>
       </div>
       <div class="view-header__tail">
         <span v-if="headerTitle" class="view-header__title">
@@ -108,7 +101,6 @@ const props = defineProps({
 })
 
 const rootEl = ref(null)
-const attentionMenu = ref(null)
 const localObjectViewMode = ref(props.objectViewMode === "card" ? "card" : "table")
 watch(() => props.objectViewMode, (mode) => { localObjectViewMode.value = mode === "card" ? "card" : "table" })
 
@@ -145,7 +137,6 @@ const projectTitle = computed(() => {
 })
 
 function navigateSub(sub) {
-  if (attentionMenu.value) attentionMenu.value.open = false
   getRouter()?.navigate("world", sub)
 }
 

@@ -191,6 +191,7 @@ test.describe("世界书工作台", () => {
     const editorMode = displayModes.locator("[data-mode='editor']")
     const galleryMode = displayModes.locator("[data-mode='gallery']")
     const filterMode = displayModes.locator("[data-mode='filter']")
+    const graphMode = displayModes.locator("[data-mode='graph']")
     await expect(editorMode).toHaveAttribute("aria-pressed", "true")
     await expect(galleryMode).toHaveAttribute("aria-pressed", "false")
     await expect(filterMode).toHaveAttribute("aria-pressed", "false")
@@ -225,6 +226,38 @@ test.describe("世界书工作台", () => {
       .click()
     await expect(page.locator("#bible-free-text")).toHaveValue(freeText)
     await expectNoAppErrors(page, "展示模式切换后")
+
+    const oneHopResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname.endsWith("/api/world/knowledge-graph")
+        && url.searchParams.get("scope") === "local"
+        && url.searchParams.get("depth") === "1"
+    })
+    await graphMode.click()
+    expect((await oneHopResponse).status()).toBe(200)
+    await expect(page.locator(".world-bible-graph")).toBeVisible()
+    await expect(page.locator(".world-bible-graph [role='alert']")).toHaveCount(0)
+
+    const twoHopResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname.endsWith("/api/world/knowledge-graph")
+        && url.searchParams.get("scope") === "local"
+        && url.searchParams.get("depth") === "2"
+    })
+    await page.locator("[data-action='bible-graph-depth-2']").click()
+    expect((await twoHopResponse).status()).toBe(200)
+    await expect(page.locator(".world-bible-graph [role='alert']")).toHaveCount(0)
+
+    const globalResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname.endsWith("/api/world/knowledge-graph")
+        && url.searchParams.get("scope") === "global"
+    })
+    await page.locator("[data-action='bible-graph-global']").click()
+    expect((await globalResponse).status()).toBe(200)
+    await expect(page.locator(".world-bible-graph [role='alert']")).toHaveCount(0)
+    await expectNoAppErrors(page, "关联图范围切换后")
+    await editorMode.click()
 
     await page.locator("[data-action='bible-refresh-projection']").click()
     await expectProjectionDone(page, workerHandle)

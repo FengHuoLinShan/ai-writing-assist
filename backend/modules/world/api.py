@@ -231,7 +231,7 @@ async def get_world_knowledge_graph(
     scope: Literal["local", "global"] = Query(default="global"),
     root_type: Literal["world_bible_page", "core_entity"] | None = Query(default=None),
     root_id: str | None = Query(default=None),
-    depth: Literal[1, 2] = Query(default=1),
+    depth: int = Query(default=1, ge=1, le=2),
 ) -> WorldKnowledgeGraphResponse:
     return await _knowledge_graph_service.get(
         db, novel_id, scope=scope, root_type=root_type, root_id=root_id, depth=depth
