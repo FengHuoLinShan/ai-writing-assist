@@ -173,7 +173,7 @@ POST /api/imports/upload                    # 上传并导入；201 表示导入
 GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true
-POST /api/imports/stages/scenes            # 只执行 Phase 0/1a/1b + scene_commit
+POST /api/imports/stages/scenes            # 只执行 Phase 0/1a/1b/1c + Scene commit
 POST /api/imports/stages/world-objects     # 只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure    # 只执行 Phase 3
 POST /api/imports/deep/resume              # 用户确认后继续可恢复的原 deep_import 或 stage task

@@ -290,7 +290,7 @@ POST /api/imports/upload      — 上传文件（multipart）；201 表示导入
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；活动任务复用原 task，资产重复时先返回 requires_confirmation
-POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b + Scene commit
+POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b/1c + Scene commit
 POST /api/imports/stages/world-objects — 提交世界对象与别名/关系自动提取任务，只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure — 提交剧情线自动提取任务，只执行 Phase 3
 POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_import task
