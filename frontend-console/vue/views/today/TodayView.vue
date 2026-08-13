@@ -96,6 +96,10 @@ function runPrimaryAction() {
 
 function openCreativeContinuation(item) {
   if (!item) return
+  if (item.destination === "world_adoption_review") {
+    router.navigate("world", "bible", true, new URLSearchParams({ adoption_package_id: item.route.package_id }))
+    return
+  }
   writeCreativeContinuation(projectId.value, { destination: item.destination, route: item.route })
   if (item.destination === "generate") {
     const query = new URLSearchParams({ tab: "world", target: item.route.target })
@@ -211,7 +215,7 @@ function retry() {
         <article v-for="item in unfinishedWorld" :key="item.key" class="today-workflow-card">
           <div class="today-workflow-card__copy"><strong>{{ item.title }}</strong><span>{{ item.description }}</span></div>
           <div class="today-workflow-card__actions">
-            <button class="btn btn-sm" type="button" @click="openCreativeContinuation(item)">{{ item.destination === 'world_suggestion_review' ? '去审查' : '打开工作稿' }}</button>
+            <button class="btn btn-sm" type="button" @click="openCreativeContinuation(item)">{{ ['world_suggestion_review', 'world_adoption_review'].includes(item.destination) ? '去审查' : '打开工作稿' }}</button>
           </div>
         </article>
       </div>

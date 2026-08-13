@@ -270,6 +270,7 @@ export function useWorldBible(props) {
       ensureSuggestionContinuation(dl.suggestionId)
       void openSuggestions(dl.suggestionId)
     }
+    if (dl.adoptionPackageId) void openAdoptionPackage(dl.adoptionPackageId)
   }
 
   function syncSession() {
@@ -1422,6 +1423,75 @@ export function useWorldBible(props) {
   }
 
   // ---- suggestions ----
+  function adoptionLabels(suggestion) {
+    const items = suggestion?.payload_json?.items || []
+    const claims = new Map()
+    for (const item of items) {
+      if (item.kind !== "world_bible_page") continue
+      for (const mapping of item.payload?.claim_mappings || []) claims.set(mapping.item_key, mapping.claim)
+    }
+    return new Map(items.map((item) => {
+      const payload = item.payload || {}
+      const label = claims.get(item.item_key)
+        || payload.entity?.name
+        || (item.kind === "world_bible_page" ? payload.title : "已导入的世界资料")
+      return [item.item_key, label]
+    }))
+  }
+
+  async function openAdoptionPackage(packageId, ownerNovelId = projectId.value) {
+    const novelId = typeof ownerNovelId === "string" ? ownerNovelId : projectId.value
+    if (!packageId || !ownsProject(novelId)) return false
+    const modalOwner = captureModalOwner()
+    try {
+      const preview = await api.world.previewAdoptionPackage(packageId, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
+      const labels = adoptionLabels(preview.suggestion)
+      const rows = preview.canon_diff || []
+      const existing = rows.filter((item) => item.action === "existing_ref")
+      const pending = rows.filter((item) => item.action !== "existing_ref")
+      const list = (items, empty) => items.length
+        ? `<ul>${items.map((item) => `<li>${esc(labels.get(item.item_key) || "已导入的世界资料")}</li>`).join("")}</ul>`
+        : `<p class="muted">${empty}</p>`
+      const warning = (preview.omissions || []).length
+        ? `<div class="alert alert-warning">来源覆盖不完整，本次不能提交。</div>`
+        : ""
+      showModalHtml(
+        "审阅世界设定吸取",
+        `<div class="world-adoption-preview">
+          ${warning}
+          <section><h3>流水线已写入</h3><p>这些对象只建立引用，不会重复创建。</p>${list(existing, "无")}</section>
+          <section><h3>本次确认将写入</h3><p>待处理对象、关系与完整世界书页将在同一事务中提交。</p>${list(pending, "无")}</section>
+        </div>`,
+        [
+          { text: "稍后再说", class: "btn-ghost", handler: closeModal },
+          {
+            text: "确认吸取",
+            class: "btn-primary",
+            handler: async () => {
+              try {
+                await api.world.applyAdoptionPackage(packageId, novelId, preview.expected_preview_hash)
+                closeModal()
+                toast("设定已吸取到世界对象、关系和世界书", "success")
+                router.refresh()
+                return true
+              } catch (err) {
+                if (!ownsProject(novelId)) return true
+                toast(err?.status === 409 ? "来源或设定已变化，请关闭后重新预览" : err.message || "吸取失败", err?.status === 409 ? "warning" : "error")
+                return false
+              }
+            },
+          },
+        ],
+        { size: "large" },
+      )
+      return true
+    } catch (err) {
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载采纳预览失败", "error")
+      return false
+    }
+  }
+
   async function openSuggestions(focusSuggestionId = "", ownerNovelId = projectId.value) {
     const novelId = typeof ownerNovelId === "string" ? ownerNovelId : projectId.value
     if (!ownsProject(novelId)) return false
@@ -2268,6 +2338,7 @@ export function useWorldBible(props) {
     activeActivationProfile,
     dryRunActivationProfile,
     openInGenerationCenter,
+    openAdoptionPackage,
     openSuggestions,
     openConflicts,
     inspectCurrentPage,

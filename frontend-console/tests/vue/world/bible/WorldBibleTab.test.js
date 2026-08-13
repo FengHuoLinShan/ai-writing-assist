@@ -1552,6 +1552,53 @@ describe("模态操作", () => {
     })
   })
 
+  it("按 Today 深链分栏预览并原子吸取 Deep Import 设定", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    api.world.previewAdoptionPackage = vi.fn().mockResolvedValue({
+      expected_preview_hash: "a".repeat(64),
+      omissions: [],
+      suggestion: {
+        payload_json: {
+          items: [
+            { item_key: "existing", kind: "core_entity", payload: { operation: "existing_ref" } },
+            { item_key: "candidate", kind: "core_entity", payload: { operation: "promote" } },
+            {
+              item_key: "page",
+              kind: "world_bible_page",
+              payload: {
+                title: "深度导入设定索引",
+                claim_mappings: [
+                  { item_key: "existing", claim: "潮门（location）" },
+                  { item_key: "candidate", claim: "旧潮盟（organization）" },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      canon_diff: [
+        { item_key: "existing", kind: "core_entity", action: "existing_ref" },
+        { item_key: "candidate", kind: "core_entity", action: "promote" },
+        { item_key: "page", kind: "world_bible_page", action: "create" },
+      ],
+    })
+    api.world.applyAdoptionPackage = vi.fn().mockResolvedValue({ status: "accepted" })
+
+    mountTab({ bibleDeepLink: { draftId: "", pageId: "", adoptionPackageId: "package-1" } })
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalledWith("审阅世界设定吸取", expect.any(String), expect.any(Array), { size: "large" }))
+
+    const [, body, buttons] = showModalHtmlMock.mock.calls.at(-1)
+    expect(body).toContain("流水线已写入")
+    expect(body).toContain("本次确认将写入")
+    expect(body).toContain("潮门（location）")
+    expect(body).toContain("旧潮盟（organization）")
+    expect(body).not.toContain("package-1")
+
+    await buttons[1].handler()
+    expect(api.world.applyAdoptionPackage).toHaveBeenCalledWith("package-1", "p1", "a".repeat(64))
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("已吸取"), "success")
+  })
+
   it("深链建议已处理时清除旧入口并显示其余待处理项", async () => {
     const api = (await import("../../../../vue/bridge/index.js")).getApi()
     api.world.listSuggestions = vi.fn().mockResolvedValue({ items: [] })

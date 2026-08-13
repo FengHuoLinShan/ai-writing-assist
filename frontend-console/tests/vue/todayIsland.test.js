@@ -229,6 +229,34 @@ describe("todayIsland", () => {
     expect(query.get("checkpoint_id")).toBe("checkpoint-1")
   })
 
+  it("prioritizes review of a Deep Import adoption package", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({
+      state,
+      router,
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1", continuation: null, writing: { chapter_count: 0 }, attention: {} })) },
+        world: {
+          listBibleDrafts: vi.fn(async () => ({ items: [] })),
+          listSuggestions: vi.fn(async ({ review_group: reviewGroup }) => ({
+            items: reviewGroup === "world_adoption"
+              ? [{ id: "package-1", target_type: "world_adoption_package", source_module: "imports" }]
+              : [],
+          })),
+        },
+        tasks: { get: vi.fn() },
+      },
+    })
+
+    const wrapper = mount(TodayView, { props: await loadTodayProps() })
+    expect(wrapper.get("#today-resume-title").text()).toBe("审阅深度导入设定")
+    await wrapper.get(".today-resume__action").trigger("click")
+    const query = router.navigate.mock.calls[0][3]
+    expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["world", "bible", true])
+    expect(query.get("adoption_package_id")).toBe("package-1")
+  })
+
   it("keeps a pending suggestion pointer that is beyond the first result page", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     const firstPage = Array.from({ length: 50 }, (_, index) => ({

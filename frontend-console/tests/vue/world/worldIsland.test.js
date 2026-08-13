@@ -38,4 +38,31 @@ describe("world island deep links", () => {
     expect(api.world.listEntities).not.toHaveBeenCalledWith(expect.objectContaining({ display_state: "active" }))
     expect(props.entities).toEqual([entity])
   })
+
+  it("passes the adoption package deep link only to the World Bible workspace", async () => {
+    const api = {
+      world: {
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listBiblePages: vi.fn().mockResolvedValue({ items: [] }),
+        listBibleCategories: vi.fn().mockResolvedValue({ items: [] }),
+        listBibleDrafts: vi.fn().mockResolvedValue({ items: [] }),
+        getBibleSynopsis: vi.fn().mockResolvedValue(null),
+      },
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "bible" },
+      router: {
+        getCurrentQuery: () => new URLSearchParams("adoption_package_id=package-1"),
+        registerView: vi.fn(),
+      },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(props.bibleDeepLink.adoptionPackageId).toBe("package-1")
+  })
 })

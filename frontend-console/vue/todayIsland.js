@@ -59,6 +59,16 @@ function generateContinuation(pointer) {
   }
 }
 
+function adoptionContinuation(item) {
+  return {
+    key: `world-adoption:${item.id}`,
+    destination: "world_adoption_review",
+    route: { package_id: item.id },
+    title: item.source_module === "imports" ? "审阅深度导入设定" : "审阅世界核心采纳包",
+    description: "先看清流水线已写入与本次确认将写入；确认后对象、关系和世界书页才会一起提交。",
+  }
+}
+
 async function loadPendingSuggestions(api, projectId, suggestionId = null, reviewGroup = "generation_center") {
   let skip = 0
   let firstPage = []
@@ -184,13 +194,15 @@ export async function loadTodayProps() {
     .map((item) => suggestionContinuation(item)).find(Boolean)
   const firstCheckpoint = listItems(adoptionResult.status === "fulfilled" ? adoptionResult.value : null)
     .find((item) => item.target_type === "world_core_checkpoint")
+  const firstPackage = listItems(adoptionResult.status === "fulfilled" ? adoptionResult.value : null)
+    .find((item) => item.target_type === "world_adoption_package")
   const checkpointContinuation = firstCheckpoint ? generateContinuation({ route: {
     source_page_id: null,
     target: "core_entity",
     preset: "world_core",
     checkpoint_id: firstCheckpoint.id,
   } }) : null
-  const worldContinuations = [checkpointContinuation, firstDraft, firstSuggestion].filter(Boolean)
+  const worldContinuations = [firstPackage ? adoptionContinuation(firstPackage) : null, checkpointContinuation, firstDraft, firstSuggestion].filter(Boolean)
   const stored = recoverActiveWorkflows(projectId)
     .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))
     .slice(0, WORKFLOW_LIMIT)

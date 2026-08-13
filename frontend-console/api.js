@@ -1286,6 +1286,16 @@ const api = {
       return request(withQuery(`/world/adoption-packages/${suggestionId}`, { novel_id: novelId }))
     },
 
+    async previewAdoptionPackage(suggestionId, novelId) {
+      return request(withQuery(`/world/adoption-packages/${suggestionId}/preview`, { novel_id: novelId }))
+    },
+
+    async applyAdoptionPackage(suggestionId, novelId, expectedPreviewHash) {
+      return post(withQuery(`/world/adoption-packages/${suggestionId}/apply`, { novel_id: novelId }), {
+        expected_preview_hash: expectedPreviewHash,
+      })
+    },
+
     async confirmSuggestion(suggestionId, novelId) {
       return post(withQuery(`/world/suggestions/${suggestionId}/confirm`, { novel_id: novelId }))
     },

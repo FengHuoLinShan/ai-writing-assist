@@ -162,6 +162,7 @@ export async function loadWorld() {
       pageId: query.get("page_id") || "",
       openSuggestions: query.get("open") === "suggestions",
       suggestionId: query.get("suggestion_id") || "",
+      adoptionPackageId: query.get("adoption_package_id") || "",
     },
     knowledgeCharacterId: query.get("knowledge_character_id") || "",
   }
