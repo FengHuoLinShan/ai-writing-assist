@@ -8,9 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-AtlasLevel = Literal[
-    "cover", "world", "region", "city", "district", "street", "interior"
-]
+AtlasLevel = Literal["cover", "world", "region", "city", "district", "street", "interior"]
 ATLAS_LEVEL_RANK: dict[str, int] = {
     "cover": 0,
     "world": 1,
@@ -20,15 +18,35 @@ ATLAS_LEVEL_RANK: dict[str, int] = {
     "street": 5,
     "interior": 6,
 }
-AtlasRunKind = Literal["initial", "update", "rebuild", "edit", "regenerate"]
+AtlasRunKind = Literal["initial", "update", "rebuild", "edit", "regenerate", "upload"]
+SpatialFactType = Literal[
+    "containment",
+    "direction",
+    "distance_or_travel",
+    "adjacency",
+    "route",
+    "landmark",
+    "terrain_or_water",
+    "entrance_or_layout",
+    "scale",
+]
+SpatialFactBasis = Literal["explicit", "inferred", "conflicting"]
 AtlasRunStatus = Literal[
-    "planning", "generating", "review_ready", "partial", "paused", "failed", "completed"
+    "planning",
+    "prompt_review",
+    "generating",
+    "review_ready",
+    "partial",
+    "paused",
+    "failed",
+    "completed",
 ]
 PageGenerationStatus = Literal[
     "prepared",
     "provider_in_flight",
     "uploaded",
     "review_ready",
+    "prompt_only",
     "failed",
     "retry_requires_confirmation",
 ]
@@ -60,6 +78,61 @@ class AtlasEvidence(BaseModel):
         if len(normalized) != len(set(normalized)):
             raise ValueError("evidence items must be unique")
         return normalized
+
+
+class SpatialFact(BaseModel):
+    """Bounded, server-anchored spatial evidence for atlas image prompts."""
+
+    model_config = {"extra": "forbid"}
+
+    location_key: str = Field(min_length=1, max_length=128)
+    fact_type: SpatialFactType
+    statement: str = Field(min_length=1, max_length=1000)
+    basis: SpatialFactBasis
+    source_keys: list[str] = Field(min_length=1, max_length=5)
+
+
+class SpatialFactBatchResult(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    facts: list[SpatialFact] = Field(default_factory=list, max_length=60)
+
+    @model_validator(mode="after")
+    def validate_fact_limits(self) -> SpatialFactBatchResult:
+        per_location: dict[str, int] = {}
+        for fact in self.facts:
+            per_location[fact.location_key] = per_location.get(fact.location_key, 0) + 1
+            if per_location[fact.location_key] > 12:
+                raise ValueError("at most 12 spatial facts per location")
+        if len(per_location) > 5:
+            raise ValueError("at most 5 locations per spatial batch")
+        return self
+
+
+class MapAtlasEvidenceSummary(BaseModel):
+    """Safe, small progress summary; never exposes prompts or source identities."""
+
+    model_config = {"extra": "forbid"}
+
+    locations_checked: int = Field(ge=0)
+    wiki_pages_used: int = Field(ge=0)
+    rag_chunks_used: int = Field(ge=0)
+    spatial_facts_used: int = Field(ge=0)
+    conflicts: int = Field(ge=0)
+    degraded: bool = False
+    message: str = Field(default="", max_length=500)
+
+    @classmethod
+    def from_snapshot(cls, snapshot: dict[str, Any]) -> MapAtlasEvidenceSummary | None:
+        evidence = snapshot.get("spatial_evidence")
+        if not isinstance(evidence, dict):
+            return None
+        return cls.model_validate(
+            {
+                key: evidence.get(key, 0 if key != "message" else "")
+                for key in cls.model_fields
+            }
+        )
 
 
 class AtlasAnnotationPlan(BaseModel):
@@ -103,6 +176,7 @@ class MapAtlasNodeProposal(BaseModel):
     level: AtlasLevel
     summary: str | None = Field(default=None, max_length=2000)
     sort_order: int = Field(ge=0)
+    base_node_updated_at: datetime | None = None
 
 
 class AtlasPlan(BaseModel):
@@ -114,9 +188,7 @@ class AtlasPlan(BaseModel):
     @model_validator(mode="after")
     def validate_hierarchy(self) -> AtlasPlan:
         location_ids = [
-            node.location_entity_id
-            for node in self.nodes
-            if node.location_entity_id
+            node.location_entity_id for node in self.nodes if node.location_entity_id
         ]
         if len(location_ids) != len(set(location_ids)):
             raise ValueError("atlas locations must be unique")
@@ -164,6 +236,7 @@ class MapAtlasRunCreate(BaseModel):
     layout: Literal["landscape", "square"] = "landscape"
     quality: Literal["standard", "fine"] = "standard"
     full_rebuild: bool = False
+    review_image_prompts: bool = False
 
     @field_validator("style_note")
     @classmethod
@@ -185,6 +258,7 @@ class MapAtlasRunResponse(BaseModel):
     style_note: str | None = None
     include_working_drafts: bool
     include_interiors: bool
+    review_image_prompts: bool
     layout: str
     quality: str
     page_limit: int
@@ -193,6 +267,7 @@ class MapAtlasRunResponse(BaseModel):
     stop_requested: bool
     error_code: str | None = None
     error_message: str | None = None
+    evidence_summary: MapAtlasEvidenceSummary | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -220,9 +295,11 @@ class MapAtlasPageResponse(BaseModel):
     node_id: str
     derived_from_page_id: str | None = None
     generation_status: PageGenerationStatus
+    generation_choice: Literal["internal", "external"]
     review_status: PageReviewStatus
     title: str
     visual_brief: str
+    has_generation_prompt: bool
     evidence: dict[str, Any]
     source_manifest: list[dict[str, Any]]
     reference_page_ids: list[str]
@@ -251,6 +328,7 @@ class MapAtlasNodeResponse(BaseModel):
     status: Literal["provisional", "adopted"]
     summary: str | None = None
     sort_order: int
+    updated_at: datetime | None = None
     pages: list[MapAtlasPageResponse] = Field(default_factory=list)
     children: list[MapAtlasNodeResponse] = Field(default_factory=list)
 
@@ -323,3 +401,71 @@ class MapAtlasImageConnectionRequired(BaseModel):
 
     code: Literal["image_connection_required"] = "image_connection_required"
     message: str = "请先在账户设置中连接 OpenAI 图片服务"
+
+
+class MapAtlasPromptResponse(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    page_id: str
+    prompt: str
+    generation_choice: Literal["internal", "external"]
+    editable: bool
+    updated_at: datetime | None = None
+
+
+class MapAtlasPromptUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    prompt: str = Field(min_length=1, max_length=65536)
+    generation_choice: Literal["internal", "external"]
+    expected_updated_at: datetime
+
+    @field_validator("prompt")
+    @classmethod
+    def normalize_prompt(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("prompt must not be empty")
+        return normalized
+
+
+class MapAtlasPromptConfirmation(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    page_id: UUID
+    expected_updated_at: datetime
+
+
+class MapAtlasConfirmPromptsRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    pages: list[MapAtlasPromptConfirmation] = Field(min_length=1, max_length=20)
+
+    @field_validator("pages")
+    @classmethod
+    def unique_pages(
+        cls, value: list[MapAtlasPromptConfirmation]
+    ) -> list[MapAtlasPromptConfirmation]:
+        if len({item.page_id for item in value}) != len(value):
+            raise ValueError("prompt confirmation pages must be unique")
+        return value
+
+
+class MapAtlasNodeUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    parent_id: UUID | None = None
+    level: AtlasLevel | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    before_node_id: UUID | None = None
+    expected_updated_at: datetime
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("title must not be empty")
+        return normalized

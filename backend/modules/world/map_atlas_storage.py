@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import struct
 import uuid
+import warnings
 import zlib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -14,6 +16,7 @@ from typing import Any
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from PIL import Image, ImageOps
 from sqlalchemy import or_, select
 
 from core.config import get_settings, validate_map_atlas_s3_endpoint_url
@@ -21,6 +24,7 @@ from modules.world.map_atlas_models import MapAtlasPage
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
+MAX_IMAGE_PIXELS = 8192 * 8192
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,8 +61,7 @@ def validate_png(payload: bytes, *, require_alpha: bool = False) -> PngMetadata:
         if actual_crc != expected_crc:
             raise ValueError("PNG 校验失败")
         if not all(
-            65 <= character <= 90 or 97 <= character <= 122
-            for character in chunk_type
+            65 <= character <= 90 or 97 <= character <= 122 for character in chunk_type
         ):
             raise ValueError("PNG chunk 类型无效")
 
@@ -110,6 +113,45 @@ def validate_png(payload: bytes, *, require_alpha: bool = False) -> PngMetadata:
         sha256=hashlib.sha256(payload).hexdigest(),
         has_alpha=has_alpha,
     )
+
+
+def normalize_map_upload(payload: bytes) -> tuple[bytes, PngMetadata]:
+    """Accept a real PNG/JPEG and return a bounded, metadata-free PNG."""
+    if not payload or len(payload) >= MAX_IMAGE_BYTES:
+        raise ValueError("图片必须小于 50MB")
+    if payload.startswith(PNG_SIGNATURE):
+        return payload, validate_png(payload)
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(payload)) as probe:
+                if probe.format != "JPEG" or getattr(probe, "n_frames", 1) != 1:
+                    raise ValueError("仅支持 PNG 或 JPEG 图片")
+                width, height = probe.size
+                if (
+                    width < 1
+                    or height < 1
+                    or width > 8192
+                    or height > 8192
+                    or width * height > MAX_IMAGE_PIXELS
+                ):
+                    raise ValueError("图片尺寸无效")
+                probe.verify()
+            with Image.open(io.BytesIO(payload)) as source:
+                if source.format != "JPEG" or getattr(source, "n_frames", 1) != 1:
+                    raise ValueError("仅支持 PNG 或 JPEG 图片")
+                image = ImageOps.exif_transpose(source).convert("RGB")
+                output = io.BytesIO()
+                image.save(output, format="PNG", optimize=True)
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValueError("图片尺寸无效") from exc
+    except (OSError, SyntaxError) as exc:
+        raise ValueError("仅支持 PNG 或 JPEG 图片") from exc
+    normalized = output.getvalue()
+    if len(normalized) >= MAX_IMAGE_BYTES:
+        raise ValueError("转换后的 PNG 必须小于 50MB")
+    return normalized, validate_png(normalized)
 
 
 def require_matching_mask(source: bytes, mask: bytes) -> tuple[PngMetadata, PngMetadata]:

@@ -46,14 +46,25 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 `purpose=map_atlas` 补充已确认/已发布资料。工作稿只在作者打开开关时通过既有 seam 加入；
 候选对象始终排除。
 
+空间补充至多核对 20 个已采用地点、每批 5 个；正式页面只使用 `free_text` 与
+`projection_policy=eligible` 的 section，工作稿仅在明确开启后以 working 来源进入。每地点
+Wiki 与 RAG 合计最多 8000 字，每批最多 40000 字；抽取前释放事务，来源与 hash 进入 run/page manifest。
+
 文本模型输出经 `AtlasPlan` 校验：最多 20 页、无环、父级先于子级、每个 canonical 地点至多
 对应一个计划节点，且来源均属于当前项目。图片步骤最多读取 8 张参考图；隐式父图只在仍有
 余量时加入。
-每页 prompt 以地点完整名称为语义锚点，但要求图中不出现文字、字母、数字或符号；名称由前端
-标注层展示。run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新”只处理缺失
+每页 prompt 以地点完整名称为语义锚点，但要求图中不出现文字、字母、数字、方向箭头、距离、
+比例尺、图例或层级标签；前端标注层只展示地点或地标名称，不展示层级、方向、距离、比例或图例。
+run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新”只处理缺失
 节点或来源 hash 已变化的节点，完整重做是次级操作。
 
 ## 图片工作流与计费恢复
+
+- 生成可选在 Prompt 确认点暂停；作者可编辑/复制 Prompt，并逐页选择
+  站内生图或站外生图。只有确认后且存在站内页时才解析图片连接。
+- 作者可独立上传 PNG/JPEG 作为候选页；JPEG 校验尺寸与帧数、处理 EXIF
+  方向、去元数据并转为不透明 PNG。输入与输出均必须小于 50MB。
+- upload run 仅用于候选审核与历史，不覆盖最新 AI 生成任务。
 
 地图册不叠加 ADR-0013 的通用 operation receipt：图片生成已有 run/page checkpoint、
 胜出 attempt 和可能重复计费的专用确认状态，继续由本模块状态机拥有恢复与重试语义。

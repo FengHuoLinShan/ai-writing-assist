@@ -280,6 +280,12 @@ describe("前后端 API 契约", () => {
       pageId: "page-1",
       action: "adopt",
     })).toBe("/world/map-atlas/novel-1/pages/page-1/adopt")
+    expect(contractPath("world.getMapAtlasPagePrompt", { novelId: "novel-1", pageId: "page-1" }))
+      .toBe("/world/map-atlas/novel-1/pages/page-1/prompt")
+    expect(contractPath("world.confirmMapAtlasPrompts", { novelId: "novel-1", runId: "run-1" }))
+      .toBe("/world/map-atlas/novel-1/runs/run-1/confirm-prompts")
+    expect(contractPath("world.updateMapAtlasNode", { novelId: "novel-1", nodeId: "node-1" }))
+      .toBe("/world/map-atlas/novel-1/nodes/node-1")
 
     expect(contractPath("imports.startStage", { stage: "scenes" }))
       .toBe("/imports/stages/scenes")

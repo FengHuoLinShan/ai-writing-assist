@@ -197,6 +197,10 @@ tasks ORM。
 
 ## 边界
 
+地图册的独立图片上传是项目导入白名单之外的窄例外：仅该 owner-only
+API 接受小于 50MB 的 PNG/JPEG，JPEG 在服务端校验、去元数据并转为
+PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传白名单。
+
 明确不做：
 
 - 人物档案管理 → character 已迁入 world，不再独立模块
@@ -416,6 +420,8 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 `map_atlas_runs`、`map_atlas_nodes`、`map_atlas_pages` 与 `map_atlas_annotations` 只承载
 图片生成与作者采用生命周期。候选页分别保存直接资料、AI 视觉补全和冲突；加入地图册只新增
 已采用页面，不修改 World 事实。图片字节存私有 S3，完整契约见 `docs/modules/15_map.md`。
+规划前可从正式 World Bible 和已回读正文提取空间线索；它们只补充持久化 page prompt，
+不生成坐标、比例、方向或 annotation 几何字段。
 
 ## 对外契约（contracts.py）
 

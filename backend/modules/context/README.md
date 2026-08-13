@@ -105,6 +105,9 @@ async def preview_activation_profile(...) -> dict
 与 hash；manifest 按来源类型/ID 保存 loader 计算的内容 hash，更新判断不接受
 LLM 自报 hash。候选对象始终排除。
 
+地图册的空间补充仍复用 `retrieve_planned_context_evidence()` 的既有 planner、RAG 与原文
+rehydrate 门禁；不新增 RAG scope、port 或索引。失效/跨项目/旧正文片段在该门禁处被丢弃。
+
 `selected_asset_ids` 与 `result_refs` 继续保持既有 JSON 对外形状，但不再承担失效查询。
 新 confirmation 创建时同步写入 `selected` 引用，结果绑定时必须携带 `novel_id` 并在
 `id + novel_id` 行锁内同步 `result` 引用；失效只通过精确表匹配类型与 ID，不回退扫描 JSON。

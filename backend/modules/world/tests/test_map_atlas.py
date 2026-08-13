@@ -25,6 +25,8 @@ from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasR
 from modules.world.map_atlas_schemas import (
     AtlasPlan,
     MapAtlasDerivedRequest,
+    MapAtlasEvidenceSummary,
+    MapAtlasNodeUpdate,
     MapAtlasReviewRequest,
     MapAtlasRunCreate,
 )
@@ -38,13 +40,19 @@ from modules.world.map_atlas_storage import (
 from modules.world.map_atlas_workflow import (
     _atlas_source_manifest,
     _attempt_object_key,
+    _changed_spatial_location_keys,
     _compensate_uploaded_object,
     _generate_page,
     _new_source_identities,
     _plan,
+    _plan_prompt,
     _previous_source_manifest,
     _reference_images,
     _require_attempt,
+    _spatial_evidence,
+    _spatial_fact_buckets,
+    _spatial_fingerprint,
+    _spatial_planning_context,
     _validate_plan_sources,
     _validate_update_targets,
     reconcile_map_atlas_task_owners,
@@ -53,6 +61,264 @@ from modules.world.map_atlas_workflow import (
 OPAQUE_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 )
+
+
+def test_evidence_summary_is_safe_and_old_runs_remain_null() -> None:
+    snapshot = {
+        "spatial_evidence": {
+            "locations_checked": 1,
+            "wiki_pages_used": 2,
+            "rag_chunks_used": 3,
+            "spatial_facts_used": 4,
+            "conflicts": 1,
+            "facts": ["private"],
+            "source_key_refs": {"private": "private"},
+            "prompt": "private",
+            "token_count": 99,
+            "location_ids": {"location:0": "private"},
+        }
+    }
+    assert MapAtlasEvidenceSummary.from_snapshot({}) is None
+    assert MapAtlasEvidenceSummary.from_snapshot(snapshot).model_dump() == {
+        "locations_checked": 1,
+        "wiki_pages_used": 2,
+        "rag_chunks_used": 3,
+        "spatial_facts_used": 4,
+        "conflicts": 1,
+        "degraded": False,
+        "message": "",
+    }
+
+
+def test_spatial_facts_require_canonical_refs_and_conflicts_stay_ambiguous() -> None:
+    spatial = {
+        "facts": [
+            {
+                "location_key": "location:0",
+                "basis": "explicit",
+                "statement": "working",
+                "source_keys": ["draft"],
+            },
+            {
+                "location_key": "location:0",
+                "basis": "conflicting",
+                "statement": "uncertain",
+                "source_keys": ["formal"],
+            },
+            {
+                "location_key": "location:0",
+                "basis": "explicit",
+                "statement": "dropped",
+                "source_keys": ["missing"],
+            },
+        ],
+        "source_key_refs": {
+            "draft": {
+                "source_type": "world_bible_draft",
+                "source_status": "working",
+                "open_target": {"draft_id": "1"},
+            },
+            "formal": {
+                "source_type": "rag",
+                "source_status": "canonical",
+                "open_target": {"chunk_id": "2"},
+            },
+        },
+    }
+    buckets, sources, invalid = _spatial_fact_buckets(spatial, {"location:0"})
+    assert buckets == {
+        "supported": [],
+        "visual_fill": ["working"],
+        "conflicts": ["uncertain"],
+    }
+    assert len(sources) == 2 and invalid == 1
+
+
+def test_spatial_fingerprint_changes_with_selected_source_hash() -> None:
+    spatial = {
+        "location_ids": {"location:0": "a"},
+        "location_names": {"location:0": "A"},
+        "location_aliases": {"location:0": []},
+        "location_source_hashes": {
+            "location:0": [{"type": "rag", "id": "1", "status": "canonical", "hash": "a"}]
+        },
+    }
+    changed = {
+        **spatial,
+        "location_source_hashes": {
+            "location:0": [{"type": "rag", "id": "1", "status": "canonical", "hash": "b"}]
+        },
+    }
+    assert _spatial_fingerprint(spatial) != _spatial_fingerprint(changed)
+
+
+def test_spatial_location_changes_and_planner_context_are_bounded() -> None:
+    prior = {
+        "spatial_evidence": {
+            "location_ids": {"location:0": "a"},
+            "location_source_hashes": {"location:0": [{"hash": "old"}]},
+        }
+    }
+    current = {
+        "location_ids": {"location:0": "a", "location:1": "b"},
+        "location_source_hashes": {
+            "location:0": [{"hash": "new"}],
+            "location:1": [{"hash": "new"}],
+        },
+    }
+    assert _changed_spatial_location_keys(prior, current) == {"entity:a", "entity:b"}
+    facts = [
+        {
+            "location_key": f"location:{index}",
+            "basis": "explicit",
+            "statement": "x" * 1000,
+        }
+        for index in range(20)
+        for _ in range(12)
+    ]
+    context = _spatial_planning_context({"facts": facts})
+    assert len(context) <= 40000
+
+
+def test_map_plan_prompt_keeps_geometry_out_of_frontend_annotations() -> None:
+    prompt = _plan_prompt(
+        context="北门在王城以东三里",
+        schema={},
+        style_note=None,
+        include_interiors=False,
+        prior_atlas=[],
+        source_manifest={},
+        run_kind="initial",
+    )
+    assert "annotations 只用于地点或地标名称" in prompt
+    assert "不得生成层级、方向、距离、比例或图例标注" in prompt
+
+
+@pytest.mark.asyncio
+async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_degraded(
+    db_session, project_novel_id
+) -> None:
+    from modules.world.models import CoreEntity
+
+    run = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id), run_kind="initial", status="planning"
+    )
+    db_session.add(run)
+    db_session.add_all(
+        [
+            CoreEntity(
+                novel_id=uuid.UUID(project_novel_id),
+                entity_type="location",
+                name=f"地点{index}",
+                status="canonical",
+            )
+            for index in range(20)
+        ]
+    )
+    await db_session.flush()
+
+    client = MagicMock()
+    client.generate_structured = AsyncMock(return_value=SimpleNamespace(facts=[]))
+    bundle = SimpleNamespace(
+        rag_chunks=[{"id": "chunk", "text": "证据", "chapter_index": 1}]
+    )
+    with (
+        patch(
+            "modules.context.facade.retrieve_planned_context_evidence",
+            autospec=True,
+            return_value=bundle,
+        ),
+        patch(
+            "modules.world.map_atlas_workflow._require_attempt",
+            autospec=True,
+            return_value=run,
+        ),
+        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
+    ):
+        spatial, _manifest = await _spatial_evidence(
+            db_session, SimpleNamespace(), run, client
+        )
+    assert client.generate_structured.await_count == 4
+    assert spatial["locations_checked"] == 20
+    assert spatial["rag_chunks_used"] == 20
+    prior = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id),
+        run_kind="initial",
+        status="completed",
+        context_snapshot={"spatial_evidence": spatial},
+    )
+    next_run = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id), run_kind="update", status="planning"
+    )
+    db_session.add_all([prior, next_run])
+    await db_session.flush()
+    with (
+        patch(
+            "modules.context.facade.retrieve_planned_context_evidence",
+            autospec=True,
+            return_value=bundle,
+        ),
+        patch(
+            "modules.world.map_atlas_workflow._require_attempt",
+            autospec=True,
+            return_value=next_run,
+        ),
+        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
+    ):
+        reused, _manifest = await _spatial_evidence(
+            db_session, SimpleNamespace(), next_run, client
+        )
+    assert client.generate_structured.await_count == 4
+    assert reused["message"] == "已复用相同资料的空间线索。"
+    prior.context_snapshot = {"spatial_evidence": {**spatial, "degraded": True}}
+    fresh_run = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id), run_kind="update", status="planning"
+    )
+    db_session.add(fresh_run)
+    await db_session.flush()
+    with (
+        patch(
+            "modules.context.facade.retrieve_planned_context_evidence",
+            autospec=True,
+            return_value=bundle,
+        ),
+        patch(
+            "modules.world.map_atlas_workflow._require_attempt",
+            autospec=True,
+            return_value=fresh_run,
+        ),
+        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
+    ):
+        await _spatial_evidence(db_session, SimpleNamespace(), fresh_run, client)
+    assert client.generate_structured.await_count == 8
+
+    client.generate_structured.side_effect = RuntimeError("temporary")
+    failed_run = MapAtlasRun(
+        novel_id=uuid.UUID(project_novel_id), run_kind="update", status="planning"
+    )
+    db_session.add(failed_run)
+    await db_session.flush()
+    with (
+        patch(
+            "modules.context.facade.retrieve_planned_context_evidence",
+            autospec=True,
+            return_value=bundle,
+        ),
+        patch(
+            "modules.world.map_atlas_workflow._require_attempt",
+            autospec=True,
+            return_value=failed_run,
+        ),
+        patch("modules.world.map_atlas_workflow.require_active_project", autospec=True),
+    ):
+        failed, _manifest = await _spatial_evidence(
+            db_session, SimpleNamespace(), failed_run, client
+        )
+    assert failed["all_batches_failed"] is True
+    assert failed["degraded"] is True
+    assert failed["message"] == "空间资料提取暂时不可用。"
+
+
 ALPHA_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg=="
 )
@@ -103,14 +369,15 @@ def test_review_cas_and_derived_reference_limits_are_required() -> None:
     with pytest.raises(PydanticValidationError):
         MapAtlasReviewRequest()
     with pytest.raises(PydanticValidationError):
-        MapAtlasDerivedRequest(
-            reference_page_ids=[str(uuid.uuid4()) for _ in range(8)]
+        MapAtlasDerivedRequest(reference_page_ids=[str(uuid.uuid4()) for _ in range(8)])
+    assert (
+        len(
+            MapAtlasDerivedRequest(
+                reference_page_ids=[str(uuid.uuid4()) for _ in range(7)]
+            ).reference_page_ids
         )
-    assert len(
-        MapAtlasDerivedRequest(
-            reference_page_ids=[str(uuid.uuid4()) for _ in range(7)]
-        ).reference_page_ids
-    ) == 7
+        == 7
+    )
 
 
 def test_atlas_sources_must_come_from_compiled_project_context() -> None:
@@ -192,11 +459,7 @@ def test_atlas_sources_cannot_reuse_an_id_from_another_source_bucket() -> None:
             plan,
             novel_id,
             _atlas_source_manifest(
-                {
-                    "entity": [
-                        {"source_id": "shared-id", "status": "canonical"}
-                    ]
-                }
+                {"entity": [{"source_id": "shared-id", "status": "canonical"}]}
             ),
         )
 
@@ -229,15 +492,9 @@ def test_atlas_source_catalog_is_canonical_openable_and_marks_working() -> None:
                     "status": "canonical",
                 }
             ],
-            "relation": [
-                {"source_id": "relation-1", "status": "canonical"}
-            ],
-            "character_knowledge": [
-                {"source_id": "knowledge-1", "status": "canonical"}
-            ],
-            "entity": [
-                {"source_id": "candidate-1", "status": "candidate"}
-            ],
+            "relation": [{"source_id": "relation-1", "status": "canonical"}],
+            "character_knowledge": [{"source_id": "knowledge-1", "status": "canonical"}],
+            "entity": [{"source_id": "candidate-1", "status": "candidate"}],
             "project": [{"source_id": "project-1"}],
         }
     )
@@ -360,14 +617,12 @@ def test_formal_evidence_requires_formal_source_and_new_sources_use_prior_run() 
                 },
                 {"source_id": "page-2", "status": "published"},
             ],
-            "world_bible_draft": [
-                {"source_id": "draft-2", "status": "working"}
-            ],
+            "world_bible_draft": [{"source_id": "draft-2", "status": "working"}],
         }
     )
     assert _new_source_identities(prior_manifest, current_manifest) == {
         ("world_bible_page", "page-1"),
-        ("world_bible_page", "page-2")
+        ("world_bible_page", "page-2"),
     }
 
     new_path = AtlasPlan(
@@ -399,9 +654,7 @@ def test_formal_evidence_requires_formal_source_and_new_sources_use_prior_run() 
         [],
         changed_semantic_keys=set(),
         missing_location_ids=set(),
-        new_source_identities=_new_source_identities(
-            prior_manifest, current_manifest
-        ),
+        new_source_identities=_new_source_identities(prior_manifest, current_manifest),
     )
     new_path.nodes[0].sources[0].source_status = "working"
     with pytest.raises(ValueError, match="newly retained source"):
@@ -871,13 +1124,9 @@ async def test_page_history_keeps_unresolved_candidates_from_older_runs(
     db_session.add_all([*old_pages, latest_page])
     await db_session.flush()
 
-    history = await MapAtlasService().get_archived_pages(
-        db_session, test_project_id
-    )
+    history = await MapAtlasService().get_archived_pages(db_session, test_project_id)
 
-    assert {item["id"] for item in history} == {
-        str(page.id) for page in old_pages[:3]
-    }
+    assert {item["id"] for item in history} == {str(page.id) for page in old_pages[:3]}
     assert {item["run_id"] for item in history} == {str(old_run.id)}
 
     response = await async_client.get(
@@ -893,12 +1142,8 @@ def test_attempt_object_key_is_unique_per_task_attempt() -> None:
     novel_id = uuid.uuid4()
     run = SimpleNamespace(novel_id=novel_id)
     page = SimpleNamespace(id=uuid.uuid4())
-    first = _attempt_object_key(
-        run, page, SimpleNamespace(id=uuid.uuid4(), attempt=1)
-    )
-    second = _attempt_object_key(
-        run, page, SimpleNamespace(id=uuid.uuid4(), attempt=1)
-    )
+    first = _attempt_object_key(run, page, SimpleNamespace(id=uuid.uuid4(), attempt=1))
+    second = _attempt_object_key(run, page, SimpleNamespace(id=uuid.uuid4(), attempt=1))
     assert first != second
     assert first.endswith("/image.png")
     assert "/attempts/" in first
@@ -1220,15 +1465,125 @@ async def test_adopt_applies_reused_node_and_run_ancestor_proposals(
     assert (scenario.city.title, scenario.city.summary, scenario.city.sort_order) == (
         "新城",
         "新摘要",
-        7,
+        0,
     )
     assert (
         scenario.new_parent.title,
         scenario.new_parent.summary,
         scenario.new_parent.sort_order,
-    ) == ("新东境", "新东境摘要", 4)
+    ) == ("新东境", "新东境摘要", 1)
     assert scenario.parent_page.review_status == "candidate"
     assert scenario.city_page.review_status == "adopted"
+
+
+@pytest.mark.asyncio
+async def test_adopting_child_bases_remaining_provisional_parent_proposal(
+    db_session, test_project_id
+) -> None:
+    novel_id = uuid.UUID(test_project_id)
+    run = MapAtlasRun(novel_id=novel_id, run_kind="initial", status="review_ready")
+    db_session.add(run)
+    await db_session.flush()
+    root = MapAtlasNode(
+        novel_id=novel_id,
+        created_by_run_id=run.id,
+        semantic_key="world:existing",
+        title="世界",
+        level="world",
+        status="adopted",
+    )
+    db_session.add(root)
+    await db_session.flush()
+    sibling = MapAtlasNode(
+        novel_id=novel_id,
+        created_by_run_id=run.id,
+        semantic_key="region:existing",
+        title="已有地区",
+        level="region",
+        status="adopted",
+        parent_id=root.id,
+        sort_order=0,
+    )
+    parent = MapAtlasNode(
+        novel_id=novel_id,
+        created_by_run_id=run.id,
+        semantic_key="path:parent",
+        title="新地区",
+        level="region",
+        status="provisional",
+        parent_id=root.id,
+        sort_order=1,
+    )
+    db_session.add_all([sibling, parent])
+    await db_session.flush()
+    child = MapAtlasNode(
+        novel_id=novel_id,
+        created_by_run_id=run.id,
+        semantic_key="path:parent:child",
+        title="新城",
+        level="city",
+        status="provisional",
+        parent_id=parent.id,
+    )
+    db_session.add(child)
+    await db_session.flush()
+
+    def proposal(node, parent_id, order):
+        return {
+            "node_id": str(node.id),
+            "parent_id": str(parent_id),
+            "title": node.title,
+            "level": node.level,
+            "sort_order": order,
+        }
+
+    parent_page = MapAtlasPage(
+        novel_id=novel_id,
+        run_id=run.id,
+        node_id=parent.id,
+        generation_status="review_ready",
+        title=parent.title,
+        visual_brief="brief",
+        prompt="prompt",
+        node_proposal=proposal(parent, root.id, 0),
+    )
+    child_page = MapAtlasPage(
+        novel_id=novel_id,
+        run_id=run.id,
+        node_id=child.id,
+        generation_status="review_ready",
+        title=child.title,
+        visual_brief="brief",
+        prompt="prompt",
+        node_proposal=proposal(child, parent.id, 0),
+    )
+    db_session.add_all([parent_page, child_page])
+    await db_session.flush()
+    service = MapAtlasService()
+    await service.review_page(
+        db_session,
+        test_project_id,
+        str(child_page.id),
+        "adopt",
+        MapAtlasReviewRequest(expected_updated_at=child_page.updated_at),
+    )
+    assert parent_page.node_proposal["base_node_updated_at"]
+    await service.update_node(
+        db_session,
+        test_project_id,
+        str(parent.id),
+        MapAtlasNodeUpdate(before_node_id=None, expected_updated_at=parent.updated_at),
+    )
+    moved_order = parent.sort_order
+    with pytest.raises(ConflictError, match="层级已变化"):
+        await service.review_page(
+            db_session,
+            test_project_id,
+            str(parent_page.id),
+            "adopt",
+            MapAtlasReviewRequest(expected_updated_at=parent_page.updated_at),
+        )
+    assert parent.sort_order == moved_order
 
 
 @pytest.mark.asyncio

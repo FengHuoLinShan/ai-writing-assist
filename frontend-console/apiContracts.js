@@ -400,6 +400,11 @@
     "world.getMapAtlasRunResults": define("GET", ({ novelId, runId }) => `/world/map-atlas/${required(novelId, "novelId", "world.getMapAtlasRunResults")}/runs/${required(runId, "runId", "world.getMapAtlasRunResults")}/results`, {
       requiredParams: ["novelId", "runId"],
     }),
+    "world.getMapAtlasPagePrompt": define("GET", ({ novelId, pageId }) => `/world/map-atlas/${required(novelId, "novelId", "world.getMapAtlasPagePrompt")}/pages/${required(pageId, "pageId", "world.getMapAtlasPagePrompt")}/prompt`, { requiredParams: ["novelId", "pageId"] }),
+    "world.updateMapAtlasPagePrompt": define("PATCH", ({ novelId, pageId }) => `/world/map-atlas/${required(novelId, "novelId", "world.updateMapAtlasPagePrompt")}/pages/${required(pageId, "pageId", "world.updateMapAtlasPagePrompt")}/prompt`, { requiredParams: ["novelId", "pageId"], hasBody: true, requiredBody: ["prompt", "generation_choice", "expected_updated_at"] }),
+    "world.confirmMapAtlasPrompts": define("POST", ({ novelId, runId }) => `/world/map-atlas/${required(novelId, "novelId", "world.confirmMapAtlasPrompts")}/runs/${required(runId, "runId", "world.confirmMapAtlasPrompts")}/confirm-prompts`, { requiredParams: ["novelId", "runId"], hasBody: true, requiredBody: ["pages"] }),
+    "world.uploadMapAtlasPage": define("POST", ({ novelId }) => `/world/map-atlas/${required(novelId, "novelId", "world.uploadMapAtlasPage")}/pages/upload`, { requiredParams: ["novelId"], hasBody: true }),
+    "world.updateMapAtlasNode": define("PATCH", ({ novelId, nodeId }) => `/world/map-atlas/${required(novelId, "novelId", "world.updateMapAtlasNode")}/nodes/${required(nodeId, "nodeId", "world.updateMapAtlasNode")}`, { requiredParams: ["novelId", "nodeId"], hasBody: true }),
     "world.reviewMapAtlasPage": define("POST", ({ novelId, pageId, action }) => `/world/map-atlas/${required(novelId, "novelId", "world.reviewMapAtlasPage")}/pages/${required(pageId, "pageId", "world.reviewMapAtlasPage")}/${required(action, "action", "world.reviewMapAtlasPage")}`, {
       requiredParams: ["novelId", "pageId", "action"],
       hasBody: true,
