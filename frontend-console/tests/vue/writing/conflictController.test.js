@@ -132,7 +132,7 @@ describe("conflictController", () => {
     expect(api.tasks.get).toHaveBeenCalledWith("task-1", "p1")
     expect(api.writing.getConflictCheck).toHaveBeenCalledWith("check-1", "p1")
     expect(state.check).toEqual(completed)
-    expect(toast).toHaveBeenLastCalledWith("AI 软冲突判断部分生成", "warning")
+    expect(toast).not.toHaveBeenCalled()
     controller.dispose()
   })
 

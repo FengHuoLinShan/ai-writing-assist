@@ -1,5 +1,6 @@
 <template>
-  <div v-if="publish.active || publish.phase" id="writing-publish-bar-container" class="workflow-progress-card writing-publish-progress">
+  <TransitionGroup v-if="hasNotices" tag="div" class="writing-workflow-notices" name="writing-workflow-notice" aria-label="写作任务通知">
+  <div v-if="publish.active || publish.phase" id="writing-publish-bar-container" key="publish" class="workflow-progress-card writing-publish-progress writing-workflow-notice" aria-live="polite">
     <div class="workflow-progress-card__title">设为正式正文</div>
     <div class="workflow-progress-card__message">{{ publish.message }}</div>
     <progress v-if="publish.progress != null" max="100" :value="publish.progress" />
@@ -9,18 +10,18 @@
       <button class="btn btn-sm btn-primary" @click="$emit('retry-publish')">手动重试</button>
     </div>
   </div>
-  <section v-if="generation?.progress" id="writing-generation-bar-container" aria-live="polite">
+  <section v-if="generation?.progress" id="writing-generation-bar-container" key="generation" class="writing-workflow-notice" aria-live="polite">
     <WorkflowProgressCard :progress="generation.progress" :title="generation.progress.label || 'AI 正文建议'" :message="generation.progress.message || ''" :collapsible="true" :show-task-id="false" />
     <button v-if="generation.result" class="btn btn-sm btn-primary" @click="$emit('open-generation')">查看并审阅建议</button>
     <button v-if="!generation.progress.terminal" class="btn btn-sm" @click="$emit('cancel-generation')">取消任务</button>
     <button v-else class="btn btn-sm" @click="$emit('dismiss-generation')">关闭</button>
   </section>
-  <section v-if="conflictTask?.progress" id="writing-conflict-task-bar-container" aria-live="polite">
+  <section v-if="conflictTask?.progress" id="writing-conflict-task-bar-container" key="conflict-task" class="writing-workflow-notice" aria-live="polite">
     <WorkflowProgressCard :progress="conflictTask.progress" :title="conflictTask.progress.label || 'AI 冲突检查'" :message="conflictTask.progress.message || ''" :collapsible="true" :show-task-id="false" />
     <button v-if="!conflictTask.progress.terminal" class="btn btn-sm" @click="$emit('cancel-conflict-task')">取消任务</button>
     <button v-else class="btn btn-sm" @click="$emit('dismiss-conflict-task')">关闭</button>
   </section>
-  <section v-if="normalizedDeepImportProgress" id="writing-deep-import-bar-container" aria-live="polite">
+  <section v-if="normalizedDeepImportProgress" id="writing-deep-import-bar-container" key="deep-import" class="writing-workflow-notice" aria-live="polite">
     <WorkflowProgressCard
       :progress="normalizedDeepImportProgress"
       variant="card"
@@ -58,6 +59,7 @@
   <div
     v-if="showConflict && (conflict.latest || conflict.error)"
     id="writing-conflict-strip"
+    key="recent-conflict"
     class="writing-conflict-strip"
     :role="conflict.latest ? 'button' : 'status'"
     :tabindex="conflict.latest ? 0 : null"
@@ -67,10 +69,11 @@
     <strong>{{ conflict.error ? '最近检查加载失败' : '最近冲突检查' }}</strong>
     <span>{{ conflict.error || conflict.latest?.summary_json?.message || conflict.latest?.status || '已完成' }}</span>
   </div>
+  </TransitionGroup>
 </template>
 
 <script setup>
-import { computed } from "vue"
+import { computed, onBeforeUnmount, watch } from "vue"
 import { normalizeTaskProgress } from "../../../../shared/workflowProgress.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import {
@@ -89,7 +92,7 @@ const props = defineProps({
   conflictTask: { type: Object, default: null },
   showConflict: { type: Boolean, default: true },
 })
-defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "cancel-conflict-task", "dismiss-conflict-task"])
+const emit = defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "cancel-conflict-task", "dismiss-conflict-task"])
 
 const terminal = computed(() => ["done", "failed", "cancelled"].includes(props.deepImport.progress?.status || props.deepImport.progress?.phase))
 const canOpenScenes = computed(() => terminal.value
@@ -220,4 +223,89 @@ const attentionRequired = computed(() => Boolean(
 const deepImportClassName = computed(() => (
   normalizedDeepImportProgress.value?.terminal ? "" : "deep-import-progress--alive"
 ))
+const generationNeedsAttention = computed(() => Boolean(props.generation?.progress?.warnings?.length))
+const conflictNeedsAttention = computed(() => Boolean(
+  props.conflictTask?.progress?.warnings?.length
+  || props.conflict.latest?.ai_review_status === "partial"
+  || props.conflict.latest?.items?.some((item) => item.suggestion_status === "failed"),
+))
+
+const hasNotices = computed(() => Boolean(
+  props.publish.active
+  || props.publish.phase
+  || props.generation?.progress
+  || props.conflictTask?.progress
+  || normalizedDeepImportProgress.value
+  || (props.showConflict && (props.conflict.latest || props.conflict.error)),
+))
+
+const dismissTimers = new Map()
+function scheduleDismiss(name, signature, event, enabled) {
+  const current = dismissTimers.get(name)
+  if (current?.signature === signature && enabled) return
+  if (current) clearTimeout(current.timer)
+  dismissTimers.delete(name)
+  if (!enabled) return
+  const timer = setTimeout(() => {
+    if (dismissTimers.get(name)?.signature !== signature) return
+    dismissTimers.delete(name)
+    emit(event)
+  }, 3000)
+  dismissTimers.set(name, { signature, timer })
+}
+
+watch(
+  () => [
+    props.publish.phase,
+    props.publish.taskId,
+    props.publish.retryable,
+    props.generation?.taskId,
+    props.generation?.progress?.status,
+    props.generation?.result,
+    generationNeedsAttention.value,
+    props.conflictTask?.taskId,
+    props.conflictTask?.progress?.status,
+    conflictNeedsAttention.value,
+    props.deepImport.taskId,
+    props.deepImport.progress?.status,
+    canOpenScenes.value,
+    hasAudit.value,
+    attentionRequired.value,
+  ],
+  () => {
+    const generationDone = props.generation?.progress?.status === "done"
+    const conflictDone = props.conflictTask?.progress?.status === "done"
+    const deepImportDone = (props.deepImport.progress?.status || props.deepImport.progress?.phase) === "done"
+    scheduleDismiss(
+      "publish",
+      `${props.publish.taskId || "sync"}:${props.publish.phase}:${props.publish.message || ""}`,
+      "dismiss-publish",
+      props.publish.phase === "done" && !props.publish.retryable,
+    )
+    scheduleDismiss(
+      "generation",
+      `${props.generation?.taskId || "none"}:${props.generation?.progress?.status || "none"}`,
+      "dismiss-generation",
+      generationDone && !props.generation?.result && !generationNeedsAttention.value,
+    )
+    scheduleDismiss(
+      "conflict",
+      `${props.conflictTask?.taskId || "none"}:${props.conflictTask?.progress?.status || "none"}`,
+      "dismiss-conflict-task",
+      conflictDone && !conflictNeedsAttention.value,
+    )
+    scheduleDismiss(
+      "deep-import",
+      `${props.deepImport.taskId || "none"}:${props.deepImport.progress?.status || props.deepImport.progress?.phase || "none"}`,
+      "dismiss",
+      deepImportDone && !canOpenScenes.value && !hasAudit.value && !attentionRequired.value,
+    )
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  for (const { timer } of dismissTimers.values()) clearTimeout(timer)
+  dismissTimers.clear()
+})
 </script>

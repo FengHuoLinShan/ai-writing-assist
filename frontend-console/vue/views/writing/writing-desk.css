@@ -233,15 +233,6 @@
   user-select: none;
 }
 
-.writing-workspace-layout:has(
-  #writing-publish-bar-container,
-  #writing-generation-bar-container,
-  #writing-conflict-task-bar-container,
-  #writing-deep-import-bar-container
-) .writing-statusbar {
-  position: static;
-}
-
 .writing-statusbar .writing-wordcount-bar {
   justify-content: flex-start;
   flex-wrap: wrap;
@@ -1025,14 +1016,58 @@
   animation: writing-desk-pulse 1.2s var(--ease-default) infinite;
 }
 
-/* 发布进度卡 */
-.writing-publish-progress {
-  margin-top: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--archive-rule);
+/* 顶部写作任务通知：脱离稿纸网格，不挤动正文或状态栏 */
+.writing-workflow-notices {
+  position: fixed;
+  top: var(--topbar-height);
+  left: calc(50% + var(--sidebar-width) / 2);
+  z-index: 95;
+  display: grid;
+  gap: 6px;
+  width: min(360px, calc(100vw - var(--sidebar-width) - 32px));
+  max-height: calc(100dvh - var(--topbar-height) - 16px);
+  padding-top: 8px;
+  overflow-y: auto;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.writing-workflow-notice {
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--archive-rule-strong);
   border-left: 3px solid var(--archive-ink);
   border-radius: 2px;
   background: var(--archive-paper-raised);
+  box-shadow: var(--shadow-float);
+  pointer-events: auto;
+}
+
+.writing-workflow-notice > .workflow-progress,
+.writing-workflow-notice > .workflow-progress--card {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.writing-workflow-notice > .btn {
+  margin-top: 7px;
+  margin-right: 5px;
+}
+
+.writing-workflow-notice-enter-active {
+  transition: opacity 160ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+.writing-workflow-notice-enter-from {
+  opacity: 0;
+  transform: translateY(-18px);
+}
+
+/* 发布进度卡 */
+.writing-publish-progress {
+  padding: 9px 11px;
 }
 
 .workflow-progress-card__title {
@@ -1087,6 +1122,29 @@
 .writing-publish-error {
   color: var(--warning);
   font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .writing-workflow-notices {
+    left: 50%;
+    width: calc(100vw - 24px);
+  }
+}
+
+@media (min-width: 761px) and (max-width: 900px) {
+  .writing-workflow-notices {
+    left: calc(50% + (var(--sidebar-width) + 24px) / 2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .writing-workflow-notice-enter-active {
+    transition: opacity 160ms var(--ease-out);
+  }
+
+  .writing-workflow-notice-enter-from {
+    transform: none;
+  }
 }
 
 /* 冲突检查条：可点击的朱红 banner */

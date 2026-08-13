@@ -695,19 +695,21 @@ export function useWritingWorkspace(props) {
       publishProgress.taskId = result?.task_id || null
       publishProgress.phase = result?.task_id ? "running" : "done"
       publishProgress.progress = result?.task_id ? 0 : 100
-      publishProgress.message = result?.task_id ? "正在整理相关资料..." : "已设为正式正文"
+      publishProgress.message = result?.task_id
+        ? "正在整理相关资料..."
+        : result?.new_version === false
+          ? "正文无实质变化，已沿用当前正式正文"
+          : "已设为正式正文"
       await reloadChapters()
       if (result?.new_version !== false && selectedChapter.value) {
         await selectChapter(selectedChapter.value)
       }
-      toast(result?.new_version === false ? "正文无实质变化，已沿用当前正式正文" : "已设为正式正文", result?.new_version === false ? "info" : "success")
       if (result?.task_id) schedulePublishPoll(generation, result.task_id)
     } catch (err) {
       if (generation !== publishGeneration) return
       publishProgress.phase = "failed"
       publishProgress.message = sanitizeTaskErrorMessage(err?.message, "publish_chapter") || "未能设为正式正文。工作稿已保留，可手动重试。"
       publishProgress.retryable = true
-      toast(publishProgress.message, "error")
     } finally {
       if (generation === publishGeneration && !publishProgress.taskId) publishProgress.active = false
     }

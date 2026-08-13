@@ -168,7 +168,7 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 
 **底部状态栏**（`.writing-statusbar`，38px，sticky bottom，通栏 grid-column 1/-1，mono 11px）：
 
-- 正文下方出现发布、生成、冲突检查或深度导入反馈时，状态栏回到正常文档流，避免遮挡工作流卡；反馈消失后恢复吸底。
+- 发布、生成、冲突检查和深度导入反馈使用脱离网格的顶部浮层，状态栏始终保持吸底，不因任务状态变更而跳动。
 - 左：`#writing-wordcount-bar`——字数进度「1,240 / 3,000 字」+ 3px accent 进度条
   （`.wc-goal-progress`）、段落数、预计阅读时长（字数 / 400 向上取整，`WritingView.vue`
   `statusReadMinutes`）。日目标进度属行内轻量进度，不引入 `.workflow-progress`（主规范 §5.9）。
@@ -190,8 +190,8 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
   （「采用到工作稿」「拒绝建议」已是好文案，保留）；
 - 候选态正文只读区分见上表。
 
-**工作流条**（`WritingWorkflowBars.vue`：发布进度卡 / 深度导入进度卡 / 冲突条）：后台工作流统一走
-`.workflow-progress*`（主规范 §5.9）；版本加载失败 `.writing-empty-hint`（裸文本，§2-7）迁入
+**工作流通知**（`WritingWorkflowBars.vue`：发布 / AI 正文建议 / AI 冲突检查 / 深度导入与自动提取）：固定在全局顶栏下方、写作工作区水平居中，从页面上缘向下进入；最宽 360px，窄屏保留 12px 页边距，不参与正文 grid 排版。`prefers-reduced-motion` 下取消位移动画。工作流内容继续复用
+`.workflow-progress*`（主规范 §5.9）；运行、失败、取消、降级、恢复待处理及带查看/审阅/审计/恢复/重试操作的状态持续显示，只有无后续业务操作的成功态在 3 秒后自动关闭。单纯“关闭”不算后续业务操作。同一生命周期已在顶部浮层表达的成功和失败不重复发送全局 toast。版本加载失败 `.writing-empty-hint`（裸文本，§2-7）迁入
 `.error-card` 基准样式或补定义（执行时核实其使用点逐一收口）。
 
 映射主规范：§3.2 长正文、§5.1 Button、§5.2 输入（只读区分）、§5.6 Modal、§5.7 Toast（保存成功）、

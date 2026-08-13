@@ -1,10 +1,81 @@
 import { mount } from "@vue/test-utils"
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import WorkflowProgressCard from "../../../vue/components/WorkflowProgressCard.vue"
 import WritingWorkflowBars from "../../../vue/views/writing/components/WritingWorkflowBars.vue"
 
 describe("WritingWorkflowBars", () => {
   beforeEach(() => sessionStorage.clear())
+  afterEach(() => vi.useRealTimers())
+
+  it("顶部浮层中无后续操作的成功态在 3 秒后关闭", async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: "done", message: "已设为正式正文", retryable: false },
+        conflict: { latest: null, error: null },
+        deepImport: { taskId: null, progress: null },
+      },
+    })
+
+    expect(wrapper.get(".writing-workflow-notices").attributes("aria-label")).toBe("写作任务通知")
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(wrapper.emitted("dismiss-publish")).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(wrapper.emitted("dismiss-publish")).toHaveLength(1)
+  })
+
+  it("失败、取消、降级和带业务操作的成功态持续显示", async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: "failed", message: "失败", retryable: true },
+        conflict: { latest: null, error: null },
+        generation: { taskId: "generation-1", progress: { status: "done", terminal: true }, result: { draft_id: "candidate-1" } },
+        conflictTask: { taskId: "conflict-1", progress: { status: "cancelled", terminal: true } },
+        deepImport: { taskId: "deep-1", progress: { status: "done", degraded: true, availableActions: [] } },
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(wrapper.emitted("dismiss-publish")).toBeUndefined()
+    expect(wrapper.emitted("dismiss-generation")).toBeUndefined()
+    expect(wrapper.emitted("dismiss-conflict-task")).toBeUndefined()
+    expect(wrapper.emitted("dismiss")).toBeUndefined()
+  })
+
+  it("任务更新会清理旧计时器，只关闭新完成态", async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: null },
+        conflict: { latest: null, error: null },
+        conflictTask: { taskId: "conflict-1", progress: { status: "done", terminal: true } },
+        deepImport: { taskId: null, progress: null },
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await wrapper.setProps({ conflictTask: { taskId: "conflict-2", progress: { status: "running", terminal: false } } })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(wrapper.emitted("dismiss-conflict-task")).toBeUndefined()
+    await wrapper.setProps({ conflictTask: { taskId: "conflict-2", progress: { status: "done", terminal: true } } })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(wrapper.emitted("dismiss-conflict-task")).toHaveLength(1)
+  })
+
+  it("卸载时清理自动关闭计时器", async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: "done", message: "完成", retryable: false },
+        conflict: { latest: null, error: null },
+        deepImport: { taskId: null, progress: null },
+      },
+    })
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(wrapper.emitted("dismiss-publish")).toBeUndefined()
+  })
 
   it("运行态复用共享紧凑任务卡，显示准确百分比并持久化折叠选择", async () => {
     const wrapper = mount(WritingWorkflowBars, {

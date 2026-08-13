@@ -429,6 +429,20 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("发布生命周期失败只由顶部浮层反馈", async () => {
+    globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [{ id: "check-1", items: [] }] })
+    globalThis.api.writing.publish.mockRejectedValue(new Error("发布服务暂时不可用"))
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get("#btn-publish").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.get("#writing-publish-bar-container").text()).toContain("发布服务暂时不可用")
+    expect(toastMock).not.toHaveBeenCalledWith("发布服务暂时不可用", "error")
+    wrapper.unmount()
+  })
+
   it("发布后处理失败时保留原 payload 并支持手动重试", async () => {
     vi.useFakeTimers()
     globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [{ id: "check-1", items: [], summary_json: { open_high_count: 0 } }] })

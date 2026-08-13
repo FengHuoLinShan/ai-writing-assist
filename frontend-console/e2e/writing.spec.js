@@ -15,6 +15,14 @@ async function confirmPublishIfPrompted(page) {
   } catch {}
 }
 
+async function waitForPublishFeedback(page) {
+  const feedback = page.locator("#writing-publish-bar-container")
+  await expect(feedback).toBeVisible({ timeout: 15000 })
+  await expect(feedback).toContainText(/(正在整理相关资料|已设为正式正文|正式正文已就绪|正文无实质变化)/)
+  await expect(page.locator(SEL.toastContainer)).not.toContainText("已设为正式正文")
+  return feedback
+}
+
 function writingChapter(page, chapter) {
   return page.getByRole("button", { name: new RegExp(`^打开第 ${Number(chapter)} 章`) })
 }
@@ -88,7 +96,7 @@ test.describe("写作台模块", () => {
     await page.locator("#writing-editor").fill("初始发布内容。")
     await page.locator("#btn-publish").click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 15000 })
+    await waitForPublishFeedback(page)
 
     await page.locator("#writing-title-input").fill("第一章 测试")
     await page.locator("#writing-editor").fill("这是测试内容。")
@@ -100,29 +108,54 @@ test.describe("写作台模块", () => {
   test("发布章节", async ({ page }) => {
     await page.setViewportSize({ width: 1224, height: 768 })
     await createFirstChapter(page)
+    const frozenAt = new Date("2026-08-13T08:00:00Z")
+    await page.clock.install({ time: frozenAt })
+    await page.clock.pauseAt(frozenAt)
+    await page.route("**/api/writing/drafts", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ new_version: true }),
+      })
+    })
 
     await page.locator("#writing-title-input").fill("第一章 发布测试")
     await page.locator("#writing-editor").fill("这是发布测试的内容。")
     await expect(page.locator(".writing-statusbar")).toHaveCSS("position", "sticky")
     await page.locator("#btn-publish").click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 15000 })
-    await expect(page.locator("#writing-publish-bar-container")).toBeVisible()
+    const publishFeedback = await waitForPublishFeedback(page)
 
     for (const width of [1224, 1100, 900, 761]) {
       await page.setViewportSize({ width, height: 768 })
       const geometry = await page.evaluate(() => {
         const publishBar = document.querySelector("#writing-publish-bar-container")
         const statusbar = document.querySelector(".writing-statusbar")
-        if (!publishBar || !statusbar) return null
+        const topbar = document.querySelector("#topbar")
+        const workspace = document.querySelector("#workspace")
+        if (!publishBar || !statusbar || !topbar || !workspace) return null
         return {
-          publishBottom: publishBar.getBoundingClientRect().bottom,
-          statusTop: statusbar.getBoundingClientRect().top,
+          position: getComputedStyle(publishBar.closest(".writing-workflow-notices")).position,
+          publishTop: publishBar.getBoundingClientRect().top,
+          topbarBottom: topbar.getBoundingClientRect().bottom,
+          publishCenter: publishBar.getBoundingClientRect().left + publishBar.getBoundingClientRect().width / 2,
+          workspaceCenter: workspace.getBoundingClientRect().left + workspace.getBoundingClientRect().width / 2,
+          statusPosition: getComputedStyle(statusbar).position,
+          overflows: document.documentElement.scrollWidth > innerWidth,
         }
       })
       expect(geometry).not.toBeNull()
-      expect(geometry.publishBottom).toBeLessThanOrEqual(geometry.statusTop)
+      expect(geometry.position).toBe("fixed")
+      expect(geometry.publishTop).toBeGreaterThanOrEqual(geometry.topbarBottom)
+      expect(Math.abs(geometry.publishCenter - geometry.workspaceCenter)).toBeLessThan(2)
+      expect(geometry.statusPosition).toBe("sticky")
+      expect(geometry.overflows).toBe(false)
     }
+    await page.clock.runFor(2999)
+    await expect(publishFeedback).toBeVisible()
+    await page.clock.runFor(1)
+    await expect(publishFeedback).toBeHidden()
   })
 
   // ============================================================
@@ -206,7 +239,7 @@ test.describe("写作台模块", () => {
     await page.locator("#writing-editor").fill("基于 v1 的新内容")
     await clickWritingTool(page, "#btn-autosave")
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 15000 })
+    await waitForPublishFeedback(page)
   })
 
   test("实质变化留版、强制 checkpoint 和发布前撤销", async ({ page }) => {
@@ -247,7 +280,7 @@ test.describe("写作台模块", () => {
     const workingVersion = await page.locator("#version-selector option").first().getAttribute("data-version")
     await page.locator("#btn-publish").click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 15000 })
+    await waitForPublishFeedback(page)
 
     const history = await page.evaluate(async ({ apiBase, projectId }) => {
       const response = await fetch(`${apiBase}/writing/chapters/1/versions?novel_id=${projectId}`)
@@ -325,7 +358,7 @@ test.describe("写作台模块", () => {
     await page.locator("#writing-editor").fill("v2")
     await page.locator("#btn-publish").click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 15000 })
+    await waitForPublishFeedback(page)
 
     const history = await page.evaluate(async ({ apiBase, projectId }) => {
       const response = await fetch(`${apiBase}/writing/chapters/1/versions?novel_id=${projectId}`)
@@ -789,7 +822,7 @@ test.describe("写作台模块", () => {
     await page.locator("#btn-publish").click()
     await expect(page.locator("#modal-overlay")).toContainText("未处理的重要问题", { timeout: 10000 })
     await page.locator("#modal-footer").getByRole("button", { name: "继续设为正式正文" }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 15000 })
+    await waitForPublishFeedback(page)
 
     const latestDraft = await getLatestDraft(testProjectId, 1)
     expect(latestDraft.novel_id).toBe(testProjectId)

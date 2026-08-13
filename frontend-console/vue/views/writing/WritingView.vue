@@ -28,7 +28,31 @@
     @desktop="vm.switchDesktopMode"
   />
 
-  <div v-else class="writing-workspace-layout">
+  <WritingWorkflowBars
+    :publish="vm.publishProgress"
+    :conflict="vm.conflictState"
+    :deep-import="vm.deepImportState"
+    :deep-import-has-scenes="vm.deepImportHasScenes.value"
+    :generation="vm.generationTask"
+    :conflict-task="vm.conflictTask"
+    :show-conflict="false"
+    @cancel="vm.cancelDeepImport"
+    @resume="vm.resumeDeepImport"
+    @abandon="vm.abandonDeepImport"
+    @dismiss="vm.dismissDeepImport"
+    @open-audit="vm.deepAuditOpen.value = true"
+    @open-scenes="vm.openSceneWorkbench"
+    @open-conflict="vm.openConflictDialog"
+    @retry-publish="vm.retryPublish"
+    @dismiss-publish="vm.dismissPublishError"
+    @open-generation="vm.openGenerationResult"
+    @cancel-generation="vm.cancelGeneration"
+    @dismiss-generation="vm.dismissGeneration"
+    @cancel-conflict-task="vm.cancelConflictTask"
+    @dismiss-conflict-task="vm.dismissConflictTask"
+  />
+
+  <div v-if="!vm.mobileMode.value" class="writing-workspace-layout">
     <aside
       class="workspace-rail writing-tree-rail workspace-rail--left"
       :class="{ 'is-collapsed': !leftRailOpen }"
@@ -124,29 +148,6 @@
       </WritingEditor>
 
       <p v-if="vm.versionLoadError.value" class="writing-empty-hint" role="alert">{{ vm.versionLoadError.value }}</p>
-      <WritingWorkflowBars
-        :publish="vm.publishProgress"
-        :conflict="vm.conflictState"
-        :deep-import="vm.deepImportState"
-        :deep-import-has-scenes="vm.deepImportHasScenes.value"
-        :generation="vm.generationTask"
-        :conflict-task="vm.conflictTask"
-        :show-conflict="false"
-        @cancel="vm.cancelDeepImport"
-        @resume="vm.resumeDeepImport"
-        @abandon="vm.abandonDeepImport"
-        @dismiss="vm.dismissDeepImport"
-        @open-audit="vm.deepAuditOpen.value = true"
-        @open-scenes="vm.openSceneWorkbench"
-        @open-conflict="vm.openConflictDialog"
-        @retry-publish="vm.retryPublish"
-        @dismiss-publish="vm.dismissPublishError"
-        @open-generation="vm.openGenerationResult"
-        @cancel-generation="vm.cancelGeneration"
-        @dismiss-generation="vm.dismissGeneration"
-        @cancel-conflict-task="vm.cancelConflictTask"
-        @dismiss-conflict-task="vm.dismissConflictTask"
-      />
     </main>
 
     <aside

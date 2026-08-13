@@ -67,7 +67,7 @@ export function createWritingCommandController({
         if (Number(err?.status) === 404) {
           clearActiveWorkflow(submitted.task_id, receiptStorage)
           onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress({ id: submitted.task_id, task_type: "writing_generate", status: "failed", error_message: "未找到原任务，请重新开始。" }, "writing_generate") })
-          throw new Error("未找到原任务，请重新开始。")
+          throw Object.assign(new Error("未找到原任务，请重新开始。"), { workflowProgressVisible: true })
         }
         await wait(1500, token)
         continue
@@ -81,7 +81,10 @@ export function createWritingCommandController({
       }
       if (task?.status === "failed" || task?.status === "cancelled") {
         clearActiveWorkflow(submitted.task_id, receiptStorage)
-        throw new Error(task.error_message || task.result?.error_message || (task.status === "cancelled" ? "正文生成已取消" : "正文生成失败"))
+        throw Object.assign(
+          new Error(task.error_message || task.result?.error_message || (task.status === "cancelled" ? "正文生成已取消" : "正文生成失败")),
+          { workflowProgressVisible: true },
+        )
       }
       await wait(1500, token)
     }
@@ -97,7 +100,8 @@ export function createWritingCommandController({
       } catch (err) {
         if (Number(err?.status) === 404) {
           clearActiveWorkflow(submitted.task_id, receiptStorage)
-          throw new Error("未找到原任务，请重新开始。")
+          onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress({ id: submitted.task_id, task_type: workflowType, status: "failed", error_message: "未找到原任务，请重新开始。" }, workflowType) })
+          throw Object.assign(new Error("未找到原任务，请重新开始。"), { workflowProgressVisible: true })
         }
         await wait(1500, token)
         continue
@@ -107,9 +111,9 @@ export function createWritingCommandController({
       if (task?.status === "done") return task
       if (["failed", "cancelled"].includes(task?.status)) {
         clearActiveWorkflow(submitted.task_id, receiptStorage)
-        throw new Error(task.error_message || (
+        throw Object.assign(new Error(task.error_message || (
           task.status === "cancelled" ? "任务已取消" : "任务执行失败"
-        ))
+        )), { workflowProgressVisible: true })
       }
       await wait(1500, token)
     }
@@ -161,17 +165,16 @@ export function createWritingCommandController({
       if (workflowType === "writing_targeted_revision") {
         readyResult = { chapter_index: chapter, draft_id: task.result?.draft_id }
         await openResult()
-        toast("定向返修已生成新候选，原稿未被覆盖", "success")
       } else {
         readyResult = { chapter_index: chapter, draft_id: draftId }
         await openResult()
-        const count = Number(task.result?.blocking_count || 0)
-        toast(count ? `独立审查发现 ${count} 个阻断项` : "独立语义审查通过", count ? "warning" : "success")
       }
       onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress(task, workflowType), result: task.result || null })
       return task
     } catch (err) {
-      if (err !== ABORTED && !disposed && token === generation) toast(err?.message || `${label}失败`, "error")
+      if (err !== ABORTED && !disposed && token === generation && !err?.workflowProgressVisible) {
+        toast(err?.message || `${label}失败`, "error")
+      }
       return null
     } finally {
       if (token === generation) {
@@ -246,18 +249,25 @@ export function createWritingCommandController({
         clearActiveWorkflow(operationId, receiptStorage)
         persistActiveWorkflow({ taskId: submitted.task_id, workflowType: "writing_generate", label: pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议", projectId, view: "writing", meta: workflowMeta }, receiptStorage)
       }
-      toast(`${pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议"}任务已提交`, "success")
       const completed = await waitForDraft(submitted, projectId, token)
       if (disposed || token !== generation) return null
       readyResult = { chapter_index: chapter, draft_id: completed.draft_id }
-      onProgress({ taskId: submitted.task_id || operationId, result: readyResult })
+      onProgress({
+        taskId: submitted.task_id || operationId,
+        progress: normalizeTaskProgress({
+          id: submitted.task_id || operationId,
+          task_type: "writing_generate",
+          status: "done",
+        }, "writing_generate"),
+        result: readyResult,
+      })
       const editorUnchanged = getChapter() === editorBaseline.chapter && editor.getDraftId() === editorBaseline.draftId && editor.getContent() === editorBaseline.content
-      if (editorUnchanged) { await openResult(); toast("正文建议已生成，已打开待审阅版本", "success") } else toast("正文建议已生成，已保留当前编辑内容", "success")
+      if (editorUnchanged) await openResult()
       return completed
     } catch (err) {
       if (err === ABORTED || disposed || token !== generation) return null
       if (String(err?.message || "").includes("取消")) return null
-      toast(err?.message || "正文建议生成失败", "error")
+      if (!err?.workflowProgressVisible) toast(err?.message || "正文建议生成失败", "error")
       return null
     } finally {
       if (token === generation) {
@@ -282,10 +292,11 @@ export function createWritingCommandController({
         readyResult = { chapter_index: workflow.meta?.chapter, draft_id: task.result?.draft_id || workflow.meta?.draftId }
         onProgress({ taskId: workflow.taskId, progress: normalizeTaskProgress(task, workflow.workflowType), result: task.result || null })
       }
-      toast("已恢复正文任务，可在进度卡中查看", "success")
       return true
     } catch (err) {
-      if (err !== ABORTED && !disposed && token === generation) toast(err?.message || "正文任务恢复失败", "error")
+      if (err !== ABORTED && !disposed && token === generation && !err?.workflowProgressVisible) {
+        toast(err?.message || "正文任务恢复失败", "error")
+      }
       return false
     } finally {
       if (token === generation) { generating = false; onLoadingChange(false) }
