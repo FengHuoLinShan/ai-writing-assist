@@ -97,7 +97,7 @@ test.describe("settings 视觉基线", () => {
     await applyTheme(page, "sticky")
     await page.getByRole("tab", { name: "高级导入" }).click()
     await expect(page.locator("#deep-import-phase0-target-input-chars")).toHaveValue("72000")
-    await expect(page.getByText(/Phase 0/)).toBeVisible()
+    await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeVisible()
     await screenshotSettingsPage(page, "settings-project-tab-deep-import.png")
 
     await page.getByRole("tab", { name: "创作偏好" }).click()

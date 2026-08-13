@@ -258,7 +258,7 @@ describe("WritingView", () => {
 
     expect(wrapper.find("#writing-editor").exists()).toBe(false)
     expect(wrapper.find("#btn-autosave").attributes("disabled")).toBeDefined()
-    const extractionButton = wrapper.findAll("button").find((button) => button.text() === "整理场景")
+    const extractionButton = wrapper.findAll("button").find((button) => button.text() === "先整理场景骨架（推荐）")
     expect(extractionButton).toBeDefined()
     await extractionButton.trigger("click")
     expect(wrapper.find('[aria-label="自动提取"]').exists()).toBe(true)
@@ -273,7 +273,7 @@ describe("WritingView", () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain("请从左侧选择章节开始写作")
-    expect(wrapper.findAll("button").some((button) => button.text() === "整理场景")).toBe(false)
+    expect(wrapper.findAll("button").some((button) => button.text() === "先整理场景骨架（推荐）")).toBe(false)
     wrapper.unmount()
   })
 
@@ -324,11 +324,11 @@ describe("WritingView", () => {
     const wrapper = mount(WritingView, { props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }), attachTo: document.body })
     await flushPromises()
 
-    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "完整整理", "整理场景", "整理人物、设定与关系", "整理剧情线", "导出本章"]) {
+    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "先整理场景骨架（推荐）", "完整整理世界与结构", "整理人物、设定与关系", "整理剧情线", "导出本章"]) {
       expect(wrapper.findAll("button").some((button) => button.text() === label)).toBe(true)
     }
 
-    await wrapper.findAll("button").find((button) => button.text() === "整理场景").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "先整理场景骨架（推荐）").trigger("click")
     expect(wrapper.find('[aria-label="自动提取"]').exists()).toBe(true)
     wrapper.vm.$.setupState.vm.autoExtraction.open = false
 
@@ -606,7 +606,7 @@ describe("WritingView", () => {
     globalThis.api.writing.listChapters.mockResolvedValue({ chapter_indices: [1] })
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll("button").find((button) => button.text() === "整理场景").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "先整理场景骨架（推荐）").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
     expect(globalThis.api.imports.startStage).toHaveBeenCalledWith("scenes", "p1", 1, 1, false, false, expect.objectContaining({
@@ -623,7 +623,7 @@ describe("WritingView", () => {
     globalThis.api.writing.listChapters.mockResolvedValue({ chapter_indices: [1] })
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll("button").find((button) => button.text() === "完整整理").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "完整整理世界与结构").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
 
@@ -647,7 +647,7 @@ describe("WritingView", () => {
       status: "running",
       workflowType: "deep_import",
     }
-    await wrapper.findAll("button").find((button) => button.text() === "完整整理").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "完整整理世界与结构").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
 
@@ -669,7 +669,7 @@ describe("WritingView", () => {
     globalThis.api.tasks.get.mockImplementation(() => new Promise(() => {}))
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll("button").find((button) => button.text() === "完整整理").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "完整整理世界与结构").trigger("click")
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
 

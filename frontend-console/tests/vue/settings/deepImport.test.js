@@ -52,6 +52,8 @@ describe("buildDeepImportPayload", () => {
     form.phase0.target_input_chars = "10"
     const out = buildDeepImportPayload(form)
     expect(out.ok).toBe(false)
+    expect(out.groupId).toBe("phase0")
+    expect(out.fieldKey).toBe("target_input_chars")
     expect(out.error).toContain("必须是")
     expect(out.error).toContain("1000-500000")
   })
