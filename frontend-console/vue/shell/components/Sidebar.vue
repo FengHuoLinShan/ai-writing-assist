@@ -7,7 +7,7 @@
     </button>
     <ul id="nav-list" class="sidebar-desktop-nav">
       <li v-for="item in SHELL_NAV_ITEMS" :key="item.view" class="nav-item" :class="{ active: currentView === item.view }"
-        :data-view="item.view" :data-tooltip="item.title" :title="item.title" role="button" tabindex="0"
+        :data-view="item.view" :title="item.title" role="button" tabindex="0"
         @click="$emit('navigate', item.view)" @keydown.enter.prevent="$emit('navigate', item.view)" @keydown.space.prevent="$emit('navigate', item.view)">
         <NavIcon :name="item.icon" /><span class="nav-label">{{ item.label }}</span>
       </li>
