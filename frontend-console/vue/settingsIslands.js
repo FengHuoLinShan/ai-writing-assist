@@ -5,7 +5,6 @@
  * router.registerView(name, { onEnter, render, onRendered, onLeave })。
  * 数据在 island onEnter 阶段经 load() 预取，保证首屏即带数据。
  *
- * 同时接管原 projectSettingsView.js 注册的 #/llm 兼容别名（D15）。
  */
 import { mountIsland } from "./mountIsland.js"
 import GlobalSettingsView from "./views/settings/GlobalSettingsView.vue"
@@ -88,21 +87,6 @@ export function registerSettingsIslands() {
     component: ProjectSettingsView,
     load: loadProjectSettings,
   }))
-
-  // #/llm 向后兼容别名（D15）：有项目跳项目设置，否则跳全局设置
-  router.registerView("llm", {
-    async onEnter() {
-      if (getAppState()?.currentProjectId) {
-        getRouter().navigate("project-settings")
-      } else {
-        getRouter().navigate("settings")
-        getToast()("请先选择项目", "warning")
-      }
-    },
-    async render() {
-      return ""
-    },
-  })
 }
 
 registerSettingsIslands()

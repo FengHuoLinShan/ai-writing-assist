@@ -1,4 +1,5 @@
 import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
+import { redactSensitiveValue as _redactLogValue } from "./shared/redactSensitive.js"
 
 /**
  * 错误日志系统
@@ -17,49 +18,6 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
   const STORAGE_PREFIX = "_errorLog:"
   const MAX_ENTRIES = 50
   let _isUnloading = false
-
-  function _isSensitiveLogKey(key) {
-    const normalized = String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-    return normalized === "auth"
-      || normalized.includes("authorization")
-      || normalized.includes("apikey")
-      || normalized.endsWith("token")
-      || normalized.includes("secret")
-      || normalized.includes("password")
-      || normalized.includes("passwd")
-      || normalized.includes("credential")
-      || normalized.includes("cookie")
-  }
-
-  function _redactLogText(value) {
-    return String(value)
-      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-      .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
-      .replace(
-        /((?:api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|credential)\s*[:=]\s*["']?)([^"',;\s}&]+)/gi,
-        "$1[REDACTED]",
-      )
-  }
-
-  function _hasSensitiveLogLocation(value) {
-    return Array.isArray(value?.loc)
-      && value.loc.some((segment) => _isSensitiveLogKey(segment))
-  }
-
-  function _redactLogValue(value, seen = new WeakSet()) {
-    if (typeof value === "string") return _redactLogText(value)
-    if (value == null || typeof value !== "object") return value
-    if (seen.has(value)) return "[Circular]"
-    seen.add(value)
-    if (Array.isArray(value)) return value.map((item) => _redactLogValue(item, seen))
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-      key,
-      _isSensitiveLogKey(key)
-        || (key === "input" && _hasSensitiveLogLocation(value))
-        ? "[REDACTED]"
-        : _redactLogValue(item, seen),
-    ]))
-  }
 
   function _safeResponseDiagnostic(response) {
     if (typeof response !== "string") return _redactLogValue(response)
@@ -204,28 +162,6 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
       body: JSON.stringify(payload),
       keepalive: true,
     }).catch(() => {})
-  }
-
-  function _isFixedBulkSelectionExportError(entry) {
-    const message = String(entry?.message || "")
-    return message.includes("bulkSelection.js")
-      && message.includes("syncBulkSelectionUi")
-      && message.includes("does not provide an export named")
-  }
-
-  async function _pruneFixedStartupErrors() {
-    const entries = _read()
-    if (!entries.some(_isFixedBulkSelectionExportError)) return
-
-    try {
-      const bulkSelection = await import("./shared/bulkSelection.js")
-      if (typeof bulkSelection.syncBulkSelectionUi !== "function") return
-    } catch {
-      return
-    }
-
-    const kept = entries.filter((entry) => !_isFixedBulkSelectionExportError(entry))
-    if (kept.length !== entries.length) _write(kept)
   }
 
   function _pruneNonErrorEntries() {
@@ -514,7 +450,5 @@ import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
 
   const count = _pruneNonErrorEntries().length
   _updateBadge(count)
-  _pruneFixedStartupErrors()
-
   console.log("[errorLogger] 已加载，当前日志数:", count)
 })()

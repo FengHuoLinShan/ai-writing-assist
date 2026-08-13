@@ -45,36 +45,8 @@
     }
   }
 
-  function syncStateDom(updateUIForState, key, value) {
-    updateUIForState(key, value)
-  }
-
   function applyStateSideEffects({ key, value, oldValue, target }) {
     applyProjectStateSideEffects(key, value, oldValue, target)
-  }
-
-  function createStateController({ listeners, updateUIForState }) {
-    return {
-      applyStateSideEffects,
-      notifyStateListeners(key, value, oldValue) {
-        notifyStateListeners(listeners, key, value, oldValue)
-      },
-      syncStateDom(key, value) {
-        syncStateDom(updateUIForState, key, value)
-      },
-    }
-  }
-
-  function installGlobalSettingsCacheStorageHandler(state) {
-    if (typeof window === "undefined") return () => {}
-
-    const handler = (e) => {
-      if (e.key === "global_settings_cache_version") {
-        state.globalSettingsCache = null
-      }
-    }
-    window.addEventListener("storage", handler)
-    return () => window.removeEventListener("storage", handler)
   }
 
   const exported = Object.freeze({
@@ -82,9 +54,6 @@
     applyProjectStateSideEffects,
     applyStateSideEffects,
     notifyStateListeners,
-    syncStateDom,
-    createStateController,
-    installGlobalSettingsCacheStorageHandler,
   })
 
   if (typeof window !== "undefined") {

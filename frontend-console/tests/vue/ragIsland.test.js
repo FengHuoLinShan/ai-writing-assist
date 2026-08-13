@@ -63,6 +63,35 @@ describe("ragIsland", () => {
     views.rag.onLeave()
   })
 
+  it("并行启动首屏状态、证据、人物和 Scene 请求", async () => {
+    setBridgeOverrides({ state: { currentProjectId: "p-concurrent" } })
+    let resolveStatus
+    globalThis.api.rag.status = vi.fn(() => new Promise((resolve) => {
+      resolveStatus = resolve
+    }))
+    globalThis.api.context.evidenceHealth = vi.fn(async () => null)
+    globalThis.api.world.listCharacters = vi.fn(async () => ({ items: [], total: 0 }))
+    globalThis.api.outline.listScenesOrdered = vi.fn(async () => [])
+
+    const entering = views.rag.onEnter()
+
+    expect(globalThis.api.rag.status).toHaveBeenCalledWith("p-concurrent")
+    expect(globalThis.api.context.evidenceHealth).toHaveBeenCalledWith(
+      "p-concurrent",
+      "canonical",
+      24,
+    )
+    expect(globalThis.api.world.listCharacters).toHaveBeenCalledWith({
+      novel_id: "p-concurrent",
+      skip: 0,
+      limit: 50,
+    })
+    expect(globalThis.api.outline.listScenesOrdered).toHaveBeenCalledWith("p-concurrent")
+
+    resolveStatus({ total: 0, warnings: [], items: [] })
+    await entering
+  })
+
   it("同项目查找与状态往返保留 URL、未提交筛选和结果，切换项目才清空", async () => {
     const state = {
       currentProjectId: "p-session",

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import "../stateSlices.js"
 import App from "../app.js"
+
+globalThis.projectStorageSummary = globalThis.stateSlices.projectStorageSummary
 
 describe("application bootstrap", () => {
   let unmount

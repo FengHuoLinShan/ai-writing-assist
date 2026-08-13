@@ -7,6 +7,10 @@
 
 import { forceAccountSafeReload } from "./shared/accountStorage.js"
 import { resolveApiBaseUrl } from "./shared/apiBaseUrl.js"
+import {
+  redactSensitiveText as _redactDiagnosticText,
+  redactSensitiveValue as _redactDiagnosticValue,
+} from "./shared/redactSensitive.js"
 
 const API_BASE_URL = resolveApiBaseUrl(
   typeof API_HOST !== "undefined" ? API_HOST : "",
@@ -174,59 +178,11 @@ function _getCached(key) {
 
 function _setCache(key, data) {
   const now = Date.now()
-  for (const [cachedKey, entry] of _apiCache) {
-    if (now - entry.time > API_CACHE_TTL) _apiCache.delete(cachedKey)
-  }
   _apiCache.delete(key)
   _apiCache.set(key, { data, time: now })
   while (_apiCache.size > API_CACHE_MAX_ENTRIES) {
     _apiCache.delete(_apiCache.keys().next().value)
   }
-}
-
-function _isSensitiveDiagnosticKey(key) {
-  const normalized = String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-  return normalized === "auth"
-    || normalized.includes("authorization")
-    || normalized.includes("apikey")
-    || normalized.endsWith("token")
-    || normalized.includes("secret")
-    || normalized.includes("password")
-    || normalized.includes("passwd")
-    || normalized.includes("credential")
-    || normalized.includes("cookie")
-}
-
-function _redactDiagnosticText(value) {
-  return String(value)
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
-    .replace(
-      /((?:api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|credential)\s*[:=]\s*["']?)([^"',;\s}&]+)/gi,
-      "$1[REDACTED]",
-    )
-}
-
-function _hasSensitiveDiagnosticLocation(value) {
-  return Array.isArray(value?.loc)
-    && value.loc.some((segment) => _isSensitiveDiagnosticKey(segment))
-}
-
-function _redactDiagnosticValue(value, seen = new WeakSet()) {
-  if (typeof value === "string") return _redactDiagnosticText(value)
-  if (value == null || typeof value !== "object") return value
-  if (seen.has(value)) return "[Circular]"
-  seen.add(value)
-  if (Array.isArray(value)) {
-    return value.map((item) => _redactDiagnosticValue(item, seen))
-  }
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-    key,
-    _isSensitiveDiagnosticKey(key)
-      || (key === "input" && _hasSensitiveDiagnosticLocation(value))
-      ? "[REDACTED]"
-      : _redactDiagnosticValue(item, seen),
-  ]))
 }
 
 function _stringifyDiagnostic(value, maxLength = 500) {
@@ -500,23 +456,8 @@ async function request(path, options = {}) {
   return requestPromise
 }
 
-/**
- * 构建查询字符串
- * @param {Object} params - 查询参数
- * @returns {string}
- */
-function buildQueryString(params = {}) {
-  const parts = []
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "") {
-      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
-    }
-  }
-  return parts.length ? "?" + parts.join("&") : ""
-}
-
 function withQuery(path, params = {}) {
-  return path + buildQueryString(params)
+  return path + apiContractHelpers.queryString(params)
 }
 
 function jsonRequest(path, method, payload, options = {}) {
@@ -737,7 +678,7 @@ const api = {
     wechatStartUrl(config, purpose = "login") {
       const host = API_BASE_URL.slice(0, -4)
       if (purpose === "reauth") return `${host}/api/auth/reauth/wechat/start`
-      const query = buildQueryString({ accept_terms: true, accept_privacy: true })
+      const query = apiContractHelpers.queryString({ accept_terms: true, accept_privacy: true })
       return `${host}/api/auth/wechat/start${query}`
     },
   },
@@ -1048,22 +989,6 @@ const api = {
         params,
         { cache: "no-store" },
       )
-    },
-  },
-
-  memory: {
-    async getSceneCheckpoints(novelId, sceneId) {
-      return request(withQuery(`/novels/${novelId}/memories/scene-checkpoints`, {
-        scene_id: sceneId,
-      }))
-    },
-    async ensureSceneCheckpoints(novelId, sceneId) {
-      return post(`/novels/${novelId}/memories/scene-checkpoints/ensure`, {
-        scene_id: sceneId,
-      })
-    },
-    async repairSceneCheckpoint(novelId, payload) {
-      return post(`/novels/${novelId}/memories/scene-checkpoints/repair`, payload)
     },
   },
 
@@ -1426,22 +1351,22 @@ const api = {
     // ============================================================
     // AI 地图册
     async getMapAtlas(novelId) {
-      return request(`/world/map-atlas/${novelId}/atlas`, { cache: "no-store" })
+      return contractFetch("world.getMapAtlas", { novelId }, {}, { cache: "no-store" })
     },
     async getMapAtlasPageHistory(novelId) {
       return request(`/world/map-atlas/${novelId}/pages/history`, { cache: "no-store" })
     },
     async createMapAtlasRun(novelId, payload) {
-      return post(`/world/map-atlas/${novelId}/runs`, payload)
+      return contractJson("world.createMapAtlasRun", { novelId }, {}, payload)
     },
     async getMapAtlasRun(novelId, runId) {
-      return request(`/world/map-atlas/${novelId}/runs/${runId}`, { cache: "no-store" })
+      return contractFetch("world.getMapAtlasRun", { novelId, runId }, {}, { cache: "no-store" })
     },
     async getLatestMapAtlasRun(novelId) {
-      return request(`/world/map-atlas/${novelId}/runs/latest`, { cache: "no-store" })
+      return contractFetch("world.getLatestMapAtlasRun", { novelId }, {}, { cache: "no-store" })
     },
     async getMapAtlasRunResults(novelId, runId) {
-      return request(`/world/map-atlas/${novelId}/runs/${runId}/results`, { cache: "no-store" })
+      return contractFetch("world.getMapAtlasRunResults", { novelId, runId }, {}, { cache: "no-store" })
     },
     async stopMapAtlasRun(novelId, runId) {
       return post(`/world/map-atlas/${novelId}/runs/${runId}/stop`, {})
@@ -1452,7 +1377,7 @@ const api = {
       })
     },
     async reviewMapAtlasPage(novelId, pageId, action, payload = {}) {
-      return post(`/world/map-atlas/${novelId}/pages/${pageId}/${action}`, payload)
+      return contractJson("world.reviewMapAtlasPage", { novelId, pageId, action }, {}, payload)
     },
     async retryMapAtlasPage(novelId, pageId, confirmPossibleDuplicateCharge = false) {
       return post(`/world/map-atlas/${novelId}/pages/${pageId}/retry`, {
@@ -1758,14 +1683,6 @@ const api = {
       return contractFetch("generate.listPromptTemplateRevisions", { templateId }, { novel_id: novelId })
     },
 
-    async validatePromptTemplate(payload) {
-      return post("/world/generation-prompt-templates/validate", payload)
-    },
-
-    async previewPromptTemplate(payload) {
-      return post("/world/generation-prompt-templates/preview", payload)
-    },
-
     async worldChat(payload, options = {}) {
       return contractJson("generate.worldChat", {}, {}, payload, options)
     },
@@ -1832,16 +1749,6 @@ const api = {
   imports: {
     async uploadFile(file, novelId, onProgress = null, options = {}) {
       return uploadImportFile(file, novelId, onProgress, options)
-    },
-
-    async upload(novelId, file) {
-      const formData = new FormData()
-      formData.append("novel_id", novelId)
-      formData.append("file", file)
-      return request("/imports/upload", {
-        method: "POST",
-        body: formData,
-      })
     },
 
     async list(params = {}) {
@@ -2109,16 +2016,12 @@ const api = {
       return post("/tasks", { task_type: taskType, meta })
     },
 
-    async getStatus(taskId, novelId = null) {
+    async get(taskId, novelId = null) {
       const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
       const params = { _ts: Date.now() }
       if (resolvedNovelId) params.novel_id = resolvedNovelId
-      const query = buildQueryString(params)
+      const query = apiContractHelpers.queryString(params)
       return request(`/tasks/${taskId}${query}`)
-    },
-
-    async get(taskId, novelId = null) {
-      return this.getStatus(taskId, novelId)
     },
 
     async cancel(taskId, novelId = null) {

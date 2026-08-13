@@ -3,7 +3,10 @@
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest"
 
+import "../stateSlices.js"
 import "../router.js"
+
+globalThis.projectStorageSummary = globalThis.stateSlices.projectStorageSummary
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -19,7 +22,6 @@ beforeEach(() => {
   state.currentView = "project"
   state.currentSubView = null
   state.selectedItem = null
-  state.selectedItems = []
 })
 
 function addWorkspace() {
@@ -675,7 +677,6 @@ describe("renderCurrentView error handling", () => {
     state.currentProject = { id: "project-a", title: "项目 A" }
     state.currentView = "writing"
     state.selectedItem = { id: "old-row" }
-    state.selectedItems = [{ id: "old-row" }]
     await window.router.renderCurrentView()
 
     api.projects.get.mockImplementation(() => new Promise((resolve) => {
@@ -686,7 +687,6 @@ describe("renderCurrentView error handling", () => {
     await vi.waitFor(() => expect(resolveProject).toBeTypeOf("function"))
 
     expect(state.selectedItem).toBeNull()
-    expect(state.selectedItems).toEqual([])
     expect(content.querySelector(".loading-skeleton")).not.toBeNull()
 
     resolveProject({ id: "project-b", title: "项目 B" })

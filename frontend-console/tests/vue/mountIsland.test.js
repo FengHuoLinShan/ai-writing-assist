@@ -122,6 +122,25 @@ describe("mountIsland", () => {
     island.onLeave()
   })
 
+  it("onLeave 后未重新 onEnter 的重放不复用旧 props", async () => {
+    setBridgeOverrides({ router: { getCurrentQuery: () => null } })
+    const island = mountIsland({
+      viewName: "settings",
+      component: Probe,
+      load: async () => ({ message: "旧数据" }),
+    })
+    await island.onEnter()
+    content.innerHTML = island.render()
+    await island.onRendered()
+    expect(content.querySelector(".probe")?.textContent).toBe("旧数据")
+
+    island.onLeave()
+    content.innerHTML = island.render()
+    await island.onRendered()
+    expect(content.querySelector(".probe")?.textContent).toBe("")
+    island.onLeave()
+  })
+
   it("挂载点缺失时记录错误而不抛出", async () => {
     const island = mountIsland({ viewName: "settings", component: Probe })
     document.body.innerHTML = "<div></div>"

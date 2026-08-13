@@ -14,6 +14,15 @@ beforeEach(() => {
 })
 
 describe("commands navigation lifecycle", () => {
+  it("does not expose removed placeholder commands or registration", () => {
+    expect(window.commands.getHelpText()).not.toMatch(/:(?:export|save)\b/)
+    expect([
+      ...window.commands.getSuggestions("export"),
+      ...window.commands.getSuggestions("save"),
+    ]).toEqual([])
+    expect(window.commands.register).toBeUndefined()
+  })
+
   it("does not resolve a navigation command before router.navigate settles", async () => {
     let resolveNavigation
     globalThis.router.navigate.mockReturnValueOnce(new Promise((resolve) => { resolveNavigation = resolve }))

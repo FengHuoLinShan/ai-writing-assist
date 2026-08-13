@@ -16,7 +16,6 @@ const appState = {
   currentView: "project",
   currentSubView: null,
   selectedItem: null,
-  selectedItems: [],
   mode: "NORMAL",
   projects: [],
   viewStates: {},
@@ -24,7 +23,6 @@ const appState = {
   error: null,
   toast: null,
   backendConnected: true,
-  cache: {},
 }
 
 globalThis.state = new Proxy(appState, {
@@ -159,8 +157,6 @@ globalThis.api = {
     archivePromptTemplate: vi.fn(),
     copyPromptTemplate: vi.fn(),
     listPromptTemplateRevisions: vi.fn(),
-    validatePromptTemplate: vi.fn(),
-    previewPromptTemplate: vi.fn(),
     worldChat: vi.fn(),
     convergeWorld: vi.fn(),
     exploreWorld: vi.fn(),
@@ -324,13 +320,11 @@ globalThis.api = {
   },
   tasks: {
     submit: vi.fn(),
-    getStatus: vi.fn(),
     get: vi.fn(),
     cancel: vi.fn(),
     retry: vi.fn(),
   },
   imports: {
-    upload: vi.fn(),
     uploadFile: vi.fn(),
     list: vi.fn(),
     deepImport: vi.fn(),

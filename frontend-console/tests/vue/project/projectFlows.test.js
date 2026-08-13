@@ -668,7 +668,7 @@ describe("项目 modal 流程", () => {
     setBridgeOverrides({ state, confirmAction })
     globalThis.api.projects.create.mockResolvedValue({ id: "p-new", title: "迷雾之城" })
     globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-new", title: "迷雾之城" }] })
-    globalThis.api.imports.upload.mockResolvedValue({ total_chapters: 12, imported_chapters: 12 })
+    globalThis.api.imports.uploadFile.mockResolvedValue({ total_chapters: 12, imported_chapters: 12 })
 
     const createElement = document.createElement.bind(document)
     let fileInput = null
@@ -692,7 +692,7 @@ describe("项目 modal 流程", () => {
 
       await confirmImport()
       expect(globalThis.api.projects.create).toHaveBeenCalledWith(expect.objectContaining({ title: "迷雾之城" }))
-      expect(globalThis.api.imports.upload).toHaveBeenCalledWith("p-new", file)
+      expect(globalThis.api.imports.uploadFile).toHaveBeenCalledWith(file, "p-new")
       expect(state).toMatchObject({ currentProjectId: "p-new", currentProject: { id: "p-new" } })
       expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
     } finally {
@@ -706,7 +706,7 @@ describe("项目 modal 流程", () => {
     setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
     globalThis.api.projects.create.mockResolvedValue({ id: "p-direct", title: "直传文件" })
     globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-direct", title: "直传文件" }] })
-    globalThis.api.imports.upload.mockResolvedValue({ total_chapters: 2, imported_chapters: 2 })
+    globalThis.api.imports.uploadFile.mockResolvedValue({ total_chapters: 2, imported_chapters: 2 })
     const createSpy = vi.spyOn(document, "createElement")
     const file = new File(["正文"], "直传文件.txt", { type: "text/plain" })
 
@@ -717,7 +717,7 @@ describe("项目 modal 流程", () => {
       expect(confirmImport).toBeTypeOf("function")
       await confirmImport()
       expect(globalThis.api.projects.create).toHaveBeenCalledWith(expect.objectContaining({ title: "直传文件" }))
-      expect(globalThis.api.imports.upload).toHaveBeenCalledWith("p-direct", file)
+      expect(globalThis.api.imports.uploadFile).toHaveBeenCalledWith(file, "p-direct")
     } finally {
       createSpy.mockRestore()
     }
@@ -807,7 +807,7 @@ describe("项目 modal 流程", () => {
     setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
     globalThis.api.projects.create.mockResolvedValue({ id: "p-new", title: "失败导入" })
     globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-old" }, { id: "p-new" }] })
-    globalThis.api.imports.upload.mockRejectedValue(new Error("解析失败"))
+    globalThis.api.imports.uploadFile.mockRejectedValue(new Error("解析失败"))
     const createElement = document.createElement.bind(document)
     let fileInput = null
     const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
@@ -843,7 +843,7 @@ describe("项目 modal 流程", () => {
     setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
     globalThis.api.projects.create.mockResolvedValue({ id: "p-import", title: "慢导入" })
     globalThis.api.projects.list.mockResolvedValue({ items: [{ id: "p-old" }, { id: "p-import" }] })
-    globalThis.api.imports.upload.mockImplementation(() => new Promise((resolve) => { resolveUpload = resolve }))
+    globalThis.api.imports.uploadFile.mockImplementation(() => new Promise((resolve) => { resolveUpload = resolve }))
     const createElement = document.createElement.bind(document)
     let fileInput = null
     const createSpy = vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
@@ -875,12 +875,12 @@ describe("项目 modal 流程", () => {
     document.body.innerHTML = '<div id="modal-body"><p class="confirm-owner"></p></div>'
     setBridgeOverrides({ state, confirmAction: (_message, onConfirm) => { confirmImport = onConfirm } })
     globalThis.api.projects.create.mockResolvedValue({ id: "p-import", title: "慢导入" })
-    globalThis.api.imports.upload.mockReturnValue(upload.promise)
+    globalThis.api.imports.uploadFile.mockReturnValue(upload.promise)
     const file = new File(["正文"], "慢导入.txt", { type: "text/plain" })
 
     importAsNewProject(file)
     const pending = confirmImport()
-    await vi.waitFor(() => expect(globalThis.api.imports.upload).toHaveBeenCalledWith("p-import", file))
+    await vi.waitFor(() => expect(globalThis.api.imports.uploadFile).toHaveBeenCalledWith(file, "p-import"))
     expect(state.currentProjectId).toBe("p-import")
     document.getElementById("modal-body").innerHTML = '<div class="replacement-modal"></div>'
     upload.resolve({ total_chapters: 1, imported_chapters: 1 })

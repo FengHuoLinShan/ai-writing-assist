@@ -41,22 +41,6 @@ afterEach(() => {
 })
 
 describe("App smart dedup integration", () => {
-  it("releases app-lifetime state listeners on dispose", () => {
-    const previousDispose = globalThis.disposeStateGlobalListeners
-    const disposeStateGlobalListeners = vi.fn()
-    globalThis.disposeStateGlobalListeners = disposeStateGlobalListeners
-    App._shell = { unmount: vi.fn() }
-    App._initialized = true
-    try {
-      App.dispose()
-      expect(disposeStateGlobalListeners).toHaveBeenCalledTimes(1)
-      expect(App._initialized).toBe(false)
-    } finally {
-      if (previousDispose) globalThis.disposeStateGlobalListeners = previousDispose
-      else delete globalThis.disposeStateGlobalListeners
-    }
-  })
-
   it("locks and reloads an old tab when another tab changes the account marker", () => {
     globalThis.currentAccount = { id: "account-old" }
     localStorage.setItem("novel_accountId", "account-new")

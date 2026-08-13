@@ -63,7 +63,7 @@ describe("editorial archive theme", () => {
   })
 
   it("covers every workspace family and preserves compact mobile controls", () => {
-    for (const view of ["writing", "scene", "world", "outline", "rag", "generate", "map", "settings", "project-settings"]) {
+    for (const view of ["writing", "world", "outline", "rag", "generate", "map", "settings", "project-settings"]) {
       expect(theme).toContain(`[data-workspace-view="${view}"]`)
     }
     expect(theme).toMatch(/@media \(max-width: 760px\)[\s\S]*\.btn\s*\{[^}]*min-height:\s*42px;/s)

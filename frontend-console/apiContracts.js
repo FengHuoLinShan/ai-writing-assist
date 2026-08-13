@@ -73,7 +73,6 @@
     requiredBody = [],
     hasBody = false,
     timeout = DEFAULT_TIMEOUT,
-    timeoutKind = "default",
   } = {}) {
     return Object.freeze({
       method,
@@ -83,7 +82,6 @@
       requiredBody,
       hasBody,
       timeout,
-      timeoutKind,
     })
   }
 
@@ -268,17 +266,14 @@
     "context.confirm": define("POST", () => "/context/confirm", {
       hasBody: true,
       timeout: CONTEXT_CONFIRM_TIMEOUT,
-      timeoutKind: "contextConfirm",
     }),
     "context.compile": define("POST", () => "/context/compile", {
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
-      timeoutKind: "contextCompile",
     }),
     "context.render": define("POST", () => "/context/render", {
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
-      timeoutKind: "contextCompile",
     }),
     "context.listSnapshots": define("GET", () => "/context/snapshots"),
     "context.getSnapshot": define("GET", ({ snapshotId }) => `/context/snapshots/${required(snapshotId, "snapshotId", "context.getSnapshot")}`, {
@@ -299,28 +294,23 @@
     "generate.worldChat": define("POST", () => "/world/generation-center/chat", {
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "generate.convergeWorld": define("POST", () => "/world/generation-center/convergence", {
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "generate.exploreWorld": define("POST", () => "/world/generation-center/exploration", {
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "generate.inspectWorldPage": define("POST", () => "/world/generation-center/semantic-inspection", {
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "generate.askWorld": define("POST", () => "/world/ask-world", {
       hasBody: true,
       requiredBody: ["novel_id", "question"],
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "generate.openAskWorldCitation": define("POST", () => "/world/ask-world/citations/open", {
       hasBody: true,
@@ -333,20 +323,17 @@
     "generate.generateWorldSuggestion": define("POST", () => "/world/generation-center/suggestions", {
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "generate.enqueueWorldSuggestion": define("POST", () => "/world/generation-center/suggestions/task", {
       hasBody: true,
       requiredBody: ["operation_id"],
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
     "generate.applyWorldPageDraft": define("POST", ({ suggestionId }) => `/world/generation-center/suggestions/${required(suggestionId, "suggestionId", "generate.applyWorldPageDraft")}/apply-page-draft`, {
       requiredParams: ["suggestionId"],
       requiredQuery: ["novel_id"],
       hasBody: true,
       timeout: AI_PREVIEW_APPLY_TIMEOUT,
-      timeoutKind: "aiPreviewApply",
     }),
 
     "tasks.cancel": define("POST", ({ taskId }) => `/tasks/${required(taskId, "taskId", "tasks.cancel")}/cancel`, {
@@ -446,31 +433,26 @@
       requiredParams: ["checkId"],
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "writing.enqueueConflictAiReview": define("POST", ({ checkId }) => `/writing/conflict-checks/${required(checkId, "checkId", "writing.enqueueConflictAiReview")}/ai-review-task`, {
       requiredParams: ["checkId"],
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
     "writing.enqueueConflictAiSuggestion": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.enqueueConflictAiSuggestion")}/ai-suggestion-task`, {
       requiredParams: ["itemId"],
       requiredBody: ["operation_id"],
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
     "writing.requestConflictAiSuggestion": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.requestConflictAiSuggestion")}/ai-suggestion`, {
       requiredParams: ["itemId"],
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "writing.generate": define("POST", () => "/writing/generate", {
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
     "writing.semanticReview": define("POST", () => "/writing/semantic-reviews", {
       requiredBody: ["novel_id", "draft_ids", "scope", "operation_id"],
@@ -488,18 +470,15 @@
     "outline.analyze": define("POST", () => "/outline/analyze", {
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
     "outline.generate": define("POST", () => "/outline/generate", {
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
     "outline.applyStructurePreview": define("POST", () => "/outline/generate/apply", {
       hasBody: true,
       requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"],
       timeout: AI_PREVIEW_APPLY_TIMEOUT,
-      timeoutKind: "aiPreviewApply",
     }),
     "outline.getStoryOutline": define("GET", () => "/outline/story-outline", {
       requiredQuery: ["novel_id"],
@@ -526,54 +505,45 @@
       hasBody: true,
       requiredBody: ["novel_id", "author_intent", "planned_scale", "coverage", "selected_character_ids", "selected_entity_ids", "include_current_outline"],
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
     "outline.applyStoryOutlinePreview": define("POST", () => "/outline/story-outline/generate/apply", {
       hasBody: true,
       requiredBody: ["novel_id", "source_task_id", "title", "creative_core", "outline_markdown", "major_storylines", "macro_movements", "open_decisions", "base_revision_id", "idempotency_key", "confirmed"],
       timeout: AI_PREVIEW_APPLY_TIMEOUT,
-      timeoutKind: "aiPreviewApply",
     }),
     "outline.previewSceneFusion": define("POST", () => "/outline/scene-workbench/fusion/preview", {
       requiredQuery: ["novel_id"],
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
-      timeoutKind: "llmGenerate",
     }),
     "outline.previewSceneFusionTask": define("POST", () => "/outline/scene-workbench/fusion/preview-task", {
       requiredQuery: ["novel_id"],
       requiredBody: ["operation_id"],
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
-      timeoutKind: "aiTaskSubmit",
     }),
 
     "context.searchEvidence": define("POST", () => "/context/evidence/search", {
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
-      timeoutKind: "ragSearch",
     }),
     "context.grepEvidence": define("POST", () => "/context/evidence/grep", {
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
-      timeoutKind: "ragSearch",
     }),
     "context.readEvidence": define("POST", () => "/context/evidence/read", {
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
-      timeoutKind: "ragSearch",
     }),
 
     "rag.search": define("POST", () => "/rag/retrieve", {
       requiredQuery: ["novel_id"],
       hasBody: true,
       timeout: RAG_SEARCH_TIMEOUT,
-      timeoutKind: "ragSearch",
     }),
     "rag.prewarm": define("POST", () => "/rag/prewarm", {
       hasBody: true,
       timeout: RAG_PREWARM_TIMEOUT,
-      timeoutKind: "ragPrewarm",
     }),
   })
 

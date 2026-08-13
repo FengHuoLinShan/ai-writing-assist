@@ -45,48 +45,54 @@ async function loadRag() {
   }
 
   const api = getApi()
-  let status = null
-  let apiAvailable = false
-  try {
-    status = await api.rag.status(projectId)
-    apiAvailable = true
-  } catch {
-    status = null
-  }
-
-  // vanilla onEnter 的后台预热触发点：island load 即 vanilla onEnter；
-  // 请求由模块级 prewarmManager 去重，不随 island 重挂载反复重启（P2 评审）
-  if (apiAvailable && (status?.total || 0) > 0 && !status?.embedding_runtime?.healthy) {
-    void ensurePrewarm()
-  }
-
-  let evidenceHealth = null
-  if (api.context?.evidenceHealth) {
+  const statusPromise = (async () => {
     try {
-      evidenceHealth = await api.context.evidenceHealth(projectId, "canonical", 24)
+      const status = await api.rag.status(projectId)
+      // vanilla onEnter 的后台预热触发点：island load 即 vanilla onEnter；
+      // 请求由模块级 prewarmManager 去重，不随 island 重挂载反复重启（P2 评审）
+      if ((status?.total || 0) > 0 && !status?.embedding_runtime?.healthy) {
+        void ensurePrewarm()
+      }
+      return { status, apiAvailable: true }
     } catch {
-      evidenceHealth = null
+      return { status: null, apiAvailable: false }
     }
-  }
+  })()
 
-  let characters = []
-  if (api.world?.listCharacters) {
+  const evidenceHealthPromise = (async () => {
+    if (!api.context?.evidenceHealth) return null
     try {
-      characters = await loadAllCharacters(projectId)
+      return await api.context.evidenceHealth(projectId, "canonical", 24)
     } catch {
-      characters = []
+      return null
     }
-  }
+  })()
 
-  let scenes = []
-  if (api.outline?.listScenesOrdered) {
+  const charactersPromise = (async () => {
+    if (!api.world?.listCharacters) return []
+    try {
+      return await loadAllCharacters(projectId)
+    } catch {
+      return []
+    }
+  })()
+
+  const scenesPromise = (async () => {
+    if (!api.outline?.listScenesOrdered) return []
     try {
       const result = await api.outline.listScenesOrdered(projectId)
-      scenes = Array.isArray(result) ? result : (result?.items || [])
+      return Array.isArray(result) ? result : (result?.items || [])
     } catch {
-      scenes = []
+      return []
     }
-  }
+  })()
+
+  const [{ status, apiAvailable }, evidenceHealth, characters, scenes] = await Promise.all([
+    statusPromise,
+    evidenceHealthPromise,
+    charactersPromise,
+    scenesPromise,
+  ])
 
   return { projectId, apiAvailable, status, evidenceHealth, characters, scenes }
 }

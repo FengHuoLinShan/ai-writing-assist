@@ -1,7 +1,7 @@
 /**
  * outlineWorkflowManagers — outline 视图三条 AI 工作流轮询线的模块级管理器。
  *
- * 每条线由 createOutlineWorkflowManager 工厂创建，状态为 reactive 供 Vue 组件自渲染。
+ * 每条线由 Vue 内部共享的 createWorkflowManager 工厂创建，状态为 reactive 供组件自渲染。
  *
  * 生命周期遵循 island 路由契约：
  * - island load() → recover(projectId)（localStorage 恢复未终结任务）；
@@ -14,15 +14,12 @@
  * - outlineAnalysis 使用 novelId 参数轮询、支持显式取消；
  * - plotAutoExtract 简单提交→轮询→终态刷新。
  */
-import { reactive } from "vue"
 import { getApi, getAppState, getRouter, getToast } from "../../../bridge/index.js"
 import {
   clearActiveWorkflow,
-  normalizeTaskProgress,
-  persistActiveWorkflow,
-  pollTaskProgress,
   recoverActiveWorkflows,
 } from "../../../../shared/workflowProgress.js"
+import { createWorkflowManager } from "../../../shared/workflowManager.js"
 
 // ─── P20 结构层级映射 ─────────────────────────────────
 const P20_TARGET_LABELS = {
@@ -45,187 +42,16 @@ function refreshPlotStructureIfActive(ownerProjectId) {
   router?.refresh?.()
 }
 
-// ─── 通用工厂 ────────────────────────────────────────────────────────────
-
-/**
- * 创建一条轮廓工作流的管理器。
- *
- * @param {object} config
- * @param {string} config.workflowType      — 异步任务类型
- * @param {string} config.label             — 默认标题
- * @param {Function} config.matchRecovered  — (workflows) => workflow|null
- * @param {Function} config.onTerminal      — async (progress, state) => …
- * @param {Function} config.onUpdate        — (progress) => … 可选额外更新回调
- * @param {boolean} config.useNovelId       — 轮询传 novelId（分析用）
- * @param {boolean} config.clearOnDone       — done 时是否立即清理持久化工作流
- * @param {Function} config.matchesActiveScope — 当前项目/子视图是否仍拥有内存任务
- * @param {Function} config.onScopeReset       — 跨 scope 时清理扩展状态
- * @returns {{ state, workflowType, label, adopt, recover, stop }}
- */
-function createOutlineWorkflowManager({
-  workflowType,
-  label,
-  matchRecovered,
-  onTerminal,
-  onUpdate,
-  useNovelId = false,
-  clearOnDone = true,
-  matchesActiveScope = null,
-  onScopeReset = null,
-}) {
-  const state = reactive({
-    taskId: null,
-    status: "就绪",
-    meta: null,
-    progress: null,
-    ownerProjectId: null,
-    submitting: false,
-  })
-  let poller = null
-  let submissionGeneration = 0
-
-  function stop() {
-    if (poller?.stop) poller.stop()
-    poller = null
-  }
-
-  function resetMemoryScope() {
-    submissionGeneration += 1
-    stop()
-    state.taskId = null
-    state.status = "就绪"
-    state.meta = null
-    state.progress = null
-    state.ownerProjectId = null
-    state.submitting = false
-    onScopeReset?.(state)
-  }
-
-  function beginSubmission(projectId) {
-    if (
-      !projectId
-      || state.submitting
-      || (state.taskId && state.progress && !state.progress.terminal)
-    ) return null
-    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
-    const token = { generation: ++submissionGeneration, projectId }
-    state.ownerProjectId = projectId
-    state.submitting = true
-    return token
-  }
-
-  function endSubmission(token) {
-    if (!token || token.generation !== submissionGeneration) return
-    state.submitting = false
-  }
-
-  async function handleTerminal(progress, task, ownerProjectId, ownedTaskId) {
-    if (!progress.done || clearOnDone) {
-      clearActiveWorkflow(progress.taskId || ownedTaskId)
-    }
-    if (state.ownerProjectId !== ownerProjectId || state.taskId !== ownedTaskId) return
-    stop()
-    if (!progress.done || clearOnDone) state.taskId = null
-    state.progress = progress
-    await onTerminal?.(progress, state, task, ownerProjectId)
-  }
-
-  function startPolling(taskId, novelId = null) {
-    stop()
-    const api = getApi()
-    const ownerProjectId = state.ownerProjectId
-    const opts = {
-      taskId,
-      workflowType,
-      apiClient: api,
-      onUpdate: (progress) => {
-        state.progress = progress
-        state.status = progress.statusLabel || progress.status || "运行中"
-        onUpdate?.(progress)
-      },
-      onDone: (progress, task) => { void handleTerminal(progress, task, ownerProjectId, taskId) },
-      onFailed: (progress, task) => { void handleTerminal(progress, task, ownerProjectId, taskId) },
-    }
-    if (useNovelId && novelId) opts.novelId = novelId
-    poller = pollTaskProgress(opts)
-  }
-
-  /** 提交成功后接管任务：写 localStorage 并开始轮询。 */
-  function adopt(result, meta = null, projectId = getAppState()?.currentProjectId || null) {
-    if (!result?.task_id || !projectId) return false
-    persistActiveWorkflow({
-      taskId: result.task_id,
-      workflowType,
-      label,
-      projectId,
-      view: "outline",
-      meta: meta || undefined,
-    })
-    if (getAppState()?.currentProjectId !== projectId) return false
-    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
-    state.taskId = result.task_id
-    state.status = "运行中"
-    state.meta = meta || state.meta || null
-    state.ownerProjectId = projectId
-    state.progress = normalizeTaskProgress({
-      ...result,
-      task_type: workflowType,
-      meta: state.meta || {},
-    }, workflowType)
-    startPolling(result.task_id, state.meta?.project_id || null)
-    return state
-  }
-
-  /** island load() 调用：从 localStorage 恢复未终结任务。 */
-  function recover(projectId) {
-    if (!projectId) {
-      resetMemoryScope()
-      return
-    }
-    const scopeMatches = (
-      (!state.ownerProjectId || state.ownerProjectId === projectId)
-      && (!matchesActiveScope || matchesActiveScope(state, projectId))
-    )
-    if (state.ownerProjectId && !scopeMatches) resetMemoryScope()
-    if (state.taskId && state.progress && !state.progress.terminal && scopeMatches) return
-    if (state.preview && scopeMatches) return
-    const workflow = matchRecovered(recoverActiveWorkflows(projectId))
-    if (!workflow?.taskId) return
-    state.taskId = workflow.taskId
-    state.status = "运行中"
-    state.meta = workflow.meta || state.meta || null
-    state.ownerProjectId = projectId
-    state.progress = normalizeTaskProgress({
-      task_id: workflow.taskId,
-      task_type: workflow.workflowType || workflowType,
-      status: "running",
-      meta: workflow.meta || {},
-    }, workflow.workflowType || workflowType)
-    startPolling(workflow.taskId, state.meta?.project_id || null)
-  }
-
-  return {
-    state,
-    workflowType,
-    label,
-    adopt,
-    recover,
-    stop,
-    resetMemoryScope,
-    beginSubmission,
-    endSubmission,
-  }
-}
-
 // ─── Outline Generate Manager ────────────────────────────────────────────
 
 /**
  * 当前层 AI 创作（P20）管理器。
  * 额外管理 preview 状态，onDone 不自动清除 workflow（预览未生效时保留持久化）。
  */
-export const outlineGenerateManager = createOutlineWorkflowManager({
+export const outlineGenerateManager = createWorkflowManager({
   workflowType: "outline_generate",
   label: "当前层建议",
+  view: "outline",
   clearOnDone: false,
   matchesActiveScope: (state) => {
     const currentTarget = P20_TARGET_BY_SUBVIEW[getAppState()?.currentSubView || "threads"] || null
@@ -233,6 +59,7 @@ export const outlineGenerateManager = createOutlineWorkflowManager({
     return activeTarget === currentTarget
   },
   onScopeReset: (state) => { state.preview = null },
+  skipRecover: (state, scopeMatches) => state.preview && scopeMatches,
   matchRecovered: (workflows) => {
     const appState = getAppState()
     const currentTarget = P20_TARGET_BY_SUBVIEW[appState?.currentSubView || "threads"] || null
@@ -336,10 +163,11 @@ export function clearOutlineGenerateWorkflowsForTarget(target) {
  * AI 分析大纲管理器。
  * 轮询使用 novelId 参数，支持显式取消。终态时保存分析结果到 state.result。
  */
-export const outlineAnalysisManager = createOutlineWorkflowManager({
+export const outlineAnalysisManager = createWorkflowManager({
   workflowType: "outline_analyze",
   label: "AI 大纲分析",
-  useNovelId: true,
+  view: "outline",
+  pollNovelId: (state) => state.meta?.project_id || null,
   onScopeReset: (state) => { state.result = null },
   matchRecovered: (workflows) => {
     const appState = getAppState()
@@ -424,9 +252,10 @@ export function outlineAnalysisContextSummary(confirmation) {
  * 剧情线/篇章自动提取管理器。
  * 终态完成触发 router.refresh()（等价 vanilla onEnter + refresh）。
  */
-export const plotAutoExtractManager = createOutlineWorkflowManager({
+export const plotAutoExtractManager = createWorkflowManager({
   workflowType: "plot_structure_auto_extraction",
   label: "剧情线自动提取",
+  view: "outline",
   matchRecovered: (workflows) => (
     workflows.find((item) => item.workflowType === "plot_structure_auto_extraction" && item.view === "outline")
     || workflows.find((item) => item.workflowType === "plot_structure_auto_extraction")
