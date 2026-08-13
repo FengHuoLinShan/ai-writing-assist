@@ -264,7 +264,9 @@ tasks ORM。
   规则原子、阻断矛盾和一条日常＋故障纵切。只有作者 seed 全覆盖、
   来源 manifest 覆盖完整、规则与决定项一一绑定且无阻断矛盾时才返回
   `ready_for_handoff=true`。人物、总纲、Scene 和完整国家／历史不属于该预设。
-  `world_adoption_package.v1` 是作者显式保存的 pending 包。preview 不写库，按 source refs、
+  `world_adoption_package.v1` 是作者显式保存的 pending 包；完成的 Deep Import 也会按冻结的
+  Scene hash、workflow 与授权回执幂等组装一个包。已自动写入的对象以 `existing_ref/no-op`
+  显示，candidate 对象/关系仍由作者 preview/apply；apply 不重复创建前者。preview 不写库，按 source refs、
   checkpoint lineage 和 payload hash 给出预期 diff；apply 只采用 `include + proposed` 的
   CoreEntity（create/promote）/ EntityRelation，使用 package-local ref，在同一事务 CAS pending 并写 receipt。
   `open` / `rejected` 不写事实；v1 不支持 RuleProfile 或别名。
@@ -625,7 +627,7 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | GET | `/api/world/adoption-packages/{suggestion_id}/preview` | 零写入预演 package 的覆盖、diff 与 hash |
 | POST | `/api/world/adoption-packages/{suggestion_id}/apply` | 以 preview hash 原子采用 package 的 include 项；重复 apply 返回 receipt |
 
-`world_adoption_package.v1` 首版只采用核心对象 create/promote 与实体关系 create。
+`world_adoption_package.v1` 首版采用核心对象 create/promote/existing_ref 与实体关系 create/promote。
 promote 和外部关系端点以服务端指纹参与 preview hash，apply 在锁后复验；既有同一
 canonical relation 是 `existing_ref` no-op，不合并或改写。每个新建对象/关系均保存
 package、item、来源、authority 与 manifest provenance；RuleProfile 与 alias 仍不属于该

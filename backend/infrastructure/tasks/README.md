@@ -49,6 +49,10 @@ infrastructure/tasks/
   `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
 
+`deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
+`result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
+imports result，恢复、rollback 与 asset summary 仍由 imports 自己拥有。
+
 `map_atlas_storage_cleanup` 是唯一 `owner_scope=global` 处理器：`novel_id=NULL`。项目永久
 删除任务只保存 canonical 项目前缀与删除批次；上传失败的精确补偿任务只保存
 canonical page object key 与删除批次。两者均不保存 S3 凭证，不进入普通 task API。

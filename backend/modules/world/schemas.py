@@ -3174,12 +3174,22 @@ class WorldAdoptionRelationPayload(BaseModel):
     target_ref: str = Field(..., min_length=1, max_length=128)
     relation_type: str = Field(..., min_length=1, max_length=64)
     description: str | None = Field(default=None, max_length=5000)
+    operation: Literal["create", "promote"] = "create"
+    relation_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> WorldAdoptionRelationPayload:
+        if self.operation == "promote" and not self.relation_id:
+            raise ValueError("promote entity relation item requires relation_id")
+        if self.operation == "create" and self.relation_id is not None:
+            raise ValueError("create entity relation item forbids relation_id")
+        return self
 
 
 class WorldAdoptionCoreEntityPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["create", "promote"] = "create"
+    operation: Literal["create", "promote", "existing_ref"] = "create"
     entity_id: str | None = None
     entity: CoreEntityCreate | None = None
 
@@ -3194,6 +3204,12 @@ class WorldAdoptionCoreEntityPayload(BaseModel):
         ):
             raise ValueError(
                 "promote core entity item requires entity_id and forbids entity"
+            )
+        if self.operation == "existing_ref" and (
+            not self.entity_id or self.entity is not None
+        ):
+            raise ValueError(
+                "existing_ref core entity item requires entity_id and forbids entity"
             )
         return self
 
@@ -3277,7 +3293,7 @@ class WorldAdoptionPackageItem(BaseModel):
             payload = WorldAdoptionCoreEntityPayload.model_validate(self.payload)
             if payload.operation == "promote" and self.baseline is None:
                 raise ValueError("promote core entity item requires a typed baseline")
-            if payload.operation == "create" and self.baseline is not None:
+            if payload.operation != "promote" and self.baseline is not None:
                 raise ValueError("create core entity item forbids baseline")
         elif self.kind == "entity_relation":
             WorldAdoptionRelationPayload.model_validate(self.payload)

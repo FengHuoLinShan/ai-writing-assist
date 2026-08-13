@@ -573,4 +573,5 @@ W0/W1 是其余波次的前置；W2 与 W4 可在稳定 contract 后并行；W3 
 | W0 Scene memory 四维 | 已完成、待合并 | 单一稳定常量，memory/context 定向回归通过 |
 | W1 typed checkpoint/package 与实体/关系原子采用 | 已完成、待合并 | 复用 CreationSuggestion，无迁移 |
 | W1 package → World Bible revision | 已完成、待合并 | 完整页面 diff、claim 覆盖、replace CAS、发布失败整包回滚 |
-| W2—W6 | 未完成 | 必须按上表继续实现和主审；不得把计划态写成当前能力 |
+| W3 Deep Import 吸取 | 已完成、待合并 | post-import package、existing/no-op 分栏、candidate relation promote；Phase 2 恢复语义不变 |
+| W2、W4—W6 | 未完成 | 必须按上表继续实现和主审；不得把计划态写成当前能力 |

@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 
+async def assemble_post_import_adoption_package(db, request):
+    """Create or return the one pending package for a completed deep import."""
+    from modules.world.services.worldbuilding.adoption_package_service import (
+        WorldAdoptionPackageService,
+    )
+
+    return await WorldAdoptionPackageService().assemble_post_import(db, request)
+
+
 async def preview_worldbuilding_activation(
     db,
     novel_id: str,

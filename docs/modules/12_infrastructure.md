@@ -3,6 +3,9 @@
 ## 1. LLM 客户端
 
 `infrastructure/llm/` 目录提供 OpenAI 兼容的 LLM 调用能力。
+任务 result 的 `phase_artifacts` 可承载业务模块的 compact 后置回执。例如 completed
+Deep Import 的 adoption-package receipt 只用于展示/回跳；它不改变 task 生命周期，也不把
+业务 rollback 或 author confirmation 移交给基础设施。
 默认使用显式 HTTP transport，避免进程隐式继承系统代理；如需代理，配置
 `LLM_PROXY_URL`，如需读取系统代理，显式设置 `LLM_TRUST_ENV=true`。
 

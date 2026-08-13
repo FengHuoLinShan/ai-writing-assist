@@ -14,6 +14,10 @@ from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
 from modules.project.schemas import ProjectCreate
 from modules.project.services import ProjectService
+from modules.world.contracts import (
+    PostImportSceneSourceContract,
+    PostImportWorldAdoptionRequestContract,
+)
 from modules.world.models import (
     WorldBiblePage,
     WorldBiblePageDraft,
@@ -704,6 +708,161 @@ async def test_existing_canonical_relation_is_receipted_without_mutation(
         }
     ]
     assert applied.result_ref_json["canon_diff"] == preview.canon_diff
+
+
+@pytest.mark.asyncio
+async def test_candidate_relation_is_promoted_instead_of_recreated(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    source = await WorldEntityService().create(
+        db_session,
+        project_novel_id,
+        CoreEntityCreate(entity_type="location", name="关系源", force_create=True),
+    )
+    target = await WorldEntityService().create(
+        db_session,
+        project_novel_id,
+        CoreEntityCreate(entity_type="location", name="关系目标", force_create=True),
+    )
+    relation = await EntityRelationService().create(
+        db_session,
+        project_novel_id,
+        EntityRelationCreate(
+            source_id=source.id,
+            target_id=target.id,
+            relation_type="supports",
+            description="待确认关系",
+            status="candidate",
+        ),
+    )
+    manifest = hashlib.sha256(b"promote-edge").hexdigest()
+    package = WorldAdoptionPackagePayload(
+        schema_version="world_adoption_package.v1",
+        source_manifest_hash=manifest,
+        items=[
+            {
+                "item_key": "source",
+                "kind": "core_entity",
+                "disposition": "include",
+                "authority_kind": "canonical_baseline",
+                "source_refs": [_source_ref(manifest)],
+                "payload": {"operation": "existing_ref", "entity_id": source.id},
+            },
+            {
+                "item_key": "target",
+                "kind": "core_entity",
+                "disposition": "include",
+                "authority_kind": "canonical_baseline",
+                "source_refs": [_source_ref(manifest)],
+                "payload": {"operation": "existing_ref", "entity_id": target.id},
+            },
+            {
+                "item_key": "edge",
+                "kind": "entity_relation",
+                "disposition": "include",
+                "authority_kind": "manuscript_observation",
+                "source_refs": [_source_ref(manifest)],
+                "payload": {
+                    "operation": "promote",
+                    "relation_id": relation.id,
+                    "source_ref": "local:source",
+                    "target_ref": "local:target",
+                    "relation_type": "supports",
+                    "description": "待确认关系",
+                },
+            },
+        ],
+    )
+    service = WorldAdoptionPackageService()
+    saved = await service.save(
+        db_session,
+        WorldAdoptionPackageSaveRequest(novel_id=project_novel_id, package=package),
+    )
+    preview = await service.preview(db_session, project_novel_id, saved.id)
+    await service.apply(
+        db_session,
+        project_novel_id,
+        saved.id,
+        WorldAdoptionPackageApplyRequest(
+            expected_preview_hash=preview.expected_preview_hash
+        ),
+    )
+    promoted = (
+        await db_session.execute(
+            select(EntityRelation).where(EntityRelation.id == uuid.UUID(relation.id))
+        )
+    ).scalar_one()
+    assert promoted.status == "canonical"
+
+
+@pytest.mark.asyncio
+async def test_post_import_package_is_idempotent_and_keeps_existing_separate(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    workflow_id = str(uuid.uuid4())
+    scene_id = str(uuid.uuid4())
+    scene_hash = hashlib.sha256(b"scene").hexdigest()
+    canonical = await WorldEntityService().create(
+        db_session,
+        project_novel_id,
+        CoreEntityCreate(
+            entity_type="location",
+            name="已写入",
+            force_create=True,
+            content_json={"_meta": {"workflow_id": workflow_id, "scene_id": scene_id}},
+        ),
+    )
+    candidate = await WorldEntityService().create(
+        db_session,
+        project_novel_id,
+        CoreEntityCreate(
+            entity_type="location",
+            name="待确认",
+            status="candidate",
+            force_create=True,
+            content_json={"_meta": {"workflow_id": workflow_id, "scene_id": scene_id}},
+        ),
+    )
+    await EntityRelationService().create(
+        db_session,
+        project_novel_id,
+        EntityRelationCreate(
+            source_id=canonical.id,
+            target_id=candidate.id,
+            relation_type="supports",
+            status="candidate",
+            review_meta={"workflow_id": workflow_id, "scene_id": scene_id},
+        ),
+    )
+    request = PostImportWorldAdoptionRequestContract(
+        novel_id=project_novel_id,
+        workflow_id=workflow_id,
+        authorization_ref="2026-08-13T00:00:00Z",
+        scene_sources=[
+            PostImportSceneSourceContract(scene_id=scene_id, source_hash=scene_hash)
+        ],
+    )
+    service = WorldAdoptionPackageService()
+    first = await service.assemble_post_import(db_session, request)
+    second = await service.assemble_post_import(db_session, request)
+    assert first.created is True
+    assert second == type(second)(suggestion_id=first.suggestion_id, created=False)
+    package = (
+        await service.get(db_session, project_novel_id, first.suggestion_id)
+    ).payload_json
+    entity_items = {
+        item["payload"]["operation"]
+        for item in package["items"]
+        if item["kind"] == "core_entity"
+    }
+    assert entity_items == {"existing_ref", "promote"}
+    assert any(
+        item["payload"].get("operation") == "promote"
+        for item in package["items"]
+        if item["kind"] == "entity_relation"
+    )
 
 
 @pytest.mark.asyncio

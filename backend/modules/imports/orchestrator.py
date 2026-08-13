@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.adoption_policy import (
     DEFAULT_ADOPTION_POLICY,
     SUPPORTED_ADOPTION_POLICIES,
@@ -371,7 +372,60 @@ class DeepImportOrchestrator:
             raise DeepImportWorkflowFailedError(
                 progress.message or "Deep import workflow failed"
             )
+        await self._assemble_post_import_package(
+            db, progress, meta, novel_id, str(task.id)
+        )
         return self._result_from_progress(progress)
+
+    @staticmethod
+    async def _assemble_post_import_package(
+        db: AsyncSession,
+        progress: DeepImportProgress,
+        meta: dict[str, Any],
+        novel_id: str,
+        workflow_id: str,
+    ) -> None:
+        """Best-effort review artifact: never changes a completed import outcome."""
+        from modules.world.contracts import (
+            PostImportSceneSourceContract,
+            PostImportWorldAdoptionRequestContract,
+        )
+        from modules.world.facade import assemble_post_import_adoption_package
+
+        checkpoints = (progress.checkpoints.get("phase2") or {}).get("scenes") or []
+        sources = [
+            PostImportSceneSourceContract(
+                scene_id=str(item["scene_id"]), source_hash=str(item["input_fingerprint"])
+            )
+            for item in checkpoints
+            if isinstance(item, dict)
+            and item.get("scene_id")
+            and item.get("input_fingerprint")
+        ]
+        if not sources:
+            return
+        try:
+            result = await assemble_post_import_adoption_package(
+                db,
+                PostImportWorldAdoptionRequestContract(
+                    novel_id=novel_id,
+                    workflow_id=workflow_id,
+                    authorization_ref=str(
+                        (meta.get("authorization_snapshot") or {}).get("authorized_at")
+                        or ""
+                    ),
+                    scene_sources=sources,
+                ),
+            )
+            progress.phase_artifacts["post_import_adoption_package"] = {
+                "suggestion_id": result.suggestion_id,
+                "created": result.created,
+            }
+        except Exception as exc:
+            progress.phase_artifacts["post_import_adoption_package"] = {
+                "status": "failed",
+                "error": redact_diagnostic(exc, limit=200),
+            }
 
     async def run_stage_task(
         self,
@@ -1352,8 +1406,7 @@ class DeepImportOrchestrator:
                 contract = contracts.get(task_id)
                 if contract is not None and contract.task_type not in IMPORT_TASK_TYPES:
                     raise ValueError(
-                        "task_id must reference a deep_import or "
-                        "deep import stage task"
+                        "task_id must reference a deep_import or deep import stage task"
                     )
             raise TaskNotFoundError(task_id)
         if run.workflow_type not in IMPORT_TASK_TYPES:
@@ -1540,9 +1593,7 @@ class DeepImportOrchestrator:
             "high_quality": high_quality,
             "replace_existing": replace_existing,
             "adoption_policy": authorization_snapshot["adoption_policy"],
-            "authorization_confirmed": authorization_snapshot[
-                "authorization_confirmed"
-            ],
+            "authorization_confirmed": authorization_snapshot["authorization_confirmed"],
             "authorization_snapshot": authorization_snapshot,
             "llm_execution_snapshot": llm_execution_snapshot,
         }

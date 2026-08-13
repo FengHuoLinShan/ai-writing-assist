@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, ValidationError
 from modules.project.facade import get_project_context, require_active_project
-from modules.world.models import CoreEntity, EntityRelation
+from modules.world.contracts import PostImportWorldAdoptionResultContract
+from modules.world.models import CoreEntity, CreationSuggestion, EntityRelation
 from modules.world.schemas import (
     CoreEntityCreate,
     CreationSuggestionCreate,
@@ -77,13 +78,17 @@ class WorldAdoptionPackageService:
         )
 
     async def save(
-        self, db: AsyncSession, request: WorldAdoptionPackageSaveRequest
+        self,
+        db: AsyncSession,
+        request: WorldAdoptionPackageSaveRequest,
+        *,
+        source_module: str = "world",
     ) -> CreationSuggestionResponse:
         return await self._suggestions.create(
             db,
             CreationSuggestionCreate(
                 novel_id=request.novel_id,
-                source_module="world",
+                source_module=source_module,
                 review_group="world_adoption",
                 target_type="world_adoption_package",
                 action_schema="world_adoption_package.v1",
@@ -92,6 +97,235 @@ class WorldAdoptionPackageService:
                 risk_level="high",
             ),
         )
+
+    async def assemble_post_import(
+        self, db, request
+    ) -> PostImportWorldAdoptionResultContract:
+        """Materialize one review package without changing Phase 2 assets."""
+        sources = {item.scene_id: item for item in request.scene_sources}
+        manifest = hashlib.sha256(
+            json.dumps(
+                {
+                    "workflow_id": request.workflow_id,
+                    "authorization_ref": request.authorization_ref,
+                    "scenes": [
+                        {"id": item.scene_id, "hash": item.source_hash}
+                        for item in sorted(
+                            request.scene_sources, key=lambda value: value.scene_id
+                        )
+                    ],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        existing = (
+            (
+                await db.execute(
+                    select(CreationSuggestion).where(
+                        CreationSuggestion.novel_id == uuid.UUID(request.novel_id),
+                        CreationSuggestion.target_type == "world_adoption_package",
+                        CreationSuggestion.source_module == "imports",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for suggestion in existing:
+            payload = (
+                suggestion.payload_json
+                if isinstance(suggestion.payload_json, dict)
+                else {}
+            )
+            if payload.get("source_manifest_hash") == manifest:
+                return PostImportWorldAdoptionResultContract(
+                    suggestion_id=str(suggestion.id), created=False
+                )
+
+        entities = (
+            (
+                await db.execute(
+                    select(CoreEntity).where(
+                        CoreEntity.novel_id == uuid.UUID(request.novel_id),
+                        CoreEntity.status.in_(("candidate", "canonical")),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        items: list[dict[str, Any]] = []
+        entity_keys: dict[str, str] = {}
+        for entity in entities:
+            meta = (entity.content_json or {}).get("_meta") or {}
+            if meta.get("workflow_id") != request.workflow_id:
+                continue
+            ref = self._post_import_source_ref(
+                sources,
+                str(meta.get("scene_id") or ""),
+                request.workflow_id,
+                request.authorization_ref,
+            )
+            if ref is None:
+                continue
+            key = f"entity-{str(entity.id).replace('-', '')[:24]}"
+            entity_keys[str(entity.id)] = key
+            operation = "existing_ref" if entity.status == "canonical" else "promote"
+            item: dict[str, Any] = {
+                "item_key": key,
+                "kind": "core_entity",
+                "disposition": "include",
+                "authority_kind": "manuscript_observation",
+                "source_refs": [ref],
+                "payload": {"operation": operation, "entity_id": str(entity.id)},
+            }
+            if operation == "promote":
+                item["baseline"] = {
+                    "expected_status": entity.status,
+                    "expected_fingerprint": self._fingerprint_hash(
+                        self._entity_fingerprint(entity)
+                    ),
+                }
+            items.append(item)
+
+        relations = (
+            (
+                await db.execute(
+                    select(EntityRelation).where(
+                        EntityRelation.novel_id == uuid.UUID(request.novel_id),
+                        EntityRelation.status.in_(("candidate", "canonical")),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for relation in relations:
+            meta = relation.review_meta or {}
+            if meta.get("workflow_id") != request.workflow_id:
+                continue
+            source_key = entity_keys.get(str(relation.source_id))
+            target_key = entity_keys.get(str(relation.target_id))
+            if not source_key or not target_key:
+                continue
+            ref = self._post_import_source_ref(
+                sources,
+                str(meta.get("scene_id") or ""),
+                request.workflow_id,
+                request.authorization_ref,
+            )
+            if ref is None:
+                continue
+            key = f"relation-{str(relation.id).replace('-', '')[:22]}"
+            payload = {
+                "operation": "promote" if relation.status == "candidate" else "create",
+                "source_ref": f"local:{source_key}",
+                "target_ref": f"local:{target_key}",
+                "relation_type": relation.relation_type,
+                "description": relation.description,
+            }
+            if relation.status == "candidate":
+                payload["relation_id"] = str(relation.id)
+            items.append(
+                {
+                    "item_key": key,
+                    "kind": "entity_relation",
+                    "disposition": "include",
+                    "authority_kind": "manuscript_observation",
+                    "source_refs": [ref],
+                    "payload": payload,
+                }
+            )
+        items = items[:15]
+        if items:
+            page_items = [item for item in items if item["kind"] != "world_bible_page"]
+            sections = []
+            mappings = []
+            for index, item in enumerate(page_items):
+                claim = self._post_import_claim(item)
+                section_id = f"claim-{index + 1}"
+                sections.append(
+                    {
+                        "section_id": section_id,
+                        "title": "已纳入事实",
+                        "body_markdown": claim,
+                        "sort_order": index,
+                    }
+                )
+                mappings.append(
+                    {
+                        "content_key": section_id,
+                        "claim": claim,
+                        "item_key": item["item_key"],
+                        "source_ref": item["source_refs"][0],
+                    }
+                )
+            items.append(
+                {
+                    "item_key": "world-bible",
+                    "kind": "world_bible_page",
+                    "disposition": "include",
+                    "authority_kind": "generated_bridge",
+                    "source_refs": [item["source_refs"][0] for item in page_items],
+                    "payload": {
+                        "operation": "create",
+                        "title": "深度导入待确认事实",
+                        "page_type": "reference",
+                        "sections_json": sections,
+                        "linked_asset_refs_json": [
+                            {
+                                "target_type": "core_entity",
+                                "target_id": f"local:{item['item_key']}",
+                            }
+                            for item in page_items
+                            if item["kind"] == "core_entity"
+                        ],
+                        "claim_mappings": mappings,
+                    },
+                }
+            )
+        if not items:
+            return PostImportWorldAdoptionResultContract(suggestion_id="", created=False)
+        saved = await self.save(
+            db,
+            WorldAdoptionPackageSaveRequest(
+                novel_id=request.novel_id,
+                package=WorldAdoptionPackagePayload(
+                    schema_version="world_adoption_package.v1",
+                    source_manifest_hash=manifest,
+                    items=items,
+                ),
+            ),
+            source_module="imports",
+        )
+        return PostImportWorldAdoptionResultContract(suggestion_id=saved.id, created=True)
+
+    @staticmethod
+    def _post_import_source_ref(sources, scene_id, workflow_id, authorization_ref):
+        source = sources.get(scene_id)
+        if source is None:
+            return None
+        return {
+            "source_type": "manuscript",
+            "source_id": scene_id,
+            "source_version": workflow_id,
+            "source_hash": source.source_hash,
+            "range_start": source.range_start,
+            "range_end": source.range_end,
+            "scene_id": scene_id,
+            "workflow_id": workflow_id,
+            "authorization_ref": authorization_ref,
+        }
+
+    @staticmethod
+    def _post_import_claim(item: dict[str, Any]) -> str:
+        payload = item["payload"]
+        if item["kind"] == "entity_relation":
+            return payload.get("description") or (
+                f"已确认关系：{payload['relation_type']}。"
+            )
+        return "已确认导入世界对象。"
 
     async def preview(
         self, db: AsyncSession, novel_id: str, suggestion_id: str
@@ -156,6 +390,21 @@ class WorldAdoptionPackageService:
             if item.kind != "core_entity":
                 continue
             payload = WorldAdoptionCoreEntityPayload.model_validate(item.payload)
+            if payload.operation == "existing_ref":
+                entity = await self._canonical_endpoint(
+                    db, novel_id, payload.entity_id or "", for_update=True
+                )
+                entity_id = str(entity.id)
+                local_refs[item.item_key] = entity_id
+                results.append(
+                    {
+                        "item_key": item.item_key,
+                        "type": "core_entity",
+                        "id": entity_id,
+                        "action": "existing_ref",
+                    }
+                )
+                continue
             if payload.operation == "promote":
                 promoted = await self._suggestions._entities.promote(
                     db,
@@ -212,6 +461,27 @@ class WorldAdoptionPackageService:
             payload = WorldAdoptionRelationPayload.model_validate(item.payload)
             source_id = self._resolve_ref(payload.source_ref, local_refs)
             target_id = self._resolve_ref(payload.target_ref, local_refs)
+            if payload.operation == "promote":
+                relation = await self._promote_relation(
+                    db,
+                    novel_id,
+                    payload,
+                    source_id,
+                    target_id,
+                    suggestion.id,
+                    item,
+                    package.source_manifest_hash,
+                )
+                local_refs[item.item_key] = str(relation.id)
+                results.append(
+                    {
+                        "item_key": item.item_key,
+                        "type": "entity_relation",
+                        "id": str(relation.id),
+                        "action": "promote",
+                    }
+                )
+                continue
             existing = await self._existing_relation(
                 db, novel_id, source_id, target_id, payload.relation_type, for_update=True
             )
@@ -363,8 +633,14 @@ class WorldAdoptionPackageService:
             if item.kind == "world_bible_page":
                 continue
             action = "create"
+            if item.kind == "core_entity":
+                payload = WorldAdoptionCoreEntityPayload.model_validate(item.payload)
+                if payload.operation == "existing_ref":
+                    action = "existing_ref"
             if item.kind == "entity_relation":
                 payload = WorldAdoptionRelationPayload.model_validate(item.payload)
+                if payload.operation == "promote":
+                    action = "promote"
                 if not payload.source_ref.startswith(
                     "local:"
                 ) and not payload.target_ref.startswith("local:"):
@@ -403,8 +679,11 @@ class WorldAdoptionPackageService:
                     db, novel_id, payload.page_id, for_update=for_update
                 )
                 before = {
-                    "id": str(page.id), "title": page.title, "page_type": page.page_type,
-                    "free_text": page.free_text, "sections_json": page.sections_json,
+                    "id": str(page.id),
+                    "title": page.title,
+                    "page_type": page.page_type,
+                    "free_text": page.free_text,
+                    "sections_json": page.sections_json,
                     "linked_asset_refs_json": page.linked_asset_refs_json,
                     "sort_order": page.sort_order,
                     "template_key": page.template_key,
@@ -420,8 +699,7 @@ class WorldAdoptionPackageService:
                     "after": payload.model_dump(mode="json"),
                     "impact_scope_hash": impact.impact_scope_hash,
                     "omissions": [
-                        omission.model_dump(mode="json")
-                        for omission in impact.omissions
+                        omission.model_dump(mode="json") for omission in impact.omissions
                     ],
                 }
             )
@@ -454,12 +732,17 @@ class WorldAdoptionPackageService:
                 for value in section.get("linked_asset_ref_hashes") or []
             ]
         return WorldBiblePageDraftCreate(
-            novel_id=novel_id, page_id=payload.page_id, title=payload.title,
-            page_type=payload.page_type, free_text=payload.free_text,
+            novel_id=novel_id,
+            page_id=payload.page_id,
+            title=payload.title,
+            page_type=payload.page_type,
+            free_text=payload.free_text,
             sections_json=sections,
             linked_asset_refs_json=rewritten_refs,
-            sort_order=payload.sort_order, template_key=payload.template_key,
-            template_version=payload.template_version, created_by=actor,
+            sort_order=payload.sort_order,
+            template_key=payload.template_key,
+            template_version=payload.template_version,
+            created_by=actor,
         )
 
     @staticmethod
@@ -477,9 +760,7 @@ class WorldAdoptionPackageService:
                     "Excluded package text must be an author_decisions section"
                 )
         included = {
-            item.item_key: item
-            for item in package.items
-            if item.disposition == "include"
+            item.item_key: item for item in package.items if item.disposition == "include"
         }
         seen = set()
         for mapping in payload.claim_mappings:
@@ -512,9 +793,7 @@ class WorldAdoptionPackageService:
     @staticmethod
     def _validate_page_local_refs(package, payload):
         included = {
-            item.item_key: item
-            for item in package.items
-            if item.disposition == "include"
+            item.item_key: item for item in package.items if item.disposition == "include"
         }
         for ref in payload.linked_asset_refs_json:
             local = str(ref.get("target_id") or ref.get("id") or "")
@@ -561,6 +840,12 @@ class WorldAdoptionPackageService:
                     for_update,
                 )
                 continue
+            if payload.operation == "existing_ref":
+                result[item.item_key] = self._entity_fingerprint(
+                    await self._canonical_endpoint(
+                        db, novel_id, payload.entity_id or "", for_update
+                    )
+                )
         for item in package.items:
             if item.disposition != "include" or item.kind != "entity_relation":
                 continue
@@ -705,10 +990,14 @@ class WorldAdoptionPackageService:
         item: object,
         source_manifest_hash: str,
     ) -> None:
-        stmt = select(CoreEntity).where(
-            CoreEntity.id == uuid.UUID(entity_id),
-            CoreEntity.novel_id == uuid.UUID(novel_id),
-        ).with_for_update()
+        stmt = (
+            select(CoreEntity)
+            .where(
+                CoreEntity.id == uuid.UUID(entity_id),
+                CoreEntity.novel_id == uuid.UUID(novel_id),
+            )
+            .with_for_update()
+        )
         entity = (await db.execute(stmt)).scalar_one_or_none()
         if entity is None:
             raise ConflictError("Core entity changed; preview again")
@@ -743,6 +1032,31 @@ class WorldAdoptionPackageService:
         if for_update:
             stmt = stmt.with_for_update()
         return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def _promote_relation(
+        self, db, novel_id, payload, source_id, target_id, package_id, item, manifest
+    ) -> EntityRelation:
+        stmt = (
+            select(EntityRelation)
+            .where(
+                EntityRelation.id == uuid.UUID(payload.relation_id or ""),
+                EntityRelation.novel_id == uuid.UUID(novel_id),
+                EntityRelation.status == "candidate",
+                EntityRelation.source_id == uuid.UUID(source_id),
+                EntityRelation.target_id == uuid.UUID(target_id),
+                EntityRelation.relation_type == payload.relation_type,
+            )
+            .with_for_update()
+        )
+        relation = (await db.execute(stmt)).scalar_one_or_none()
+        if relation is None:
+            raise ConflictError("Candidate relation changed; preview again")
+        meta = dict(relation.review_meta or {})
+        meta.update(self._provenance(package_id, item, manifest))
+        relation.review_meta = meta
+        relation.status = "canonical"
+        await self._mark_context_changed(db, novel_id, {source_id, target_id})
+        return relation
 
     async def _mark_context_changed(
         self, db: AsyncSession, novel_id: str, entity_ids: set[str]

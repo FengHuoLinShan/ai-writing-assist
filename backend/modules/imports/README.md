@@ -111,6 +111,11 @@ fail closed。旧的本地任务若没有此字段，兼容路径在首次新 wo
 
 完成结果增加 `asset_summary={adopted, review, not_adopted, by_kind}`。`by_kind` 固定包含 `scene/entity/relation/alias/structure`，缺失 phase 统计显式记 0。Scene 的 `needs_review` fallback、world candidate/关系/别名、不确定结构和跨旧资产去重建议进入 review。结构去重保留旧的 suggestion-pair 统计作为兼容字段，同时通过 `structure_dedup.current_workflow_asset_outcomes` 按当前 workflow 的唯一资产计算 review / not_adopted；旧资产之间的建议不进入本次资产汇总，同一资产出现在多个 pair 中也只计一次。Phase 3 自身的 `review_asset_count`、`uncertain_count` 与去重资产结果合并后会按结构总数 clamp，保持 adopted / review / not_adopted 互斥且总和等于本次结构资产数。高置信实体去重建议进入 review；只有授权策略明确允许且无 review 标记的工作资产计入 adopted。ignored、temporary-only、provenance conflict 和同 workflow 去重时被软废弃的重复结构计入 not_adopted。低置信结果不会自动提升为 canonical。
 
+完整 Deep Import 成功后，imports 以冻结的 Phase 2 Scene hash、workflow 与授权回执通过 world facade
+幂等创建 post-import `world_adoption_package.v1`。它不改变 Phase 2 的 adopted/review/checkpoint/
+resume/rollback/asset_summary；包创建失败仅记录诊断，导入仍保持成功。已写入 canonical 资产只作
+`existing_ref/no-op` 预览，candidate 实体/关系与 World Bible revision 仍需作者显式 preview/apply。
+
 `force=true` 的重复 Scene 提取把替换意图写入 task meta，直到 Scene commit 才执行。
 commit 只软废弃 workflow-owned、未人工编辑的 `draft/candidate`；`canonical`、
 `user_edited`、人工 Scene 和无合法 ownership 的 Scene 均受保护。新候选与受保护 Scene
