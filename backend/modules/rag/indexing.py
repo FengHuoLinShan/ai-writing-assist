@@ -303,11 +303,15 @@ class IndexingService:
                     normalized_novel_id,
                     chapter_index,
                 )
-                plan = await self._refresh_plan_scene_annotations(
+                refreshed_plan = await self._refresh_plan_scene_annotations(
                     db,
                     normalized_novel_id,
                     plan,
                 )
+                if refreshed_plan is None:
+                    await db.rollback()
+                    continue
+                plan = refreshed_plan
 
                 report = await self._persist_preembedded_plan(
                     db,
@@ -374,13 +378,13 @@ class IndexingService:
                 lease_id=str(task_lease_id),
                 attempt=int(task_attempt),
             )
+        await self._repo.lock_chapter_chunks(db, novel_id, chapter_index)
         plan = await self._prepare_chapter_index(
             db,
             novel_id,
             chapter_index,
             content_mode=content_mode,
         )
-        await self._repo.lock_chapter_chunks(db, novel_id, chapter_index)
         existing = sorted(
             await self._repo.find_by_chapter(
                 db,
@@ -474,7 +478,7 @@ class IndexingService:
         db: AsyncSession,
         novel_id: uuid.UUID,
         plan: _ChapterIndexPlan,
-    ) -> _ChapterIndexPlan:
+    ) -> _ChapterIndexPlan | None:
         """Re-read Scene spans after embedding so an old plan cannot overwrite them."""
         refreshed = await self._prepare_chapter_index(
             db,
@@ -483,7 +487,7 @@ class IndexingService:
             content_mode=plan.content_mode,
         )
         if not self._matches_scene_annotation_plan(refreshed, plan.items):
-            return plan
+            return None
         scene_by_index = {
             int(item.chunk_index or 0): (item.scene_id, item.scene_span_id)
             for item in refreshed.items

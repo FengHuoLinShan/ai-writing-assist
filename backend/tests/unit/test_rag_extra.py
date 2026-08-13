@@ -773,8 +773,13 @@ class TestTasks:
             reset()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "source",
+        ["deep_import_scene_commit", "scene_replacement_apply"],
+    )
     async def test_handle_rag_reindex_novel_uses_scene_annotation_for_known_sources(
         self,
+        source: str,
     ):
         from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
 
@@ -794,7 +799,7 @@ class TestTasks:
                 task_type="rag_reindex_novel",
                 attempt=1,
                 lease_id="lease-1",
-                meta={"novel_id": "n1", "source": "deep_import_scene_commit"},
+                meta={"novel_id": "n1", "source": source},
             )
             task.update_progress = MagicMock()
 
@@ -805,7 +810,11 @@ class TestTasks:
             reset()
 
     @pytest.mark.asyncio
-    async def test_handle_rag_reindex_novel_keeps_unknown_source_as_full_rebuild(self):
+    @pytest.mark.parametrize("source", [None, "manual"])
+    async def test_handle_rag_reindex_novel_keeps_unknown_source_as_full_rebuild(
+        self,
+        source: str | None,
+    ):
         from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
 
         reset()
@@ -824,7 +833,7 @@ class TestTasks:
                 task_type="rag_reindex_novel",
                 attempt=1,
                 lease_id="lease-1",
-                meta={"novel_id": "n1", "source": "manual"},
+                meta={"novel_id": "n1", **({"source": source} if source else {})},
             )
             task.update_progress = MagicMock()
 

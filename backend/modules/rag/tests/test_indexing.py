@@ -1388,7 +1388,7 @@ async def test_task_index_revalidates_same_source_row_after_embedding_checkpoint
             )
 
         assert mutation_count == 1
-        assert len(retained_drafts) == 2
+        assert len(retained_drafts) == 3
         assert embedding_transaction_states == [False, False]
         assert checkpoint_count == 3
         assert outcome.report.source_draft_id == str(draft_id)
@@ -1465,7 +1465,13 @@ async def test_task_index_uses_project_first_lock_order_and_two_checkpoints() ->
         events.append("finish")
 
     db.commit = AsyncMock(side_effect=_record_commit)
-    service = IndexingService(repo=MagicMock(spec=RagChunkRepository))
+    repo = MagicMock(spec=RagChunkRepository)
+
+    async def _record_lock(*_args, **_kwargs) -> None:
+        events.append("lock")
+
+    repo.lock_chapter_chunks = AsyncMock(side_effect=_record_lock)
+    service = IndexingService(repo=repo)
     with (
         patch(
             "modules.project.facade.require_active_project",
@@ -1513,11 +1519,72 @@ async def test_task_index_uses_project_first_lock_order_and_two_checkpoints() ->
         "embed",
         "project",
         "claim",
+        "lock",
         "prepare",
         "persist",
         "finish",
         "commit",
     ]
+
+
+@pytest.mark.asyncio
+async def test_task_index_retries_when_final_scene_refresh_does_not_match() -> None:
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+
+    novel_id = uuid.uuid4()
+    plan = _ChapterIndexPlan(
+        chapter_index=28,
+        content_mode="canonical",
+        source_draft_id=str(uuid.uuid4()),
+        source_content_hash="a" * 64,
+        items=[],
+    )
+    db = AsyncMock()
+    db.task_checkpoint_enabled = True
+    db.expire_all = MagicMock()
+    repo = MagicMock(spec=RagChunkRepository)
+    service = IndexingService(repo=repo)
+
+    with (
+        patch("modules.project.facade.require_active_project", autospec=True),
+        patch(
+            "modules.rag.index_state.RagIndexStateService",
+            autospec=True,
+        ) as state_class,
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            return_value=plan,
+        ),
+        patch.object(
+            IndexingService,
+            "_embed_plan",
+            autospec=True,
+            return_value=([], MagicMock()),
+        ),
+        patch.object(
+            IndexingService,
+            "_refresh_plan_scene_annotations",
+            autospec=True,
+            return_value=None,
+        ),
+        patch.object(
+            IndexingService,
+            "_persist_preembedded_plan",
+            autospec=True,
+        ) as persist,
+    ):
+        state_class.return_value.preflight_prepared = AsyncMock(
+            side_effect=["ready", "fresh"]
+        )
+        state_class.return_value.begin_prepared = AsyncMock(return_value="claimed")
+
+        outcome = await service.index_chapter_for_task(db, novel_id, 28)
+
+    assert outcome.status == "coalesced"
+    assert db.rollback.await_count == 2
+    persist.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1725,6 +1792,10 @@ async def test_scene_annotation_only_preserves_embedding_and_other_chunk_fields(
             autospec=True,
             return_value=plan,
         ),
+        patch(
+            "modules.rag.index_state.RagIndexStateService",
+            autospec=True,
+        ) as state_class,
         patch.object(IndexingService, "_embed_plan", autospec=True) as embed,
     ):
         outcome = await service.index_chapter_for_task(
@@ -1742,8 +1813,116 @@ async def test_scene_annotation_only_preserves_embedding_and_other_chunk_fields(
     assert chunk.entity_ids == ["entity"]
     assert chunk.embedding_status == "succeeded"
     embed.assert_not_awaited()
+    state_class.assert_not_called()
     repo.replace_entity_appearances.assert_awaited_once()
     db.commit.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_scene_annotation_locks_before_reading_current_plan() -> None:
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+
+    events: list[str] = []
+    plan = _ChapterIndexPlan(
+        chapter_index=9,
+        content_mode="canonical",
+        source_draft_id=None,
+        source_content_hash=None,
+        items=[],
+    )
+    repo = MagicMock(spec=RagChunkRepository)
+
+    async def _lock(*_args, **_kwargs) -> None:
+        events.append("lock")
+
+    async def _prepare(*_args, **_kwargs) -> _ChapterIndexPlan:
+        events.append("prepare")
+        return plan
+
+    async def _find(*_args, **_kwargs) -> list:
+        events.append("find")
+        return []
+
+    repo.lock_chapter_chunks = AsyncMock(side_effect=_lock)
+    repo.find_by_chapter = AsyncMock(side_effect=_find)
+    db = AsyncMock()
+    service = IndexingService(repo=repo)
+
+    with (
+        patch("modules.project.facade.require_active_project", autospec=True),
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            side_effect=_prepare,
+        ),
+    ):
+        await service._refresh_scene_annotations_for_task(  # noqa: SLF001
+            db,
+            uuid.uuid4(),
+            9,
+            content_mode="canonical",
+            task_id=None,
+            task_type=None,
+            task_attempt=None,
+            task_lease_id=None,
+        )
+
+    assert events == ["lock", "prepare", "find"]
+
+
+@pytest.mark.asyncio
+async def test_scene_annotation_mismatch_rolls_back_then_forces_full_index() -> None:
+    from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+
+    novel_id = uuid.uuid4()
+    plan = _ChapterIndexPlan(
+        chapter_index=10,
+        content_mode="canonical",
+        source_draft_id=str(uuid.uuid4()),
+        source_content_hash="c" * 64,
+        items=[],
+    )
+    fallback = RagTaskIndexOutcome(report=RagIndexReport(chapter_index=10))
+
+    class FallbackIndexingService(IndexingService):
+        async def index_chapter_for_task(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append((args, kwargs))
+            return fallback
+
+    calls: list[tuple[tuple, dict]] = []
+    repo = MagicMock(spec=RagChunkRepository)
+    repo.find_by_chapter = AsyncMock(
+        return_value=[SimpleNamespace(id=uuid.uuid4(), chunk_index=0)]
+    )
+    db = AsyncMock()
+    service = FallbackIndexingService(repo=repo)
+
+    with (
+        patch("modules.project.facade.require_active_project", autospec=True),
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            return_value=plan,
+        ),
+    ):
+        outcome = await service._refresh_scene_annotations_for_task(  # noqa: SLF001
+            db,
+            novel_id,
+            10,
+            content_mode="canonical",
+            task_id=None,
+            task_type=None,
+            task_attempt=None,
+            task_lease_id=None,
+        )
+
+    assert outcome is fallback
+    db.rollback.assert_awaited_once_with()
+    assert len(calls) == 1
+    assert calls[0][1]["force"] is True
 
 
 def test_scene_annotation_plan_rejects_chunk_stream_mismatch() -> None:
