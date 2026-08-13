@@ -1524,13 +1524,32 @@ label.llm-clear-key {
 .deep-import-group {
   display: grid;
   gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
 }
 
-.deep-import-group h4 {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+.deep-import-group__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-body);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
 }
+
+.deep-import-group__toggle > :last-child { margin-left: auto; color: var(--text-secondary); font-weight: 400; }
+.deep-import-group__changed { color: var(--accent-primary); font-size: var(--text-sm); font-weight: 400; }
+.deep-import-group__summary { color: var(--text-secondary); font-size: var(--text-sm); }
+.deep-import-group__summary p { margin: 0 0 var(--space-1); }
+.deep-import-field-help { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.45; }
+.form-error { margin: var(--space-1) 0 0; color: var(--danger, #b42318); font-size: var(--text-sm); }
 
 .deep-import-group .form-row {
   display: grid;

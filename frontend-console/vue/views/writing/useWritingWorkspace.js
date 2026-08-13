@@ -27,6 +27,7 @@ import { createWritingCommandController } from "./controllers/writingCommandCont
 import { createDeepImportController } from "./controllers/deepImportController.js"
 import { createConflictController } from "./controllers/conflictController.js"
 import { getWritingSession, rememberWritingLocation } from "./writingSession.js"
+import { projectSettingsSession } from "../settings/projectSettingsSession.js"
 
 function normalizeChapters(data = {}) {
   const summaries = Array.isArray(data.chapters) ? data.chapters : []
@@ -146,6 +147,7 @@ export function useWritingWorkspace(props) {
   const conflictTask = reactive({ taskId: null, progress: null })
   const sceneState = reactive({ loading: false, alerts: [], people: [], location: null })
   const deepImportState = reactive({ taskId: null, projectId: null, progress: null })
+  const deepImportHasScenes = computed(() => scenes.value.length > 0)
   const deepAuditOpen = ref(false)
   const autoExtraction = reactive({ open: false, stage: "scenes", start: 1, end: 1, highQuality: false, busy: false })
   const outlineFloat = reactive({ open: false, loading: false, threads: [], error: null })
@@ -228,7 +230,13 @@ export function useWritingWorkspace(props) {
     toast,
     getProjectId: () => projectId,
     onChange: (value) => Object.assign(deepImportState, value),
-    onDone: reloadChapters,
+    onDone: async () => {
+      if (![
+        "deep_import",
+        "scene_auto_extraction",
+      ].includes(deepImportState.progress?.workflowType)) return
+      await Promise.all([reloadChapters(), reloadScenes()])
+    },
   })
 
   const conflictActions = createConflictController({
@@ -392,6 +400,30 @@ export function useWritingWorkspace(props) {
       chapterLoadError.value = err?.message || "章节列表加载失败"
       return false
     }
+  }
+
+  async function reloadScenes() {
+    try {
+      const data = await api.outline.listScenesOrdered(projectId)
+      if (disposed.value || getAppState()?.currentProjectId !== projectId) return false
+      scenes.value = Array.isArray(data) ? data : []
+      syncLegacyState()
+      return true
+    } catch (err) {
+      if (!disposed.value && getAppState()?.currentProjectId === projectId) {
+        toast(err?.message || "场景列表刷新失败", "warning")
+      }
+      return false
+    }
+  }
+
+  function openDeepImportSettings() {
+    projectSettingsSession.tab = "deep"
+    router?.navigate("project-settings")
+  }
+
+  function openSceneWorkbench() {
+    router?.navigate("outline", "scenes")
   }
 
   async function createChapter() {
@@ -1130,6 +1162,7 @@ export function useWritingWorkspace(props) {
     conflictTask,
     sceneState,
     deepImportState,
+    deepImportHasScenes,
     deepAuditOpen,
     autoExtraction,
     outlineFloat,
@@ -1163,6 +1196,8 @@ export function useWritingWorkspace(props) {
     cancelGeneration: commands.cancel,
     dismissGeneration: commands.dismiss,
     openAutoExtraction,
+    openDeepImportSettings,
+    openSceneWorkbench,
     submitAutoExtraction,
     cancelDeepImport,
     resumeDeepImport: deepImport.resume,

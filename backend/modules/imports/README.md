@@ -21,7 +21,8 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 记录导入历史
 - 提交并编排深度导入任务（`async_tasks` 负责调度/lease，
   `import_workflow_runs` 负责领域恢复事实）
-- 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
+- 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构；作者默认先从
+  Scene 骨架开始，但该推荐不自动提交任务，完整导入始终保留为显式选择
 - 完整和分阶段提交在 project exclusive 短事务锁内检查同项目 run；
   `import_workflow_runs` 另以 partial unique index 保证同项目最多一个
   `pending/running` 或 recovery-required run。已有 owner 时返回原
@@ -289,10 +290,9 @@ POST /api/imports/upload      — 上传文件（multipart）；201 表示导入
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；活动任务复用原 task，资产重复时先返回 requires_confirmation
-POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b + Scene commit
+POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b/1c + Scene commit
 POST /api/imports/stages/world-objects — 提交世界对象与别名/关系自动提取任务，只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure — 提交剧情线自动提取任务，只执行 Phase 3
-POST /api/imports/deep/sync   — 同步执行深度导入（测试/无 worker 场景）
 POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_import task
 POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派生资产
 ```

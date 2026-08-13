@@ -39,10 +39,11 @@
               </div>
               <div class="writing-tools-menu__group">
                 <strong>从正文整理资料</strong>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">整理场景</button>
+                <button class="btn btn-sm btn-primary" @click="$emit('auto-extract', 'scenes')">先整理场景骨架（推荐）</button>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理世界与结构</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'world_objects')">整理人物、设定与关系</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'plot_structure')">整理剧情线</button>
+                <button class="btn btn-sm btn-link" @click="$emit('open-deep-import-settings')">调整深度导入设置</button>
               </div>
             </div>
           </details>
@@ -114,7 +115,7 @@ const props = defineProps({
 defineEmits([
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov",
-  "auto-extract", "adopt", "reject", "export", "toggle-focus",
+  "auto-extract", "open-deep-import-settings", "adopt", "reject", "export", "toggle-focus",
 ])
 
 const titleEl = ref(null)

@@ -48,6 +48,7 @@ const deepImportForm = ref(
 )
 const authorBaseline = ref(JSON.stringify(authorForm.value))
 const deepImportBaseline = ref(JSON.stringify(deepImportForm.value))
+const deepImportValidationError = ref(null)
 let disposed = false
 
 function ownsProjectSettings(projectId) {
@@ -115,6 +116,10 @@ function gotoGlobalSettings() {
   getRouter().navigate("settings")
 }
 
+function gotoWriting() {
+  getRouter().navigate("writing")
+}
+
 async function refreshEffective({
   author = true,
   deepImport = true,
@@ -154,7 +159,11 @@ async function saveDeepImport() {
   const toast = getToast()
   const submittedForm = JSON.stringify(deepImportForm.value)
   const out = buildDeepImportPayload(deepImportForm.value)
-  if (!out.ok) return toast(out.error, "warning")
+  if (!out.ok) {
+    deepImportValidationError.value = out
+    return toast(out.error, "warning")
+  }
+  deepImportValidationError.value = null
   deepImportButton.saving.value = true
   try {
     await getApi().projects.updateLlmSettings(projectId, {
@@ -326,7 +335,8 @@ onBeforeUnmount(() => {
               :value="deepImportSource.value"
             />
           </p>
-          <DeepImportFields v-model="deepImportForm" />
+          <button class="btn btn-sm btn-link" @click="gotoWriting">返回写作工作台</button>
+          <DeepImportFields v-model="deepImportForm" :validation-error="deepImportValidationError" />
           <div class="settings-actions">
             <button
               id="deep-import-tab-save"

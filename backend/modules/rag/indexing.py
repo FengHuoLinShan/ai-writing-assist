@@ -132,6 +132,7 @@ class IndexingService:
         task_type: str | None = None,
         task_attempt: int | None = None,
         task_lease_id: str | None = None,
+        scene_annotation_only: bool = False,
     ) -> RagTaskIndexOutcome:
         """Index a chapter without holding a DB transaction during embedding.
 
@@ -156,6 +157,17 @@ class IndexingService:
         ):
             raise ValueError(
                 "task type, attempt, and lease are required with task_id"
+            )
+        if scene_annotation_only:
+            return await self._refresh_scene_annotations_for_task(
+                db,
+                normalized_novel_id,
+                chapter_index,
+                content_mode=content_mode,
+                task_id=task_id,
+                task_type=task_type,
+                task_attempt=task_attempt,
+                task_lease_id=task_lease_id,
             )
         state_service = RagIndexStateService()
         started_at = time.monotonic()
@@ -286,6 +298,21 @@ class IndexingService:
                     await db.rollback()
                     return self._coalesced_outcome(plan)
 
+                await self._repo.lock_chapter_chunks(
+                    db,
+                    normalized_novel_id,
+                    chapter_index,
+                )
+                refreshed_plan = await self._refresh_plan_scene_annotations(
+                    db,
+                    normalized_novel_id,
+                    plan,
+                )
+                if refreshed_plan is None:
+                    await db.rollback()
+                    continue
+                plan = refreshed_plan
+
                 report = await self._persist_preembedded_plan(
                     db,
                     normalized_novel_id,
@@ -324,6 +351,150 @@ class IndexingService:
             last_plan,
         )
         raise RuntimeError("章节源在索引期间持续变化，请稍后重试")
+
+    async def _refresh_scene_annotations_for_task(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        *,
+        content_mode: str,
+        task_id: str | None,
+        task_type: str | None,
+        task_attempt: int | None,
+        task_lease_id: str | None,
+    ) -> RagTaskIndexOutcome:
+        """Update only Scene references when the chunk stream is unchanged."""
+        from infrastructure.tasks.facade import require_running_task_attempt
+        from modules.project.facade import require_active_project
+
+        await require_active_project(db, str(novel_id))
+        if task_id is not None:
+            await require_running_task_attempt(
+                db,
+                task_id=task_id,
+                task_type=str(task_type),
+                novel_id=str(novel_id),
+                lease_id=str(task_lease_id),
+                attempt=int(task_attempt),
+            )
+        await self._repo.lock_chapter_chunks(db, novel_id, chapter_index)
+        plan = await self._prepare_chapter_index(
+            db,
+            novel_id,
+            chapter_index,
+            content_mode=content_mode,
+        )
+        existing = sorted(
+            await self._repo.find_by_chapter(
+                db,
+                novel_id,
+                chapter_index,
+                source_type="chapter_text",
+                content_mode=content_mode,
+            ),
+            key=lambda chunk: (int(chunk.chunk_index or 0), str(chunk.id)),
+        )
+        if not self._matches_scene_annotation_plan(plan, existing):
+            await db.rollback()
+            return await self.index_chapter_for_task(
+                db,
+                novel_id,
+                chapter_index,
+                content_mode=content_mode,
+                force=True,
+                task_id=task_id,
+                task_type=task_type,
+                task_attempt=task_attempt,
+                task_lease_id=task_lease_id,
+            )
+
+        old_scene_ids = {
+            chunk.scene_id for chunk in existing if chunk.scene_id is not None
+        }
+        for chunk, item in zip(existing, plan.items, strict=True):
+            chunk.scene_id = uuid.UUID(item.scene_id) if item.scene_id else None
+            chunk.scene_span_id = (
+                uuid.UUID(item.scene_span_id) if item.scene_span_id else None
+            )
+        if existing:
+            await self._repo.replace_entity_appearances(
+                db,
+                novel_id,
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+                chunks=existing,
+                affected_scene_ids=old_scene_ids,
+                current_source_hash=plan.source_content_hash,
+            )
+        await db.flush()
+        await db.commit()
+        return RagTaskIndexOutcome(
+            report=RagIndexReport(
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+                source_draft_id=plan.source_draft_id,
+                source_content_hash=plan.source_content_hash,
+            ),
+            status="indexed",
+        )
+
+    @staticmethod
+    def _matches_scene_annotation_plan(
+        plan: _ChapterIndexPlan,
+        existing: list,
+    ) -> bool:
+        """Require the same source and physical chunk stream before in-place edits."""
+        if not plan.items and not existing:
+            return True
+        if len(plan.items) != len(existing):
+            return False
+        ordered_existing = sorted(
+            existing,
+            key=lambda chunk: (
+                int(chunk.chunk_index or 0),
+                str(getattr(chunk, "id", "")),
+            ),
+        )
+        ordered_items = sorted(plan.items, key=lambda item: int(item.chunk_index or 0))
+        for item, chunk in zip(ordered_items, ordered_existing, strict=True):
+            if (
+                chunk.source_type != "chapter_text"
+                or chunk.content_mode != plan.content_mode
+                or str(chunk.source_id or "") != str(item.source_id or "")
+                or chunk.source_content_hash != item.source_content_hash
+                or chunk.index_version != item.index_version
+                or chunk.chapter_index != plan.chapter_index
+                or chunk.chunk_index != item.chunk_index
+                or chunk.start_offset != item.start_offset
+                or chunk.end_offset != item.end_offset
+                or chunk.text != item.text
+            ):
+                return False
+        return True
+
+    async def _refresh_plan_scene_annotations(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        plan: _ChapterIndexPlan,
+    ) -> _ChapterIndexPlan | None:
+        """Re-read Scene spans after embedding so an old plan cannot overwrite them."""
+        refreshed = await self._prepare_chapter_index(
+            db,
+            novel_id,
+            plan.chapter_index,
+            content_mode=plan.content_mode,
+        )
+        if not self._matches_scene_annotation_plan(refreshed, plan.items):
+            return None
+        scene_by_index = {
+            int(item.chunk_index or 0): (item.scene_id, item.scene_span_id)
+            for item in refreshed.items
+        }
+        for item in plan.items:
+            item.scene_id, item.scene_span_id = scene_by_index[int(item.chunk_index or 0)]
+        return plan
 
     @staticmethod
     def _coalesced_outcome(plan: _ChapterIndexPlan) -> RagTaskIndexOutcome:
