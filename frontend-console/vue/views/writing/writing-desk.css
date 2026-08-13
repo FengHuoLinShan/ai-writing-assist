@@ -233,6 +233,15 @@
   user-select: none;
 }
 
+.writing-workspace-layout:has(
+  #writing-publish-bar-container,
+  #writing-generation-bar-container,
+  #writing-conflict-task-bar-container,
+  #writing-deep-import-bar-container
+) .writing-statusbar {
+  position: static;
+}
+
 .writing-statusbar .writing-wordcount-bar {
   justify-content: flex-start;
   flex-wrap: wrap;
