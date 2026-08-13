@@ -1799,57 +1799,6 @@ label.llm-clear-key {
   font-weight: 700;
 }
 
-.scene-tree-scene {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.scene-tree-toggle,
-.scene-tree-label {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.scene-tree-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border-radius: 4px;
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
-.scene-tree-toggle:hover,
-.scene-tree-toggle:focus-visible,
-.scene-tree-label:hover,
-.scene-tree-label:focus-visible {
-  background: var(--bg-hover);
-}
-
-.scene-tree-toggle:focus-visible,
-.scene-tree-label:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.scene-tree-label {
-  min-width: 0;
-  padding: 2px 4px;
-  border-radius: 4px;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .chapter-row {
   display: flex;
   align-items: center;

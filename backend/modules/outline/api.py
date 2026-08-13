@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from fastapi import status as http_status
 
 from core.api_params import NovelIdQuery
@@ -41,6 +41,7 @@ from modules.outline.schemas import (
     RevealPlanListResponse,
     RevealPlanResponse,
     RevealPlanUpdate,
+    SceneChapterQuickCreate,
     SceneCreate,
     SceneFusionPreviewRequest,
     SceneFusionPreviewResponse,
@@ -772,6 +773,53 @@ async def api_update_scene_workbench_mapping(
             db,
             novel_id,
             scene_id,
+            data,
+        )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/chapters/{chapter_index}/scenes/{scene_id}",
+    response_model=SceneResponse,
+)
+async def api_link_scene_to_chapter(
+    scene_id: str,
+    db: DbSession,
+    chapter_index: int = Path(..., ge=1, description="章节索引"),
+    *,
+    novel_id: NovelIdQuery,
+):
+    await require_active_project(db, novel_id)
+    try:
+        return await _scene_workbench_service.link_scene_to_chapter(
+            db,
+            novel_id,
+            chapter_index,
+            scene_id,
+        )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/chapters/{chapter_index}/scenes",
+    response_model=SceneResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_create_scene_for_chapter(
+    data: SceneChapterQuickCreate,
+    db: DbSession,
+    chapter_index: int = Path(..., ge=1, description="章节索引"),
+    *,
+    novel_id: NovelIdQuery,
+):
+    await require_active_project(db, novel_id)
+    try:
+        return await _scene_workbench_service.create_scene_for_chapter(
+            db,
+            novel_id,
+            chapter_index,
             data,
         )
     except Exception as exc:

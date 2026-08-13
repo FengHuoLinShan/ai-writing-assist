@@ -140,7 +140,7 @@ frontend-console/
 │   ├── referencePicker.js  # 作者向对象名称搜索与稳定 ID 回写
 │   ├── confirmAsync.js     # 异步二次确认封装
 │   ├── writingToolsResult.js # 工具结果应用到 Vue Writing workspace
-│   ├── sceneLocator.js     # 光标/章节定位当前 Scene
+│   ├── sceneLocator.js     # 其他视图仍可复用的 Scene 区间定位 helper；写作台不用它自动切换
 │   └── ...                 # 其他共享模块
 ├── vue/                    # Vue 3 shell 与业务页面（ADR-0009）
 │   ├── shell/              #   topbar/sidebar/命令栏/主题/快捷键/service hosts
@@ -163,6 +163,15 @@ frontend-console/
 
 - Vue 3 SFC shell + 业务页面（ADR-0009）：Vue 拥有静态外壳和所有实际路由目标的
   主 DOM；`scene` / `llm` 只作兼容重定向，不拥有页面 DOM
+
+## 写作台 Scene 交互
+
+左侧目录严格按章节顺序只显示状态、章号、标题和字数，并在底部保留唯一
+“新建章节”。当前 Scene 由作者在右侧副驾驶顶部手动选择；光标移动只更新
+编辑位置，不改变 Scene。副驾驶只展示当前章的 `draft/canonical` Scene，并在项目
+会话中按章记住选择；AI 参考、冲突检查和发布检查统一消费该选择。
+桌面副驾驶可连续关联或快速新建 Scene；移动速记只允许切换本章 Scene，不提供
+关联、新建或管理。
 - hash router、Proxy state、API 和 toast/modal 作为集中式基础设施保留；router 的动态视图、
   loader、pending loader 和子标签注册表使用 `Map`，只接受安全的小写路由 key 并拒绝原型属性名；
   router 不再使用 DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态

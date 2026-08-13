@@ -88,6 +88,8 @@ GET    /api/outline/scene-workbench
 POST   /api/outline/scene-workbench/review
 POST   /api/outline/scene-workbench/source-mapping/review
 PATCH  /api/outline/scene-workbench/scenes/{scene_id}/mapping
+POST   /api/outline/scene-workbench/chapters/{chapter_index}/scenes/{scene_id}
+POST   /api/outline/scene-workbench/chapters/{chapter_index}/scenes
 POST   /api/outline/scene-workbench/merge/preview
 POST   /api/outline/scene-workbench/merge
 POST   /api/outline/scene-workbench/split/preview
@@ -206,6 +208,12 @@ Scene 卡摘要。`get_reader_reveal_decision()` 使用 `reveal_plans` 与截止
 Scene 工作台是 Scene 管理、章节映射和结构整理的主入口，直接位于大纲页
 `outline/scenes` 子标签；旧 `scene/{scene_id}` 路由兼容重定向到该入口并保留
 Scene 定位，不再维护第二套 Scene 管理 UI。
+
+写作台只通过两个章节级快速接口补充当前参考：按 Scene ID 关联时服务端锁定
+同项目 Scene，原子合并、去重 `chapter_ids`，并保留 `scene_chunks`；仅传 `title`
+快速新建时，服务端在项目级顺序锁内分配末尾 `scene_index`，以 `manual/draft`
+一次事务完成创建与关联。两个接口都先校验章节存在和项目边界，只创建
+章节级关联，不伪造正文位置 `scene_chunks`。
 
 第一版健康项固定为：
 

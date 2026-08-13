@@ -198,6 +198,8 @@ globalThis.api = {
     analyze: vi.fn(),
     getSceneWorkbench: vi.fn(),
     updateSceneWorkbenchMapping: vi.fn(),
+    associateSceneWithChapter: vi.fn(),
+    createSceneForChapter: vi.fn(),
     reviewSceneWorkbench: vi.fn(),
     reviewSceneSourceMappings: vi.fn(),
     previewSceneFusion: vi.fn(),

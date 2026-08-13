@@ -1958,6 +1958,12 @@ const api = {
     async updateSceneWorkbenchMapping(novelId, sceneId, data) {
       return patch(withQuery(`/outline/scene-workbench/scenes/${sceneId}/mapping`, { novel_id: novelId }), data)
     },
+    async associateSceneWithChapter(novelId, chapterIndex, sceneId) {
+      return post(withQuery(`/outline/scene-workbench/chapters/${chapterIndex}/scenes/${sceneId}`, { novel_id: novelId }))
+    },
+    async createSceneForChapter(novelId, chapterIndex, title) {
+      return post(withQuery(`/outline/scene-workbench/chapters/${chapterIndex}/scenes`, { novel_id: novelId }), { title })
+    },
     async reviewSceneWorkbench(novelId, data) {
       return post(withQuery("/outline/scene-workbench/review", { novel_id: novelId }), data)
     },

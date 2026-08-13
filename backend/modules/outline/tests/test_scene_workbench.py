@@ -11,9 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
+from modules.outline.models import Scene, SceneChapterLink
 from modules.outline.scene_fusion_draft import SceneFusionGenerationResult
 from modules.outline.scene_workbench import SceneWorkbenchService
-from modules.outline.schemas import SceneFusionPreviewRequest, SceneMergeRequest
+from modules.outline.schemas import (
+    SceneChapterQuickCreate,
+    SceneFusionPreviewRequest,
+    SceneMergeRequest,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
@@ -1738,6 +1743,209 @@ class TestSceneWorkbenchApi:
         )
 
         assert resp.status_code == 400
+
+    async def test_chapter_scene_link_is_idempotent_and_preserves_chunks(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1, "第一章")
+        await _create_draft(async_client, test_project_id, 2, "第二章")
+        chunks = [
+            {
+                "chapter_index": 1,
+                "start_pos": 5,
+                "end_pos": 20,
+            }
+        ]
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "旅程",
+                "chapter_ids": ["1"],
+                "scene_chunks": chunks,
+                "structure_meta": {"planning_state": "planned", "keep": True},
+            },
+        )
+
+        url = f"/api/outline/scene-workbench/chapters/2/scenes/{scene['id']}"
+        first = await async_client.post(url, params={"novel_id": test_project_id})
+        second = await async_client.post(url, params={"novel_id": test_project_id})
+
+        assert first.status_code == second.status_code == 200
+        assert second.json()["chapter_ids"] == ["1", "2"]
+        assert second.json()["scene_chunks"] == chunks
+        assert second.json()["structure_meta"] == {
+            "planning_state": "materialized",
+            "keep": True,
+        }
+        links = (
+            await db_session.scalars(
+                select(SceneChapterLink).where(
+                    SceneChapterLink.scene_id == uuid.UUID(scene["id"])
+                )
+            )
+        ).all()
+        assert {link.chapter_index for link in links} == {1, 2}
+
+    async def test_chapter_scene_link_rejects_unknown_chapter_and_hides_other_project(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        project_factory,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1, "第一章")
+        other_project_id = str(await project_factory.create_project("Other"))
+        other_scene = await _create_scene(
+            async_client,
+            other_project_id,
+            {"scene_index": 0, "title": "其他项目 Scene"},
+        )
+
+        unknown_chapter = await async_client.post(
+            f"/api/outline/scene-workbench/chapters/99/scenes/{other_scene['id']}",
+            params={"novel_id": test_project_id},
+        )
+        cross_project = await async_client.post(
+            f"/api/outline/scene-workbench/chapters/1/scenes/{other_scene['id']}",
+            params={"novel_id": test_project_id},
+        )
+
+        assert unknown_chapter.status_code == 400
+        assert cross_project.status_code == 404
+
+    async def test_chapter_scene_link_locks_row_for_concurrent_merges(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1, "第一章")
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "并发关联"},
+        )
+        service = SceneWorkbenchService()
+        original = service.repo.get_many_for_novel
+        lock_flags: list[bool] = []
+
+        async def capture_lock(
+            db,
+            novel_id,
+            scene_ids,
+            *,
+            for_update: bool = False,
+        ):  # type: ignore[no-untyped-def]
+            lock_flags.append(for_update)
+            return await original(
+                db,
+                novel_id,
+                scene_ids,
+                for_update=for_update,
+            )
+
+        monkeypatch.setattr(service.repo, "get_many_for_novel", capture_lock)
+
+        await service.link_scene_to_chapter(
+            db_session,
+            test_project_id,
+            1,
+            scene["id"],
+        )
+
+        assert lock_flags == [True]
+
+    async def test_quick_create_trims_title_and_appends_scene_order(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 3, "第三章")
+        await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 4, "title": "已有 Scene"},
+        )
+
+        response = await async_client.post(
+            "/api/outline/scene-workbench/chapters/3/scenes",
+            params={"novel_id": test_project_id},
+            json={"title": "  旅店暗号  "},
+        )
+
+        assert response.status_code == 201, response.text
+        created = response.json()
+        assert created["title"] == "旅店暗号"
+        assert created["scene_index"] == 5
+        assert created["source"] == "manual"
+        assert created["status"] == "draft"
+        assert created["chapter_ids"] == ["3"]
+        assert created["scene_chunks"] == []
+        assert created["structure_meta"]["planning_state"] == "materialized"
+        link = await db_session.scalar(
+            select(SceneChapterLink).where(
+                SceneChapterLink.scene_id == uuid.UUID(created["id"]),
+                SceneChapterLink.chapter_index == 3,
+            )
+        )
+        assert link is not None
+
+    @pytest.mark.parametrize("title", ["   ", "x" * 256])
+    async def test_quick_create_rejects_invalid_title(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        title: str,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1, "第一章")
+
+        response = await async_client.post(
+            "/api/outline/scene-workbench/chapters/1/scenes",
+            params={"novel_id": test_project_id},
+            json={"title": title},
+        )
+
+        assert response.status_code == 422
+
+    async def test_quick_create_rolls_back_as_one_transaction(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1, "第一章")
+        service = SceneWorkbenchService()
+
+        async def fail_sync(_db, _scene):  # type: ignore[no-untyped-def]
+            raise RuntimeError("link sync failed")
+
+        monkeypatch.setattr(service.repo, "sync_chapter_links", fail_sync)
+        transaction = await db_session.begin_nested()
+        with pytest.raises(RuntimeError, match="link sync failed"):
+            await service.create_scene_for_chapter(
+                db_session,
+                test_project_id,
+                1,
+                SceneChapterQuickCreate(title="不应保留"),
+            )
+        await transaction.rollback()
+
+        assert (
+            await db_session.scalar(
+                select(Scene.id).where(
+                    Scene.novel_id == uuid.UUID(test_project_id),
+                    Scene.title == "不应保留",
+                )
+            )
+            is None
+        )
 
     async def test_scene_detail_update_can_clear_nullable_fields(
         self,

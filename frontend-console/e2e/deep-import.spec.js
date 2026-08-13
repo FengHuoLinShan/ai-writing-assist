@@ -62,7 +62,7 @@ test.describe("深度导入流水线", () => {
     // Step 2: 上传流程会自动进入写作页；等待真实章节数据完成渲染。
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await waitWritingReady(page, { chapter: 1 })
-    await expect(page.locator(SEL.writingChapterCount)).toHaveText("章节 · 共 3 章")
+    await expect(page.locator(SEL.writingChapterCount)).toHaveText("共 3 章")
     await expect(
       page.locator(SEL.writingToolsMenu),
       "上传成功后应立即看到已提交章节和 AI 工具入口",

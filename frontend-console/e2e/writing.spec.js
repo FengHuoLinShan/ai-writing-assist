@@ -28,7 +28,7 @@ async function selectWritingChapter(page, chapter) {
 }
 
 async function createFirstChapter(page) {
-  await page.getByRole("button", { name: "创建第一章", exact: true }).click()
+  await page.getByRole("button", { name: "新建章节", exact: true }).click()
   await waitWritingReady(page, { editor: true })
 }
 
@@ -72,7 +72,7 @@ test.describe("写作台模块", () => {
     const emptyTree = page.locator("#writing-tree-container .empty-state")
     await expect(emptyTree).toBeVisible()
     await expect(emptyTree).toContainText("尚无章节")
-    await expect(page.getByRole("button", { name: "新建章节" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "新建章节" })).toHaveCount(1)
   })
 
   test("新建章节并显示在章节树", async ({ page }) => {
@@ -351,10 +351,10 @@ test.describe("写作台模块", () => {
   })
 
   // ============================================================
-  // 光标位置联动右侧 Scene 卡面板
+  // 手选 Scene 驱动右侧副驾驶
   // ============================================================
 
-  test("光标位置联动右侧 Scene 卡面板", async ({ page }) => {
+  test("手选 Scene 切换右侧上下文，光标移动不会改选择", async ({ page }) => {
     // 创建一个 10 字符的章节，并用 scene_chunks 分成两个 Scene
     await createDraft(testProjectId, 1, "ch1", "ABCDEFGHIJ")
     await createScene(testProjectId, {
@@ -375,25 +375,19 @@ test.describe("写作台模块", () => {
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
 
-    // 展开 Scene 节点并选中第 1 章
-    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await expect(page.locator("#writing-editor")).toHaveValue("ABCDEFGHIJ", { timeout: 5000 })
 
-    // 光标落在第一个 chunk → 显示 Scene A
-    await page.locator("#writing-editor").focus()
+    await page.locator(".scene-cockpit-switcher__item", { hasText: "Scene B" }).click()
+    await expect(page.locator(".scene-cockpit-switcher__item.active")).toContainText("Scene B")
+    await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
+
     await page.evaluate(() => {
       const editor = document.getElementById("writing-editor")
       editor.setSelectionRange(2, 2)
       document.dispatchEvent(new Event("selectionchange"))
     })
-    await expect(page.locator("#writing-panel-container")).toContainText("Scene A")
-
-    // 光标落在第二个 chunk → 显示 Scene B
-    await page.evaluate(() => {
-      const editor = document.getElementById("writing-editor")
-      editor.setSelectionRange(7, 7)
-      document.dispatchEvent(new Event("selectionchange"))
-    })
+    await expect(page.locator(".scene-cockpit-switcher__item.active")).toContainText("Scene B")
     await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
   })
 
@@ -415,7 +409,7 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 1280, height: 768 })
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
 
     await expect(page.getByRole("tab", { name: "设定" })).toHaveClass(/active/)
     await expect(page.locator('.cockpit-panel[data-panel="lore"]')).toContainText("拿到令牌后安全离开")
@@ -531,7 +525,7 @@ test.describe("写作台模块", () => {
 
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
 
     await page.locator("#writing-title-input").fill("第一章 冲突检查")
@@ -782,7 +776,7 @@ test.describe("写作台模块", () => {
     expect(latestDraft.conflict_check_snapshot_json.items.some((item) => item.kind === "forbidden_present")).toBe(true)
   })
 
-  test("章节树嵌套章节行有尺寸并可直接点击", async ({ page }) => {
+  test("纯章节目录的章节行有尺寸并可直接点击", async ({ page }) => {
     await createDraft(testProjectId, 1, "第一章", "第一章正文")
     await createDraft(testProjectId, 3, "第三章 归潮尽头", "第三章正文")
     await createScene(testProjectId, {
@@ -798,7 +792,9 @@ test.describe("写作台模块", () => {
 
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await expect(page.locator("#writing-tree-container")).toContainText("回声仓")
+    await expect(page.locator("#writing-tree-container")).not.toContainText("回声仓")
+    await selectWritingChapter(page, 1)
+    await expect(page.locator("#writing-panel-container")).toContainText("回声仓")
 
     const row = page.getByRole("button", { name: /打开第 3 章/ })
     await expect(row).toBeVisible({ timeout: 5000 })
@@ -813,15 +809,10 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#btn-publish")).toBeEnabled()
     await expect(page.locator("#btn-conflict-check")).toBeEnabled()
 
-    const previousChapter = page.getByRole("button", { name: "上一章", exact: true })
-    const nextChapter = page.getByRole("button", { name: "下一章", exact: true })
-    await expect(previousChapter).toBeEnabled()
-    await expect(nextChapter).toBeDisabled()
-    await previousChapter.click()
+    await page.getByRole("button", { name: /打开第 1 章/ }).click()
     await expect(page.locator("#writing-title-input")).toHaveValue("第一章", { timeout: 5000 })
     await expect(page.locator("#writing-editor")).toHaveValue("第一章正文", { timeout: 5000 })
-    await expect(nextChapter).toBeEnabled()
-    await nextChapter.click()
+    await row.click()
     await expect(page.locator("#writing-title-input")).toHaveValue("第三章 归潮尽头", { timeout: 5000 })
     await expect(page.locator("#writing-editor")).toHaveValue("第三章正文", { timeout: 5000 })
   })
@@ -884,11 +875,11 @@ test.describe("写作台模块", () => {
       await page.setViewportSize({ width, height: 900 })
       await reloadWorkbench(page, "writing")
       await waitWritingReady(page)
-      await selectWritingChapter(page, 1)
       if (width <= 760) {
         await expect(page.locator("#mobile-note-editor")).toBeVisible({ timeout: 5000 })
         await expect(page.locator(".mobile-quick-note")).toContainText("完整编辑器")
       } else {
+        await selectWritingChapter(page, 1)
         await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
         await openWritingToolMenu(page, "#btn-conflict-check")
         await expect(page.locator("#btn-conflict-check")).toBeVisible()
@@ -907,8 +898,6 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await page.getByLabel("展开章节").click()
-    await page.getByRole("button", { name: /打开第 1 章/ }).click()
 
     const editor = page.getByLabel("移动端速记正文")
     await expect(editor).toBeVisible()
@@ -933,11 +922,6 @@ test.describe("写作台模块", () => {
 
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    const chapterRail = page.locator(".writing-tree-rail")
-    if (await chapterRail.evaluate((element) => element.classList.contains("is-collapsed"))) {
-      await page.getByLabel("展开章节").click()
-    }
-    await page.getByRole("button", { name: /打开第 1 章/ }).click()
     await expect(page.getByLabel("移动端速记正文")).toHaveValue("390px 下保存的短文本。")
     const overflow = await page.evaluate(() => (
       Math.ceil(document.documentElement.scrollWidth - window.innerWidth)
@@ -950,12 +934,6 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    const chapterRailToggle = page.getByLabel("展开章节")
-    const railBox = await chapterRailToggle.boundingBox()
-    expect(railBox).not.toBeNull()
-    expect(railBox.height).toBeGreaterThanOrEqual(40)
-    await chapterRailToggle.click()
-    await page.getByRole("button", { name: /打开第 1 章/ }).click()
     const editor = page.getByLabel("移动端速记正文")
     await expect(editor).toHaveValue("切换前正文")
     await editor.fill("尚未保存但必须保留的正文")

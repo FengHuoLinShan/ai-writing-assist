@@ -5,6 +5,7 @@ vi.mock("../../../shared/aiReferenceModal.js", () => ({
 }))
 
 import { createWritingCommandController } from "../../../vue/views/writing/controllers/writingCommandController.js"
+import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 
 function setup(overrides = {}) {
   const api = {
@@ -33,12 +34,12 @@ function setup(overrides = {}) {
     toast,
     getProjectId: () => project.value,
     getChapter: () => 1,
-    getScenes: () => [{
+    getScene: () => ({
       id: "scene-1",
       pov_character_id: "character-1",
       chapter_ids: ["1"],
       scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 4 }],
-    }],
+    }),
     editor,
     onResult,
     ...overrides,
@@ -61,6 +62,7 @@ describe("writingCommandController", () => {
       chapter_index: 1,
       context_confirmation_id: "confirmation-1",
     }))
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ scene_id: "scene-1" }))
     expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-1" })
   })
 
@@ -115,6 +117,24 @@ describe("writingCommandController", () => {
     await controller.openResult()
     expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-2" })
     expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toEqual([])
+  })
+
+  it("任务期间手选 Scene 变更时不自动打开旧上下文结果", async () => {
+    let selected = { id: "scene-1" }
+    let resolveTask
+    const { api, onResult, controller } = setup({ getScene: () => selected })
+    api.writing.generate.mockResolvedValue({ task_id: "writing-task" })
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { resolveTask = resolve }))
+
+    const generation = controller.generateDraft()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("writing-task", "p1"))
+    selected = { id: "scene-2" }
+    resolveTask({ task_id: "writing-task", status: "done", result: { draft_id: "candidate-2" } })
+    await generation
+
+    expect(onResult).not.toHaveBeenCalled()
+    await controller.openResult()
+    expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-2" })
   })
 
   it("restores a completed result after reload until the author explicitly opens it", async () => {

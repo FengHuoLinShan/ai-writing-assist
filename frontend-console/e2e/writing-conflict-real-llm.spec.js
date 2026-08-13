@@ -89,7 +89,7 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
   test("规则检查、AI 软冲突、AI 建议、状态更新与发布快照归档", async ({ page }) => {
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 10000 })
 
     await page.locator("#writing-title-input").fill("第一章 旧约门")
@@ -128,7 +128,7 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
 
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
 
     await page.getByRole("button", { name: "查看最近校验" }).click()
     conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
@@ -160,7 +160,7 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
 
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
-    await page.locator(".scene-tree-label").first().click()
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await page.getByRole("button", { name: "查看最近校验" }).click()
 
     const suggestion = page.locator(".writing-conflict-group--ai .writing-conflict-suggestion").first()

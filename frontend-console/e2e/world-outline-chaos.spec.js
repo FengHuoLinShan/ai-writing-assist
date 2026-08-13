@@ -104,7 +104,7 @@ test.describe("世界对象与大纲 chaos", () => {
     await openWorkbench(page, project, "writing")
     await expect(page.getByRole("button", { name: /^打开第 1 章/ })).toBeVisible()
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
-    await expect(page.locator(".scene-tree-label--current")).toContainText(scene.title)
+    await expect(page.locator(".scene-cockpit-switcher__item.active")).toContainText(scene.title)
     await expect(page.locator("#writing-panel-container")).toContainText(scene.title)
 
     const writingSessionMarker = await page.evaluate(() => {
@@ -134,7 +134,7 @@ test.describe("世界对象与大纲 chaos", () => {
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
     expect(await page.evaluate(() => window.__phase53NavigationMarker)).toBe(navigationMarker)
     await expect(page.locator("#writing-panel-container")).not.toContainText(scene.title)
-    await expect(page.locator(".scene-tree-label", { hasText: scene.title })).toHaveCount(0)
+    await expect(page.locator(".scene-cockpit-switcher__item", { hasText: scene.title })).toHaveCount(0)
   })
 
   test("S6-IDM-001 覆盖确认取消后不会强制重试或启动 worker", async ({ page }) => {

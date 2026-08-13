@@ -34,7 +34,7 @@
 | `deep-import.spec.js` | 场景 3 | 完整深度导入真实 UI 入口提交、持久浏览器进程关闭/重启恢复、路由恢复、503 退避、取消、失败保留、降级提示、无章节空态；7/7 通过 |
 | `p1-lifecycle-health.spec.js` | 场景 3 / A1 | 后端 action 驱动的深度导入继续/放弃入口，以及 evidence health 展示；2/2 通过 |
 | `deep-import-worker.spec.js` | 场景 3 | guarded real-provider worker E2E：真实 UI 完整导入、浏览器关闭/重开恢复，并断言 `quality_status=complete`、无降级、Scene/世界对象/结构真实资产与 Scene 工作台来源；需 worker E2E LLM key 与共享加密 key |
-| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、光标位置联动右侧 Scene 卡面板、Scene 自动提取唯一入口、多 Tab 冲突检测 |
+| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、手选 Scene 切换不丢内容且光标移动不改选择、版本历史查看与恢复、Scene 自动提取唯一入口、多 Tab 冲突检测 |
 | `writing-chaos.spec.js` | 场景 4 | S4-REC-001 localStorage 恢复、S4-STA-001 章节/Scene 切换隔离、S4-VAL-001 恢复空白正文后发布门禁；3 项可执行风险覆盖 |
 | `writing-conflict.spec.js` | 场景 4 | 409 冲突 — 其他会话已更新草稿版本；1/1 通过 |
 | `world.spec.js` | 场景 5 | 对象库空态、创建/编辑/删除世界对象、关系子标签、别名子标签、实体合并、实体回滚、人物知识边界；9/9 通过 |
