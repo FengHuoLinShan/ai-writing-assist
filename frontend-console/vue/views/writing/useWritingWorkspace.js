@@ -231,6 +231,10 @@ export function useWritingWorkspace(props) {
     getProjectId: () => projectId,
     onChange: (value) => Object.assign(deepImportState, value),
     onDone: async () => {
+      if (![
+        "deep_import",
+        "scene_auto_extraction",
+      ].includes(deepImportState.progress?.workflowType)) return
       await Promise.all([reloadChapters(), reloadScenes()])
     },
   })
