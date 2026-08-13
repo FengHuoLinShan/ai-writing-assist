@@ -25,12 +25,17 @@ from modules.world.schemas import (
     WorldAdoptionPackagePayload,
     WorldAdoptionPackagePreviewResponse,
     WorldAdoptionPackageSaveRequest,
+    WorldAdoptionPagePayload,
     WorldAdoptionRelationPayload,
+    WorldBiblePageDraftCreate,
     WorldCoreCheckpointPayload,
     WorldCoreCheckpointSaveRequest,
 )
 from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionQueueService,
+)
+from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+    WorldBibleLifecycleService,
 )
 
 
@@ -46,6 +51,7 @@ class WorldAdoptionPackageService:
     ) -> None:
         self._suggestions = suggestions or SuggestionQueueService()
         self._context_marker = context_marker
+        self._bible_lifecycle = WorldBibleLifecycleService()
 
     async def save_checkpoint(
         self, db: AsyncSession, request: WorldCoreCheckpointSaveRequest
@@ -95,10 +101,12 @@ class WorldAdoptionPackageService:
         await self._validate_checkpoint_lineage(db, novel_id, package)
         omissions = self._omissions(package)
         baseline = await self._authoritative_baseline(db, novel_id, package)
+        page_diffs = await self._page_diffs(db, novel_id, package)
+        baseline["pages"] = page_diffs
         return WorldAdoptionPackagePreviewResponse(
             suggestion=CreationSuggestionResponse.model_validate(suggestion),
             expected_preview_hash=self._preview_hash(package, baseline),
-            canon_diff=await self._canon_diff(db, novel_id, package),
+            canon_diff=[*await self._canon_diff(db, novel_id, package), *page_diffs],
             omissions=omissions,
         )
 
@@ -122,9 +130,11 @@ class WorldAdoptionPackageService:
         package = self._package(pending)
         await self._validate_checkpoint_lineage(db, novel_id, package)
         authorization_actor = await self._active_owner_actor(db, novel_id)
-        expected = self._preview_hash(
-            package, await self._authoritative_baseline(db, novel_id, package)
+        baseline = await self._authoritative_baseline(db, novel_id, package)
+        baseline["pages"] = await self._page_diffs(
+            db, novel_id, package, lock_universe=True, for_update=True
         )
+        expected = self._preview_hash(package, baseline)
         if request.expected_preview_hash != expected:
             raise ConflictError("World adoption package changed; preview again")
         omissions = self._omissions(package)
@@ -134,8 +144,10 @@ class WorldAdoptionPackageService:
         locked_baseline = await self._authoritative_baseline(
             db, novel_id, package, for_update=True
         )
+        locked_baseline["pages"] = await self._page_diffs(db, novel_id, package)
         if request.expected_preview_hash != self._preview_hash(package, locked_baseline):
             raise ConflictError("World adoption package changed; preview again")
+        frozen_canon_diff = await self._canon_diff(db, novel_id, package)
         local_refs: dict[str, str] = {}
         results: list[dict[str, str]] = []
         for item in package.items:
@@ -204,6 +216,7 @@ class WorldAdoptionPackageService:
                 db, novel_id, source_id, target_id, payload.relation_type, for_update=True
             )
             if existing is not None:
+                local_refs[item.item_key] = str(existing.id)
                 results.append(
                     {
                         "item_key": item.item_key,
@@ -228,6 +241,7 @@ class WorldAdoptionPackageService:
                 ),
             )
             await self._mark_context_changed(db, novel_id, {source_id, target_id})
+            local_refs[item.item_key] = relation.id
             results.append(
                 {
                     "item_key": item.item_key,
@@ -235,6 +249,42 @@ class WorldAdoptionPackageService:
                     "id": relation.id,
                 }
             )
+        page_canon_diff = locked_baseline.get("pages", [])
+        for item in package.items:
+            if item.disposition != "include" or item.kind != "world_bible_page":
+                continue
+            payload = WorldAdoptionPagePayload.model_validate(item.payload)
+            self._validate_page_claims(package, payload)
+            self._validate_page_local_refs(package, payload)
+            draft_data = self._page_draft_data(
+                novel_id, payload, local_refs, authorization_actor
+            )
+            await self._bible_lifecycle.preview_package_page(
+                db, draft_data, expected_page_version=payload.expected_page_version
+            )
+            draft = await self._bible_lifecycle.create_draft(db, draft_data)
+            actual_impact = await self._bible_lifecycle.preview_publish_impact(
+                db, novel_id, draft.id
+            )
+            page = await self._bible_lifecycle.publish_draft(
+                db,
+                novel_id,
+                draft.id,
+                published_by=authorization_actor,
+                expected_impact_scope_hash=actual_impact.impact_scope_hash,
+            )
+            results.append(
+                {
+                    "item_key": item.item_key,
+                    "type": "world_bible_page",
+                    "id": page.id,
+                    "revision": str(page.version_number),
+                }
+            )
+            for diff in page_canon_diff:
+                if diff["item_key"] == item.item_key:
+                    diff["published_page_id"] = page.id
+                    diff["published_revision"] = page.version_number
         return await self._suggestions._mark_accepted(
             db,
             novel_id=novel_id,
@@ -245,7 +295,10 @@ class WorldAdoptionPackageService:
                 "receipt": "accepted",
                 "local_ref_map": local_refs,
                 "result_refs": results,
-                "canon_diff": await self._canon_diff(db, novel_id, package),
+                "canon_diff": [
+                    *frozen_canon_diff,
+                    *page_canon_diff,
+                ],
                 "source_manifest_hash": package.source_manifest_hash,
                 "preview_hash": request.expected_preview_hash,
                 "authorization_actor": authorization_actor,
@@ -307,6 +360,8 @@ class WorldAdoptionPackageService:
         for item in package.items:
             if item.disposition != "include":
                 continue
+            if item.kind == "world_bible_page":
+                continue
             action = "create"
             if item.kind == "entity_relation":
                 payload = WorldAdoptionRelationPayload.model_validate(item.payload)
@@ -323,6 +378,153 @@ class WorldAdoptionPackageService:
                         action = "existing_ref"
             diff.append({"item_key": item.item_key, "kind": item.kind, "action": action})
         return diff
+
+    async def _page_diffs(
+        self, db, novel_id, package, *, lock_universe=False, for_update=False
+    ):
+        diffs = []
+        for item in package.items:
+            if item.disposition != "include" or item.kind != "world_bible_page":
+                continue
+            payload = WorldAdoptionPagePayload.model_validate(item.payload)
+            self._validate_page_claims(package, payload)
+            self._validate_page_local_refs(package, payload)
+            impact = await self._bible_lifecycle.preview_package_page(
+                db,
+                self._page_draft_data(novel_id, payload, {}, None),
+                expected_page_version=payload.expected_page_version,
+                lock_universe=lock_universe,
+                for_update=for_update,
+                allow_local_refs=True,
+            )
+            before = None
+            if payload.page_id:
+                page = await self._bible_lifecycle._get_page_model(
+                    db, novel_id, payload.page_id, for_update=for_update
+                )
+                before = {
+                    "id": str(page.id), "title": page.title, "page_type": page.page_type,
+                    "free_text": page.free_text, "sections_json": page.sections_json,
+                    "linked_asset_refs_json": page.linked_asset_refs_json,
+                    "sort_order": page.sort_order,
+                    "template_key": page.template_key,
+                    "template_version": page.template_version,
+                    "version_number": page.version_number,
+                }
+            diffs.append(
+                {
+                    "item_key": item.item_key,
+                    "kind": item.kind,
+                    "action": payload.operation,
+                    "before": before,
+                    "after": payload.model_dump(mode="json"),
+                    "impact_scope_hash": impact.impact_scope_hash,
+                    "omissions": [
+                        omission.model_dump(mode="json")
+                        for omission in impact.omissions
+                    ],
+                }
+            )
+        return diffs
+
+    @staticmethod
+    def _page_draft_data(novel_id, payload, local_refs, actor):
+        original_refs = payload.linked_asset_refs_json
+        rewritten_refs = []
+        for ref in original_refs:
+            rewritten = dict(ref)
+            for field in ("target_id", "id", "source_id"):
+                value = rewritten.get(field)
+                if isinstance(value, str) and value.startswith("local:"):
+                    rewritten[field] = local_refs.get(value[6:], value)
+            rewritten_refs.append(rewritten)
+        hash_map = {
+            WorldBibleLifecycleService._asset_ref_hash(
+                old
+            ): WorldBibleLifecycleService._asset_ref_hash(new)
+            for old, new in zip(original_refs, rewritten_refs, strict=True)
+        }
+        sections = [section.model_dump(mode="json") for section in payload.sections_json]
+        for section in sections:
+            section["linked_asset_ref_hashes"] = [
+                hash_map.get(
+                    str(value).removeprefix("sha256:"),
+                    str(value).removeprefix("sha256:"),
+                )
+                for value in section.get("linked_asset_ref_hashes") or []
+            ]
+        return WorldBiblePageDraftCreate(
+            novel_id=novel_id, page_id=payload.page_id, title=payload.title,
+            page_type=payload.page_type, free_text=payload.free_text,
+            sections_json=sections,
+            linked_asset_refs_json=rewritten_refs,
+            sort_order=payload.sort_order, template_key=payload.template_key,
+            template_version=payload.template_version, created_by=actor,
+        )
+
+    @staticmethod
+    def _validate_page_claims(package, payload):
+        blocks = {}
+        if payload.free_text and payload.free_text.strip():
+            blocks["free_text"] = payload.free_text.strip()
+        for section in payload.sections_json:
+            if section.projection_policy == "eligible" and section.body_markdown.strip():
+                blocks[section.section_id] = section.body_markdown.strip()
+            if section.projection_policy == "excluded" and (
+                not section.section_id.startswith("author_decisions")
+            ):
+                raise ValidationError(
+                    "Excluded package text must be an author_decisions section"
+                )
+        included = {
+            item.item_key: item
+            for item in package.items
+            if item.disposition == "include"
+        }
+        seen = set()
+        for mapping in payload.claim_mappings:
+            if (
+                mapping.content_key not in blocks
+                or mapping.claim.strip() != blocks[mapping.content_key]
+            ):
+                raise ValidationError(
+                    "World Bible claim mapping does not exactly cover its content block"
+                )
+            if mapping.content_key in seen:
+                raise ValidationError(
+                    "World Bible content block has duplicate claim mappings"
+                )
+            seen.add(mapping.content_key)
+            item = included.get(mapping.item_key)
+            if (
+                item is None
+                or item.kind not in {"core_entity", "entity_relation"}
+                or mapping.source_ref not in item.source_refs
+            ):
+                raise ValidationError(
+                    "World Bible claim mapping is not adopted package evidence"
+                )
+        if seen != set(blocks):
+            raise ValidationError(
+                "Every eligible World Bible content block requires one claim mapping"
+            )
+
+    @staticmethod
+    def _validate_page_local_refs(package, payload):
+        included = {
+            item.item_key: item
+            for item in package.items
+            if item.disposition == "include"
+        }
+        for ref in payload.linked_asset_refs_json:
+            local = str(ref.get("target_id") or ref.get("id") or "")
+            if not local.startswith("local:"):
+                continue
+            item = included.get(local[6:])
+            if item is None or item.kind not in {"core_entity", "entity_relation"}:
+                raise ValidationError(
+                    "World Bible local asset ref must name an included asset"
+                )
 
     @staticmethod
     def _preview_hash(

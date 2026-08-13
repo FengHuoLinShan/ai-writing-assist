@@ -3133,6 +3133,50 @@ class WorldAdoptionCoreEntityPayload(BaseModel):
         return self
 
 
+class WorldAdoptionPageClaimMapping(BaseModel):
+    """One eligible page claim must name its adopted package evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content_key: str = Field(..., min_length=1, max_length=64)
+    claim: str = Field(..., min_length=1, max_length=5000)
+    item_key: str = Field(..., pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    source_ref: WorldAdoptionSourceRef
+
+
+class WorldAdoptionPagePayload(BaseModel):
+    """Complete page proposal, published only through the existing lifecycle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["create", "replace"]
+    page_id: str | None = None
+    expected_page_version: int | None = Field(default=None, ge=1)
+    title: str = Field(..., min_length=1, max_length=255)
+    page_type: str = Field(..., min_length=1, max_length=64)
+    free_text: str | None = None
+    sections_json: list[WorldBibleSection] = Field(default_factory=list, max_length=64)
+    linked_asset_refs_json: list[dict[str, Any]] = Field(default_factory=list)
+    sort_order: int = 0
+    template_key: str | None = Field(default=None, max_length=128)
+    template_version: int = Field(default=1, ge=1)
+    claim_mappings: list[WorldAdoptionPageClaimMapping] = Field(
+        default_factory=list, max_length=256
+    )
+
+    @model_validator(mode="after")
+    def validate_page_target(self) -> WorldAdoptionPagePayload:
+        if self.operation == "create" and (
+            self.page_id is not None or self.expected_page_version is not None
+        ):
+            raise ValueError("new page proposal forbids page baseline")
+        if self.operation == "replace" and (
+            not self.page_id or self.expected_page_version is None
+        ):
+            raise ValueError("replace page proposal requires page_id and page version")
+        return self
+
+
 class WorldAdoptionBaseline(BaseModel):
     """Client-declared promotion expectation; server fingerprints remain authoritative."""
 
@@ -3153,7 +3197,7 @@ class WorldAdoptionPackageItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_key: str = Field(..., pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    kind: Literal["core_entity", "entity_relation"]
+    kind: Literal["core_entity", "entity_relation", "world_bible_page"]
     disposition: Literal["include", "open", "rejected"] = "open"
     authority_kind: Literal[
         "author_seed", "canonical_baseline", "manuscript_observation", "generated_bridge"
@@ -3170,10 +3214,14 @@ class WorldAdoptionPackageItem(BaseModel):
                 raise ValueError("promote core entity item requires a typed baseline")
             if payload.operation == "create" and self.baseline is not None:
                 raise ValueError("create core entity item forbids baseline")
-        else:
+        elif self.kind == "entity_relation":
             WorldAdoptionRelationPayload.model_validate(self.payload)
             if self.baseline is not None:
                 raise ValueError("entity relation item forbids baseline")
+        else:
+            WorldAdoptionPagePayload.model_validate(self.payload)
+            if self.baseline is not None:
+                raise ValueError("World Bible page item forbids entity baseline")
         return self
 
 

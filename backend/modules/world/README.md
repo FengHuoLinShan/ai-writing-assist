@@ -258,7 +258,7 @@ tasks ORM。
   `world_adoption_package.v1` 是作者显式保存的 pending 包。preview 不写库，按 source refs、
   checkpoint lineage 和 payload hash 给出预期 diff；apply 只采用 `include + proposed` 的
   CoreEntity（create/promote）/ EntityRelation，使用 package-local ref，在同一事务 CAS pending 并写 receipt。
-  `open` / `rejected` 不写事实；v1 不支持 RuleProfile、别名或世界书页面操作。
+  `open` / `rejected` 不写事实；v1 不支持 RuleProfile 或别名。
 - 生成中心的新对象先写 `creation_suggestion_queue`。队列服务同时物化一条
   `draft` / `candidate` 兼容影子，并以 `_meta.compatibility_shadow=true` 与
   `suggestion_id` 关联；采用或编辑后采用时提升同一条对象，合并/设为别名时由队列原子裁决并归档同一影子，忽略时同步标记该影子为 `ignored`。待处理影子不能绕过队列直接 CRUD，所有裁决都必须经过建议队列的 compare-and-set 门禁。
@@ -619,8 +619,13 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 `world_adoption_package.v1` 首版只采用核心对象 create/promote 与实体关系 create。
 promote 和外部关系端点以服务端指纹参与 preview hash，apply 在锁后复验；既有同一
 canonical relation 是 `existing_ref` no-op，不合并或改写。每个新建对象/关系均保存
-package、item、来源、authority 与 manifest provenance；RuleProfile、World Bible 页面与
-alias 仍不属于该 package contract。
+package、item、来源、authority 与 manifest provenance；RuleProfile 与 alias 仍不属于该
+package contract。
+
+package 也可携带一个完整的 `world_bible_page` create/replace 提案：它只在同一 package
+中有页面项时，经现有 draft → publish lifecycle 创建正式 revision。eligible 页面文字必须有
+同包已采用 item/source 的 claim mapping；open/rejected 只能放 `projection_policy=excluded`
+section，且不会进入可投影正文。页面预览保持零写入并把页面版本/impact scope 纳入 package hash。
 | POST | `/api/world/generation-center/chat` | 世界工作区共创聊天；按作者选择的来源/目标加载上下文，不创建建议、不写业务资产 |
 | POST | `/api/world/generation-center/convergence` | 对当前显式来源范围做只读收束；返回确定性 manifest、覆盖状态与最多 7 张决定卡，不创建建议或工作稿 |
 | POST | `/api/world/generation-center/exploration` | 从当前世界书页只读探索一跳相邻缺口；最多返回 3 项，不创建建议或工作稿 |

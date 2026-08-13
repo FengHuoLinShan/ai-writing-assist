@@ -392,6 +392,8 @@ JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把�
 `world_core_checkpoint.v1`，再保存 `world_adoption_package.v1`。这两个操作不调用模型；
 preview 与 apply 都由 world 的确定性 schema、source refs、lineage 与 CAS 校验完成，模型不能
 创建或采用 package。
+若 package 含完整 World Bible page proposal，eligible 文本的每条 claim 必须由同包 include
+item/source mapping 覆盖；页面仍只在作者 apply 时通过既有 lifecycle 发布 revision，不新增模型步骤。
 
 `world.generation.exploration.preview` 只在作者从当前世界书页请求相邻新页面时运行。服务端冻结
 同一份 typed source manifest，并要求模型返回最多 3 个深度 1 缺口或明确停止原因；每项必须
