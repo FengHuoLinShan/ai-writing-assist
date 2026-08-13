@@ -965,6 +965,21 @@ describe("api.js request headers", () => {
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
   })
 
+  it("preserves structured upload errors for callers", async () => {
+    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
+    class InvalidUploadXMLHttpRequest {
+      constructor() { this.upload = {}; this.status = 422; this.responseText = JSON.stringify({ detail: { code: "invalid_image", message: "图片内容无效" } }) }
+      open() {}
+      setRequestHeader() {}
+      send() { this.onload() }
+    }
+    globalThis.XMLHttpRequest = InvalidUploadXMLHttpRequest
+    try {
+      await expect(window.api.imports.uploadFile(new File(["x"], "bad.txt"), "novel-1"))
+        .rejects.toMatchObject({ message: "图片内容无效", status: 422, body: { detail: { code: "invalid_image", message: "图片内容无效" } } })
+    } finally { globalThis.XMLHttpRequest = OriginalXMLHttpRequest }
+  })
+
   it("aborts the upload XHR when its signal is cancelled", async () => {
     const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
     let instance = null

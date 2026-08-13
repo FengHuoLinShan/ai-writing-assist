@@ -211,12 +211,15 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 ### AI 地图册规划与图片 Prompt
 
 `world.map_atlas.plan.structured` 消费 `world.map_atlas.generate` 编译出的 author-full canonical
-资料、RAG `map_atlas` 证据和可选工作稿。输出由 `AtlasPlan` 校验：最多 20 页、无环、父级先于
+资料、RAG `map_atlas` 证据和可选工作稿。规划前会对至多 20 个已采用地点以每批 5 个提取
+可审计的空间线索；只有服务端选择的已发布 World Bible 段落和经 RAG 原文回读校验的正文可进入
+该步骤。输出由 `AtlasPlan` 校验：最多 20 页、无环、父级先于
 子级、默认不深于街道，并为每页分别列出直接来源、AI 视觉补全、冲突和标注。来源短引用必须
 属于当前 `novel_id`；run 固化 secret-free context snapshot、source manifest 与 hash。
 
-图片 Prompt 使用地点完整名称作为语义锚点，但明确要求成图不出现文字、字母、数字或符号，
-名称由前端标注层显示。生成、整图编辑、蒙版与多参考图直接调用固定 `gpt-image-2` Image API；
+图片 Prompt 使用地点完整名称作为语义锚点，但明确要求成图不出现文字、字母、数字、方向箭头、
+距离、比例尺、图例或层级标签；前端标注层只显示地点或地标名称，不显示层级、方向、距离、比例或图例。
+生成、整图编辑、蒙版与多参考图直接调用固定 `gpt-image-2` Image API；
 图片模型不输出结构化业务状态，也不能把视觉补全写回正式世界资料。
 
 ### Scene 切分与深化

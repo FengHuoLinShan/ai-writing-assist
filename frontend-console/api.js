@@ -544,14 +544,10 @@ function deleteRequest(path) {
   return request(path, { method: "DELETE" })
 }
 
-function uploadImportFile(file, novelId, onProgress = null, options = {}) {
+function uploadMultipart(path, formData, onProgress = null, options = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     const signal = options?.signal
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("novel_id", novelId)
-
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable || typeof onProgress !== "function") return
       onProgress(Math.round((event.loaded / event.total) * 100))
@@ -575,10 +571,17 @@ function uploadImportFile(file, novelId, onProgress = null, options = {}) {
       }
       if (xhr.status === 401) _handleUnauthorizedResponse()
       try {
-        const error = JSON.parse(xhr.responseText)
-        reject(new Error(error.detail || "上传失败"))
+        const body = JSON.parse(xhr.responseText)
+        const detail = body.detail
+        const message = typeof detail === "string" ? detail : detail?.message || body.message || "上传失败"
+        const error = new Error(message)
+        error.status = xhr.status
+        error.body = body
+        reject(error)
       } catch {
-        reject(new Error("上传失败"))
+        const error = new Error("上传失败")
+        error.status = xhr.status
+        reject(error)
       }
     }
     xhr.onerror = () => {
@@ -589,7 +592,7 @@ function uploadImportFile(file, novelId, onProgress = null, options = {}) {
       cleanup()
       reject(new DOMException("上传已取消", "AbortError"))
     }
-    xhr.open("POST", `${API_BASE_URL}/imports/upload`)
+    xhr.open("POST", `${API_BASE_URL}${path}`)
     xhr.withCredentials = true
     xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
     const csrfToken = _cookieValue("aaw_csrf")
@@ -597,6 +600,13 @@ function uploadImportFile(file, novelId, onProgress = null, options = {}) {
     if (_accessToken) xhr.setRequestHeader("Authorization", `Bearer ${_accessToken}`)
     xhr.send(formData)
   })
+}
+
+function uploadImportFile(file, novelId, onProgress = null, options = {}) {
+  const formData = new FormData()
+  formData.append("file", file)
+  formData.append("novel_id", novelId)
+  return uploadMultipart("/imports/upload", formData, onProgress, options)
 }
 
 function reportFrontendError(payload) {
@@ -1420,6 +1430,26 @@ const api = {
     },
     async getMapAtlasRunResults(novelId, runId) {
       return request(`/world/map-atlas/${novelId}/runs/${runId}/results`, { cache: "no-store" })
+    },
+    async getMapAtlasPagePrompt(novelId, pageId) {
+      return request(`/world/map-atlas/${novelId}/pages/${pageId}/prompt`, { cache: "no-store" })
+    },
+    async updateMapAtlasPagePrompt(novelId, pageId, payload) {
+      return patch(`/world/map-atlas/${novelId}/pages/${pageId}/prompt`, payload)
+    },
+    async confirmMapAtlasPrompts(novelId, runId, pages) {
+      return post(`/world/map-atlas/${novelId}/runs/${runId}/confirm-prompts`, { pages })
+    },
+    async uploadMapAtlasPage(novelId, payload, onProgress = null, options = {}) {
+      const body = new FormData()
+      body.append("image", payload.image)
+      for (const [key, value] of Object.entries(payload)) {
+        if (key !== "image" && value !== undefined && value !== null && value !== "") body.append(key, String(value))
+      }
+      return uploadMultipart(`/world/map-atlas/${novelId}/pages/upload`, body, onProgress, options)
+    },
+    async updateMapAtlasNode(novelId, nodeId, payload) {
+      return patch(`/world/map-atlas/${novelId}/nodes/${nodeId}`, payload)
     },
     async stopMapAtlasRun(novelId, runId) {
       return post(`/world/map-atlas/${novelId}/runs/${runId}/stop`, {})

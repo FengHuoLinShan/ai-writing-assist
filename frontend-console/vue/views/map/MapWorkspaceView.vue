@@ -14,6 +14,7 @@
           <summary class="btn btn-sm">更多</summary>
           <button class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="startRun(true)">完整重做</button>
         </details>
+        <button class="btn btn-sm" :disabled="writeLocked || runUnfinished" @click="openUpload">上传地图</button>
       </div>
     </header>
 
@@ -35,7 +36,18 @@
         <summary>高级选项</summary>
         <label><input v-model="options.include_working_drafts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 加入工作稿资料</label>
         <label><input v-model="options.include_interiors" type="checkbox" :disabled="writeLocked || runUnfinished" /> 允许规划室内图</label>
+        <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 生图前检查画面说明</label>
       </details>
+    </section>
+
+    <section v-if="currentRun?.status === 'prompt_review'" class="card atlas-prompt-review">
+      <header><div><h2>生图前检查</h2><p>可复制到其他生图工具，或修改后交给站内生成。</p></div><button class="btn btn-primary" :disabled="busy || promptSaving || !Object.keys(promptRecords).length" @click="confirmPrompts">确认全部选择</button></header>
+      <nav aria-label="选择地图页"><button v-for="item in visiblePages" :key="item.id" class="btn btn-sm" :class="{ active: activePage?.id === item.id }" @click="selectPromptPage(item)">{{ item.title }}</button></nav>
+      <div v-if="activePrompt" class="atlas-prompt-editor">
+        <label>画面说明<textarea v-model="activePrompt.prompt" class="form-textarea" rows="9" maxlength="64000" :disabled="!activePrompt.editable" @input="markPromptDirty" /></label>
+        <fieldset><legend>这一页怎么生成</legend><label><input v-model="activePrompt.generation_choice" value="internal" type="radio" @change="markPromptDirty" /> 站内生成</label><label><input v-model="activePrompt.generation_choice" value="external" type="radio" @change="markPromptDirty" /> 我在外部生成</label></fieldset>
+        <div><button class="btn btn-sm" @click="copyPrompt">复制画面说明</button><span role="status">{{ promptSaveLabel }}</span></div>
+      </div>
     </section>
 
     <div v-if="error" class="alert alert-warning atlas-alert" role="alert">
@@ -51,10 +63,15 @@
         <span v-else>正在整理地图层级</span>
       </div>
       <progress aria-label="地图册生成进度" :value="currentRun.completed_page_count" :max="currentRun.planned_page_count || 1" />
-      <p v-if="currentRun.error_message">{{ currentRun.error_message }}</p>
+      <p v-if="currentRun.error_message || currentRun.error_code === 'spatial_evidence_unavailable'">{{ currentRun.error_message || '空间资料提取暂时不可用；请稍后重试。' }}</p>
+      <details v-if="currentRun.evidence_summary" class="atlas-evidence-summary">
+        <summary>资料补充摘要</summary>
+        <p>{{ evidenceSummaryText }}</p>
+      </details>
       <div class="atlas-run-actions">
         <button v-if="runActive && !currentRun.stop_requested" class="btn btn-sm" :disabled="busy" @click="stopRun">生成完当前页后停止</button>
-        <button v-if="canResume" class="btn btn-sm btn-primary" :disabled="writeLocked" @click="resumeRun">继续生成</button>
+        <button v-if="currentRun.status === 'prompt_review'" class="btn btn-sm" :disabled="busy" @click="stopRun">暂停检查</button>
+        <button v-if="canResume" class="btn btn-sm btn-primary" :disabled="writeLocked" @click="resumeRun">{{ pausedPromptReview ? '继续检查' : '继续生成' }}</button>
         <button v-if="latestRunId && currentRun.id !== latestRunId" class="btn btn-sm" :disabled="writeLocked" @click="viewRun(latestRunId)">返回最新一轮</button>
       </div>
     </section>
@@ -87,13 +104,13 @@
       <p>{{ emptyText }}</p>
     </section>
 
-    <section v-else class="atlas-browser" role="tabpanel" :aria-label="tab === 'review' ? '本次生成结果' : '我的地图册'">
+    <section v-else-if="currentRun?.status !== 'prompt_review'" class="atlas-browser" role="tabpanel" :aria-label="tab === 'review' ? '本次生成结果' : '我的地图册'">
       <aside class="card atlas-tree" aria-label="地图层级">
         <button
           v-for="item in visibleNodes"
           :key="item.node.id"
-          :class="{ active: activePage?.node_id === item.node.id }"
-          :aria-current="activePage?.node_id === item.node.id ? 'true' : undefined"
+          :class="{ active: activeNodeId === item.node.id }"
+          :aria-current="activeNodeId === item.node.id ? 'true' : undefined"
           :style="{ paddingLeft: `${12 + item.depth * 18}px` }"
           @click="selectNode(item.node)"
         >
@@ -136,7 +153,10 @@
           <figure>
             <figcaption>{{ tab === 'review' ? '新候选' : '地图册图片' }}</figcaption>
             <div class="atlas-image-viewport">
-              <div v-if="imageUrls[activePage.id]" ref="imageCanvas" class="atlas-image-canvas" :style="imageCanvasStyle(activePage)">
+              <div v-if="activePage.generation_status === 'prompt_only'" class="atlas-prompt-only" role="status">
+                <strong>已选择外部生成</strong><p>{{ activePrompt?.prompt || '正在读取画面说明…' }}</p><div><button class="btn btn-sm" :disabled="!activePrompt" @click="copyPrompt">复制画面说明</button><button class="btn btn-sm btn-primary" @click="openUpload(true)">上传生成结果</button></div>
+              </div>
+              <div v-else-if="imageUrls[activePage.id]" ref="imageCanvas" class="atlas-image-canvas" :style="imageCanvasStyle(activePage)">
                 <img :src="imageUrls[activePage.id]" :alt="`${activePage.title} 地图`" />
                 <button
                   v-for="annotation in activePage.annotations"
@@ -185,6 +205,7 @@
         <div v-else class="atlas-review-actions">
           <button class="btn btn-sm btn-ghost" :disabled="writeLocked" @click="archivePage(activePage)">移出地图册</button>
         </div>
+        <details v-if="tab === 'atlas' || currentRun?.run_kind === 'upload'" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
 
         <section class="atlas-evidence">
           <h3>为何这样画</h3>
@@ -203,12 +224,26 @@
         </section>
       </article>
     </section>
+
+    <div v-if="uploadOpen" class="atlas-modal-backdrop" @click.self="closeUpload">
+      <section ref="uploadDialog" class="card atlas-upload-modal" role="dialog" aria-modal="true" aria-labelledby="atlas-upload-title" tabindex="-1" @keydown.esc="closeUpload">
+        <header><h2 id="atlas-upload-title">上传地图图片</h2><button class="btn btn-sm" :disabled="uploading" aria-label="关闭" @click="closeUpload">关闭</button></header>
+        <img v-if="uploadPreview" :src="uploadPreview" alt="待上传地图预览" />
+        <label>图片（PNG 或 JPEG，最大 50MB）<input type="file" accept="image/png,image/jpeg" :disabled="uploading" @change="chooseUploadFile" /></label>
+        <label>放到哪张地图下<select v-model="uploadForm.node_id" class="form-select" :disabled="uploading"><option value="">新建地图位置</option><option v-for="item in adoptedNodes" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
+        <template v-if="!uploadForm.node_id"><label>地图名称<input v-model="uploadForm.title" class="form-input" maxlength="200" :disabled="uploading" /></label><label>上级地图<select v-model="uploadForm.parent_id" class="form-select" :disabled="uploading"><option value="">无（顶层）</option><option v-for="item in adoptedNodes" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="uploadForm.level" class="form-select" :disabled="uploading"><option v-for="item in levelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label></template>
+        <progress v-if="uploading" :value="uploadProgress" max="100" aria-label="地图上传进度" />
+        <p v-if="uploadError" class="atlas-error" role="alert">{{ uploadError }}</p>
+        <footer><button v-if="uploading" class="btn" @click="cancelUpload">取消上传</button><button v-else class="btn btn-primary" :disabled="!canUpload" @click="submitUpload">{{ uploadError ? '重试上传' : '上传为候选' }}</button></footer>
+      </section>
+    </div>
   </main>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getConfirm, getRouter, getToast } from "../../bridge/index.js"
+import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 
 const props = defineProps({ projectId: { type: String, default: null } })
 const api = getApi()
@@ -226,6 +261,7 @@ const review = ref({ mode: "review", nodes: [], total_pages: 0 })
 const atlas = ref({ mode: "atlas", nodes: [], total_pages: 0 })
 const pageHistory = ref([])
 const activePageId = ref(null)
+const activeNodeId = ref(null)
 const oldPageId = ref(null)
 const zoom = ref(100)
 const editInstruction = ref("")
@@ -234,7 +270,24 @@ const selectedReferencePageIds = ref([])
 const imageCanvas = ref(null)
 const imageUrls = reactive({})
 const imageStatus = reactive({})
-const options = reactive({ layout: "landscape", quality: "standard", style_note: "", include_working_drafts: false, include_interiors: false })
+const options = reactive({ layout: "landscape", quality: "standard", style_note: "", include_working_drafts: false, include_interiors: false, review_image_prompts: false })
+const promptRecords = reactive({})
+const promptSaving = ref(false)
+const promptDirty = ref(false)
+const dirtyPromptPageId = ref(null)
+const promptConflict = ref(false)
+const uploadOpen = ref(false)
+const uploadDialog = ref(null)
+const uploadFile = ref(null)
+const uploadPreview = ref("")
+const uploadProgress = ref(0)
+const uploading = ref(false)
+const uploadError = ref("")
+const uploadForm = reactive({ node_id: "", title: "", parent_id: "", level: "world" })
+const nodeEdit = reactive({ title: "", parent_id: null, level: "world", before_node_id: "__keep__" })
+let promptTimer = null
+let promptSavePromise = null
+let uploadController = null
 let pollTimer = null
 let drag = null
 let dataEpoch = 0
@@ -247,7 +300,7 @@ const activeTree = computed(() => tab.value === "review" ? review.value : atlas.
 const visibleNodes = computed(() => flattenNodes(activeTree.value.nodes || []))
 const visiblePages = computed(() => visibleNodes.value.flatMap(({ node }) => node.pages || []))
 const activePage = computed(() => visiblePages.value.find(page => page.id === activePageId.value) || visiblePages.value[0] || null)
-const activeNode = computed(() => visibleNodes.value.find(({ node }) => node.id === activePage.value?.node_id)?.node || null)
+const activeNode = computed(() => visibleNodes.value.find(({ node }) => node.id === activeNodeId.value)?.node || null)
 const adoptedNode = computed(() => flattenNodes(atlas.value.nodes || []).find(({ node }) => node.id === activePage.value?.node_id)?.node || null)
 const oldPages = computed(() => adoptedNode.value?.pages || [])
 const oldPage = computed(() => oldPages.value.find(page => page.id === oldPageId.value) || oldPages.value[0] || {})
@@ -259,10 +312,32 @@ const historyPages = computed(() => {
 const runActive = computed(() => ["planning", "generating"].includes(currentRun.value?.status))
 const canResume = computed(() => currentRun.value?.status === "paused"
   || (currentRun.value?.status === "partial" && ["retry_requires_confirmation", "worker_interrupted"].includes(currentRun.value?.error_code)))
-const runUnfinished = computed(() => runActive.value || canResume.value)
+const runUnfinished = computed(() => runActive.value || canResume.value || currentRun.value?.status === "prompt_review")
+const pausedPromptReview = computed(() => currentRun.value?.status === "paused" && currentRun.value?.review_image_prompts)
 const writeLocked = computed(() => loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
 const connectionError = computed(() => ["image_connection_required", "image_auth_failed"].includes(errorCode.value))
-const runStatusLabel = computed(() => ({ planning: "正在规划地图册", generating: currentRun.value?.stop_requested ? "将在当前页完成后停止" : "正在逐页生成", review_ready: "本次地图册已经生成", partial: "部分页面需要处理", paused: "生成已停止", failed: "地图册生成失败", completed: "地图册已完成" }[currentRun.value?.status] || "地图册任务"))
+const allPromptOnly = computed(() => visiblePages.value.length > 0 && visiblePages.value.every(page => page.generation_status === "prompt_only"))
+const runStatusLabel = computed(() => allPromptOnly.value ? "画面说明已确认，等待外部图片" : ({ planning: "正在规划地图册", prompt_review: "等待检查画面说明", generating: currentRun.value?.stop_requested ? "将在当前页完成后停止" : "正在逐页生成", review_ready: "本次地图册已经生成", partial: "部分页面需要处理", paused: pausedPromptReview.value ? "画面说明检查已暂停" : "生成已停止", failed: "地图册生成失败", completed: "地图册已完成" }[currentRun.value?.status] || "地图册任务"))
+const activePrompt = computed(() => activePage.value ? promptRecords[activePage.value.id] : null)
+const promptSaveLabel = computed(() => promptConflict.value ? "这页已在别处更新，请刷新后再编辑" : promptSaving.value ? "正在保存…" : promptDirty.value ? "有未保存修改" : "已保存")
+const adoptedNodes = computed(() => flattenNodes(atlas.value.nodes || []).map(({ node }) => node))
+const levelChoices = [{ value: "cover", label: "封面" }, { value: "world", label: "世界" }, { value: "region", label: "区域" }, { value: "city", label: "城市" }, { value: "district", label: "城区" }, { value: "street", label: "街道" }, { value: "interior", label: "室内" }]
+const activeDescendantIds = computed(() => {
+  const ids = new Set()
+  const visit = node => { for (const child of node?.children || []) { ids.add(child.id); visit(child) } }
+  visit(activeNode.value)
+  return ids
+})
+const nodeParentChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && !activeDescendantIds.value.has(node.id)))
+const siblingChoices = computed(() => adoptedNodes.value.filter(node => node.id !== activeNode.value?.id && (node.parent_id || null) === (nodeEdit.parent_id || null)))
+const canUpload = computed(() => uploadFile.value && (uploadForm.node_id || uploadForm.title.trim()))
+const uploadDraftDirty = computed(() => Boolean(uploadFile.value || uploadForm.node_id || uploadForm.title || uploadForm.parent_id || uploadForm.level !== "world"))
+const canEditNodeTitle = computed(() => currentRun.value?.run_kind === "upload" && activeNode.value?.status === "provisional")
+const evidenceSummaryText = computed(() => {
+  const item = currentRun.value?.evidence_summary || {}
+  if (!item.locations_checked && !item.message) return "本轮没有可显示的补充资料摘要。"
+  return item.message || `核对 ${item.locations_checked || 0} 个地点，采用 ${item.spatial_facts_used || 0} 条空间线索${item.conflicts ? `；${item.conflicts} 处资料不一致已保留为模糊处理` : ""}。`
+})
 const emptyTitle = computed(() => {
   if (tab.value !== "review") return "你的地图册还是空的"
   if (!currentRun.value) return "还没有本次生成结果"
@@ -297,7 +372,7 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-function selectNode(node) { const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; if (page) activePageId.value = page.id }
+async function selectNode(node) { if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; if (page) activePageId.value = page.id }
 function annotationStyle(item) { return { left: `${item.position_x * 100}%`, top: `${item.position_y * 100}%` } }
 function imageCanvasStyle(page) {
   const width = Number(page?.width)
@@ -353,6 +428,7 @@ async function retryImage(page) {
   await loadImage(page, true)
 }
 async function loadAll(preferredRunId = null) {
+  if (promptDirty.value && !await savePrompt()) return
   preferredRunId = typeof preferredRunId === "string" ? preferredRunId : null
   const epoch = ++dataEpoch
   const projectId = props.projectId
@@ -370,17 +446,20 @@ async function loadAll(preferredRunId = null) {
     const selectedReview = selectedRun ? await api.world.getMapAtlasRunResults(projectId, selectedRun.id) : { mode: "review", nodes: [], total_pages: 0 }
     if (!mounted || epoch !== dataEpoch || projectId !== props.projectId) return
     atlas.value = savedAtlas
+    for (const key of Object.keys(promptRecords)) delete promptRecords[key]
     pageHistory.value = history
     latestRunId.value = latest?.id || null
     currentRun.value = selectedRun
     review.value = selectedReview
     syncSelection()
+    await loadPrompts()
     schedulePoll()
     await nextTick(); await loadImages()
   } catch (err) { if (epoch === dataEpoch) setError(err) } finally { if (epoch === dataEpoch) loading.value = false }
 }
 function syncSelection() {
   if (!visiblePages.value.some(page => page.id === activePageId.value)) activePageId.value = visiblePages.value[0]?.id || null
+  if (!visibleNodes.value.some(({ node }) => node.id === activeNodeId.value)) activeNodeId.value = activePage.value?.node_id || null
   if (!oldPages.value.some(page => page.id === oldPageId.value)) oldPageId.value = oldPages.value[0]?.id || null
   const validReferences = new Set(referenceChoices.value.map(item => item.id))
   selectedReferencePageIds.value = selectedReferencePageIds.value.filter(id => validReferences.has(id))
@@ -403,7 +482,7 @@ async function refreshRun() {
     if (!mounted || epoch !== dataEpoch || projectId !== props.projectId || currentRun.value?.id !== runId) return
     currentRun.value = refreshedRun
     review.value = refreshedReview
-    syncSelection(); await loadImages()
+    syncSelection(); await loadPrompts(); await loadImages()
   } catch (err) { if (epoch === dataEpoch) { failed = true; setError(err); clearTimeout(pollTimer) } } finally { refreshing.value = false; if (!failed) schedulePoll() }
   }
 async function startRun(fullRebuild) {
@@ -417,11 +496,106 @@ async function startRun(fullRebuild) {
     schedulePoll(); toast("地图册任务已开始", "success")
   } catch (err) { setError(err) } finally { busy.value = false }
 }
+
+async function loadPrompts() {
+  const pages = visiblePages.value.filter(page => page.has_generation_prompt !== false && ["prepared", "prompt_only"].includes(page.generation_status))
+  if (currentRun.value?.status !== "prompt_review" && !pages.some(page => page.generation_status === "prompt_only")) return
+  if (promptDirty.value) return
+  const records = await Promise.all(pages.map(page => api.world.getMapAtlasPagePrompt(props.projectId, page.id)))
+  for (const item of records) promptRecords[item.page_id] = item
+  promptDirty.value = false; dirtyPromptPageId.value = null; promptConflict.value = false
+}
+async function savePrompt() {
+  clearTimeout(promptTimer)
+  if (promptSavePromise) {
+    if (!await promptSavePromise) return false
+    return promptDirty.value ? savePrompt() : true
+  }
+  const record = promptRecords[dirtyPromptPageId.value]
+  if (!record || !promptDirty.value) return true
+  const pageId = record.page_id
+  const revision = record._editRevision || 0
+  const payload = { prompt: record.prompt, generation_choice: record.generation_choice, expected_updated_at: record.updated_at }
+  promptSaving.value = true; promptConflict.value = false
+  promptSavePromise = (async () => {
+    try {
+      const saved = await api.world.updateMapAtlasPagePrompt(props.projectId, pageId, payload)
+      if ((record._editRevision || 0) === revision) {
+        Object.assign(record, saved); promptDirty.value = false; dirtyPromptPageId.value = null
+      } else record.updated_at = saved.updated_at
+      return true
+    } catch (err) {
+      promptConflict.value = err?.status === 409 || err?.body?.detail?.code === "conflict"
+      if (!promptConflict.value) setError(err)
+      return false
+    }
+  })()
+  const succeeded = await promptSavePromise
+  promptSavePromise = null; promptSaving.value = false
+  if (succeeded && promptDirty.value && dirtyPromptPageId.value === pageId) return savePrompt()
+  return succeeded
+}
+function markPromptDirty() { if (!activePrompt.value) return; activePrompt.value._editRevision = (activePrompt.value._editRevision || 0) + 1; promptDirty.value = true; dirtyPromptPageId.value = activePrompt.value.page_id; promptConflict.value = false; clearTimeout(promptTimer); promptTimer = setTimeout(savePrompt, 800) }
+async function selectPromptPage(page) { if (!await savePrompt()) return; activePageId.value = page.id }
+async function copyPrompt() { try { await navigator.clipboard.writeText(activePrompt.value?.prompt || ""); toast("画面说明已复制", "success") } catch { toast("复制失败，请手动选中文字", "error") } }
+async function confirmPrompts() {
+  if (!await savePrompt()) return
+  busy.value = true
+  try {
+    currentRun.value = await api.world.confirmMapAtlasPrompts(props.projectId, currentRun.value.id, Object.values(promptRecords).map(item => ({ page_id: item.page_id, expected_updated_at: item.updated_at })))
+    promptDirty.value = false; dirtyPromptPageId.value = null; schedulePoll(); await loadAll(); toast("选择已确认", "success")
+  } catch (err) { setError(err) } finally { busy.value = false }
+}
+
+function openUpload(fromPromptOnly = false) {
+  if (fromPromptOnly) {
+    const adoptedIds = new Set(adoptedNodes.value.map(node => node.id))
+    Object.assign(uploadForm, { node_id: "", title: activePage.value?.title || "", parent_id: adoptedIds.has(activeNode.value?.parent_id) ? activeNode.value.parent_id : "", level: activeNode.value?.level || "world" })
+  }
+  uploadOpen.value = true; uploadError.value = ""; nextTick(() => uploadDialog.value?.focus())
+}
+function resetUpload() { if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); uploadFile.value = null; uploadPreview.value = ""; uploadProgress.value = 0; uploadError.value = ""; Object.assign(uploadForm, { node_id: "", title: "", parent_id: "", level: "world" }) }
+function closeUpload() { if (uploading.value) return; if (uploadDraftDirty.value && !confirm("放弃未上传的地图？")) return; uploadOpen.value = false; resetUpload() }
+function chooseUploadFile(event) {
+  const file = event.target.files?.[0] || null
+  uploadError.value = ""
+  if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value)
+  uploadPreview.value = ""
+  if (file && (!["image/png", "image/jpeg"].includes(file.type) || file.size >= 50 * 1024 * 1024)) { uploadFile.value = null; uploadError.value = "请选择小于 50MB 的 PNG 或 JPEG 图片"; return }
+  uploadFile.value = file; uploadPreview.value = file ? URL.createObjectURL(file) : ""
+}
+async function submitUpload() {
+  if (!canUpload.value) return
+  uploading.value = true; uploadError.value = ""; uploadProgress.value = 0; uploadController = new AbortController()
+  try {
+    const uploaded = await api.world.uploadMapAtlasPage(props.projectId, {
+      image: uploadFile.value, node_id: uploadForm.node_id || null, title: uploadForm.node_id ? null : uploadForm.title.trim(),
+      parent_id: uploadForm.node_id ? null : (uploadForm.parent_id || null), level: uploadForm.node_id ? null : uploadForm.level,
+    }, value => { uploadProgress.value = value }, { signal: uploadController.signal })
+    uploadOpen.value = false; resetUpload(); await loadAll(uploaded.run_id); toast("地图已上传，请确认是否加入地图册", "success")
+  } catch (err) { if (err?.name !== "AbortError") uploadError.value = friendlyError(err) }
+  finally { uploading.value = false; uploadController = null }
+}
+function cancelUpload() { uploadController?.abort() }
+async function saveNodePosition() {
+  if (!activeNode.value) return
+  busy.value = true
+  try {
+    await api.world.updateMapAtlasNode(props.projectId, activeNode.value.id, { ...(canEditNodeTitle.value ? { title: nodeEdit.title.trim() } : {}), parent_id: nodeEdit.parent_id, level: nodeEdit.level, ...(nodeEdit.before_node_id === "__keep__" ? {} : { before_node_id: nodeEdit.before_node_id === "__append__" ? null : nodeEdit.before_node_id }), expected_updated_at: activeNode.value.updated_at })
+    await loadAll(); toast("地图层级与位置已保存", "success")
+  } catch (err) { setError(err) } finally { busy.value = false }
+}
 async function stopRun() {
   if (busy.value || !currentRun.value || currentRun.value.stop_requested) return
   dataEpoch += 1
   busy.value = true
-  try { await api.world.stopMapAtlasRun(props.projectId, currentRun.value.id); currentRun.value.stop_requested = true; toast("会在当前页完成后停止", "info") } catch (err) { setError(err) } finally { busy.value = false }
+  try {
+    const promptReview = currentRun.value.status === "prompt_review"
+    const stopped = await api.world.stopMapAtlasRun(props.projectId, currentRun.value.id)
+    if (promptReview) currentRun.value = { ...currentRun.value, status: "paused", stop_requested: stopped.stop_requested }
+    else currentRun.value.stop_requested = true
+    toast(promptReview ? "画面说明检查已暂停" : "会在当前页完成后停止", "info")
+  } catch (err) { setError(err) } finally { busy.value = false }
 }
 async function resumeRun() {
   if (writeLocked.value || !currentRun.value) return
@@ -429,6 +603,7 @@ async function resumeRun() {
   busy.value = true
   try {
     currentRun.value = await api.world.resumeMapAtlasRun(props.projectId, currentRun.value.id, false)
+    if (currentRun.value.status === "prompt_review") await loadAll(currentRun.value.id)
   } catch (err) {
     if (err?.body?.detail?.code === "retry_requires_confirmation" || err?.detail?.code === "retry_requires_confirmation") {
       if (!confirm("上次图片请求可能已经产生费用。确定再次调用并可能重复扣费吗？")) { busy.value = false; return }
@@ -539,6 +714,7 @@ async function endAnnotationDrag() {
 function friendlyError(err) {
   const code = err?.body?.detail?.code || err?.detail?.code
   if (code === "insufficient_sources") return `已确认资料不足。${insufficientSourcesHelp}`
+  if (code === "spatial_evidence_unavailable") return "空间资料提取暂时不可用；请稍后重试"
   if (code === "image_connection_required") return "请先到账户设置连接 OpenAI 图片服务"
   if (code === "image_auth_failed") return "OpenAI 图片连接已失效，请在账户设置中重新连接"
   if (code === "moderation_blocked") return "图片请求未通过安全检查，请调整画面说明后重试"
@@ -562,18 +738,33 @@ async function viewRun(runId) {
   tab.value = "review"
   await loadAll(runId === latestRunId.value ? null : runId)
 }
-function selectTab(value) {
+async function selectTab(value) {
+  if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return
   tab.value = value
 }
 
 watch(tab, () => { syncSelection(); nextTick(loadImages) })
-watch(activePageId, () => { oldPageId.value = oldPages.value[0]?.id || null; nextTick(loadImages) })
+watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; oldPageId.value = oldPages.value[0]?.id || null; nextTick(loadImages) })
 watch(oldPageId, loadImages)
+watch(activeNode, node => {
+  if (!node) return
+  nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
+})
+useLeaveGuard(() => {
+  if (uploading.value) return false
+  if (promptDirty.value && !confirm("画面说明还没有保存，确定离开吗？")) return false
+  return !uploadDraftDirty.value || confirm("放弃未上传的地图？")
+})
+function warnBeforeUnload(event) { if (!promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
 onMounted(loadAll)
-onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })
+onMounted(() => globalThis.addEventListener("beforeunload", warnBeforeUnload))
+onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(promptTimer); uploadController?.abort(); globalThis.removeEventListener("beforeunload", warnBeforeUnload); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })
 </script>
 
 <style scoped>
 .atlas-workspace{display:grid;gap:16px;padding:20px;min-width:0}.atlas-header,.atlas-options,.atlas-run,.atlas-page-header,.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{display:flex;align-items:center;gap:12px}.atlas-header{justify-content:space-between}.atlas-header h1,.atlas-page h2{margin:0}.atlas-header p{margin:4px 0;color:var(--text-secondary,#68707d)}.atlas-eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.atlas-primary-actions{align-self:flex-end}.atlas-more{position:relative}.atlas-more[open] button{position:absolute;right:0;top:42px;z-index:4;white-space:nowrap}.atlas-options{align-items:end;flex-wrap:wrap}.atlas-options label{display:grid;gap:6px;font-size:13px}.atlas-options .atlas-style{flex:1 1 280px}.atlas-options details label{display:block;margin-top:8px}.atlas-alert,.atlas-run{justify-content:space-between}.atlas-run{display:grid;grid-template-columns:minmax(220px,1fr) minmax(160px,2fr) auto}.atlas-run div:first-child{display:flex;gap:10px;flex-wrap:wrap}.atlas-run progress{width:100%}.atlas-run p{grid-column:1/-1;margin:0;color:#9a4d32}.atlas-tabs{display:flex;border-bottom:1px solid var(--border-color,#dfe3e8)}.atlas-tabs button{padding:12px 18px;border:0;border-bottom:3px solid transparent;background:none;font-weight:700}.atlas-tabs button.active{border-color:var(--primary,#496fe3);color:var(--primary,#496fe3)}.atlas-tabs span{margin-left:6px;font-size:12px}.atlas-empty{text-align:center;padding:48px}.atlas-all-rejected{padding:20px}.atlas-browser{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;min-width:0}.atlas-tree{display:flex;flex-direction:column;align-self:start;padding:8px;max-height:72vh;overflow:auto}.atlas-tree button{display:flex;gap:7px;align-items:center;border:0;background:none;border-radius:7px;padding:9px;text-align:left}.atlas-tree button:hover,.atlas-tree button.active{background:var(--surface-muted,#eef2fa)}.atlas-tree button span{font-size:11px;color:var(--text-secondary,#68707d)}.atlas-tree button small{margin-left:auto}.atlas-page{min-width:0}.atlas-page-header{justify-content:space-between}.atlas-page-header p{margin:0;color:var(--text-secondary,#68707d)}.atlas-zoom{display:flex;align-items:center;gap:8px}.atlas-images{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.atlas-images.compare{grid-template-columns:repeat(2,minmax(0,1fr))}.atlas-images figure{min-width:0;margin:0}.atlas-images figcaption{margin:8px 0;font-weight:700}.atlas-image-viewport{display:flex;align-items:center;min-height:220px;overflow:auto;border-radius:10px;background:#20242c;color:#fff}.atlas-image-canvas{position:relative;flex:0 0 auto;margin-inline:auto;transition:width .15s ease}.atlas-image-canvas img{display:block;width:100%;height:100%;object-fit:contain}.atlas-image-state{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:220px}.atlas-annotation{position:absolute;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,.8);border-radius:999px;padding:4px 8px;background:rgba(20,24,32,.78);color:white;white-space:nowrap;cursor:pointer;touch-action:manipulation}.atlas-review-actions{margin-top:14px;flex-wrap:wrap}.atlas-charge-warning{flex:1 0 100%;margin:0;padding:10px;border:1px solid #d68c72;border-radius:8px;background:#fff2ed;color:#7b351f}.atlas-edit{flex:1 1 320px}.atlas-edit textarea{display:block;width:100%;margin:10px 0}.atlas-edit p{font-size:12px;color:var(--text-secondary,#68707d)}.atlas-mask{display:block}.atlas-references{display:grid;gap:7px;margin:10px 0;border:1px solid var(--border-color,#dfe3e8);border-radius:8px}.atlas-references label{display:flex;align-items:center;gap:7px}.atlas-evidence{margin-top:20px;border-top:1px solid var(--border-color,#dfe3e8);padding-top:16px}.atlas-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.atlas-evidence-grid>div{padding:12px;border-radius:8px;background:var(--surface-muted,#f4f6f9)}.atlas-evidence-grid ul{padding-left:20px}.atlas-candidate-note{display:inline-block;margin:6px 0;padding:2px 7px;border-radius:999px;background:#fff2cc;color:#795d00;font-size:12px}.atlas-conflicts{border:1px solid #d68c72;background:#fff2ed!important}.atlas-source{justify-content:space-between;border-top:1px solid var(--border-color,#dfe3e8);padding:10px 0}.atlas-source p{margin:3px 0}.atlas-history-status{font-weight:700}.atlas-error{color:#a8412d}.atlas-more summary,.atlas-edit summary{list-style:none}.atlas-more summary::-webkit-details-marker,.atlas-edit summary::-webkit-details-marker{display:none}
+.atlas-evidence-summary{grid-column:1/-1;min-width:0;color:var(--text-secondary,#68707d)}.atlas-evidence-summary p{color:inherit}
+.atlas-prompt-review{display:grid;gap:14px}.atlas-prompt-review header,.atlas-prompt-review nav,.atlas-prompt-editor>div,.atlas-upload-modal header,.atlas-upload-modal footer{display:flex;align-items:center;justify-content:space-between;gap:10px}.atlas-prompt-review nav{justify-content:flex-start;flex-wrap:wrap}.atlas-prompt-review nav .active{outline:2px solid var(--primary,#496fe3)}.atlas-prompt-editor{display:grid;gap:12px}.atlas-prompt-editor label,.atlas-upload-modal label,.atlas-node-form label{display:grid;gap:6px}.atlas-prompt-editor textarea{width:100%;resize:vertical}.atlas-prompt-editor fieldset{display:flex;gap:18px}.atlas-modal-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:16px;background:rgba(20,24,32,.62)}.atlas-upload-modal{display:grid;gap:14px;width:min(560px,100%);max-height:90vh;overflow:auto}.atlas-upload-modal img{display:block;max-width:100%;max-height:240px;margin:auto}.atlas-upload-modal progress{width:100%}.atlas-node-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.atlas-node-form button{align-self:end}
 @media(max-width:900px){.atlas-workspace{padding:12px}.atlas-header,.atlas-options,.atlas-run{align-items:stretch}.atlas-header{flex-direction:column}.atlas-primary-actions{align-self:stretch}.atlas-browser{grid-template-columns:1fr}.atlas-tree{max-height:180px}.atlas-images.compare,.atlas-evidence-grid{grid-template-columns:1fr}.atlas-run{grid-template-columns:1fr}.atlas-mask{display:none}.atlas-edit p::after{content:" 蒙版与精确标注请在桌面完成。"}}
+@media(max-width:900px){.atlas-node-form{grid-template-columns:1fr}.atlas-prompt-review header{align-items:stretch;flex-direction:column}.atlas-prompt-review header button{width:100%}}
 </style>

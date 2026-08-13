@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import base64
 import uuid
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from botocore.exceptions import ClientError
+from PIL import Image
 
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasRun
 from modules.world.map_atlas_storage import (
     MapAtlasStorage,
+    normalize_map_upload,
     page_object_key,
     project_object_prefix,
     require_owned_page_object_key,
@@ -110,6 +113,25 @@ def test_storage_accepts_aws_https_and_local_development_endpoints(
 def test_png_validator_rejects_incomplete_or_corrupted_files(payload: bytes) -> None:
     with pytest.raises(ValueError):
         validate_png(payload)
+
+
+def test_map_upload_normalizes_jpeg_to_metadata_free_png() -> None:
+    source = BytesIO()
+    Image.new("RGB", (2, 3), "red").save(
+        source, format="JPEG", exif=b"Exif\x00\x00metadata"
+    )
+
+    payload, metadata = normalize_map_upload(source.getvalue())
+
+    assert payload.startswith(b"\x89PNG")
+    assert (metadata.width, metadata.height) == (2, 3)
+    with Image.open(BytesIO(payload)) as image:
+        assert image.info == {}
+
+
+def test_map_upload_rejects_disguised_image() -> None:
+    with pytest.raises(ValueError, match="PNG 或 JPEG"):
+        normalize_map_upload(b"GIF89a" + b"\x00" * 100)
 
 
 def test_cleanup_targets_accept_only_canonical_project_and_page_paths() -> None:
@@ -264,9 +286,7 @@ async def test_cleanup_falls_back_to_current_objects_without_version_api() -> No
     storage = MapAtlasStorage(client=client, bucket="private")
 
     assert await storage.delete_prefix(prefix) == 1
-    assert client.delete_objects.call_args.kwargs["Delete"]["Objects"] == [
-        {"Key": key}
-    ]
+    assert client.delete_objects.call_args.kwargs["Delete"]["Objects"] == [{"Key": key}]
 
 
 @pytest.mark.asyncio
@@ -287,9 +307,7 @@ async def test_cleanup_handler_dispatches_exact_object_and_project_prefix(
     ):
         object_result = await handle_map_atlas_storage_cleanup(
             db_session,
-            SimpleNamespace(
-                meta={"cleanup_kind": "object", "object_key": key}
-            ),
+            SimpleNamespace(meta={"cleanup_kind": "object", "object_key": key}),
         )
         prefix_result = await handle_map_atlas_storage_cleanup(
             db_session,
