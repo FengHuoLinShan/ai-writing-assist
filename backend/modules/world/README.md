@@ -627,10 +627,11 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | GET | `/api/world/adoption-packages/{suggestion_id}/preview` | 零写入预演 package 的覆盖、diff 与 hash |
 | POST | `/api/world/adoption-packages/{suggestion_id}/apply` | 以 preview hash 原子采用 package 的 include 项；重复 apply 返回 receipt |
 
-`world_adoption_package.v1` 首版采用核心对象 create/promote/existing_ref 与实体关系 create/promote。
+`world_adoption_package.v1` 首版采用核心对象 create/promote/existing_ref 与实体关系 create/promote/existing_ref。
 promote 和外部关系端点以服务端指纹参与 preview hash，apply 在锁后复验；既有同一
 canonical relation 是 `existing_ref` no-op，不合并或改写。每个新建对象/关系均保存
-package、item、来源、authority 与 manifest provenance；RuleProfile 与 alias 仍不属于该
+package、item、来源、authority 与 manifest provenance；同一对象再次被采纳时追加
+`world_adoptions` 回执历史，不覆盖旧来源。RuleProfile 与 alias 仍不属于该
 package contract。
 
 package 也可携带一个完整的 `world_bible_page` create/replace 提案：它只在同一 package

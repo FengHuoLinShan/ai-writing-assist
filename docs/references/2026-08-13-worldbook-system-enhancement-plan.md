@@ -501,12 +501,13 @@ preview 必须零写入并返回 payload/source/baseline/impact hash、对象和
 Deep Import 保留现有 upfront `user_authorized_pipeline`、Phase 2 持久化、checkpoint/resume/rollback 和 asset summary 语义，不把整个 Phase 2 延迟到二次确认。工作流完成后通过 world 稳定 facade 组装 post-import package：
 
 - 已自动合并或已采用资产写成 `existing_ref/no-op`，只进入“本流水线已写入”栏；
-- candidate 使用 expected status/hash，进入本次待确认栏；
+- candidate 使用 expected status/hash，进入本次待确认栏；组包必须消费冻结 Scene 的实体/关系 result refs，不可以当前全库扫描代替；
 - 尚未采用的关系、补充 claim 与 World Bible 页面 revision 进入 pending writes；
 - alias 若首版 package 不支持，继续走现有 alias review，不伪装为已完成；
 - 同一实体来自作者 seed 与正文 Scene 时只保留一个实体，但保留两条独立 source refs 和 authority。
 
 预览必须分栏显示“流水线已写入”与“本次确认将写入”，apply 不得二次创建对象。若未来改为 Phase 2 全部延迟确认，必须作为破坏性重构同步 checkpoint、resume、rollback、asset summary、API、前端与迁移，不得藏在 facade 复用中。
+首版单包最多 31 个业务资产（另加 1 个完整 Wiki 页提案）；超限必须显式诊断“需分包”，不允许部分创建或静默遗漏。
 
 ### 10.4 World Bible 关联图边界
 

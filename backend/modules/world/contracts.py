@@ -90,6 +90,8 @@ class PostImportSceneSourceContract:
     source_hash: str
     range_start: int | None = None
     range_end: int | None = None
+    entity_ids: tuple[str, ...] = ()
+    relation_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

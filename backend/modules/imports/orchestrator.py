@@ -395,7 +395,14 @@ class DeepImportOrchestrator:
         checkpoints = (progress.checkpoints.get("phase2") or {}).get("scenes") or []
         sources = [
             PostImportSceneSourceContract(
-                scene_id=str(item["scene_id"]), source_hash=str(item["input_fingerprint"])
+                scene_id=str(item["scene_id"]),
+                source_hash=str(item["input_fingerprint"]),
+                entity_ids=tuple(
+                    str(value) for value in item.get("created_entity_ids") or []
+                ),
+                relation_ids=tuple(
+                    str(value) for value in item.get("created_relation_ids") or []
+                ),
             )
             for item in checkpoints
             if isinstance(item, dict)

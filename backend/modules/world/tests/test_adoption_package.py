@@ -820,12 +820,13 @@ async def test_post_import_package_is_idempotent_and_keeps_existing_separate(
         CoreEntityCreate(
             entity_type="location",
             name="待确认",
+            summary="潮门失准时会中断补给。",
             status="candidate",
             force_create=True,
             content_json={"_meta": {"workflow_id": workflow_id, "scene_id": scene_id}},
         ),
     )
-    await EntityRelationService().create(
+    candidate_relation = await EntityRelationService().create(
         db_session,
         project_novel_id,
         EntityRelationCreate(
@@ -836,12 +837,39 @@ async def test_post_import_package_is_idempotent_and_keeps_existing_separate(
             review_meta={"workflow_id": workflow_id, "scene_id": scene_id},
         ),
     )
+    canonical_target = await WorldEntityService().create(
+        db_session,
+        project_novel_id,
+        CoreEntityCreate(
+            entity_type="organization",
+            name="旧潮盟",
+            force_create=True,
+        ),
+    )
+    canonical_relation = await EntityRelationService().create(
+        db_session,
+        project_novel_id,
+        EntityRelationCreate(
+            source_id=canonical.id,
+            target_id=canonical_target.id,
+            relation_type="member_of",
+            status="canonical",
+        ),
+    )
     request = PostImportWorldAdoptionRequestContract(
         novel_id=project_novel_id,
         workflow_id=workflow_id,
         authorization_ref="2026-08-13T00:00:00Z",
         scene_sources=[
-            PostImportSceneSourceContract(scene_id=scene_id, source_hash=scene_hash)
+            PostImportSceneSourceContract(
+                scene_id=scene_id,
+                source_hash=scene_hash,
+                entity_ids=(canonical.id, candidate.id, canonical_target.id),
+                relation_ids=(
+                    str(candidate_relation.id),
+                    str(canonical_relation.id),
+                ),
+            )
         ],
     )
     service = WorldAdoptionPackageService()
@@ -863,6 +891,17 @@ async def test_post_import_package_is_idempotent_and_keeps_existing_separate(
         for item in package["items"]
         if item["kind"] == "entity_relation"
     )
+    preview = await service.preview(db_session, project_novel_id, first.suggestion_id)
+    relation_actions = {
+        item["action"] for item in preview.canon_diff if item["kind"] == "entity_relation"
+    }
+    assert relation_actions == {"promote", "existing_ref"}
+    page = next(item for item in package["items"] if item["kind"] == "world_bible_page")
+    rendered_claims = "\n".join(
+        section["body_markdown"] for section in page["payload"]["sections_json"]
+    )
+    assert "待确认（location）：潮门失准时会中断补给。" in rendered_claims
+    assert "已确认导入世界对象" not in rendered_claims
 
 
 @pytest.mark.asyncio

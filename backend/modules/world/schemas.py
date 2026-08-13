@@ -3174,13 +3174,15 @@ class WorldAdoptionRelationPayload(BaseModel):
     target_ref: str = Field(..., min_length=1, max_length=128)
     relation_type: str = Field(..., min_length=1, max_length=64)
     description: str | None = Field(default=None, max_length=5000)
-    operation: Literal["create", "promote"] = "create"
+    operation: Literal["create", "promote", "existing_ref"] = "create"
     relation_id: str | None = None
 
     @model_validator(mode="after")
     def validate_operation(self) -> WorldAdoptionRelationPayload:
-        if self.operation == "promote" and not self.relation_id:
-            raise ValueError("promote entity relation item requires relation_id")
+        if self.operation in {"promote", "existing_ref"} and not self.relation_id:
+            raise ValueError(
+                f"{self.operation} entity relation item requires relation_id"
+            )
         if self.operation == "create" and self.relation_id is not None:
             raise ValueError("create entity relation item forbids relation_id")
         return self
@@ -3283,7 +3285,9 @@ class WorldAdoptionPackageItem(BaseModel):
     authority_kind: Literal[
         "author_seed", "canonical_baseline", "manuscript_observation", "generated_bridge"
     ]
-    source_refs: list[WorldAdoptionSourceRef] = Field(default_factory=list, max_length=16)
+    source_refs: list[WorldAdoptionSourceRef] = Field(
+        default_factory=list, max_length=256
+    )
     baseline: WorldAdoptionBaseline | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
