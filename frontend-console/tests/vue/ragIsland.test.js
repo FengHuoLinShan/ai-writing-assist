@@ -55,10 +55,9 @@ describe("ragIsland", () => {
     await views.rag.onRendered()
     // 默认进入 search 子视图（state.currentSubView 未设置）
     expect(content.querySelector("#rag-search-input")).toBeTruthy()
-    const search = content.querySelector('[data-action="nav-search"]')
-    expect(search.tagName).toBe("BUTTON")
-    expect(search.type).toBe("button")
-    expect(search.getAttribute("aria-current")).toBe("page")
+    expect(content.querySelector(".view-header")).toBeNull()
+    expect(content.querySelector(".subnav")).toBeNull()
+    expect(content.querySelector('[data-action="nav-search"]')).toBeNull()
     expect(content.querySelector('[data-action="nav-status"]')).toBeNull()
     views.rag.onLeave()
   })
@@ -148,7 +147,7 @@ describe("ragIsland", () => {
     content.innerHTML = views.rag.render()
     await views.rag.onRendered()
 
-    content.querySelector('[data-action="nav-search"]').click()
+    content.querySelector('.rag-repair-card [data-action="nav-search"]').click()
     expect(globalThis.router.getCurrentQuery().toString()).toBe(route.toString())
     state.currentSubView = "search"
     await views.rag.onEnter()
@@ -159,9 +158,6 @@ describe("ragIsland", () => {
     expect(content.querySelector("#rag-chapter-from").value).toBe("3")
     expect(content.querySelectorAll(".rag-result-card")).toHaveLength(1)
     expect(globalThis.api.context.searchEvidence).toHaveBeenCalledTimes(1)
-    const navigationCount = globalThis.router.navigate.mock.calls.length
-    content.querySelector('[data-action="nav-search"]').click()
-    expect(globalThis.router.navigate).toHaveBeenCalledTimes(navigationCount)
 
     state.currentProjectId = "p-other"
     await views.rag.onEnter()

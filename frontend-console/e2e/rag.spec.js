@@ -37,18 +37,18 @@ test.describe("RAG 检索模块", () => {
   })
 
   test("键盘从修复页返回查找并可用浏览器后退恢复", async ({ page }) => {
-    const returnToSearch = page.locator('.subnav-item[data-action="nav-search"]')
+    const returnToSearch = page.locator('.rag-repair-card [data-action="nav-search"]')
     await expect(returnToSearch).toHaveAttribute("type", "button")
     await returnToSearch.focus()
     await returnToSearch.press("Enter")
 
-    const search = page.locator('.subnav-item[data-action="nav-search"]')
-    await expect(page.locator("#rag-search-input")).toBeVisible()
-    await expect(search).toHaveAttribute("aria-current", "page")
+    const searchInput = page.locator("#rag-search-input")
+    await expect(searchInput).toBeVisible()
+    await expect(page.locator(".view-header .subnav")).toHaveCount(0)
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expectNoPageOverflow(page)
-    await expectWithinViewport(search)
+    await expectWithinViewport(searchInput)
 
     await page.goBack()
     await expect(page.getByRole("heading", { name: "查找资料尚未准备好" })).toBeVisible()
@@ -58,7 +58,7 @@ test.describe("RAG 检索模块", () => {
 
   test("390px 下检索输入和主操作可见且无水平溢出", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.locator('.rag-repair-card [data-action="nav-search"]').click()
 
     const input = page.getByLabel("检索关键词")
     const searchButton = page.locator('[data-action="do-search"]')
@@ -134,7 +134,7 @@ test.describe("RAG 检索模块", () => {
     })
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.locator('.rag-repair-card [data-action="nav-search"]').click()
     await page.getByLabel("检索关键词").fill("旧塔铜铃何时响起")
     await page.locator('[data-action="ask-world"]').click()
 
@@ -164,7 +164,7 @@ test.describe("RAG 检索模块", () => {
       })
     })
 
-    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.locator('.rag-repair-card [data-action="nav-search"]').click()
     await page.getByLabel("检索关键词").fill("旧塔")
     await page.locator('[data-role="rag-advanced-filters"] summary').click()
     await page.locator("#rag-chapter-from").fill("10")
@@ -233,7 +233,7 @@ test.describe("RAG 检索模块", () => {
       })
     })
 
-    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.locator('.rag-repair-card [data-action="nav-search"]').click()
     await page.getByLabel("检索关键词").fill("旧塔")
     await page.locator('[data-action="do-search"]').click()
 
@@ -287,7 +287,7 @@ test.describe("RAG 检索模块", () => {
       })
     })
 
-    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.locator('.rag-repair-card [data-action="nav-search"]').click()
     await page.locator("#rag-search-input").fill("不存在的词")
     await page.locator('[data-action="do-search"]').click()
 
@@ -324,7 +324,7 @@ test.describe("RAG 检索模块", () => {
       if (!resp.ok) throw new Error(await resp.text())
     }, { apiBase: API_BASE, projectId: testProjectId })
 
-    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.locator('.rag-repair-card [data-action="nav-search"]').click()
     await page.locator("#rag-search-input").fill("铜铃")
     await page.locator('[data-action="do-search"]').click()
 

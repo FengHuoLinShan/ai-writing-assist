@@ -8,7 +8,7 @@ import { ensurePrewarm } from "./prewarmManager.js"
 import { ragSearchSession } from "./ragSearchSession.js"
 
 /**
- * 小说检索根组件 — header（子标签导航 + 状态页操作）+ search/status 分支。
+ * 小说检索根组件 — search/status 分支与状态页导航操作。
  * 数据由 island load() 预取传入（对应 vanilla onEnter）。
  */
 const props = defineProps({
@@ -117,12 +117,6 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="view-header view-header--with-tabs">
-    <div class="subnav">
-      <button type="button" class="subnav-item active" aria-current="page" data-action="nav-search" @click="navigateSub('search')">{{ subView === 'status' ? '返回查找' : '查找' }}</button>
-    </div>
-  </div>
-
   <div v-if="subView === 'search' && statusFields.statusDegraded" class="rag-search-repair-notice" role="status">
     <span><strong>查找资料尚未准备好</strong>部分内容可能找不到，手写和其他功能不受影响。</span>
     <button class="btn btn-sm btn-primary" type="button" data-action="nav-status" @click="navigateSub('status')">修复查找功能</button>
