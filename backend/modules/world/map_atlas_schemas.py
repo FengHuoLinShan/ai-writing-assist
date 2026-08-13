@@ -113,6 +113,13 @@ class AtlasPlan(BaseModel):
 
     @model_validator(mode="after")
     def validate_hierarchy(self) -> AtlasPlan:
+        location_ids = [
+            node.location_entity_id
+            for node in self.nodes
+            if node.location_entity_id
+        ]
+        if len(location_ids) != len(set(location_ids)):
+            raise ValueError("atlas locations must be unique")
         seen: set[str] = set()
         levels: dict[str, AtlasLevel] = {}
         all_keys = {node.plan_key for node in self.nodes}

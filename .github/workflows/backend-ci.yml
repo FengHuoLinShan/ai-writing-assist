@@ -2,6 +2,9 @@ name: Backend CI
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -51,7 +54,7 @@ jobs:
 
       - name: Ask World offline launch gate (non-blocking diagnostic)
         continue-on-error: true
-        run: make eval-ask-world OUTPUT=backend/evals/artifacts/ask-world-gate.json
+        run: make eval-ask-world OUTPUT=evals/artifacts/ask-world-gate.json
 
       - name: Upload Ask World gate report
         if: always()

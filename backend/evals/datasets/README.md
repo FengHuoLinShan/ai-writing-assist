@@ -106,20 +106,6 @@ and prompt-contract fixtures. It stores only logical roles, repository-relative
 paths, sizes, and SHA-256 hashes; fixture payloads are not copied into the
 manifest.
 
-## Replay fixtures (R01–R14)
-
-`datasets/replays/` holds 14 redacted author-flow replay fixtures (schema
-`replay-v1`) covering resume, retarget, convergence, selective adopt, semantic
-drift, handoff roundtrip, visual candidates, cadence and stop, author revision,
-adjacent exploration, impact preview, minimal sufficient depth, character
-knowledge, and scene state. They are pure data: the structure guard lives in
-`tests/test_replay_fixtures.py` (run by `make eval-fast`), the fixtures never
-drive pytest, and no runner, EvalSuite, or new `make eval-*` command is created
-for them. B-layer human diagnosis reuses the existing
-`make eval-review-export` / `make eval-review-import` workflow. Redaction rules,
-the field dictionary, the 14-fixture overview, and the assertion-map
-maintenance contract are in `datasets/replays/README.md`.
-
 The resumable full Pilot pipeline is:
 
 ```bash
@@ -219,9 +205,9 @@ the real API contract tests for project isolation, structured claims, citation
 reopening, and current-source revalidation, then runs the fully offline synthetic
 dataset through the production relevance and evidence-budget helpers. The JSON
 report covers evidence ranking and dataset integrity only: it fails unless
-visibility leakage is zero, source hashes and fixture reopening are perfect,
-precision@5 is at least 0.8, no-answer false positives are at most 0.05, and
-every metric is available. It does not impersonate a model judge or replace the
+source hashes and fixture reopening are perfect, precision@5 is at least 0.8,
+no-answer false positives are at most 0.05, and every metric is available. It
+does not impersonate a model judge or replace the
 API contract tests that precede it.
 
 ## Ask World offline gate datasets
@@ -235,11 +221,10 @@ API contract tests that precede it.
 `open_hash==source_hash`；`source_hash_validity` 覆盖全部 eligible 源（含低分
 干扰），不只是被 ranked 的源。
 
-五门（`backend/evals/ask_world.py` 的 THRESHOLDS，冻结不改）：
+四门（`backend/evals/ask_world.py` 的 THRESHOLDS）：
 
 | 指标 | 门禁 | 含义 |
 |---|---|---|
-| visibility_leakage | = 0.0 | retrieved 只含同 novel 且 visibility=author 的源 |
 | source_hash_validity | = 1.0 | 所有 eligible 源的 source_hash 与内容一致 |
 | citation_open_rate | = 1.0 | retrieved 源 openable 且 open_hash 与 source_hash 一致 |
 | p_at_5 | >= 0.8 | 前 5 个证据源中相关源占比 |

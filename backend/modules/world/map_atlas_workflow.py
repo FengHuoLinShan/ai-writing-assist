@@ -902,7 +902,7 @@ async def _reference_images(db, storage: MapAtlasStorage, page: MapAtlasPage):
                 )
                 .order_by(MapAtlasPage.created_at.desc())
             )
-        if parent_page:
+        if parent_page and parent_page.id not in reference_ids and len(reference_ids) < 8:
             reference_ids.append(parent_page.id)
     reference_ids = list(dict.fromkeys(reference_ids))
     if len(reference_ids) > 8:

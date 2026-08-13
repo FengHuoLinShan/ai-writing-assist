@@ -80,6 +80,25 @@ def test_atlas_plan_requires_parent_first_and_twenty_pages() -> None:
     assert AtlasPlan(style_brief="羊皮纸", nodes=[]).nodes == []
 
 
+def test_atlas_plan_rejects_duplicate_canonical_locations() -> None:
+    location_id = str(uuid.uuid4())
+    with pytest.raises(PydanticValidationError, match="locations must be unique"):
+        AtlasPlan(
+            style_brief="羊皮纸",
+            nodes=[
+                {
+                    "plan_key": f"place-{index}",
+                    "location_entity_id": location_id,
+                    "title": f"地点 {index}",
+                    "level": "city",
+                    "summary": "城市",
+                    "visual_brief": "城市地图",
+                }
+                for index in range(2)
+            ],
+        )
+
+
 def test_review_cas_and_derived_reference_limits_are_required() -> None:
     with pytest.raises(PydanticValidationError):
         MapAtlasReviewRequest()
@@ -886,17 +905,32 @@ def test_attempt_object_key_is_unique_per_task_attempt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_workflow_rejects_more_than_eight_total_references() -> None:
+async def test_parent_reference_does_not_overflow_eight_explicit_references() -> None:
     db = AsyncMock()
-    db.scalar.side_effect = [
-        uuid.uuid4(),
-        SimpleNamespace(id=uuid.uuid4()),
-    ]
+    db.scalar.side_effect = [uuid.uuid4(), SimpleNamespace(id=uuid.uuid4())]
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    db.execute.return_value = result
     page = SimpleNamespace(
         node_id=uuid.uuid4(),
         novel_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
         reference_page_ids=[str(uuid.uuid4()) for _ in range(8)],
+    )
+
+    assert await _reference_images(db, MagicMock(spec=MapAtlasStorage), page) == []
+    db.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_workflow_rejects_more_than_eight_stored_references() -> None:
+    db = AsyncMock()
+    db.scalar.return_value = None
+    page = SimpleNamespace(
+        node_id=uuid.uuid4(),
+        novel_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        reference_page_ids=[str(uuid.uuid4()) for _ in range(9)],
     )
 
     with pytest.raises(ValueError, match="at most 8 references"):

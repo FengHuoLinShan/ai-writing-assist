@@ -44,7 +44,9 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 `purpose=map_atlas` 补充已确认/已发布资料。工作稿只在作者打开开关时通过既有 seam 加入；
 候选对象始终排除。
 
-文本模型输出经 `AtlasPlan` 校验：最多 20 页、无环、父级先于子级、来源均属于当前项目。
+文本模型输出经 `AtlasPlan` 校验：最多 20 页、无环、父级先于子级、每个 canonical 地点至多
+对应一个计划节点，且来源均属于当前项目。图片步骤最多读取 8 张参考图；隐式父图只在仍有
+余量时加入。
 每页 prompt 以地点完整名称为语义锚点，但要求图中不出现文字、字母、数字或符号；名称由前端
 标注层展示。run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新”只处理缺失
 节点或来源 hash 已变化的节点，完整重做是次级操作。

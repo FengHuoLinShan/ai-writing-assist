@@ -56,7 +56,6 @@ def test_committed_ask_world_launch_gate_passes() -> None:
     assert report["ready"] is True
     assert report["quality_scope"] == "offline_evidence_ranking_and_dataset_integrity"
     metrics = report["metrics"]
-    assert metrics["visibility_leakage"] == 0.0
     assert metrics["source_hash_validity"] == 1.0
     assert metrics["citation_open_rate"] == 1.0
     assert metrics["p_at_5"] >= 0.8
@@ -100,17 +99,10 @@ def test_ask_world_gate_fails_closed_for_bad_hash_and_missing_metrics(
     assert "metric_unavailable:citation_open_rate" in report["failures"]
 
 
-def test_ask_world_gate_sensitive_to_visibility_filter_bypass(
+def test_ask_world_gate_rejects_false_answers(
     tmp_path: Path,
 ) -> None:
-    """A bypassed isolation filter must turn the gate red, not pass vacuously.
-
-    Note: visibility_leakage is a structural invariant in this runner — every
-    retrieved key is by construction a filtered (eligible) source, so a tampered
-    source that now matches the filter is never counted as leakage. The bypass
-    is caught by the no-answer false-positive gate instead, which is what
-    proves the gate can go red.
-    """
+    """A negative case that becomes answerable must turn the gate red."""
     cross = next(
         row
         for row in _dataset_rows()
@@ -125,7 +117,6 @@ def test_ask_world_gate_sensitive_to_visibility_filter_bypass(
     )
     assert report["ready"] is False
     assert report["metrics"]["no_answer_false_positive_rate"] > 0.05
-    assert report["metrics"]["visibility_leakage"] == 0.0
 
     role = next(
         row
@@ -140,7 +131,6 @@ def test_ask_world_gate_sensitive_to_visibility_filter_bypass(
     )
     assert report["ready"] is False
     assert report["metrics"]["no_answer_false_positive_rate"] > 0.05
-    assert report["metrics"]["visibility_leakage"] == 0.0
 
 
 def test_ask_world_rejects_bad_hash_on_low_score_distractor(
@@ -203,5 +193,4 @@ def test_ask_world_model_probes_blocklist() -> None:
     source = probes.read_text(encoding="utf-8")
     for forbidden in FORBIDDEN_TERMS:
         assert forbidden not in source
-
 

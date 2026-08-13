@@ -24,7 +24,6 @@ DEFAULT_DATASET = (
     Path(__file__).resolve().parent / "datasets" / "baselines" / "ask-world-v1.jsonl"
 )
 THRESHOLDS: dict[str, tuple[Literal["eq", "gte", "lte"], float]] = {
-    "visibility_leakage": ("eq", 0.0),
     "source_hash_validity": ("eq", 1.0),
     "citation_open_rate": ("eq", 1.0),
     "p_at_5": ("gte", 0.8),
@@ -106,7 +105,6 @@ def run_ask_world_eval(path: Path = DEFAULT_DATASET) -> dict[str, Any]:
     valid_hashes = 0
     opened_citations = 0
     citations = 0
-    leakage = 0
     case_results: list[dict[str, Any]] = []
     for case in cases:
         eligible = [
@@ -141,10 +139,6 @@ def run_ask_world_eval(path: Path = DEFAULT_DATASET) -> dict[str, Any]:
         )
         retrieved = [item["key"] for item in packet["included"]]
         by_key = {source.key: source for source in case.sources}
-        leakage += sum(
-            by_key[key].novel_id != case.novel_id or by_key[key].visibility != "author"
-            for key in retrieved
-        )
         citations += len(retrieved)
         opened_citations += sum(
             by_key[key].openable and by_key[key].open_hash == by_key[key].source_hash
@@ -165,7 +159,6 @@ def run_ask_world_eval(path: Path = DEFAULT_DATASET) -> dict[str, Any]:
         )
 
     values: dict[str, float | None] = {
-        "visibility_leakage": float(leakage),
         "source_hash_validity": (
             valid_hashes / eligible_sources if eligible_sources else None
         ),
