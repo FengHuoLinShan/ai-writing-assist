@@ -208,8 +208,9 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 当前已落地共享 JS API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图册、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 - 小说检索继续消费 context evidence API：单次最多取回 100 条现有命中，DOM 首批只挂载
   20 张结果卡并按 20 条渐进加载。章节范围的非整数、非正数或倒置条件会在请求前提示并保留给作者修正，不会被伪装成空结果。检索词、方式、正文版本、可见视角、章节范围和 scope
-  保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。同项目内在
-  “查找 / 状态”间往返保留已执行结果和未提交筛选；切换项目时统一清空。新查询会
+  保存在 hash URL；前进/后退会恢复表单并重新检索，显示游标和证据抽屉不持久化。search
+  不设置内容级 tab；status 仅由降级通知条或深链进入，并在修复卡内返回 search。同项目两个路由
+  往返保留已执行结果和未提交筛选；切换项目时统一清空。新查询会
   就地 push hash query 并执行检索，不重挂页面或重取状态数据；同时 abort 旧请求，晚到响应还需
   通过 project/lifecycle generation 才能回写；证据抽屉使用独立
   abort/generation/project/drawer 门禁，关闭抽屉或切换项目后不接受旧正文、引用或导航结果。
