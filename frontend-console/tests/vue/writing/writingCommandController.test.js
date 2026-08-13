@@ -10,6 +10,8 @@ function setup(overrides = {}) {
   const api = {
     writing: {
       generate: vi.fn(async () => ({ draft_id: "candidate-1" })),
+      semanticReview: vi.fn(),
+      targetedRevision: vi.fn(),
     },
     tasks: { get: vi.fn() },
   }
@@ -19,6 +21,8 @@ function setup(overrides = {}) {
     getLoadedContent: vi.fn(() => "甲乙丙丁"),
     getTitle: vi.fn(() => "第一章"),
     getDraftId: vi.fn(() => "draft-1"),
+    getStatus: vi.fn(() => "working"),
+    getProvenance: vi.fn(() => ({})),
     isReadonly: vi.fn(() => false),
   }
   const onResult = vi.fn(async () => {})
@@ -160,6 +164,66 @@ describe("writingCommandController", () => {
 
     await expect(controller.recover()).resolves.toBe(false)
     expect(api.tasks.get).not.toHaveBeenCalled()
+  })
+
+  it("独立语义审查冻结当前候选并重载审查回执", async () => {
+    const onProgress = vi.fn()
+    const { api, editor, onResult, controller } = setup({ onProgress })
+    editor.getStatus.mockReturnValue("candidate")
+    api.writing.semanticReview.mockResolvedValue({ task_id: "review-task" })
+    api.tasks.get.mockResolvedValue({
+      task_id: "review-task",
+      task_type: "writing_semantic_review",
+      status: "done",
+      result: { blocking_count: 1, findings: [{ finding_id: "finding-1" }] },
+    })
+
+    await controller.reviewCandidate()
+
+    expect(api.writing.semanticReview).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      draft_ids: ["draft-1"],
+      scope: "selection",
+    }))
+    expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "draft-1" })
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      result: expect.objectContaining({ blocking_count: 1 }),
+    }))
+  })
+
+  it("废弃历史稿即使只读也不能启动候选审查", async () => {
+    const { api, editor, toast, controller } = setup()
+    editor.getStatus.mockReturnValue("deprecated")
+    editor.isReadonly.mockReturnValue(true)
+
+    await controller.reviewCandidate()
+
+    expect(api.writing.semanticReview).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("请先打开一份待处理正文建议", "warning")
+  })
+
+  it("定向返修使用冻结 finding 并打开新候选", async () => {
+    const { api, editor, onResult, controller } = setup()
+    editor.getStatus.mockReturnValue("candidate")
+    editor.getProvenance.mockReturnValue({ independent_review: {
+      review_task_id: "00000000-0000-0000-0000-000000000010",
+      finding_ids: ["finding-1"],
+    } })
+    api.writing.targetedRevision.mockResolvedValue({ task_id: "revision-task" })
+    api.tasks.get.mockResolvedValue({
+      task_id: "revision-task",
+      task_type: "writing_targeted_revision",
+      status: "done",
+      result: { draft_id: "candidate-revised" },
+    })
+
+    await controller.reviseCandidate()
+
+    expect(api.writing.targetedRevision).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: "draft-1",
+      finding_ids: ["finding-1"],
+    }))
+    expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-revised" })
   })
 
 })

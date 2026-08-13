@@ -10,7 +10,7 @@
     </div>
   </div>
   <section v-if="generation?.progress" id="writing-generation-bar-container" aria-live="polite">
-    <WorkflowProgressCard :progress="generation.progress" title="AI 正文建议" :message="generation.progress.message || ''" :collapsible="true" :show-task-id="false" />
+    <WorkflowProgressCard :progress="generation.progress" :title="generation.progress.label || 'AI 正文建议'" :message="generation.progress.message || ''" :collapsible="true" :show-task-id="false" />
     <button v-if="generation.result" class="btn btn-sm btn-primary" @click="$emit('open-generation')">查看并审阅建议</button>
     <button v-if="!generation.progress.terminal" class="btn btn-sm" @click="$emit('cancel-generation')">取消任务</button>
     <button v-else class="btn btn-sm" @click="$emit('dismiss-generation')">关闭</button>

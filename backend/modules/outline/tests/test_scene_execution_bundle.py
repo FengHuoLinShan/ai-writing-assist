@@ -85,6 +85,7 @@ async def test_scene_execution_bundle_is_version_bound_and_reports_missing_field
     assert bundle.story_execution_profile["version"] == "story_execution_profile.v1"
     assert len(bundle.story_execution_profile_hash or "") == 64
     assert {item["type"] for item in bundle.upstream_manifest} == {
+        "scene",
         "story_outline_revision",
         "story_execution_profile.v1",
     }
@@ -113,4 +114,4 @@ async def test_scene_execution_bundle_never_invents_a_missing_story_outline(
     assert bundle.story_outline_revision_id is None
     assert bundle.story_execution_profile is None
     assert bundle.omissions == ["current_story_outline"]
-    assert bundle.upstream_manifest == []
+    assert [item["type"] for item in bundle.upstream_manifest] == ["scene"]

@@ -196,6 +196,8 @@ globalThis.api = {
     updateArc: vi.fn(),
     deleteArc: vi.fn(),
     generate: vi.fn(),
+    semanticReview: vi.fn(),
+    targetedRevision: vi.fn(),
     applyStructurePreview: vi.fn(),
     analyze: vi.fn(),
     getSceneWorkbench: vi.fn(),

@@ -1192,6 +1192,8 @@ export function useWritingWorkspace(props) {
     generateDraft: commands.generateDraft,
     generateContinuation: commands.generateContinuation,
     generatePovDraft: commands.generatePovDraft,
+    reviewCandidate: commands.reviewCandidate,
+    reviseCandidate: commands.reviseCandidate,
     openGenerationResult: commands.openResult,
     cancelGeneration: commands.cancel,
     dismissGeneration: commands.dismiss,

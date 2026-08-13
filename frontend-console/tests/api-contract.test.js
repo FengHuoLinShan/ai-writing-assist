@@ -447,6 +447,8 @@ describe("前后端 API 契约", () => {
       timeoutKind: "aiTaskSubmit",
       timeout: 600000,
     })
+    expect(contractPath("writing.semanticReview")).toBe("/writing/semantic-reviews")
+    expect(contractPath("writing.targetedRevision")).toBe("/writing/targeted-revisions")
     expect(contractPath("writing.adoptDraftCandidate", { draftId: "draft-1" }, { novel_id: "novel-1" }))
       .toBe("/writing/drafts/draft-1/adopt?novel_id=novel-1")
     expect(contractPath("writing.checkpoint", { draftId: "draft-1" }, { novel_id: "novel-1" }))

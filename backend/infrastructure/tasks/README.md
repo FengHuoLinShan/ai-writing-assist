@@ -43,7 +43,8 @@ infrastructure/tasks/
   `outline_generate`、`scene_fusion_preview`
 - rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
-- writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`、
+- writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
+  `writing_targeted_revision`、`writing_conflict_ai_review`、
   `writing_conflict_item_ai_suggestion`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
   `plot_structure_auto_extraction`

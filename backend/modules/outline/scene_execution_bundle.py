@@ -52,6 +52,16 @@ async def get_scene_execution_bundle(
         must_not_happen=scene.must_not_happen,
         **{name: meta.get(name) for name in _META_FIELDS},
     )
+    scene_payload = {
+        key: getattr(execution_scene, key)
+        for key in execution_scene.__dataclass_fields__
+    }
+    scene_manifest = {
+        "type": "scene",
+        "id": str(scene.id),
+        "version": scene.updated_at.isoformat(),
+        "hash": _hash(scene_payload),
+    }
     missing_fields = _missing_fields(execution_scene)
     current = await StoryOutlineService().get_current(db, novel_id)
     if current.revision is None:
@@ -60,7 +70,7 @@ async def get_scene_execution_bundle(
             "scene": execution_scene,
             "missing_fields": missing_fields,
             "omissions": ["current_story_outline"],
-            "upstream_manifest": [],
+            "upstream_manifest": [scene_manifest],
         }
         return SceneExecutionBundleContract(
             novel_id=novel_id,
@@ -73,6 +83,7 @@ async def get_scene_execution_bundle(
             scene=execution_scene,
             missing_fields=missing_fields,
             omissions=["current_story_outline"],
+            upstream_manifest=[scene_manifest],
             contract_hash=_hash(payload),
         )
 
@@ -84,6 +95,7 @@ async def get_scene_execution_bundle(
     if profile is None or profile_hash is None:
         omissions.append("story_execution_profile")
     manifest = [
+        scene_manifest,
         {
             "type": "story_outline_revision",
             "id": str(revision.id),

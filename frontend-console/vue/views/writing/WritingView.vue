@@ -62,6 +62,7 @@
         :focus-mode="vm.focusMode.value"
         :generation-loading="vm.generationLoading.value"
         :conflict-loading="vm.conflictState.loading"
+        :review-result="vm.generationTask.result"
         :attach="vm.attachEditor"
         :detach="vm.detachEditor"
         @autosave="vm.autosave"
@@ -76,6 +77,8 @@
         @open-deep-import-settings="vm.openDeepImportSettings"
         @adopt="adoptCandidate"
         @reject="rejectCandidate"
+        @semantic-review="vm.reviewCandidate"
+        @targeted-revision="vm.reviseCandidate"
         @export="vm.exportChapter"
         @toggle-focus="vm.toggleFocusMode"
       >

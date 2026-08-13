@@ -608,6 +608,8 @@ export function createEditorController({
     getLoadedContent: () => state.lastSavedContent,
     getTitle: () => state.title,
     getDraftId: () => state.draftId,
+    getStatus: () => state.status,
+    getProvenance: () => state.provenanceJson || {},
     getCursorOffset: () => state.cursorOffset,
     isReadonly: () => state.readonly,
     setState: (patch = {}) => {

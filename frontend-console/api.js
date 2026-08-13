@@ -1681,6 +1681,14 @@ const api = {
       return contractJson("writing.generate", {}, {}, payload)
     },
 
+    async semanticReview(payload) {
+      return contractJson("writing.semanticReview", {}, {}, payload)
+    },
+
+    async targetedRevision(payload) {
+      return contractJson("writing.targetedRevision", {}, {}, payload)
+    },
+
     async createConflictCheck(payload) {
       return contractJson("writing.createConflictCheck", {}, {}, payload)
     },

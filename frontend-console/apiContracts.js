@@ -472,6 +472,18 @@
       timeout: AI_TASK_SUBMIT_TIMEOUT,
       timeoutKind: "aiTaskSubmit",
     }),
+    "writing.semanticReview": define("POST", () => "/writing/semantic-reviews", {
+      requiredBody: ["novel_id", "draft_ids", "scope", "operation_id"],
+      hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
+    }),
+    "writing.targetedRevision": define("POST", () => "/writing/targeted-revisions", {
+      requiredBody: ["novel_id", "draft_id", "review_task_id", "finding_ids", "operation_id"],
+      hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
+    }),
 
     "outline.analyze": define("POST", () => "/outline/analyze", {
       hasBody: true,

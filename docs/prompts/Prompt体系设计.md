@@ -35,6 +35,7 @@
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
+| `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文/合同的独立近读与 finding-bound 返修 | writing 审查返修 |
 | `outline/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | outline 手动大纲分析 |
 | `interaction/prompts.py` | 内联 `interaction-story-v2`：模型知识 RP 故事正文与可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v1` / `interaction-summary-output-v1`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |

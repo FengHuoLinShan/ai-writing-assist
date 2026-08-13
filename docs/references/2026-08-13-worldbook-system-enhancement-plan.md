@@ -575,4 +575,7 @@ W0/W1 是其余波次的前置；W2 与 W4 可在稳定 contract 后并行；W3 
 | W1 typed checkpoint/package 与实体/关系原子采用 | 已完成、待合并 | 复用 CreationSuggestion，无迁移 |
 | W1 package → World Bible revision | 已完成、待合并 | 完整页面 diff、claim 覆盖、replace CAS、发布失败整包回滚 |
 | W3 Deep Import 吸取 | 已完成、待合并 | post-import package、existing/no-op 分栏、candidate relation promote；Phase 2 恢复语义不变 |
-| W2、W4—W6 | 未完成 | 必须按上表继续实现和主审；不得把计划态写成当前能力 |
+| W2 灵感生长 UX | 已完成、待合并 | `world_core` preset、三回合 checkpoint、显式保存与跨会话决策摘要恢复 |
+| W4 World Bible 关联图 | 已完成、待合并 | 三类显式边、1/2 hop、反向引用、截断回执、SVG+等价列表 |
+| W5 下游可证链 | 已完成、待合并 | outline-owned profile/Scene bundle、exact manifest、打开 stale 投影与采用 409 |
+| W6 独立审查返修 | 已完成、待合并 | selection/volume/book 独立 managed review、finding-bound 新候选、采用前再审 |
