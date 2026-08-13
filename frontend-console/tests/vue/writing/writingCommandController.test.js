@@ -54,7 +54,8 @@ describe("writingCommandController", () => {
   })
 
   it("通过引用确认生成待审正文，不直接写入工作稿", async () => {
-    const { api, onResult, controller } = setup()
+    const onProgress = vi.fn()
+    const { api, onResult, controller } = setup({ onProgress })
     await controller.generateDraft()
     expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
@@ -62,6 +63,9 @@ describe("writingCommandController", () => {
       context_confirmation_id: "confirmation-1",
     }))
     expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-1" })
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      progress: expect.objectContaining({ status: "done", terminal: true }),
+    }))
   })
 
   it("续写只允许基于已保存工作稿", async () => {
