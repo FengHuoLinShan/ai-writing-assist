@@ -89,6 +89,26 @@ describe("todayIsland", () => {
     expect(router.navigate).toHaveBeenCalledWith("writing", null)
   })
 
+  it("uses one primary action to start World Core in an empty project", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    const wrapper = mount(TodayView, {
+      props: {
+        project: { id: "p1", title: "雾港" },
+        summary: { continuation: null, writing: { chapter_count: 0, word_count: 0 }, attention: {} },
+        workflows: [],
+      },
+    })
+
+    expect(wrapper.get("#today-resume-title").text()).toBe("从几个灵感开始")
+    expect(wrapper.findAll(".today-resume .btn-primary")).toHaveLength(1)
+    await wrapper.get('[data-action="start-world-core"]').trigger("click")
+    const query = router.navigate.mock.calls[0][3]
+    expect(router.navigate).toHaveBeenCalledWith("generate", null, true, expect.any(URLSearchParams))
+    expect(query.get("preset")).toBe("world_core")
+    expect(query.get("target")).toBe("core_entity")
+  })
+
   it("隐藏首页任务只更新本地卡片，不整页刷新", async () => {
     const router = { navigate: vi.fn(), refresh: vi.fn() }
     persistActiveWorkflow({ taskId: "failed-task", workflowType: "writing_generate", projectId: "p1" })
@@ -178,6 +198,37 @@ describe("todayIsland", () => {
     expect(readCreativeContinuation("p1")).toMatchObject({ destination: "world_bible_draft", route: { draft_id: "draft-1" } })
   })
 
+  it("offers a saved World Core checkpoint across devices without a local chat session", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({
+      state,
+      router,
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1", continuation: null, writing: { chapter_count: 0 }, attention: {} })) },
+        world: {
+          listBibleDrafts: vi.fn(async () => ({ items: [] })),
+          listSuggestions: vi.fn(async ({ review_group: reviewGroup }) => ({
+            items: reviewGroup === "world_adoption"
+              ? [{ id: "checkpoint-1", target_type: "world_core_checkpoint", payload_json: { schema_version: "world_core_checkpoint.v1" } }]
+              : [],
+          })),
+        },
+        tasks: { get: vi.fn() },
+      },
+    })
+
+    const props = await loadTodayProps()
+    const wrapper = mount(TodayView, { props })
+
+    expect(props.creativeContinuation).toBeNull()
+    expect(wrapper.get("#today-resume-title").text()).toBe("继续让灵感生长")
+    await wrapper.get(".today-resume__action").trigger("click")
+    const query = router.navigate.mock.calls[0][3]
+    expect(query.get("preset")).toBe("world_core")
+    expect(query.get("checkpoint_id")).toBe("checkpoint-1")
+  })
+
   it("keeps a pending suggestion pointer that is beyond the first result page", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     const firstPage = Array.from({ length: 50 }, (_, index) => ({
@@ -213,8 +264,9 @@ describe("todayIsland", () => {
 
     const props = await loadTodayProps()
 
-    expect(listSuggestions).toHaveBeenNthCalledWith(1, expect.objectContaining({ skip: 0, limit: 50 }))
-    expect(listSuggestions).toHaveBeenNthCalledWith(2, expect.objectContaining({ skip: 50, limit: 50 }))
+    const generationCalls = listSuggestions.mock.calls.filter(([request]) => request.review_group === "generation_center")
+    expect(generationCalls[0][0]).toEqual(expect.objectContaining({ skip: 0, limit: 50 }))
+    expect(generationCalls[1][0]).toEqual(expect.objectContaining({ skip: 50, limit: 50 }))
     expect(props.creativeContinuation).toMatchObject({
       destination: "world_suggestion_review",
       route: { suggestion_id: "suggestion-51" },

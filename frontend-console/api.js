@@ -1278,6 +1278,14 @@ const api = {
       return request(withQuery("/world/suggestions", params))
     },
 
+    async saveCoreCheckpoint(payload) {
+      return post("/world/core-checkpoints", payload)
+    },
+
+    async getAdoptionArtifact(suggestionId, novelId) {
+      return request(withQuery(`/world/adoption-packages/${suggestionId}`, { novel_id: novelId }))
+    },
+
     async confirmSuggestion(suggestionId, novelId) {
       return post(withQuery(`/world/suggestions/${suggestionId}/confirm`, { novel_id: novelId }))
     },

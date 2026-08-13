@@ -152,6 +152,7 @@ export function buildWorldPayload(state) {
     selected_asset_refs: selectedWorldPageIds.map((id) => ({ type: "world_bible_page", id })),
     activation_profile_id: state.activationProfileId || null,
     activation_profile_version: profile?.version_number || null,
+    ...(state.workflowPreset === "world_core" ? { workflow_preset: "world_core" } : {}),
   }
 }
 
@@ -186,6 +187,14 @@ export function externalDispositionCounts(draft) {
 
 export function convergenceDraftFromResponse(response, { now = () => Date.now() } = {}) {
   const manifest = new Map((response?.manifest || []).map((item) => [item.key, item]))
+  const worldCore = response?.world_core ? {
+    ready: Boolean(response.world_core.ready_for_handoff),
+    issues: response.world_core.issues || [],
+    authorSeedSourceKeys: response.world_core.author_seed_source_keys || [],
+    ruleCount: Number(response.world_core.rule_count || 0),
+    snapshot: response.world_core.snapshot || null,
+    restored: false,
+  } : null
   const cards = (response?.decision_cards || []).slice(0, 7).map((card) => ({
     cardId: card.card_id,
     title: card.title,
@@ -193,7 +202,10 @@ export function convergenceDraftFromResponse(response, { now = () => Date.now() 
     items: (card.items || []).map((item) => ({
       itemId: item.item_id,
       text: item.text,
-      disposition: item.suggested_disposition || "open",
+      disposition: worldCore && item.suggested_disposition === "discard"
+        ? "rejected"
+        : item.suggested_disposition || "open",
+      ruleKey: item.world_core_rule_key || null,
       externalDisposition: item.external_disposition || null,
     })),
     dependencies: card.dependencies || [],
@@ -214,6 +226,7 @@ export function convergenceDraftFromResponse(response, { now = () => Date.now() 
       kind: item.kind,
       label: item.label,
       contentHash: item.content_hash,
+      sourceRef: item.source_ref || null,
     })),
     sourceSnapshot: response?.source_snapshot || { kind: "project" },
     stale: false,
@@ -235,6 +248,7 @@ export function convergenceDraftFromResponse(response, { now = () => Date.now() 
       packetTotal: response.external_packet.packet_total || null,
     } : null,
     authorMessage: "",
+    worldCore,
   }
   draft.authorMessage = compileConvergenceMessage(draft)
   return draft
@@ -257,6 +271,7 @@ export function visualBriefFromConvergence(convergenceDraft, { sourceLabel = "�
   const openItems = uniqueBriefLines(selected("open"))
   const avoid = uniqueBriefLines([
     ...selected("discard"),
+    ...selected("rejected"),
     "不要把仍开放项表现成已确认事实",
     "不要因比例尺、北箭头、标签或画面细节推断设定已被采用",
   ])
@@ -385,7 +400,7 @@ export function buildWorldHandoffMarkdown({ projectTitle, targetKind, sourcePage
   const cards = draft.cards.map((card) => {
     const lines = [`### ${card.title}`]
     for (const item of card.commonGround || []) lines.push(`- 共同前提：${item}`)
-    const disposition = { include: "本次纳入", open: "继续开放", discard: "明确放弃" }
+    const disposition = { include: "本次纳入", open: "继续开放", discard: "明确放弃", rejected: "明确放弃" }
     for (const item of card.items || []) lines.push(`- ${disposition[item.disposition] || "继续开放"}：${item.text}`)
     for (const item of card.dependencies || []) lines.push(`- 依赖／影响：${item}`)
     return lines.join("\n")
@@ -420,7 +435,7 @@ export function buildWorldHandoffMarkdown({ projectTitle, targetKind, sourcePage
 }
 
 export function compileConvergenceMessage(draft) {
-  const groups = { include: [], open: [], discard: [] }
+  const groups = { include: [], open: [], discard: [], rejected: [] }
   const targets = new Set()
   for (const card of draft?.cards || []) {
     for (const target of card.affectedTargets || []) targets.add(target)
@@ -434,11 +449,163 @@ export function compileConvergenceMessage(draft) {
     "请按以下作者决定继续处理当前世界设定：",
     section("本次纳入：", groups.include, "暂不纳入新的确定内容"),
     section("继续开放（不得写成已确认事实）：", groups.open, "无"),
-    section("明确放弃（后续不要恢复）：", groups.discard, "无"),
+    section("明确放弃（后续不要恢复）：", [...groups.discard, ...groups.rejected], "无"),
     otherTargets.length ? `另有影响需要分别处理：${[...new Set(otherTargets)].join("、")}。本次只处理当前目标。` : "本次只处理当前世界目标。",
     `本次范围：${draft?.coverage?.scopeLabel || "当前可见材料"}。未列入决定面的细节继续留在原来源。`,
     "这是一条可编辑的作者消息，不代表设定已经采用；最终仍需审阅后续提案。",
   ].join("\n\n")
+}
+
+function checkpointSourceRef(manifestItem) {
+  const source = manifestItem?.sourceRef || {}
+  const sourceType = {
+    author_message: "conversation",
+    assistant_message: "conversation",
+    author_pasted_context: "external",
+    world_bible_page: "world_bible_page",
+    core_entity: "core_entity",
+    writing_chapter: "manuscript",
+  }[source.source_type] || "external"
+  return {
+    source_type: sourceType,
+    source_id: manifestItem.key,
+    source_version: source.source_version == null ? null : String(source.source_version),
+    source_hash: source.source_hash || manifestItem.contentHash,
+    ...(Number.isInteger(source.range_start) ? { range_start: source.range_start } : {}),
+    ...(Number.isInteger(source.range_end) ? { range_end: source.range_end } : {}),
+    ...(source.scene_id ? { scene_id: source.scene_id } : {}),
+    ...(source.workflow_id ? { workflow_id: source.workflow_id } : {}),
+    ...(source.authorization_ref ? { authorization_ref: source.authorization_ref } : {}),
+  }
+}
+
+export function buildWorldCoreCheckpointRequest({ novelId, draft, roundNo, action, parentCheckpointId = null }) {
+  if (!draft?.worldCore?.ready || !draft.worldCore.snapshot || draft.stale || !draft.manifestHash) return null
+  const manifest = new Map((draft.manifest || []).map((item) => [item.key, item]))
+  const seedDispositions = new Map((draft.worldCore.snapshot.author_seeds || []).map((item) => [item.source_key, item.disposition]))
+  const authorKeys = draft.worldCore.authorSeedSourceKeys || []
+  if (authorKeys.some((key) => !manifest.get(key)?.contentHash)) return null
+  const atoms = new Map((draft.worldCore.snapshot.rule_atoms || []).map((item) => [item.rule_key, item]))
+  const decisions = (draft.cards || []).flatMap((card) => card.items || [])
+  const includedRuleKeys = new Set(decisions.filter((item) => item.disposition === "include" && item.ruleKey).map((item) => item.ruleKey))
+  const includedAtoms = [...atoms.values()].filter((item) => includedRuleKeys.has(item.rule_key))
+  const verticalSlice = draft.worldCore.snapshot.vertical_slice
+  if (includedAtoms.length < 3 || includedAtoms.length > 7 || !verticalSlice || !includedRuleKeys.has(verticalSlice.rule_key)) return null
+  return {
+    novel_id: novelId,
+    checkpoint: {
+      schema_version: "world_core_checkpoint.v1",
+      round_no: Math.max(0, Number(roundNo) || 0),
+      action: ["expand", "connect", "pressure", "consolidate"].includes(action) ? action : "consolidate",
+      parent_checkpoint_id: parentCheckpointId || null,
+      source_manifest_hash: draft.manifestHash,
+      seeds: authorKeys.map((key, index) => ({
+        seed_key: `seed_${index + 1}`,
+        source_ref: checkpointSourceRef(manifest.get(key)),
+        disposition: seedDispositions.get(key) || "open",
+      })),
+      world_core: {
+        ...draft.worldCore.snapshot,
+        rule_atoms: includedAtoms,
+      },
+      decisions: decisions.map((item) => ({
+        item_key: item.itemId,
+        text: item.text,
+        disposition: item.disposition === "include" ? "locked" : item.disposition === "open" ? "open" : "rejected",
+        rule_key: item.ruleKey || null,
+        source_keys: item.ruleKey ? atoms.get(item.ruleKey)?.source_keys || [] : [],
+      })),
+    },
+  }
+}
+
+export function convergenceDraftFromCheckpoint(artifact, { now = () => Date.now() } = {}) {
+  const payload = artifact?.payload_json
+  if (artifact?.target_type !== "world_core_checkpoint" || payload?.schema_version !== "world_core_checkpoint.v1" || !payload.world_core) return null
+  const manifests = (payload.seeds || []).map((seed) => ({
+    key: seed.source_ref.source_id,
+    kind: seed.source_ref.source_type === "conversation" ? "conversation" : "pasted_context",
+    label: `作者种子 ${seed.seed_key.replace(/^seed_/, "")}`,
+    contentHash: seed.source_ref.source_hash,
+    sourceRef: seed.source_ref,
+  }))
+  const atoms = payload.world_core.rule_atoms || []
+  const cards = [{
+    cardId: "checkpoint",
+    title: "已保存的世界核心决定",
+    commonGround: [],
+    items: (payload.decisions || []).map((item) => ({
+      itemId: item.item_key,
+      text: item.text,
+      disposition: item.disposition === "locked" ? "include" : item.disposition,
+      ruleKey: item.rule_key || null,
+      externalDisposition: null,
+    })),
+    dependencies: [],
+    affectedTargets: ["current_world_target"],
+    sourceRefs: manifests.map((item) => ({ key: item.key, label: item.label, sourceRef: item.sourceRef })),
+    whyNow: "这是作者显式保存的阶段决定，不包含过时的 AI 聊天正文。",
+  }]
+  const draft = {
+    schemaVersion: 1,
+    generatedAt: new Date(now()).toISOString(),
+    manifestHash: payload.source_manifest_hash,
+    manifest: manifests,
+    sourceSnapshot: { kind: "project" },
+    stale: false,
+    coverage: {
+      complete: true,
+      scopeLabel: "已保存的作者决定摘要",
+      sourceCount: manifests.length,
+      coveredSourceCount: manifests.length,
+      excludedMessageCount: 0,
+      missingCount: 0,
+      issues: [],
+    },
+    detailSummary: { before_grouping: atoms.length, after_deduplication: atoms.length, retained_in_sources: 0 },
+    cards,
+    nextBoundary: "从已保存的规则和作者决定继续，不重放旧 AI 回复。",
+    externalPacket: null,
+    authorMessage: "",
+    worldCore: {
+      ready: true,
+      issues: [],
+      authorSeedSourceKeys: (payload.world_core.author_seeds || []).map((item) => item.source_key),
+      ruleCount: atoms.length,
+      snapshot: payload.world_core,
+      restored: true,
+    },
+  }
+  draft.authorMessage = compileConvergenceMessage(draft)
+  return draft
+}
+
+export function buildWorldCoreCheckpointContext(draft) {
+  if (!draft?.worldCore?.restored || !draft.worldCore.snapshot) return ""
+  const snapshot = draft.worldCore.snapshot
+  const decisions = (draft.cards || []).flatMap((card) => card.items || [])
+  const group = (disposition) => decisions.filter((item) => item.disposition === disposition).map((item) => item.text)
+  const section = (title, values) => `${title}\n${values.length ? values.map((item) => `- ${item}`).join("\n") : "- 无"}`
+  return [
+    "# 已保存的 World Core 作者决定摘要",
+    "这份摘要是作者显式保存的阶段结果，不包含旧 AI 聊天正文。",
+    section("纳入当前预览", group("include")),
+    section("继续开放", group("open")),
+    section("明确否定", [...group("rejected"), ...group("discard")]),
+    "## 规则原子",
+    ...(snapshot.rule_atoms || []).map((rule) => [
+      `### ${rule.title}`,
+      `- 可以：${rule.can}`,
+      `- 不能：${rule.cannot}`,
+      `- 代价：${rule.cost}`,
+      `- 故障：${rule.failure}`,
+      `- 维护：${rule.maintenance}`,
+    ].join("\n")),
+    snapshot.vertical_slice
+      ? `## 日常＋故障纵切\n- 日常：${snapshot.vertical_slice.daily_consequence}\n- 故障：${snapshot.vertical_slice.failure_consequence}`
+      : "",
+    "继续生长时不得复活明确否定项，开放项不得写成已采用事实。",
+  ].filter(Boolean).join("\n\n")
 }
 
 export function convergenceSourceMatchesPayload(draft, payload) {

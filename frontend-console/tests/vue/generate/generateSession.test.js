@@ -53,6 +53,7 @@ describe("generate Vue bounded session", () => {
   it("isolates project, source page, and target", () => {
     expect(generateSessionKey("p1", "page-1", "world_bible_page")).toBe("generate_world_workspace_state_v2_p1_page-1_world_bible_page")
     expect(generateSessionKey("p2", null, "core_entity")).not.toBe(generateSessionKey("p1", null, "core_entity"))
+    expect(generateSessionKey("p1", null, "core_entity", "world_core")).not.toBe(generateSessionKey("p1", null, "core_entity"))
   })
 
   it("上下文预览跨目标保留且按项目隔离", () => {
@@ -163,6 +164,20 @@ describe("generate Vue bounded session", () => {
     expect(clearCreativeContinuation("p1")).toBe(true)
     expect(localStorage.getItem(`${CREATIVE_CONTINUATION_STORAGE_PREFIX}p1`)).toBeNull()
     expect(writeCreativeContinuation("p1", { destination: "shell", route: {} })).toBe(false)
+  })
+
+  it("keeps a World Core preset and saved checkpoint in its continuation", () => {
+    expect(writeCreativeContinuation("p1", {
+      destination: "generate",
+      route: { source_page_id: null, target: "core_entity", preset: "world_core", checkpoint_id: "checkpoint-1" },
+    }, { now: () => 456 })).toBe(true)
+    expect(readCreativeContinuation("p1")).toEqual({
+      schema_version: 1,
+      project_id: "p1",
+      destination: "generate",
+      route: { source_page_id: null, target: "core_entity", preset: "world_core", checkpoint_id: "checkpoint-1" },
+      last_meaningful_at: 456,
+    })
   })
 
   it("serializes a pending assistant as an interruption without mutating the live message", () => {

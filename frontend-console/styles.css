@@ -14308,6 +14308,14 @@ button.rp-journey-card__main:hover {
 .generate-chat-message.error .generate-chat-bubble,.generate-error-text { color:var(--danger) }
 .generate-convergence-action { display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-2px 0 10px;color:var(--text-muted);font-size:12px }
 .generate-convergence-action strong,.generate-convergence-action span { display:block }
+.generate-world-core-intro,.generate-world-core-checkpoint,.generate-world-core-handoff { display:grid;gap:10px;margin-bottom:12px }
+.generate-world-core-intro p,.generate-world-core-checkpoint p,.generate-world-core-handoff p { margin:0;color:var(--text-muted) }
+.generate-world-core-actions { display:flex;gap:8px;flex-wrap:wrap }
+.generate-world-core-rules { display:grid;gap:8px }
+.generate-world-core-rules article { display:grid;gap:3px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm) }
+.generate-world-core-rules article span { color:var(--text-muted);font-size:12px }
+.generate-world-core-handoff.is-warning { border-color:var(--warning) }
+.generate-world-core-checkpoint { grid-template-columns:minmax(0,1fr) auto;align-items:center }
 .generate-convergence { flex:0 1 48vh;min-height:0;overflow:auto;margin-bottom:10px;border:1px solid var(--accent);border-radius:var(--radius-md);padding:12px;background:var(--panel) }
 .generate-convergence__header,.generate-convergence-card__title,.generate-convergence-actions,.generate-convergence-sources,.generate-convergence__stats { display:flex;align-items:center;gap:8px;flex-wrap:wrap }
 .generate-convergence__header,.generate-convergence-card__title { justify-content:space-between }
@@ -14373,6 +14381,8 @@ button.rp-journey-card__main:hover {
   .generate-side-rail { grid-column:1/-1 }
   .topbar-generate-note,.generate-suggestion-note { display:none }
   .generate-world-source-bar,.generate-world-config,.generate-convergence-action { align-items:stretch;flex-direction:column }
+  .generate-world-core-checkpoint { grid-template-columns:1fr }
+  .generate-world-core-actions .btn,.generate-world-core-checkpoint .btn { min-height:44px;width:100% }
   .generate-convergence { max-height:none }
   .generate-convergence-items label { grid-template-columns:1fr }
 }

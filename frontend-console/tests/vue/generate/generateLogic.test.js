@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
-  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldHandoffMarkdown, buildWorldPayload, compileConvergenceMessage,
-  convergenceDraftFromResponse, convergenceSourceMatchesPayload, externalPacketBatchSummary, externalPacketCharacterCount, hashExternalPacket,
+  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldCoreCheckpointContext, buildWorldCoreCheckpointRequest, buildWorldHandoffMarkdown, buildWorldPayload, compileConvergenceMessage,
+  convergenceDraftFromCheckpoint, convergenceDraftFromResponse, convergenceSourceMatchesPayload, externalPacketBatchSummary, externalPacketCharacterCount, hashExternalPacket,
   parseExternalPacketPosition, sectionDiff, validateTaskPayload, visualBriefFromConvergence,
 } from "../../../vue/views/generate/logic/generateLogic.js"
 
@@ -44,6 +44,54 @@ describe("generate Vue pure contracts", () => {
       { role: "user", content: "继续完善" },
       { role: "assistant", content: "可继续参考的历史回复" },
     ])
+  })
+
+  it("builds and restores a typed World Core checkpoint without assistant prose", () => {
+    const draft = convergenceDraftFromResponse({
+      coverage: { complete: true, scope_label: "三个灵感", source_count: 1, covered_source_keys: ["m1"], manifest_hash: "a".repeat(64) },
+      manifest: [{ key: "m1", kind: "conversation", label: "对话第 1 条 · 你", content_hash: "1".repeat(64), source_ref: { source_type: "author_message", source_hash: "2".repeat(64) } }],
+      detail_summary: { before_grouping: 3, after_deduplication: 3, retained_in_sources: 0 },
+      decision_cards: [{
+        card_id: "C1", title: "规则", common_ground: [], dependencies: [], affected_targets: ["current_world_target"], source_keys: ["m1"], why_now: "收拢",
+        items: ["one", "two", "three", "four"].map((key, index) => ({ item_id: `I${index + 1}`, text: `规则 ${index + 1}`, suggested_disposition: index === 2 ? "discard" : "include", world_core_rule_key: key })),
+      }],
+      source_snapshot: { kind: "project" },
+      world_core: {
+        ready_for_handoff: true, issues: [], author_seed_source_keys: ["m1"], rule_count: 3,
+        snapshot: {
+          author_seeds: [{ source_key: "m1", disposition: "included" }],
+          rule_atoms: ["one", "two", "three", "four"].map((key) => ({ rule_key: key, title: key, source_keys: ["m1"], can: "可以", cannot: "不能", cost: "代价", failure: "故障", maintenance: "维护" })),
+          blocking_contradictions: [],
+          vertical_slice: { rule_key: "one", daily_consequence: "日常", failure_consequence: "故障后果" },
+        },
+      },
+    })
+    const request = buildWorldCoreCheckpointRequest({ novelId: "p1", draft, roundNo: 3, action: "consolidate" })
+
+    expect(request).toMatchObject({
+      novel_id: "p1",
+      checkpoint: {
+        schema_version: "world_core_checkpoint.v1",
+        round_no: 3,
+        source_manifest_hash: "a".repeat(64),
+        seeds: [{ seed_key: "seed_1", source_ref: { source_type: "conversation", source_id: "m1", source_hash: "2".repeat(64) } }],
+        decisions: expect.arrayContaining([
+          expect.objectContaining({ disposition: "locked", rule_key: "one" }),
+          expect.objectContaining({ disposition: "locked", rule_key: "two" }),
+          expect.objectContaining({ disposition: "rejected", rule_key: "three" }),
+        ]),
+      },
+    })
+    const restored = convergenceDraftFromCheckpoint({ id: "hidden", target_type: "world_core_checkpoint", payload_json: request.checkpoint })
+    expect(restored.worldCore).toMatchObject({ ready: true, restored: true, ruleCount: 3 })
+    expect(restored.cards[0].items[2].disposition).toBe("rejected")
+    const context = buildWorldCoreCheckpointContext(restored)
+    expect(context).toContain("作者显式保存的阶段结果")
+    expect(context).toContain("明确否定")
+    expect(context).not.toContain("assistant prose")
+
+    draft.cards[0].items[3].disposition = "open"
+    expect(buildWorldCoreCheckpointRequest({ novelId: "p1", draft, roundNo: 4, action: "consolidate" })).toBeNull()
   })
 
   it("compiles selective convergence choices without turning open details into facts", () => {

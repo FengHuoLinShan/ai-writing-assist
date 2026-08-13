@@ -8,19 +8,26 @@
     <button v-if="sourcePageId" class="btn btn-sm" data-action="return-world-bible" @click="$emit('return-world-bible')">返回世界书</button>
   </div>
   <div v-if="warning" class="generate-template-warning">{{ warning }}</div>
-  <div class="generate-world-targets" role="group" aria-label="生成目标">
+  <div v-if="!worldCore" class="generate-world-targets" role="group" aria-label="生成目标">
     <button class="generate-world-target" :class="{ active: targetKind === 'core_entity' }" type="button" :aria-pressed="targetKind === 'core_entity'" data-action="select-world-target" @click="$emit('select-target', 'core_entity')">世界对象</button>
     <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_page' }" type="button" :aria-pressed="targetKind === 'world_bible_page'" :disabled="!sourcePageId" data-action="select-world-target" @click="$emit('select-target', 'world_bible_page')">完善当前页</button>
     <button class="generate-world-target" :class="{ active: targetKind === 'world_bible_new_page' }" type="button" :aria-pressed="targetKind === 'world_bible_new_page'" data-action="select-world-target" @click="$emit('select-target', 'world_bible_new_page')">新建世界书页</button>
   </div>
 
-  <div v-if="targetKind === 'core_entity'" id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
+  <div v-if="worldCore" class="card generate-world-core-intro" data-section="world-core-actions">
+    <div><strong>先让几个灵感长成世界核心</strong><p>每轮只做一个动作；不会自动生成人物、故事总纲或正式设定。</p></div>
+    <div class="generate-world-core-actions" role="group" aria-label="World Core 单轮动作">
+      <button v-for="item in worldCoreActions" :key="item.key" class="btn btn-sm" type="button" :data-action="`world-core-${item.key}`" :disabled="busy" @click="$emit('prefill-world-core', item.key)">{{ item.label }}</button>
+    </div>
+    <p class="generate-empty-copy">快捷动作只会填入下方输入框，你可以修改后再发送。未保存前只保证在当前浏览器恢复。</p>
+  </div>
+  <div v-if="targetKind === 'core_entity' && !worldCore" id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
     <button v-for="template in templates" :key="template.value" class="generate-template-btn" :class="{ active: selectedTemplateId === template.value }"
       type="button" :aria-pressed="selectedTemplateId === template.value" data-action="select-object-template" :title="template.hint || template.prompt || ''" @click="selectedTemplateId = template.value">{{ template.label }}</button>
     <button class="btn btn-sm" data-action="edit-object-templates" @click="$emit('edit-templates')">编辑对象模板</button>
   </div>
   <div v-else-if="targetKind === 'world_bible_page'" class="generate-world-config">将以当前服务器工作稿优先，生成一份完整的整页重构提案。</div>
-  <div v-else class="generate-world-config">
+  <div v-else-if="!worldCore" class="generate-world-config">
     <label>页面类别
       <select id="generate-new-page-type" v-model="newPageType" class="form-select">
         <option v-for="category in categories.filter((item) => item.status !== 'archived')" :key="category.category_key" :value="category.category_key">{{ category.name || "未命名类别" }}</option>
@@ -38,7 +45,7 @@
     <div class="generate-chat-main">
       <div class="card generate-chat-panel">
         <div id="generate-chat-messages" class="generate-chat-messages">
-          <p v-if="!messages.length" class="generate-empty-copy">可以直接说“帮我设计一个反派”，也可以先粘贴外部聊完的内容。</p>
+          <p v-if="!messages.length" class="generate-empty-copy">{{ worldCore ? "先写下几个你真正在意的灵感；系统会逐轮补规则、连因果、做压力测试。" : "可以直接说“帮我设计一个反派”，也可以先粘贴外部聊完的内容。" }}</p>
           <div v-for="(message, index) in messages" v-else :key="index" class="generate-chat-message" :class="[message.role, { pending: message.pending, error: message.error }]">
             <div class="generate-chat-role">{{ message.role === 'assistant' ? 'AI' : '你' }}</div>
             <div class="generate-chat-bubble">{{ message.content }}</div>
@@ -89,6 +96,17 @@
               <button class="btn btn-sm" data-action="rerun-external-packet" type="button" :disabled="busy || !externalPacketDraft.trim()" @click="$emit('preview-external-packet')">重新整理这份回包</button>
             </template>
           </div>
+          <div v-if="worldCore && convergenceDraft.worldCore" class="generate-world-core-handoff" :class="{ 'is-warning': !convergenceDraft.worldCore.ready }">
+            <strong>{{ convergenceDraft.worldCore.ready ? "世界核心已通过交接门" : "世界核心还需补齐" }}</strong>
+            <ul v-if="convergenceDraft.worldCore.issues.length"><li v-for="issue in convergenceDraft.worldCore.issues" :key="issue">{{ issue }}</li></ul>
+            <div v-if="convergenceDraft.worldCore.snapshot" class="generate-world-core-rules">
+              <article v-for="rule in convergenceDraft.worldCore.snapshot.rule_atoms" :key="rule.rule_key">
+                <strong>{{ rule.title }}</strong>
+                <span>可以：{{ rule.can }}</span><span>不能：{{ rule.cannot }}</span><span>代价：{{ rule.cost }}</span><span>故障：{{ rule.failure }}</span><span>维护：{{ rule.maintenance }}</span>
+              </article>
+              <p v-if="convergenceDraft.worldCore.snapshot.vertical_slice"><strong>日常＋故障纵切：</strong>{{ convergenceDraft.worldCore.snapshot.vertical_slice.daily_consequence }} {{ convergenceDraft.worldCore.snapshot.vertical_slice.failure_consequence }}</p>
+            </div>
+          </div>
           <div class="generate-convergence__stats">
             <span>归组前 {{ convergenceDraft.detailSummary.before_grouping }}</span>
             <span>去重后 {{ convergenceDraft.detailSummary.after_deduplication }}</span>
@@ -104,7 +122,7 @@
                 <select class="form-select" :value="item.disposition" :disabled="!convergenceUsable" :aria-label="`${item.text} 的处理方式`" @change="$emit('set-convergence-disposition', card.cardId, item.itemId, $event.target.value)">
                   <option value="include">纳入本次决定</option>
                   <option value="open">继续开放</option>
-                  <option value="discard">明确放弃</option>
+                  <option :value="worldCore ? 'rejected' : 'discard'">明确放弃</option>
                 </select>
               </label>
             </div>
@@ -123,6 +141,13 @@
             <button class="btn btn-sm btn-ghost" type="button" @click="$emit('dismiss-convergence')">关闭预览</button>
           </div>
           <p class="generate-empty-copy">全书或分部的核心前提、叙事读法、基调与读者承诺请放在故事总览；前往只切换工作区，不会改写世界事实。放入输入框仍不会创建建议；只有发送消息并再次点击生成建议，才会进入待处理。</p>
+        </section>
+        <section v-if="worldCore && successfulRounds >= 3" class="card generate-world-core-checkpoint" aria-labelledby="world-core-checkpoint-title">
+          <div>
+            <strong id="world-core-checkpoint-title">{{ checkpointSaved ? "阶段成果已保存" : "可以保存阶段成果了" }}</strong>
+            <p>{{ checkpointSaved ? "下次可从作者决定摘要继续；这仍不是正式设定。" : worldCoreReady ? "保存的是种子去向、规则、开放项和否定项，不保存过时的 AI 聊天正文。" : "请先点击“收束本轮”，补齐来源覆盖、3–7 条规则和日常＋故障纵切。" }}</p>
+          </div>
+          <button class="btn btn-sm btn-primary" data-action="save-world-core-checkpoint" type="button" :disabled="busy || !worldCoreReady" @click="$emit('save-world-core-checkpoint')">{{ checkpointPending ? "保存中…" : checkpointSaved ? "保存新版阶段成果" : "保存阶段成果" }}</button>
         </section>
         <details v-if="convergenceDraft || visualBrief" class="generate-visual-brief" data-section="visual-brief" :open="Boolean(visualBrief)">
           <summary>准备视觉稿</summary>
@@ -195,7 +220,7 @@
             v-model="composer"
             class="generate-chat-input"
             rows="4"
-            placeholder="说明你想创造、推敲或重构的世界设定。AI 会同时关注创意与逻辑。"
+            :placeholder="worldCore ? '写下一个灵感，或修改上方已填入的单轮动作。' : '说明你想创造、推敲或重构的世界设定。AI 会同时关注创意与逻辑。'"
             @compositionstart="composing = true"
             @compositionend="composing = false"
             @keydown="onComposerKeydown"
@@ -276,8 +301,9 @@ const props = defineProps({
   chatContextUsage: Object, entityContextUsage: Object, proposalDraft: Object, proposalResetToken: Number, recoveredPageProposal: Boolean, busy: Boolean, chatPending: Boolean, loadingResult: Boolean, resultError: String,
   convergenceDraft: Object, convergencePending: Boolean, visualBrief: Object, externalPackets: { type: Array, default: () => [] },
   explorationDraft: Object, explorationPending: Boolean, explorationSelection: Object, sourceRevisionResult: Object,
+  worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
 })
-const emit = defineEmits(["send-chat", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision"])
+const emit = defineEmits(["send-chat", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })
 const messages = defineModel("messages", { type: Array, required: true })
 const composer = defineModel("composer", { type: String, required: true })
@@ -305,6 +331,18 @@ const generateLabel = computed(() => props.explorationSelection ? "生成所选�
 const hasAuthorInput = computed(() => composer.value.trim() || messages.value.some((item) => item.role === "user" && !item.pending && !item.error))
 const nearMessageLimit = computed(() => messages.value.filter((item) => !item.pending && !item.error).length >= 36)
 const convergenceUsable = computed(() => Boolean(props.convergenceDraft?.coverage?.complete && !props.convergenceDraft?.stale))
+const worldCoreReady = computed(() => {
+  if (!convergenceUsable.value || !props.convergenceDraft?.worldCore?.ready) return false
+  const included = new Set((props.convergenceDraft.cards || []).flatMap((card) => card.items || []).filter((item) => item.disposition === "include" && item.ruleKey).map((item) => item.ruleKey))
+  const verticalRule = props.convergenceDraft.worldCore.snapshot?.vertical_slice?.rule_key
+  return included.size >= 3 && included.size <= 7 && Boolean(verticalRule && included.has(verticalRule))
+})
+const worldCoreActions = [
+  { key: "expand", label: "补一条成立规则" },
+  { key: "connect", label: "把因果连起来" },
+  { key: "pressure", label: "找会出错的地方" },
+  { key: "consolidate", label: "收拢世界核心" },
+]
 const visualPurposeOptions = VISUAL_BRIEF_PURPOSE_OPTIONS
 const visualBriefCurrent = computed(() => Boolean(props.visualBrief && convergenceUsable.value && !props.visualBrief.stale && props.visualBrief.manifestHash === props.convergenceDraft?.manifestHash))
 const visualBriefConfirmed = computed(() => Boolean(visualBriefCurrent.value && props.visualBrief?.confirmedAt))

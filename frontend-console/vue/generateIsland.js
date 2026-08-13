@@ -10,7 +10,7 @@ import {
   readCreativeContinuation,
   readGenerateSession,
 } from "./views/generate/generateSession.js"
-import { OBJECT_TEMPLATES, PAGE_SIZE, characterId, listItems, normalizeTemplate } from "./views/generate/logic/generateLogic.js"
+import { OBJECT_TEMPLATES, PAGE_SIZE, characterId, convergenceDraftFromCheckpoint, listItems, normalizeTemplate } from "./views/generate/logic/generateLogic.js"
 
 const VALID_TABS = new Set(["world", "task", "preview", "pov_prose"])
 const VALID_TARGETS = new Set(["core_entity", "world_bible_page", "world_bible_new_page"])
@@ -92,10 +92,13 @@ export async function loadGenerate() {
   const projectId = appState?.currentProjectId || null
   const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
   const tab = VALID_TABS.has(query.get("tab")) ? query.get("tab") : "world"
-  const sourcePageId = query.get("source_page_id") || null
-  const targetKind = VALID_TARGETS.has(query.get("target")) ? query.get("target") : "core_entity"
-  const preset = query.get("preset") || "custom"
-  const sessionKey = generateSessionKey(projectId, sourcePageId, targetKind)
+  const preset = query.get("preset") === "world_core" ? "world_core" : query.get("preset") || "custom"
+  const sourcePageId = preset === "world_core" ? null : query.get("source_page_id") || null
+  const targetKind = preset === "world_core"
+    ? "core_entity"
+    : VALID_TARGETS.has(query.get("target")) ? query.get("target") : "core_entity"
+  const checkpointId = preset === "world_core" ? query.get("checkpoint_id") || null : null
+  const sessionKey = generateSessionKey(projectId, sourcePageId, targetKind, preset)
   const notices = new Set()
   const readSession = (key) => readGenerateSession(key, {
     notify(code, message) {
@@ -105,6 +108,7 @@ export async function loadGenerate() {
     },
   })
   const session = readSession(sessionKey)
+  if (preset === "world_core") session.selectedTemplateId = "builtin:none"
   const props = {
     projectId,
     tab,
@@ -133,6 +137,19 @@ export async function loadGenerate() {
     povLoadWarning: null,
   }
   if (!projectId || !api) return props
+
+  if (checkpointId && api.world?.getAdoptionArtifact) {
+    try {
+      const artifact = await api.world.getAdoptionArtifact(checkpointId, projectId)
+      const restored = convergenceDraftFromCheckpoint(artifact)
+      if (!restored) throw new Error("阶段成果类型不匹配")
+      session.checkpointId = checkpointId
+      session.successfulRounds = Math.max(session.successfulRounds || 0, Number(artifact.payload_json?.round_no || 0))
+      if (!session.convergenceDraft) session.convergenceDraft = restored
+    } catch (err) {
+      props.worldWorkspaceWarning = `已保存的阶段成果无法恢复：${err?.message || "未知错误"}`
+    }
+  }
 
   try {
     const data = await api.generate.listPromptTemplates(projectId)
@@ -181,6 +198,7 @@ export async function loadGenerate() {
           continuation?.destination === "generate"
           && continuation.route.source_page_id === sourcePageId
           && continuation.route.target === targetKind
+          && (continuation.route.preset || "custom") === preset
         ) {
           clearCreativeContinuation(projectId)
         }
