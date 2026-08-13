@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
+from infrastructure.tasks.models import AsyncTask
 from modules.context.contracts import StructureContextBundle
 from modules.context.models import ContextSnapshot
 from modules.outline.models import Scene
@@ -1485,6 +1486,45 @@ async def test_core_entity_generation_creates_only_pending_suggestion(
     assert str(entity.id) == compatibility_ref["id"]
     assert entity.name == "沈无忧"
     assert entity.status == "canonical"
+
+
+@pytest.mark.asyncio
+async def test_generation_task_reuses_operation_and_rejects_drift(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = await _create_llm_project(async_client, "可恢复对象建议")
+    operation_id = str(uuid.uuid4())
+    payload = _project_source_payload(novel_id) | {"operation_id": operation_id}
+
+    first = await async_client.post(
+        "/api/world/generation-center/suggestions/task",
+        json=payload,
+    )
+    repeated = await async_client.post(
+        "/api/world/generation-center/suggestions/task",
+        json=payload,
+    )
+    drifted = await async_client.post(
+        "/api/world/generation-center/suggestions/task",
+        json=payload | {"pasted_context": "不同请求"},
+    )
+
+    assert first.status_code == repeated.status_code == 202
+    assert first.json() == repeated.json() == {
+        "task_id": operation_id,
+        "status": "pending",
+    }
+    assert drifted.status_code == 409
+    tasks = list(
+        (
+            await db_session.scalars(
+                select(AsyncTask).where(AsyncTask.id == uuid.UUID(operation_id))
+            )
+        ).all()
+    )
+    assert len(tasks) == 1
+    assert tasks[0].task_type == "world_generation_suggestion"
 
 
 @pytest.mark.asyncio

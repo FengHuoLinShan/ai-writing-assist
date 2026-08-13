@@ -72,6 +72,11 @@ OpenAI-compatible SDK 的内建重试固定关闭；普通调用、流式建连�
 `generate_stream(..., transport_retries=False)` 关闭建连重试；流开始后的中断始终交给上层
 按业务状态恢复，不自动重放。
 
+ADR-0013 覆盖的作者长任务由 task registry 显式关闭 `LLMClient` transport retry；worker
+只对连接、超时、限流和明确的临时 provider 错误重排一次，最多两个 task attempt。认证、
+额度、内容过滤、结构校验和来源冲突不重排。结构化输出的既有格式修复预算仍属于同一
+transport attempt。
+
 ### 受控 LLM Step
 
 业务模块的 text / structured generation 应优先通过

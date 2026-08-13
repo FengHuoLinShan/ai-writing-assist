@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
-from modules.world.models import CoreEntity
+from modules.world.models import (
+    CoreEntity,
+    GenerationPromptTemplate,
+    GenerationPromptTemplateRevision,
+)
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     BUILTIN_GENERATION_TEMPLATES,
     TEMPLATE_ENTITY_TYPES,
@@ -204,6 +210,56 @@ async def test_builtin_templates_are_read_only_and_copyable(
     assert body["is_builtin"] is False
     assert body["name"] == "人物副本"
     assert body["object_template"] == "character"
+
+
+@pytest.mark.asyncio
+async def test_builtin_copy_operation_reuses_one_finished_template(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = await _create_project(async_client)
+    operation_id = str(uuid.uuid4())
+    payload = {
+        "novel_id": novel_id,
+        "name": "最终人物模板",
+        "prompt_text": "聚焦作者已确认的人物弧光。",
+        "operation_id": operation_id,
+    }
+
+    first = await async_client.post(
+        "/api/world/generation-prompt-templates/builtin:character/copy",
+        json=payload,
+    )
+    repeated = await async_client.post(
+        "/api/world/generation-prompt-templates/builtin:character/copy",
+        json=payload,
+    )
+
+    assert first.status_code == repeated.status_code == 201
+    assert repeated.json()["id"] == first.json()["id"]
+    template_id = uuid.UUID(first.json()["id"])
+    assert await db_session.scalar(
+        select(func.count(GenerationPromptTemplate.id)).where(
+            GenerationPromptTemplate.id == template_id
+        )
+    ) == 1
+    assert await db_session.scalar(
+        select(func.count(GenerationPromptTemplateRevision.id)).where(
+            GenerationPromptTemplateRevision.template_id == template_id
+        )
+    ) == 1
+
+    drift = await async_client.post(
+        "/api/world/generation-prompt-templates/builtin:character/copy",
+        json={**payload, "name": "不同名称"},
+    )
+    assert drift.status_code == 409
+
+    audit_drift = await async_client.post(
+        "/api/world/generation-prompt-templates/builtin:character/copy",
+        json={**payload, "created_by": "different-author"},
+    )
+    assert audit_drift.status_code == 409
 
 
 @pytest.mark.asyncio

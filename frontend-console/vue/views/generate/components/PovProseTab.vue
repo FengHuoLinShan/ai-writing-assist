@@ -29,12 +29,12 @@
     <div class="card">
       <div class="card-title">结果</div>
       <div id="generate-pov-result" class="generate-result">
-        <div v-if="pending" class="loading">{{ progressText }}</div>
+        <div v-if="pending" class="loading">{{ progressText }} <button type="button" class="btn btn-sm" @click="$emit('cancel')">取消生成</button></div>
         <p v-else-if="error" class="generate-error-text">生成失败：{{ error }}</p>
         <div v-else-if="submission" class="generate-result-card">
           <div class="generate-result-title">角色视角正文建议已生成</div>
-          <div class="generate-result-meta">第 {{ submission.chapterIndex }} 章 · {{ submissionScene?.title || submissionScene?.name || '已选场景' }} · {{ submissionRole?.name || submissionRole?.display_name || '已选角色' }}</div>
-          <p class="generate-result-summary">{{ resultId ? `任务 / 建议：${resultId}` : '正文建议已生成，可到写作页采用到工作稿。' }}</p>
+          <div class="generate-result-meta">第 {{ submission.chapterIndex }} 章 · {{ submissionScene?.title || submissionScene?.name || submission.sceneLabel || '已选场景' }} · {{ submissionRole?.name || submissionRole?.display_name || submission.roleLabel || '已选角色' }}</div>
+          <p class="generate-result-summary">正文建议已生成，可到写作页采用到工作稿。</p>
           <div class="generate-result-actions"><button class="btn btn-sm btn-primary" data-action="open-generated-destination" @click="$emit('open-result', submission)">打开并审阅建议</button></div>
         </div>
         <p v-else class="generate-empty-copy">选择章节、场景和视角角色后生成正文建议。</p>
@@ -52,7 +52,7 @@
 import { computed } from "vue"
 import { characterId } from "../logic/generateLogic.js"
 const props = defineProps({ loading: Boolean, chapters: { type: Array, default: () => [] }, scenes: { type: Array, default: () => [] }, characters: { type: Array, default: () => [] }, warning: String, submission: Object, pending: Boolean, progress: Number, error: String })
-defineEmits(["change-chapter", "change-scene", "open-result", "open-writing", "return-world"])
+defineEmits(["change-chapter", "change-scene", "cancel", "open-result", "open-writing", "return-world"])
 const form = defineModel("form", { type: Object, required: true })
 const selectedScene = computed(() => props.scenes.find((item) => item.id === form.value.sceneId) || null)
 const selectedRole = computed(() => props.characters.find((item) => characterId(item) === form.value.viewpointCharacterId) || null)
@@ -61,6 +61,5 @@ const submissionRole = computed(() => props.characters.find((item) => characterI
 const chapterTitle = computed(() => props.chapters.find((item) => Number(item.chapter_index) === Number(form.value.chapterIndex))?.title || "")
 const manualRole = computed(() => Boolean(form.value.viewpointCharacterId && selectedScene.value?.pov_character_id && form.value.viewpointCharacterId !== selectedScene.value.pov_character_id))
 const sceneWithoutPov = computed(() => Boolean(selectedScene.value && !selectedScene.value.pov_character_id))
-const resultId = computed(() => props.submission?.result?.draft_id || props.submission?.result?.draft?.id || props.submission?.result?.id || props.submission?.result?.task_id || "")
 const progressText = computed(() => props.progress == null ? "正在确认参考资料..." : `正在生成正文建议... ${Math.max(0, Math.min(100, Math.round(props.progress * 100)))}%`)
 </script>

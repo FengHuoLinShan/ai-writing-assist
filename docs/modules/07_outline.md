@@ -250,6 +250,11 @@ Scene 信息，并在采用时写入 `adopted_at`、来源并清除 `needs_revie
 伏笔/揭示列表另支持 `related_thread_id` 与 `unassigned`，供剧情线页统一时间线和未归类区
 消费；作者界面不再提供两者的顶层子标签。
 
+作者触发的生成、分析、故事总纲和 Scene 融合预览使用 ADR-0013 operation receipt。
+`POST /api/outline/scene-workbench/fusion/preview-task` 返回 202；完成后只在 Scene 工作台原位
+显示“查看预览”，不会晚到重开旧弹窗或整岛刷新。兼容同步 preview 保留一个正式版本并在
+OpenAPI 标记 deprecated；来源 Scene 在 worker 写回前按项目和来源指纹重验。
+
 ## 测试
 
 ```bash

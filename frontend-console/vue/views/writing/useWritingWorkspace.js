@@ -143,6 +143,7 @@ export function useWritingWorkspace(props) {
   const conflictState = reactive({ loading: false, latest: null, error: null })
   const conflictOptions = reactive({ open: false, includeCandidates: false })
   const conflictDialog = reactive({ open: false, check: null, busy: false, error: null, sourcePreview: null })
+  const conflictTask = reactive({ taskId: null, progress: null })
   const sceneState = reactive({ loading: false, alerts: [], people: [], location: null })
   const deepImportState = reactive({ taskId: null, projectId: null, progress: null })
   const deepAuditOpen = ref(false)
@@ -150,6 +151,7 @@ export function useWritingWorkspace(props) {
   const outlineFloat = reactive({ open: false, loading: false, threads: [], error: null })
   const versionDialog = reactive({ open: false, diffOpen: false, leftId: null, rightId: null, diff: null, loading: false, error: null })
   const generationLoading = ref(false)
+  const generationTask = reactive({ taskId: null, progress: null, result: null })
   const focusMode = ref(Boolean(props.authorPreferences?.defaultFocusMode))
   const forceDesktop = ref(false)
   const isNarrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
@@ -239,6 +241,7 @@ export function useWritingWorkspace(props) {
       conflictState.latest = check
       refreshSceneAlerts()
     },
+    onProgress: (value) => Object.assign(conflictTask, value),
   })
 
   async function applyCommandResult(result) {
@@ -265,6 +268,7 @@ export function useWritingWorkspace(props) {
     editor,
     onResult: applyCommandResult,
     onLoadingChange: (value) => { generationLoading.value = Boolean(value) },
+    onProgress: (value) => Object.assign(generationTask, value),
   })
 
   function syncLegacyState() {
@@ -850,7 +854,6 @@ export function useWritingWorkspace(props) {
   }
 
   function closeConflictDialog() {
-    if (conflictDialog.busy) return
     conflictDialog.open = false
     conflictDialog.sourcePreview = null
   }
@@ -1073,6 +1076,8 @@ export function useWritingWorkspace(props) {
         sceneId: requested.sceneId,
       })
     }
+    void commands.recover()
+    void conflictActions.recover()
   })
 
   onBeforeUnmount(() => {
@@ -1117,10 +1122,12 @@ export function useWritingWorkspace(props) {
     currentScene,
     editorState,
     generationLoading,
+    generationTask,
     publishProgress,
     conflictState,
     conflictOptions,
     conflictDialog,
+    conflictTask,
     sceneState,
     deepImportState,
     deepAuditOpen,
@@ -1152,6 +1159,9 @@ export function useWritingWorkspace(props) {
     generateDraft: commands.generateDraft,
     generateContinuation: commands.generateContinuation,
     generatePovDraft: commands.generatePovDraft,
+    openGenerationResult: commands.openResult,
+    cancelGeneration: commands.cancel,
+    dismissGeneration: commands.dismiss,
     openAutoExtraction,
     submitAutoExtraction,
     cancelDeepImport,
@@ -1165,6 +1175,8 @@ export function useWritingWorkspace(props) {
     updateConflictStatus,
     runConflictAiReview,
     requestConflictSuggestion,
+    cancelConflictTask: conflictActions.cancel,
+    dismissConflictTask: conflictActions.dismiss,
     applyConflictSuggestion,
     locateConflictItem: (itemId) => locateConflictItem(conflictDialog.check, itemId),
     openConflictSource: (itemId) => openConflictSource(conflictDialog.check, itemId),

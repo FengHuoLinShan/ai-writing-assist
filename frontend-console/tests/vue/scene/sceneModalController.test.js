@@ -34,14 +34,18 @@ describe("scene modal workflows", () => {
   let clearSelection
   let latestButtons
   let controller
+  let fusionPreviewResult
 
   beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
     document.body.innerHTML = '<div id="modal-body"></div><div id="modal-footer"></div>'
     state = { currentProjectId: "p1", currentView: "outline", currentSubView: "scenes" }
     toast = vi.fn()
     closeModal = vi.fn()
     refresh = vi.fn(async () => {})
     clearSelection = vi.fn()
+    fusionPreviewResult = null
     latestButtons = []
     referencePicker.refs = []
     referencePicker.configs.length = 0
@@ -52,7 +56,7 @@ describe("scene modal workflows", () => {
         getSceneWorkbench: vi.fn(),
         previewSceneMerge: vi.fn(),
         mergeScenes: vi.fn(),
-        previewSceneFusion: vi.fn(),
+        previewSceneFusionTask: vi.fn((_projectId, data) => Promise.resolve({ task_id: data.operation_id, status: "pending" })),
         saveSceneFusion: vi.fn(),
         previewSceneSplit: vi.fn(),
         splitScene: vi.fn(),
@@ -60,6 +64,10 @@ describe("scene modal workflows", () => {
         applySceneReplacement: vi.fn(),
         dismissFusionSuggestions: vi.fn(),
         reviewSceneSourceMappings: vi.fn(),
+      },
+      tasks: {
+        get: vi.fn((taskId) => Promise.resolve({ id: taskId, task_type: "scene_fusion_preview", status: "done", result: fusionPreviewResult })),
+        cancel: vi.fn(),
       },
     }
     setBridgeOverrides({
@@ -94,6 +102,20 @@ describe("scene modal workflows", () => {
 
   const action = (text) => latestButtons.find((button) => button.text === text)?.handler
 
+  it("does not recover another tab's scene fusion receipt", () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:scene_fusion_preview:other-tab-task",
+      taskId: "other-tab-task",
+      workflowType: "scene_fusion_preview",
+      projectId: "p1",
+      view: "outline",
+      meta: { sourceSceneIds: ["s1", "s2"] },
+    }]))
+
+    expect(controller.recoverFusionTask()).toBe(false)
+    expect(api.tasks.get).not.toHaveBeenCalled()
+  })
+
   it("previews and confirms a mechanical merge with the selected target", async () => {
     api.outline.previewSceneMerge.mockResolvedValue({ operation: "merge", warnings: [] })
     api.outline.mergeScenes.mockResolvedValue({ status: "merged" })
@@ -116,18 +138,20 @@ describe("scene modal workflows", () => {
   })
 
   it("edits and saves an AI fusion while preserving the original scenes", async () => {
-    api.outline.previewSceneFusion.mockResolvedValue({
+    fusionPreviewResult = {
       primary_scene_id: "s1",
       draft_scene: {
         title: "旧融合标题", goal: "离开", core_conflict: "追兵", narrative_tag: "draft",
         chapter_ids: ["1", "2", "3"], structure_meta: { source: "ai" },
       },
       field_references: {}, warnings: ["需复核"], conflicts: [], confidence: 0.8,
-    })
+    }
     api.outline.saveSceneFusion.mockResolvedValue({ status: "saved" })
 
     controller.startFusion(["s1", "s2"])
     await action("生成 AI 融合建议")()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalled())
+    expect(controller.showCompletedFusionPreview()).toBe(true)
     document.getElementById("scene-fusion-title").value = "作者修订标题"
     await action("继续编辑融合结果后再保存")()
 
@@ -141,17 +165,36 @@ describe("scene modal workflows", () => {
         structure_meta: expect.objectContaining({ draft_review_mode: "fusion", primary_scene_id: "s1" }),
       }),
     }))
+    expect(sessionStorage.getItem("novel_active_workflows_v1")).toBe("[]")
+  })
+
+  it("does not start a second fusion preview while the current session is running", async () => {
+    let resolveTask
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { resolveTask = resolve }))
+
+    controller.startFusion(["s1", "s2"])
+    await action("生成 AI 融合建议")()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledOnce())
+
+    controller.startFusion(["s1", "s2"])
+    await action("生成 AI 融合建议")()
+    expect(api.outline.previewSceneFusionTask).toHaveBeenCalledOnce()
+    expect(toast).toHaveBeenCalledWith("已有场景融合预览正在生成", "info")
+
+    resolveTask({ id: "late", task_type: "scene_fusion_preview", status: "cancelled" })
   })
 
   it("discards an AI fusion without sending a generated scene payload", async () => {
-    api.outline.previewSceneFusion.mockResolvedValue({
+    fusionPreviewResult = {
       draft_scene: { title: "候选", narrative_tag: "draft", chapter_ids: ["1", "3"] },
       field_references: {},
-    })
+    }
     api.outline.saveSceneFusion.mockResolvedValue({ status: "discarded" })
 
     controller.startFusion(["s1", "s2"], "suggestion-1")
     await action("生成 AI 融合建议")()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalled())
+    expect(controller.showCompletedFusionPreview()).toBe(true)
     await action("放弃融合结果")()
 
     expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", {
@@ -197,7 +240,7 @@ describe("scene modal workflows", () => {
         draft_scenes: [{ title: "AI 候选", goal: "逃离", chapter_ids: ["1"] }],
       },
     }
-    api.outline.applySceneReplacement.mockResolvedValue({ downstream_refresh_required: ["世界对象"] })
+    api.outline.applySceneReplacement.mockResolvedValue({ downstream_refresh_required: ["地图摘要"] })
     controller = createSceneModalController({
       projectId: "p1",
       getItems: () => items,
@@ -251,13 +294,15 @@ describe("scene modal workflows", () => {
   })
 
   it("requires the destructive fusion confirmation before deprecating originals", async () => {
-    api.outline.previewSceneFusion.mockResolvedValue({
+    fusionPreviewResult = {
       draft_scene: { title: "融合候选", narrative_tag: "draft", chapter_ids: ["1", "2", "3"] },
       field_references: {},
-    })
+    }
     api.outline.saveSceneFusion.mockResolvedValue({ status: "saved" })
     controller.startFusion(["s1", "s2"])
     await action("生成 AI 融合建议")()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalled())
+    expect(controller.showCompletedFusionPreview()).toBe(true)
 
     expect(document.querySelector('[data-role="fusion-deprecation-confirm"]').hidden).toBe(true)
     expect(action("将 2 个原场景移入历史并保存")()).toBe(false)

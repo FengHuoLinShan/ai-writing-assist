@@ -3,13 +3,17 @@ from __future__ import annotations
 import logging
 import uuid
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
+from modules.outline.scene_fusion_draft import SceneFusionGenerationResult
 from modules.outline.scene_workbench import SceneWorkbenchService
-from modules.outline.schemas import SceneMergeRequest
+from modules.outline.schemas import SceneFusionPreviewRequest, SceneMergeRequest
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
@@ -2203,6 +2207,117 @@ class TestSceneWorkbenchApi:
 
         assert resp.status_code == 400
         assert "primary_scene_id" in resp.text
+
+    async def test_fusion_preview_task_uses_operation_receipt(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+        account_llm_connection,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
+        )
+        operation_id = str(uuid.uuid4())
+        payload = {
+            "source_scene_ids": [first["id"], second["id"]],
+            "primary_scene_id": first["id"],
+            "operation_id": operation_id,
+        }
+
+        first_response = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview-task",
+            params={"novel_id": test_project_id},
+            json=payload,
+        )
+        repeated = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview-task",
+            params={"novel_id": test_project_id},
+            json=payload,
+        )
+
+        assert first_response.status_code == repeated.status_code == 202
+        assert first_response.json() == repeated.json() == {
+            "task_id": operation_id,
+            "status": "pending",
+        }
+        task = await db_session.scalar(
+            select(AsyncTask).where(AsyncTask.id == uuid.UUID(operation_id))
+        )
+        assert task is not None
+        assert task.task_type == "scene_fusion_preview"
+
+    async def test_fusion_preview_task_locks_evidence_and_rejects_drift(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "chapter_ids": []},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": []},
+        )
+        lock_chapters = mock.AsyncMock()
+        monkeypatch.setattr(
+            "modules.writing.facade.lock_chapter_versions_for_revalidation",
+            lock_chapters,
+        )
+        service = SceneWorkbenchService()
+        service._fusion_scene_payload = mock.AsyncMock(
+            return_value={"title": "甲乙", "goal": "联合目标"}
+        )
+        service._fusion_draft_generator = SimpleNamespace(
+            generate=mock.AsyncMock(
+                return_value=SceneFusionGenerationResult(
+                    semantic_fields={},
+                    confidence=0.8,
+                    reason="合并",
+                    evidence_fingerprint="before",
+                    evidence_chapter_indices=(7, 9),
+                )
+            ),
+            evidence_fingerprint=mock.AsyncMock(side_effect=["before", "after"]),
+        )
+        request = SceneFusionPreviewRequest(
+            source_scene_ids=[first["id"], second["id"]],
+            primary_scene_id=first["id"],
+        )
+
+        preview = await service.preview_llm_fusion(
+            db_session,
+            test_project_id,
+            request,
+            llm_execution_snapshot={"profile": {"model": "frozen"}},
+            task_mode=True,
+        )
+        assert preview.source_scene_ids == [first["id"], second["id"]]
+
+        with pytest.raises(ValueError, match="evidence changed"):
+            await service.preview_llm_fusion(
+                db_session,
+                test_project_id,
+                request,
+                llm_execution_snapshot={"profile": {"model": "frozen"}},
+                task_mode=True,
+            )
+        assert lock_chapters.await_args_list == [
+            mock.call(db_session, test_project_id, [7, 9]),
+            mock.call(db_session, test_project_id, [7, 9]),
+        ]
 
     async def test_fusion_preview_uses_primary_scene_as_draft_backbone(
         self,

@@ -9,6 +9,14 @@ import {
 import { createReferencePicker } from "../../../shared/referencePicker.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import {
+  clearActiveWorkflow,
+  createOperationId,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+  recoverActiveWorkflows,
+} from "../../../shared/workflowProgress.js"
+import {
   SOURCE_OPTIONS,
   STATUS_OPTIONS,
   TAG_OPTIONS,
@@ -42,17 +50,20 @@ export function createSceneModalController({
   refresh,
   selectScene,
   clearSelection,
+  fusionTask = {},
 }) {
   const api = getApi()
   const toast = getToast()
   const esc = getEsc()
   const showModalHtml = getShowModalHtml()
   const closeModal = getCloseModal()
+  const receiptStorage = globalThis.sessionStorage
   let disposed = false
   let generation = 0
   let mergePicker = null
   let fusionPreviewPending = false
   let fusionPreviewSequence = 0
+  let fusionPoller = null
   let fusionSavePending = false
   let activeReview = null
 
@@ -76,6 +87,8 @@ export function createSceneModalController({
     disposed = true
     generation += 1
     fusionPreviewSequence += 1
+    fusionPoller?.stop?.()
+    fusionPoller = null
     destroyPicker()
     activeReview = null
   }
@@ -320,6 +333,7 @@ export function createSceneModalController({
       const result = await api.outline.saveSceneFusion(projectId, payload)
       closeModal()
       clearSelection?.()
+      dismissFusionTask()
       toast(result?.status === "discarded" ? "融合结果已放弃" : "融合场景已保存", "success")
       await refresh?.()
       return true
@@ -379,6 +393,10 @@ export function createSceneModalController({
   }
 
   async function previewFusion(sourceSceneIds, primarySceneId, suggestionId = null) {
+    if (fusionTask.progress && !fusionTask.progress.terminal) {
+      toast("已有场景融合预览正在生成", "info")
+      return false
+    }
     if (fusionPreviewPending) {
       toast("场景融合建议正在生成，请稍候", "info")
       return false
@@ -386,22 +404,94 @@ export function createSceneModalController({
     const ownerGeneration = generation
     const requestSequence = ++fusionPreviewSequence
     fusionPreviewPending = true
-    let preview
+    if (fusionTask.taskId) clearActiveWorkflow(fusionTask.taskId, receiptStorage)
+    const taskId = createOperationId()
+    const meta = { sourceSceneIds, primarySceneId, suggestionId }
+    persistActiveWorkflow({ taskId, workflowType: "scene_fusion_preview", label: "生成场景融合预览", projectId, view: "outline", meta }, receiptStorage)
+    fusionTask.taskId = taskId
+    fusionTask.meta = meta
+    fusionTask.preview = null
+    fusionTask.progress = normalizeTaskProgress({ id: taskId, task_type: "scene_fusion_preview", status: "pending" }, "scene_fusion_preview")
     try {
-      preview = await api.outline.previewSceneFusion(projectId, {
+      const receipt = await api.outline.previewSceneFusionTask(projectId, {
         source_scene_ids: sourceSceneIds,
         primary_scene_id: primarySceneId,
+        operation_id: taskId,
         ...(suggestionId ? { suggestion_id: suggestionId } : {}),
       })
+      if (receipt?.task_id && receipt.task_id !== taskId) throw new Error("任务凭据不匹配")
     } catch (err) {
-      if (owns(ownerGeneration) && requestSequence === fusionPreviewSequence) toast(err.message || "场景融合建议生成失败", "error")
-      return false
+      if (Number(err?.status) >= 400 && Number(err?.status) < 500) {
+        clearActiveWorkflow(taskId, receiptStorage)
+        fusionTask.taskId = null
+        fusionTask.progress = null
+        if (owns(ownerGeneration) && requestSequence === fusionPreviewSequence) toast(err.message || "场景融合建议生成失败", "error")
+        return false
+      }
     } finally {
       if (requestSequence === fusionPreviewSequence) fusionPreviewPending = false
     }
-    if (!owns(ownerGeneration) || requestSequence !== fusionPreviewSequence) return false
-    showFusionPreview({ ...preview, primary_scene_id: primarySceneId, suggestion_id: suggestionId }, sourceSceneIds)
+    pollFusionTask(taskId, meta)
     return true
+  }
+
+  function pollFusionTask(taskId, meta) {
+    fusionPoller?.stop?.()
+    fusionTask.taskId = taskId
+    fusionTask.meta = meta
+    fusionPoller = pollTaskProgress({
+      taskId,
+      novelId: projectId,
+      workflowType: "scene_fusion_preview",
+      apiClient: api,
+      receiptStorage,
+      onUpdate: (progress) => { if (owns()) fusionTask.progress = progress },
+      onDone: (progress, task) => {
+        if (!owns()) return
+        fusionTask.progress = progress
+        fusionTask.preview = task?.result || null
+        toast("场景融合预览已完成", "success")
+      },
+      onFailed: (progress) => {
+        if (!owns()) return
+        fusionTask.progress = progress
+        toast(progress.errorMessage || "场景融合预览失败", "error")
+      },
+    })
+  }
+
+  function recoverFusionTask() {
+    const workflow = recoverActiveWorkflows(projectId, receiptStorage)
+      .filter((item) => item.workflowType === "scene_fusion_preview" && item.view === "outline")
+      .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]
+    if (!workflow) return false
+    pollFusionTask(workflow.taskId, workflow.meta || {})
+    return true
+  }
+
+  function showCompletedFusionPreview() {
+    if (!fusionTask.preview || !fusionTask.meta) return false
+    showFusionPreview({
+      ...fusionTask.preview,
+      primary_scene_id: fusionTask.meta.primarySceneId,
+      suggestion_id: fusionTask.meta.suggestionId,
+    }, fusionTask.meta.sourceSceneIds || [])
+    return true
+  }
+
+  async function cancelFusionTask() {
+    if (!fusionTask.taskId || fusionTask.progress?.terminal) return false
+    await api.tasks.cancel(fusionTask.taskId, projectId)
+    return true
+  }
+
+  function dismissFusionTask() {
+    fusionPoller?.stop?.()
+    if (fusionTask.taskId) clearActiveWorkflow(fusionTask.taskId, receiptStorage)
+    fusionTask.taskId = null
+    fusionTask.meta = null
+    fusionTask.preview = null
+    fusionTask.progress = null
   }
 
   function startFusion(sceneIds, suggestionId = null) {
@@ -421,8 +511,7 @@ export function createSceneModalController({
         handler: async () => {
           const primary = document.querySelector('input[name="fusion-primary-scene"]:checked')?.value
           if (!primary) return false
-          await previewFusion(sceneIds, primary, suggestionId)
-          return false
+          return previewFusion(sceneIds, primary, suggestionId)
         },
       },
     ])
@@ -735,6 +824,10 @@ export function createSceneModalController({
     showAssignChapters,
     showSuggestions,
     startFusion,
+    recoverFusionTask,
+    showCompletedFusionPreview,
+    cancelFusionTask,
+    dismissFusionTask,
     startMerge,
     startSelectedMerge,
     startSplit,

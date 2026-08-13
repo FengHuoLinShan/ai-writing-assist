@@ -281,7 +281,8 @@ POST   /api/world/generation-center/chat
 POST   /api/world/generation-center/convergence
 POST   /api/world/generation-center/exploration
 POST   /api/world/generation-center/semantic-inspection
-POST   /api/world/generation-center/suggestions
+POST   /api/world/generation-center/suggestions       # 兼容同步入口（deprecated）
+POST   /api/world/generation-center/suggestions/task  # operation receipt 可恢复任务
 POST   /api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft
 
 # 作者端只读问世界
@@ -297,6 +298,9 @@ canonical 仍只能由作者在世界书发布流程中改变。旧对象草稿�
 接口不再注册。provider 返回后，最终写入事务会再次校验项目仍 active 并持有共享项目锁，
 且以 page→draft 行锁强制重读来源 baseline；生成期间进入回收站的项目返回
 404，页面或工作稿已漂移时返回 409，均不写 suggestion 或兼容对象。
+
+官方前端通过 ADR-0013 的 `operation_id` 提交生成中心建议任务；刷新后只恢复该页的原
+task，结果仍进入待处理建议，不自动采用。旧同步入口保留一个正式版本并标记 deprecated。
 
 五个生成中心入口都先冻结项目 owner 当前已验证账户连接的 secret-free
 provider/model 快照，同一次聊天、收束、探索、检修或建议内的后续调用全部沿用该快照。

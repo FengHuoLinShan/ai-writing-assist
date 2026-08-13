@@ -12,6 +12,8 @@ from core.logging_context import (
     bind_validated_novel_id,
     current_novel_id_for_log,
 )
+from infrastructure.llm.errors import LLMAuthError, LLMTimeoutError
+from infrastructure.llm.retry import transport_retries_enabled
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from infrastructure.tasks.worker import TaskWorker
@@ -79,6 +81,101 @@ async def test_run_once_returns_reloaded_terminal_task(
         registry.unregister(task_type)
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+
+
+@pytest.mark.asyncio
+async def test_transient_llm_failure_requeues_once_without_transport_retry(
+    test_engine,
+) -> None:
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_id = uuid.uuid4()
+    task_type = f"transient-retry-{uuid.uuid4()}"
+    registry = TaskRegistry()
+    calls = 0
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def handler(*, db, task):
+        nonlocal calls
+        calls += 1
+        assert transport_retries_enabled() is False
+        if calls == 1:
+            raise LLMTimeoutError("temporary")
+        return {"ok": True}
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy="auto_requeue",
+        max_attempts=2,
+        retry_transient_llm_errors=True,
+    )
+    try:
+        async with sessions.begin() as db:
+            task = AsyncTask(id=task_id, task_type=task_type, status="pending", meta={})
+            task.recovery_policy = "auto_requeue"
+            task.max_attempts = 2
+            db.add(task)
+        worker = TaskWorker(db_manager=TestManager(), heartbeat_interval=60.0)
+
+        first = await worker.run_once()
+        second = await worker.run_once()
+
+        assert first is not None and first.status == "pending"
+        assert first.attempt == 1
+        assert first.transition_reason == "transient_retry"
+        assert second is not None and second.status == "done"
+        assert second.attempt == 2
+        assert calls == 2
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as db:
+            await db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_llm_failure_finishes_immediately(test_engine) -> None:
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    task_id = uuid.uuid4()
+    task_type = f"terminal-retry-{uuid.uuid4()}"
+    registry = TaskRegistry()
+    calls = 0
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def handler(*, db, task):
+        nonlocal calls
+        calls += 1
+        raise LLMAuthError("bad credentials")
+
+    registry.register(
+        task_type,
+        handler,
+        owner_scope="global",
+        recovery_policy="auto_requeue",
+        max_attempts=2,
+        retry_transient_llm_errors=True,
+    )
+    try:
+        async with sessions.begin() as db:
+            db.add(AsyncTask(id=task_id, task_type=task_type, status="pending", meta={}))
+        result = await TaskWorker(
+            db_manager=TestManager(), heartbeat_interval=60.0
+        ).run_once()
+        assert result is not None and result.status == "failed"
+        assert result.attempt == 1
+        assert calls == 1
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as db:
+            await db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
 
 
 @pytest.mark.asyncio

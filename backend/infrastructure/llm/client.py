@@ -502,7 +502,12 @@ class LLMClient:
             provider_id=self._limiter_provider_id,
         )
 
-    async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+    async def generate(
+        self,
+        request: LLMCallRequest,
+        *,
+        transport_retries: bool = True,
+    ) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 
         Args:
@@ -516,16 +521,21 @@ class LLMClient:
         """
         resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
-        return await limiter.run(
-            lambda: retry_with_backoff(
-                self._provider.generate,
-                max_attempts=self._settings.llm_retry_max_attempts,
-                base_delay=self._settings.llm_retry_base_delay,
-                max_delay=self._settings.llm_retry_max_delay,
-                request=resolved_request,
-            ),
-            limiter_scope=self._limiter_scope("chat"),
-        )
+        from infrastructure.llm.retry import transport_retries_enabled
+
+        if transport_retries and transport_retries_enabled():
+            async def call():
+                return await retry_with_backoff(
+                    self._provider.generate,
+                    max_attempts=self._settings.llm_retry_max_attempts,
+                    base_delay=self._settings.llm_retry_base_delay,
+                    max_delay=self._settings.llm_retry_max_delay,
+                    request=resolved_request,
+                )
+        else:
+            async def call():
+                return await self._provider.generate(resolved_request)
+        return await limiter.run(call, limiter_scope=self._limiter_scope("chat"))
 
     async def generate_stream(
         self,
@@ -547,7 +557,9 @@ class LLMClient:
         resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
         async with limiter.scope(limiter_scope=self._limiter_scope("chat")):
-            if transport_retries:
+            from infrastructure.llm.retry import transport_retries_enabled
+
+            if transport_retries and transport_retries_enabled():
                 stream = await retry_with_backoff(
                     self._provider.generate_stream,
                     max_attempts=self._settings.llm_retry_max_attempts,
@@ -611,7 +623,9 @@ class LLMClient:
 
         for attempt in range(max_fix_attempts + 1):
             try:
-                if transport_retries:
+                from infrastructure.llm.retry import transport_retries_enabled
+
+                if transport_retries and transport_retries_enabled():
                     response = await self.generate(req)
                 else:
                     response = await get_llm_limiter().run(

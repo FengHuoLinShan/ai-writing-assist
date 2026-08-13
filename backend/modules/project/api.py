@@ -8,7 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
-from infrastructure.tasks.enqueuer import enqueue_task
+from infrastructure.tasks.facade import (
+    enqueue_task_with_optional_operation,
+    get_operation_task,
+)
 from modules.project.schemas import (
     LLMFieldResetResponse,
     LLMProviderTemplateListResponse,
@@ -181,19 +184,37 @@ async def api_start_smart_dedup_scan(
     await _service.get_project(db, project_id)
     from modules.project.facade import build_project_llm_execution_snapshot
 
+    request_payload = data.model_dump(mode="json", exclude={"operation_id"})
+    try:
+        existing = await get_operation_task(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="smart_dedup_scan",
+            novel_id=project_id,
+            request_payload=request_payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is not None:
+        return SmartDedupScanResponse(
+            task_id=existing.task_id,
+            status=existing.status,
+        )
     llm_execution_snapshot = await build_project_llm_execution_snapshot(db, project_id)
-    task_id = enqueue_task(
+    receipt = await enqueue_task_with_optional_operation(
         db,
-        "smart_dedup_scan",
+        operation_id=str(data.operation_id) if data.operation_id else None,
+        task_type="smart_dedup_scan",
+        novel_id=project_id,
+        request_payload=request_payload,
         meta={
             "novel_id": project_id,
             "llm_execution_snapshot": llm_execution_snapshot,
-            **data.model_dump(exclude_none=True),
+            **request_payload,
         },
-        novel_id=project_id,
     )
     await db.flush()
-    return SmartDedupScanResponse(task_id=task_id)
+    return SmartDedupScanResponse(task_id=receipt.task_id, status=receipt.status)
 
 
 @router.post(

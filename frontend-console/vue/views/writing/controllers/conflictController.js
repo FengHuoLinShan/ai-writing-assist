@@ -1,8 +1,16 @@
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
+import {
+  clearActiveWorkflow,
+  createOperationId,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  recoverActiveWorkflows,
+} from "../../../../shared/workflowProgress.js"
 
 const ABORTED = Symbol("conflict-controller-aborted")
 
-export function createConflictController({ api, toast, getProjectId, getCheck, onCheck }) {
+export function createConflictController({ api, toast, getProjectId, getCheck, onCheck, onProgress = () => {} }) {
+  const receiptStorage = globalThis.sessionStorage
   let generation = 0
   let disposed = false
   let timer = null
@@ -23,12 +31,15 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
   function replaceItem(updated) {
     const check = getCheck()
     if (!check || !updated?.id) return check
-    const next = {
-      ...check,
-      items: (check.items || []).map((item) => item.id === updated.id ? { ...item, ...updated } : item),
-    }
+    const next = { ...check, items: (check.items || []).map((item) => item.id === updated.id ? { ...item, ...updated } : item) }
     onCheck(next)
     return next
+  }
+
+  function activeWorkflow(projectId = getProjectId()) {
+    return recoverActiveWorkflows(projectId, receiptStorage)
+      .filter((item) => item.view === "writing" && ["writing_conflict_ai_review", "writing_conflict_item_ai_suggestion"].includes(item.workflowType))
+      .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0] || null
   }
 
   async function updateStatus(itemId, status) {
@@ -39,114 +50,85 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
       replaceItem({ id: itemId, ...updated, status: updated?.status || status })
       toast("问题状态已更新", "success")
       return updated
-    } catch (err) {
-      toast(err?.message || "状态更新失败", "error")
-      return null
+    } catch (err) { toast(err?.message || "状态更新失败", "error"); return null }
+  }
+
+  async function waitForTask(taskId, projectId, token, workflowType) {
+    while (true) {
+      let task
+      try { task = await api.tasks.get(taskId, projectId) } catch (err) {
+        if (Number(err?.status) === 404) {
+          clearActiveWorkflow(taskId, receiptStorage)
+          onProgress({ taskId, progress: normalizeTaskProgress({ id: taskId, task_type: workflowType, status: "failed", error_message: "未找到原任务，请重新开始。" }, workflowType) })
+          throw new Error("未找到原任务，请重新开始。")
+        }
+        await wait(token, projectId); continue
+      }
+      guard(token, projectId)
+      onProgress({ taskId, progress: normalizeTaskProgress(task, workflowType) })
+      if (task?.status === "done") { clearActiveWorkflow(taskId, receiptStorage); return task }
+      if (task?.status === "failed" || task?.status === "cancelled") { clearActiveWorkflow(taskId, receiptStorage); throw new Error(task.error_message || "AI 任务失败") }
+      await wait(token, projectId)
     }
   }
 
-  async function waitForReview(taskId, check, projectId, token) {
-    if (!taskId) return { ...check, ai_review_status: "running" }
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      const task = await api.tasks.get(taskId, projectId)
-      guard(token, projectId)
-      if (task?.status === "done") {
-        const updated = await api.writing.getConflictCheck(task.result?.check_id || check.id, projectId)
-        guard(token, projectId)
-        return updated
-      }
-      if (task?.status === "failed" || task?.status === "cancelled") {
-        throw new Error(task.error_message || task.result?.error_message || "AI 软冲突判断失败")
-      }
-      await wait(token, projectId)
+  function persistConflictTask(taskId, workflowType, meta) {
+    persistActiveWorkflow({ taskId, workflowType, label: workflowType === "writing_conflict_ai_review" ? "AI 软冲突判断" : "AI 修复建议", projectId: getProjectId(), view: "writing", meta }, receiptStorage)
+    onProgress({ taskId, progress: normalizeTaskProgress({ id: taskId, task_type: workflowType, status: "pending" }, workflowType) })
+  }
+
+  async function submitTask({ workflowType, meta, submit, token, projectId }) {
+    const operationId = createOperationId()
+    persistConflictTask(operationId, workflowType, meta)
+    let started
+    try { started = await submit(operationId) } catch (err) {
+      if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); onProgress({ taskId: null, progress: null }); throw err }
+      started = { task_id: operationId, status: "pending" }
     }
-    return { ...check, ai_review_status: "running" }
+    guard(token, projectId)
+    const taskId = started?.task_id || operationId
+    if (taskId !== operationId) { clearActiveWorkflow(operationId, receiptStorage); persistConflictTask(taskId, workflowType, meta) }
+    return { started, task: await waitForTask(taskId, projectId, token, workflowType) }
   }
 
   async function runAiReview() {
-    const check = getCheck()
-    const projectId = getProjectId()
+    const check = getCheck(); const projectId = getProjectId()
     if (!check?.id || !projectId) return null
+    if (activeWorkflow(projectId)) { toast("已有 AI 冲突任务正在进行", "info"); return null }
     const token = ++generation
     try {
-      const confirmation = await confirmAiReference({
-        novel_id: projectId,
-        action: "writing.conflict_check.ai_review",
-        task: "writing conflict AI review",
-        scope: "chapter",
-        chapter_index: check.chapter_index,
-        scene_id: check.scene_id,
-        context_mode: "canonical",
-        include_pending_objects: Boolean(check.include_candidates),
-        budget_tokens: 0,
-      })
+      const confirmation = await confirmAiReference({ novel_id: projectId, action: "writing.conflict_check.ai_review", task: "writing conflict AI review", scope: "chapter", chapter_index: check.chapter_index, scene_id: check.scene_id, context_mode: "canonical", include_pending_objects: Boolean(check.include_candidates), budget_tokens: 0 })
       guard(token, projectId)
-      const payload = { novel_id: projectId, context_confirmation_id: confirmation.id }
-      let updated
-      if (typeof api.writing.enqueueConflictAiReview === "function") {
-        const started = await api.writing.enqueueConflictAiReview(check.id, payload)
-        guard(token, projectId)
-        onCheck(started?.check || { ...check, ai_review_status: "running", ai_review_confirmation_id: confirmation.id })
-        updated = await waitForReview(started?.task_id, check, projectId, token)
-      } else {
-        updated = await api.writing.runConflictAiReview(check.id, payload)
-      }
-      guard(token, projectId)
-      onCheck(updated)
-      if (updated?.ai_review_status === "running") {
-        toast("AI 软冲突判断仍在后台运行，可稍后重新打开检查记录", "warning")
-      } else if (updated?.ai_review_status === "partial") {
-        toast("AI 软冲突判断部分生成", "warning")
-      } else {
-        toast("AI 软冲突判断已生成", "success")
-      }
-      return updated
-    } catch (err) {
-      if (err === ABORTED || disposed || token !== generation || err?.message === "已取消 AI 参考资料确认") return null
-      toast(err?.message || "AI 软冲突判断失败", "error")
-      return null
-    }
+      const { started, task } = await submitTask({ workflowType: "writing_conflict_ai_review", meta: { checkId: check.id, kind: "review" }, token, projectId, submit: (operationId) => api.writing.enqueueConflictAiReview(check.id, { novel_id: projectId, context_confirmation_id: confirmation.id, operation_id: operationId }) })
+      onCheck(started?.check || { ...check, ai_review_status: "running", ai_review_confirmation_id: confirmation.id })
+      const updated = await api.writing.getConflictCheck(task.result?.check_id || check.id, projectId)
+      guard(token, projectId); onCheck(updated); toast(updated?.ai_review_status === "partial" ? "AI 软冲突判断部分生成" : "AI 软冲突判断已生成", updated?.ai_review_status === "partial" ? "warning" : "success"); return updated
+    } catch (err) { if (err === ABORTED || disposed || token !== generation || err?.message === "已取消 AI 参考资料确认") return null; toast(err?.message || "AI 软冲突判断失败", "error"); return null }
   }
 
   async function requestSuggestion(itemId) {
-    const check = getCheck()
-    const projectId = getProjectId()
+    const check = getCheck(); const projectId = getProjectId()
     if (!check?.id || !itemId || !projectId) return null
+    if (activeWorkflow(projectId)) { toast("已有 AI 冲突任务正在进行", "info"); return null }
     const token = ++generation
     try {
-      const confirmation = await confirmAiReference({
-        novel_id: projectId,
-        action: "writing.conflict_check.ai_suggestion",
-        task: "writing conflict AI suggestion",
-        scope: "chapter",
-        chapter_index: check.chapter_index,
-        scene_id: check.scene_id,
-        context_mode: "canonical",
-        include_pending_objects: Boolean(check.include_candidates),
-        budget_tokens: 0,
-      })
+      const confirmation = await confirmAiReference({ novel_id: projectId, action: "writing.conflict_check.ai_suggestion", task: "writing conflict AI suggestion", scope: "chapter", chapter_index: check.chapter_index, scene_id: check.scene_id, context_mode: "canonical", include_pending_objects: Boolean(check.include_candidates), budget_tokens: 0 })
       guard(token, projectId)
-      const updated = await api.writing.requestConflictAiSuggestion(itemId, {
-        novel_id: projectId,
-        context_confirmation_id: confirmation.id,
-      })
-      guard(token, projectId)
-      replaceItem({ id: itemId, ...updated })
-      toast(updated?.suggestion_status === "failed" ? (updated.suggestion_error || "AI 建议生成失败") : "AI 修复建议已生成", updated?.suggestion_status === "failed" ? "error" : "success")
-      return updated
-    } catch (err) {
-      if (err === ABORTED || disposed || token !== generation || err?.message === "已取消 AI 参考资料确认") return null
-      toast(err?.message || "AI 建议生成失败", "error")
-      return null
-    }
+      const { task } = await submitTask({ workflowType: "writing_conflict_item_ai_suggestion", meta: { checkId: check.id, itemId, kind: "suggestion" }, token, projectId, submit: (operationId) => api.writing.enqueueConflictAiSuggestion(itemId, { novel_id: projectId, context_confirmation_id: confirmation.id, operation_id: operationId }) })
+      const updated = task?.result || await api.writing.getConflictCheck(check.id, projectId).then((value) => value.items?.find((item) => item.id === itemId))
+      guard(token, projectId); replaceItem({ id: itemId, ...updated }); toast(updated?.suggestion_status === "failed" ? (updated.suggestion_error || "AI 建议生成失败") : "AI 修复建议已生成", updated?.suggestion_status === "failed" ? "error" : "success"); return updated
+    } catch (err) { if (err === ABORTED || disposed || token !== generation || err?.message === "已取消 AI 参考资料确认") return null; toast(err?.message || "AI 建议生成失败", "error"); return null }
   }
 
-  function dispose() {
-    disposed = true
-    generation += 1
-    if (timer) clearTimeout(timer)
-    timer = null
+  async function recover() {
+    const projectId = getProjectId(); const workflow = activeWorkflow(projectId)
+    if (!workflow) return false
+    const token = ++generation
+    try { const task = await waitForTask(workflow.taskId, projectId, token, workflow.workflowType); guard(token, projectId); const check = await api.writing.getConflictCheck(workflow.meta?.checkId, projectId); guard(token, projectId); onCheck(check); return task } catch (err) { if (err !== ABORTED && !disposed && token === generation) toast(err?.message || "AI 冲突任务恢复失败", "error"); return false }
   }
+  async function cancel() { const workflow = activeWorkflow(); if (!workflow) return false; await api.tasks.cancel(workflow.taskId, getProjectId()); return true }
+  function dismiss() { const workflow = activeWorkflow(); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); onProgress({ taskId: null, progress: null }) }
+  function dispose() { disposed = true; generation += 1; if (timer) clearTimeout(timer); timer = null }
 
-  return { updateStatus, runAiReview, requestSuggestion, dispose }
+  return { updateStatus, runAiReview, requestSuggestion, recover, cancel, dismiss, dispose }
 }

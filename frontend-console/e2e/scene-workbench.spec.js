@@ -14,6 +14,34 @@ import {
 test.describe("Scene 工作台", () => {
   let testProjectId = null
 
+  test.beforeEach(async ({ page }) => {
+    const fusionResults = new Map()
+    await page.route("**/api/outline/scene-workbench/fusion/preview-task?*", async (route) => {
+      const body = route.request().postDataJSON()
+      const { operation_id: operationId, ...previewBody } = body
+      const response = await route.fetch({
+        url: route.request().url().replace("/preview-task", "/preview"),
+        data: previewBody,
+      })
+      fusionResults.set(operationId, await response.json())
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: operationId, status: "pending" }),
+      })
+    })
+    await page.route("**/api/tasks/**", async (route) => {
+      const taskId = new URL(route.request().url()).pathname.split("/").at(-1)
+      const result = fusionResults.get(taskId)
+      if (!result || route.request().method() !== "GET") return route.fallback()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: taskId, task_type: "scene_fusion_preview", status: "done", progress: 1, result }),
+      })
+    })
+  })
+
   test.beforeAll(async () => {
     await waitForBackend(60000)
   })
@@ -327,7 +355,7 @@ test.describe("Scene 工作台", () => {
         .find((item) => item.textContent?.includes("生成 AI 融合建议"))
       button?.click()
     })
-
+    await page.getByRole("button", { name: "查看预览" }).click()
     await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
     await expect(page.locator("#modal-body")).toContainText("找到线索")
     await expect(page.locator("#modal-body")).toContainText("确认走私路线")
@@ -408,6 +436,7 @@ test.describe("Scene 工作台", () => {
     await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
     await page.locator('[data-action="start-ai-fusion-draft"]').click()
     await page.getByRole("button", { name: "生成 AI 融合建议" }).click()
+    await page.getByRole("button", { name: "查看预览" }).click()
     await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
 
     for (const width of [820, 390]) {
@@ -464,6 +493,7 @@ test.describe("Scene 工作台", () => {
           .find((item) => item.textContent?.includes("生成 AI 融合建议"))
         button?.click()
       })
+      await page.getByRole("button", { name: "查看预览" }).click()
       await expect(page.locator("#modal-title")).toHaveText("场景 AI 建议预览")
     }
     const clickFusionButton = async (text) => {

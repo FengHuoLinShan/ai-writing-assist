@@ -7,7 +7,7 @@
  */
 import { computed, onScopeDispose, ref, watch } from "vue"
 import { confirmAsync } from "../../../../shared/confirmAsync.js"
-import { clearActiveWorkflow } from "../../../../shared/workflowProgress.js"
+import { clearActiveWorkflow, createOperationId } from "../../../../shared/workflowProgress.js"
 import {
   getApi,
   getAppState,
@@ -241,6 +241,15 @@ export function useStoryOutline(props) {
     const baseRevisionId = current.value?.current_revision_id || null
     try {
       const applyKey = idempotencyKey()
+      const operationId = createOperationId()
+      const meta = {
+        project_id: pid,
+        novel_id: pid,
+        action: "outline.story_outline.generate",
+        apply_base_revision_id: baseRevisionId,
+        apply_idempotency_key: applyKey,
+      }
+      taskManager.prepare(operationId, meta, pid)
       const response = await api.outline.generateStoryOutline({
         novel_id: pid,
         author_intent: authorIntent,
@@ -249,16 +258,10 @@ export function useStoryOutline(props) {
         selected_character_ids: selectedCharacterIds,
         selected_entity_ids: selectedEntityIds,
         include_current_outline: includeCurrent,
+        operation_id: operationId,
       })
       if (!response?.task_id) throw new Error("故事总览生成未能开始，请稍后重试")
 
-      const meta = {
-        project_id: pid,
-        novel_id: pid,
-        action: "outline.story_outline.generate",
-        apply_base_revision_id: baseRevisionId,
-        apply_idempotency_key: applyKey,
-      }
       if (getAppState()?.currentProjectId !== pid || projectId.value !== pid) {
         taskManager.adopt(response, meta, pid, { attach: false })
         return true

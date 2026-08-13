@@ -18,6 +18,7 @@ test.describe("生成中心模块", () => {
   let testProjectId = null
   let worldSuggestionRequests = []
   let pageDraftApplyRequests = []
+  let worldTaskResults = new Map()
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -26,6 +27,7 @@ test.describe("生成中心模块", () => {
   test.beforeEach(async ({ page }) => {
     worldSuggestionRequests = []
     pageDraftApplyRequests = []
+    worldTaskResults = new Map()
     const project = await createProject({
       title: "生成测试项目",
       genre: "fantasy",
@@ -113,16 +115,21 @@ test.describe("生成中心模块", () => {
       })
     })
 
-    await page.route("**/api/world/generation-center/suggestions", async (route) => {
+    const fulfillWorldTask = async (route, postBody, result) => {
+      worldTaskResults.set(postBody.operation_id, result)
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: postBody.operation_id, status: "pending" }),
+      })
+    }
+    await page.route("**/api/world/generation-center/suggestions/task", async (route) => {
       const postBody = route.request().postDataJSON()
       worldSuggestionRequests.push(postBody)
       const targetKind = postBody.target.kind
       if (targetKind === "world_bible_page" || targetKind === "world_bible_new_page") {
         const createNew = targetKind === "world_bible_new_page"
-        await route.fulfill({
-          status: 201,
-          contentType: "application/json",
-          body: JSON.stringify({
+        await fulfillWorldTask(route, postBody, {
             model: "account-model",
             provider: "fake",
             source_snapshot: postBody.source_context,
@@ -158,14 +165,10 @@ test.describe("生成中心模块", () => {
                 payload_json: {},
               },
             },
-          }),
         })
         return
       }
-      await route.fulfill({
-        status: 201,
-        contentType: "application/json",
-        body: JSON.stringify({
+      await fulfillWorldTask(route, postBody, {
           model: "account-model",
           provider: "fake",
           source_snapshot: { kind: "project" },
@@ -189,6 +192,22 @@ test.describe("生成中心模块", () => {
               },
             },
           },
+      })
+    })
+
+    await page.route("**/api/tasks/**", async (route) => {
+      const taskId = new URL(route.request().url()).pathname.split("/").at(-1)
+      const result = worldTaskResults.get(taskId)
+      if (!result || route.request().method() !== "GET") return route.fallback()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: taskId,
+          task_type: "world_generation_suggestion",
+          status: "done",
+          progress: 1,
+          result,
         }),
       })
     })

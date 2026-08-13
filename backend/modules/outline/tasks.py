@@ -80,7 +80,12 @@ async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -
     return snapshot
 
 
-@task_handler("story_outline_generate", recovery_policy="restart_origin")
+@task_handler(
+    "story_outline_generate",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
 async def handle_story_outline_generate(db, task):
     """Generate one strict StoryOutline preview without writing domain assets."""
     from modules.outline.story_outline_generation import (
@@ -219,7 +224,12 @@ async def handle_chapter_scene_generate(db, task):
     }
 
 
-@task_handler("outline_analyze", recovery_policy="restart_origin")
+@task_handler(
+    "outline_analyze",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
 async def handle_outline_analyze(db, task):
     """处理确认后的剧情分析任务。"""
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
@@ -250,7 +260,12 @@ async def handle_outline_analyze(db, task):
     )
 
 
-@task_handler("outline_generate", recovery_policy="restart_origin")
+@task_handler(
+    "outline_generate",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
 async def handle_outline_generate(db, task):
     """Generate one P20 v2 current-layer preview."""
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
@@ -303,7 +318,14 @@ async def handle_outline_generate(db, task):
             status="cancelled",
         )
         raise
-    except Exception:
+    except Exception as exc:
+        from infrastructure.llm.retry import is_retryable_llm_error
+
+        if (
+            is_retryable_llm_error(exc)
+            and int(task.attempt or 0) < int(task.max_attempts or 1)
+        ):
+            raise
         await _mark_confirmation_task_terminal(
             db,
             novel_id=novel_id,
@@ -318,3 +340,35 @@ async def handle_outline_generate(db, task):
         data.mode,
     )
     return result
+
+
+@task_handler(
+    "scene_fusion_preview",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
+async def handle_scene_fusion_preview(db, task):
+    from modules.outline.scene_workbench import SceneWorkbenchService
+    from modules.outline.schemas import SceneFusionPreviewRequest
+
+    meta = dict(task.meta or {})
+    novel_id = _require_str(meta, "novel_id", "scene_fusion_preview")
+    snapshot = await _require_llm_execution_snapshot(db, task, meta, novel_id)
+    data = SceneFusionPreviewRequest.model_validate(
+        {
+            field: meta[field]
+            for field in SceneFusionPreviewRequest.model_fields
+            if field in meta
+        }
+    )
+    task.update_progress(0.1)
+    result = await SceneWorkbenchService().preview_llm_fusion(
+        db,
+        novel_id,
+        data,
+        llm_execution_snapshot=snapshot,
+        task_mode=True,
+    )
+    task.update_progress(1.0)
+    return result.model_dump(mode="json")

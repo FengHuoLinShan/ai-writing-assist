@@ -335,6 +335,12 @@
       timeout: LLM_GENERATE_TIMEOUT,
       timeoutKind: "llmGenerate",
     }),
+    "generate.enqueueWorldSuggestion": define("POST", () => "/world/generation-center/suggestions/task", {
+      hasBody: true,
+      requiredBody: ["operation_id"],
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
+    }),
     "generate.applyWorldPageDraft": define("POST", ({ suggestionId }) => `/world/generation-center/suggestions/${required(suggestionId, "suggestionId", "generate.applyWorldPageDraft")}/apply-page-draft`, {
       requiredParams: ["suggestionId"],
       requiredQuery: ["novel_id"],
@@ -445,6 +451,13 @@
       timeout: AI_TASK_SUBMIT_TIMEOUT,
       timeoutKind: "aiTaskSubmit",
     }),
+    "writing.enqueueConflictAiSuggestion": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.enqueueConflictAiSuggestion")}/ai-suggestion-task`, {
+      requiredParams: ["itemId"],
+      requiredBody: ["operation_id"],
+      hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
+    }),
     "writing.requestConflictAiSuggestion": define("POST", ({ itemId }) => `/writing/conflict-check-items/${required(itemId, "itemId", "writing.requestConflictAiSuggestion")}/ai-suggestion`, {
       requiredParams: ["itemId"],
       hasBody: true,
@@ -511,6 +524,13 @@
       hasBody: true,
       timeout: LLM_GENERATE_TIMEOUT,
       timeoutKind: "llmGenerate",
+    }),
+    "outline.previewSceneFusionTask": define("POST", () => "/outline/scene-workbench/fusion/preview-task", {
+      requiredQuery: ["novel_id"],
+      requiredBody: ["operation_id"],
+      hasBody: true,
+      timeout: AI_TASK_SUBMIT_TIMEOUT,
+      timeoutKind: "aiTaskSubmit",
     }),
 
     "context.searchEvidence": define("POST", () => "/context/evidence/search", {

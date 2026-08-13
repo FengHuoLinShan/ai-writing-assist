@@ -1683,6 +1683,10 @@ const api = {
       return contractJson("writing.enqueueConflictAiReview", { checkId }, {}, payload)
     },
 
+    async enqueueConflictAiSuggestion(itemId, payload) {
+      return contractJson("writing.enqueueConflictAiSuggestion", { itemId }, {}, payload)
+    },
+
     async requestConflictAiSuggestion(itemId, payload) {
       return contractJson(
         "writing.requestConflictAiSuggestion",
@@ -1762,6 +1766,10 @@ const api = {
 
     async generateWorldSuggestion(payload, options = {}) {
       return contractJson("generate.generateWorldSuggestion", {}, {}, payload, options)
+    },
+
+    async enqueueWorldSuggestion(payload) {
+      return contractJson("generate.enqueueWorldSuggestion", {}, {}, payload)
     },
 
     async applyWorldPageDraft(suggestionId, payload, novelId, options = {}) {
@@ -1998,6 +2006,14 @@ const api = {
     async previewSceneFusion(novelId, data) {
       return contractJson(
         "outline.previewSceneFusion",
+        {},
+        { novel_id: novelId },
+        data,
+      )
+    },
+    async previewSceneFusionTask(novelId, data) {
+      return contractJson(
+        "outline.previewSceneFusionTask",
         {},
         { novel_id: novelId },
         data,

@@ -112,7 +112,8 @@ async def _commit_alias_relation_checkpoint(
 @task_handler(
     "world_alias_relation_extraction",
     recovery_policy="auto_requeue",
-    max_attempts=3,
+    max_attempts=2,
+    retry_transient_llm_errors=True,
 )
 async def handle_world_alias_relation_extraction(db, task):
     """Run manual alias/relation extraction with fenced provider boundaries."""
@@ -376,7 +377,12 @@ async def handle_world_alias_relation_extraction(db, task):
     return public_result
 
 
-@task_handler("world_entity_fusion_suggestions", recovery_policy="restart_origin")
+@task_handler(
+    "world_entity_fusion_suggestions",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
 async def handle_world_entity_fusion_suggestions(db, task):
     """生成世界对象 LLM 融合/合并建议，不直接改实体。"""
     from modules.world.entity_fusion import WorldEntityFusionService
@@ -411,6 +417,39 @@ async def handle_world_entity_fusion_suggestions(db, task):
     )
     task.update_progress(1.0)
     return result
+
+
+@task_handler(
+    "world_generation_suggestion",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
+async def handle_world_generation_suggestion(db, task):
+    from modules.world.schemas import WorldGenerationSuggestionRequest
+    from modules.world.services.worldbuilding.world_generation_center_service import (
+        WorldGenerationCenterService,
+    )
+
+    meta = dict(task.meta or {})
+    payload = {
+        field: meta[field]
+        for field in WorldGenerationSuggestionRequest.model_fields
+        if field in meta
+    }
+    data = WorldGenerationSuggestionRequest.model_validate(payload)
+    snapshot = meta.get("llm_execution_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot:
+        raise ValueError("llm_execution_snapshot is required")
+    task.update_progress(0.05)
+    response = await WorldGenerationCenterService().generate_suggestion_for_task(
+        db,
+        data,
+        llm_execution_snapshot=snapshot,
+        task_id=str(task.id),
+    )
+    task.update_progress(1.0)
+    return response.model_dump(mode="json")
 
 
 @task_handler(

@@ -91,7 +91,7 @@
     `.world-bible-toolbar`（`WorldBibleTab.vue:9-33`），三模式 + 5 个平级按钮无主次，
     首屏视觉焦点分散。
 15. **`.world-review-touch-target` 只有 media query 内的样式、无基样式定义**
-    （`styles.css:6005-6011` 唯一定义点），命名即补丁。
+    （`styles.css` 的 `.world-*` 唯一定义点），命名即补丁。
 16. **诊断信息折叠 `<details>` 三处重复、无统一组件**（`WorldObjectsTab.vue:78`、
     `WorldReviewTab.vue:43,173,275`），展开态绑定逻辑各异。
 17. **分页器 `total <= limit` 时整体消失**（`world/components/WorldPager.vue:6`），

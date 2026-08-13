@@ -28,12 +28,12 @@
 2. **两个视图无首屏加载骨架**：`loadJourneyList` / `loadInteraction` 完成前视图不挂载
    （interactionIsland.js:11-47、49-86），慢网络下路由切换后白屏，违反主规范 §5.9 Loading 归一。
 3. **HomeChoiceView 不响应主题**：主题覆写只覆盖 `.rp-list-page/.rp-story-page`
-   （styles.css:12333-12363），`.entry-choice` 与沉浸壳硬编码白底（12186-12193、12156-12159）。
+   （`styles.css` 的 RP token 规则），`.entry-choice` 与沉浸壳硬编码白底（对应 `.entry-choice` / 沉浸壳规则）。
    dark 主题下从工作台切回「切换使用方式」先白屏、进 journeys 又变 dark，同会话内闪烁。
 
 **P1 — 一致性与可用性缺陷**
 
-4. **阅读行宽超标**：阅读列 760px ≈ 47 个中文字符/行（styles.css:12983、13061-13066），
+4. **阅读行宽超标**：阅读列 760px ≈ 47 个中文字符/行（`styles.css` 的 `.rp-story-scroll` / 消息规则），
    超出主规范 §3.2 长正文 32-40 字标准；且无字号/行宽调节，画像 B 的阅读个性化诉求全部缺失。
 5. **危险操作三种确认范式并存**：列表归档用原生 `confirm`（JourneyListView.vue:262）、
    永久删除用原生 `prompt` 输入完整标题（:283-286），而看海确认是定制
@@ -43,15 +43,15 @@
    Topbar ThemePicker 有完整实现。**裁定（有意保留双入口）**：沉浸路径隐藏 Topbar
    （ShellApp.vue:7-9），RP 侧**保留** InteractionView 内置入口，不属重复缺陷；
    但必须把两者的菜单视觉与可访问语义统一（见 §4.8）。
-7. **流式逐 chunk 平滑滚动**：`scroll-behavior:smooth`（styles.css:12984）作用于每个 chunk 的
+7. **流式逐 chunk 平滑滚动**：`scroll-behavior:smooth`（`styles.css` 的故事滚动容器规则）作用于每个 chunk 的
    `scrollToBottom()`（InteractionView.vue:517-521），高频动画队列可能卡顿；
-   `prefers-reduced-motion` 豁免只停脉冲动画（styles.css:13761-13766），未豁免 smooth 滚动。
+   `prefers-reduced-motion` 豁免只停脉冲动画（`styles.css` 的 RP reduced-motion 规则），未豁免 smooth 滚动。
 8. **设置页是作者语言飞地**：RP 用户点「账户设置」进入的 GlobalSettingsView 用
    `.btn-primary`/`.form-input` 等 Editorial 类（GlobalSettingsView.vue:283-324），
    仅借用 `rp-icon-button` 返回箭头（:217-223）；`returningToRp` 只删减区块，无 RP 视觉适配。
-9. **消息操作可发现性差**：操作行 hover/focus-within 才显示（styles.css:13176-13188），
-   桌面键盘用户难以发现「重新生成/其他分支」；移动端虽常显（13947-13949），
-   但按钮为 11px 灰字（13190-13195），低于舒适阅读阈值。
+9. **消息操作可发现性差**：操作行 hover/focus-within 才显示（`styles.css` 的消息操作行规则），
+   桌面键盘用户难以发现「重新生成/其他分支」；移动端虽常显（移动响应式规则），
+   但按钮为 11px 灰字（消息操作行规则），低于舒适阅读阈值。
 
 **P2 — 反馈闭环与工程欠债**
 
@@ -62,9 +62,9 @@
     不满足主规范 §5.1 按钮 loading 状态矩阵。
 12. **「重新生成」仅挂在最后一条 story 消息上**（InteractionView.vue:1662-1667），
     历史段落只能经分支树切换，路径深。
-13. **定位轨可发现性低、触摸目标小**：34px 宽、ticks 12×3px（styles.css:13394-13442、
-    13428-13437），preview 仅 hover/focus 显示（13469-13472）。
-14. **RP token 与测试钩子欠债**：`--rp-*` 变量硬编码 hex（styles.css:12315-12331）未收编；
+13. **定位轨可发现性低、触摸目标小**：34px 宽、ticks 12×3px（`styles.css` 的定位轨规则、
+    定位轨 tick 规则），preview 仅 hover/focus 显示（定位轨 preview 规则）。
+14. **RP token 与测试钩子欠债**：`--rp-*` 变量硬编码 hex（`styles.css` 的 RP token 块）未收编；
     `e2e/helpers/selectors.js` 无任何 RP 条目（已核实 grep），e2e 靠 class/aria 硬编码，
     本路径也无 `data-action` 约定，改样式类名即打碎 e2e。
 
@@ -101,16 +101,16 @@
 ### 4.1 interaction · 消息流阅读排版
 
 - 字号：默认 `--text-md` 16px（主规范 §3.2 长正文档），衬线 `--font-body`（现状
-  styles.css:13061-13066 已满足，保持）。不提供无限调节；如需个性化，仅以「阅读设置」
+  `styles.css` 的故事正文规则已满足，保持）。不提供无限调节；如需个性化，仅以「阅读设置」
   次级入口提供字号 A−/A+ 与行宽窄/标准两档（P2，属产品假设，需真实用户验证）。
 - 行宽：从 760px（≈47 字）收敛到 32-40 个中文字符（约 560-660px，精确值执行时核实），
   与主规范 §3.2 对齐；移动端 100% 视口宽减安全 padding。
-- 行高：1.8-1.9（`--leading-loose` 档），段落间距 0.9em 保持（styles.css:13080-13169）。
-- 用户消息气泡（右缩进 + 灰底圆角，13047-13052）保留，颜色改走 RP token。
+- 行高：1.8-1.9（`--leading-loose` 档），段落间距 0.9em 保持（`styles.css` 的故事段落规则）。
+- 用户消息气泡（右缩进 + 灰底圆角，用户消息规则）保留，颜色改走 RP token。
 - 流式段落必须有专属视觉：行内光标或左边线呼吸指示 + 与已提交段落的可感知差异；
   `prefers-reduced-motion` 下全部降级为静态标记。
 - 消息操作行：桌面 hover 与 focus-within 均显示；字号升至 `--text-sm` 13px、
-  `--text-secondary` 色（现状 11px，13190-13195）；移动端常显保持。
+  `--text-secondary` 色（现状 11px，消息操作行规则）；移动端常显保持。
 - 流式跟随滚动：去掉逐 chunk 的 smooth 滚动（`scroll-behavior:smooth` 不得作用于
   高频 `scrollTop` 赋值；仅在用户点击「继续查看生成 ↓」等离散动作时平滑）。
 
@@ -122,14 +122,14 @@
 - 发送/停止按钮补 loading 态（spinner 替换图标、宽度不抖动，主规范 §5.1 状态矩阵），
   pending 期间禁用。
 - 模式工具行（回顾/自主发展/行动选项 + 状态文案）移动端横向滚动且隐藏滚动条的现状
-  （styles.css:13820-13837）保留；触控目标 ≥42px。
+  （`styles.css` 的模式工具行移动规则）保留；触控目标 ≥42px。
 - 未连接时 composer 保留草稿并可编辑，仅禁用发送（现状行为，保持）。
 
 ### 4.3 interaction · 分支选择
 
 - 内联 `rp-branch-popover`（`role=group`「选择故事分支」，InteractionView.vue:1675-1693）
   保留：当前 + 最近 2 个内联，>3 个进「查看所有分支」drawer；移动端变底部 sheet
-  （styles.css:13884-13911）保留。
+  （`styles.css` 的分支选择移动规则）保留。
 - 「重新生成」从仅最后一条（:1662-1667）扩展为每条 story 消息操作行可达（P2，
   与分支切换同一视觉语义）。
 - 切换分支时 composer 草稿保留 + 提示（:848-858）是有声契约，不得回归。
@@ -139,12 +139,12 @@
 - 7 个固定 section（InteractionView.vue:62-70）、`refreshing/failed/forming` 状态机
   （:1915-1919）、手动纠正 → textarea 编辑 → epoch 乐观锁保存、409 冲突双按钮
   （:1932-1940）全部保留。
-- drawer 430px（styles.css:13489-13501）、移动端全屏（13931-13937）保留；
+- drawer 430px（`styles.css` 的 `.rp-drawer` 规则）、移动端全屏保留；
   视觉材质（表面、hairline、按钮）向 RP token 块收敛，与作者侧 drawer 不互相模仿。
 
 ### 4.5 journeys · 列表
 
-- 卡片 grid `1fr auto`（styles.css:12746-12754）与右侧 action 列（归档/恢复/永久删除）
+- 卡片 grid `1fr auto`（`styles.css` 的 journey 卡片规则）与右侧 action 列（归档/恢复/永久删除）
   保留；移动端 action 列折行现状保留。
 - **确认范式统一**：归档与永久删除废弃原生 `confirm`/`prompt`
   （JourneyListView.vue:262、283-286），统一走定制确认（复用 RpAdaptiveConfirmPopover
@@ -164,7 +164,7 @@
 
 ### 4.7 home · 双入口
 
-- 单屏居中双卡（styles.css:12195-12286：`min(960px,100%)`、卡片 min-height 260px、
+- 单屏居中双卡（`styles.css` 的 home 双入口规则：`min(960px,100%)`、卡片 min-height 260px、
   hover 上浮 2px）保留；720px 档转单列保留。
 - **修复主题响应**：`.entry-choice` 纳入主题覆写范围，消除 dark 主题白屏闪烁（问题 3）。
 - 作者卡打开失败回 `project` + toast（HomeChoiceView.vue:44-49）的降级路径保留。
@@ -174,7 +174,7 @@
 ### 4.8 沉浸外壳、主题入口与 return_to 往返
 
 - `showAuthorChrome` 判定（ShellApp.vue:63-72）与 `.main-layout--immersive` 样式
-  （styles.css:12155-12184）保留；硬编码 `#fff` 收编 token（问题 14），
+  （`styles.css` 的 `.main-layout--immersive` 规则）保留；硬编码 `#fff` 收编 token（问题 14），
   Editorial 装饰抹除有测试锁定（tests/editorialTheme.test.js:73-77），改动须同步。
 - **主题切换裁定**：沉浸路径隐藏 Topbar，RP 侧**保留** InteractionView 内置
   `rp-more-menu__themes`（:1584-1596），与 Topbar ThemePicker 的双入口是有意设计、
@@ -201,7 +201,7 @@
 | 流式中 | 仅三点脉冲 + `aria-busy`（:1718-1728） | 与已提交段落无区分 | 流式专属视觉（§4.1）+ reduced-motion 降级 |
 | 生成失败/取消 | `role=alert` 错误块按 action 分派（:1738-1756） | 重试无按钮 loading | 补按钮级 loading（问题 11） |
 | 导出成功 | 直接下载（:1250-1267） | 无 toast | 成功 toast「已导出」 |
-| 窄屏 | 720px 档 + 底部 sheet + drawer 全屏（styles.css:13768-13990） | 721-900px 无中间档；定位轨 ticks 12×3px 偏小；顶栏无 safe-area | 见 §6 |
+| 窄屏 | 760px 档 + 底部 sheet + drawer 全屏（`styles.css` 的 RP 响应式规则） | 中间档阅读列与定位轨仍需复核；顶栏无 safe-area | 见 §6 |
 | 已覆盖保持项 | preparing_context（:1720-1722）、断线重连/60 秒放弃（:1729、:531-558）、awaiting_continue 三键（:1732-1737）、选择冲突横幅（:1805-1809）、回顾失败/409 冲突（:1923-1940）、离开守卫（:1504-1513）、故事完结（:1757） | 无 | 保持现状行为与可访问语义，仅随 token 收编换视觉材质 |
 
 ## 6. 响应式行为（RP 以移动阅读为主，移动档优先）
@@ -209,9 +209,9 @@
 - **移动档（<760px）是一等公民**：本路径设计从移动阅读出发，桌面是加宽版而非反之。
   断点随主规范 §6 从 720px 合并到 760px（改动时同步 e2e 的 390px 用例）。
 - 触控目标：按钮 ≥42px、输入 ≥44px；定位轨 ticks 从 12×3px 加宽加大
-  （现状 styles.css:13428-13437），轨体可保持收窄半透明（13955-13978）。
+  （现状 `styles.css` 的定位轨规则），轨体可保持收窄半透明。
 - 底部 sheet（更多菜单、分支 popover）与 drawer 全屏现状保留；`safe-area-inset-bottom`
-  已处理（13884-13911），**补**顶栏与 composer dock 的 safe-area 处理。
+  已处理（分支选择移动规则），**补**顶栏与 composer dock 的 safe-area 处理。
 - 中间档 760-1100px：阅读列按 §4.1 收敛后的行宽居中，不出现 760px 大留白；定位轨可隐藏。
 - 390px 页面级横向溢出零容忍（e2e 已锁定，interaction.spec.js:193-238，保持）。
 - 横屏/折叠屏不做专门布局，保证不溢出、composer 可达即可（执行时核实实际表现）。

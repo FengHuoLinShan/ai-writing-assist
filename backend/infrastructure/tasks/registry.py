@@ -44,6 +44,7 @@ class TaskRegistry:
         max_attempts: int = 1,
         generic_submit_schema: type[BaseModel] | None = None,
         owner_scope: TaskOwnerScope = "project",
+        retry_transient_llm_errors: bool = False,
     ) -> None:
         """注册一个任务类型的处理器
 
@@ -80,6 +81,7 @@ class TaskRegistry:
             max_attempts=max_attempts,
             generic_submit_schema=generic_submit_schema,
             owner_scope=owner_scope,
+            retry_transient_llm_errors=retry_transient_llm_errors,
         )
         logger.info("Task handler registered: %s -> %s", task_type, handler.__name__)
 
@@ -128,6 +130,7 @@ def task_handler(
     max_attempts: int = 1,
     generic_submit_schema: type[BaseModel] | None = None,
     owner_scope: TaskOwnerScope = "project",
+    retry_transient_llm_errors: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为指定任务类型的处理器
 
@@ -145,6 +148,7 @@ def task_handler(
             max_attempts=max_attempts,
             generic_submit_schema=generic_submit_schema,
             owner_scope=owner_scope,
+            retry_transient_llm_errors=retry_transient_llm_errors,
         )
         return func
 

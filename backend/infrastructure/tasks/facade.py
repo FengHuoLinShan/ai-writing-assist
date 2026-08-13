@@ -14,13 +14,18 @@ from infrastructure.tasks.contracts import (
     TaskLifecycleContract,
     TaskOwnerContract,
 )
+from infrastructure.tasks.enqueuer import build_task_submission_fingerprint
 from infrastructure.tasks.enqueuer import (
     enqueue_coalesced_task as _enqueue_coalesced_task,
+)
+from infrastructure.tasks.enqueuer import (
+    enqueue_operation_task as _enqueue_operation_task,
 )
 from infrastructure.tasks.enqueuer import enqueue_task as _enqueue_task
 from infrastructure.tasks.enqueuer import (
     get_latest_coalesced_task as _get_latest_coalesced_task,
 )
+from infrastructure.tasks.enqueuer import get_operation_task as _get_operation_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 
 
@@ -61,6 +66,73 @@ async def enqueue_coalesced_task(
         scope=scope,
         meta=meta,
         mode=mode,
+    )
+
+
+async def enqueue_operation_task(
+    db: AsyncSession,
+    *,
+    operation_id: str,
+    task_type: str,
+    novel_id: str,
+    request_payload: dict[str, Any],
+    meta: dict[str, Any] | None = None,
+) -> CoalescedTaskContract:
+    """Create/recover one client-owned receipt without exposing task storage."""
+    return await _enqueue_operation_task(
+        db,
+        operation_id=operation_id,
+        task_type=task_type,
+        novel_id=novel_id,
+        submission_fingerprint=build_task_submission_fingerprint(request_payload),
+        meta=meta,
+    )
+
+
+async def enqueue_task_with_optional_operation(
+    db: AsyncSession,
+    *,
+    operation_id: str | None,
+    task_type: str,
+    novel_id: str,
+    request_payload: dict[str, Any],
+    meta: dict[str, Any],
+) -> CoalescedTaskContract:
+    if operation_id:
+        return await enqueue_operation_task(
+            db,
+            operation_id=operation_id,
+            task_type=task_type,
+            novel_id=novel_id,
+            request_payload=request_payload,
+            meta=meta,
+        )
+    return CoalescedTaskContract(
+        task_id=enqueue_task(
+            db,
+            task_type,
+            meta=meta,
+            novel_id=novel_id,
+        ),
+        status="pending",
+        reused=False,
+    )
+
+
+async def get_operation_task(
+    db: AsyncSession,
+    *,
+    operation_id: str | None,
+    task_type: str,
+    novel_id: str,
+    request_payload: dict[str, Any],
+) -> CoalescedTaskContract | None:
+    return await _get_operation_task(
+        db,
+        operation_id=operation_id,
+        task_type=task_type,
+        novel_id=novel_id,
+        submission_fingerprint=build_task_submission_fingerprint(request_payload),
     )
 
 

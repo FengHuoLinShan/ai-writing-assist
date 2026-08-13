@@ -127,6 +127,7 @@ class StoryOutlineGenerateRequest(StoryOutlineSchema):
     selected_entity_ids: list[str] = Field(default_factory=list, max_length=24)
     include_current_outline: bool = False
     base_revision_id: uuid.UUID | None = None
+    operation_id: uuid.UUID | None = None
 
     @field_validator("novel_id")
     @classmethod

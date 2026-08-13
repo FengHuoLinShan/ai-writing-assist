@@ -43,7 +43,11 @@ function setup(overrides = {}) {
 }
 
 describe("writingCommandController", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    sessionStorage.clear()
+  })
 
   it("通过引用确认生成待审正文，不直接写入工作稿", async () => {
     const { api, onResult, controller } = setup()
@@ -86,6 +90,76 @@ describe("writingCommandController", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("正在生成"), "warning")
     resolveGeneration({ draft_id: "candidate-1" })
     await first
+  })
+
+  it("任务期间正文变更时不覆盖编辑器，作者可手动查看结果", async () => {
+    let resolveTask
+    const { api, editor, onResult, controller } = setup()
+    api.writing.generate.mockResolvedValue({ task_id: "writing-task" })
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { resolveTask = resolve }))
+
+    const generation = controller.generateDraft()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("writing-task", "p1"))
+    editor.getContent.mockReturnValue("甲乙丙丁戊")
+    resolveTask({ task_id: "writing-task", task_type: "writing_generate", status: "done", result: { draft_id: "candidate-2" } })
+    await generation
+
+    expect(onResult).not.toHaveBeenCalled()
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({ taskId: "writing-task", workflowType: "writing_generate" }),
+    ])
+    await controller.openResult()
+    expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-2" })
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toEqual([])
+  })
+
+  it("restores a completed result after reload until the author explicitly opens it", async () => {
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_generate:completed-writing-task",
+      taskId: "completed-writing-task",
+      workflowType: "writing_generate",
+      projectId: "p1",
+      view: "writing",
+      meta: { chapter: 1, mode: "draft" },
+    }]))
+    const onProgress = vi.fn()
+    const { api, controller } = setup({ onProgress })
+    api.tasks.get.mockResolvedValue({ task_id: "completed-writing-task", status: "done", result: { draft_id: "candidate-restored" } })
+
+    await expect(controller.recover()).resolves.toBe(true)
+
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      result: { chapter_index: 1, draft_id: "candidate-restored" },
+      progress: expect.objectContaining({ status: "done", terminal: true }),
+    }))
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toHaveLength(1)
+  })
+
+  it("clears a missing generation receipt without replaying the request", async () => {
+    const { api, controller } = setup()
+    api.writing.generate.mockResolvedValue({ task_id: "missing-writing-task" })
+    api.tasks.get.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }))
+
+    await controller.generateDraft()
+
+    expect(api.writing.generate).toHaveBeenCalledOnce()
+    expect(api.tasks.get).toHaveBeenCalledOnce()
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1") || "[]")).toEqual([])
+  })
+
+  it("does not recover another tab's writing receipt", async () => {
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_generate:other-tab-task",
+      taskId: "other-tab-task",
+      workflowType: "writing_generate",
+      projectId: "p1",
+      view: "writing",
+      meta: { chapter: 1, mode: "draft" },
+    }]))
+    const { api, controller } = setup()
+
+    await expect(controller.recover()).resolves.toBe(false)
+    expect(api.tasks.get).not.toHaveBeenCalled()
   })
 
 })

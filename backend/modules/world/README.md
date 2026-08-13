@@ -610,7 +610,8 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/generation-center/convergence` | 对当前显式来源范围做只读收束；返回确定性 manifest、覆盖状态与最多 7 张决定卡，不创建建议或工作稿 |
 | POST | `/api/world/generation-center/exploration` | 从当前世界书页只读探索一跳相邻缺口；最多返回 3 项，不创建建议或工作稿 |
 | POST | `/api/world/generation-center/semantic-inspection` | 检修当前世界书页；确定性错误可阻断，LLM 只产生“需要决定／可以改进”的待处理检查项和范围回执 |
-| POST | `/api/world/generation-center/suggestions` | 按 `core_entity` / `world_bible_page` / `world_bible_new_page` 生成结构化待处理建议 |
+| POST | `/api/world/generation-center/suggestions` | 旧同步建议入口，兼容期 deprecated |
+| POST | `/api/world/generation-center/suggestions/task` | 按 `operation_id` 提交可恢复建议任务；202 返回 task receipt，结果仍是结构化待处理建议 |
 | POST | `/api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft` | 将经作者编辑的完整页面提案写入或创建服务器工作稿；不发布 canonical |
 | POST | `/api/world/ask-world` | 作者端只读问答；只消费当前项目正式页面与已发布正文证据，每条实质主张附可回开的当前来源 |
 | POST | `/api/world/ask-world/citations/open` | 在当前项目内重新回读一条回答引用并返回 current／stale／unavailable |

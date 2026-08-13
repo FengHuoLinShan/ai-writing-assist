@@ -27,13 +27,6 @@ function mockVisibilityState(initial = "visible") {
 }
 
 describe("normalizeTaskProgress", () => {
-  it("将取消态说明为停止后续处理并保留已保存阶段", () => {
-    const progress = normalizeTaskProgress({ status: "cancelled", result: { message: "任务已取消" } })
-
-    expect(progress.message).toContain("不会再排下一步")
-    expect(progress.message).toContain("可能不会瞬时断开")
-  })
-
   it("normalizes legacy asset-state words from backend progress text", () => {
     const progress = normalizeTaskProgress({
       id: "task-copy",
@@ -105,6 +98,23 @@ describe("normalizeTaskProgress", () => {
     expect(progress.label).toBe("智能去重扫描")
     expect(progress.message).toBe("任务完成")
     expect(progress.resultSummary).toBe("扫描 20，建议 6，疑似重复 5")
+  })
+
+  it("renders map observation enrichment as a candidate-only workflow", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "map-task",
+      task_type: "map_observation_enrichment",
+      status: "done",
+      result: {
+        scene_count: 12,
+        candidate_created_count: 18,
+        candidate_reused_count: 2,
+        uncertain_count: 3,
+      },
+    })
+
+    expect(progress.label).toBe("补充地图资料")
+    expect(progress.resultSummary).toBe("检查 12 个场景，新增待处理 18 条，复用待处理 2 条，待判定 3 条")
   })
 
   it("collects failure details and warnings", () => {
@@ -465,5 +475,32 @@ describe("pollTaskProgress", () => {
     expect(onUpdate.mock.calls[0][0].stateUnknown).toBe(true)
     expect(apiClient.tasks.get).toHaveBeenCalledTimes(2)
     expect(onFailed).not.toHaveBeenCalled()
+  })
+
+  it("clears a missing task receipt and asks the feature to restart without replaying", async () => {
+    persistActiveWorkflow({ taskId: "missing-task", workflowType: "writing_generate", projectId: "p1" })
+    const onFailed = vi.fn()
+    const apiClient = {
+      tasks: {
+        get: vi.fn().mockRejectedValue(Object.assign(new Error("not found"), { status: 404 })),
+      },
+    }
+
+    pollTaskProgress({
+      taskId: "missing-task",
+      workflowType: "writing_generate",
+      novelId: "p1",
+      apiClient,
+      onFailed,
+    })
+    await vi.waitFor(() => expect(onFailed).toHaveBeenCalledOnce())
+
+    expect(recoverActiveWorkflows("p1")).toEqual([])
+    expect(onFailed.mock.calls[0][0]).toMatchObject({
+      terminal: true,
+      stateUnknown: true,
+      errorMessage: "未找到原任务，请重新开始。",
+    })
+    expect(apiClient.tasks.get).toHaveBeenCalledOnce()
   })
 })

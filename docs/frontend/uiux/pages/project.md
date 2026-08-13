@@ -4,7 +4,7 @@
 > 实现锚点：`frontend-console/vue/views/project/ProjectView.vue`（304 行）、
 > `components/ProjectCard.vue`（113 行）、`components/ImportDrawer.vue`（175 行）、
 > `logic/recycleBin.js`、`logic/projectModals.js`、`logic/projectFilter.js`、
-> `frontend-console/styles.css:4518-5208` 与 `:14227-14243`（hero 覆层）。
+> `frontend-console/styles.css` 的 `.project-*` 规则与 hero 覆层。
 > 命名：按主规范 §9 裁定，本页统一称「作品档案」；侧边栏「更多」菜单项由「导入与整理」
 > （vue/shell/navigation.js:18）改为「作品档案与导入」。topbar 标题（router.js:15）、页内 H1
 > （ProjectView.vue:156）、路由失败页按钮「返回作品档案」（router.js:234）已是「作品档案」，不动。
@@ -40,7 +40,7 @@
    总数）等动态元素，**不含 2026**——调研报告 §7.5「2026 被 mask 侧面证实」的推断不准确；
    问题本身成立（硬编码年份到期即错），但证据以 ProjectView.vue:148 为准。
 5. **【中】hero H1 字号越阶**：`.project-catalog .project-archive-hero h1` 为
-   clamp(36px,4.2vw,58px)（styles.css:14234 附近，执行时核实），违反主规范 §3.2「页面标题 =
+   clamp(36px,4.2vw,58px)（`.project-archive-hero h1`，执行时核实），违反主规范 §3.2「页面标题 =
    --text-xl 24」；本页不是 §0 第一焦点豁免页（豁免的是 today 的 resume 卡）。
 6. **【中】「继续创作」与 today 页「继续写作」措辞不一**：ProjectCard.vue:106 vs
    TodayView.vue:29，同一动作（同为 `data-action="continue-writing"`）两种措辞（调研报告 §7.8）。
@@ -53,8 +53,8 @@
    选择（调研报告 §7.11）。
 9. **【低】导入记录状态用彩色 pill**：ImportDrawer.vue:164 `importStatusPill(record.status)`，
    违反主规范 §5.8「状态 = 文字 + 色点，不用彩色 pill」；同行已有 status-dot（:162），pill 冗余。
-10. **【低】断点漂移**：project 用 1180/900/720/460 四档（styles.css:4975、4996、5037、5165），
-    主规范 §6 终态为 760/1100 两档，需归并并注释保留理由。
+10. **【低】断点漂移**：project 使用 1100/900/760/460 四档（`.project-*` 响应式规则）；
+    900/460 是有注释的组件级微调，主规范 §6 的全局断点仍为 760/1100。
 11. **【低】e2e 注释与实现脱节**：project.spec.js:160、238 注释「hover 显示操作按钮」，实际
     编辑/删除由 `v-if="manage"` 控制（ProjectCard.vue:107-108），hover 无此行为（调研报告 §7.9）。
 12. **【低】「导入已有作品」按钮行为分叉**：无项目时点击直接弹文件选择器
@@ -63,7 +63,7 @@
 
 ## 3. 目标布局与信息层级
 
-- **Primary**：项目卡片网格——当前项目 lead 卡（8 列横排，styles.css:4571-4575）是自然
+- **Primary**：项目卡片网格——当前项目 lead 卡（8 列横排，`.project-card--lead`）是自然
   第一视觉焦点；其余卡 4 列跟排，末尾恒有占位卡（ProjectView.vue:280-300）。
 - **Secondary**：hero 操作区——「新建空白作品」（唯一 primary）与「导入已有作品」；hero 的
   装饰性（folio/几何图形）服务于档案氛围，不得压过网格。
@@ -73,7 +73,7 @@
   网格（lead 卡 → 其余卡 → 占位卡）。
 - **对齐主规范 §4 内容优先契约**：项目卡是「可独立移动的条目」，用卡合法（§5.3）；页面分区
   （hero / index-bar / 网格）靠留白 + 区块间隔，不套分区容器卡。grid gap clamp(12-22px)
-  （styles.css:4521）归入 `--space-3 ~ --space-5` token 档。排序逻辑（当前置顶 → 最近更新倒序
+  （`.project-catalog`）归入 `--space-3 ~ --space-5` token 档。排序逻辑（当前置顶 → 最近更新倒序
   → 名称 zh-CN，projectFilter.js:18-28）保持不动。
 
 ## 4. 逐区域标准
@@ -126,7 +126,7 @@
 - 整卡可点保留，但补键盘对等：`tabindex="0"` + Enter/Space 触发 open（对齐占位卡契约，
   问题 1）；`aria-current`（:51）保留。
 - visual 区（:54-60）：`aria-hidden` 保留；168px 高度与 `index % 4` 四色变体（:41、
-  styles.css:4577-4593）保留为本页系列感表达，但颜色必须走主题 token，不新增字面色值。
+  `.project-card` 规则）保留为本页系列感表达，但颜色必须走主题 token，不新增字面色值。
 - 静态视觉：paper-raised + `--line-subtle`，无阴影；hover 仅边加深或 `--bg-hover` 淡入（§5.3）。
 - 占位卡（ProjectView.vue:280-300）：与项目卡同构（visual + copy），`role="button"`
   契约保留；NEW FILE 编号（:296）为元数据档。
@@ -182,17 +182,17 @@
 | 保存/操作反馈 | 切换项目 toast（:90）；删除确认后刷新（:123-124） | 无 | 保持 |
 | 离开恢复 | 搜索词存 session（projectSession）✅；manageMode 是本地 ref（:69）离开即丢，但选择集残留 session | 重新进入时选择集不可见地生效 | 进入页面时 reconcile 并提示或自动清空（执行时核实，与 §4.2 toggle 计数提示配套） |
 | 误操作保护 | 单项/批量移入回收站、永久删除均二次确认 ✅ | 无 | 保持 |
-| 窄屏 | 720/460 两档有适配（styles.css:5037-5208） | 断点非标准档 | 见 §6 |
+| 窄屏 | 760/460 两档有适配（`.project-*` 响应式规则） | 460px 为组件级微调 | 见 §6 |
 
 ## 6. 响应式行为（对齐主规范 §6 四档）
 
 - **≥1440（Desktop）**：12 列 grid；lead 卡 8 列横排 + 普通卡 4 列；hero 三段
-  （folio/copy/summary，styles.css:14227-14231）全展示。
+  （folio/copy/summary，hero 覆层规则）全展示。
 - **1100-1440（Laptop）**：默认形态，同上；grid gap 取 clamp 下档。
 - **760-1100（Tablet）**：现 1180 档并入——普通卡 span 6（两列）、lead 全宽
-  （styles.css:4975-4994）；现 900 档并入——hero 改 2 列、几何装饰隐藏 2 个（4996-5035）。
-- **<760（Mobile）**：现 720/460 档并入——卡全部 span 12、hero 单列、folio 转横排、批量按钮
-  全宽（5037-5163）；搜索工具条再压缩、CURRENT 徽章截断（5165-5208）；按钮高 ≥42px
+  （`.project-catalog` 的 1100px 规则）；900px 组件级微调中 hero 改 2 列、几何装饰隐藏 2 个。
+- **<760（Mobile）**：现有移动档中卡全部 span 12、hero 单列、folio 转横排、批量按钮
+  全宽；搜索工具条再压缩、CURRENT 徽章截断；按钮高 ≥42px
   （§5.1 触控档）；390px 无页面级横向溢出（§6 零容忍）。断点归并后在样式行注释保留理由（§6）。
 
 ## 7. 必须保留的契约

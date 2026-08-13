@@ -9,7 +9,7 @@
     <div ref="dialogRef" class="modal-content modal-content--wide writing-conflict-modal" role="dialog" aria-modal="true" aria-label="剧情设定冲突检查" aria-labelledby="conflict-detail-dialog-title" :aria-busy="model.busy" tabindex="-1">
       <div class="modal-header">
         <h3 id="conflict-detail-dialog-title">剧情设定冲突检查</h3>
-        <button type="button" class="btn-icon" aria-label="关闭" :disabled="model.busy" @click="requestClose">×</button>
+        <button type="button" class="btn-icon" aria-label="关闭" @click="requestClose">×</button>
       </div>
       <div class="modal-body">
         <p v-if="model.error" class="writing-conflict-empty is-error" role="alert">{{ model.error }}</p>
@@ -90,7 +90,7 @@
         </template>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" :disabled="model.busy" @click="requestClose">关闭</button>
+        <button type="button" class="btn btn-ghost" @click="requestClose">关闭</button>
       </div>
     </div>
   </div>
@@ -111,7 +111,7 @@ const requestClose = () => emit("close")
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({
   isOpen: () => props.model.open,
   requestClose,
-  canClose: () => !props.model.busy,
+  canClose: () => true,
 })
 
 const severityLabels = { high: "高", medium: "中", low: "低", info: "提示" }

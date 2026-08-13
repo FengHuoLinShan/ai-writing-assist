@@ -136,6 +136,7 @@ class WorldAliasRelationExtractRequest(BaseModel):
     start_chapter: int = Field(..., ge=1)
     end_chapter: int = Field(..., ge=1)
     scene_ids: list[str] | None = Field(default=None)
+    operation_id: uuid.UUID | None = None
 
 
 class WorldAliasRelationExtractResponse(BaseModel):
@@ -282,6 +283,8 @@ class PromptTemplateCopyRequest(BaseModel):
     novel_id: str
     name: str | None = Field(default=None, max_length=80)
     created_by: str | None = Field(default=None, max_length=64)
+    prompt_text: str | None = Field(default=None, max_length=8000)
+    operation_id: uuid.UUID | None = None
 
 
 class ObjectDraftChatMessage(BaseModel):
@@ -534,6 +537,15 @@ class WorldGenerationSuggestionRequest(WorldGenerationRequestBase):
         if self.revises_suggestion_id is not None:
             raise ValueError("exploration selection cannot revise an existing suggestion")
         return self
+
+
+class WorldGenerationSuggestionTaskRequest(WorldGenerationSuggestionRequest):
+    operation_id: uuid.UUID
+
+
+class WorldGenerationTaskResponse(BaseModel):
+    task_id: str
+    status: str = "pending"
 
 
 class WorldGenerationSourceSnapshot(BaseModel):
@@ -1576,6 +1588,7 @@ class EntityFusionSuggestionRequest(BaseModel):
     status: str | None = Field(None, max_length=32)
     limit: int = Field(default=200, ge=2, le=1000)
     max_suggestions: int = Field(default=50, ge=1, le=200)
+    operation_id: uuid.UUID | None = None
 
 
 class EntityFusionSuggestionResponse(BaseModel):

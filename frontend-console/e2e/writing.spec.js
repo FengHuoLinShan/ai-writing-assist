@@ -655,9 +655,12 @@ test.describe("写作台模块", () => {
         }),
       })
     })
+    const suggestionTaskResults = new Map()
     await page.route("**/api/tasks/**", async (route) => {
       const url = new URL(route.request().url())
-      if (!url.pathname.endsWith("/api/tasks/mock-ai-review-task")) {
+      const taskId = url.pathname.split("/").at(-1)
+      const suggestionResult = suggestionTaskResults.get(taskId)
+      if (!url.pathname.endsWith("/api/tasks/mock-ai-review-task") && !suggestionResult) {
         await route.continue()
         return
       }
@@ -665,11 +668,11 @@ test.describe("写作台模块", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          task_id: "mock-ai-review-task",
-          task_type: "writing_conflict_ai_review",
+          task_id: taskId,
+          task_type: suggestionResult ? "writing_conflict_item_ai_suggestion" : "writing_conflict_ai_review",
           status: "done",
           progress: 1,
-          result: { check_id: mockedAiCheck.id, ai_review_status: "done" },
+          result: suggestionResult || { check_id: mockedAiCheck.id, ai_review_status: "done" },
         }),
       })
     })
@@ -691,7 +694,8 @@ test.describe("写作台模块", () => {
         body: JSON.stringify({ items: [mockedAiCheck], total: 1 }),
       })
     })
-    await page.route("**/api/writing/conflict-check-items/*/ai-suggestion", async (route) => {
+    await page.route("**/api/writing/conflict-check-items/*/ai-suggestion-task", async (route) => {
+      const body = route.request().postDataJSON()
       const updatedAiItem = {
         ...mockedAiCheck.items[2],
         suggestion_status: "done",
@@ -706,10 +710,11 @@ test.describe("写作台模块", () => {
       mockedAiCheck.items = mockedAiCheck.items.map((item) => (
         item.id === updatedAiItem.id ? updatedAiItem : item
       ))
+      suggestionTaskResults.set(body.operation_id, updatedAiItem)
       await route.fulfill({
-        status: 200,
+        status: 202,
         contentType: "application/json",
-        body: JSON.stringify(updatedAiItem),
+        body: JSON.stringify({ task_id: body.operation_id, status: "pending" }),
       })
     })
     await page.route("**/api/writing/conflict-check-items/mock-required?**", async (route) => {

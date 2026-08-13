@@ -88,3 +88,7 @@ group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，�
 独立。实体或结构资产的判断、指纹和实际写入仍由 world / outline 拥有。
 `smart_dedup_workbench_decisions` 只保存当前 pair 和 semantic fingerprints 的
 `keep_separate`，不替代两个资产模块的领域权威。
+
+智能去重扫描接受可选 `operation_id` 以兼容旧客户端；官方前端提交前持久化 UUID，并以
+该 UUID 恢复原任务和裁决工作台。相同 receipt 的不同请求返回 409；不同标签页或设备仍可
+各自发起扫描，不增加项目级排他锁。

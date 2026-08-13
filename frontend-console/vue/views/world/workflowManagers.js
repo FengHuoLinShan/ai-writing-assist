@@ -16,6 +16,7 @@ import { reactive } from "vue"
 import { getApi, getAppState, getRouter, getToast } from "../../bridge/index.js"
 import {
   clearActiveWorkflow,
+  createOperationId,
   normalizeTaskProgress,
   persistActiveWorkflow,
   pollTaskProgress,
@@ -127,6 +128,12 @@ function createWorkflowManager({
     return state
   }
 
+  function prepare(taskId, meta = null, projectId = getAppState()?.currentProjectId || null) {
+    if (!taskId || !projectId) return false
+    persistActiveWorkflow({ taskId, workflowType, label, projectId, view: "world", meta: meta || undefined })
+    return true
+  }
+
   /** island load() 调用：从 localStorage 恢复未终结任务（对应 vanilla _recoverXxxWorkflow）。 */
   function recover(projectId) {
     if (!projectId) {
@@ -160,6 +167,7 @@ function createWorkflowManager({
     label,
     destinationLabel,
     adopt,
+    prepare,
     recover,
     stop,
     resetMemoryScope,
@@ -292,9 +300,12 @@ export async function startEntityFusionSuggestions(entityType = "") {
     return false
   }
   try {
+    const operationId = createOperationId()
+    fusionManager.prepare(operationId, null, projectId)
     const result = await getApi().world.createEntityFusionSuggestions({
       novel_id: projectId,
       entity_type: entityType || undefined,
+      operation_id: operationId,
     })
     const adopted = fusionManager.adopt(result, null, projectId)
     if (adopted) toast("世界对象 AI 合并建议任务已提交", "success")

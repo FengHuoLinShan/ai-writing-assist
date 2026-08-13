@@ -27,6 +27,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0010](0010-public-browser-account-system.md) | Accepted / Amended | 公开账号、浏览器会话和 owner 门禁；LLM Key 所有权已按账户连接补充修订。 |
 | [ADR-0011](0011-keyed-task-coalescing-and-domain-owners.md) | Accepted | 任务合并只管 transport，领域 owner/generation/checkpoint 由所属模块保存。 |
 | [ADR-0012](0012-ai-map-atlas-image-storage.md) | Accepted / Implemented | 固定图片模型、私有 S3、独立图片凭证与删除竞态边界。 |
+| [ADR-0013](0013-operation-receipts-and-page-local-recovery.md) | Accepted | 作者发起的 AI 长任务以 operation receipt 去重，最多两个 attempt，只在原页恢复。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

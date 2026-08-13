@@ -23,6 +23,19 @@
     <div class="scene-workbench-shell">
       <SceneAutoExtractProgressCard @cancel="cancelAutoExtraction" @dismiss="dismissAutoExtraction" />
 
+      <div v-if="fusionTask.progress" class="scene-progress-card-wrap" data-role="scene-fusion-preview-progress">
+        <WorkflowProgressCard
+          :progress="fusionTask.progress"
+          title="场景融合预览"
+          :message="fusionTask.progress.message || ''"
+          :collapsible="true"
+          :show-task-id="false"
+        />
+        <button v-if="fusionTask.preview" class="btn btn-sm btn-primary" data-action="view-scene-fusion-preview" @click="modalController.showCompletedFusionPreview()">查看预览</button>
+        <button v-if="!fusionTask.progress.terminal" class="btn btn-sm" data-action="cancel-scene-fusion-preview" @click="modalController.cancelFusionTask()">取消任务</button>
+        <button v-else class="btn btn-sm" data-action="dismiss-scene-fusion-preview" @click="modalController.dismissFusionTask()">关闭</button>
+      </div>
+
       <div v-if="pendingSuggestionCount" class="scene-fusion-queue" role="status">
         <div>
           <strong>{{ pendingSuggestionCount }} 条场景建议待处理</strong>
@@ -143,6 +156,7 @@ import { computed, defineComponent, h, reactive, ref, watch } from "vue"
 import { structureAssetDisplay } from "../../../shared/assetDisplayState.js"
 import { getRouter } from "../../bridge/index.js"
 import ActionMenu from "../../components/ActionMenu.vue"
+import WorkflowProgressCard from "../../components/WorkflowProgressCard.vue"
 import OutlineGenerateProgressCard from "../outline/ai/OutlineGenerateProgressCard.vue"
 import { showOutlineLayerAiForm } from "../outline/ai/outlineAiOps.js"
 import SceneAutoExtractProgressCard from "./SceneAutoExtractProgressCard.vue"
@@ -184,7 +198,7 @@ const {
   cancelAutoExtraction, changePage, clearSelectedScene, dismissAutoExtraction,
   dismissibleSuggestionCount, filterForm, filters, healthLabel, items, loadError,
   loading, mobileDetailOpen, modalController, narrow, openOverlap, openWriting,
-  pendingSuggestionCount, refresh, resetFilters, runContextAction,
+  fusionTask, pendingSuggestionCount, refresh, resetFilters, runContextAction,
   runSelectedContextActions, saveScene, selectScene, selectedIds, selectedItem,
   setViewMode, showAutoExtractForm, toggleAdvanced, toggleHealth, toggleSegment,
   toggleSelection, toggleVisibleSelection, total, viewMode, visibleIds, workbench,

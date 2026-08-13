@@ -333,10 +333,10 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | 模块 | 当前注册处理器 |
 |------|------|
 | project | `smart_dedup_scan` |
-| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`map_atlas_generate`、`map_atlas_storage_cleanup` |
-| outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate` |
+| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`map_atlas_generate`、`map_atlas_storage_cleanup` |
+| outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview` |
 | rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities` |
-| writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review` |
+| writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
 
@@ -368,6 +368,12 @@ POST /api/tasks/{id}/cancel # 取消任务
 任务状态响应中的 `result` 只投影公开顶层字段。以下划线开头的顶层键属于 worker 的
 私有 checkpoint/receipt：数据库、重试和 lifecycle 恢复路径保留原值，但
 `GET /api/tasks/{id}` 不返回它们；业务 handler 不得把前端必需字段放入私有键。
+
+作者显式长操作可以前端预先生成的 `operation_id` 作为 task UUID。同一
+`operation_id + novel_id + task_type + request fingerprint` 复用原任务（含终态），同 ID
+异请求返回 409。这是提交回执，不是新队列或全局锁，也不取代业务来源与 lease fence。
+选择性 LLM task 关闭 client transport retry，临时 provider 错误由 worker 至多重排一次；
+认证、额度、内容/结构校验和来源冲突只执行一次。
 
 通用 `POST /api/tasks` 不能绕过模块 API 的 request schema、确认和授权。业务任务默认
 拒绝通用提交；只有注册时显式声明 Pydantic `generic_submit_schema` 的基础设施任务可走

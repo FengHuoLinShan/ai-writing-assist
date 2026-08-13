@@ -9,6 +9,17 @@
       <button class="btn btn-sm btn-primary" @click="$emit('retry-publish')">手动重试</button>
     </div>
   </div>
+  <section v-if="generation?.progress" id="writing-generation-bar-container" aria-live="polite">
+    <WorkflowProgressCard :progress="generation.progress" title="AI 正文建议" :message="generation.progress.message || ''" :collapsible="true" :show-task-id="false" />
+    <button v-if="generation.result" class="btn btn-sm btn-primary" @click="$emit('open-generation')">查看并审阅建议</button>
+    <button v-if="!generation.progress.terminal" class="btn btn-sm" @click="$emit('cancel-generation')">取消任务</button>
+    <button v-else class="btn btn-sm" @click="$emit('dismiss-generation')">关闭</button>
+  </section>
+  <section v-if="conflictTask?.progress" id="writing-conflict-task-bar-container" aria-live="polite">
+    <WorkflowProgressCard :progress="conflictTask.progress" :title="conflictTask.progress.label || 'AI 冲突检查'" :message="conflictTask.progress.message || ''" :collapsible="true" :show-task-id="false" />
+    <button v-if="!conflictTask.progress.terminal" class="btn btn-sm" @click="$emit('cancel-conflict-task')">取消任务</button>
+    <button v-else class="btn btn-sm" @click="$emit('dismiss-conflict-task')">关闭</button>
+  </section>
   <section v-if="normalizedDeepImportProgress" id="writing-deep-import-bar-container" aria-live="polite">
     <WorkflowProgressCard
       :progress="normalizedDeepImportProgress"
@@ -72,9 +83,11 @@ const props = defineProps({
   publish: { type: Object, required: true },
   conflict: { type: Object, required: true },
   deepImport: { type: Object, required: true },
+  generation: { type: Object, default: null },
+  conflictTask: { type: Object, default: null },
   showConflict: { type: Boolean, default: true },
 })
-defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-conflict", "retry-publish", "dismiss-publish"])
+defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "cancel-conflict-task", "dismiss-conflict-task"])
 
 const terminal = computed(() => ["done", "failed", "cancelled"].includes(props.deepImport.progress?.status || props.deepImport.progress?.phase))
 const needsRecovery = computed(() => {

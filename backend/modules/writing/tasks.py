@@ -158,7 +158,12 @@ async def handle_publish_chapter(db, task):
     return results
 
 
-@task_handler("writing_generate", recovery_policy="restart_origin")
+@task_handler(
+    "writing_generate",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
 async def handle_writing_generate(db, task):
     """处理 AI 正文建议生成任务。"""
     from modules.writing.services import WritingGenerationService
@@ -202,7 +207,12 @@ async def handle_writing_generate(db, task):
     return {"draft_id": draft.id, "chapter_index": draft.chapter_index}
 
 
-@task_handler("writing_conflict_ai_review", recovery_policy="restart_origin")
+@task_handler(
+    "writing_conflict_ai_review",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
 async def handle_writing_conflict_ai_review(db, task):
     """处理写作冲突检查的 AI 软复核任务。"""
     from modules.writing.services import WritingConflictCheckService
@@ -239,6 +249,9 @@ async def handle_writing_conflict_ai_review(db, task):
         task_id=task_id,
         llm_execution_snapshot=llm_execution_snapshot,
         allow_unowned_legacy=allow_unowned_legacy,
+        finalize_transient_failure=(
+            int(task.attempt or 0) >= int(task.max_attempts or 1)
+        ),
     )
     task.update_progress(1.0)
     await db.flush()
@@ -251,3 +264,42 @@ async def handle_writing_conflict_ai_review(db, task):
         "ai_review_status": check.ai_review_status,
         "ai_judgment_count": ai_judgment_count,
     }
+
+
+@task_handler(
+    "writing_conflict_item_ai_suggestion",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
+async def handle_writing_conflict_item_ai_suggestion(db, task):
+    from modules.writing.schemas import WritingConflictAiSuggestionRequest
+    from modules.writing.services import WritingConflictCheckService
+
+    meta = dict(task.meta or {})
+    novel_id = str(meta.get("novel_id") or "")
+    item_id = str(meta.get("item_id") or "")
+    if not novel_id or not item_id:
+        raise ValueError("novel_id and item_id are required")
+    snapshot, _legacy = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+        legacy_meta_key=None,
+    )
+    task.update_progress(0.1)
+    item = await WritingConflictCheckService().run_ai_suggestion_for_task(
+        db,
+        item_id=item_id,
+        data=WritingConflictAiSuggestionRequest(
+            novel_id=novel_id,
+            context_confirmation_id=str(meta.get("context_confirmation_id") or ""),
+        ),
+        llm_execution_snapshot=snapshot,
+        finalize_transient_failure=(
+            int(task.attempt or 0) >= int(task.max_attempts or 1)
+        ),
+    )
+    task.update_progress(1.0)
+    return item.model_dump(mode="json")

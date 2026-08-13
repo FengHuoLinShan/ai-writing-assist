@@ -10,13 +10,16 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.schema import CreateIndex
 
+from infrastructure.tasks.contracts import CoalescedTaskContract
 from infrastructure.tasks.enqueuer import (
     build_task_coalescing_key,
     lock_task_coalescing_key,
 )
 from infrastructure.tasks.facade import (
     enqueue_coalesced_task,
+    enqueue_operation_task,
     get_latest_coalesced_task,
+    get_operation_task,
 )
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
@@ -30,7 +33,6 @@ def test_coalescing_key_is_normalized_digest() -> None:
         novel_id=str(novel_id).upper(),
         scope=("chapter", "3", "working"),
     )
-
     assert len(key) == 64
     assert str(novel_id) not in key
     assert key == build_task_coalescing_key(
@@ -39,6 +41,66 @@ def test_coalescing_key_is_normalized_digest() -> None:
         scope=("chapter", "3", "working"),
     )
 
+
+@pytest.mark.asyncio
+async def test_operation_receipt_reuses_terminal_task_and_rejects_drift(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    operation_id = str(uuid.uuid4())
+    first = await enqueue_operation_task(
+        db_session,
+        operation_id=operation_id,
+        task_type="test_operation",
+        novel_id=novel_id,
+        request_payload={"instruction": "one"},
+        meta={"novel_id": novel_id, "instruction": "one"},
+    )
+    task = await db_session.get(AsyncTask, uuid.UUID(operation_id))
+    assert task is not None
+    task.mark_done({"value": "ready"})
+    await db_session.flush()
+
+    recovered = await enqueue_operation_task(
+        db_session,
+        operation_id=operation_id,
+        task_type="test_operation",
+        novel_id=novel_id,
+        request_payload={"instruction": "one"},
+        meta={"novel_id": novel_id, "instruction": "one"},
+    )
+
+    assert first == CoalescedTaskContract(
+        task_id=operation_id,
+        status="pending",
+        reused=False,
+    )
+    assert recovered == CoalescedTaskContract(
+        task_id=operation_id,
+        status="done",
+        reused=True,
+    )
+    with pytest.raises(ValueError, match="different request"):
+        await enqueue_operation_task(
+            db_session,
+            operation_id=operation_id,
+            task_type="test_operation",
+            novel_id=novel_id,
+            request_payload={"instruction": "two"},
+            meta={"novel_id": novel_id, "instruction": "two"},
+        )
+
+    assert await get_operation_task(
+        db_session,
+        operation_id=operation_id,
+        task_type="test_operation",
+        novel_id=novel_id,
+        request_payload={"instruction": "one"},
+    ) == CoalescedTaskContract(
+        task_id=operation_id,
+        status="done",
+        reused=True,
+    )
 
 def test_coalescing_partial_unique_indexes_compile_for_supported_databases() -> None:
     indexes = {index.name: index for index in AsyncTask.__table__.indexes}

@@ -36,13 +36,15 @@ infrastructure/tasks/
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
-  `world_bible_synopsis_refresh`、`map_atlas_generate`、`map_atlas_storage_cleanup`
+  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`map_atlas_generate`、
+  `map_atlas_storage_cleanup`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
-  `outline_generate`
+  `outline_generate`、`scene_fusion_preview`
 - rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
-- writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`
+- writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`、
+  `writing_conflict_item_ai_suggestion`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
   `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
@@ -123,6 +125,17 @@ UUID 先规范化，JSON 固定使用 ASCII、紧凑分隔符和键排序。scop
 keyed coalescing 只拥有排队收敛，不拥有领域新鲜度。World 仍以 page/source version/hash
 CAS 决定 projection 是否可晋升；RAG 以 `rag_index_state.active_task_id + generation`
 fence 旧 attempt；imports 以自己的 workflow run 保存 generation、owner 与 checkpoint。
+
+## Operation receipt
+
+作者显式发起的长耗时 AI 任务可经 `facade.enqueue_operation_task()` 使用客户端 UUID
+作为 task id。服务端对 `novel_id + task_type + canonical request fingerprint` 重验：同请求
+复用原任务（包括终态），同 ID 异请求冲突。receipt 不取代 keyed active coalescing 或
+业务 owner/source fence，不保存 secret。
+
+声明 `retry_transient_llm_errors=True` 的 handler 在 task 内关闭 LLM client transport retry，
+由 worker 仅对明确临时 provider 错误自动重排，总 attempt 上限为 2。业务不得
+在首次临时失败时提前写终态失败。
 
 ## 任务领取
 

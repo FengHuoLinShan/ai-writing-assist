@@ -1408,10 +1408,14 @@ class SceneWorkbenchService:
         db: AsyncSession,
         novel_id: str,
         data: SceneFusionPreviewRequest,
+        *,
+        llm_execution_snapshot: dict[str, Any] | None = None,
+        task_mode: bool = False,
     ) -> SceneFusionPreviewResponse:
         if not data.primary_scene_id:
             raise ValueError("primary_scene_id is required for AI Scene fusion preview")
         sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
+        source_fingerprint = self._suggestion_source_fingerprint(sources)
         review_sources = [
             SimpleNamespace(
                 **{
@@ -1448,7 +1452,33 @@ class SceneWorkbenchService:
             sources=sources,
             primary_scene_id=data.primary_scene_id,
             deterministic_draft=deterministic_draft,
+            llm_execution_snapshot=llm_execution_snapshot,
+            allow_degraded=not task_mode,
         )
+        if task_mode:
+            from modules.project.facade import require_active_project
+            from modules.writing.facade import lock_chapter_versions_for_revalidation
+
+            await require_active_project(db, novel_id)
+            await lock_chapter_versions_for_revalidation(
+                db,
+                novel_id,
+                list(generated.evidence_chapter_indices),
+            )
+            current_sources = await self._load_fusion_scenes(
+                db, novel_id, data.source_scene_ids, for_update=True
+            )
+            if self._suggestion_source_fingerprint(current_sources) != source_fingerprint:
+                raise ValueError("Scene fusion sources changed while task ran")
+            if (
+                await self._fusion_draft_generator.evidence_fingerprint(
+                    db,
+                    novel_id=novel_id,
+                    sources=current_sources,
+                )
+                != generated.evidence_fingerprint
+            ):
+                raise ValueError("Scene fusion evidence changed while task ran")
         fused_scene = {
             **deterministic_draft,
             **generated.semantic_fields,
@@ -1597,10 +1627,14 @@ class SceneWorkbenchService:
         db: AsyncSession,
         novel_id: str,
         scene_ids: list[str],
+        *,
+        for_update: bool = False,
     ) -> list[Scene]:
         nid = parse_uuid(novel_id, "novel_id")
         parsed_ids = [parse_uuid(scene_id, "scene_id") for scene_id in scene_ids]
-        scenes = await self.repo.get_many_for_novel(db, nid, parsed_ids)
+        scenes = await self.repo.get_many_for_novel(
+            db, nid, parsed_ids, **({"for_update": True} if for_update else {})
+        )
         scene_by_id: dict[uuid.UUID, Scene] = {scene.id: scene for scene in scenes}
         if len(scene_by_id) != len(set(parsed_ids)):
             raise LookupError("Scene not found")
@@ -1651,10 +1685,14 @@ class SceneWorkbenchService:
         db: AsyncSession,
         novel_id: str,
         source_scene_ids: list[str],
+        *,
+        for_update: bool = False,
     ) -> list[Scene]:
         if len(set(source_scene_ids)) != len(source_scene_ids):
             raise ValueError("source_scene_ids cannot contain duplicates")
-        return await self._get_scenes_in_novel(db, novel_id, source_scene_ids)
+        return await self._get_scenes_in_novel(
+            db, novel_id, source_scene_ids, for_update=for_update
+        )
 
     async def _fusion_scene_payload(
         self,

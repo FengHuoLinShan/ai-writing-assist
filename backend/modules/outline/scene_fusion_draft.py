@@ -68,6 +68,8 @@ class SceneFusionEvidence:
     scene_id: str
     content_mode: str | None
     text: str
+    source_fingerprint: str = ""
+    chapter_indices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,8 @@ class SceneFusionGenerationResult:
     semantic_meta: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     degraded: bool = False
+    evidence_fingerprint: str = ""
+    evidence_chapter_indices: tuple[int, ...] = ()
 
 
 class SceneFusionEvidenceLoader:
@@ -123,7 +127,7 @@ class SceneFusionEvidenceLoader:
         scene: Scene,
     ) -> SceneFusionEvidence:
         for content_mode in ("working", "canonical"):
-            text = await self._load_mode(
+            text, source_fingerprint, chapter_indices = await self._load_mode(
                 db,
                 novel_id=novel_id,
                 scene=scene,
@@ -134,6 +138,8 @@ class SceneFusionEvidenceLoader:
                     scene_id=str(scene.id),
                     content_mode=content_mode,
                     text=text,
+                    source_fingerprint=source_fingerprint,
+                    chapter_indices=chapter_indices,
                 )
         return SceneFusionEvidence(
             scene_id=str(scene.id),
@@ -148,7 +154,7 @@ class SceneFusionEvidenceLoader:
         novel_id: str,
         scene: Scene,
         content_mode: str,
-    ) -> str:
+    ) -> tuple[str, str, tuple[int, ...]]:
         from modules.writing.facade import (
             build_manuscript_range_ref,
             list_manuscript_sources,
@@ -187,6 +193,7 @@ class SceneFusionEvidenceLoader:
         )
         current_by_chapter = {source.chapter_index: source for source in current_sources}
         excerpts: list[str] = []
+        source_refs: list[dict[str, Any]] = []
         seen_ranges: set[tuple[str, int, int, str]] = set()
         for span in precise:
             current = current_by_chapter.get(span.chapter_index)
@@ -232,7 +239,31 @@ class SceneFusionEvidenceLoader:
                 continue
             seen_ranges.add(range_key)
             excerpts.append(read.text)
-        return "\n\n".join(excerpts)
+            source_refs.append(
+                {
+                    "draft_id": ref.draft_id,
+                    "chapter_index": ref.chapter_index,
+                    "version_number": ref.version_number,
+                    "content_mode": ref.content_mode,
+                    "start_offset": ref.start_offset,
+                    "end_offset": ref.end_offset,
+                    "source_hash": ref.source_hash,
+                    "range_hash": ref.range_hash,
+                }
+            )
+        if not excerpts:
+            return "", "", ()
+        encoded = json.dumps(
+            source_refs,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return (
+            "\n\n".join(excerpts),
+            hashlib.sha256(encoded).hexdigest(),
+            tuple(sorted({int(ref["chapter_index"]) for ref in source_refs})),
+        )
 
 
 class SceneFusionDraftGenerator:
@@ -252,6 +283,7 @@ class SceneFusionDraftGenerator:
         self,
         db: AsyncSession,
         novel_id: str,
+        llm_execution_snapshot: dict[str, Any] | None = None,
     ) -> AsyncIterator[LLMClient]:
         if self._llm_client is not None:
             yield self._llm_client
@@ -263,7 +295,9 @@ class SceneFusionDraftGenerator:
             restore_project_llm_execution_settings,
         )
 
-        snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        snapshot = llm_execution_snapshot or await build_project_llm_execution_snapshot(
+            db, novel_id
+        )
         settings = await restore_project_llm_execution_settings(
             db,
             novel_id,
@@ -275,6 +309,7 @@ class SceneFusionDraftGenerator:
             novel_id=novel_id,
         )
         await db.commit()
+        db.expire_all()
         if db.in_transaction():
             await client.close()
             raise RuntimeError("Scene fusion provider call requires no DB transaction")
@@ -291,12 +326,16 @@ class SceneFusionDraftGenerator:
         sources: list[Scene],
         primary_scene_id: str,
         deterministic_draft: dict[str, Any],
+        llm_execution_snapshot: dict[str, Any] | None = None,
+        allow_degraded: bool = True,
     ) -> SceneFusionGenerationResult:
         evidence = await self._evidence_loader.load(
             db,
             novel_id=novel_id,
             scenes=sources,
         )
+        evidence_fingerprint = self._evidence_fingerprint(evidence)
+        evidence_chapter_indices = self._evidence_chapter_indices(evidence)
         related_context = await _load_related_context(
             db,
             novel_id=novel_id,
@@ -312,7 +351,9 @@ class SceneFusionDraftGenerator:
         payload_json = json.dumps(payload, ensure_ascii=False)
         generation_warnings = list(evidence.warnings)
         try:
-            async with self._open_llm_client(db, novel_id) as client:
+            async with self._open_llm_client(
+                db, novel_id, llm_execution_snapshot
+            ) as client:
                 async with asyncio.timeout(SCENE_FUSION_TIMEOUT_SECONDS):
                     output = await _run_fusion_synthesis(
                         client,
@@ -358,8 +399,12 @@ class SceneFusionDraftGenerator:
                     "core_conflict_status": core_conflict_status,
                 },
                 warnings=generation_warnings,
+                evidence_fingerprint=evidence_fingerprint,
+                evidence_chapter_indices=evidence_chapter_indices,
             )
         except Exception as exc:
+            if not allow_degraded:
+                raise
             logger.warning("Scene fusion LLM failed: %s", type(exc).__name__)
             return SceneFusionGenerationResult(
                 semantic_fields={
@@ -391,7 +436,54 @@ class SceneFusionDraftGenerator:
                     "AI 融合调用失败，已返回确定性融合草稿，请人工复核。",
                 ],
                 degraded=True,
+                evidence_fingerprint=evidence_fingerprint,
+                evidence_chapter_indices=evidence_chapter_indices,
             )
+
+    async def evidence_fingerprint(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        sources: list[Scene],
+    ) -> str:
+        evidence = await self._evidence_loader.load(
+            db,
+            novel_id=novel_id,
+            scenes=sources,
+        )
+        return self._evidence_fingerprint(evidence)
+
+    @staticmethod
+    def _evidence_fingerprint(evidence: SceneFusionEvidenceResult) -> str:
+        encoded = json.dumps(
+            [
+                {
+                    "scene_id": item.scene_id,
+                    "content_mode": item.content_mode,
+                    "source_fingerprint": item.source_fingerprint,
+                }
+                for item in evidence.items
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _evidence_chapter_indices(
+        evidence: SceneFusionEvidenceResult,
+    ) -> tuple[int, ...]:
+        return tuple(
+            sorted(
+                {
+                    chapter_index
+                    for item in evidence.items
+                    for chapter_index in item.chapter_indices
+                }
+            )
+        )
 
 
 async def _run_fusion_synthesis(

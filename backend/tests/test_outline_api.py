@@ -304,7 +304,10 @@ class TestApiOutlineGenerate:
             mock.patch(
                 "modules.outline.api.attach_result_ref", autospec=True
             ) as mock_attach,
-            mock.patch("modules.outline.api.enqueue_task", autospec=True) as mock_enqueue,
+            mock.patch(
+                "modules.outline.api.enqueue_task_with_optional_operation",
+                autospec=True,
+            ) as mock_enqueue,
             mock.patch(
                 "modules.outline.api.P20GenerationService",
                 autospec=True,
@@ -314,7 +317,11 @@ class TestApiOutlineGenerate:
                 autospec=True,
             ) as mock_snapshot,
         ):
-            mock_enqueue.return_value = "task-outline-generate"
+            mock_enqueue.return_value = mock.Mock(
+                task_id="task-outline-generate",
+                status="pending",
+                reused=False,
+            )
             service_cls.return_value.prepare = mock.AsyncMock(
                 return_value=mock.Mock(
                     source_fingerprint="p20-fingerprint",

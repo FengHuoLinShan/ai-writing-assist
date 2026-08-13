@@ -83,6 +83,7 @@ class OutlineLayerGenerateRequest(P20StrictModel):
     selected_scene_ids: list[str] = Field(default_factory=list, max_length=100)
     start_chapter: int | None = Field(default=None, ge=1)
     end_chapter: int | None = Field(default=None, ge=1)
+    operation_id: uuid.UUID | None = None
 
     @field_validator(
         "novel_id",

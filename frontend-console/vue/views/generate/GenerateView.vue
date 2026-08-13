@@ -22,6 +22,16 @@
   </div>
 
   <div v-if="activeTab === 'world'" :id="tabPanelId('world')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('world')">
+    <WorkflowProgressCard
+      v-if="worldTaskProgress"
+      :progress="worldTaskProgress"
+      variant="card"
+      title="生成世界设定建议"
+      :show-task-id="false"
+    >
+      <button v-if="!worldTaskProgress.terminal" type="button" class="btn btn-sm" @click="cancelWorldTask">取消生成</button>
+      <button v-else-if="worldTaskProgress.failed || worldTaskProgress.cancelled" type="button" class="btn btn-sm" @click="dismissWorldTask">收起</button>
+    </WorkflowProgressCard>
     <WorldWorkspace ref="worldWorkspaceRef"
       :project-id="projectId" :source-page-id="sourcePageId" :target-kind="targetKind" :source-page="world.sourcePage" :source-draft="world.sourceDraft"
       :warning="world.warning" :templates="templates" :activation-profiles="activationProfiles" :categories="world.categories" :page-templates="world.pageTemplates" :pages="world.pages"
@@ -42,7 +52,7 @@
       @apply-page="applyWorldPage" @proposal-dirty="pageProposalDirty = $event" @proposal-edit="capturePageProposalEdit" @clear-result="requestWorldSuggestion" @open-review="openReview" @view-context="viewGenerationContext" />
   </div>
   <div v-else-if="activeTab === 'pov_prose'" :id="tabPanelId('pov_prose')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('pov_prose')">
-    <PovProseTab v-model:form="povForm" :loading="pov.loading" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @open-result="openPovResult" @open-writing="openPovWriting" @return-world="switchTab('world')" />
+    <PovProseTab v-model:form="povForm" :loading="pov.loading" :chapters="pov.chapters" :scenes="pov.scenes" :characters="pov.characters" :warning="pov.warning" :submission="povSubmission" :pending="povPending" :progress="povProgress" :error="povError" @change-chapter="changePovChapter" @change-scene="changePovScene" @cancel="cancelPovTask" @open-result="openPovResult" @open-writing="openPovWriting" @return-world="switchTab('world')" />
   </div>
   <div v-else-if="activeTab === 'task'" :id="tabPanelId('task')" class="generate-tab-panel" role="tabpanel" :aria-labelledby="tabId('task')">
     <TaskContextTab v-model:form="taskForm" :project-id="projectId" :preset="taskPreset" :bundle="lastContextBundle" :markdown="lastContextMarkdown" :pending="taskPending" :error="taskError" @select-preset="selectTaskPreset" @copy-markdown="copyTaskMarkdown" @export-markdown="exportTaskMarkdown" />
@@ -61,7 +71,16 @@ import WorldWorkspace from "./components/WorldWorkspace.vue"
 import PovProseTab from "./components/PovProseTab.vue"
 import TaskContextTab from "./components/TaskContextTab.vue"
 import ContextPreviewTab from "./components/ContextPreviewTab.vue"
+import WorkflowProgressCard from "../../components/WorkflowProgressCard.vue"
 import { createGenerateRequestOwner } from "./requestOwner.js"
+import {
+  clearActiveWorkflow,
+  createOperationId,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+  recoverActiveWorkflows,
+} from "../../../shared/workflowProgress.js"
 import {
   clearCreativeContinuation,
   readCreativeContinuation,
@@ -90,6 +109,7 @@ const props = defineProps({
 const api = getApi(); const appState = getAppState(); const router = getRouter(); const toast = getToast(); const confirm = getConfirm()
 const showModalHtml = getShowModalHtml(); const closeModal = getCloseModal(); const esc = getEsc()
 const owner = createGenerateRequestOwner({ projectId: props.projectId, sessionKey: props.sessionKey })
+const receiptStorage = globalThis.sessionStorage
 const notices = new Set()
 const session = reactive({ ...props.initialSession })
 const composer = ref(props.initialSession.composer || "")
@@ -101,6 +121,7 @@ const taskForm = ref(applyTaskPreset(createDefaultTaskForm(), taskPreset.value))
 const restoredContext = readGenerateContextPreview(props.projectId)
 const lastContextBundle = ref(restoredContext.bundle); const lastContextMarkdown = ref(restoredContext.markdown); const lastContextSource = ref(restoredContext.source); const lastContextRequest = ref(restoredContext.request)
 const worldResult = ref(props.restoredWorldResult); const previousWorldResult = ref(props.restoredPreviousWorldResult); const chatContextUsage = ref(null); const entityContextUsage = ref(null); const worldError = ref("")
+const worldTaskProgress = ref(null)
 const initialPageProposalDraft = pageProposalDraftMatches(worldResult.value, session.pageProposalDraft)
 const pageProposalDirty = ref(Boolean(initialPageProposalDraft))
 const recoveredPageProposal = ref(Boolean(initialPageProposalDraft))
@@ -114,16 +135,26 @@ const world = reactive({ sourcePage: props.sourcePage, sourceDraft: props.source
 const pov = reactive({ chapters: props.povChapters, scenes: [], characters: props.povCharacters, warning: props.povLoadWarning, loaded: props.tab === "pov_prose", loading: false })
 const povForm = ref({ chapterIndex: null, sceneId: "", viewpointCharacterId: "", instruction: "" })
 const povSubmission = ref(null); const povPending = ref(false); const povProgress = ref(null); const povError = ref("")
+const povTaskId = ref(null)
 let modalGeneration = 0
 let ownedModal = null
 let povSceneGeneration = 0
 let copiedBuiltinTemplate = null
 let templateMutationPending = false
+let worldTaskPoller = null
 
 const tabs = [{ key: "world", label: "世界设定" }, { key: "pov_prose", label: "角色视角正文" }, { key: "task", label: "任务" }, { key: "preview", label: "上下文预览" }]
 const projectTitle = computed(() => appState?.currentProject?.title || appState?.currentProject?.name || "")
 const generateLabel = computed(() => explorationSelection.value ? "生成所选探索建议" : ({ core_entity: "生成世界对象建议", world_bible_page: "生成整页提案", world_bible_new_page: "生成新页提案" })[props.targetKind] || "生成建议")
-const worldBusy = computed(() => sourceUnavailable.value || chatPending.value || convergencePending.value || explorationPending.value || suggestionPending.value || applyPending.value)
+const worldBusy = computed(() => (
+  sourceUnavailable.value
+  || chatPending.value
+  || convergencePending.value
+  || explorationPending.value
+  || suggestionPending.value
+  || applyPending.value
+  || Boolean(worldTaskProgress.value && !worldTaskProgress.value.terminal)
+))
 const contextSourceText = computed(() => lastContextSource.value === "world" ? "世界设定共创" : lastContextSource.value === "task" ? `任务：${TASK_PRESETS[taskPreset.value]?.label || "自定义任务"}` : "")
 const worldHandoffMarkdown = computed(() => buildWorldHandoffMarkdown({ projectTitle: projectTitle.value, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, convergenceDraft: session.convergenceDraft }))
 const visualBriefMarkdown = computed(() => buildVisualBriefMarkdown({ handoffMarkdown: worldHandoffMarkdown.value, visualBrief: session.visualBrief, convergenceDraft: session.convergenceDraft }))
@@ -601,11 +632,92 @@ async function generateWorldSuggestion(revisesSuggestionId = null) {
   if (explorationSelection.value && (explorationDraft.value?.stale || revisesSuggestionId)) return toast("这条探索只能生成独立建议；材料变化后请重新探索", "warning")
   if (!explorationSelection.value && !session.messages.length && !composer.value.trim()) return toast("请先聊天、粘贴已有对话，或选择一条相邻探索", "warning")
   if (pageProposalDirty.value && !confirm("整页提案仍有未应用的编辑。生成成功后将用新版替换；如果生成失败，当前编辑会继续保留。是否继续？")) return
-  captureComposer(); if (persist()) rememberGenerateContinuation(); suggestionPending.value = true; worldError.value = ""; const scope = owner.begin()
-  try { const payload = currentWorldPayload(); if (revisesSuggestionId) payload.revises_suggestion_id = revisesSuggestionId; if (explorationSelection.value) payload.exploration_selection = { ...explorationSelection.value, source_keys: [...explorationSelection.value.source_keys] }; const response = await api.generate.generateWorldSuggestion(payload, { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; previousWorldResult.value = revisesSuggestionId ? worldResult.value : null; worldResult.value = response?.result || null; sourceRevisionResult.value = response?.source_revision || null; session.suggestionId = response?.result?.suggestion?.id || null; discardPageProposalDraft(); entityContextUsage.value = response?.context_usage || null; const explored = Boolean(explorationSelection.value); dismissExploration(); toast(revisesSuggestionId ? "修订版已进入待处理，旧版已封存" : sourceRevisionResult.value ? "相邻新页与一条来源页修订已进入待处理" : explored ? "所选相邻新页已进入待处理；来源页无需另建修订" : worldResult.value?.kind === "core_entity" ? "世界对象建议已进入待处理" : "世界书整页提案已进入待处理", "success") }
-  catch (err) { if (!owner.isActive(scope)) return; if (err?.status === 409 && explorationDraft.value) explorationDraft.value.stale = true; worldError.value = `生成失败：${err?.message || "未知错误"}`; toast(err?.status === 409 ? "提案、探索材料或来源在生成期间已变化；没有创建过时建议，当前对话和编辑仍保留。" : worldError.value, err?.status === 409 ? "warning" : "error") }
-  finally { owner.finish(scope); suggestionPending.value = false }
+  captureComposer(); if (persist()) rememberGenerateContinuation(); suggestionPending.value = true; worldError.value = ""
+  const operationId = createOperationId()
+  const explored = Boolean(explorationSelection.value)
+  const meta = {
+    session_key: props.sessionKey,
+    target_kind: props.targetKind,
+    source_page_id: props.sourcePageId,
+    revises_suggestion_id: revisesSuggestionId,
+    explored,
+    proposal_draft_baseline: JSON.stringify(session.pageProposalDraft),
+  }
+  persistActiveWorkflow({ taskId: operationId, workflowType: "world_generation_suggestion", label: "生成世界设定建议", projectId: props.projectId, view: "generate", meta }, receiptStorage)
+  worldTaskProgress.value = normalizeTaskProgress({ task_id: operationId, task_type: "world_generation_suggestion", status: "pending" }, "world_generation_suggestion")
+  try {
+    const payload = currentWorldPayload()
+    if (revisesSuggestionId) payload.revises_suggestion_id = revisesSuggestionId
+    if (explorationSelection.value) payload.exploration_selection = { ...explorationSelection.value, source_keys: [...explorationSelection.value.source_keys] }
+    const response = await api.generate.enqueueWorldSuggestion({ ...payload, operation_id: operationId })
+    if (owner.isDisposed()) return true
+    const taskId = response?.task_id || operationId
+    if (taskId !== operationId) {
+      clearActiveWorkflow(operationId, receiptStorage)
+      persistActiveWorkflow({ taskId, workflowType: "world_generation_suggestion", label: "生成世界设定建议", projectId: props.projectId, view: "generate", meta }, receiptStorage)
+    }
+    startWorldTaskPolling(taskId, meta)
+    toast("已开始生成，可以先去处理其他内容", "success")
+    return true
+  } catch (err) {
+    if (Number(err?.status) >= 400 && Number(err?.status) < 500) {
+      clearActiveWorkflow(operationId, receiptStorage)
+      worldTaskPoller?.stop()
+      worldTaskPoller = null
+      if (!owner.isDisposed()) {
+        if (err?.status === 409 && explorationDraft.value) explorationDraft.value.stale = true
+        worldTaskProgress.value = null
+        worldError.value = `生成失败：${err?.message || "未知错误"}`
+        toast(err?.status === 409 ? "提案、探索材料或来源在生成期间已变化；没有创建过时建议，当前对话和编辑仍保留。" : worldError.value, err?.status === 409 ? "warning" : "error")
+      }
+    } else startWorldTaskPolling(operationId, meta)
+    return false
+  } finally { suggestionPending.value = false }
 }
+function startWorldTaskPolling(taskId, meta) {
+  worldTaskPoller?.stop()
+  worldTaskProgress.value = normalizeTaskProgress({ task_id: taskId, task_type: "world_generation_suggestion", status: "pending" }, "world_generation_suggestion")
+  worldTaskPoller = pollTaskProgress({
+    taskId,
+    workflowType: "world_generation_suggestion",
+    novelId: props.projectId,
+    receiptStorage,
+    apiClient: api,
+    onUpdate: (progress) => { if (!owner.isDisposed()) worldTaskProgress.value = progress },
+    onDone: (progress, task) => {
+      clearActiveWorkflow(taskId, receiptStorage)
+      if (owner.isDisposed()) return
+      const response = task?.result || {}
+      worldTaskProgress.value = progress
+      if (JSON.stringify(session.pageProposalDraft) !== meta.proposal_draft_baseline) {
+        previousWorldResult.value = response.result || previousWorldResult.value
+        toast("新建议已生成；当前未应用编辑已保留", "success")
+        return
+      }
+      previousWorldResult.value = meta.revises_suggestion_id ? worldResult.value : null
+      worldResult.value = response.result || null
+      sourceRevisionResult.value = response.source_revision || null
+      session.suggestionId = response.result?.suggestion?.id || null
+      entityContextUsage.value = response.context_usage || null
+      discardPageProposalDraft()
+      dismissExploration()
+      toast(meta.revises_suggestion_id ? "修订版已进入待处理，旧版已封存" : sourceRevisionResult.value ? "相邻新页与一条来源页修订已进入待处理" : meta.explored ? "所选相邻新页已进入待处理；来源页无需另建修订" : worldResult.value?.kind === "core_entity" ? "世界对象建议已进入待处理" : "世界书整页提案已进入待处理", "success")
+    },
+    onFailed: (progress) => {
+      clearActiveWorkflow(taskId, receiptStorage)
+      if (owner.isDisposed()) return
+      worldTaskProgress.value = progress
+      worldError.value = progress.errorMessage || "生成失败，请重新开始"
+    },
+  })
+}
+async function cancelWorldTask() {
+  const taskId = worldTaskProgress.value?.taskId
+  if (!taskId) return false
+  await api.tasks.cancel(taskId, props.projectId)
+  return true
+}
+function dismissWorldTask() { worldTaskProgress.value = null }
 async function applyWorldPage(payload) {
   if (worldBusy.value) return false
   const suggestionId = worldResult.value?.suggestion?.id || session.suggestionId; if (!suggestionId || worldResult.value?.kind === "core_entity") return
@@ -624,16 +736,18 @@ function openReview() { router.navigate("world", "review-objects", true) }
 async function changePovChapter(value) { const chapterIndex = value ? Number(value) : null; const generation = ++povSceneGeneration; povForm.value = { ...povForm.value, chapterIndex, sceneId: "", viewpointCharacterId: "" }; povSubmission.value = null; pov.scenes = []; if (!chapterIndex) return; const scope = owner.begin(); try { const data = await api.outline.listScenesByChapter(props.projectId, chapterIndex); if (generation === povSceneGeneration && Number(povForm.value.chapterIndex) === chapterIndex && owner.isActive(scope)) pov.scenes = Array.isArray(data) ? data : data?.items || [] } catch (err) { if (generation === povSceneGeneration && Number(povForm.value.chapterIndex) === chapterIndex && owner.isActive(scope)) pov.warning = `加载场景失败：${err?.message || "未知错误"}` } finally { owner.finish(scope) } }
 function changePovScene(id) { const scene = pov.scenes.find((item) => item.id === id); povForm.value = { ...povForm.value, sceneId: id || "", viewpointCharacterId: scene?.pov_character_id || "" }; povSubmission.value = null }
 function abortableDelay(ms, signal) { return new Promise((resolve, reject) => { const timer = setTimeout(resolve, ms); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")) }, { once: true }) }) }
-async function waitForPovTask(taskId, scope) { while (owner.isActive(scope)) { let task; try { task = await api.tasks.get(taskId, props.projectId) } catch (err) { if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); await abortableDelay(1500, scope.controller.signal); continue } if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); povProgress.value = Number(task?.progress || 0); if (task?.status === "done") { if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载"); return task } if (task?.status === "failed") throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败"); if (task?.status === "cancelled") throw new Error("角色视角正文生成已取消"); await abortableDelay(1500, scope.controller.signal) } throw new DOMException("Aborted", "AbortError") }
+async function waitForPovTask(taskId, scope) { while (owner.isActive(scope)) { let task; try { task = await api.tasks.get(taskId, props.projectId) } catch (err) { if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); if (Number(err?.status) === 404) { clearActiveWorkflow(taskId, receiptStorage); throw new Error("未找到原任务，请重新开始。") } await abortableDelay(1500, scope.controller.signal); continue } if (!owner.isActive(scope)) throw new DOMException("Aborted", "AbortError"); povProgress.value = Number(task?.progress || 0); if (task?.status === "done") { if (!task.result?.draft_id) throw new Error("任务已完成，但正文建议未能加载"); return task } if (task?.status === "failed") { clearActiveWorkflow(taskId, receiptStorage); throw new Error(task.error_message || task.result?.error_message || "角色视角正文生成失败") } if (task?.status === "cancelled") { clearActiveWorkflow(taskId, receiptStorage); throw new Error("角色视角正文生成已取消") } await abortableDelay(1500, scope.controller.signal) } throw new DOMException("Aborted", "AbortError") }
 async function generatePov() {
   if (povPending.value) return false
   const form = { ...povForm.value }; if (!form.chapterIndex) return toast("请先选择章节", "warning"); if (!form.sceneId) return toast("请先选择场景", "warning"); if (!form.viewpointCharacterId) return toast("请先选择视角角色", "warning")
   povPending.value = true; povProgress.value = null; povError.value = ""; const scope = owner.begin()
-  try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选场景和视角角色的有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0 }); if (!owner.isActive(scope)) return; let result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(form.instruction, confirmation.user_note), context_confirmation_id: confirmation.id }); if (!owner.isActive(scope)) return; if (result?.task_id && !result?.draft_id) { const task = await waitForPovTask(result.task_id, scope); result = { ...result, ...(task.result || {}), task_status: task.status } } if (!owner.isActive(scope)) return; povSubmission.value = { result, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId }; toast("角色视角正文建议已生成", "success") }
+  try { const confirmation = await confirmAiReference({ novel_id: props.projectId, action: "writing.generate", task: "基于所选场景和视角角色的有限认知，生成正文建议预览", scope: "chapter", chapter_index: form.chapterIndex, scene_id: form.sceneId, reveal_mode: "character", viewpoint_character_id: form.viewpointCharacterId, character_ids: [form.viewpointCharacterId], include_pending_objects: false, budget_tokens: 0 }); if (!owner.isActive(scope)) return; const operationId = createOperationId(); const meta = { kind: "pov_prose", sessionKey: props.sessionKey, chapterIndex: form.chapterIndex, sceneId: form.sceneId, viewpointCharacterId: form.viewpointCharacterId, sceneLabel: pov.scenes.find((item) => item.id === form.sceneId)?.title || "", roleLabel: pov.characters.find((item) => characterId(item) === form.viewpointCharacterId)?.name || "" }; persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage); povTaskId.value = operationId; let result; try { result = await api.writing.generate({ novel_id: props.projectId, chapter_index: form.chapterIndex, title: pov.chapters.find((item) => Number(item.chapter_index) === Number(form.chapterIndex))?.title || `第 ${form.chapterIndex} 章`, instruction: buildPovInstruction(form.instruction, confirmation.user_note), context_confirmation_id: confirmation.id, operation_id: operationId }) } catch (err) { if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); throw err } result = { task_id: operationId } } if (!owner.isActive(scope)) return; const taskId = result?.task_id || operationId; if (taskId !== operationId) { clearActiveWorkflow(operationId, receiptStorage); persistActiveWorkflow({ taskId, workflowType: "writing_generate", label: "生成角色视角正文", projectId: props.projectId, view: "generate", meta }, receiptStorage) } const task = await waitForPovTask(taskId, scope); result = { ...result, ...(task.result || {}), task_status: task.status }; if (!owner.isActive(scope)) return; povSubmission.value = { result, ...meta }; toast("角色视角正文建议已生成", "success") }
   catch (err) { if (!owner.isActive(scope) || err?.name === "AbortError") return; if (err?.message === "已取消 AI 参考资料确认") return; povError.value = err?.message || "未知错误"; toast(`角色视角正文生成失败：${povError.value}`, "error") }
-  finally { owner.finish(scope); povPending.value = false }
+  finally { owner.finish(scope); povPending.value = false; povTaskId.value = null }
 }
-function openPovResult(submission) { const draftId = submission?.result?.draft_id || submission?.result?.draft?.id || ""; appState.viewStates.writing = { projectId: props.projectId, currentChapter: submission.chapterIndex, currentDraftId: draftId || null, isReadonly: Boolean(draftId) }; const query = new URLSearchParams({ chapter_index: String(submission.chapterIndex) }); if (draftId) query.set("draft_id", draftId); router.navigate("writing", null, true, query) }
+async function cancelPovTask() { if (!povTaskId.value) return false; await api.tasks.cancel(povTaskId.value, props.projectId); return true }
+async function recoverPovTask(workflow) { povPending.value = true; povProgress.value = null; povError.value = ""; povTaskId.value = workflow.taskId; const scope = owner.begin(); try { const task = await waitForPovTask(workflow.taskId, scope); if (!owner.isActive(scope)) return; povSubmission.value = { result: task.result || {}, ...(workflow.meta || {}) }; toast("已恢复角色视角正文建议", "success") } catch (err) { if (owner.isActive(scope) && err?.name !== "AbortError") { povError.value = err?.message || "未知错误"; toast(`角色视角正文生成失败：${povError.value}`, "error") } } finally { owner.finish(scope); povPending.value = false; povTaskId.value = null } }
+function openPovResult(submission) { const draftId = submission?.result?.draft_id || submission?.result?.draft?.id || ""; const workflow = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "generate" && item.meta?.kind === "pov_prose" && item.meta?.sessionKey === props.sessionKey); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); appState.viewStates.writing = { projectId: props.projectId, currentChapter: submission.chapterIndex, currentDraftId: draftId || null, isReadonly: Boolean(draftId) }; const query = new URLSearchParams({ chapter_index: String(submission.chapterIndex) }); if (draftId) query.set("draft_id", draftId); router.navigate("writing", null, true, query) }
 function openPovWriting() { router.navigate("writing") }
 
 function selectTaskPreset(key) { if (!TASK_PRESETS[key]) return; taskPreset.value = key; taskForm.value = applyTaskPreset(taskForm.value, key) }
@@ -776,5 +890,10 @@ async function openChapterPicker() {
 }
 function viewGenerationContext(kind) { const usage = kind === "chat" ? chatContextUsage.value : entityContextUsage.value; if (!usage) return toast("本次生成没有返回可审计的上下文记录", "warning"); const body = `<div class="generate-context-header"><span class="generate-context-stat">${esc(usage.section_key || "world_bible_synopsis")}</span><span class="generate-context-meta">状态：${esc(usage.status || "unknown")}</span><span class="generate-context-meta">Tokens：${esc(usage.token_count || 0)}</span></div><table class="data-table"><tbody><tr><th>Revision</th><td>${esc(usage.revision_id || "确定性降级/未包含")}</td></tr><tr><th>Source hash</th><td>${esc(usage.source_hash || "-")}</td></tr><tr><th>Block hash</th><td>${esc(usage.block_hash || "-")}</td></tr><tr><th>Context snapshot</th><td>${esc(usage.context_snapshot_id || "-")}</td></tr><tr><th>Stale</th><td>${usage.stale ? "是" : "否"}</td></tr><tr><th>Fallback</th><td>${usage.fallback ? "是" : "否"}</td></tr></tbody></table>`; openOwnedModal("本次实际使用的上下文", body, [], { size: "large" }) }
 
-onBeforeUnmount(() => { disarmBeforeUnload(); persist(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
+const recoveredWorldTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "world_generation_suggestion" && item.meta?.session_key === props.sessionKey)
+if (recoveredWorldTask) startWorldTaskPolling(recoveredWorldTask.taskId, recoveredWorldTask.meta)
+const recoveredPovTask = recoverActiveWorkflows(props.projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "generate" && item.meta?.kind === "pov_prose" && item.meta?.sessionKey === props.sessionKey)
+if (recoveredPovTask) void recoverPovTask(recoveredPovTask)
+
+onBeforeUnmount(() => { disarmBeforeUnload(); persist(); worldTaskPoller?.stop(); owner.dispose(); if (ownsModal(ownedModal)) closeModal() })
 </script>

@@ -58,6 +58,7 @@ def _new_task(
     progress: float,
     coalescing_key: str | None,
     novel_id: str | None,
+    task_id: uuid.UUID | None = None,
 ) -> AsyncTask:
     definition = TaskRegistry().get_definition(task_type)
     if novel_id is None and task_novel_id_from_meta(meta) is not None:
@@ -69,7 +70,7 @@ def _new_task(
         if definition.owner_scope == "global" and task_novel_id is not None:
             raise ValueError("global tasks must not have a novel_id")
     return AsyncTask(
-        id=uuid.uuid4(),
+        id=task_id or uuid.uuid4(),
         task_type=task_type,
         status=status,
         novel_id=task_novel_id,
@@ -79,6 +80,117 @@ def _new_task(
         max_attempts=definition.max_attempts if definition else 1,
         attempt=0,
         coalescing_key=coalescing_key,
+    )
+
+
+def build_task_submission_fingerprint(payload: Any) -> str:
+    """Build the canonical receipt fingerprint for one frozen request."""
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _validate_operation_task(
+    task: AsyncTask,
+    *,
+    task_type: str,
+    novel_id: str,
+    submission_fingerprint: str,
+) -> None:
+    meta = dict(task.meta or {})
+    if (
+        str(task.task_type) != task_type
+        or str(task.novel_id) != str(uuid.UUID(str(novel_id)))
+        or meta.get("operation_fingerprint") != submission_fingerprint
+    ):
+        raise ValueError("operation_id cannot be reused with a different request")
+
+
+async def enqueue_operation_task(
+    db: AsyncSession,
+    *,
+    operation_id: str,
+    task_type: str,
+    novel_id: str,
+    submission_fingerprint: str,
+    meta: dict[str, Any] | None = None,
+) -> CoalescedTaskContract:
+    """Create or recover one exact task receipt, including terminal tasks."""
+    task_id = uuid.UUID(str(operation_id))
+    normalized_novel_id = str(uuid.UUID(str(novel_id)))
+    existing = await db.get(AsyncTask, task_id)
+    if existing is not None:
+        _validate_operation_task(
+            existing,
+            task_type=task_type,
+            novel_id=normalized_novel_id,
+            submission_fingerprint=submission_fingerprint,
+        )
+        return CoalescedTaskContract(
+            task_id=str(existing.id),
+            status=str(existing.status),
+            reused=True,
+        )
+    task = _new_task(
+        task_id=task_id,
+        task_type=task_type,
+        meta={**(meta or {}), "operation_fingerprint": submission_fingerprint},
+        status="pending",
+        progress=0.0,
+        coalescing_key=None,
+        novel_id=normalized_novel_id,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(task)
+            await db.flush()
+    except IntegrityError:
+        existing = await db.get(AsyncTask, task_id, populate_existing=True)
+        if existing is None:
+            raise
+        _validate_operation_task(
+            existing,
+            task_type=task_type,
+            novel_id=normalized_novel_id,
+            submission_fingerprint=submission_fingerprint,
+        )
+        return CoalescedTaskContract(
+            task_id=str(existing.id),
+            status=str(existing.status),
+            reused=True,
+        )
+    return CoalescedTaskContract(task_id=str(task.id), status="pending", reused=False)
+
+
+async def get_operation_task(
+    db: AsyncSession,
+    *,
+    operation_id: str | None,
+    task_type: str,
+    novel_id: str,
+    submission_fingerprint: str,
+) -> CoalescedTaskContract | None:
+    """Return an exact existing receipt before mutable domain validation."""
+    if not operation_id:
+        return None
+    task = await db.get(AsyncTask, uuid.UUID(str(operation_id)))
+    if task is None:
+        return None
+    _validate_operation_task(
+        task,
+        task_type=task_type,
+        novel_id=novel_id,
+        submission_fingerprint=submission_fingerprint,
+    )
+    return CoalescedTaskContract(
+        task_id=str(task.id),
+        status=str(task.status),
+        reused=True,
     )
 
 
