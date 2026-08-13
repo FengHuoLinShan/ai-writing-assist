@@ -406,6 +406,7 @@ def test_architecture_docs_rechecks_pr_body_edits() -> None:
         "reopened",
         "edited",
     ]
+    assert workflow["on"]["push"] == {"branches": ["main"]}
 
 
 def test_default_test_target_accepts_native_pytest_selection() -> None:

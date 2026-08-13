@@ -635,7 +635,7 @@ R02 还要验证作者知识层级：故事层可以使用便于叙事的称呼�
 
 **验收**
 
-- 回放夹具可在没有 Vault 的环境运行。
+- 真实 creation-replay runner 建立后，其脱敏输入可在没有 Vault 的环境运行。
 - 数据来源、脱敏规则、预期行为和失败解释可审查。
 - 结果区分确定性正确性、模型质量和产品可用性，不混成一个总分。
 
@@ -1125,12 +1125,12 @@ R14 只允许 LLM Wiki／RAG 在确定性 coverage 已明确为 gap 后，帮助
 
 ### Phase 0：回放基线与 UX 规格（1 个小批次）
 
-- 按 7.8 定义 R01—R14 的脱敏输入、期望读模型、禁止结果和指标；先实现覆盖主链的最小夹具，不复制 Vault schema。
+- 按 7.8 定义 R01—R14 的脱敏输入、期望读模型、禁止结果和指标；先用现有直接测试覆盖主链，真实 creation-replay runner 存在后才维护最小脱敏输入，不复制 Vault schema。
 - 记录现有“今日工作→世界书／生成中心→确认→采用→重检”的点击、回合、耗时和错误恢复基线。
 - 用现有组件／视觉测试方式补“今日工作”世界观 continuation、决定状态、收束预览、最低充分回应、单一纵切、意图视图、三类校验、R07 四步视觉动作、R13 POV 认知预演和 R14“当时可证／人物所信／当前正典”静态规格；R03 用 180 项覆盖清单测试“全覆盖但只显示少量决定”。
 - 不改 schema，不新增依赖。
 
-**退出条件**：回放可离线运行；R01—R14 都有可审查规格，自动夹具至少覆盖恢复、拒绝项、未决项、选择性采用、候选修订、最低充分回应、单一纵切、有界探索、显式反向影响、POV 知识升级／误信隔离、Scene 时点 coverage／current fallback 禁止、stale baseline／scope，以及校验项的“当前不激活／历史”路由。
+**退出条件**：R01—R14 都有可审查规格，现有直接测试至少覆盖恢复、拒绝项、未决项、选择性采用、候选修订、最低充分回应、单一纵切、有界探索、显式反向影响、POV 知识升级／误信隔离、Scene 时点 coverage／current fallback 禁止、stale baseline／scope，以及校验项的“当前不激活／历史”路由；真实 runner 建立后再要求回放可离线运行。
 
 ### Phase 1：P0 作者闭环（2—3 个小批次）
 
@@ -1273,13 +1273,13 @@ R14 只允许 LLM Wiki／RAG 在确定性 coverage 已明确为 gap 后，帮助
 - R12 最低充分：chat system Prompt 落「默认最低充分、一句灵感先给可评价方向、框架领先实例只做一条纵切」纪律。
 - R13 Scene 认知预演：同一角色／target 确定性当前检查点（公开基线最早、`source_chapter_index < target_chapter` 最晚胜出、同位置 `updated_at`+稳定 ID 决胜）+ 角色卡知识进程 UI + POV 确认展开完整 `role_visible_knowledge` 并就地修复。
 - R14 Scene 时点预演：`scene_world_state` context section（`ready`/人工确认维度才进入模型，gap 显式省略）+ `scene_state_fingerprint` 执行前重算 + `MemoryRecordsLoader` dict/list 合同修复。
-- 问世界：`POST /api/world/ask-world` + citations 打开 + 保存为建议；确定性离线证据门禁 `backend/evals/ask_world.py`（五门：visibility_leakage=0 / source_hash_validity=1.0 / citation_open_rate=1.0 / p_at_5≥0.8 / no_answer_false_positive_rate≤0.05）。
+- 问世界：`POST /api/world/ask-world` + citations 打开 + 保存为建议；确定性离线证据门禁 `backend/evals/ask_world.py`（四门：source_hash_validity=1.0 / citation_open_rate=1.0 / p_at_5≥0.8 / no_answer_false_positive_rate≤0.05）。
 
 **本轮补强（2026-08-13，基于上述分支）**：
 
 - 分支健康验证：后端定向集 281 passed、`make test-fast` 4823 passed、`make test-ci` 全绿（coverage 88.2% ≥ 85% 门槛）、`make docs-check BASE_REF=origin/main` 无架构敏感改动、前端 vitest 1874 passed；Playwright/PG critical 交 CI。零修复。
-- 问世界门禁：数据集 9 → 23 行（正例 16 + 负例 7：单源/多源多跳/干扰密度阶梯 1-4-8/近失负例/reader 与跨 novel 隔离变体/边界歧义含 1 个 p@5=0.5 部分命中例）；runner hash 校验从 ranked 上移到 eligible 全集；测试增补 visibility 敏感性、低分干扰坏 hash、open_hash 缺失、blocklist 扩展；门禁实测 `p_at_5=0.96875`、`no_answer_false_positive_rate=0.0`、其余三门 0/1.0/1.0、`ready=true`。另建 `ask-world-model-probes-v1.jsonl`（7 行，同 schema，不接门禁）供未来模型质量层。
-- R01–R14 脱敏回放夹具：`backend/evals/datasets/replays/` 14 个夹具 + README + 10 个结构守卫测试（进 `make eval-fast`，现 98 passed）。夹具只做数据层不驱动 pytest；71 条 pytest 引用逐一核实真实存在；批量源用 `source_manifest_rule` 声明（R03 的 180 项、R06 的 5 包 205,256 字节账目）；全目录 blocklist 扫描（Vault 专名/路径/控制字符）双通道零命中。
+- 问世界门禁：数据集 9 → 23 行（正例 16 + 负例 7：单源/多源多跳/干扰密度阶梯 1-4-8/近失负例/reader 与跨 novel 隔离变体/边界歧义含 1 个 p@5=0.5 部分命中例）；runner hash 校验从 ranked 上移到 eligible 全集；测试增补负例误答、低分干扰坏 hash、open_hash 缺失、blocklist 扩展；门禁实测 `p_at_5=0.96875`、`no_answer_false_positive_rate=0.0`、hash/open 两门 1.0/1.0、`ready=true`。另建 `ask-world-model-probes-v1.jsonl`（7 行，同 schema，不接门禁）供未来模型质量层。
+- R01–R14 行为继续由对应 Pytest、Vitest 与 Playwright 直接覆盖；无 runner 的重复回放数据和只验证自身格式的结构测试已删除，待真实 creation-replay runner 存在时再建立输入合同。
 - CI 接入：`backend-ci.yml` backend-quality job 增加非阻断（`continue-on-error`）的 `make eval-ask-world` 门禁 step + 报告 artifact 上传；`eval-ask-world` Makefile 目标改用锁定 CI 环境（对齐 lint/test-deploy 的 `BACKEND_LOCKED_CI_RUN` 模式），本地与 CI 行为一致。Makefile 改动保守触发 `architecture-governance` 影响规则：目标范围与文档声明不变（仍是同一组契约测试 + 确定性证据门禁），PR 按模板勾选「已逐项核对未更新文档，确认无当前架构影响」并附说明。
 
 **仍未落地（维持原计划门槛）**：
@@ -1289,7 +1289,7 @@ R14 只允许 LLM Wiki／RAG 在确定性 coverage 已明确为 gap 后，帮助
 - 10.x 问世界模型质量层（回答忠实度人工审查/judge 校准）：数据已备（model-probes），judge 校准达标前不设自动门。
 - `evals/tests` 纳入 `BACKEND_FAST_TESTS` 转 CI 阻断：数据集稳定后作为独立决策。
 
-**复用 seam 映射**（协议第 3 步）：收束复用 `WorldGenerationRequestBase`/decision compiler/`pasted_context`；修订复用 pending CAS + compatibility shadow 封存；检修复用 `conflict_check_queue` + 现有任务队列；影响预演复用 `linked_asset_refs_json`/page baseline/现有 stale 钩子；R13 复用 `CharacterKnowledge` 既有 list/create/update + 章节截止；R14 复用五维 checkpoint/`ensure_scene_checkpoints`/地图修复面板；问世界复用 RAG 召回 + evidence 回读；回放夹具复用 `evals` 现有数据集/守卫测试通道。
+**复用 seam 映射**（协议第 3 步）：收束复用 `WorldGenerationRequestBase`/decision compiler/`pasted_context`；修订复用 pending CAS + compatibility shadow 封存；检修复用 `conflict_check_queue` + 现有任务队列；影响预演复用 `linked_asset_refs_json`/page baseline/现有 stale 钩子；R13 复用 `CharacterKnowledge` 既有 list/create/update + 章节截止；R14 复用五维 checkpoint/`ensure_scene_checkpoints`/地图修复面板；问世界复用 RAG 召回 + evidence 回读。
 
 **声明**（协议第 6 步）：未修改真名回响 Vault、正典、候选、校验器或引擎；未新增评测框架、未新增 make eval-* 命令、未新建顶级模块或数据库表；研究样本只读原则不变。
 
@@ -1627,7 +1627,7 @@ R13／R14 不进入模型质量层：模型不负责判断人物应当知道什�
 - **R12 不伪装成结构化合同**：chat 业务写入 `0`、owner 零越权、旧 wire 不变是确定性红灯；“三至七条条件”“最多一个问题”“一个锚点”属于模型／人工 diagnostic，未达到稳定性时不通过额外重试制造成本，也不把偶发格式差异写成 API 失败。
 - **模型质量分项报告**：目标保留、否定项复活、未决项写死、纠错保留、冲突分流、引用忠实、最低充分回应、锚点一致和无依据新增各自展示；禁止压成“世界书质量 87 分”。
 - **先建有区分力的样本再设提升目标**：每个需要模型判断的场景至少同时有应通过、应拒绝／修订和边界歧义例；当前 judge 缺少负标签支持，未达到仓库既有校准门槛前保持非阻断。
-- **“问世界”上线门槛**：目标数据集至少保持 visibility leakage `=0`、source hash validity `=1.0`、可见引用打开率 `=1.0`，并达到仓库既有 `p_at_5>=0.8`、`no_answer_false_positive_rate<=0.05`；指标不可用视为未通过，不以零或抽取 precision 代替。
+- **“问世界”上线门槛**：目标数据集至少保持 source hash validity `=1.0`、可见引用打开率 `=1.0`，并达到仓库既有 `p_at_5>=0.8`、`no_answer_false_positive_rate<=0.05`；指标不可用视为未通过，不以零或抽取 precision 代替。
 - **可用性先记现状**：点击数、耗时、错误恢复、决定数和退回原因先在同一已导入项目上记录旧版基线，再比较新版；没有独立作者样本时只称“产品假设／走查结果”，不称用户验证。
 
 ### 17.5 可执行验证入口

@@ -140,7 +140,10 @@ def test_split_ci_workflows_keep_triggers_permissions_and_unique_concurrency() -
     ) in SPLIT_WORKFLOW_CONTRACTS.items():
         workflow = _load_yaml(path)
         assert workflow["name"] == name
-        assert workflow["on"] == {"pull_request": ""}
+        assert workflow["on"] == {
+            "pull_request": "",
+            "push": {"branches": ["main"]},
+        }
         assert workflow["permissions"] == {"contents": "read"}
         assert workflow["concurrency"] == {
             "group": concurrency_group,
@@ -170,6 +173,17 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
         "--workers=1 --retries=0"
     )
     assert steps["Upload frontend functional browser diagnostics"]["if"] == "failure()"
+
+
+def test_ask_world_report_is_written_to_the_uploaded_backend_path() -> None:
+    workflow = _load_yaml(REPOSITORY_ROOT / ".github/workflows/backend-ci.yml")
+    steps = {step["name"]: step for step in workflow["jobs"]["backend-quality"]["steps"]}
+
+    ask_world = steps["Ask World offline launch gate (non-blocking diagnostic)"]
+    assert ask_world["run"].endswith("OUTPUT=evals/artifacts/ask-world-gate.json")
+    assert steps["Upload Ask World gate report"]["with"]["path"] == (
+        "backend/evals/artifacts/ask-world-gate.json"
+    )
 
 
 def test_codeql_workflow_uses_least_privilege_matrix_analysis() -> None:

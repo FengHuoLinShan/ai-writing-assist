@@ -46,7 +46,7 @@ Three layers:
 |---|---|---|
 | `make test` | Modules, infrastructure, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and visibility thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
+| `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, tasks, routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
 | `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
@@ -87,9 +87,8 @@ green. Do not run overlapping aggregate targets back-to-back.
    acceptance gates.
 
 Every non-trivial branch still finishes with `make docs-check BASE_REF=origin/main` and
-`git diff --check`. GitHub runs the complete functional browser suite once per PR; strict branch
-protection requires that result to cover the current base before merge, so the merged `main` SHA
-does not repeat the same suite.
+`git diff --check`. GitHub runs the same merge gates on pull requests and the resulting `main`
+push, so the exact fixed SHA accepted by the release script has its own integration evidence.
 
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
@@ -99,8 +98,8 @@ The Ask World launch command is explicit release evidence in addition to the ful
 suite. It first runs the actual API contract tests, then emits an offline report
 whose quality scope is limited to evidence ranking and dataset integrity. Neither
 part stands in for human review of prose usefulness or factual synthesis. R01–R14
-product behavior remains covered by the affected Pytest, Vitest, and Playwright
-paths; a fixture that only repeats expected states is not a product gate.
+product behavior remains covered directly by the affected Pytest, Vitest, and
+Playwright paths; duplicate replay data is not maintained without a runner.
 
 The Kimi targets fail before collection when any required flag, key, cost
 approval, context-limit value, or dedicated database URL is absent. They do not
@@ -130,7 +129,7 @@ reduced-motion、workers=1 和 retries=0；默认像素差异上限为 0.5%。�
 
 ### Continuous integration
 
-GitHub Actions 在 pull request 上并行运行三个职责清晰的主工作流：
+GitHub Actions 在 pull request 与 `main` push 上并行运行三个职责清晰的主工作流：
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
 `Frontend unit quality` 与 `Frontend functional browser`，`Production Image CI` 包含
 `Production image contract`。

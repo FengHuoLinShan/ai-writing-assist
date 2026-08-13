@@ -3,6 +3,9 @@ name: Architecture docs
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -23,7 +26,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate current architecture inventory
+        if: github.event_name != 'pull_request'
+        run: python3 scripts/check_architecture_docs.py
+
       - name: Validate pull request architecture impact
+        if: github.event_name == 'pull_request'
         env:
           ARCHITECTURE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: >-
