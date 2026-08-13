@@ -236,4 +236,5 @@ async def test_reused_node_keeps_canonical_metadata_until_candidate_adoption(
         "level": "city",
         "summary": "新摘要",
         "sort_order": 0,
+        "base_node_updated_at": reused.updated_at.isoformat().replace("+00:00", "Z"),
     }

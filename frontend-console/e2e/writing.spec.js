@@ -976,7 +976,7 @@ test.describe("写作台模块", () => {
     await waitWritingReady(page, { chapter: 1 })
 
     await page.locator('[data-action="writing-ai-menu"]').click()
-    const sceneExtraction = page.getByRole("button", { name: "整理场景" })
+    const sceneExtraction = page.getByRole("button", { name: "先整理场景骨架（推荐）" })
     await expect(sceneExtraction).toBeVisible()
     await expect(sceneExtraction).toHaveCount(1)
 

@@ -3,7 +3,7 @@
  * 替代原 views/worldView.js + views/worldBibleView.js。
  *
  * load() 对应 vanilla onEnter（worldView.js:234-283）+ render 阶段各子标签的
- * 数据加载（L713-742）：通用链（entityTypes → reviewTypeCatalog → reviewCounts）
+ * 数据加载（L713-742）：通用数据（entityTypes / reviewTypeCatalog / reviewCounts）
  * 全子标签执行，业务数据按当前子标签预取（vanilla 是全量预取+按标签渲染，
  * 未见差异——各标签只渲染自己的数据，标题计数见 WorldView computed）。
  */
@@ -162,67 +162,79 @@ export async function loadWorld() {
       pageId: query.get("page_id") || "",
       openSuggestions: query.get("open") === "suggestions",
       suggestionId: query.get("suggestion_id") || "",
+      adoptionPackageId: query.get("adoption_package_id") || "",
     },
     knowledgeCharacterId: query.get("knowledge_character_id") || "",
   }
   if (!projectId || !api?.world) return props
 
-  // vanilla onEnter 串行链前两步（worldView.js:270-271）
-  try {
-    const result = await api.world.listEntityTypes(projectId)
-    if (Array.isArray(result?.items) && result.items.length) {
-      const byValue = new Map(SYSTEM_ENTITY_TYPE_FALLBACK.map((item) => [item.value, item]))
-      for (const item of result.items) byValue.set(item.value, item)
-      props.entityTypes = Array.from(byValue.values())
-    }
-  } catch {
-    toast("类型目录加载失败，暂时使用系统类型", "warning")
-  }
-  try {
-    const catalog = await api.world.getReviewTypeCatalog()
-    if (catalog?.alias_types?.length && catalog?.relation_types?.length) {
-      props.reviewTypeCatalog = catalog
-    }
-  } catch {
-    // 推荐目录不可用时保留开放字符串和本地常用项，不阻断复核。
-  }
-
-  // header 待处理计数（全子标签，worldView.js:318-338）
-  try {
-    const [objects, aliases, relations] = await Promise.all([
-      api.world.listEntities({ novel_id: projectId, display_state: "review", skip: 0, limit: 1 }),
-      api.world.listAliases({ novel_id: projectId, display_state: "review", skip: 0, limit: 1 }),
-      api.world.listRelationships({ novel_id: projectId, status: "candidate", skip: 0, limit: 1 }),
-    ])
-    props.reviewCounts = {
-      objects: Number(objects?.total || 0),
-      aliases: Number(aliases?.total || 0),
-      relations: Number(relations?.total || 0),
-    }
-  } catch {
-    // vanilla 回退到各列表 total；per-tab 加载下保留 0（worldView.js:332-337）。
-  }
+  await Promise.all([
+    (async () => {
+      try {
+        const result = await api.world.listEntityTypes(projectId)
+        if (Array.isArray(result?.items) && result.items.length) {
+          const byValue = new Map(SYSTEM_ENTITY_TYPE_FALLBACK.map((item) => [item.value, item]))
+          for (const item of result.items) byValue.set(item.value, item)
+          props.entityTypes = Array.from(byValue.values())
+        }
+      } catch {
+        toast("类型目录加载失败，暂时使用系统类型", "warning")
+      }
+    })(),
+    (async () => {
+      try {
+        const catalog = await api.world.getReviewTypeCatalog()
+        if (catalog?.alias_types?.length && catalog?.relation_types?.length) {
+          props.reviewTypeCatalog = catalog
+        }
+      } catch {
+        // 推荐目录不可用时保留开放字符串和本地常用项，不阻断复核。
+      }
+    })(),
+    (async () => {
+      try {
+        const [objects, aliases, relations] = await Promise.all([
+          api.world.listEntities({ novel_id: projectId, display_state: "review", skip: 0, limit: 1 }),
+          api.world.listAliases({ novel_id: projectId, display_state: "review", skip: 0, limit: 1 }),
+          api.world.listRelationships({ novel_id: projectId, status: "candidate", skip: 0, limit: 1 }),
+        ])
+        props.reviewCounts = {
+          objects: Number(objects?.total || 0),
+          aliases: Number(aliases?.total || 0),
+          relations: Number(relations?.total || 0),
+        }
+      } catch {
+        // vanilla 回退到各列表 total；per-tab 加载下保留 0（worldView.js:332-337）。
+      }
+    })(),
+  ])
 
   // 子标签数据（vanilla render 阶段按子标签加载）
   if (subView === "objects") {
-    try {
-      const targetEntityId = query.get("entity_id") || ""
-      const data = targetEntityId
-        ? await api.world.getEntity(targetEntityId, projectId)
-        : await api.world.listEntities(entityListParams(projectId, objectFilters, discoveryMode))
-      props.entities = targetEntityId ? [data] : (data.items || data || [])
-      props.entitiesTotal = targetEntityId ? 1 : (data.total ?? props.entities.length)
-      props.rankingFacets = data.facets ?? null
-      props.rankingContext = data.ranking_context ?? null
-    } catch (err) {
-      props.entitiesLoadError = err?.message || "加载失败"
-      toast("世界对象加载失败，可稍后重试", "warning")
-    }
-    try {
-      props.batches = await api.world.listEntityBatches({ novel_id: projectId })
-    } catch {
-      props.batches = []
-    }
+    await Promise.all([
+      (async () => {
+        try {
+          const targetEntityId = query.get("entity_id") || ""
+          const data = targetEntityId
+            ? await api.world.getEntity(targetEntityId, projectId)
+            : await api.world.listEntities(entityListParams(projectId, objectFilters, discoveryMode))
+          props.entities = targetEntityId ? [data] : (data.items || data || [])
+          props.entitiesTotal = targetEntityId ? 1 : (data.total ?? props.entities.length)
+          props.rankingFacets = data.facets ?? null
+          props.rankingContext = data.ranking_context ?? null
+        } catch (err) {
+          props.entitiesLoadError = err?.message || "加载失败"
+          toast("世界对象加载失败，可稍后重试", "warning")
+        }
+      })(),
+      (async () => {
+        try {
+          props.batches = await api.world.listEntityBatches({ novel_id: projectId })
+        } catch {
+          props.batches = []
+        }
+      })(),
+    ])
   } else if (reviewSubView === "review-objects") {
     try {
       const data = await api.world.listEntities(candidateListParams(projectId, props.candidateFilters))

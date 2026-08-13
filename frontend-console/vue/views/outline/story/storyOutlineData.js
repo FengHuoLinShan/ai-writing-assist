@@ -162,12 +162,6 @@ export function validateStoryOutlineTaskResult(raw) {
   ))
 }
 
-function formatDate(value) {
-  if (!value) return "时间未知"
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("zh-CN")
-}
-
 // ---- 模块级任务管理器 ----
 
 /**

@@ -6,7 +6,6 @@ export const defaultTestState = Object.freeze({
   currentView: "project",
   currentSubView: null,
   selectedItem: null,
-  selectedItems: [],
   mode: "NORMAL",
   projects: [],
   viewStates: {},
@@ -14,7 +13,6 @@ export const defaultTestState = Object.freeze({
   error: null,
   toast: null,
   backendConnected: true,
-  cache: {},
 })
 
 /**

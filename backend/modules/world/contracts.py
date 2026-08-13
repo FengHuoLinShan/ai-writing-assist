@@ -79,11 +79,33 @@ class WorldAttentionSummaryContract:
 
     @property
     def total(self) -> int:
-        return (
-            self.world_objects
-            + self.world_aliases
-            + self.world_relations
-        )
+        return self.world_objects + self.world_aliases + self.world_relations
+
+
+@dataclass(frozen=True)
+class PostImportSceneSourceContract:
+    """Frozen Scene evidence supplied by imports at finalization."""
+
+    scene_id: str
+    source_hash: str
+    range_start: int | None = None
+    range_end: int | None = None
+    entity_ids: tuple[str, ...] = ()
+    relation_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PostImportWorldAdoptionRequestContract:
+    novel_id: str
+    workflow_id: str
+    authorization_ref: str
+    scene_sources: list[PostImportSceneSourceContract] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PostImportWorldAdoptionResultContract:
+    suggestion_id: str
+    created: bool
 
 
 @dataclass(frozen=True)

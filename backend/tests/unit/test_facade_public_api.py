@@ -8,6 +8,7 @@ from modules.world import contracts as world_contracts
 from modules.world import facade as world_facade
 
 WORLD_FACADE_API = {
+    "assemble_post_import_adoption_package",
     "append_candidate_alias",
     "apply_entity_fusion",
     "apply_entity_fusion_group",
@@ -85,6 +86,7 @@ OUTLINE_FACADE_API = {
     "get_reader_reveal_decision",
     "get_scene",
     "get_scene_context_window",
+    "get_scene_execution_bundle",
     "get_scene_contract",
     "get_scene_span_coverage",
     "get_scene_spans_by_chapter",

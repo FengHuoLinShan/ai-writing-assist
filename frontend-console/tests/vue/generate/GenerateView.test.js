@@ -81,6 +81,40 @@ function convergenceResponse({ complete = true, excluded = 0 } = {}) {
   }
 }
 
+function worldCoreResponse() {
+  const response = convergenceResponse()
+  response.manifest[0].source_ref.source_hash = "1".repeat(64)
+  response.manifest[1].source_ref = { source_type: "assistant_message", source_hash: "2".repeat(64), title: "对话第 2 条 · AI" }
+  response.decision_cards[0].items = ["tide", "cost", "failure", "maintenance"].map((key, index) => ({
+    item_id: `C1I${index + 1}`,
+    text: ["潮门通行", "维护配额", "断供边界", "每日校准"][index],
+    suggested_disposition: index === 2 ? "discard" : "include",
+    world_core_rule_key: key,
+  }))
+  response.world_core = {
+    ready_for_handoff: true,
+    issues: [],
+    author_seed_source_keys: ["m1"],
+    rule_count: 4,
+    snapshot: {
+      author_seeds: [{ source_key: "m1", disposition: "included" }],
+      rule_atoms: ["tide", "cost", "failure", "maintenance"].map((key, index) => ({
+        rule_key: key,
+        title: ["潮门通行", "维护配额", "断供边界", "每日校准"][index],
+        source_keys: ["m1"],
+        can: "按潮窗通行",
+        cannot: "逆潮连续通行",
+        cost: "消耗配额",
+        failure: "街区断供",
+        maintenance: "每日校准",
+      })),
+      blocking_contradictions: [],
+      vertical_slice: { rule_key: "tide", daily_consequence: "居民按潮通勤", failure_consequence: "故障后断供" },
+    },
+  }
+  return response
+}
+
 function explorationResponse() {
   const evidence = [{ key: "source-page:1", kind: "source_page", label: "世界背景", content_hash: "3".repeat(64), source_ref: { source_type: "world_bible_page", page_id: "page-1", title: "世界背景" } }]
   return {
@@ -122,6 +156,7 @@ beforeEach(() => {
     context: { compile: vi.fn(), render: vi.fn() },
     world: {
       listBiblePages: vi.fn(), listBibleDrafts: vi.fn(), listBibleCategories: vi.fn(), listBiblePageTemplates: vi.fn(), listCharacters: vi.fn(), listEntities: vi.fn(), getEntity: vi.fn(),
+      saveCoreCheckpoint: vi.fn(),
     },
     outline: { listScenesOrdered: vi.fn(), listThreads: vi.fn(), listScenesByChapter: vi.fn(), getSceneWorkbench: vi.fn(), getScene: vi.fn() },
     writing: { listChapters: vi.fn(), get: vi.fn(), getDraft: vi.fn(), generate: vi.fn() },
@@ -194,6 +229,62 @@ describe("GenerateView Vue behavior matrix", () => {
     await vi.waitFor(() => expect(wrapper.get("#generate-chat-messages").text()).toContain("旧友型反派"))
     expect(api.generate.worldChat).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", messages: [{ role: "user", content: "帮我设计反派" }] }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(wrapper.html()).not.toContain("v-html")
+  })
+
+  it("runs bounded World Core rounds and never saves from a shortcut or the third reply", async () => {
+    api.generate.worldChat.mockResolvedValue({ reply: "只生长当前一层。" })
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key }), attachTo: document.body })
+
+    await wrapper.get('[data-action="world-core-pressure"]').trigger("click")
+    expect(wrapper.get("#generate-chat-input").element.value).toContain("压力测试")
+    expect(api.generate.worldChat).not.toHaveBeenCalled()
+    for (let round = 0; round < 3; round += 1) {
+      if (round) await wrapper.get("#generate-chat-input").setValue(`第 ${round + 1} 轮`)
+      await wrapper.get('[data-action="send-chat-message"]').trigger("click")
+      await flushPromises()
+      await vi.waitFor(() => expect(api.generate.worldChat).toHaveBeenCalledTimes(round + 1))
+    }
+
+    expect(api.generate.worldChat.mock.calls[0][0]).toMatchObject({
+      workflow_preset: "world_core",
+      target: { kind: "core_entity", template: "none" },
+    })
+    expect(wrapper.get("[data-action='save-world-core-checkpoint']").element.disabled).toBe(true)
+    expect(wrapper.text()).toContain("未保存前只保证在当前浏览器恢复")
+    expect(api.world.saveCoreCheckpoint).not.toHaveBeenCalled()
+    expect(readGenerateSession(key).successfulRounds).toBe(3)
+    expect(wrapper.find('[data-action="generate-world-suggestion"]').exists()).toBe(false)
+  })
+
+  it("saves a ready World Core checkpoint only after explicit confirmation", async () => {
+    api.generate.convergeWorld.mockResolvedValue(worldCoreResponse())
+    api.world.saveCoreCheckpoint.mockResolvedValue({ id: "checkpoint-1" })
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    const initialSession = { ...emptyGenerateSession(), successfulRounds: 3, messages: [{ role: "user", content: "潮汐改变城市通行" }] }
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
+
+    await wrapper.get('[data-action="converge-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.text()).toContain("世界核心已通过交接门"))
+    expect(api.generate.convergeWorld.mock.calls[0][0]).toMatchObject({ workflow_preset: "world_core" })
+    expect(wrapper.findAll(".generate-convergence-items select")[2].element.value).toBe("rejected")
+    expect(api.world.saveCoreCheckpoint).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-action="save-world-core-checkpoint"]').trigger("click")
+    await vi.waitFor(() => expect(api.world.saveCoreCheckpoint).toHaveBeenCalledTimes(1))
+
+    expect(api.world.saveCoreCheckpoint.mock.calls[0][0]).toMatchObject({
+      novel_id: "p1",
+      checkpoint: {
+        schema_version: "world_core_checkpoint.v1",
+        round_no: 3,
+        action: "consolidate",
+        source_manifest_hash: "a".repeat(64),
+        decisions: expect.arrayContaining([expect.objectContaining({ disposition: "rejected", rule_key: "failure" })]),
+      },
+    })
+    expect(readGenerateSession(key).checkpointId).toBe("checkpoint-1")
+    expect(readCreativeContinuation("p1")).toMatchObject({ route: { preset: "world_core", checkpoint_id: "checkpoint-1" } })
   })
 
   it("uses readable fallbacks instead of raw IDs or object enums in exact-context choices", () => {

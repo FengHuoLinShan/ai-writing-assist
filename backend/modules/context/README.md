@@ -105,6 +105,9 @@ async def preview_activation_profile(...) -> dict
 与 hash；manifest 按来源类型/ID 保存 loader 计算的内容 hash，更新判断不接受
 LLM 自报 hash。候选对象始终排除。
 
+地图册的空间补充仍复用 `retrieve_planned_context_evidence()` 的既有 planner、RAG 与原文
+rehydrate 门禁；不新增 RAG scope、port 或索引。失效/跨项目/旧正文片段在该门禁处被丢弃。
+
 `selected_asset_ids` 与 `result_refs` 继续保持既有 JSON 对外形状，但不再承担失效查询。
 新 confirmation 创建时同步写入 `selected` 引用，结果绑定时必须携带 `novel_id` 并在
 `id + novel_id` 行锁内同步 `result` 引用；失效只通过精确表匹配类型与 ID，不回退扫描 JSON。
@@ -272,14 +275,14 @@ CharacterKnowledge 先由 world 按目标选出唯一 canonical 有效检查点�
 `director_only` 作者约束保持独立，不伪装成角色已知事实。
 
 带 `scene_id` 的 `writing.generate + reveal_mode=character` 还会通过 memory 稳定
-facade 确保当前 Scene 五维 checkpoint，并编译不可排除的 P0
+facade 确保当前 Scene 四维 checkpoint（`entities`、`relations`、`locations`、`knowledge`），并编译不可排除的 P0
 `scene_world_state`。只有可重放的 system `ready` 或已人工确认的状态会成为
 `director_only` 环境约束；`knowledge` 只报 coverage，不覆盖上述
 CharacterKnowledge。当前 Scene、POV 和显式选择对象没有命中实体投影时，只在
 确认 UI 显示“尚无时间锚”，模型不收到该项，也不得用当前 World 回填。
 
 `MemoryRecordsLoader` 同时把章级 panorama 规范为可读记忆列表，不再把 dict 塞入
-`memory_records: list`。新的 Scene 确认会按固定五维顺序保存 checkpoint
+`memory_records: list`。新的 Scene 确认会按固定四维顺序保存 checkpoint
 ID/status 指纹；执行前指纹变化就拒绝回放并要求重新确认。旧确认没有该可选
 字段时继续兼容。
 

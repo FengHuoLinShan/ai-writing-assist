@@ -44,6 +44,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "alembic>=1.19.0",
     "pgvector>=0.3.0",
+    "pillow>=12.3.0,<13.0",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.0.0",

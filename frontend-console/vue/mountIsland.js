@@ -85,6 +85,8 @@ export function mountIsland({ viewName, component, load = null }) {
       // 晚到响应覆盖下一次进入已经加载的新 props。
       loadGeneration += 1
       unmount()
+      loadedProps = {}
+      loadedQuery = null
     },
 
     canLeave() {

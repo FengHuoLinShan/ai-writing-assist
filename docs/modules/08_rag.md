@@ -69,6 +69,14 @@ worker 启动 reconciliation 只为 active author project 修复失效 owner；a
 通过 project facade 的 `ProjectSummary` contract 获取，不读取 project ORM。回收站项目
 保留可重建 state，但不会被后台补排。
 
+深度导入 Scene commit 与 Scene replacement 已有的 `rag_reindex_novel` 请求分别带
+`source=deep_import_scene_commit`、`source=scene_replacement_apply`。它们不新增任务类型：若
+当前章节的 source/hash、content mode、index version、chunk 序号、offset 和正文均未变化，任务
+只在章节 advisory lock 内更新 Scene/SceneSpan 归因及对应 entity appearances，保留既有 embedding
+和其他 chunk 分析字段；否则释放锁后回退现有 `force=True` 完整索引。未知或缺失 source 始终完整
+重建。完整索引也会在 embedding 后、最终替换前重读 Scene 映射，使两类并发任务最终收敛到最新
+Scene，而不改变 `rag_index_state` owner、HTTP API 或任务结果形状。
+
 ### Facade
 
 ```python

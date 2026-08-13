@@ -106,6 +106,10 @@ Prompt 校验外，`/api/world` 与 `/api/world/map-atlas` 的项目级读、写
 
 ## World Bible 工作稿与世界观简介
 
+`GET /api/world/knowledge-graph` 是只读关联图：仅展示已采用 World Bible 页面、已采用
+CoreEntity，以及页面引用和已采用实体关系。它明确不推断 dependency 或变更影响；local
+scope 支持 page/entity root 的 1–2 hop，结果有固定 cap、截断回执和来源 hash。
+
 World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity`、Profile、关系和事件仍是
 结构化正史来源。AI 地图册只消费这些来源，不反向写入。新版编辑流程不直接覆盖正式页：
 
@@ -193,6 +197,10 @@ tasks ORM。
 
 ## 边界
 
+地图册的独立图片上传是项目导入白名单之外的窄例外：仅该 owner-only
+API 接受小于 50MB 的 PNG/JPEG，JPEG 在服务端校验、去元数据并转为
+PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传白名单。
+
 明确不做：
 
 - 人物档案管理 → character 已迁入 world，不再独立模块
@@ -254,6 +262,18 @@ tasks ORM。
 - 确认为别名不是深合并：仅写入目标别名、迁移/去重关系并标记源候选为 `merged`，不得合并 summary/public_info/hidden_truth 或人物扩展字段。
 - `CreationSuggestion` 中的 `core_entity` / `core_entity_draft` 经用户确认后直接写入 `canonical`，并保留建议 ID、来源、证据与 `approved_by` 审计。
 - `entity_relation` / `entity_alias` 建议必须通过各自的 schema 验证和领域服务写入；未支持的 `target_type` 直接拒绝，不得标记为已接受后空操作。
+- `world_core_checkpoint.v1` 是可回看的 typed 收束来源 checkpoint，不能采用；
+  只在作者显式保存时持久化。`world_core` 预设仅适用于无模板 CoreEntity 目标，
+  收束响应返回原始 seed 去向、3–7 条 can/cannot/cost/failure/maintenance
+  规则原子、阻断矛盾和一条日常＋故障纵切。只有作者 seed 全覆盖、
+  来源 manifest 覆盖完整、规则与决定项一一绑定且无阻断矛盾时才返回
+  `ready_for_handoff=true`。人物、总纲、Scene 和完整国家／历史不属于该预设。
+  `world_adoption_package.v1` 是作者显式保存的 pending 包；完成的 Deep Import 也会按冻结的
+  Scene hash、workflow 与授权回执幂等组装一个包。已自动写入的对象以 `existing_ref/no-op`
+  显示，candidate 对象/关系仍由作者 preview/apply；apply 不重复创建前者。preview 不写库，按 source refs、
+  checkpoint lineage 和 payload hash 给出预期 diff；apply 只采用 `include + proposed` 的
+  CoreEntity（create/promote）/ EntityRelation，使用 package-local ref，在同一事务 CAS pending 并写 receipt。
+  `open` / `rejected` 不写事实；v1 不支持 RuleProfile 或别名。
 - 生成中心的新对象先写 `creation_suggestion_queue`。队列服务同时物化一条
   `draft` / `candidate` 兼容影子，并以 `_meta.compatibility_shadow=true` 与
   `suggestion_id` 关联；采用或编辑后采用时提升同一条对象，合并/设为别名时由队列原子裁决并归档同一影子，忽略时同步标记该影子为 `ignored`。待处理影子不能绕过队列直接 CRUD，所有裁决都必须经过建议队列的 compare-and-set 门禁。
@@ -400,6 +420,8 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 `map_atlas_runs`、`map_atlas_nodes`、`map_atlas_pages` 与 `map_atlas_annotations` 只承载
 图片生成与作者采用生命周期。候选页分别保存直接资料、AI 视觉补全和冲突；加入地图册只新增
 已采用页面，不修改 World 事实。图片字节存私有 S3，完整契约见 `docs/modules/15_map.md`。
+规划前可从正式 World Bible 和已回读正文提取空间线索；它们只补充持久化 page prompt，
+不生成坐标、比例、方向或 annotation 几何字段。
 
 ## 对外契约（contracts.py）
 
@@ -501,6 +523,8 @@ HTTP 请求/响应类型属于 `schemas.py`；package root 不再兼容重导出
 facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` / 已注册 DI port。
 
 `worldbuilding_facade.py` 承载世界书上下文激活相关入口：
+`assemble_post_import_adoption_package()` 是 imports 完成 Phase 2 后提交冻结
+workflow/result refs 的唯一跨模块入口；它只组装 pending package，不重放既有 adopted 写入；
 `preview_worldbuilding_activation()` 调用确定性 activation preview 服务；
 `get_world_bible_projection_candidates()` 按项目解析固定页面/CoreEntity TargetRef，并执行
 最大深度 2 的页面链接或关系展开；`get_world_bible_page_source_manifest()` 返回可审计的
@@ -606,8 +630,24 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/suggestions/{suggestion_id}/merge` | 将世界对象建议合并到已采用对象 |
 | POST | `/api/world/suggestions/{suggestion_id}/resolve-as-alias` | 将世界对象建议设为已采用对象的别名 |
 | POST | `/api/world/suggestions/{suggestion_id}/reject` | 拒绝建议 |
+| POST | `/api/world/core-checkpoints` | 显式保存不可采用的 `world_core_checkpoint.v1` |
+| POST/GET | `/api/world/adoption-packages` | 保存或读取 typed WorldAdoptionPackage 建议 |
+| GET | `/api/world/adoption-packages/{suggestion_id}/preview` | 零写入预演 package 的覆盖、diff 与 hash |
+| POST | `/api/world/adoption-packages/{suggestion_id}/apply` | 以 preview hash 原子采用 package 的 include 项；重复 apply 返回 receipt |
+
+`world_adoption_package.v1` 首版采用核心对象 create/promote/existing_ref 与实体关系 create/promote/existing_ref。
+promote 和外部关系端点以服务端指纹参与 preview hash，apply 在锁后复验；既有同一
+canonical relation 是 `existing_ref` no-op，不合并或改写。每个新建对象/关系均保存
+package、item、来源、authority 与 manifest provenance；同一对象再次被采纳时追加
+`world_adoptions` 回执历史，不覆盖旧来源。RuleProfile 与 alias 仍不属于该
+package contract。
+
+package 也可携带一个完整的 `world_bible_page` create/replace 提案：它只在同一 package
+中有页面项时，经现有 draft → publish lifecycle 创建正式 revision。eligible 页面文字必须有
+同包已采用 item/source 的 claim mapping；open/rejected 只能放 `projection_policy=excluded`
+section，且不会进入可投影正文。页面预览保持零写入并把页面版本/impact scope 纳入 package hash。
 | POST | `/api/world/generation-center/chat` | 世界工作区共创聊天；按作者选择的来源/目标加载上下文，不创建建议、不写业务资产 |
-| POST | `/api/world/generation-center/convergence` | 对当前显式来源范围做只读收束；返回确定性 manifest、覆盖状态与最多 7 张决定卡，不创建建议或工作稿 |
+| POST | `/api/world/generation-center/convergence` | 对当前显式来源范围做只读收束；返回确定性 manifest、覆盖状态与最多 7 张决定卡。`world_core` 预设额外返回可交接门和 typed core 快照；均不创建建议或工作稿 |
 | POST | `/api/world/generation-center/exploration` | 从当前世界书页只读探索一跳相邻缺口；最多返回 3 项，不创建建议或工作稿 |
 | POST | `/api/world/generation-center/semantic-inspection` | 检修当前世界书页；确定性错误可阻断，LLM 只产生“需要决定／可以改进”的待处理检查项和范围回执 |
 | POST | `/api/world/generation-center/suggestions` | 旧同步建议入口，兼容期 deprecated |

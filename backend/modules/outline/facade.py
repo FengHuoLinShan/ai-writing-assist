@@ -28,6 +28,9 @@ from modules.outline.foreshadowing_facade import (  # noqa: F401
     get_active_foreshadowing,
 )
 from modules.outline.reveal_facade import get_reader_reveal_decision  # noqa: F401
+from modules.outline.scene_execution_bundle import (
+    get_scene_execution_bundle,  # noqa: F401
+)
 from modules.outline.scene_facade import (  # noqa: F401
     batch_create_scenes,
     bind_scene_spans_to_source,
@@ -82,6 +85,7 @@ __all__ = [
     "get_reader_reveal_decision",
     "get_scene",
     "get_scene_context_window",
+    "get_scene_execution_bundle",
     "get_scene_contract",
     "get_scene_spans_by_chapter",
     "get_scene_spans_for_scene",

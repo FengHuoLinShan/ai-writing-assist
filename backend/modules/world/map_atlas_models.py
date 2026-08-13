@@ -29,12 +29,13 @@ class MapAtlasRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "map_atlas_runs"
     __table_args__ = (
         CheckConstraint(
-            "run_kind IN ('initial', 'update', 'rebuild', 'edit', 'regenerate')",
+            "run_kind IN ('initial', 'update', 'rebuild', 'edit', "
+            "'regenerate', 'upload')",
             name="ck_map_atlas_runs_kind",
         ),
         CheckConstraint(
-            "status IN ('planning', 'generating', 'review_ready', 'partial', "
-            "'paused', 'failed', 'completed')",
+            "status IN ('planning', 'prompt_review', 'generating', "
+            "'review_ready', 'partial', 'paused', 'failed', 'completed')",
             name="ck_map_atlas_runs_status",
         ),
         Index("ix_map_atlas_runs_novel_created", "novel_id", "created_at"),
@@ -57,22 +58,15 @@ class MapAtlasRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
     include_interiors: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
-    layout: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="landscape"
-    )
-    quality: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="standard"
-    )
-    page_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
-    planned_page_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
-    completed_page_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
-    stop_requested: Mapped[bool] = mapped_column(
+    review_image_prompts: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    layout: Mapped[str] = mapped_column(String(16), nullable=False, default="landscape")
+    quality: Mapped[str] = mapped_column(String(16), nullable=False, default="standard")
+    page_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    planned_page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stop_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     context_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     context_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     source_manifest: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -147,12 +141,16 @@ class MapAtlasPage(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __table_args__ = (
         CheckConstraint(
             "generation_status IN ('prepared', 'provider_in_flight', 'uploaded', "
-            "'review_ready', 'failed', 'retry_requires_confirmation')",
+            "'review_ready', 'prompt_only', 'failed', 'retry_requires_confirmation')",
             name="ck_map_atlas_pages_generation_status",
         ),
         CheckConstraint(
             "review_status IN ('candidate', 'adopted', 'rejected', 'deprecated')",
             name="ck_map_atlas_pages_review_status",
+        ),
+        CheckConstraint(
+            "generation_choice IN ('internal', 'external')",
+            name="ck_map_atlas_pages_generation_choice",
         ),
         Index(
             "ix_map_atlas_pages_novel_node_review",
@@ -160,9 +158,7 @@ class MapAtlasPage(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "node_id",
             "review_status",
         ),
-        Index(
-            "ix_map_atlas_pages_run_order", "run_id", "sort_order", "created_at"
-        ),
+        Index("ix_map_atlas_pages_run_order", "run_id", "sort_order", "created_at"),
     )
 
     run_id: Mapped[uuid.UUID] = mapped_column(
@@ -186,6 +182,9 @@ class MapAtlasPage(Base, UUIDMixin, TimestampMixin, NovelMixin):
     generation_status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="prepared", index=True
     )
+    generation_choice: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="internal"
+    )
     review_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="candidate", index=True
     )
@@ -204,15 +203,9 @@ class MapAtlasPage(Base, UUIDMixin, TimestampMixin, NovelMixin):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     byte_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    provider: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="openai"
-    )
-    model: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="gpt-image-2"
-    )
-    provider_request_id: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
-    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="openai")
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default="gpt-image-2")
+    provider_request_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     adopted_at: Mapped[datetime | None] = mapped_column(
@@ -234,13 +227,10 @@ class MapAtlasAnnotation(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "map_atlas_annotations"
     __table_args__ = (
         CheckConstraint(
-            "position_x >= 0 AND position_x <= 1 AND "
-            "position_y >= 0 AND position_y <= 1",
+            "position_x >= 0 AND position_x <= 1 AND position_y >= 0 AND position_y <= 1",
             name="ck_map_atlas_annotations_position",
         ),
-        Index(
-            "ix_map_atlas_annotations_page_order", "page_id", "sort_order"
-        ),
+        Index("ix_map_atlas_annotations_page_order", "page_id", "sort_order"),
     )
 
     page_id: Mapped[uuid.UUID] = mapped_column(

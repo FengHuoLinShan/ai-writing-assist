@@ -4,6 +4,7 @@
 > 与既有计划的关系：本计划是 2026-08-10 世界书重构计划的第一轮增强——不另起炉灶；把 wiki 新证据中三版设计达成共识的缺口以零迁移薄读形态挂入既有 seam，P1 用窄字段增强接线，其余新 schema 押后至触发条件＋ADR。**2026-08-13 用户裁定：统一待决队列立项（P1-15），取代 08-10 计划 7.4「不造统一校验队列」定案。**
 > 方法：双工作流多代理——Workflow A（8 个侦察代理并行：wiki 4 维度需求侧＋系统 3 维度供给侧＋既有计划覆盖图，1 个合成代理出差距矩阵）；Workflow B（3 个设计代理：最小改动优先／生成质量优先／作者治理优先，1 个判定代理合成最终计划）。本修订版为 2026-08-13 用户裁定「做统一队列」后的版本。
 > 中间产物：`docs/references/data/2026-08-13-worldbook-gap-analysis.json`（需求 41 条／供给 29 条／差距 30 条）、`docs/references/data/2026-08-13-worldbook-final-plan.json`（三版设计与修订后的合成计划）。
+> 第二轮修订（2026-08-13）：补入完整创作历程与 GPT 交接证据后，用户进一步裁定首版必须覆盖「几个灵感逐轮生长 → 可恢复的 World Core → claim 级原子采纳 → DB 与 World Bible 同事务发布 → Deep Import 后置吸取 → World Bible 关联导航 → Scene/正文独立审查与定向返修」。本轮裁定优先于下文与其冲突的旧相位和“不做”措辞；完整 decision-complete 增量见第 9—12 节。
 
 ## 1. 执行结论
 
@@ -421,3 +422,160 @@ P2 各触发条件独立成立才立项，互不阻塞。
 | 7 | 回放评测夹具补充：7.8 的 R01—R14 夹具是否需要补「规则触发/术语过滤/防回流」类场景断言，为 G1/G2/E1 类后续立项积累证据？ | 有推荐：补。P0-9 在 7.8 夹具体系上补 R15（规则触发与门禁）/R16（下游标脏）/R17（变更记录四段）及术语过滤、防回流断言；脱敏合成数据、CI 离线可运行，作为 P1 立项与 P2 触发判定的证据基线。 | — |
 
 注：正文中 open_questions#N 编号与本表一致。第 1 条已于 2026-08-13 由用户裁定：做统一队列（P0-7 先行切片＋P1-15 权威 schema，取代 7.4「不造统一队列」定案）。
+
+## 9. 第二轮需求收束：从几个灵感到可采用世界核心
+
+### 9.1 证据边界
+
+- 可核实证据覆盖 Vault 原始来源与裁定、ChatGPT project 同步工件、Codex rollout 摘要、长篇正文与审查回执；本地没有逐轮完整 ChatGPT 原始聊天导出，因此只能重建操作链、状态变化和失败模式，不能声称覆盖每一句对话或模型内部思维。
+- `proposed` 不等于 canon；网页成果、ZIP、历史 `hot.md` 和交接摘要均是历史来源，不是当前权威。当前指针必须由版本、hash、supersedes 和 receipt 共同确定。
+- 真名回响反复出现的核心摩擦不是“缺少更多生成按钮”，而是灵感过早膨胀、候选与正典混淆、跨来源 current pointer 漂移、机械门通过后仍有文学语义缺陷，以及采纳后 DB 与 Wiki 两套事实不一致。
+
+### 9.2 首版产品边界
+
+首版灵感生长只交付 `World Core + consistency vertical slice`，不自动生成人物、故事总纲、Scene、完整国家地理或制度史。它必须做到：
+
+1. 接受 1—7 个短灵感 seed，为每个 seed 分配稳定 `seed_key`，保留原文、来源和 hash。
+2. 每轮只推动一个作者可理解的动作：补一条成立规则、把一条因果向下贯穿、找一个失败方式、合并重复项，或标记 open/rejected；快捷动作只预填消息，不自动发送。
+3. 第三个成功的作者—AI 回合只提示 checkpoint，不自动保存、不自动收束；失败、取消和迟到响应不计数。
+4. 作者显式点击“保存阶段成果”才持久化不可采用的 `world_core_checkpoint.v1`；聊天默认零业务写入。
+5. 作者显式点击“准备采纳预览”才创建 pending `world_adoption_package.v1`；convergence 本身继续只读。
+
+### 9.3 唯一交接门
+
+`ready_for_handoff` 当且仅当：
+
+- 每个原始 `seed_key` 已映射到体验承诺、included rule、open 或 rejected，不能静默丢失；
+- 有 3—7 个规则原子，每条写明 `can / cannot / cost / failure / maintenance`，不适用项可写 `N/A + 理由`；
+- 规则之间不存在未解决的阻断矛盾；
+- 至少一条因果纵切到达第一个真实的人类日常后果和故障后果。
+
+纵切只覆盖实际适用环节，不强迫每个项目填满资源、设施、制度和分配层；缺少人物、国家、完整历史或地图不得阻塞交接。第三轮 checkpoint 固定输出重复/漂移项、未覆盖 seed、阻断矛盾、横向/纵向失衡和唯一推荐下一动作；它不是成熟度分，也不自动收束。
+
+### 9.4 跨会话恢复
+
+`world_core_checkpoint.v1` 复用 `CreationSuggestion.payload_json`，不新建表，保存：
+
+- seed/source manifest 与 source hashes；
+- 每个 seed 的 disposition 和作者 decision state；
+- `round_no`、当前 action、locked/open/rejected；
+- `parent_checkpoint_id` 与 checkpoint lineage。
+
+下一会话只从决策摘要继续，不把过时助手文本当成当前事实。未显式保存前，UI 必须说明仅保证当前浏览器恢复；原始聊天全文跨设备同步、服务器创作 session 和种子库延后。
+
+## 10. 统一采纳、Deep Import 与 World Bible
+
+### 10.1 claim/item 级采纳包
+
+`world_adoption_package.v1` 使用冻结的 `source_manifest + manifest_hash`。每个 canonical claim、entity、rule、relation 和 page section 分别携带：
+
+- `item_key`；
+- `source_refs(type/id/version/hash/range 或 Scene/workflow)`；
+- `authority_kind = author_seed | canonical_baseline | manuscript_observation | generated_bridge`；
+- authoritative baseline 与 decision disposition。
+
+去重只合并 identity，必须追加全部来源，不能覆盖来源或自动提升权威。状态语义固定为：
+
+- `locked`：纳入当前精确预览，确认前仍是 candidate；
+- `open`：留在决策账，排除结构化写入、eligible World Bible 正文、默认关联图和生成上下文；
+- `rejected`：仅作负面防回流边界，不成为正向事实；
+- `adopted/canonical`：仅在 apply 全事务成功后产生。
+
+页面发布前执行确定性 `eligible content block → included item/source` 100% 覆盖校验。任何未映射正向事实整包拒绝；open/rejected 只能进入 `projection_policy=excluded` 的作者决策区，不能借 World Bible 正文偷渡成正典。
+
+### 10.2 原子 apply
+
+preview 必须零写入并返回 payload/source/baseline/impact hash、对象和每个页面的完整 before/after diff、omissions。apply 只接收当前 preview hash，授权人来自当前 account principal，不接受调用方 owner。单事务内完成：
+
+1. 重验 source/checkpoint/baseline、候选状态和页面版本；
+2. 创建或提升 included 实体；
+3. 解析 package-local refs 后创建关系；
+4. 仅当包含完整页面提案时，经现有 draft → publish lifecycle 发布正式 World Bible revision；
+5. fail-closed 标记精确 context/synopsis stale；
+6. CAS 将 package 置为 accepted，写不可变 result refs、local-ref map、canon diff、来源与授权回执。
+
+任一漂移或发布失败都整包回滚，package 保持 pending；重试必须幂等。无页面提案的包不得制造伪 World Bible revision。成功后的包级一键撤销不在首版承诺内，仍使用现有逐资产历史；若未来需要包级 rollback，必须单独立项 CAS 协调器。
+
+### 10.3 Deep Import 对接
+
+Deep Import 保留现有 upfront `user_authorized_pipeline`、Phase 2 持久化、checkpoint/resume/rollback 和 asset summary 语义，不把整个 Phase 2 延迟到二次确认。工作流完成后通过 world 稳定 facade 组装 post-import package：
+
+- 已自动合并或已采用资产写成 `existing_ref/no-op`，只进入“本流水线已写入”栏；
+- candidate 使用 expected status/hash，进入本次待确认栏；组包必须消费冻结 Scene 的实体/关系 result refs，不可以当前全库扫描代替；
+- 尚未采用的关系、补充 claim 与 World Bible 页面 revision 进入 pending writes；
+- alias 若首版 package 不支持，继续走现有 alias review，不伪装为已完成；
+- 同一实体来自作者 seed 与正文 Scene 时只保留一个实体，但保留两条独立 source refs 和 authority。
+
+预览必须分栏显示“流水线已写入”与“本次确认将写入”，apply 不得二次创建对象。若未来改为 Phase 2 全部延迟确认，必须作为破坏性重构同步 checkpoint、resume、rollback、asset summary、API、前端与迁移，不得藏在 facade 复用中。
+首版单包最多 31 个业务资产（另加 1 个完整 Wiki 页提案）；超限必须显式诊断“需分包”，不允许部分创建或静默遗漏。
+
+### 10.4 World Bible 关联图边界
+
+用户目标是让现有 World Bible 提供类似 Obsidian 日常导航的关系网能力，不复制完整 Vault 工程。首版名称固定为“关联图”：
+
+- node：canonical/confirmed World Bible page 与 canonical CoreEntity；
+- edge.kind：`page_reference | page_entity_reference | entity_relation`；
+- 默认仅 adopted，pending 必须显式开启并视觉区隔；
+- 每条边显示 status/authority、source TargetRef/revision/hash 和 provenance receipt 摘要；
+- 引用或实体关系不得推断 `depends_on/invalidates`，无显式依赖合同时显示“依赖影响未覆盖”。
+
+局部默认 1 hop，可显式扩到 2 hop，服务端硬上限 120 nodes/240 edges；全局检索上限 500/1500，但单次 SVG 仍按局部预算聚合/下钻。返回 deterministic order、truncated、truncation reasons、omitted counts 和 source manifest。页面反向引用扫描超过 2000 个 adopted pages 时明确 partial。390px 默认等价列表优先，图只是辅助视图；不新增图数据库或布局依赖。
+
+## 11. 世界核心之后的完整创作链
+
+### 11.1 工件谱系与失效
+
+唯一主链为：`World/World Bible → Character → StoryOutline revision → story_execution_profile.v1 → Scene execution_contract → prose candidate → independent review → targeted revision → adopted prose`。
+
+- 每个下游候选和审查工件保存 `upstream_manifest(type/id/version/hash)`；打开和采用时重算，漂移显示 needs_review，采用 fail-closed 409。
+- 各资产 owner 使用真实 `TargetRef(type/id)` 调 context invalidation；不得用泛 `worldbuilding` ID 代替。
+- 首版先做 stale confirmation/result refs 的精确读模型，不修改 Outline/Writing 自身状态、不建依赖表；缺少历史 provenance 的资产明确列为 omission。
+- `story_execution_profile.v1` 由 StoryOutline revision 持有，可用不可变 task result + hash 引用实现；人物声音、连续性和叙事约束属于 story layer，禁止复用 World Bible canonical page 承载。
+
+### 11.2 Scene 执行与独立审查
+
+每个 Scene contract 至少编译 POV、知识边界、entry/exit、outcome/cost、must_not_happen、continuity 和 new fact candidates。正文生成与审查必须是两个不同 managed step/run：
+
+- reviewer 冻结 StoryOutline、Scene contracts、story execution profile 和正文 hash manifest；generator 自检不能作为独立通过证据；
+- 除逐 Scene 检查外，增加卷/全书只读语义审查，输出 coverage、finding_id、severity、location、contract refs、preserve 与 not_checked；
+- 机械/MCP 门只签结构、计数、残留和重复度等表面信号，不能签文学 PASS；
+- 返修 candidate 必须绑定 finding_ids、base draft/hash、contract/profile hash、允许范围、preserve/must_not_change 与 supersedes，不覆盖原稿；
+- 采用返修后重检目标 finding、相邻 Scene 和全书关键不变量。
+
+## 12. 修订后的实施波次与验收
+
+### 12.1 波次
+
+| 波次 | 交付 | 稳定面与风险 | 完成定义 |
+|---|---|---|---|
+| W0 当前真相对齐 | Scene memory 固定四维；删除 context 伪 map 缺口 | memory contract、context fingerprint；无 DB/API 变化 | memory/context 全量回归通过，旧 map checkpoint 被忽略 |
+| W1 采纳内核 | checkpoint/package typed payload、preview/CAS/apply、DB+可选 World Bible revision 原子发布 | world API/Pydantic；无新表；owner/novel 与事务风险最高 | baseline 漂移、claim 覆盖、发布失败回滚、local ref、幂等 E2E 全绿 |
+| W2 灵感生长 UX | Generate `preset=world_core`、Today 入口、三回合 checkpoint、保存/恢复、完整采纳 diff | 前端 wire 与本地存储；不新增工作台 | 3 seed 修正/否定/恢复/handoff/390px E2E |
+| W3 Deep Import 吸取 | post-import package facade、existing/no-op 与 pending 分栏 | imports→world 稳定 contract；不得改变 Phase 2 恢复语义 | asset summary/rollback 不回归，不重复建对象，来源可回跳 |
+| W4 World Bible 关联图 | 1/2 hop 后端读模型、SVG 辅助视图、等价列表 | world read API；无图数据库、无依赖语义 | 三类边、反向/环/截断/隔离/390px E2E |
+| W5 下游可证链 | exact stale refs、outline-owned execution profile、Scene contracts | outline/context/writing 跨模块稳定 seam | 上游漂移后仅受影响候选 needs_review，采用 409 |
+| W6 独立审查返修 | 独立 managed review、卷/全书检查、finding-bound revision | task/result 与 writing candidate；无专用 campaign 表 | 机械可过但含 POV/合同缺陷的稿件被拦截，定向修复后回归通过 |
+
+W0/W1 是其余波次的前置；W2 与 W4 可在稳定 contract 后并行；W3 在 W1 后；W5/W6 在 W2 的 package handoff 稳定后。每个波次在独立 worktree/主题分支实现，由主会话 Review 后才进入集成分支。
+
+### 12.2 必须保留的 E2E
+
+1. **核心生长**：输入 3 个 seed；第二轮修正一个、第三轮否定一个；checkpoint 后换会话恢复。handoff 中 3 个 seed 全有 disposition，否定项不复活，规则无阻断矛盾，有一条日常+故障纵切；未补国家/人物仍可交接。
+2. **状态与原子采纳**：included/open/rejected 各一项；open/rejected 不进入 DB writes、eligible page、默认图或生成上下文。任一 baseline 变化后 apply 409，DB/page/receipt 无部分写入。
+3. **来源**：同一实体来自作者 seed 与 Deep Import Scene；去重后仍保留两条 source refs/authority，generated_bridge 不能冒充 manuscript evidence。
+4. **Deep Import**：现有 asset summary、checkpoint、rollback/recovery 不变；post-import package 分栏，apply 不重复创建对象，剩余 DB 写入与 World Bible revision 同事务。
+5. **关联图**：覆盖 page→page、page→entity、entity→entity、反向引用、环、坏 ref、截断、adopted 默认、pending 显式、owner/novel 隔离和 390px 列表；响应无伪造 dependency edge。
+6. **审查返修**：机械门可通过但含 POV 越界/合同漏项的多 Scene 稿必须产生定位明确的 finding；返修不覆盖正文；来源漂移 409；采用后目标 finding 关闭且相邻 Scene/关键不变量回归通过。
+
+### 12.3 分支实施状态（不代表 `main` 已上线）
+
+| 能力 | 集成分支状态 | 说明 |
+|---|---|---|
+| W0 Scene memory 四维 | 已完成、待合并 | 单一稳定常量，memory/context 定向回归通过 |
+| W1 typed checkpoint/package 与实体/关系原子采用 | 已完成、待合并 | 复用 CreationSuggestion，无迁移 |
+| W1 package → World Bible revision | 已完成、待合并 | 完整页面 diff、claim 覆盖、replace CAS、发布失败整包回滚 |
+| W3 Deep Import 吸取 | 已完成、待合并 | post-import package、existing/no-op 分栏、candidate relation promote；Phase 2 恢复语义不变 |
+| W2 灵感生长 UX | 已完成、待合并 | `world_core` preset、三回合 checkpoint、显式保存与跨会话决策摘要恢复 |
+| W4 World Bible 关联图 | 已完成、待合并 | 三类显式边、1/2 hop、反向引用、截断回执、SVG+等价列表 |
+| W5 下游可证链 | 已完成、待合并 | outline-owned profile/Scene bundle、exact manifest、打开 stale 投影与采用 409 |
+| W6 独立审查返修 | 已完成、待合并 | selection/volume/book 独立 managed review、finding-bound 新候选、采用前再审 |

@@ -47,6 +47,15 @@ def project_writing_draft_state(
         if pov_validation.get("findings"):
             attention_reasons.append("fact_risk")
 
+    if provenance.get("review_required"):
+        review = provenance.get("independent_review")
+        if not isinstance(review, dict):
+            attention_reasons.append("semantic_review_required")
+        elif review.get("verdict") != "pass" or int(review.get("blocking_count") or 0):
+            attention_reasons.append("semantic_review_blocked")
+    if provenance.get("upstream_validation") == "stale":
+        attention_reasons.append("upstream_stale")
+
     return {
         "display_state": display_state,
         "source": source,
@@ -332,6 +341,94 @@ class WritingGenerateResponse(BaseModel):
 
     task_id: str
     status: str = "pending"
+
+
+class WritingSemanticReviewRequest(BaseModel):
+    """对一组冻结正文运行独立语义审查。"""
+
+    novel_id: str
+    draft_ids: list[str] = Field(..., min_length=1, max_length=200)
+    scope: Literal["selection", "volume", "book"] = "selection"
+    operation_id: uuid.UUID | None = None
+
+    @field_validator("draft_ids")
+    @classmethod
+    def validate_draft_ids(cls, values: list[str]) -> list[str]:
+        normalized = [str(uuid.UUID(value)) for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("draft_ids must be unique")
+        return normalized
+
+
+class WritingSemanticReviewTaskResponse(BaseModel):
+    task_id: str
+    status: str = "pending"
+
+
+class WritingSemanticReviewLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    draft_id: str
+    chapter_index: int = Field(..., ge=1)
+    excerpt: str = Field(..., min_length=1, max_length=500)
+    start_hint: int | None = Field(None, ge=0)
+    end_hint: int | None = Field(None, ge=0)
+
+
+class WritingSemanticReviewFindingDraft(BaseModel):
+    """LLM output before the server assigns a stable finding ID."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    severity: Literal["blocker", "major", "minor"]
+    category: Literal[
+        "contract_omission",
+        "pov_boundary",
+        "continuity",
+        "causality",
+        "character_voice",
+        "pacing",
+        "literary_quality",
+        "copy_error",
+    ]
+    location: WritingSemanticReviewLocation
+    message: str = Field(..., min_length=1, max_length=2000)
+    contract_refs: list[str] = Field(default_factory=list, max_length=20)
+    preserve: list[str] = Field(default_factory=list, max_length=20)
+
+
+class WritingSemanticReviewChunkOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[WritingSemanticReviewFindingDraft] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+    not_checked: list[str] = Field(default_factory=list, max_length=50)
+
+
+class WritingTargetedRevisionRequest(BaseModel):
+    """针对一个已完成审查的问题集生成新候选。"""
+
+    novel_id: str
+    draft_id: str
+    review_task_id: str
+    finding_ids: list[str] = Field(..., min_length=1, max_length=50)
+    instruction: str | None = Field(None, max_length=4000)
+    operation_id: uuid.UUID | None = None
+
+    @field_validator("draft_id", "review_task_id")
+    @classmethod
+    def validate_ids(cls, value: str) -> str:
+        return str(uuid.UUID(value))
+
+    @field_validator("finding_ids")
+    @classmethod
+    def validate_finding_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        if len(normalized) != len(values) or len(set(normalized)) != len(normalized):
+            raise ValueError("finding_ids must be non-empty and unique")
+        return normalized
 
 
 class WritingDraftAutosaveCreate(BaseModel):

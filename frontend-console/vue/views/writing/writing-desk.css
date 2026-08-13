@@ -351,6 +351,23 @@
   flex-wrap: wrap;
 }
 
+.writing-candidate-findings {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.writing-candidate-findings li {
+  margin: 6px 0;
+}
+
+.writing-candidate-findings strong,
+.writing-candidate-findings small {
+  display: block;
+}
+
 /* 空状态：虚线档案框 + 文 字水印 */
 .writing-editor-empty {
   position: relative;

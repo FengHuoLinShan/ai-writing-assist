@@ -18,6 +18,7 @@ from modules.context.contracts import (
 from modules.context.repositories import ContextConfirmationRepository
 from modules.context.services.compiled_context import CompiledContext
 from modules.context.services.context_compiler import ContextCompiler
+from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
 from shared.utils import parse_uuid
 
 _ASSET_TYPE_ALIASES = {
@@ -562,7 +563,7 @@ class ContextConfirmationService:
                     (by_dimension.get(dimension) or {}).get("status") or "missing"
                 ),
             }
-            for dimension in ("entities", "relations", "locations", "knowledge", "map")
+            for dimension in SCENE_MEMORY_DIMENSIONS
         ]
         encoded = json.dumps(
             payload,

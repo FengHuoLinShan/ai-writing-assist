@@ -39,10 +39,11 @@
               </div>
               <div class="writing-tools-menu__group">
                 <strong>从正文整理资料</strong>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">整理场景</button>
+                <button class="btn btn-sm btn-primary" @click="$emit('auto-extract', 'scenes')">先整理场景骨架（推荐）</button>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理世界与结构</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'world_objects')">整理人物、设定与关系</button>
                 <button class="btn btn-sm" @click="$emit('auto-extract', 'plot_structure')">整理剧情线</button>
+                <button class="btn btn-sm btn-link" @click="$emit('open-deep-import-settings')">调整深度导入设置</button>
               </div>
             </div>
           </details>
@@ -83,11 +84,20 @@
           <div class="writing-pov-header">
             <div>
               <div class="writing-pov-title">AI 正文建议待审核</div>
-              <div class="writing-pov-subtitle">建议尚未进入工作稿，请明确采用或拒绝。</div>
+              <div class="writing-pov-subtitle">{{ reviewStatusText }}</div>
             </div>
           </div>
+          <ul v-if="visibleFindings.length" class="writing-candidate-findings" aria-label="独立审查问题">
+            <li v-for="finding in visibleFindings" :key="finding.finding_id">
+              <strong>{{ severityLabel(finding.severity) }}</strong>
+              <span>{{ finding.message }}</span>
+              <small v-if="finding.location?.excerpt">位置：{{ finding.location.excerpt }}</small>
+            </li>
+          </ul>
           <div class="writing-candidate-review-actions">
-            <button class="btn btn-primary" @click="$emit('adopt')">采用到工作稿</button>
+            <button class="btn" :disabled="generationLoading" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
+            <button v-if="reviewBlocked" class="btn" :disabled="generationLoading" @click="$emit('targeted-revision')">按问题定向返修</button>
+            <button class="btn btn-primary" :disabled="!canAdoptCandidate || generationLoading" @click="$emit('adopt')">采用到工作稿</button>
             <button class="btn btn-danger" @click="$emit('reject')">拒绝建议</button>
           </div>
         </section>
@@ -107,6 +117,7 @@ const props = defineProps({
   focusMode: { type: Boolean, default: false },
   generationLoading: { type: Boolean, default: false },
   conflictLoading: { type: Boolean, default: false },
+  reviewResult: { type: Object, default: null },
   hasChapters: { type: Boolean, default: false },
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
@@ -114,12 +125,24 @@ const props = defineProps({
 defineEmits([
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov",
-  "auto-extract", "adopt", "reject", "export", "toggle-focus",
+  "auto-extract", "open-deep-import-settings", "adopt", "reject",
+  "semantic-review", "targeted-revision", "export", "toggle-focus",
 ])
 
 const titleEl = ref(null)
 const editorEl = ref(null)
 const hasChapter = computed(() => Number.isInteger(Number(props.state.chapter)) && Number(props.state.chapter) > 0)
+const independentReview = computed(() => props.state.provenanceJson?.independent_review || null)
+const reviewBlocked = computed(() => independentReview.value?.verdict === "needs_revision" || Number(independentReview.value?.blocking_count || 0) > 0)
+const canAdoptCandidate = computed(() => !props.state.provenanceJson?.review_required || independentReview.value?.verdict === "pass")
+const reviewStatusText = computed(() => {
+  if (!props.state.provenanceJson?.review_required) return "建议尚未进入工作稿，请明确采用或拒绝。"
+  if (!independentReview.value) return "采用前需要一次与生成器分离的语义审查。"
+  if (reviewBlocked.value) return `独立审查还有 ${independentReview.value.blocking_count || 0} 个阻断项，请先返修。`
+  return "独立语义审查已通过，可以采用到工作稿。"
+})
+const visibleFindings = computed(() => (props.reviewResult?.findings || []).filter((item) => item?.location?.draft_id === props.state.draftId).slice(0, 20))
+const severityLabel = (severity) => ({ blocker: "阻断", major: "重要", minor: "建议" }[severity] || "问题")
 const attachElements = () => props.attach({ title: titleEl.value, editor: editorEl.value })
 onMounted(() => nextTick(attachElements))
 watch(() => props.state.chapter, () => nextTick(attachElements))

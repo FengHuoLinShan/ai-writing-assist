@@ -72,9 +72,7 @@
 
   /* 线条：新规范分隔一律 1px */
   --line-subtle: 1px solid var(--nc-hairline);
-  --line-default: 1px solid var(--nc-hairline-strong);
   --line-accent: 1px solid var(--nc-accent);
-  --line-active: 1px solid var(--nc-accent);
 
   /* 兼容别名（仍被业务样式引用；经语义层转发，随主题自动切换） */
   --bg: var(--bg-base);
@@ -885,8 +883,7 @@ table tbody tr:hover td {
 }
 
 /* ===== 页面特化：不改变布局，只统一材质与功能层级 ===== */
-#workspace-content[data-workspace-view="writing"] .writing-workspace-layout,
-#workspace-content[data-workspace-view="scene"] .scene-workbench {
+#workspace-content[data-workspace-view="writing"] .writing-workspace-layout {
   border-top: 1px solid var(--nc-hairline);
 }
 

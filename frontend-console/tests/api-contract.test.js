@@ -241,6 +241,8 @@ describe("前后端 API 契约", () => {
     expect(getApiContract("world.getEntity").method).toBe("GET")
     expect(contractPath("world.getEntity", { id: "entity-1" }, { novel_id: "novel-1" }))
       .toBe("/world/entities/entity-1?novel_id=novel-1")
+    expect(contractPath("world.getKnowledgeGraph", {}, { novel_id: "novel-1", scope: "local", depth: 1 }))
+      .toBe("/world/knowledge-graph?novel_id=novel-1&scope=local&depth=1")
     expect(contractPath("world.getReviewTypeCatalog"))
       .toBe("/world/review-type-catalog")
     expect(contractPath("world.listRelationReviewGroups", {}, {
@@ -278,6 +280,12 @@ describe("前后端 API 契约", () => {
       pageId: "page-1",
       action: "adopt",
     })).toBe("/world/map-atlas/novel-1/pages/page-1/adopt")
+    expect(contractPath("world.getMapAtlasPagePrompt", { novelId: "novel-1", pageId: "page-1" }))
+      .toBe("/world/map-atlas/novel-1/pages/page-1/prompt")
+    expect(contractPath("world.confirmMapAtlasPrompts", { novelId: "novel-1", runId: "run-1" }))
+      .toBe("/world/map-atlas/novel-1/runs/run-1/confirm-prompts")
+    expect(contractPath("world.updateMapAtlasNode", { novelId: "novel-1", nodeId: "node-1" }))
+      .toBe("/world/map-atlas/novel-1/nodes/node-1")
 
     expect(contractPath("imports.startStage", { stage: "scenes" }))
       .toBe("/imports/stages/scenes")
@@ -292,13 +300,11 @@ describe("前后端 API 契约", () => {
     expect(contractPath("outline.analyze")).toBe("/outline/analyze")
     expect(getApiContract("outline.analyze")).toMatchObject({
       method: "POST",
-      timeoutKind: "aiTaskSubmit",
       timeout: 600000,
     })
     expect(contractPath("outline.generate")).toBe("/outline/generate")
     expect(getApiContract("outline.generate")).toMatchObject({
       method: "POST",
-      timeoutKind: "aiTaskSubmit",
       timeout: 600000,
     })
     expect(contractPath("outline.applyStructurePreview"))
@@ -307,7 +313,6 @@ describe("前后端 API 契约", () => {
       .toEqual(["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"])
     expect(getApiContract("outline.applyStructurePreview")).toMatchObject({
       method: "POST",
-      timeoutKind: "aiPreviewApply",
       timeout: 600000,
     })
     expect(contractPath("outline.getStoryOutline", {}, { novel_id: "novel-1" }))
@@ -327,37 +332,31 @@ describe("前后端 API 契约", () => {
       .toBe("/outline/story-outline/generate")
     expect(getApiContract("outline.generateStoryOutline")).toMatchObject({
       method: "POST",
-      timeoutKind: "aiTaskSubmit",
       timeout: 600000,
     })
     expect(contractPath("outline.applyStoryOutlinePreview"))
       .toBe("/outline/story-outline/generate/apply")
     expect(getApiContract("outline.applyStoryOutlinePreview")).toMatchObject({
       method: "POST",
-      timeoutKind: "aiPreviewApply",
       timeout: 600000,
     })
     expect(contractPath("outline.previewSceneFusion", {}, { novel_id: "novel-1" }))
       .toBe("/outline/scene-workbench/fusion/preview?novel_id=novel-1")
     expect(getApiContract("outline.previewSceneFusion")).toMatchObject({
       method: "POST",
-      timeoutKind: "llmGenerate",
       timeout: 2100000,
     })
 
     expect(getApiContract("context.confirm")).toMatchObject({
       method: "POST",
-      timeoutKind: "contextConfirm",
       timeout: 600000,
     })
     expect(getApiContract("context.compile")).toMatchObject({
       method: "POST",
-      timeoutKind: "contextCompile",
       timeout: 600000,
     })
     expect(getApiContract("context.render")).toMatchObject({
       method: "POST",
-      timeoutKind: "contextCompile",
       timeout: 600000,
     })
     expect(contractPath("context.evidenceHealth", {}, { novel_id: "novel-1" }))
@@ -374,7 +373,6 @@ describe("前后端 API 契约", () => {
     ]) {
       expect(getApiContract(name)).toMatchObject({
         method: "POST",
-        timeoutKind: "ragSearch",
         timeout: 2100000,
       })
     }
@@ -382,12 +380,10 @@ describe("前后端 API 契约", () => {
       .toBe("/world/generation-prompt-templates/tpl-1/revisions?novel_id=novel-1")
     expect(getApiContract("generate.worldChat")).toMatchObject({
       method: "POST",
-      timeoutKind: "llmGenerate",
       timeout: 2100000,
     })
     expect(getApiContract("generate.convergeWorld")).toMatchObject({
       method: "POST",
-      timeoutKind: "llmGenerate",
       timeout: 2100000,
     })
     expect(contractPath("generate.convergeWorld")).toBe("/world/generation-center/convergence")
@@ -396,7 +392,6 @@ describe("前后端 API 契约", () => {
     expect(contractPath("generate.askWorld")).toBe("/world/ask-world")
     expect(getApiContract("generate.askWorld")).toMatchObject({
       method: "POST",
-      timeoutKind: "llmGenerate",
       timeout: 2100000,
     })
     expect(contractPath("generate.openAskWorldCitation"))
@@ -405,12 +400,10 @@ describe("前后端 API 契约", () => {
       .toBe("/world/ask-world/suggestions")
     expect(getApiContract("generate.generateWorldSuggestion")).toMatchObject({
       method: "POST",
-      timeoutKind: "llmGenerate",
       timeout: 2100000,
     })
     expect(getApiContract("generate.applyWorldPageDraft")).toMatchObject({
       method: "POST",
-      timeoutKind: "aiPreviewApply",
       timeout: 600000,
     })
     expect(contractPath(
@@ -424,27 +417,25 @@ describe("前后端 API 契约", () => {
       .toBe("/tasks/task-1/retry?novel_id=novel-1")
     expect(getApiContract("rag.search")).toMatchObject({
       method: "POST",
-      timeoutKind: "ragSearch",
       timeout: 2100000,
     })
     expect(getApiContract("rag.prewarm")).toMatchObject({
       method: "POST",
-      timeoutKind: "ragPrewarm",
       timeout: 600000,
     })
 
     expect(contractPath("writing.runConflictAiReview", { checkId: "check-1" }))
       .toBe("/writing/conflict-checks/check-1/ai-review")
     expect(getApiContract("writing.runConflictAiReview")).toMatchObject({
-      timeoutKind: "llmGenerate",
       timeout: 2100000,
     })
     expect(contractPath("writing.requestConflictAiSuggestion", { itemId: "item-1" }))
       .toBe("/writing/conflict-check-items/item-1/ai-suggestion")
     expect(getApiContract("writing.generate")).toMatchObject({
-      timeoutKind: "aiTaskSubmit",
       timeout: 600000,
     })
+    expect(contractPath("writing.semanticReview")).toBe("/writing/semantic-reviews")
+    expect(contractPath("writing.targetedRevision")).toBe("/writing/targeted-revisions")
     expect(contractPath("writing.adoptDraftCandidate", { draftId: "draft-1" }, { novel_id: "novel-1" }))
       .toBe("/writing/drafts/draft-1/adopt?novel_id=novel-1")
     expect(contractPath("writing.checkpoint", { draftId: "draft-1" }, { novel_id: "novel-1" }))

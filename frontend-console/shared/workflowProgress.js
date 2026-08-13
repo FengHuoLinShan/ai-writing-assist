@@ -38,6 +38,8 @@ const WORKFLOW_LABELS = {
   chapter_card_generation: "生成章节卡",
   chapter_scene_generate: "生成章节与场景结构",
   writing_generate: "生成正文",
+  writing_semantic_review: "独立语义审查",
+  writing_targeted_revision: "定向返修",
   plot_analysis: "剧情分析",
   world_generation_suggestion: "生成世界设定建议",
   scene_fusion_preview: "生成场景融合预览",
@@ -185,6 +187,8 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     || workflowType === "chapter_scene_generate"
   ) return "正在生成章节与场景结构"
   if (workflowType === "writing_generate") return "正在生成正文"
+  if (workflowType === "writing_semantic_review") return "正在独立近读正文"
+  if (workflowType === "writing_targeted_revision") return "正在按审查问题定向返修"
   if (workflowType === "plot_analysis") return "正在分析剧情"
   if (workflowType === "scene_fusion_preview") return "正在生成场景融合预览"
   if (workflowType === "writing_conflict_ai_review") return "正在补充 AI 软冲突判断"

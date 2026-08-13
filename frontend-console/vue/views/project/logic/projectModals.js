@@ -266,7 +266,7 @@ function startImportAsNewProject(file) {
           }
         }
 
-        const result = await getApi().imports.upload(createdProject.id, file)
+        const result = await getApi().imports.uploadFile(file, createdProject.id)
         getApi().clearCache()
         if (!ownsProjectModal(owner)) return true
         let projects = state?.projects

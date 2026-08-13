@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
 from modules.memory.models import MemorySceneCheckpoint
 from modules.memory.repositories import (
     EventRepository,
@@ -18,7 +19,6 @@ from modules.memory.repositories import (
     SceneSnapshotRepository,
 )
 from modules.memory.schemas import (
-    SCENE_MEMORY_DIMENSIONS,
     SceneCheckpointRepairRequest,
     SceneCheckpointRepairResponse,
     SceneCheckpointResponse,
@@ -410,14 +410,10 @@ class SceneMemoryProjectionService:
             db, parse_uuid(novel_id, "novel_id"), max_chapter
         )
         confirmed_coverage = (
-            previous.state_json.get("_coverage_confirmed") or {}
-            if previous
-            else {}
+            previous.state_json.get("_coverage_confirmed") or {} if previous else {}
         )
         covered_unanchored = int(
-            confirmed_coverage.get(
-                "unanchored_memory_event_count", 0
-            )
+            confirmed_coverage.get("unanchored_memory_event_count", 0)
         )
         if unanchored > covered_unanchored:
             missing_count = unanchored - covered_unanchored

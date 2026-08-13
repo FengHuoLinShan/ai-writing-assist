@@ -612,7 +612,6 @@ function _beginProjectScopeTransition(routeState) {
   _disposeMountedRoute()
   _failureRoute = null
   state.selectedItem = null
-  state.selectedItems = []
   _showProjectTransition(routeState)
   return true
 }
@@ -1026,7 +1025,6 @@ async function _navigateWithHistory(viewName, subView, query, historyMode) {
     || (sourceRoute.projectId || null) !== (routeState.projectId || null)
   ) {
     state.selectedItem = null
-    state.selectedItems = []
   }
 
   // 更新 URL hash
@@ -1163,7 +1161,6 @@ async function _handlePopState() {
       || (sourceRoute.projectId || null) !== (routeState.projectId || null)
     ) {
       state.selectedItem = null
-      state.selectedItems = []
     }
     return (await renderCurrentView()) !== false
   } catch (err) {

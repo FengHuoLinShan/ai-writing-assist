@@ -21,7 +21,8 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 记录导入历史
 - 提交并编排深度导入任务（`async_tasks` 负责调度/lease，
   `import_workflow_runs` 负责领域恢复事实）
-- 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
+- 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构；作者默认先从
+  Scene 骨架开始，但该推荐不自动提交任务，完整导入始终保留为显式选择
 - 完整和分阶段提交在 project exclusive 短事务锁内检查同项目 run；
   `import_workflow_runs` 另以 partial unique index 保证同项目最多一个
   `pending/running` 或 recovery-required run。已有 owner 时返回原
@@ -109,6 +110,12 @@ fail closed。旧的本地任务若没有此字段，兼容路径在首次新 wo
 执行时补抓快照；新生产提交不使用该兼容分支。
 
 完成结果增加 `asset_summary={adopted, review, not_adopted, by_kind}`。`by_kind` 固定包含 `scene/entity/relation/alias/structure`，缺失 phase 统计显式记 0。Scene 的 `needs_review` fallback、world candidate/关系/别名、不确定结构和跨旧资产去重建议进入 review。结构去重保留旧的 suggestion-pair 统计作为兼容字段，同时通过 `structure_dedup.current_workflow_asset_outcomes` 按当前 workflow 的唯一资产计算 review / not_adopted；旧资产之间的建议不进入本次资产汇总，同一资产出现在多个 pair 中也只计一次。Phase 3 自身的 `review_asset_count`、`uncertain_count` 与去重资产结果合并后会按结构总数 clamp，保持 adopted / review / not_adopted 互斥且总和等于本次结构资产数。高置信实体去重建议进入 review；只有授权策略明确允许且无 review 标记的工作资产计入 adopted。ignored、temporary-only、provenance conflict 和同 workflow 去重时被软废弃的重复结构计入 not_adopted。低置信结果不会自动提升为 canonical。
+
+完整 Deep Import 成功后，imports 以冻结的 Phase 2 Scene hash、实体/关系 result refs、workflow 与授权回执通过 world facade
+幂等创建 post-import `world_adoption_package.v1`。它不改变 Phase 2 的 adopted/review/checkpoint/
+resume/rollback/asset_summary；包创建失败仅记录诊断，导入仍保持成功。已写入 canonical 资产只作
+`existing_ref/no-op` 预览，candidate 实体/关系与 World Bible revision 仍需作者显式 preview/apply。
+冻结 result ref 漂移或单包超过 31 个资产时显式记录组包失败，不静默截断。
 
 `force=true` 的重复 Scene 提取把替换意图写入 task meta，直到 Scene commit 才执行。
 commit 只软废弃 workflow-owned、未人工编辑的 `draft/candidate`；`canonical`、
@@ -289,10 +296,9 @@ POST /api/imports/upload      — 上传文件（multipart）；201 表示导入
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；活动任务复用原 task，资产重复时先返回 requires_confirmation
-POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b + Scene commit
+POST /api/imports/stages/scenes — 提交“从正文提取 Scene”任务，只执行 Phase 0/1a/1b/1c + Scene commit
 POST /api/imports/stages/world-objects — 提交世界对象与别名/关系自动提取任务，只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure — 提交剧情线自动提取任务，只执行 Phase 3
-POST /api/imports/deep/sync   — 同步执行深度导入（测试/无 worker 场景）
 POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_import task
 POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派生资产
 ```

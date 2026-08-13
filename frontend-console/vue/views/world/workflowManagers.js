@@ -12,169 +12,12 @@
  * - 终态 clearActiveWorkflow；autoExtract done 额外 toast + router.refresh()
  *   重拉列表与 batches（对齐 vanilla _handleAutoExtractTerminal 的 reload）。
  */
-import { reactive } from "vue"
 import { getApi, getAppState, getRouter, getToast } from "../../bridge/index.js"
 import {
-  clearActiveWorkflow,
   createOperationId,
-  normalizeTaskProgress,
-  persistActiveWorkflow,
-  pollTaskProgress,
-  recoverActiveWorkflows,
 } from "../../../shared/workflowProgress.js"
 import { importAuthorizationPayload } from "../../../shared/importAuthorization.js"
-
-function createWorkflowManager({
-  workflowType,
-  label,
-  destinationLabel,
-  matchRecovered,
-  onTerminal,
-}) {
-  const state = reactive({
-    taskId: null,
-    status: "就绪",
-    meta: null,
-    progress: null,
-    ownerProjectId: null,
-    submitting: false,
-  })
-  let poller = null
-  let submissionGeneration = 0
-
-  function stop() {
-    if (poller?.stop) poller.stop()
-    poller = null
-  }
-
-  async function handleTerminal(progress, ownerProjectId, ownedTaskId) {
-    clearActiveWorkflow(progress.taskId || ownedTaskId)
-    if (state.ownerProjectId !== ownerProjectId || state.taskId !== ownedTaskId) return
-    stop()
-    state.taskId = null
-    state.progress = progress
-    await onTerminal?.(progress, state, ownerProjectId)
-  }
-
-  function resetMemoryScope() {
-    submissionGeneration += 1
-    stop()
-    state.taskId = null
-    state.status = "就绪"
-    state.meta = null
-    state.progress = null
-    state.ownerProjectId = null
-    state.submitting = false
-  }
-
-  function beginSubmission(projectId) {
-    if (
-      !projectId
-      || state.submitting
-      || (state.taskId && state.progress && !state.progress.terminal)
-    ) return null
-    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
-    const token = { generation: ++submissionGeneration, projectId }
-    state.ownerProjectId = projectId
-    state.submitting = true
-    return token
-  }
-
-  function endSubmission(token) {
-    if (!token || token.generation !== submissionGeneration) return
-    state.submitting = false
-  }
-
-  function startPolling(taskId, projectId) {
-    stop()
-    const api = getApi()
-    poller = pollTaskProgress({
-      taskId,
-      workflowType,
-      novelId: projectId,
-      apiClient: api,
-      onUpdate: (progress) => {
-        state.progress = progress
-        state.status = progress.statusLabel || progress.status || "运行中"
-      },
-      onDone: (progress) => { void handleTerminal(progress, projectId, taskId) },
-      onFailed: (progress) => { void handleTerminal(progress, projectId, taskId) },
-    })
-  }
-
-  /** 提交成功后接管任务：写 localStorage 并开始轮询（对应 vanilla submit 后半段）。 */
-  function adopt(result, meta = null, projectId = getAppState()?.currentProjectId || null) {
-    if (!result?.task_id || !projectId) return false
-    persistActiveWorkflow({
-      taskId: result.task_id,
-      workflowType,
-      label,
-      projectId,
-      view: "world",
-      meta: meta || undefined,
-    })
-    if (getAppState()?.currentProjectId !== projectId) return false
-    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
-    state.taskId = result.task_id
-    state.status = "运行中"
-    state.meta = meta || state.meta || null
-    state.ownerProjectId = projectId
-    state.progress = normalizeTaskProgress({
-      ...result,
-      task_type: workflowType,
-      meta: state.meta || {},
-    }, workflowType)
-    startPolling(result.task_id, projectId)
-    return state
-  }
-
-  function prepare(taskId, meta = null, projectId = getAppState()?.currentProjectId || null) {
-    if (!taskId || !projectId) return false
-    persistActiveWorkflow({ taskId, workflowType, label, projectId, view: "world", meta: meta || undefined })
-    return true
-  }
-
-  /** island load() 调用：从 localStorage 恢复未终结任务（对应 vanilla _recoverXxxWorkflow）。 */
-  function recover(projectId) {
-    if (!projectId) {
-      resetMemoryScope()
-      return
-    }
-    if (state.ownerProjectId && state.ownerProjectId !== projectId) resetMemoryScope()
-    if (state.taskId && state.progress && !state.progress.terminal) {
-      state.ownerProjectId = projectId
-      if (!poller) startPolling(state.taskId, projectId)
-      return
-    }
-    const workflow = matchRecovered(recoverActiveWorkflows(projectId))
-    if (!workflow?.taskId) return
-    state.taskId = workflow.taskId
-    state.status = "运行中"
-    state.meta = workflow.meta || state.meta || null
-    state.ownerProjectId = projectId
-    state.progress = normalizeTaskProgress({
-      task_id: workflow.taskId,
-      task_type: workflow.workflowType || workflowType,
-      status: "running",
-      meta: workflow.meta || {},
-    }, workflow.workflowType || workflowType)
-    startPolling(workflow.taskId, projectId)
-  }
-
-  return {
-    state,
-    workflowType,
-    label,
-    destinationLabel,
-    adopt,
-    prepare,
-    recover,
-    stop,
-    resetMemoryScope,
-    beginSubmission,
-    endSubmission,
-  }
-}
+import { createWorkflowManager } from "../../shared/workflowManager.js"
 
 const AUTO_EXTRACT_REFRESH_SUBVIEWS = new Set([
   "objects",
@@ -199,11 +42,15 @@ export const autoExtractManager = createWorkflowManager({
   workflowType: "world_object_auto_extraction",
   label: "整理人物、设定与关系",
   destinationLabel: "完成后查看世界对象、别名和待处理关系。",
+  view: "world",
+  prepare: true,
+  pollNovelId: (_state, projectId) => projectId,
+  restartActiveOnRecover: true,
   matchRecovered: (workflows) => (
     workflows.find((item) => item.workflowType === "world_object_auto_extraction" && item.view === "world")
     || workflows.find((item) => item.workflowType === "world_object_auto_extraction")
   ),
-  onTerminal: async (progress, _state, ownerProjectId) => {
+  onTerminal: async (progress, _state, _task, ownerProjectId) => {
     const toast = getToast()
     if (progress.done) {
       toast("人物、设定与关系已整理完成", "success")
@@ -224,6 +71,10 @@ export const fusionManager = createWorkflowManager({
   workflowType: "world_entity_fusion_suggestions",
   label: "世界对象 AI 合并建议",
   destinationLabel: "完成后可选择合并或登记别名",
+  view: "world",
+  prepare: true,
+  pollNovelId: (_state, projectId) => projectId,
+  restartActiveOnRecover: true,
   matchRecovered: (workflows) => (
     workflows.find((item) => item.workflowType === "world_entity_fusion_suggestions")
   ),

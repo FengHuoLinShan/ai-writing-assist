@@ -164,6 +164,7 @@ describe("深度导入", () => {
     })
     expect(guard()).toBe(true)
     await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    await wrapper.get('[aria-controls="deep-import-group-phase0"]').trigger("click")
     await wrapper.find("#deep-import-phase0-target-input-chars").setValue("80000")
     expect(guard()).toBe(false)
     expect(confirm).toHaveBeenCalledWith(
@@ -265,8 +266,9 @@ describe("深度导入", () => {
   })
 
   it("越界参数不提交", async () => {
-    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    const wrapper = mount(ProjectSettingsView, { attachTo: document.body, props: makeProps() })
     await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    await wrapper.get('[aria-controls="deep-import-group-phase0"]').trigger("click")
     await wrapper.find("#deep-import-phase0-target-input-chars").setValue("10")
     await wrapper.find("#deep-import-tab-save").trigger("click")
     expect(globalThis.api.projects.updateLlmSettings).not.toHaveBeenCalled()
@@ -274,6 +276,28 @@ describe("深度导入", () => {
       expect.stringContaining("必须是"),
       "warning",
     )
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe("deep-import-phase0-target-input-chars"))
+    expect(wrapper.get("#deep-import-phase0-target-input-chars").attributes("aria-invalid")).toBe("true")
+    expect(wrapper.get('[aria-controls="deep-import-group-phase0"]').attributes("aria-expanded")).toBe("true")
+  })
+
+  it("深度导入问题组默认折叠，展开后提供字段说明", async () => {
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    const group = wrapper.get('[aria-controls="deep-import-group-phase0"]')
+    expect(group.attributes("aria-expanded")).toBe("false")
+    expect(wrapper.get("#deep-import-phase0-target-input-chars").element.closest(".form-row").style.display).toBe("none")
+    await group.trigger("click")
+    expect(group.attributes("aria-expanded")).toBe("true")
+    expect(wrapper.find("#deep-import-phase0-target-input-chars").attributes("aria-describedby")).toContain("-help")
+    expect(wrapper.text()).toContain("调高会保留更多上下文或细节")
+  })
+
+  it("深度导入设置提供返回写作工作台", async () => {
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[1].trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "返回写作工作台").trigger("click")
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("writing")
   })
 })
 

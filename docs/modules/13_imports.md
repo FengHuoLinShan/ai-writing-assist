@@ -27,6 +27,10 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 
 ## 深度导入流水线
 
+写作工作台把“先整理场景骨架”作为推荐入口，对应 `stages/scenes`；推荐只帮助作者
+缩短首次看见可用 Scene 的时间，不会自动提交或绕过授权。完整导入仍是显式可选项，
+用于继续生成世界对象、别名/关系和故事结构。
+
 DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自动流水线。启动前必须由
 用户一次性确认 `adoption_policy="user_authorized_pipeline"`；运行中不逐项打断。当前权威 Scene 阶段是
 `Phase 0 deterministic plan → Phase 1a scene slicing → Phase 1b scene enrichment → Phase 1c scene fusion → Scene commit`。
@@ -169,10 +173,9 @@ POST /api/imports/upload                    # 上传并导入；201 表示导入
 GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true
-POST /api/imports/stages/scenes            # 只执行 Phase 0/1a/1b + scene_commit
+POST /api/imports/stages/scenes            # 只执行 Phase 0/1a/1b/1c + Scene commit
 POST /api/imports/stages/world-objects     # 只执行 Phase 2a/2b
 POST /api/imports/stages/plot-structure    # 只执行 Phase 3
-POST /api/imports/deep/sync                # 同步执行深度导入（E2E/无 worker 场景）
 POST /api/imports/deep/resume              # 用户确认后继续可恢复的原 deep_import 或 stage task
 POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
 ```

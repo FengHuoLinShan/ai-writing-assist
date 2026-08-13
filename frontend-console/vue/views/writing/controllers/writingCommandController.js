@@ -9,6 +9,11 @@ import {
 } from "../../../../shared/workflowProgress.js"
 
 const ABORTED = Symbol("writing-command-aborted")
+const MANAGED_WRITING_TYPES = new Set([
+  "writing_generate",
+  "writing_semantic_review",
+  "writing_targeted_revision",
+])
 
 export function createWritingCommandController({
   api,
@@ -81,6 +86,99 @@ export function createWritingCommandController({
       await wait(1500, token)
     }
     throw ABORTED
+  }
+
+  async function waitForManagedTask(submitted, projectId, token, workflowType) {
+    if (!submitted?.task_id) throw new Error("任务未能开始，请稍后重试")
+    while (!disposed && token === generation) {
+      let task
+      try {
+        task = await api.tasks.get(submitted.task_id, projectId)
+      } catch (err) {
+        if (Number(err?.status) === 404) {
+          clearActiveWorkflow(submitted.task_id, receiptStorage)
+          throw new Error("未找到原任务，请重新开始。")
+        }
+        await wait(1500, token)
+        continue
+      }
+      if (disposed || token !== generation || getProjectId() !== projectId) throw ABORTED
+      onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress(task, workflowType), result: task?.result || null })
+      if (task?.status === "done") return task
+      if (["failed", "cancelled"].includes(task?.status)) {
+        clearActiveWorkflow(submitted.task_id, receiptStorage)
+        throw new Error(task.error_message || (
+          task.status === "cancelled" ? "任务已取消" : "任务执行失败"
+        ))
+      }
+      await wait(1500, token)
+    }
+    throw ABORTED
+  }
+
+  async function runCandidateWorkflow(workflowType) {
+    const projectId = getProjectId()
+    const draftId = editor.getDraftId()
+    const provenance = editor.getProvenance?.() || {}
+    if (!projectId || !draftId || editor.getStatus?.() !== "candidate") {
+      toast("请先打开一份待处理正文建议", "warning")
+      return null
+    }
+    if (generating) {
+      toast("已有正文任务在运行", "warning")
+      return null
+    }
+    const review = provenance.independent_review
+    if (workflowType === "writing_targeted_revision" && (
+      !review?.review_task_id || !review?.finding_ids?.length
+    )) {
+      toast("当前没有可定向返修的审查问题", "warning")
+      return null
+    }
+    generating = true
+    onLoadingChange(true)
+    const token = ++generation
+    const operationId = createOperationId()
+    const chapter = getChapter()
+    const label = workflowType === "writing_semantic_review" ? "独立语义审查" : "定向返修"
+    const meta = { chapter, draftId }
+    persistActiveWorkflow({ taskId: operationId, workflowType, label, projectId, view: "writing", meta }, receiptStorage)
+    onProgress({ taskId: operationId, progress: normalizeTaskProgress({ id: operationId, task_type: workflowType, status: "pending" }, workflowType), result: null })
+    try {
+      const payload = workflowType === "writing_semantic_review"
+        ? { novel_id: projectId, draft_ids: [draftId], scope: "selection", operation_id: operationId }
+        : { novel_id: projectId, draft_id: draftId, review_task_id: review.review_task_id, finding_ids: review.finding_ids, operation_id: operationId }
+      const submitted = workflowType === "writing_semantic_review"
+        ? await api.writing.semanticReview(payload)
+        : await api.writing.targetedRevision(payload)
+      if (disposed || token !== generation) return null
+      if (submitted.task_id !== operationId) {
+        clearActiveWorkflow(operationId, receiptStorage)
+        persistActiveWorkflow({ taskId: submitted.task_id, workflowType, label, projectId, view: "writing", meta }, receiptStorage)
+      }
+      const task = await waitForManagedTask(submitted, projectId, token, workflowType)
+      clearActiveWorkflow(submitted.task_id, receiptStorage)
+      if (workflowType === "writing_targeted_revision") {
+        readyResult = { chapter_index: chapter, draft_id: task.result?.draft_id }
+        await openResult()
+        toast("定向返修已生成新候选，原稿未被覆盖", "success")
+      } else {
+        readyResult = { chapter_index: chapter, draft_id: draftId }
+        await openResult()
+        const count = Number(task.result?.blocking_count || 0)
+        toast(count ? `独立审查发现 ${count} 个阻断项` : "独立语义审查通过", count ? "warning" : "success")
+      }
+      onProgress({ taskId: submitted.task_id, progress: normalizeTaskProgress(task, workflowType), result: task.result || null })
+      return task
+    } catch (err) {
+      if (err !== ABORTED && !disposed && token === generation) toast(err?.message || `${label}失败`, "error")
+      return null
+    } finally {
+      if (token === generation) {
+        generating = false
+        onLoadingChange(false)
+      }
+    }
   }
 
   async function generate(mode = "draft") {
@@ -171,14 +269,31 @@ export function createWritingCommandController({
 
   async function recover() {
     const projectId = getProjectId()
-    const workflow = recoverActiveWorkflows(projectId, receiptStorage).filter((item) => item.workflowType === "writing_generate" && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]
+    const workflow = recoverActiveWorkflows(projectId, receiptStorage).filter((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]
     if (!workflow || generating) return false
     generating = true; onLoadingChange(true); const token = ++generation
-    try { const completed = await waitForDraft({ task_id: workflow.taskId }, projectId, token); if (disposed || token !== generation) return false; readyResult = { chapter_index: workflow.meta?.chapter, draft_id: completed.draft_id }; onProgress({ taskId: workflow.taskId, progress: normalizeTaskProgress({ id: workflow.taskId, task_type: "writing_generate", status: "done" }, "writing_generate"), result: readyResult }); toast("已恢复正文建议，可在进度卡中查看", "success"); return true } catch (err) { if (err !== ABORTED && !disposed && token === generation) toast(err?.message || "正文建议恢复失败", "error"); return false } finally { if (token === generation) { generating = false; onLoadingChange(false) } }
+    try {
+      if (workflow.workflowType === "writing_generate") {
+        const completed = await waitForDraft({ task_id: workflow.taskId }, projectId, token)
+        readyResult = { chapter_index: workflow.meta?.chapter, draft_id: completed.draft_id }
+        onProgress({ taskId: workflow.taskId, progress: normalizeTaskProgress({ id: workflow.taskId, task_type: "writing_generate", status: "done" }, "writing_generate"), result: readyResult })
+      } else {
+        const task = await waitForManagedTask({ task_id: workflow.taskId }, projectId, token, workflow.workflowType)
+        readyResult = { chapter_index: workflow.meta?.chapter, draft_id: task.result?.draft_id || workflow.meta?.draftId }
+        onProgress({ taskId: workflow.taskId, progress: normalizeTaskProgress(task, workflow.workflowType), result: task.result || null })
+      }
+      toast("已恢复正文任务，可在进度卡中查看", "success")
+      return true
+    } catch (err) {
+      if (err !== ABORTED && !disposed && token === generation) toast(err?.message || "正文任务恢复失败", "error")
+      return false
+    } finally {
+      if (token === generation) { generating = false; onLoadingChange(false) }
+    }
   }
-  async function cancel() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => item.workflowType === "writing_generate" && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (!workflow) return false; await api.tasks.cancel(workflow.taskId, getProjectId()); return true }
-  function dismiss() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "writing"); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); readyResult = null; onProgress({ taskId: null, progress: null, result: null }) }
-  async function openResult() { if (!readyResult || disposed || !getProjectId()) return false; await onResult(readyResult); const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => item.workflowType === "writing_generate" && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); return true }
+  async function cancel() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (!workflow) return false; await api.tasks.cancel(workflow.taskId, getProjectId()); return true }
+  function dismiss() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).find((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing"); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); readyResult = null; onProgress({ taskId: null, progress: null, result: null }) }
+  async function openResult() { if (!readyResult || disposed || !getProjectId()) return false; await onResult(readyResult); const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); return true }
 
   function dispose() {
     disposed = true
@@ -193,6 +308,8 @@ export function createWritingCommandController({
     generateDraft: () => generate("draft"),
     generateContinuation: () => generate("continue"),
     generatePovDraft: () => generate("pov"),
+    reviewCandidate: () => runCandidateWorkflow("writing_semantic_review"),
+    reviseCandidate: () => runCandidateWorkflow("writing_targeted_revision"),
     recover,
     openResult,
     cancel,

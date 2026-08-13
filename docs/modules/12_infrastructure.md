@@ -3,6 +3,9 @@
 ## 1. LLM 客户端
 
 `infrastructure/llm/` 目录提供 OpenAI 兼容的 LLM 调用能力。
+任务 result 的 `phase_artifacts` 可承载业务模块的 compact 后置回执。例如 completed
+Deep Import 的 adoption-package receipt 只用于展示/回跳；它不改变 task 生命周期，也不把
+业务 rollback 或 author confirmation 移交给基础设施。
 默认使用显式 HTTP transport，避免进程隐式继承系统代理；如需代理，配置
 `LLM_PROXY_URL`，如需读取系统代理，显式设置 `LLM_TRUST_ENV=true`。
 
@@ -336,7 +339,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`map_atlas_generate`、`map_atlas_storage_cleanup` |
 | outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview` |
 | rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities` |
-| writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
+| writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
 

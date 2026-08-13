@@ -116,14 +116,14 @@ CharacterKnowledge 还会按目标确定性选择唯一 canonical 有效检查�
 
 只在 `writing.generate + scene_id + reveal_mode=character` 中，context 才经
 `memory.facade.ensure_scene_checkpoints()` 编译 P0 `scene_world_state`。system
-`ready` 或明确人工确认的 `entities / relations / locations / map` 会以
+`ready` 或明确人工确认的 `entities / relations / locations` 会以
 `director_only` 进入模型；`knowledge` 维度只显示 coverage，角色所信仍只由
-CharacterKnowledge 决定。`retry_pending / manual_required / gap` 以及当前相关
+CharacterKnowledge 决定；AI 地图册不属于 Scene memory。`retry_pending / manual_required / gap` 以及当前相关
 对象未命中 checkpoint 的项不进入模型；后者只在作者 UI 标为“尚无时间锚”，
 不表示当时不存在。普通 author-safe 写作目前只获得 `memory_records`
 dict/list 形状修正，不宣称有完整历史门禁。
 
-新确认把五维 checkpoint ID/status 的排序 SHA-256 写入可选
+新确认把四维 checkpoint ID/status 的排序 SHA-256 写入可选
 `compile_options.scene_state_fingerprint`。回放时任一 checkpoint 被重建或人工修复即
 拒绝旧确认；旧记录没有该字段仍可回放。这里借鉴
 [KurrentDB projection/checkpoint](https://docs.kurrent.io/server/v26.1/features/projections/intro)

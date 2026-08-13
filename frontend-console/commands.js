@@ -185,15 +185,5 @@ registerCommand("generate", async () => {
   await router.navigate("generate")
 }, "打开生成中心")
 
-registerCommand("export", async (args) => {
-  const type = args[0] || "writing"
-  toast(`正在导出 ${type}...`, "info")
-  // 导出逻辑在各视图中实现
-}, "导出", "<world|writing>")
-
-registerCommand("save", async () => {
-  toast("已保存", "success")
-}, "保存当前编辑")
-
-// 导出
-window.commands = { register: registerCommand, execute: executeCommand, getSuggestions, getHelpText }
+// 公开 API
+window.commands = { execute: executeCommand, getSuggestions, getHelpText }

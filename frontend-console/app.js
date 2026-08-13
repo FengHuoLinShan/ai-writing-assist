@@ -63,7 +63,6 @@ const App = {
         this._scopeBrowserState(account.id)
         globalThis.currentAccount = account
       }
-      globalThis.installStateGlobalListeners?.()
       this._restoreProjectState()
 
       this._smartDedup = createSmartDedupManager({
@@ -100,7 +99,6 @@ const App = {
       this._smartDedup = null
       this._shell?.unmount?.()
       this._shell = null
-      globalThis.disposeStateGlobalListeners?.()
       this._initialized = false
       if (!this._accountBoundaryInvalidated) this._showBootstrapError(error)
       throw error
@@ -118,7 +116,6 @@ const App = {
     this._authGate?.unmount?.()
     this._authGate = null
     this._unbindAccountSecurityEvents()
-    globalThis.disposeStateGlobalListeners?.()
     this._initialized = false
   },
 
@@ -196,9 +193,7 @@ const App = {
         state.currentProject = null
         state.projects = []
         state.selectedItem = null
-        state.selectedItems = []
         state.viewStates = {}
-        state.cache = {}
       } catch {}
 
       const root = document.querySelector("#app")
@@ -261,15 +256,6 @@ const App = {
     mount.innerHTML = this._smartDedup.renderActionButton(this._smartDedup.getState().progress)
   },
 
-  _projectStorageSummary(project) {
-    if (!project || typeof project !== "object") return null
-    const summary = {}
-    for (const key of ["id", "title", "name"]) {
-      if (Object.prototype.hasOwnProperty.call(project, key)) summary[key] = project[key]
-    }
-    return Object.keys(summary).length > 0 ? summary : null
-  },
-
   _restoreProjectState() {
     try {
       const savedId = localStorage.getItem("novel_currentProjectId")
@@ -278,7 +264,7 @@ const App = {
       const savedProject = localStorage.getItem("novel_currentProject")
       if (!savedProject) return
       const parsed = JSON.parse(savedProject)
-      const summary = globalThis.projectStorageSummary?.(parsed) || this._projectStorageSummary(parsed)
+      const summary = globalThis.projectStorageSummary(parsed)
       if (!summary) return
       if (!state.currentProjectId && summary.id) state.currentProjectId = summary.id
       state.currentProject = { ...summary, summaryOnly: true }

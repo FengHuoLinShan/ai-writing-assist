@@ -84,6 +84,8 @@ POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 兼容同步入口
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion-task # 提交单条 AI 修复建议任务
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
 POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
+POST   /api/writing/semantic-reviews                    # 冻结正文/合同的独立语义审查
+POST   /api/writing/targeted-revisions                  # 按审查 finding 生成新返修候选
 ```
 
 ## 稳定原文引用
@@ -144,6 +146,21 @@ provider；finalize 会按 project-first 顺序重验 profile、上下文与当�
 - `prompt_name` / `prompt_hash` / `model`：生成 prompt 与模型审计信息
 - `pov_view`：角色视角结构化结果（仅 `pov_character`）
 - `pov_validation`：角色视角 deterministic 泄漏诊断；`passed` 只表示“未发现明显越权”，不是绝对安全保证
+- `scene_execution_bundle_hash / upstream_manifest`：冻结 Scene、StoryOutline revision 与 execution profile
+- `independent_review`：独立 reviewer task、正文 hash、verdict、finding IDs 和阻断数
+
+生成存在 Scene 的正文时，writing 通过
+`outline.facade.get_scene_execution_bundle` 消费 version-bound
+`story_execution_profile.v1` 与 Scene 执行字段。候选打开时投影
+upstream stale，采用时重算并在任一 source hash 漂移时 409。
+
+`writing_semantic_review` 与 generator 使用不同 managed task/run，支持
+selection/volume/book，冻结目标正文、相邻章回归上下文、
+StoryOutline/Scene/profile 和 hash manifest。回执包含 coverage、finding_id、
+severity、location、contract refs、preserve 与 not_checked；机械门不能
+代替文学语义通过。`writing_targeted_revision` 绑定 review findings、
+base/hash、contract hash、allowed scope、preserve/must_not_change 和 supersedes，
+只创建新 candidate。返修结果再经独立审查方可采用。
 
 POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标红风险。作者调用
 `POST /drafts/{id}/adopt` 后，服务以 copy-on-adopt 创建最高版本号的普通 draft，记录

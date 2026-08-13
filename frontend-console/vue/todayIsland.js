@@ -49,22 +49,34 @@ function generateContinuation(pointer) {
     world_bible_new_page: "继续创作世界书新页",
   }
   return {
-    key: `generate:${pointer.route.source_page_id || "project"}:${pointer.route.target}`,
+    key: `generate:${pointer.route.source_page_id || "project"}:${pointer.route.target}:${pointer.route.preset || "custom"}:${pointer.route.checkpoint_id || "local"}`,
     destination: "generate",
     route: pointer.route,
-    title: labels[pointer.route.target],
-    description: "恢复本机未发送输入与对话；打开后不会自动发起生成。",
+    title: pointer.route.preset === "world_core" ? "继续让灵感生长" : labels[pointer.route.target],
+    description: pointer.route.checkpoint_id
+      ? "从已保存的作者决定摘要继续；不会重放过时的 AI 聊天正文。"
+      : "恢复本机未发送输入与对话；打开后不会自动发起生成。",
   }
 }
 
-async function loadPendingSuggestions(api, projectId, suggestionId = null) {
+function adoptionContinuation(item) {
+  return {
+    key: `world-adoption:${item.id}`,
+    destination: "world_adoption_review",
+    route: { package_id: item.id },
+    title: item.source_module === "imports" ? "审阅深度导入设定" : "审阅世界核心采纳包",
+    description: "先看清流水线已写入与本次确认将写入；确认后对象、关系和世界书页才会一起提交。",
+  }
+}
+
+async function loadPendingSuggestions(api, projectId, suggestionId = null, reviewGroup = "generation_center") {
   let skip = 0
   let firstPage = []
   while (true) {
     const result = await api.world.listSuggestions({
       novel_id: projectId,
       source_module: "world",
-      review_group: "generation_center",
+      review_group: reviewGroup,
       status: "pending",
       skip,
       limit: SUGGESTION_PAGE_LIMIT,
@@ -86,11 +98,14 @@ async function loadPendingSuggestions(api, projectId, suggestionId = null) {
   }
 }
 
-function resolveCreativeContinuation(pointer, projectId, draftsResult, suggestionsResult, warn) {
+function resolveCreativeContinuation(pointer, projectId, draftsResult, suggestionsResult, adoptionResult, warn) {
   if (!pointer) return null
   if (pointer.destination === "generate") {
-    const key = generateSessionKey(projectId, pointer.route.source_page_id, pointer.route.target)
-    return hasGenerateSession(key, { notify: warn }) ? generateContinuation(pointer) : null
+    const key = generateSessionKey(projectId, pointer.route.source_page_id, pointer.route.target, pointer.route.preset)
+    if (!pointer.route.checkpoint_id) return hasGenerateSession(key, { notify: warn }) ? generateContinuation(pointer) : null
+    if (adoptionResult.status === "rejected") return generateContinuation(pointer)
+    const checkpoint = listItems(adoptionResult.value).find((item) => item.id === pointer.route.checkpoint_id)
+    return checkpoint?.target_type === "world_core_checkpoint" ? generateContinuation(pointer) : null
   }
   if (pointer.destination === "world_bible_draft") {
     if (draftsResult.status === "rejected") {
@@ -156,14 +171,18 @@ export async function loadTodayProps() {
   const pointedSuggestionId = pointer?.destination === "world_suggestion_review"
     ? pointer.route.suggestion_id
     : null
-  const [summaryResult, draftsResult, suggestionsResult] = await Promise.allSettled([
+  const pointedCheckpointId = pointer?.destination === "generate" ? pointer.route.checkpoint_id || null : null
+  const [summaryResult, draftsResult, suggestionsResult, adoptionResult] = await Promise.allSettled([
     api.projects.getWorkspaceSummary(projectId),
     api.world?.listBibleDrafts ? api.world.listBibleDrafts(projectId) : Promise.resolve({ items: [] }),
     api.world?.listSuggestions
       ? loadPendingSuggestions(api, projectId, pointedSuggestionId)
       : Promise.resolve({ items: [] }),
+    api.world?.listSuggestions
+      ? loadPendingSuggestions(api, projectId, pointedCheckpointId, "world_adoption")
+      : Promise.resolve({ items: [] }),
   ])
-  const creativeContinuation = resolveCreativeContinuation(pointer, projectId, draftsResult, suggestionsResult, warn)
+  const creativeContinuation = resolveCreativeContinuation(pointer, projectId, draftsResult, suggestionsResult, adoptionResult, warn)
   if (pointer && !creativeContinuation) {
     clearCreativeContinuation(projectId)
     continuationWarning = "上次世界设定创作位置已失效，已清除该入口；请从当前正文、工作稿或建议重新选择。"
@@ -173,7 +192,17 @@ export async function loadTodayProps() {
   const firstSuggestion = listItems(suggestionsResult.status === "fulfilled" ? suggestionsResult.value : null)
     .filter((item) => item.target_type === "world_bible_page_draft")
     .map((item) => suggestionContinuation(item)).find(Boolean)
-  const worldContinuations = [firstDraft, firstSuggestion].filter(Boolean)
+  const firstCheckpoint = listItems(adoptionResult.status === "fulfilled" ? adoptionResult.value : null)
+    .find((item) => item.target_type === "world_core_checkpoint")
+  const firstPackage = listItems(adoptionResult.status === "fulfilled" ? adoptionResult.value : null)
+    .find((item) => item.target_type === "world_adoption_package")
+  const checkpointContinuation = firstCheckpoint ? generateContinuation({ route: {
+    source_page_id: null,
+    target: "core_entity",
+    preset: "world_core",
+    checkpoint_id: firstCheckpoint.id,
+  } }) : null
+  const worldContinuations = [firstPackage ? adoptionContinuation(firstPackage) : null, checkpointContinuation, firstDraft, firstSuggestion].filter(Boolean)
   const stored = recoverActiveWorkflows(projectId)
     .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))
     .slice(0, WORKFLOW_LIMIT)
@@ -188,7 +217,7 @@ export async function loadTodayProps() {
     creativeContinuation,
     worldContinuations,
     continuationWarning,
-    worldLoadError: draftsResult.status === "rejected" || suggestionsResult.status === "rejected"
+    worldLoadError: draftsResult.status === "rejected" || suggestionsResult.status === "rejected" || adoptionResult.status === "rejected"
       ? "部分世界设定暂时无法加载；已保存内容不会受影响。"
       : null,
     loadError: summaryResult.status === "rejected"

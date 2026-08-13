@@ -65,6 +65,7 @@ from modules.world.event_facade import (  # noqa: F401
     rollback_to_revision,
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
+    assemble_post_import_adoption_package,
     get_world_background,
     get_world_bible_page_source_manifest,
     get_world_bible_projection_candidates,
@@ -79,6 +80,7 @@ from modules.world.worldbuilding_facade import (  # noqa: F401
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
+    "assemble_post_import_adoption_package",
     "append_candidate_alias",
     "apply_entity_fusion",
     "apply_entity_fusion_group",

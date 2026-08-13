@@ -92,6 +92,7 @@ class GeneratedWorldGenerationConvergenceItem(BaseModel):
 
     text: str = Field(..., min_length=1, max_length=600)
     suggested_disposition: Literal["include", "open", "discard"] = "open"
+    world_core_rule_key: str | None = Field(default=None, min_length=1, max_length=64)
     external_disposition: (
         Literal[
             "compatible",
@@ -145,6 +146,42 @@ class GeneratedWorldGenerationConvergenceCard(BaseModel):
     why_now: str = Field(..., min_length=1, max_length=1000)
 
 
+class GeneratedWorldCoreSeed(BaseModel):
+    source_key: str = Field(..., min_length=1, max_length=128)
+    disposition: Literal["experience_promise", "included", "open", "rejected"]
+
+
+class GeneratedWorldCoreRuleAtom(BaseModel):
+    rule_key: str = Field(..., min_length=1, max_length=64)
+    title: str = Field(..., min_length=1, max_length=160)
+    source_keys: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(
+        ..., min_length=1, max_length=16
+    )
+    can: str = Field(..., min_length=1, max_length=600)
+    cannot: str = Field(..., min_length=1, max_length=600)
+    cost: str = Field(..., min_length=1, max_length=600)
+    failure: str = Field(..., min_length=1, max_length=600)
+    maintenance: str = Field(..., min_length=1, max_length=600)
+    na_reasons: dict[str, str] = Field(default_factory=dict)
+
+
+class GeneratedWorldCoreVerticalSlice(BaseModel):
+    rule_key: str = Field(..., min_length=1, max_length=64)
+    daily_consequence: str = Field(..., min_length=1, max_length=1200)
+    failure_consequence: str = Field(..., min_length=1, max_length=1200)
+
+
+class GeneratedWorldCoreConvergence(BaseModel):
+    author_seeds: list[GeneratedWorldCoreSeed] = Field(
+        default_factory=list, max_length=256
+    )
+    rule_atoms: list[GeneratedWorldCoreRuleAtom] = Field(
+        default_factory=list, max_length=7
+    )
+    blocking_contradictions: list[str] = Field(default_factory=list, max_length=20)
+    vertical_slice: GeneratedWorldCoreVerticalSlice | None = None
+
+
 class GeneratedWorldGenerationConvergenceOutput(BaseModel):
     """Structured, read-only convergence output before any suggestion exists."""
 
@@ -152,9 +189,7 @@ class GeneratedWorldGenerationConvergenceOutput(BaseModel):
     detail_count_after_deduplication: int = Field(..., ge=0, le=10000)
     retained_detail_count: int = Field(..., ge=0, le=10000)
     decision_cards: list[GeneratedWorldGenerationConvergenceCard] = Field(
-        ...,
-        min_length=1,
-        max_length=7,
+        ..., min_length=1, max_length=7
     )
     retained_source_keys: list[Annotated[str, Field(min_length=1, max_length=128)]] = (
         Field(default_factory=list, max_length=256)
@@ -163,6 +198,7 @@ class GeneratedWorldGenerationConvergenceOutput(BaseModel):
         default_factory=list, max_length=256
     )
     next_boundary: str = Field(..., min_length=1, max_length=1200)
+    world_core: GeneratedWorldCoreConvergence | None = None
 
 
 class GeneratedWorldGenerationExplorationTarget(BaseModel):

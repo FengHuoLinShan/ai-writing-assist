@@ -694,9 +694,7 @@ def test_local_audit_rejects_chapter_schedules_but_not_long_range_movements() ->
     assert not StoryOutlineGenerationService._local_audit_violations(long_range)
 
 
-async def test_external_canon_audit_is_independent_from_general_evidence_audit() -> (
-    None
-):
+async def test_external_canon_audit_is_independent_from_general_evidence_audit() -> None:
     queued = [
         StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
         StoryOutlineEvidenceAudit(
@@ -922,7 +920,12 @@ async def test_apply_edited_preview_uses_server_task_provenance_and_no_lower_wri
     adopted = response.json()
     assert adopted["title"] == "作者编辑后的共同体"
     assert adopted["source"] == "ai_generated"
-    assert adopted["provenance"] == {
+    provenance = adopted["provenance"]
+    assert {
+        key: value
+        for key, value in provenance.items()
+        if key not in {"story_execution_profile", "story_execution_profile_hash"}
+    } == {
         "actor": "author",
         "note": "Adopted an author-edited StoryOutline AI preview.",
         "client_ref": "story-outline-generate/apply",
@@ -932,6 +935,10 @@ async def test_apply_edited_preview_uses_server_task_provenance_and_no_lower_wri
             f"project:{sample_novel_id}@{'e' * 64}",
         ],
     }
+    assert provenance["story_execution_profile"]["version"] == (
+        "story_execution_profile.v1"
+    )
+    assert len(provenance["story_execution_profile_hash"]) == 64
     refreshed_task = await db_session.get(AsyncTask, task_id)
     await db_session.refresh(refreshed_task)
     assert refreshed_task.result["apply_status"] == "applied"

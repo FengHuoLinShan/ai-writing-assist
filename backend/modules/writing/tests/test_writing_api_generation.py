@@ -4,7 +4,6 @@ Writing 模块测试
 测试草稿 CRUD、版本管理、facade 和边界情况。
 """
 
-
 from __future__ import annotations
 
 import uuid
@@ -842,6 +841,18 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
         return confirmed
 
     monkeypatch.setattr(context_facade, "prepare_confirmed_ai_action", fake_prepare)
+    monkeypatch.setattr(
+        WritingGenerationService,
+        "_execution_bundle",
+        AsyncMock(
+            return_value={
+                "contract_hash": "e" * 64,
+                "upstream_manifest": [],
+                "missing_fields": [],
+                "omissions": [],
+            }
+        ),
+    )
     client = FakePovLLMClient("林澈握紧了铜制密钥。")
     draft = await WritingGenerationService(llm_client=client).generate_candidate(
         db_session,

@@ -20,14 +20,15 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
+- 对冻结正文、总纲 profile 和 Scene 执行合同运行独立语义审查
+- 按审查 finding 生成不覆盖原稿的定向返修 candidate
 
 ## 不负责
 
 - 未经确认自动采用、覆盖或发布 AI 正文
 - 把 candidate 当作 working/canonical 正文
 - 自治式长篇生成或跨模块业务编排
-- 完整文学质量审稿
-- 文风润色
+- 代替作者对文学质量、文风和审查结论的最终裁定
 - 多版本自动融合
 - 正文的 RAG 分块（由 RAG 模块负责）
 
@@ -161,6 +162,8 @@ POST /api/writing/conflict-check-items/{id}/ai-suggestion-task → 异步生成�
 PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
 POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题 AI 修复建议
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
+POST /api/writing/semantic-reviews               → 独立语义审查，回执 coverage/findings
+POST /api/writing/targeted-revisions             → 按冻结 finding 生成定向返修 candidate
 ```
 
 正文保存 API 共享 function-scope `DbSession` 事务边界：普通非流式请求只有在
@@ -205,6 +208,19 @@ transaction 中创建 candidate 并绑定 confirmation。同一 confirmation 重
 最后绑定的 task 取代旧 task，旧结果不会写入。
 上下文漂移、项目删除、取消或 lease 丢失均不会留下 candidate。同步
 `WritingGenerationService.generate_candidate()` 仍保留原调用语义且不自行 commit。
+
+Scene 确认存在时，生成 prompt 附带 outline-owned 执行 bundle，候选
+provenance 冻结 `scene_execution_bundle_hash` 和 exact `upstream_manifest`。
+候选打开和采用前重算当前 bundle；总纲、`story_execution_profile.v1`、
+Scene 或 context confirmation 漂移时显示待复核，采用返回 409。
+
+`writing_semantic_review` 是与 generator 分离的 managed task。它冻结目标正文
+hash、相邻章回归上下文和 Scene bundle，支持 selection/volume/book 分片近读，
+输出 coverage、finding_id、severity、location、contract refs、preserve 与
+not_checked；机械检查不能签署文学 PASS。`writing_targeted_revision` 只处理
+选定 finding，绑定 base/hash、合同 hash、允许范围、preserve/must_not_change 和
+supersedes；它创建新 candidate，不覆盖原稿。返修 candidate 必须再经
+独立审查通过才能采用。
 
 版本历史是审计视图：按 `version_number` 倒序返回 active、review 和
 archived 全部记录，`total` 与返回集合一致。列表项的 `display_state`
@@ -253,9 +269,7 @@ Phase 2 AI 能力是显式追加，不影响规则层检查：
 
 ## 后续扩展方向
 
-- 正文局部重写
 - 文风润色
-- 文学质量与 POV 稳定性评测
 - candidate 局部比较与人工融合工具
 
 ## 测试方式

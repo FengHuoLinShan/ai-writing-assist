@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
+import re
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -28,14 +31,19 @@ from modules.world.map_atlas_models import (
 from modules.world.map_atlas_schemas import (
     ATLAS_LEVEL_RANK,
     MapAtlasAnnotationUpdate,
+    MapAtlasConfirmPromptsRequest,
     MapAtlasDerivedRequest,
+    MapAtlasEvidenceSummary,
     MapAtlasNodeProposal,
+    MapAtlasNodeUpdate,
+    MapAtlasPromptUpdate,
     MapAtlasReviewRequest,
     MapAtlasRunCreate,
 )
 from modules.world.map_atlas_storage import (
     MapAtlasStorage,
     delete_unreferenced_page_object,
+    normalize_map_upload,
     page_object_key,
     require_matching_mask,
     require_owned_page_object_key,
@@ -43,7 +51,7 @@ from modules.world.map_atlas_storage import (
 from shared.utils import parse_uuid
 
 MAP_ATLAS_TASK_TYPE = "map_atlas_generate"
-ACTIVE_RUN_STATUSES = {"planning", "generating"}
+ACTIVE_RUN_STATUSES = {"planning", "prompt_review", "generating"}
 RECOVERABLE_RUN_ERROR_CODES = {"retry_requires_confirmation", "worker_interrupted"}
 RECOVERABLE_PAGE_ERROR_CODES = {
     "possible_duplicate_charge",
@@ -54,6 +62,11 @@ RECOVERABLE_PAGE_ERROR_CODES = {
 
 def _uuid(value: Any) -> str | None:
     return str(value) if value is not None else None
+
+
+def _path_part(value: str) -> str:
+    compact = re.sub(r"\s+", "", value).casefold()
+    return hashlib.sha256(compact.encode()).hexdigest()[:20]
 
 
 class MapAtlasService:
@@ -73,8 +86,12 @@ class MapAtlasService:
         active = await self._active_run(db, novel_id, for_update=True)
         if active is not None:
             return self._run_dict(active)
-        image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
         llm_snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        image_snapshot = (
+            {}
+            if data.review_image_prompts
+            else await build_project_image_execution_snapshot(db, novel_id)
+        )
         adopted_count = await db.scalar(
             select(func.count(MapAtlasPage.id)).where(
                 MapAtlasPage.novel_id == parse_uuid(novel_id, "novel_id"),
@@ -91,6 +108,7 @@ class MapAtlasService:
             style_note=data.style_note,
             include_working_drafts=data.include_working_drafts,
             include_interiors=data.include_interiors,
+            review_image_prompts=data.review_image_prompts,
             layout=data.layout,
             quality=data.quality,
             page_limit=20,
@@ -99,9 +117,7 @@ class MapAtlasService:
         )
         db.add(run)
         await db.flush()
-        task_id = await self._enqueue_run_task(
-            db, novel_id, run, mode="reuse_active"
-        )
+        task_id = await self._enqueue_run_task(db, novel_id, run, mode="reuse_active")
         run.task_id = parse_uuid(task_id, "task_id")
         await db.flush()
         return self._run_dict(run)
@@ -124,7 +140,10 @@ class MapAtlasService:
         run = (
             await db.execute(
                 select(MapAtlasRun)
-                .where(MapAtlasRun.novel_id == parse_uuid(novel_id, "novel_id"))
+                .where(
+                    MapAtlasRun.novel_id == parse_uuid(novel_id, "novel_id"),
+                    MapAtlasRun.run_kind != "upload",
+                )
                 .order_by(MapAtlasRun.created_at.desc(), MapAtlasRun.id.desc())
                 .limit(1)
             )
@@ -142,6 +161,8 @@ class MapAtlasService:
         if run.status in {"failed", "review_ready", "completed"}:
             raise ConflictError("该地图册任务已经结束")
         run.stop_requested = True
+        if run.status == "prompt_review":
+            run.status = "paused"
         await db.flush()
         return {"run_id": str(run.id), "stop_requested": True}
 
@@ -155,7 +176,7 @@ class MapAtlasService:
     ) -> dict[str, Any]:
         await require_active_project_exclusive(db, novel_id)
         run = await self._require_run(db, novel_id, run_id, for_update=True)
-        if run.status in {"failed", "review_ready", "completed"}:
+        if run.status in {"failed", "prompt_review", "review_ready", "completed"}:
             raise ConflictError("该地图册任务无需继续")
         if run.status in {"planning", "generating"} and not run.stop_requested:
             return self._run_dict(run)
@@ -196,6 +217,17 @@ class MapAtlasService:
             page.error_code = None
             page.error_message = None
         run.stop_requested = False
+        if run.review_image_prompts and run.atlas_plan:
+            prepared = await db.scalar(
+                select(func.count(MapAtlasPage.id)).where(
+                    MapAtlasPage.run_id == run.id,
+                    MapAtlasPage.generation_status == "prepared",
+                )
+            )
+            if prepared:
+                run.status = "prompt_review"
+                await db.flush()
+                return self._run_dict(run)
         run.status = "generating" if run.atlas_plan else "planning"
         task_id = await self._enqueue_run_task(
             db, novel_id, run, mode="one_pending_follower"
@@ -218,6 +250,7 @@ class MapAtlasService:
             MapAtlasPage.novel_id == nid,
             MapAtlasPage.generation_status.in_(
                 {"review_ready", "failed", "retry_requires_confirmation"}
+                | ({"prepared", "prompt_only"} if run_id else set())
             ),
         ]
         if run is None:
@@ -257,20 +290,24 @@ class MapAtlasService:
                 if node.parent_id is not None and node.parent_id not in nodes_by_id
             }
             nodes_by_id.update({node.id: node for node in found})
-        annotations = list(
-            (
-                await db.execute(
-                    select(MapAtlasAnnotation)
-                    .where(
-                        MapAtlasAnnotation.novel_id == nid,
-                        MapAtlasAnnotation.page_id.in_([page.id for page in pages]),
+        annotations = (
+            list(
+                (
+                    await db.execute(
+                        select(MapAtlasAnnotation)
+                        .where(
+                            MapAtlasAnnotation.novel_id == nid,
+                            MapAtlasAnnotation.page_id.in_([page.id for page in pages]),
+                        )
+                        .order_by(MapAtlasAnnotation.sort_order)
                     )
-                    .order_by(MapAtlasAnnotation.sort_order)
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        ) if pages else []
+            if pages
+            else []
+        )
         adopted_targets = set(
             (
                 await db.execute(
@@ -333,10 +370,17 @@ class MapAtlasService:
         nid = parse_uuid(novel_id, "novel_id")
         latest_run_id = (
             select(MapAtlasRun.id)
-            .where(MapAtlasRun.novel_id == nid)
+            .where(MapAtlasRun.novel_id == nid, MapAtlasRun.run_kind != "upload")
             .order_by(MapAtlasRun.created_at.desc(), MapAtlasRun.id.desc())
             .limit(1)
             .scalar_subquery()
+        )
+        upload_run = exists(
+            select(MapAtlasRun.id).where(
+                MapAtlasRun.id == MapAtlasPage.run_id,
+                MapAtlasRun.novel_id == nid,
+                MapAtlasRun.run_kind == "upload",
+            )
         )
         pages = list(
             (
@@ -345,9 +389,7 @@ class MapAtlasService:
                     .where(
                         MapAtlasPage.novel_id == nid,
                         or_(
-                            MapAtlasPage.review_status.in_(
-                                {"deprecated", "rejected"}
-                            ),
+                            MapAtlasPage.review_status.in_({"deprecated", "rejected"}),
                             and_(
                                 MapAtlasPage.review_status == "candidate",
                                 MapAtlasPage.generation_status.in_(
@@ -357,7 +399,7 @@ class MapAtlasService:
                                         "retry_requires_confirmation",
                                     }
                                 ),
-                                MapAtlasPage.run_id != latest_run_id,
+                                or_(upload_run, MapAtlasPage.run_id != latest_run_id),
                             ),
                         ),
                     )
@@ -385,10 +427,11 @@ class MapAtlasService:
         if page.updated_at != data.expected_updated_at:
             raise ConflictError("页面已在别处更新，请刷新后重试")
         if action in {"adopt", "reject"} and (
-            page.review_status != "candidate"
-            or page.generation_status != "review_ready"
+            page.review_status != "candidate" or page.generation_status != "review_ready"
         ):
             raise ConflictError("只有生成完成的候选图片可以加入或不加入")
+        if page.generation_status == "prompt_only":
+            raise ConflictError("仅 Prompt 页面没有可处理的图片")
         now = datetime.now(UTC)
         if action == "adopt":
             conflicts = list((page.evidence or {}).get("conflicts") or [])
@@ -439,9 +482,7 @@ class MapAtlasService:
                 select(MapAtlasAnnotation)
                 .where(
                     MapAtlasAnnotation.novel_id == nid,
-                    MapAtlasAnnotation.id == parse_uuid(
-                        annotation_id, "annotation_id"
-                    ),
+                    MapAtlasAnnotation.id == parse_uuid(annotation_id, "annotation_id"),
                 )
                 .with_for_update()
             )
@@ -467,6 +508,339 @@ class MapAtlasService:
             setattr(item, key, value)
         await db.flush()
         return self._annotation_dict(item)
+
+    async def get_prompt(
+        self, db: AsyncSession, novel_id: str, page_id: str
+    ) -> dict[str, Any]:
+        await require_active_project(db, novel_id)
+        page = await self._require_page(db, novel_id, page_id)
+        run = await self._require_run(db, novel_id, str(page.run_id))
+        return self._prompt_dict(
+            page, run.status == "prompt_review" and page.generation_status == "prepared"
+        )
+
+    async def update_prompt(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        page_id: str,
+        data: MapAtlasPromptUpdate,
+    ) -> dict[str, Any]:
+        await require_active_project_exclusive(db, novel_id)
+        page = await self._require_page(db, novel_id, page_id, for_update=True)
+        run = await self._require_run(db, novel_id, str(page.run_id), for_update=True)
+        if run.status != "prompt_review" or page.generation_status != "prepared":
+            raise ConflictError("Prompt 已锁定，无法继续修改")
+        if page.updated_at != data.expected_updated_at:
+            raise ConflictError("Prompt 已在别处更新，请刷新后重试")
+        page.prompt = data.prompt
+        page.generation_choice = data.generation_choice
+        await db.flush()
+        return self._prompt_dict(page, True)
+
+    async def confirm_prompts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+        data: MapAtlasConfirmPromptsRequest,
+    ) -> dict[str, Any]:
+        await require_active_project_exclusive(db, novel_id)
+        run = await self._require_run(db, novel_id, run_id, for_update=True)
+        if run.status != "prompt_review":
+            raise ConflictError("该任务不在 Prompt 确认阶段")
+        pages = list(
+            (
+                await db.execute(
+                    select(MapAtlasPage)
+                    .where(
+                        MapAtlasPage.novel_id == run.novel_id,
+                        MapAtlasPage.run_id == run.id,
+                    )
+                    .order_by(MapAtlasPage.sort_order, MapAtlasPage.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        expected = {item.page_id: item.expected_updated_at for item in data.pages}
+        if {page.id for page in pages} != set(expected):
+            raise ConflictError("必须确认本次的全部 Prompt")
+        if any(page.generation_status != "prepared" for page in pages):
+            raise ConflictError("Prompt 页面状态已变化，请刷新后重试")
+        if any(page.updated_at != expected[page.id] for page in pages):
+            raise ConflictError("Prompt 已在别处更新，请刷新后重试")
+        internal = [page for page in pages if page.generation_choice == "internal"]
+        if not internal:
+            for page in pages:
+                page.generation_status = "prompt_only"
+            run.completed_page_count = len(pages)
+            run.status = "review_ready"
+            await db.flush()
+            return self._run_dict(run)
+        # Build the image connection only after the author has confirmed prompts.
+        # Failure leaves the durable prompt-review state untouched.
+        image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
+        for page in pages:
+            if page.generation_choice == "external":
+                page.generation_status = "prompt_only"
+        run.image_execution_snapshot = image_snapshot
+        run.completed_page_count = len(pages) - len(internal)
+        run.status = "generating"
+        task_id = await self._enqueue_run_task(
+            db, novel_id, run, mode="one_pending_follower"
+        )
+        run.task_id = parse_uuid(task_id, "task_id")
+        await db.flush()
+        return self._run_dict(run)
+
+    async def upload_page(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        payload: bytes,
+        title: str | None,
+        level: str | None,
+        parent_id: str | None,
+        node_id: str | None,
+    ) -> dict[str, Any]:
+        await require_active_project(db, novel_id)
+        try:
+            normalized, metadata = await asyncio.to_thread(normalize_map_upload, payload)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        nid = parse_uuid(novel_id, "novel_id")
+        run_id, page_id = uuid.uuid4(), uuid.uuid4()
+        key = page_object_key(novel_id, str(page_id), attempt_token=str(uuid.uuid4()))
+        storage = self._get_storage()
+        uploaded = False
+        try:
+            await storage.put_png(key, normalized)
+            uploaded = True
+            await require_active_project_exclusive(db, novel_id)
+            if await self._active_run(db, novel_id, for_update=True) is not None:
+                raise ConflictError("当前项目已有地图册生成任务")
+            parent = None
+            if parent_id:
+                parent = await self._require_adopted_node(db, nid, parent_id)
+            if node_id:
+                node = await self._require_adopted_node(db, nid, node_id)
+                if parent_id is not None or level is not None or title is not None:
+                    raise ValidationError("选择已有地点时不能重写其层级信息")
+                page_title = node.title
+            else:
+                page_title = (title or "").strip()
+                if not page_title or level is None:
+                    raise ValidationError("新地点必须填写名称和层级")
+                if level in {"cover", "world"} and parent is not None:
+                    raise ValidationError("封面与世界图不能有上级地图")
+                if parent and ATLAS_LEVEL_RANK[parent.level] >= ATLAS_LEVEL_RANK[level]:
+                    raise ValidationError("地图上下级层级无效")
+                node = MapAtlasNode(
+                    id=uuid.uuid4(),
+                    novel_id=nid,
+                    created_by_run_id=run_id,
+                    parent_id=parent.id if parent else None,
+                    semantic_key=f"manual:{uuid.uuid4()}",
+                    title=page_title,
+                    level=level,
+                    status="provisional",
+                    sort_order=0,
+                )
+            run = MapAtlasRun(
+                id=run_id,
+                novel_id=nid,
+                run_kind="upload",
+                status="review_ready",
+                planned_page_count=1,
+                completed_page_count=1,
+            )
+            page = MapAtlasPage(
+                id=page_id,
+                novel_id=nid,
+                run_id=run.id,
+                node_id=node.id,
+                generation_status="review_ready",
+                generation_choice="external",
+                title=page_title,
+                visual_brief="用户上传的地图",
+                prompt="用户上传",
+                node_proposal=(
+                    MapAtlasNodeProposal(
+                        node_id=node.id,
+                        parent_id=node.parent_id,
+                        title=node.title,
+                        level=node.level,
+                        summary=node.summary,
+                        sort_order=node.sort_order,
+                    ).model_dump(mode="json")
+                    if node.status == "provisional"
+                    else {}
+                ),
+                object_key=key,
+                sha256=metadata.sha256,
+                media_type="image/png",
+                width=metadata.width,
+                height=metadata.height,
+                byte_size=metadata.byte_size,
+                provider="user",
+                model="external",
+            )
+            db.add_all([run, node, page] if node_id is None else [run, page])
+            await db.flush()
+            return self._page_dict(page, [])
+        except BaseException:
+            await db.rollback()
+            if uploaded:
+                await self._compensate_upload(db, storage, key)
+            raise
+
+    async def update_node(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        node_id: str,
+        data: MapAtlasNodeUpdate,
+    ) -> dict[str, Any]:
+        await require_active_project_exclusive(db, novel_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        nodes = list(
+            (
+                await db.execute(
+                    select(MapAtlasNode)
+                    .where(MapAtlasNode.novel_id == nid)
+                    .order_by(MapAtlasNode.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        by_id = {item.id: item for item in nodes}
+        node = by_id.get(parse_uuid(node_id, "node_id"))
+        if node is None:
+            raise NotFoundError("地图节点不存在")
+        if node.updated_at != data.expected_updated_at:
+            raise ConflictError("地图层级已在别处更新，请刷新后重试")
+        run = await self._require_run(db, novel_id, str(node.created_by_run_id))
+        if node.status == "provisional" and run.run_kind != "upload":
+            raise ConflictError("该候选节点不能手动调整")
+        if node.status == "adopted" and "title" in data.model_fields_set:
+            raise ValidationError("已加入地图册的地点不能在此改名")
+        new_parent_id = (
+            data.parent_id if "parent_id" in data.model_fields_set else node.parent_id
+        )
+        new_level = data.level or node.level
+        if new_parent_id == node.id:
+            raise ValidationError("地图节点不能成为自己的上级")
+        parent = by_id.get(new_parent_id) if new_parent_id else None
+        if new_parent_id and (parent is None or parent.status != "adopted"):
+            raise ValidationError("上级地图必须是已加入的地点")
+        if new_level in {"cover", "world"} and parent is not None:
+            raise ValidationError("封面与世界图不能有上级地图")
+        if parent and ATLAS_LEVEL_RANK[parent.level] >= ATLAS_LEVEL_RANK[new_level]:
+            raise ValidationError("地图上下级层级无效")
+        cursor = parent
+        while cursor is not None:
+            if cursor.id == node.id:
+                raise ValidationError("地图层级不能形成循环")
+            cursor = by_id.get(cursor.parent_id) if cursor.parent_id else None
+        children = [item for item in nodes if item.parent_id == node.id]
+        if any(
+            ATLAS_LEVEL_RANK[new_level] >= ATLAS_LEVEL_RANK[item.level]
+            for item in children
+        ):
+            raise ValidationError("地图上下级层级无效")
+        before_supplied = "before_node_id" in data.model_fields_set
+        before = by_id.get(data.before_node_id) if data.before_node_id else None
+        if before and (
+            before.id == node.id
+            or before.parent_id != new_parent_id
+            or before.status != "adopted"
+        ):
+            raise ValidationError("插入位置必须是同一上级下的已加入地点")
+        old_parent_id = node.parent_id
+        old_semantic = node.semantic_key
+        node.parent_id = new_parent_id
+        node.level = new_level
+        if data.title is not None:
+            node.title = data.title.strip()
+        if old_semantic.startswith("path:") and (
+            new_parent_id != old_parent_id or data.title is not None
+        ):
+            parent_semantic = parent.semantic_key if parent else "root"
+            replacement = f"path:{parent_semantic}:{_path_part(node.title)}"
+            rewrites = {
+                item.id: replacement + item.semantic_key[len(old_semantic) :]
+                for item in nodes
+                if item.semantic_key == old_semantic
+                or item.semantic_key.startswith(f"{old_semantic}:")
+            }
+            untouched = {item.semantic_key for item in nodes if item.id not in rewrites}
+            if (
+                len(set(rewrites.values())) != len(rewrites)
+                or set(rewrites.values()) & untouched
+            ):
+                raise ConflictError("移动后的地图路径与已有地点冲突")
+            for item in nodes:
+                if item.id in rewrites:
+                    item.semantic_key = rewrites[item.id]
+        target_adopted = [
+            item
+            for item in nodes
+            if item.id != node.id
+            and item.parent_id == new_parent_id
+            and item.status == "adopted"
+        ]
+        target_adopted.sort(key=lambda item: (item.sort_order, item.id))
+        if before_supplied:
+            desired_index = (
+                target_adopted.index(before)
+                if before in target_adopted
+                else len(target_adopted)
+            )
+        elif new_parent_id == old_parent_id:
+            desired_index = min(node.sort_order, len(target_adopted))
+        else:
+            desired_index = min(node.sort_order, len(target_adopted))
+        if node.status == "adopted":
+            target_adopted.insert(desired_index, node)
+            for index, item in enumerate(target_adopted):
+                item.sort_order = index
+            if old_parent_id != new_parent_id:
+                old_siblings = [
+                    item
+                    for item in nodes
+                    if item.id != node.id
+                    and item.parent_id == old_parent_id
+                    and item.status == "adopted"
+                ]
+                old_siblings.sort(key=lambda item: (item.sort_order, item.id))
+                for index, item in enumerate(old_siblings):
+                    item.sort_order = index
+        else:
+            node.sort_order = desired_index
+        if node.status == "provisional":
+            page = await db.scalar(
+                select(MapAtlasPage)
+                .where(
+                    MapAtlasPage.novel_id == nid,
+                    MapAtlasPage.run_id == run.id,
+                    MapAtlasPage.node_id == node.id,
+                )
+                .with_for_update()
+            )
+            if page is not None:
+                page.title = node.title
+                page.node_proposal = MapAtlasNodeProposal(
+                    node_id=node.id,
+                    parent_id=node.parent_id,
+                    title=node.title,
+                    level=node.level,
+                    summary=node.summary,
+                    sort_order=node.sort_order,
+                    base_node_updated_at=node.updated_at,
+                ).model_dump(mode="json")
+        await db.flush()
+        return self._node_dict(node, [], [])
 
     async def read_page_image(
         self,
@@ -610,9 +984,7 @@ class MapAtlasService:
             db.add(run)
             db.add(derived)
             await db.flush()
-            task_id = await self._enqueue_run_task(
-                db, novel_id, run, mode="reuse_active"
-            )
+            task_id = await self._enqueue_run_task(db, novel_id, run, mode="reuse_active")
             run.task_id = parse_uuid(task_id, "task_id")
             await db.commit()
         except BaseException:
@@ -782,14 +1154,59 @@ class MapAtlasService:
             path.append((node, proposal))
             node_id = parent_id
 
+        newly_adopted: dict[uuid.UUID, MapAtlasNode] = {}
         for node, proposal in path:
+            was_provisional = node.status == "provisional"
             if proposal is not None:
+                if (
+                    node.status == "adopted"
+                    and proposal.base_node_updated_at is not None
+                    and node.updated_at != proposal.base_node_updated_at
+                ):
+                    raise ConflictError("地图层级已变化，请刷新候选页")
+                old_parent_id = node.parent_id
                 node.parent_id = proposal.parent_id
                 node.title = proposal.title
                 node.level = proposal.level
                 node.summary = proposal.summary
-                node.sort_order = proposal.sort_order
+                siblings = [
+                    item
+                    for item in nodes
+                    if item.id != node.id
+                    and item.parent_id == proposal.parent_id
+                    and item.status == "adopted"
+                ]
+                siblings.sort(key=lambda item: (item.sort_order, item.id))
+                siblings.insert(min(proposal.sort_order, len(siblings)), node)
+                for index, sibling in enumerate(siblings):
+                    sibling.sort_order = index
+                if old_parent_id != proposal.parent_id:
+                    old_siblings = [
+                        item
+                        for item in nodes
+                        if item.id != node.id
+                        and item.parent_id == old_parent_id
+                        and item.status == "adopted"
+                    ]
+                    old_siblings.sort(key=lambda item: (item.sort_order, item.id))
+                    for index, sibling in enumerate(old_siblings):
+                        sibling.sort_order = index
             node.status = "adopted"
+            if was_provisional:
+                newly_adopted[node.id] = node
+        if newly_adopted:
+            await db.flush()
+            for candidate in run_pages:
+                if candidate.review_status != "candidate" or not candidate.node_proposal:
+                    continue
+                proposal = MapAtlasNodeProposal.model_validate(candidate.node_proposal)
+                adopted = newly_adopted.get(proposal.node_id)
+                if adopted is None:
+                    continue
+                candidate.node_proposal = proposal.model_copy(
+                    update={"base_node_updated_at": adopted.updated_at}
+                ).model_dump(mode="json", exclude_none=True)
+            await db.flush()
 
     async def _require_run(
         self,
@@ -842,9 +1259,7 @@ class MapAtlasService:
                     and_(
                         MapAtlasRun.status == "partial",
                         or_(
-                            MapAtlasRun.error_code.in_(
-                                RECOVERABLE_RUN_ERROR_CODES
-                            ),
+                            MapAtlasRun.error_code.in_(RECOVERABLE_RUN_ERROR_CODES),
                             recoverable_page,
                         ),
                     ),
@@ -899,7 +1314,55 @@ class MapAtlasService:
         return page
 
     @staticmethod
+    async def _require_adopted_node(
+        db: AsyncSession, novel_id: uuid.UUID, node_id: str
+    ) -> MapAtlasNode:
+        node = await db.scalar(
+            select(MapAtlasNode).where(
+                MapAtlasNode.novel_id == novel_id,
+                MapAtlasNode.id == parse_uuid(node_id, "node_id"),
+                MapAtlasNode.status == "adopted",
+            )
+        )
+        if node is None:
+            raise ValidationError("地点不存在、未加入或不属于当前项目")
+        return node
+
+    @staticmethod
+    async def _compensate_upload(
+        db: AsyncSession, storage: MapAtlasStorage, key: str
+    ) -> None:
+        try:
+            await delete_unreferenced_page_object(db, storage, key)
+        except Exception:
+            await db.rollback()
+            enqueue_task(
+                db,
+                "map_atlas_storage_cleanup",
+                meta={
+                    "cleanup_kind": "object",
+                    "object_key": key,
+                    "delete_batch": str(uuid.uuid4()),
+                },
+                novel_id=None,
+            )
+            await db.commit()
+
+    @staticmethod
+    def _prompt_dict(page: MapAtlasPage, editable: bool) -> dict[str, Any]:
+        return {
+            "page_id": str(page.id),
+            "prompt": page.prompt,
+            "generation_choice": page.generation_choice,
+            "editable": editable,
+            "updated_at": page.updated_at,
+        }
+
+    @staticmethod
     def _run_dict(run: MapAtlasRun) -> dict[str, Any]:
+        evidence_summary = MapAtlasEvidenceSummary.from_snapshot(
+            dict(run.context_snapshot or {})
+        )
         return {
             "id": str(run.id),
             "novel_id": str(run.novel_id),
@@ -909,6 +1372,7 @@ class MapAtlasService:
             "style_note": run.style_note,
             "include_working_drafts": run.include_working_drafts,
             "include_interiors": run.include_interiors,
+            "review_image_prompts": run.review_image_prompts,
             "layout": run.layout,
             "quality": run.quality,
             "page_limit": run.page_limit,
@@ -917,6 +1381,9 @@ class MapAtlasService:
             "stop_requested": run.stop_requested,
             "error_code": run.error_code,
             "error_message": run.error_message,
+            "evidence_summary": (
+                evidence_summary.model_dump(mode="json") if evidence_summary else None
+            ),
             "created_at": run.created_at,
             "updated_at": run.updated_at,
         }
@@ -947,9 +1414,11 @@ class MapAtlasService:
             "node_id": str(page.node_id),
             "derived_from_page_id": _uuid(page.derived_from_page_id),
             "generation_status": page.generation_status,
+            "generation_choice": page.generation_choice,
             "review_status": page.review_status,
             "title": page.title,
             "visual_brief": page.visual_brief,
+            "has_generation_prompt": bool(page.prompt),
             "evidence": dict(page.evidence or {}),
             "source_manifest": list(page.source_manifest or []),
             "reference_page_ids": list(page.reference_page_ids or []),
@@ -987,6 +1456,7 @@ class MapAtlasService:
             "status": node.status,
             "summary": node.summary,
             "sort_order": node.sort_order,
+            "updated_at": node.updated_at,
             "pages": pages,
             "children": children,
         }

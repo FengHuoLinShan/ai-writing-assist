@@ -14,7 +14,7 @@ export const GENERATE_INTERRUPTED_CHAT_MESSAGE = "上次回复在离开或刷新
 export const CREATIVE_CONTINUATION_STORAGE_PREFIX = "novel_creative_continuation_v1:"
 const CREATIVE_CONTINUATION_DESTINATIONS = new Set(["generate", "world_bible_draft", "world_suggestion_review"])
 const GENERATE_TARGETS = new Set(["core_entity", "world_bible_page", "world_bible_new_page"])
-const CONVERGENCE_DISPOSITIONS = new Set(["include", "open", "discard"])
+const CONVERGENCE_DISPOSITIONS = new Set(["include", "open", "discard", "rejected"])
 const EXTERNAL_PACKET_STATUSES = new Set(["previewed", "incomplete", "decision_ready", "exact_duplicate"])
 const EXTERNAL_DISPOSITIONS = new Set(["compatible", "repair", "candidate", "unmapped", "exact_duplicate"])
 const EXTERNAL_PACKET_HISTORY_LIMIT = 20
@@ -50,8 +50,9 @@ export function writeGenerateContextPreview(projectId, value = {}) {
   }
 }
 
-export function generateSessionKey(projectId, sourcePageId = null, targetKind = "core_entity") {
-  return `${GENERATE_STATE_STORAGE_PREFIX}${projectId || "none"}_${sourcePageId || "project"}_${targetKind || "core_entity"}`
+export function generateSessionKey(projectId, sourcePageId = null, targetKind = "core_entity", preset = "custom") {
+  const suffix = preset === "world_core" ? "_world_core" : ""
+  return `${GENERATE_STATE_STORAGE_PREFIX}${projectId || "none"}_${sourcePageId || "project"}_${targetKind || "core_entity"}${suffix}`
 }
 
 export function emptyGenerateSession() {
@@ -76,6 +77,9 @@ export function emptyGenerateSession() {
     visualBrief: null,
     externalPacketDraft: "",
     externalPackets: [],
+    successfulRounds: 0,
+    worldCoreAction: "expand",
+    checkpointId: null,
   }
 }
 
@@ -181,6 +185,9 @@ function persistedShape(value) {
     visualBrief: normalizeVisualBrief(value.visualBrief),
     externalPacketDraft: typeof value.externalPacketDraft === "string" ? value.externalPacketDraft : "",
     externalPackets: normalizeExternalPackets(value.externalPackets),
+    successfulRounds: Math.max(0, Math.min(999, Number(value.successfulRounds) || 0)),
+    worldCoreAction: ["expand", "connect", "pressure", "consolidate"].includes(value.worldCoreAction) ? value.worldCoreAction : "expand",
+    checkpointId: typeof value.checkpointId === "string" && value.checkpointId ? value.checkpointId : null,
   }
 }
 
@@ -248,6 +255,9 @@ export function readGenerateSession(key, { storage = globalThis.localStorage, no
       messages: parsed.messages || [],
       selectedChapters: (parsed.selectedChapters || []).slice(0, AI_SELECTED_CHAPTER_LIMIT),
       selectedWorldPageIds: (parsed.selectedWorldPageIds || []).slice(0, AI_SELECTED_WORLD_PAGE_LIMIT),
+      successfulRounds: Math.max(0, Math.min(999, Number(parsed.successfulRounds) || 0)),
+      worldCoreAction: ["expand", "connect", "pressure", "consolidate"].includes(parsed.worldCoreAction) ? parsed.worldCoreAction : "expand",
+      checkpointId: typeof parsed.checkpointId === "string" && parsed.checkpointId ? parsed.checkpointId : null,
     }
   } catch {
     try { storage?.removeItem(key) } catch {}
@@ -359,7 +369,18 @@ function normalizeContinuation(projectId, value) {
   if (value.destination === "generate") {
     const sourcePageId = continuationId(route.source_page_id, { optional: true })
     if (sourcePageId === undefined || !GENERATE_TARGETS.has(route.target)) return null
-    return { ...base, route: { source_page_id: sourcePageId, target: route.target } }
+    const preset = route.preset === "world_core" ? "world_core" : null
+    const checkpointId = continuationId(route.checkpoint_id, { optional: true })
+    if (checkpointId === undefined || (checkpointId && preset !== "world_core")) return null
+    return {
+      ...base,
+      route: {
+        source_page_id: sourcePageId,
+        target: route.target,
+        ...(preset ? { preset } : {}),
+        ...(checkpointId ? { checkpoint_id: checkpointId } : {}),
+      },
+    }
   }
   if (value.destination === "world_bible_draft") {
     const draftId = continuationId(route.draft_id)

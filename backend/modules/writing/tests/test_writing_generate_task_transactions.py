@@ -134,6 +134,7 @@ def _patch_facades(
     project_guard: mock.AsyncMock | None = None,
 ) -> tuple[mock.AsyncMock, mock.AsyncMock, mock.AsyncMock, mock.AsyncMock]:
     from modules.context import facade as context_facade
+    from modules.outline import facade as outline_facade
     from modules.project import facade as project_facade
 
     prepared = mock.AsyncMock(side_effect=list(confirmations))
@@ -143,6 +144,18 @@ def _patch_facades(
     monkeypatch.setattr(context_facade, "prepare_confirmed_ai_action", prepared)
     monkeypatch.setattr(context_facade, "build_hidden_guard_context", hidden)
     monkeypatch.setattr(context_facade, "bind_confirmed_action_result", bound)
+    monkeypatch.setattr(
+        outline_facade,
+        "get_scene_execution_bundle",
+        mock.AsyncMock(
+            return_value={
+                "contract_hash": "e" * 64,
+                "upstream_manifest": [],
+                "missing_fields": [],
+                "omissions": [],
+            }
+        ),
+    )
     monkeypatch.setattr(project_facade, "require_active_project", guard)
     return prepared, hidden, bound, guard
 

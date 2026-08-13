@@ -540,6 +540,53 @@ class WorldBibleLifecycleService:
         await self._validate_publish_draft(db, draft)
         return await self._build_publish_impact(db, draft, page)
 
+    async def preview_package_page(
+        self,
+        db: AsyncSession,
+        data: WorldBiblePageDraftCreate,
+        *,
+        expected_page_version: int | None,
+        lock_universe: bool = False,
+        for_update: bool = False,
+        allow_local_refs: bool = False,
+    ) -> WorldBiblePublishImpactResponse:
+        """Read-only lifecycle preview for an unsaved package page proposal."""
+        nid = parse_uuid(data.novel_id, "novel_id")
+        if lock_universe:
+            await self._lock_page_universe(db, nid)
+        page = None
+        if data.page_id:
+            page = await self._get_page_model(
+                db, data.novel_id, data.page_id, for_update=for_update
+            )
+            if page.version_number != expected_page_version:
+                raise ConflictError("World Bible page changed after package preview")
+        draft = WorldBiblePageDraft(
+            novel_id=nid,
+            page_id=page.id if page else None,
+            base_version_number=page.version_number if page else None,
+            title=data.title or (page.title if page else ""),
+            page_type=data.page_type or (page.page_type if page else "custom"),
+            free_text=data.free_text,
+            sections_json=self._serialize_sections(data.sections_json or []),
+            linked_asset_refs_json=data.linked_asset_refs_json or [],
+            sort_order=data.sort_order or 0,
+            template_key=data.template_key,
+            template_version=data.template_version or 1,
+            created_by=data.created_by,
+            updated_by=data.created_by,
+        )
+        await self._ensure_category_key(db, draft.novel_id, draft.page_type)
+        await self._validate_page_content(
+            db,
+            novel_id=draft.novel_id,
+            template_key=draft.template_key,
+            sections=draft.sections_json,
+            refs=draft.linked_asset_refs_json,
+            allow_local_refs=allow_local_refs,
+        )
+        return await self._build_publish_impact(db, draft, page)
+
     async def publish_draft(
         self,
         db: AsyncSession,
@@ -1247,11 +1294,14 @@ class WorldBibleLifecycleService:
         refs: list[dict[str, Any]],
         validate_template: bool = True,
         validate_asset_refs: bool = True,
+        allow_local_refs: bool = False,
     ) -> None:
         if validate_template and template_key:
             await self._ensure_page_template_key(db, str(novel_id), template_key)
         if validate_asset_refs:
-            await self._validate_asset_refs(db, novel_id, refs)
+            await self._validate_asset_refs(
+                db, novel_id, refs, allow_local_refs=allow_local_refs
+            )
         self._validate_section_refs(self._serialize_sections(sections), refs)
 
     async def _record_adopted_page_change(
@@ -1387,6 +1437,8 @@ class WorldBibleLifecycleService:
         db: AsyncSession,
         novel_id: uuid.UUID,
         refs: list[dict[str, Any]],
+        *,
+        allow_local_refs: bool = False,
     ) -> None:
         for ref in refs:
             ref_type = str(
@@ -1397,6 +1449,8 @@ class WorldBibleLifecycleService:
             )
             if not ref_type or not ref_id:
                 raise ValidationError("World Bible asset refs require type and id")
+            if allow_local_refs and ref_id.startswith("local:"):
+                continue
             rid = parse_uuid(ref_id, "asset_ref_id")
             if ref_type in {"core_entity", "entity", "profile", "event"}:
                 exists = await db.scalar(

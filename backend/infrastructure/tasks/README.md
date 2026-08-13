@@ -43,11 +43,16 @@ infrastructure/tasks/
   `outline_generate`、`scene_fusion_preview`
 - rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
-- writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`、
+- writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
+  `writing_targeted_revision`、`writing_conflict_ai_review`、
   `writing_conflict_item_ai_suggestion`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
   `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
+
+`deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
+`result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
+imports result，恢复、rollback 与 asset summary 仍由 imports 自己拥有。
 
 `map_atlas_storage_cleanup` 是唯一 `owner_scope=global` 处理器：`novel_id=NULL`。项目永久
 删除任务只保存 canonical 项目前缀与删除批次；上传失败的精确补偿任务只保存

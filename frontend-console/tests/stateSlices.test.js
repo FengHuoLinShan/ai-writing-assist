@@ -4,7 +4,6 @@ import "../stateSlices.js"
 
 const {
   applyStateSideEffects,
-  installGlobalSettingsCacheStorageHandler,
   projectStorageSummary,
 } = globalThis.stateSlices
 
@@ -83,18 +82,4 @@ describe("stateSlices", () => {
     expect(localStorage.getItem("novel_currentProject")).toBeNull()
   })
 
-  it("invalidates globalSettingsCache on global_settings_cache_version storage event", () => {
-    const state = { globalSettingsCache: { model: "x" } }
-    const uninstall = installGlobalSettingsCacheStorageHandler(state)
-    const event = new Event("storage")
-    Object.defineProperty(event, "key", { value: "global_settings_cache_version" })
-
-    try {
-      window.dispatchEvent(event)
-    } finally {
-      uninstall()
-    }
-
-    expect(state.globalSettingsCache).toBeNull()
-  })
 })

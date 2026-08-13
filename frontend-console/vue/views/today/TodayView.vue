@@ -30,17 +30,23 @@ const importWorkflow = computed(() => (
     ? null
     : visibleWorkflows.value.find((workflow) => workflow.workflowType === "deep_import") || null
 ))
+const startWorldCore = computed(() => Boolean(
+  !primaryWorld.value
+  && !continuation.value
+  && !importWorkflow.value
+  && Number(writing.value.chapter_count || 0) === 0
+))
 const resumeTitle = computed(() => {
   if (primaryWorld.value) return primaryWorld.value.title
   if (continuation.value) return continuation.value.title
   if (importWorkflow.value) return "继续整理导入内容"
-  return "开始第一章"
+  return startWorldCore.value ? "从几个灵感开始" : "开始第一章"
 })
 const primaryLabel = computed(() => {
   if (primaryWorld.value) return primaryWorld.value.destination === "world_suggestion_review" ? "去审查" : "继续创作"
   if (continuation.value) return "继续写作"
   if (importWorkflow.value) return "继续整理"
-  return "开始第一章"
+  return startWorldCore.value ? "开始生长" : "开始第一章"
 })
 const resumeLabel = computed(() => primaryWorld.value ? "接着上次创作" : "接着上次写")
 const attentionItems = computed(() => [
@@ -81,15 +87,25 @@ function runPrimaryAction() {
     openWorkflow(importWorkflow.value)
     return
   }
+  if (startWorldCore.value) {
+    router.navigate("generate", null, true, new URLSearchParams({ tab: "world", target: "core_entity", preset: "world_core" }))
+    return
+  }
   openWriting()
 }
 
 function openCreativeContinuation(item) {
   if (!item) return
+  if (item.destination === "world_adoption_review") {
+    router.navigate("world", "bible", true, new URLSearchParams({ adoption_package_id: item.route.package_id }))
+    return
+  }
   writeCreativeContinuation(projectId.value, { destination: item.destination, route: item.route })
   if (item.destination === "generate") {
     const query = new URLSearchParams({ tab: "world", target: item.route.target })
     if (item.route.source_page_id) query.set("source_page_id", item.route.source_page_id)
+    if (item.route.preset) query.set("preset", item.route.preset)
+    if (item.route.checkpoint_id) query.set("checkpoint_id", item.route.checkpoint_id)
     router.navigate("generate", null, true, query)
     return
   }
@@ -169,10 +185,11 @@ function retry() {
           · {{ continuation.has_unpublished_changes ? '有尚未设为正式正文的修改' : '正文已保存' }}
         </p>
         <p v-else-if="importWorkflow">导入内容还在整理中，可以继续查看进度，也可以稍后回来。</p>
+        <p v-else-if="startWorldCore">写下几个在意的灵感，再逐轮补齐成立规则、因果和真实生活后果。</p>
         <p v-else>准备好第一章后，作品的资料与结构会在创作过程中逐步生长。</p>
         <p v-if="summary" class="today-resume__stats">{{ writing.chapter_count }} 章 · {{ Number(writing.word_count || 0).toLocaleString() }} 字</p>
       </div>
-      <button class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : 'continue-writing'" @click="runPrimaryAction">
+      <button class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : startWorldCore ? 'start-world-core' : 'continue-writing'" @click="runPrimaryAction">
         {{ primaryLabel }}
       </button>
     </section>
@@ -198,7 +215,7 @@ function retry() {
         <article v-for="item in unfinishedWorld" :key="item.key" class="today-workflow-card">
           <div class="today-workflow-card__copy"><strong>{{ item.title }}</strong><span>{{ item.description }}</span></div>
           <div class="today-workflow-card__actions">
-            <button class="btn btn-sm" type="button" @click="openCreativeContinuation(item)">{{ item.destination === 'world_suggestion_review' ? '去审查' : '打开工作稿' }}</button>
+            <button class="btn btn-sm" type="button" @click="openCreativeContinuation(item)">{{ ['world_suggestion_review', 'world_adoption_review'].includes(item.destination) ? '去审查' : '打开工作稿' }}</button>
           </div>
         </article>
       </div>

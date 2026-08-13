@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
 from modules.memory.models import MemoryEvent, MemorySceneCheckpoint, MemorySceneSnapshot
 from modules.memory.scene_projection import SceneMemoryProjectionService
 from modules.memory.services import MemoryService
@@ -42,12 +43,8 @@ async def test_scene_checkpoint_builds_all_dimensions_and_sparse_stage0(
     result = await service.ensure_scene(db_session, test_project_id, str(scene.id))
 
     assert result.coverage_status == "ready"
-    assert {item.dimension for item in result.items} == {
-        "entities",
-        "relations",
-        "locations",
-        "knowledge",
-    }
+    assert {item.dimension for item in result.items} == set(SCENE_MEMORY_DIMENSIONS)
+    assert result.missing_dimensions == []
     snapshots = list(
         (
             await db_session.execute(
@@ -63,6 +60,22 @@ async def test_scene_checkpoint_builds_all_dimensions_and_sparse_stage0(
     assert snapshots[0].snapshot_reasons == ["initial"]
     assert set(snapshots[1].snapshot_reasons) == {"chapter_end", "latest"}
 
+
+@pytest.mark.asyncio
+async def test_scene_checkpoint_reports_only_contract_dimensions_as_missing(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    scene = await _scene(db_session, test_project_id, 0, 1)
+
+    result = await SceneMemoryProjectionService().get_scene(
+        db_session,
+        test_project_id,
+        str(scene.id),
+    )
+
+    assert result.coverage_status == "missing"
+    assert result.missing_dimensions == list(SCENE_MEMORY_DIMENSIONS)
 
 
 @pytest.mark.asyncio

@@ -731,6 +731,7 @@ class TestTasks:
             assert result["total_chapters"] == 2
             assert result["chunks_created"] == 6
             assert len(result["chapters"]) == 2
+            assert mock_index.await_args.kwargs["scene_annotation_only"] is False
             task.update_progress.assert_called()
         finally:
             reset()
@@ -768,6 +769,77 @@ class TestTasks:
             assert result["chapters"][0]["coalesced"] is True
             assert "已合并" in result["warnings"][0]
             mock_index.assert_awaited_once()
+        finally:
+            reset()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "source",
+        ["deep_import_scene_commit", "scene_replacement_apply"],
+    )
+    async def test_handle_rag_reindex_novel_uses_scene_annotation_for_known_sources(
+        self,
+        source: str,
+    ):
+        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+
+        reset()
+        register("writing.list_chapter_indices", AsyncMock(return_value=[1]))
+        mock_index = AsyncMock(
+            return_value=RagTaskIndexOutcome(report=RagIndexReport(chapter_index=1))
+        )
+        register("rag.index_chapter_for_task", mock_index)
+
+        try:
+            from modules.rag.tasks import handle_rag_reindex_novel
+
+            db = AsyncMock()
+            task = SimpleNamespace(
+                id="task-1",
+                task_type="rag_reindex_novel",
+                attempt=1,
+                lease_id="lease-1",
+                meta={"novel_id": "n1", "source": source},
+            )
+            task.update_progress = MagicMock()
+
+            await handle_rag_reindex_novel(db, task)
+
+            assert mock_index.await_args.kwargs["scene_annotation_only"] is True
+        finally:
+            reset()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("source", [None, "manual"])
+    async def test_handle_rag_reindex_novel_keeps_unknown_source_as_full_rebuild(
+        self,
+        source: str | None,
+    ):
+        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+
+        reset()
+        register("writing.list_chapter_indices", AsyncMock(return_value=[1]))
+        mock_index = AsyncMock(
+            return_value=RagTaskIndexOutcome(report=RagIndexReport(chapter_index=1))
+        )
+        register("rag.index_chapter_for_task", mock_index)
+
+        try:
+            from modules.rag.tasks import handle_rag_reindex_novel
+
+            db = AsyncMock()
+            task = SimpleNamespace(
+                id="task-1",
+                task_type="rag_reindex_novel",
+                attempt=1,
+                lease_id="lease-1",
+                meta={"novel_id": "n1", **({"source": source} if source else {})},
+            )
+            task.update_progress = MagicMock()
+
+            await handle_rag_reindex_novel(db, task)
+
+            assert mock_index.await_args.kwargs["scene_annotation_only"] is False
         finally:
             reset()
 

@@ -25,6 +25,7 @@ function makeApi() {
       listCharacters: vi.fn(async () => collection()),
       listEntities: vi.fn(async () => collection()),
       listSuggestions: vi.fn(async () => collection()),
+      getAdoptionArtifact: vi.fn(),
     },
     outline: {
       listScenesOrdered: vi.fn(async () => []),
@@ -54,6 +55,72 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("generateIsland load contract", () => {
+  it("starts independent world data while prompt templates are still loading", async () => {
+    let resolveTemplates
+    api.generate.listPromptTemplates.mockReturnValue(new Promise((resolve) => {
+      resolveTemplates = resolve
+    }))
+
+    const loading = loadGenerate()
+
+    expect(api.context.listActivationProfiles).toHaveBeenCalledWith("p1")
+    expect(api.world.listBiblePages).toHaveBeenCalledWith({ novel_id: "p1" })
+    expect(api.world.listBibleDrafts).toHaveBeenCalledWith("p1")
+    expect(api.world.listBibleCategories).toHaveBeenCalledWith("p1")
+    expect(api.world.listBiblePageTemplates).toHaveBeenCalledWith("p1")
+    expect(api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
+    expect(api.outline.listThreads).toHaveBeenCalledWith("p1", { limit: 50 })
+    expect(api.world.listCharacters).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 50 })
+    expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1", display_state: "active", skip: 0, limit: 50 })
+
+    resolveTemplates(collection())
+    await loading
+  })
+
+  it("restores a saved World Core decision summary without assistant chat text", async () => {
+    router.getCurrentQuery.mockReturnValue(new URLSearchParams("tab=world&preset=world_core&checkpoint_id=checkpoint-1"))
+    api.world.getAdoptionArtifact.mockResolvedValue({
+      id: "checkpoint-1",
+      target_type: "world_core_checkpoint",
+      payload_json: {
+        schema_version: "world_core_checkpoint.v1",
+        round_no: 3,
+        action: "consolidate",
+        source_manifest_hash: "a".repeat(64),
+        seeds: [{ seed_key: "seed_1", source_ref: { source_type: "conversation", source_id: "m1", source_hash: "1".repeat(64) }, disposition: "included" }],
+        decisions: [{ item_key: "I1", text: "保留潮门通行", disposition: "locked", rule_key: "tide", source_keys: ["m1"] }],
+        world_core: {
+          author_seeds: [{ source_key: "m1", disposition: "included" }],
+          rule_atoms: [{ rule_key: "tide", title: "潮门通行", source_keys: ["m1"], can: "可以", cannot: "不能", cost: "代价", failure: "故障", maintenance: "维护" }],
+          blocking_contradictions: [],
+          vertical_slice: { rule_key: "tide", daily_consequence: "日常", failure_consequence: "故障后果" },
+        },
+      },
+    })
+
+    const props = await loadGenerate()
+
+    expect(props.preset).toBe("world_core")
+    expect(props.targetKind).toBe("core_entity")
+    expect(props.sessionKey).toBe(generateSessionKey("p1", null, "core_entity", "world_core"))
+    expect(props.initialSession).toMatchObject({ checkpointId: "checkpoint-1", successfulRounds: 3, messages: [] })
+    expect(props.initialSession.convergenceDraft.worldCore).toMatchObject({ ready: true, restored: true })
+    expect(api.world.getAdoptionArtifact).toHaveBeenCalledWith("checkpoint-1", "p1")
+  })
+
+  it("keeps the world warning when a checkpoint fails later", async () => {
+    router.getCurrentQuery.mockReturnValue(new URLSearchParams("tab=world&preset=world_core&checkpoint_id=checkpoint-1"))
+    api.world.listBiblePages.mockRejectedValue(new Error("世界加载失败"))
+    api.world.getAdoptionArtifact.mockImplementation(async () => {
+      await Promise.resolve()
+      throw new Error("阶段成果加载失败")
+    })
+
+    const props = await loadGenerate()
+
+    expect(props.worldWorkspaceWarning).toBe("生成上下文加载不完整：世界加载失败")
+  })
+
   it("restores a pending page proposal only for the current project, source, and target", async () => {
     router.getCurrentQuery.mockReturnValue(new URLSearchParams("tab=world&source_page_id=page-1&target=world_bible_page"))
     writeGenerateSession(

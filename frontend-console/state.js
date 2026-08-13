@@ -25,29 +25,17 @@ const appState = {
   /** @type {Object|null} 当前选中的列表项 */
   selectedItem: null,
 
-  /** @type {Array<Object>} 批量选中的列表项 */
-  selectedItems: [],
-
   /** @type {"NORMAL"|"COMMAND"|"SEARCH"|"INSERT"} 当前交互模式 */
   mode: "NORMAL",
 
-  /** @type {string} 命令栏输入 */
-  commandInput: "",
-
   /** @type {string} 搜索查询 */
   searchQuery: "",
-
-  /** @type {{title:string, content:string, type:string}} 右侧批注状态 */
-  rightPanel: { title: "帮助说明", content: "", type: "help" },
 
   /** @type {{message:string, type:string}|null} Toast 通知 */
   toast: null,
 
   /** @type {boolean} 加载状态 */
   loading: false,
-
-  /** @type {Object<string, any>} 缓存数据 */
-  cache: {},
 
   /** @type {Array<Object>} 项目列表 */
   projects: [],
@@ -58,14 +46,9 @@ const appState = {
   /** @type {boolean} 后端连接状态 */
   backendConnected: false,
 
-  /** @type {number} Toast 定时器 ID */
-  _toastTimer: null,
-
   /** @type {Object<string, any>} 各视图保存的状态（切回时恢复用） */
   viewStates: {},
 
-  /** @type {Object|null} 全局设置缓存（多标签同步失效） */
-  globalSettingsCache: null,
 }
 
 /**
@@ -92,11 +75,6 @@ if (!stateSliceHelpers) {
   throw new Error("stateSlices.js must load before state.js")
 }
 
-const stateController = stateSliceHelpers.createStateController({
-  listeners: _stateListeners,
-  updateUIForState,
-})
-
 /**
  * 状态代理 — 拦截 set 操作触发通知
  */
@@ -107,9 +85,9 @@ const state = new Proxy(appState, {
 
     target[key] = value
 
-    stateController.applyStateSideEffects({ key, value, oldValue, target })
-    stateController.notifyStateListeners(key, value, oldValue)
-    stateController.syncStateDom(key, value)
+    stateSliceHelpers.applyStateSideEffects({ key, value, oldValue, target })
+    stateSliceHelpers.notifyStateListeners(_stateListeners, key, value, oldValue)
+    updateUIForState(key, value)
 
     return true
   },
@@ -141,24 +119,6 @@ function updateUIForState(key, value) {
 window.appState = state
 window.onStateChange = onStateChange
 window.projectStorageSummary = stateSliceHelpers.projectStorageSummary
-
-// D21: 监听跨标签页 global_settings_cache_version 变更，失效本标签的缓存。
-// App dispose/HMR 时显式释放，重新 init 时可幂等恢复。
-let _uninstallStateGlobalListeners = null
-
-function installStateGlobalListeners() {
-  if (_uninstallStateGlobalListeners) return
-  _uninstallStateGlobalListeners = stateSliceHelpers.installGlobalSettingsCacheStorageHandler(state)
-}
-
-function disposeStateGlobalListeners() {
-  _uninstallStateGlobalListeners?.()
-  _uninstallStateGlobalListeners = null
-}
-
-installStateGlobalListeners()
-window.installStateGlobalListeners = installStateGlobalListeners
-window.disposeStateGlobalListeners = disposeStateGlobalListeners
 
 /**
  * D20-D22: 一次性迁移 localStorage 旧作者偏好到后端项目覆盖。

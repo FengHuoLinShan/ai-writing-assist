@@ -1,6 +1,6 @@
 /**
  * settingsIslands 注册与 load 预取测试。
- * 模块加载即向 router mock（tests/setup.js）注册三个视图。
+ * 模块加载即向 router mock（tests/setup.js）注册两个视图。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../vue/bridge/index.js"
@@ -26,11 +26,10 @@ afterEach(() => {
 })
 
 describe("settingsIslands 注册", () => {
-  it("注册 settings / project-settings / llm 三个视图", () => {
+  it("注册 settings / project-settings 两个视图", () => {
     const views = registeredViews()
     expect(views.settings).toBeTruthy()
     expect(views["project-settings"]).toBeTruthy()
-    expect(views.llm).toBeTruthy()
   })
 })
 
@@ -173,24 +172,5 @@ describe("project-settings island（项目设置）", () => {
     expect(content.textContent).toContain("测试项目")
     expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(2)
     island.onLeave()
-  })
-})
-
-describe("#/llm 兼容别名（D15）", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("有项目时跳项目设置", async () => {
-    setBridgeOverrides({ state: { currentProjectId: "p1" } })
-    await views.llm.onEnter()
-    expect(globalThis.router.navigate).toHaveBeenCalledWith("project-settings")
-  })
-
-  it("无项目时跳全局设置并提示", async () => {
-    setBridgeOverrides({ state: { currentProjectId: null } })
-    await views.llm.onEnter()
-    expect(globalThis.router.navigate).toHaveBeenCalledWith("settings")
-    expect(globalThis.toast).toHaveBeenCalledWith("请先选择项目", "warning")
   })
 })

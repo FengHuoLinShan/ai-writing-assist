@@ -49,6 +49,7 @@ from modules.world.schemas import (
     WorldBiblePageProposalContent,
     WorldBibleSection,
     WorldBibleSourceRef,
+    WorldCoreHandoff,
     WorldGenerationChatRequest,
     WorldGenerationChatResponse,
     WorldGenerationConvergenceCoverage,
@@ -272,6 +273,17 @@ _CHAT_SYSTEM_PROMPT = """\
 用自然、具体、适合继续创作的方式回应作者。当前阶段只进行共创，不要声称已经创建、
 修改、采用或发布任何项目资产。直接输出给作者阅读的自然语言回复，不要输出 JSON、
 数据库字段或协议包装。"""
+
+_WORLD_CORE_CHAT_BOUNDARY = """\
+本轮为 World Core 预设：只做一个动作 expand / connect / pressure / consolidate。
+只生长 3–7 条成立规则与一条真实日常＋故障纵切；不要生成人物、故事总纲、Scene、
+完整地理、国家或历史。"""
+
+_WORLD_CORE_CONVERGENCE_CONTRACT = """\
+本轮为 World Core 收束。world_core 必须覆盖每一条作者 seed source_key，给出 3–7 条规则，
+每条包含 can/cannot/cost/failure/maintenance；N/A 仅可用同时说明该字段理由。列出阻断矛盾，
+并给出日常后果和故障后果完整的纵切。assistant source 不可作为 author seed。
+不要生成人物、故事总纲、Scene、完整地理、国家或历史。"""
 
 _CORE_ENTITY_BRIEF = """\
 本次目标：共同发展一个世界对象。
@@ -2044,7 +2056,11 @@ class WorldGenerationCenterService:
                 label=f"对话第 {index} 条 · {role}",
                 content=message.content,
                 source_ref=WorldBibleSourceRef(
-                    source_type="author_message",
+                    source_type=(
+                        "author_message"
+                        if message.role == "user"
+                        else "assistant_message"
+                    ),
                     source_hash=content_hash,
                     title=f"对话第 {index} 条 · {role}",
                 ),
@@ -2469,6 +2485,7 @@ class WorldGenerationCenterService:
                     pair,
                     model=model,
                     external_packet=data.external_packet is not None,
+                    world_core=data.workflow_preset == "world_core",
                 )
                 generated, issues, covered = await self._run_convergence_pass(
                     client,
@@ -2511,6 +2528,11 @@ class WorldGenerationCenterService:
                     content=(
                         f"{_CONVERGENCE_SYSTEM_PROMPT}\n\n{self._target_brief(data)}"
                         + (
+                            f"\n\n{_WORLD_CORE_CONVERGENCE_CONTRACT}"
+                            if data.workflow_preset == "world_core"
+                            else ""
+                        )
+                        + (
                             f"\n\n{_EXTERNAL_PACKET_CONTRACT}"
                             if data.external_packet is not None
                             else ""
@@ -2543,6 +2565,7 @@ class WorldGenerationCenterService:
         *,
         model: str,
         external_packet: bool,
+        world_core: bool,
     ) -> LLMCallRequest:
         inputs = [
             {
@@ -2558,6 +2581,11 @@ class WorldGenerationCenterService:
                     role="system",
                     content=(
                         _CONVERGENCE_SYSTEM_PROMPT
+                        + (
+                            f"\n\n{_WORLD_CORE_CONVERGENCE_CONTRACT}"
+                            if world_core
+                            else ""
+                        )
                         + (f"\n\n{_EXTERNAL_PACKET_CONTRACT}" if external_packet else "")
                     ),
                 ),
@@ -2709,6 +2737,7 @@ class WorldGenerationCenterService:
                                 item_id=f"C{card_index}I{item_index}",
                                 text=item.text,
                                 suggested_disposition=item.suggested_disposition,
+                                world_core_rule_key=item.world_core_rule_key,
                                 external_disposition=item.external_disposition,
                             )
                             for item_index, item in enumerate(card.items, start=1)
@@ -2768,6 +2797,80 @@ class WorldGenerationCenterService:
             context_usage=self._context_usage(prepared["background"]),
             source_snapshot=prepared["source_snapshot"],
             external_packet=data.external_packet,
+            world_core=self._world_core_handoff(
+                data,
+                manifest,
+                generated,
+                coverage_complete=complete,
+            ),
+        )
+
+    @staticmethod
+    def _world_core_handoff(
+        data: WorldGenerationConvergenceRequest,
+        manifest: list[WorldGenerationConvergenceManifestItem],
+        generated: GeneratedWorldGenerationConvergenceOutput | None,
+        *,
+        coverage_complete: bool,
+    ) -> WorldCoreHandoff | None:
+        if data.workflow_preset != "world_core":
+            return None
+        seed_keys = [
+            item.key
+            for item in manifest
+            if item.source_ref.source_type in {"author_message", "author_pasted_context"}
+        ]
+        core = generated.world_core if generated else None
+        actual = [item.source_key for item in core.author_seeds] if core else []
+        atoms = core.rule_atoms if core else []
+        issues: list[str] = []
+        if not coverage_complete:
+            issues.append("收束来源覆盖未通过")
+        if sorted(actual) != sorted(seed_keys) or len(actual) != len(set(actual)):
+            issues.append("作者 seed 必须恰好覆盖冻结 manifest")
+        if not 3 <= len(atoms) <= 7:
+            issues.append("World Core 需要 3–7 条规则")
+        if len({atom.rule_key for atom in atoms}) != len(atoms):
+            issues.append("World Core rule_key 必须唯一")
+        manifest_keys = {item.key for item in manifest}
+        if any(set(atom.source_keys) - manifest_keys for atom in atoms):
+            issues.append("World Core 规则包含未知 source_key")
+        bindings = (
+            [
+                item.world_core_rule_key
+                for card in generated.decision_cards
+                for item in card.items
+                if item.world_core_rule_key
+            ]
+            if generated
+            else []
+        )
+        rule_keys = {atom.rule_key for atom in atoms}
+        if (
+            set(bindings) - rule_keys
+            or len(bindings) != len(set(bindings))
+            or set(bindings) != rule_keys
+        ):
+            issues.append("每条 World Core 规则必须恰好绑定一个决定项")
+        for atom in atoms:
+            for field in ("can", "cannot", "cost", "failure", "maintenance"):
+                if (
+                    getattr(atom, field).strip().upper() == "N/A"
+                    and not atom.na_reasons.get(field, "").strip()
+                ):
+                    issues.append(f"规则 {field} 为 N/A 时必须说明理由")
+        if core and core.blocking_contradictions:
+            issues.append("存在阻断矛盾")
+        if not core or not core.vertical_slice:
+            issues.append("需要完整的日常与故障纵切")
+        elif core.vertical_slice.rule_key not in {atom.rule_key for atom in atoms}:
+            issues.append("纵切必须引用现有 rule_key")
+        return WorldCoreHandoff(
+            ready_for_handoff=not issues,
+            issues=issues[:20],
+            author_seed_source_keys=seed_keys,
+            rule_count=len(atoms),
+            snapshot=core,
         )
 
     def _chat_messages(
@@ -2778,7 +2881,14 @@ class WorldGenerationCenterService:
         messages = [
             LLMMessage(
                 role="system",
-                content=f"{_CHAT_SYSTEM_PROMPT}\n\n{self._target_brief(data)}",
+                content=(
+                    f"{_CHAT_SYSTEM_PROMPT}\n\n{self._target_brief(data)}"
+                    + (
+                        f"\n\n{_WORLD_CORE_CHAT_BOUNDARY}"
+                        if data.workflow_preset == "world_core"
+                        else ""
+                    )
+                ),
             )
         ]
         if prepared.get("object_template") is not None:

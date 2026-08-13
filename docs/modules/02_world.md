@@ -11,6 +11,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 普通 AI 创设统一先写 `creation_suggestion_queue`。生成中心返回判别式 suggestion result，
   不物化兼容 CoreEntity 影子；队列拥有采用决策。仍依赖旧批次/结果引用的抽取路径可在其
   自身契约内保留 `compatibility_shadow`，不得扩散回生成中心 HTTP wire
+- 作者可显式保存 typed `world_core_checkpoint.v1`（不可采用）和
+  `world_adoption_package.v1`（pending）；package preview 零写入，apply 仅原子采用
+  `include + proposed` 的 CoreEntity / EntityRelation。`open/rejected`、RuleProfile、别名和
+  World Bible 页面不属于 v1 package 操作。
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
@@ -42,6 +46,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
 - `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` — AI 地图册计划、层级、图片与前端标注，详见 `docs/modules/15_map.md`
+- 地图册空间线索是 World Bible/RAG 的受限派生输入：服务端验证 source key、保留来源 hash，且不回写 World 事实或生成坐标。
 - ~~`entity_candidates`~~ — 已废弃，候选对象直接用 `core_entities.status="candidate"` 表达
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
 - ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB

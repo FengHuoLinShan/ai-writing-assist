@@ -7,7 +7,7 @@
     </div>
     <div class="view-header__actions">
       <span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span>
-      <template v-if="activeTab === 'world'">
+      <template v-if="activeTab === 'world' && !isWorldCore">
         <span class="generate-suggestion-note">对象建议会一并参考输入框中尚未发送的内容</span>
         <button class="btn btn-sm btn-primary" data-action="generate-world-suggestion" :disabled="worldBusy" @click="requestWorldSuggestion">{{ generateLabel }}</button>
       </template>
@@ -37,6 +37,7 @@
       :warning="world.warning" :templates="templates" :activation-profiles="activationProfiles" :categories="world.categories" :page-templates="world.pageTemplates" :pages="world.pages"
       :scenes="world.scenes" :threads="world.threads" :characters="world.characters" :entities="world.entities" :result="worldResult" :previous-result="previousWorldResult" :proposal-draft="session.pageProposalDraft" :proposal-reset-token="pageProposalEditorResetToken" :recovered-page-proposal="recoveredPageProposal"
       :chat-context-usage="chatContextUsage" :entity-context-usage="entityContextUsage" :convergence-draft="session.convergenceDraft" :convergence-pending="convergencePending" :visual-brief="session.visualBrief" :external-packets="session.externalPackets" :exploration-draft="explorationDraft" :exploration-pending="explorationPending" :exploration-selection="explorationSelection" :source-revision-result="sourceRevisionResult" :busy="worldBusy" :chat-pending="chatPending" :loading-result="suggestionPending" :result-error="worldError"
+      :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)"
       v-model:selected-template-id="session.selectedTemplateId" v-model:messages="session.messages" v-model:composer="composer"
       v-model:external-packet-draft="session.externalPacketDraft"
       v-model:quality-mode="session.qualityMode" v-model:include-world-synopsis="session.includeWorldSynopsis" v-model:activation-profile-id="session.activationProfileId"
@@ -46,6 +47,7 @@
       v-model:new-page-type="session.newPageType" v-model:new-page-template-key="session.newPageTemplateKey"
       @select-target="selectTarget" @edit-templates="openTemplateEditor" @return-world-bible="returnToWorldBible" @select-chapters="openChapterPicker"
       @send-chat="sendChat" @converge="convergeWorld" @set-convergence-disposition="setConvergenceDisposition" @edit-convergence-message="editConvergenceMessage" @apply-convergence-message="applyConvergenceMessage" @dismiss-convergence="dismissConvergence" @open-convergence-source="openConvergenceSource"
+      @prefill-world-core="prefillWorldCore" @save-world-core-checkpoint="saveWorldCoreCheckpoint"
       @explore="exploreWorld" @select-exploration="selectExploration" @dismiss-exploration="dismissExploration" @open-source-revision="openSourceRevision"
       @copy-handoff="copyWorldHandoff" @download-handoff="downloadWorldHandoff" @open-story-outline="openStoryOutline" @preview-external-packet="previewExternalPacket" @clear-external-packet="session.externalPacketDraft = ''"
       @create-visual-brief="createVisualBrief" @edit-visual-brief="editVisualBrief" @confirm-visual-brief="confirmVisualBrief" @copy-visual-brief="copyVisualBrief" @download-visual-brief="downloadVisualBrief" @preview-visual-map="previewVisualMap"
@@ -92,7 +94,7 @@ import {
 import { pageProposalDraftMatches } from "./pageProposalSession.js"
 import {
   AI_MESSAGE_LIMIT, AI_SELECTED_CHAPTER_LIMIT, EXTERNAL_HANDOFF_PACKET_CHAR_LIMIT, OBJECT_TEMPLATES, PAGE_SIZE, TASK_PRESETS, VISUAL_BRIEF_FIELD_LIMIT, VISUAL_BRIEF_PURPOSE_OPTIONS, applyTaskPreset,
-  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldHandoffMarkdown, buildWorldPayload, characterId, compileConvergenceMessage,
+  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldCoreCheckpointContext, buildWorldCoreCheckpointRequest, buildWorldHandoffMarkdown, buildWorldPayload, characterId, compileConvergenceMessage,
   convergenceDraftFromResponse, convergenceSourceMatchesPayload, createDefaultTaskForm, externalDispositionCounts, externalPacketCharacterCount,
   hashExternalPacket, listItems, normalizeTemplate, parseExternalPacketPosition, validateTaskPayload, visualBriefFromConvergence, visualBriefMatchesConvergence,
 } from "./logic/generateLogic.js"
@@ -112,6 +114,7 @@ const owner = createGenerateRequestOwner({ projectId: props.projectId, sessionKe
 const receiptStorage = globalThis.sessionStorage
 const notices = new Set()
 const session = reactive({ ...props.initialSession })
+if (props.preset === "world_core") session.selectedTemplateId = "builtin:none"
 const composer = ref(props.initialSession.composer || "")
 const templates = ref(props.templates.length ? props.templates : [...OBJECT_TEMPLATES])
 const activationProfiles = ref(props.activationProfiles)
@@ -127,7 +130,7 @@ const pageProposalDirty = ref(Boolean(initialPageProposalDraft))
 const recoveredPageProposal = ref(Boolean(initialPageProposalDraft))
 const pageProposalEditorResetToken = ref(0)
 const taskPending = ref(false); const taskError = ref("")
-const chatPending = ref(false); const convergencePending = ref(false); const explorationPending = ref(false); const suggestionPending = ref(false); const applyPending = ref(false)
+const chatPending = ref(false); const convergencePending = ref(false); const explorationPending = ref(false); const suggestionPending = ref(false); const applyPending = ref(false); const checkpointPending = ref(false)
 const explorationDraft = ref(null); const explorationSelection = ref(null); const sourceRevisionResult = ref(null)
 const worldWorkspaceRef = ref(null)
 const sourceUnavailable = ref(props.worldSourceUnavailable)
@@ -145,6 +148,7 @@ let worldTaskPoller = null
 
 const tabs = [{ key: "world", label: "世界设定" }, { key: "pov_prose", label: "角色视角正文" }, { key: "task", label: "任务" }, { key: "preview", label: "上下文预览" }]
 const projectTitle = computed(() => appState?.currentProject?.title || appState?.currentProject?.name || "")
+const isWorldCore = computed(() => props.preset === "world_core")
 const generateLabel = computed(() => explorationSelection.value ? "生成所选探索建议" : ({ core_entity: "生成世界对象建议", world_bible_page: "生成整页提案", world_bible_new_page: "生成新页提案" })[props.targetKind] || "生成建议")
 const worldBusy = computed(() => (
   sourceUnavailable.value
@@ -153,6 +157,7 @@ const worldBusy = computed(() => (
   || explorationPending.value
   || suggestionPending.value
   || applyPending.value
+  || checkpointPending.value
   || Boolean(worldTaskProgress.value && !worldTaskProgress.value.terminal)
 ))
 const contextSourceText = computed(() => lastContextSource.value === "world" ? "世界设定共创" : lastContextSource.value === "task" ? `任务：${TASK_PRESETS[taskPreset.value]?.label || "自定义任务"}` : "")
@@ -176,7 +181,12 @@ function persist() {
 function rememberGenerateContinuation() {
   writeCreativeContinuation(props.projectId, {
     destination: "generate",
-    route: { source_page_id: props.sourcePageId || null, target: props.targetKind },
+    route: {
+      source_page_id: props.sourcePageId || null,
+      target: props.targetKind,
+      ...(isWorldCore.value ? { preset: "world_core" } : {}),
+      ...(session.checkpointId ? { checkpoint_id: session.checkpointId } : {}),
+    },
   })
 }
 function clearGenerateContinuation() {
@@ -185,6 +195,7 @@ function clearGenerateContinuation() {
     continuation?.destination === "generate"
     && continuation.route.source_page_id === (props.sourcePageId || null)
     && continuation.route.target === props.targetKind
+    && (continuation.route.preset || "custom") === (isWorldCore.value ? "world_core" : "custom")
   ) clearCreativeContinuation(props.projectId)
 }
 watch(session, persist, { deep: true })
@@ -266,7 +277,12 @@ function onTabKeydown(event, tab) {
   event.preventDefault()
   document.getElementById(tabId(tabs[target].key))?.focus()
 }
-function currentWorldPayload() { return buildWorldPayload({ ...session, projectId: props.projectId, sourcePageId: props.sourcePageId, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, templates: templates.value, activationProfiles: activationProfiles.value, worldPageTemplates: world.pageTemplates, worldPages: world.pages }) }
+function currentWorldPayload() {
+  const payload = buildWorldPayload({ ...session, projectId: props.projectId, sourcePageId: props.sourcePageId, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, templates: templates.value, activationProfiles: activationProfiles.value, worldPageTemplates: world.pageTemplates, worldPages: world.pages, workflowPreset: isWorldCore.value ? "world_core" : "default" })
+  const checkpointContext = buildWorldCoreCheckpointContext(session.convergenceDraft)
+  if (checkpointContext) payload.pasted_context = checkpointContext
+  return payload
+}
 function convergencePayload() {
   const payload = currentWorldPayload()
   const messages = (session.messages || [])
@@ -306,7 +322,7 @@ async function sendChat() {
   if (worldBusy.value) return false
   if (!composer.value.trim()) return toast("请输入要聊的内容", "warning")
   captureComposer(); const pending = reactive({ role: "assistant", content: "正在思考...", pending: true }); session.messages.push(pending); if (persist()) rememberGenerateContinuation(); const scope = owner.begin(); armBeforeUnload(); chatPending.value = true
-  try { const response = await api.generate.worldChat(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false; persist() }
+  try { const response = await api.generate.worldChat(currentWorldPayload(), { signal: scope.controller.signal }); if (!owner.isActive(scope)) return; chatContextUsage.value = response?.context_usage || null; pending.content = response?.reply || "生成完成，但没有返回回复。"; pending.pending = false; if (isWorldCore.value) session.successfulRounds = Math.min(999, Number(session.successfulRounds || 0) + 1); persist() }
   catch (err) { if (!owner.isActive(scope)) return; pending.content = `聊天失败：${err?.message || "未知错误"}`; pending.pending = false; pending.error = true; persist(); toast(pending.content, "error") }
   finally {
     owner.finish(scope)
@@ -330,6 +346,7 @@ function rememberExternalPacket(hash, position, characterCount, status, receipt 
 async function convergeWorld(options = {}) {
   if (worldBusy.value) return false
   const payload = convergencePayload()
+  if (isWorldCore.value) session.worldCoreAction = "consolidate"
   if (options.externalPacket) {
     payload.pasted_context = options.externalPacket
     payload.external_packet = {
@@ -452,13 +469,53 @@ async function previewExternalPacket() {
   return convergeWorld({ externalPacket: text, externalPacketHash: hash, position, characterCount })
 }
 function setConvergenceDisposition(cardId, itemId, disposition) {
-  if (!new Set(["include", "open", "discard"]).has(disposition) || !session.convergenceDraft || session.convergenceDraft.stale) return
+  if (!new Set(["include", "open", "discard", "rejected"]).has(disposition) || !session.convergenceDraft || session.convergenceDraft.stale) return
   const card = session.convergenceDraft.cards.find((item) => item.cardId === cardId)
   const item = card?.items.find((entry) => entry.itemId === itemId)
   if (!item) return
   item.disposition = disposition
   session.convergenceDraft.authorMessage = compileConvergenceMessage(session.convergenceDraft)
   markVisualBriefStale()
+}
+const WORLD_CORE_ACTIONS = {
+  expand: "扩展一层：只补足当前灵感成立必需的一条规则，不开新世界线。",
+  connect: "连起因果：选两条已有规则，说清它们如何共同改变一个真实的日常选择。",
+  pressure: "压力测试：固定一处日常运转，检查维护中断时的故障、代价和边界。",
+  consolidate: "收拢核心：只整理已有灵感的去向、3–7 条成立规则与一条日常＋故障纵切。",
+}
+function prefillWorldCore(action) {
+  if (!isWorldCore.value || !WORLD_CORE_ACTIONS[action]) return false
+  session.worldCoreAction = action
+  composer.value = WORLD_CORE_ACTIONS[action]
+  return true
+}
+async function saveWorldCoreCheckpoint() {
+  if (!isWorldCore.value || checkpointPending.value || Number(session.successfulRounds || 0) < 3) return false
+  const request = buildWorldCoreCheckpointRequest({
+    novelId: props.projectId,
+    draft: session.convergenceDraft,
+    roundNo: session.successfulRounds,
+    action: session.worldCoreAction,
+    parentCheckpointId: session.checkpointId,
+  })
+  if (!request) return toast("请先完成来源完整、无阻断矛盾的 World Core 收束", "warning"), false
+  checkpointPending.value = true
+  const scope = owner.begin()
+  try {
+    const saved = await api.world.saveCoreCheckpoint(request)
+    if (!owner.isActive(scope)) return false
+    session.checkpointId = saved.id
+    if (persist()) rememberGenerateContinuation()
+    toast("阶段成果已保存；可以从决定摘要继续，它仍不是正式设定", "success")
+    return true
+  } catch (err) {
+    if (!owner.isActive(scope)) return false
+    toast(`保存阶段成果失败：${err?.message || "未知错误"}`, "error")
+    return false
+  } finally {
+    owner.finish(scope)
+    checkpointPending.value = false
+  }
 }
 function editConvergenceMessage(value) {
   if (!session.convergenceDraft || session.convergenceDraft.stale) return

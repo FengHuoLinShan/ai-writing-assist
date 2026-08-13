@@ -2,7 +2,7 @@ import { onBeforeUnmount, onMounted, reactive } from "vue"
 
 const SHELL_STATE_KEYS = [
   "currentProjectId", "currentProject", "currentView", "currentSubView",
-  "backendConnected", "mode", "loading", "selectedItem",
+  "backendConnected",
 ]
 
 export function useShellState(services) {

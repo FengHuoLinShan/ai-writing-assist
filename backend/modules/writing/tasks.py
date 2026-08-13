@@ -208,6 +208,86 @@ async def handle_writing_generate(db, task):
 
 
 @task_handler(
+    "writing_semantic_review",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
+async def handle_writing_semantic_review(db, task):
+    """用与生成器分离的 managed run 运行正文语义审查。"""
+    from modules.writing.semantic_review import WritingSemanticWorkflowService
+
+    meta = dict(task.meta or {})
+    novel_id = str(meta.get("novel_id") or "")
+    draft_ids = [str(value) for value in meta.get("draft_ids") or []]
+    if not novel_id:
+        raise ValueError("novel_id is required for writing_semantic_review")
+    if not draft_ids:
+        raise ValueError("draft_ids are required for writing_semantic_review")
+    snapshot, _legacy = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+        legacy_meta_key=None,
+    )
+    task.update_progress(0.1)
+    result = await WritingSemanticWorkflowService().review_for_task(
+        db,
+        task_id=str(task.id),
+        novel_id=novel_id,
+        draft_ids=draft_ids,
+        scope=str(meta.get("scope") or "selection"),
+        llm_execution_snapshot=snapshot,
+    )
+    task.update_progress(1.0)
+    await db.flush()
+    return result
+
+
+@task_handler(
+    "writing_targeted_revision",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
+async def handle_writing_targeted_revision(db, task):
+    """按冻结 finding 生成新候选，不覆盖原稿。"""
+    from modules.writing.semantic_review import WritingSemanticWorkflowService
+
+    meta = dict(task.meta or {})
+    novel_id = str(meta.get("novel_id") or "")
+    if not novel_id:
+        raise ValueError("novel_id is required for writing_targeted_revision")
+    snapshot, _legacy = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+        legacy_meta_key=None,
+    )
+    task.update_progress(0.1)
+    draft = await WritingSemanticWorkflowService().revise_for_task(
+        db,
+        task_id=str(task.id),
+        novel_id=novel_id,
+        draft_id=str(meta.get("draft_id") or ""),
+        review_task_id=str(meta.get("review_task_id") or ""),
+        finding_ids=[str(value) for value in meta.get("finding_ids") or []],
+        instruction=meta.get("instruction"),
+        llm_execution_snapshot=snapshot,
+    )
+    task.update_progress(1.0)
+    await db.flush()
+    return {
+        "draft_id": draft.id,
+        "chapter_index": draft.chapter_index,
+        "supersedes": meta.get("draft_id"),
+        "finding_ids": list(meta.get("finding_ids") or []),
+    }
+
+
+@task_handler(
     "writing_conflict_ai_review",
     recovery_policy="auto_requeue",
     max_attempts=2,

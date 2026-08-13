@@ -150,6 +150,7 @@
 12. [`audit/2026-07-20-全项目持续风险审查.md`](audit/2026-07-20-全项目持续风险审查.md) — 当前 checkout 的全项目持续审查台账：完成条件、逐模块覆盖、直接修复、决策项与独立验证证据
 13. [`audit/2026-07-25-真实用户场景持续发散排查.md`](audit/2026-07-25-真实用户场景持续发散排查.md) — 持续进行中的真实用户操作台账：前端直观性、状态恢复、后端异常、真实 LLM 与逐轮未覆盖组合
 14. [`references/2026-08-13-worldbook-system-enhancement-plan.md`](references/2026-08-13-worldbook-system-enhancement-plan.md) — 基于详细世界书样本与当前代码能力核对形成的增量需求、差距矩阵和分阶段计划
+15. [`audit/2026-08-13-defensive-code-audit.md`](audit/2026-08-13-defensive-code-audit.md) — 仅后端生产代码的去冗余、哈希与异常定向审计
 
 ## 当前状态
 

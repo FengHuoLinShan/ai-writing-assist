@@ -20,7 +20,21 @@ import {
 import { authorDecisionPresentation } from "../../generate/logic/generateLogic.js"
 
 const PROJECTION_TYPE = "context_brief"
-const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter"])
+const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter", "graph"])
+
+/** Deterministic, intentionally non-physical layout for the optional SVG aid. */
+export function knowledgeGraphLayout(nodes, edges, maxNodes = 40) {
+  const visible = [...nodes].sort((a, b) => String(a.id).localeCompare(String(b.id))).slice(0, maxNodes)
+  const ids = new Set(visible.map((node) => node.id))
+  const lanes = { world_bible_page: [], core_entity: [] }
+  for (const node of visible) (lanes[node.kind] || lanes.core_entity).push(node)
+  const positions = Object.fromEntries(visible.map((node) => {
+    const lane = node.kind === "world_bible_page" ? 0 : 1
+    const index = lanes[node.kind]?.indexOf(node) ?? 0
+    return [node.id, { x: 110 + lane * 300, y: 56 + index * 72 }]
+  }))
+  return { nodes: visible, edges: edges.filter((edge) => ids.has(edge.source_id) && ids.has(edge.target_id)).slice(0, 80), positions }
+}
 
 export const BIBLE_PAGE_TYPES = {
   background: { label: "背景", title: "世界基本背景", desc: "世界观、历史和基础设定", color: "#6366f1", symbol: "BG" },
@@ -117,6 +131,12 @@ export function useWorldBible(props) {
   const editorMutationPending = ref(false)
   const beforeUnloadBound = ref(false)
   const suggestionBatchKey = ref(null)
+  const knowledgeGraph = ref(null)
+  const graphLoading = ref(false)
+  const graphError = ref(null)
+  const graphScope = ref("local")
+  const graphDepth = ref(1)
+  let graphRequest = 0
   let disposed = false
   let activationGeneration = 0
   let projectionGeneration = 0
@@ -250,6 +270,7 @@ export function useWorldBible(props) {
       ensureSuggestionContinuation(dl.suggestionId)
       void openSuggestions(dl.suggestionId)
     }
+    if (dl.adoptionPackageId) void openAdoptionPackage(dl.adoptionPackageId)
   }
 
   function syncSession() {
@@ -305,6 +326,47 @@ export function useWorldBible(props) {
     displayMode.value = mode
     if (mode !== "gallery") galleryCategory.value = null
     saveDisplayPref(projectId.value, "displayMode", mode)
+    if (mode === "graph") void loadKnowledgeGraph()
+  }
+
+  function graphParams() {
+    const page = activePage.value
+    if (!page?.id) return { novel_id: projectId.value, scope: "global" }
+    return { novel_id: projectId.value, scope: graphScope.value, root_type: "world_bible_page", root_id: page.id, depth: graphDepth.value }
+  }
+
+  async function loadKnowledgeGraph() {
+    if (!activePage.value?.id) graphScope.value = "global"
+    const request = ++graphRequest
+    graphLoading.value = true
+    graphError.value = null
+    try {
+      const result = await api.world.getKnowledgeGraph(graphParams())
+      if (disposed || request !== graphRequest) return false
+      knowledgeGraph.value = result
+      return true
+    } catch (err) {
+      if (!disposed && request === graphRequest) graphError.value = err.message || "关联图加载失败"
+      return false
+    } finally {
+      if (!disposed && request === graphRequest) graphLoading.value = false
+    }
+  }
+
+  function setGraphDepth(depth) {
+    if (!activePage.value?.id) {
+      graphScope.value = "global"
+      void loadKnowledgeGraph()
+      return
+    }
+    graphDepth.value = depth === 2 ? 2 : 1
+    graphScope.value = "local"
+    void loadKnowledgeGraph()
+  }
+
+  function setGraphScope(scope) {
+    graphScope.value = scope === "global" || !activePage.value?.id ? "global" : "local"
+    void loadKnowledgeGraph()
   }
 
   function setActiveCategory(category) {
@@ -328,6 +390,7 @@ export function useWorldBible(props) {
     if (!page) return
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并打开其他页面吗？")) return
     activePageId.value = page.id
+    graphRequest += 1
     activeDraftId.value = draftForActivePage.value?.id || null
     displayMode.value = "editor"
     galleryCategory.value = null
@@ -342,6 +405,7 @@ export function useWorldBible(props) {
     if (!draft) return
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并切换工作稿吗？")) return
     activeDraftId.value = draft.id
+    graphRequest += 1
     activePageId.value = draft.page_id
       ? (pages.value.find((p) => p.id === draft.page_id)?.id || null)
       : null
@@ -1359,6 +1423,75 @@ export function useWorldBible(props) {
   }
 
   // ---- suggestions ----
+  function adoptionLabels(suggestion) {
+    const items = suggestion?.payload_json?.items || []
+    const claims = new Map()
+    for (const item of items) {
+      if (item.kind !== "world_bible_page") continue
+      for (const mapping of item.payload?.claim_mappings || []) claims.set(mapping.item_key, mapping.claim)
+    }
+    return new Map(items.map((item) => {
+      const payload = item.payload || {}
+      const label = claims.get(item.item_key)
+        || payload.entity?.name
+        || (item.kind === "world_bible_page" ? payload.title : "已导入的世界资料")
+      return [item.item_key, label]
+    }))
+  }
+
+  async function openAdoptionPackage(packageId, ownerNovelId = projectId.value) {
+    const novelId = typeof ownerNovelId === "string" ? ownerNovelId : projectId.value
+    if (!packageId || !ownsProject(novelId)) return false
+    const modalOwner = captureModalOwner()
+    try {
+      const preview = await api.world.previewAdoptionPackage(packageId, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
+      const labels = adoptionLabels(preview.suggestion)
+      const rows = preview.canon_diff || []
+      const existing = rows.filter((item) => item.action === "existing_ref")
+      const pending = rows.filter((item) => item.action !== "existing_ref")
+      const list = (items, empty) => items.length
+        ? `<ul>${items.map((item) => `<li>${esc(labels.get(item.item_key) || "已导入的世界资料")}</li>`).join("")}</ul>`
+        : `<p class="muted">${empty}</p>`
+      const warning = (preview.omissions || []).length
+        ? `<div class="alert alert-warning">来源覆盖不完整，本次不能提交。</div>`
+        : ""
+      showModalHtml(
+        "审阅世界设定吸取",
+        `<div class="world-adoption-preview">
+          ${warning}
+          <section><h3>流水线已写入</h3><p>这些对象只建立引用，不会重复创建。</p>${list(existing, "无")}</section>
+          <section><h3>本次确认将写入</h3><p>待处理对象、关系与完整世界书页将在同一事务中提交。</p>${list(pending, "无")}</section>
+        </div>`,
+        [
+          { text: "稍后再说", class: "btn-ghost", handler: closeModal },
+          {
+            text: "确认吸取",
+            class: "btn-primary",
+            handler: async () => {
+              try {
+                await api.world.applyAdoptionPackage(packageId, novelId, preview.expected_preview_hash)
+                closeModal()
+                toast("设定已吸取到世界对象、关系和世界书", "success")
+                router.refresh()
+                return true
+              } catch (err) {
+                if (!ownsProject(novelId)) return true
+                toast(err?.status === 409 ? "来源或设定已变化，请关闭后重新预览" : err.message || "吸取失败", err?.status === 409 ? "warning" : "error")
+                return false
+              }
+            },
+          },
+        ],
+        { size: "large" },
+      )
+      return true
+    } catch (err) {
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载采纳预览失败", "error")
+      return false
+    }
+  }
+
   async function openSuggestions(focusSuggestionId = "", ownerNovelId = projectId.value) {
     const novelId = typeof ownerNovelId === "string" ? ownerNovelId : projectId.value
     if (!ownsProject(novelId)) return false
@@ -2162,6 +2295,11 @@ export function useWorldBible(props) {
     suggestions,
     conflicts,
     semanticInspectionPending,
+    knowledgeGraph,
+    graphLoading,
+    graphError,
+    graphScope,
+    graphDepth,
 
     // computed helpers
     pages,
@@ -2174,6 +2312,9 @@ export function useWorldBible(props) {
     initialize,
     onBeforeUnmount,
     setDisplayMode,
+    loadKnowledgeGraph,
+    setGraphDepth,
+    setGraphScope,
     setActiveCategory,
     openGalleryCategory,
     backToGalleryHome,
@@ -2197,6 +2338,7 @@ export function useWorldBible(props) {
     activeActivationProfile,
     dryRunActivationProfile,
     openInGenerationCenter,
+    openAdoptionPackage,
     openSuggestions,
     openConflicts,
     inspectCurrentPage,

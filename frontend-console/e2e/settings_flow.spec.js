@@ -72,7 +72,7 @@ test.describe("设置流程", () => {
       await deepTab.getAttribute("id"),
     )
     await expect(page.getByText(/模型与密钥由“账户与模型连接”统一管理/)).toBeVisible()
-    await expect(page.getByText(/Phase 0/)).toBeVisible()
+    await expect(page.getByRole("button", { name: /怎样切分场景/ })).toBeVisible()
     await page.keyboard.press("Home")
     await expect(authorTab).toHaveAttribute("aria-selected", "true")
     await expect(page.getByText(/日更目标/)).toBeVisible()
@@ -163,9 +163,12 @@ test.describe("设置流程", () => {
     await page.reload()
     await expect(page.getByRole("tab", { name: "高级导入" })).toBeVisible({ timeout: 10000 })
     await page.getByRole("tab", { name: "高级导入" }).click()
+    await page.getByRole("button", { name: /怎样切分场景/ }).click()
     await page.fill("#deep-import-phase0-target-input-chars", "10")
     await page.getByRole("button", { name: "保存深度导入参数" }).click()
     await expect(page.getByText(/必须是/).first()).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("#deep-import-phase0-target-input-chars")).toBeFocused()
+    await expect(page.locator("#deep-import-phase0-target-input-chars")).toHaveAttribute("aria-invalid", "true")
   })
 
   test("#/llm 别名：有项目时跳转到项目设置", async ({ page }) => {

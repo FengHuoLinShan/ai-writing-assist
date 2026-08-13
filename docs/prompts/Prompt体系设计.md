@@ -35,6 +35,7 @@
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
+| `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文/合同的独立近读与 finding-bound 返修 | writing 审查返修 |
 | `outline/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | outline 手动大纲分析 |
 | `interaction/prompts.py` | 内联 `interaction-story-v2`：模型知识 RP 故事正文与可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v1` / `interaction-summary-output-v1`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
@@ -211,12 +212,15 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 ### AI 地图册规划与图片 Prompt
 
 `world.map_atlas.plan.structured` 消费 `world.map_atlas.generate` 编译出的 author-full canonical
-资料、RAG `map_atlas` 证据和可选工作稿。输出由 `AtlasPlan` 校验：最多 20 页、无环、父级先于
+资料、RAG `map_atlas` 证据和可选工作稿。规划前会对至多 20 个已采用地点以每批 5 个提取
+可审计的空间线索；只有服务端选择的已发布 World Bible 段落和经 RAG 原文回读校验的正文可进入
+该步骤。输出由 `AtlasPlan` 校验：最多 20 页、无环、父级先于
 子级、默认不深于街道，并为每页分别列出直接来源、AI 视觉补全、冲突和标注。来源短引用必须
 属于当前 `novel_id`；run 固化 secret-free context snapshot、source manifest 与 hash。
 
-图片 Prompt 使用地点完整名称作为语义锚点，但明确要求成图不出现文字、字母、数字或符号，
-名称由前端标注层显示。生成、整图编辑、蒙版与多参考图直接调用固定 `gpt-image-2` Image API；
+图片 Prompt 使用地点完整名称作为语义锚点，但明确要求成图不出现文字、字母、数字、方向箭头、
+距离、比例尺、图例或层级标签；前端标注层只显示地点或地标名称，不显示层级、方向、距离、比例或图例。
+生成、整图编辑、蒙版与多参考图直接调用固定 `gpt-image-2` Image API；
 图片模型不输出结构化业务状态，也不能把视觉补全写回正式世界资料。
 
 ### Scene 切分与深化
@@ -387,6 +391,21 @@ JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把�
 不是 Agent 或多 Agent runtime。外部粘贴材料里的临时 ID、`checks_run`、“已检查”或“已通过”
 只作为来源声明，不能冒充本地对象或本地校验回执。map、reduce 和必要的修复调用共用一个
 1800 秒端到端预算。
+
+`workflow_preset=world_core` 是同一确定性工作流的窄预设，不是新 Agent。
+对话每轮仅做 `expand / connect / pressure / consolidate` 一个动作；收束必须
+将每条作者 seed 精确标记为体验承诺、已包含、开放或否定，并输出 3–7 条
+`can/cannot/cost/failure/maintenance` 规则与一条日常＋故障纵切。应答
+消息不能充当作者 seed；人物、故事总纲、Scene、完整地理、国家和历史不在
+此预设的交接门内。服务端重算 seed 覆盖、来源覆盖、规则绑定、N/A 理由、
+阻断矛盾与纵切引用；任一不符时只返回 `ready_for_handoff=false`，不写入资产。
+
+收束结果如需成为采用依据，作者须另行显式保存为不可采用的
+`world_core_checkpoint.v1`，再保存 `world_adoption_package.v1`。这两个操作不调用模型；
+preview 与 apply 都由 world 的确定性 schema、source refs、lineage 与 CAS 校验完成，模型不能
+创建或采用 package。
+若 package 含完整 World Bible page proposal，eligible 文本的每条 claim 必须由同包 include
+item/source mapping 覆盖；页面仍只在作者 apply 时通过既有 lifecycle 发布 revision，不新增模型步骤。
 
 `world.generation.exploration.preview` 只在作者从当前世界书页请求相邻新页面时运行。服务端冻结
 同一份 typed source manifest，并要求模型返回最多 3 个深度 1 缺口或明确停止原因；每项必须

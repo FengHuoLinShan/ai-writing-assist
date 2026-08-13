@@ -54,6 +54,8 @@ describe("AI 地图册工作台", () => {
       "getLatestMapAtlasRun", "getMapAtlasRunResults", "stopMapAtlasRun",
       "resumeMapAtlasRun", "reviewMapAtlasPage", "retryMapAtlasPage",
       "regenerateMapAtlasPage", "editMapAtlasPage", "updateMapAtlasAnnotation",
+      "getMapAtlasPagePrompt", "updateMapAtlasPagePrompt", "confirmMapAtlasPrompts",
+      "uploadMapAtlasPage", "updateMapAtlasNode",
       "fetchMapAtlasImage",
     ]) api.world[name].mockReset()
     setBridgeOverrides({ api, toast, confirm, router })
@@ -84,6 +86,159 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.text()).toContain("还没有本次生成结果")
   })
 
+  it("可选在生图前编辑、复制并确认全部画面说明", async () => {
+    vi.useFakeTimers()
+    const pending = page({ generation_status: "prepared", image_url: null, has_generation_prompt: true })
+    const run = { id: "run-1", status: "prompt_review", planned_page_count: 1, completed_page_count: 0 }
+    api.world.getLatestMapAtlasRun.mockResolvedValue(run)
+    api.world.getMapAtlasRunResults.mockResolvedValue(tree([pending], "review"))
+    api.world.getMapAtlasPagePrompt.mockResolvedValue({ page_id: pending.id, prompt: "东侧临海，北侧是山口", generation_choice: "internal", editable: true, updated_at: pending.updated_at })
+    api.world.updateMapAtlasPagePrompt.mockImplementation(async (_novelId, _pageId, body) => ({ page_id: pending.id, prompt: body.prompt, generation_choice: body.generation_choice, editable: true, updated_at: "2026-08-12T00:00:01Z" }))
+    api.world.confirmMapAtlasPrompts.mockResolvedValue({ ...run, status: "generating" })
+    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => {}) } })
+
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+    expect(wrapper.text()).toContain("生图前检查")
+    await wrapper.get(".atlas-prompt-editor textarea").setValue("西侧河流汇入港口")
+    await wrapper.find("input[value='external']").setValue(true)
+    vi.advanceTimersByTime(800); await flushPromises()
+    expect(api.world.updateMapAtlasPagePrompt).toHaveBeenCalledWith("novel-1", pending.id, expect.objectContaining({ prompt: "西侧河流汇入港口", generation_choice: "external", expected_updated_at: pending.updated_at }))
+    await wrapper.get(".atlas-prompt-editor button").trigger("click")
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("西侧河流汇入港口")
+    await wrapper.get(".atlas-prompt-review header .btn-primary").trigger("click"); await flushPromises()
+    expect(api.world.confirmMapAtlasPrompts).toHaveBeenCalledWith("novel-1", "run-1", [{ page_id: pending.id, expected_updated_at: "2026-08-12T00:00:01Z" }])
+  })
+
+  it("切换页面前保存原页，冲突时不切换且保留编辑", async () => {
+    const first = page({ id: "page-a", node_id: "node-a", generation_status: "prepared", image_url: null })
+    const second = page({ id: "page-b", node_id: "node-b", generation_status: "prepared", image_url: null })
+    const run = { id: "run-1", status: "prompt_review", planned_page_count: 2, completed_page_count: 0 }
+    api.world.getLatestMapAtlasRun.mockResolvedValue(run)
+    api.world.getMapAtlasRunResults.mockResolvedValue({ mode: "review", total_pages: 2, nodes: [
+      { id: "node-a", title: "A", level: "city", pages: [first], children: [] },
+      { id: "node-b", title: "B", level: "city", pages: [second], children: [] },
+    ] })
+    api.world.getMapAtlasPagePrompt.mockImplementation(async (_novel, id) => ({ page_id: id, prompt: id, generation_choice: "internal", editable: true, updated_at: "v1" }))
+    api.world.updateMapAtlasPagePrompt.mockRejectedValue({ status: 409 })
+
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+    await wrapper.get(".atlas-prompt-editor textarea").setValue("修改 A")
+    await wrapper.findAll(".atlas-prompt-review nav button")[1].trigger("click")
+    await flushPromises()
+
+    expect(api.world.updateMapAtlasPagePrompt).toHaveBeenCalledWith("novel-1", "page-a", expect.objectContaining({ prompt: "修改 A" }))
+    expect(wrapper.get(".atlas-prompt-editor textarea").element.value).toBe("修改 A")
+    expect(wrapper.text()).toContain("已在别处更新")
+  })
+
+  it("上传失败保留图片和表单以便重试", async () => {
+    api.world.uploadMapAtlasPage.mockRejectedValue(new Error("网络中断"))
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises(); await wrapper.get(".atlas-primary-actions > .btn-sm").trigger("click")
+    const file = new File(["png"], "map.png", { type: "image/png" })
+    const input = wrapper.get(".atlas-upload-modal input[type='file']")
+    Object.defineProperty(input.element, "files", { value: [file], configurable: true })
+    await input.trigger("change")
+    await wrapper.get(".atlas-upload-modal input.form-input").setValue("北境")
+    await wrapper.get(".atlas-upload-modal footer .btn-primary").trigger("click"); await flushPromises()
+    expect(wrapper.get(".atlas-upload-modal").text()).toContain("网络中断")
+    expect(wrapper.get(".atlas-upload-modal input.form-input").element.value).toBe("北境")
+    expect(wrapper.get(".atlas-upload-modal footer .btn-primary").text()).toBe("重试上传")
+  })
+
+  it("上传候选可在采用前修改名称和位置", async () => {
+    const candidate = page({ node_id: "manual-1" })
+    const run = { id: "upload-1", run_kind: "upload", status: "review_ready", planned_page_count: 1, completed_page_count: 1 }
+    api.world.getLatestMapAtlasRun.mockResolvedValue(run)
+    api.world.getMapAtlasRunResults.mockResolvedValue({ mode: "review", total_pages: 1, nodes: [{ id: "manual-1", title: "旧名", level: "region", status: "provisional", parent_id: null, updated_at: "v1", pages: [candidate], children: [] }] })
+    api.world.updateMapAtlasNode.mockResolvedValue({})
+
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises(); await wrapper.get(".atlas-page > .atlas-edit summary").trigger("click")
+    await wrapper.get(".atlas-node-form input.form-input").setValue("北境地图")
+    await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
+    expect(api.world.updateMapAtlasNode).toHaveBeenCalledWith("novel-1", "manual-1", expect.objectContaining({ title: "北境地图", expected_updated_at: "v1" }))
+  })
+
+  it("上传到已采用节点时不允许改名，仍可调整位置", async () => {
+    const candidate = page({ node_id: "node-1" })
+    const run = { id: "upload-1", run_kind: "upload", status: "review_ready", planned_page_count: 1, completed_page_count: 1 }
+    api.world.getLatestMapAtlasRun.mockResolvedValue(run)
+    api.world.getMapAtlasRunResults.mockResolvedValue({ mode: "review", total_pages: 1, nodes: [{ id: "node-1", title: "已采用地图", level: "region", status: "adopted", parent_id: null, updated_at: "v1", pages: [candidate], children: [] }] })
+    api.world.updateMapAtlasNode.mockResolvedValue({})
+
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises(); await wrapper.get(".atlas-page > .atlas-edit summary").trigger("click")
+    expect(wrapper.find(".atlas-node-form input.form-input").exists()).toBe(false)
+    await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
+    expect(api.world.updateMapAtlasNode.mock.calls[0][2]).not.toHaveProperty("title")
+  })
+
+  it("外部生成页刷新后仍可复制说明且不显示图片加载", async () => {
+    const external = page({ generation_status: "prompt_only", image_url: null, has_generation_prompt: true })
+    api.world.getLatestMapAtlasRun.mockResolvedValue({ id: "run-1", status: "review_ready", planned_page_count: 1, completed_page_count: 1 })
+    api.world.getMapAtlasRunResults.mockResolvedValue(tree([external], "review"))
+    api.world.getMapAtlasPagePrompt.mockResolvedValue({ page_id: external.id, prompt: "北面是山，东面是海", generation_choice: "external", editable: false, updated_at: external.updated_at })
+    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => {}) } })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+    expect(wrapper.text()).toContain("画面说明已确认，等待外部图片")
+    expect(wrapper.get(".atlas-prompt-only").text()).toContain("北面是山")
+    expect(wrapper.get(".atlas-prompt-only").text()).not.toContain("正在加载图片")
+    await wrapper.get(".atlas-prompt-only button").trigger("click")
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("北面是山，东面是海")
+  })
+
+  it("画面说明保存在途时继续编辑，等待新值保存后才切页", async () => {
+    let resolveFirst
+    const firstSave = new Promise(resolve => { resolveFirst = resolve })
+    const first = page({ id: "page-a", node_id: "node-a", generation_status: "prepared", image_url: null })
+    const second = page({ id: "page-b", node_id: "node-b", generation_status: "prepared", image_url: null })
+    api.world.getLatestMapAtlasRun.mockResolvedValue({ id: "run-1", status: "prompt_review", planned_page_count: 2, completed_page_count: 0 })
+    api.world.getMapAtlasRunResults.mockResolvedValue({ mode: "review", total_pages: 2, nodes: [{ id: "node-a", title: "A", level: "city", pages: [first], children: [] }, { id: "node-b", title: "B", level: "city", pages: [second], children: [] }] })
+    api.world.getMapAtlasPagePrompt.mockImplementation(async (_novel, id) => ({ page_id: id, prompt: id, generation_choice: "internal", editable: true, updated_at: "v1" }))
+    api.world.updateMapAtlasPagePrompt.mockReturnValueOnce(firstSave).mockImplementationOnce(async (_novel, id, body) => ({ page_id: id, ...body, editable: true, updated_at: "v3" }))
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } }); await flushPromises()
+    const textarea = wrapper.get(".atlas-prompt-editor textarea")
+    await textarea.setValue("第一版")
+    await textarea.trigger("input")
+    const switching = wrapper.findAll(".atlas-prompt-review nav button")[1].trigger("click")
+    await textarea.setValue("第二版")
+    resolveFirst({ page_id: "page-a", prompt: "第一版", generation_choice: "internal", editable: true, updated_at: "v2" })
+    await switching; await flushPromises()
+    expect(api.world.updateMapAtlasPagePrompt).toHaveBeenCalledTimes(2)
+    expect(api.world.updateMapAtlasPagePrompt.mock.calls[1][2].prompt).toBe("第二版")
+    expect(wrapper.get(".atlas-prompt-editor textarea").element.value).toBe("page-b")
+  })
+
+  it("画面说明检查可立即暂停并继续", async () => {
+    const pending = page({ generation_status: "prepared", image_url: null })
+    const run = { id: "run-1", status: "prompt_review", review_image_prompts: true, planned_page_count: 1, completed_page_count: 0 }
+    api.world.getLatestMapAtlasRun.mockResolvedValue(run); api.world.getMapAtlasRunResults.mockResolvedValue(tree([pending], "review"))
+    api.world.getMapAtlasPagePrompt.mockResolvedValue({ page_id: pending.id, prompt: "x", generation_choice: "internal", editable: true, updated_at: "v1" })
+    api.world.stopMapAtlasRun.mockResolvedValue({ run_id: "run-1", stop_requested: true })
+    api.world.resumeMapAtlasRun.mockResolvedValue(run)
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } }); await flushPromises()
+    await wrapper.get(".atlas-run-actions button").trigger("click"); await flushPromises()
+    expect(api.world.stopMapAtlasRun).toHaveBeenCalledWith("novel-1", "run-1")
+    expect(wrapper.get(".atlas-run").text()).toContain("0 / 1 页")
+    expect(wrapper.text()).toContain("继续检查")
+    await wrapper.get(".atlas-run-actions .btn-primary").trigger("click"); await flushPromises()
+    expect(api.world.resumeMapAtlasRun).toHaveBeenCalledWith("novel-1", "run-1", false)
+  })
+
+  it("地图位置默认保持，只在明确选择时发送位置", async () => {
+    const adopted = page({ review_status: "adopted" })
+    api.world.getMapAtlas.mockResolvedValue(tree([adopted], "atlas")); api.world.updateMapAtlasNode.mockResolvedValue({})
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } }); await flushPromises(); await wrapper.findAll(".atlas-tabs button")[1].trigger("click"); await flushPromises()
+    await wrapper.get(".atlas-page > .atlas-edit summary").trigger("click"); await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
+    expect(api.world.updateMapAtlasNode.mock.calls[0][2]).not.toHaveProperty("before_node_id")
+    await wrapper.findAll(".atlas-node-form select")[2].setValue("__append__"); await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
+    expect(api.world.updateMapAtlasNode.mock.calls[1][2]).toMatchObject({ before_node_id: null })
+  })
+
   it("资料不足时说明补充方式并识别同名 API 错误", async () => {
     const run = { id: "run-1", status: "failed", error_code: "insufficient_sources", planned_page_count: 0, completed_page_count: 0 }
     api.world.getLatestMapAtlasRun.mockResolvedValue(run)
@@ -99,6 +254,20 @@ describe("AI 地图册工作台", () => {
     await wrapper.get(".atlas-primary-actions .btn-primary").trigger("click")
     await flushPromises()
     expect(wrapper.get(".atlas-alert").text()).toContain("已确认资料不足")
+  })
+
+  it("只显示服务端安全摘要，旧 run 不显示摘要并说明空间资料降级", async () => {
+    api.world.getLatestMapAtlasRun.mockResolvedValue({ id: "run-1", status: "failed", error_code: "spatial_evidence_unavailable", planned_page_count: 0, completed_page_count: 0, evidence_summary: { locations_checked: 1, spatial_facts_used: 2, conflicts: 1 } })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+    expect(wrapper.get(".atlas-evidence-summary").text()).toContain("1 处资料不一致")
+    expect(wrapper.text()).toContain("空间资料提取暂时不可用")
+    wrapper.unmount()
+
+    api.world.getLatestMapAtlasRun.mockResolvedValue({ id: "old", status: "completed", planned_page_count: 0, completed_page_count: 0, evidence_summary: null })
+    const old = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+    expect(old.find(".atlas-evidence-summary").exists()).toBe(false)
   })
 
   it("首次读取完成前禁止抢跑创建", async () => {

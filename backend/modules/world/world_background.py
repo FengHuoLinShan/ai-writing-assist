@@ -7,6 +7,7 @@ import json
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.world.contracts import (
@@ -27,6 +28,9 @@ from modules.world.models import (
     SpeciesProfile,
     WorldBiblePage,
     WorldBiblePageProjection,
+)
+from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+    WorldBibleLifecycleService,
 )
 from shared.utils import parse_uuid
 
@@ -135,15 +139,31 @@ class WorldBackgroundAggregation:
                     )
                 )
 
+        source_entity = aliased(CoreEntity)
+        target_entity = aliased(CoreEntity)
         relations = await db.execute(
-            select(EntityRelation)
+            select(EntityRelation, source_entity.name, target_entity.name)
+            .outerjoin(
+                source_entity,
+                (source_entity.id == EntityRelation.source_id)
+                & (source_entity.novel_id == EntityRelation.novel_id),
+            )
+            .outerjoin(
+                target_entity,
+                (target_entity.id == EntityRelation.target_id)
+                & (target_entity.novel_id == EntityRelation.novel_id),
+            )
             .where(EntityRelation.novel_id == nid, EntityRelation.status.in_(statuses))
             .order_by(EntityRelation.strength.desc())
             .limit(limit)
         )
-        for relation in relations.scalars().all():
+        for relation, source_name, target_name in relations.all():
             title = relation.relation_type
-            summary = relation.description or relation.relation_type
+            summary = (
+                f"{source_name or relation.source_id}与"
+                f"{target_name or relation.target_id}："
+                f"{relation.description or relation.relation_type}"
+            )
             entries.append(
                 self._entry(
                     novel_id,
@@ -209,7 +229,7 @@ class WorldBackgroundAggregation:
                 and not projection.stale
                 and projection.source_page_version == page.version_number
                 and projection.source_hash
-                == hashlib.sha256((page.free_text or "").encode("utf-8")).hexdigest()
+                == WorldBibleLifecycleService.projection_source_hash(page)
             )
             summary = (
                 projection.content
@@ -344,12 +364,22 @@ class WorldBackgroundAggregation:
 
     @staticmethod
     async def _event_summaries(db: AsyncSession, novel_id) -> dict:
-        result = await db.execute(select(Event).where(Event.novel_id == novel_id))
+        location = aliased(CoreEntity)
+        result = await db.execute(
+            select(Event, location.name)
+            .outerjoin(
+                location,
+                (location.id == Event.location_entity_id)
+                & (location.novel_id == Event.novel_id),
+            )
+            .where(Event.novel_id == novel_id)
+        )
         return {
             row.entity_id: (
                 f"timeline_order={row.timeline_order}；"
                 f"occurrence_time={row.occurrence_time_label or ''}；"
                 f"location_entity_id={row.location_entity_id}"
+                + (f"；location={location_name}" if location_name else "")
             )
-            for row in result.scalars().all()
+            for row, location_name in result.all()
         }

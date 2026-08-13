@@ -15,7 +15,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -113,6 +113,9 @@ class _WritingGenerationTaskPlan:
     base_draft_id: str | None
     base_content: str | None
     base_content_hash: str | None
+    scene_id: str | None
+    scene_execution_bundle: dict[str, Any] | None
+    scene_execution_bundle_hash: str | None
 
 
 _DEFAULT_WRITING_SYSTEM_PROMPT = (
@@ -345,7 +348,21 @@ class WritingDraftService:
         draft = await self._repo.get(db, did)
         if draft is None or str(draft.novel_id) != str(nid):
             raise NotFoundError(f"Draft {draft_id} not found")
-        return WritingDraftResponse.model_validate(draft)
+        response = WritingDraftResponse.model_validate(draft)
+        if draft.status == "candidate":
+            from modules.writing.semantic_review import validate_candidate_upstream
+
+            try:
+                await validate_candidate_upstream(
+                    db,
+                    draft,
+                    require_review=False,
+                )
+            except ConflictError:
+                response.attention_reasons = list(
+                    dict.fromkeys([*response.attention_reasons, "upstream_stale"])
+                )
+        return response
 
     async def adopt_candidate_to_working(
         self,
@@ -371,6 +388,10 @@ class WritingDraftService:
             raise NotFoundError(f"Draft {draft_id} not found")
         if draft.status != "candidate":
             raise ValidationError("Only a candidate writing suggestion can be adopted")
+
+        from modules.writing.semantic_review import validate_candidate_upstream
+
+        await validate_candidate_upstream(db, draft)
 
         adopted_at = datetime.now(UTC).isoformat()
         adopted_provenance = {
@@ -967,6 +988,7 @@ class WritingDraftService:
             for novel_id in parsed_ids
         }
 
+
 class WritingConflictCheckService:
     """Rule-based Scene conflict checks for the writing workbench."""
 
@@ -1470,9 +1492,7 @@ class WritingGenerationService:
         if not task_refs or task_refs[-1] != str(source_task_id):
             raise ValidationError("Writing generation task was superseded")
 
-        compile_options = dict(
-            getattr(confirmed_context, "compile_options", None) or {}
-        )
+        compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
         confirmed_chapter = compile_options.get("requested_chapter_index")
         if confirmed_chapter is None:
             confirmed_chapter = compile_options.get("chapter_index")
@@ -1498,6 +1518,7 @@ class WritingGenerationService:
         model: str,
         generation_mode: str = "draft",
         base_content: str | None = None,
+        scene_execution_bundle: dict[str, Any] | None = None,
     ) -> tuple[str, LLMCallRequest]:
         is_pov = profile.profile == GenerationProfile.POV_CHARACTER
         if is_pov:
@@ -1532,6 +1553,18 @@ class WritingGenerationService:
                 else _DEFAULT_WRITING_SYSTEM_PROMPT
             )
             response_format = None
+        if scene_execution_bundle:
+            prompt += (
+                "\n\n【已冻结的 Scene 执行合同】\n"
+                + json.dumps(
+                    scene_execution_bundle,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+                + "\n严格执行其中约束；missing_fields/omissions "
+                "是未决项，不得擅自补成长期事实。"
+            )
         return prompt, LLMCallRequest(
             model=model,
             messages=[
@@ -1561,6 +1594,9 @@ class WritingGenerationService:
         base_draft_id: str | None = None,
         base_content: str | None = None,
         base_content_hash: str | None = None,
+        scene_id: str | None = None,
+        scene_execution_bundle: dict[str, Any] | None = None,
+        scene_execution_bundle_hash: str | None = None,
     ) -> WritingDraftCreate:
         is_pov = profile.profile == GenerationProfile.POV_CHARACTER
         pov_view = None
@@ -1620,7 +1656,12 @@ class WritingGenerationService:
             "base_draft_id": base_draft_id,
             "base_content_hash": base_content_hash,
             "context_confirmation_id": context_confirmation_id,
-            "scene_id": profile.scene_id,
+            "scene_id": scene_id or profile.scene_id,
+            "scene_execution_bundle_hash": scene_execution_bundle_hash,
+            "upstream_manifest": deepcopy(
+                (scene_execution_bundle or {}).get("upstream_manifest") or []
+            ),
+            "review_required": True,
             "viewpoint_character_id": profile.viewpoint_character_id,
             "prompt_name": prompt_name,
             "prompt_hash": prompt_hash(prompt),
@@ -1699,9 +1740,10 @@ class WritingGenerationService:
             raise ValidationError(
                 "Continuation base draft is not an active manuscript version"
             )
-        if generation_mode == "continue" and not str(
-            getattr(draft, "content", "") or ""
-        ).strip():
+        if (
+            generation_mode == "continue"
+            and not str(getattr(draft, "content", "") or "").strip()
+        ):
             raise ValidationError("Continuation base draft is empty")
         return draft
 
@@ -1746,6 +1788,22 @@ class WritingGenerationService:
             )
         db.expire_all()
 
+    @staticmethod
+    async def _execution_bundle(
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str | None,
+    ) -> dict[str, Any] | None:
+        if not scene_id:
+            return None
+        from modules.outline.facade import get_scene_execution_bundle
+
+        bundle = await get_scene_execution_bundle(db, novel_id, scene_id)
+        if bundle is None:
+            raise ValidationError("Writing generation Scene does not exist")
+        return deepcopy(bundle) if isinstance(bundle, dict) else asdict(bundle)
+
     async def _prepare_generation_task(
         self,
         db: AsyncSession,
@@ -1779,6 +1837,16 @@ class WritingGenerationService:
             source_task_id=source_task_id,
         )
         profile = self._task_profile(confirmed_context)
+        compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
+        scene_id = str(compile_options.get("scene_id") or "") or None
+        execution_bundle = await self._execution_bundle(
+            db,
+            novel_id=novel_id,
+            scene_id=scene_id,
+        )
+        execution_bundle_hash = (
+            str(execution_bundle.get("contract_hash") or "") if execution_bundle else None
+        )
         base_draft = await self._load_generation_base(
             db,
             novel_id=novel_id,
@@ -1817,6 +1885,7 @@ class WritingGenerationService:
                 if base_draft is not None
                 else None
             ),
+            scene_execution_bundle=execution_bundle,
         )
         normalized_base_id = (
             str(getattr(base_draft, "id")) if base_draft is not None else None
@@ -1845,6 +1914,7 @@ class WritingGenerationService:
                 hidden_guard_terms=guard_terms,
                 generation_mode=generation_mode,
                 base_draft=base_draft,
+                scene_execution_bundle_hash=execution_bundle_hash,
             ),
             llm_execution_snapshot=deepcopy(llm_execution_snapshot),
             generation_mode=generation_mode,
@@ -1855,6 +1925,9 @@ class WritingGenerationService:
                 else None
             ),
             base_content_hash=base_content_hash,
+            scene_id=scene_id,
+            scene_execution_bundle=execution_bundle,
+            scene_execution_bundle_hash=execution_bundle_hash,
         )
 
     async def generate_candidate_for_task(
@@ -1929,6 +2002,9 @@ class WritingGenerationService:
                     base_draft_id=plan.base_draft_id,
                     base_content=plan.base_content,
                     base_content_hash=plan.base_content_hash,
+                    scene_id=plan.scene_id,
+                    scene_execution_bundle=plan.scene_execution_bundle,
+                    scene_execution_bundle_hash=plan.scene_execution_bundle_hash,
                 )
         except asyncio.CancelledError:
             raise
@@ -1990,6 +2066,16 @@ class WritingGenerationService:
             source_task_id=plan.source_task_id,
         )
         profile = self._task_profile(confirmed_context)
+        current_execution_bundle = await self._execution_bundle(
+            db,
+            novel_id=plan.novel_id,
+            scene_id=plan.scene_id,
+        )
+        current_execution_bundle_hash = (
+            str(current_execution_bundle.get("contract_hash") or "")
+            if current_execution_bundle
+            else None
+        )
         base_draft = await self._load_generation_base(
             db,
             novel_id=plan.novel_id,
@@ -2012,6 +2098,7 @@ class WritingGenerationService:
             hidden_guard_terms=guard_terms,
             generation_mode=plan.generation_mode,
             base_draft=base_draft,
+            scene_execution_bundle_hash=current_execution_bundle_hash,
         )
         if current_fingerprint != plan.source_fingerprint:
             raise ValidationError(
@@ -2055,6 +2142,16 @@ class WritingGenerationService:
             confirmation_id=context_confirmation_id,
         )
         profile = self._profile_resolver.resolve(confirmed_context)
+        compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
+        scene_id = str(compile_options.get("scene_id") or "") or None
+        execution_bundle = await self._execution_bundle(
+            db,
+            novel_id=novel_id,
+            scene_id=scene_id,
+        )
+        execution_bundle_hash = (
+            str(execution_bundle.get("contract_hash") or "") if execution_bundle else None
+        )
         base_draft = await self._load_generation_base(
             db,
             novel_id=novel_id,
@@ -2094,6 +2191,7 @@ class WritingGenerationService:
                 if base_draft is not None
                 else None
             ),
+            scene_execution_bundle=execution_bundle,
         )
         response = await run_managed_generate(
             self._llm,
@@ -2147,6 +2245,9 @@ class WritingGenerationService:
                 if base_draft is not None
                 else None
             ),
+            scene_id=scene_id,
+            scene_execution_bundle=execution_bundle,
+            scene_execution_bundle_hash=execution_bundle_hash,
         )
         draft = await self._repo.create_with_status(
             db,
@@ -2280,6 +2381,7 @@ def _generation_task_source_fingerprint(
     hidden_guard_terms: tuple[_FrozenHiddenGuardTerm, ...],
     generation_mode: str,
     base_draft: object | None,
+    scene_execution_bundle_hash: str | None,
 ) -> str:
     return _generation_stable_fingerprint(
         {
@@ -2289,20 +2391,15 @@ def _generation_task_source_fingerprint(
                 hidden_guard_terms=hidden_guard_terms,
             ),
             "generation_mode": generation_mode,
+            "scene_execution_bundle_hash": scene_execution_bundle_hash,
             "base_draft": (
                 {
                     "id": str(getattr(base_draft, "id", "")),
                     "novel_id": str(getattr(base_draft, "novel_id", "")),
-                    "chapter_index": int(
-                        getattr(base_draft, "chapter_index", 0) or 0
-                    ),
-                    "version_number": int(
-                        getattr(base_draft, "version_number", 0) or 0
-                    ),
+                    "chapter_index": int(getattr(base_draft, "chapter_index", 0) or 0),
+                    "version_number": int(getattr(base_draft, "version_number", 0) or 0),
                     "status": str(getattr(base_draft, "status", "")),
-                    "content_hash": str(
-                        getattr(base_draft, "content_hash", "") or ""
-                    ),
+                    "content_hash": str(getattr(base_draft, "content_hash", "") or ""),
                 }
                 if base_draft is not None
                 else None

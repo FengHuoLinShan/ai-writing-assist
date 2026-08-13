@@ -10,7 +10,7 @@
     </div>
   </div>
   <section v-if="generation?.progress" id="writing-generation-bar-container" aria-live="polite">
-    <WorkflowProgressCard :progress="generation.progress" title="AI 正文建议" :message="generation.progress.message || ''" :collapsible="true" :show-task-id="false" />
+    <WorkflowProgressCard :progress="generation.progress" :title="generation.progress.label || 'AI 正文建议'" :message="generation.progress.message || ''" :collapsible="true" :show-task-id="false" />
     <button v-if="generation.result" class="btn btn-sm btn-primary" @click="$emit('open-generation')">查看并审阅建议</button>
     <button v-if="!generation.progress.terminal" class="btn btn-sm" @click="$emit('cancel-generation')">取消任务</button>
     <button v-else class="btn btn-sm" @click="$emit('dismiss-generation')">关闭</button>
@@ -49,6 +49,7 @@
         <button v-if="needsRecovery" class="btn btn-sm btn-primary" @click="$emit('resume')">继续</button>
         <button v-if="needsRecovery" class="btn btn-sm" @click="$emit('abandon')">放弃恢复</button>
         <button v-if="canCancel" class="btn btn-sm" @click="$emit('cancel')">取消任务</button>
+        <button v-if="canOpenScenes" class="btn btn-sm btn-primary" @click="$emit('open-scenes')">查看场景骨架</button>
         <button v-if="hasAudit" class="btn btn-sm" @click="$emit('open-audit')">查看快照状态</button>
         <button v-if="terminal" class="btn btn-sm" @click="$emit('dismiss')">关闭</button>
       </div>
@@ -83,13 +84,18 @@ const props = defineProps({
   publish: { type: Object, required: true },
   conflict: { type: Object, required: true },
   deepImport: { type: Object, required: true },
+  deepImportHasScenes: { type: Boolean, default: false },
   generation: { type: Object, default: null },
   conflictTask: { type: Object, default: null },
   showConflict: { type: Boolean, default: true },
 })
-defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "cancel-conflict-task", "dismiss-conflict-task"])
+defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "cancel-conflict-task", "dismiss-conflict-task"])
 
 const terminal = computed(() => ["done", "failed", "cancelled"].includes(props.deepImport.progress?.status || props.deepImport.progress?.phase))
+const canOpenScenes = computed(() => terminal.value
+  && (props.deepImport.progress?.status || props.deepImport.progress?.phase) === "done"
+  && ["deep_import", "scene_auto_extraction"].includes(props.deepImport.progress?.workflowType)
+  && props.deepImportHasScenes)
 const needsRecovery = computed(() => {
   const actions = props.deepImport.progress?.availableActions || []
   return actions.includes("resume") && actions.includes("abandon")

@@ -237,6 +237,24 @@ describe("api.js cache behavior", () => {
     expect(new URL(urls[1], "http://localhost").searchParams.has("_ts")).toBe(true)
   })
 
+  it("tasks.get keeps the project fallback and cache-busting URL", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ task_id: "task-1" }),
+    }))
+    const previousAppState = globalThis.appState
+    globalThis.appState = { currentProjectId: "project-1" }
+    const dateSpy = vi.spyOn(Date, "now").mockReturnValue(1234)
+
+    await window.api.tasks.get("task-1")
+
+    dateSpy.mockRestore()
+    globalThis.appState = previousAppState
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toContain("/api/tasks/task-1?_ts=1234&novel_id=project-1")
+  })
+
   it("projects.get forwards cancellation and cache policy through the contract wrapper", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true,
@@ -255,6 +273,42 @@ describe("api.js cache behavior", () => {
     expect(url).toContain("/api/projects/p-signal")
     expect(init.signal).toBeInstanceOf(AbortSignal)
     expect(init.cache).toBe("no-store")
+  })
+
+  it("map atlas wrappers preserve GET cache policy and POST payloads", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+    }))
+
+    await window.api.world.getMapAtlas("novel-1")
+    await window.api.world.createMapAtlasRun("novel-1", {
+      layout: "landscape",
+      quality: "standard",
+    })
+    await window.api.world.reviewMapAtlasPage(
+      "novel-1",
+      "page-1",
+      "adopt",
+      { confirm_conflicts: true },
+    )
+
+    expect(globalThis.fetch.mock.calls[0][0]).toContain(
+      "/api/world/map-atlas/novel-1/atlas",
+    )
+    expect(globalThis.fetch.mock.calls[0][1].cache).toBe("no-store")
+    expect(globalThis.fetch.mock.calls[1][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ layout: "landscape", quality: "standard" }),
+    })
+    expect(globalThis.fetch.mock.calls[2][0]).toContain(
+      "/api/world/map-atlas/novel-1/pages/page-1/adopt",
+    )
+    expect(globalThis.fetch.mock.calls[2][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ confirm_conflicts: true }),
+    })
   })
 
   it("no-store bypasses the application GET cache without replacing it", async () => {
@@ -963,6 +1017,21 @@ describe("api.js request headers", () => {
     mockJsonResponse({ ok: true })
     await window.api.request("/projects/after-upload-401", { cache: "no-store" })
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
+  })
+
+  it("preserves structured upload errors for callers", async () => {
+    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
+    class InvalidUploadXMLHttpRequest {
+      constructor() { this.upload = {}; this.status = 422; this.responseText = JSON.stringify({ detail: { code: "invalid_image", message: "图片内容无效" } }) }
+      open() {}
+      setRequestHeader() {}
+      send() { this.onload() }
+    }
+    globalThis.XMLHttpRequest = InvalidUploadXMLHttpRequest
+    try {
+      await expect(window.api.imports.uploadFile(new File(["x"], "bad.txt"), "novel-1"))
+        .rejects.toMatchObject({ message: "图片内容无效", status: 422, body: { detail: { code: "invalid_image", message: "图片内容无效" } } })
+    } finally { globalThis.XMLHttpRequest = OriginalXMLHttpRequest }
   })
 
   it("aborts the upload XHR when its signal is cancelled", async () => {
