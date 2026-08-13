@@ -30,9 +30,7 @@ function makeController(overrides = {}) {
     toast,
     confirm: vi.fn(() => true),
     getProjectId: () => projectId,
-    getScenes: () => [],
     onChange: vi.fn(),
-    onSceneChange: vi.fn(),
     onVersionChanged,
   })
   return { controller, api, toast, onVersionChanged, setProject: (value) => { projectId = value } }
@@ -59,6 +57,20 @@ describe("editorController", () => {
     expect(controller.snapshot()).toMatchObject({ content: "本地修改", dirty: true })
     expect(readChapterSnapshot("p1", 1)).toMatchObject({ content: "本地修改", dirty: true })
     expect(localStorage.getItem("draft_backup_p1_1")).toContain("本地修改")
+    controller.dispose()
+  })
+
+  it("光标移动只记录位置，不自动切换 Scene", async () => {
+    const { controller } = makeController()
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body">甲乙丙丁</textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    editor.focus()
+    editor.setSelectionRange(2, 2)
+    editor.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+
+    expect(controller.snapshot().cursorOffset).toBe(2)
     controller.dispose()
   })
 

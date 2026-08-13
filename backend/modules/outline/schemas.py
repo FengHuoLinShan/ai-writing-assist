@@ -209,6 +209,12 @@ class SceneCreate(BaseModel):
     status: Literal["draft", "canonical"] = "draft"
 
 
+class SceneChapterQuickCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    title: str = Field(..., min_length=1, max_length=255)
+
+
 class SceneUpdate(BaseModel):
     scene_index: Annotated[int | None, Field(None, ge=0)]
     title: Annotated[str | None, Field(None, max_length=255)]

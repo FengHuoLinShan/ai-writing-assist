@@ -1,5 +1,5 @@
 import { mount } from "@vue/test-utils"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import SceneCockpit from "../../../vue/views/writing/components/SceneCockpit.vue"
 
 const scene = {
@@ -16,16 +16,19 @@ const scene = {
   foreshadowing: "钥匙",
 }
 
-function mountCockpit() {
+function mountCockpit(overrides = {}) {
   return mount(SceneCockpit, {
     props: {
       projectId: "p1",
       chapter: 1,
       scene,
+      scenes: [scene],
+      allScenes: [scene],
       alerts: [{ code: "a1", severity: "high", source: "现场", message: "高风险 <img>" }],
       people: [{ id: "c1", name: "阿青 <script>", role: "POV" }],
       location: { id: "l1", name: "黑塔", description: "顶层" },
       conflict: { latest: { id: "check-1" } },
+      ...overrides,
     },
   })
 }
@@ -70,5 +73,56 @@ describe("SceneCockpit", () => {
     expect(wrapper.classes()).toContain("is-collapsed")
     expect(wrapper.find(".cockpit-tabs").exists()).toBe(false)
     expect(wrapper.get('[aria-label="展开写作副驾驶"]').attributes("aria-expanded")).toBe("false")
+  })
+
+  it("在顶部手选本章 Scene，跨章只作标记", async () => {
+    const crossChapter = { ...scene, id: "s2", title: "跨章会面", chapter_ids: ["1", "2"] }
+    const wrapper = mountCockpit({ scenes: [scene, crossChapter], allScenes: [scene, crossChapter] })
+
+    expect(wrapper.findAll(".scene-cockpit-switcher__item")).toHaveLength(2)
+    expect(wrapper.findAll(".scene-cockpit-switcher__item")[1].text()).toContain("跨章")
+    await wrapper.findAll(".scene-cockpit-switcher__item")[1].trigger("click")
+    expect(wrapper.emitted("select-scene")[0]).toEqual(["s2"])
+  })
+
+  it("关联弹窗支持连续关联、新建以及打开工作台", async () => {
+    const associateScene = vi.fn(async () => ({ id: "s2" }))
+    const createScene = vi.fn(async () => ({ id: "s3" }))
+    const unlinked = { id: "s2", title: "旅店暗号", scene_index: 3, status: "draft", chapter_ids: [] }
+    const wrapper = mountCockpit({ allScenes: [scene, unlinked], associateScene, createScene })
+
+    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
+    expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
+    await wrapper.get('[aria-label="关联 旅店暗号"]').trigger("click")
+    expect(associateScene).toHaveBeenCalledWith("s2")
+    expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
+    await wrapper.setProps({ allScenes: [scene, { ...unlinked, chapter_ids: ["1"] }] })
+    expect(wrapper.get('[aria-label="旅店暗号已关联"]').text()).toBe("✓")
+
+    await wrapper.findAll("button").find((button) => button.text().includes("新建 Scene")).trigger("click")
+    await wrapper.get("#scene-associate-title-input").setValue("  钟楼会面  ")
+    await wrapper.get(".scene-associate-create").trigger("submit")
+    expect(createScene).toHaveBeenCalledWith("钟楼会面")
+    expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
+
+    await wrapper.findAll("button").find((button) => button.text().includes("打开 Scene 工作台")).trigger("click")
+    expect(wrapper.emitted("organize")).toHaveLength(1)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it("关联失败时保留当前行并可原位重试", async () => {
+    const associateScene = vi.fn()
+      .mockRejectedValueOnce(new Error("网络暂时不可用"))
+      .mockResolvedValueOnce({ id: "s2" })
+    const unlinked = { id: "s2", title: "旅店暗号", scene_index: 3, status: "draft", chapter_ids: [] }
+    const wrapper = mountCockpit({ allScenes: [scene, unlinked], associateScene })
+    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
+
+    await wrapper.get('[aria-label="关联 旅店暗号"]').trigger("click")
+    expect(wrapper.text()).toContain("网络暂时不可用")
+    expect(wrapper.get('[aria-label="关联 旅店暗号"]').exists()).toBe(true)
+    await wrapper.get('[aria-label="关联 旅店暗号"]').trigger("click")
+    expect(associateScene).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
   })
 })

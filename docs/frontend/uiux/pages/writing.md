@@ -93,7 +93,7 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 ┌──────────────────────────────────────────────────────────┐
 │ Topbar（全局，57px）：#topbar-chapter ｜ #topbar-wordcount ｜ 主题三点切换器 │
 ├──────────────────────────────────────────────────────────┤
-│ view-header.writing-toolbar：写作 · 共 N 章 ［新建章节］▾  │
+│ view-header.writing-toolbar：写作 · 共 N 章 · 写作视图▾    │
 ├─────────┬──────────────────────────────┬─────────────────┤
 │ 章节树   │  编辑器（第一视觉焦点）        │  副驾驶          │
 │ 238px   │  · 编辑器头（标题+菜单+版本条）  │  SceneCockpit   │
@@ -117,7 +117,7 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
   待办：状态持久化到 sessionStorage（沿用 rail 开合的 `workspace-rail:{pid}:writing:*` 键族模式）、
   键盘快捷键（产品决定）。
 - **信息层级**：Primary = 稿纸正文 + 主按钮「设为正式正文」（每屏唯一 primary）；Secondary = 章节树
-  当前章、副驾驶当前 tab、保存状态；Tertiary = 版本条、状态栏读数、菜单项。层级靠字阶与留白，
+  当前章、副驾驶手选 Scene 与当前 tab、保存状态；Tertiary = 版本条、状态栏读数、菜单项。层级靠字阶与留白，
   不新增卡片边框（主规范 §0、§4 分隔优先级）。
 
 ## 4. 逐区域标准
@@ -125,8 +125,10 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 ### 4.1 章节树 rail（左，`aside.writing-tree-rail`，aria-label="章节"）
 
 - 结构：`#writing-tree-container` → `ChapterTree.vue`（`.card.chapter-tree-card`：头部
-  `.chapter-tree-header` → `.chapter-tree-list`（按场景分组 `.scene-tree-node`）→ 底部批量工具栏）。
-- 头部文案：「章节 · 共 N 章」+「+ 新章」按钮（折叠时只显示「章节」）。
+  `.chapter-tree-header` → 纯章节顺序列表 `.chapter-tree-list` → 管理区 → 底部唯一新建入口）。
+- 头部文案只显示「共 N 章」；Scene 名称、数量、跨章标记和关联入口都不进入左栏。
+- 「＋ 新建章节」固定在章节框底部；页面顶栏、章节框顶部与空态不重复提供新建入口。
+- 收起控件附着在章节框左上外缘，竖排「收 / 起 / ◀」；收起后原位显示「展 / 开 / ▶」。
 - 视觉：rail 面板 = `--nc-surface` + `--line-subtle`，无阴影（主规范 §5.3）；当前章 =
   `--nc-surface` 底 + `--nc-ink` 加粗（700），其余行 `--nc-dim`，hover `--bg-hover`——选中态靠
   表面差与字重表达，不再使用左侧 3px 索引线。
@@ -135,8 +137,8 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
   完整 title 提示。
 - 状态点：章状态 = 文字 + 小色点/描边点（draft = `--warning` 描边、published = `--success` 实心），
   语义不变；造型以源码为准（主规范 §5.8）。
-- 空态：「尚无章节 + 创建第一章」复用 `.empty-state` + `.empty-state-cta`（主规范 §5.9）；列表加载
-  失败保留 rail 内 `role=alert`，样式归并入 `.error-card` 基准。
+- 空态只显示「尚无章节」说明，仍使用框底的唯一「＋ 新建章节」完成首次创建；列表加载失败
+  保留 rail 内 `role=alert`，样式归并入 `.error-card` 基准。
 - 映射主规范：§5.3 Card、§5.8 状态点、§5.9 Empty/Error。
 
 ### 4.2 编辑器（中栏，`main#writing-editor-container`）
@@ -149,8 +151,8 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
   版本选择条保留在编辑器上方工具区，不随状态栏平移。
 - 保存/版本状态徽标（`#writing-save-status`、`#writing-version-info`）与字数条已平移至底部状态栏
   （见下），id 不变，e2e 契约不破。
-- **每屏至多一个 primary**：`#btn-publish` 是中栏唯一 `.btn-primary`；「新建章节」在 view-header，
-  执行时全局核对 primary 计数。
+- **每屏至多一个 primary**：`#btn-publish` 是中栏唯一 `.btn-primary`；章节框底部的新建入口使用
+  secondary 样式，执行时全局核对 primary 计数。
 
 **正文排版（稿纸 `.writing-sheet`）—— 当前值**：
 
@@ -199,7 +201,14 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 ### 4.3 副驾驶 rail（右，`aside.writing-panel-rail`，aria-label="写作副驾驶"）
 
 - 结构：`#writing-panel-container`（sticky）→ `SceneCockpit.vue`（`.scene-cockpit`：标题栏 +
-  警报摘要 + 5 个 role=tab：警报/人物/地点/设定/地图）。
+  本章 Scene 快速切换 + 警报摘要 + role=tab 内容）。快速切换只显示当前章关联的
+  `draft/canonical` Scene，并按全书 `scene_index` 顺序排列；跨章 Scene 只加轻量标签，不跳章。
+- Scene 由作者点击手动选择；光标移动只记录编辑位置，不改变 Scene。项目会话按章节记住上次
+  选择，失效时回退本章首个有效 Scene。警报、人物、地点、设定、AI 参考、规则检查和发布检查
+  均消费同一个手选 Scene，切换时拒绝旧 Scene 的晚到响应。
+- 「关联 Scene」打开可连续操作的模态：已有项点击 `＋` 后原位变为不可解除的 `✓`，不关闭
+  模态；底部并列「新建 Scene」和「打开 Scene 工作台」。新建只填写名称并自动关联当前章；
+  解除、排序、合并、拆分和移入历史仍由 Scene 工作台负责。
 - 警报卡：`--nc-alert-bg` 底 + `--nc-alert-ink` 标题 + 右上「查看 →」按钮（`.scene-alert-card`），
   语义色分工见主规范 §2。
 - 页签：激活 tab = `--text-primary` + 底部 2px `--nc-accent` 下划线（inset），accent 蓝残留已消解
@@ -207,9 +216,9 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - 实体行：头像块 4px 圆角（ink 主题圆形 50%）；在场状态纯文字，不用色块/pill。
 - 模块头 mono 11px/700 保留（元数据档）；模块正文密度向 `--text-sm` 13 / `--leading-relaxed` 1.6
   归并（执行时核对密度损失）。
-- 场景感知联动（光标 150ms 防抖 → `findCurrentScene` → 切场景）是本 rail 的核心价值，任何重构
-  不得破坏；tab 内容加载中行内等待用 `.loading` dots（主规范 §5.9）。
-- 空态两句复用 `.empty-state` 简式（短句 + 引导，无 CTA 时不放按钮）。
+- tab 内容加载中行内等待用 `.loading` dots（主规范 §5.9）；同章切换 Scene 时先清空旧派生内容，
+  不保留容易误认的旧警报或人物。
+- 无关联 Scene 的空态复用 `.empty-state` 简式，并提供「关联 Scene」主路径。
 - 映射主规范：§5.5 Tabs、§5.8 Badge/计数、§5.9 Empty/Loading。
 
 ### 4.4 顶栏字数仪表盘（全局 Topbar，`#topbar-wordcount`）
@@ -242,7 +251,7 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 
 | 状态 | 目标行为 | 现状差距 |
 |---|---|---|
-| 无章节空态 | 章节树 `.empty-state` + 「创建第一章」CTA；编辑器区 `.writing-editor-empty`；副驾驶引导句 | 齐全，仅缺 icon 体系（§2-15）。旧「文」水印已随 Editorial Archive 移除；ink 主题水印字 = 当前章标题首字（`data-watermark`，主规范 §2 点缀系统） |
+| 无章节空态 | 章节树 `.empty-state` + 框底唯一「新建章节」；编辑器区 `.writing-editor-empty`；副驾驶引导句 | 旧「文」水印已随 Editorial Archive 移除；ink 主题水印字 = 当前章标题首字（`data-watermark`，主规范 §2 点缀系统） |
 | 有章节未选中 | 编辑器区「请从左侧选择章节开始写作」 | 达标 |
 | 章节加载中 | `.loading-skeleton` 稿纸骨架（主规范 §5.9，reduced-motion 禁动画） | **缺失**（§2-2），需新增 |
 | 章节加载失败 | `.error-card`：人话说明 + 重试按钮，就地渲染在中栏 | **缺失**（`loadError` 无消费者，§2-2），需新增 |
@@ -256,7 +265,7 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 | 离开恢复 | 三层：路由守卫 confirm + `beforeunload` + 会话快照免确认恢复 / localStorage 跨会话 confirm 恢复 | 达标（机制在，§2 无此项问题），重构不得破坏 |
 | 冲突/并发 | 乐观锁 autosave；发布冲突走全局 `#modal-overlay` | 达标 |
 | 专注模式 | §3 目标态：rail 隐藏、稿纸居中、**点缀一律隐藏**、入口在底部状态栏 | 状态持久化与快捷键仍缺（§2-11） |
-| 窄屏 <600 | 整页替换 MobileQuickNote（已选章且非只读时） | 达标，断点归一见 §6 |
+| 窄屏 <760 | 整页替换 MobileQuickNote（已选章且非只读时）；顶部保留本章 Scene 最小切换 | 不展示完整副驾驶，也不允许关联或管理 Scene |
 
 ## 6. 响应式行为（四档）
 
@@ -270,7 +279,10 @@ rail 折叠后对应列变为 `--workspace-rail-collapsed` 44px。底部状态�
 - **MobileQuickNote 切换边界（目标态）**：统一到主规范 §6 的 760px 主断点——JS `isNarrow` 阈值
   从 600 改为 760，消除 600–760px 死区（§2-10）。切换条件保持四元：
   `isNarrow && !forceDesktop && 已选章 && 非只读`。
-  **此为行为变更，执行时需产品确认并同步 e2e**（390px 快照不受影响；600–760px 区间行为改变）。
+  该行为已确认，并与移动端 Scene 最小切换器一并覆盖 e2e（390px 快照不受影响；
+  600–760px 区间改用 MobileQuickNote）。
+- 移动速记顶部使用与桌面相同的章节级手选 Scene 状态；只提供紧凑选择器，无关联时显示
+  「本章未关联 Scene」，不把关联、新建或完整副驾驶塞进移动速记。
 - **桌面模式回切**：「完整编辑器」按钮置 `forceDesktop=true` 并加 body `.force-desktop` class。
   目标：① 该 class 目前无 CSS 规则，回切后布局依赖既有 ≤760px 单栏 CSS，须验证可用；
   ② `forceDesktop` 选择应持久化（sessionStorage），避免每次进页重选（执行时核实产品意图）。
@@ -337,7 +349,7 @@ id 与可访问名称不变。
 
 **class 契约**：`.writing-toolbar`（`waitWritingReady` 入口，helpers/workbench.js）、
 `.writing-workspace-layout`、`.writing-tree-rail` / `.writing-panel-rail` + `.is-collapsed`、
-`.scene-tree-label`、`.scene-cockpit`、`.cockpit-panel`、`.writing-version-history-item`、
+`.chapter-tree-create`、`.scene-cockpit-switcher__item`、`.scene-cockpit`、`.cockpit-panel`、`.writing-version-history-item`、
 `.writing-conflict-item`、`.mobile-quick-note`、body `.focus-mode-active`、
 `details.writing-tools-menu` 结构（被 `openWritingToolMenu` 依赖）。
 三主题改造新增：`.writing-statusbar` / `.writing-statusbar__right` / `.writing-statusbar__font` /

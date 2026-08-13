@@ -14,6 +14,29 @@
       <button v-if="!railCollapsed && chapter" class="btn btn-sm scene-cockpit-organize" @click="$emit('organize')">整理</button>
     </div>
 
+    <section v-if="!railCollapsed && chapter" class="scene-cockpit-switcher" aria-labelledby="scene-cockpit-switcher-title">
+      <div class="scene-cockpit-switcher__head">
+        <strong id="scene-cockpit-switcher-title">本章 Scene</strong>
+        <button type="button" class="btn btn-sm btn-ghost" @click="openAssociate">＋ 关联 Scene</button>
+      </div>
+      <div v-if="scenes.length" class="scene-cockpit-switcher__list" role="list" aria-label="切换本章 Scene">
+        <button
+          v-for="item in scenes"
+          :key="item.id"
+          type="button"
+          class="scene-cockpit-switcher__item"
+          :class="{ active: item.id === scene?.id }"
+          :aria-pressed="item.id === scene?.id"
+          :title="item.title || '未命名 Scene'"
+          @click="$emit('select-scene', item.id)"
+        >
+          <span>{{ item.title || '未命名 Scene' }}</span>
+          <small v-if="sceneChapterCount(item) > 1">跨章</small>
+        </button>
+      </div>
+      <p v-else class="scene-cockpit-switcher__empty">本章未关联 Scene</p>
+    </section>
+
     <div v-if="!railCollapsed && !chapter" class="empty-state writing-scene-panel-empty">
       <p>请先从左侧选择章节，再查看对应场景、人物和设定。</p>
     </div>
@@ -24,7 +47,7 @@
       </span>
       <span v-else>✓ 当前未发现确定性警报</span>
     </div>
-    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">当前章节还没有关联场景。请从左侧选择场景或到故事结构中整理。</div>
+    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">关联 Scene 后，可在这里查看本次写作的人物、设定和检查结果。</div>
 
     <template v-if="!railCollapsed && chapter && scene">
       <div class="cockpit-tabs" role="tablist" aria-label="场景参考">
@@ -102,17 +125,68 @@
 
       </div>
     </template>
+
+    <div v-if="associateOpen" ref="overlayRef" class="modal-overlay" @keydown="onKeydown" @focusin="onFocusin">
+      <div ref="dialogRef" class="modal-content scene-associate-dialog" role="dialog" aria-modal="true" aria-labelledby="scene-associate-title" tabindex="-1">
+        <div class="modal-header">
+          <h3 id="scene-associate-title">关联 Scene</h3>
+          <button type="button" class="btn-icon" aria-label="关闭" @click="requestClose">×</button>
+        </div>
+        <div class="modal-body">
+          <form v-if="creating" class="scene-associate-create" @submit.prevent="createScene">
+            <label for="scene-associate-title-input">Scene 名称</label>
+            <input id="scene-associate-title-input" v-model="newTitle" class="form-input" maxlength="255" required autofocus>
+            <p v-if="createError" class="writing-form-error" role="alert">{{ createError }}</p>
+            <div class="row-actions">
+              <button type="button" class="btn btn-ghost" :disabled="createBusy" @click="creating = false">返回列表</button>
+              <button type="submit" class="btn btn-primary" :disabled="createBusy">{{ createBusy ? '创建中…' : '创建并关联' }}</button>
+            </div>
+          </form>
+          <template v-else>
+            <label class="scene-associate-search" for="scene-associate-search">
+              <span class="sr-only">搜索已有 Scene</span>
+              <input id="scene-associate-search" v-model="search" class="form-input" type="search" placeholder="搜索已有 Scene…">
+            </label>
+            <div class="scene-associate-list" role="list">
+              <div v-for="item in filteredScenes" :key="item.id" class="scene-associate-row" role="listitem">
+                <span :title="item.title || '未命名 Scene'">{{ item.title || '未命名 Scene' }}</span>
+                <button
+                  v-if="!isAssociated(item)"
+                  type="button"
+                  class="btn-icon"
+                  :disabled="rowBusy === item.id"
+                  :aria-label="`关联 ${item.title || '未命名 Scene'}`"
+                  @click="associate(item)"
+                >{{ rowBusy === item.id ? '…' : '＋' }}</button>
+                <span v-else class="scene-associate-check" :aria-label="`${item.title || '未命名 Scene'}已关联`">✓</span>
+                <p v-if="rowErrors[item.id]" class="writing-form-error" role="alert">{{ rowErrors[item.id] }}</p>
+              </div>
+              <p v-if="!filteredScenes.length" class="cockpit-empty">没有匹配的 Scene</p>
+            </div>
+          </template>
+        </div>
+        <div v-if="!creating" class="modal-footer scene-associate-footer">
+          <button type="button" class="btn" @click="startCreate">＋ 新建 Scene</button>
+          <button type="button" class="btn" @click="openWorkbench">打开 Scene 工作台</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue"
+import { computed, reactive, ref, watch } from "vue"
+import { useModalDialog } from "../../../composables/useModalDialog.js"
 import { loadSceneCockpitOrder, saveSceneCockpitOrder } from "../../../../views/sceneCockpitPanel.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
   chapter: { type: Number, default: null },
   scene: { type: Object, default: null },
+  scenes: { type: Array, default: () => [] },
+  allScenes: { type: Array, default: () => [] },
+  associateScene: { type: Function, default: async () => null },
+  createScene: { type: Function, default: async () => null },
   loading: { type: Boolean, default: false },
   alertError: { type: String, default: null },
   alerts: { type: Array, default: () => [] },
@@ -121,7 +195,7 @@ const props = defineProps({
   conflict: { type: Object, default: () => ({ latest: null }) },
   railCollapsed: { type: Boolean, default: false },
 })
-defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse"])
+const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene"])
 
 const tabs = [
   { key: "alerts", label: "警报" }, { key: "people", label: "人物" }, { key: "place", label: "地点" },
@@ -136,6 +210,72 @@ const activeTab = ref("lore")
 const moduleOrder = ref([])
 const collapsed = ref(new Set())
 const dragging = ref(null)
+const associateOpen = ref(false)
+const creating = ref(false)
+const search = ref("")
+const newTitle = ref("")
+const createBusy = ref(false)
+const createError = ref("")
+const rowBusy = ref(null)
+const rowErrors = reactive({})
+
+const sceneChapters = (item) => new Set([
+  ...(item?.chapter_ids || []).map(Number),
+  ...(item?.scene_chunks || []).map((chunk) => Number(chunk.chapter_index ?? chunk.chapter_id)),
+].filter(Number.isInteger))
+const sceneChapterCount = (item) => sceneChapters(item).size
+const isAssociated = (item) => sceneChapters(item).has(Number(props.chapter))
+const filteredScenes = computed(() => {
+  const needle = search.value.trim().toLocaleLowerCase()
+  return props.allScenes.filter((item) => !needle || String(item.title || "").toLocaleLowerCase().includes(needle))
+})
+
+function openAssociate() {
+  search.value = ""
+  creating.value = false
+  associateOpen.value = true
+}
+function requestClose() { associateOpen.value = false }
+function startCreate() {
+  newTitle.value = ""
+  createError.value = ""
+  creating.value = true
+}
+async function associate(item) {
+  if (rowBusy.value || isAssociated(item)) return
+  rowBusy.value = item.id
+  rowErrors[item.id] = ""
+  try {
+    await props.associateScene(item.id)
+  } catch (error) {
+    rowErrors[item.id] = error?.message || "关联失败，请重试"
+  } finally {
+    rowBusy.value = null
+  }
+}
+async function createScene() {
+  const title = newTitle.value.trim()
+  if (!title || title.length > 255 || createBusy.value) {
+    createError.value = "名称需为 1–255 个字符"
+    return
+  }
+  createBusy.value = true
+  createError.value = ""
+  try {
+    await props.createScene(title)
+    creating.value = false
+    search.value = ""
+  } catch (error) {
+    createError.value = error?.message || "创建失败，请重试"
+  } finally {
+    createBusy.value = false
+  }
+}
+function openWorkbench() {
+  requestClose()
+  emit("organize")
+}
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => associateOpen.value, requestClose })
 
 function resetOrder() {
   moduleOrder.value = loadSceneCockpitOrder(props.projectId)

@@ -155,7 +155,7 @@ ok
 网络小说作者需要长时间在写作工作台中反复写正文、切换 Scene、查看结构提示、保存版本、发布索引，并从正文反向提取 Scene。
 
 目标：
-让作者在 /workbench/:projectId/writing 中完成正文编辑、暂存、发布、版本历史、Scene 树导航、右侧 Scene 卡联动、实体轻量查询和“场景自动提取”。
+让作者在 /workbench/:projectId/writing 中完成正文编辑、暂存、发布、版本历史、章节导航、手选 Scene 副驾驶、实体轻量查询和“场景自动提取”。
 
 真实 LLM 验收数据：
 - “场景自动提取”路径必须使用数据库中《诡秘之主 第一部》项目的第 1-3 章真实内容。
@@ -168,10 +168,11 @@ ok
 
 必须满足：
 - 进入项目后默认落到 /workbench/:projectId/writing。
-- 左侧展示 Scene 树 + Chapter 折叠；未关联 Scene 的章节进入“未归类”。
+- 左侧严格按章节顺序只显示状态、章号、标题和字数；底部只保留一个“新建章节”。
 - 中间编辑器加载上次编辑位置或第一个有草稿章节。
-- 右侧只读展示当前 Scene 卡字段：goal / core_conflict / emotional_beat / must_happen / must_not_happen / narrative_tag。
-- 光标 offset 命中 scene_chunks 时，右侧 Scene 卡随光标切换。
+- 右侧副驾驶顶部只列出当前章的 `draft/canonical` Scene，由作者手动切换当前参考。
+- 光标移动只记录编辑位置，不改变 Scene；AI 、冲突检查与发布检查统一使用手选 Scene。
+- 副驾驶可连续关联或快速新建 Scene；移动速记只允许切换本章 Scene，不提供管理。
 - “暂存”或 Ctrl+S 原地更新当前最新版本，不新增版本号，并提示“已暂存”。
 - “发布”新增 writing_drafts 版本，version_number 自增，并入队 publish_chapter/RAG 索引；空内容发布被前端拦截。
 - Scene 切换时编辑器内容进入前端暂存，不触发后端保存，不丢失当前输入。

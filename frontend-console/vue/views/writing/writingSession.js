@@ -14,6 +14,7 @@ function newSession(projectId) {
     currentChapter: null,
     currentDraftId: null,
     currentSceneId: null,
+    sceneByChapter: new Map(),
     chapters: new Map(),
   }
 }
@@ -31,7 +32,16 @@ export function rememberWritingLocation(projectId, location = {}) {
   session.currentDraftId = location.currentDraftId ?? session.currentDraftId
   if (Object.hasOwn(location, "currentSceneId")) {
     session.currentSceneId = location.currentSceneId || null
+    const chapter = Number(location.currentChapter ?? session.currentChapter)
+    if (Number.isInteger(chapter) && chapter > 0) {
+      if (location.currentSceneId) session.sceneByChapter.set(chapter, location.currentSceneId)
+      else session.sceneByChapter.delete(chapter)
+    }
   }
+}
+
+export function rememberedSceneForChapter(projectId, chapter) {
+  return getWritingSession(projectId)?.sceneByChapter.get(Number(chapter)) || null
 }
 
 export function rememberChapterSnapshot(projectId, snapshot = {}) {
@@ -70,6 +80,7 @@ export function clearChapterSnapshot(projectId, chapter) {
   const session = sessions.get(projectId)
   if (!session) return
   session.chapters.delete(Number(chapter))
+  session.sceneByChapter.delete(Number(chapter))
   if (session.currentChapter === Number(chapter)) {
     session.currentChapter = null
     session.currentDraftId = null

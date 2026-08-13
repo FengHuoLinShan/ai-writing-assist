@@ -225,8 +225,8 @@ bulk-toggle-one/bulk-run/bulk-clear`、`prev/next-outline-structure-page`、stor
 .scene-progress-chip--{segment}`、`.scene-management-filters`、`.workspace-rail.scene-detail-rail`、
 `.outline-information-progress/-timeline/-preview-section`、`#outline-thread-information` 内的
 `outline-preview-section`、`.data-table.table-card-list`、`.outline-toolbar-status`。
-**注意**：`.scene-tree-label` 属写作页章节树（`vue/views/writing/components/ChapterTree.vue:45`，
-selectors.js `writingSceneLabel`），**不属于本模块，不得在本页使用或改动**。
+**注意**：`.scene-cockpit-switcher__item` 属写作页副驾驶的 Scene 快速切换区
+（selectors.js `writingSceneLabel`），**不属于本模块，不得在本页使用或改动**。
 
 **role / 可访问名称**：`aria-current="page"`（subnav 当前项）、`aria-label="场景筛选"/"场景
 操作"/"场景浏览模式"/"剧情进度"/"场景批量操作"/"结构资产筛选"`、`aria-label="场景正文范围
