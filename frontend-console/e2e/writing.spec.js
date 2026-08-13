@@ -98,13 +98,31 @@ test.describe("写作台模块", () => {
   })
 
   test("发布章节", async ({ page }) => {
+    await page.setViewportSize({ width: 1224, height: 768 })
     await createFirstChapter(page)
 
     await page.locator("#writing-title-input").fill("第一章 发布测试")
     await page.locator("#writing-editor").fill("这是发布测试的内容。")
+    await expect(page.locator(".writing-statusbar")).toHaveCSS("position", "sticky")
     await page.locator("#btn-publish").click()
     await confirmPublishIfPrompted(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已设为正式正文", { timeout: 15000 })
+    await expect(page.locator("#writing-publish-bar-container")).toBeVisible()
+
+    for (const width of [1224, 1100, 900, 761]) {
+      await page.setViewportSize({ width, height: 768 })
+      const geometry = await page.evaluate(() => {
+        const publishBar = document.querySelector("#writing-publish-bar-container")
+        const statusbar = document.querySelector(".writing-statusbar")
+        if (!publishBar || !statusbar) return null
+        return {
+          publishBottom: publishBar.getBoundingClientRect().bottom,
+          statusTop: statusbar.getBoundingClientRect().top,
+        }
+      })
+      expect(geometry).not.toBeNull()
+      expect(geometry.publishBottom).toBeLessThanOrEqual(geometry.statusTop)
+    }
   })
 
   // ============================================================
