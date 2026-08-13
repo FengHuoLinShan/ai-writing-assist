@@ -191,6 +191,12 @@ export function useSceneWorkbench(props) {
     selectedIds.value = new Set()
   }
 
+  function removeSelection(sceneIds) {
+    const next = new Set(selectedIds.value)
+    sceneIds.forEach((id) => next.delete(id))
+    selectedIds.value = next
+  }
+
   function toggleSelection(sceneId, checked) {
     const next = new Set(selectedIds.value)
     if (checked) next.add(sceneId)
@@ -212,6 +218,8 @@ export function useSceneWorkbench(props) {
     refresh,
     selectScene,
     clearSelection,
+    removeSelection,
+    ignoreStructure: (sceneIds) => reviewScenes(sceneIds, "ignore_structure"),
     fusionTask,
   })
 
@@ -302,8 +310,14 @@ export function useSceneWorkbench(props) {
     }
     try {
       await api.outline.reviewSceneWorkbench(projectId, { scene_ids: sceneIds, decision })
-      clearSelection()
-      toast(decision === "review" ? `已处理 ${sceneIds.length} 个场景` : `已将 ${sceneIds.length} 个场景标记为需要人工检查`, "success")
+      removeSelection(sceneIds)
+      const messages = {
+        review: `已处理 ${sceneIds.length} 个场景`,
+        reopen: `已将 ${sceneIds.length} 个场景标记为需要人工检查`,
+        ignore_structure: "已标记为无需整理，可从场景更多菜单恢复",
+        restore_structure: "已恢复整理提醒",
+      }
+      toast(messages[decision] || "场景检查已更新", "success")
       await refresh()
       return true
     } catch (err) {
@@ -341,21 +355,80 @@ export function useSceneWorkbench(props) {
       toast("请先选择要处理的场景", "warning")
       return
     }
-    const actions = selectedItems.value.map((item) => sceneContextAction(item))
-    if (actions.every((item) => item.key === "review")) return reviewScenes(selectedItems.value.map((item) => item.scene.id))
-    if (actions.every((item) => item.key === "source_mapping")) {
-      const requests = selectedItems.value.map((item, index) => ({ scene_id: item.scene.id, expected_fingerprint: actions[index].fingerprint })).filter((item) => item.expected_fingerprint)
-      if (!requests.length) return
-      showModalHtml("批量确认章节级定位", `<p>将确认 ${esc(requests.length)} 个场景只保留章节级定位。</p>`, [
-        { text: "取消", class: "", handler: closeModal },
-        { text: "确认定位", class: "btn-primary", handler: async () => {
+    const groups = new Map()
+    selectedItems.value.forEach((item) => {
+      const action = sceneContextAction(item)
+      if (!groups.has(action.key)) groups.set(action.key, [])
+      groups.get(action.key).push({ item, action })
+    })
+    if (selectedItems.value.length === 1) return runContextAction(selectedItems.value[0])
+    if (groups.size === 1) return runActionGroup(groups.values().next().value)
+
+    const entries = Array.from(groups.values())
+    showModalHtml("按待办类型处理", `<p>已按当前主要待办分组，每次处理一组；其他选中项会保留。</p><ul>${entries.map((group) => `<li><strong>${esc(actionGroupLabel(group[0].action.key))}</strong>：${esc(group.length)} 个</li>`).join("")}</ul>`, [
+      { text: "关闭", class: "", handler: closeModal },
+      ...entries.map((group) => ({
+        text: `${actionGroupLabel(group[0].action.key)}（${group.length}）`,
+        class: "btn-primary",
+        handler: () => { closeModal(); return runActionGroup(group) },
+      })),
+    ])
+  }
+
+  function actionGroupLabel(key) {
+    return {
+      review: "采用 / 标记已检查",
+      source_mapping: "确认章节定位",
+      organize: "整理映射",
+      suggestion: "逐项处理融合建议",
+      assign: "逐项关联章节",
+      missing_setup: "逐项补全设定",
+      edit: "逐项编辑",
+    }[key] || "处理"
+  }
+
+  function confirmSourceMappingGroup(group) {
+    const requests = group.map(({ item, action }) => ({ scene_id: item.scene.id, expected_fingerprint: action.fingerprint })).filter((item) => item.expected_fingerprint)
+    if (!requests.length) return false
+    showModalHtml("批量确认章节级定位", `<p>将确认 ${esc(requests.length)} 个场景只保留章节级定位。</p>`, [
+      { text: "取消", class: "", handler: closeModal },
+      { text: "确认定位", class: "btn-primary", handler: async () => {
+        try {
           await api.outline.reviewSceneSourceMappings(projectId, { items: requests, decision: "accept_chapter_only", confirmed: true })
-          closeModal(); clearSelection(); await refresh(); return true
-        } },
-      ])
-      return
-    }
-    showModalHtml("批量处理", "<p>选中的场景包含不同待办类型，请分组处理或缩小选择范围。</p>", [{ text: "关闭", class: "", handler: closeModal }])
+          closeModal()
+          removeSelection(requests.map((item) => item.scene_id))
+          toast(`已确认 ${requests.length} 个场景的章节定位`, "success")
+          await refresh()
+          return true
+        } catch (err) {
+          toast(err.message || "正文定位确认失败", "error")
+          return false
+        }
+      } },
+    ])
+    return true
+  }
+
+  function organizeGroup(group) {
+    const sceneIds = group.map(({ item }) => item.scene.id)
+    showModalHtml("批量整理场景", `<p>已选 ${esc(sceneIds.length)} 个结构待整理场景。可从第一项开始逐项整理，或将这一组标记为无需整理。</p>`, [
+      { text: "取消", class: "", handler: closeModal },
+      { text: "逐项整理", class: "", handler: () => { closeModal(); return runContextAction(group[0].item, group[0].action) } },
+      { text: "标记选中项无需整理", class: "btn-primary", handler: async () => {
+        const updated = await reviewScenes(sceneIds, "ignore_structure")
+        if (updated) closeModal()
+        return updated
+      } },
+    ])
+    return true
+  }
+
+  function runActionGroup(group) {
+    const key = group[0]?.action?.key
+    if (key === "review") return reviewScenes(group.map(({ item }) => item.scene.id))
+    if (key === "source_mapping") return confirmSourceMappingGroup(group)
+    if (key === "organize") return organizeGroup(group)
+    return runContextAction(group[0].item, group[0].action)
   }
 
   async function saveScene(sceneId, draft) {
@@ -372,6 +445,7 @@ export function useSceneWorkbench(props) {
         must_not_happen: draft.must_not_happen?.trim() || null,
         pov_character_id: draft.pov_character_id?.trim() || null,
       })
+      removeSelection([sceneId])
       toast("场景已保存", "success")
       await refresh()
       return true

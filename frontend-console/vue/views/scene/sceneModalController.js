@@ -50,6 +50,8 @@ export function createSceneModalController({
   refresh,
   selectScene,
   clearSelection,
+  removeSelection,
+  ignoreStructure,
   fusionTask = {},
 }) {
   const api = getApi()
@@ -137,7 +139,8 @@ export function createSceneModalController({
               confirmed: true,
             })
             closeModal()
-            clearSelection?.()
+            if (removeSelection) removeSelection([targetSceneId, ...sourceSceneIds])
+            else clearSelection?.()
             toast("场景已合并", "success")
             await refresh?.()
             return true
@@ -332,7 +335,8 @@ export function createSceneModalController({
     try {
       const result = await api.outline.saveSceneFusion(projectId, payload)
       closeModal()
-      clearSelection?.()
+      if (removeSelection) removeSelection(sourceSceneIds)
+      else clearSelection?.()
       dismissFusionTask()
       toast(result?.status === "discarded" ? "融合结果已放弃" : "融合场景已保存", "success")
       await refresh?.()
@@ -578,6 +582,7 @@ export function createSceneModalController({
               confirmed: true,
             })
             closeModal()
+            removeSelection?.([sceneId])
             toast("场景已拆分", "success")
             await refresh?.()
             return true
@@ -653,6 +658,7 @@ export function createSceneModalController({
           const chapterIds = Array.from(document.querySelectorAll('input[name="scene-assign-chapter"]:checked')).map((input) => String(input.value)).sort((a, b) => Number(a) - Number(b))
           await api.outline.updateSceneWorkbenchMapping(projectId, sceneId, { chapter_ids: [...new Set(chapterIds)] })
           closeModal()
+          removeSelection?.([sceneId])
           toast("章节映射已更新", "success")
           await refresh?.()
           return true
@@ -703,6 +709,7 @@ export function createSceneModalController({
           try {
             await api.outline.reviewSceneSourceMappings(projectId, { items: [{ scene_id: sceneId, expected_fingerprint: fingerprint }], decision: "accept_chapter_only", confirmed: true })
             closeModal()
+            removeSelection?.([sceneId])
             toast("已确认章节级正文定位", "success")
             await refresh?.()
             return true
@@ -720,6 +727,11 @@ export function createSceneModalController({
     showModalHtml("整理场景正文范围", "<p>选择要处理的动作。</p>", [
       { text: "移动章节", class: "", handler: () => { closeModal(); showAssignChapters(sceneId, unassigned) } },
       { text: "合并", class: "", handler: () => { closeModal(); startMerge(sceneId) } },
+      { text: "标记为无需整理", class: "", handler: async () => {
+        const updated = await ignoreStructure?.([sceneId])
+        if (updated) closeModal()
+        return updated
+      } },
       { text: "拆分", class: "btn-primary", handler: () => { closeModal(); startSplit(sceneId) } },
     ])
   }
@@ -727,9 +739,11 @@ export function createSceneModalController({
   async function dismissSuggestions(ids, message = "已忽略场景建议") {
     const safeIds = [...new Set(ids)].filter(Boolean).slice(0, 100)
     if (!safeIds.length) return false
+    const sceneIds = (getSuggestions?.() || []).filter((item) => safeIds.includes(item.id)).flatMap((item) => item.source_scene_ids || [])
     try {
       await api.outline.dismissFusionSuggestions(projectId, { suggestion_ids: safeIds, confirmed: true })
       closeModal()
+      removeSelection?.(sceneIds)
       toast(message, "success")
       await refresh?.()
       return true
@@ -770,6 +784,7 @@ export function createSceneModalController({
     try {
       const result = await api.outline.applySceneReplacement(projectId, { suggestion_id: suggestion.id, decision: edited ? "edit_then_replace" : "replace", confirmed: true, ...(edited ? { draft_scenes: draftScenes } : {}) })
       closeModal()
+      removeSelection?.(suggestion.source_scene_ids || [])
       const downstream = result?.downstream_refresh_required || []
       toast(downstream.length ? `新场景已采用，原场景已移入历史；建议按需重新整理：${downstream.join("、")}` : "新场景已采用，原场景已移入历史", "success")
       await refresh?.()

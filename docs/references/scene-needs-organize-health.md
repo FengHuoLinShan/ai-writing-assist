@@ -66,8 +66,12 @@ Scene Workbench 的 `needs_organize` 同时包含 Scene 结构问题和正文定
 `POST /api/outline/scene-workbench/review` 统一接收 Scene 列表和 review 命令，由后端设置 `status/reviewed_at/needs_review/needs_organize`。前端不再用通用 Scene PATCH 拼装这组业务字段。
 
 采用一个 Scene 只能证明内容已检查，不意味着正文物理定位或跨章融合建议已处理。若仍有待办，前端会提示“Scene 已采用，仍有 N 项待处理”。
-重复章节、跨 Scene 重叠和 chunk/chapter 不一致也始终由当前映射重算，不会因
+重复章节、跨 Scene 重叠和 chunk/chapter 不一致始终由当前映射重算，不会因
 `reviewed_at` 或 `canonical` 而被隐藏。这样多问题 Scene 在采用后会自然切换到“整理映射”。
+
+同一 review 接口还提供独立的 `ignore_structure / restore_structure` 命令。前者只记录作者
+“无需整理”的裁决并持续隐藏该 Scene 当前及未来的结构类提醒；后者恢复结构提醒。两者都不
+改变 Scene 内容状态、复核状态、章节映射或 SceneSpan，正文定位和融合建议也不受影响。
 
 ### 4.2 正文定位确认
 
@@ -104,7 +108,11 @@ Workbench 返回 pending 数量，并通过专用查询接口在刷新后恢复�
 
 多问题 Scene 完成一项后刷新为下一项。健康标签可点击并执行对应操作。桌面端显示“上下文主按钮 + 编辑 + 更多”，移动端显示“主按钮 + 更多”；“更多”固定包含打开写作、合并和拆分。
 
-批量选择同类 Scene 时显示具体动作；混合选择时按问题类型分组，不执行含义不明的“一键清除”。
+单选时批量操作条直接显示并执行该 Scene 的真实主操作，不再进入混合选择提示。结构整理弹层
+同时提供“标记为无需整理”，成功后可从 Scene 更多菜单恢复整理提醒。
+
+批量选择同类 Scene 时显示具体动作；混合选择时按问题类型列出数量和动作，每次只处理一组，
+成功后仅移除已处理组的选择，失败则保留原选择，不执行含义不明的“一键清除”。
 
 ## 7. 关键代码入口
 

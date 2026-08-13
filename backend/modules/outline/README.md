@@ -249,6 +249,8 @@ legacy 重排请求必须把当前项目的全部 active Scene 各提交一次�
 
 ```http
 GET   /api/outline/scene-workbench
+POST  /api/outline/scene-workbench/review
+POST  /api/outline/scene-workbench/source-mapping/review
 PATCH /api/outline/scene-workbench/scenes/{scene_id}/mapping
 POST  /api/outline/scene-workbench/chapters/{chapter_index}/scenes/{scene_id}
 POST  /api/outline/scene-workbench/chapters/{chapter_index}/scenes
@@ -285,6 +287,7 @@ POST  /api/outline/scene-workbench/replacement-suggestions/apply
 `scenes.structure_meta` 保存结构整理元信息，例如：
 
 - `needs_organize`
+- `organize_ignored` / `organize_ignored_at` / `organize_ignored_by`
 - `reviewed_at`
 - `merged_into_scene_id`
 - `merged_from_scene_ids`
@@ -300,6 +303,9 @@ POST  /api/outline/scene-workbench/replacement-suggestions/apply
 Scene 结构、正文定位和待处理跨章融合建议；`health.needs_organize.breakdown`
 提供各子类的 Scene 数量。`采用/标记已检查`只处理 Scene 审阅状态，
 正文定位必须通过独立确认命令处理。
+作者可通过工作台 review 命令把结构类提醒标记为“无需整理”；该决定持续隐藏当前及未来的
+Scene 结构提醒，直到作者显式恢复，但不会隐藏正文定位或融合建议，也不会改变 Scene 状态、
+章节映射或 SceneSpan。
 工作台筛选分三层：健康筛选、常用管理筛选和高级导入诊断筛选。`GET
 /api/outline/scene-workbench` 支持 `health`、`q`、`chapter_from`、
 `chapter_to`、`status`、`source`、`needs_review`、`workflow_id`、

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest import mock
 
@@ -1136,6 +1137,197 @@ class TestSceneWorkbenchApi:
         assert [span.status for span in spans] == ["canonical", "canonical"]
         assert spans[0].source_content_hash == "a" * 64
         assert spans[1].source_content_hash == "c" * 64
+
+    async def test_ignore_and_restore_structure_preserve_other_scene_state(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        from modules.outline.models import SceneSpan
+
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "作者决定无需整理",
+                "source": "deep_import",
+                "status": "draft",
+                "chapter_ids": ["1"],
+                "scene_chunks": [{"chapter_index": 1}],
+                "structure_meta": {
+                    "needs_organize": True,
+                    "needs_review": True,
+                    "reviewed_at": "2026-07-10T00:00:00+00:00",
+                },
+            },
+        )
+        companion = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "相邻 Scene",
+                "status": "canonical",
+                "chapter_ids": ["2"],
+            },
+        )
+        await SceneWorkbenchService().persist_fusion_suggestions(
+            db_session,
+            novel_id=test_project_id,
+            source_workflow_id=str(uuid.uuid4()),
+            suggestions=[
+                {
+                    "source_scene_ids": [scene["id"], companion["id"]],
+                    "chapter_span": [1, 2],
+                    "proposed_scene": {"title": "连续场景"},
+                    "confidence": 0.8,
+                    "reason": "需要作者判断",
+                    "scan_trace": [],
+                }
+            ],
+        )
+        sid = uuid.UUID(scene["id"])
+        span = (
+            await db_session.execute(select(SceneSpan).where(SceneSpan.scene_id == sid))
+        ).scalar_one()
+        span_snapshot = (
+            span.id,
+            span.novel_id,
+            span.chapter_index,
+            span.content_mode,
+            span.mapping_status,
+            span.status,
+        )
+
+        ignored = await async_client.post(
+            "/api/outline/scene-workbench/review",
+            params={"novel_id": test_project_id},
+            json={"scene_ids": [scene["id"]], "decision": "ignore_structure"},
+        )
+
+        assert ignored.status_code == 200, ignored.text
+        ignored_scene = ignored.json()["items"][0]
+        ignored_meta = ignored_scene["structure_meta"]
+        assert ignored_scene["status"] == "draft"
+        assert ignored_scene["chapter_ids"] == ["1"]
+        assert ignored_scene["scene_chunks"] == [{"chapter_index": 1}]
+        assert ignored_meta["needs_review"] is True
+        assert ignored_meta["reviewed_at"] == "2026-07-10T00:00:00+00:00"
+        assert ignored_meta["organize_ignored"] is True
+        assert ignored_meta["organize_ignored_by"] == "manual"
+        ignored_at = datetime.fromisoformat(ignored_meta["organize_ignored_at"])
+        assert ignored_at.utcoffset() == UTC.utcoffset(ignored_at)
+        ignored_span = (
+            await db_session.execute(select(SceneSpan).where(SceneSpan.scene_id == sid))
+        ).scalar_one()
+        assert (
+            ignored_span.id,
+            ignored_span.novel_id,
+            ignored_span.chapter_index,
+            ignored_span.content_mode,
+            ignored_span.mapping_status,
+            ignored_span.status,
+        ) == span_snapshot
+
+        workbench = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+        assert workbench.status_code == 200, workbench.text
+        item = next(
+            item
+            for item in workbench.json()["items"]
+            if item["scene"]["id"] == scene["id"]
+        )
+        ignored_reason_codes = {
+            reason["code"] for reason in item["health_details"]["needs_organize"]
+        }
+        assert ignored_reason_codes == {
+            "source_mapping_chapter_only",
+            "pending_scene_fusion_suggestion",
+        }
+
+        restored = await async_client.post(
+            "/api/outline/scene-workbench/review",
+            params={"novel_id": test_project_id},
+            json={"scene_ids": [scene["id"]], "decision": "restore_structure"},
+        )
+
+        assert restored.status_code == 200, restored.text
+        restored_scene = restored.json()["items"][0]
+        restored_meta = restored_scene["structure_meta"]
+        assert restored_scene["status"] == "draft"
+        assert restored_scene["chapter_ids"] == ["1"]
+        assert restored_scene["scene_chunks"] == [{"chapter_index": 1}]
+        assert restored_meta["needs_review"] is True
+        assert restored_meta["reviewed_at"] == "2026-07-10T00:00:00+00:00"
+        for key in (
+            "organize_ignored",
+            "organize_ignored_at",
+            "organize_ignored_by",
+        ):
+            assert key not in restored_meta
+
+        workbench = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+        item = next(
+            item
+            for item in workbench.json()["items"]
+            if item["scene"]["id"] == scene["id"]
+        )
+        assert {
+            reason["code"] for reason in item["health_details"]["needs_organize"]
+        } == {
+            "manual_organize",
+            "source_mapping_chapter_only",
+            "pending_scene_fusion_suggestion",
+        }
+        span = (
+            await db_session.execute(select(SceneSpan).where(SceneSpan.scene_id == sid))
+        ).scalar_one()
+        assert (
+            span.id,
+            span.novel_id,
+            span.chapter_index,
+            span.content_mode,
+            span.mapping_status,
+            span.status,
+        ) == span_snapshot
+
+    async def test_structure_ignore_keeps_novel_isolation(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+        project_factory,
+    ) -> None:
+        from modules.outline.models import Scene
+
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "只属于原项目",
+                "structure_meta": {"needs_organize": True},
+            },
+        )
+        other_project_id = await project_factory.create_project(title="其他小说")
+
+        response = await async_client.post(
+            "/api/outline/scene-workbench/review",
+            params={"novel_id": str(other_project_id)},
+            json={"scene_ids": [scene["id"]], "decision": "ignore_structure"},
+        )
+
+        assert response.status_code == 404
+        stored = await db_session.get(Scene, uuid.UUID(scene["id"]))
+        assert stored is not None
+        assert stored.structure_meta == {"needs_organize": True}
 
     async def test_review_resolves_trusted_semantics_without_changing_manual_rules(
         self,
