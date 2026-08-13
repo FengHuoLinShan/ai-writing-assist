@@ -388,6 +388,14 @@ JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把�
 只作为来源声明，不能冒充本地对象或本地校验回执。map、reduce 和必要的修复调用共用一个
 1800 秒端到端预算。
 
+`workflow_preset=world_core` 是同一确定性工作流的窄预设，不是新 Agent。
+对话每轮仅做 `expand / connect / pressure / consolidate` 一个动作；收束必须
+将每条作者 seed 精确标记为体验承诺、已包含、开放或否定，并输出 3–7 条
+`can/cannot/cost/failure/maintenance` 规则与一条日常＋故障纵切。应答
+消息不能充当作者 seed；人物、故事总纲、Scene、完整地理、国家和历史不在
+此预设的交接门内。服务端重算 seed 覆盖、来源覆盖、规则绑定、N/A 理由、
+阻断矛盾与纵切引用；任一不符时只返回 `ready_for_handoff=false`，不写入资产。
+
 收束结果如需成为采用依据，作者须另行显式保存为不可采用的
 `world_core_checkpoint.v1`，再保存 `world_adoption_package.v1`。这两个操作不调用模型；
 preview 与 apply 都由 world 的确定性 schema、source refs、lineage 与 CAS 校验完成，模型不能

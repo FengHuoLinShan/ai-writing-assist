@@ -259,6 +259,11 @@ tasks ORM。
 - `CreationSuggestion` 中的 `core_entity` / `core_entity_draft` 经用户确认后直接写入 `canonical`，并保留建议 ID、来源、证据与 `approved_by` 审计。
 - `entity_relation` / `entity_alias` 建议必须通过各自的 schema 验证和领域服务写入；未支持的 `target_type` 直接拒绝，不得标记为已接受后空操作。
 - `world_core_checkpoint.v1` 是可回看的 typed 收束来源 checkpoint，不能采用；
+  只在作者显式保存时持久化。`world_core` 预设仅适用于无模板 CoreEntity 目标，
+  收束响应返回原始 seed 去向、3–7 条 can/cannot/cost/failure/maintenance
+  规则原子、阻断矛盾和一条日常＋故障纵切。只有作者 seed 全覆盖、
+  来源 manifest 覆盖完整、规则与决定项一一绑定且无阻断矛盾时才返回
+  `ready_for_handoff=true`。人物、总纲、Scene 和完整国家／历史不属于该预设。
   `world_adoption_package.v1` 是作者显式保存的 pending 包。preview 不写库，按 source refs、
   checkpoint lineage 和 payload hash 给出预期 diff；apply 只采用 `include + proposed` 的
   CoreEntity（create/promote）/ EntityRelation，使用 package-local ref，在同一事务 CAS pending 并写 receipt。
@@ -631,7 +636,7 @@ package 也可携带一个完整的 `world_bible_page` create/replace 提案：�
 同包已采用 item/source 的 claim mapping；open/rejected 只能放 `projection_policy=excluded`
 section，且不会进入可投影正文。页面预览保持零写入并把页面版本/impact scope 纳入 package hash。
 | POST | `/api/world/generation-center/chat` | 世界工作区共创聊天；按作者选择的来源/目标加载上下文，不创建建议、不写业务资产 |
-| POST | `/api/world/generation-center/convergence` | 对当前显式来源范围做只读收束；返回确定性 manifest、覆盖状态与最多 7 张决定卡，不创建建议或工作稿 |
+| POST | `/api/world/generation-center/convergence` | 对当前显式来源范围做只读收束；返回确定性 manifest、覆盖状态与最多 7 张决定卡。`world_core` 预设额外返回可交接门和 typed core 快照；均不创建建议或工作稿 |
 | POST | `/api/world/generation-center/exploration` | 从当前世界书页只读探索一跳相邻缺口；最多返回 3 项，不创建建议或工作稿 |
 | POST | `/api/world/generation-center/semantic-inspection` | 检修当前世界书页；确定性错误可阻断，LLM 只产生“需要决定／可以改进”的待处理检查项和范围回执 |
 | POST | `/api/world/generation-center/suggestions` | 旧同步建议入口，兼容期 deprecated |

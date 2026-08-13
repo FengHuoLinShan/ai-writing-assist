@@ -770,13 +770,71 @@ async def test_adoption_package_api_uses_project_scoped_artifacts(
             "novel_id": project_novel_id,
             "checkpoint": {
                 "schema_version": "world_core_checkpoint.v1",
-                "round_no": 0,
+                "round_no": 3,
                 "action": "consolidate",
                 "source_manifest_hash": manifest,
+                "seeds": [
+                    {
+                        "seed_key": "tide_city",
+                        "source_ref": _source_ref(manifest),
+                        "disposition": "included",
+                    }
+                ],
+                "world_core": {
+                    "author_seeds": [
+                        {
+                            "source_key": "conversation:seed:1",
+                            "disposition": "included",
+                        }
+                    ],
+                    "rule_atoms": [
+                        {
+                            "rule_key": "tide_rule",
+                            "title": "潮门通行",
+                            "source_keys": ["conversation:seed:1"],
+                            "can": "借潮过门",
+                            "cannot": "逆潮连续过门",
+                            "cost": "消耗配额",
+                            "failure": "断供",
+                            "maintenance": "每日校准",
+                        }
+                    ],
+                    "blocking_contradictions": [],
+                    "vertical_slice": {
+                        "rule_key": "tide_rule",
+                        "daily_consequence": "居民按潮通勤",
+                        "failure_consequence": "失准后街区断供",
+                    },
+                },
+                "decisions": [
+                    {
+                        "item_key": "tide_rule",
+                        "text": "采纳潮门通行规则",
+                        "disposition": "locked",
+                        "rule_key": "tide_rule",
+                        "source_keys": ["conversation:seed:1"],
+                    }
+                ],
             },
         },
     )
     assert checkpoint.status_code == 201, checkpoint.text
+    loaded_checkpoint = await async_client.get(
+        f"/api/world/adoption-packages/{checkpoint.json()['id']}",
+        params={"novel_id": project_novel_id},
+    )
+    assert loaded_checkpoint.status_code == 200, loaded_checkpoint.text
+    checkpoint_payload = loaded_checkpoint.json()["payload_json"]
+    assert checkpoint_payload["round_no"] == 3
+    assert checkpoint_payload["seeds"][0]["seed_key"] == "tide_city"
+    assert checkpoint_payload["world_core"]["rule_atoms"][0]["rule_key"] == ("tide_rule")
+    assert checkpoint_payload["decisions"][0]["disposition"] == "locked"
+    checkpoint_apply = await async_client.post(
+        f"/api/world/adoption-packages/{checkpoint.json()['id']}/apply",
+        params={"novel_id": project_novel_id},
+        json={"expected_preview_hash": manifest},
+    )
+    assert checkpoint_apply.status_code == 400
     saved = await async_client.post(
         "/api/world/adoption-packages",
         json={

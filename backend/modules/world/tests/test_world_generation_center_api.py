@@ -59,6 +59,7 @@ class _FakeWorldGenerationClient:
         self.core_entity_name = "沈无咎"
         self.core_entity_names: list[str] = []
         self.convergence_drop_last = False
+        self.world_core_factory = None
         self.exploration_target_count = 3
         self.ask_world_answer = "现有证据显示帝国在长夜后重建航路。"
         self.ask_world_uncertainty = "当前只核对了命中的世界书页面。"
@@ -119,6 +120,9 @@ class _FakeWorldGenerationClient:
             keys = self._convergence_source_keys(request)
             if self.convergence_drop_last:
                 keys = keys[:-1]
+            world_core = (
+                self.world_core_factory(keys) if self.world_core_factory else None
+            )
             request_text = "\n".join(message.content for message in request.messages)
             external_packet = (
                 "EXTERNAL_PACKET_CONTRACT" in request_text
@@ -133,15 +137,31 @@ class _FakeWorldGenerationClient:
                         {
                             "title": "当前需要作者决定的共同边界",
                             "common_ground": ["材料都围绕同一轮世界设定展开。"],
-                            "items": [
-                                {
-                                    "text": "保留已经形成的制度骨架，具体数字继续开放。",
-                                    "suggested_disposition": "include",
-                                    "external_disposition": (
-                                        "repair" if external_packet else None
-                                    ),
-                                }
-                            ],
+                            "items": (
+                                [
+                                    {
+                                        "text": atom["title"],
+                                        "suggested_disposition": "include",
+                                        "world_core_rule_key": atom["rule_key"],
+                                        "external_disposition": (
+                                            "repair" if external_packet else None
+                                        ),
+                                    }
+                                    for atom in world_core["rule_atoms"]
+                                ]
+                                if world_core
+                                else [
+                                    {
+                                        "text": (
+                                            "保留已经形成的制度骨架，具体数字继续开放。"
+                                        ),
+                                        "suggested_disposition": "include",
+                                        "external_disposition": (
+                                            "repair" if external_packet else None
+                                        ),
+                                    }
+                                ]
+                            ),
                             "dependencies": [],
                             "affected_targets": ["current_world_target"],
                             "source_keys": keys,
@@ -154,6 +174,7 @@ class _FakeWorldGenerationClient:
                 retained_source_keys=[],
                 shared_source_keys=[],
                 next_boundary="只有新材料会改变人物选择或采用判断时再继续扩展。",
+                world_core=world_core,
             )
         if schema is GeneratedWorldGenerationExplorationOutput:
             keys = self._convergence_source_keys(request)
@@ -370,6 +391,38 @@ def _project_source_payload(novel_id: str) -> dict:
     }
 
 
+def _valid_world_core(keys: list[str]) -> dict:
+    conversation_keys = [key for key in keys if key.startswith("conversation:")]
+    author_keys = [conversation_keys[index] for index in (0, 2, 3)]
+    atoms = [
+        {
+            "rule_key": f"rule_{index}",
+            "title": title,
+            "source_keys": [author_keys[(index - 1) % 2]],
+            "can": "城市可以借潮汐输送货物。",
+            "cannot": "城市不能绕过潮汐窗口连续运输。",
+            "cost": "每次通行都消耗维护配额。",
+            "failure": "维护中断会令街区断供。",
+            "maintenance": "潮门工每日校准闸门。",
+        }
+        for index, title in enumerate(("潮门", "维护配额", "断供边界"), start=1)
+    ]
+    return {
+        "author_seeds": [
+            {"source_key": author_keys[0], "disposition": "experience_promise"},
+            {"source_key": author_keys[1], "disposition": "included"},
+            {"source_key": author_keys[2], "disposition": "rejected"},
+        ],
+        "rule_atoms": atoms,
+        "blocking_contradictions": [],
+        "vertical_slice": {
+            "rule_key": "rule_1",
+            "daily_consequence": "居民每日按潮门时刻表通勤和领粮。",
+            "failure_consequence": "闸门失准七日后，居民必须在断供和违规夜航之间选择。",
+        },
+    }
+
+
 def _page_new_target_payload(novel_id: str, page: dict) -> dict:
     return {
         "novel_id": novel_id,
@@ -466,9 +519,7 @@ async def test_generation_center_chat_rejects_selected_chapter_drift_after_model
                 "chapter_index": 1,
                 "title": "第一章",
                 "excerpt": (
-                    "模型调用前的章节内容"
-                    if calls == 1
-                    else "模型调用后的章节内容"
+                    "模型调用前的章节内容" if calls == 1 else "模型调用后的章节内容"
                 ),
             }
         ]
@@ -584,6 +635,158 @@ async def test_generation_center_convergence_is_complete_and_writes_no_assets(
     assert "不负责继续发散、采用设定或创建项目资产" in prompt
     assert "不能冒充本地对象 ID 或本地校验回执" in prompt
     assert "SOURCE_MANIFEST" in prompt
+
+
+@pytest.mark.asyncio
+async def test_world_core_convergence_covers_author_seeds_and_returns_handoff(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    fake.world_core_factory = _valid_world_core
+    novel_id = await _create_llm_project(async_client, "World Core 收束")
+    payload = _project_source_payload(novel_id)
+    payload.update(
+        {
+            "workflow_preset": "world_core",
+            "target": {"kind": "core_entity", "template": "none"},
+            "messages": [
+                {"role": "user", "content": "潮汐决定城市道路。"},
+                {"role": "assistant", "content": "可以把所有交通都改成夜航。"},
+                {"role": "user", "content": "修正：只有跨区通道受潮汐影响。"},
+                {"role": "user", "content": "否定夜航垄断，保留白天步行。"},
+            ],
+        }
+    )
+
+    response = await async_client.post(
+        "/api/world/generation-center/convergence", json=payload
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    handoff = body["world_core"]
+    assert handoff["ready_for_handoff"] is True
+    assert handoff["issues"] == []
+    assert handoff["rule_count"] == 3
+    assert len(handoff["author_seed_source_keys"]) == 3
+    assert handoff["snapshot"]["author_seeds"][2]["disposition"] == "rejected"
+    assistant_key = next(
+        item["key"]
+        for item in body["manifest"]
+        if item["source_ref"]["source_type"] == "assistant_message"
+    )
+    assert assistant_key not in handoff["author_seed_source_keys"]
+    assert all(
+        item["world_core_rule_key"]
+        for card in body["decision_cards"]
+        for item in card["items"]
+    )
+    assert await db_session.scalar(select(func.count(CoreEntity.id))) == 0
+    assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 0
+    prompt = "\n".join(message.content for message in fake.requests[0].messages)
+    assert "只做一个动作 expand / connect / pressure / consolidate" not in prompt
+    assert "不要生成人物、故事总纲、Scene" in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("invalid_case", "expected_issue"),
+    [
+        ("missing_seed", "作者 seed 必须恰好覆盖冻结 manifest"),
+        ("contradiction", "存在阻断矛盾"),
+        ("too_few_rules", "World Core 需要 3–7 条规则"),
+        ("missing_slice", "需要完整的日常与故障纵切"),
+    ],
+)
+async def test_world_core_handoff_fails_closed_on_incomplete_core(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_case: str,
+    expected_issue: str,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+
+    def invalid_core(keys: list[str]) -> dict:
+        core = _valid_world_core(keys)
+        if invalid_case == "missing_seed":
+            core["author_seeds"] = core["author_seeds"][:-1]
+        elif invalid_case == "contradiction":
+            core["blocking_contradictions"] = ["税契与免费通行相互矛盾"]
+        elif invalid_case == "too_few_rules":
+            core["rule_atoms"] = core["rule_atoms"][:2]
+        else:
+            core["vertical_slice"] = None
+        return core
+
+    fake.world_core_factory = invalid_core
+    novel_id = await _create_llm_project(async_client, f"World Core {invalid_case}")
+    payload = _project_source_payload(novel_id)
+    payload.update(
+        {
+            "workflow_preset": "world_core",
+            "target": {"kind": "core_entity", "template": "none"},
+            "messages": [
+                {"role": "user", "content": "seed one"},
+                {"role": "assistant", "content": "generated bridge"},
+                {"role": "user", "content": "seed two"},
+                {"role": "user", "content": "seed three"},
+            ],
+        }
+    )
+
+    response = await async_client.post(
+        "/api/world/generation-center/convergence", json=payload
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["world_core"]["ready_for_handoff"] is False
+    assert expected_issue in response.json()["world_core"]["issues"]
+
+
+@pytest.mark.asyncio
+async def test_world_core_preset_rejects_non_core_target_before_llm(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "World Core 目标边界")
+    payload = _project_source_payload(novel_id)
+    payload.update(
+        {
+            "workflow_preset": "world_core",
+            "target": {"kind": "world_bible_new_page", "page_type": "custom"},
+        }
+    )
+
+    response = await async_client.post("/api/world/generation-center/chat", json=payload)
+
+    assert response.status_code == 422
+    assert fake.requests == []
+
+
+@pytest.mark.asyncio
+async def test_world_core_chat_prompt_stays_inside_core_boundary(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    novel_id = await _create_llm_project(async_client, "World Core 对话边界")
+    payload = _project_source_payload(novel_id)
+    payload.update(
+        {
+            "workflow_preset": "world_core",
+            "target": {"kind": "core_entity", "template": "none"},
+        }
+    )
+
+    response = await async_client.post("/api/world/generation-center/chat", json=payload)
+
+    assert response.status_code == 200, response.text
+    prompt = "\n".join(message.content for message in fake.requests[0].messages)
+    assert "只做一个动作 expand / connect / pressure / consolidate" in prompt
+    assert "不要生成人物、故事总纲、Scene" in prompt
 
 
 @pytest.mark.asyncio
@@ -1511,10 +1714,14 @@ async def test_generation_task_reuses_operation_and_rejects_drift(
     )
 
     assert first.status_code == repeated.status_code == 202
-    assert first.json() == repeated.json() == {
-        "task_id": operation_id,
-        "status": "pending",
-    }
+    assert (
+        first.json()
+        == repeated.json()
+        == {
+            "task_id": operation_id,
+            "status": "pending",
+        }
+    )
     assert drifted.status_code == 409
     tasks = list(
         (

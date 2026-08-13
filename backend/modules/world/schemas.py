@@ -15,7 +15,10 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
-from modules.world.llm_schemas import GeneratedWorldGenerationDecisionState
+from modules.world.llm_schemas import (
+    GeneratedWorldCoreConvergence,
+    GeneratedWorldGenerationDecisionState,
+)
 
 # ============================================================
 # 内部工具
@@ -413,6 +416,7 @@ class WorldGenerationRequestBase(BaseModel):
     include_world_synopsis: bool = True
     activation_profile_id: str | None = None
     activation_profile_version: int | None = Field(default=None, ge=1)
+    workflow_preset: Literal["default", "world_core"] = "default"
 
     @model_validator(mode="after")
     def validate_source_target_pair(self) -> WorldGenerationRequestBase:
@@ -433,6 +437,10 @@ class WorldGenerationRequestBase(BaseModel):
                 )
             if self.target.page_id != self.source_context.page_id:
                 raise ValueError("source and target World Bible page must match")
+        if self.workflow_preset == "world_core" and not isinstance(
+            self.target, WorldGenerationCoreEntityTarget
+        ):
+            raise ValueError("world_core workflow requires a core_entity target")
         return self
 
 
@@ -795,6 +803,7 @@ class WorldGenerationConvergenceDecisionItem(BaseModel):
     item_id: str = Field(..., min_length=1, max_length=32)
     text: str = Field(..., min_length=1, max_length=600)
     suggested_disposition: Literal["include", "open", "discard"] = "open"
+    world_core_rule_key: str | None = Field(default=None, min_length=1, max_length=64)
     external_disposition: (
         Literal[
             "compatible",
@@ -828,6 +837,14 @@ class WorldGenerationConvergenceDecisionCard(BaseModel):
     why_now: str = Field(..., min_length=1, max_length=1000)
 
 
+class WorldCoreHandoff(BaseModel):
+    ready_for_handoff: bool = False
+    issues: list[str] = Field(default_factory=list, max_length=20)
+    author_seed_source_keys: list[str] = Field(default_factory=list, max_length=256)
+    rule_count: int = Field(default=0, ge=0, le=7)
+    snapshot: GeneratedWorldCoreConvergence | None = None
+
+
 class WorldGenerationConvergenceResponse(BaseModel):
     coverage: WorldGenerationConvergenceCoverage
     manifest: list[WorldGenerationConvergenceManifestItem] = Field(
@@ -845,6 +862,7 @@ class WorldGenerationConvergenceResponse(BaseModel):
     context_usage: GenerationContextUsage | None = None
     source_snapshot: WorldGenerationSourceSnapshot
     external_packet: WorldGenerationExternalPacket | None = None
+    world_core: WorldCoreHandoff | None = None
 
 
 class CoreEntityDraftSuggestionPayload(BaseModel):
@@ -3072,6 +3090,16 @@ class CreationSuggestionCreate(BaseModel):
     status: str = Field(default="pending", max_length=32)
 
 
+class WorldCoreCheckpointDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str = Field(..., min_length=1, max_length=64)
+    text: str = Field(..., min_length=1, max_length=600)
+    disposition: Literal["locked", "open", "rejected"]
+    rule_key: str | None = Field(default=None, min_length=1, max_length=64)
+    source_keys: list[str] = Field(default_factory=list, max_length=16)
+
+
 class WorldCoreCheckpointPayload(BaseModel):
     """Read-only convergence checkpoint; it can never be adopted."""
 
@@ -3084,6 +3112,10 @@ class WorldCoreCheckpointPayload(BaseModel):
     source_manifest_hash: str = Field(..., min_length=64, max_length=64)
     seeds: list[WorldAdoptionSeed] = Field(default_factory=list, max_length=64)
     decision_state: GeneratedWorldGenerationDecisionState | None = None
+    world_core: GeneratedWorldCoreConvergence | None = None
+    decisions: list[WorldCoreCheckpointDecision] = Field(
+        default_factory=list, max_length=64
+    )
 
     @field_validator("source_manifest_hash")
     @classmethod
