@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.outline.models import StoryOutlineHead, StoryOutlineRevision
 from modules.outline.story_outline_repository import StoryOutlineRepository
 from modules.outline.story_outline_schemas import (
+    StoryExecutionProfile,
     StoryOutlineContent,
     StoryOutlineCurrentResponse,
     StoryOutlineGeneratedPreviewApply,
@@ -122,6 +123,7 @@ class StoryOutlineService:
 
         self._assert_base_revision(head, data.base_revision_id)
         content = self._content_payload(data)
+        provenance = self._with_execution_profile(data.provenance, content)
         revision = StoryOutlineRevision(
             novel_id=nid,
             version_number=await self.repository.next_version_number(db, nid),
@@ -132,7 +134,7 @@ class StoryOutlineService:
             macro_movements_json=content["macro_movements"],
             open_decisions_json=content["open_decisions"],
             source=data.source,
-            provenance_json=data.provenance.model_dump(
+            provenance_json=provenance.model_dump(
                 mode="json",
                 exclude_none=True,
             ),
@@ -176,6 +178,11 @@ class StoryOutlineService:
             raise StoryOutlineNotFoundError("StoryOutline revision not found")
         self._assert_base_revision(head, data.base_revision_id)
 
+        provenance = self._with_execution_profile(
+            data.provenance,
+            self._content_from_revision(target),
+            inherited=target.provenance_json,
+        )
         revision = StoryOutlineRevision(
             novel_id=nid,
             version_number=await self.repository.next_version_number(db, nid),
@@ -186,7 +193,7 @@ class StoryOutlineService:
             macro_movements_json=copy.deepcopy(target.macro_movements_json),
             open_decisions_json=copy.deepcopy(target.open_decisions_json),
             source="restored",
-            provenance_json=data.provenance.model_dump(
+            provenance_json=provenance.model_dump(
                 mode="json",
                 exclude_none=True,
             ),
@@ -288,6 +295,7 @@ class StoryOutlineService:
             context_hash=context_hash,
             context_provenance=task.context_provenance,
         )
+        provenance = self._with_execution_profile(provenance, content)
         revision = StoryOutlineRevision(
             novel_id=nid,
             version_number=await self.repository.next_version_number(db, nid),
@@ -364,6 +372,57 @@ class StoryOutlineService:
                 "macro_movements",
                 "open_decisions",
             },
+        )
+
+    @staticmethod
+    def _content_from_revision(revision: StoryOutlineRevision) -> dict[str, Any]:
+        return {
+            "title": revision.title,
+            "creative_core": copy.deepcopy(revision.creative_core_json),
+            "outline_markdown": revision.outline_markdown,
+            "major_storylines": copy.deepcopy(revision.major_storylines_json),
+            "macro_movements": copy.deepcopy(revision.macro_movements_json),
+            "open_decisions": copy.deepcopy(revision.open_decisions_json),
+        }
+
+    @classmethod
+    def _with_execution_profile(
+        cls,
+        provenance: StoryOutlineProvenance,
+        content: dict[str, Any],
+        *,
+        inherited: dict[str, Any] | None = None,
+    ) -> StoryOutlineProvenance:
+        profile = provenance.story_execution_profile
+        if profile is None and inherited:
+            profile = StoryOutlineProvenance.model_validate(
+                inherited
+            ).story_execution_profile
+        if profile is None:
+            profile = cls._derive_execution_profile(content)
+        return provenance.model_copy(
+            update={
+                "story_execution_profile": profile,
+                "story_execution_profile_hash": cls._hash(
+                    profile.model_dump(mode="json")
+                ),
+            }
+        )
+
+    @staticmethod
+    def _derive_execution_profile(content: dict[str, Any]) -> StoryExecutionProfile:
+        creative_core = content["creative_core"]
+        return StoryExecutionProfile(
+            premise=creative_core["premise"],
+            tone_and_reader_promise=creative_core["tone_and_reader_promise"],
+            story_engine=creative_core["story_engine"],
+            ending_direction=creative_core.get("ending_direction"),
+            major_storyline_directions=[
+                item["resolution_direction"] for item in content["major_storylines"]
+            ],
+            macro_state_changes=[
+                item["story_state_change"] for item in content["macro_movements"]
+            ],
         )
 
     @staticmethod

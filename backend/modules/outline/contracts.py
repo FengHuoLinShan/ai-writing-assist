@@ -259,6 +259,46 @@ class SceneContract:
     status: str = "draft"
 
 
+@dataclass(frozen=True)
+class SceneExecutionSceneContract:
+    """The Scene fields frozen into an execution bundle."""
+
+    id: str
+    scene_index: int
+    title: str | None = None
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    pov_character_id: str | None = None
+    knowledge_boundary: Any = None
+    entry_state: Any = None
+    exit_state: Any = None
+    outcome: Any = None
+    cost: Any = None
+    continuity: Any = None
+    new_fact_candidates: Any = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+
+
+@dataclass(frozen=True)
+class SceneExecutionBundleContract:
+    """Version-pinned, read-only execution input for one Scene."""
+
+    novel_id: str
+    scene_id: str
+    story_outline_revision_id: str | None
+    story_outline_version: int | None
+    story_outline_content_hash: str | None
+    story_execution_profile: dict[str, Any] | None
+    story_execution_profile_hash: str | None
+    scene: SceneExecutionSceneContract
+    missing_fields: list[str] = field(default_factory=list)
+    omissions: list[str] = field(default_factory=list)
+    upstream_manifest: list[dict[str, str]] = field(default_factory=list)
+    contract_hash: str = ""
+
+
 def scene_semantic_field_status(
     scene: Any,
     field: str,

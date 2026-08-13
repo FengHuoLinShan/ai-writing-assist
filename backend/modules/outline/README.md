@@ -77,6 +77,19 @@ head 的 current 指针以及 revision 的 base/restore 来源都使用 `(revisi
 复合外键，数据库不能把一个项目的版本挂到另一个项目；revision 更新另由数据库 trigger
 拒绝，历史内容只能复制成更高版本的新 revision。
 
+每个已采用 revision 的 provenance 都持有 version-bound
+`story_execution_profile.v1` 和确定性 SHA-256 hash。作者可在 provenance 中显式提供
+profile；否则服务从本 revision 的 creative core、剧情线收束方向和宏观状态变化确定性派生。
+恢复历史 revision 时继承目标 revision 的 profile，而不是用恢复请求重新派生。它只属于
+story layer，不复用 World Bible 页面。
+
+跨模块正文/审查调用通过 `facade.get_scene_execution_bundle(db, novel_id, scene_id)` 取得
+冻结的 `SceneExecutionBundleContract`（可 `dataclasses.asdict()`）：它包含当前总纲
+revision/version/content hash、profile/hash、Scene 的 POV、知识边界、entry/exit、outcome/cost、
+continuity、new fact candidates、must_happen/must_not_happen、`missing_fields`、精确
+`upstream_manifest(type/id/version/hash)` 和 `contract_hash`。缺少当前总纲时返回明确
+`current_story_outline` omission，绝不伪造 profile 或上游引用；该 seam 不写 Scene、正文或依赖表。
+
 `POST .../generate` 创建 `story_outline_generate` 异步任务，请求固定包含
 `novel_id / author_intent / planned_scale / coverage`，可显式选择人物和世界对象，
 并可以通过 `include_current_outline` 或 `base_revision_id` 引入一份已有总纲。

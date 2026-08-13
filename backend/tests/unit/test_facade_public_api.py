@@ -85,6 +85,7 @@ OUTLINE_FACADE_API = {
     "get_reader_reveal_decision",
     "get_scene",
     "get_scene_context_window",
+    "get_scene_execution_bundle",
     "get_scene_contract",
     "get_scene_span_coverage",
     "get_scene_spans_by_chapter",

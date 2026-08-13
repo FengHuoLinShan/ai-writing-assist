@@ -78,11 +78,32 @@ class StoryOutlineOpenDecision(StoryOutlineSchema):
     options: list[ListText] = Field(max_length=50)
 
 
+class StoryExecutionProfile(StoryOutlineSchema):
+    """Version-bound story-layer constraints for executing one Scene."""
+
+    version: Literal["story_execution_profile.v1"] = "story_execution_profile.v1"
+    premise: CoreText
+    tone_and_reader_promise: CoreText
+    story_engine: CoreText
+    ending_direction: CoreText | None = None
+    major_storyline_directions: list[ListText] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+    macro_state_changes: list[ListText] = Field(default_factory=list, max_length=100)
+
+
 class StoryOutlineProvenance(StoryOutlineSchema):
     actor: ActorText | None = None
     note: NoteText | None = None
     client_ref: RefText | None = None
     source_refs: list[RefText] = Field(default_factory=list, max_length=100)
+    story_execution_profile: StoryExecutionProfile | None = None
+    story_execution_profile_hash: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+    )
 
 
 class StoryOutlineContent(StoryOutlineSchema):

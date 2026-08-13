@@ -27,7 +27,7 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 - 业务逻辑在 `services.py`
 - P20 当前层创作由 `p20_context.py` / `p20_service.py` 编排；`generation/` 只保留深度导入
   Scene 证据结构化与 v1 完成预览兼容
-- 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 rag、world 等模块跨 seam 调用
+- 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 rag、world、writing 等模块跨 seam 调用
 
 ## 职责
 
@@ -36,6 +36,7 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 - 按章节查询相关 Scene
 - 根据 AI 参考资料确认记录，在当前页面发起剧情线、篇章纲或 Planned Scene 创作任务
 - 为其他模块提供 Scene 查询能力
+- 为正文生成与独立审查编译 version-bound、只读的 Scene execution bundle
 
 ## 关键服务
 
@@ -151,6 +152,15 @@ monkeypatch 路径。
 - `get_scenes_by_chapter()`
 - `get_scene_spans_by_chapter()`
 - `get_scene_spans_for_scene()`
+- `get_scene_execution_bundle(db, novel_id, scene_id)`：返回可 `dataclasses.asdict()` 的
+  `SceneExecutionBundleContract`；冻结当前总纲 revision/version/content hash、
+  `story_execution_profile.v1`/hash、Scene 的 POV 与 execution metadata、缺字段、精确
+  `upstream_manifest(type/id/version/hash)` 和 contract hash。缺当前总纲时明确返回
+  `current_story_outline` omission，不伪造上游引用，也不写入 Scene 或正文。
+
+StoryOutline revision 的 provenance 持有 version-bound execution profile：作者未显式提供时，
+服务从采用版的 creative core、剧情线收束方向与宏观状态变化确定性派生；恢复历史 revision
+继承目标 revision 的 profile。profile 属于 story layer，不复用 World Bible 页面。
 
 ## 与 writing 的依赖方向
 
