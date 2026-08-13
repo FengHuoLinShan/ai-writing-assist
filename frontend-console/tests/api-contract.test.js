@@ -241,6 +241,8 @@ describe("前后端 API 契约", () => {
     expect(getApiContract("world.getEntity").method).toBe("GET")
     expect(contractPath("world.getEntity", { id: "entity-1" }, { novel_id: "novel-1" }))
       .toBe("/world/entities/entity-1?novel_id=novel-1")
+    expect(contractPath("world.getKnowledgeGraph", {}, { novel_id: "novel-1", scope: "local", depth: 1 }))
+      .toBe("/world/knowledge-graph?novel_id=novel-1&scope=local&depth=1")
     expect(contractPath("world.getReviewTypeCatalog"))
       .toBe("/world/review-type-catalog")
     expect(contractPath("world.listRelationReviewGroups", {}, {

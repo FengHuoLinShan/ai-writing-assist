@@ -77,7 +77,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 | `vue/views/today/TodayView.vue` | `today` 路由（Vue island）；一个正文或世界设定续接主卡、服务器世界书工作稿/待处理页面建议入口、待处理汇总和最多 3 个项目隔离的长任务恢复；摘要失败不阻断写作，未知状态保留并允许重试 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；版本、冲突、导出和导入收进分组菜单，菜单动作完成后关闭且不会被页头裁切 |
-| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
+| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；世界书内置关联图模式复用只读 `GET /api/world/knowledge-graph`，可从当前页一跳显式扩展到两跳或全局，列表可操作而 SVG 仅为辅助；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 预览使用结构化重复项编辑器，提交时适配回原 wire payload；版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |

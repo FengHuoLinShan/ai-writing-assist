@@ -1127,6 +1127,10 @@ const api = {
       return request(withQuery("/world/bible/pages", params))
     },
 
+    async getKnowledgeGraph(params = {}, options = {}) {
+      return contractFetch("world.getKnowledgeGraph", {}, params, options)
+    },
+
     async createBiblePage(payload) {
       return post("/world/bible/pages", payload)
     },

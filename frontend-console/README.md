@@ -167,6 +167,7 @@ frontend-console/
   loader、pending loader 和子标签注册表使用 `Map`，只接受安全的小写路由 key 并拒绝原型属性名；
   router 不再使用 DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态
 - AI 地图册由 `vue/views/map/MapWorkspaceView.vue` 独占页面 DOM；层级、候选/正式画廊、来源、停止恢复、图片编辑和标注都留在该 SFC。
+- 世界书内的“关联图”复用 `GET /api/world/knowledge-graph`：默认从当前页面读取一跳，可显式扩展到两跳或全局；可访问节点列表是主交互，SVG 只作最多 40 节点 / 80 边的辅助示意。结果会明确显示截断/部分扫描，并不把关联表述为依赖或变更影响。
 - 图片 wrapper 返回 Blob 并创建短期 Object URL；切换项目或视图时释放，不暴露对象 key。
 - 所有 UI 文字为中文
 - 作者主流程的对象引用统一按名称搜索和选择；共享 `referencePicker` 仅把 ID 回写到现有隐藏字段/请求 payload。同名项用类型、状态和摘要消歧，无法解析的旧引用保留为“不可用引用”。Workflow、任务和原始 Scene ID 只位于折叠诊断区，并标记 `data-diagnostic-field`。

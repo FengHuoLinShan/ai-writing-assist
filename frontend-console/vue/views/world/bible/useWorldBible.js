@@ -20,7 +20,21 @@ import {
 import { authorDecisionPresentation } from "../../generate/logic/generateLogic.js"
 
 const PROJECTION_TYPE = "context_brief"
-const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter"])
+const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter", "graph"])
+
+/** Deterministic, intentionally non-physical layout for the optional SVG aid. */
+export function knowledgeGraphLayout(nodes, edges, maxNodes = 40) {
+  const visible = [...nodes].sort((a, b) => String(a.id).localeCompare(String(b.id))).slice(0, maxNodes)
+  const ids = new Set(visible.map((node) => node.id))
+  const lanes = { world_bible_page: [], core_entity: [] }
+  for (const node of visible) (lanes[node.kind] || lanes.core_entity).push(node)
+  const positions = Object.fromEntries(visible.map((node) => {
+    const lane = node.kind === "world_bible_page" ? 0 : 1
+    const index = lanes[node.kind]?.indexOf(node) ?? 0
+    return [node.id, { x: 110 + lane * 300, y: 56 + index * 72 }]
+  }))
+  return { nodes: visible, edges: edges.filter((edge) => ids.has(edge.source_id) && ids.has(edge.target_id)).slice(0, 80), positions }
+}
 
 export const BIBLE_PAGE_TYPES = {
   background: { label: "背景", title: "世界基本背景", desc: "世界观、历史和基础设定", color: "#6366f1", symbol: "BG" },
@@ -117,6 +131,12 @@ export function useWorldBible(props) {
   const editorMutationPending = ref(false)
   const beforeUnloadBound = ref(false)
   const suggestionBatchKey = ref(null)
+  const knowledgeGraph = ref(null)
+  const graphLoading = ref(false)
+  const graphError = ref(null)
+  const graphScope = ref("local")
+  const graphDepth = ref(1)
+  let graphRequest = 0
   let disposed = false
   let activationGeneration = 0
   let projectionGeneration = 0
@@ -305,6 +325,47 @@ export function useWorldBible(props) {
     displayMode.value = mode
     if (mode !== "gallery") galleryCategory.value = null
     saveDisplayPref(projectId.value, "displayMode", mode)
+    if (mode === "graph") void loadKnowledgeGraph()
+  }
+
+  function graphParams() {
+    const page = activePage.value
+    if (!page?.id) return { novel_id: projectId.value, scope: "global" }
+    return { novel_id: projectId.value, scope: graphScope.value, root_type: "world_bible_page", root_id: page.id, depth: graphDepth.value }
+  }
+
+  async function loadKnowledgeGraph() {
+    if (!activePage.value?.id) graphScope.value = "global"
+    const request = ++graphRequest
+    graphLoading.value = true
+    graphError.value = null
+    try {
+      const result = await api.world.getKnowledgeGraph(graphParams())
+      if (disposed || request !== graphRequest) return false
+      knowledgeGraph.value = result
+      return true
+    } catch (err) {
+      if (!disposed && request === graphRequest) graphError.value = err.message || "关联图加载失败"
+      return false
+    } finally {
+      if (!disposed && request === graphRequest) graphLoading.value = false
+    }
+  }
+
+  function setGraphDepth(depth) {
+    if (!activePage.value?.id) {
+      graphScope.value = "global"
+      void loadKnowledgeGraph()
+      return
+    }
+    graphDepth.value = depth === 2 ? 2 : 1
+    graphScope.value = "local"
+    void loadKnowledgeGraph()
+  }
+
+  function setGraphScope(scope) {
+    graphScope.value = scope === "global" || !activePage.value?.id ? "global" : "local"
+    void loadKnowledgeGraph()
   }
 
   function setActiveCategory(category) {
@@ -328,6 +389,7 @@ export function useWorldBible(props) {
     if (!page) return
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并打开其他页面吗？")) return
     activePageId.value = page.id
+    graphRequest += 1
     activeDraftId.value = draftForActivePage.value?.id || null
     displayMode.value = "editor"
     galleryCategory.value = null
@@ -342,6 +404,7 @@ export function useWorldBible(props) {
     if (!draft) return
     if (editorHasUnsavedChanges() && !confirm("当前页面有未保存修改，确定放弃并切换工作稿吗？")) return
     activeDraftId.value = draft.id
+    graphRequest += 1
     activePageId.value = draft.page_id
       ? (pages.value.find((p) => p.id === draft.page_id)?.id || null)
       : null
@@ -2162,6 +2225,11 @@ export function useWorldBible(props) {
     suggestions,
     conflicts,
     semanticInspectionPending,
+    knowledgeGraph,
+    graphLoading,
+    graphError,
+    graphScope,
+    graphDepth,
 
     // computed helpers
     pages,
@@ -2174,6 +2242,9 @@ export function useWorldBible(props) {
     initialize,
     onBeforeUnmount,
     setDisplayMode,
+    loadKnowledgeGraph,
+    setGraphDepth,
+    setGraphScope,
     setActiveCategory,
     openGalleryCategory,
     backToGalleryHome,

@@ -380,6 +380,9 @@
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
     }),
+    "world.getKnowledgeGraph": define("GET", () => "/world/knowledge-graph", {
+      requiredQuery: ["novel_id"],
+    }),
     "world.createEntity": define("POST", () => "/world/entities", {
       requiredQuery: ["novel_id"],
       hasBody: true,
