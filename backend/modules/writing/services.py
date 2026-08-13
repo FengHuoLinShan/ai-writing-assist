@@ -345,7 +345,21 @@ class WritingDraftService:
         draft = await self._repo.get(db, did)
         if draft is None or str(draft.novel_id) != str(nid):
             raise NotFoundError(f"Draft {draft_id} not found")
-        return WritingDraftResponse.model_validate(draft)
+        response = WritingDraftResponse.model_validate(draft)
+        if draft.status == "candidate":
+            from modules.writing.semantic_review import validate_candidate_upstream
+
+            try:
+                await validate_candidate_upstream(
+                    db,
+                    draft,
+                    require_review=False,
+                )
+            except ConflictError:
+                response.attention_reasons = list(
+                    dict.fromkeys([*response.attention_reasons, "upstream_stale"])
+                )
+        return response
 
     async def adopt_candidate_to_working(
         self,
@@ -371,6 +385,10 @@ class WritingDraftService:
             raise NotFoundError(f"Draft {draft_id} not found")
         if draft.status != "candidate":
             raise ValidationError("Only a candidate writing suggestion can be adopted")
+
+        from modules.writing.semantic_review import validate_candidate_upstream
+
+        await validate_candidate_upstream(db, draft)
 
         adopted_at = datetime.now(UTC).isoformat()
         adopted_provenance = {

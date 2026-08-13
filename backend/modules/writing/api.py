@@ -52,6 +52,9 @@ from modules.writing.schemas import (
     WritingGenerateRequest,
     WritingGenerateResponse,
     WritingPublishRequest,
+    WritingSemanticReviewRequest,
+    WritingSemanticReviewTaskResponse,
+    WritingTargetedRevisionRequest,
 )
 from modules.writing.services import WritingConflictCheckService, WritingDraftService
 
@@ -454,6 +457,72 @@ async def generate_writing_candidate(
         )
     await db.flush()
     return WritingGenerateResponse(task_id=receipt.task_id, status=receipt.status)
+
+
+@router.post(
+    "/semantic-reviews",
+    response_model=WritingSemanticReviewTaskResponse,
+    status_code=201,
+)
+async def enqueue_semantic_review(
+    db: DbSession,
+    data: WritingSemanticReviewRequest,
+) -> WritingSemanticReviewTaskResponse:
+    """对冻结正文与执行合同运行独立语义审查。"""
+    await require_active_project(db, data.novel_id)
+    payload = data.model_dump(mode="json", exclude={"operation_id"})
+    snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="writing_semantic_review",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta={**payload, "llm_execution_snapshot": snapshot},
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await db.flush()
+    return WritingSemanticReviewTaskResponse(
+        task_id=receipt.task_id,
+        status=receipt.status,
+    )
+
+
+@router.post(
+    "/targeted-revisions",
+    response_model=WritingSemanticReviewTaskResponse,
+    status_code=201,
+)
+async def enqueue_targeted_revision(
+    db: DbSession,
+    data: WritingTargetedRevisionRequest,
+) -> WritingSemanticReviewTaskResponse:
+    """从独立审查 finding 生成一份不覆盖原稿的定向返修候选。"""
+    await require_active_project(db, data.novel_id)
+    payload = data.model_dump(mode="json", exclude={"operation_id"})
+    snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
+    try:
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id) if data.operation_id else None,
+            task_type="writing_targeted_revision",
+            novel_id=data.novel_id,
+            request_payload=payload,
+            meta={**payload, "llm_execution_snapshot": snapshot},
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await db.flush()
+    return WritingSemanticReviewTaskResponse(
+        task_id=receipt.task_id,
+        status=receipt.status,
+    )
 
 
 @router.post("/drafts", response_model=PublishResponse, status_code=201)
