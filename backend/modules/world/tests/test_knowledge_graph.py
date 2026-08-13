@@ -118,12 +118,12 @@ async def test_page_reference_depth_reverse_and_cycle(
                     {
                         "target_type": "world_bible_page",
                         "target_id": pages[(index + 1) % 3].id,
-                    }
-                    , *(
+                    },
+                    *(
                         [{"target_type": "world_bible_page", "target_id": pages[3].id}]
                         if index == 2
                         else []
-                    )
+                    ),
                 ]
             ),
         )
@@ -202,9 +202,7 @@ async def test_graph_excludes_candidates_and_reports_bad_refs(
             ],
         ),
     )
-    page_model = await lifecycle.get_page_model(
-        db_session, project_novel_id, page.id
-    )
+    page_model = await lifecycle.get_page_model(db_session, project_novel_id, page.id)
     # Simulate legacy/corrupt refs that bypass today's lifecycle validation.
     page_model.linked_asset_refs_json = [
         {"target_type": "core_entity", "target_id": entity.id},

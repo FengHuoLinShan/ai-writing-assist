@@ -694,9 +694,7 @@ def test_local_audit_rejects_chapter_schedules_but_not_long_range_movements() ->
     assert not StoryOutlineGenerationService._local_audit_violations(long_range)
 
 
-async def test_external_canon_audit_is_independent_from_general_evidence_audit() -> (
-    None
-):
+async def test_external_canon_audit_is_independent_from_general_evidence_audit() -> None:
     queued = [
         StoryOutlineEvidenceAudit(verdict="pass", violations=[]),
         StoryOutlineEvidenceAudit(

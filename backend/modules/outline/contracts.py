@@ -86,9 +86,7 @@ class SceneBoundaryReviewOutputContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     boundaries: list[SceneBoundaryAssessmentContract] = Field(default_factory=list)
-    candidate_concerns: list[SceneCandidateConcernContract] = Field(
-        default_factory=list
-    )
+    candidate_concerns: list[SceneCandidateConcernContract] = Field(default_factory=list)
 
 
 class SceneFusionSynthesisOutputContract(BaseModel):
@@ -327,13 +325,18 @@ def scene_semantic_field_status(
     if not isinstance(meta, dict):
         return None
     semantic_origin = str(meta.get("semantic_origin") or "")
-    trusted = source == "deep_import" or source == "manual_fusion" or semantic_origin in {
-        "phase1b_enrichment",
-        "phase1c_synthesis",
-        "author_reviewed_fusion",
-        "mechanical_fusion",
-        "p20_planned_scene",
-    }
+    trusted = (
+        source == "deep_import"
+        or source == "manual_fusion"
+        or semantic_origin
+        in {
+            "phase1b_enrichment",
+            "phase1c_synthesis",
+            "author_reviewed_fusion",
+            "mechanical_fusion",
+            "p20_planned_scene",
+        }
+    )
     if not trusted:
         return None
     statuses = meta.get("semantic_field_statuses")

@@ -79,9 +79,7 @@ def _bundle_hash(bundle: dict[str, Any] | None) -> str | None:
     if not bundle:
         return None
     return str(
-        bundle.get("bundle_hash")
-        or bundle.get("contract_hash")
-        or _stable_hash(bundle)
+        bundle.get("bundle_hash") or bundle.get("contract_hash") or _stable_hash(bundle)
     )
 
 
@@ -108,9 +106,7 @@ async def validate_candidate_upstream(
                 confirmation_id=str(confirmation_id),
             )
         except (LookupError, ValueError) as exc:
-            raise ConflictError(
-                "AI 参考资料已变化，请重新生成或审查正文建议。"
-            ) from exc
+            raise ConflictError("AI 参考资料已变化，请重新生成或审查正文建议。") from exc
 
     stored_bundle_hash = provenance.get("scene_execution_bundle_hash")
     if stored_bundle_hash:
@@ -120,9 +116,7 @@ async def validate_candidate_upstream(
             scene_id=str(provenance.get("scene_id") or "") or None,
         )
         if _bundle_hash(current) != stored_bundle_hash:
-            raise ConflictError(
-                "故事总纲或场景合同已变化，请重新生成或审查正文建议。"
-            )
+            raise ConflictError("故事总纲或场景合同已变化，请重新生成或审查正文建议。")
 
     if not require_review or not provenance.get("review_required"):
         return
@@ -271,9 +265,7 @@ class WritingSemanticWorkflowService:
         if current:
             chunks.append(current)
         if len(chunks) > _MAX_REVIEW_CHUNKS:
-            raise ValidationError(
-                "本次全书审查超过 24 个可验证分片，请按卷分批审查。"
-            )
+            raise ValidationError("本次全书审查超过 24 个可验证分片，请按卷分批审查。")
         return chunks
 
     @staticmethod

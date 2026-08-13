@@ -410,14 +410,10 @@ class SceneMemoryProjectionService:
             db, parse_uuid(novel_id, "novel_id"), max_chapter
         )
         confirmed_coverage = (
-            previous.state_json.get("_coverage_confirmed") or {}
-            if previous
-            else {}
+            previous.state_json.get("_coverage_confirmed") or {} if previous else {}
         )
         covered_unanchored = int(
-            confirmed_coverage.get(
-                "unanchored_memory_event_count", 0
-            )
+            confirmed_coverage.get("unanchored_memory_event_count", 0)
         )
         if unanchored > covered_unanchored:
             missing_count = unanchored - covered_unanchored

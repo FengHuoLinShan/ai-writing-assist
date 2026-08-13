@@ -432,15 +432,15 @@ async def generate_writing_candidate(
             novel_id=data.novel_id,
             request_payload=payload,
             meta={
-            "novel_id": data.novel_id,
-            "chapter_index": data.chapter_index,
-            "title": data.title,
-            "instruction": data.instruction,
-            "context_confirmation_id": data.context_confirmation_id,
-            "generation_mode": data.generation_mode,
-            "base_draft_id": data.base_draft_id,
-            "llm_execution_snapshot": llm_execution_snapshot,
-        },
+                "novel_id": data.novel_id,
+                "chapter_index": data.chapter_index,
+                "title": data.title,
+                "instruction": data.instruction,
+                "context_confirmation_id": data.context_confirmation_id,
+                "generation_mode": data.generation_mode,
+                "base_draft_id": data.base_draft_id,
+                "llm_execution_snapshot": llm_execution_snapshot,
+            },
         )
     except ValueError as exc:
         from fastapi import HTTPException

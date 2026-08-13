@@ -53,8 +53,7 @@ async def get_scene_execution_bundle(
         **{name: meta.get(name) for name in _META_FIELDS},
     )
     scene_payload = {
-        key: getattr(execution_scene, key)
-        for key in execution_scene.__dataclass_fields__
+        key: getattr(execution_scene, key) for key in execution_scene.__dataclass_fields__
     }
     scene_manifest = {
         "type": "scene",
@@ -101,7 +100,7 @@ async def get_scene_execution_bundle(
             "id": str(revision.id),
             "version": str(revision.version_number),
             "hash": revision.content_hash,
-        }
+        },
     ]
     if profile_hash is not None:
         manifest.append(
@@ -157,8 +156,7 @@ def _hash(payload: dict[str, Any]) -> str:
     def serialize(value: Any) -> Any:
         if hasattr(value, "__dataclass_fields__"):
             return {
-                key: serialize(getattr(value, key))
-                for key in value.__dataclass_fields__
+                key: serialize(getattr(value, key)) for key in value.__dataclass_fields__
             }
         if isinstance(value, list):
             return [serialize(item) for item in value]

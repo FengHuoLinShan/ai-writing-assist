@@ -293,12 +293,14 @@ async def test_apply_historical_revision_creates_new_immutable_revision(
     assert restored["base_revision_id"] == second["id"]
     assert restored["restored_from_revision_id"] == first["id"]
     assert restored["is_current"] is True
-    assert restored["provenance"]["story_execution_profile"] == first["provenance"][
-        "story_execution_profile"
-    ]
-    assert restored["provenance"]["story_execution_profile_hash"] == first[
-        "provenance"
-    ]["story_execution_profile_hash"]
+    assert (
+        restored["provenance"]["story_execution_profile"]
+        == first["provenance"]["story_execution_profile"]
+    )
+    assert (
+        restored["provenance"]["story_execution_profile_hash"]
+        == first["provenance"]["story_execution_profile_hash"]
+    )
 
     retry = await async_client.post(
         f"/api/outline/story-outline/revisions/{first['id']}/apply",

@@ -988,6 +988,7 @@ class WritingDraftService:
             for novel_id in parsed_ids
         }
 
+
 class WritingConflictCheckService:
     """Rule-based Scene conflict checks for the writing workbench."""
 
@@ -1491,9 +1492,7 @@ class WritingGenerationService:
         if not task_refs or task_refs[-1] != str(source_task_id):
             raise ValidationError("Writing generation task was superseded")
 
-        compile_options = dict(
-            getattr(confirmed_context, "compile_options", None) or {}
-        )
+        compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
         confirmed_chapter = compile_options.get("requested_chapter_index")
         if confirmed_chapter is None:
             confirmed_chapter = compile_options.get("chapter_index")
@@ -1741,9 +1740,10 @@ class WritingGenerationService:
             raise ValidationError(
                 "Continuation base draft is not an active manuscript version"
             )
-        if generation_mode == "continue" and not str(
-            getattr(draft, "content", "") or ""
-        ).strip():
+        if (
+            generation_mode == "continue"
+            and not str(getattr(draft, "content", "") or "").strip()
+        ):
             raise ValidationError("Continuation base draft is empty")
         return draft
 
@@ -1837,9 +1837,7 @@ class WritingGenerationService:
             source_task_id=source_task_id,
         )
         profile = self._task_profile(confirmed_context)
-        compile_options = dict(
-            getattr(confirmed_context, "compile_options", None) or {}
-        )
+        compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
         scene_id = str(compile_options.get("scene_id") or "") or None
         execution_bundle = await self._execution_bundle(
             db,
@@ -1847,9 +1845,7 @@ class WritingGenerationService:
             scene_id=scene_id,
         )
         execution_bundle_hash = (
-            str(execution_bundle.get("contract_hash") or "")
-            if execution_bundle
-            else None
+            str(execution_bundle.get("contract_hash") or "") if execution_bundle else None
         )
         base_draft = await self._load_generation_base(
             db,
@@ -2146,9 +2142,7 @@ class WritingGenerationService:
             confirmation_id=context_confirmation_id,
         )
         profile = self._profile_resolver.resolve(confirmed_context)
-        compile_options = dict(
-            getattr(confirmed_context, "compile_options", None) or {}
-        )
+        compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
         scene_id = str(compile_options.get("scene_id") or "") or None
         execution_bundle = await self._execution_bundle(
             db,
@@ -2156,9 +2150,7 @@ class WritingGenerationService:
             scene_id=scene_id,
         )
         execution_bundle_hash = (
-            str(execution_bundle.get("contract_hash") or "")
-            if execution_bundle
-            else None
+            str(execution_bundle.get("contract_hash") or "") if execution_bundle else None
         )
         base_draft = await self._load_generation_base(
             db,
@@ -2404,16 +2396,10 @@ def _generation_task_source_fingerprint(
                 {
                     "id": str(getattr(base_draft, "id", "")),
                     "novel_id": str(getattr(base_draft, "novel_id", "")),
-                    "chapter_index": int(
-                        getattr(base_draft, "chapter_index", 0) or 0
-                    ),
-                    "version_number": int(
-                        getattr(base_draft, "version_number", 0) or 0
-                    ),
+                    "chapter_index": int(getattr(base_draft, "chapter_index", 0) or 0),
+                    "version_number": int(getattr(base_draft, "version_number", 0) or 0),
                     "status": str(getattr(base_draft, "status", "")),
-                    "content_hash": str(
-                        getattr(base_draft, "content_hash", "") or ""
-                    ),
+                    "content_hash": str(getattr(base_draft, "content_hash", "") or ""),
                 }
                 if base_draft is not None
                 else None

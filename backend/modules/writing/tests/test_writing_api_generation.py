@@ -4,7 +4,6 @@ Writing 模块测试
 测试草稿 CRUD、版本管理、facade 和边界情况。
 """
 
-
 from __future__ import annotations
 
 import uuid

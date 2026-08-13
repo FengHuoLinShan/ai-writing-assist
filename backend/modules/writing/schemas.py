@@ -51,9 +51,7 @@ def project_writing_draft_state(
         review = provenance.get("independent_review")
         if not isinstance(review, dict):
             attention_reasons.append("semantic_review_required")
-        elif review.get("verdict") != "pass" or int(
-            review.get("blocking_count") or 0
-        ):
+        elif review.get("verdict") != "pass" or int(review.get("blocking_count") or 0):
             attention_reasons.append("semantic_review_blocked")
     if provenance.get("upstream_validation") == "stale":
         attention_reasons.append("upstream_stale")
