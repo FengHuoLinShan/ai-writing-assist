@@ -33,6 +33,7 @@ from modules.context.markdown_renderer import render_context_markdown as render_
 from modules.context.services import CompileOptions
 from modules.context.services.context_compiler import ContextCompiler
 from modules.context.services.protocol import Loader
+from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
 
 
 @pytest.mark.asyncio
@@ -1237,7 +1238,7 @@ class TestContextCompiler:
         assert "桥身仍然完好" in scene_state.content
         assert "守桥盟约仍然有效" in scene_state.content
         assert "位于旧桥东端" in scene_state.content
-        assert "桥东端的路当时可通行" in scene_state.content
+        assert "桥东端的路当时可通行" not in scene_state.content
         assert "同名对象的未来状态不得进入" not in scene_state.content
         assert "秦岚相信旧桥已毁" in role_state.content
         assert "秦岚相信旧桥已毁" not in scene_state.content
@@ -1254,7 +1255,13 @@ class TestContextCompiler:
             item["label"] == "旧桥"
             for item in scene_state.retrieval_metadata["omissions"]
         )
-        assert len(scene_state.retrieval_metadata["checkpoint_versions"]) == 5
+        assert (
+            scene_state.activation_reason == "当前 Scene 四维 checkpoint 与相关对象对照"
+        )
+        assert [
+            item["dimension"]
+            for item in scene_state.retrieval_metadata["checkpoint_versions"]
+        ] == list(SCENE_MEMORY_DIMENSIONS)
 
     def test_manual_scene_summary_does_not_hide_unanchored_objects(self) -> None:
         options = CompileOptions(

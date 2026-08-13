@@ -37,6 +37,7 @@ from modules.context.services.loaders import (
     WorldEntitiesLoader,
 )
 from modules.context.services.protocol import Loader
+from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +97,11 @@ SCOPE_LOADERS: dict[str, list[str]] = {
 }
 
 _PREREQUISITE_LOADERS = {"project", "world_entities"}
-_SCENE_STATE_DIMENSIONS = ("entities", "relations", "locations", "knowledge", "map")
 _SCENE_STATE_LABELS = {
     "entities": "人物与对象",
     "relations": "关系",
     "locations": "人物位置",
     "knowledge": "知识边界",
-    "map": "地图事实",
 }
 
 
@@ -1375,7 +1374,7 @@ class ContextCompiler:
             else "missing"
         )
 
-        for dimension in _SCENE_STATE_DIMENSIONS:
+        for dimension in SCENE_MEMORY_DIMENSIONS:
             item = items.get(dimension) or {}
             status = str(item.get("status") or missing_status)
             is_trusted = status == "ready" and (
@@ -1466,7 +1465,7 @@ class ContextCompiler:
             title="Scene 时点可证状态",
             content=content,
             status="director_only",
-            activation_reason="当前 Scene 五维 checkpoint 与相关对象对照",
+            activation_reason="当前 Scene 四维 checkpoint 与相关对象对照",
             sources=sources,
             can_exclude=False,
             retrieval_metadata={
@@ -1610,47 +1609,7 @@ class ContextCompiler:
             if details:
                 lines.append(f"- 人物位置｜{label}: {details}")
 
-        map_state = trusted.get("map", {}).get("state_json", {})
-        related_names = {
-            *historical_labels.values(),
-            *(label for label in related_labels.values() if label),
-        }
-        for _key, payload in sorted((map_state.get("facts_by_key") or {}).items()):
-            if not isinstance(payload, dict):
-                continue
-            target_id = cls._id_key(payload.get("target_entity_id"))
-            target_name = str(payload.get("target_name") or "")
-            if (
-                target_id not in related_ids
-                if target_id
-                else target_name not in related_names
-            ):
-                continue
-            details = cls._scene_state_details(
-                payload,
-                ("evidence_text", "summary", "description"),
-            ) or cls._scene_state_details(
-                payload.get("value_json") or {},
-                (
-                    "state",
-                    "reason",
-                    "field_key",
-                    "value",
-                    "resource_key",
-                    "status",
-                    "amount",
-                    "terrain_key",
-                    "crisis_key",
-                    "severity",
-                    "relation_type",
-                    "summary",
-                    "movement_mode",
-                ),
-            )
-            if details:
-                lines.append(f"- 地图事实｜{target_name or '相关对象'}: {details}")
-
-        for dimension in ("entities", "relations", "locations", "map"):
+        for dimension in ("entities", "relations", "locations"):
             item = trusted.get(dimension) or {}
             state = item.get("state_json") or {}
             if item.get("source") == "manual" and item.get("confirmed") is True:

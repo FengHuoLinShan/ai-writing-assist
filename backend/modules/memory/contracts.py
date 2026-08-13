@@ -9,6 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# Stable Scene-time state contract. Map/Atlas data is not Scene memory.
+SCENE_MEMORY_DIMENSIONS = (
+    "entities",
+    "relations",
+    "locations",
+    "knowledge",
+)
+
 
 @dataclass(frozen=True)
 class MemoryEventContract:

@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
+
 # ============================================================
 # 枚举
 # ============================================================
@@ -200,14 +202,6 @@ class MemoryStatusResponse(BaseModel):
     latest_snapshot_chapter: int | None = None
     has_stale: bool = False
     stale_from_chapter: int | None = None
-
-
-SCENE_MEMORY_DIMENSIONS = (
-    "entities",
-    "relations",
-    "locations",
-    "knowledge",
-)
 
 
 class SceneCheckpointResponse(BaseModel):

@@ -38,7 +38,8 @@ memory 模块维护小说世界的“变化历史”，不是再存一份正史�
 - `facade.capture_snapshot()`：跨模块手动生成快照
 - `facade.create_delta_log()`：跨模块写入结构化差分
 - `facade.ensure_scene_checkpoints()` / `get_scene_checkpoints()`：跨模块确保或读取
-  Scene 五维派生投影；不读取当前 World 作历史兜底
+  Scene 四维（`entities`、`relations`、`locations`、`knowledge`）派生投影；不读取当前
+  World 作历史兜底，AI 地图册不属于 Scene memory
 
 ## API
 

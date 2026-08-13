@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
 from modules.memory.models import MemorySceneCheckpoint
 from modules.memory.repositories import (
     EventRepository,
@@ -18,7 +19,6 @@ from modules.memory.repositories import (
     SceneSnapshotRepository,
 )
 from modules.memory.schemas import (
-    SCENE_MEMORY_DIMENSIONS,
     SceneCheckpointRepairRequest,
     SceneCheckpointRepairResponse,
     SceneCheckpointResponse,

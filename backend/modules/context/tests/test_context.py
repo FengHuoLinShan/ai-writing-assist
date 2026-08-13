@@ -555,7 +555,12 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
     scene_id = str(uuid.uuid4())
     await _add_active_project(db_session, novel_id)
 
-    def compiled(suffix: str, *, with_profile: bool = True) -> CompiledContext:
+    def compiled(
+        suffix: str,
+        *,
+        legacy_map_id: str = "map-legacy",
+        with_profile: bool = True,
+    ) -> CompiledContext:
         sections = []
         if with_profile:
             sections.append(
@@ -582,8 +587,14 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
                             "relations",
                             "locations",
                             "knowledge",
-                            "map",
                         )
+                    ]
+                    + [
+                        {
+                            "dimension": "map",
+                            "id": legacy_map_id,
+                            "status": "ready",
+                        }
                     ]
                 },
             )
@@ -600,6 +611,11 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
 
     compiler = FakeCompiler()
     service = ContextConfirmationService(compiler=compiler)
+    assert service._scene_state_fingerprint(  # noqa: SLF001 - contract regression
+        compiled("original", legacy_map_id="map-before")
+    ) == service._scene_state_fingerprint(  # noqa: SLF001 - contract regression
+        compiled("original", legacy_map_id="map-after")
+    )
     confirmation = await service.confirm_context(
         db_session,
         novel_id=novel_id,
