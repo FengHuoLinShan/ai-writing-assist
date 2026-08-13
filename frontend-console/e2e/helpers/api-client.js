@@ -242,6 +242,38 @@ export async function createReveal(novelId, data) {
   })
 }
 
+export async function listThreads(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/outline/threads?${query.toString()}`)
+}
+
+export async function listArcs(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/outline/arcs?${query.toString()}`)
+}
+
+export async function listForeshadowing(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/outline/foreshadowing?${query.toString()}`)
+}
+
+export async function listReveals(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/outline/reveals?${query.toString()}`)
+}
+
 // ---- World helpers ----
 
 export async function createEntity(novelId, data) {
@@ -253,6 +285,14 @@ export async function createEntity(novelId, data) {
 
 export async function listEntityTypes(novelId) {
   return request(`/world/entity-types?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function listEntities(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/world/entities?${query.toString()}`)
 }
 
 export async function createAlias(novelId, data) {

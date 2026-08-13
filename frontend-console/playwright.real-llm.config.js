@@ -7,7 +7,6 @@ if (process.env.ENABLE_REAL_LLM !== "1") {
 export default createE2EConfig({
   profile: "test:e2e:real-llm",
   testMatch: [
-    "deep-import-real.spec.js",
     "outline-real-llm.spec.js",
     "writing-conflict-real-llm.spec.js",
   ],

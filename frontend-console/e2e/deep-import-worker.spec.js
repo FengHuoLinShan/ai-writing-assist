@@ -26,12 +26,23 @@ import {
   connectAccountLLMProvider,
   createProject,
   getTask,
+  listArcs,
+  listEntities,
+  listForeshadowing,
+  listReveals,
+  listScenesOrdered,
+  listThreads,
   waitForBackend,
 } from "./helpers/api-client.js"
 import { createPersistentBrowserProfile } from "./helpers/persistent-browser.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TERMINAL_TASK_STATUSES = new Set(["done", "failed", "cancelled"])
+
+function assetCount(task, kind) {
+  return Object.values(task.result?.asset_summary?.by_kind?.[kind] || {})
+    .reduce((total, value) => total + Number(value || 0), 0)
+}
 
 function timeoutFromEnv(name, fallback, minimum = 1_000) {
   const value = Number(process.env[name] || fallback)
@@ -221,9 +232,37 @@ test.describe("深度导入异步 Worker 受理", () => {
         "entity_extraction",
         "structure_analysis",
       ]))
+      expect(task.result.quality_status).toBe("complete")
+      expect(task.result.degraded).toBe(false)
+      expect(assetCount(task, "scene")).toBeGreaterThan(0)
+      expect(assetCount(task, "entity")).toBeGreaterThan(0)
+      expect(assetCount(task, "structure")).toBeGreaterThan(0)
+
+      const [scenes, entities, threads, arcs, foreshadowing, reveals] = await Promise.all([
+        listScenesOrdered(testProjectId),
+        listEntities(testProjectId, { source: "deep_import" }),
+        listThreads(testProjectId, { source: "deep_import" }),
+        listArcs(testProjectId, { source: "deep_import" }),
+        listForeshadowing(testProjectId, { source: "deep_import" }),
+        listReveals(testProjectId, { source: "deep_import" }),
+      ])
+      expect(scenes.some((scene) => scene.source === "deep_import")).toBe(true)
+      expect(entities.items.length).toBeGreaterThan(0)
+      expect(
+        threads.items.length + arcs.items.length
+          + foreshadowing.items.length + reveals.items.length,
+      ).toBeGreaterThan(0)
       await expect(recoveryPage.locator(SEL.deepImportMapNext)).toBeVisible({
         timeout: 15_000,
       })
+
+      await recoveryPage.evaluate(() => window.router.navigate("outline", "scenes"))
+      await expect(recoveryPage.locator(".scene-workbench-row").first()).toBeVisible({
+        timeout: 15_000,
+      })
+      await expect(recoveryPage.locator(".scene-workbench-row").filter({
+        hasText: "深度导入",
+      }).first()).toBeVisible()
 
       // 完成态在未确认关闭前必须再次跨浏览器进程恢复。
       await browserProfile.close()
