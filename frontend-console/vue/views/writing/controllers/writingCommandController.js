@@ -1,5 +1,4 @@
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
-import { findCurrentScene } from "../../../../shared/sceneLocator.js"
 import {
   clearActiveWorkflow,
   createOperationId,
@@ -20,7 +19,7 @@ export function createWritingCommandController({
   toast,
   getProjectId,
   getChapter,
-  getScenes,
+  getScene = () => null,
   editor,
   onResult,
   onLoadingChange = () => {},
@@ -38,11 +37,7 @@ export function createWritingCommandController({
     return {
       projectId: getProjectId(),
       chapter,
-      scene: findCurrentScene({
-        scenes: getScenes(),
-        chapterIndex: chapter,
-        cursorOffset: editor.getCursorOffset(),
-      }),
+      scene: getScene(),
     }
   }
 
@@ -235,8 +230,8 @@ export function createWritingCommandController({
         ? `${confirmation.user_note ? `${confirmation.user_note}\n\n` : ""}请严格使用视角人物在当前场景可见的信息生成正文建议。`
         : (confirmation.user_note || "")
       const operationId = createOperationId()
-      const workflowMeta = { chapter, mode }
-      const editorBaseline = { chapter, draftId: editor.getDraftId(), content: editor.getContent() }
+      const workflowMeta = { chapter, mode, sceneId: scene?.id || null }
+      const editorBaseline = { chapter, sceneId: scene?.id || null, draftId: editor.getDraftId(), content: editor.getContent() }
       persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议", projectId, view: "writing", meta: workflowMeta }, receiptStorage)
       onProgress({ taskId: operationId, progress: normalizeTaskProgress({ id: operationId, task_type: "writing_generate", status: "pending" }, "writing_generate") })
       let submitted
@@ -261,8 +256,11 @@ export function createWritingCommandController({
         }, "writing_generate"),
         result: readyResult,
       })
-      const editorUnchanged = getChapter() === editorBaseline.chapter && editor.getDraftId() === editorBaseline.draftId && editor.getContent() === editorBaseline.content
-      if (editorUnchanged) await openResult()
+      const editorUnchanged = getChapter() === editorBaseline.chapter
+        && (getScene()?.id || null) === editorBaseline.sceneId
+        && editor.getDraftId() === editorBaseline.draftId
+        && editor.getContent() === editorBaseline.content
+      if (editorUnchanged) { await openResult(); toast("正文建议已生成，已打开待审阅版本", "success") } else toast("正文建议已生成，已保留当前编辑内容", "success")
       return completed
     } catch (err) {
       if (err === ABORTED || disposed || token !== generation) return null

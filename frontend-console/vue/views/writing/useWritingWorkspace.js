@@ -15,7 +15,6 @@ import {
   getToast,
 } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
-import { findCurrentScene } from "../../../shared/sceneLocator.js"
 import { buildSceneAlerts } from "../../../views/writing/sceneAlerts.js"
 import { buildVersionDiff } from "../../../views/writing/versionDiff.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
@@ -26,7 +25,11 @@ import { createEditorController, substantiveWritingText } from "./controllers/ed
 import { createWritingCommandController } from "./controllers/writingCommandController.js"
 import { createDeepImportController } from "./controllers/deepImportController.js"
 import { createConflictController } from "./controllers/conflictController.js"
-import { getWritingSession, rememberWritingLocation } from "./writingSession.js"
+import {
+  getWritingSession,
+  rememberedSceneForChapter,
+  rememberWritingLocation,
+} from "./writingSession.js"
 import { projectSettingsSession } from "../settings/projectSettingsSession.js"
 
 function normalizeChapters(data = {}) {
@@ -46,6 +49,23 @@ function normalizeChapters(data = {}) {
     if (!chapters[index]) chapters[index] = { chapter_index: index, title: "", word_count: 0, status: "draft" }
   }
   return { chapterList: [...new Set(indices)].sort((a, b) => a - b), chapters }
+}
+
+function sceneMatchesChapter(scene, chapter) {
+  const target = Number(chapter)
+  return (scene?.chapter_ids || []).some((item) => Number(item) === target)
+    || (scene?.scene_chunks || []).some((chunk) => (
+      Number(chunk.chapter_index ?? chunk.chapter_id) === target
+    ))
+}
+
+function activeScene(scene) {
+  return ["draft", "canonical"].includes(scene?.status)
+}
+
+function compareScenes(left, right) {
+  return Number(left?.scene_index ?? Number.MAX_SAFE_INTEGER) - Number(right?.scene_index ?? Number.MAX_SAFE_INTEGER)
+    || String(left?.id || "").localeCompare(String(right?.id || ""))
 }
 
 export async function loadWritingProps() {
@@ -165,14 +185,12 @@ export function useWritingWorkspace(props) {
   let publishTimer = null
   let lastPublishPayload = null
 
-  const inferredScene = computed(() => findCurrentScene({
-    scenes: scenes.value,
-    chapterIndex: selectedChapter.value,
-    cursorOffset: editorState.cursorOffset,
-  }))
+  const activeScenes = computed(() => scenes.value.filter(activeScene).sort(compareScenes))
+  const chapterScenes = computed(() => activeScenes.value.filter((scene) => (
+    sceneMatchesChapter(scene, selectedChapter.value)
+  )))
   const currentScene = computed(() => (
-    scenes.value.find((scene) => scene.id === selectedSceneId.value)
-    || inferredScene.value
+    chapterScenes.value.find((scene) => scene.id === selectedSceneId.value) || null
   ))
   const mobileMode = computed(() => isNarrow.value && !forceDesktop.value && selectedChapter.value && !editorState.readonly)
   const canEdit = computed(() => selectedChapter.value != null && !editorState.readonly)
@@ -197,7 +215,6 @@ export function useWritingWorkspace(props) {
     confirm,
     confirmDialog,
     getProjectId: () => projectId,
-    getScenes: () => scenes.value,
     onChange: (value) => {
       Object.assign(editorState, value)
       if (value.chapter && chapters[value.chapter] && !["candidate", "deprecated"].includes(value.status)) {
@@ -211,10 +228,6 @@ export function useWritingWorkspace(props) {
       syncLegacyState()
       dispatchDashboardUpdate()
       refreshSceneAlerts()
-    },
-    onSceneChange: (sceneId) => {
-      selectedSceneId.value = sceneId
-      loadSceneContext()
     },
     onVersionChanged: async () => {
       if (!selectedChapter.value || getAppState()?.currentProjectId !== projectId) return
@@ -239,12 +252,19 @@ export function useWritingWorkspace(props) {
     },
   })
 
+  const checkMatchesSelection = (check) => !check || (
+    (!check.novel_id || check.novel_id === projectId)
+    && (check.chapter_index == null || Number(check.chapter_index) === Number(selectedChapter.value))
+    && (!check.scene_id || check.scene_id === (currentScene.value?.id || null))
+  )
+
   const conflictActions = createConflictController({
     api,
     toast,
     getProjectId: () => getAppState()?.currentProjectId === projectId ? projectId : null,
     getCheck: () => conflictDialog.check,
     onCheck: (check) => {
+      if (!checkMatchesSelection(check)) return
       conflictDialog.check = check
       conflictState.latest = check
       refreshSceneAlerts()
@@ -272,7 +292,7 @@ export function useWritingWorkspace(props) {
     toast,
     getProjectId: () => projectId,
     getChapter: () => selectedChapter.value,
-    getScenes: () => scenes.value,
+    getScene: () => currentScene.value,
     editor,
     onResult: applyCommandResult,
     onLoadingChange: (value) => { generationLoading.value = Boolean(value) },
@@ -354,12 +374,14 @@ export function useWritingWorkspace(props) {
 
   async function selectChapter(chapter, options = {}) {
     const next = Number(chapter) || null
+    const rememberedSceneId = rememberedSceneForChapter(projectId, next)
     const generation = ++selectionGeneration
     const chapterChanged = selectedChapter.value !== next
     if (selectedChapter.value && chapterChanged) await editor.autosave()
     if (generation !== selectionGeneration || disposed.value) return false
     selectedChapter.value = next
     selectedSceneId.value = null
+    void loadSceneContext()
     if (chapterChanged) versions.value = []
     if (!next) {
       await editor.loadChapter(null)
@@ -371,16 +393,22 @@ export function useWritingWorkspace(props) {
       loadVersions(next, generation),
     ])
     if (!loaded || generation !== selectionGeneration || disposed.value) return false
-    const requestedScene = scenes.value.find((scene) => (
-      scene.id === options.sceneId
-      && (
-        (scene.chapter_ids || []).includes(String(next))
-        || (scene.scene_chunks || []).some((chunk) => (
-          Number(chunk.chapter_index) === next
-        ))
-      )
-    ))
-    selectedSceneId.value = requestedScene?.id || inferredScene.value?.id || null
+    const available = activeScenes.value.filter((scene) => sceneMatchesChapter(scene, next))
+    const requestedScene = available.find((scene) => scene.id === options.sceneId)
+    const rememberedScene = available.find((scene) => scene.id === rememberedSceneId)
+    selectedSceneId.value = requestedScene?.id
+      || rememberedScene?.id
+      || available[0]?.id
+      || null
+    syncLegacyState()
+    await loadSceneContext()
+    return true
+  }
+
+  async function selectScene(sceneId) {
+    const scene = chapterScenes.value.find((item) => item.id === sceneId)
+    if (!scene || selectedSceneId.value === scene.id) return Boolean(scene)
+    selectedSceneId.value = scene.id
     syncLegacyState()
     await loadSceneContext()
     return true
@@ -407,6 +435,11 @@ export function useWritingWorkspace(props) {
       const data = await api.outline.listScenesOrdered(projectId)
       if (disposed.value || getAppState()?.currentProjectId !== projectId) return false
       scenes.value = Array.isArray(data) ? data : []
+      const available = activeScenes.value.filter((scene) => sceneMatchesChapter(scene, selectedChapter.value))
+      if (!available.some((scene) => scene.id === selectedSceneId.value)) {
+        selectedSceneId.value = available[0]?.id || null
+        await loadSceneContext()
+      }
       syncLegacyState()
       return true
     } catch (err) {
@@ -415,6 +448,41 @@ export function useWritingWorkspace(props) {
       }
       return false
     }
+  }
+
+  function upsertScene(scene) {
+    const index = scenes.value.findIndex((item) => item.id === scene?.id)
+    scenes.value = index < 0
+      ? [...scenes.value, scene]
+      : scenes.value.map((item, itemIndex) => itemIndex === index ? { ...item, ...scene } : item)
+  }
+
+  async function associateScene(sceneId) {
+    const chapter = selectedChapter.value
+    if (!chapter) throw new Error("请先选择章节")
+    const result = await api.outline.associateSceneWithChapter(projectId, chapter, sceneId)
+    if (disposed.value || getAppState()?.currentProjectId !== projectId || chapter !== selectedChapter.value) return null
+    const existing = scenes.value.find((item) => item.id === sceneId)
+    upsertScene(result?.id ? result : {
+      ...existing,
+      chapter_ids: [...new Set([...(existing?.chapter_ids || []).map(String), String(chapter)])],
+    })
+    if (!selectedSceneId.value) await selectScene(sceneId)
+    else syncLegacyState()
+    return scenes.value.find((item) => item.id === sceneId) || result
+  }
+
+  async function createSceneForChapter(title) {
+    const chapter = selectedChapter.value
+    const normalized = String(title || "").trim()
+    if (!chapter) throw new Error("请先选择章节")
+    if (!normalized || normalized.length > 255) throw new Error("名称需为 1–255 个字符")
+    const result = await api.outline.createSceneForChapter(projectId, chapter, normalized)
+    if (disposed.value || getAppState()?.currentProjectId !== projectId || chapter !== selectedChapter.value) return null
+    upsertScene(result)
+    if (!selectedSceneId.value) await selectScene(result.id)
+    else syncLegacyState()
+    return result
   }
 
   function openDeepImportSettings() {
@@ -624,17 +692,27 @@ export function useWritingWorkspace(props) {
 
   async function confirmBeforePublish() {
     let latest = null
+    const chapter = selectedChapter.value
+    const sceneId = currentScene.value?.id || null
+    const sceneToken = sceneGeneration
+    const ownsRequest = () => (
+      !disposed.value
+      && getAppState()?.currentProjectId === projectId
+      && chapter === selectedChapter.value
+      && sceneId === (currentScene.value?.id || null)
+      && sceneToken === sceneGeneration
+    )
     try {
       const result = await api.writing.listConflictChecks({
         novel_id: projectId,
-        chapter_index: selectedChapter.value,
-        scene_id: currentScene.value?.id || null,
+        chapter_index: chapter,
+        scene_id: sceneId,
         limit: 1,
       })
-      if (disposed.value || getAppState()?.currentProjectId !== projectId) return false
+      if (!ownsRequest()) return false
       latest = result?.items?.[0] || null
     } catch (err) {
-      if (disposed.value || getAppState()?.currentProjectId !== projectId) return false
+      if (!ownsRequest()) return false
       toast(`无法读取正式正文前的设定检查：${err?.message || "服务暂不可用"}。本次操作已停止，请稍后重试。`, "error")
       return false
     }
@@ -788,9 +866,13 @@ export function useWritingWorkspace(props) {
     if (!canEdit.value || conflictState.loading) return
     const generation = selectionGeneration
     const chapter = selectedChapter.value
+    const sceneId = currentScene.value?.id || null
+    const sceneToken = sceneGeneration
     const ownsRequest = () => (
       generation === selectionGeneration
       && chapter === selectedChapter.value
+      && sceneToken === sceneGeneration
+      && sceneId === (currentScene.value?.id || null)
       && !disposed.value
       && getAppState()?.currentProjectId === projectId
     )
@@ -803,7 +885,7 @@ export function useWritingWorkspace(props) {
       const check = await api.writing.createConflictCheck({
         novel_id: projectId,
         chapter_index: chapter,
-        scene_id: currentScene.value?.id || null,
+        scene_id: sceneId,
         draft_id: editorState.draftId,
         version_number: editorState.versionNumber,
         content: editorState.content,
@@ -859,9 +941,19 @@ export function useWritingWorkspace(props) {
 
   async function refreshConflictCheck(checkId) {
     if (!checkId) return null
+    const chapter = selectedChapter.value
+    const sceneId = currentScene.value?.id || null
+    const sceneToken = sceneGeneration
     try {
       const updated = await api.writing.getConflictCheck(checkId, projectId)
-      if (getAppState()?.currentProjectId !== projectId) return null
+      if (
+        disposed.value
+        || getAppState()?.currentProjectId !== projectId
+        || chapter !== selectedChapter.value
+        || sceneId !== (currentScene.value?.id || null)
+        || sceneToken !== sceneGeneration
+        || !checkMatchesSelection(updated)
+      ) return null
       conflictState.latest = updated
       if (conflictDialog.open && (!conflictDialog.check?.id || conflictDialog.check.id === updated?.id)) {
         conflictDialog.check = updated
@@ -950,12 +1042,29 @@ export function useWritingWorkspace(props) {
 
   async function loadSceneContext() {
     const scene = currentScene.value
+    const chapter = selectedChapter.value
     const generation = ++sceneGeneration
+    conflictState.loading = false
+    conflictState.latest = null
+    conflictState.error = null
+    conflictDialog.open = false
+    conflictDialog.check = null
+    conflictDialog.error = null
+    conflictDialog.sourcePreview = null
+    conflictDialog.busy = false
+    Object.assign(conflictTask, { taskId: null, progress: null })
     sceneState.people = []
     sceneState.location = null
+    sceneState.loading = Boolean(scene?.id)
     refreshSceneAlerts()
     if (!scene?.id) return
-    sceneState.loading = true
+    const ownsRequest = () => (
+      generation === sceneGeneration
+      && chapter === selectedChapter.value
+      && scene.id === selectedSceneId.value
+      && !disposed.value
+      && getAppState()?.currentProjectId === projectId
+    )
     try {
       const entityQuery = (entityType) => api.world.listEntities({
         novel_id: projectId,
@@ -966,16 +1075,16 @@ export function useWritingWorkspace(props) {
         limit: 12,
       })
       const [checkResult, peopleResult, locationResult] = await Promise.allSettled([
-        api.writing.listConflictChecks({ novel_id: projectId, chapter_index: selectedChapter.value, scene_id: scene.id, limit: 1 }),
+        api.writing.listConflictChecks({ novel_id: projectId, chapter_index: chapter, scene_id: scene.id, limit: 1 }),
         entityQuery("character"),
         entityQuery("location"),
       ])
-      if (generation !== sceneGeneration || disposed.value || getAppState()?.currentProjectId !== projectId) return
+      if (!ownsRequest()) return
       if (checkResult.status === "fulfilled") {
         const candidate = checkResult.value?.items?.[0] || null
         const mismatch = candidate && (
           (candidate.novel_id && candidate.novel_id !== projectId)
-          || (candidate.chapter_index != null && Number(candidate.chapter_index) !== Number(selectedChapter.value))
+          || (candidate.chapter_index != null && Number(candidate.chapter_index) !== Number(chapter))
           || (candidate.scene_id && candidate.scene_id !== scene.id)
         )
         conflictState.latest = mismatch ? null : candidate
@@ -998,7 +1107,7 @@ export function useWritingWorkspace(props) {
       sceneState.location = scene.primary_location || scene.location
         || (locationResult.status === "fulfilled" ? listItems(locationResult.value)[0] : null)
     } finally {
-      if (generation === sceneGeneration) {
+      if (ownsRequest()) {
         sceneState.loading = false
         refreshSceneAlerts()
       }
@@ -1088,7 +1197,12 @@ export function useWritingWorkspace(props) {
     event.returnValue = ""
   }
 
-  function resize() { isNarrow.value = window.innerWidth <= 760 }
+  function resize() {
+    isNarrow.value = window.innerWidth <= 760
+    if (isNarrow.value && !selectedChapter.value && chapterList.value[0]) {
+      void selectChapter(chapterList.value[0])
+    }
+  }
 
   watch(focusMode, (active) => {
     document.body.classList.toggle("focus-mode-active", active)
@@ -1109,6 +1223,8 @@ export function useWritingWorkspace(props) {
         isReadonly: requested.isReadonly,
         sceneId: requested.sceneId,
       })
+    } else if (isNarrow.value && chapterList.value[0]) {
+      await selectChapter(chapterList.value[0])
     }
     void commands.recover()
     void conflictActions.recover()
@@ -1148,6 +1264,8 @@ export function useWritingWorkspace(props) {
     chapterList,
     chapters,
     scenes,
+    activeScenes,
+    chapterScenes,
     chapterLoadError,
     versions,
     versionLoadError,
@@ -1176,6 +1294,9 @@ export function useWritingWorkspace(props) {
     activeVersions,
     saveStatus,
     selectChapter,
+    selectScene,
+    associateScene,
+    createSceneForChapter,
     createChapter,
     deleteChapters,
     switchVersion,

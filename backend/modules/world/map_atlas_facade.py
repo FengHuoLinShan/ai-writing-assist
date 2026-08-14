@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.facade import enqueue_task
 from modules.world.map_atlas_storage import project_object_prefix
+from modules.world.world_object_images import project_image_prefix
 
 
 async def enqueue_map_atlas_project_cleanup(
@@ -22,6 +23,16 @@ async def enqueue_map_atlas_project_cleanup(
             meta={
                 "cleanup_kind": "project_prefix",
                 "object_prefix": project_object_prefix(novel_id),
+                "delete_batch": str(uuid.uuid4()),
+            },
+            novel_id=None,
+        )
+        enqueue_task(
+            db,
+            "world_object_image_cleanup",
+            meta={
+                "cleanup_kind": "project_prefix",
+                "object_prefix": project_image_prefix(novel_id),
                 "delete_batch": str(uuid.uuid4()),
             },
             novel_id=None,

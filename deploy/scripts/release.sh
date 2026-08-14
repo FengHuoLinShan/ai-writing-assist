@@ -133,7 +133,11 @@ if ! compose stop api worker frontend; then
     exit 1
 fi
 
-compose up -d postgres embedding
+compose up -d postgres embedding minio
+if ! compose up -d --force-recreate minio-init || ! compose wait minio-init; then
+    echo "Private MinIO bucket initialization failed; application services were not started." >&2
+    exit 1
+fi
 
 FIRST_RELEASE_STATE_KIND=$(migration_guard_state_kind)
 if [ "$FIRST_RELEASE_STATE_KIND" = first-release ] \

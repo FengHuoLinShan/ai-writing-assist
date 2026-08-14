@@ -23,7 +23,19 @@ from core.config import (
     validate_cors_origins,
     validate_http_rate_limit_config,
     validate_llm_rate_limit_config,
+    validate_map_atlas_s3_endpoint_url,
 )
+
+
+def test_internal_minio_http_endpoint_is_production_only(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    assert validate_map_atlas_s3_endpoint_url("http://minio:9000") == "http://minio:9000"
+    for endpoint in ("http://localhost:9000", "http://127.0.0.1:9000"):
+        with pytest.raises(RuntimeError, match="https"):
+            validate_map_atlas_s3_endpoint_url(endpoint)
+    monkeypatch.setenv("APP_ENV", "development")
+    with pytest.raises(RuntimeError, match="https"):
+        validate_map_atlas_s3_endpoint_url("http://minio:9000")
 
 
 class TestSettingsEffectiveDefaults:

@@ -428,10 +428,46 @@
    ---------------------------------------------------------- */
 
 .writing-tree-rail .chapter-tree-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: var(--space-3);
   border: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.chapter-tree-shell {
+  position: relative;
+  min-height: 132px;
+}
+
+.chapter-tree-collapse-handle {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  left: -22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 24px;
+  padding: 7px 3px;
+  border: 1px solid var(--nc-hairline-strong);
+  border-right: 0;
+  border-radius: 4px 0 0 4px;
+  background: var(--archive-paper-raised);
+  color: var(--nc-dim);
+  font-size: 11px;
+  line-height: 1.05;
+  cursor: pointer;
+}
+
+.chapter-tree-collapse-handle:hover,
+.chapter-tree-collapse-handle:focus-visible {
+  color: var(--nc-ink);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .chapter-tree-header {
@@ -439,6 +475,13 @@
   gap: 6px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--nc-hairline-strong);
+}
+
+.chapter-tree-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .chapter-tree-title {
@@ -515,48 +558,11 @@
   letter-spacing: 0.08em;
 }
 
-/* Scene 分组：索引带 */
-.scene-tree-scene {
-  position: sticky;
-  top: -8px;
-  z-index: 1;
-  gap: 6px;
-  margin: 8px -4px 4px;
-  padding: 5px 8px;
-  border-top: 1px solid var(--archive-rule);
-  border-bottom: 1px solid var(--archive-rule);
-  background: color-mix(in srgb, var(--archive-paper-muted) 62%, var(--archive-paper-raised));
-}
-
-.scene-tree-label {
-  font-family: var(--font-body);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.scene-tree-label--current {
-  color: var(--nc-ink);
-  font-weight: 700;
-}
-
-.scene-tree-count {
-  margin-left: auto;
-  flex: 0 0 auto;
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.scene-tree-chapters {
-  padding-left: 10px;
-}
-
 /* 章节行：状态点 + 章号 + 标题 + 字数；当前章 surface 底 + ink 加粗 */
 .chapter-row {
   min-height: 40px;
   padding: 6px 8px;
+  border-left: 0;
   border-radius: 2px;
   color: var(--nc-dim);
   transition: background 0.12s var(--ease-default);
@@ -618,6 +624,16 @@
   padding-top: 6px;
 }
 
+.chapter-tree-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--archive-rule);
+}
+
+.chapter-tree-create {
+  width: 100%;
+  margin-top: 8px;
+}
+
 .chapter-tree-bulk-toolbar {
   padding: 8px;
   border: 1px dashed var(--archive-rule-strong);
@@ -649,6 +665,124 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.scene-cockpit-switcher {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--nc-hairline);
+}
+
+.scene-cockpit-switcher__head,
+.scene-associate-row,
+.scene-associate-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scene-cockpit-switcher__head strong {
+  color: var(--nc-ink);
+  font-size: 12px;
+}
+
+.scene-cockpit-switcher__list {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.scene-cockpit-switcher__item {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  max-width: 190px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--nc-hairline-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nc-dim);
+  cursor: pointer;
+}
+
+.scene-cockpit-switcher__item > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-cockpit-switcher__item small {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+
+.scene-cockpit-switcher__item.active {
+  border-color: var(--nc-accent);
+  background: var(--nc-surface);
+  color: var(--nc-ink);
+  font-weight: 700;
+}
+
+.scene-cockpit-switcher__empty {
+  margin: 8px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.scene-associate-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.scene-associate-search {
+  display: block;
+}
+
+.scene-associate-list {
+  max-height: min(420px, 55vh);
+  margin-top: 10px;
+  overflow-y: auto;
+  border-block: 1px solid var(--nc-hairline);
+}
+
+.scene-associate-row {
+  position: relative;
+  flex-wrap: wrap;
+  min-height: 44px;
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--nc-hairline);
+}
+
+.scene-associate-row > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-associate-row .writing-form-error {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.scene-associate-check {
+  flex: 0 0 auto;
+  color: var(--success);
+  font-weight: 800;
+}
+
+.scene-associate-create {
+  display: grid;
+  gap: 10px;
+}
+
+.writing-form-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: 12px;
 }
 
 .writing-rail-heading-label--copilot {
@@ -1674,6 +1808,21 @@
   padding: 12px 14px;
   border-bottom: 1px solid var(--archive-rule-strong);
   background: color-mix(in srgb, var(--archive-paper-muted) 55%, transparent);
+}
+
+.mobile-note-scene {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--archive-rule);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.mobile-note-scene select {
+  min-width: 0;
+  max-width: 70%;
 }
 
 .mobile-note-chapter {

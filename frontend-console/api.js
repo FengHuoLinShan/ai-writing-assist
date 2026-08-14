@@ -533,7 +533,7 @@ function uploadMultipart(path, formData, onProgress = null, options = {}) {
       cleanup()
       reject(new DOMException("上传已取消", "AbortError"))
     }
-    xhr.open("POST", `${API_BASE_URL}${path}`)
+    xhr.open(options?.method || "POST", `${API_BASE_URL}${path}`)
     xhr.withCredentials = true
     xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
     const csrfToken = _cookieValue("aaw_csrf")
@@ -1040,6 +1040,26 @@ const api = {
 
     async getEntity(id, novelId) {
       return contractFetch("world.getEntity", { id }, { novel_id: novelId })
+    },
+
+    async fetchEntityImage(id, novelId, variant = "full", options = {}) {
+      return contractFetch(
+        "world.fetchEntityImage",
+        { id },
+        { novel_id: novelId, variant },
+        { cache: "no-store", _responseType: "blob", ...options },
+      )
+    },
+
+    async uploadEntityImage(id, file, novelId, onProgress = null, options = {}) {
+      const body = new FormData()
+      body.append("image", file)
+      return uploadMultipart(
+        contractPath("world.uploadEntityImage", { id }, { novel_id: novelId }),
+        body,
+        onProgress,
+        { ...options, method: "PUT" },
+      )
     },
 
     async listProfiles(params = {}) {
@@ -1957,6 +1977,12 @@ const api = {
     },
     async updateSceneWorkbenchMapping(novelId, sceneId, data) {
       return patch(withQuery(`/outline/scene-workbench/scenes/${sceneId}/mapping`, { novel_id: novelId }), data)
+    },
+    async associateSceneWithChapter(novelId, chapterIndex, sceneId) {
+      return post(withQuery(`/outline/scene-workbench/chapters/${chapterIndex}/scenes/${sceneId}`, { novel_id: novelId }))
+    },
+    async createSceneForChapter(novelId, chapterIndex, title) {
+      return post(withQuery(`/outline/scene-workbench/chapters/${chapterIndex}/scenes`, { novel_id: novelId }), { title })
     },
     async reviewSceneWorkbench(novelId, data) {
       return post(withQuery("/outline/scene-workbench/review", { novel_id: novelId }), data)

@@ -919,10 +919,24 @@ html, body {
   margin-bottom: var(--space-2);
 }
 
+.world-filter-panel__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 .world-filter-panel__toggle {
   gap: var(--space-1);
   margin-bottom: var(--space-1);
   color: var(--text-secondary);
+}
+
+.world-filter-panel__card-hint {
+  margin-bottom: var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .world-filter-panel__active {
@@ -952,10 +966,15 @@ html, body {
 .world-object-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  grid-auto-rows: 1fr;
   gap: var(--space-4);
 }
 
 .world-object-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-width: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -963,11 +982,29 @@ html, body {
   padding: var(--space-4);
 }
 
+.world-object-card__open {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.world-object-card__open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .world-object-card__top {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: start;
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .world-object-card__avatar {
@@ -978,6 +1015,24 @@ html, body {
   place-items: center;
   color: #fff;
   font-weight: 700;
+  overflow: hidden;
+}
+
+.world-object-card__avatar--image {
+  background: var(--bg-hover);
+}
+
+.world-object-card__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 25%;
+}
+
+.world-object-card__selection {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
 }
 
 .world-object-card__identity {
@@ -1011,10 +1066,68 @@ html, body {
   margin: var(--space-3) 0;
   color: var(--text-secondary);
   line-height: var(--leading-normal);
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .world-object-card__actions {
-  margin-top: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.world-object-card__facts {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.world-object-card .action-menu-list {
+  left: 0;
+  right: auto;
+}
+
+.world-entity-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.world-entity-editor__image {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.world-entity-editor__image-status {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.world-entity-editor__image-full {
+  display: block;
+  width: 100%;
+  max-height: min(58vh, 560px);
+  object-fit: contain;
+}
+
+@media (max-width: 760px) {
+  .world-entity-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .world-entity-editor__image {
+    min-height: 180px;
+  }
 }
 
 .world-bible-toolbar {
@@ -1776,57 +1889,6 @@ label.llm-clear-key {
 .chapter-tree-title {
   font-size: 13px;
   font-weight: 700;
-}
-
-.scene-tree-scene {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.scene-tree-toggle,
-.scene-tree-label {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.scene-tree-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border-radius: 4px;
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
-.scene-tree-toggle:hover,
-.scene-tree-toggle:focus-visible,
-.scene-tree-label:hover,
-.scene-tree-label:focus-visible {
-  background: var(--bg-hover);
-}
-
-.scene-tree-toggle:focus-visible,
-.scene-tree-label:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.scene-tree-label {
-  min-width: 0;
-  padding: 2px 4px;
-  border-radius: 4px;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .chapter-row {

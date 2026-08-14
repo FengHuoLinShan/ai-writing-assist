@@ -37,7 +37,7 @@ infrastructure/tasks/
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
   `world_bible_synopsis_refresh`、`world_generation_suggestion`、`map_atlas_generate`、
-  `map_atlas_storage_cleanup`
+  `map_atlas_storage_cleanup`、`world_object_image_cleanup`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
   `outline_generate`、`scene_fusion_preview`
@@ -54,9 +54,9 @@ infrastructure/tasks/
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
 imports result，恢复、rollback 与 asset summary 仍由 imports 自己拥有。
 
-`map_atlas_storage_cleanup` 是唯一 `owner_scope=global` 处理器：`novel_id=NULL`。项目永久
-删除任务只保存 canonical 项目前缀与删除批次；上传失败的精确补偿任务只保存
-canonical page object key 与删除批次。两者均不保存 S3 凭证，不进入普通 task API。
+两个存储清理处理器均为 `owner_scope=global`：`novel_id=NULL`。项目永久删除任务
+只保存 canonical 项目前缀；替换图片清理只保存对象 ID 与旧图片版本。两者
+均不保存 S3 凭证，不进入普通 task API。
 其余当前处理器均为 project scope。
 
 实际注册名以各模块 `tasks.py` 的 `@task_handler(...)` 为准；不要从旧计划或示例中的

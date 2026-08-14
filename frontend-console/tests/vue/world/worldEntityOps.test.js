@@ -65,6 +65,7 @@ beforeEach(() => {
       promoteEntity: vi.fn(async () => ({})),
       deleteEntity: vi.fn(async () => ({})),
       getEntity: vi.fn(async () => null),
+      fetchEntityImage: vi.fn(async () => new Blob(["image"], { type: "image/webp" })),
       resolveEntityAsAlias: vi.fn(async () => ({})),
       mergeEntity: vi.fn(async () => ({})),
       rollbackEntity: vi.fn(async () => ({ warnings: [] })),
@@ -309,6 +310,84 @@ describe("editEntity", () => {
     document.body.innerHTML = modalCalls[0].html
     await modalCalls[0].buttons[0].handler()
     expect(apiMock.world.promoteEntity).toHaveBeenCalledWith("e2", "p-ops", expect.objectContaining({ name: "月廷" }))
+  })
+
+  it("large 双栏详情鉴权加载完整图，关闭时释放对象 URL", async () => {
+    const entity = { ...ENTITIES[0], has_image: true }
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:entity-full")
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL")
+    document.body.innerHTML = '<div id="modal-overlay"><div id="modal-body"></div></div>'
+    syncWorldListRegistry({ entities: [entity] })
+    setBridgeOverrides({
+      showModalHtml: (title, html, buttons, options) => {
+        captureModal(title, html, buttons, options)
+        document.getElementById("modal-body").innerHTML = html
+      },
+    })
+
+    editEntity("e1")
+
+    expect(modalCalls[0]).toMatchObject({ title: "编辑世界对象", options: { size: "large" } })
+    expect(modalCalls[0].html).toContain("world-entity-editor__image")
+    await vi.waitFor(() => expect(apiMock.world.fetchEntityImage).toHaveBeenCalledWith(
+      "e1",
+      "p-ops",
+      "full",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ))
+    await vi.waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
+    document.getElementById("edit-entity-image").onload()
+    expect(document.getElementById("edit-entity-image").hidden).toBe(false)
+
+    document.getElementById("modal-overlay").classList.add("hidden")
+    await vi.waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:entity-full"))
+  })
+
+  it("完整图加载失败不阻断文字保存", async () => {
+    const entity = { ...ENTITIES[0], has_image: true }
+    apiMock.world.fetchEntityImage.mockRejectedValueOnce(new Error("S3 unavailable"))
+    document.body.innerHTML = '<div id="modal-overlay"><div id="modal-body"></div></div>'
+    syncWorldListRegistry({ entities: [entity] })
+    setBridgeOverrides({
+      showModalHtml: (title, html, buttons, options) => {
+        captureModal(title, html, buttons, options)
+        document.getElementById("modal-body").innerHTML = html
+      },
+    })
+
+    editEntity("e1")
+    await vi.waitFor(() => expect(document.getElementById("edit-entity-image-status").textContent)
+      .toBe("图片加载失败，不影响保存"))
+    document.getElementById("edit-entity-name").value = "沉钟港·改"
+
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(true)
+    expect(apiMock.world.updateEntity).toHaveBeenCalledWith(
+      "e1",
+      expect.objectContaining({ name: "沉钟港·改" }),
+      "p-ops",
+    )
+  })
+
+  it("完整图解码失败时保持回退提示并释放 Blob URL", async () => {
+    const entity = { ...ENTITIES[0], has_image: true }
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:broken-full")
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL")
+    document.body.innerHTML = '<div id="modal-overlay"><div id="modal-body"></div></div>'
+    syncWorldListRegistry({ entities: [entity] })
+    setBridgeOverrides({
+      showModalHtml: (_title, html) => {
+        document.getElementById("modal-body").innerHTML = html
+      },
+    })
+
+    editEntity("e1")
+    await vi.waitFor(() => expect(document.getElementById("edit-entity-image").src).toBe("blob:broken-full"))
+    document.getElementById("edit-entity-image").onerror()
+
+    expect(document.getElementById("edit-entity-image").hidden).toBe(true)
+    expect(document.getElementById("edit-entity-image-status").textContent)
+      .toBe("图片加载失败，不影响保存")
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:broken-full")
   })
 })
 

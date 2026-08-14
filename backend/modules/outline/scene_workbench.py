@@ -31,6 +31,7 @@ from modules.outline.scene_draft_review import (
 )
 from modules.outline.scene_fusion_draft import SceneFusionDraftGenerator
 from modules.outline.schemas import (
+    SceneChapterQuickCreate,
     SceneCreate,
     SceneFusionDraft,
     SceneFusionPreviewRequest,
@@ -137,6 +138,76 @@ class SceneWorkbenchService:
         data: SceneCreate,
     ) -> SceneResponse:
         return await self._scene_service.create(db, novel_id, data)
+
+    async def link_scene_to_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        scene_id: str,
+    ) -> SceneResponse:
+        await self._validate_mapping_chapters(
+            db,
+            novel_id,
+            [str(chapter_index)],
+            None,
+        )
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(scene_id, "scene_id")
+        scenes = await self.repo.get_many_for_novel(
+            db,
+            nid,
+            [sid],
+            for_update=True,
+        )
+        if not scenes or scenes[0].status not in {"draft", "canonical"}:
+            raise LookupError("Scene not found")
+        scene = scenes[0]
+        meta = {**(scene.structure_meta or {}), "planning_state": "materialized"}
+        updated = await self.repo.update(
+            db,
+            scene.id,
+            SceneUpdate(
+                chapter_ids=self._merge_chapter_ids(
+                    scene.chapter_ids or [],
+                    [str(chapter_index)],
+                ),
+                structure_meta=meta,
+            ),
+        )
+        if updated is None:
+            raise LookupError("Scene not found")
+        return SceneResponse.model_validate(updated)
+
+    async def create_scene_for_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        data: SceneChapterQuickCreate,
+    ) -> SceneResponse:
+        await self._validate_mapping_chapters(
+            db,
+            novel_id,
+            [str(chapter_index)],
+            None,
+        )
+        nid = parse_uuid(novel_id, "novel_id")
+        await self.repo.lock_scene_order(db, nid)
+        scene_index = await self._scene_service.get_next_scene_index(db, novel_id)
+        scene = await self.repo.create(
+            db,
+            nid,
+            SceneCreate(
+                scene_index=scene_index,
+                title=data.title,
+                source="manual",
+                status="draft",
+                chapter_ids=[str(chapter_index)],
+                structure_meta={"planning_state": "materialized"},
+            ),
+        )
+        return SceneResponse.model_validate(scene)
 
     async def validate_mapping_chapters(
         self,

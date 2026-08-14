@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import (
@@ -555,6 +555,18 @@ class OutlineArcRepository:
 
 
 class SceneRepository:
+    async def lock_scene_order(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> None:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"scene_order:{novel_id}"},
+            )
+
     def _build_scene(self, novel_id: uuid.UUID, data: SceneCreate) -> Scene:
         return Scene(
             novel_id=novel_id,

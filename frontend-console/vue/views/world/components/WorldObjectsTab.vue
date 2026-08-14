@@ -34,19 +34,22 @@
 
     <!-- 筛选面板（vanilla _renderFilters/_renderFilterPanel 1219-1291） -->
     <section class="world-filter-panel" data-filter-panel="objects">
-      <button
-        type="button"
-        class="btn btn-sm world-filter-panel__toggle"
-        data-action="toggle-filter-panel"
-        data-filter-key="objects"
-        :aria-expanded="filterPanelOpen ? 'true' : 'false'"
-        aria-controls="world-filter-panel-objects"
-        @click="toggleFilterPanel"
-      >
-        <span aria-hidden="true">{{ filterPanelOpen ? "▾" : "▸" }}</span>
-        <span data-filter-toggle-label>{{ filterPanelOpen ? "收起筛选" : "展开筛选" }}</span>
-        <span v-if="hasActiveFilters" class="world-filter-panel__active">已筛选</span>
-      </button>
+      <div class="world-filter-panel__heading">
+        <button
+          type="button"
+          class="btn btn-sm world-filter-panel__toggle"
+          data-action="toggle-filter-panel"
+          data-filter-key="objects"
+          :aria-expanded="filterPanelOpen ? 'true' : 'false'"
+          aria-controls="world-filter-panel-objects"
+          @click="toggleFilterPanel"
+        >
+          <span aria-hidden="true">{{ filterPanelOpen ? "▾" : "▸" }}</span>
+          <span data-filter-toggle-label>{{ filterPanelOpen ? "收起筛选" : "展开筛选" }}</span>
+          <span v-if="hasActiveFilters" class="world-filter-panel__active">已筛选</span>
+        </button>
+        <span v-if="objectViewMode === 'card'" class="world-filter-panel__card-hint">点击卡片展开详情</span>
+      </div>
       <div id="world-filter-panel-objects" class="world-filter-panel__body" :hidden="!filterPanelOpen">
         <div class="world-object-filters">
           <select id="filter-entity-type" v-model="filterForm.entity_type" class="form-select" aria-label="对象类型筛选">
@@ -145,7 +148,7 @@
     <!-- 列表（hot 模式直出；normal 模式按批次分组，vanilla 1150-1216） -->
     <template v-else>
       <template v-if="discoveryMode === 'hot'">
-        <WorldEntityCollection :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
+        <WorldEntityCollection :project-id="projectId" :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
       </template>
       <template v-else-if="batchGroups.hasBatches">
         <div v-if="batchGroups.autoEntities.length > 0" class="world-batch-group">
@@ -153,7 +156,7 @@
             <summary class="world-batch-group__summary">
               <span class="world-batch-group__star">&#9733;</span> 自动入库 — <span class="world-batch-time" :title="batchGroups.batchTimeTitle"><span v-if="batchGroups.fresh" class="world-batch-fresh-dot" aria-label="新鲜入库"></span>{{ batchGroups.batchTimeLabel }}</span> — {{ batchGroups.autoEntities.length }} 个对象
             </summary>
-            <WorldEntityCollection :entities="batchGroups.autoEntities" :show-new-badge="true" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
+            <WorldEntityCollection :project-id="projectId" :entities="batchGroups.autoEntities" :show-new-badge="true" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
           </details>
         </div>
         <div v-if="batchGroups.manualEntities.length > 0" class="world-batch-group">
@@ -161,12 +164,12 @@
             <summary class="world-batch-group__summary">
               其他对象 — {{ batchGroups.manualEntities.length }} 个
             </summary>
-            <WorldEntityCollection :entities="batchGroups.manualEntities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
+            <WorldEntityCollection :project-id="projectId" :entities="batchGroups.manualEntities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
           </details>
         </div>
       </template>
       <template v-else>
-        <WorldEntityCollection :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
+        <WorldEntityCollection :project-id="projectId" :entities="entities" :show-new-badge="false" :object-view-mode="objectViewMode" :display-state="objectFilters.display_state" :entity-types="entityTypes" @bulk-run="onBulkRun" />
       </template>
       <WorldPager
         :total="entitiesTotal"

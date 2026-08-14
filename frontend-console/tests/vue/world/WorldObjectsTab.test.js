@@ -2,7 +2,7 @@
  * WorldObjectsTab 测试 — 渲染契约、筛选导航、热点概览、提取抽屉、批次分组、批量。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { enableAutoUnmount, mount, shallowMount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount, shallowMount } from "@vue/test-utils"
 
 vi.mock("../../../../shared/referencePicker.js", () => ({
   createReferencePicker: vi.fn(() => ({ destroy: vi.fn(), resolve: vi.fn() })),
@@ -23,8 +23,9 @@ const ENTITIES = [
 let navigateMock
 let toastMock
 
-function mountTab(propOverrides = {}) {
+function mountTab(propOverrides = {}, mountOptions = {}) {
   return mount(WorldObjectsTab, {
+    ...mountOptions,
     props: {
       projectId: "p-obj",
       entities: ENTITIES,
@@ -90,6 +91,7 @@ describe("表格渲染契约", () => {
     expect(rows[1].find('[data-label="注意"]').classes()).toContain("world-table-cell--warning")
     expect(rows[1].find('[data-action="mark-entity-reviewed"]').exists()).toBe(true)
     expect(rows[1].find('[data-action="edit-entity"]').text()).toBe("编辑后采用")
+    expect(rows[0].find('[data-action="upload-entity-image"]').exists()).toBe(true)
     expect(wrapper.find('input[data-action="bulk-toggle-all"][data-scope="world-objects"]').exists()).toBe(true)
   })
 
@@ -115,6 +117,182 @@ describe("表格渲染契约", () => {
   it("卡片模式渲染 world-object-card", () => {
     const wrapper = mountTab({ objectViewMode: "card" })
     expect(wrapper.findAll(".world-object-card[data-id]")).toHaveLength(2)
+    expect(wrapper.find(".world-filter-panel__card-hint").text()).toBe("点击卡片展开详情")
+    wrapper.unmount()
+
+    const table = mountTab()
+    expect(table.find(".world-filter-panel__card-hint").exists()).toBe(false)
+  })
+})
+
+describe("对象图片与卡片详情", () => {
+  it("卡片用原生按钮单次打开详情，复选框不触发详情", async () => {
+    const showModalHtml = vi.fn()
+    setBridgeOverrides({
+      api: { world: {} },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+      toast: toastMock,
+      showModalHtml,
+    })
+    const wrapper = mountTab({ objectViewMode: "card" })
+    const card = wrapper.get('.world-object-card[data-id="e1"]')
+    const open = card.get('[data-action="open-entity-detail"]')
+
+    expect(open.element.tagName).toBe("BUTTON")
+    expect(card.find('[data-action="edit-entity"]').exists()).toBe(false)
+
+    // 原生 button 会在真实浏览器中将 Enter/Space 转为 click；组件不额外
+    // 处理 keydown，以免同一次激活打开两个详情弹窗。
+    await open.trigger("keydown", { key: "Enter" })
+    expect(showModalHtml).not.toHaveBeenCalled()
+    await open.trigger("click")
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+    expect(showModalHtml.mock.calls[0][3]).toEqual({ size: "large" })
+
+    await card.get('input[data-action="bulk-toggle-one"]').setValue(true)
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
+  })
+
+  it("上传控件独立于卡片详情，上传期间防止重复提交", async () => {
+    let finishUpload
+    const uploadEntityImage = vi.fn(() => new Promise((resolve) => { finishUpload = resolve }))
+    const fetchEntityImage = vi.fn(async () => new Blob(["thumbnail"], { type: "image/webp" }))
+    const refresh = vi.fn(async () => true)
+    const showModalHtml = vi.fn()
+    setBridgeOverrides({
+      api: { world: { uploadEntityImage, fetchEntityImage } },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh },
+      toast: toastMock,
+      showModalHtml,
+    })
+    const wrapper = mountTab(
+      { objectViewMode: "card", entities: [{ ...ENTITIES[0], has_image: false }] },
+      { attachTo: document.body },
+    )
+    const card = wrapper.get('.world-object-card[data-id="e1"]')
+    const input = card.get('input[type="file"]')
+    const button = card.get('[data-action="upload-entity-image"]')
+    expect(input.attributes("tabindex")).toBe("-1")
+    const inputClick = vi.spyOn(input.element, "click")
+    const file = new File(["image"], "portrait.png", { type: "image/png" })
+
+    await button.trigger("click")
+    expect(inputClick).toHaveBeenCalledTimes(1)
+
+    Object.defineProperty(input.element, "files", { configurable: true, value: [file] })
+    await input.trigger("change")
+    await vi.waitFor(() => expect(uploadEntityImage).toHaveBeenCalledWith(
+      "e1",
+      file,
+      "p-obj",
+      null,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ))
+    expect(button.attributes("disabled")).toBeDefined()
+
+    await input.trigger("change")
+    expect(uploadEntityImage).toHaveBeenCalledTimes(1)
+    expect(showModalHtml).not.toHaveBeenCalled()
+
+    finishUpload({})
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    expect(wrapper.props("entities")[0].has_image).toBe(true)
+    expect(toastMock).toHaveBeenCalledWith("图片已上传", "success")
+  })
+
+  it("图片读取失败时保留首字回退", async () => {
+    const fetchEntityImage = vi.fn(async () => { throw new Error("S3 unavailable") })
+    setBridgeOverrides({
+      api: { world: { fetchEntityImage } },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+      toast: toastMock,
+    })
+    const wrapper = mountTab({ objectViewMode: "card", entities: [{ ...ENTITIES[0], has_image: true }] })
+    const avatar = wrapper.get('.world-object-card[data-id="e1"] .world-object-card__avatar')
+
+    await vi.waitFor(() => expect(fetchEntityImage).toHaveBeenCalled())
+    await flushPromises()
+    expect(avatar.find("img").exists()).toBe(false)
+    expect(avatar.text()).toBe("沉")
+  })
+
+  it("缩略图解码失败时释放 Blob URL 并回退首字", async () => {
+    const fetchEntityImage = vi.fn(async () => new Blob(["broken"], { type: "image/webp" }))
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:broken-thumbnail")
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL")
+    setBridgeOverrides({
+      api: { world: { fetchEntityImage } },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+      toast: toastMock,
+    })
+    const wrapper = mountTab({ objectViewMode: "card", entities: [{ ...ENTITIES[0], has_image: true }] })
+    const avatar = wrapper.get('.world-object-card[data-id="e1"] .world-object-card__avatar')
+
+    await vi.waitFor(() => expect(avatar.find("img").exists()).toBe(true))
+    await avatar.get("img").trigger("error")
+
+    expect(avatar.find("img").exists()).toBe(false)
+    expect(avatar.text()).toBe("沉")
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:broken-thumbnail")
+  })
+
+  it("上传失败保留已显示的旧缩略图", async () => {
+    const fetchEntityImage = vi.fn(async () => new Blob(["thumbnail"], { type: "image/webp" }))
+    const uploadEntityImage = vi.fn(async () => { throw new Error("格式不支持") })
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:existing-thumbnail")
+    setBridgeOverrides({
+      api: { world: { fetchEntityImage, uploadEntityImage } },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+      toast: toastMock,
+    })
+    const wrapper = mountTab(
+      { objectViewMode: "card", entities: [{ ...ENTITIES[0], has_image: true }] },
+      { attachTo: document.body },
+    )
+    const card = wrapper.get('.world-object-card[data-id="e1"]')
+    await vi.waitFor(() => expect(card.find(".world-object-card__avatar img").exists()).toBe(true))
+    const imageBeforeFailure = card.get(".world-object-card__avatar img").attributes("src")
+    const input = card.get('input[type="file"]')
+    Object.defineProperty(input.element, "files", {
+      configurable: true,
+      value: [new File(["image"], "portrait.gif", { type: "image/gif" })],
+    })
+
+    await input.trigger("change")
+    await vi.waitFor(() => expect(toastMock).toHaveBeenCalledWith("图片上传失败：格式不支持", "error"))
+    expect(card.get(".world-object-card__avatar img").attributes("src")).toBe(imageBeforeFailure)
+  })
+
+  it("卸载时取消晚到缩略图并回收已创建的对象 URL", async () => {
+    let finishImage
+    const imageRequest = new Promise((resolve) => { finishImage = resolve })
+    const fetchEntityImage = vi.fn(() => imageRequest)
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:thumbnail")
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL")
+    setBridgeOverrides({
+      api: { world: { fetchEntityImage } },
+      state: { currentProjectId: "p-obj", currentView: "world" },
+      router: { navigate: navigateMock, refresh: vi.fn(async () => true) },
+      toast: toastMock,
+    })
+    const pending = mountTab({ objectViewMode: "card", entities: [{ ...ENTITIES[0], has_image: true }] })
+
+    await vi.waitFor(() => expect(fetchEntityImage).toHaveBeenCalled())
+    pending.unmount()
+    finishImage(new Blob(["late"], { type: "image/webp" }))
+    await flushPromises()
+    expect(createObjectURL).not.toHaveBeenCalled()
+
+    const ready = mountTab({ objectViewMode: "card", entities: [{ ...ENTITIES[0], has_image: true }] })
+    await vi.waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
+    expect(ready.get(".world-object-card__avatar img").attributes("src")).toBe("blob:thumbnail")
+    ready.unmount()
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:thumbnail")
   })
 })
 

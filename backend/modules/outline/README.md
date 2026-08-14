@@ -250,6 +250,8 @@ legacy 重排请求必须把当前项目的全部 active Scene 各提交一次�
 ```http
 GET   /api/outline/scene-workbench
 PATCH /api/outline/scene-workbench/scenes/{scene_id}/mapping
+POST  /api/outline/scene-workbench/chapters/{chapter_index}/scenes/{scene_id}
+POST  /api/outline/scene-workbench/chapters/{chapter_index}/scenes
 POST  /api/outline/scene-workbench/merge/preview
 POST  /api/outline/scene-workbench/merge
 POST  /api/outline/scene-workbench/split/preview
@@ -261,6 +263,12 @@ GET   /api/outline/scene-workbench/fusion-suggestions
 POST  /api/outline/scene-workbench/fusion-suggestions/dismiss
 POST  /api/outline/scene-workbench/replacement-suggestions/apply
 ```
+
+写作台的章节级关联接口在同项目 Scene 行锁中原子合并并去重
+`chapter_ids`，保留 `scene_chunks`；重复请求幂等。快速创建只接收 1–255 字
+`title`，在项目级顺序锁内分配末尾 `scene_index`，并以 `manual/draft`
+一次事务创建、关联当前章和标记 `planning_state=materialized`。这两条路径
+都校验章节存在与 `novel_id` 边界，不伪造段落级 `scene_chunks`。
 
 `GET /api/outline/scene-workbench` 的每个 Scene 条目在保留旧
 `scene.scene_chunks` 编辑形状的同时，额外返回两组只读解释字段：

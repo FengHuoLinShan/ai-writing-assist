@@ -6,7 +6,6 @@
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
-      <button class="btn btn-sm btn-primary" @click="vm.createChapter">新建章节</button>
       <details class="writing-page-menu">
         <summary class="btn btn-sm">写作视图</summary>
         <div class="writing-page-menu__body" @click="closeViewMenu">
@@ -21,8 +20,11 @@
   <MobileQuickNote
     v-if="vm.mobileMode.value"
     :state="vm.editorState"
+    :scenes="vm.chapterScenes.value"
+    :selected-scene-id="vm.selectedSceneId.value"
     :attach="vm.attachEditor"
     :detach="vm.detachEditor"
+    @select-scene="vm.selectScene"
     @save="vm.saveMobileNote"
     @publish="vm.publish"
     @desktop="vm.switchDesktopMode"
@@ -62,13 +64,10 @@
         <ChapterTree
           :chapter-list="vm.chapterList.value"
           :chapters="vm.chapters"
-          :scenes="vm.scenes.value"
           :selected-chapter="vm.selectedChapter.value"
-          :selected-scene-id="vm.selectedSceneId.value"
           :load-error="vm.chapterLoadError.value"
           :collapsed="!leftRailOpen"
           @select="vm.selectChapter"
-          @select-scene="selectScene"
           @create="vm.createChapter"
           @delete-selected="vm.deleteChapters"
           @toggle-collapse="toggleRail('chapters')"
@@ -160,6 +159,10 @@
           :project-id="projectId"
           :chapter="vm.selectedChapter.value"
           :scene="vm.currentScene.value"
+          :scenes="vm.chapterScenes.value"
+          :all-scenes="vm.activeScenes.value"
+          :associate-scene="vm.associateScene"
+          :create-scene="vm.createSceneForChapter"
           :loading="vm.sceneState.loading"
           :alert-error="vm.conflictState.error"
           :alerts="vm.sceneState.alerts"
@@ -170,6 +173,7 @@
           @run-conflict="vm.requestConflictCheck"
           @open-conflict="vm.openConflictDialog"
           @insert-text="vm.insertText"
+          @select-scene="vm.selectScene"
           @organize="vm.navigateSceneWorkbench"
           @toggle-collapse="toggleRail('reference')"
         />
@@ -311,7 +315,10 @@ const stored = (rail, fallback) => {
     return value ? value === "open" : fallback
   } catch { return fallback }
 }
-const leftRailOpen = ref(stored("chapters", typeof window === "undefined" || window.innerWidth > 760))
+const leftRailOpen = ref(stored(
+  "chapters",
+  vm.chapterList.value.length === 0 || typeof window === "undefined" || window.innerWidth > 760,
+))
 const rightRailOpen = ref(stored("reference", typeof window === "undefined" || window.innerWidth > 1099))
 
 function closeViewMenu(event) {
@@ -322,12 +329,6 @@ function toggleRail(rail) {
   const current = rail === "chapters" ? leftRailOpen : rightRailOpen
   current.value = !current.value
   try { sessionStorage.setItem(`workspace-rail:${props.projectId}:writing:${rail}`, current.value ? "open" : "closed") } catch { /* noop */ }
-}
-
-async function selectScene(sceneId) {
-  const scene = vm.scenes.value.find((item) => item.id === sceneId)
-  const chapter = (scene?.chapter_ids || []).map(Number).find((item) => vm.chapterList.value.includes(item))
-  if (chapter) await vm.selectChapter(chapter, { sceneId })
 }
 
 async function adoptCandidate() {

@@ -1,4 +1,3 @@
-import { findCurrentScene } from "../../../../shared/sceneLocator.js"
 import {
   readChapterSnapshot,
   rememberChapterSnapshot,
@@ -29,9 +28,7 @@ export function createEditorController({
   confirm = () => true,
   confirmDialog = async (message) => confirm(message),
   getProjectId,
-  getScenes = () => [],
   onChange = () => {},
-  onSceneChange = () => {},
   onVersionChanged = async () => {},
 }) {
   const state = {
@@ -282,12 +279,6 @@ export function createEditorController({
   function updateCursor() {
     if (!elements.editor || document.activeElement !== elements.editor) return
     state.cursorOffset = elements.editor.selectionStart || 0
-    const scene = findCurrentScene({
-      scenes: getScenes(),
-      chapterIndex: state.chapter,
-      cursorOffset: state.cursorOffset,
-    })
-    onSceneChange(scene?.id || null)
     emit()
   }
 

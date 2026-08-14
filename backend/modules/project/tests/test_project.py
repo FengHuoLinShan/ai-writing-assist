@@ -465,7 +465,8 @@ class TestProjectCrud:
         remaining_ids = {
             task.id
             for task in tasks
-            if task.task_type != "map_atlas_storage_cleanup"
+            if task.task_type
+            not in {"map_atlas_storage_cleanup", "world_object_image_cleanup"}
         }
         assert remaining_ids == {
             task_for_other_project.id
@@ -475,6 +476,11 @@ class TestProjectCrud:
         )
         assert cleanup.novel_id is None
         assert cleanup.meta["object_prefix"] == f"map-atlas/{created.id}/"
+        image_cleanup = next(
+            task for task in tasks if task.task_type == "world_object_image_cleanup"
+        )
+        assert image_cleanup.novel_id is None
+        assert image_cleanup.meta["object_prefix"] == f"world-objects/{created.id}/"
 
 
 # ============================================================

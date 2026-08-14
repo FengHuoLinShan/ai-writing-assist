@@ -112,7 +112,7 @@ def _is_loopback_hostname(hostname: str) -> bool:
 
 
 def validate_map_atlas_s3_endpoint_url(value: str) -> str:
-    """Allow AWS defaults, HTTPS endpoints, and exact local HTTP development hosts."""
+    """Allow AWS defaults, HTTPS, local HTTP, and the production MinIO service."""
     cleaned = value.strip()
     if not cleaned:
         return ""
@@ -127,11 +127,17 @@ def validate_map_atlas_s3_endpoint_url(value: str) -> str:
         raise RuntimeError(
             "MAP_ATLAS_S3_ENDPOINT_URL must not include userinfo, query, or fragment"
         )
-    if parsed.scheme.lower() == "http" and (parsed.hostname or "").lower() not in {
+    app_env = _env("APP_ENV", "development").strip().lower()
+    local_http = app_env != "production" and (parsed.hostname or "").lower() in {
         "localhost",
         "127.0.0.1",
         "::1",
-    }:
+    }
+    production_minio = (
+        app_env == "production"
+        and cleaned == "http://minio:9000"
+    )
+    if parsed.scheme.lower() == "http" and not (local_http or production_minio):
         raise RuntimeError(
             "MAP_ATLAS_S3_ENDPOINT_URL must use https except for local development"
         )
@@ -322,6 +328,9 @@ class Settings:
     # --- AI 地图册私有对象存储 ---
     map_atlas_s3_bucket: str = field(
         default_factory=lambda: _env("MAP_ATLAS_S3_BUCKET", "")
+    )
+    world_object_s3_bucket: str = field(
+        default_factory=lambda: _env("WORLD_OBJECT_S3_BUCKET", "")
     )
     map_atlas_s3_region: str = field(
         default_factory=lambda: _env("MAP_ATLAS_S3_REGION", "us-east-1")

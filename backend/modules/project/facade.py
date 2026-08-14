@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -182,6 +182,31 @@ async def list_project_ids_for_owner(
 ) -> list[uuid.UUID]:
     """Return only project IDs for account lifecycle task fencing."""
     result = await db.execute(select(Project.id).where(Project.owner_id == owner_id))
+    return list(result.scalars().all())
+
+
+async def lock_project_ids_for_owner(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+) -> list[uuid.UUID]:
+    """Serialize account-wide asset quota checks and return every project ID.
+
+    The advisory lock avoids upgrading several project ``FOR SHARE`` locks to
+    ``FOR UPDATE`` in opposite orders when one account uploads concurrently to
+    different projects.
+    """
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        lock_key = int.from_bytes(owner_id.bytes[:8], byteorder="big", signed=True)
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": lock_key},
+        )
+    result = await db.execute(
+        select(Project.id)
+        .where(Project.owner_id == owner_id)
+        .order_by(Project.id)
+    )
     return list(result.scalars().all())
 
 

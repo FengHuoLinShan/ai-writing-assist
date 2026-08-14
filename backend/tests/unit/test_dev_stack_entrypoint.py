@@ -276,6 +276,162 @@ def test_schema_check_delegates_to_read_only_backend_guard(monkeypatch) -> None:
     ]
 
 
+def test_start_db_initializes_postgres_minio_and_private_buckets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dev_stack = _load_dev_stack()
+    commands: list[list[str]] = []
+
+    def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(cmd)
+        if cmd[:3] == ["docker", "inspect", "-f"]:
+            return subprocess.CompletedProcess(cmd, 0, "healthy\n", "")
+        if cmd[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(dev_stack, "_run", run)
+
+    assert dev_stack.start_db() is True
+    assert commands == [
+        ["docker", "inspect", dev_stack.DB_CONTAINER],
+        ["docker", "compose", "up", "-d", "postgres"],
+        [
+            "docker",
+            "inspect",
+            "-f",
+            "{{.State.Health.Status}}",
+            dev_stack.DB_CONTAINER,
+        ],
+        ["docker", "inspect", dev_stack.MINIO_CONTAINER],
+        ["docker", "compose", "up", "-d", "minio"],
+        [
+            "docker",
+            "inspect",
+            "-f",
+            "{{.State.Health.Status}}",
+            dev_stack.MINIO_CONTAINER,
+        ],
+        [
+            "docker",
+            "compose",
+            "up",
+            "--no-deps",
+            "--force-recreate",
+            "--abort-on-container-exit",
+            "--exit-code-from",
+            "minio-init",
+            "minio-init",
+        ],
+    ]
+
+
+def test_dev_minio_initializer_uses_the_fixed_container_network() -> None:
+    dev_stack = _load_dev_stack()
+    compose = (dev_stack.ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    init_section = compose.split("  minio-init:\n", maxsplit=1)[1]
+    assert 'network_mode: "container:ai-novel-minio"' in init_section
+    assert "MINIO_ENDPOINT_URL: http://127.0.0.1:9000" in init_section
+
+
+def test_minio_initializer_allows_only_the_development_loopback_endpoint() -> None:
+    init_script = (
+        Path(__file__).parents[3] / "docker" / "init-minio.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "http://minio:9000|http://127.0.0.1:9000" in init_script
+    assert "MinIO initializer endpoint is not permitted." in init_script
+
+
+def test_start_db_reuses_existing_postgres_and_minio_containers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dev_stack = _load_dev_stack()
+    commands: list[list[str]] = []
+
+    def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(cmd)
+        if cmd[:3] == ["docker", "inspect", "-f"]:
+            return subprocess.CompletedProcess(cmd, 0, "healthy\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(dev_stack, "_run", run)
+
+    assert dev_stack.start_db() is True
+    assert commands == [
+        ["docker", "inspect", dev_stack.DB_CONTAINER],
+        ["docker", "start", dev_stack.DB_CONTAINER],
+        [
+            "docker",
+            "inspect",
+            "-f",
+            "{{.State.Health.Status}}",
+            dev_stack.DB_CONTAINER,
+        ],
+        ["docker", "inspect", dev_stack.MINIO_CONTAINER],
+        ["docker", "start", dev_stack.MINIO_CONTAINER],
+        [
+            "docker",
+            "inspect",
+            "-f",
+            "{{.State.Health.Status}}",
+            dev_stack.MINIO_CONTAINER,
+        ],
+        [
+            "docker",
+            "compose",
+            "up",
+            "--no-deps",
+            "--force-recreate",
+            "--abort-on-container-exit",
+            "--exit-code-from",
+            "minio-init",
+            "minio-init",
+        ],
+    ]
+
+
+def test_host_runtime_uses_local_minio_without_inheriting_s3_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dev_stack = _load_dev_stack()
+    monkeypatch.setenv("MAP_ATLAS_S3_SECRET_ACCESS_KEY", "production-secret")
+    monkeypatch.setenv("MINIO_ROOT_USER", "production-root-user")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "production-root-password")
+
+    environment = dev_stack._local_object_storage_env()
+
+    assert environment["APP_ENV"] == "development"
+    assert environment["MAP_ATLAS_S3_ENDPOINT_URL"] == "http://127.0.0.1:9000"
+    assert environment["MAP_ATLAS_S3_FORCE_PATH_STYLE"] == "true"
+    assert environment["MAP_ATLAS_S3_SECRET_ACCESS_KEY"] == "novel_minio_dev_pass"
+    assert environment["WORLD_OBJECT_S3_BUCKET"] == "ai-writing-assist-world-objects"
+    assert "MINIO_ROOT_USER" not in environment
+    assert "MINIO_ROOT_PASSWORD" not in environment
+
+
+def test_stop_db_stops_postgres_and_minio(monkeypatch: pytest.MonkeyPatch) -> None:
+    dev_stack = _load_dev_stack()
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        dev_stack,
+        "_run",
+        lambda cmd, **_kwargs: (
+            commands.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+        ),
+    )
+
+    dev_stack.stop_db()
+
+    assert commands == [
+        ["docker", "inspect", dev_stack.DB_CONTAINER],
+        ["docker", "stop", dev_stack.DB_CONTAINER],
+        ["docker", "inspect", dev_stack.MINIO_CONTAINER],
+        ["docker", "stop", dev_stack.MINIO_CONTAINER],
+    ]
+
+
 def test_managed_stack_stops_before_app_spawn_when_schema_is_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

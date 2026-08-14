@@ -12,8 +12,8 @@ Internet
       -> 1Panel OpenResty (security headers, 50 MiB upload boundary)
        -> 127.0.0.1:18080 (frontend)
        -> 127.0.0.1:18000 (API)
-            -> PostgreSQL private data network
-       worker -> PostgreSQL private data network
+            -> PostgreSQL / MinIO private data network
+       worker -> PostgreSQL / MinIO private data network
        api/worker -> local TEI embedding + approved LLM provider egress
 ```
 
@@ -35,7 +35,7 @@ frontend 只绑定宿主机 loopback，不对公网开放；PostgreSQL、worker 
 | 已确认 | `LLM_RATE_LIMIT_PER_MINUTE=0` | 用户使用项目 LLM 配置；仍保留并发上限 |
 | 已确认 | `EMBEDDING_*` | zy 本机 CPU TEI + `BAAI/bge-base-zh-v1.5`，768 维 |
 | 待填写 | `AUTH_SECRET_KEY` | 新生成至少 32 字符 |
-| 待填写 | `MAP_ATLAS_S3_*` | AI 地图册私有 bucket；静态 access key 与 secret 必须成对填写 |
+| 待填写 | `MINIO_ROOT_*`、`MAP_ATLAS_S3_*`、`WORLD_OBJECT_S3_BUCKET` | 单机 MinIO 的独立 root 凭据、受限应用凭据，以及两个不同的私有 bucket；root 凭据不得复用给应用 |
 | 待填写 | `BOOTSTRAP_OWNER_EMAIL` | 新库 bootstrap 的私有 owner 邮箱，只写入服务器 `0600` 环境文件 |
 | 待填写 | `SMTP_*`、`SUPPORT_EMAIL` | 兼容 SMTP 的 host、登录、发件与支持邮箱，只写入服务器 `0600` 环境文件 |
 | 待开通 | `B2_*`、`RESTIC_*` | 私有 Backblaze B2 bucket、限定 bucket 的 key、restic 密码 |
@@ -76,6 +76,25 @@ env 文件不是 symlink、归当前有效用户所有、且权限精确为 `060
 容器 stdout/stderr 使用 Docker `local` logging driver 滚动保存。每个服务最多约
 100 MiB（10 个各 10 MiB 的文件）；这不是 30 天的时间保留，也不替代 OpenResty/1Panel
 外部访问日志或集中日志。OpenResty 访问日志仍按下文的 30 天策略保留。
+
+### 私有 MinIO 图片存储
+
+生产 Compose 使用固定 digest 的单节点 MinIO 与一次性 `minio-init`。初始化以单独的
+`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` 创建两个私有 bucket、设置硬配额（地图册 8GiB、
+世界对象 24GiB）并给 `MAP_ATLAS_S3_ACCESS_KEY_ID` / `MAP_ATLAS_S3_SECRET_ACCESS_KEY` 创建仅限
+这两个 bucket 的应用用户。root 凭据只进入 MinIO 和初始化服务，绝不可复用为 API/worker 的
+S3 凭据；运行时应用用户不能创建 bucket 或修改 bucket policy，但可列举/删除对象版本以完成
+旧版本与项目前缀清理。两个 bucket 都启用 versioning，清理必须删除对象和历史版本，避免不可见
+版本继续占用单盘配额。
+
+`MAP_ATLAS_S3_ENDPOINT_URL` 在生产必须是 `http://minio:9000`，`MAP_ATLAS_S3_FORCE_PATH_STYLE`
+必须为 `true`；`WORLD_OBJECT_S3_BUCKET` 是唯一新增的对象图片运行时配置。MinIO 不发布主机端口、
+禁用管理控制台，只位于内部 data network。release 会先使 PostgreSQL、embedding、MinIO 和
+initializer 就绪，之后才启动 API/worker。
+
+`minio-data` 是单盘 named volume，两个 bucket 的 32GiB 配额即生产对象数据硬上限。首版没有
+外部图片备份；磁盘故障会丢失地图册与对象图片，这是已接受的上线风险，不能把 PostgreSQL 或
+restic 数据库备份当作图片恢复方案。
 
 ## 首次发布
 

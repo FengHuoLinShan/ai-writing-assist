@@ -253,6 +253,83 @@ async function finishEntityMutation(successMessage) {
   return true
 }
 
+let releaseEntityImagePreview = () => {}
+
+function mountEntityImagePreview(entity, projectId) {
+  const body = document.getElementById("modal-body")
+  const preview = document.getElementById("edit-entity-image")
+  const status = document.getElementById("edit-entity-image-status")
+  const overlay = document.getElementById("modal-overlay")
+  const owner = body?.firstElementChild
+  if (!entity?.has_image) {
+    if (status) status.textContent = "尚未上传图片"
+    return () => {}
+  }
+  if (!body || !preview || !status || !owner || !projectId) return () => {}
+
+  const controller = new AbortController()
+  let imageUrl = ""
+  let released = false
+  let observer = null
+  const ownsPreview = () => (
+    !released
+    && owner.isConnected
+    && body.contains(owner)
+    && getAppState()?.currentProjectId === projectId
+    && (!overlay || !overlay.classList.contains("hidden"))
+  )
+  const release = () => {
+    if (released) return
+    released = true
+    controller.abort()
+    observer?.disconnect()
+    preview.onload = null
+    preview.onerror = null
+    preview.removeAttribute("src")
+    if (imageUrl) URL.revokeObjectURL(imageUrl)
+    imageUrl = ""
+  }
+  observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(() => {
+    if (!ownsPreview()) release()
+  })
+  observer?.observe(body, { childList: true })
+  if (overlay) observer?.observe(overlay, { attributes: true, attributeFilter: ["class"] })
+
+  void (async () => {
+    try {
+      const blob = await getApi().world.fetchEntityImage(entityId(entity), projectId, "full", {
+        signal: controller.signal,
+      })
+      if (!ownsPreview() || !blob) return
+      const url = URL.createObjectURL(blob)
+      if (!ownsPreview()) {
+        URL.revokeObjectURL(url)
+        return
+      }
+      imageUrl = url
+      preview.onload = () => {
+        if (!ownsPreview() || preview.src !== url) return
+        preview.hidden = false
+        status.hidden = true
+      }
+      preview.onerror = () => {
+        if (!ownsPreview() || preview.src !== url) return
+        preview.hidden = true
+        status.hidden = false
+        status.textContent = "图片加载失败，不影响保存"
+        URL.revokeObjectURL(url)
+        imageUrl = ""
+      }
+      preview.src = url
+    } catch (err) {
+      if (ownsPreview() && !controller.signal.aborted) {
+        status.textContent = "图片加载失败，不影响保存"
+      }
+    }
+  })()
+  return release
+}
+
 /** 对应 vanilla _adoptEntity。 */
 export async function adoptEntity(entity) {
   const api = getApi()
@@ -412,30 +489,39 @@ export function editEntity(id) {
   const sid = suggestionId(entity)
   const isPending = ["draft", "candidate"].includes(entity.status)
   let submissionPending = false
+  const projectId = getAppState()?.currentProjectId
 
   const formHtml = `
-    <div class="form-group">
-      <label>名称</label>
-      <input class="form-input" id="edit-entity-name" value="${esc(entity.name)}" />
+    <div class="world-entity-editor">
+      <div class="world-entity-editor__form">
+        <div class="form-group">
+          <label>名称</label>
+          <input class="form-input" id="edit-entity-name" value="${esc(entity.name)}" />
+        </div>
+        <div class="form-group">
+          <label>类型</label>
+          ${entityTypeControlHtml("edit", entity.entity_type)}
+        </div>
+        <div class="form-group">
+          <label>概要</label>
+          <textarea class="form-textarea" id="edit-entity-summary" rows="3">${esc(entity.summary || "")}</textarea>
+        </div>
+        <div id="edit-entity-error" class="alert alert-error" hidden></div>
+      </div>
+      <aside class="world-entity-editor__image" aria-label="对象图片">
+        <p id="edit-entity-image-status" class="world-entity-editor__image-status">${entity.has_image ? "正在加载图片..." : "尚未上传图片"}</p>
+        <img id="edit-entity-image" class="world-entity-editor__image-full" alt="${esc(entity.name || "对象")}的完整图片" hidden />
+      </aside>
     </div>
-    <div class="form-group">
-      <label>类型</label>
-      ${entityTypeControlHtml("edit", entity.entity_type)}
-    </div>
-    <div class="form-group">
-      <label>概要</label>
-      <textarea class="form-textarea" id="edit-entity-summary" rows="3">${esc(entity.summary || "")}</textarea>
-    </div>
-    <div id="edit-entity-error" class="alert alert-error" hidden></div>
   `
 
+  releaseEntityImagePreview()
   showModalHtml(isPending ? "编辑后采用世界对象" : "编辑世界对象", formHtml, [
     {
       text: isPending ? "编辑后采用" : "保存",
       class: "btn-primary",
       handler: async () => {
         if (submissionPending) return false
-        const projectId = getAppState()?.currentProjectId
         const payload = {
           name: document.getElementById("edit-entity-name")?.value,
           entity_type: readEntityType("edit"),
@@ -478,8 +564,9 @@ export function editEntity(id) {
         return finishEntityMutation(isPending ? "已编辑并采用" : "已保存")
       },
     },
-  ])
+  ], { size: "large" })
   bindEntityTypeControl("edit")
+  releaseEntityImagePreview = mountEntityImagePreview(entity, projectId)
 }
 
 /** 对应 vanilla deleteEntity。 */

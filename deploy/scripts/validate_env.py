@@ -23,6 +23,10 @@ IMAGE_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REGISTRY_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 HEALTHCHECKS_CHECK_PATH_RE = re.compile(r"^/[A-Za-z0-9_-]+$")
+S3_BUCKET_RE = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\."
+    r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?))*$"
+)
 ONE_TIME_MIGRATION_FIELDS = (
     "MAP_ATLAS_DESTRUCTIVE_MIGRATION_CONFIRMATION",
     "MAP_ATLAS_DESTRUCTIVE_MIGRATION_BACKUP_NAME",
@@ -167,7 +171,7 @@ def normalize_healthchecks_check_base_url(value: str) -> str | None:
 
 
 def is_valid_map_atlas_s3_endpoint_url(value: str) -> bool:
-    """Accept AWS defaults, HTTPS endpoints, and exact local HTTP dev hosts."""
+    """Validate the narrow endpoint set accepted by production deploy validation."""
     cleaned = value.strip()
     if not cleaned:
         return True
@@ -190,7 +194,17 @@ def is_valid_map_atlas_s3_endpoint_url(value: str) -> bool:
         "localhost",
         "127.0.0.1",
         "::1",
+        "minio",
     }
+
+
+def is_valid_s3_bucket_name(value: str) -> bool:
+    """Validate the portable S3 bucket-name subset used by MinIO initialization."""
+    if not 3 <= len(value) <= 63 or not S3_BUCKET_RE.fullmatch(value):
+        return False
+    if ".." in value:
+        return False
+    return not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", value)
 
 
 def validate(values: dict[str, str]) -> list[str]:
@@ -335,12 +349,44 @@ def validate(values: dict[str, str]) -> list[str]:
         if len(decoded) != 32:
             errors.append("LLM_SETTINGS_ENCRYPTION_KEY must be a valid Fernet key")
 
-    require("MAP_ATLAS_S3_BUCKET")
-    map_atlas_endpoint_url = values.get("MAP_ATLAS_S3_ENDPOINT_URL", "")
+    map_atlas_bucket = require("MAP_ATLAS_S3_BUCKET")
+    world_object_bucket = require("WORLD_OBJECT_S3_BUCKET")
+    for name, bucket in (
+        ("MAP_ATLAS_S3_BUCKET", map_atlas_bucket),
+        ("WORLD_OBJECT_S3_BUCKET", world_object_bucket),
+    ):
+        if not is_missing(bucket) and not is_valid_s3_bucket_name(bucket):
+            errors.append(
+                f"{name} must be a 3-63 character lowercase DNS-style bucket name"
+            )
+    if (
+        not is_missing(map_atlas_bucket)
+        and not is_missing(world_object_bucket)
+        and map_atlas_bucket == world_object_bucket
+    ):
+        errors.append("WORLD_OBJECT_S3_BUCKET must differ from MAP_ATLAS_S3_BUCKET")
+
+    for name in ("MINIO_IMAGE", "MINIO_MC_IMAGE"):
+        image = require(name)
+        if not is_missing(image) and not is_pinned_image_reference(image):
+            errors.append(
+                f"{name} must use a supported lowercase repository, explicit tag, "
+                "and lowercase sha256 digest"
+            )
+
+    minio_root_user = require("MINIO_ROOT_USER")
+    minio_root_password = require("MINIO_ROOT_PASSWORD")
+
+    map_atlas_endpoint_url = require("MAP_ATLAS_S3_ENDPOINT_URL")
     if not is_valid_map_atlas_s3_endpoint_url(map_atlas_endpoint_url):
         errors.append(
             "MAP_ATLAS_S3_ENDPOINT_URL must be HTTPS without userinfo, query, or "
-            "fragment; HTTP is only allowed for localhost, 127.0.0.1, or [::1]"
+            "fragment; HTTP is only allowed for localhost, 127.0.0.1, [::1], or minio"
+        )
+    elif map_atlas_endpoint_url != "http://minio:9000":
+        errors.append(
+            "MAP_ATLAS_S3_ENDPOINT_URL must be http://minio:9000 for the private "
+            "production MinIO service"
         )
     map_atlas_access_key = values.get("MAP_ATLAS_S3_ACCESS_KEY_ID", "")
     map_atlas_secret_key = values.get("MAP_ATLAS_S3_SECRET_ACCESS_KEY", "")
@@ -355,17 +401,32 @@ def validate(values: dict[str, str]) -> list[str]:
     ):
         if value and is_missing(value):
             errors.append(f"{name} must not contain a placeholder")
-    if values.get("MAP_ATLAS_S3_FORCE_PATH_STYLE", "false").lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
+    if not map_atlas_access_key or not map_atlas_secret_key:
+        errors.append(
+            "MAP_ATLAS_S3_ACCESS_KEY_ID and MAP_ATLAS_S3_SECRET_ACCESS_KEY "
+            "are required for MinIO"
+        )
+    if (
+        not is_missing(minio_root_user)
+        and not is_missing(map_atlas_access_key)
+        and minio_root_user == map_atlas_access_key
+    ):
+        errors.append("MINIO_ROOT_USER must differ from MAP_ATLAS_S3_ACCESS_KEY_ID")
+    if (
+        not is_missing(minio_root_password)
+        and not is_missing(map_atlas_secret_key)
+        and minio_root_password == map_atlas_secret_key
+    ):
+        errors.append(
+            "MINIO_ROOT_PASSWORD must differ from MAP_ATLAS_S3_SECRET_ACCESS_KEY"
+        )
+    if values.get("MAP_ATLAS_S3_FORCE_PATH_STYLE", "").lower() not in {
         "1",
         "true",
         "yes",
         "on",
     }:
-        errors.append("MAP_ATLAS_S3_FORCE_PATH_STYLE must be a boolean")
+        errors.append("MAP_ATLAS_S3_FORCE_PATH_STYLE must be true for MinIO")
 
     embedding_deployment = require("EMBEDDING_DEPLOYMENT")
     if embedding_deployment != "local_tei":

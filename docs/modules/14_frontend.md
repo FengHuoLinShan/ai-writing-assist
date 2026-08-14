@@ -76,7 +76,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 | `vue/views/project/ProjectView.vue` | `project` 路由（Vue island）；紧凑作品档案，默认主操作为“继续创作”，搜索/筛选单行展示；批量、编辑、删除和回收站只在“管理作品”模式出现；无作品时优先显示新建与导入 |
 | `vue/views/today/TodayView.vue` | `today` 路由（Vue island）；一个正文或世界设定续接主卡、服务器世界书工作稿/待处理页面建议入口、待处理汇总和最多 3 个项目隔离的长任务恢复；摘要失败不阻断写作，未知状态保留并允许重试 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
-| `vue/views/writing/WritingView.vue` | 工作稿编辑器、场景参考与 AI 建议采用；自动保存明确区分已保存/保存中/失败本地备份，“设为正式正文”继续调用原发布 API 并明确不会对外发布；导入菜单优先给出“先整理场景骨架（推荐）”，完整世界与结构整理仍须作者明确选择；完成后仅刷新章节/Scene 投影并在有 Scene 时可前往 Scene 工作台，避免重挂编辑器或覆盖草稿 |
+| `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面可连续关联或快速新建 Scene，移动速记只保留本章 Scene 切换；自动保存、导入和候选采用继续保持原安全语义 |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；世界书内置关联图模式复用只读 `GET /api/world/knowledge-graph`，可从当前页一跳显式扩展到两跳或全局，列表可操作而 SVG 仅为辅助；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 预览使用结构化重复项编辑器，提交时适配回原 wire payload；版本历史不可原地改写 |
@@ -265,7 +265,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 
 `vue/views/writing/WritingView.vue` 当前不只是草稿编辑器，还承担：
 
-- Scene 树导航
+- 纯章节目录与手选 Scene 副驾驶
 - 自动保存与未保存提醒
 - 底部状态栏 `.writing-statusbar`（38px 通栏）：左侧为字数进度（当前 / 日目标 + 3px accent
   进度条）、段落数与预计阅读时长（字数 / 400 向上取整）；右侧为字体循环切换（会话内临时
@@ -302,6 +302,10 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 世界对象的卡片/表格只切换当前组件呈现并就地同步 query；筛选表单的未应用副本
   放在现有 `worldSession` 中并精确绑定 query 签名。同项目分页、热点/全部资料切换或后台
   必要刷新可恢复草稿；外部深链、子页或项目变更仍以新 URL 为准。
+- 世界对象卡片和表格都提供“上传图片”。缩略图仅经鉴权接口取回并使用受控 Object URL；无图、
+  失败或晚到响应继续使用首字色块，替换/卸载时释放旧 URL。卡片整体可用 Enter/Space 打开既有
+  编辑弹窗的双栏详情，上传、复选框和“更多”保持独立；窄屏改为单列，图片失败不阻断文字编辑。
+  卡片操作区贴底等高，首列“更多”只在局部向右展开，避免被左侧遮挡。
 - Outline 篇章/剧情线同样区分已应用 query 与编辑中筛选：翻页只改已应用条件的页码，
   不隐式提交未点“应用”的控件值；同 query 重挂载恢复草稿，各子页草稿相互隔离，
   外部 query 或项目变更时以新路由为准。

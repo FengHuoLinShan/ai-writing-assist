@@ -31,9 +31,20 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
 - `entity_type="character"` 的 CoreEntity 进入 canonical 时必须同步具备最小 `characters` 档案，保证人物、POV 与生成中心上下文可立即使用。作者显式创建人物档案会原位升级自动 scaffold；未被作者扩展的 scaffold 不视为类型纠正的硬依赖
 
+### 对象图片
+
+`core_entities.image_version` 与 `image_updated_at` 只标记可选图片的当前版本；列表和详情响应
+提供 `has_image`，绝不暴露私有 object key。`PUT /api/world/entities/{id}/image` 在当前账户 owner
+与 `novel_id` 门禁内只接受真实 PNG/JPEG（严格小于 6MiB、最大 4096×4096），服务端去 EXIF/
+元数据并输出受限 WebP；`GET .../image?variant=thumbnail|full` 只返回鉴权后的派生图。
+
+每个账户的人物图片最多 20 张，其他对象图片合计最多 50 张；回收站项目仍计入配额，替换不新增
+占用。对象软废弃、融合和别名化不迁移或删除图片；项目永久删除才触发对象前缀清理。图片不进入
+RAG 或 LLM 上下文。
+
 ## 数据表
 
-- `core_entities` — 共享核心实体表，公共字段（name / aliases JSONB / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string）统一存储
+- `core_entities` — 共享核心实体表，公共字段（name / aliases JSONB / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string / image_version / image_updated_at）统一存储；图片字节位于私有对象存储
 - `events` — 事件扩展表（entity_id PK+FK → core_entities.id）
 - `entity_relations` — 实体关系边（UUID FK → core_entities + 章节追溯字段 + `review_meta` 复核审计）
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
@@ -214,6 +225,8 @@ GET    /api/world/entities
 GET    /api/world/entity-types
 GET    /api/world/entities/{id}
 PUT    /api/world/entities/{id}
+PUT    /api/world/entities/{id}/image
+GET    /api/world/entities/{id}/image?variant=thumbnail|full
 DELETE /api/world/entities/{id}
 GET    /api/world/entities/{id}/relations
 

@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import WritingView from "../../../vue/views/writing/WritingView.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
-import { clearWritingSession } from "../../../vue/views/writing/writingSession.js"
+import {
+  clearWritingSession,
+  rememberWritingLocation,
+} from "../../../vue/views/writing/writingSession.js"
 import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
 
 function deferred() {
@@ -16,7 +19,7 @@ function props(overrides = {}) {
     projectId: "p1",
     chapterList: [1],
     chapters: { 1: { chapter_index: 1, title: "<img src=x>", word_count: 2, status: "draft" } },
-    scenes: [{ id: "s1", title: "Scene <script>", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 20 }] }],
+    scenes: [{ id: "s1", title: "Scene <script>", status: "draft", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 20 }] }],
     chapterLoadError: null,
     authorPreferences: { dailyGoal: 1000, editorFont: "serif", defaultFocusMode: false },
     requestedLocation: { chapter: 1, draftId: "d1" },
@@ -66,10 +69,12 @@ describe("WritingView", () => {
   it("Vue 模板拥有写作台 DOM，动态内容按文本转义", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
+    await expandWritingCopilot(wrapper)
     expect(wrapper.find("#writing-editor").exists()).toBe(true)
     expect(wrapper.find("#writing-tree-container img").exists()).toBe(false)
     expect(wrapper.find("#writing-tree-container").text()).toContain("<img src=x>")
-    expect(wrapper.find("#writing-tree-container").text()).toContain("Scene <script>")
+    expect(wrapper.find("#writing-tree-container").text()).not.toContain("Scene <script>")
+    expect(wrapper.find("#writing-panel-container").text()).toContain("Scene <script>")
     expect(wrapper.find("script").exists()).toBe(false)
     wrapper.unmount()
   })
@@ -78,24 +83,99 @@ describe("WritingView", () => {
     const wrapper = mount(WritingView, {
       props: props({
         scenes: [
-          { id: "s1", title: "入口", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 1 }] },
-          { id: "s2", title: "密道", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 1, end_pos: 2 }] },
+          { id: "s1", title: "入口", status: "draft", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 1 }] },
+          { id: "s2", title: "密道", status: "draft", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 1, end_pos: 2 }] },
         ],
       }),
       attachTo: document.body,
     })
     await flushPromises()
+    await expandWritingCopilot(wrapper)
 
-    const secondScene = wrapper.findAll(".scene-tree-label").find((button) => button.text().includes("密道"))
+    const secondScene = wrapper.findAll(".scene-cockpit-switcher__item").find((button) => button.text().includes("密道"))
     await secondScene.trigger("click")
     await flushPromises()
 
-    expect(wrapper.find(".scene-tree-label--current").text()).toContain("密道")
+    expect(wrapper.find(".scene-cockpit-switcher__item.active").text()).toContain("密道")
     expect(getAppState().viewStates.writing).toMatchObject({
       projectId: "p1",
       currentChapter: 1,
       currentSceneId: "s2",
     })
+    const editor = wrapper.get("#writing-editor")
+    editor.element.focus()
+    editor.element.setSelectionRange(0, 0)
+    await editor.trigger("click")
+    expect(wrapper.find(".scene-cockpit-switcher__item.active").text()).toContain("密道")
+    wrapper.unmount()
+  })
+
+  it("本章 Scene 兼容章节关联与 chunk，只显示有效态并稳定排序", async () => {
+    const wrapper = mount(WritingView, {
+      props: props({
+        scenes: [
+          { id: "z", title: "第二场", scene_index: 2, status: "draft", chapter_ids: ["1"] },
+          { id: "b", title: "同序 B", scene_index: 1, status: "canonical", scene_chunks: [{ chapter_index: 1 }] },
+          { id: "a", title: "同序 A", scene_index: 1, status: "draft", chapter_ids: ["1"] },
+          { id: "candidate", title: "待处理", scene_index: 0, status: "candidate", chapter_ids: ["1"] },
+          { id: "history", title: "历史", scene_index: 0, status: "deprecated", chapter_ids: ["1"] },
+        ],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await expandWritingCopilot(wrapper)
+
+    expect(wrapper.findAll(".scene-cockpit-switcher__item").map((item) => item.text())).toEqual([
+      "同序 A", "同序 B", "第二场",
+    ])
+    expect(wrapper.get(".scene-cockpit-switcher").text()).not.toContain("待处理")
+    expect(wrapper.get(".scene-cockpit-switcher").text()).not.toContain("历史")
+    wrapper.unmount()
+  })
+
+  it("关联弹窗连续调用原子接口，并保留已手选 Scene", async () => {
+    const linked = { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] }
+    const unlinked = { id: "s2", title: "旅店暗号", scene_index: 2, status: "draft", chapter_ids: [] }
+    globalThis.api.outline.associateSceneWithChapter.mockResolvedValue({ ...unlinked, chapter_ids: ["1"] })
+    globalThis.api.outline.createSceneForChapter.mockResolvedValue({ id: "s3", title: "钟楼会面", scene_index: 3, status: "draft", chapter_ids: ["1"] })
+    const wrapper = mount(WritingView, {
+      props: props({ scenes: [linked, unlinked] }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await expandWritingCopilot(wrapper)
+
+    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
+    await wrapper.get('[aria-label="关联 旅店暗号"]').trigger("click")
+    await flushPromises()
+    expect(globalThis.api.outline.associateSceneWithChapter).toHaveBeenCalledWith("p1", 1, "s2")
+    expect(wrapper.get('[aria-label="旅店暗号已关联"]').exists()).toBe(true)
+    expect(wrapper.get('[role="dialog"]').exists()).toBe(true)
+
+    await wrapper.findAll("button").find((button) => button.text().includes("新建 Scene")).trigger("click")
+    await wrapper.get("#scene-associate-title-input").setValue("  钟楼会面  ")
+    await wrapper.get(".scene-associate-create").trigger("submit")
+    await flushPromises()
+    expect(globalThis.api.outline.createSceneForChapter).toHaveBeenCalledWith("p1", 1, "钟楼会面")
+    expect(wrapper.findAll(".scene-cockpit-switcher__item").map((item) => item.text())).toEqual([
+      "入口", "旅店暗号", "钟楼会面",
+    ])
+    expect(wrapper.get(".scene-cockpit-switcher__item.active").text()).toContain("入口")
+    wrapper.unmount()
+  })
+
+  it("从关联弹窗打开 Scene 工作台时携带当前手选 Scene", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await expandWritingCopilot(wrapper)
+    await wrapper.findAll("button").find((button) => button.text().includes("关联 Scene")).trigger("click")
+    await wrapper.findAll("button").find((button) => button.text().includes("打开 Scene 工作台")).trigger("click")
+
+    const call = globalThis.router.navigate.mock.calls.at(-1)
+    expect(call.slice(0, 3)).toEqual(["outline", "scenes", true])
+    expect(call[3]).toBeInstanceOf(URLSearchParams)
+    expect(call[3].get("scene_id")).toBe("s1")
     wrapper.unmount()
   })
 
@@ -111,15 +191,15 @@ describe("WritingView", () => {
     expect(sessionStorage.getItem(key)).toBeNull()
     expect(rail.element.tagName).toBe("ASIDE")
     expect(wrapper.findAll(".workspace-rail__summary")).toHaveLength(0)
-    expect(wrapper.get(".chapter-tree-title .writing-rail-heading-label").text()).toBe("章节 · 共 1 章")
+    expect(wrapper.get(".chapter-tree-title").text()).toBe("共 1 章")
     expect(wrapper.get(".writing-rail-heading-label--copilot").text()).toBe("写作副驾驶")
     expect(wrapper.text()).not.toContain("写作参考")
 
-    await wrapper.get('[aria-label="收起章节"]').trigger("click")
+    await wrapper.get('[aria-label="收起章节目录"]').trigger("click")
     expect(rail.classes()).toContain("is-collapsed")
     expect(sessionStorage.getItem(key)).toBe("closed")
 
-    await wrapper.get('[aria-label="展开章节"]').trigger("click")
+    await wrapper.get('[aria-label="展开章节目录"]').trigger("click")
     expect(rail.classes()).not.toContain("is-collapsed")
     expect(sessionStorage.getItem(key)).toBe("open")
     wrapper.unmount()
@@ -142,6 +222,30 @@ describe("WritingView", () => {
         "p1",
       )
       expect(toastMock).toHaveBeenCalledWith("已保存到工作稿", "success")
+      wrapper.unmount()
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth })
+    }
+  })
+
+  it("移动速记只提供本章 Scene 切换，不暴露管理入口", async () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
+    try {
+      const wrapper = mount(WritingView, {
+        props: props({ scenes: [
+          { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] },
+          { id: "s2", title: "密道", scene_index: 2, status: "draft", chapter_ids: ["1"] },
+        ] }),
+        attachTo: document.body,
+      })
+      await flushPromises()
+
+      const selector = wrapper.get("#mobile-note-scene-selector")
+      expect(selector.findAll("option").map((option) => option.text())).toEqual(["入口", "密道"])
+      expect(wrapper.text()).not.toContain("关联 Scene")
+      await selector.setValue("s2")
+      expect(getAppState().viewStates.writing.currentSceneId).toBe("s2")
       wrapper.unmount()
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth })
@@ -206,6 +310,91 @@ describe("WritingView", () => {
     expect(vm.editorState.chapter).toBe(3)
     expect(globalThis.api.writing.get).not.toHaveBeenCalledWith("d2", "p1")
     expect(globalThis.api.writing.get).toHaveBeenCalledWith("d3", "p1")
+    wrapper.unmount()
+  })
+
+  it("切章后按章恢复上次手选 Scene", async () => {
+    globalThis.api.writing.getVersionHistory.mockImplementation(async (chapter) => ({
+      versions: [{ id: `d${chapter}`, version_number: 1, status: "draft" }],
+    }))
+    globalThis.api.writing.get.mockImplementation(async (id) => ({
+      id,
+      novel_id: "p1",
+      title: `章节 ${id}`,
+      content: "正文",
+      version_number: 1,
+      status: "draft",
+    }))
+    const wrapper = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2],
+        chapters: { 1: { title: "一" }, 2: { title: "二" } },
+        scenes: [
+          { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] },
+          { id: "s2", title: "密道", scene_index: 2, status: "draft", chapter_ids: ["1"] },
+          { id: "s3", title: "钟楼", scene_index: 3, status: "draft", chapter_ids: ["2"] },
+        ],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    await vm.selectScene("s2")
+    await vm.selectChapter(2)
+    expect(vm.currentScene.value.id).toBe("s3")
+    await vm.selectChapter(1)
+    expect(vm.currentScene.value.id).toBe("s2")
+    wrapper.unmount()
+  })
+
+  it("路由 Scene 已失效时恢复该章上次手选 Scene", async () => {
+    const wrapper = mount(WritingView, {
+      props: props({
+        requestedLocation: null,
+        scenes: [
+          { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] },
+          { id: "s2", title: "密道", scene_index: 2, status: "draft", chapter_ids: ["1"] },
+        ],
+      }),
+      attachTo: document.body,
+    })
+    rememberWritingLocation("p1", { currentChapter: 1, currentSceneId: "s2" })
+    await wrapper.vm.$.setupState.vm.selectChapter(1, { draftId: "d1", sceneId: "missing" })
+
+    expect(wrapper.vm.$.setupState.vm.selectedSceneId.value).toBe("s2")
+    wrapper.unmount()
+  })
+
+  it("同章切换 Scene 后丢弃旧上下文的晚到响应", async () => {
+    const oldCheck = deferred()
+    globalThis.api.writing.listConflictChecks.mockImplementation(({ scene_id: sceneId }) => (
+      sceneId === "s1" ? oldCheck.promise : Promise.resolve({ items: [{ id: "check-s2", scene_id: "s2", chapter_index: 1 }] })
+    ))
+    globalThis.api.world.listEntities.mockImplementation(async ({ scene_id: sceneId, entity_type: type }) => (
+      type === "character" ? [{ id: `${sceneId}-person`, name: `${sceneId} 人物` }] : []
+    ))
+    const wrapper = mount(WritingView, {
+      props: props({ scenes: [
+        { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] },
+        { id: "s2", title: "密道", scene_index: 2, status: "draft", chapter_ids: ["1"] },
+      ] }),
+      attachTo: document.body,
+    })
+    const vm = wrapper.vm.$.setupState.vm
+    await vi.waitFor(() => expect(vm.selectedSceneId.value).toBe("s1"))
+    vm.conflictDialog.open = true
+    vm.conflictDialog.check = { id: "dialog-s1", scene_id: "s1" }
+    Object.assign(vm.conflictTask, { taskId: "task-s1", progress: { status: "running" } })
+    await vm.selectScene("s2")
+    expect(vm.sceneState.people.map((person) => person.name)).toEqual(["s2 人物"])
+    expect(vm.conflictState.latest?.id).toBe("check-s2")
+    expect(vm.conflictDialog).toMatchObject({ open: false, check: null })
+    expect(vm.conflictTask).toMatchObject({ taskId: null, progress: null })
+
+    oldCheck.resolve({ items: [{ id: "check-s1", scene_id: "s1", chapter_index: 1 }] })
+    await flushPromises()
+    expect(vm.sceneState.people.map((person) => person.name)).toEqual(["s2 人物"])
+    expect(vm.conflictState.latest?.id).toBe("check-s2")
     wrapper.unmount()
   })
 
@@ -465,6 +654,29 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("发布 payload 使用当前手选 Scene", async () => {
+    globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [{ id: "check-1", items: [], summary_json: { open_high_count: 0 } }] })
+    globalThis.api.writing.publish.mockResolvedValue({ new_version: false })
+    const wrapper = mount(WritingView, {
+      props: props({ scenes: [
+        { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] },
+        { id: "s2", title: "密道", scene_index: 2, status: "draft", chapter_ids: ["1"] },
+      ] }),
+      attachTo: document.body,
+    })
+    const vm = wrapper.vm.$.setupState.vm
+    await vi.waitFor(() => expect(vm.selectedSceneId.value).toBe("s1"))
+    await vm.selectScene("s2")
+    await vm.publish()
+
+    expect(globalThis.api.writing.publish).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      chapter_index: 1,
+      scene_id: "s2",
+    }))
+    wrapper.unmount()
+  })
+
   it("基于历史版本创建时，暂存入口改为发布新版本而非覆盖历史稿", async () => {
     globalThis.api.writing.getVersionHistory.mockResolvedValue({ versions: [
       { id: "d2", version_number: 2, status: "draft", updated_at: "u2" },
@@ -619,7 +831,7 @@ describe("WritingView", () => {
     globalThis.api.imports.startStage.mockResolvedValue({ task_id: "extract-1" })
     globalThis.api.tasks.get.mockResolvedValue({ status: "done", progress: 1, task_type: "scene_auto_extraction", result: {} })
     globalThis.api.writing.listChapters.mockResolvedValue({ chapter_indices: [1] })
-    globalThis.api.outline.listScenesOrdered.mockResolvedValue([{ id: "scene-new", title: "新场景", chapter_ids: ["1"], scene_chunks: [] }])
+    globalThis.api.outline.listScenesOrdered.mockResolvedValue([{ id: "scene-new", title: "新场景", status: "draft", chapter_ids: ["1"], scene_chunks: [] }])
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
     await wrapper.findAll("button").find((button) => button.text() === "先整理场景骨架（推荐）").trigger("click")
@@ -630,7 +842,7 @@ describe("WritingView", () => {
       adoption_policy: "user_authorized_pipeline",
     }))
     expect(globalThis.api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
-    expect(wrapper.text()).toContain("新场景")
+    expect(wrapper.vm.$.setupState.vm.chapterScenes.value.map((scene) => scene.title)).toContain("新场景")
     const openScenes = wrapper.findAll("button").find((button) => button.text() === "查看场景骨架")
     expect(openScenes).toBeDefined()
     await openScenes.trigger("click")
@@ -658,7 +870,7 @@ describe("WritingView", () => {
     globalThis.api.imports.deepImport.mockResolvedValue({ task_id: "deep-1" })
     globalThis.api.tasks.get.mockResolvedValue({ status: "done", progress: 1, task_type: "deep_import", result: {} })
     globalThis.api.writing.listChapters.mockResolvedValue({ chapter_indices: [1] })
-    globalThis.api.outline.listScenesOrdered.mockResolvedValue([{ id: "scene-full", title: "完整导入场景", chapter_ids: ["1"], scene_chunks: [] }])
+    globalThis.api.outline.listScenesOrdered.mockResolvedValue([{ id: "scene-full", title: "完整导入场景", status: "draft", chapter_ids: ["1"], scene_chunks: [] }])
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
     await wrapper.findAll("button").find((button) => button.text() === "完整整理世界与结构").trigger("click")
@@ -673,7 +885,7 @@ describe("WritingView", () => {
       expect.objectContaining({ taskId: "deep-1", workflowType: "deep_import", projectId: "p1" }),
     ])
     expect(globalThis.api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
-    expect(wrapper.text()).toContain("完整导入场景")
+    expect(wrapper.vm.$.setupState.vm.chapterScenes.value.map((scene) => scene.title)).toContain("完整导入场景")
     wrapper.unmount()
   })
 

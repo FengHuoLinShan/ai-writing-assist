@@ -5,6 +5,19 @@
       <span class="mobile-note-status" role="status">{{ statusText }}</span>
       <span id="mobile-note-wc" class="mobile-note-wc">{{ state.content.length.toLocaleString() }} 字</span>
     </div>
+    <label class="mobile-note-scene" for="mobile-note-scene-selector">
+      <span>本章 Scene</span>
+      <select
+        v-if="scenes.length"
+        id="mobile-note-scene-selector"
+        :value="selectedSceneId || ''"
+        aria-label="切换本章 Scene"
+        @change="$emit('select-scene', $event.target.value)"
+      >
+        <option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.title || '未命名 Scene' }}</option>
+      </select>
+      <span v-else class="writing-empty-hint">本章未关联 Scene</span>
+    </label>
     <textarea
       ref="editorEl"
       id="mobile-note-editor"
@@ -26,10 +39,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue"
 
 const props = defineProps({
   state: { type: Object, required: true },
+  scenes: { type: Array, default: () => [] },
+  selectedSceneId: { type: String, default: null },
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })
-defineEmits(["save", "publish", "desktop"])
+defineEmits(["save", "publish", "desktop", "select-scene"])
 const statusText = computed(() => {
   if (props.state.saving) return "正在保存"
   if (props.state.saveError) return "保存失败，本地备份已保留"

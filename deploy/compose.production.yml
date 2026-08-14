@@ -31,6 +31,7 @@ x-runtime-environment: &runtime-environment
   LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD: ${LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD:-5}
   LLM_CIRCUIT_BREAKER_RESET_SECONDS: ${LLM_CIRCUIT_BREAKER_RESET_SECONDS:-60.0}
   MAP_ATLAS_S3_BUCKET: ${MAP_ATLAS_S3_BUCKET:?Set MAP_ATLAS_S3_BUCKET}
+  WORLD_OBJECT_S3_BUCKET: ${WORLD_OBJECT_S3_BUCKET:?Set WORLD_OBJECT_S3_BUCKET}
   MAP_ATLAS_S3_REGION: ${MAP_ATLAS_S3_REGION:-us-east-1}
   MAP_ATLAS_S3_ENDPOINT_URL: ${MAP_ATLAS_S3_ENDPOINT_URL:-}
   MAP_ATLAS_S3_ACCESS_KEY_ID: ${MAP_ATLAS_S3_ACCESS_KEY_ID:-}
@@ -119,6 +120,48 @@ services:
     networks:
       - egress
 
+  minio:
+    image: ${MINIO_IMAGE:?Set MINIO_IMAGE}
+    restart: unless-stopped
+    logging: *bounded-logging
+    command: server /data
+    environment:
+      MINIO_BROWSER: "off"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - data
+
+  minio-init:
+    image: ${MINIO_MC_IMAGE:?Set MINIO_MC_IMAGE}
+    restart: "no"
+    logging: *bounded-logging
+    entrypoint: ["/bin/sh", "/usr/local/bin/init-minio.sh"]
+    environment:
+      MC_CONFIG_DIR: /tmp/mc
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      MINIO_APP_ACCESS_KEY: ${MAP_ATLAS_S3_ACCESS_KEY_ID:?Set MAP_ATLAS_S3_ACCESS_KEY_ID}
+      MINIO_APP_SECRET_KEY: ${MAP_ATLAS_S3_SECRET_ACCESS_KEY:?Set MAP_ATLAS_S3_SECRET_ACCESS_KEY}
+      MAP_ATLAS_S3_BUCKET: ${MAP_ATLAS_S3_BUCKET:?Set MAP_ATLAS_S3_BUCKET}
+      WORLD_OBJECT_S3_BUCKET: ${WORLD_OBJECT_S3_BUCKET:?Set WORLD_OBJECT_S3_BUCKET}
+    volumes:
+      - ../docker/init-minio.sh:/usr/local/bin/init-minio.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    tmpfs:
+      - /tmp:mode=1777
+    networks:
+      - data
+
   api:
     <<: *first-party-runtime-hardening
     image: ai-writing-assist-backend:${RELEASE_ID:-local}
@@ -133,6 +176,10 @@ services:
         condition: service_healthy
       embedding:
         condition: service_started
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -169,6 +216,10 @@ services:
         condition: service_healthy
       embedding:
         condition: service_started
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -247,6 +298,8 @@ volumes:
     name: ai-writing-assist-postgres-data
   embedding-model-cache:
     name: ai-writing-assist-embedding-model-cache
+  minio-data:
+    name: ai-writing-assist-minio-data
 
 networks:
   data:

@@ -169,11 +169,15 @@ POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标
 
 ## 手动工作台
 
-writingView（frontend-console/views/writingView.js）扩展为手动工作台：
+Writing Vue 工作台由 `frontend-console/vue/views/writing/` 承载：
 
-- **左侧 Scene 树**：Scene 一级节点 → Chapter 二级节点折叠结构，支持 Scene 间导航
+- **左侧章节树**：按章节顺序只显示状态、章号、标题和字数；Scene 不进入章节目录
 - **中间编辑器**：textarea + 保存/上一章/下一章/导出
-- **右侧 Scene 卡面板**：当前 Scene 卡详情（goal / core_conflict / emotional_beat / must_happen / must_not_happen / narrative_tag）
+- **右侧 Scene 副驾驶**：顶部手动选择本章关联 Scene，下方展示对应
+  goal / core_conflict / emotional_beat / must_happen / must_not_happen / narrative_tag；
+  光标移动不改变 Scene，写作 AI、冲突检查和发布检查统一使用手选 Scene
+- **章节关联**：副驾驶可幂等关联已有 Scene，或用名称快速创建并关联；不伪造正文范围，
+  解除、排序、合并和拆分仍在 Scene 工作台完成
 - **版本历史**：模态框列出所有版本，支持预览和恢复
 - **剧情设定冲突检查**：检查前选择是否包含待处理对象；检查结果按规则命中和 AI 判断分组，支持证据抽屉、来源打开、正文定位、状态更新和复制 AI 修复建议
 - **深度导入按钮**：启动前说明并确认自动采用范围，提交持久化授权快照；运行中显示三阶段进度，完成后展示已采用/待处理/未采用汇总

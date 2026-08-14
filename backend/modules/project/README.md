@@ -70,6 +70,8 @@ async def require_active_project(db, novel_id: str) -> None: ...
 
 async def require_active_project_exclusive(db, novel_id: str) -> None: ...
 
+async def lock_project_ids_for_owner(db, owner_id: UUID) -> list[UUID]: ...
+
 async def create_interaction_project(db, *, title: str) -> InteractionProjectContract: ...
 
 async def require_interaction_project(db, novel_id: str) -> None: ...
@@ -114,6 +116,9 @@ async def build_project_image_execution_snapshot(db, novel_id: str) -> dict: ...
 task finalizer 需要一个项目级短临界区。它在 PostgreSQL 上使用 `FOR UPDATE`，
 只允许在无 provider/网络 I/O 的最终 DB 事务中持有；普通请求和长工作流
 不得以它取代 `require_active_project()`。
+`lock_project_ids_for_owner()` 只为账户级对象图片配额在短数据库事务内取得该 owner 的 advisory
+transaction lock 后重算项目 ID；调用方仍要按这些 ID 保持 `novel_id` 过滤，不能把它当成 owner
+或项目读取门禁，也不能在锁内进行图片处理或对象存储 I/O。
 所有带 `novel_id` 的业务文本/结构化 LLM 调用通过
 `open_project_llm_client()` 获取项目 owner 当前已验证的账户连接。该 seam 统一执行
 项目存在性、owner、Key/Base URL/模型 fail-closed 校验、脱敏 runtime metadata 和
@@ -135,8 +140,8 @@ client。
 读取当前轮换后的账户 Key；缺少连接或 snapshot 漂移时 fail closed。
 
 项目永久删除持 exclusive project lock，取消普通任务并经 world 的窄 facade 创建
-`owner_scope=global`、`novel_id=NULL` 的 S3 前缀清理任务，再删除项目。该顺序和地图册上传的
-share lock 共同阻止晚到对象；普通业务模块不能自行创建全局任务。
+`owner_scope=global`、`novel_id=NULL` 的地图册和对象图片 S3 前缀清理任务，再删除项目。该顺序
+和图片上传的 share lock 共同阻止晚到对象；普通业务模块不能自行创建全局任务。
 
 `build_project_llm_execution_snapshot()` 用于可恢复任务的提交时冻结：
 只持久化账户 provider/model/非 secret 参数、字段来源、deep-import 设置、

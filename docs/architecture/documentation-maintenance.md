@@ -68,7 +68,7 @@ operation receipt 或任务 attempt 策略变更还应同步 ADR、tasks/LLM REA
 | API 请求/响应、前端工作台、用户流程 | `docs/modules/14_frontend.md`、对应模块 README、`docs/核心业务场景与预期行为.md` | wire shape 或用户可见流程改变时 |
 | Prompt 清单、调用方、结构化输出约束 | `docs/prompts/Prompt体系设计.md`、`backend/prompts/` | Prompt 文件、调用方或 schema 契约改变时 |
 | 受控 LLM、队列、任务恢复或观测 | `backend/infrastructure/*/README.md`、`docs/modules/12_infrastructure.md` | 基础设施行为或运行方式改变时 |
-| 图片模型、私有对象存储或外部对象清理 | 所属模块 README、`docs/modules/12_infrastructure.md`、部署配置；长期拓扑取舍另写 ADR | 图片运行时、存储边界或删除恢复语义改变时 |
+| 图片模型、私有对象存储或外部对象清理 | 所属模块 README、`docs/modules/12_infrastructure.md`、部署配置；长期拓扑取舍另写 ADR | 图片运行时、存储边界、bucket/凭据权限、容量配额或删除恢复语义改变时 |
 | 设计取舍改变且会约束未来实现 | `docs/adr/`、`docs/adr/README.md` | 需要长期架构决策时；先取得用户确认或走 ADR 流程 |
 
 `docs/README.md` 只在新增、移动、归档当前文档或改变阅读入口时更新。它是索引，不复制
