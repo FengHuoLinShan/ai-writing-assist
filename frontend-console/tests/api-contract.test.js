@@ -241,6 +241,15 @@ describe("前后端 API 契约", () => {
     expect(getApiContract("world.getEntity").method).toBe("GET")
     expect(contractPath("world.getEntity", { id: "entity-1" }, { novel_id: "novel-1" }))
       .toBe("/world/entities/entity-1?novel_id=novel-1")
+    expect(getApiContract("world.fetchEntityImage").method).toBe("GET")
+    expect(contractPath("world.fetchEntityImage", { id: "entity-1" }, {
+      novel_id: "novel-1",
+      variant: "thumbnail",
+    })).toBe("/world/entities/entity-1/image?novel_id=novel-1&variant=thumbnail")
+    expect(getApiContract("world.uploadEntityImage").method).toBe("PUT")
+    expect(contractPath("world.uploadEntityImage", { id: "entity-1" }, {
+      novel_id: "novel-1",
+    })).toBe("/world/entities/entity-1/image?novel_id=novel-1")
     expect(contractPath("world.getKnowledgeGraph", {}, { novel_id: "novel-1", scope: "local", depth: 1 }))
       .toBe("/world/knowledge-graph?novel_id=novel-1&scope=local&depth=1")
     expect(contractPath("world.getReviewTypeCatalog"))

@@ -9,9 +9,9 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 ### One-command dev start
 
 ```bash
-make dev                         # Kill old → DB → Alembic head guard → backend/worker/Vite
-make kill                        # Stop app services and PostgreSQL
-make kill-apps                   # Stop backend, worker, frontend; keep PostgreSQL running
+make dev                         # Kill old → PostgreSQL/MinIO → Alembic head guard → backend/worker/Vite
+make kill                        # Stop app services, PostgreSQL, and MinIO
+make kill-apps                   # Stop backend, worker, frontend; keep PostgreSQL and MinIO running
 make help                        # List all targets
 ```
 
@@ -37,8 +37,8 @@ npm run test:e2e:functional      # Complete functional Playwright E2E
 npm run test:e2e:smoke           # Playwright smoke subset
 npm run test:e2e:map             # Complete map regression list; workers=1/retries=0
 
-# Database
-make db                          # docker compose up -d
+# Local data services
+make db                          # start PostgreSQL, loopback-only MinIO, and one-shot private-bucket init
 make migrate                     # alembic upgrade head (demo schema 历史已压缩；旧开发库可重建)
 make schema-check                # Read-only fail-fast check: current DB must be at every Alembic head
 ./scripts/dev_migrate_worldbuilding_v1.py  # 补齐 Worldbuilding Workspace v1 dev schema
@@ -75,6 +75,14 @@ make lint-fix                    # ruff --fix
 make format                      # ruff format --check
 make format-fix                  # ruff format
 ```
+
+`make db` 为 host-run backend/worker 固定注入本地开发 MinIO 的非生产连接与应用凭据；不要让
+shell 中的生产 `MAP_ATLAS_S3_*` 值覆盖它。S3 API 与可选 MinIO console 只绑定 loopback；开发
+结束用 `make kill` 停止 PostgreSQL 与 MinIO。host-run API/worker 会显式剥离 shell 中的
+`MINIO_ROOT_*`，只获得本地受限应用凭据。生产值、root 凭据和 bucket 配额只通过
+`deploy/.env.production` 与发布流程配置。开发的一次性 initializer 共享固定名 MinIO 的网络
+namespace 并只连其 loopback，因此可从并行 worktree 重用既有开发服务；生产仍只使用内部
+`http://minio:9000`。
 
 上述自动化 backend 质量目标会在进入 `backend/` 后自行通过 `uv run --locked --extra ci --`
 解析 `backend/.python-version` 的 Python `3.14.7` 与 `backend/uv.lock` 的 `ci` 工具链；无需预先

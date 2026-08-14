@@ -32,7 +32,8 @@ PR 若确实没有当前文档变化，必须按脚本列出的未更新文档�
 `docs/architecture/` 文件或 ADR 未登记时也会失败。
 
 ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和页内恢复边界；该决定
-复用现有 tasks/LLM/project seams，不新增队列、表、全局任务中心或跨设备锁。
+复用现有 tasks/LLM/project seams，不新增队列、表、全局任务中心或跨设备锁。ADR-0014 规定
+世界对象图片的鉴权读取、私有双 bucket、最小权限应用凭据和单盘 32GiB MinIO 边界。
 
 ## 当前读图约定
 
@@ -42,10 +43,11 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
   （`imports/rag/context/writing/settings`）。`account` 是三层之外的公开身份与 owner
   边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、
   `infrastructure/llm` 是共享基础设施。
-- `map` 是 `world` 拥有的 AI 地图册子系统；图片运行时与私有 S3 边界见 ADR-0012。
-  `geo/review/character/timeline` 已移除或并入现有模块。
+- `map` 是 `world` 拥有的 AI 地图册子系统；地图册与世界对象图片共用受限 MinIO 连接、但使用
+  私有分 bucket，边界见 ADR-0012 / ADR-0014。`geo/review/character/timeline` 已移除或并入现有模块。
 - 世界观恢复、收束、检修、交接、影响预演和“问世界”仍是既有 `world/context/frontend`
-  seam 上的固定工作流；本轮没有新增顶级模块、Agent 运行时、持久工作流表或数据库迁移。
+  seam 上的固定工作流；本轮新增 CoreEntity 图片版本 metadata migration，但没有新增顶级模块、
+  Agent 运行时或持久工作流表。
 - 箭头表达主要调用或资料流，标签说明具体语义；完整生产依赖仍以
   `contracts.py`、`facade.py`、组合根 DI 注册和当前代码为准。
 

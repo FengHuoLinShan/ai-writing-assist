@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 
 from core.api_params import NovelIdQuery
 from core.config import get_settings
+from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from core.errors import ConflictError
 from infrastructure.tasks.facade import (
@@ -183,11 +185,18 @@ from modules.world.services.worldbuilding.worldbuilding_service import (
     WorldBibleSynopsisService,
     WorldProfileService,
 )
+from modules.world.world_object_images import (
+    MAX_UPLOAD_BYTES as MAX_WORLD_OBJECT_IMAGE_BYTES,
+)
+from modules.world.world_object_images import (
+    WorldObjectImageService,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/world", tags=["world"])
 
 _entity_service = WorldEntityService()
+_entity_image_service = WorldObjectImageService()
 _alias_service = EntityAliasService()
 _context_service = EntityContextService()
 _relation_service = EntityRelationService()
@@ -1654,6 +1663,53 @@ async def get_entity(
     novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
     return await _entity_service.get(db, entity_id, novel_id=novel_id)
+
+
+@router.put(
+    "/entities/{entity_id}/image",
+    response_model=CoreEntityResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def upload_entity_image(
+    db: DbSession,
+    entity_id: str,
+    image: Annotated[UploadFile, File()],
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> CoreEntityResponse:
+    payload = await image.read(MAX_WORLD_OBJECT_IMAGE_BYTES)
+    if len(payload) >= MAX_WORLD_OBJECT_IMAGE_BYTES or await image.read(1):
+        raise HTTPException(status_code=413, detail="图片必须小于 6MiB")
+    try:
+        return await _entity_image_service.upload(
+            db,
+            novel_id=novel_id,
+            entity_id=entity_id,
+            payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/entities/{entity_id}/image")
+async def get_entity_image(
+    db: DbSession,
+    entity_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    variant: Literal["thumbnail", "full"] = Query(default="thumbnail"),
+) -> Response:
+    payload = await _entity_image_service.get(
+        db,
+        novel_id=novel_id,
+        entity_id=entity_id,
+        variant=variant,
+    )
+    return Response(
+        payload,
+        media_type="image/webp",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.put("/entities/{entity_id}", response_model=CoreEntityResponse)

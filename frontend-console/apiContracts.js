@@ -367,6 +367,15 @@
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
     }),
+    "world.fetchEntityImage": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.fetchEntityImage")}/image`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id", "variant"],
+    }),
+    "world.uploadEntityImage": define("PUT", ({ id }) => `/world/entities/${required(id, "id", "world.uploadEntityImage")}/image`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
     "world.getKnowledgeGraph": define("GET", () => "/world/knowledge-graph", {
       requiredQuery: ["novel_id"],
     }),

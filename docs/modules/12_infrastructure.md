@@ -336,7 +336,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | 模块 | 当前注册处理器 |
 |------|------|
 | project | `smart_dedup_scan` |
-| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`map_atlas_generate`、`map_atlas_storage_cleanup` |
+| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`map_atlas_generate`、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
 | outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview` |
 | rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities` |
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
@@ -420,6 +420,19 @@ marker 不超过 30 秒。它只证明 worker 控制循环近期取得执行权�
 生产 SIGTERM 只在 `run_worker.py` 组合根转换为 `TaskWorker.stop()`：worker 随后停止新 claim 并
 drain 已领取任务，通用 worker 不感知操作系统信号。Compose 的 `stop_grace_period: 2m` 是 drain 的
 外层时限；到期后的 SIGKILL 走既有 lease heartbeat/stale recovery 崩溃恢复，不保证长任务完成。
+
+## 4. 私有对象存储
+
+生产和开发 Compose 均运行固定 digest 的单节点 MinIO。地图册与世界对象图片使用同一套既有
+`MAP_ATLAS_S3_*` 连接配置和一个受限应用用户，但分别放入私有 bucket：地图册硬配额 8GiB，
+对象图片硬配额 24GiB，总对象数据上限 32GiB。两个 bucket 启用 versioning，因此精确和前缀清理
+同时删除对象及历史版本。bucket 初始化是只拿 root 凭据的一次性服务；
+API/worker 不取得 root 凭据，应用 policy 仅允许两桶的定位、列举（含版本）、读取、写入与
+对象/版本删除，不能创建 bucket 或修改 bucket policy。
+
+生产 MinIO 只在内部 `data` network 提供 S3 API，禁用管理控制台并使用 named volume。它是单盘、
+无外部图片备份的已接受风险：磁盘故障会丢失地图册和对象图片；数据库/常规 restic 备份不代表
+图片可恢复。项目永久删除使用所属模块的精确对象和项目前缀清理任务收敛晚到上传与旧版本。
 
 ## 不做
 

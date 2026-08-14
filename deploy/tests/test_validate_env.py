@@ -48,8 +48,22 @@ def _valid_values() -> dict[str, str]:
         "BACKUP_RETENTION_DAYS": "30",
         "LLM_SETTINGS_ENCRYPTION_KEY": base64.urlsafe_b64encode(b"k" * 32).decode(),
         "MAP_ATLAS_S3_BUCKET": "private-map-atlas-fixture",
+        "WORLD_OBJECT_S3_BUCKET": "private-world-objects-fixture",
         "MAP_ATLAS_S3_REGION": "us-east-1",
-        "MAP_ATLAS_S3_FORCE_PATH_STYLE": "false",
+        "MAP_ATLAS_S3_ENDPOINT_URL": "http://minio:9000",
+        "MAP_ATLAS_S3_ACCESS_KEY_ID": "fixture-minio-user",
+        "MAP_ATLAS_S3_SECRET_ACCESS_KEY": "fixture-minio-secret",
+        "MAP_ATLAS_S3_FORCE_PATH_STYLE": "true",
+        "MINIO_IMAGE": (
+            "minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:"
+            "a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e"
+        ),
+        "MINIO_MC_IMAGE": (
+            "minio/mc:RELEASE.2025-03-12T17-29-24Z@sha256:"
+            "470f5546b596e16c7816b9c3fa7a78ce4076bb73c2c73f7faeec0c8043923123"
+        ),
+        "MINIO_ROOT_USER": "fixture-minio-root",
+        "MINIO_ROOT_PASSWORD": "fixture-minio-root-secret",
         "EMBEDDING_DEPLOYMENT": "local_tei",
         "EMBEDDING_IMAGE": (
             "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9"
@@ -140,7 +154,7 @@ def test_production_can_disable_global_llm_rpm() -> None:
 
 def test_map_atlas_s3_static_credentials_must_be_a_pair() -> None:
     values = _valid_values()
-    values["MAP_ATLAS_S3_ACCESS_KEY_ID"] = "fixture-key"
+    values["MAP_ATLAS_S3_SECRET_ACCESS_KEY"] = ""
 
     errors = validator.validate(values)
 
@@ -173,20 +187,88 @@ def test_map_atlas_s3_endpoint_rejects_credential_egress_targets(
 @pytest.mark.parametrize(
     "endpoint_url",
     [
-        "",
-        "http://localhost:9000",
-        "http://127.0.0.1:9000",
-        "http://[::1]:9000",
-        "https://s3.example.com",
+        "http://minio:9000",
     ],
 )
-def test_map_atlas_s3_endpoint_accepts_aws_https_and_local_development(
+def test_map_atlas_s3_endpoint_accepts_the_private_minio_service(
     endpoint_url: str,
 ) -> None:
     values = _valid_values()
     values["MAP_ATLAS_S3_ENDPOINT_URL"] = endpoint_url
 
     assert validator.validate(values) == []
+
+
+def test_minio_buckets_are_distinct_and_errors_do_not_echo_credentials() -> None:
+    values = _valid_values()
+    values["WORLD_OBJECT_S3_BUCKET"] = values["MAP_ATLAS_S3_BUCKET"]
+    values["MAP_ATLAS_S3_SECRET_ACCESS_KEY"] = "do-not-echo-this-secret"
+
+    errors = validator.validate(values)
+
+    assert "do-not-echo-this-secret" not in "\n".join(errors)
+    assert "WORLD_OBJECT_S3_BUCKET must differ from MAP_ATLAS_S3_BUCKET" in errors
+
+
+@pytest.mark.parametrize(
+    ("name", "bucket"),
+    (
+        ("MAP_ATLAS_S3_BUCKET", "A-PRIVATE-BUCKET"),
+        ("MAP_ATLAS_S3_BUCKET", "ab"),
+        ("MAP_ATLAS_S3_BUCKET", "private-.objects"),
+        ("WORLD_OBJECT_S3_BUCKET", "private..objects"),
+        ("WORLD_OBJECT_S3_BUCKET", "192.168.0.1"),
+    ),
+)
+def test_minio_bucket_names_fail_before_release(name: str, bucket: str) -> None:
+    values = _valid_values()
+    values[name] = bucket
+
+    errors = validator.validate(values)
+
+    assert any(name in error and "bucket name" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "endpoint_url",
+    ("http://minio:9001", "http://minio:9000/", "https://minio:9000"),
+)
+def test_production_minio_endpoint_must_be_the_exact_internal_url(
+    endpoint_url: str,
+) -> None:
+    values = _valid_values()
+    values["MAP_ATLAS_S3_ENDPOINT_URL"] = endpoint_url
+
+    errors = validator.validate(values)
+
+    assert (
+        "MAP_ATLAS_S3_ENDPOINT_URL must be http://minio:9000 for the private "
+        "production MinIO service"
+    ) in errors
+
+
+def test_minio_images_must_be_pinned() -> None:
+    values = _valid_values()
+    values["MINIO_IMAGE"] = "minio/minio:latest"
+    values["MINIO_MC_IMAGE"] = "minio/mc:latest"
+
+    errors = validator.validate(values)
+
+    assert any("MINIO_IMAGE" in error for error in errors)
+    assert any("MINIO_MC_IMAGE" in error for error in errors)
+
+
+def test_minio_root_credentials_must_differ_from_runtime_credentials() -> None:
+    values = _valid_values()
+    values["MINIO_ROOT_USER"] = values["MAP_ATLAS_S3_ACCESS_KEY_ID"]
+    values["MINIO_ROOT_PASSWORD"] = values["MAP_ATLAS_S3_SECRET_ACCESS_KEY"]
+
+    errors = validator.validate(values)
+
+    assert "MINIO_ROOT_USER must differ from MAP_ATLAS_S3_ACCESS_KEY_ID" in errors
+    assert (
+        "MINIO_ROOT_PASSWORD must differ from MAP_ATLAS_S3_SECRET_ACCESS_KEY" in errors
+    )
 
 
 def test_negative_global_llm_rpm_is_rejected() -> None:

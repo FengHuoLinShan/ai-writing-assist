@@ -112,7 +112,7 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         '    fi\n'
         '    exit "${FAKE_DOCKER_STOP_STATUS:-0}" ;;\n'
         '  *" build "*) exit "${FAKE_DOCKER_BUILD_STATUS:-0}" ;;\n'
-        '  *" up -d postgres embedding "*) exit '
+        '  *" up -d postgres embedding minio "*) exit '
         '"${FAKE_DOCKER_DEPENDENCY_UP_STATUS:-0}" ;;\n'
         "  *) exit 0 ;;\n"
         "esac\n"
@@ -240,7 +240,7 @@ def test_release_migration_preflight_rejects_before_checkout_or_service_work(
     assert " stop api worker frontend" not in docker_commands
     assert " pg_dump" not in docker_commands
     assert " migrate" not in docker_commands
-    assert " up -d postgres embedding" not in docker_commands
+    assert " up -d postgres embedding minio" not in docker_commands
 
 
 def test_release_rejects_active_state_checkout_drift_before_database_work(
@@ -320,7 +320,7 @@ def test_first_release_query_failure_rejects_before_checkout_or_service_work(
     assert " stop api worker frontend" not in commands
     assert " pg_dump" not in commands
     assert " migrate" not in commands
-    assert " up -d postgres embedding" not in commands
+    assert " up -d postgres embedding minio" not in commands
 
 
 def test_first_release_runs_full_restore_drill_after_migration(tmp_path: Path) -> None:
@@ -694,7 +694,7 @@ def test_release_quiesce_failure_blocks_backup_migration_and_target_start(
     _assert_healthy_state(repo_root, commit_a)
     docker_commands = docker_log.read_text(encoding="utf-8")
     assert docker_commands.count(" stop api worker frontend") == 1
-    assert " up -d postgres embedding" not in docker_commands
+    assert " up -d postgres embedding minio" not in docker_commands
     assert " pg_dump" not in docker_commands
     assert " migrate" not in docker_commands
     assert " up -d api worker frontend" not in docker_commands
@@ -718,7 +718,7 @@ def test_release_dependency_reconciliation_failure_keeps_applications_quiesced(
     docker_commands = docker_log.read_text(encoding="utf-8")
     assert docker_commands.count(" stop api worker frontend") == 1
     assert docker_commands.index(" stop api worker frontend") < docker_commands.index(
-        " up -d postgres embedding"
+        " up -d postgres embedding minio"
     )
     assert " pg_dump" not in docker_commands
     assert " migrate" not in docker_commands

@@ -28,6 +28,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0011](0011-keyed-task-coalescing-and-domain-owners.md) | Accepted | 任务合并只管 transport，领域 owner/generation/checkpoint 由所属模块保存。 |
 | [ADR-0012](0012-ai-map-atlas-image-storage.md) | Accepted / Implemented | 固定图片模型、私有 S3、独立图片凭证与删除竞态边界。 |
 | [ADR-0013](0013-operation-receipts-and-page-local-recovery.md) | Accepted | 作者发起的 AI 长任务以 operation receipt 去重，最多两个 attempt，只在原页恢复。 |
+| [ADR-0014](0014-world-object-images-and-single-node-minio.md) | Accepted | 对象图片只经鉴权 API 读取；单机 MinIO 用私有双桶、受限应用凭据和 32GiB 硬配额。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

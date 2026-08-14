@@ -31,6 +31,30 @@ PIDFILE = Path("/tmp") / f"ai-writing-assist-dev-stack-{STACK_ID}.json"
 BACKEND_PORT = int(os.environ.get("BACKEND_PORT", "8000"))
 FRONTEND_PORT = int(os.environ.get("FRONTEND_PORT", "8080"))
 DB_CONTAINER = os.environ.get("DEV_DB_CONTAINER", "ai-novel-db")
+MINIO_CONTAINER = os.environ.get("DEV_MINIO_CONTAINER", "ai-novel-minio")
+
+
+def _local_object_storage_env() -> dict[str, str]:
+    """Keep host-run API and worker on the disposable local MinIO instance."""
+    environment = os.environ.copy()
+    # The backend does not need MinIO administration credentials.  Drop them
+    # explicitly so a shell used for production diagnostics cannot accidentally
+    # hand root access to a host-run development API or worker.
+    environment.pop("MINIO_ROOT_USER", None)
+    environment.pop("MINIO_ROOT_PASSWORD", None)
+    environment.update(
+        {
+            "APP_ENV": "development",
+            "MAP_ATLAS_S3_BUCKET": "ai-writing-assist-map-atlas",
+            "WORLD_OBJECT_S3_BUCKET": "ai-writing-assist-world-objects",
+            "MAP_ATLAS_S3_REGION": "us-east-1",
+            "MAP_ATLAS_S3_ENDPOINT_URL": "http://127.0.0.1:9000",
+            "MAP_ATLAS_S3_ACCESS_KEY_ID": "novelist",
+            "MAP_ATLAS_S3_SECRET_ACCESS_KEY": "novel_minio_dev_pass",
+            "MAP_ATLAS_S3_FORCE_PATH_STYLE": "true",
+        }
+    )
+    return environment
 
 
 class _RunCancelledError(Exception):
@@ -306,6 +330,68 @@ def stop_apps(*, fallback: bool = True, remove_pidfile: bool = True) -> None:
             pass
 
 
+def _wait_for_container_health(
+    container: str,
+    *,
+    cancelled: Callable[[], bool] | None,
+) -> bool:
+    while cancelled is None or not cancelled():
+        health = _run(
+            [
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Health.Status}}",
+                container,
+            ],
+            check=False,
+            capture=True,
+            cancelled=cancelled,
+        )
+        if cancelled is not None and cancelled():
+            return False
+        status = (health.stdout or "").strip()
+        if status == "healthy":
+            return True
+        if health.returncode == 0 and status in {"", "<no value>"}:
+            return True
+        print(f"Waiting for {container} healthcheck...")
+        time.sleep(1)
+    return False
+
+
+def _start_or_reuse_data_service(
+    service: str,
+    container: str,
+    *,
+    cancelled: Callable[[], bool] | None,
+) -> bool:
+    """Reuse the fixed-name local service shared by sibling worktrees."""
+    inspect = _run(
+        ["docker", "inspect", container],
+        check=False,
+        capture=True,
+        cancelled=cancelled,
+    )
+    if cancelled is not None and cancelled():
+        return False
+    if inspect.returncode == 0:
+        print(f"=== Reusing existing {container} container ===")
+        _run(
+            ["docker", "start", container],
+            check=False,
+            capture=True,
+            cancelled=cancelled,
+        )
+    else:
+        _run(
+            ["docker", "compose", "up", "-d", service],
+            cwd=ROOT,
+            cancelled=cancelled,
+        )
+    return cancelled is None or not cancelled()
+
+
 def start_db(*, cancelled: Callable[[], bool] | None = None) -> bool:
     def cancellation_requested() -> bool:
         return cancelled is not None and cancelled()
@@ -313,54 +399,36 @@ def start_db(*, cancelled: Callable[[], bool] | None = None) -> bool:
     if cancellation_requested():
         return False
     try:
-        inspect = _run(
-            ["docker", "inspect", DB_CONTAINER],
-            check=False,
-            capture=True,
+        for service, container in (
+            ("postgres", DB_CONTAINER),
+            ("minio", MINIO_CONTAINER),
+        ):
+            if not _start_or_reuse_data_service(
+                service,
+                container,
+                cancelled=cancelled,
+            ):
+                return False
+            if not _wait_for_container_health(container, cancelled=cancelled):
+                return False
+        _run(
+            [
+                "docker",
+                "compose",
+                "up",
+                "--no-deps",
+                "--force-recreate",
+                "--abort-on-container-exit",
+                "--exit-code-from",
+                "minio-init",
+                "minio-init",
+            ],
+            cwd=ROOT,
             cancelled=cancelled,
         )
-        if cancellation_requested():
-            return False
-        if inspect.returncode == 0:
-            print(f"=== Reusing existing {DB_CONTAINER} container ===")
-            _run(
-                ["docker", "start", DB_CONTAINER],
-                check=False,
-                capture=True,
-                cancelled=cancelled,
-            )
-        else:
-            _run(
-                ["docker", "compose", "up", "-d"],
-                cwd=ROOT,
-                cancelled=cancelled,
-            )
-
-        while not cancellation_requested():
-            health = _run(
-                [
-                    "docker",
-                    "inspect",
-                    "-f",
-                    "{{.State.Health.Status}}",
-                    DB_CONTAINER,
-                ],
-                check=False,
-                capture=True,
-                cancelled=cancelled,
-            )
-            if cancellation_requested():
-                return False
-            status = (health.stdout or "").strip()
-            if status == "healthy":
-                return True
-            if health.returncode == 0 and status in {"", "<no value>"}:
-                return True
-            print(f"Waiting for {DB_CONTAINER} healthcheck...")
-            time.sleep(1)
-    except _RunCancelledError:
+        return not cancellation_requested()
+    except (_RunCancelledError, subprocess.CalledProcessError):
         return False
-    return False
 
 
 def check_schema_current(
@@ -385,11 +453,12 @@ def check_schema_current(
 
 
 def stop_db() -> None:
-    inspect = _run(["docker", "inspect", DB_CONTAINER], check=False, capture=True)
-    if inspect.returncode != 0:
-        return
-    print(f"Stopping {DB_CONTAINER}")
-    _run(["docker", "stop", DB_CONTAINER], check=False, capture=True)
+    for container in (DB_CONTAINER, MINIO_CONTAINER):
+        inspect = _run(["docker", "inspect", container], check=False, capture=True)
+        if inspect.returncode != 0:
+            continue
+        print(f"Stopping {container}")
+        _run(["docker", "stop", container], check=False, capture=True)
 
 
 def _spawn(
@@ -450,6 +519,7 @@ def start_stack() -> int:
     if not check_schema_current(cancelled=lambda: signal_exit_code is not None):
         return signal_exit_code or 2
 
+    runtime_env = _local_object_storage_env()
     frontend_env = os.environ.copy()
     frontend_env["FRONTEND_PORT"] = str(FRONTEND_PORT)
 
@@ -465,6 +535,7 @@ def start_stack() -> int:
                 str(BACKEND_PORT),
             ],
             cwd=BACKEND,
+            env=runtime_env,
         )
         if signal_exit_code is not None:
             _cleanup_started_processes(processes)
@@ -473,6 +544,7 @@ def start_stack() -> int:
             "worker",
             [sys.executable, "run_worker.py", "--reload"],
             cwd=BACKEND,
+            env=runtime_env,
         )
         if signal_exit_code is not None:
             _cleanup_started_processes(processes)
@@ -541,8 +613,7 @@ def main() -> int:
         stop_apps(fallback=True)
         return 0
     if args.command == "start-db":
-        start_db()
-        return 0
+        return 0 if start_db() else 1
     if args.command == "stop-db":
         stop_db()
         return 0

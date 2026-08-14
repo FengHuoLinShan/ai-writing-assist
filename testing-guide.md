@@ -85,6 +85,12 @@ green. Do not run overlapping aggregate targets back-to-back.
    subset; deployment or image changes add their existing contract target; visual,
    real-LLM, long-context, worker, and real-corpus suites remain explicit
    acceptance gates.
+4. **Private image storage changes**: run `make test-deploy`, the affected world storage/
+   cleanup tests, and an isolated MinIO initializer smoke with synthetic credentials. Verify
+   both private bucket quotas, application-user access to only those buckets, and that the
+   root user is absent from API/worker runtime configuration. Re-run the initializer to prove
+   idempotence and verify versioning plus object-version deletion; never use a production env
+   file for this smoke.
 
 Every non-trivial branch still finishes with `make docs-check BASE_REF=origin/main` and
 `git diff --check`. GitHub runs the same merge gates on pull requests and the resulting `main`

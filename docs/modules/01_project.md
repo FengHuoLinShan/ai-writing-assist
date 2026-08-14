@@ -26,8 +26,11 @@ provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 
 因此轮换 Key 不要求重建既有任务，也不会把密钥写进任务 API、日志或项目详情。
 
 地图册图片运行时使用独立 `open_project_image_client()` 与 secret-free 图片快照，固定
-`gpt-image-2`，不改变文本 provider。永久删除取得项目排他锁，取消普通任务并创建
-`owner_scope=global`、`novel_id=NULL` 的 S3 前缀清理任务后再级联删除，阻止晚到上传。
+`gpt-image-2`，不改变文本 provider。账户级对象图片配额通过
+`lock_project_ids_for_owner()` 在短事务中锁住该 owner 的项目 ID 后重算，不能替代后续
+`novel_id` 过滤或在锁内进行对象存储 I/O。永久删除取得项目排他锁，取消普通任务并创建
+`owner_scope=global`、`novel_id=NULL` 的地图册和对象图片 S3 前缀清理任务后再级联删除，阻止
+晚到上传。
 
 ### deleted_at 字段
 
@@ -53,6 +56,7 @@ provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 
 
 ```python
 async def get_project_context(db, novel_id) -> ProjectContext | None
+async def lock_project_ids_for_owner(db, owner_id) -> list[UUID]
 ```
 
 `ProjectContext` 只包含 project 拥有的非 secret 配置，并防御性清理遗留 Key；它不再

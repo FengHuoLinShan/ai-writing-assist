@@ -989,6 +989,60 @@ describe("api.js request headers", () => {
     })
   })
 
+  it("世界对象图片走 PUT multipart，不复用导入上传的 POST", async () => {
+    const instances = []
+    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
+    class FakeXMLHttpRequest {
+      constructor() {
+        this.headers = {}
+        this.upload = {}
+        this.status = 200
+        this.responseText = JSON.stringify({ has_image: true })
+        instances.push(this)
+      }
+      open(method, url) {
+        this.method = method
+        this.url = url
+      }
+      setRequestHeader(name, value) { this.headers[name] = value }
+      send(body) {
+        this.body = body
+        this.onload()
+      }
+    }
+    globalThis.XMLHttpRequest = FakeXMLHttpRequest
+    const file = new File(["image"], "portrait.png", { type: "image/png" })
+
+    try {
+      await window.api.world.uploadEntityImage("entity-1", file, "novel-1")
+    } finally {
+      globalThis.XMLHttpRequest = OriginalXMLHttpRequest
+    }
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0]).toMatchObject({
+      method: "PUT",
+      url: "/api/world/entities/entity-1/image?novel_id=novel-1",
+    })
+    expect(instances[0].body.get("image")).toBe(file)
+  })
+
+  it("世界对象图片读取返回 Blob，并绕过浏览器与应用内缓存", async () => {
+    const image = new Blob(["thumbnail"], { type: "image/webp" })
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      blob: async () => image,
+    }))
+
+    await expect(window.api.world.fetchEntityImage("entity-1", "novel-1", "thumbnail"))
+      .resolves.toBe(image)
+
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toBe("/api/world/entities/entity-1/image?novel_id=novel-1&variant=thumbnail")
+    expect(init.cache).toBe("no-store")
+  })
+
   it("clears a token rejected by the upload transport", async () => {
     window.api.setAccessToken("rejected-token")
     const OriginalXMLHttpRequest = globalThis.XMLHttpRequest

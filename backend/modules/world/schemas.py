@@ -1083,6 +1083,7 @@ class CoreEntityResponse(BaseModel):
     embedding_text: str | None = None
     created_by: str | None = None
     approved_by: str | None = None
+    has_image: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
     ranking: EntityRankingResponse | None = None

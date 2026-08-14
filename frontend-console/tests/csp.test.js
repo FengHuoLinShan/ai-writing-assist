@@ -27,6 +27,7 @@ describe("index.html CSP baseline", () => {
     const policy = getCspPolicy()
 
     expect(policy).toContain("style-src 'self' 'unsafe-inline'")
+    expect(policy).toContain("img-src 'self' data: blob:")
     expect(policy).toContain("connect-src 'self' http://localhost:* http://127.0.0.1:*")
   })
 

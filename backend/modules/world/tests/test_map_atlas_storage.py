@@ -99,6 +99,8 @@ def test_storage_accepts_aws_https_and_local_development_endpoints(
         MapAtlasStorage()
 
     assert client_factory.call_args.kwargs["endpoint_url"] == expected
+    config = client_factory.call_args.kwargs["config"]
+    assert config.proxies == ({} if expected and expected.startswith("http://") else None)
 
 
 @pytest.mark.parametrize(

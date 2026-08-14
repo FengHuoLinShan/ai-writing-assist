@@ -61,6 +61,10 @@ class EntityTypeTransitionService:
         if old_type == new_type:
             return
 
+        from modules.world.world_object_images import require_image_type_change_quota
+
+        await require_image_type_change_quota(db, locked, new_type)
+
         blockers = await self._collect_blockers(db, locked, old_type)
         if blockers:
             raise ConflictError(

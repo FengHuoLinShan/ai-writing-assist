@@ -81,8 +81,8 @@ test.describe("世界对象模块", () => {
     await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(".world-object-card-grid")).toContainText("编辑前名称")
 
-    // When: 点击编辑按钮，修改字段并保存
-    await page.locator('[data-action="edit-entity"]').first().click()
+    // When: 点击卡片详情，修改字段并保存
+    await page.locator('[data-action="open-entity-detail"]').first().click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑世界对象")
 
     await page.locator("#edit-entity-name").fill("编辑后名称")
@@ -101,6 +101,51 @@ test.describe("世界对象模块", () => {
     await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(".world-object-card-grid")).toContainText("编辑后名称")
     await expect(page.locator(".world-object-card-grid")).toContainText("势力/派系")
+  })
+
+  test("上传、查看并替换对象图片", async ({ page }) => {
+    const entity = await createEntity(testProjectId, {
+      name: "有画像的守门人",
+      entity_type: "character",
+      status: "canonical",
+      summary: "用于验证私有图片链路",
+    })
+    await reloadWorkbench(page, "world", "objects")
+    await page.setViewportSize({ width: 390, height: 844 })
+
+    const card = page.locator(`.world-object-card[data-id="${entity.id}"]`)
+    const input = page.locator(`#world-entity-image-${encodeURIComponent(entity.id)}`)
+    const firstImage = await page.screenshot({ type: "png" })
+    await input.setInputFiles({ name: "portrait.png", mimeType: "image/png", buffer: firstImage })
+    await expect(page.locator(SEL.toastContainer)).toContainText("图片已上传", { timeout: 15000 })
+    const thumbnail = card.locator(".world-object-card__avatar img")
+    await expect(thumbnail).toBeVisible()
+    const firstThumbnailUrl = await thumbnail.getAttribute("src")
+
+    await card.locator('[data-action="open-entity-detail"]').click()
+    await expect(page.locator("#edit-entity-image")).toBeVisible({ timeout: 10000 })
+    await expect(page.locator(".world-entity-editor")).toBeVisible()
+    await expectNoPageOverflow(page)
+    await page.locator(SEL.modalClose).click()
+
+    for (const theme of ["sticky", "night", "ink"]) {
+      await page.locator(`.theme-dot[data-theme-value="${theme}"]`).click()
+      await expectNoPageOverflow(page)
+    }
+    const menuTrigger = card.locator(".action-menu-btn")
+    await menuTrigger.click()
+    const [triggerBox, menuBox] = await Promise.all([
+      menuTrigger.boundingBox(),
+      card.locator(".action-menu-list").boundingBox(),
+    ])
+    expect(menuBox.x).toBeGreaterThanOrEqual(triggerBox.x - 1)
+    await expectNoPageOverflow(page)
+    await menuTrigger.click()
+
+    const replacement = await page.screenshot({ type: "png" })
+    await input.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: replacement })
+    await expect.poll(() => thumbnail.getAttribute("src"), { timeout: 15000 }).not.toBe(firstThumbnailUrl)
+    await expect(thumbnail).toBeVisible()
   })
 
   test("待处理对象可微调后采用", async ({ page }) => {

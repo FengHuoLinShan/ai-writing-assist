@@ -324,6 +324,8 @@ def test_compose_uses_one_bounded_logging_extension_for_every_service() -> None:
     service_names = (
         "postgres",
         "embedding",
+        "minio",
+        "minio-init",
         "api",
         "worker",
         "frontend",
@@ -382,11 +384,14 @@ def test_first_party_services_use_the_shared_read_only_runtime_policy() -> None:
         "/var/cache/nginx:mode=0755,uid=101,gid=101",
     ]
 
-    for service_name in ("postgres", "embedding"):
+    for service_name in ("postgres", "embedding", "minio", "minio-init"):
         service = services[service_name]
         assert isinstance(service, dict)
         assert not set(expected_policy) & set(service)
-        assert "tmpfs" not in service
+        if service_name == "minio-init":
+            assert service["tmpfs"] == ["/tmp:mode=1777"]
+        else:
+            assert "tmpfs" not in service
 
 
 def test_production_database_image_is_explicitly_tagged_and_digest_pinned() -> None:
@@ -399,6 +404,83 @@ def test_production_database_image_is_explicitly_tagged_and_digest_pinned() -> N
 
     assert f"image: ${{POSTGRES_IMAGE:-{expected}}}" in compose
     assert f"POSTGRES_IMAGE={expected}" in example
+
+
+def test_production_minio_is_internal_pinned_and_initializes_private_quotas() -> None:
+    compose_path = DEPLOY_ROOT / "compose.production.yml"
+    compose_text = compose_path.read_text(encoding="utf-8")
+    compose = yaml.safe_load(compose_text)
+    example = (DEPLOY_ROOT / ".env.production.example").read_text(encoding="utf-8")
+    init_script = (DEPLOY_ROOT.parent / "docker" / "init-minio.sh").read_text(
+        encoding="utf-8"
+    )
+
+    minio = compose["services"]["minio"]
+    init = compose["services"]["minio-init"]
+    assert minio["networks"] == ["data"]
+    assert "ports" not in minio
+    assert minio["healthcheck"]["test"][1].endswith("/minio/health/ready")
+    assert init["depends_on"]["minio"]["condition"] == "service_healthy"
+    assert "condition: service_completed_successfully" in compose_text
+    assert "MINIO_IMAGE=minio/minio:RELEASE." in example
+    assert "MINIO_MC_IMAGE=minio/mc:RELEASE." in example
+    assert "mc anonymous set none" in init_script
+    assert "mc version enable" in init_script
+    assert "umask 077" in init_script
+    assert "mc admin user add" in init_script
+    assert "mc admin policy attach" in init_script
+    assert "s3:ListBucketVersions" in init_script
+    assert "s3:DeleteObjectVersion" in init_script
+    assert "s3:PutBucketPolicy" not in init_script
+    assert "s3:CreateBucket" not in init_script
+    assert 'create_private_bucket "$MAP_ATLAS_S3_BUCKET" 8GiB' in init_script
+    assert 'create_private_bucket "$WORLD_OBJECT_S3_BUCKET" 24GiB' in init_script
+    runtime_environment = compose["x-runtime-environment"]
+    assert "MINIO_ROOT_USER" not in runtime_environment
+    assert "MINIO_ROOT_PASSWORD" not in runtime_environment
+    assert minio["environment"]["MINIO_ROOT_USER"].startswith("${MINIO_ROOT_USER")
+    assert minio["environment"]["MINIO_BROWSER"] == "off"
+    assert "MINIO_ENDPOINT_URL" not in init["environment"]
+    assert init["environment"]["MINIO_APP_ACCESS_KEY"].startswith(
+        "${MAP_ATLAS_S3_ACCESS_KEY_ID"
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_bucket",
+    ("private..map-atlas", "-private-map-atlas", "private-map-atlas-"),
+)
+def test_minio_initializer_rejects_invalid_bucket_before_using_root_credentials(
+    tmp_path: Path, invalid_bucket: str
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    mc_marker = tmp_path / "mc-was-called"
+    fake_mc = fake_bin / "mc"
+    fake_mc.write_text("#!/bin/sh\nprintf called >\"$MC_MARKER\"\nexit 1\n")
+    fake_mc.chmod(0o755)
+    init_script = DEPLOY_ROOT.parent / "docker" / "init-minio.sh"
+
+    result = subprocess.run(
+        ["/bin/sh", str(init_script)],
+        capture_output=True,
+        text=True,
+        env=os.environ
+        | {
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "MC_MARKER": str(mc_marker),
+            "MINIO_ROOT_USER": "fixture-root",
+            "MINIO_ROOT_PASSWORD": "fixture-root-secret",
+            "MINIO_APP_ACCESS_KEY": "fixture-app",
+            "MINIO_APP_SECRET_KEY": "fixture-app-secret",
+            "MAP_ATLAS_S3_BUCKET": invalid_bucket,
+            "WORLD_OBJECT_S3_BUCKET": "private-world-objects",
+        },
+    )
+
+    assert result.returncode != 0
+    assert "bucket names" in result.stderr
+    assert not mc_marker.exists()
 
 
 def test_release_only_accepts_commits_reachable_from_origin_main() -> None:
@@ -705,7 +787,7 @@ def test_release_and_restore_quiesce_before_rollback_or_database_mutation() -> N
 
     release_build = release_script.index("compose build api frontend")
     release_quiesce = release_script.index("if ! compose stop api worker frontend; then")
-    release_dependencies = release_script.index("compose up -d postgres embedding")
+    release_dependencies = release_script.index("compose up -d postgres embedding minio")
     release_fresh_guard = release_script.index(
         "FIRST_RELEASE_STATE_KIND=$(migration_guard_state_kind)"
     )

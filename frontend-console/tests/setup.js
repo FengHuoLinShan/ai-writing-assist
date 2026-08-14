@@ -252,6 +252,8 @@ globalThis.api = {
     reviewAliasesBatch: vi.fn(),
     listCharacters: vi.fn(),
     getEntity: vi.fn(),
+    fetchEntityImage: vi.fn(),
+    uploadEntityImage: vi.fn(),
     listEntityBatches: vi.fn(),
     listRelationships: vi.fn(),
     listAliases: vi.fn(),

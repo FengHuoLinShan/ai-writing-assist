@@ -12,6 +12,7 @@ import zlib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import boto3
 from botocore.config import Config
@@ -245,6 +246,11 @@ class MapAtlasStorage:
         endpoint_url = validate_map_atlas_s3_endpoint_url(
             settings.map_atlas_s3_endpoint_url
         )
+        config_kwargs = {}
+        if endpoint_url and urlsplit(endpoint_url).scheme.lower() == "http":
+            # Validated HTTP endpoints are trusted local/internal MinIO and must not
+            # be redirected through a workstation or container egress proxy.
+            config_kwargs["proxies"] = {}
         self._client = client or boto3.client(
             "s3",
             region_name=settings.map_atlas_s3_region,
@@ -260,6 +266,7 @@ class MapAtlasStorage:
                         "path" if settings.map_atlas_s3_force_path_style else "auto"
                     )
                 },
+                **config_kwargs,
             ),
         )
 

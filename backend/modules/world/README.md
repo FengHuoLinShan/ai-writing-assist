@@ -30,6 +30,17 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 
+### 对象图片
+
+CoreEntity 的 `image_version` 和 `image_updated_at` 只记录可选图片的版本；API 响应派生
+`has_image`，不保存或返回私有对象 key。`PUT /api/world/entities/{entity_id}/image` 在当前账户
+owner 与 `novel_id` 双门禁内只接受真实 PNG/JPEG（严格小于 6MiB、最大 4096×4096）；服务端
+去 EXIF/元数据并生成有界 WebP。`GET .../image?variant=thumbnail|full` 仅返回已鉴权的派生图。
+
+账户最多保存 20 张人物图及合计 50 张其他对象图；回收站项目仍占配额，替换不增加占用。对象
+软废弃、融合和别名化不迁移或删除图片，项目永久删除才通过精确对象/项目前缀清理收敛。对象图片
+不进入 RAG、LLM 上下文或通用媒体库。
+
 ### 作者态投影
 
 对象、关系与创设建议在保留原始状态的同时，附加稳定的作者视图字段：
@@ -285,7 +296,7 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 
 | 表名 | 用途 |
 |------|------|
-| `core_entities` | 统一核心实体正史库（原 `world_entities`） |
+| `core_entities` | 统一核心实体正史库（原 `world_entities`）；可空 `image_version` / `image_updated_at` 只标记私有图片，不保存对象 key |
 | `entity_relations` | 对象间关系边（原 `relationships`） |
 | `events` | 事件扩展表（entity_id PK+FK → core_entities） |
 | `characters` | 人物档案（entity_id PK+FK → core_entities） |
@@ -353,6 +364,7 @@ ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
 - `public_info` — 对外公开信息
 - `hidden_truth` — 隐藏真相
 - `content_json` — 扩展信息（JSONB，内含 `aliases` 等动态属性）
+- `image_version` / `image_updated_at` — 可空图片版本元数据；响应以 `has_image` 表示可读取性，文件字节和存储 key 不进入数据库/API wire
 - `importance` — 重要性（0~1）
 - `importance_level` — 重要性级别（core / important / normal / temporary）
 - `reveal_level` — 揭示层级（author_only / hinted / revealed / fully_known）
@@ -672,6 +684,8 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | POST | `/api/world/generation-prompt-templates/{template_id}/copy` | 复制内置模板为用户模板 |
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
+| PUT | `/api/world/entities/{entity_id}/image` | 上传或替换私有对象图片；仅 PNG/JPEG，经服务端规范化为 WebP |
+| GET | `/api/world/entities/{entity_id}/image` | 读取当前账户和项目已授权的缩略图或完整图（`variant=thumbnail` 或 `full`）；不返回 object key |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
 | POST | `/api/world/entities/{entity_id}/promote` | 将草稿/候选实体提升为正史；可选携带名称、类型和概要，在同一事务中编辑后采用 |
 | POST | `/api/world/entities/{candidate_id}/resolve-as-alias` | 将候选确认为目标对象别名 |

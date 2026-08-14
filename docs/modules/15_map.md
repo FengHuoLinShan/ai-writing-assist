@@ -87,6 +87,8 @@ run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新
 每次尝试使用不可变 key
 `map-atlas/{novel_id}/pages/{page_id}/attempts/{task_id}-{attempt}/image.png`，page 只记录胜出 attempt。
 boto3 同步操作统一放在线程池。失败补偿只删精确对象，项目前缀仅用于永久删除。
+地图册与世界对象图片共用单机 MinIO 的连接和受限应用凭据，但使用各自私有 bucket；地图册 bucket
+硬配额为 8GiB，不能读取或写入对象图片 bucket（ADR-0014）。
 finalization 在短事务中取得项目 share lock 与 task lease，持锁上传后再次校验 lease 再写页状态；
 数据库提交失败就删除精确 key，补偿失败则排入全局清理。
 

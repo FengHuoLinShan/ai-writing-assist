@@ -121,6 +121,20 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         nullable=True,
         comment="确认者标识",
     )
+    image_version: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=True,
+        comment="当前对象图片版本",
+    )
+    image_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="对象图片更新时间",
+    )
+
+    @property
+    def has_image(self) -> bool:
+        return self.image_version is not None
 
     # 1:1 扩展
     event: Mapped[Event | None] = relationship(
