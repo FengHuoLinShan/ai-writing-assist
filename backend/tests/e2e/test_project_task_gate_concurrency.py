@@ -242,7 +242,9 @@ async def test_atlas_upload_lock_and_global_cleanup_close_permanent_delete_race(
             await cleanup_db.execute(
                 delete(AsyncTask).where(
                     (AsyncTask.novel_id == project_id)
-                    | (AsyncTask.task_type == "map_atlas_storage_cleanup")
+                    | AsyncTask.task_type.in_(
+                        {"map_atlas_storage_cleanup", "world_object_image_cleanup"}
+                    )
                 )
             )
             await cleanup_db.execute(delete(Project).where(Project.id == project_id))

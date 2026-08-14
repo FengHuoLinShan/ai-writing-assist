@@ -4,14 +4,12 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 const files = [
-  "vue/views/rag/RagView.vue",
   "vue/views/outline/components/OutlineHeader.vue",
   "vue/views/scene/SceneWorkbenchView.vue",
   "vue/views/world/WorldView.vue",
   "vue/views/world/components/WorldReviewTab.vue",
 ]
 const expectedClickableCounts = new Map([
-  ["vue/views/rag/RagView.vue", 1],
   ["vue/views/outline/components/OutlineHeader.vue", 4],
   ["vue/views/scene/SceneWorkbenchView.vue", 3],
   ["vue/views/world/WorldView.vue", 4],
