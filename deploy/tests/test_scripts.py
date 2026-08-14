@@ -1139,6 +1139,7 @@ def test_openresty_renders_loopback_tunnel_origin() -> None:
     assert "ssl_certificate" not in result.stdout
     assert "script-src 'self';" in result.stdout
     assert "style-src 'self' 'unsafe-inline';" in result.stdout
+    assert "img-src 'self' data: blob:;" in result.stdout
     assert "unpkg.com" not in result.stdout
 
     api_location = result.stdout.split("location /api/ {", maxsplit=1)[1].split(
@@ -1520,7 +1521,7 @@ def _run_public_verification(
             "x-content-type-options: nosniff\n"
             "x-frame-options: DENY\n"
             "content-security-policy: default-src 'self'; script-src 'self'; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
             "connect-src 'self'; object-src 'none'; "
             "base-uri 'self'; frame-ancestors 'none'\n\n"
         ),
@@ -1587,7 +1588,7 @@ def test_public_verification_accepts_single_stronger_hsts_header(
         "x-content-type-options: nosniff\n"
         "x-frame-options: DENY\n"
         "content-security-policy: default-src 'self'; script-src 'self'; "
-        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
         "connect-src 'self'; object-src 'none'; base-uri 'self'; "
         "frame-ancestors 'none'\n\n"
     )
@@ -1659,7 +1660,7 @@ def test_public_verification_accepts_single_stronger_hsts_header(
             "x-frame-options: DENY\n"
             "content-security-policy: default-src 'self'; script-src 'self' "
             "https://cdn.example; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+            "img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; "
             "base-uri 'self'; frame-ancestors 'none'\n\n"
         ),
     ],
@@ -1688,7 +1689,7 @@ def test_public_verification_rejects_unframed_trailing_header_block(
         "x-content-type-options: nosniff\n"
         "x-frame-options: DENY\n"
         "content-security-policy: default-src 'self'; script-src 'self'; "
-        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
         "connect-src 'self'; object-src 'none'; base-uri 'self'; "
         "frame-ancestors 'none'\n\n"
     )
