@@ -903,7 +903,7 @@ test.describe("写作台模块", () => {
 
     await page.locator("#btn-publish").click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("无实质变化")
+    await expect(page.locator("#writing-publish-bar-container")).toContainText("无实质变化")
     expect(polledTaskUrls).toEqual([])
 
     const afterFirstPublish = await getLatestDraft(testProjectId, 3)
@@ -912,7 +912,7 @@ test.describe("写作台模块", () => {
 
     await page.locator("#btn-publish").click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator(SEL.toastContainer)).toContainText("无实质变化")
+    await expect(page.locator("#writing-publish-bar-container")).toContainText("无实质变化")
 
     const afterSecondPublish = await getLatestDraft(testProjectId, 3)
     expect(afterSecondPublish.version_number).toBe(afterFirstPublish.version_number)

@@ -166,8 +166,15 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
         "ai_writing_functional_browser_e2e_test"
     )
     assert job["env"]["PW_REUSE_EXISTING_SERVER"] == "0"
+    assert job["env"]["WORLD_OBJECT_S3_BUCKET"] == "ai-writing-assist-world-objects"
 
     steps = {step["name"]: step for step in job["steps"]}
+    assert steps["Start local object storage"]["run"] == (
+        "docker compose up --detach --wait minio"
+    )
+    assert steps["Initialize private object buckets"]["run"] == (
+        "docker compose run --rm --no-deps minio-init"
+    )
     assert steps["Run frontend functional browser"]["run"].endswith(
         "npm --prefix frontend-console run test:e2e:functional -- "
         "--workers=1 --retries=0"

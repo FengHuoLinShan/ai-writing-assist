@@ -59,7 +59,7 @@ Three layers:
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_task_coalescing_concurrency.py -m e2e` | Keyed coalescing and concurrent operation-receipt uniqueness | Dedicated PostgreSQL at Alembic head |
-| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL and Chromium; automated once on pull requests |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL, local private MinIO buckets, and Chromium; automated once on pull requests |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual` | Deterministic Chromium visual baseline for editorial themes, focus and mobile layouts | Dedicated test PostgreSQL; committed platform baseline; workers=1, retries=0 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:visual:update` | Explicitly regenerate visual baselines after an approved UI change | Same prerequisites; every expected/actual/diff image must be reviewed |
@@ -172,7 +172,8 @@ text collection metrics with an isolated local Codex evaluator. Frontend job fir
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.19.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
-build. `Frontend functional browser` starts a fresh dedicated PostgreSQL and Chromium, runs the
+build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, the Compose-managed private
+MinIO buckets, and Chromium, then runs the
 complete functional suite with workers=1 and retries=0, and retains
 `frontend-console/test-results` failure diagnostics for 14 days. `test:e2e:smoke` and
 `test:e2e:map` remain focused local subsets already contained in that suite; they do not run as

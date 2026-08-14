@@ -68,6 +68,13 @@ jobs:
 
     env:
       DATABASE_URL: "postgresql+asyncpg://postgres:${{ github.run_id }}@127.0.0.1:5432/ai_writing_functional_browser_e2e_test"
+      MAP_ATLAS_S3_BUCKET: "ai-writing-assist-map-atlas"
+      WORLD_OBJECT_S3_BUCKET: "ai-writing-assist-world-objects"
+      MAP_ATLAS_S3_REGION: "us-east-1"
+      MAP_ATLAS_S3_ENDPOINT_URL: "http://127.0.0.1:9000"
+      MAP_ATLAS_S3_ACCESS_KEY_ID: "novelist"
+      MAP_ATLAS_S3_SECRET_ACCESS_KEY: "novel_minio_dev_pass"
+      MAP_ATLAS_S3_FORCE_PATH_STYLE: "true"
       PW_REUSE_EXISTING_SERVER: "0"
       BACKEND_PORT: "8000"
       FRONTEND_PORT: "8080"
@@ -101,6 +108,12 @@ jobs:
 
       - name: Install Chromium for Playwright
         run: npm --prefix frontend-console exec playwright -- install --with-deps chromium
+
+      - name: Start local object storage
+        run: docker compose up --detach --wait minio
+
+      - name: Initialize private object buckets
+        run: docker compose run --rm --no-deps minio-init
 
       - name: Run frontend functional browser
         run: >-
