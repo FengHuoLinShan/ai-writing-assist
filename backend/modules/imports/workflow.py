@@ -860,6 +860,43 @@ class DeepImportWorkflow:
         result["high_quality"] = high_quality
         return result
 
+    async def _extract_alias_relations_by_scene(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        workflow_id: str | None,
+        on_scene_progress: Callable[..., Awaitable[None]] | None,
+        existing_checkpoints: dict[str, Any] | None,
+        start_chapter: int | None,
+        end_chapter: int | None,
+    ) -> dict[str, Any]:
+        handler = _container_get("world.run_alias_relation_extraction")
+        from infrastructure.llm.profiles import resolve_llm_profile
+        from modules.imports.entity_extraction.scene_entity_config import (
+            phase2_project_settings_context,
+        )
+
+        project_settings = getattr(self, "_agent_project_settings", None)
+        if project_settings is None:
+            project_settings = await _project_settings_for_novel(db, novel_id)
+        request_model = resolve_llm_profile(project_settings).model
+        with phase2_project_settings_context(
+            project_settings,
+            novel_id=novel_id,
+            request_model=request_model,
+            high_quality=bool(getattr(self, "_deep_import_high_quality", False)),
+        ):
+            return await handler.extract_alias_relations(
+                db,
+                novel_id,
+                workflow_id=workflow_id,
+                on_scene_progress=on_scene_progress,
+                existing_checkpoints=existing_checkpoints,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+
     # ------------------------------------------------------------------
     # Phase 3: 剧情结构分析
     # ------------------------------------------------------------------

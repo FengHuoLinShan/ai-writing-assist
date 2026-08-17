@@ -78,6 +78,8 @@ def build_asset_summary(quality_stats: dict[str, Any] | None) -> dict[str, Any]:
 
     temporary_entities = _count(phase2.get("phase2_temporary_only"))
     created_entities = _count(phase2.get("total_created"))
+    merged_entities = _count(phase2_dedup.get("auto_merged"))
+    ignored_entities = _count(phase2.get("phase2_ignored"))
     structure_total = sum(
         _count(phase3.get(key))
         for key in (
@@ -99,9 +101,12 @@ def build_asset_summary(quality_stats: dict[str, Any] | None) -> dict[str, Any]:
             "not_adopted": _count(scene.get("conflict_count")),
         },
         "entity": {
-            "adopted": _count(phase2_dedup.get("auto_merged")),
-            "review": max(0, created_entities - temporary_entities),
-            "not_adopted": _count(phase2.get("phase2_ignored")) + temporary_entities,
+            "adopted": 0,
+            "review": max(
+                0,
+                created_entities - temporary_entities - merged_entities,
+            ),
+            "not_adopted": ignored_entities + temporary_entities + merged_entities,
         },
         "relation": {
             "adopted": 0,

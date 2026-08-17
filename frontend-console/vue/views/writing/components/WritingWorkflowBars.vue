@@ -41,6 +41,10 @@
       <div v-if="qualityEntries.length" class="deep-import-current-position" aria-label="深度导入质量统计">
         <span v-for="entry in qualityEntries" :key="entry[0]" class="deep-import-current-position__item">{{ entry[0] }}：{{ entry[1] }}</span>
       </div>
+      <div v-if="dedupCompletionText" class="deep-import-recovery" role="status">
+        <strong>{{ dedupCompletionText }}</strong>
+        <span v-if="dedupReviewCount > 0">可在“人物与世界 → 智能去重”中稍后检查。</span>
+      </div>
       <div v-if="recoveryAttention" class="deep-import-recovery" role="status">
         <strong>自动提取需要恢复</strong>
         <span v-if="needsRecovery">可以继续原任务，或放弃恢复并由后端清理本次资产。</span>
@@ -95,6 +99,14 @@ const props = defineProps({
 const emit = defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "cancel-conflict-task", "dismiss-conflict-task"])
 
 const terminal = computed(() => ["done", "failed", "cancelled"].includes(props.deepImport.progress?.status || props.deepImport.progress?.phase))
+const dedupReviewCount = computed(() => Number(props.deepImport.progress?.phase2Dedup?.review_required || 0))
+const dedupCompletionText = computed(() => {
+  const value = props.deepImport.progress
+  if (!terminal.value || (value?.status || value?.phase) !== "done") return ""
+  const summary = value?.phase2Dedup
+  if (!summary || !["deep_import", "world_object_auto_extraction"].includes(value.workflowType)) return ""
+  return `自动归并 ${Number(summary.auto_merged || 0)} 个重复对象，仍有 ${dedupReviewCount.value} 组可稍后检查`
+})
 const canOpenScenes = computed(() => terminal.value
   && (props.deepImport.progress?.status || props.deepImport.progress?.phase) === "done"
   && ["deep_import", "scene_auto_extraction"].includes(props.deepImport.progress?.workflowType)

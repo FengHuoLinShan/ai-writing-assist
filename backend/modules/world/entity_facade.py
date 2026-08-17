@@ -471,6 +471,28 @@ async def apply_entity_fusion_group(
     )
 
 
+async def dedupe_deep_import_workflow_candidates(
+    db,
+    novel_id: str,
+    *,
+    workflow_id: str,
+    checkpoint_callback,
+    llm_execution_snapshot: dict,
+    previous_checkpoint: dict | None = None,
+) -> dict:
+    """Auto-merge only untouched candidates created by one deep import."""
+    from modules.world.entity_fusion import WorldEntityFusionService
+
+    return await WorldEntityFusionService().dedupe_workflow_candidates_for_task(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        checkpoint_callback=checkpoint_callback,
+        llm_execution_snapshot=llm_execution_snapshot,
+        previous_checkpoint=previous_checkpoint,
+    )
+
+
 async def create_entity(
     db: AsyncSession,
     novel_id: str,

@@ -109,6 +109,7 @@ Prompt 校验外，`/api/world` 与 `/api/world/map-atlas` 的项目级读、写
 - 对象融合建议（WorldEntityFusionService，LLM 只生成建议，用户确认后应用）
 - 面向项目级智能去重的实体融合子 facade（`entity_facade.suggest_entity_fusion` /
   `entity_facade.apply_entity_fusion`；root `facade.py` 仅 re-export）
+- imports 专用的 `dedupe_deep_import_workflow_candidates` 只处理同 `workflow_id`、未编辑且仍为 candidate 的两端，复用同一融合判定、指纹重验与软合并。它不改变项目级智能去重、canonical 确认或 HTTP 契约
 - 世界上下文/检索词典/批次（`EntityContextService`）
 - 实体统计与自动抽取批次查询（`EntityStatsService`）
 - 实体 embedding 回填（`EntityEmbeddingService`）

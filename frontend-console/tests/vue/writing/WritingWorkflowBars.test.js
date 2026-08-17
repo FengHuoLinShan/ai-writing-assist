@@ -245,6 +245,26 @@ describe("WritingWorkflowBars", () => {
     expect(wrapper.emitted("open-audit")).toHaveLength(1)
   })
 
+  it("完成卡展示自动去重结果与遗留复核入口", () => {
+    const wrapper = mount(WritingWorkflowBars, {
+      props: {
+        publish: { active: false, phase: null },
+        conflict: { latest: null, error: null },
+        deepImport: {
+          taskId: "dedup-done",
+          progress: {
+            status: "done",
+            workflowType: "deep_import",
+            phase2Dedup: { auto_merged: 3, review_required: 2 },
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain("自动归并 3 个重复对象，仍有 2 组可稍后检查")
+    expect(wrapper.text()).toContain("人物与世界 → 智能去重")
+  })
+
   it("失败消息中的内部健康码会转换为作者提示", () => {
     const wrapper = mount(WritingWorkflowBars, {
       props: {

@@ -139,6 +139,18 @@ class DeepImportWorkflowRuntime(Protocol):
         include_alias_relations: bool = True,
     ) -> Awaitable[dict[str, Any]]: ...
 
+    def _extract_alias_relations_by_scene(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        workflow_id: str | None,
+        on_scene_progress: SceneProgressCallback | None,
+        existing_checkpoints: dict[str, Any] | None,
+        start_chapter: int | None,
+        end_chapter: int | None,
+    ) -> Awaitable[dict[str, Any]]: ...
+
     def _merge_checkpoints(
         self,
         progress: DeepImportProgress,

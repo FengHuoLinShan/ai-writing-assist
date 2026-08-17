@@ -19,6 +19,7 @@ WORLD_FACADE_API = {
     "create_event",
     "create_or_merge_relation",
     "create_relation",
+    "dedupe_deep_import_workflow_candidates",
     "deprecate_deep_import_entities_by_workflow",
     "expand_related_entities",
     "filter_context_by_character_knowledge",

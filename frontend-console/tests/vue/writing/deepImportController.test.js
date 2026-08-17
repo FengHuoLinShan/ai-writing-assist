@@ -90,7 +90,12 @@ describe("deepImportController", () => {
       status: "done",
       progress: 1,
       task_type: "deep_import",
-      result: { workflow_id: "wf-done", degraded: true, degraded_reason: "timeout" },
+      result: {
+        workflow_id: "wf-done",
+        degraded: true,
+        degraded_reason: "timeout",
+        phase2_dedup: { auto_merged: 2, review_required: 1 },
+      },
     }
     const api = {
       tasks: { get: vi.fn(async () => task) },
@@ -108,6 +113,7 @@ describe("deepImportController", () => {
     expect(firstChanges.at(-1).progress).toEqual(expect.objectContaining({
       status: "done",
       degraded: true,
+      phase2Dedup: { auto_merged: 2, review_required: 1 },
     }))
     first.dispose()
 

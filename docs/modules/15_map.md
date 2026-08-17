@@ -13,6 +13,7 @@
 - 取代：旧 `/api/world/maps*`、六边形/路径/领地/时间轴和 Map Observation/Fact 已删除，无兼容端点或数据迁移。
 - `world_adoption_package.v1` 不纳入地图册操作；地图候选和页面仍走本模块既有作者采用流，不作为
   Scene memory 或 package 的对象/关系原子写入项。
+- 深度导入新增的 workflow-scoped 实体去重 facade 不进入地图册生成、采用或图片恢复状态机；地图仍只消费已确认资料。
 
 ## 用户状态
 
