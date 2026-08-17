@@ -9,7 +9,7 @@ itsdangerous>=2.2.0,<2.3
 uvicorn[standard]>=0.52.1
 
 # --- 数据库 ---
-sqlalchemy[asyncio]>=2.0.51
+sqlalchemy[asyncio]>=2.0.52
 asyncpg>=0.29.0
 psycopg2-binary>=2.9.9
 alembic>=1.19.0
