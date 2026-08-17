@@ -233,7 +233,7 @@ def test_active_import_phases_bind_novel_id_to_snapshot_runtime() -> None:
     expected = {
         "_Phase1aSceneSlicingLLM": 1,
         "_Phase1bSceneEnrichmentLLM": 1,
-        "phase2_project_settings_context": 1,
+        "phase2_project_settings_context": 2,
     }
     actual: dict[str, int] = {}
     invalid_scope: list[str] = []

@@ -42,6 +42,9 @@ const payload = {
 
 describe("SceneWorkbenchView", () => {
   let wrapper
+  let latestModal
+  let toast
+  let closeModal
   const state = {
     currentProjectId: "p1",
     currentProject: { id: "p1", title: "测试项目" },
@@ -59,6 +62,7 @@ describe("SceneWorkbenchView", () => {
       listFusionSuggestions: vi.fn(),
       updateScene: vi.fn(),
       reviewSceneWorkbench: vi.fn(),
+      reviewSceneSourceMappings: vi.fn(),
     },
     tasks: { get: vi.fn(), cancel: vi.fn() },
     imports: { startStage: vi.fn() },
@@ -73,13 +77,18 @@ describe("SceneWorkbenchView", () => {
     api.outline.getSceneWorkbench.mockResolvedValue(payload)
     api.outline.listFusionSuggestions.mockResolvedValue({ items: [], total: 0 })
     api.outline.updateScene.mockResolvedValue({ id: "s1" })
+    api.outline.reviewSceneWorkbench.mockResolvedValue({ status: "reviewed" })
+    api.outline.reviewSceneSourceMappings.mockResolvedValue({ status: "reviewed" })
+    latestModal = null
+    toast = vi.fn()
+    closeModal = vi.fn()
     setBridgeOverrides({
       api,
       state,
       router,
-      toast: vi.fn(),
-      showModalHtml: vi.fn(),
-      closeModal: vi.fn(),
+      toast,
+      showModalHtml: vi.fn((title, body, buttons) => { latestModal = { title, body, buttons } }),
+      closeModal,
       esc: (value) => String(value ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
@@ -107,6 +116,44 @@ describe("SceneWorkbenchView", () => {
       },
     })
     return wrapper
+  }
+
+  function actionItem(key, id = "s1") {
+    const item = {
+      scene: {
+        id, scene_index: 0, title: `场景 ${id}`, status: "canonical", source: "manual",
+        narrative_tag: "draft", goal: "目标", core_conflict: "冲突", chapter_ids: ["1"], structure_meta: {},
+      },
+      health: [],
+      health_details: { needs_organize: [] },
+      chapter_range: "第 1 章",
+    }
+    if (key === "review") item.health = ["unreviewed"]
+    if (key === "suggestion") {
+      item.health = ["needs_organize"]
+      item.health_details.needs_organize = [{ code: "pending_scene_fusion_suggestion", suggestion_id: "fusion-1" }]
+    }
+    if (key === "source_mapping") {
+      item.health = ["needs_organize"]
+      item.health_details.needs_organize = [{ code: "source_mapping_chapter_only", fingerprint: `fingerprint-${id}` }]
+    }
+    if (key === "organize") {
+      item.health = ["needs_organize"]
+      item.health_details.needs_organize = [{ code: "manual_organize" }]
+    }
+    if (key === "assign") item.health = ["unassigned"]
+    if (key === "missing_setup") { item.health = ["missing_setup"]; item.scene.goal = null }
+    return item
+  }
+
+  function actionPayload(items, extra = {}) {
+    return {
+      ...payload,
+      total: items.length,
+      items,
+      unassigned_chapters: [],
+      ...extra,
+    }
   }
 
   it("renders the full main workbench with escaped API text and no HTML injection", () => {
@@ -161,6 +208,101 @@ describe("SceneWorkbenchView", () => {
     expect(router.navigate).not.toHaveBeenCalled()
     expect(organize.scrollTop).toBe(88)
     expect(wrapper.find(".scene-fusion-toolbar").text()).toContain("1")
+  })
+
+  it.each([
+    ["review", "标记已检查", null],
+    ["suggestion", "查看融合建议", "保持场景分开"],
+    ["source_mapping", "确认章节定位", "确认章节级正文定位"],
+    ["organize", "整理映射", "整理场景正文范围"],
+    ["assign", "关联章节", "移动 / 关联章节"],
+    ["missing_setup", "补全设定", null],
+    ["edit", "编辑", null],
+  ])("单选 %s 直接进入真实动作", async (key, label, modalTitle) => {
+    const item = actionItem(key)
+    const workbench = actionPayload([item], key === "assign" ? { unassigned_chapters: [2] } : {})
+    api.outline.getSceneWorkbench.mockResolvedValue(workbench)
+    createWrapper({
+      workbench,
+      fusionSuggestions: key === "suggestion" ? [{ id: "fusion-1", suggestion_kind: "fusion", proposed_action: "keep_separate", source_scene_ids: ["s1"] }] : [],
+    })
+
+    await wrapper.get('input[data-action="toggle-fusion-selection"]').setValue(true)
+    expect(wrapper.get('[data-action="handle-selected-context-actions"]').text()).toBe(label)
+    await wrapper.get('[data-action="handle-selected-context-actions"]').trigger("click")
+    await flushPromises()
+
+    if (modalTitle) expect(latestModal?.title).toBe(modalTitle)
+    else expect(latestModal).toBeNull()
+    if (key === "review") expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", { scene_ids: ["s1"], decision: "review" })
+    if (["missing_setup", "edit"].includes(key)) expect(window.location.hash).toContain("scene_id=s1")
+    if (key === "organize") expect(latestModal.buttons.map((button) => button.text)).toContain("标记为无需整理")
+  })
+
+  it("混合选择按动作分组，成功只移除已处理组", async () => {
+    const workbench = actionPayload([actionItem("review", "s1"), actionItem("edit", "s2")])
+    api.outline.getSceneWorkbench.mockResolvedValue(workbench)
+    createWrapper({ workbench })
+    for (const input of wrapper.findAll('input[data-action="toggle-fusion-selection"]')) await input.setValue(true)
+
+    expect(wrapper.get('[data-action="handle-selected-context-actions"]').text()).toBe("分组处理")
+    await wrapper.get('[data-action="handle-selected-context-actions"]').trigger("click")
+    expect(latestModal.title).toBe("按待办类型处理")
+    expect(latestModal.body).toContain("采用 / 标记已检查")
+    expect(latestModal.body).toContain("逐项编辑")
+
+    await latestModal.buttons.find((button) => button.text === "采用 / 标记已检查（1）").handler()
+    await flushPromises()
+    expect(wrapper.get('.scene-workbench-row[data-id="s1"] input[data-action="toggle-fusion-selection"]').element.checked).toBe(false)
+    expect(wrapper.get('.scene-workbench-row[data-id="s2"] input[data-action="toggle-fusion-selection"]').element.checked).toBe(true)
+  })
+
+  it("批量动作失败时保留原选择", async () => {
+    const workbench = actionPayload([actionItem("source_mapping", "s1"), actionItem("source_mapping", "s2")])
+    api.outline.getSceneWorkbench.mockResolvedValue(workbench)
+    api.outline.reviewSceneSourceMappings.mockRejectedValueOnce(new Error("网络异常"))
+    createWrapper({ workbench })
+    for (const input of wrapper.findAll('input[data-action="toggle-fusion-selection"]')) await input.setValue(true)
+
+    await wrapper.get('[data-action="handle-selected-context-actions"]').trigger("click")
+    expect(latestModal.title).toBe("批量确认章节级定位")
+    await latestModal.buttons.find((button) => button.text === "确认定位").handler()
+    await flushPromises()
+
+    expect(wrapper.findAll('input[data-action="toggle-fusion-selection"]:checked')).toHaveLength(2)
+    expect(toast).toHaveBeenCalledWith("网络异常", "error")
+  })
+
+  it("结构同类多选可批量标记无需整理", async () => {
+    const workbench = actionPayload([actionItem("organize", "s1"), actionItem("organize", "s2")])
+    api.outline.getSceneWorkbench.mockResolvedValue(workbench)
+    createWrapper({ workbench })
+    for (const input of wrapper.findAll('input[data-action="toggle-fusion-selection"]')) await input.setValue(true)
+
+    await wrapper.get('[data-action="handle-selected-context-actions"]').trigger("click")
+    expect(latestModal.title).toBe("批量整理场景")
+    await latestModal.buttons.find((button) => button.text === "标记选中项无需整理").handler()
+    await flushPromises()
+
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", { scene_ids: ["s1", "s2"], decision: "ignore_structure" })
+    expect(wrapper.findAll('input[data-action="toggle-fusion-selection"]:checked')).toHaveLength(0)
+    expect(toast).toHaveBeenCalledWith("已标记为无需整理，可从场景更多菜单恢复", "success")
+  })
+
+  it("已忽略场景的更多菜单可恢复整理提醒", async () => {
+    const item = actionItem("edit")
+    item.scene.structure_meta.organize_ignored = true
+    const workbench = actionPayload([item])
+    api.outline.getSceneWorkbench.mockResolvedValue(workbench)
+    createWrapper({ workbench })
+
+    await wrapper.get(".action-menu-btn").trigger("click")
+    const restore = wrapper.get('[data-action="restore-scene-organize"]')
+    expect(restore.text()).toBe("恢复整理提醒")
+    await restore.trigger("click")
+    await flushPromises()
+
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", { scene_ids: ["s1"], decision: "restore_structure" })
   })
 
   it("switches view mode in place without losing the filter draft or scroll context", async () => {

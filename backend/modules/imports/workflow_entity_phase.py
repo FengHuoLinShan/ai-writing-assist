@@ -120,6 +120,7 @@ class EntityExtractionPhaseRunner:
                 existing_checkpoints=progress.checkpoints,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
+                include_alias_relations=False,
             )
             workflow._merge_checkpoints(progress, phase2_result)
             phase2_result, repair_summary = await self._maybe_repair_phase2a(
@@ -131,6 +132,19 @@ class EntityExtractionPhaseRunner:
                 on_scene_progress=_on_scene_progress,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
+            )
+            phase2_result = await self._run_dedup_then_phase2b(
+                db,
+                novel_id,
+                progress,
+                phase2_result,
+                workflow_id=workflow_id,
+                on_scene_progress=_on_scene_progress,
+                on_progress=on_progress,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress_start=0.55,
+                progress_end=0.8,
             )
             workflow._mark_step_completed(progress, DeepImportStep.entity_extraction)
             workflow._merge_audit_summary(progress, phase2_result)
@@ -426,6 +440,7 @@ class EntityExtractionPhaseRunner:
             existing_checkpoints=progress.checkpoints,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
+            include_alias_relations=False,
         )
         workflow._merge_checkpoints(progress, phase2_result)
         phase2_result, repair_summary = await self._maybe_repair_phase2a(
@@ -437,6 +452,19 @@ class EntityExtractionPhaseRunner:
             on_scene_progress=_on_scene_progress,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
+        )
+        phase2_result = await self._run_dedup_then_phase2b(
+            db,
+            novel_id,
+            progress,
+            phase2_result,
+            workflow_id=workflow_id,
+            on_scene_progress=_on_scene_progress,
+            on_progress=on_progress,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            progress_start=0.5,
+            progress_end=0.95,
         )
         workflow._merge_audit_summary(progress, phase2_result)
         workflow._merge_snapshot_health_summary(progress, phase2_result)
@@ -548,6 +576,121 @@ class EntityExtractionPhaseRunner:
             on_progress,
         )
         return progress
+
+    async def _run_dedup_then_phase2b(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        progress: DeepImportProgress,
+        phase2_result: dict[str, Any],
+        *,
+        workflow_id: str | None,
+        on_scene_progress: Callable[..., Awaitable[None]] | None,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
+        start_chapter: int,
+        end_chapter: int,
+        progress_start: float,
+        progress_end: float,
+    ) -> dict[str, Any]:
+        from modules.imports.entity_extraction import merge_alias_relation_result
+        from modules.world.facade import dedupe_deep_import_workflow_candidates
+
+        if not workflow_id or not (
+            getattr(db, "task_checkpoint_enabled", False) is True
+            or getattr(db, "task_inline_execution_enabled", False) is True
+        ):
+            return phase2_result
+
+        dedup_span = (progress_end - progress_start) * 0.4
+
+        async def _checkpoint(checkpoint: dict[str, Any], value: float) -> None:
+            progress.current_operation = "phase2_dedup"
+            progress.current_item = {
+                "kind": "entity_dedup",
+                "completed": round(value, 3),
+                "total": 1,
+            }
+            progress.checkpoints["phase2_dedup"] = checkpoint
+            await self.workflow._emit_progress(
+                progress,
+                progress_start + dedup_span * value,
+                on_progress,
+            )
+
+        previous_checkpoint = progress.checkpoints.get("phase2_dedup")
+        try:
+            dedup_result = await dedupe_deep_import_workflow_candidates(
+                db,
+                novel_id,
+                workflow_id=workflow_id,
+                checkpoint_callback=_checkpoint,
+                llm_execution_snapshot=progress.llm_execution_snapshot,
+                previous_checkpoint=(
+                    previous_checkpoint if isinstance(previous_checkpoint, dict) else None
+                ),
+            )
+        except Exception as exc:
+            if hasattr(db, "rollback"):
+                await db.rollback()
+            dedup_result = {
+                "scanned_candidates": 0,
+                "pair_count": 0,
+                "llm_checked": 0,
+                "auto_merged": 0,
+                "kept_separate": 0,
+                "review_required": 0,
+                "stale_or_degraded": 1,
+                "merge_map": {},
+                "degraded": True,
+                "error_kind": "phase2_dedup_failed",
+                "error_message": redact_diagnostic(exc, limit=240),
+            }
+            await _checkpoint(
+                {
+                    "version": "deep-import-workflow-candidate-dedup-v1",
+                    "workflow_id": workflow_id,
+                    "threshold": 0.8,
+                    "stage": "degraded",
+                    "result": dedup_result,
+                },
+                1.0,
+            )
+
+        phase2_result["phase2_dedup"] = dedup_result
+        phase2_result["phase2_dedup_counts"] = {
+            **(phase2_result.get("phase2_dedup_counts") or {}),
+            "auto_merged": int(dedup_result.get("auto_merged", 0) or 0),
+            "review_suggested": int(dedup_result.get("review_required", 0) or 0),
+        }
+        if dedup_result.get("degraded"):
+            phase2_result["degraded"] = True
+            phase2_result["error_kind"] = (
+                phase2_result.get("error_kind")
+                or dedup_result.get("error_kind")
+                or "phase2_dedup_degraded"
+            )
+            phase2_result["error_message"] = (
+                phase2_result.get("error_message")
+                or dedup_result.get("error_message")
+                or "对象去重已降级，原候选对象已保留"
+            )
+
+        if phase2_result.get("alias_relation_skipped") is not True:
+            return phase2_result
+
+        progress.current_operation = "alias_relation_extraction"
+        alias_result = await self.workflow._extract_alias_relations_by_scene(
+            db,
+            novel_id,
+            workflow_id=workflow_id,
+            on_scene_progress=on_scene_progress,
+            existing_checkpoints=progress.checkpoints,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
+        merged = merge_alias_relation_result(self.workflow, phase2_result, alias_result)
+        self.workflow._merge_checkpoints(progress, merged)
+        return merged
 
     async def _maybe_repair_phase2a(
         self,
@@ -693,6 +836,7 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         ),
         "phase2_action_counts": phase2_result.get("phase2_action_counts") or {},
         "phase2_dedup_counts": phase2_result.get("phase2_dedup_counts") or {},
+        "phase2_dedup": phase2_result.get("phase2_dedup") or {},
         "structured_format_diagnostics": phase2_format,
         "phase2_window_diagnostics": phase2_window_format,
         "invalid_scene_ref_categories": (
@@ -889,9 +1033,7 @@ def _failed_phase2a_scene_ids(phase2_result: dict[str, Any]) -> list[str]:
         if str(index).lstrip("-").isdigit()
     }
     checkpoints = (
-        (phase2_result.get("checkpoints") or {})
-        .get("phase2", {})
-        .get("scenes", [])
+        (phase2_result.get("checkpoints") or {}).get("phase2", {}).get("scenes", [])
     )
     for checkpoint in checkpoints if isinstance(checkpoints, list) else []:
         if not isinstance(checkpoint, dict) or checkpoint.get("status") != "failed":

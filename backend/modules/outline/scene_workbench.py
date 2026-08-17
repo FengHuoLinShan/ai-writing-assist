@@ -645,7 +645,7 @@ class SceneWorkbenchService:
                     if HEALTH_REASON_GROUPS[reason.code] == "scene_structure"
                 ]
 
-        reviewed_at = datetime.now(UTC).isoformat()
+        action_at = datetime.now(UTC).isoformat()
         updated_items: list[SceneResponse] = []
         for scene in scenes:
             meta = dict(scene.structure_meta or {})
@@ -654,7 +654,7 @@ class SceneWorkbenchService:
                     {
                         "needs_review": False,
                         "needs_organize": False,
-                        "reviewed_at": reviewed_at,
+                        "reviewed_at": action_at,
                         "reviewed_by": "manual",
                         "reviewed_from": (
                             "scene_workbench_bulk"
@@ -670,16 +670,33 @@ class SceneWorkbenchService:
                 meta = self._manually_reviewed_semantic_meta(
                     scene,
                     meta,
-                    reviewed_at=reviewed_at,
+                    reviewed_at=action_at,
                 )
                 update_data = SceneUpdate(status="canonical", structure_meta=meta)
-            else:
+            elif data.decision == "reopen":
                 meta["needs_review"] = True
                 for key in (
                     "reviewed_at",
                     "reviewed_by",
                     "reviewed_from",
                     "reviewed_attention_reasons",
+                ):
+                    meta.pop(key, None)
+                update_data = SceneUpdate(structure_meta=meta)
+            elif data.decision == "ignore_structure":
+                meta.update(
+                    {
+                        "organize_ignored": True,
+                        "organize_ignored_at": action_at,
+                        "organize_ignored_by": "manual",
+                    }
+                )
+                update_data = SceneUpdate(structure_meta=meta)
+            else:
+                for key in (
+                    "organize_ignored",
+                    "organize_ignored_at",
+                    "organize_ignored_by",
                 ):
                     meta.pop(key, None)
                 update_data = SceneUpdate(structure_meta=meta)
@@ -2066,6 +2083,12 @@ class SceneWorkbenchService:
                     suggestion_id=str(suggestion.id),
                 )
             )
+        if meta.get("organize_ignored") is True:
+            reasons = [
+                reason
+                for reason in reasons
+                if HEALTH_REASON_GROUPS[reason.code] != "scene_structure"
+            ]
         return {"needs_organize": reasons} if reasons else {}
 
     @staticmethod

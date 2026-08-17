@@ -18,6 +18,7 @@ from modules.world.entity_fusion import (
     EntityFusionDecision,
     WorldEntityFusionService,
     _pair_similarity,
+    _workflow_dedup_groups,
 )
 from modules.world.models import Character, CoreEntity, EntityRelation
 from modules.world.repositories import CoreEntityRepository
@@ -156,6 +157,171 @@ async def test_pair_similarity_short_circuits_normalized_exact_name(
     )
 
     assert (score, method) == (1.0, "normalized_exact_name")
+
+
+async def test_workflow_scan_only_recall_pairs_from_untouched_current_candidates(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    repo = CoreEntityRepository()
+    entity_ids = [
+        await _create_entity(
+            db_session,
+            project_novel_id,
+            name="林七",
+            status="candidate",
+        )
+        for _ in range(4)
+    ]
+    for index, entity_id in enumerate(entity_ids):
+        entity = await repo.get(db_session, uuid.UUID(entity_id))
+        assert entity is not None
+        entity.content_json = {
+            "aliases": [
+                {"alias": f"已确认-{index}", "status": "canonical"},
+                {"alias": f"待复核-{index}", "status": "candidate"},
+            ],
+            "_meta": {
+                "source": "deep_import",
+                "workflow_id": "wf-current" if index != 2 else "wf-old",
+                "user_edited": index == 3,
+            },
+        }
+    await db_session.flush()
+
+    plan = await WorldEntityFusionService()._prepare_task_scan(
+        db_session,
+        novel_id=project_novel_id,
+        entity_type=None,
+        status="candidate",
+        limit=20,
+        max_suggestions=20,
+        workflow_id="wf-current",
+    )
+
+    assert plan.total_entities_scanned == 2
+    assert plan.candidate_pair_count == 1
+    assert {
+        plan.pairs[0].source.id,
+        plan.pairs[0].target.id,
+    } == set(entity_ids[:2])
+    assert all(
+        all(alias.startswith("已确认-") for alias in entity.aliases)
+        for entity in (plan.pairs[0].source, plan.pairs[0].target)
+    )
+
+
+async def test_workflow_dedup_threshold_primary_and_conflict_inputs() -> None:
+    def decision(
+        source_id: str,
+        target_id: str,
+        *,
+        action: str,
+        confidence: float,
+        source_chapter: int,
+        target_chapter: int,
+    ) -> dict:
+        return {
+            "action": action,
+            "confidence": confidence,
+            "source_entity_id": source_id,
+            "source_entity_name": source_id,
+            "target_entity_id": target_id,
+            "target_entity_name": target_id,
+            "source_snapshot": {
+                "source_chapter_index": source_chapter,
+                "source_scene_index": 1,
+            },
+            "target_snapshot": {
+                "source_chapter_index": target_chapter,
+                "source_scene_index": 1,
+            },
+            "source_semantic_fingerprint": f"s-{source_id}",
+            "target_semantic_fingerprint": f"s-{target_id}",
+            "source_execution_fingerprint": f"e-{source_id}",
+            "target_execution_fingerprint": f"e-{target_id}",
+        }
+
+    decisions = [
+        decision(
+            "a",
+            "b",
+            action="merge",
+            confidence=0.80,
+            source_chapter=3,
+            target_chapter=2,
+        ),
+        decision(
+            "b",
+            "c",
+            action="alias_only",
+            confidence=0.91,
+            source_chapter=2,
+            target_chapter=1,
+        ),
+        decision(
+            "a",
+            "c",
+            action="needs_review",
+            confidence=0.79,
+            source_chapter=3,
+            target_chapter=1,
+        ),
+        decision(
+            "x",
+            "y",
+            action="merge",
+            confidence=0.799,
+            source_chapter=1,
+            target_chapter=1,
+        ),
+    ]
+
+    groups, review, kept = _workflow_dedup_groups(decisions)
+
+    assert len(groups) == 1
+    assert groups[0]["primary_entity_id"] == "c"
+    assert {item["source_entity_id"] for item in groups[0]["operations"]} == {
+        "a",
+        "b",
+    }
+    assert {(item["source_entity_id"], item["target_entity_id"]) for item in review} == {
+        ("a", "c"),
+        ("x", "y"),
+    }
+    assert kept == []
+
+
+async def test_workflow_dedup_done_checkpoint_skips_llm_when_state_is_unchanged(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    db_session.task_inline_execution_enabled = True
+    service = WorldEntityFusionService()
+    service._workflow_state_fingerprint = mock.AsyncMock(return_value="stable-state")
+    service.suggest_for_task = mock.AsyncMock()
+
+    result = await service.dedupe_workflow_candidates_for_task(
+        db_session,
+        novel_id=project_novel_id,
+        workflow_id="workflow-1",
+        checkpoint_callback=mock.MagicMock(),
+        llm_execution_snapshot={"provider": "test"},
+        previous_checkpoint={
+            "version": "deep-import-workflow-candidate-dedup-v1",
+            "workflow_id": "workflow-1",
+            "stage": "done",
+            "state_fingerprint": "stable-state",
+            "result": {"auto_merged": 2, "review_required": 1},
+        },
+    )
+
+    assert result == {
+        "auto_merged": 2,
+        "review_required": 1,
+        "checkpoint_reused": True,
+    }
+    service.suggest_for_task.assert_not_awaited()
 
 
 async def test_pair_similarity_short_circuits_alias_name_match(
@@ -647,6 +813,55 @@ async def test_entity_fusion_group_merges_candidate_pair_without_adopting_primar
     assert results[0]["action"] == "merge"
     assert source.status == "merged"
     assert target.status == "candidate"
+
+
+async def test_workflow_group_rejects_user_edited_candidate_before_apply(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    source_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="林七",
+        status="candidate",
+    )
+    target_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="林柒",
+        status="candidate",
+    )
+    repo = CoreEntityRepository()
+    source = await repo.get(db_session, uuid.UUID(source_id))
+    target = await repo.get(db_session, uuid.UUID(target_id))
+    assert source is not None and target is not None
+    source.content_json = {
+        "_meta": {
+            "source": "deep_import",
+            "workflow_id": "workflow-1",
+            "user_edited": True,
+        }
+    }
+    target.content_json = {
+        "_meta": {"source": "deep_import", "workflow_id": "workflow-1"}
+    }
+    await db_session.flush()
+
+    with pytest.raises(ValidationError, match="workflow_candidate_changed"):
+        await WorldEntityFusionService().apply_group(
+            db_session,
+            novel_id=project_novel_id,
+            primary_entity_id=target_id,
+            workflow_id="workflow-1",
+            operations=[
+                {
+                    "action": "merge",
+                    "source_entity_id": source_id,
+                    "expected_source_execution_fingerprint": "unused",
+                    "expected_target_execution_fingerprint": "unused",
+                }
+            ],
+        )
 
 
 async def test_entity_fusion_group_validates_keep_separate_against_current_state(

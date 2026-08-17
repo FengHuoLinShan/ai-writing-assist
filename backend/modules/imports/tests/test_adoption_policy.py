@@ -64,9 +64,9 @@ def test_asset_summary_uses_phase_stats_without_double_counting_temporary() -> N
         "not_adopted": 1,
     }
     assert summary["by_kind"]["entity"] == {
-        "adopted": 1,
-        "review": 3,
-        "not_adopted": 3,
+        "adopted": 0,
+        "review": 2,
+        "not_adopted": 4,
     }
     assert summary["by_kind"]["relation"]["review"] == 3
     assert summary["by_kind"]["alias"]["review"] == 2
@@ -75,9 +75,9 @@ def test_asset_summary_uses_phase_stats_without_double_counting_temporary() -> N
         "review": 2,
         "not_adopted": 1,
     }
-    assert summary["adopted"] == 4
-    assert summary["review"] == 11
-    assert summary["not_adopted"] == 5
+    assert summary["adopted"] == 3
+    assert summary["review"] == 10
+    assert summary["not_adopted"] == 6
 
 
 def test_structure_summary_uses_unique_workflow_assets_not_suggestion_pairs() -> None:

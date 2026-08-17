@@ -180,7 +180,7 @@ loader 完成，默认 loader 在调用时 lazy import `modules.outline.facade`�
 - `scene_chunks` 保存 Scene 到正文物理区间的映射
 - `scene_spans` 是从 `scene_chunks` 派生的只读查询索引，记录
   `scene_id/chapter_index/content_mode/source_draft_id/source_content_hash/offset/paragraph/part_no/mapping_status/anchor_hash`
-- `structure_meta` 保存结构整理元信息，如 `needs_organize`、`reviewed_at`、`merged_into_scene_id`、`merged_from_scene_ids`、`split_from_scene_id`、`split_at_chapter_index`
+- `structure_meta` 保存结构整理元信息，如 `needs_organize`、可恢复的 `organize_ignored / organize_ignored_at / organize_ignored_by` 人工裁决、`reviewed_at`、`merged_into_scene_id`、`merged_from_scene_ids`、`split_from_scene_id`、`split_at_chapter_index`
 - 深度导入 / 手动融合等自动整理来源通过 `source` 与 `structure_meta` / `provenance_meta` 暴露给管理筛选；手动融合新 Scene 使用 `source="manual_fusion"`
 - `scene_chapter_links` 与 `scene_spans` 表达章节映射；旧章卡 JSON 语境不属于当前 ORM schema
 - 写作页与 RAG `scene_id` 关联依赖 `scenes` 表；RAG 精确正文归因通过
@@ -237,6 +237,9 @@ Scene 内容复核由 `scene-workbench/review` 统一设置 `status`、`reviewed
 `exact/reanchored`，`chapter_only/unresolved` 即使经人工确认也继续排除。
 复核仅清除人工 `needs_organize` 标记；重复、重叠和 chunk/chapter 不一致由当前
 映射重算，不会因 Scene 已采用而被隐藏。
+作者可用同一 review 接口的 `ignore_structure` 把这些结构提醒永久标记为无需整理，并用
+`restore_structure` 恢复；裁决只增删 `structure_meta` 中的忽略元数据，不改变 Scene 状态、
+复核状态、映射或 SceneSpan，也不隐藏正文定位和融合建议。
 
 跨多章 Scene 是正常创作形态，不作为默认风险。合并 / 拆分必须先请求影响预览，
 再二次确认执行；预览只提示章节映射、字段、剧情线和伏笔 / 揭示影响，

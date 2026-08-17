@@ -160,6 +160,10 @@ details 保留就地归属下拉，归属操作完成后行内 toast 确认。
 ### 4.5 批量操作条（§5.10）
 
 - 选中时出现在列表顶部（非浮动条）：「已选 N」+ 操作组（上下文动作/合并/AI 融合）+ 退出。
+- 单选时上下文按钮使用该 Scene 的真实动作；同类多选使用对应批量动作；混合多选按待办类型
+  展示数量和动作，一次只处理一组，未处理组保持选中。
+- 结构类“待整理”允许作者标记为“无需整理”，并在更多菜单提供“恢复整理提醒”；该裁决不
+  连带清除正文定位或融合建议。
 - 「待处理」心智统一：`.scene-fusion-queue` 横幅与 world 审核队列同语言——「N 条场景建议
   待处理」+ 朱红计数 + 主操作「逐条处理」，「忽略」为 `.btn-text` 三级操作（replacement 类
   不可忽略的规则保留）。横幅 `role="status"` 保留。
@@ -210,7 +214,7 @@ partition,setup-error}`、`#scene-auto-extract-{start,end,high-quality}`、`#sce
 `handle-scene-health[data-health]`、`open-overlap-scene`、`edit-workbench-scene`、
 `assign-unassigned-chapter[data-chapter]`、`prev/next-scene-page`、`close/save-scene-detail`、
 `start-merge-scene`、`start-split-scene`；菜单项 `open-writing-scene/mark-scene-unreviewed/
-move-scene-to-history` 等；模态内 `filter-draft-review-differences`、`cancel/confirm-fusion-
+restore-scene-organize/move-scene-to-history` 等；模态内 `filter-draft-review-differences`、`cancel/confirm-fusion-
 deprecation`、`dismiss/cancel-scene-auto-extract`。
 **data-action（outline）**：`create-thread/create-arc`、`ai-create-plot-thread/ai-create-outline-arc`、
 `analyze-outline`、`plot-structure-auto-extract`、`apply/reset-outline-structure-filters`、

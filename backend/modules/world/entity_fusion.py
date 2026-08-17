@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 from collections import defaultdict
@@ -27,6 +28,8 @@ from modules.world.services.core.entity_alias_service import EntityAliasService
 logger = logging.getLogger(__name__)
 
 _TASK_REVALIDATION_BATCH_SIZE = 12
+_WORKFLOW_DEDUP_POLICY = "deep-import-workflow-candidate-dedup-v1"
+_WORKFLOW_DEDUP_THRESHOLD = 0.80
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,9 @@ class _FusionEntityDTO:
     status: str
     summary: str | None
     aliases: tuple[str, ...]
+    source_chapter_index: int | None = None
+    source_scene_index: int | None = None
+    source_scene_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,9 +76,11 @@ class _PreparedFusionPair:
 @dataclass(frozen=True)
 class _FusionTaskPlan:
     novel_id: str
+    workflow_id: str | None
     total_entities_scanned: int
     candidate_pair_count: int
     max_suggestions: int
+    input_fingerprint: str
     pairs: tuple[_PreparedFusionPair, ...]
 
 
@@ -82,6 +90,16 @@ def _service_error_detail(exc: Exception) -> str | None:
     if exc.__class__.__module__.startswith("fastapi") and hasattr(exc, "detail"):
         return str(exc.detail)
     return None
+
+
+async def _run_checkpoint_callback(
+    callback: Callable[[dict[str, Any], float], Any],
+    result: dict[str, Any],
+    progress: float,
+) -> None:
+    pending = callback(result, progress)
+    if inspect.isawaitable(pending):
+        await pending
 
 
 class EntityFusionDecision(BaseModel):
@@ -262,6 +280,8 @@ class WorldEntityFusionService:
         checkpoint_callback: Callable[[dict[str, Any], float], None],
         llm_execution_snapshot: dict[str, Any] | None = None,
         snapshot_callback: Callable[[dict[str, Any]], None] | None = None,
+        workflow_id: str | None = None,
+        include_all_decisions: bool = False,
     ) -> dict[str, Any]:
         """Generate suggestions without holding a transaction during LLM calls.
 
@@ -294,13 +314,14 @@ class WorldEntityFusionService:
             status=status,
             limit=limit,
             max_suggestions=max_suggestions,
+            workflow_id=workflow_id,
         )
-
         if self._llm_client is not None:
             return await self._decide_task_plan(
                 db,
                 plan,
                 checkpoint_callback=checkpoint_callback,
+                include_all_decisions=include_all_decisions,
             )
 
         if not snapshot:
@@ -327,9 +348,247 @@ class WorldEntityFusionService:
                 db,
                 plan,
                 checkpoint_callback=checkpoint_callback,
+                include_all_decisions=include_all_decisions,
             )
         finally:
             await client.close()
+
+    async def dedupe_workflow_candidates_for_task(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        workflow_id: str,
+        checkpoint_callback: Callable[[dict[str, Any], float], Any],
+        llm_execution_snapshot: dict[str, Any],
+        previous_checkpoint: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Strictly deduplicate candidates created by one deep-import workflow."""
+        from infrastructure.tasks.facade import require_task_checkpoint_session
+        from modules.project.facade import require_active_project
+
+        require_task_checkpoint_session(db)
+        await require_active_project(db, novel_id)
+        previous = previous_checkpoint if isinstance(previous_checkpoint, dict) else {}
+        current_state = await self._workflow_state_fingerprint(
+            db,
+            novel_id=novel_id,
+            workflow_id=workflow_id,
+        )
+        if (
+            previous.get("version") == _WORKFLOW_DEDUP_POLICY
+            and previous.get("workflow_id") == workflow_id
+            and previous.get("state_fingerprint") == current_state
+        ):
+            if previous.get("stage") == "done" and isinstance(
+                previous.get("result"), dict
+            ):
+                return {**previous["result"], "checkpoint_reused": True}
+            reusable = previous.get("decision_result")
+            if previous.get("stage") in {"decided", "applying"} and isinstance(
+                reusable, dict
+            ):
+                decision_result = reusable
+            else:
+                decision_result = None
+        else:
+            decision_result = None
+
+        async def _decision_checkpoint(result: dict[str, Any], value: float) -> None:
+            checkpoint = {
+                "version": _WORKFLOW_DEDUP_POLICY,
+                "workflow_id": workflow_id,
+                "threshold": _WORKFLOW_DEDUP_THRESHOLD,
+                "stage": "decided" if value >= 1.0 else "deciding",
+                "state_fingerprint": current_state,
+                "input_fingerprint": result.get("input_fingerprint"),
+                "decision_result": result,
+            }
+            await _run_checkpoint_callback(
+                checkpoint_callback,
+                checkpoint,
+                0.15 + 0.45 * value,
+            )
+
+        if decision_result is None:
+            # ponytail: one import is capped at 10k objects; paginate only if real
+            # manuscripts exceed that ceiling.
+            decision_result = await self.suggest_for_task(
+                db,
+                novel_id=novel_id,
+                status="candidate",
+                limit=10_000,
+                max_suggestions=10_000,
+                checkpoint_callback=_decision_checkpoint,
+                llm_execution_snapshot=llm_execution_snapshot,
+                workflow_id=workflow_id,
+                include_all_decisions=True,
+            )
+
+        decisions = [
+            item
+            for item in decision_result.get("decisions") or []
+            if isinstance(item, dict)
+        ]
+        groups, review_pairs, kept_pairs = _workflow_dedup_groups(decisions)
+        group_entity_sets = [set(group["entity_ids"]) for group in groups]
+        standalone_review_pairs = sum(
+            not any(
+                {
+                    str(item.get("source_entity_id")),
+                    str(item.get("target_entity_id")),
+                }
+                <= entity_ids
+                for entity_ids in group_entity_sets
+            )
+            for item in review_pairs
+        )
+        merge_map = {
+            str(key): str(value)
+            for key, value in (previous.get("merge_map") or {}).items()
+        }
+        failed_groups = 0
+        blocked_groups = 0
+        applied_groups = 0
+        for index, group in enumerate(groups):
+            entity_ids = set(group["entity_ids"])
+            if any(
+                {str(item.get("source_entity_id")), str(item.get("target_entity_id"))}
+                <= entity_ids
+                for item in review_pairs + kept_pairs
+            ):
+                blocked_groups += 1
+                continue
+            primary_id = str(group["primary_entity_id"])
+            operations = list(group["operations"])
+            if all(str(item["source_entity_id"]) in merge_map for item in operations):
+                continue
+            try:
+                async with db.begin_nested():
+                    results = await self.apply_group(
+                        db,
+                        novel_id=novel_id,
+                        primary_entity_id=primary_id,
+                        operations=operations,
+                        workflow_id=workflow_id,
+                    )
+                    if any(
+                        int(item.get("conflicts_archived", 0) or 0) for item in results
+                    ):
+                        raise ValidationError("workflow_candidate_field_conflict")
+                for item in results:
+                    source_id = str(item.get("source_entity_id") or "")
+                    target_id = str(item.get("target_entity_id") or primary_id)
+                    if source_id:
+                        merge_map[source_id] = target_id
+                applied_groups += 1
+            except Exception as exc:
+                failed_groups += 1
+                await db.rollback()
+                logger.warning(
+                    "Workflow entity dedup group skipped: %s",
+                    type(exc).__name__,
+                )
+
+            current_state = await self._workflow_state_fingerprint(
+                db,
+                novel_id=novel_id,
+                workflow_id=workflow_id,
+            )
+            checkpoint = {
+                "version": _WORKFLOW_DEDUP_POLICY,
+                "workflow_id": workflow_id,
+                "threshold": _WORKFLOW_DEDUP_THRESHOLD,
+                "stage": "applying",
+                "state_fingerprint": current_state,
+                "input_fingerprint": decision_result.get("input_fingerprint"),
+                "decision_result": decision_result,
+                "merge_map": dict(sorted(merge_map.items())),
+            }
+            await _run_checkpoint_callback(
+                checkpoint_callback,
+                checkpoint,
+                0.6 + 0.35 * ((index + 1) / max(1, len(groups))),
+            )
+            await db.commit()
+
+        review_count = standalone_review_pairs + blocked_groups + failed_groups
+        result = {
+            "scanned_candidates": int(
+                decision_result.get("total_entities_scanned", 0) or 0
+            ),
+            "pair_count": int(decision_result.get("candidate_pair_count", 0) or 0),
+            "llm_checked": int(decision_result.get("processed_pair_count", 0) or 0),
+            "auto_merged": len(merge_map),
+            "kept_separate": len(kept_pairs),
+            "review_required": review_count,
+            "stale_or_degraded": int(decision_result.get("skipped_stale_count", 0) or 0)
+            + failed_groups,
+            "applied_groups": applied_groups,
+            "merge_map": dict(sorted(merge_map.items())),
+            "policy_version": _WORKFLOW_DEDUP_POLICY,
+            "threshold": _WORKFLOW_DEDUP_THRESHOLD,
+            "degraded": bool(failed_groups or decision_result.get("skipped_stale_count")),
+        }
+        current_state = await self._workflow_state_fingerprint(
+            db,
+            novel_id=novel_id,
+            workflow_id=workflow_id,
+        )
+        final_checkpoint = {
+            "version": _WORKFLOW_DEDUP_POLICY,
+            "workflow_id": workflow_id,
+            "threshold": _WORKFLOW_DEDUP_THRESHOLD,
+            "stage": "done",
+            "state_fingerprint": current_state,
+            "input_fingerprint": decision_result.get("input_fingerprint"),
+            "decision_result": decision_result,
+            "merge_map": result["merge_map"],
+            "result": result,
+        }
+        await _run_checkpoint_callback(checkpoint_callback, final_checkpoint, 1.0)
+        await db.commit()
+        return result
+
+    async def _workflow_state_fingerprint(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        workflow_id: str,
+    ) -> str:
+        nid = parse_uuid(novel_id, "novel_id")
+        entities = list(
+            (
+                await db.execute(select(CoreEntity).where(CoreEntity.novel_id == nid))
+            ).scalars()
+        )
+        entities = [
+            entity for entity in entities if _is_workflow_entity(entity, workflow_id)
+        ]
+        fingerprint_inputs = await self._load_fingerprint_inputs(db, nid, entities)
+        rows = []
+        for entity in entities:
+            fingerprints = await self._entity_fingerprints(
+                db,
+                nid,
+                entity,
+                prefetched=fingerprint_inputs,
+            )
+            rows.append(
+                (
+                    str(entity.id),
+                    fingerprints["semantic_fingerprint"],
+                    fingerprints["execution_fingerprint"],
+                )
+            )
+        return _hash_payload(
+            {
+                "policy": _WORKFLOW_DEDUP_POLICY,
+                "workflow_id": workflow_id,
+                "entities": sorted(rows),
+            }
+        )
 
     async def _prepare_task_scan(
         self,
@@ -340,6 +599,7 @@ class WorldEntityFusionService:
         status: str | None,
         limit: int,
         max_suggestions: int,
+        workflow_id: str | None = None,
     ) -> _FusionTaskPlan:
         """Copy every post-checkpoint input into detached, JSON-safe values."""
         nid = parse_uuid(novel_id, "novel_id")
@@ -351,11 +611,18 @@ class WorldEntityFusionService:
             statuses=statuses,
             limit=limit,
         )
+        if workflow_id is not None:
+            entities = [
+                entity
+                for entity in entities
+                if _is_workflow_candidate(entity, workflow_id)
+            ]
         pairs = await self._candidate_pairs(
             db,
             novel_id=novel_id,
             entities=entities,
             max_pairs=max_suggestions * 3,
+            confirmed_aliases_only=workflow_id is not None,
         )
         fingerprint_inputs = await self._load_fingerprint_inputs(db, nid, entities)
         fingerprint_cache: dict[str, dict[str, Any]] = {}
@@ -382,8 +649,14 @@ class WorldEntityFusionService:
             # caller-owned RAG evidence path.
             evidence = _entity_summary_evidence(source, target)
             match = _normalized_match(raw_match)
-            source_dto = _detached_entity(source)
-            target_dto = _detached_entity(target)
+            source_dto = _detached_entity(
+                source,
+                confirmed_aliases_only=workflow_id is not None,
+            )
+            target_dto = _detached_entity(
+                target,
+                confirmed_aliases_only=workflow_id is not None,
+            )
             prepared.append(
                 _PreparedFusionPair(
                     source=source_dto,
@@ -409,11 +682,31 @@ class WorldEntityFusionService:
                 )
             )
 
+        # Candidates without a recalled pair still belong to the resumable input.
+        for entity in entities:
+            await fingerprints(entity)
+
         return _FusionTaskPlan(
             novel_id=novel_id,
+            workflow_id=workflow_id,
             total_entities_scanned=len(entities),
             candidate_pair_count=len(pairs),
             max_suggestions=max_suggestions,
+            input_fingerprint=_hash_payload(
+                {
+                    "policy": "deep-import-workflow-candidate-dedup-v1",
+                    "threshold": 0.8,
+                    "workflow_id": workflow_id,
+                    "entities": sorted(
+                        (
+                            entity_id,
+                            values["semantic_fingerprint"],
+                            values["execution_fingerprint"],
+                        )
+                        for entity_id, values in fingerprint_cache.items()
+                    ),
+                }
+            ),
             pairs=tuple(prepared),
         )
 
@@ -423,10 +716,12 @@ class WorldEntityFusionService:
         plan: _FusionTaskPlan,
         *,
         checkpoint_callback: Callable[[dict[str, Any], float], None],
+        include_all_decisions: bool = False,
     ) -> dict[str, Any]:
         from modules.project.facade import require_active_project
 
         suggestions: list[dict[str, Any]] = []
+        all_decisions: list[dict[str, Any]] = []
         stale_pairs: list[dict[str, str]] = []
         processed = 0
         initial = self._task_result(
@@ -434,8 +729,9 @@ class WorldEntityFusionService:
             suggestions=suggestions,
             processed_pair_count=processed,
             stale_pairs=stale_pairs,
+            decisions=all_decisions if include_all_decisions else None,
         )
-        checkpoint_callback(initial, 0.15)
+        await _run_checkpoint_callback(checkpoint_callback, initial, 0.15)
         # This is the key lease/project-fenced boundary before external I/O.
         await db.commit()
 
@@ -465,18 +761,27 @@ class WorldEntityFusionService:
                 db,
                 novel_id=plan.novel_id,
                 decisions=decisions,
+                workflow_id=plan.workflow_id,
+                include_keep_separate=include_all_decisions,
             )
             stale_pairs.extend(stale)
+            if include_all_decisions:
+                all_decisions.extend(fresh)
             remaining = plan.max_suggestions - len(suggestions)
-            suggestions.extend(fresh[:remaining])
+            suggestions.extend(
+                [item for item in fresh if item.get("action") != "keep_separate"][
+                    :remaining
+                ]
+            )
             result = self._task_result(
                 plan,
                 suggestions=suggestions,
                 processed_pair_count=processed,
                 stale_pairs=stale_pairs,
+                decisions=all_decisions if include_all_decisions else None,
             )
             progress = 0.15 + 0.85 * min(1.0, processed / len(plan.pairs))
-            checkpoint_callback(result, progress)
+            await _run_checkpoint_callback(checkpoint_callback, result, progress)
             # Revalidation and the detached task result become durable under the
             # same lease fence, then all world/project locks are released.
             await db.commit()
@@ -486,8 +791,9 @@ class WorldEntityFusionService:
             suggestions=suggestions,
             processed_pair_count=processed,
             stale_pairs=stale_pairs,
+            decisions=all_decisions if include_all_decisions else None,
         )
-        checkpoint_callback(result, 1.0)
+        await _run_checkpoint_callback(checkpoint_callback, result, 1.0)
         return result
 
     async def _revalidate_task_batch(
@@ -496,12 +802,14 @@ class WorldEntityFusionService:
         *,
         novel_id: str,
         decisions: list[tuple[_PreparedFusionPair, EntityFusionDecision]],
+        workflow_id: str | None = None,
+        include_keep_separate: bool = False,
     ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         """Return only decisions whose pair, assets, and disposition stayed fresh."""
         candidate_decisions = [
             (pair, decision)
             for pair, decision in decisions
-            if decision.action != "keep_separate"
+            if include_keep_separate or decision.action != "keep_separate"
         ]
         if not candidate_decisions:
             return [], []
@@ -550,6 +858,11 @@ class WorldEntityFusionService:
             reason: str | None = None
             if source is None or target is None:
                 reason = "asset_missing"
+            elif workflow_id is not None and (
+                not _is_workflow_candidate(source, workflow_id)
+                or not _is_workflow_candidate(target, workflow_id)
+            ):
+                reason = "workflow_candidate_changed"
             else:
                 source_fp = fingerprints[pair.source.id]
                 target_fp = fingerprints[pair.target.id]
@@ -574,6 +887,7 @@ class WorldEntityFusionService:
                         novel_id=novel_id,
                         source=source,
                         target=target,
+                        confirmed_aliases_only=workflow_id is not None,
                     )
                     if (
                         current_match is None
@@ -605,6 +919,7 @@ class WorldEntityFusionService:
         novel_id: str,
         source: CoreEntity,
         target: CoreEntity,
+        confirmed_aliases_only: bool = False,
     ) -> dict[str, Any] | None:
         if source.entity_type != target.entity_type:
             return None
@@ -612,7 +927,11 @@ class WorldEntityFusionService:
         if current_source.id != source.id or current_target.id != target.id:
             return None
 
-        score, method = _pair_similarity(source, target)
+        score, method = _pair_similarity(
+            source,
+            target,
+            confirmed_aliases_only=confirmed_aliases_only,
+        )
         if score >= 0.84:
             return _normalized_match({"similarity_score": score, "match_method": method})
 
@@ -621,7 +940,7 @@ class WorldEntityFusionService:
                 db,
                 novel_id,
                 query.name,
-                aliases=_aliases(query),
+                aliases=_aliases(query, confirmed_only=confirmed_aliases_only),
                 entity_type=query.entity_type,
             )
             match = next(
@@ -648,11 +967,12 @@ class WorldEntityFusionService:
         suggestions: list[dict[str, Any]],
         processed_pair_count: int,
         stale_pairs: list[dict[str, str]],
+        decisions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         warnings = []
         if stale_pairs:
             warnings.append(f"{len(stale_pairs)} 组对象在扫描期间发生变化，已跳过")
-        return {
+        result = {
             "task_type": "world_entity_fusion_suggestions",
             "novel_id": plan.novel_id,
             "total_entities_scanned": plan.total_entities_scanned,
@@ -664,7 +984,11 @@ class WorldEntityFusionService:
             "suggestions": list(suggestions),
             "warnings": warnings,
             "summary": f"生成 {len(suggestions)} 条世界对象合并建议",
+            "input_fingerprint": plan.input_fingerprint,
         }
+        if decisions is not None:
+            result["decisions"] = list(decisions)
+        return result
 
     async def apply_group(
         self,
@@ -675,6 +999,7 @@ class WorldEntityFusionService:
         operations: list[dict[str, Any]],
         validate_only: bool = False,
         execution_fingerprints_prevalidated: bool = False,
+        workflow_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Strict group apply. Any error is raised for the caller savepoint."""
         if validate_only and execution_fingerprints_prevalidated:
@@ -702,6 +1027,11 @@ class WorldEntityFusionService:
         target = by_id.get(primary_entity_id)
         if target is None:
             raise ValidationError("Primary entity not found")
+        if workflow_id is not None and not _is_workflow_candidate(
+            target,
+            workflow_id,
+        ):
+            raise ValidationError("workflow_candidate_changed")
         if len({item["source_entity_id"] for item in operations}) != len(operations):
             raise ValidationError("Duplicate source entity in group")
 
@@ -726,12 +1056,27 @@ class WorldEntityFusionService:
             source = by_id.get(str(item["source_entity_id"]))
             if source is None or source.id == target.id:
                 raise ValidationError("Invalid source entity")
+            if workflow_id is not None and not _is_workflow_candidate(
+                source,
+                workflow_id,
+            ):
+                raise ValidationError("workflow_candidate_changed")
             if source.entity_type != target.entity_type:
                 raise ValidationError("Entity fusion group must use one entity type")
             source_fp = fingerprints_by_id[source.id]
             target_fp = fingerprints_by_id[target.id]
             if not execution_fingerprints_prevalidated and (
-                source_fp["execution_fingerprint"]
+                (
+                    item.get("expected_source_semantic_fingerprint") is not None
+                    and source_fp["semantic_fingerprint"]
+                    != item.get("expected_source_semantic_fingerprint")
+                )
+                or (
+                    item.get("expected_target_semantic_fingerprint") is not None
+                    and target_fp["semantic_fingerprint"]
+                    != item.get("expected_target_semantic_fingerprint")
+                )
+                or source_fp["execution_fingerprint"]
                 != item.get("expected_source_execution_fingerprint")
                 or target_fp["execution_fingerprint"]
                 != item.get("expected_target_execution_fingerprint")
@@ -770,7 +1115,14 @@ class WorldEntityFusionService:
                     alias=str(item.get("alias") or source.name),
                     allow_canonical_source=source.status == "canonical",
                 )
-                results.append({"action": "alias_only", **result})
+                results.append(
+                    {
+                        "action": "alias_only",
+                        "source_entity_id": str(source.id),
+                        "target_entity_id": str(target.id),
+                        **result,
+                    }
+                )
                 continue
             result = await self._dedup.merge_candidate_into_entity(
                 db,
@@ -787,6 +1139,7 @@ class WorldEntityFusionService:
                     "aliases_inherited": result.aliases_inherited,
                     "relations_migrated": result.relations_migrated,
                     "relations_deduplicated": result.relations_deduplicated,
+                    "conflicts_archived": result.conflicts_archived,
                 }
             )
         await db.flush()
@@ -1134,6 +1487,7 @@ class WorldEntityFusionService:
         novel_id: str,
         entities: list[CoreEntity],
         max_pairs: int | None,
+        confirmed_aliases_only: bool = False,
     ) -> list[tuple[CoreEntity, CoreEntity, dict[str, Any]]]:
         by_id = {str(entity.id): entity for entity in entities}
         pairs: dict[tuple[str, str], dict[str, Any]] = {}
@@ -1188,13 +1542,17 @@ class WorldEntityFusionService:
         for source in entities:
             if str(source.id) in paired_sources:
                 continue
-            aliases = _aliases(source)
+            aliases = _aliases(source, confirmed_only=confirmed_aliases_only)
             for target in entities:
                 if source.id == target.id:
                     continue
                 if source.entity_type != target.entity_type:
                     continue
-                score, method = _pair_similarity(source, target)
+                score, method = _pair_similarity(
+                    source,
+                    target,
+                    confirmed_aliases_only=confirmed_aliases_only,
+                )
                 if score >= 0.84:
                     merge_source, merge_target = _source_target(source, target)
                     record_pair(
@@ -1362,14 +1720,24 @@ class WorldEntityFusionService:
             return deterministic
 
 
-def _detached_entity(entity: CoreEntity) -> _FusionEntityDTO:
+def _detached_entity(
+    entity: CoreEntity,
+    *,
+    confirmed_aliases_only: bool = False,
+) -> _FusionEntityDTO:
+    meta = dict((entity.content_json or {}).get("_meta") or {})
     return _FusionEntityDTO(
         id=str(entity.id),
         name=entity.name,
         entity_type=entity.entity_type,
         status=entity.status,
         summary=entity.summary,
-        aliases=tuple(_aliases(entity)),
+        aliases=tuple(_aliases(entity, confirmed_only=confirmed_aliases_only)),
+        source_chapter_index=_optional_int(meta.get("source_chapter_index")),
+        source_scene_index=_optional_int(
+            meta.get("source_scene_index", meta.get("scene_index"))
+        ),
+        source_scene_id=(str(meta.get("scene_id")) if meta.get("scene_id") else None),
     )
 
 
@@ -1452,7 +1820,11 @@ def _task_suggestion(
     }
 
 
-def _aliases(entity: CoreEntity | _FusionEntityDTO) -> list[str]:
+def _aliases(
+    entity: CoreEntity | _FusionEntityDTO,
+    *,
+    confirmed_only: bool = False,
+) -> list[str]:
     if isinstance(entity, _FusionEntityDTO):
         return list(entity.aliases)
     result: list[str] = []
@@ -1460,6 +1832,8 @@ def _aliases(entity: CoreEntity | _FusionEntityDTO) -> list[str]:
         if isinstance(item, str):
             result.append(item)
         elif isinstance(item, dict) and item.get("alias"):
+            if confirmed_only and item.get("status") != "canonical":
+                continue
             result.append(str(item["alias"]))
     return result
 
@@ -1467,13 +1841,21 @@ def _aliases(entity: CoreEntity | _FusionEntityDTO) -> list[str]:
 def _lexical_similarity(
     left: CoreEntity | _FusionEntityDTO,
     right: CoreEntity | _FusionEntityDTO,
+    *,
+    confirmed_aliases_only: bool = False,
 ) -> tuple[float, str]:
     left_name = normalize_name(left.name)
     right_name = normalize_name(right.name)
     if left_name == right_name:
         return 1.0, "normalized_exact_name"
-    left_aliases = {normalize_name(alias) for alias in _aliases(left)}
-    right_aliases = {normalize_name(alias) for alias in _aliases(right)}
+    left_aliases = {
+        normalize_name(alias)
+        for alias in _aliases(left, confirmed_only=confirmed_aliases_only)
+    }
+    right_aliases = {
+        normalize_name(alias)
+        for alias in _aliases(right, confirmed_only=confirmed_aliases_only)
+    }
     if left_name in right_aliases or right_name in left_aliases:
         return 0.99, "alias_name_match"
     if left_name and right_name and (left_name in right_name or right_name in left_name):
@@ -1484,8 +1866,14 @@ def _lexical_similarity(
 def _pair_similarity(
     left: CoreEntity | _FusionEntityDTO,
     right: CoreEntity | _FusionEntityDTO,
+    *,
+    confirmed_aliases_only: bool = False,
 ) -> tuple[float, str]:
-    lexical_score, lexical_method = _lexical_similarity(left, right)
+    lexical_score, lexical_method = _lexical_similarity(
+        left,
+        right,
+        confirmed_aliases_only=confirmed_aliases_only,
+    )
     if lexical_method in {"normalized_exact_name", "alias_name_match"}:
         return lexical_score, lexical_method
     summary_score = _summary_similarity(left.summary, right.summary)
@@ -1590,14 +1978,23 @@ def _source_target(
 
 
 def _entity_payload(entity: CoreEntity | _FusionEntityDTO) -> dict[str, Any]:
-    return {
+    payload = {
         "id": str(entity.id),
         "name": entity.name,
         "entity_type": entity.entity_type,
         "status": entity.status,
-        "summary": entity.summary,
+        "summary": _clip(entity.summary),
         "aliases": _aliases(entity),
     }
+    if isinstance(entity, _FusionEntityDTO):
+        payload.update(
+            {
+                "source_chapter_index": entity.source_chapter_index,
+                "source_scene_index": entity.source_scene_index,
+                "source_scene_id": entity.source_scene_id,
+            }
+        )
+    return payload
 
 
 def _entity_snapshot(entity: CoreEntity, fingerprints: dict[str, Any]) -> dict[str, Any]:
@@ -1616,10 +2013,146 @@ def _entity_snapshot(entity: CoreEntity, fingerprints: dict[str, Any]) -> dict[s
         "reveal_level": entity.reveal_level,
         "source": meta.get("source") or entity.created_by,
         "workflow_id": meta.get("workflow_id"),
+        "source_chapter_index": meta.get("source_chapter_index"),
+        "source_scene_index": meta.get("source_scene_index", meta.get("scene_index")),
         "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
         "relation_count": fingerprints.get("relation_count", 0),
         "details": fingerprints.get("extension") or {},
     }
+
+
+def _is_workflow_candidate(entity: CoreEntity, workflow_id: str) -> bool:
+    meta = dict((entity.content_json or {}).get("_meta") or {})
+    return bool(
+        entity.status == "candidate"
+        and meta.get("source") == "deep_import"
+        and str(meta.get("workflow_id") or "") == workflow_id
+        and meta.get("user_edited") is not True
+    )
+
+
+def _is_workflow_entity(entity: CoreEntity, workflow_id: str) -> bool:
+    meta = dict((entity.content_json or {}).get("_meta") or {})
+    return bool(
+        meta.get("source") == "deep_import"
+        and str(meta.get("workflow_id") or "") == workflow_id
+        and entity.status in {"candidate", "merged"}
+    )
+
+
+def _workflow_dedup_groups(
+    decisions: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    auto = [
+        item
+        for item in decisions
+        if item.get("action") in {"merge", "alias_only"}
+        and float(item.get("confidence", 0) or 0) >= _WORKFLOW_DEDUP_THRESHOLD
+    ]
+    review = [
+        item
+        for item in decisions
+        if item.get("action") == "needs_review"
+        or (
+            item.get("action") in {"merge", "alias_only"}
+            and float(item.get("confidence", 0) or 0) < _WORKFLOW_DEDUP_THRESHOLD
+        )
+    ]
+    kept = [item for item in decisions if item.get("action") == "keep_separate"]
+    neighbors: dict[str, set[str]] = defaultdict(set)
+    snapshots: dict[str, dict[str, Any]] = {}
+    fingerprints: dict[str, tuple[str, str]] = {}
+    incident_actions: dict[str, set[str]] = defaultdict(set)
+    names: dict[str, str] = {}
+    for item in auto:
+        source_id = str(item.get("source_entity_id") or "")
+        target_id = str(item.get("target_entity_id") or "")
+        if not source_id or not target_id or source_id == target_id:
+            continue
+        neighbors[source_id].add(target_id)
+        neighbors[target_id].add(source_id)
+        incident_actions[source_id].add(str(item.get("action")))
+        incident_actions[target_id].add(str(item.get("action")))
+        for side, entity_id in (("source", source_id), ("target", target_id)):
+            snapshot = item.get(f"{side}_snapshot")
+            if isinstance(snapshot, dict):
+                snapshots[entity_id] = snapshot
+            fingerprints[entity_id] = (
+                str(item.get(f"{side}_semantic_fingerprint") or ""),
+                str(item.get(f"{side}_execution_fingerprint") or ""),
+            )
+            names[entity_id] = str(item.get(f"{side}_entity_name") or "")
+
+    groups: list[dict[str, Any]] = []
+    visited: set[str] = set()
+    for seed in sorted(neighbors):
+        if seed in visited:
+            continue
+        stack = [seed]
+        component: set[str] = set()
+        while stack:
+            entity_id = stack.pop()
+            if entity_id in component:
+                continue
+            component.add(entity_id)
+            stack.extend(neighbors[entity_id] - component)
+        visited.update(component)
+        primary_id = min(
+            component, key=lambda item: _workflow_primary_key(item, snapshots)
+        )
+        primary_semantic, primary_execution = fingerprints[primary_id]
+        operations = []
+        for source_id in sorted(component - {primary_id}):
+            source_semantic, source_execution = fingerprints[source_id]
+            operations.append(
+                {
+                    "source_entity_id": source_id,
+                    "action": (
+                        "merge"
+                        if "merge" in incident_actions[source_id]
+                        else "alias_only"
+                    ),
+                    "alias": names[source_id],
+                    "expected_source_semantic_fingerprint": source_semantic,
+                    "expected_target_semantic_fingerprint": primary_semantic,
+                    "expected_source_execution_fingerprint": source_execution,
+                    "expected_target_execution_fingerprint": primary_execution,
+                }
+            )
+        groups.append(
+            {
+                "entity_ids": sorted(component),
+                "primary_entity_id": primary_id,
+                "operations": operations,
+            }
+        )
+    return groups, review, kept
+
+
+def _workflow_primary_key(
+    entity_id: str,
+    snapshots: dict[str, dict[str, Any]],
+) -> tuple[int, int, str]:
+    snapshot = snapshots.get(entity_id) or {}
+
+    def _index(name: str) -> int:
+        try:
+            return int(snapshot.get(name))
+        except (TypeError, ValueError):
+            return 2**31 - 1
+
+    return (
+        _index("source_chapter_index"),
+        _index("source_scene_index"),
+        entity_id,
+    )
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _hash_payload(value: Any) -> str:

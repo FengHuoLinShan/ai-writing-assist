@@ -108,6 +108,41 @@ test.describe("Scene 工作台", () => {
     expect(Math.abs(positions.activeTabTop - positions.actionsTop)).toBeLessThan(8)
   })
 
+  test("单个结构待整理项可标记无需整理并从更多菜单恢复", async ({ page }) => {
+    const project = await createProject({ title: "Scene 整理裁决", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const scene = await createScene(project.id, {
+      scene_index: 0,
+      title: "无需调整的场景",
+      status: "canonical",
+      goal: "保留当前结构",
+      core_conflict: "系统提示与作者判断不同",
+      must_happen: "记录作者裁决",
+      must_not_happen: "改动正文",
+      chapter_ids: ["1"],
+      structure_meta: { needs_organize: true, reviewed_at: "2026-08-13T00:00:00Z" },
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openWorkbench(page, project, "outline", "scenes")
+
+    await page.locator('[data-action="filter-health"][data-id="needs_organize"]').click()
+    const row = page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)
+    await row.locator('input[data-action="toggle-fusion-selection"]').check()
+    await expect(page.locator('[data-action="handle-selected-context-actions"]')).toHaveText("整理映射")
+    await page.locator('[data-action="handle-selected-context-actions"]').click()
+    await expect(page.locator("#modal-title")).toHaveText("整理场景正文范围")
+    await page.getByRole("button", { name: "标记为无需整理" }).click()
+
+    await expect(row).toHaveCount(0)
+    await page.locator('[data-action="filter-health"][data-id="needs_organize"]').click()
+    await expect(row).toBeVisible()
+    await row.locator(".action-menu-btn").click()
+    await row.locator('[data-action="restore-scene-organize"]').click()
+
+    await expect(row).toContainText("待整理")
+    await expectNoPageOverflow(page)
+  })
+
   test("热点进度忽略空白占位章并可筛选当前剧情", async ({ page }) => {
     const project = await createProject({ title: "Scene 热点定位", genre: "fantasy", language: "zh" })
     testProjectId = project.id

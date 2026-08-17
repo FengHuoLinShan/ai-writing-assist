@@ -223,10 +223,18 @@ const healthBreakdownText = computed(() => {
 const selectionHint = computed(() => selectedIds.value.size < 2 ? `再选 ${2 - selectedIds.value.size} 个即可融合` : "已可开始融合")
 const batchLabel = computed(() => {
   const selected = vm.selectedItems.value
+  if (selected.length === 1) return sceneContextAction(selected[0]).label
   const kinds = new Set(selected.map((item) => sceneContextAction(item).key))
-  if (kinds.size === 1 && kinds.has("review")) return "采用选中项"
-  if (kinds.size === 1 && kinds.has("source_mapping")) return "确认选中项定位"
-  return "批量处理"
+  if (kinds.size === 1) return ({
+    review: "批量采用 / 标记已检查",
+    source_mapping: "批量确认章节定位",
+    organize: "处理选中整理项",
+    suggestion: "逐项处理融合建议",
+    assign: "逐项关联章节",
+    missing_setup: "逐项补全设定",
+    edit: "逐项编辑",
+  }[sceneContextAction(selected[0]).key] || "处理选中项")
+  return "分组处理"
 })
 
 const detailDraft = reactive({})
@@ -280,6 +288,7 @@ function menuItems(item) {
     { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
     { action: "start-merge-scene", label: "合并", data: { id: scene.id } },
     { action: "start-split-scene", label: "拆分", data: { id: scene.id } },
+    ...(scene.structure_meta?.organize_ignored && !structureAssetDisplay(scene).isHistory ? [{ action: "restore-scene-organize", label: "恢复整理提醒", data: { id: scene.id } }] : []),
     ...(sceneReviewState(item).reviewed ? [{ action: "mark-scene-unreviewed", label: "标记需检查", data: { id: scene.id } }] : []),
     ...(!structureAssetDisplay(scene).isHistory ? [{ action: "move-scene-to-history", label: "移入历史", data: { id: scene.id } }] : []),
   ]
@@ -288,6 +297,7 @@ function handleMenu(item, menu) {
   if (menu.action === "open-writing-scene") return openWriting(item.scene)
   if (menu.action === "start-merge-scene") return modalController.startMerge(item.scene.id)
   if (menu.action === "start-split-scene") return modalController.startSplit(item.scene.id)
+  if (menu.action === "restore-scene-organize") return vm.reviewScenes([item.scene.id], "restore_structure")
   if (menu.action === "mark-scene-unreviewed") return vm.reviewScenes([item.scene.id], "reopen")
   if (menu.action === "move-scene-to-history") return vm.moveToHistory(item.scene.id)
 }

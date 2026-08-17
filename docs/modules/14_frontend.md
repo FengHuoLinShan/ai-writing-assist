@@ -77,6 +77,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 | `vue/views/today/TodayView.vue` | `today` 路由（Vue island）；一个正文或世界设定续接主卡、服务器世界书工作稿/待处理页面建议入口、待处理汇总和最多 3 个项目隔离的长任务恢复；摘要失败不阻断写作，未知状态保留并允许重试 |
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面可连续关联或快速新建 Scene，移动速记只保留本章 Scene 切换；自动保存、导入和候选采用继续保持原安全语义 |
+| `vue/views/writing/components/WritingWorkflowBars.vue` | 写作台长任务完成卡；深度导入额外显示自动归并数与遗留复核组数，有遗留项时用作者语言引导到现有“人物与世界 → 智能去重”，不自动发起第二次全项目扫描 |
 | `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；世界书内置关联图模式复用只读 `GET /api/world/knowledge-graph`，可从当前页一跳显式扩展到两跳或全局，列表可操作而 SVG 仅为辅助；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 预览使用结构化重复项编辑器，提交时适配回原 wire payload；版本历史不可原地改写 |
@@ -323,7 +324,9 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - Scene 工作台把机械合并和 AI 融合建议分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后在大尺寸语义表格中并列展示 AI 建议、主 Scene 原值和其他来源 Scene 原值；拆分使用“原 Scene / 建议 A / 建议 B”对比。两类预览覆盖语义字段、叙事标签、POV 和章节映射，默认显示全部字段并可只看初始差异；AI 建议保持完整可编辑，长来源证据按需展开。融合预览是同步 LLM 请求，API contract 使用 90 秒生成窗口。叙事标签把空值规范为 `draft`（未标注），拆分字段支持显式清空。保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存；废弃来源必须在预览内再次确认，所有融合保存入口共享单次请求锁，失败时恢复操作并保留当前编辑。手动融合输出使用 `source="manual_fusion"`。
 - 重复提取的 replacement suggestion 使用专用对比面板，展示受保护原 Scene、新候选、边界/章节重叠证据，并提供“保留原 Scene / 直接替换 / 编辑后替换”。历史列表区分“原已采用 · 重复提取替换”，替换后提示世界对象和剧情结构需按需刷新。
 - Scene 每行只展示当前最高优先级主操作：复核、查看跨章建议、确认章节定位、整理映射、关联章节、补全设定、编辑。完成一项后刷新为下一项；健康标签可直接执行对应操作。桌面端显示“上下文主按钮 + 编辑 + 更多”，窄屏只显示“主按钮 + 更多”，“更多”固定包含打开写作、合并和拆分。
-- 同类 Scene 批量选择显示具体操作；混合选择显示“批量处理”并按问题类型分组，不提供含义不明的一键清除。复核调用后端统一 review 命令，正文定位确认单独提示只接受章节精度。
+- Scene 单选直接显示并执行真实主操作；同类多选显示具体批量操作，混合选择按问题类型列出
+  数量并一次处理一组，成功只移除该组选择。复核调用统一 review 命令，正文定位确认单独提示
+  只接受章节精度；结构类提醒可标记为无需整理，并从更多菜单恢复，不影响定位或融合建议。
 - 跨章建议来自后端持久队列，刷新后恢复横幅和行内按钮。支持逐条融合与批量忽略，不提供“全部接受”。
 - 剧情线、篇章纲与 Scene 工作台的 P20 表单都先验证当前 StoryOutline，支持新增设计或修订
   所选，恢复 `outline_generate` 任务，并展示完整可编辑 JSON preview、重叠资产、作者决策与

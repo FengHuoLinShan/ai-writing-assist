@@ -1156,6 +1156,7 @@ class TestDeepImportOrchestrator:
             "quality_stats": {},
             "phase_artifacts": {},
             "checkpoints": {},
+            "phase2_dedup": {},
             "recovery_summary": {},
             "interrupted": False,
             "recoverable": False,

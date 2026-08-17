@@ -4,6 +4,8 @@
 
 world 模块管理小说世界中的核心对象及其关系，是结构化创作的事实底座。
 
+imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用限定 workflow candidate 的严格自动去重。该 seam 复用现有融合判定、指纹重验、candidate 软合并与项目 LLM snapshot，不改变项目级智能去重、canonical 确认、HTTP 或数据库契约。
+
 ## 核心原则
 
 - 对象抽取不是 NER，而是长期创作资产识别

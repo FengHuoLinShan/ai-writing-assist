@@ -1726,6 +1726,9 @@ class DeepImportOrchestrator:
             "authorization_snapshot": progress.authorization_snapshot,
             "llm_execution_snapshot": progress.llm_execution_snapshot,
             "asset_summary": progress.asset_summary,
+            "phase2_dedup": (
+                (progress.quality_stats.get("phase2") or {}).get("phase2_dedup") or {}
+            ),
             "phase": progress.phase,
             "current_step": (
                 progress.current_step.value if progress.current_step else None

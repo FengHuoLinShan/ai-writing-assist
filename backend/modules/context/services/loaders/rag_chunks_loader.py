@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +64,10 @@ async def _default_record_trace(
         from core.database import get_manager
 
         async with get_manager().session_factory() as trace_db:
+            # Diagnostic writes use a side session. If the caller owns an
+            # uncommitted parent row, FK validation can otherwise wait on the
+            # caller while the caller waits here.
+            await trace_db.execute(text("SET LOCAL lock_timeout = '2000ms'"))
             record = await service.record(
                 trace_db,
                 novel_id=novel_id,

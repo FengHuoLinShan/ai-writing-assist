@@ -373,7 +373,12 @@ class SceneWorkbenchResponse(BaseModel):
 
 class SceneReviewRequest(BaseModel):
     scene_ids: list[str] = Field(..., min_length=1, max_length=100)
-    decision: Literal["review", "reopen"]
+    decision: Literal[
+        "review",
+        "reopen",
+        "ignore_structure",
+        "restore_structure",
+    ]
 
 
 class SceneReviewResponse(BaseModel):

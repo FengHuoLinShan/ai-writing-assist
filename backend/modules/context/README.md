@@ -203,6 +203,8 @@ loader 按稳定 RRF 合并，然后统一回读 writing 正文并复核 source 
 10,000 条，通过现有 snapshot maintenance 入口 dry-run/执行。近期统计和清理都由
 数据库聚合/子查询执行，不用固定大 limit 加载 trace ORM，因此高于历史
 100,000 条时也不会截断计数或遗漏过期记录。
+PostgreSQL 下 trace 使用独立旁路会话并设置 2 秒事务级锁等待上限；诊断写入遇到
+调用方未提交父行造成的 FK 锁竞争时降级为 warning，不阻塞检索或 LLM 工作流。
 
 snapshot stale 优先与 owner task 对账：owner 心跳新鲜则长时运行不算 stale；
 owner terminal 或 lease stale 则分别以 `owner_task_terminal` / `owner_task_stale` 关闭孤儿快照。
