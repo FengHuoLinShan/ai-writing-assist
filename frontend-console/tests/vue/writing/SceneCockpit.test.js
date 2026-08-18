@@ -53,6 +53,30 @@ describe("SceneCockpit", () => {
     expect(wrapper.emitted("open-conflict")).toHaveLength(1)
   })
 
+  it("默认显示白名单本场摘要，扩展资料需显式点击", async () => {
+    const wrapper = mountCockpit({
+      scene: {
+        ...scene,
+        structure_meta: { outcome: "拿到钥匙", private_prompt: "不应展示" },
+      },
+    })
+    expect(wrapper.get(".scene-lens").text()).toContain("拿到钥匙")
+    expect(wrapper.text()).not.toContain("不应展示")
+    expect(wrapper.emitted("load-lens")).toBeUndefined()
+    await wrapper.get(".scene-lens__load button").trigger("click")
+    expect(wrapper.emitted("load-lens")).toHaveLength(1)
+  })
+
+  it("扩展资料失败时保留静态摘要并可重试", async () => {
+    const wrapper = mountCockpit({
+      lens: { loading: false, data: null, error: "网络暂时不可用" },
+    })
+    expect(wrapper.get(".scene-lens").text()).toContain("找到线索")
+    expect(wrapper.get(".scene-lens").text()).toContain("静态摘要已保留")
+    await wrapper.get(".scene-lens__load button").trigger("click")
+    expect(wrapper.emitted("load-lens")).toHaveLength(1)
+  })
+
   it("支持模块折叠和持久化排序", async () => {
     const wrapper = mountCockpit()
     const goal = wrapper.get('[data-cockpit-module="goal"]')

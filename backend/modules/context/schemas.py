@@ -151,6 +151,17 @@ class ContextCompileRequest(ContextSelectionRequest):
     pass
 
 
+class SceneLensRequest(BaseModel):
+    novel_id: str = Field(..., description="项目 ID")
+    scene_id: str = Field(..., description="当前 Scene ID")
+
+
+class SceneLensResponse(BaseModel):
+    role_visible_knowledge: dict[str, Any] = Field(default_factory=dict)
+    scene_world_state: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class BudgetUsedItem(BaseModel):
     """预算使用明细"""
 

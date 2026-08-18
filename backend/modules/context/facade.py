@@ -92,6 +92,18 @@ def render_compiled_context(context: CompiledContext) -> str:
     return _render_compiled_context(context)
 
 
+async def load_scene_lens(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+) -> dict:
+    """Return the read-only, server-derived POV view for one Scene."""
+    from modules.context.services.scene_lens import SceneLensService
+
+    return await SceneLensService().load(db, novel_id=novel_id, scene_id=scene_id)
+
+
 async def compile_structure_context(
     db: AsyncSession,
     novel_id: str,

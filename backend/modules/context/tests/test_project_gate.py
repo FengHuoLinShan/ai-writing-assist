@@ -41,9 +41,14 @@ async def test_context_routes_hide_recycled_and_missing_projects(
             "/api/context/snapshots/maintenance",
             json={"novel_id": blocked_id},
         )
+        scene_lens_response = await async_client.post(
+            "/api/context/scene-lens",
+            json={"novel_id": blocked_id, "scene_id": str(uuid.uuid4())},
+        )
         assert compile_response.status_code == 404
         assert confirm_response.status_code == 404
         assert maintenance_response.status_code == 404
+        assert scene_lens_response.status_code == 404
 
 
 @pytest.mark.asyncio

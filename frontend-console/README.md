@@ -171,7 +171,10 @@ frontend-console/
 编辑位置，不改变 Scene。副驾驶只展示当前章的 `draft/canonical` Scene，并在项目
 会话中按章记住选择；AI 参考、冲突检查和发布检查统一消费该选择。
 桌面副驾驶可连续关联或快速新建 Scene；移动速记只允许切换本章 Scene，不提供
-关联、新建或管理。
+关联、新建或管理。两端共用“本场”摘要：默认只展示 Scene 主字段和
+`structure_meta` 执行字段白名单，POV 可见知识与场景时点状态必须由作者显式点击后
+读取。切换 Scene 会隔离旧请求的晚到响应；失败时保留静态摘要并可原位重试。
+窄屏使用原生 `details` 渐进展开。
 - hash router、Proxy state、API 和 toast/modal 作为集中式基础设施保留；router 的动态视图、
   loader、pending loader 和子标签注册表使用 `Map`，只接受安全的小写路由 key 并拒绝原型属性名；
   router 不再使用 DocumentFragment/KeepAlive，视图离开时卸载并由项目隔离 session 恢复有业务价值的状态

@@ -18,6 +18,7 @@
       </select>
       <span v-else class="writing-empty-hint">本章未关联 Scene</span>
     </label>
+    <SceneLensSummary :scene="scene" :lens="lens" mobile @load="$emit('load-lens')" />
     <textarea
       ref="editorEl"
       id="mobile-note-editor"
@@ -36,15 +37,18 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue"
+import SceneLensSummary from "./SceneLensSummary.vue"
 
 const props = defineProps({
   state: { type: Object, required: true },
   scenes: { type: Array, default: () => [] },
   selectedSceneId: { type: String, default: null },
+  scene: { type: Object, default: null },
+  lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })
-defineEmits(["save", "publish", "desktop", "select-scene"])
+defineEmits(["save", "publish", "desktop", "select-scene", "load-lens"])
 const statusText = computed(() => {
   if (props.state.saving) return "正在保存"
   if (props.state.saveError) return "保存失败，本地备份已保留"

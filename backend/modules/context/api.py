@@ -26,6 +26,7 @@ from modules.context.facade import (
 from modules.context.facade import list_activation_profiles as _list_activation_profiles
 from modules.context.facade import list_context_snapshots as _list_context_snapshots
 from modules.context.facade import list_retrieval_traces as _list_retrieval_traces
+from modules.context.facade import load_scene_lens as _load_scene_lens
 from modules.context.facade import preview_activation as _preview_activation
 from modules.context.facade import (
     publish_activation_profile as _publish_activation_profile,
@@ -72,6 +73,8 @@ from modules.context.schemas import (
     EvidenceSearchResponse,
     EvidenceTraceRequest,
     EvidenceTraceResponse,
+    SceneLensRequest,
+    SceneLensResponse,
 )
 from modules.context.services.review_projection import build_tier_compile_response
 from modules.project.facade import require_active_project
@@ -82,6 +85,21 @@ _VALID_SCOPES: frozenset[str] = frozenset(
 )
 
 router = APIRouter(prefix="/api/context", tags=["context"])
+
+
+@router.post("/scene-lens", response_model=SceneLensResponse)
+async def scene_lens(
+    db: DbSession,
+    request: SceneLensRequest,
+) -> SceneLensResponse:
+    """Load one Scene's safe POV knowledge and existing world-state checkpoints."""
+    await require_active_project(db, request.novel_id)
+    result = await _load_scene_lens(
+        db,
+        novel_id=request.novel_id,
+        scene_id=request.scene_id,
+    )
+    return SceneLensResponse(**result)
 
 
 def _build_tier_compile_response(

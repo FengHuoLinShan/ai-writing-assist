@@ -166,6 +166,7 @@ export function useWritingWorkspace(props) {
   const conflictDialog = reactive({ open: false, check: null, busy: false, error: null, sourcePreview: null })
   const conflictTask = reactive({ taskId: null, progress: null })
   const sceneState = reactive({ loading: false, alerts: [], people: [], location: null })
+  const sceneLens = reactive({ sceneId: null, loading: false, data: null, error: null })
   const deepImportState = reactive({ taskId: null, projectId: null, progress: null })
   const deepImportHasScenes = computed(() => scenes.value.length > 0)
   const deepAuditOpen = ref(false)
@@ -180,6 +181,7 @@ export function useWritingWorkspace(props) {
   const disposed = ref(false)
   let selectionGeneration = 0
   let sceneGeneration = 0
+  let sceneLensGeneration = 0
   let publishGeneration = 0
   let versionDiffGeneration = 0
   let publishTimer = null
@@ -1044,6 +1046,10 @@ export function useWritingWorkspace(props) {
     const scene = currentScene.value
     const chapter = selectedChapter.value
     const generation = ++sceneGeneration
+    if (sceneLens.sceneId !== (scene?.id || null)) {
+      sceneLensGeneration += 1
+      Object.assign(sceneLens, { sceneId: scene?.id || null, loading: false, data: null, error: null })
+    }
     conflictState.loading = false
     conflictState.latest = null
     conflictState.error = null
@@ -1111,6 +1117,35 @@ export function useWritingWorkspace(props) {
         sceneState.loading = false
         refreshSceneAlerts()
       }
+    }
+  }
+
+  async function loadSceneLens() {
+    const scene = currentScene.value
+    const chapter = selectedChapter.value
+    if (!scene?.id || sceneLens.loading) return false
+    const generation = ++sceneLensGeneration
+    sceneLens.sceneId = scene.id
+    sceneLens.loading = true
+    sceneLens.error = null
+    const ownsRequest = () => (
+      generation === sceneLensGeneration
+      && scene.id === currentScene.value?.id
+      && chapter === selectedChapter.value
+      && !disposed.value
+      && getAppState()?.currentProjectId === projectId
+    )
+    try {
+      const result = await api.context.sceneLens({ novel_id: projectId, scene_id: scene.id })
+      if (!ownsRequest()) return false
+      sceneLens.data = result
+      return true
+    } catch (error) {
+      if (!ownsRequest()) return false
+      sceneLens.error = error?.message || "角色可见信息加载失败，可重试"
+      return false
+    } finally {
+      if (ownsRequest()) sceneLens.loading = false
     }
   }
 
@@ -1234,6 +1269,7 @@ export function useWritingWorkspace(props) {
     disposed.value = true
     selectionGeneration += 1
     sceneGeneration += 1
+    sceneLensGeneration += 1
     publishGeneration += 1
     versionDiffGeneration += 1
     if (publishTimer) clearTimeout(publishTimer)
@@ -1281,6 +1317,7 @@ export function useWritingWorkspace(props) {
     conflictDialog,
     conflictTask,
     sceneState,
+    sceneLens,
     deepImportState,
     deepImportHasScenes,
     deepAuditOpen,
@@ -1295,6 +1332,7 @@ export function useWritingWorkspace(props) {
     saveStatus,
     selectChapter,
     selectScene,
+    loadSceneLens,
     associateScene,
     createSceneForChapter,
     createChapter,

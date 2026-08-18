@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createEditorController } from "../../../vue/views/writing/controllers/editorController.js"
-import { clearWritingSession, readChapterSnapshot } from "../../../vue/views/writing/writingSession.js"
+import { clearWritingSession, readChapterSnapshot, rememberChapterSnapshot } from "../../../vue/views/writing/writingSession.js"
 
 function deferred() {
   let resolve
@@ -71,6 +71,21 @@ describe("editorController", () => {
     editor.dispatchEvent(new MouseEvent("click", { bubbles: true }))
 
     expect(controller.snapshot().cursorOffset).toBe(2)
+    controller.dispose()
+  })
+
+  it("只为同一工作稿恢复 clamp 后的光标且不抢焦点", async () => {
+    rememberChapterSnapshot("p1", { chapter: 1, draftId: "d1", content: "旧文", cursorOffset: 99, dirty: false })
+    const { controller } = makeController()
+    document.body.innerHTML = '<button id="owner">owner</button><textarea id="body"></textarea>'
+    const owner = document.getElementById("owner")
+    const editor = document.getElementById("body")
+    owner.focus()
+    controller.attach({ title: null, editor })
+    await controller.loadChapter(1)
+
+    expect(editor.selectionStart).toBe(2)
+    expect(document.activeElement).toBe(owner)
     controller.dispose()
   })
 

@@ -3,6 +3,7 @@ import { computed, ref } from "vue"
 import { clearActiveWorkflow } from "../../../shared/workflowProgress.js"
 import { getRouter } from "../../bridge/index.js"
 import { writeCreativeContinuation } from "../generate/generateSession.js"
+import { readWritingPointer } from "../writing/writingSession.js"
 
 const props = defineProps({
   project: { type: Object, default: null },
@@ -74,6 +75,10 @@ function openWriting() {
   const query = new URLSearchParams()
   if (continuation.value?.chapter_index != null) {
     query.set("chapter_index", String(continuation.value.chapter_index))
+    const pointer = readWritingPointer(projectId.value)
+    if (pointer?.chapter === Number(continuation.value.chapter_index) && pointer.sceneId) {
+      query.set("scene_id", pointer.sceneId)
+    }
   }
   router.navigate("writing", null, true, query)
 }

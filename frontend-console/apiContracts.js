@@ -275,6 +275,10 @@
       hasBody: true,
       timeout: CONTEXT_COMPILE_TIMEOUT,
     }),
+    "context.sceneLens": define("POST", () => "/context/scene-lens", {
+      hasBody: true,
+      requiredBody: ["novel_id", "scene_id"],
+    }),
     "context.listSnapshots": define("GET", () => "/context/snapshots"),
     "context.getSnapshot": define("GET", ({ snapshotId }) => `/context/snapshots/${required(snapshotId, "snapshotId", "context.getSnapshot")}`, {
       requiredParams: ["snapshotId"],

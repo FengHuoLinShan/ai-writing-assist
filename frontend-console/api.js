@@ -1524,6 +1524,10 @@ const api = {
       return contractJson("context.render", {}, {}, payload, options)
     },
 
+    async sceneLens(payload, options = {}) {
+      return contractJson("context.sceneLens", {}, {}, payload, options)
+    },
+
     async confirm(payload) {
       return contractJson("context.confirm", {}, {}, payload)
     },

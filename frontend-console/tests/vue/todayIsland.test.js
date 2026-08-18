@@ -10,6 +10,7 @@ import {
   writeCreativeContinuation,
   writeGenerateSession,
 } from "../../vue/views/generate/generateSession.js"
+import { rememberWritingLocation } from "../../vue/views/writing/writingSession.js"
 
 beforeEach(() => {
   localStorage.clear()
@@ -19,6 +20,22 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("todayIsland", () => {
+  it("只在服务器续写章与本机指针一致时带入 Scene", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    rememberWritingLocation("p1", { currentChapter: 3, currentDraftId: "d3", currentSceneId: "s3" })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1" },
+      summary: { project_id: "p1", continuation: { chapter_index: 3, title: "第三章" }, writing: {}, attention: {} },
+    } })
+    await wrapper.get(".today-resume__action").trigger("click")
+    expect(router.navigate.mock.calls[0][3].get("scene_id")).toBe("s3")
+
+    await wrapper.setProps({ summary: { project_id: "p1", continuation: { chapter_index: 4, title: "第四章" }, writing: {}, attention: {} } })
+    await wrapper.get(".today-resume__action").trigger("click")
+    expect(router.navigate.mock.calls[1][3].get("scene_id")).toBeNull()
+  })
+
   it("loads the safe project summary and restores at most three workflows", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     const api = {

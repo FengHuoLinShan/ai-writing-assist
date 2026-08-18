@@ -1,5 +1,6 @@
 import {
   readChapterSnapshot,
+  readWritingPointer,
   rememberChapterSnapshot,
   rememberWritingLocation,
 } from "../writingSession.js"
@@ -61,6 +62,7 @@ export function createEditorController({
   let editRevision = 0
   let savePromise = null
   let disposed = false
+  let pendingCursorRestore = false
 
   function captureCommandOwner() {
     return {
@@ -128,6 +130,11 @@ export function createEditorController({
     if (elements.title && elements.title.value !== state.title) elements.title.value = state.title
     if (elements.editor && elements.editor.value !== state.content) elements.editor.value = state.content
     if (elements.editor) elements.editor.readOnly = state.readonly
+    if (elements.editor && pendingCursorRestore) {
+      const offset = Math.min(Math.max(0, state.cursorOffset), elements.editor.value.length)
+      elements.editor.setSelectionRange(offset, offset)
+      pendingCursorRestore = false
+    }
   }
 
   function saveBackup() {
@@ -159,18 +166,24 @@ export function createEditorController({
     // A session snapshot may only overlay the same working draft. This avoids
     // applying project/chapter-local text to a newly selected historical draft.
     if (saved.draftId && state.draftId && saved.draftId !== state.draftId) return false
-    // The mobile editor can accept input while the draft request is in flight.
-    // Such a snapshot has no draft identity yet: keep the server identity and
-    // baseline that just loaded, and restore only the local editable fields.
     if (!saved.draftId && state.draftId) {
-      // Mobile quick note has no title input, so its in-flight snapshot carries
-      // an empty placeholder; do not erase the title returned by the server.
       if (saved.title) state.title = saved.title
       state.content = saved.content
-      state.cursorOffset = saved.cursorOffset
       return true
     }
     Object.assign(state, saved, { chapter })
+    return true
+  }
+
+  function restoreCursor(projectId, chapter) {
+    const pointer = readWritingPointer(projectId)
+    if (
+      pointer?.chapter !== Number(chapter)
+      || !pointer.draftId
+      || pointer.draftId !== state.draftId
+    ) return false
+    state.cursorOffset = Math.min(pointer.cursorOffset, state.content.length)
+    pendingCursorRestore = true
     return true
   }
 
@@ -246,6 +259,7 @@ export function createEditorController({
       if (draft) applyDraft(draft, options)
       else applyDraft({ title: `第 ${state.chapter} 章`, content: "", status: "draft" })
       if (!options.draftId && !restoreSession(projectId, state.chapter)) restoreBackup(projectId, state.chapter)
+      restoreCursor(projectId, state.chapter)
       syncElements()
       emit()
       return true

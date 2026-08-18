@@ -7,14 +7,49 @@
  */
 
 const sessions = new Map()
+const POINTER_VERSION = 1
 
-function newSession(projectId) {
+function pointerKey(projectId) {
+  return `writing_resume_pointer:v${POINTER_VERSION}:${projectId}`
+}
+
+function validPointer(projectId, value) {
+  const chapter = Number(value?.chapter)
+  if (value?.projectId !== projectId || !Number.isInteger(chapter) || chapter < 1) return null
   return {
     projectId,
-    currentChapter: null,
-    currentDraftId: null,
-    currentSceneId: null,
-    sceneByChapter: new Map(),
+    chapter,
+    draftId: typeof value.draftId === "string" && value.draftId ? value.draftId : null,
+    sceneId: typeof value.sceneId === "string" && value.sceneId ? value.sceneId : null,
+    cursorOffset: Math.max(0, Number(value.cursorOffset) || 0),
+    updatedAt: Number(value.updatedAt) || 0,
+  }
+}
+
+export function readWritingPointer(projectId) {
+  if (!projectId) return null
+  try {
+    return validPointer(projectId, JSON.parse(localStorage.getItem(pointerKey(projectId)) || "null"))
+  } catch {
+    return null
+  }
+}
+
+function persistPointer(projectId, patch = {}) {
+  const previous = readWritingPointer(projectId) || { projectId }
+  const pointer = validPointer(projectId, { ...previous, ...patch, updatedAt: Date.now() })
+  if (!pointer) return
+  try { localStorage.setItem(pointerKey(projectId), JSON.stringify(pointer)) } catch { /* storage unavailable */ }
+}
+
+function newSession(projectId) {
+  const pointer = readWritingPointer(projectId)
+  return {
+    projectId,
+    currentChapter: pointer?.chapter || null,
+    currentDraftId: pointer?.draftId || null,
+    currentSceneId: pointer?.sceneId || null,
+    sceneByChapter: new Map(pointer?.sceneId ? [[pointer.chapter, pointer.sceneId]] : []),
     chapters: new Map(),
   }
 }
@@ -37,6 +72,15 @@ export function rememberWritingLocation(projectId, location = {}) {
       if (location.currentSceneId) session.sceneByChapter.set(chapter, location.currentSceneId)
       else session.sceneByChapter.delete(chapter)
     }
+  }
+  const chapter = Number(session.currentChapter)
+  if (Number.isInteger(chapter) && chapter > 0) {
+    persistPointer(projectId, {
+      chapter,
+      draftId: session.currentDraftId,
+      sceneId: session.currentSceneId,
+      ...(Object.hasOwn(location, "cursorOffset") ? { cursorOffset: location.cursorOffset } : {}),
+    })
   }
 }
 
@@ -69,6 +113,12 @@ export function rememberChapterSnapshot(projectId, snapshot = {}) {
   session.currentChapter = chapter
   session.currentDraftId = next.draftId
   session.chapters.set(chapter, next)
+  persistPointer(projectId, {
+    chapter,
+    draftId: next.draftId,
+    sceneId: session.sceneByChapter.get(chapter) || null,
+    cursorOffset: next.cursorOffset,
+  })
 }
 
 export function readChapterSnapshot(projectId, chapter) {
@@ -90,6 +140,14 @@ export function clearChapterSnapshot(projectId, chapter) {
 
 /** 测试及项目永久移除后的清理入口。 */
 export function clearWritingSession(projectId = null) {
+  if (projectId) {
+    sessions.delete(projectId)
+    try { localStorage.removeItem(pointerKey(projectId)) } catch { /* noop */ }
+  } else sessions.clear()
+}
+
+/** Simulate a page reload without deleting the durable pointer. */
+export function forgetWritingSessionMemory(projectId = null) {
   if (projectId) sessions.delete(projectId)
   else sessions.clear()
 }

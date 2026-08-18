@@ -243,6 +243,7 @@ describe("WritingView", () => {
 
       const selector = wrapper.get("#mobile-note-scene-selector")
       expect(selector.findAll("option").map((option) => option.text())).toEqual(["入口", "密道"])
+      expect(wrapper.get("details.scene-lens--mobile").attributes("open")).toBeUndefined()
       expect(wrapper.text()).not.toContain("关联 Scene")
       await selector.setValue("s2")
       expect(getAppState().viewStates.writing.currentSceneId).toBe("s2")
@@ -395,6 +396,34 @@ describe("WritingView", () => {
     await flushPromises()
     expect(vm.sceneState.people.map((person) => person.name)).toEqual(["s2 人物"])
     expect(vm.conflictState.latest?.id).toBe("check-s2")
+    wrapper.unmount()
+  })
+
+  it("Scene Lens 仅点击加载，且切场后丢弃旧场晚到响应", async () => {
+    const oldLens = deferred()
+    globalThis.api.context.sceneLens = vi.fn(({ scene_id: sceneId }) => (
+      sceneId === "s1"
+        ? oldLens.promise
+        : Promise.resolve({ role_visible_knowledge: {}, scene_world_state: {}, warnings: [] })
+    ))
+    const wrapper = mount(WritingView, {
+      props: props({ scenes: [
+        { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"], goal: "进门" },
+        { id: "s2", title: "密道", scene_index: 2, status: "draft", chapter_ids: ["1"], goal: "离开" },
+      ] }),
+      attachTo: document.body,
+    })
+    const vm = wrapper.vm.$.setupState.vm
+    await vi.waitFor(() => expect(vm.selectedSceneId.value).toBe("s1"))
+    expect(globalThis.api.context.sceneLens).not.toHaveBeenCalled()
+    const loading = vm.loadSceneLens()
+    await vi.waitFor(() => expect(globalThis.api.context.sceneLens).toHaveBeenCalledWith({ novel_id: "p1", scene_id: "s1" }))
+    await vm.selectScene("s2")
+    await vm.loadSceneLens()
+    oldLens.resolve({ role_visible_knowledge: { characters: [{ name: "旧场人物" }] }, scene_world_state: {}, warnings: [] })
+    await loading
+    expect(vm.sceneLens.sceneId).toBe("s2")
+    expect(vm.sceneLens.data?.role_visible_knowledge?.characters || []).toEqual([])
     wrapper.unmount()
   })
 

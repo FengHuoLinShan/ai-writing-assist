@@ -9,6 +9,7 @@ context 模块决定“这次 AI 操作到底能看到哪些资料”，不是�
 - `compile_structure_context()`：兼容旧调用方的结构化 bundle
 - `compile_with_tiers()`：当前前端和 AI 参考资料确认流程使用的分层编译器
 - `context_snapshots` facade：自动 AI 流水线的上下文快照审计记录
+- `load_scene_lens()`：写作台显式点击后读取单个 Scene 的 POV 可见资料与已有时点状态
 
 `compile_with_tiers()` 不只是生成最终 Markdown。它先生成可审查的 `CompiledContext` IR，再由 API 和前端把每个 section 的标题、状态、来源、激活原因、token 和裁剪结果展示给用户。
 
@@ -87,6 +88,11 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 | `WorldBibleLoader` | `world.facade` 的作者简介与显式选中工作稿 |
 
 loader 的外部调度契约仍由 `SCOPE_LOADERS` 与各 loader `name` 决定；具体依赖统一为构造函数注入 callable。默认 callable 委托上表既有来源，因此 API、schema、bundle shape 和 ContextCompiler 外部行为不变。测试可直接传入 fake callable；`load()` 内不做 facade local import，也不直接访问 DI container。
+
+写作台 Scene Lens 使用独立固定 profile：`scene → world_entities → characters →
+scene_checkpoints`。服务端从 Scene 推导 POV 和章节，只读取已有 checkpoint，不调用 ensure；
+该 profile 不含 RAG、embedding 或 retrieval trace。`POST /api/context/scene-lens` 先经过
+owner-aware `require_active_project()`，响应只公开角色可见知识、Scene 时点状态与 warnings。
 
 RAG 文本只用于候选召回。`RagChunksLoader` 按 chunk 的 source draft/hash 从 writing
 重读原文，不匹配则丢弃并告警；进入 `CompiledContext` 的 section metadata 保留

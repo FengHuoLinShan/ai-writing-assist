@@ -50,6 +50,7 @@
     <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">关联 Scene 后，可在这里查看本次写作的人物、设定和检查结果。</div>
 
     <template v-if="!railCollapsed && chapter && scene">
+      <SceneLensSummary :scene="scene" :lens="lens" @load="$emit('load-lens')" />
       <div class="cockpit-tabs" role="tablist" aria-label="场景参考">
         <button v-for="tab in tabs" :key="tab.key" class="cockpit-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.label }}</button>
       </div>
@@ -178,6 +179,7 @@
 import { computed, reactive, ref, watch } from "vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 import { loadSceneCockpitOrder, saveSceneCockpitOrder } from "../../../../views/sceneCockpitPanel.js"
+import SceneLensSummary from "./SceneLensSummary.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -194,8 +196,9 @@ const props = defineProps({
   location: { type: [Object, String], default: null },
   conflict: { type: Object, default: () => ({ latest: null }) },
   railCollapsed: { type: Boolean, default: false },
+  lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
 })
-const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene"])
+const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens"])
 
 const tabs = [
   { key: "alerts", label: "警报" }, { key: "people", label: "人物" }, { key: "place", label: "地点" },
