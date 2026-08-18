@@ -658,11 +658,13 @@
 .scene-lens__section ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .scene-lens__section li { display: grid; gap: 2px; font-size: 12px; }
 .scene-lens__section li span, .scene-lens__warning { color: var(--text-dim); }
+.scene-lens__section li.is-unavailable span { font-style: italic; }
 .scene-lens__warning { margin: 0; font-size: 12px; }
 
 @media (max-width: 390px) {
   .scene-lens--mobile { margin: 0; }
   .scene-lens--mobile > summary { min-height: 44px; }
+  .scene-lens--mobile .scene-lens__load .btn { min-height: 44px; }
   .scene-lens__facts { grid-template-columns: 1fr; gap: 2px; }
   .scene-lens__facts dd { margin-bottom: 6px; }
 }

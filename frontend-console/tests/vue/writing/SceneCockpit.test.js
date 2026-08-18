@@ -77,15 +77,29 @@ describe("SceneCockpit", () => {
     expect(wrapper.emitted("load-lens")).toHaveLength(1)
   })
 
-  it("支持模块折叠和持久化排序", async () => {
-    const wrapper = mountCockpit()
-    const goal = wrapper.get('[data-cockpit-module="goal"]')
-    await goal.find(".scene-cockpit-module__head > button").trigger("click")
-    expect(goal.classes()).toContain("is-collapsed")
+  it("只消费作者语言的 Scene Lens 三字段条目", () => {
+    const wrapper = mountCockpit({
+      lens: {
+        loading: false,
+        error: null,
+        data: {
+          role_visible_knowledge: [{ label: "当前 POV：阿青", summary: "只知道铜铃", availability: true }],
+          scene_world_state: [{ label: "人物位置", summary: "暂无可靠记录", availability: false }],
+          warnings: [],
+        },
+      },
+    })
 
-    await goal.find('[aria-label="上移目标"]').trigger("click")
-    expect(wrapper.findAll("[data-cockpit-module]")[0].attributes("data-cockpit-module")).toBe("goal")
-    expect(JSON.parse(localStorage.getItem("writing_scene_cockpit_order:p1"))[0]).toBe("goal")
+    expect(wrapper.text()).toContain("只知道铜铃")
+    expect(wrapper.text()).toContain("暂无可靠记录")
+    expect(wrapper.get(".scene-lens__section li.is-unavailable").exists()).toBe(true)
+  })
+
+  it("本场摘要只渲染一份，不再重复旧设定模块", () => {
+    const wrapper = mountCockpit()
+    expect(wrapper.findAll(".scene-lens")).toHaveLength(1)
+    expect(wrapper.get(".scene-lens").text()).toContain("找到线索")
+    expect(wrapper.find("[data-cockpit-module]").exists()).toBe(false)
   })
 
   it("由写作副驾驶内层标题发出 rail 折叠请求", async () => {

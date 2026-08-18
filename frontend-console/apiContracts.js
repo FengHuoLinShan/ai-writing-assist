@@ -277,7 +277,7 @@
     }),
     "context.sceneLens": define("POST", () => "/context/scene-lens", {
       hasBody: true,
-      requiredBody: ["novel_id", "scene_id"],
+      requiredBody: ["novel_id", "scene_id", "chapter_index"],
     }),
     "context.listSnapshots": define("GET", () => "/context/snapshots"),
     "context.getSnapshot": define("GET", ({ snapshotId }) => `/context/snapshots/${required(snapshotId, "snapshotId", "context.getSnapshot")}`, {

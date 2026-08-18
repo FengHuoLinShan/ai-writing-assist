@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createEditorController } from "../../../vue/views/writing/controllers/editorController.js"
-import { clearWritingSession, readChapterSnapshot, rememberChapterSnapshot } from "../../../vue/views/writing/writingSession.js"
+import { clearWritingSession, readChapterSnapshot, readWritingPointer, rememberChapterSnapshot } from "../../../vue/views/writing/writingSession.js"
 
 function deferred() {
   let resolve
@@ -75,8 +75,25 @@ describe("editorController", () => {
   })
 
   it("只为同一工作稿恢复 clamp 后的光标且不抢焦点", async () => {
-    rememberChapterSnapshot("p1", { chapter: 1, draftId: "d1", content: "旧文", cursorOffset: 99, dirty: false })
-    const { controller } = makeController()
+    rememberChapterSnapshot("p1", {
+      chapter: 1,
+      draftId: "d1",
+      versionNumber: 1,
+      updatedAt: "2026-08-18T10:00:00Z",
+      content: "旧文",
+      cursorOffset: 99,
+      dirty: false,
+    })
+    const { controller, api } = makeController()
+    api.writing.get.mockResolvedValue({
+      id: "d1",
+      novel_id: "p1",
+      title: "第一章",
+      content: "原文",
+      version_number: 1,
+      updated_at: "2026-08-18T10:00:00Z",
+      status: "draft",
+    })
     document.body.innerHTML = '<button id="owner">owner</button><textarea id="body"></textarea>'
     const owner = document.getElementById("owner")
     const editor = document.getElementById("body")
@@ -86,6 +103,57 @@ describe("editorController", () => {
 
     expect(editor.selectionStart).toBe(2)
     expect(document.activeElement).toBe(owner)
+    controller.dispose()
+  })
+
+  it("工作稿版本或更新时间不一致时不恢复光标", async () => {
+    rememberChapterSnapshot("p1", {
+      chapter: 1,
+      draftId: "d1",
+      versionNumber: 2,
+      updatedAt: "2026-08-18T09:00:00Z",
+      cursorOffset: 2,
+    })
+    const { controller, api } = makeController()
+    api.writing.get.mockResolvedValue({
+      id: "d1",
+      novel_id: "p1",
+      title: "第一章",
+      content: "原文正文",
+      version_number: 1,
+      status: "draft",
+    })
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    await controller.loadChapter(1)
+
+    expect(editor.selectionStart).toBe(4)
+    expect(controller.snapshot().cursorOffset).toBe(0)
+    controller.dispose()
+  })
+
+  it("本机指针工作稿已失效时清理光标并回退有效版本", async () => {
+    rememberChapterSnapshot("p1", { chapter: 1, draftId: "missing", versionNumber: 1, updatedAt: "old", cursorOffset: 2 })
+    const { controller, api } = makeController()
+    api.writing.get
+      .mockRejectedValueOnce(Object.assign(new Error("不存在"), { status: 404 }))
+      .mockResolvedValueOnce({ id: "d1", novel_id: "p1", title: "第一章", content: "当前正文", version_number: 3, updated_at: "new", status: "draft" })
+
+    expect(await controller.loadChapter(1, { draftId: "missing", allowMissingPointerFallback: true })).toBe(true)
+    expect(controller.snapshot()).toMatchObject({ draftId: "d1", versionNumber: 3, cursorOffset: 0 })
+    expect(readWritingPointer("p1")).toMatchObject({ draftId: "d1", draftVersion: 3, draftUpdatedAt: "new", cursorOffset: 0 })
+    controller.dispose()
+  })
+
+  it("显式 URL 工作稿失效时保持加载错误", async () => {
+    const { controller, api, toast } = makeController()
+    api.writing.get.mockRejectedValueOnce(Object.assign(new Error("指定工作稿不存在"), { status: 404 }))
+
+    expect(await controller.loadChapter(1, { draftId: "missing" })).toBe(false)
+    expect(controller.snapshot().loadError).toBe("指定工作稿不存在")
+    expect(api.writing.getVersionHistory).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("指定工作稿不存在", "error")
     controller.dispose()
   })
 

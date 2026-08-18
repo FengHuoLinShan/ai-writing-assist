@@ -20,9 +20,13 @@ function validPointer(projectId, value) {
     projectId,
     chapter,
     draftId: typeof value.draftId === "string" && value.draftId ? value.draftId : null,
+    draftVersion: value.draftVersion != null && Number.isInteger(Number(value.draftVersion))
+      ? Number(value.draftVersion)
+      : null,
+    draftUpdatedAt: typeof value.draftUpdatedAt === "string" && value.draftUpdatedAt ? value.draftUpdatedAt : null,
     sceneId: typeof value.sceneId === "string" && value.sceneId ? value.sceneId : null,
     cursorOffset: Math.max(0, Number(value.cursorOffset) || 0),
-    updatedAt: Number(value.updatedAt) || 0,
+    pointerUpdatedAt: Number(value.pointerUpdatedAt) || 0,
   }
 }
 
@@ -37,7 +41,7 @@ export function readWritingPointer(projectId) {
 
 function persistPointer(projectId, patch = {}) {
   const previous = readWritingPointer(projectId) || { projectId }
-  const pointer = validPointer(projectId, { ...previous, ...patch, updatedAt: Date.now() })
+  const pointer = validPointer(projectId, { ...previous, ...patch, pointerUpdatedAt: Date.now() })
   if (!pointer) return
   try { localStorage.setItem(pointerKey(projectId), JSON.stringify(pointer)) } catch { /* storage unavailable */ }
 }
@@ -78,6 +82,8 @@ export function rememberWritingLocation(projectId, location = {}) {
     persistPointer(projectId, {
       chapter,
       draftId: session.currentDraftId,
+      ...(Object.hasOwn(location, "draftVersion") ? { draftVersion: location.draftVersion } : {}),
+      ...(Object.hasOwn(location, "draftUpdatedAt") ? { draftUpdatedAt: location.draftUpdatedAt } : {}),
       sceneId: session.currentSceneId,
       ...(Object.hasOwn(location, "cursorOffset") ? { cursorOffset: location.cursorOffset } : {}),
     })
@@ -116,6 +122,8 @@ export function rememberChapterSnapshot(projectId, snapshot = {}) {
   persistPointer(projectId, {
     chapter,
     draftId: next.draftId,
+    draftVersion: next.versionNumber,
+    draftUpdatedAt: next.updatedAt,
     sceneId: session.sceneByChapter.get(chapter) || null,
     cursorOffset: next.cursorOffset,
   })
@@ -124,6 +132,21 @@ export function rememberChapterSnapshot(projectId, snapshot = {}) {
 export function readChapterSnapshot(projectId, chapter) {
   const item = getWritingSession(projectId)?.chapters.get(Number(chapter))
   return item ? { ...item } : null
+}
+
+export function clearWritingPointerDraft(projectId) {
+  const pointer = readWritingPointer(projectId)
+  if (!pointer) return
+  persistPointer(projectId, {
+    draftId: null,
+    draftVersion: null,
+    draftUpdatedAt: null,
+    cursorOffset: 0,
+  })
+  const session = sessions.get(projectId)
+  if (!session) return
+  if (session.currentDraftId === pointer.draftId) session.currentDraftId = null
+  session.chapters.delete(pointer.chapter)
 }
 
 export function clearChapterSnapshot(projectId, chapter) {

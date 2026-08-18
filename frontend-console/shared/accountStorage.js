@@ -7,6 +7,7 @@ const LOCAL_STORAGE_PREFIXES = Object.freeze([
   "draft_backup_",
   "generate_world_workspace_state_v2_",
   "writing_scene_cockpit_order:",
+  "writing_resume_pointer:v1:",
   "worldBible:",
   "worldBibleProjection:",
   "_errorLog:",

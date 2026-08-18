@@ -33,28 +33,12 @@ export function sceneStructureSummary(scene) {
     .filter((item) => item.value)
 }
 
-export function roleKnowledgeItems(lens) {
-  const knowledge = lens?.role_visible_knowledge || {}
-  return [...(knowledge.characters || []), ...(knowledge.world_entities || [])]
+export function sceneLensItems(value) {
+  return (Array.isArray(value) ? value : [])
+    .filter((item) => item && typeof item === "object")
     .map((item) => ({
-      label: readable(item?.name || item?.title) || "未命名资料",
-      value: readable(
-        item?.misconception
-        || item?.known_content
-        || item?.public_info
-        || item?.summary
-        || item?.current_state
-        || item?.current_goal
-        || item?.current_emotion
-        || item?.stance
-        || item?.role,
-      ) || "已在角色可见范围内",
+      label: readable(item.label) || "未命名资料",
+      summary: readable(item.summary) || "暂无可靠摘要",
+      availability: item.availability === true,
     }))
-}
-
-export function worldStateItems(lens) {
-  return (lens?.scene_world_state?.items || []).map((item) => ({
-    label: readable(item?.dimension_label || item?.dimension) || "状态",
-    value: readable(item?.display_summary) || (item?.gap_reason ? "暂无可靠状态" : "已记录"),
-  }))
 }

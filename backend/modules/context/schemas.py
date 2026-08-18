@@ -154,11 +154,18 @@ class ContextCompileRequest(ContextSelectionRequest):
 class SceneLensRequest(BaseModel):
     novel_id: str = Field(..., description="项目 ID")
     scene_id: str = Field(..., description="当前 Scene ID")
+    chapter_index: int = Field(..., ge=1, description="当前写作章节")
+
+
+class SceneLensItem(BaseModel):
+    label: str
+    summary: str
+    availability: bool
 
 
 class SceneLensResponse(BaseModel):
-    role_visible_knowledge: dict[str, Any] = Field(default_factory=dict)
-    scene_world_state: dict[str, Any] = Field(default_factory=dict)
+    role_visible_knowledge: list[SceneLensItem] = Field(default_factory=list)
+    scene_world_state: list[SceneLensItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

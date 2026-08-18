@@ -1,4 +1,5 @@
 import {
+  clearWritingPointerDraft,
   readChapterSnapshot,
   readWritingPointer,
   rememberChapterSnapshot,
@@ -113,6 +114,8 @@ export function createEditorController({
       rememberWritingLocation(getProjectId(), {
         currentChapter: state.chapter,
         currentDraftId: state.draftId,
+        draftVersion: state.versionNumber,
+        draftUpdatedAt: state.updatedAt,
       })
     }
     onChange(value)
@@ -175,12 +178,14 @@ export function createEditorController({
     return true
   }
 
-  function restoreCursor(projectId, chapter) {
+  function restoreCursor(projectId, chapter, draftIdentity) {
     const pointer = readWritingPointer(projectId)
     if (
       pointer?.chapter !== Number(chapter)
       || !pointer.draftId
-      || pointer.draftId !== state.draftId
+      || pointer.draftId !== draftIdentity.id
+      || pointer.draftVersion !== draftIdentity.version
+      || pointer.draftUpdatedAt !== draftIdentity.updatedAt
     ) return false
     state.cursorOffset = Math.min(pointer.cursorOffset, state.content.length)
     pendingCursorRestore = true
@@ -247,7 +252,15 @@ export function createEditorController({
     try {
       let draft = null
       if (options.draftId) {
-        draft = await api.writing.get(options.draftId, projectId)
+        try {
+          draft = await api.writing.get(options.draftId, projectId)
+        } catch (error) {
+          if (options.allowMissingPointerFallback !== true || Number(error?.status) !== 404) throw error
+          clearWritingPointerDraft(projectId)
+          const history = await api.writing.getVersionHistory(state.chapter, projectId)
+          const latest = (history?.versions || []).find(activeVersion)
+          if (latest) draft = await api.writing.get(latest.id, projectId)
+        }
       } else {
         const history = await api.writing.getVersionHistory(state.chapter, projectId)
         if (generation !== loadGeneration || lifecycle !== lifecycleGeneration || projectId !== getProjectId()) return false
@@ -258,8 +271,13 @@ export function createEditorController({
       if (draft?.novel_id && draft.novel_id !== projectId) throw new Error("工作稿项目不匹配")
       if (draft) applyDraft(draft, options)
       else applyDraft({ title: `第 ${state.chapter} 章`, content: "", status: "draft" })
+      const loadedDraftIdentity = {
+        id: state.draftId,
+        version: state.versionNumber,
+        updatedAt: state.updatedAt,
+      }
       if (!options.draftId && !restoreSession(projectId, state.chapter)) restoreBackup(projectId, state.chapter)
-      restoreCursor(projectId, state.chapter)
+      restoreCursor(projectId, state.chapter, loadedDraftIdentity)
       syncElements()
       emit()
       return true

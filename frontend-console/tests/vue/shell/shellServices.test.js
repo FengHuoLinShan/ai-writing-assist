@@ -40,6 +40,7 @@ describe("shell workspace service seam", () => {
     localStorage.setItem("generate_world_workspace_state_v2_project-1_project_core_entity", "private")
     localStorage.setItem("novel_active_workflows_v1", "private")
     localStorage.setItem("novel_theme", "dark")
+    localStorage.setItem("writing_resume_pointer:v1:project-1", "private")
     sessionStorage.setItem("workspace-rail:project-1:writing:assistant", "closed")
     sessionStorage.setItem("workflow-progress-card:task-1", "open")
     const services = createShellServices({
@@ -62,6 +63,7 @@ describe("shell workspace service seam", () => {
     expect(sessionStorage.getItem("workspace-rail:project-1:writing:assistant")).toBeNull()
     expect(sessionStorage.getItem("workflow-progress-card:task-1")).toBeNull()
     expect(localStorage.getItem("novel_theme")).toBe("dark")
+    expect(localStorage.getItem("writing_resume_pointer:v1:project-1")).toBeNull()
   })
 
   it("clears and reloads locally even when the logout request fails", async () => {

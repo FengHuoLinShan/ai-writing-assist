@@ -89,12 +89,13 @@ export async function loadWritingProps() {
   const queryChapter = Number(query.get("chapter_index") || 0)
   const querySceneId = query.get("scene_id") || null
   result.requestedLocation = queryChapter > 0
-    ? { chapter: queryChapter, draftId: query.get("draft_id") || null, sceneId: querySceneId }
+    ? { chapter: queryChapter, draftId: query.get("draft_id") || null, sceneId: querySceneId, source: "url" }
     : session?.currentChapter
       ? {
           chapter: session.currentChapter,
           draftId: session.currentDraftId,
           sceneId: session.currentSceneId,
+          source: "pointer",
         }
       : state?.viewStates?.writing?.projectId === projectId
         ? {
@@ -103,6 +104,7 @@ export async function loadWritingProps() {
             sceneId: state.viewStates.writing.currentSceneId,
             versionNumber: state.viewStates.writing.currentVersionNumber,
             isReadonly: state.viewStates.writing.isReadonly,
+            source: "view-state",
           }
         : null
 
@@ -332,6 +334,8 @@ export function useWritingWorkspace(props) {
     rememberWritingLocation(projectId, {
       currentChapter: selectedChapter.value,
       currentDraftId: editorState.draftId,
+      draftVersion: editorState.versionNumber,
+      draftUpdatedAt: editorState.updatedAt,
       currentSceneId,
     })
   }
@@ -1136,7 +1140,11 @@ export function useWritingWorkspace(props) {
       && getAppState()?.currentProjectId === projectId
     )
     try {
-      const result = await api.context.sceneLens({ novel_id: projectId, scene_id: scene.id })
+      const result = await api.context.sceneLens({
+        novel_id: projectId,
+        scene_id: scene.id,
+        chapter_index: chapter,
+      })
       if (!ownsRequest()) return false
       sceneLens.data = result
       return true
@@ -1257,6 +1265,7 @@ export function useWritingWorkspace(props) {
         versionNumber: requested.versionNumber,
         isReadonly: requested.isReadonly,
         sceneId: requested.sceneId,
+        allowMissingPointerFallback: requested.source === "pointer",
       })
     } else if (isNarrow.value && chapterList.value[0]) {
       await selectChapter(chapterList.value[0])

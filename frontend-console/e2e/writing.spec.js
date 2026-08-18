@@ -462,7 +462,7 @@ test.describe("写作台模块", () => {
     await waitWritingReady(page)
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
 
-    await expect(page.getByRole("tab", { name: "设定" })).toHaveClass(/active/)
+    await expect(page.getByRole("tab", { name: "本场" })).toHaveClass(/active/)
     await expect(page.locator('.cockpit-panel[data-panel="lore"]')).toContainText("拿到令牌后安全离开")
 
     const geometry = await page.evaluate(() => {
@@ -921,6 +921,14 @@ test.describe("写作台模块", () => {
 
   test("写作台响应式宽度不出现页面级横向溢出", async ({ page }) => {
     await createDraft(testProjectId, 1, "响应式章节", "响应式正文")
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "响应式本场",
+      narrative_tag: "draft",
+      chapter_ids: ["1"],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 6 }],
+      goal: "验证本场摘要不重复且不溢出",
+    })
 
     for (const width of [1280, 900, 760, 600, 390]) {
       await page.setViewportSize({ width, height: 900 })
@@ -934,6 +942,23 @@ test.describe("写作台模块", () => {
         await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
         await openWritingToolMenu(page, "#btn-conflict-check")
         await expect(page.locator("#btn-conflict-check")).toBeVisible()
+      }
+
+      await expect(page.locator(".scene-lens")).toHaveCount(1)
+      if (width === 390) {
+        const lens = page.locator("details.scene-lens--mobile")
+        await lens.locator(":scope > summary").click()
+        for (const target of [lens.locator(":scope > summary"), lens.locator(".scene-lens__load .btn")]) {
+          const box = await target.boundingBox()
+          expect(box).not.toBeNull()
+          expect(box.height).toBeGreaterThanOrEqual(44)
+        }
+      }
+      if (width === 900 || width === 1280) {
+        const lensOverflow = await page.locator(".scene-lens").evaluate((element) => (
+          Math.ceil(element.scrollWidth - element.clientWidth)
+        ))
+        expect(lensOverflow).toBeLessThanOrEqual(1)
       }
 
       const overflow = await page.evaluate(() => {

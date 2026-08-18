@@ -76,16 +76,19 @@ async def list_activation_profile_revisions(...) -> list
 async def restore_activation_profile_revision(...) -> ContextActivationProfileResponse
 async def resolve_activation_profile(...) -> dict | None
 async def preview_activation_profile(...) -> dict
-async def load_scene_lens(db, *, novel_id, scene_id) -> dict
+async def load_scene_lens(db, *, novel_id, scene_id, chapter_index) -> dict
 ```
 
 `POST /api/context/scene-lens` 是写作台的显式按需读取入口。请求只提供
-`novel_id + scene_id`；服务端从同项目 Scene 推导章节与 POV，通过
+`novel_id + scene_id + chapter_index`；服务端先校验 Scene 属于同项目且关联请求章节，
+再从 Scene 推导 POV，并把请求章节作为可见性截止点。通过
 `require_active_project()` 同时执行 owner 与活跃项目门禁。返回仅包含
-`role_visible_knowledge`、`scene_world_state` 和 `warnings`。内部固定的
-`scene_lens` loader profile 只读 Scene、角色边界后的对象以及已存在的
+`role_visible_knowledge`、`scene_world_state` 和 `warnings`；前两项只公开
+作者语言的 `label + summary + availability`。内部按固定顺序只读 Scene、
+关联对象、POV 角色以及已存在的
 memory checkpoint；不运行 RAG、embedding 或 retrieval trace，也不调用
-checkpoint `ensure` 产生隐式写入。缺失 POV、章节或 checkpoint 时保守返回
+checkpoint `ensure` 产生隐式写入。没有显式关联对象时不回退全项目对象。
+缺失 POV 或 checkpoint 时保守返回
 空资料与作者可读 warning。
 
 `create_context_snapshot()`、`mark_context_snapshot_succeeded()` 和

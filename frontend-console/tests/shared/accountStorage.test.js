@@ -20,6 +20,7 @@ describe("account-scoped browser storage", () => {
       "draft_backup_project-1_1",
       "generate_world_workspace_state_v2_project-1_project_core_entity",
       "writing_scene_cockpit_order:project-1",
+      "writing_resume_pointer:v1:project-1",
       "worldBible:project-1:lastPage",
       "worldBibleProjection:project-1:page-1:context_brief",
       "_errorLog:project-1",
@@ -59,9 +60,11 @@ describe("account-scoped browser storage", () => {
   it("clears a previous account scope but preserves an established matching account scope", () => {
     localStorage.setItem("novel_accountId", "account-old")
     localStorage.setItem("novel_active_workflows_v1", "private")
+    localStorage.setItem("writing_resume_pointer:v1:project-1", "private")
 
     expect(scopeBrowserStorageToAccount("account-new")).toBe(true)
     expect(localStorage.getItem("novel_active_workflows_v1")).toBeNull()
+    expect(localStorage.getItem("writing_resume_pointer:v1:project-1")).toBeNull()
     expect(localStorage.getItem("novel_accountId")).toBe("account-new")
 
     localStorage.setItem("draft_backup_project-2_1", "same-account-draft")

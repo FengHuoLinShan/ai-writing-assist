@@ -41,12 +41,27 @@ describe("writingSession", () => {
 
   it("只持久化安全恢复指针并可跨页面重读", () => {
     rememberWritingLocation("p1", { currentChapter: 3, currentDraftId: "d3", currentSceneId: "s3" })
-    rememberChapterSnapshot("p1", { chapter: 3, draftId: "d3", content: "本地正文", cursorOffset: 99, dirty: true })
+    rememberChapterSnapshot("p1", {
+      chapter: 3,
+      draftId: "d3",
+      versionNumber: 7,
+      updatedAt: "2026-08-18T10:00:00Z",
+      content: "本地正文",
+      cursorOffset: 99,
+      dirty: true,
+    })
     forgetWritingSessionMemory("p1")
 
     expect(readWritingPointer("p1")).toMatchObject({
-      projectId: "p1", chapter: 3, draftId: "d3", sceneId: "s3", cursorOffset: 99,
+      projectId: "p1",
+      chapter: 3,
+      draftId: "d3",
+      draftVersion: 7,
+      draftUpdatedAt: "2026-08-18T10:00:00Z",
+      sceneId: "s3",
+      cursorOffset: 99,
     })
+    expect(readWritingPointer("p1").pointerUpdatedAt).toBeGreaterThan(0)
     expect(getWritingSession("p1")).toMatchObject({ currentChapter: 3, currentDraftId: "d3", currentSceneId: "s3" })
     expect(localStorage.getItem("writing_resume_pointer:v1:p1")).not.toContain("本地正文")
   })

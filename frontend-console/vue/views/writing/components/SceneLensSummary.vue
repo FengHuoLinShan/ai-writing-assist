@@ -22,12 +22,12 @@
       <template v-if="lens.data">
         <section class="scene-lens__section">
           <h4>POV 可见知识</h4>
-          <ul v-if="knowledgeItems.length"><li v-for="item in knowledgeItems" :key="`${item.label}:${item.value}`"><strong>{{ item.label }}</strong><span>{{ item.value }}</span></li></ul>
+          <ul v-if="knowledgeItems.length"><li v-for="item in knowledgeItems" :key="`${item.label}:${item.summary}`" :class="{ 'is-unavailable': !item.availability }"><strong>{{ item.label }}</strong><span>{{ item.summary }}</span></li></ul>
           <p v-else class="writing-empty-hint">未找到可安全展示的角色知识。</p>
         </section>
         <section class="scene-lens__section">
           <h4>场景时点状态</h4>
-          <ul v-if="stateItems.length"><li v-for="item in stateItems" :key="`${item.label}:${item.value}`"><strong>{{ item.label }}</strong><span>{{ item.value }}</span></li></ul>
+          <ul v-if="stateItems.length"><li v-for="item in stateItems" :key="`${item.label}:${item.summary}`" :class="{ 'is-unavailable': !item.availability }"><strong>{{ item.label }}</strong><span>{{ item.summary }}</span></li></ul>
           <p v-else class="writing-empty-hint">暂无已建立的 Scene 时点状态。</p>
         </section>
         <p v-for="warning in lens.data.warnings || []" :key="warning" class="scene-lens__warning">{{ warning }}</p>
@@ -38,7 +38,7 @@
 
 <script setup>
 import { computed } from "vue"
-import { roleKnowledgeItems, sceneStructureSummary, worldStateItems } from "../sceneLensModel.js"
+import { sceneLensItems, sceneStructureSummary } from "../sceneLensModel.js"
 
 const props = defineProps({
   scene: { type: Object, default: null },
@@ -47,6 +47,6 @@ const props = defineProps({
 })
 defineEmits(["load"])
 const staticItems = computed(() => sceneStructureSummary(props.scene))
-const knowledgeItems = computed(() => roleKnowledgeItems(props.lens.data))
-const stateItems = computed(() => worldStateItems(props.lens.data))
+const knowledgeItems = computed(() => sceneLensItems(props.lens.data?.role_visible_knowledge))
+const stateItems = computed(() => sceneLensItems(props.lens.data?.scene_world_state))
 </script>

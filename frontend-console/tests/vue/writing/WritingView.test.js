@@ -404,7 +404,7 @@ describe("WritingView", () => {
     globalThis.api.context.sceneLens = vi.fn(({ scene_id: sceneId }) => (
       sceneId === "s1"
         ? oldLens.promise
-        : Promise.resolve({ role_visible_knowledge: {}, scene_world_state: {}, warnings: [] })
+        : Promise.resolve({ role_visible_knowledge: [], scene_world_state: [], warnings: [] })
     ))
     const wrapper = mount(WritingView, {
       props: props({ scenes: [
@@ -417,13 +417,17 @@ describe("WritingView", () => {
     await vi.waitFor(() => expect(vm.selectedSceneId.value).toBe("s1"))
     expect(globalThis.api.context.sceneLens).not.toHaveBeenCalled()
     const loading = vm.loadSceneLens()
-    await vi.waitFor(() => expect(globalThis.api.context.sceneLens).toHaveBeenCalledWith({ novel_id: "p1", scene_id: "s1" }))
+    await vi.waitFor(() => expect(globalThis.api.context.sceneLens).toHaveBeenCalledWith({
+      novel_id: "p1",
+      scene_id: "s1",
+      chapter_index: 1,
+    }))
     await vm.selectScene("s2")
     await vm.loadSceneLens()
-    oldLens.resolve({ role_visible_knowledge: { characters: [{ name: "旧场人物" }] }, scene_world_state: {}, warnings: [] })
+    oldLens.resolve({ role_visible_knowledge: [{ label: "旧场人物", summary: "晚到", availability: true }], scene_world_state: [], warnings: [] })
     await loading
     expect(vm.sceneLens.sceneId).toBe("s2")
-    expect(vm.sceneLens.data?.role_visible_knowledge?.characters || []).toEqual([])
+    expect(vm.sceneLens.data?.role_visible_knowledge || []).toEqual([])
     wrapper.unmount()
   })
 

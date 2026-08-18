@@ -543,6 +543,11 @@ _saveStatusText() {
 
 ## P0 写作：右侧面板「写作副驾驶」
 
+> 现状注记（2026-08）：以下 `renderSceneCockpitPanel` 是历史实施草案，已从
+> 生产调用删除。当前单一实现为 Vue `SceneCockpit.vue` + `SceneLensSummary.vue`；
+> 右轨「本场」仅渲染一份白名单结构摘要，角色可见资料由作者显式点击加载。
+> `sceneCockpitPanel.js` 只保留无 DOM 依赖的排序兼容 helper，不再渲染 UI。
+
 **目标**：将右侧 Scene Cockpit 从折叠 details 面板改为 Tab 化的「写作参考面板」，集成人物、地点、设定、地图四个 Tab。
 
 ### 修改文件：sceneCockpitPanel.js

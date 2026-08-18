@@ -108,6 +108,12 @@ describe("editorial archive theme", () => {
     expect(desk).toMatch(/\.writing-sheet \.novel-editor:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--archive-red\);/s)
   })
 
+  it("keeps Scene Lens touch targets at 44px on 390px screens", () => {
+    const desk = readFileSync(resolve(__dirname, "../vue/views/writing/writing-desk.css"), "utf8")
+    expect(desk).toMatch(/@media \(max-width: 390px\)[\s\S]*\.scene-lens--mobile > summary\s*\{[^}]*min-height:\s*44px;/s)
+    expect(desk).toMatch(/@media \(max-width: 390px\)[\s\S]*\.scene-lens--mobile \.scene-lens__load \.btn\s*\{[^}]*min-height:\s*44px;/s)
+  })
+
   it("keeps night-theme disabled buttons on neutral paper instead of a light slab", () => {
     expect(theme).toMatch(/\[data-theme="night"\] \.btn:disabled,\s*\[data-theme="night"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
     expect(theme).toMatch(/\[data-theme="night"\] \.btn-text:disabled,\s*\[data-theme="night"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)

@@ -97,11 +97,17 @@ async def load_scene_lens(
     *,
     novel_id: str,
     scene_id: str,
+    chapter_index: int,
 ) -> dict:
     """Return the read-only, server-derived POV view for one Scene."""
     from modules.context.services.scene_lens import SceneLensService
 
-    return await SceneLensService().load(db, novel_id=novel_id, scene_id=scene_id)
+    return await SceneLensService().load(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        chapter_index=chapter_index,
+    )
 
 
 async def compile_structure_context(

@@ -98,6 +98,7 @@ async def scene_lens(
         db,
         novel_id=request.novel_id,
         scene_id=request.scene_id,
+        chapter_index=request.chapter_index,
     )
     return SceneLensResponse(**result)
 

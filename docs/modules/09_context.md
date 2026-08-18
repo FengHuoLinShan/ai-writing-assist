@@ -89,10 +89,13 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 
 loader 的外部调度契约仍由 `SCOPE_LOADERS` 与各 loader `name` 决定；具体依赖统一为构造函数注入 callable。默认 callable 委托上表既有来源，因此 API、schema、bundle shape 和 ContextCompiler 外部行为不变。测试可直接传入 fake callable；`load()` 内不做 facade local import，也不直接访问 DI container。
 
-写作台 Scene Lens 使用独立固定 profile：`scene → world_entities → characters →
-scene_checkpoints`。服务端从 Scene 推导 POV 和章节，只读取已有 checkpoint，不调用 ensure；
-该 profile 不含 RAG、embedding 或 retrieval trace。`POST /api/context/scene-lens` 先经过
-owner-aware `require_active_project()`，响应只公开角色可见知识、Scene 时点状态与 warnings。
+写作台 Scene Lens 按 `scene → related world entities → POV character →
+scene checkpoints` 的固定顺序只读。服务端校验 Scene 属于请求项目与章节，
+从 Scene 推导 POV，并始终以请求章节作为可见性截止点。它只读已有 checkpoint，
+不调用 ensure；没有显式关联对象时不回退全项目对象，也不包含 RAG、
+embedding 或 retrieval trace。`POST /api/context/scene-lens` 先经过 owner-aware
+`require_active_project()`，响应项只公开作者语言的 `label + summary + availability`
+及 warnings。
 
 RAG 文本只用于候选召回。`RagChunksLoader` 按 chunk 的 source draft/hash 从 writing
 重读原文，不匹配则丢弃并告警；进入 `CompiledContext` 的 section metadata 保留
