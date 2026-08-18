@@ -1266,6 +1266,7 @@ export function useWritingWorkspace(props) {
         isReadonly: requested.isReadonly,
         sceneId: requested.sceneId,
         allowMissingPointerFallback: requested.source === "pointer",
+        allowBackupRestore: requested.source === "pointer",
       })
     } else if (isNarrow.value && chapterList.value[0]) {
       await selectChapter(chapterList.value[0])

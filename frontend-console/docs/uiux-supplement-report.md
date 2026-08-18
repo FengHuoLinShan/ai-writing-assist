@@ -20,7 +20,7 @@
 | 状态栏字数仪表盘 | `index.html` + `app.js` + `styles.css` | ✅ 实现 |
 | 编辑器沉浸化（novel-editor） | `styles.css` + `writingView.js` | ✅ 实现 |
 | 实时字数统计条 | `writingView.js` + `styles.css` | ✅ 实现 |
-| 写作副驾驶 Tab 化 | `sceneCockpitPanel.js` | ✅ 实现 |
+| 写作副驾驶 Tab 化 | 历史 `sceneCockpitPanel.js`；现为 Vue `SceneCockpit.vue` + `SceneLensSummary.vue` | ✅ Vue 实现，旧 renderer/helper 已删除 |
 | 章节树简化（状态 dot + 字数） | `writingView.js` | ✅ 实现 |
 | 项目卡片字数 + 活跃 | `projectView.js` | ✅ 实现 |
 | 世界对象卡片视图 | `worldView.js` | ✅ 实现 |

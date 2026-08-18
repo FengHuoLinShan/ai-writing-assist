@@ -260,7 +260,7 @@ describe("WritingView", () => {
     await editor.setValue("作者新输入")
     expect(editor.element.value).toBe("作者新输入")
     expect(wrapper.find("#writing-save-status").text()).toBe("尚未保存")
-    expect(localStorage.getItem("draft_backup_p1_1")).toContain("作者新输入")
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("作者新输入")
     wrapper.unmount()
   })
 

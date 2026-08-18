@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createEditorController } from "../../../vue/views/writing/controllers/editorController.js"
-import { clearWritingSession, readChapterSnapshot, readWritingPointer, rememberChapterSnapshot } from "../../../vue/views/writing/writingSession.js"
+import {
+  clearWritingSession,
+  forgetWritingSessionMemory,
+  readChapterSnapshot,
+  readWritingPointer,
+  rememberChapterSnapshot,
+} from "../../../vue/views/writing/writingSession.js"
 
 function deferred() {
   let resolve
@@ -56,7 +62,7 @@ describe("editorController", () => {
 
     expect(controller.snapshot()).toMatchObject({ content: "本地修改", dirty: true })
     expect(readChapterSnapshot("p1", 1)).toMatchObject({ content: "本地修改", dirty: true })
-    expect(localStorage.getItem("draft_backup_p1_1")).toContain("本地修改")
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("本地修改")
     controller.dispose()
   })
 
@@ -131,6 +137,116 @@ describe("editorController", () => {
     expect(editor.selectionStart).toBe(4)
     expect(controller.snapshot().cursorOffset).toBe(0)
     controller.dispose()
+  })
+
+  it("指针缺少版本或更新时间时光标 fail closed", async () => {
+    rememberChapterSnapshot("p1", { chapter: 1, draftId: "d1", cursorOffset: 1 })
+    const { controller, api } = makeController()
+    api.writing.get.mockResolvedValue({
+      id: "d1",
+      novel_id: "p1",
+      title: "第一章",
+      content: "原文正文",
+      version_number: 1,
+      updated_at: "2026-08-18T10:00:00Z",
+      status: "draft",
+    })
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: null, editor })
+    await controller.loadChapter(1)
+
+    expect(editor.selectionStart).toBe(4)
+    expect(controller.snapshot().cursorOffset).toBe(0)
+    controller.dispose()
+  })
+
+  it("硬刷新后为同一工作稿恢复未保存正文", async () => {
+    const first = makeController()
+    await first.controller.loadChapter(1)
+    document.body.innerHTML = '<textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    first.controller.attach({ title: null, editor })
+    editor.value = "硬刷新前的未保存正文"
+    editor.dispatchEvent(new Event("input"))
+    first.controller.dispose()
+    forgetWritingSessionMemory("p1")
+
+    const second = makeController()
+    expect(await second.controller.loadChapter(1, {
+      draftId: "d1",
+      allowBackupRestore: true,
+    })).toBe(true)
+    expect(second.controller.snapshot()).toMatchObject({
+      draftId: "d1",
+      content: "硬刷新前的未保存正文",
+      dirty: true,
+    })
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("硬刷新前")
+    second.controller.dispose()
+  })
+
+  it("仅在 legacy 备份身份匹配时迁移到工作稿专用 key", async () => {
+    localStorage.setItem("draft_backup_p1_1", JSON.stringify({
+      project_id: "p1",
+      chapter_index: 1,
+      draft_id: "d1",
+      title: "第一章",
+      content: "legacy 未保存正文",
+    }))
+    const { controller } = makeController()
+
+    await controller.loadChapter(1, { draftId: "d1", allowBackupRestore: true })
+
+    expect(controller.snapshot().content).toBe("legacy 未保存正文")
+    expect(localStorage.getItem("draft_backup_p1_1")).toBeNull()
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("legacy 未保存正文")
+    controller.dispose()
+  })
+
+  it("失效指针回退不污染或丢失旧工作稿备份", async () => {
+    const old = makeController()
+    old.api.writing.get.mockResolvedValue({
+      id: "old", novel_id: "p1", title: "旧稿", content: "旧稿服务器正文", version_number: 1, updated_at: "old-time", status: "draft",
+    })
+    await old.controller.loadChapter(1, { draftId: "old" })
+    document.body.innerHTML = '<textarea id="old-body"></textarea>'
+    const oldEditor = document.getElementById("old-body")
+    old.controller.attach({ title: null, editor: oldEditor })
+    oldEditor.value = "旧稿未保存正文"
+    oldEditor.dispatchEvent(new Event("input"))
+    old.controller.dispose()
+    forgetWritingSessionMemory("p1")
+
+    const fallback = makeController()
+    fallback.api.writing.get
+      .mockRejectedValueOnce(Object.assign(new Error("不存在"), { status: 404 }))
+      .mockResolvedValueOnce({
+        id: "d1", novel_id: "p1", title: "当前稿", content: "当前稿正文", version_number: 2, updated_at: "current-time", status: "draft",
+      })
+    await fallback.controller.loadChapter(1, {
+      draftId: "old",
+      allowMissingPointerFallback: true,
+      allowBackupRestore: true,
+    })
+    expect(fallback.controller.snapshot().content).toBe("当前稿正文")
+    document.body.innerHTML = '<textarea id="current-body"></textarea>'
+    const currentEditor = document.getElementById("current-body")
+    fallback.controller.attach({ title: null, editor: currentEditor })
+    currentEditor.value = "当前稿新输入"
+    currentEditor.dispatchEvent(new Event("input"))
+    expect(localStorage.getItem("draft_backup_p1_1_old")).toContain("旧稿未保存正文")
+    expect(localStorage.getItem("draft_backup_p1_1_d1")).toContain("当前稿新输入")
+    fallback.controller.dispose()
+    forgetWritingSessionMemory("p1")
+
+    const reopen = makeController()
+    reopen.api.writing.get.mockResolvedValue({
+      id: "old", novel_id: "p1", title: "旧稿", content: "旧稿服务器正文", version_number: 1, updated_at: "old-time", status: "draft",
+    })
+    await reopen.controller.loadChapter(1, { draftId: "old", allowBackupRestore: true })
+    expect(reopen.controller.snapshot().content).toBe("旧稿未保存正文")
+    reopen.controller.dispose()
   })
 
   it("本机指针工作稿已失效时清理光标并回退有效版本", async () => {
@@ -316,7 +432,7 @@ describe("editorController", () => {
 
     expect(await checkpoint).toMatchObject({ id: "d2", version_number: 2 })
     expect(controller.snapshot()).toMatchObject({ draftId: "d2", versionNumber: 2, updatedAt: "2026-08-12T10:00:00Z", content: "留版后的新输入", dirty: true })
-    expect(localStorage.getItem("draft_backup_p1_1")).toContain("留版后的新输入")
+    expect(localStorage.getItem("draft_backup_p1_1_d2")).toContain("留版后的新输入")
     expect(toast).toHaveBeenCalledWith("已保存为新版本；之后的输入仍待保存", "success")
     expect(onVersionChanged).toHaveBeenCalledWith(expect.objectContaining({ id: "d2" }))
     expect(controller.snapshot().saving).toBe(false)

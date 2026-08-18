@@ -16,8 +16,12 @@ function activeVersion(version) {
   return !["candidate", "deprecated"].includes(version.status)
 }
 
-function backupKey(projectId, chapter) {
+function legacyBackupKey(projectId, chapter) {
   return `draft_backup_${projectId}_${chapter}`
+}
+
+function backupKey(projectId, chapter, draftId) {
+  return `${legacyBackupKey(projectId, chapter)}_${encodeURIComponent(draftId || "new")}`
 }
 
 /**
@@ -144,7 +148,7 @@ export function createEditorController({
     const projectId = getProjectId()
     if (!projectId || !state.chapter) return
     try {
-      localStorage.setItem(backupKey(projectId, state.chapter), JSON.stringify({
+      localStorage.setItem(backupKey(projectId, state.chapter, state.draftId), JSON.stringify({
         project_id: projectId,
         chapter_index: state.chapter,
         draft_id: state.draftId,
@@ -157,10 +161,10 @@ export function createEditorController({
     }
   }
 
-  function clearBackup() {
+  function clearBackup(draftId = state.draftId) {
     const projectId = getProjectId()
     if (!projectId || !state.chapter) return
-    try { localStorage.removeItem(backupKey(projectId, state.chapter)) } catch { /* noop */ }
+    try { localStorage.removeItem(backupKey(projectId, state.chapter, draftId)) } catch { /* noop */ }
   }
 
   function restoreSession(projectId, chapter) {
@@ -180,11 +184,20 @@ export function createEditorController({
 
   function restoreCursor(projectId, chapter, draftIdentity) {
     const pointer = readWritingPointer(projectId)
+    const pointerVersion = Number(pointer?.draftVersion)
+    const draftVersion = Number(draftIdentity.version)
     if (
       pointer?.chapter !== Number(chapter)
       || !pointer.draftId
+      || !Number.isInteger(pointerVersion)
+      || pointerVersion < 1
+      || !pointer.draftUpdatedAt
+      || !draftIdentity.id
+      || !Number.isInteger(draftVersion)
+      || draftVersion < 1
+      || !draftIdentity.updatedAt
       || pointer.draftId !== draftIdentity.id
-      || pointer.draftVersion !== draftIdentity.version
+      || pointerVersion !== draftVersion
       || pointer.draftUpdatedAt !== draftIdentity.updatedAt
     ) return false
     state.cursorOffset = Math.min(pointer.cursorOffset, state.content.length)
@@ -194,11 +207,23 @@ export function createEditorController({
 
   function restoreBackup(projectId, chapter) {
     try {
-      const raw = localStorage.getItem(backupKey(projectId, chapter))
+      const currentKey = backupKey(projectId, chapter, state.draftId)
+      let raw = localStorage.getItem(currentKey)
+      const legacyKey = legacyBackupKey(projectId, chapter)
+      let fromLegacy = false
+      if (!raw) {
+        raw = localStorage.getItem(legacyKey)
+        fromLegacy = Boolean(raw)
+      }
       if (!raw) return false
       const saved = JSON.parse(raw)
-      if (saved.project_id && saved.project_id !== projectId) return false
+      if (saved.project_id !== projectId) return false
       if (Number(saved.chapter_index) !== Number(chapter)) return false
+      if ((saved.draft_id || null) !== (state.draftId || null)) return false
+      if (fromLegacy) {
+        localStorage.setItem(currentKey, raw)
+        localStorage.removeItem(legacyKey)
+      }
       if (saved.content === state.content && String(saved.title || "") === state.title) return false
       if (!confirm(`检测到本地暂存的第 ${chapter} 章内容，是否恢复？`)) return false
       state.content = String(saved.content || "")
@@ -276,7 +301,10 @@ export function createEditorController({
         version: state.versionNumber,
         updatedAt: state.updatedAt,
       }
-      if (!options.draftId && !restoreSession(projectId, state.chapter)) restoreBackup(projectId, state.chapter)
+      const mayRestoreLocal = !options.draftId || options.allowBackupRestore === true
+      if (mayRestoreLocal && !restoreSession(projectId, state.chapter)) {
+        restoreBackup(projectId, state.chapter)
+      }
       restoreCursor(projectId, state.chapter, loadedDraftIdentity)
       syncElements()
       emit()
@@ -368,6 +396,7 @@ export function createEditorController({
     const chapter = state.chapter
     const lifecycle = lifecycleGeneration
     const requestRevision = editRevision
+    const sourceDraftId = state.draftId
     const savedContent = state.content
     const savedTitle = state.title
     state.saving = true
@@ -405,8 +434,9 @@ export function createEditorController({
         }
         syncElements()
       }
+      if (changedDraft) clearBackup(sourceDraftId)
       if (hasNewerEdits || keepsLocalFormatting) saveBackup()
-      else clearBackup()
+      else clearBackup(sourceDraftId)
       state.saveError = null
       emit()
       if (keepsLocalFormatting && !hasNewerEdits) {
@@ -468,10 +498,13 @@ export function createEditorController({
       }
       else {
         applyDraft(result, { isReadonly: false })
-        clearBackup()
+        clearBackup(owner.draftId)
         syncElements()
       }
-      if (hasNewerEdits) saveBackup()
+      if (hasNewerEdits) {
+        if (result?.id && result.id !== owner.draftId) clearBackup(owner.draftId)
+        saveBackup()
+      }
       emit()
       toast(hasNewerEdits ? "已保存为新版本；之后的输入仍待保存" : "已保存为新版本", "success")
       await refreshVersions(result)
@@ -514,10 +547,11 @@ export function createEditorController({
       if (hasNewerEdits) {
         applyAutosaveMetadata(result, result.content, result.title)
         state.saveError = null
+        if (result?.id && result.id !== owner.draftId) clearBackup(owner.draftId)
         saveBackup()
       } else {
         applyDraft(result, { isReadonly: false })
-        clearBackup()
+        clearBackup(owner.draftId)
         syncElements()
       }
       emit()

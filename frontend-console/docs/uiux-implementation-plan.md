@@ -546,7 +546,7 @@ _saveStatusText() {
 > 现状注记（2026-08）：以下 `renderSceneCockpitPanel` 是历史实施草案，已从
 > 生产调用删除。当前单一实现为 Vue `SceneCockpit.vue` + `SceneLensSummary.vue`；
 > 右轨「本场」仅渲染一份白名单结构摘要，角色可见资料由作者显式点击加载。
-> `sceneCockpitPanel.js` 只保留无 DOM 依赖的排序兼容 helper，不再渲染 UI。
+> 旧排序 helper 确认无生产调用后也已删除；账户清理仍兼容其历史存储前缀。
 
 **目标**：将右侧 Scene Cockpit 从折叠 details 面板改为 Tab 化的「写作参考面板」，集成人物、地点、设定、地图四个 Tab。
 
@@ -554,7 +554,7 @@ _saveStatusText() {
 
 **目标文件**：`views/sceneCockpitPanel.js`
 
-**当前**：`renderSceneCockpitPanel` 返回一个 `scene-cockpit` 卡片，内部用 `details/summary` 折叠模块。
+**历史草案当时状态**：`renderSceneCockpitPanel` 返回一个 `scene-cockpit` 卡片，内部用 `details/summary` 折叠模块。
 
 **改为 Tab 结构**：
 
@@ -2169,7 +2169,7 @@ body.force-desktop .mobile-quick-note {
 | `app.js` | 修改 | `updateWordcountDashboard`、主题初始化、快捷键 |
 | `state.js` | 可选 | 如需全局状态存储作者偏好 |
 | `writingView.js` | 大量修改 | 编辑器、字数统计、专注模式、章节树、AI 续写、大纲浮窗、移动端 |
-| `sceneCockpitPanel.js` | 修改 | Tab 化面板、人物插入 |
+| `sceneCockpitPanel.js` | 历史草案，现已删除 | Tab 化面板、人物插入已转由 Vue 组件承担 |
 | `projectView.js` | 修改 | 卡片统计、继续写作按钮、最近活跃排序 |
 | `worldView.js` | 修改 | 卡片视图、视图切换 |
 | `outlineView.js` | 可选 | 如需大纲页增加「去写作」按钮 |
