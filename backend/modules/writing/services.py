@@ -252,6 +252,11 @@ class WritingDraftService:
         """发布当前工作版本，返回（版本，是否新发布）。"""
         sanitized_data, _summary = _sanitize_draft_create(data)
         nid = _parse_uuid(sanitized_data.novel_id, "novel")
+        await self._repo.lock_version_chapters_for_revalidation(
+            db,
+            nid,
+            [sanitized_data.chapter_index],
+        )
         latest = await self._repo.get_latest_by_chapter(
             db,
             nid,
@@ -259,7 +264,9 @@ class WritingDraftService:
         )
         current = latest
         if data.draft_id:
-            current = await self._repo.get(db, _parse_uuid(data.draft_id, "draft"))
+            current = await self._repo.get_for_update(
+                db, _parse_uuid(data.draft_id, "draft")
+            )
             if (
                 current is None
                 or current.novel_id != nid
@@ -287,6 +294,9 @@ class WritingDraftService:
                 )
                 return restored, True
             self._ensure_latest_and_expected(current, latest, data)
+        else:
+            # 未携带 draft_id 的旧调用方同样要接受最新快照校验，避免绕过多 Tab 冲突检测
+            self._ensure_expected_snapshot(latest, data)
 
         if current is not None and current.status == "draft":
             base = await self._get_base_draft(db, current)
@@ -455,6 +465,15 @@ class WritingDraftService:
         draft = await self._repo.get(db, did)
         if draft is None or str(draft.novel_id) != str(nid):
             raise NotFoundError(f"Draft {draft_id} not found")
+        # 先序列化并发写者，再做最新快照校验；否则校验通过后仍可能被后写者原地覆盖
+        await self._repo.lock_version_chapters_for_revalidation(
+            db,
+            draft.novel_id,
+            [draft.chapter_index],
+        )
+        draft = await self._repo.get_for_update(db, did)
+        if draft is None or str(draft.novel_id) != str(nid):
+            raise NotFoundError(f"Draft {draft_id} not found")
         # 多 Tab 冲突检测：以章节最新版本为准
         latest = await self._repo.get_latest_by_chapter(
             db, draft.novel_id, draft.chapter_index
@@ -606,6 +625,14 @@ class WritingDraftService:
     ):
         draft = await self._repo.get(db, _parse_uuid(draft_id, "draft"))
         nid = _parse_uuid(novel_id, "novel")
+        if draft is None or draft.novel_id != nid:
+            raise NotFoundError(f"Draft {draft_id} not found")
+        await self._repo.lock_version_chapters_for_revalidation(
+            db,
+            nid,
+            [draft.chapter_index],
+        )
+        draft = await self._repo.get_for_update(db, _parse_uuid(draft_id, "draft"))
         if draft is None or draft.novel_id != nid:
             raise NotFoundError(f"Draft {draft_id} not found")
         latest = await self._repo.get_latest_by_chapter(db, nid, draft.chapter_index)
@@ -1037,9 +1064,7 @@ class WritingConflictCheckService:
             scene = await self._load_scene(db, data.novel_id, data.scene_id)
             if scene is None:
                 degraded_sources.append("outline")
-                omissions.append(
-                    {"source": "outline", "reason": "scene_unavailable"}
-                )
+                omissions.append({"source": "outline", "reason": "scene_unavailable"})
             else:
                 scene_items, omission_reason = self._scene_rule_items(
                     scene,

@@ -34,6 +34,7 @@ from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
     WritingDraftCreate,
     WritingDraftUpdate,
+    WritingPublishRequest,
 )
 from modules.writing.services import WritingDraftService
 
@@ -873,6 +874,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=draft)
+        repo.get_for_update = AsyncMock(return_value=draft)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.get_latest_by_chapter = AsyncMock(return_value=draft)
         repo.update = AsyncMock(return_value=updated)
         service = WritingDraftService(repo=repo)
@@ -906,6 +909,8 @@ class TestWritingDraftService:
 
         repo = MagicMock()
         repo.get = AsyncMock(return_value=draft)
+        repo.get_for_update = AsyncMock(return_value=draft)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.get_latest_by_chapter = AsyncMock(return_value=draft)
         repo.update = AsyncMock(side_effect=_update)
         service = WritingDraftService(repo=repo)
@@ -940,6 +945,7 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get_latest_by_chapter = AsyncMock(return_value=latest)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.create_with_status = AsyncMock()
         service = WritingDraftService(repo=repo)
         db = MagicMock()
@@ -972,6 +978,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v1)
+        repo.get_for_update = AsyncMock(return_value=v1)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.get_latest_by_chapter = AsyncMock(return_value=v2)
         service = WritingDraftService(repo=repo)
         db = MagicMock()
@@ -1004,6 +1012,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v1)
+        repo.get_for_update = AsyncMock(return_value=v1)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.get_latest_by_chapter = AsyncMock(return_value=v1)
         repo.update = AsyncMock(return_value=updated)
         service = WritingDraftService(repo=repo)
@@ -1035,6 +1045,8 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v1)
+        repo.get_for_update = AsyncMock(return_value=v1)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
         repo.get_latest_by_chapter = AsyncMock(return_value=v2)
         service = WritingDraftService(repo=repo)
         db = MagicMock()
@@ -1047,6 +1059,65 @@ class TestWritingDraftService:
 
         assert exc_info.value.status_code == 409
         repo.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_draft_serializes_before_latest_validation(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        draft = _make_draft(novel_id=uuid.UUID(sample_draft_data.novel_id))
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=draft)
+        repo.get_for_update = AsyncMock(return_value=draft)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
+        repo.get_latest_by_chapter = AsyncMock(return_value=draft)
+        repo.update = AsyncMock(return_value=draft)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        await service.update_draft(
+            db,
+            str(draft.id),
+            WritingDraftUpdate(title="t"),
+            sample_draft_data.novel_id,
+        )
+
+        repo.lock_version_chapters_for_revalidation.assert_awaited_once_with(
+            db, draft.novel_id, [draft.chapter_index]
+        )
+        repo.get_for_update.assert_awaited_once_with(db, draft.id)
+        repo.get_latest_by_chapter.assert_awaited_once_with(
+            db, draft.novel_id, draft.chapter_index
+        )
+
+    @pytest.mark.asyncio
+    async def test_publish_without_draft_id_still_checks_expected_snapshot(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        latest = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=3,
+            status="published",
+        )
+        repo = MagicMock()
+        repo.get_latest_by_chapter = AsyncMock(return_value=latest)
+        repo.lock_version_chapters_for_revalidation = AsyncMock()
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        stale_request = WritingPublishRequest(
+            novel_id=sample_draft_data.novel_id,
+            chapter_index=1,
+            title="第一章",
+            content="全新正文",
+            expected_version=2,
+        )
+        with pytest.raises(ConflictError) as exc_info:
+            await service.publish_draft(db, stale_request)
+
+        assert exc_info.value.status_code == 409
+        repo.get_latest_by_chapter.assert_awaited_once_with(db, latest.novel_id, 1)
 
     @pytest.mark.asyncio
     async def test_delete_draft(
