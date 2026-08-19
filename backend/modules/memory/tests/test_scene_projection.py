@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
 from modules.memory.models import MemoryEvent, MemorySceneCheckpoint, MemorySceneSnapshot
+from modules.memory.repositories import EventRepository
 from modules.memory.scene_projection import SceneMemoryProjectionService
 from modules.memory.services import MemoryService
 from modules.outline.models import Scene
@@ -153,3 +154,94 @@ async def test_empty_scene_rerun_clears_events_and_invalidates_downstream_projec
         .all()
     )
     assert current_scene_snapshots == []
+
+
+@pytest.mark.asyncio
+async def test_scene_event_sequences_avoid_chapter_event_band(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    """scene_index=0 的场景事件不得与同章章级事件共享 (chapter, sequence) 唯一键。"""
+    novel_id = uuid.UUID(test_project_id)
+    scene = await _scene(db_session, test_project_id, 0, 1)
+
+    await MemoryService().record_events(
+        db_session,
+        test_project_id,
+        chapter_index=1,
+        events=[
+            {
+                "event_type": "entity_introduced",
+                "entity_id": "11111111-1111-4111-8111-111111111111",
+                "entity_type": "core_entity",
+            },
+            {
+                "event_type": "relation_changed",
+                "entity_id": "11111111-1111-4111-8111-111111111111",
+                "entity_type": "core_entity",
+            },
+        ],
+    )
+    await EventRepository().replace_scene_events(
+        db_session,
+        novel_id=novel_id,
+        scene_id=scene.id,
+        scene_index=0,
+        chapter_index=1,
+        rows=[
+            {
+                "event_type": "scene_state_changed",
+                "entity_id": None,
+                "entity_type": None,
+                "source": "scene_projection",
+                "dimension": "state",
+                "snapshot_after": {"stage": "scene"},
+                "scene_sequence": 1,
+            },
+            {
+                "event_type": "scene_state_changed",
+                "entity_id": None,
+                "entity_type": None,
+                "source": "scene_projection",
+                "dimension": "state",
+                "snapshot_after": {"stage": "scene"},
+                "scene_sequence": 2,
+            },
+        ],
+    )
+
+    events = list(
+        (
+            await db_session.execute(
+                select(MemoryEvent)
+                .where(MemoryEvent.novel_id == novel_id)
+                .order_by(MemoryEvent.sequence)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    scene_events = [item for item in events if item.scene_id == scene.id]
+    chapter_events = [item for item in events if item.scene_id is None]
+    assert [item.sequence for item in chapter_events] == [1, 2]
+    # 场景事件基数必须高于章级事件上限（500），否则 on_conflict 会互相覆盖
+    assert all(item.sequence >= 1001 for item in scene_events)
+    assert [item.sequence for item in scene_events] == [1001, 1002]
+
+    # 重排场景索引时 sequence 同步重算
+    await EventRepository().align_scene_indices(
+        db_session,
+        novel_id,
+        {scene.id: 2},
+    )
+    realigned = list(
+        (
+            await db_session.execute(
+                select(MemoryEvent).where(MemoryEvent.scene_id == scene.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [item.scene_index for item in realigned] == [2, 2]
+    assert sorted(item.sequence for item in realigned) == [3001, 3002]

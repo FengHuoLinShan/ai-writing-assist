@@ -40,6 +40,7 @@ LLM_DEFAULTS_SYSTEM: dict[str, Any] = {
     "deep_import": None,  # D9 本期永远 NULL
 }
 
+
 def _account_llm_runtime_templates() -> dict[str, dict[str, Any]]:
     templates: dict[str, dict[str, Any]] = {}
     for catalog_item in list_account_provider_templates():
@@ -85,6 +86,7 @@ def enabled_account_llm_provider_order() -> tuple[str, ...]:
         if account_llm_provider_enabled(provider_id)
     )
 
+
 # 字段级 DELETE 白名单
 AUTHOR_PREFS_FIELDS: frozenset[str] = frozenset(
     {
@@ -109,6 +111,16 @@ LLM_INHERITABLE_FIELDS: frozenset[str] = frozenset(
         "creative_mode",
         "deep_import",
     }
+)
+
+# 与具体 provider 连接无关、可直接叠加到运行 profile 的调优字段。
+# provider_id/label/base_url/model 属于连接身份，不能跨连接覆盖。
+LLM_RUNTIME_TUNING_FIELDS: tuple[str, ...] = (
+    "timeout",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "extra",
 )
 
 # source 取值

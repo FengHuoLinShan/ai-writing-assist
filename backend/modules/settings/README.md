@@ -75,7 +75,9 @@
 - `DELETE /api/settings/llm-connections/{provider_id}` — 清除该 provider 的账户 Key
 - `GET /api/settings/llm-balances` — 非阻塞查询已连接 provider 的原币种余额
 - `GET/PUT/DELETE /api/settings/image-connection` — 查询、验证保存或清除独立图片连接
-- `GET/PUT /api/settings/llm-defaults` — 全局 LLM 默认
+- `GET/PUT /api/settings/llm-defaults` — 全局 LLM 默认；timeout/max_tokens/
+  temperature/top_p/extra 等调优字段叠加进账户运行 profile 真正生效，
+  连接身份字段（provider/label/base_url/model）仍只能在账户模型连接入口切换
 - `GET/PUT /api/settings/author-preferences` — 全局作者偏好
 - `GET /api/settings/projects-using-defaults` — 引用此默认的项目聚合（D18: 任一字段 NULL 即列出）
 - `POST /api/settings/refresh` — 调试端点：通知客户端刷新缓存（D16）

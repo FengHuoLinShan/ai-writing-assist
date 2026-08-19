@@ -24,8 +24,9 @@ memory 模块维护世界状态变化历史，而不是维护另一份正史对�
 
 `memory_events` 使用 `(novel_id, chapter_index, sequence)` 作为章内幂等键。重建某章事件时，`MemoryService.record_events` 通过仓储层逐条 upsert 并清理新事件流之外的尾部事件，避免并发 delete-then-insert 交错。
 
-新写入同时以 `scene_id / scene_index / scene_sequence / dimension` 固定 Scene
-原子阶段。Scene 阶段从 stage0 空状态开始，只重放该 Scene 及之前的 MemoryEvent；
+Scene 事件的 `sequence` 以 `(scene_index + 1) * 1000 + scene_sequence` 派生，
+避开章级事件 1..500 的幂等键区间；重排 Scene 索引时同步重算。新写入同时以
+`scene_id / scene_index / scene_sequence / dimension` 固定 Scene 原子阶段。Scene 阶段从 stage0 空状态开始，只重放该 Scene 及之前的 MemoryEvent；
 Scene 时点状态的稳定维度固定为 `entities`、`relations`、`locations`、`knowledge`；
 AI 地图册不属于 Scene memory。
 缺少 Scene 锚点的旧事件会形成分维度 coverage gap，

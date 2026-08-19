@@ -9,6 +9,7 @@ import pytest
 
 from core.config import get_settings
 from modules.settings.constants import (
+    ACCOUNT_LLM_PROVIDER_TEMPLATES,
     SOURCE_GLOBAL,
     SOURCE_PROJECT,
     SOURCE_SYSTEM,
@@ -259,3 +260,62 @@ async def test_projects_using_defaults_total_and_truncated_over_100(
     assert resp.total == 101
     assert len(resp.items) == 5
     assert resp.truncated is True
+
+
+@pytest.mark.asyncio
+async def test_global_llm_tuning_defaults_apply_to_runtime_profile(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
+    svc = SettingsService()
+    with patch(
+        "modules.settings.services._validate_account_llm_connection",
+        autospec=True,
+    ):
+        await svc.connect_account_llm_provider(
+            db_session,
+            "kimi",
+            "test-account-key",
+        )
+
+    # 用户唯一能写的全局默认字段必须真正进入运行 profile
+    await svc.upsert_global_llm_defaults(
+        db_session,
+        {"timeout": 300, "temperature": 0.3, "max_tokens": 8000},
+    )
+
+    profile = await svc.resolve_account_llm_runtime_profile(db_session)
+
+    template = ACCOUNT_LLM_PROVIDER_TEMPLATES["kimi"]
+    assert profile.provider_id == "kimi"
+    assert profile.timeout == 300
+    assert profile.temperature == 0.3
+    assert profile.max_tokens == 8000
+    # 未设置的字段保持模板值
+    assert profile.model == template["model"]
+    assert profile.base_url == template["base_url"]
+
+
+@pytest.mark.asyncio
+async def test_effective_llm_settings_return_user_saved_global_values(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
+    svc = SettingsService()
+    with patch(
+        "modules.settings.services._validate_account_llm_connection",
+        autospec=True,
+    ):
+        await svc.connect_account_llm_provider(
+            db_session,
+            "kimi",
+            "test-account-key",
+        )
+    await svc.upsert_global_llm_defaults(db_session, {"timeout": 456})
+
+    resp = await svc.get_effective_llm_settings_for_project_settings(db_session, None)
+
+    assert resp.timeout.source == SOURCE_GLOBAL
+    assert resp.timeout.value == 456

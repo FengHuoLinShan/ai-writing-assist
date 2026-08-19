@@ -19,6 +19,9 @@ from core.config import get_settings, validate_llm_rate_limit_config
 from scripts.dev_schema_guard import wait_for_schema_current
 
 BACKEND_ROOT = Path(__file__).resolve().parent
+# 优雅排空上限：在跑任务卡在长 LLM 调用（timeout_override 上限 1800s）时，
+# 没有上限的排空会让 SIGTERM 后的进程无限挂起，只能被 SIGKILL
+WORKER_DRAIN_TIMEOUT_SECONDS = 120.0
 RELOAD_DIRS = (
     "alembic",
     "app",
@@ -129,14 +132,34 @@ async def _run_task_worker(worker) -> None:
     loop = asyncio.get_running_loop()
     signal_handler_installed = False
     shutdown_started = False
+    drain_deadline_handle = None
+    run_task = asyncio.create_task(worker.run_forever())
+
+    def force_shutdown(reason: str) -> None:
+        logger.warning("TaskWorker forcing shutdown: %s", reason)
+        # run_forever 的 CancelledError 分支会取消全部在跑任务后退出
+        run_task.cancel()
 
     def begin_graceful_shutdown() -> None:
-        nonlocal shutdown_started
+        nonlocal shutdown_started, drain_deadline_handle
         if shutdown_started:
+            # 第二次 SIGTERM：不再等待长 LLM 调用，立即强制排空
+            if drain_deadline_handle is not None:
+                drain_deadline_handle.cancel()
+                drain_deadline_handle = None
+            force_shutdown("second SIGTERM received")
             return
         shutdown_started = True
-        logger.info("TaskWorker received SIGTERM; draining in-flight tasks.")
+        logger.info(
+            "TaskWorker received SIGTERM; draining in-flight tasks (bounded by %.0fs).",
+            WORKER_DRAIN_TIMEOUT_SECONDS,
+        )
         worker.stop()
+        drain_deadline_handle = loop.call_later(
+            WORKER_DRAIN_TIMEOUT_SECONDS,
+            force_shutdown,
+            f"drain deadline {WORKER_DRAIN_TIMEOUT_SECONDS:.0f}s exceeded",
+        )
 
     try:
         try:
@@ -145,8 +168,10 @@ async def _run_task_worker(worker) -> None:
             logger.warning("SIGTERM graceful shutdown handler is unavailable.")
         else:
             signal_handler_installed = True
-        await worker.run_forever()
+        await run_task
     finally:
+        if drain_deadline_handle is not None:
+            drain_deadline_handle.cancel()
         if signal_handler_installed:
             loop.remove_signal_handler(signal.SIGTERM)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -19,6 +20,8 @@ from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from shared.constants import TASK_HEARTBEAT_INTERVAL
+
+logger = logging.getLogger(__name__)
 
 _MISSING_ATTRIBUTE = object()
 
@@ -172,5 +175,13 @@ async def _heartbeat_loop(task_id: Any, lease_id: str) -> None:
                 )
                 if not accepted:
                     return
-        except Exception:
-            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # 与后台 worker 一致：一次瞬时 DB 错误只告警不终止。
+            # 心跳若在此停止，stale 恢复会在心跳间隔上限内让 worker 重复执行同一任务
+            logger.warning(
+                "Inline task heartbeat update failed for task %s: %s",
+                task_id,
+                redact_diagnostic(exc, limit=300),
+            )
