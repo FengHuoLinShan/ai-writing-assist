@@ -27,6 +27,33 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 MAX_IMAGE_PIXELS = 8192 * 8192
 
+# 可携带作者、工具、定位或时间等文本信息的辅助 chunk；上传的 PNG 必须剥离
+_PNG_METADATA_CHUNK_TYPES = frozenset(
+    {b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"tIME", b"gIFx"}
+)
+
+
+def strip_png_metadata(payload: bytes) -> bytes:
+    """Remove text/EXIF/timestamp ancillary chunks from a validated PNG.
+
+    Chunks are re-emitted verbatim with their original CRCs; a PNG without
+    metadata chunks round-trips byte-identically.
+    """
+    if not payload.startswith(PNG_SIGNATURE):
+        raise ValueError("仅支持 PNG 图片")
+    output = bytearray(PNG_SIGNATURE)
+    offset = len(PNG_SIGNATURE)
+    while offset < len(payload):
+        length = struct.unpack(">I", payload[offset : offset + 4])[0]
+        chunk_type = payload[offset + 4 : offset + 8]
+        chunk_end = offset + 12 + length
+        if chunk_end > len(payload):
+            raise ValueError("PNG 数据被截断")
+        if chunk_type not in _PNG_METADATA_CHUNK_TYPES:
+            output.extend(payload[offset:chunk_end])
+        offset = chunk_end
+    return bytes(output)
+
 
 @dataclass(frozen=True, slots=True)
 class PngMetadata:
@@ -121,7 +148,11 @@ def normalize_map_upload(payload: bytes) -> tuple[bytes, PngMetadata]:
     if not payload or len(payload) >= MAX_IMAGE_BYTES:
         raise ValueError("图片必须小于 50MB")
     if payload.startswith(PNG_SIGNATURE):
-        return payload, validate_png(payload)
+        # JPEG 分支经像素重编码天然无元数据；PNG 必须显式剥离文本类辅助 chunk，
+        # 否则作者、工具、定位等信息会随原件入 S3 并原样下发
+        validate_png(payload)
+        sanitized = strip_png_metadata(payload)
+        return sanitized, validate_png(sanitized)
 
     try:
         with warnings.catch_warnings():

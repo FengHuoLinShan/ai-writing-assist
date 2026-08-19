@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import struct
 import uuid
+import zlib
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -395,3 +398,39 @@ async def test_cleanup_handler_rejects_atlas_root_before_s3_call() -> None:
             ),
         )
     storage.delete_prefix.assert_not_called()
+
+
+def test_map_upload_strips_png_text_metadata_chunks() -> None:
+    # 构造带 tEXt/eXIf/tIME 辅助 chunk 的 PNG
+    base = bytearray(PNG)
+    insert_at = len(base) - 12  # IEND 之前
+
+    def chunk(chunk_type: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + chunk_type
+            + data
+            + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+        )
+
+    base[insert_at:insert_at] = (
+        chunk(b"tEXt", b"Author\x00someone")
+        + chunk(b"eXIf", b"Exif\x00\x00GPS")
+        + chunk(b"tIME", b"\x07\xe8\x01\x01\x00\x00\x00")
+    )
+    crafted = bytes(base)
+
+    normalized, metadata = normalize_map_upload(crafted)
+
+    assert normalized != crafted
+    assert b"someone" not in normalized
+    assert b"Exif" not in normalized
+    assert b"\x07\xe8" not in normalized
+    assert metadata.byte_size == len(normalized)
+    validate_png(normalized)
+
+
+def test_map_upload_keeps_clean_png_byte_identical() -> None:
+    normalized, metadata = normalize_map_upload(PNG)
+    assert normalized == PNG
+    assert metadata.sha256 == hashlib.sha256(PNG).hexdigest()

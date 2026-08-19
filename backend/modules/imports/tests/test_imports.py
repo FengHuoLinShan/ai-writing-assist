@@ -225,6 +225,74 @@ class TestParseFileContentValidation:
 
         assert chapters == [{"title": "第一章", "content": "第一章\n\n正文"}]
 
+    def test_epub_decompression_bomb_is_rejected_with_bounded_memory(self):
+        import struct
+        import tracemalloc
+
+        # 高压缩比成员：解压后 32MB，压缩后仅数十 KB
+        bomb_payload = b"A" * (32 * 1024 * 1024)
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(
+                "mimetype", b"application/epub+zip", compress_type=zipfile.ZIP_STORED
+            )
+            archive.writestr(
+                "META-INF/container.xml",
+                """<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                <rootfiles><rootfile full-path="OEBPS/content.opf"
+                media-type="application/oebps-package+xml" /></rootfiles>
+                </container>""",
+            )
+            archive.writestr(
+                "OEBPS/content.opf",
+                """<package xmlns="http://www.idpf.org/2007/opf" version="3.0"
+                unique-identifier="book-id">
+                <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:identifier id="book-id">bomb-book</dc:identifier>
+                <dc:title>炸弹</dc:title><dc:language>zh</dc:language>
+                </metadata>
+                <manifest><item id="chapter-1" href="chapter.xhtml"
+                media-type="application/xhtml+xml" /></manifest>
+                <spine><itemref idref="chapter-1" /></spine>
+                </package>""",
+            )
+            archive.writestr("OEBPS/chapter.xhtml", bomb_payload)
+        data = bytearray(output.getvalue())
+        del output, bomb_payload
+
+        # 伪造中央目录：把炸弹成员的声明 file_size 改小
+        with zipfile.ZipFile(io.BytesIO(bytes(data))) as probe:
+            target_offset = None
+            for info in probe.infolist():
+                if info.filename == "OEBPS/chapter.xhtml":
+                    target_offset = info.header_offset
+        assert target_offset is not None
+        eocd = bytes(data).rfind(b"PK\x05\x06")
+        cd_offset = struct.unpack("<I", bytes(data[eocd + 16 : eocd + 20]))[0]
+        cursor = cd_offset
+        while bytes(data[cursor : cursor + 4]) == b"PK\x01\x02":
+            name_len = struct.unpack("<H", bytes(data[cursor + 28 : cursor + 30]))[0]
+            extra_len = struct.unpack("<H", bytes(data[cursor + 30 : cursor + 32]))[0]
+            comment_len = struct.unpack("<H", bytes(data[cursor + 32 : cursor + 34]))[0]
+            local_offset = struct.unpack("<I", bytes(data[cursor + 42 : cursor + 46]))[0]
+            if local_offset == target_offset:
+                data[cursor + 24 : cursor + 28] = struct.pack("<I", 1024)
+                break
+            cursor += 46 + name_len + extra_len + comment_len
+        crafted = bytes(data)
+        del data
+
+        tracemalloc.start()
+        try:
+            with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+                parse_file(crafted, "epub")
+        finally:
+            _, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+
+        # 有界读取：峰值必须远小于炸弹的真实解压体积（32MB）
+        assert peak < 8 * 1024 * 1024
+
     def test_epub_malformed_container_is_rejected_before_parser(self):
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w") as archive:
@@ -573,6 +641,7 @@ class TestImportService:
         imports_test_project_id: str,
     ):
         """超过 50MB 的文件应返回 413"""
+
         class OversizedPayload(bytes):
             def __len__(self) -> int:
                 return MAX_FILE_SIZE + 1
@@ -793,3 +862,45 @@ class TestImportService:
         assert exc.value.status_code == 400
         assert "文件已导入" in exc.value.detail
         rollback_spy.assert_awaited_once()
+
+
+class TestUnexpectedImportErrorPersistence:
+    @pytest.mark.asyncio
+    async def test_unexpected_error_persists_generic_message_only(
+        self,
+        service: ImportService,
+        db_session: AsyncSession,
+        imports_test_project_id: str,
+        sample_txt_content: bytes,
+        monkeypatch,
+    ):
+        """意外异常的诊断细节只进服务端日志；入库并返回给客户端的必须是通用文案。"""
+        captured: list[str | None] = []
+        original_update_status = service._repo.update_status
+
+        async def spy_update_status(db, record_id, **kwargs):
+            captured.append(kwargs.get("error_message"))
+            return await original_update_status(db, record_id, **kwargs)
+
+        monkeypatch.setattr(service._repo, "update_status", spy_update_status)
+
+        with patch(
+            "modules.imports.services.create_published_draft_only",
+            side_effect=RuntimeError(
+                "(psycopg2.errors.UniqueViolation) UPDATE imports SET secret='k'"
+            ),
+            autospec=True,
+        ):
+            with pytest.raises(DomainError):
+                await service.upload_and_import(
+                    db_session,
+                    imports_test_project_id,
+                    "leak.txt",
+                    sample_txt_content,
+                )
+
+        assert captured, "失败状态必须被写入导入记录"
+        for message in captured:
+            assert message == "导入过程中发生服务器错误，请查看日志"
+            assert "secret" not in str(message)
+            assert "UPDATE" not in str(message)

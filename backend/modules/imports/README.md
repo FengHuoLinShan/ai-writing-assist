@@ -322,6 +322,7 @@ POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派�
 - 客户端声明的 MIME 不作为信任依据；统一解析入口在调用具体解析器前校验实际
   内容。TXT/HTML 必须可严格解码且不含二进制控制字符，HTML 还必须包含可识别
   标记；EPUB 必须满足 ZIP mimetype、container/OPF 结构、安全成员路径及有界解压
+  （声明体积不可信：按实测解压输出复核，伪造头部的解压炸弹会被有界拦截）
   约束；MOBI/AZW3 必须满足 PalmDB、PalmDOC 与 MOBI header 联合签名
 - 不保存上传文件到可执行目录，解析后即释放
 
