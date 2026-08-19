@@ -604,6 +604,18 @@ export function useWorldBible(props) {
     return confirmDiscardEditorChanges("当前世界书页面有未保存修改，确定放弃并离开吗？")
   })
 
+  // 应用内导航有 useLeaveGuard；刷新/关闭标签页必须依赖 beforeunload，
+  // 否则未保存的世界书编辑会静默丢失（与写作台的持久化守卫对齐）
+  function handleBeforeUnload(event) {
+    if (!editorHasUnsavedChanges()) return
+    event.preventDefault()
+    event.returnValue = ""
+  }
+  if (typeof window !== "undefined" && !beforeUnloadBound.value) {
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    beforeUnloadBound.value = true
+  }
+
   // ---- asset refs ----
   function parseAssetRefs(value) {
     const raw = String(value || "").trim()
@@ -2294,6 +2306,10 @@ export function useWorldBible(props) {
     semanticInspectionController = null
     stopSynopsisPolling()
     stopProjectionPolling()
+    if (beforeUnloadBound.value && typeof window !== "undefined") {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      beforeUnloadBound.value = false
+    }
     syncSession()
   }
 

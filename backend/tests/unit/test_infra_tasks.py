@@ -2088,3 +2088,59 @@ class TestTaskWorkerRunForever:
         await asyncio.wait_for(run_task, timeout=1.0)
 
         assert active == 0
+
+
+class TestInlineHeartbeatLoop:
+    """run_task_inline._heartbeat_loop 必须与 worker 一样容忍瞬时心跳失败。"""
+
+    @pytest.mark.asyncio
+    async def test_transient_heartbeat_failure_keeps_looping(self, monkeypatch) -> None:
+        import contextlib
+
+        import core.database as core_database
+        from infrastructure.tasks import inline as inline_module
+        from infrastructure.tasks.inline import _heartbeat_loop
+
+        task_id = uuid.uuid4()
+        hb_session = AsyncMock()
+        hb_session.execute = AsyncMock(side_effect=Exception("DB gone"))
+        manager = MagicMock()
+        manager.session_factory = MagicMock(return_value=AsyncMock())
+        enter = AsyncMock(return_value=hb_session)
+        manager.session_factory.return_value.__aenter__ = enter
+        manager.session_factory.return_value.__aexit__ = AsyncMock()
+        monkeypatch.setattr(core_database, "get_manager", MagicMock(return_value=manager))
+        monkeypatch.setattr(inline_module, "TASK_HEARTBEAT_INTERVAL", 0.01)
+
+        loop = asyncio.create_task(_heartbeat_loop(task_id, "lease-1"))
+        await asyncio.sleep(0.08)
+
+        assert not loop.done()
+        assert hb_session.execute.await_count >= 2
+
+        loop.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await loop
+
+    @pytest.mark.asyncio
+    async def test_rejected_heartbeat_stops_loop(self, monkeypatch) -> None:
+        import core.database as core_database
+        from infrastructure.tasks import inline as inline_module
+        from infrastructure.tasks.inline import _heartbeat_loop
+
+        task_id = uuid.uuid4()
+        hb_session = AsyncMock()
+        hb_session.execute = AsyncMock(return_value=MagicMock(rowcount=0))
+        manager = MagicMock()
+        manager.session_factory = MagicMock(return_value=AsyncMock())
+        enter = AsyncMock(return_value=hb_session)
+        manager.session_factory.return_value.__aenter__ = enter
+        manager.session_factory.return_value.__aexit__ = AsyncMock()
+        monkeypatch.setattr(core_database, "get_manager", MagicMock(return_value=manager))
+        monkeypatch.setattr(inline_module, "TASK_HEARTBEAT_INTERVAL", 0.01)
+
+        loop = asyncio.create_task(_heartbeat_loop(task_id, "lease-1"))
+        await asyncio.sleep(0.05)
+
+        # lease 已被接管：循环应退出而不是继续竞争
+        assert await asyncio.wait_for(asyncio.shield(loop), timeout=1) is None

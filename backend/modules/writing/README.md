@@ -233,7 +233,8 @@ archived 全部记录，`total` 与返回集合一致。列表项的 `display_st
 只有当前最新 working 版本可通过 `PUT /drafts/{id}` 更新；旧 working、
 candidate 和 deprecated 均返回 409，无论请求是否提供乐观并发快照。
 `expected_version / expected_updated_at` 仍用于校验多 Tab 看到的最新
-working 快照；编辑最新 published 仍使用 copy-on-write。candidate 和
+working 快照（校验与写入统一在章节 advisory lock 下串行，未携带 `draft_id`
+的发布请求同样接受该校验）；编辑最新 published 仍使用 copy-on-write。candidate 和
 deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candidate
 采用只能经过专用 adopt 状态迁移，也可由作者显式“拒绝建议”软废弃。
 拒绝保留完整版本、原状态和 `rejected_at/rejected_by` 审计，不硬删除正文。

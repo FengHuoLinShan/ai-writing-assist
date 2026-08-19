@@ -12,7 +12,9 @@ RAG P@5/MRR/R@10 语义质量评测。
 
 ## 负责
 
-- 文本分块（按段落 / 按长度 / 中文小说分块）
+- 文本分块（按段落 / 按长度 / 中文小说分块）；`split_by_length` 对任意
+  合法 `overlap < chunk_size` 都保证前进不回退，检索语义去重不会输出重复
+  chunk
 - Embedding 生成（可降级）
 - Embedding worker 预热与运行时诊断
 - 关键词检索（SQL LIKE 文本匹配）

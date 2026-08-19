@@ -204,9 +204,7 @@ async def test_conflict_check_uses_injected_scene_loader_for_rule_hits(
             must_happen="王后签字",
             must_not_happen="主角死亡",
             pov_character_id=None,
-            scene_chunks=[
-                {"chapter_index": 1, "start_pos": 0, "end_pos": 5}
-            ],
+            scene_chunks=[{"chapter_index": 1, "start_pos": 0, "end_pos": 5}],
         )
 
     service = WritingConflictCheckService(scene_contract_loader=fake_scene_loader)
@@ -292,9 +290,7 @@ async def test_conflict_check_degrades_when_scene_range_is_invalid(
             title="失效范围",
             must_happen="拿到令牌",
             must_not_happen="主角死亡",
-            scene_chunks=[
-                {"chapter_index": 1, "start_pos": 100, "end_pos": 120}
-            ],
+            scene_chunks=[{"chapter_index": 1, "start_pos": 100, "end_pos": 120}],
         )
 
     response = await WritingConflictCheckService(
@@ -570,9 +566,7 @@ async def test_author_attention_detects_in_place_draft_content_change(
             title="当前场景",
             must_happen=None,
             must_not_happen="主角死亡",
-            scene_chunks=[
-                {"chapter_index": 1, "start_pos": 0, "end_pos": 4}
-            ],
+            scene_chunks=[{"chapter_index": 1, "start_pos": 0, "end_pos": 4}],
         )
 
     service = WritingConflictCheckService(
@@ -1447,10 +1441,14 @@ async def test_ai_suggestion_task_uses_operation_receipt(
     )
 
     assert first.status_code == repeated.status_code == 202
-    assert first.json() == repeated.json() == {
-        "task_id": operation_id,
-        "status": "pending",
-    }
+    assert (
+        first.json()
+        == repeated.json()
+        == {
+            "task_id": operation_id,
+            "status": "pending",
+        }
+    )
     task = await db_session.scalar(
         select(AsyncTask).where(AsyncTask.id == uuid.UUID(operation_id))
     )
@@ -1534,3 +1532,81 @@ async def test_ai_suggestion_rejects_confirmation_for_wrong_chapter(
 
     assert resp.status_code == 400
     assert "chapter_index" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_drifted_suggestion_marked_failed_instead_of_stuck_running() -> None:
+    novel_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    confirmation_id = uuid.uuid4()
+    item = SimpleNamespace(
+        id=item_id,
+        suggestion_status="running",
+        suggestion_confirmation_id=confirmation_id,
+        suggestion_error=None,
+    )
+
+    class Repo:
+        async def get_item(self, _db, _item_uuid, _novel_uuid, *, for_update=False):  # type: ignore[no-untyped-def]
+            assert for_update is True
+            return item
+
+        async def update_loaded_item_suggestion(
+            self,
+            _db,
+            loaded_item,
+            *,
+            status,
+            confirmation_id=None,
+            ai_suggestion=None,
+            llm_rationale=None,
+            error=None,
+        ):  # type: ignore[no-untyped-def]
+            loaded_item.suggestion_status = status
+            loaded_item.suggestion_confirmation_id = confirmation_id
+            loaded_item.suggestion_error = error
+            return loaded_item
+
+    service = ConflictSuggestionService(Repo())  # type: ignore[arg-type]
+
+    await service._mark_drifted_suggestion_failed(
+        None,  # type: ignore[arg-type]
+        novel_id=str(novel_id),
+        item_id=str(item_id),
+        context_confirmation_id=str(confirmation_id),
+    )
+
+    assert item.suggestion_status == "failed"
+    assert item.suggestion_confirmation_id == confirmation_id
+    assert "已变化" in (item.suggestion_error or "")
+
+
+@pytest.mark.asyncio
+async def test_drifted_suggestion_keeps_new_takeover_untouched() -> None:
+    novel_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    takeover_confirmation = uuid.uuid4()
+    item = SimpleNamespace(
+        id=item_id,
+        suggestion_status="running",
+        suggestion_confirmation_id=takeover_confirmation,
+        suggestion_error=None,
+    )
+
+    class Repo:
+        async def get_item(self, _db, _item_uuid, _novel_uuid, *, for_update=False):  # type: ignore[no-untyped-def]
+            return item
+
+        async def update_loaded_item_suggestion(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("已被新任务接管的状态不得被旧任务覆盖")
+
+    service = ConflictSuggestionService(Repo())  # type: ignore[arg-type]
+
+    await service._mark_drifted_suggestion_failed(
+        None,  # type: ignore[arg-type]
+        novel_id=str(novel_id),
+        item_id=str(item_id),
+        context_confirmation_id=str(uuid.uuid4()),
+    )
+
+    assert item.suggestion_status == "running"

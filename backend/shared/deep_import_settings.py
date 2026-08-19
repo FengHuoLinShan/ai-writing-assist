@@ -189,7 +189,12 @@ def materialize_effective_deep_import_settings(
     *,
     inherited_llm_max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
 ) -> dict[str, dict[str, Any]]:
-    """Freeze project/default/env precedence into explicit task settings."""
+    """Freeze effective task settings with env/project/default precedence.
+
+    解析顺序为 env 覆盖项目值、项目值覆盖内置默认；唯一例外是带 frozen
+    标记的任务快照（resume）——快照固定后忽略 env 漂移，保证恢复任务与
+    首次执行使用同一组参数。
+    """
 
     settings = deep_import_settings_for_response(project_settings)
     project_view = {DEEP_IMPORT_SETTINGS_KEY: settings}

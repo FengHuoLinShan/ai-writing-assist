@@ -83,6 +83,33 @@ class TestRetrievalOrchestratorDedup:
         assert len(result) == 1
         assert result[0][0] is chunk_a
 
+    def test_deduplicate_by_embedding_replaced_chunk_not_duplicated(self) -> None:
+        # 后位 chunk 更大时替换前位：曾被替换者不得在外层循环再次入列
+        chunk_a = type(
+            "Chunk",
+            (),
+            {"embedding": [1.0, 0.0], "char_count": 100},
+        )()
+        chunk_b = type(
+            "Chunk",
+            (),
+            {"embedding": [1.0, 0.0], "char_count": 200},
+        )()
+        chunk_c = type(
+            "Chunk",
+            (),
+            {"embedding": [0.0, 1.0], "char_count": 300},
+        )()
+        orch = RetrievalOrchestrator()
+        result = orch._deduplicate_by_embedding(
+            [(chunk_a, 0.9), (chunk_b, 0.8), (chunk_c, 0.7)]
+        )
+        assert len(result) == 2
+        kept = [chunk for chunk, _score in result]
+        assert chunk_a not in kept
+        assert kept.count(chunk_b) == 1
+        assert chunk_c in kept
+
     def test_deduplicate_skips_when_no_embedding(self) -> None:
         chunk_a = type("Chunk", (), {"embedding": None, "char_count": 100})()
         chunk_b = type("Chunk", (), {"embedding": None, "char_count": 50})()

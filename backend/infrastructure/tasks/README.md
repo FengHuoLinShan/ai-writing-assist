@@ -165,8 +165,8 @@ marker 不超过 30 秒时以零输出返回成功。observer 失败不会阻断
 正确性；control-loop marker 不读取或写入数据库任务状态。
 
 生产 SIGTERM 也只由 `run_worker.py` 这个组合根处理：它调用 `TaskWorker.stop()`，使 worker
-停止领取新任务并等待已领取任务返回；通用 `TaskWorker` 不依赖操作系统信号。生产 Compose 的
-`stop_grace_period: 2m` 是这段 drain 的外层上限。超过上限后 Docker 会发送 SIGKILL，未完成任务
+停止领取新任务并等待已领取任务返回；通用 `TaskWorker` 不依赖操作系统信号。run_worker 自身在 SIGTERM 后启动 120 秒排空计时，第二次 SIGTERM 立即强制
+取消在跑任务；生产 Compose 的 `stop_grace_period: 2m` 是这段 drain 的外层上限。超过上限后 Docker 会发送 SIGKILL，未完成任务
 仍由既有 lease heartbeat 与 stale recovery 按崩溃路径恢复，因此 graceful drain 不承诺任意长任务必然完成。
 
 每次 claim 都会物化新的 `lease_id` 并递增 `attempt`。心跳和最终状态更新都必须同时匹配

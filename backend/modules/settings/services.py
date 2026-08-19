@@ -29,6 +29,7 @@ from modules.settings.constants import (
     AUTHOR_PREFS_DEFAULTS,
     AUTHOR_PREFS_FIELDS,
     LLM_INHERITABLE_FIELDS,
+    LLM_RUNTIME_TUNING_FIELDS,
     SOURCE_GLOBAL,
     SOURCE_PROJECT,
     SOURCE_SYSTEM,
@@ -207,17 +208,13 @@ class SettingsService:
             _IMAGE_PROVIDER_ID,
         )
         if row is None:
-            raise ValueError(
-                "账户图片服务尚未连接，请先在账户设置中填写 OpenAI API Key"
-            )
+            raise ValueError("账户图片服务尚未连接，请先在账户设置中填写 OpenAI API Key")
         try:
             api_key = decrypt_secret(row.encrypted_api_key)
         except ValueError as exc:
             raise ValueError("账户图片连接无法读取，请重新填写 API Key") from exc
         if not api_key:
-            raise ValueError(
-                "账户图片服务尚未连接，请先在账户设置中填写 OpenAI API Key"
-            )
+            raise ValueError("账户图片服务尚未连接，请先在账户设置中填写 OpenAI API Key")
         return AccountImageRuntimeProfile(api_key=api_key)
 
     # ----- account LLM connections -----
@@ -366,8 +363,8 @@ class SettingsService:
         provider_id: str | None = None,
     ) -> AccountLLMRuntimeProfile:
         resolved_owner = _current_owner_id(owner_id)
+        defaults = await self._llm_repo.get(db, resolved_owner)
         if provider_id is None:
-            defaults = await self._llm_repo.get(db, resolved_owner)
             provider_id = (
                 defaults.provider_id
                 if defaults is not None
@@ -388,7 +385,15 @@ class SettingsService:
             raise ValueError("账户模型连接无法读取，请重新填写 API Key") from exc
         if not api_key:
             raise ValueError("账户模型尚未连接，请先在账户设置中填写 API Key")
-        return AccountLLMRuntimeProfile(api_key=api_key, **template)
+        profile_values = dict(template)
+        # 全局 LLM 默认中用户显式保存的调优参数必须真正进入运行 profile；
+        # 连接身份字段（provider/label/base_url/model）不跨连接覆盖
+        if defaults is not None:
+            for field_name in LLM_RUNTIME_TUNING_FIELDS:
+                value = getattr(defaults, field_name, None)
+                if value is not None:
+                    profile_values[field_name] = value
+        return AccountLLMRuntimeProfile(api_key=api_key, **profile_values)
 
     async def get_account_llm_balances(
         self,
@@ -604,13 +609,18 @@ class SettingsService:
         )
 
         def account_value(field_name: str) -> FieldValueSource:
+            # 优先返回用户在全局 LLM 默认里显式保存的值；否则回退账户模板。
+            # source 表达账户级（global）作用域，与项目级覆盖相对
+            row_value = (
+                getattr(glob_row, field_name, None) if glob_row is not None else None
+            )
             return FieldValueSource(
-                value=template.get(field_name),
+                value=row_value if row_value is not None else template.get(field_name),
                 source=SOURCE_GLOBAL,
             )
 
         return EffectiveLLMSettingsResponse(
-            provider_id=account_value("provider_id"),
+            provider_id=FieldValueSource(value=provider_id, source=SOURCE_GLOBAL),
             label=account_value("label"),
             base_url=account_value("base_url"),
             model=account_value("model"),

@@ -53,7 +53,9 @@ settings 模块拥有账户级文本/图片模型连接、只读余额、全局�
 | DELETE | `/api/settings/llm-connections/{provider_id}` | 清除该 provider Key |
 | GET | `/api/settings/llm-balances` | 查询原币种余额；非阻塞失败 |
 | GET/PUT/DELETE | `/api/settings/image-connection` | 查询、验证保存或清除独立图片连接 |
-| GET/PUT | `/api/settings/llm-defaults` | 读取或更新全局 LLM 默认 |
+| GET/PUT | `/api/settings/llm-defaults` | 读取或更新全局 LLM 默认；其中
+  timeout/max_tokens/temperature/top_p/extra 等调优字段会叠加进账户运行
+  profile 真正生效，连接身份字段仍只能经账户模型连接入口切换 |
 | GET/PUT | `/api/settings/author-preferences` | 读取或更新全局作者偏好 |
 | GET | `/api/settings/projects-using-defaults` | 列出会继承默认值的项目 |
 | POST | `/api/settings/refresh` | 通知客户端刷新设置缓存 |

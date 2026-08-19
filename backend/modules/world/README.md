@@ -209,7 +209,8 @@ tasks ORM。
 
 ## 边界
 
-地图册的独立图片上传是项目导入白名单之外的窄例外：仅该 owner-only
+地图册上传的 PNG 会剥离 tEXt/zTXt/iTXt/eXIf 等文本类辅助 chunk 后入库，
+与 JPEG 的去元数据转码保持一致。地图册的独立图片上传是项目导入白名单之外的窄例外：仅该 owner-only
 API 接受小于 50MB 的 PNG/JPEG，JPEG 在服务端校验、去元数据并转为
 PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传白名单。
 

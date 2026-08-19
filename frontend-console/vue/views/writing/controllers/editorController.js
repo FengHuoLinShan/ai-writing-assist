@@ -395,6 +395,7 @@ export function createEditorController({
     const projectId = getProjectId()
     const chapter = state.chapter
     const lifecycle = lifecycleGeneration
+    const load = loadGeneration
     const requestRevision = editRevision
     const sourceDraftId = state.draftId
     const savedContent = state.content
@@ -415,7 +416,16 @@ export function createEditorController({
         content: savedContent,
       })
     savePromise = request.then((result) => {
-      if (disposed || lifecycle !== lifecycleGeneration || projectId !== getProjectId() || chapter !== state.chapter) return null
+      // 晚到响应只允许落在发起时的同一份稿上：同章内切换历史版本后，
+      // 旧工作稿的保存结果不得覆盖当前载入的版本
+      if (
+        disposed
+        || lifecycle !== lifecycleGeneration
+        || load !== loadGeneration
+        || projectId !== getProjectId()
+        || chapter !== state.chapter
+        || sourceDraftId !== state.draftId
+      ) return null
       const changedDraft = Boolean(result?.id && result.id !== state.draftId)
       const hasNewerEdits = requestRevision !== editRevision
       const keepsLocalFormatting = (
@@ -447,7 +457,12 @@ export function createEditorController({
       if (changedDraft) return refreshVersions(result).then(() => result)
       return result
     }).catch((err) => {
-      if (lifecycle === lifecycleGeneration && projectId === getProjectId()) {
+      if (
+        lifecycle === lifecycleGeneration
+        && projectId === getProjectId()
+        && chapter === state.chapter
+        && sourceDraftId === state.draftId
+      ) {
         state.saveError = err?.message || "保存失败，已保留本地备份"
         toast(state.saveError, "error")
       }

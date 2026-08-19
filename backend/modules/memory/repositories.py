@@ -391,7 +391,10 @@ class EventRepository:
             .all()
         )
         by_sequence = {item.scene_sequence: item for item in existing}
-        chapter_base = scene_index * 1000
+        # 场景事件序号必须避开章级事件带（1..500）：scene_index 从 0 开始，
+        # 若基数为 scene_index*1000，首个场景会与同章章级事件在
+        # (novel_id, chapter_index, sequence) 唯一键上互相覆盖
+        sequence_base = (scene_index + 1) * 1000
         for row in rows:
             local_sequence = int(row["scene_sequence"])
             values = {
@@ -400,7 +403,7 @@ class EventRepository:
                 "scene_id": scene_id,
                 "scene_index": scene_index,
                 "chapter_index": chapter_index,
-                "sequence": chapter_base + local_sequence,
+                "sequence": sequence_base + local_sequence,
             }
             current = by_sequence.pop(local_sequence, None)
             if current is None:
@@ -490,7 +493,13 @@ class EventRepository:
                     MemoryEvent.novel_id == novel_id,
                     MemoryEvent.scene_id == scene_id,
                 )
-                .values(scene_index=new_index)
+                .values(
+                    scene_index=new_index,
+                    # sequence 由 scene_index 派生：重排索引时必须同步重算，
+                    # 否则该场景后续写入会按新基数插入而与旧行失联
+                    sequence=(new_index + 1) * 1000
+                    + func.coalesce(MemoryEvent.scene_sequence, 0),
+                )
             )
         await db.flush()
         return earliest

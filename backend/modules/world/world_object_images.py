@@ -207,7 +207,9 @@ class WorldObjectImageService:
             raise NotFoundError(f"Project {novel_id} not found")
         entity = await self._entity(db, novel_id, entity_id)
         prepared_character = entity.entity_type == "character"
-        images = normalize_world_object_image(
+        # 解码与 WebP 转码是 CPU 密集同步操作，必须离开事件循环，避免阻塞全部并发请求
+        images = await asyncio.to_thread(
+            normalize_world_object_image,
             payload,
             is_character=prepared_character,
         )

@@ -25,6 +25,24 @@ class TestChunkingService:
         assert len(chunks) > 1
         assert all(c for c in chunks)
 
+    def test_split_by_length_terminates_when_overlap_exceeds_half_chunk(self) -> None:
+        # 句号每 501 字符一个：边界回退后 end - overlap 会倒退，曾导致死循环
+        unit = "字" * 500 + "。"
+        text = unit * 8
+        chunks = ChunkingService().split_by_length(text, chunk_size=1000, overlap=600)
+        assert chunks
+        assert all(chunks)
+        # 起点倒退时也不应产生重复内容的无限堆积
+        assert len(chunks) <= len(text)
+
+    def test_split_by_length_large_overlap_produces_contiguous_chunks(self) -> None:
+        text = ("句子内容。" * 40 + "\n") * 6
+        chunks = ChunkingService().split_by_length(text, chunk_size=120, overlap=80)
+        assert chunks
+        assert all(chunk in text for chunk in chunks)
+        # start 每轮至少前进 1：数量必须与文本长度同阶有界，不能指数/无限增长
+        assert len(chunks) <= len(text)
+
     @pytest.mark.parametrize(
         ("chunk_size", "overlap"),
         [(0, 0), (-1, 0), (100, -1), (100, 100), (100, 101)],

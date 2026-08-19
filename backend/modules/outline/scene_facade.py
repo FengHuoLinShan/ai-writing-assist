@@ -209,7 +209,9 @@ async def get_scene_context_window(
     previous = [
         item for item in scenes if int(item.get("scene_index") or 0) < scene.scene_index
     ]
-    previous = previous[-max(0, min(previous_limit, 4)) :]
+    # previous[-0:] 会取整表：limit 为 0 时必须显式清空
+    previous_limit = max(0, min(previous_limit, 4))
+    previous = previous[len(previous) - previous_limit :] if previous_limit else []
     briefs = [
         NeighborSceneBriefContract(
             scene_id=str(item["id"]),

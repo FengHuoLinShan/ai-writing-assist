@@ -19,6 +19,7 @@ from modules.outline.scene_workbench import SceneWorkbenchService
 from modules.outline.schemas import (
     SceneChapterQuickCreate,
     SceneFusionPreviewRequest,
+    SceneFusionSuggestionDismissRequest,
     SceneFusionSuggestionSummary,
     SceneHealthReason,
     SceneMergeRequest,
@@ -251,8 +252,11 @@ class TestSceneWorkbenchApi:
                 _db,
                 requested_novel_id,
                 scene_ids,
+                *,
+                for_update: bool = False,
             ):  # type: ignore[no-untyped-def]
                 assert requested_novel_id == novel_id
+                assert for_update is True
                 self.batch_calls.append(list(scene_ids))
                 return [
                     scenes[second_source_id],
@@ -1478,9 +1482,10 @@ class TestSceneWorkbenchApi:
             == "not_applicable"
         )
         assert imported_meta["semantic_uncertain_fields"] == []
-        assert "semantic_field_statuses" not in reviewed_by_id[manual["id"]][
-            "structure_meta"
-        ]
+        assert (
+            "semantic_field_statuses"
+            not in reviewed_by_id[manual["id"]]["structure_meta"]
+        )
 
         workbench = await async_client.get(
             "/api/outline/scene-workbench",
@@ -2346,10 +2351,7 @@ class TestSceneWorkbenchApi:
             merged["scene"]["structure_meta"]["narrative_function"]
             == "把钥匙从线索升级为后续追逐的因果承诺"
         )
-        assert (
-            merged["scene"]["structure_meta"]["semantic_origin"]
-            == "mechanical_fusion"
-        )
+        assert merged["scene"]["structure_meta"]["semantic_origin"] == "mechanical_fusion"
 
         source_after_merge = await async_client.get(
             f"/api/outline/scenes/{source['id']}",
@@ -2733,10 +2735,14 @@ class TestSceneWorkbenchApi:
         )
 
         assert first_response.status_code == repeated.status_code == 202
-        assert first_response.json() == repeated.json() == {
-            "task_id": operation_id,
-            "status": "pending",
-        }
+        assert (
+            first_response.json()
+            == repeated.json()
+            == {
+                "task_id": operation_id,
+                "status": "pending",
+            }
+        )
         task = await db_session.scalar(
             select(AsyncTask).where(AsyncTask.id == uuid.UUID(operation_id))
         )
@@ -2923,9 +2929,10 @@ class TestSceneWorkbenchApi:
             second["id"],
         ]
         assert data["fused_scene"]["structure_meta"]["needs_review"] is True
-        assert "core_conflict" in data["fused_scene"]["structure_meta"][
-            "semantic_uncertain_fields"
-        ]
+        assert (
+            "core_conflict"
+            in data["fused_scene"]["structure_meta"]["semantic_uncertain_fields"]
+        )
         assert data["fused_scene"]["structure_meta"]["adopted_at"]
         assert data["fused_scene"]["structure_meta"]["source"] == "manual_fusion"
         assert data["fused_scene"]["chapter_ids"] == ["1", "2"]
@@ -3609,3 +3616,137 @@ class TestSceneWorkbenchHotMode:
         assert body["skip"] == 0
         assert body["progress"] is None
         assert all(item["segment"] is None for item in body["items"])
+
+
+class TestFusionDecisionLocking:
+    async def test_dismiss_fusion_suggestions_locks_suggestion_rows(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        service = SceneWorkbenchService()
+        nid = uuid.uuid4()
+        suggestion_id = uuid.uuid4()
+        item = SimpleNamespace(status="pending")
+        suggestion_repo = MagicMock()
+        suggestion_repo.get_for_novel_for_update = AsyncMock(return_value=item)
+        suggestion_repo.mark_status = AsyncMock()
+        service._suggestion_repo = suggestion_repo
+        service._suggestion_is_current = AsyncMock(return_value=True)
+
+        response = await service.dismiss_fusion_suggestions(
+            None,  # type: ignore[arg-type]
+            str(nid),
+            SceneFusionSuggestionDismissRequest(
+                suggestion_ids=[str(suggestion_id)],
+                confirmed=True,
+            ),
+        )
+
+        assert response.dismissed == 1
+        suggestion_repo.get_for_novel_for_update.assert_awaited_once_with(
+            None,
+            nid,
+            suggestion_id,
+        )
+        suggestion_repo.mark_status.assert_awaited_once_with(
+            None,
+            item,
+            status="dismissed",
+        )
+
+    async def test_save_llm_fusion_locks_suggestion_before_scenes(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from modules.outline.schemas import SceneFusionSaveRequest
+
+        service = SceneWorkbenchService()
+        nid = uuid.uuid4()
+        scene_id = uuid.uuid4()
+        other_scene_id = uuid.uuid4()
+        suggestion_id = uuid.uuid4()
+        order: list[str] = []
+
+        suggestion = SimpleNamespace(
+            status="pending",
+            source_scene_ids=[str(scene_id), str(other_scene_id)],
+        )
+        suggestion_repo = MagicMock()
+        suggestion_repo.get_for_novel_for_update = AsyncMock(return_value=suggestion)
+        suggestion_repo.mark_status = AsyncMock(
+            side_effect=lambda *args, **kwargs: order.append("mark_status"),
+        )
+        service._suggestion_repo = suggestion_repo
+        service._suggestion_is_current = AsyncMock(return_value=True)
+
+        def _make_scene(sid):
+            return SimpleNamespace(
+                id=sid,
+                novel_id=nid,
+                title="源 Scene",
+                status="draft",
+                structure_meta={},
+                provenance_meta={},
+            )
+
+        scene = _make_scene(scene_id)
+        other_scene = _make_scene(other_scene_id)
+
+        async def _locked_get_many(_db, _nid, ids, *, for_update=False):
+            assert for_update is True
+            order.append("scenes")
+            by_id = {scene_id: scene, other_scene_id: other_scene}
+            return [by_id[sid] for sid in ids]
+
+        service.repo.get_many_for_novel = _locked_get_many
+
+        created = SimpleNamespace(
+            id=uuid.uuid4(),
+            novel_id=nid,
+            title="融合 Scene",
+            status="draft",
+            structure_meta={},
+            provenance_meta={},
+        )
+
+        async def _noop(*args, **kwargs):
+            return None
+
+        service.repo.lock_scene_order = _noop
+        service.repo.get_by_novel_ordered = AsyncMock(side_effect=lambda *a, **k: [])
+        service.repo.create = AsyncMock(return_value=created)
+        service.repo.deprecate_with_reference = AsyncMock()
+        service._fusion_scene_payload = AsyncMock(
+            return_value={
+                "scene_index": 7,
+                "title": "融合 Scene",
+                "source": "manual_fusion",
+                "status": "draft",
+                "structure_meta": {},
+                "provenance_meta": {},
+            },
+        )
+        service._adopted_structure_meta = lambda meta, source=None: meta or {}
+        service._author_reviewed_fusion_semantic_meta = lambda payload, meta: meta
+        service._validate_fusion_override_chapters = AsyncMock(return_value=None)
+
+        # discard 模式覆盖同一加锁路径（建议行 -> Scene 行 -> 状态回写），且提前返回
+        response = await service.save_llm_fusion(
+            None,  # type: ignore[arg-type]
+            str(nid),
+            SceneFusionSaveRequest(
+                source_scene_ids=[str(scene_id), str(other_scene_id)],
+                suggestion_id=str(suggestion_id),
+                mode="discard",
+                fused_scene=None,
+                primary_scene_id=None,
+            ),
+        )
+
+        assert response.status == "discarded"
+        suggestion_repo.get_for_novel_for_update.assert_awaited_once()
+        # 建议行先于 Scene 行加锁，与 apply_replacement_suggestion 的全序一致
+        assert order == ["scenes", "mark_status"]
+        suggestion_repo.mark_status.assert_awaited_once_with(
+            None,
+            suggestion,
+            status="dismissed",
+        )

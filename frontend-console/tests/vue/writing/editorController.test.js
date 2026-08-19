@@ -410,6 +410,62 @@ describe("editorController", () => {
     expect(controller.snapshot().draftId).toBe("d1")
   })
 
+  it("同章切换历史版本后在途保存不得覆盖当前载入的版本", async () => {
+    const late = deferred()
+    const { controller, api, toast } = makeController()
+    api.writing.autosave.mockReturnValue(late.promise)
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: document.getElementById("title"), editor })
+    editor.value = "工作稿新输入"
+    editor.dispatchEvent(new Event("input"))
+    const saving = controller.autosave()
+    await vi.waitFor(() => expect(api.writing.autosave).toHaveBeenCalled())
+
+    api.writing.get.mockResolvedValueOnce({ id: "d-old", novel_id: "p1", title: "旧版标题", content: "旧版正文", version_number: 3, status: "draft", updated_at: "2026-08-01T10:00:00Z" })
+    await controller.loadChapter(1, { draftId: "d-old" })
+    expect(controller.snapshot()).toMatchObject({ draftId: "d-old", content: "旧版正文" })
+
+    late.resolve({ id: "d1", title: "第一章", content: "工作稿新输入", version_number: 2, status: "draft" })
+    await saving
+
+    const snapshot = controller.snapshot()
+    expect(snapshot.draftId).toBe("d-old")
+    expect(snapshot.content).toBe("旧版正文")
+    expect(snapshot.title).toBe("旧版标题")
+    expect(snapshot.versionNumber).toBe(3)
+    expect(snapshot.readonly).toBe(false)
+    expect(toast).not.toHaveBeenCalledWith("已保存到工作稿", "success")
+    controller.dispose()
+  })
+
+  it("同章切换历史版本后保存失败提示不得挂到新版本状态栏", async () => {
+    let rejectLate
+    const late = new Promise((resolve, reject) => { rejectLate = reject })
+    const { controller, api, toast } = makeController()
+    api.writing.autosave.mockReturnValue(late)
+    await controller.loadChapter(1)
+    document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
+    const editor = document.getElementById("body")
+    controller.attach({ title: document.getElementById("title"), editor })
+    editor.value = "工作稿新输入"
+    editor.dispatchEvent(new Event("input"))
+    const saving = controller.autosave()
+    await vi.waitFor(() => expect(api.writing.autosave).toHaveBeenCalled())
+
+    api.writing.get.mockResolvedValueOnce({ id: "d-old", novel_id: "p1", title: "旧版标题", content: "旧版正文", version_number: 3, status: "draft", updated_at: "2026-08-01T10:00:00Z" })
+    await controller.loadChapter(1, { draftId: "d-old" })
+
+    rejectLate(new Error("网络中断"))
+    await saving
+    await Promise.resolve()
+
+    expect(controller.snapshot().saveError).toBeNull()
+    expect(toast).not.toHaveBeenCalledWith("网络中断", "error")
+    controller.dispose()
+  })
+
   it("保存新版本晚到时接收新版本元数据但不覆盖随后输入", async () => {
     const late = deferred()
     const { controller, api, toast, onVersionChanged } = makeController()

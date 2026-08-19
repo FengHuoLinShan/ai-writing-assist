@@ -51,6 +51,7 @@ _EPUB_MAX_MEMBER_SIZE = MAX_FILE_SIZE
 _EPUB_MAX_CONTAINER_SIZE = 1024 * 1024
 _EPUB_MAX_PACKAGE_SIZE = 4 * 1024 * 1024
 _EPUB_ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+_EPUB_BOUNDED_READ_CHUNK = 64 * 1024
 _EPUB_CONTAINER_PATH = "META-INF/container.xml"
 _EPUB_CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
 _EPUB_PACKAGE_NAMESPACE = "http://www.idpf.org/2007/opf"
@@ -126,6 +127,51 @@ def _archive_path_is_unsafe(name: str) -> bool:
     )
 
 
+def _read_member_bounded(
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
+    *,
+    max_actual_size: int,
+) -> bytes:
+    """按实测解压输出读取单个 zip 成员。
+
+    中央目录里的 file_size 是攻击者可控的声明值，而 zipfile 的 read(-1) 会先
+    把整个 DEFLATE 流解压进内存再按声明值截断；必须分块计数才能把真实输出
+    限制在预期体积内。
+    """
+    output = bytearray()
+    with archive.open(member, "r") as stream:
+        while True:
+            chunk = stream.read(_EPUB_BOUNDED_READ_CHUNK)
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > max_actual_size:
+                _raise_content_type_mismatch()
+    return bytes(output)
+
+
+def _audit_epub_member_sizes(
+    archive: zipfile.ZipFile,
+    members: list[zipfile.ZipInfo],
+) -> None:
+    """全成员解压审计：实际输出一旦超过声明 file_size 立即拒绝。
+
+    审计通过后，后续 ebooklib 的整段 read 至多解压出已通过声明的体积，
+    伪造头部的解压炸弹在这里被有界拦截。
+    """
+    for member in members:
+        produced = 0
+        with archive.open(member, "r") as stream:
+            while True:
+                chunk = stream.read(_EPUB_BOUNDED_READ_CHUNK)
+                if not chunk:
+                    break
+                produced += len(chunk)
+                if produced > member.file_size:
+                    _raise_content_type_mismatch()
+
+
 def _read_epub_xml(
     archive: zipfile.ZipFile,
     member: zipfile.ZipInfo,
@@ -134,7 +180,7 @@ def _read_epub_xml(
 ) -> ElementTree.Element:
     if member.is_dir() or member.file_size > max_size:
         _raise_content_type_mismatch()
-    content = archive.read(member)
+    content = _read_member_bounded(archive, member, max_actual_size=max_size)
     lowered = content.lower()
     if b"<!doctype" in lowered or b"<!entity" in lowered:
         _raise_content_type_mismatch()
@@ -179,13 +225,20 @@ def _validate_epub_content(data: bytes) -> None:
                 if total_size > _EPUB_MAX_UNCOMPRESSED_SIZE:
                     _raise_content_type_mismatch()
 
+            _audit_epub_member_sizes(archive, members)
+
             mimetype_info = archive.getinfo("mimetype")
             if (
                 members[0].filename != "mimetype"
                 or mimetype_info.header_offset != 0
                 or mimetype_info.compress_type != zipfile.ZIP_STORED
                 or mimetype_info.file_size != len(_EPUB_MIMETYPE)
-                or archive.read(mimetype_info) != _EPUB_MIMETYPE
+                or _read_member_bounded(
+                    archive,
+                    mimetype_info,
+                    max_actual_size=len(_EPUB_MIMETYPE),
+                )
+                != _EPUB_MIMETYPE
             ):
                 _raise_content_type_mismatch()
 

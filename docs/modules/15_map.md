@@ -64,7 +64,8 @@ run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新
 - 生成可选在 Prompt 确认点暂停；作者可编辑/复制 Prompt，并逐页选择
   站内生图或站外生图。只有确认后且存在站内页时才解析图片连接。
 - 作者可独立上传 PNG/JPEG 作为候选页；JPEG 校验尺寸与帧数、处理 EXIF
-  方向、去元数据并转为不透明 PNG。输入与输出均必须小于 50MB。
+  方向、去元数据并转为不透明 PNG；PNG 输入会剥离 tEXt/zTXt/iTXt/eXIf 等
+  文本类辅助 chunk 后再入库。输入与输出均必须小于 50MB。
 - upload run 仅用于候选审核与历史，不覆盖最新 AI 生成任务。
 
 地图册不叠加 ADR-0013 的通用 operation receipt：图片生成已有 run/page checkpoint、

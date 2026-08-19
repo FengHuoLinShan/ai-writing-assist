@@ -7,6 +7,7 @@ Import 业务逻辑层
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from sqlalchemy.exc import IntegrityError
@@ -70,7 +71,9 @@ class ImportService:
             # 使用 savepoint 隔离解析/写入过程，失败时只回滚内部操作，
             # 保留外层导入记录，便于更新为 failed 状态。
             async with db.begin_nested():
-                chapters = parse_file(file_content, file_type)
+                # 解析（epub/mobi 解包、编码探测、HTML 解析）是同步阻塞操作，
+                # 放入线程池避免占用事件循环导致整个进程停摆
+                chapters = await asyncio.to_thread(parse_file, file_content, file_type)
                 total = len(chapters)
 
                 if total == 0:
@@ -156,14 +159,15 @@ class ImportService:
                     db,
                     record.id,
                     status="failed",
-                    error_message=redact_diagnostic(exc, limit=1000),
+                    # 数据库/驱动异常正文可能携带 SQL 与连接细节；
+                    # 该字段会经 GET /api/imports 原样返回给客户端，只存通用文案
+                    error_message=error_message,
                 )
             except Exception as update_exc:
                 # 事务可能已被底层数据库错误污染，标记失败状态也可能失败。
                 # 记录日志，避免二次异常掩盖原始业务错误。
                 logger.error(
-                    "标记导入记录失败状态时出错 "
-                    "error_type=%s diagnostic=%s",
+                    "标记导入记录失败状态时出错 error_type=%s diagnostic=%s",
                     type(update_exc).__name__,
                     redact_diagnostic(update_exc, limit=300),
                 )

@@ -1083,6 +1083,20 @@ class SceneRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_for_update(
+        self,
+        db: AsyncSession,
+        scene_id: uuid.UUID,
+    ) -> Scene | None:
+        stmt = (
+            select(Scene)
+            .where(Scene.id == scene_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_many_for_novel(
         self,
         db: AsyncSession,

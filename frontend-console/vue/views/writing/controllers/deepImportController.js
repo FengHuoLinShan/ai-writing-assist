@@ -41,6 +41,9 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   let pollFailures = 0
   let generation = 0
   let disposed = false
+  // dispose 是终态：组件卸载后不得再被晚到的 startTask/recover 复活，
+  // 否则卸载后的无限轮询无人停止
+  let finalized = false
 
   function emit() { onChange({ taskId, projectId, progress: progress ? { ...progress } : null }) }
   function stop() {
@@ -171,6 +174,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   }
 
   function startTask(info = {}) {
+    if (finalized) return
     const previousTaskId = taskId
     const previousTerminal = ["done", "failed", "cancelled"].includes(
       progress?.status || progress?.phase,
@@ -204,6 +208,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   }
 
   async function recover() {
+    if (finalized) return
     disposed = false
     stop()
     projectId = getProjectId()
@@ -282,6 +287,7 @@ export function createDeepImportController({ api, toast, getProjectId, onChange,
   }
 
   function dispose() {
+    finalized = true
     disposed = true
     stop()
   }

@@ -164,7 +164,6 @@ async def test_run_task_worker_turns_sigterm_into_one_graceful_drain(
     async def run_forever() -> None:
         handler = loop.add_signal_handler.call_args.args[1]
         handler()
-        handler()
 
     worker.run_forever = AsyncMock(side_effect=run_forever)
 
@@ -179,9 +178,50 @@ async def test_run_task_worker_turns_sigterm_into_one_graceful_drain(
     worker.stop.assert_called_once_with()
     loop.remove_signal_handler.assert_called_once_with(signal.SIGTERM)
     assert (
-        caplog.messages.count("TaskWorker received SIGTERM; draining in-flight tasks.")
+        sum(
+            1
+            for message in caplog.messages
+            if message.startswith("TaskWorker received SIGTERM; draining in-flight tasks")
+        )
         == 1
     )
+
+
+@pytest.mark.asyncio
+async def test_run_task_worker_second_sigterm_forces_bounded_drain(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """排空不得无限挂起：第二次 SIGTERM 立即强制取消在跑任务。"""
+    caplog.set_level(logging.INFO, logger="run_worker")
+    loop = MagicMock(spec=asyncio.AbstractEventLoop)
+    worker = MagicMock()
+    force_cancelled = False
+
+    async def run_forever() -> None:
+        nonlocal force_cancelled
+        handler = loop.add_signal_handler.call_args.args[1]
+        handler()
+        handler()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            force_cancelled = True
+            return
+
+    worker.run_forever = AsyncMock(side_effect=run_forever)
+
+    with patch(
+        "run_worker.asyncio.get_running_loop",
+        autospec=True,
+        return_value=loop,
+    ):
+        await _run_task_worker(worker)
+
+    loop.add_signal_handler.assert_called_once_with(signal.SIGTERM, ANY)
+    worker.stop.assert_called_once_with()
+    loop.remove_signal_handler.assert_called_once_with(signal.SIGTERM)
+    assert force_cancelled is True
+    assert any("forcing shutdown" in message for message in caplog.messages)
 
 
 @pytest.mark.asyncio

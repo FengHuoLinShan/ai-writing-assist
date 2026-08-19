@@ -888,6 +888,12 @@ class ConflictSuggestionService:
                 for_update=True,
             )
             if current.source_fingerprint != plan.source_fingerprint:
+                await self._mark_drifted_suggestion_failed(
+                    db,
+                    novel_id=novel_id,
+                    item_id=item_id,
+                    context_confirmation_id=context_confirmation_id,
+                )
                 raise ValidationError(
                     "Conflict suggestion source changed while task ran"
                 ) from exc
@@ -920,6 +926,12 @@ class ConflictSuggestionService:
             for_update=True,
         )
         if current.source_fingerprint != plan.source_fingerprint:
+            await self._mark_drifted_suggestion_failed(
+                db,
+                novel_id=novel_id,
+                item_id=item_id,
+                context_confirmation_id=context_confirmation_id,
+            )
             raise ValidationError("Conflict suggestion source changed while task ran")
         item = await self._repo.get_item(
             db,
@@ -951,6 +963,35 @@ class ConflictSuggestionService:
             status="done",
         )
         return updated
+
+    async def _mark_drifted_suggestion_failed(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        item_id: str,
+        context_confirmation_id: str,
+    ) -> None:
+        """指纹漂移时回写失败状态，避免 suggestion_status 永久停在 running。"""
+        item = await self._repo.get_item(
+            db,
+            _parse_uuid(item_id, "item_id"),
+            _parse_uuid(novel_id, "novel_id"),
+            for_update=True,
+        )
+        if item is None:
+            return
+        confirmation = _parse_uuid(context_confirmation_id, "context_confirmation_id")
+        if item.suggestion_confirmation_id not in (None, confirmation):
+            # 建议已被新任务接管：不覆盖新任务的运行状态
+            return
+        await self._repo.update_loaded_item_suggestion(
+            db,
+            item,
+            status="failed",
+            confirmation_id=confirmation,
+            error="建议生成期间源内容已变化，请重新发起检查",
+        )
 
     async def _prepare_task(
         self,
@@ -1002,6 +1043,8 @@ class ConflictSuggestionService:
             ),
             source_fingerprint=_task_source_fingerprint(confirmed, check, items),
         )
+
+
 def _task_owner(summary: dict | None) -> str | None:
     value = (summary or {}).get(AI_REVIEW_TASK_OWNER_KEY)
     return str(value) if value else None
