@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildSceneAlerts,
-  sceneTextForChapter,
   summarizeSceneAlerts,
 } from "../../views/writing/sceneAlerts.js"
 
@@ -17,7 +16,7 @@ const completeScene = {
 }
 
 describe("sceneAlerts", () => {
-  it("只在当前 Scene 正文范围内做 must/must_not 字面提示", () => {
+  it("不在前端重复执行 must/must_not 字面检查", () => {
     const scene = {
       ...completeScene,
       must_happen: "拿到账本；离开码头",
@@ -28,16 +27,11 @@ describe("sceneAlerts", () => {
       scene,
       chapterIndex: 12,
       content: "前文无关拿到账本，主角死亡后文无关",
-      latestCheck: { id: "check-1", draft_id: "d1", version_number: 3, items: [] },
-      draftId: "d1",
-      versionNumber: 3,
+      checkLoading: true,
     })
 
-    expect(alerts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: "medium", message: "未检测到必须发生项「离开码头」" }),
-      expect.objectContaining({ severity: "high", message: "检测到禁止发生项「主角死亡」" }),
-    ]))
-    expect(alerts.some((item) => item.message.includes("拿到账本"))).toBe(false)
+    expect(alerts.some((item) => item.id.startsWith("prose-"))).toBe(false)
+    expect(alerts.some((item) => /拿到账本|离开码头|主角死亡/.test(item.message))).toBe(false)
   })
 
   it("组合 Scene 健康提示，但不做主观质量判断", () => {
@@ -215,13 +209,7 @@ describe("sceneAlerts", () => {
     expect(summarizeSceneAlerts(alerts).actionableCount).toBe(1)
   })
 
-  it("使用合法 chunk 范围，并在范围缺失时退回整章", () => {
-    const scene = { scene_chunks: [{ chapter_index: 1, start_pos: 2, end_pos: 5 }] }
-    expect(sceneTextForChapter(scene, 1, "0123456789")).toBe("234")
-    expect(sceneTextForChapter({ chapter_ids: ["1"] }, 1, "整章正文")).toBe("整章正文")
-  })
-
-  it("有 Scene chunk 但范围失效时跳过字面判定，不扫描其他 Scene 正文", () => {
+  it("Scene chunk 失效时仍只展示结构与服务端检查状态", () => {
     const scene = {
       ...completeScene,
       must_happen: "拿到账本",
@@ -235,10 +223,7 @@ describe("sceneAlerts", () => {
       checkLoading: true,
     })
 
-    expect(sceneTextForChapter(scene, 12, "短正文")).toBe("")
-    expect(alerts).toContainEqual(expect.objectContaining({ id: "prose-scope-unavailable" }))
-    expect(alerts.some((item) => item.id.startsWith("prose-required-"))).toBe(false)
-    expect(alerts.some((item) => item.id.startsWith("prose-forbidden-"))).toBe(false)
+    expect(alerts.some((item) => item.id.startsWith("prose-"))).toBe(false)
   })
 
   it("最近校验加载中不会提前声称无检查记录", () => {

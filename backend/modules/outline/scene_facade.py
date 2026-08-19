@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError
 from modules.outline.contracts import (
     NeighborSceneBriefContract,
+    OutlineAuthorAttentionItemContract,
     SceneContextWindowContract,
     SceneContract,
     SceneSpanContract,
@@ -83,6 +84,16 @@ async def get_scene_contract(
     except NotFoundError:
         return None
     return _scene_to_contract(scene)
+
+
+async def get_author_attention_items(
+    db: AsyncSession,
+    novel_id: str,
+) -> tuple[OutlineAuthorAttentionItemContract, ...]:
+    """Return current Scene health and fusion decisions for Project Today."""
+    from modules.outline.scene_workbench import SceneWorkbenchService
+
+    return await SceneWorkbenchService().get_author_attention_items(db, novel_id)
 
 
 async def get_scenes_by_novel(
@@ -468,6 +479,7 @@ __all__ = [
     "batch_create_scenes",
     "count_scenes_by_novel",
     "create_scene",
+    "get_author_attention_items",
     "get_next_scene_index",
     "get_scene",
     "get_scene_contract",

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -147,12 +147,66 @@ class WorkspaceWritingSummaryResponse(BaseModel):
     word_count: int = Field(default=0, ge=0)
 
 
+class WorkspaceAttentionTargetResponse(BaseModel):
+    kind: Literal[
+        "writing_conflict",
+        "world_bible_conflict",
+        "world_review_objects",
+        "world_review_aliases",
+        "world_review_relations",
+        "world_suggestion",
+        "world_adoption",
+        "outline_scene",
+        "outline_fusion",
+    ]
+    item_id: str | None = None
+    chapter_index: int | None = Field(default=None, ge=0)
+    scene_id: str | None = None
+    page_id: str | None = None
+    suggestion_id: str | None = None
+
+
+WorkspaceAttentionSourceKind = Literal[
+    "writing_conflict",
+    "world_conflict",
+    "world_object",
+    "world_alias_group",
+    "world_relation_group",
+    "world_suggestion",
+    "outline_scene_health",
+    "outline_fusion",
+]
+
+
+class WorkspaceAttentionItemResponse(BaseModel):
+    key: str
+    source_kind: WorkspaceAttentionSourceKind
+    title: str
+    summary: str
+    author_action: Literal["needs_decision", "can_improve"]
+    relevance: Literal["exact_scene", "current_chapter", "project_general"]
+    severity: Literal["high", "medium", "low", "info"]
+    target: WorkspaceAttentionTargetResponse
+    updated_at: datetime | None = None
+
+
+class WorkspaceAttentionMoreTargetResponse(BaseModel):
+    source_kind: WorkspaceAttentionSourceKind
+    target: WorkspaceAttentionTargetResponse
+
+
 class WorkspaceAttentionSummaryResponse(BaseModel):
     world_objects: int = Field(default=0, ge=0)
     world_aliases: int = Field(default=0, ge=0)
     world_relations: int = Field(default=0, ge=0)
     outline_scenes: int = Field(default=0, ge=0)
     total: int = Field(default=0, ge=0)
+    items: list[WorkspaceAttentionItemResponse] = Field(default_factory=list)
+    actionable_total: int = Field(default=0, ge=0)
+    has_more: bool = False
+    more_targets: list[WorkspaceAttentionMoreTargetResponse] = Field(
+        default_factory=list
+    )
 
 
 class ProjectWorkspaceSummaryResponse(BaseModel):

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,21 @@ class WritingProjectStatsContract:
     novel_id: str
     chapter_count: int = 0
     word_count: int = 0
+
+
+@dataclass(frozen=True)
+class WritingAuthorAttentionItemContract:
+    """One actionable Writing item for the project-owned read projection."""
+
+    key: str
+    title: str
+    summary: str
+    author_action: Literal["needs_decision", "can_improve"]
+    severity: Literal["high", "medium", "low", "info"]
+    chapter_index: int
+    scene_id: str | None
+    item_id: str | None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)

@@ -114,6 +114,12 @@ describe("editorial archive theme", () => {
     expect(desk).toMatch(/@media \(max-width: 390px\)[\s\S]*\.scene-lens--mobile \.scene-lens__load \.btn\s*\{[^}]*min-height:\s*44px;/s)
   })
 
+  it("stacks Today decisions without horizontal overflow at 390px", () => {
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*\.today-attention-row\s*\{[^}]*flex-direction:\s*column;/s)
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*\.today-attention-row__meta\s*\{[^}]*flex-wrap:\s*wrap;/s)
+    expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*\.today-attention-row__meta \.btn\s*\{[^}]*width:\s*100%;/s)
+  })
+
   it("keeps night-theme disabled buttons on neutral paper instead of a light slab", () => {
     expect(theme).toMatch(/\[data-theme="night"\] \.btn:disabled,\s*\[data-theme="night"\] \.btn\.disabled\s*\{[^}]*background:\s*var\(--archive-paper-raised\);[^}]*color:\s*var\(--archive-ink-soft\);/s)
     expect(theme).toMatch(/\[data-theme="night"\] \.btn-text:disabled,\s*\[data-theme="night"\] \.btn-text\.disabled\s*\{[^}]*background:\s*transparent;/s)

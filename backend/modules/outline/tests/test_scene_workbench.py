@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest import mock
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
@@ -18,7 +19,12 @@ from modules.outline.scene_workbench import SceneWorkbenchService
 from modules.outline.schemas import (
     SceneChapterQuickCreate,
     SceneFusionPreviewRequest,
+    SceneFusionSuggestionSummary,
+    SceneHealthReason,
     SceneMergeRequest,
+    SceneResponse,
+    SceneWorkbenchItem,
+    SceneWorkbenchResponse,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
@@ -69,6 +75,89 @@ async def _create_draft(
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+async def test_author_attention_dedupes_fusion_from_scene_health() -> None:
+    service = SceneWorkbenchService()
+    updated_at = datetime(2026, 8, 18, tzinfo=UTC)
+    first_scene_id = str(uuid.uuid4())
+    second_scene_id = str(uuid.uuid4())
+    service.get_workbench = AsyncMock(
+        return_value=SceneWorkbenchResponse(
+            health={},
+            items=[
+                SceneWorkbenchItem(
+                    scene=SceneResponse(
+                        id=first_scene_id,
+                        novel_id=str(uuid.uuid4()),
+                        scene_index=2,
+                        title="城门相遇",
+                        chapter_ids=["3"],
+                        updated_at=updated_at,
+                    ),
+                    health=["unreviewed", "needs_organize"],
+                    health_details={
+                        "needs_organize": [
+                            SceneHealthReason(
+                                code="pending_scene_fusion_suggestion",
+                                label="有 Scene 融合建议待处理",
+                                chapter_indices=[3],
+                                suggestion_id="fusion-1",
+                            )
+                        ]
+                    },
+                ),
+                SceneWorkbenchItem(
+                    scene=SceneResponse(
+                        id=second_scene_id,
+                        novel_id=str(uuid.uuid4()),
+                        scene_index=3,
+                        title="重复来源",
+                        chapter_ids=[],
+                        scene_chunks=[{"chapter_index": 4}],
+                        updated_at=updated_at,
+                    ),
+                    health=["needs_organize"],
+                    health_details={
+                        "needs_organize": [
+                            SceneHealthReason(
+                                code="pending_scene_fusion_suggestion",
+                                label="有 Scene 融合建议待处理",
+                                chapter_indices=[3],
+                                suggestion_id="fusion-1",
+                            )
+                        ]
+                    },
+                ),
+                SceneWorkbenchItem(
+                    scene=SceneResponse(
+                        id=str(uuid.uuid4()),
+                        novel_id=str(uuid.uuid4()),
+                        scene_index=4,
+                        title="历史场景",
+                        chapter_ids=["3"],
+                        status="deprecated",
+                        updated_at=updated_at,
+                    ),
+                    health=["unreviewed"],
+                    health_details={},
+                ),
+            ],
+            fusion_suggestions=SceneFusionSuggestionSummary(pending_count=1),
+        )
+    )
+
+    result = await service.get_author_attention_items(SimpleNamespace(), "novel-1")
+
+    assert [item.source_kind for item in result] == [
+        "outline_scene_health",
+        "outline_fusion",
+    ]
+    assert result[0].author_action == "needs_decision"
+    assert result[0].summary == "待处理：未复核。"
+    assert result[1].suggestion_id == "fusion-1"
+    assert result[1].chapter_index == 3
+    assert result[1].scene_ids == (first_scene_id, second_scene_id)
 
 
 class TestSceneWorkbenchApi:

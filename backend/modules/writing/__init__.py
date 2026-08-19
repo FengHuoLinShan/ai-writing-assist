@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
-from modules.writing.contracts import WritingDraftContract
+from modules.writing.contracts import (
+    WritingAuthorAttentionItemContract,
+    WritingDraftContract,
+)
 from modules.writing.models import WritingDraft
 from modules.writing.schemas import (
     DraftListItem,
@@ -16,6 +19,7 @@ from modules.writing.schemas import (
 __all__ = [
     "WritingDraft",
     "WritingDraftContract",
+    "WritingAuthorAttentionItemContract",
     "WritingDraftCreate",
     "WritingDraftUpdate",
     "WritingDraftResponse",

@@ -46,7 +46,7 @@ describe("sceneModel", () => {
   })
 
   it("prefetches the selected scene and all durable suggestion pages", async () => {
-    router.getCurrentQuery.mockReturnValue(new URLSearchParams("mode=normal&scene_id=s25"))
+    router.getCurrentQuery.mockReturnValue(new URLSearchParams("mode=normal&scene_id=s25&suggestion_id=sg-50"))
     sceneSession("p1").filters = { ...SCENE_FILTER_DEFAULTS, skip: 20 }
     api.outline.getSceneWorkbench.mockResolvedValue({
       items: [{ scene: { id: "s25" } }],
@@ -68,6 +68,7 @@ describe("sceneModel", () => {
     expect(api.outline.listFusionSuggestions).toHaveBeenNthCalledWith(1, "p1", { skip: 0, limit: 50 })
     expect(api.outline.listFusionSuggestions).toHaveBeenNthCalledWith(2, "p1", { skip: 50, limit: 50 })
     expect(props.selectedSceneId).toBe("s25")
+    expect(props.focusedSuggestionId).toBe("sg-50")
     expect(props.fusionSuggestions).toHaveLength(51)
     expect(props.sceneFilters.skip).toBe(20)
   })

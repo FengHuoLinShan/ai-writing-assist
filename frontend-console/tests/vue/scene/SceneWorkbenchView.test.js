@@ -167,6 +167,16 @@ describe("SceneWorkbenchView", () => {
     expect(wrapper.find('.scene-workbench-row[data-id="s1"] img').exists()).toBe(false)
   })
 
+  it("opens a focused fusion suggestion from a Today deep link", async () => {
+    createWrapper({
+      focusedSuggestionId: "fusion-1",
+      fusionSuggestions: [{ id: "fusion-1", suggestion_kind: "fusion", proposed_action: "keep_separate", source_scene_ids: ["s1"] }],
+    })
+    await flushPromises()
+
+    expect(latestModal?.title).toBe("保持场景分开")
+  })
+
   it("keeps Scene menu actions behind a readable contextual trigger", async () => {
     createWrapper()
     const row = wrapper.find('.scene-workbench-row[data-id="s2"]')

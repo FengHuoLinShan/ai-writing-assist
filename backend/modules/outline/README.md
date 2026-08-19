@@ -303,6 +303,11 @@ POST  /api/outline/scene-workbench/replacement-suggestions/apply
 Scene 结构、正文定位和待处理跨章融合建议；`health.needs_organize.breakdown`
 提供各子类的 Scene 数量。`采用/标记已检查`只处理 Scene 审阅状态，
 正文定位必须通过独立确认命令处理。
+`get_author_attention_items()` 是 Project“今日工作”的稳定只读 seam，直接复用上述健康投影。
+每个 active Scene 的非融合健康问题合并为一条事项，`deprecated` 历史 Scene 不进入投影；
+章节相关性同时读取 `chapter_ids` 与 `scene_chunks`。同一 pending 融合建议即使关联多个 Scene
+也只返回一条，但保留全部来源 Scene 用于当前 Scene 排序，且不会再作为普通“待整理”重复出现。该 seam 只返回定位与作者可读摘要，不提供
+Scene 修改或融合采用能力。
 作者可通过工作台 review 命令把结构类提醒标记为“无需整理”；该决定持续隐藏当前及未来的
 Scene 结构提醒，直到作者显式恢复，但不会隐藏正文定位或融合建议，也不会改变 Scene 状态、
 章节映射或 SceneSpan。

@@ -255,9 +255,16 @@ async def api_apply_smart_dedup(
 async def api_get_project_workspace_summary(
     db: DbSession,
     project_id: str,
+    focus_chapter_index: int | None = Query(default=None, ge=0),
+    focus_scene_id: str | None = Query(default=None),
 ) -> ProjectWorkspaceSummaryResponse:
     """Return the safe, task-oriented read model for the author's project home."""
-    return await _workspace_summary_service.get_summary(db, project_id)
+    return await _workspace_summary_service.get_summary(
+        db,
+        project_id,
+        focus_chapter_index=focus_chapter_index,
+        focus_scene_id=focus_scene_id,
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

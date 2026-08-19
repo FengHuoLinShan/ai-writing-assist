@@ -216,6 +216,7 @@ export async function loadSceneWorkbenchProps(projectId) {
     fusionSuggestions,
     viewMode,
     selectedSceneId: sceneIdFromQuery(query),
+    focusedSuggestionId: query.get("suggestion_id") || null,
     sceneFilters: { ...session.filters },
     activeHealth: session.activeHealth,
     advancedFiltersOpen: session.advancedFiltersOpen,

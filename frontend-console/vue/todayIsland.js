@@ -8,12 +8,30 @@ import {
   hasGenerateSession,
   readCreativeContinuation,
 } from "./views/generate/generateSession.js"
+import { readWritingPointer } from "./views/writing/writingSession.js"
 
 const WORKFLOW_LIMIT = 3
 const SUGGESTION_PAGE_LIMIT = 50
 
 function listItems(value) {
   return Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : []
+}
+
+function attentionSuggestionIds(summary) {
+  return new Set(listItems(summary?.attention?.items)
+    .filter((item) => ["world_suggestion", "world_adoption"].includes(item?.target?.kind))
+    .map((item) => item.target.suggestion_id)
+    .filter(Boolean))
+}
+
+function isProjectedDecision(continuation, suggestionIds) {
+  if (continuation?.destination === "world_suggestion_review") {
+    return suggestionIds.has(continuation.route.suggestion_id)
+  }
+  if (continuation?.destination === "world_adoption_review") {
+    return suggestionIds.has(continuation.route.package_id)
+  }
+  return false
 }
 
 function draftContinuation(draft) {
@@ -168,12 +186,16 @@ export async function loadTodayProps() {
   let continuationWarning = null
   const warn = (_code, message) => { continuationWarning = message }
   const pointer = readCreativeContinuation(projectId, { notify: warn })
+  const writingPointer = readWritingPointer(projectId)
   const pointedSuggestionId = pointer?.destination === "world_suggestion_review"
     ? pointer.route.suggestion_id
     : null
   const pointedCheckpointId = pointer?.destination === "generate" ? pointer.route.checkpoint_id || null : null
   const [summaryResult, draftsResult, suggestionsResult, adoptionResult] = await Promise.allSettled([
-    api.projects.getWorkspaceSummary(projectId),
+    api.projects.getWorkspaceSummary(projectId, {
+      focus_chapter_index: writingPointer?.chapter,
+      focus_scene_id: writingPointer?.sceneId,
+    }),
     api.world?.listBibleDrafts ? api.world.listBibleDrafts(projectId) : Promise.resolve({ items: [] }),
     api.world?.listSuggestions
       ? loadPendingSuggestions(api, projectId, pointedSuggestionId)
@@ -182,11 +204,16 @@ export async function loadTodayProps() {
       ? loadPendingSuggestions(api, projectId, pointedCheckpointId, "world_adoption")
       : Promise.resolve({ items: [] }),
   ])
-  const creativeContinuation = resolveCreativeContinuation(pointer, projectId, draftsResult, suggestionsResult, adoptionResult, warn)
-  if (pointer && !creativeContinuation) {
+  const resolvedCreativeContinuation = resolveCreativeContinuation(pointer, projectId, draftsResult, suggestionsResult, adoptionResult, warn)
+  if (pointer && !resolvedCreativeContinuation) {
     clearCreativeContinuation(projectId)
     continuationWarning = "上次世界设定创作位置已失效，已清除该入口；请从当前正文、工作稿或建议重新选择。"
   }
+  const summary = summaryResult.status === "fulfilled" ? summaryResult.value : null
+  const projectedSuggestionIds = attentionSuggestionIds(summary)
+  const creativeContinuation = isProjectedDecision(resolvedCreativeContinuation, projectedSuggestionIds)
+    ? null
+    : resolvedCreativeContinuation
   const firstDraft = listItems(draftsResult.status === "fulfilled" ? draftsResult.value : null)
     .map((item) => draftContinuation(item)).find(Boolean)
   const firstSuggestion = listItems(suggestionsResult.status === "fulfilled" ? suggestionsResult.value : null)
@@ -202,7 +229,8 @@ export async function loadTodayProps() {
     preset: "world_core",
     checkpoint_id: firstCheckpoint.id,
   } }) : null
-  const worldContinuations = [firstPackage ? adoptionContinuation(firstPackage) : null, checkpointContinuation, firstDraft, firstSuggestion].filter(Boolean)
+  const worldContinuations = [firstPackage ? adoptionContinuation(firstPackage) : null, checkpointContinuation, firstDraft, firstSuggestion]
+    .filter((item) => item && !isProjectedDecision(item, projectedSuggestionIds))
   const stored = recoverActiveWorkflows(projectId)
     .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))
     .slice(0, WORKFLOW_LIMIT)
@@ -212,7 +240,7 @@ export async function loadTodayProps() {
 
   return {
     project,
-    summary: summaryResult.status === "fulfilled" ? summaryResult.value : null,
+    summary,
     workflows,
     creativeContinuation,
     worldContinuations,

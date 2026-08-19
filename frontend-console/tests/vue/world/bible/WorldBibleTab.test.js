@@ -1622,6 +1622,37 @@ describe("模态操作", () => {
     expect(api.world.listWorldConflicts).toHaveBeenCalledWith({ novel_id: "p1", status: "pending" })
   })
 
+  it("从深链定位冲突并用现有 API 处理", async () => {
+    const api = (await import("../../../../vue/bridge/index.js")).getApi()
+    const item = {
+      id: "conflict-1",
+      summary: "潮汐周期存在两个版本",
+      resolution_json: { author_action: "needs_decision", next_step: "确认采用哪一版" },
+    }
+    api.world.listWorldConflicts = vi.fn()
+      .mockResolvedValueOnce({ items: [item], total: 1 })
+      .mockResolvedValue({ items: [], total: 0 })
+    api.world.resolveWorldConflict = vi.fn().mockResolvedValue({ id: "conflict-1", status: "resolved" })
+    installModalHost()
+
+    mountTab({ bibleDeepLink: {
+      draftId: "",
+      pageId: "",
+      openConflicts: true,
+      conflictId: "conflict-1",
+    } })
+    await vi.waitFor(() => expect(document.querySelector("[data-bible-conflict-resolve='conflict-1']")).not.toBeNull())
+    expect(document.querySelector("[data-conflict-id='conflict-1']").classList.contains("is-focused")).toBe(true)
+
+    document.querySelector("[data-bible-conflict-resolve='conflict-1']").click()
+    await vi.waitFor(() => expect(api.world.resolveWorldConflict).toHaveBeenCalledWith(
+      "conflict-1",
+      { status: "resolved", resolution_json: { author_action: "needs_decision", next_step: "确认采用哪一版", resolved_by: "author" } },
+      "p1",
+    ))
+    await vi.waitFor(() => expect(toastMock).toHaveBeenCalledWith("检查项已处理", "success"))
+  })
+
   it("新建激活规则弹窗", async () => {
     const wrapper = mountTab()
     await wrapper.find("[data-action='bible-activation-new']").trigger("click")

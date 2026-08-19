@@ -11,6 +11,7 @@
     :fusion-suggestions="fusionSuggestions"
     :view-mode="viewMode"
     :selected-scene-id="selectedSceneId"
+    :focused-suggestion-id="focusedSuggestionId"
     :scene-filters="sceneFilters"
     :active-health="activeHealth"
     :advanced-filters-open="advancedFiltersOpen"
@@ -105,6 +106,7 @@ const props = defineProps({
   fusionSuggestions: { type: Array, default: () => [] },
   viewMode: { type: String, default: "hot" },
   selectedSceneId: { type: String, default: null },
+  focusedSuggestionId: { type: String, default: null },
   sceneFilters: { type: Object, default: () => ({}) },
   activeHealth: { type: String, default: null },
   advancedFiltersOpen: { type: Boolean, default: false },

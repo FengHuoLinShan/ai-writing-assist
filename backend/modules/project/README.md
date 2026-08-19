@@ -160,7 +160,7 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | POST | `/api/projects` | 创建项目 |
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/projects/{project_id}` | 项目详情 |
-| GET | `/api/projects/{project_id}/workspace-summary` | 作者工作台摘要：续写位置、章节/字数统计和待处理数量 |
+| GET | `/api/projects/{project_id}/workspace-summary` | 作者工作台摘要：续写位置、章节/字数统计和场景优先待处理事项 |
 | PUT | `/api/projects/{project_id}` | 更新项目 |
 | DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站）并取消未完成任务 |
 | GET | `/api/projects/recycle-bin` | 回收站列表 |
@@ -176,8 +176,16 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 `workspace-summary` 先通过项目 API 的当前账户 owner 与活跃作者项目门禁，再由
 `ProjectWorkspaceService` 只读聚合 writing、world 和 outline 的稳定 facade。响应固定包含
 `project_id`、可空 `continuation`、`writing` 和 `attention`；调用方不能传 owner 或额外
-`novel_id`。最近正文只返回章节序号、标题、更新时间和是否存在未正式化改动，不返回正文内容。
-任一业务投影都使用门禁确认后的同一个 `project_id` 作为 `novel_id`，不建立跨模块 ORM 依赖。
+`novel_id`。`attention` 保留原分类计数和 `total`，并增加最多 6 条的 `items`、去重后的
+`actionable_total` 与 `has_more`；截断后按领域处理范围去重的 `more_targets` 提供不绑定单条 item
+的类型化队列入口（只有必须逐项打开的采用包保留精确 target），避免同类隐藏事项无法到达。每条只包含作者可读标题、摘要、行动类型、
+严重度和类型化领域 target，不包含正文、原始任务或路由字符串。
+
+调用方可传 `focus_chapter_index` / `focus_scene_id` 帮助 Today 排序；Scene 必须通过 Outline
+稳定契约验证属于当前 `novel_id`，并以 `chapter_ids` 或 `scene_chunks` 与指定章节一致，否则只忽略 Scene 焦点。排序固定为当前
+Scene、本章、项目级，再按需要决定、严重度、更新时间和稳定 key。最近正文只返回章节序号、
+标题、更新时间和是否存在未正式化改动，不返回正文内容。任一业务投影都使用门禁确认后的同一
+个 `project_id` 作为 `novel_id`，不建立跨模块 ORM 依赖，也不提供跨领域处理写入口。
 
 单个和批量永久删除都必须显式提交 `confirmed=true`，且只能删除已在回收站的
 项目。批量请求会去重 ID；任一项目不在回收站时整批拒绝，不会部分删除。

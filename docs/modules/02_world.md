@@ -134,9 +134,11 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 和 `worldbuilding_facade.py`。
 
 `attention_facade.get_author_attention_summary()` 返回冻结的
-`WorldAttentionSummaryContract`，只统计同一 `novel_id` 下待处理的对象、别名与关系，
-供 Project 工作台摘要使用。它不返回对象内容、原始状态、owner 或内部 ID，也不把聚合编排放进
-root facade。
+`WorldAttentionSummaryContract`，保留同一 `novel_id` 下待处理对象、别名与关系的计数，
+并投影 pending 世界书冲突、实际审核组和未被兼容 shadow 覆盖的待采用建议，供 Project 工作台
+摘要使用。checkpoint、stale/resolved 冲突、已处理建议和 task-only 结果不进入事项。它不返回
+正文、原始任务、owner 或密钥；别名成员来源使用稳定字段，审核 target 保留对象/组标识供领域页
+精确定位，也不把聚合编排放进 root facade。
 
 `worldbuilding_facade.py` 承载世界书上下文激活入口：
 `preview_worldbuilding_activation()` 委托确定性 activation preview 服务；

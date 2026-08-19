@@ -596,6 +596,12 @@ export function useSceneWorkbench(props) {
   onMounted(() => {
     sceneAutoExtractManager.recover(projectId)
     modalController.recoverFusionTask()
+    if (
+      props.focusedSuggestionId
+      && fusionSuggestions.value.some((item) => item.id === props.focusedSuggestionId)
+    ) {
+      modalController.showSuggestions(props.focusedSuggestionId)
+    }
     window.addEventListener("resize", onResize)
     document.querySelector(".outline-scene-layout > .subnav")?.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   })

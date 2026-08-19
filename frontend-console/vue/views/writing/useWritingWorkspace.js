@@ -88,8 +88,17 @@ export async function loadWritingProps() {
   const session = getWritingSession(projectId)
   const queryChapter = Number(query.get("chapter_index") || 0)
   const querySceneId = query.get("scene_id") || null
+  const openConflict = query.get("open") === "conflicts"
+  const conflictItemId = query.get("conflict_item_id") || null
   result.requestedLocation = queryChapter > 0
-    ? { chapter: queryChapter, draftId: query.get("draft_id") || null, sceneId: querySceneId, source: "url" }
+    ? {
+        chapter: queryChapter,
+        draftId: query.get("draft_id") || null,
+        sceneId: querySceneId,
+        openConflict,
+        conflictItemId,
+        source: "url",
+      }
     : session?.currentChapter
       ? {
           chapter: session.currentChapter,
@@ -165,7 +174,7 @@ export function useWritingWorkspace(props) {
   const publishProgress = reactive({ active: false, taskId: null, phase: null, progress: null, message: "", retryable: false })
   const conflictState = reactive({ loading: false, latest: null, error: null })
   const conflictOptions = reactive({ open: false, includeCandidates: false })
-  const conflictDialog = reactive({ open: false, check: null, busy: false, error: null, sourcePreview: null })
+  const conflictDialog = reactive({ open: false, check: null, busy: false, error: null, sourcePreview: null, focusItemId: null })
   const conflictTask = reactive({ taskId: null, progress: null })
   const sceneState = reactive({ loading: false, alerts: [], people: [], location: null })
   const sceneLens = reactive({ sceneId: null, loading: false, data: null, error: null })
@@ -972,7 +981,7 @@ export function useWritingWorkspace(props) {
     }
   }
 
-  async function openConflictDialog(value = conflictState.latest) {
+  async function openConflictDialog(value = conflictState.latest, focusItemId = null) {
     let check = value
     if (check?.id && !Array.isArray(check.items)) check = await refreshConflictCheck(check.id)
     if (!check) {
@@ -982,12 +991,18 @@ export function useWritingWorkspace(props) {
     conflictDialog.check = check
     conflictDialog.error = null
     conflictDialog.sourcePreview = null
+    conflictDialog.focusItemId = (
+      focusItemId && (check.items || []).some((item) => item.id === focusItemId)
+        ? focusItemId
+        : null
+    )
     conflictDialog.open = true
   }
 
   function closeConflictDialog() {
     conflictDialog.open = false
     conflictDialog.sourcePreview = null
+    conflictDialog.focusItemId = null
   }
 
   async function updateConflictStatus({ itemId, status }) {
@@ -1268,6 +1283,16 @@ export function useWritingWorkspace(props) {
         allowMissingPointerFallback: requested.source === "pointer",
         allowBackupRestore: requested.source === "pointer",
       })
+      if (requested.openConflict) {
+        if (requested.conflictItemId && !(conflictState.latest?.items || []).some((item) => item.id === requested.conflictItemId)) {
+          toast("这条待处理事项已变化，请查看当前最新检查", "info")
+        }
+        if (conflictState.latest) {
+          await openConflictDialog(conflictState.latest, requested.conflictItemId)
+        } else {
+          toast("当前场景暂无可查看的检查记录", "info")
+        }
+      }
     } else if (isNarrow.value && chapterList.value[0]) {
       await selectChapter(chapterList.value[0])
     }

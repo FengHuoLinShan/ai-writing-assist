@@ -30,7 +30,7 @@
 
           <section class="writing-conflict-group">
             <div class="writing-conflict-group__head">
-              <strong>规则命中</strong>
+              <strong>字面预警</strong>
               <span>{{ ruleItems.length }} 条</span>
             </div>
             <ConflictRows
@@ -59,7 +59,7 @@
                 data-action="conflict-ai-review"
                 :disabled="model.busy || check.ai_review_status === 'running'"
                 @click="$emit('ai-review')"
-              >补充 AI 软冲突判断</button>
+              >手动补充 AI 语义复核</button>
               <span class="pill">状态：{{ aiReviewStatusLabel(check.ai_review_status) }}</span>
             </div>
             <ConflictRows
@@ -97,7 +97,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, reactive, watch } from "vue"
+import { computed, defineComponent, h, nextTick, reactive, watch } from "vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 
 const props = defineProps({
@@ -117,8 +117,8 @@ const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({
 const severityLabels = { high: "高", medium: "中", low: "低", info: "提示" }
 const statusLabels = { open: "未处理", resolved: "已处理", ignored: "忽略", later: "稍后" }
 const kindLabels = {
-  forbidden_present: "禁止项出现在正文",
-  required_missing: "必须发生项缺失",
+  forbidden_present: "疑似出现禁止项",
+  required_missing: "必须发生项未逐字出现",
   continuity_location_mismatch: "前后连续性风险",
   motivation_gap: "动机衔接风险",
   emotion_jump: "情绪跳变",
@@ -139,10 +139,11 @@ const authorActionLabels = {
 
 function authorActionOf(item) {
   if ((item.status || "open") !== "open") return null
+  if (authorActionLabels[item.author_action]) return authorActionLabels[item.author_action]
   if (item.is_ai_judgment) {
     return item.needs_review ? authorActionLabels.needs_decision : authorActionLabels.can_improve
   }
-  return authorActionLabels.needs_decision
+  return authorActionLabels.can_improve
 }
 
 function parseSuggestion(value) {
@@ -225,7 +226,16 @@ const ConflictRows = defineComponent({
               Array.isArray(suggestion.risk_notes) && suggestion.risk_notes.length ? h("small", `注意：${suggestion.risk_notes.join("；")}`) : null,
             ])
           : null
-      return h("article", { key: item.id, class: "writing-conflict-item", "data-conflict-item-id": item.id }, [
+      return h("article", {
+        key: item.id,
+        class: [
+          "writing-conflict-item",
+          props.model.focusItemId === item.id ? "is-focused" : "",
+        ],
+        tabindex: props.model.focusItemId === item.id ? -1 : undefined,
+        "aria-current": props.model.focusItemId === item.id ? "true" : undefined,
+        "data-conflict-item-id": item.id,
+      }, [
         h("div", { class: "writing-conflict-item__head" }, [
           authorAction ? h("span", {
             class: authorAction.className,
@@ -289,6 +299,24 @@ watch(items, (nextItems) => {
     }
   }
 }, { immediate: true })
+
+watch(
+  [
+    () => props.model.open,
+    () => props.model.focusItemId,
+    () => props.model.check?.id,
+  ],
+  async ([open, focusItemId]) => {
+    if (!open || !focusItemId) return
+    await nextTick()
+    const row = Array.from(
+      dialogRef.value?.querySelectorAll("[data-conflict-item-id]") || [],
+    ).find((element) => element.getAttribute("data-conflict-item-id") === focusItemId)
+    row?.focus({ preventScroll: true })
+    row?.scrollIntoView?.({ block: "center" })
+  },
+  { immediate: true },
+)
 
 function aiReviewStatusLabel(status) {
   return { not_requested: "未生成", running: "生成中", done: "已生成", partial: "部分生成", failed: "失败" }[status] || status || "未生成"

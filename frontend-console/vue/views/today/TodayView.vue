@@ -50,12 +50,58 @@ const primaryLabel = computed(() => {
   return startWorldCore.value ? "开始生长" : "开始第一章"
 })
 const resumeLabel = computed(() => primaryWorld.value ? "接着上次创作" : "接着上次写")
-const attentionItems = computed(() => [
+const attentionCategories = computed(() => [
   { key: "world_objects", label: "人物与设定", value: attention.value.world_objects || 0, view: "world", subView: "review-objects" },
   { key: "world_aliases", label: "别名", value: attention.value.world_aliases || 0, view: "world", subView: "review-aliases" },
   { key: "world_relations", label: "关系", value: attention.value.world_relations || 0, view: "world", subView: "review-relations" },
   { key: "outline_scenes", label: "场景", value: attention.value.outline_scenes || 0, view: "outline", subView: "scenes" },
 ])
+const hasProjectedAttention = computed(() => Array.isArray(attention.value.items))
+const attentionRows = computed(() => hasProjectedAttention.value ? attention.value.items : [])
+const attentionTotal = computed(() => hasProjectedAttention.value
+  ? Number(attention.value.actionable_total || 0)
+  : Number(attention.value.total || 0))
+const moreAttentionTargets = computed(() => Array.isArray(attention.value.more_targets)
+  ? attention.value.more_targets
+  : [])
+
+const SOURCE_LABELS = {
+  writing_conflict: "正文",
+  world_conflict: "世界设定",
+  world_object: "人物与设定",
+  world_alias_group: "别名",
+  world_relation_group: "关系",
+  world_suggestion: "创设建议",
+  outline_scene_health: "场景结构",
+  outline_fusion: "场景融合",
+}
+
+function sourceLabel(item) {
+  return SOURCE_LABELS[item?.source_kind] || "作品"
+}
+
+function actionLabel(action) {
+  return action === "needs_decision" ? "需要决定" : "可以改进"
+}
+
+function relevanceLabel(relevance) {
+  if (relevance === "exact_scene") return "当前场景"
+  if (relevance === "current_chapter") return "本章"
+  return null
+}
+
+function attentionTargetKey(item) {
+  const target = item?.target || {}
+  return [
+    item?.source_kind,
+    target.kind,
+    target.chapter_index,
+    target.scene_id,
+    target.page_id,
+    target.suggestion_id,
+    target.item_id,
+  ].filter((value) => value != null && value !== "").join(":")
+}
 
 const WORKFLOW_COPY = {
   deep_import: "正在整理导入内容",
@@ -127,6 +173,48 @@ function openCreativeContinuation(item) {
 }
 
 function openAttention(item) {
+  const target = item?.target || {}
+  const query = new URLSearchParams()
+
+  if (target.kind === "writing_conflict") {
+    if (target.chapter_index != null) query.set("chapter_index", String(target.chapter_index))
+    if (target.scene_id) query.set("scene_id", target.scene_id)
+    if (target.item_id) query.set("conflict_item_id", target.item_id)
+    query.set("open", "conflicts")
+    router.navigate("writing", null, true, query)
+  } else if (target.kind === "world_bible_conflict") {
+    if (target.page_id) query.set("page_id", target.page_id)
+    if (target.item_id) query.set("conflict_item_id", target.item_id)
+    query.set("open", "conflicts")
+    router.navigate("world", "bible", true, query)
+  } else if (target.kind === "world_review_objects") {
+    if (target.item_id) query.set("entity_id", target.item_id)
+    if (target.chapter_index != null) query.set("source_chapter_index", String(target.chapter_index))
+    router.navigate("world", "review-objects", true, query)
+  } else if (target.kind === "world_review_aliases") {
+    if (target.item_id) query.set("group_id", target.item_id)
+    if (target.chapter_index != null) query.set("source_chapter_index", String(target.chapter_index))
+    router.navigate("world", "review-aliases", true, query)
+  } else if (target.kind === "world_review_relations") {
+    if (target.item_id) query.set("group_id", target.item_id)
+    if (target.chapter_index != null) query.set("source_chapter_index", String(target.chapter_index))
+    router.navigate("world", "review-relations", true, query)
+  } else if (target.kind === "world_suggestion") {
+    if (target.suggestion_id) query.set("suggestion_id", target.suggestion_id)
+    query.set("open", "suggestions")
+    router.navigate("world", "bible", true, query)
+  } else if (target.kind === "world_adoption") {
+    if (target.suggestion_id) query.set("adoption_package_id", target.suggestion_id)
+    router.navigate("world", "bible", true, query)
+  } else if (["outline_scene", "outline_fusion"].includes(target.kind)) {
+    if (target.chapter_index != null) query.set("chapter_index", String(target.chapter_index))
+    if (target.scene_id) query.set("scene_id", target.scene_id)
+    if (target.suggestion_id) query.set("suggestion_id", target.suggestion_id)
+    router.navigate("outline", "scenes", true, query)
+  }
+}
+
+function openAttentionCategory(item) {
   router.navigate(item.view, item.subView)
 }
 
@@ -228,13 +316,35 @@ function retry() {
 
     <section v-if="summary" class="today-section" aria-labelledby="today-attention-title">
       <div class="today-section__heading">
-        <div><h2 id="today-attention-title">需要你决定</h2><p>这些内容不会自动成为正式设定。</p></div>
-        <span class="today-count">{{ attention.total || 0 }}</span>
+        <div><h2 id="today-attention-title">需要你决定</h2><p>按正在写的场景优先；不会自动修改作品。</p></div>
+        <span class="today-count">{{ attentionTotal }}</span>
       </div>
-      <div class="today-attention-grid">
-        <button v-for="item in attentionItems" :key="item.key" type="button" class="today-attention-card" @click="openAttention(item)">
+      <div v-if="attentionRows.length" class="today-attention-list">
+        <article v-for="item in attentionRows" :key="item.key" class="today-attention-row">
+          <div class="today-attention-row__copy">
+            <span class="today-attention-row__source">{{ sourceLabel(item) }}</span>
+            <strong>{{ item.title }}</strong>
+            <p>{{ item.summary }}</p>
+          </div>
+          <div class="today-attention-row__meta">
+            <span class="badge" :class="{ 'badge-warning': item.author_action === 'needs_decision' }">{{ actionLabel(item.author_action) }}</span>
+            <span v-if="relevanceLabel(item.relevance)" class="badge">{{ relevanceLabel(item.relevance) }}</span>
+            <button class="btn btn-sm" type="button" @click="openAttention(item)">查看</button>
+          </div>
+        </article>
+      </div>
+      <div v-else-if="hasProjectedAttention" class="empty-state today-attention-empty"><p>当前没有需要你决定的内容</p></div>
+      <div v-else class="today-attention-grid">
+        <button v-for="item in attentionCategories" :key="item.key" type="button" class="today-attention-card" @click="openAttentionCategory(item)">
           <strong>{{ item.value }}</strong><span>{{ item.label }}</span><i>{{ item.value ? '去处理' : '暂无待处理' }}</i>
         </button>
+      </div>
+      <div v-if="attention.has_more" class="today-attention-footer">
+        <span>还有 {{ Math.max(0, attentionTotal - attentionRows.length) }} 项，可在对应页面继续处理。</span>
+        <button v-for="item in moreAttentionTargets" :key="attentionTargetKey(item)" type="button" class="btn btn-sm btn-ghost" @click="openAttention(item)">查看更多{{ sourceLabel(item) }}</button>
+        <template v-if="!moreAttentionTargets.length">
+          <button v-for="item in attentionCategories.filter((entry) => entry.value)" :key="item.key" type="button" class="btn btn-sm btn-ghost" @click="openAttentionCategory(item)">{{ item.label }} {{ item.value }}</button>
+        </template>
       </div>
     </section>
 

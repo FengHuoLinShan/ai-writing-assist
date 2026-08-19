@@ -46,6 +46,7 @@ async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="auth
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
+async def get_author_attention_items(db, novel_id) -> list[WritingAuthorAttentionItemContract]
 async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content_mode="canonical") -> list[WritingDraftContract]
 async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract
 async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0, after_paragraphs=0) -> ManuscriptReadContract
@@ -108,10 +109,11 @@ POST   /api/writing/targeted-revisions                  # 按审查 finding 生�
 
 `POST /api/writing/conflict-checks` 是写作页的规则层检查入口。前端会在发起检查前弹出选项；兼容字段 `include_candidates` 仍控制待处理世界对象，但地图册图片不参与正文事实检查。
 
-规则层检查聚合三类跨模块证据：
+规则层检查只对当前 Scene 的有效正文范围做确定性字面预检：
 
-- 注入的 Scene contract loader：Scene 的目标、必须发生、禁止发生和核心冲突，命中项带 `outline_scene` 打开目标或正文 `text_range`；默认 loader lazy 调用 `outline.facade.get_scene_contract`。
-- `memory.facade.get_continuity_evidence_for_writing`：上一章角色位置连续性证据，连续性问题带 `memory_chapter` 打开目标。
+- 注入的 Scene contract loader 提供 `must_happen` / `must_not_happen` 和当前章 `scene_chunks`；只有全部目标范围有效且已有 `source_content_hash` 仍匹配本次正文时才检查，缺失、越界、部分无效或 hash 失效均返回 `degraded` 和 omission，不回退扫描整章。旧的无 hash 范围继续按边界校验兼容。
+- `forbidden_present` / `required_missing` 保留兼容 kind，但严重度降低并派生 `author_action=can_improve`；它们只表示“疑似字面命中”或“未逐字出现”，不证明语义冲突。
+- 检查 scope 保存正文 hash。Project Today 只读取每个章节/Scene 最新检查的 open 项；若工作稿 ID、版本或 hash 已变化，则旧项折叠为一条“重新检查”。
 
 问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
 
@@ -120,6 +122,7 @@ AI 能力是显式追加流程，不替代规则层结果：
 - `ai-review` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。
 - `ai-suggestion` 必须使用 action 为 `writing.conflict_check.ai_suggestion` 的 `context_confirmation_id`。
 - AI 软冲突和建议只写入检查项，不修改正文、Scene、地图册、世界对象、记忆或已采用资产。
+- 手动 AI 复核把规则项视为未确认的字面预警；只有发现真实语义偏差时才追加独立的 `scene_commitment_missing` / `scene_forbidden_deviation`，不会自动关闭字面项。
 - 正文生成、整体验证和单条建议的官方前端提交前保存 operation receipt；刷新后只查询原
   task，404 提示重新开始且不自动重放。任务结果原位更新进度/候选/检查区，不覆盖作者期间
   的正文输入、筛选、焦点或滚动。
@@ -179,7 +182,7 @@ Writing Vue 工作台由 `frontend-console/vue/views/writing/` 承载：
 - **章节关联**：副驾驶可幂等关联已有 Scene，或用名称快速创建并关联；不伪造正文范围，
   解除、排序、合并和拆分仍在 Scene 工作台完成
 - **版本历史**：模态框列出所有版本，支持预览和恢复
-- **剧情设定冲突检查**：检查前选择是否包含待处理对象；检查结果按规则命中和 AI 判断分组，支持证据抽屉、来源打开、正文定位、状态更新和复制 AI 修复建议
+- **剧情设定冲突检查**：检查前选择是否包含待处理对象；检查结果按“字面预警”和 AI 判断分组，支持证据抽屉、来源打开、正文定位、状态更新和复制 AI 修复建议；Today 深链可直接打开并定位当前最新检查项
 - **深度导入按钮**：启动前说明并确认自动采用范围，提交持久化授权快照；运行中显示三阶段进度，完成后展示已采用/待处理/未采用汇总
 - **场景自动提取**：编辑器顶部 AI 工具菜单和 Scene 工作台复用 imports Scene stage，
   对手写或导入的章节正文执行统一的 Phase 0/1a/1b（高质量模式再执行 Phase 1c）与

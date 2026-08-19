@@ -36,6 +36,7 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 - 按章节查询相关 Scene
 - 根据 AI 参考资料确认记录，在当前页面发起剧情线、篇章纲或 Planned Scene 创作任务
 - 为其他模块提供 Scene 查询能力
+- 为 Project Today 提供 active Scene 健康与 pending 融合建议的去重只读投影；章节读取 `chapter_ids + scene_chunks`，融合项保留全部来源 Scene 供相关性排序
 - 为正文生成与独立审查编译 version-bound、只读的 Scene execution bundle
 
 ## 关键服务

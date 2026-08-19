@@ -107,6 +107,10 @@ async def test_workspace_summary_for_empty_project_is_safe_and_additive(
             "world_relations": 0,
             "outline_scenes": 0,
             "total": 0,
+            "items": [],
+            "actionable_total": 0,
+            "has_more": False,
+            "more_targets": [],
         },
     }
 

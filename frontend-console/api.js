@@ -709,8 +709,8 @@ const api = {
       return contractFetch("projects.get", { id }, {}, options)
     },
 
-    async getWorkspaceSummary(id, options = {}) {
-      return contractFetch("projects.getWorkspaceSummary", { id }, {}, options)
+    async getWorkspaceSummary(id, query = {}, options = {}) {
+      return contractFetch("projects.getWorkspaceSummary", { id }, query, options)
     },
 
     async update(id, payload) {

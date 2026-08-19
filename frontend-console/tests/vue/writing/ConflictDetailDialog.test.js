@@ -58,7 +58,7 @@ describe("ConflictDetailDialog", () => {
 
   it("以 Vue 文本节点完整展示规则、AI 判断、证据和建议", () => {
     const wrapper = mount(ConflictDetailDialog, { props: { model: model() } })
-    expect(wrapper.text()).toContain("规则命中")
+    expect(wrapper.text()).toContain("字面预警")
     expect(wrapper.text()).toContain("AI 判断")
     expect(wrapper.text()).toContain("状态：部分生成")
     expect(wrapper.text()).toContain("禁止传送")
@@ -94,8 +94,8 @@ describe("ConflictDetailDialog", () => {
     })
     const action = (id) => wrapper.find(`[data-conflict-item-id="${id}"] [data-author-action]`)
 
-    expect(action("rule-high").attributes("data-author-action")).toBe("needs_decision")
-    expect(action("rule-review").attributes("data-author-action")).toBe("needs_decision")
+    expect(action("rule-high").attributes("data-author-action")).toBe("can_improve")
+    expect(action("rule-review").attributes("data-author-action")).toBe("can_improve")
     expect(action("ai-soft").attributes("data-author-action")).toBe("can_improve")
     expect(action("ai-choice").attributes("data-author-action")).toBe("needs_decision")
     expect(action("rule-closed").exists()).toBe(false)

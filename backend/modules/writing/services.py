@@ -37,7 +37,11 @@ from modules.writing.conflict_ai import (
     validate_ai_review_confirmation_scope,
 )
 from modules.writing.conflict_evidence import evidence_location
-from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
+from modules.writing.contracts import (
+    WritingAuthorAttentionItemContract,
+    WritingDraftContract,
+    WritingProjectStatsContract,
+)
 from modules.writing.pov_generation import (
     POV_PROMPT_NAME,
     POV_SYSTEM_PROMPT,
@@ -1028,18 +1032,36 @@ class WritingConflictCheckService:
 
         items: list[dict] = []
         degraded_sources: list[str] = []
+        omissions: list[dict[str, str]] = []
         if data.scene_id:
             scene = await self._load_scene(db, data.novel_id, data.scene_id)
             if scene is None:
                 degraded_sources.append("outline")
+                omissions.append(
+                    {"source": "outline", "reason": "scene_unavailable"}
+                )
             else:
-                items.extend(self._scene_rule_items(scene, data.content or ""))
+                scene_items, omission_reason = self._scene_rule_items(
+                    scene,
+                    data.chapter_index,
+                    data.content or "",
+                )
+                items.extend(scene_items)
+                if omission_reason:
+                    degraded_sources.append("outline.scene_chunks")
+                    omissions.append(
+                        {
+                            "source": "outline.scene_chunks",
+                            "reason": omission_reason,
+                        }
+                    )
 
         else:
             scene = None
 
         status = "degraded" if degraded_sources else "completed"
-        summary_json = self._summary(items, degraded_sources)
+        summary_json = self._summary(items, degraded_sources, omissions)
+        content = data.content or ""
         check, created_items = await self._repo.create_check(
             db,
             novel_id=nid,
@@ -1052,8 +1074,9 @@ class WritingConflictCheckService:
                 "scene_id": data.scene_id,
                 "draft_id": data.draft_id,
                 "version_number": data.version_number,
-                "content_excerpt": (data.content or "")[:4000],
-                "content_char_count": len(data.content or ""),
+                "content_excerpt": content[:4000],
+                "content_char_count": len(content),
+                "content_hash": hash_text(content),
                 "sources": ["outline"],
             },
             include_candidates=data.include_candidates,
@@ -1307,6 +1330,73 @@ class WritingConflictCheckService:
             scene_id=sid,
         )
 
+    async def get_author_attention_items(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> list[WritingAuthorAttentionItemContract]:
+        nid = _parse_uuid(novel_id, "novel_id")
+        rows = await self._repo.list_latest_open_items_for_project(db, nid)
+        if not rows:
+            return []
+        chapter_indices = sorted({check.chapter_index for check, _item in rows})
+        latest_drafts = await self._draft_repo.list_latest_by_chapters(
+            db,
+            nid,
+            chapter_indices,
+        )
+        drafts_by_chapter = {draft.chapter_index: draft for draft in latest_drafts}
+        items: list[WritingAuthorAttentionItemContract] = []
+        stale_checks: set[uuid.UUID] = set()
+        for check, item in rows:
+            latest_draft = drafts_by_chapter.get(check.chapter_index)
+            is_stale = latest_draft is not None and (
+                check.draft_id != latest_draft.id
+                or check.version_number != latest_draft.version_number
+                or check.scope.get("content_hash") != latest_draft.content_hash
+            )
+            if is_stale:
+                if check.id in stale_checks:
+                    continue
+                stale_checks.add(check.id)
+                items.append(
+                    WritingAuthorAttentionItemContract(
+                        key=f"writing:recheck:{check.id}",
+                        title=f"重新检查第 {check.chapter_index} 章",
+                        summary="正文版本已更新，旧的字面预警不再作为当前结果。",
+                        author_action="can_improve",
+                        severity="low",
+                        chapter_index=check.chapter_index,
+                        scene_id=str(check.scene_id) if check.scene_id else None,
+                        item_id=None,
+                        updated_at=check.updated_at,
+                    )
+                )
+                continue
+            author_action = (
+                "needs_decision"
+                if item.is_ai_judgment and item.needs_review
+                else "can_improve"
+            )
+            title = {
+                "forbidden_present": "疑似出现 Scene 禁止项",
+                "required_missing": "Scene 必须发生项未逐字出现",
+            }.get(item.kind, "检查写作语义问题")
+            items.append(
+                WritingAuthorAttentionItemContract(
+                    key=f"writing:conflict:{item.id}",
+                    title=title,
+                    summary=item.evidence_summary,
+                    author_action=author_action,
+                    severity=item.severity,
+                    chapter_index=check.chapter_index,
+                    scene_id=str(check.scene_id) if check.scene_id else None,
+                    item_id=str(item.id),
+                    updated_at=item.updated_at or check.updated_at,
+                )
+            )
+        return items
+
     async def _load_scene(self, db: AsyncSession, novel_id: str, scene_id: str):
         try:
             return await self._scene_contract_loader(db, novel_id, scene_id)
@@ -1317,9 +1407,52 @@ class WritingConflictCheckService:
             )
             return None
 
-    def _scene_rule_items(self, scene: object, content: str) -> list[dict]:
+    def _scene_rule_items(
+        self,
+        scene: object,
+        chapter_index: int,
+        content: str,
+    ) -> tuple[list[dict], str | None]:
         from modules.outline.contracts import scene_semantic_field_status
 
+        chapter_chunks: list[dict] = []
+        for chunk in getattr(scene, "scene_chunks", None) or []:
+            if not isinstance(chunk, dict):
+                continue
+            raw_chapter = chunk.get("chapter_index", chunk.get("chapter_id"))
+            try:
+                if int(raw_chapter) == chapter_index:
+                    chapter_chunks.append(chunk)
+            except (TypeError, ValueError):
+                continue
+        if not chapter_chunks:
+            return [], "missing_for_chapter"
+
+        current_content_hash = hash_text(content)
+        if any(
+            chunk.get("source_content_hash")
+            and str(chunk["source_content_hash"]) != current_content_hash
+            for chunk in chapter_chunks
+        ):
+            return [], "source_hash_mismatch"
+
+        ranges: list[tuple[int, int]] = []
+        for chunk in chapter_chunks:
+            raw_start = chunk.get("start_offset", chunk.get("start_pos"))
+            raw_end = chunk.get("end_offset", chunk.get("end_pos"))
+            try:
+                start = int(raw_start)
+                end = int(raw_end)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= start < end <= len(content):
+                ranges.append((start, end))
+        if not ranges:
+            return [], "invalid_for_content"
+
+        ranges = sorted(set(ranges))
+        if len(ranges) < len(chapter_chunks):
+            return [], "partially_invalid_for_content"
         items = []
         scene_id = getattr(scene, "id", None)
         title = getattr(scene, "title", None) or "未命名 Scene"
@@ -1337,16 +1470,26 @@ class WritingConflictCheckService:
             else _split_rule_phrases(getattr(scene, "must_happen", None))
         )
         for phrase in must_not_phrases:
-            text_range = _locate_phrase(content, phrase)
-            if phrase in content:
+            absolute_start = next(
+                (
+                    start + local_start
+                    for start, end in ranges
+                    if (local_start := content[start:end].find(phrase)) >= 0
+                ),
+                None,
+            )
+            if absolute_start is not None:
                 items.append(
                     {
                         "kind": "forbidden_present",
-                        "severity": "high",
+                        "severity": "medium",
                         "source_module": "outline",
                         "source_type": "scene.must_not_happen",
                         "source_id": scene_id,
-                        "evidence_summary": f"正文出现 Scene 禁止发生项：{phrase}",
+                        "evidence_summary": (
+                            f"当前场景疑似涉及禁止发生项（仅字面命中）：{phrase}"
+                        ),
+                        "needs_review": True,
                         "location_json": evidence_location(
                             source_module="outline",
                             source_type="scene.must_not_happen",
@@ -1358,20 +1501,29 @@ class WritingConflictCheckService:
                                 "kind": "outline_scene",
                                 "scene_id": scene_id,
                             },
-                            text_range=text_range,
+                            text_range={
+                                "target": "editor",
+                                "start": absolute_start,
+                                "end": absolute_start + len(phrase),
+                                "quote": phrase,
+                            },
+                            needs_review_reason="字面命中不代表语义冲突，请结合上下文确认",
                         ),
                     }
                 )
         for phrase in must_phrases:
-            if phrase not in content:
+            if not any(phrase in content[start:end] for start, end in ranges):
                 items.append(
                     {
                         "kind": "required_missing",
-                        "severity": "medium",
+                        "severity": "low",
                         "source_module": "outline",
                         "source_type": "scene.must_happen",
                         "source_id": scene_id,
-                        "evidence_summary": f"正文尚未覆盖 Scene 必须发生项：{phrase}",
+                        "evidence_summary": (
+                            f"当前场景未逐字出现必须发生项，需结合语义确认：{phrase}"
+                        ),
+                        "needs_review": True,
                         "location_json": evidence_location(
                             source_module="outline",
                             source_type="scene.must_happen",
@@ -1383,12 +1535,18 @@ class WritingConflictCheckService:
                                 "kind": "outline_scene",
                                 "scene_id": scene_id,
                             },
+                            needs_review_reason="未逐字出现不代表剧情语义缺失，请人工确认",
                         ),
                     }
                 )
-        return items
+        return items, None
 
-    def _summary(self, items: list[dict], degraded_sources: list[str]) -> dict:
+    def _summary(
+        self,
+        items: list[dict],
+        degraded_sources: list[str],
+        omissions: list[dict[str, str]] | None = None,
+    ) -> dict:
         by_severity: dict[str, int] = {}
         open_high = 0
         for item in items:
@@ -1401,6 +1559,7 @@ class WritingConflictCheckService:
             "open_high_count": open_high,
             "by_severity": by_severity,
             "degraded_sources": sorted(set(degraded_sources)),
+            "omissions": omissions or [],
         }
 
     def _to_check_response(
@@ -2480,18 +2639,6 @@ def _split_rule_phrases(value: str | None) -> list[str]:
     if not value:
         return []
     return [part.strip() for part in re.split(r"[；;，,\n。]+", value) if part.strip()]
-
-
-def _locate_phrase(content: str, phrase: str) -> dict:
-    index = content.find(phrase)
-    if index < 0:
-        return {"target": "editor"}
-    return {
-        "target": "editor",
-        "start": index,
-        "end": index + len(phrase),
-        "quote": phrase,
-    }
 
 
 def _read_field(value: object, field: str, default: object | None = None) -> object:

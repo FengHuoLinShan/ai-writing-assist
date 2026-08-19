@@ -8,6 +8,7 @@ World 对外契约 — v3 因果时空网
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -69,6 +70,25 @@ class EntityRelationContract:
 
 
 @dataclass(frozen=True)
+class WorldAuthorAttentionItemContract:
+    """One safe, actionable World item for a project-level read model."""
+
+    key: str
+    source_kind: str
+    title: str
+    summary: str
+    author_action: str
+    severity: str
+    target_kind: str
+    item_id: str | None = None
+    chapter_index: int | None = None
+    scene_id: str | None = None
+    page_id: str | None = None
+    suggestion_id: str | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class WorldAttentionSummaryContract:
     """Author-facing review counts used by project-level workspace summaries."""
 
@@ -76,6 +96,7 @@ class WorldAttentionSummaryContract:
     world_objects: int = 0
     world_aliases: int = 0
     world_relations: int = 0
+    items: tuple[WorldAuthorAttentionItemContract, ...] = ()
 
     @property
     def total(self) -> int:
@@ -318,6 +339,7 @@ __all__ = [
     "WorldBackgroundBundleContract",
     "WorldBackgroundEntryContract",
     "WorldAttentionSummaryContract",
+    "WorldAuthorAttentionItemContract",
     "WorldBibleActivationResolutionContract",
     "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",

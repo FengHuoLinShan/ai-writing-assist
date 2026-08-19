@@ -270,6 +270,7 @@ export function useWorldBible(props) {
       ensureSuggestionContinuation(dl.suggestionId)
       void openSuggestions(dl.suggestionId)
     }
+    if (dl.openConflicts) void openConflicts(dl.conflictId)
     if (dl.adoptionPackageId) void openAdoptionPackage(dl.adoptionPackageId)
   }
 
@@ -1883,7 +1884,27 @@ export function useWorldBible(props) {
     }], { size: "large" })
   }
 
-  async function openConflicts() {
+  async function resolveConflict(id, status, novelId = projectId.value, ownerNode = null) {
+    if (!ownsProject(novelId)) return false
+    const modalOwner = captureModalOwner(ownerNode)
+    const item = conflicts.value.find((entry) => entry.id === id)
+    if (!item) return false
+    try {
+      await api.world.resolveWorldConflict(id, {
+        status,
+        resolution_json: { ...(item.resolution_json || {}), resolved_by: "author" },
+      }, novelId)
+      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
+      toast(status === "resolved" ? "检查项已处理" : "检查项已忽略", "success")
+      await openConflicts()
+      return true
+    } catch (err) {
+      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "处理检查项失败", "error")
+      return false
+    }
+  }
+
+  async function openConflicts(focusId = "") {
     const novelId = projectId.value
     const modalOwner = captureModalOwner()
     try {
@@ -1894,10 +1915,17 @@ export function useWorldBible(props) {
         ? conflicts.value.map((item) => {
             const action = item.resolution_json?.author_action
             const label = action === "needs_decision" ? "需要你决定" : action === "can_improve" ? "可以改进" : "检查项"
-            return `<article class="world-bible-conflict-item" data-author-action="${esc(action || "unknown")}"><strong>${esc(label)} · ${esc(item.summary)}</strong>${item.resolution_json?.location ? `<p>位置：${esc(item.resolution_json.location)}</p>` : ""}${item.resolution_json?.next_step ? `<p>下一步：${esc(item.resolution_json.next_step)}</p>` : ""}</article>`
+            const focused = focusId === item.id ? " is-focused" : ""
+            return `<article class="world-bible-conflict-item${focused}" data-conflict-id="${esc(item.id)}" data-author-action="${esc(action || "unknown")}"><strong>${esc(label)} · ${esc(item.summary)}</strong>${item.resolution_json?.location ? `<p>位置：${esc(item.resolution_json.location)}</p>` : ""}${item.resolution_json?.next_step ? `<p>下一步：${esc(item.resolution_json.next_step)}</p>` : ""}<div class="world-bible-suggestion-item__actions"><button class="btn btn-sm btn-primary" data-bible-conflict-resolve="${esc(item.id)}">已处理</button><button class="btn btn-sm" data-bible-conflict-ignore="${esc(item.id)}">忽略</button></div></article>`
           }).join("")
         : `<div class="empty-state"><p>暂无冲突检查项</p></div>`
       showModalHtml("冲突检查", body, [])
+      document.querySelectorAll("[data-bible-conflict-resolve]").forEach((button) => {
+        button.addEventListener("click", () => resolveConflict(button.getAttribute("data-bible-conflict-resolve"), "resolved", novelId, button))
+      })
+      document.querySelectorAll("[data-bible-conflict-ignore]").forEach((button) => {
+        button.addEventListener("click", () => resolveConflict(button.getAttribute("data-bible-conflict-ignore"), "ignored", novelId, button))
+      })
     } catch (err) {
       if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载冲突失败", "error")
       return false

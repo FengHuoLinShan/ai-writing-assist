@@ -17,15 +17,22 @@ from infrastructure.llm.errors import LLMTimeoutError
 from infrastructure.tasks.models import AsyncTask
 from modules.context.models import ContextConfirmation
 from modules.project.models import Project
+from modules.writing import facade as writing_facade
 from modules.writing.conflict_ai import (
     ConflictCheckAiReviewService,
     ConflictSuggestionService,
 )
+from modules.writing.facade import get_author_attention_items
 from modules.writing.repositories import (
     AI_REVIEW_TASK_OWNER_KEY,
     WritingConflictCheckRepository,
+    WritingDraftRepository,
 )
-from modules.writing.schemas import WritingConflictCheckCreate
+from modules.writing.schemas import (
+    WritingConflictCheckCreate,
+    WritingDraftCreate,
+    WritingDraftUpdate,
+)
 from modules.writing.services import WritingConflictCheckService
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
@@ -62,7 +69,7 @@ async def _create_scene(
                     "chapter_id": str(chapter_index),
                     "chapter_index": chapter_index,
                     "start_pos": 0,
-                    "end_pos": 1000,
+                    "end_pos": 5,
                 }
             ],
         },
@@ -134,9 +141,10 @@ async def test_conflict_check_persists_rule_hits_and_summary(
     assert body["status"] in {"completed", "degraded"}
     assert body["summary_json"]["total"] == len(body["items"])
     kinds = {item["kind"]: item for item in body["items"]}
-    assert kinds["forbidden_present"]["severity"] == "high"
+    assert kinds["forbidden_present"]["severity"] == "medium"
+    assert kinds["forbidden_present"]["author_action"] == "can_improve"
     assert kinds["forbidden_present"]["source_module"] == "outline"
-    assert "主角死亡" in kinds["forbidden_present"]["evidence_summary"]
+    assert "仅字面命中" in kinds["forbidden_present"]["evidence_summary"]
     forbidden_location = kinds["forbidden_present"]["location_json"]
     assert forbidden_location["source"] == {
         "module": "outline",
@@ -151,8 +159,9 @@ async def test_conflict_check_persists_rule_hits_and_summary(
         "scene_id": scene["id"],
     }
     assert forbidden_location["text_range"]["start"] == 0
-    assert forbidden_location["needs_review_reason"] is None
-    assert kinds["required_missing"]["severity"] == "medium"
+    assert "字面命中不代表语义冲突" in forbidden_location["needs_review_reason"]
+    assert kinds["required_missing"]["severity"] == "low"
+    assert kinds["required_missing"]["author_action"] == "can_improve"
     required_summaries = [
         item["evidence_summary"]
         for item in body["items"]
@@ -195,6 +204,9 @@ async def test_conflict_check_uses_injected_scene_loader_for_rule_hits(
             must_happen="王后签字",
             must_not_happen="主角死亡",
             pov_character_id=None,
+            scene_chunks=[
+                {"chapter_index": 1, "start_pos": 0, "end_pos": 5}
+            ],
         )
 
     service = WritingConflictCheckService(scene_contract_loader=fake_scene_loader)
@@ -218,6 +230,182 @@ async def test_conflict_check_uses_injected_scene_loader_for_rule_hits(
     assert "主角死亡" in kinds["forbidden_present"].evidence_summary
     assert kinds["required_missing"].source_module == "outline"
     assert "王后签字" in kinds["required_missing"].evidence_summary
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_only_scans_current_scene_chunks(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Exact Scene scope"))
+    await db_session.flush()
+    llm = AsyncMock()
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            title="中段",
+            must_happen="拿到令牌",
+            must_not_happen="主角死亡",
+            scene_chunks=[
+                {"chapter_index": 1, "start_pos": 5, "end_pos": 9},
+                {"chapter_index": 1, "start_pos": 10, "end_pos": 14},
+                {"chapter_index": 2, "start_pos": 0, "end_pos": 4},
+            ],
+        )
+
+    service = WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader,
+        llm_client=llm,
+    )
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="主角死亡|拿到令牌|主角死亡",
+        ),
+    )
+
+    assert response.status == "completed"
+    assert [item for item in response.items if item.kind == "required_missing"] == []
+    forbidden = [item for item in response.items if item.kind == "forbidden_present"]
+    assert len(forbidden) == 1
+    assert forbidden[0].location_json["text_range"]["start"] == 10
+    llm.generate_structured.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_degrades_when_scene_range_is_invalid(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Invalid Scene scope"))
+    await db_session.flush()
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            title="失效范围",
+            must_happen="拿到令牌",
+            must_not_happen="主角死亡",
+            scene_chunks=[
+                {"chapter_index": 1, "start_pos": 100, "end_pos": 120}
+            ],
+        )
+
+    response = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="其他场景中主角死亡。",
+        ),
+    )
+
+    assert response.status == "degraded"
+    assert response.items == []
+    assert response.summary_json["degraded_sources"] == ["outline.scene_chunks"]
+    assert response.summary_json["omissions"] == [
+        {"source": "outline.scene_chunks", "reason": "invalid_for_content"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_skips_all_rules_when_scene_range_is_partially_invalid(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Partial Scene scope"))
+    await db_session.flush()
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            title="部分失效范围",
+            must_happen="拿到令牌",
+            must_not_happen="主角死亡",
+            scene_chunks=[
+                {"chapter_index": 1, "start_pos": 0, "end_pos": 4},
+                {"chapter_index": 1, "start_pos": 100, "end_pos": 120},
+            ],
+        )
+
+    response = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="主角死亡，但令牌在后一个未覆盖片段。",
+        ),
+    )
+
+    assert response.status == "degraded"
+    assert response.items == []
+    assert response.summary_json["omissions"] == [
+        {
+            "source": "outline.scene_chunks",
+            "reason": "partially_invalid_for_content",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_degrades_when_scene_range_hash_is_stale(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Stale Scene scope"))
+    await db_session.flush()
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            title="旧正文范围",
+            must_happen="拿到令牌",
+            must_not_happen="主角死亡",
+            scene_chunks=[
+                {
+                    "chapter_index": 1,
+                    "start_pos": 0,
+                    "end_pos": 4,
+                    "source_content_hash": "0" * 64,
+                }
+            ],
+        )
+
+    response = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="主角死亡。",
+        ),
+    )
+
+    assert response.status == "degraded"
+    assert response.items == []
+    assert response.summary_json["omissions"] == [
+        {"source": "outline.scene_chunks", "reason": "source_hash_mismatch"}
+    ]
+
+
+def test_writing_facade_exports_author_attention_seam() -> None:
+    assert "get_author_attention_items" in writing_facade.__all__
 
 
 @pytest.mark.parametrize("loader_mode", ["none", "exception"])
@@ -304,6 +492,115 @@ async def test_conflict_check_history_returns_latest_first(
     assert body["total"] == 2
     assert [item["id"] for item in body["items"]] == [second["id"]]
     assert first["id"] != second["id"]
+
+
+@pytest.mark.asyncio
+async def test_author_attention_only_projects_latest_open_scope_items(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id)
+    old_check = await _create_check(async_client, novel_id, scene["id"])
+    latest_check = await _create_check(async_client, novel_id, scene["id"])
+    await async_client.patch(
+        f"/api/writing/conflict-check-items/{latest_check['items'][0]['id']}",
+        params={"novel_id": novel_id},
+        json={"status": "later"},
+    )
+
+    items = await get_author_attention_items(db_session, novel_id)
+
+    projected_ids = {item.item_id for item in items}
+    assert all(item["id"] not in projected_ids for item in old_check["items"])
+    assert projected_ids == {item["id"] for item in latest_check["items"][1:]}
+    assert all(item.author_action == "can_improve" for item in items)
+
+
+@pytest.mark.asyncio
+async def test_author_attention_collapses_stale_check_to_recheck(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id)
+    check = await _create_check(async_client, novel_id, scene["id"])
+    saved = await async_client.post(
+        "/api/writing/drafts/autosave",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 1,
+            "title": "第一章",
+            "content": "新工作稿",
+        },
+    )
+    assert saved.status_code == 201
+
+    items = await get_author_attention_items(db_session, novel_id)
+
+    assert len(items) == 1
+    assert items[0].key == f"writing:recheck:{check['id']}"
+    assert items[0].item_id is None
+    assert items[0].author_action == "can_improve"
+    assert items[0].title == "重新检查第 1 章"
+
+
+@pytest.mark.asyncio
+async def test_author_attention_detects_in_place_draft_content_change(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="In-place stale check"))
+    await db_session.flush()
+    draft_repo = WritingDraftRepository()
+    draft = await draft_repo.create(
+        db_session,
+        WritingDraftCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            title="第一章",
+            content="主角死亡",
+        ),
+    )
+
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            title="当前场景",
+            must_happen=None,
+            must_not_happen="主角死亡",
+            scene_chunks=[
+                {"chapter_index": 1, "start_pos": 0, "end_pos": 4}
+            ],
+        )
+
+    service = WritingConflictCheckService(
+        draft_repo=draft_repo,
+        scene_contract_loader=fake_scene_loader,
+    )
+    check = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            draft_id=str(draft.id),
+            version_number=draft.version_number,
+            content="主角死亡",
+        ),
+    )
+    await draft_repo.update(
+        db_session,
+        draft,
+        WritingDraftUpdate(content="主角离开"),
+    )
+
+    items = await service.get_author_attention_items(db_session, str(novel_id))
+
+    assert len(items) == 1
+    assert items[0].key == f"writing:recheck:{check.id}"
+    assert items[0].item_id is None
 
 
 @pytest.mark.asyncio
@@ -409,7 +706,7 @@ async def test_publish_archives_latest_conflict_check_snapshot(
     assert published.status_code == 201, published.text
     snapshot = published.json()["draft"]["conflict_check_snapshot_json"]
     assert snapshot["check_id"] == check["id"]
-    assert snapshot["open_high_count"] == 1
+    assert snapshot["open_high_count"] == 0
     first_snapshot_item = snapshot["items"][0]
     assert first_snapshot_item["location_json"]["source"]
     assert first_snapshot_item["location_json"]["open_target"]

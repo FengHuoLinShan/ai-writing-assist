@@ -10,7 +10,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 
 def project_writing_draft_state(
@@ -555,6 +562,14 @@ class WritingConflictItemResponse(BaseModel):
     suggestion_error: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @computed_field
+    @property
+    def author_action(self) -> Literal["needs_decision", "can_improve"]:
+        """Project author intent without adding another persisted status."""
+        if self.is_ai_judgment and self.needs_review:
+            return "needs_decision"
+        return "can_improve"
 
     @field_validator(
         "id",

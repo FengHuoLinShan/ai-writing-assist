@@ -13,14 +13,36 @@ from modules.writing.contracts import (
     ManuscriptReadContract,
     ManuscriptSearchHitContract,
     SourceRangeRefContract,
+    WritingAuthorAttentionItemContract,
     WritingDraftContract,
     WritingProjectStatsContract,
 )
 from modules.writing.manuscript_source import ManuscriptSourceService
 from modules.writing.schemas import WritingDraftCreate
-from modules.writing.services import WritingDraftService
+from modules.writing.services import WritingConflictCheckService, WritingDraftService
+
+__all__ = [
+    "adopt_candidate_to_working",
+    "build_manuscript_range_ref",
+    "create_draft",
+    "create_draft_only",
+    "create_published_draft_only",
+    "get_author_attention_items",
+    "get_draft",
+    "get_latest_draft_for_chapter",
+    "get_project_writing_stats",
+    "grep_manuscript",
+    "list_chapter_indices",
+    "list_effective_chapter_indices",
+    "list_latest_drafts_for_chapters",
+    "list_manuscript_sources",
+    "list_project_writing_stats",
+    "lock_chapter_versions_for_revalidation",
+    "read_manuscript_range",
+]
 
 _service = WritingDraftService()
+_conflict_service = WritingConflictCheckService()
 _manuscript_source = ManuscriptSourceService()
 
 
@@ -175,6 +197,14 @@ async def list_project_writing_stats(
 ) -> dict[str, WritingProjectStatsContract]:
     """批量获取项目正文统计（每章只统计最新版本）。"""
     return await _service.list_project_stats(db, novel_ids)
+
+
+async def get_author_attention_items(
+    db: AsyncSession,
+    novel_id: str,
+) -> list[WritingAuthorAttentionItemContract]:
+    """Project read projection of current actionable Writing checks."""
+    return await _conflict_service.get_author_attention_items(db, novel_id)
 
 
 async def list_manuscript_sources(

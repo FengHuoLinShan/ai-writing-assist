@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import (
@@ -255,6 +256,25 @@ class SceneContract:
     pov_character_id: str | None = None
     structure_meta: dict = field(default_factory=dict)
     status: str = "draft"
+
+
+@dataclass(frozen=True)
+class OutlineAuthorAttentionItemContract:
+    """One safe Scene-workbench item for a project-level read model."""
+
+    key: str
+    source_kind: str
+    title: str
+    summary: str
+    author_action: str
+    severity: str
+    target_kind: str
+    item_id: str | None = None
+    chapter_index: int | None = None
+    scene_id: str | None = None
+    scene_ids: tuple[str, ...] = ()
+    suggestion_id: str | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)

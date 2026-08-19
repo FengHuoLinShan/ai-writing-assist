@@ -551,8 +551,11 @@ workflow/result refs 的唯一跨模块入口；它只组装 pending package，�
 
 `get_author_attention_summary()` 是 Project“今日工作”消费的只读稳定投影，返回冻结的
 `WorldAttentionSummaryContract`：同一 `novel_id` 下待处理的世界对象、别名和关系数量及
-确定性 `total`。实现位于 world 自己的 attention service，复用既有查询服务并保持
-项目过滤；root `facade.py` 仅 re-export，响应不包含对象内容、原始状态、owner 或内部 ID。
+确定性 `total`，并附加 pending 世界书冲突、审核组和未被兼容 shadow 覆盖的待采用建议。
+checkpoint、stale/resolved 冲突、已处理建议和 task-only 临时结果不进入投影；对象、别名、
+关系按作者实际处理组去重。实现位于 world 自己的 attention service，复用既有查询服务并
+保持项目过滤；别名成员的 Scene/章节来源通过稳定响应字段读取，三类审核 target 保留对象或组
+标识供领域页精确定位。root `facade.py` 仅 re-export，响应不包含正文、原始任务、owner 或密钥。
 
 ```python
 # ---- CoreEntity ----

@@ -94,6 +94,7 @@ async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, titl
 async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
 async def adopt_candidate_to_working(db: AsyncSession, novel_id: str, draft_id: str, *, adopted_by: str = "author") -> WritingDraftContract
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
+async def get_author_attention_items(db: AsyncSession, novel_id: str) -> list[WritingAuthorAttentionItemContract]
 async def list_latest_drafts_for_chapters(db: AsyncSession, novel_id: str, chapter_indices: list[int], *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
 async def list_effective_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
@@ -133,6 +134,8 @@ snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补�
 Writing 对外继续通过 `contracts.py` / `facade.py` 暴露草稿和章节索引。outline 可以只读消费这些契约，用于结构生成上下文、Scene 工作台和跨章检测，不直接访问 writing 的 model / repository / service。
 
 Writing 服务需要读取 outline Scene contract 时通过可注入 loader 调用。默认 loader 在函数内部 lazy import `modules.outline.facade`；测试可注入 fake callable，不需要 monkeypatch outline facade。
+
+Project 的 Today 投影只通过 `facade.get_author_attention_items()` 读取每个章节/Scene 最新检查中的开放问题。检查 scope 保存正文 `content_hash`；若 draft ID、版本或 hash 已落后于最新服务端工作稿，Writing 折叠为一条“重新检查”提示，不向 Project 暴露 ORM 或历史检查。
 
 ## API
 
@@ -253,12 +256,13 @@ deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candid
 
 `POST /api/writing/conflict-checks` 默认只做规则层检查。请求体的 `include_candidates` 默认为 `false`；写作页会在检查前弹出确认，只有用户勾选“包含待确认对象”时才传 `true`。
 
-- 通过注入的 Scene contract loader 读取当前 Scene 的目标、必须发生、禁止发生和核心冲突；默认 loader 仍 lazy 调用 `outline.facade.get_scene_contract`。
+- 通过注入的 Scene contract loader 读取当前 Scene 的必须发生、禁止发生和 `scene_chunks`；默认 loader 仍 lazy 调用 `outline.facade.get_scene_contract`。字面预警只扫描当前章中有效且仍绑定本次正文 hash 的 Scene 精确范围；范围缺失、越界或 `source_content_hash` 已失效时记录 `degraded_sources` / `omissions`，绝不回退整章。没有 hash 的旧范围继续使用边界校验兼容。
 - 通过 `memory.facade.get_continuity_evidence_for_writing` 获取上一章位置连续性证据；来源不可用时写入 `summary_json.degraded_sources`。
 - 每条问题的 `location_json` 保存轻量证据：`source` 描述来源模块/类型/标签/字段/摘录，`open_target` 描述前端可打开目标（`text_range` / `outline_scene` / `memory_chapter`），`needs_review_reason` 描述候选证据复核原因。
 - 问题状态为 `open / resolved / ignored / later`；发布章节时会把最近一次检查快照写入 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，不保留正文 `text_range`，之后问题状态变化不会改写该发布快照。
+- `forbidden_present / required_missing` 保留兼容 kind，但仅表示待人工确认的字面预警；响应派生 `author_action=can_improve`，不作为确定性语义冲突。AI 结果只有依赖作者决定时派生 `needs_decision`，不增加数据库状态。
 
-Phase 2 AI 能力是显式追加，不影响规则层检查：
+Phase 2 AI 能力始终由作者显式触发并追加独立语义问题，不影响、关闭或改写字面预警：
 
 - `POST /api/writing/conflict-checks/{id}/ai-review` 需要 `context_confirmation_id`，且确认记录 action 必须是 `writing.conflict_check.ai_review`。
 - `/ai-review-task` 在入队事务中保存 secret-free 项目 LLM execution snapshot 和内部 task owner；worker 只允许在带 lease commit fence 的 task session 中运行。prepare 阶段读取并锁定当前检查/问题、重建已确认上下文后提交，真实 LLM 等待期间不持有数据库事务；finalize 再检查项目、确认上下文、检查及问题的语义指纹。输入漂移或任务被更新任务取代时不会追加旧结果，内部 owner 不进入 API 或发布快照。同步 `/ai-review` 的既有单事务语义不变。

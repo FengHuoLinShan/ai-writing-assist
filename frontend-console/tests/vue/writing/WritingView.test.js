@@ -860,6 +860,45 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("从待处理深链打开当前 Scene 的最新检查并定位事项", async () => {
+    const check = {
+      id: "check-linked",
+      novel_id: "p1",
+      chapter_index: 1,
+      scene_id: "s1",
+      items: [{
+        id: "item-linked",
+        severity: "low",
+        kind: "required_missing",
+        status: "open",
+        author_action: "can_improve",
+        source_module: "outline",
+        evidence_summary: "当前场景未逐字出现必须发生项",
+      }],
+    }
+    globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [check] })
+    const wrapper = mount(WritingView, {
+      props: props({
+        requestedLocation: {
+          chapter: 1,
+          draftId: "d1",
+          sceneId: "s1",
+          openConflict: true,
+          conflictItemId: "item-linked",
+          source: "url",
+        },
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="剧情设定冲突检查"]').exists()).toBe(true)
+    expect(wrapper.get('[data-conflict-item-id="item-linked"]').classes()).toContain("is-focused")
+    expect(wrapper.get('[data-conflict-item-id="item-linked"]').attributes("aria-current")).toBe("true")
+    expect(wrapper.get('[data-conflict-item-id="item-linked"] [data-author-action]').text()).toBe("可以改进")
+    wrapper.unmount()
+  })
+
   it("场景提取完成后刷新 Scene，并提供进入场景骨架的下一步", async () => {
     globalThis.api.imports.startStage.mockResolvedValue({ task_id: "extract-1" })
     globalThis.api.tasks.get.mockResolvedValue({ status: "done", progress: 1, task_type: "scene_auto_extraction", result: {} })

@@ -36,6 +36,116 @@ describe("todayIsland", () => {
     expect(router.navigate.mock.calls[1][3].get("scene_id")).toBeNull()
   })
 
+  it("把本机写作位置作为可选排序焦点传给安全摘要", async () => {
+    const getWorkspaceSummary = vi.fn(async () => ({ project_id: "p1", attention: { items: [] } }))
+    rememberWritingLocation("p1", { currentChapter: 3, currentDraftId: "d3", currentSceneId: "s3" })
+    setBridgeOverrides({
+      state: { currentProjectId: "p1", currentProject: { id: "p1" } },
+      api: { projects: { getWorkspaceSummary }, tasks: { get: vi.fn() } },
+    })
+
+    await loadTodayProps()
+
+    expect(getWorkspaceSummary).toHaveBeenCalledWith("p1", {
+      focus_chapter_index: 3,
+      focus_scene_id: "s3",
+    })
+  })
+
+  it("展示具体待决事项并深链到所属领域", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1" },
+      summary: {
+        project_id: "p1",
+        writing: {},
+        attention: {
+          items: [{
+            key: "writing:item-1",
+            source_kind: "writing_conflict",
+            title: "核对港口规则",
+            summary: "正文没有逐字出现约定内容",
+            author_action: "can_improve",
+            relevance: "exact_scene",
+            severity: "low",
+            target: { kind: "writing_conflict", item_id: "item-1", chapter_index: 3, scene_id: "s3" },
+          }],
+          actionable_total: 7,
+          has_more: true,
+          more_targets: [{
+            source_kind: "writing_conflict",
+            target: { kind: "writing_conflict", chapter_index: 3, scene_id: "s3" },
+          }],
+          world_objects: 2,
+        },
+      },
+    } })
+
+    expect(wrapper.get(".today-attention-row").text()).toContain("当前场景")
+    expect(wrapper.get(".today-attention-row").text()).toContain("可以改进")
+    expect(wrapper.get(".today-attention-footer").text()).toContain("还有 6 项")
+    expect(wrapper.get(".today-attention-footer .btn").text()).toBe("查看更多正文")
+    await wrapper.get(".today-attention-row .btn").trigger("click")
+
+    const query = router.navigate.mock.calls[0][3]
+    expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["writing", null, true])
+    expect(query.get("open")).toBe("conflicts")
+    expect(query.get("conflict_item_id")).toBe("item-1")
+    expect(query.get("scene_id")).toBe("s3")
+
+    await wrapper.get(".today-attention-footer .btn").trigger("click")
+    expect(router.navigate.mock.calls[1][3].get("conflict_item_id")).toBeNull()
+    expect(router.navigate.mock.calls[1][3].get("open")).toBe("conflicts")
+  })
+
+  it("具体待决列表为空时显示诚实空态", () => {
+    setBridgeOverrides({ router: { navigate: vi.fn(), refresh: vi.fn() } })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1" },
+      summary: { project_id: "p1", writing: {}, attention: { items: [], actionable_total: 0, has_more: false } },
+    } })
+
+    expect(wrapper.get(".today-attention-empty").text()).toBe("当前没有需要你决定的内容")
+    expect(wrapper.find(".today-attention-card").exists()).toBe(false)
+  })
+
+  it.each([
+    ["world_review_objects", "review-objects", "entity_id"],
+    ["world_review_aliases", "review-aliases", "group_id"],
+    ["world_review_relations", "review-relations", "group_id"],
+  ])("World 审核深链精确携带 %s 目标", async (kind, subView, targetKey) => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1" },
+      summary: {
+        project_id: "p1",
+        writing: {},
+        attention: {
+          items: [{
+            key: `world:${kind}:target-1`,
+            source_kind: "world_object",
+            title: "审核世界设定",
+            summary: "确认是否采用。",
+            author_action: "needs_decision",
+            relevance: "current_chapter",
+            severity: "medium",
+            target: { kind, item_id: "target-1", chapter_index: 3 },
+          }],
+          actionable_total: 1,
+        },
+      },
+    } })
+
+    await wrapper.get(".today-attention-row .btn").trigger("click")
+
+    const query = router.navigate.mock.calls[0][3]
+    expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["world", subView, true])
+    expect(query.get(targetKey)).toBe("target-1")
+    expect(query.get("source_chapter_index")).toBe("3")
+  })
+
   it("loads the safe project summary and restores at most three workflows", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     const api = {
@@ -272,6 +382,63 @@ describe("todayIsland", () => {
     const query = router.navigate.mock.calls[0][3]
     expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["world", "bible", true])
     expect(query.get("adoption_package_id")).toBe("package-1")
+  })
+
+  it("不在未完成创作中重复展示已进入待决投影的建议", async () => {
+    const suggestion = { id: "suggestion-1", target_type: "world_bible_page_draft", payload_json: { page: { title: "港口制度" } } }
+    setBridgeOverrides({
+      state: { currentProjectId: "p1", currentProject: { id: "p1" } },
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({
+          project_id: "p1",
+          writing: { chapter_count: 1 },
+          attention: {
+            items: [{ key: "world:suggestion-1", target: { kind: "world_suggestion", suggestion_id: "suggestion-1" } }],
+          },
+        })) },
+        world: {
+          listBibleDrafts: vi.fn(async () => ({ items: [] })),
+          listSuggestions: vi.fn(async ({ review_group: reviewGroup }) => ({ items: reviewGroup === "generation_center" ? [suggestion] : [] })),
+        },
+        tasks: { get: vi.fn() },
+      },
+    })
+
+    const props = await loadTodayProps()
+
+    expect(props.worldContinuations).toEqual([])
+  })
+
+  it("采用包待决项打开既有审阅入口", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1" },
+      summary: {
+        project_id: "p1",
+        writing: {},
+        attention: {
+          items: [{
+            key: "world:adoption-package",
+            source_kind: "world_suggestion",
+            title: "确认待采用建议：世界设定采用包",
+            summary: "查看建议并决定是否采用。",
+            author_action: "needs_decision",
+            relevance: "project_general",
+            severity: "medium",
+            target: { kind: "world_adoption", suggestion_id: "package-1" },
+          }],
+          actionable_total: 1,
+        },
+      },
+    } })
+
+    await wrapper.get(".today-attention-row .btn").trigger("click")
+
+    const query = router.navigate.mock.calls[0][3]
+    expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["world", "bible", true])
+    expect(query.get("adoption_package_id")).toBe("package-1")
+    expect(query.get("open")).toBeNull()
   })
 
   it("keeps a pending suggestion pointer that is beyond the first result page", async () => {

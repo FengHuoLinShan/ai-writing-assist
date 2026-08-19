@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict
+from dataclasses import replace
 from datetime import UTC, datetime
 from itertools import combinations
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.outline.contracts import (
     SCENE_SEMANTIC_FIELDS,
+    OutlineAuthorAttentionItemContract,
     scene_semantic_field_status,
 )
 from modules.outline.models import Scene, SceneFusionSuggestion, SceneSpan
@@ -561,6 +563,93 @@ class SceneWorkbenchService:
                 else None
             ),
         )
+
+    async def get_author_attention_items(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> tuple[OutlineAuthorAttentionItemContract, ...]:
+        """Project active Scene health and fusion decisions without raw ORM data."""
+        workbench = await self.get_workbench(db, novel_id, limit=None)
+        projected: list[OutlineAuthorAttentionItemContract] = []
+        fusion_by_id: dict[str, OutlineAuthorAttentionItemContract] = {}
+
+        for item in workbench.items:
+            scene = item.scene
+            if scene.status == "deprecated":
+                continue
+            scene_id = str(scene.id)
+            chapters = self.repo.chapter_indices_for_scene(scene)
+            chapter_index = min(chapters) if chapters else None
+            organize_reasons = item.health_details.get("needs_organize", [])
+            non_fusion_reasons = [
+                reason
+                for reason in organize_reasons
+                if reason.code != "pending_scene_fusion_suggestion"
+            ]
+
+            for reason in organize_reasons:
+                if (
+                    reason.code != "pending_scene_fusion_suggestion"
+                    or not reason.suggestion_id
+                ):
+                    continue
+                suggestion_id = str(reason.suggestion_id)
+                existing = fusion_by_id.get(suggestion_id)
+                if existing is not None:
+                    fusion_by_id[suggestion_id] = replace(
+                        existing,
+                        scene_ids=tuple(dict.fromkeys((*existing.scene_ids, scene_id))),
+                    )
+                    continue
+                suggestion_chapter = (
+                    min(reason.chapter_indices)
+                    if reason.chapter_indices
+                    else chapter_index
+                )
+                fusion_by_id[suggestion_id] = OutlineAuthorAttentionItemContract(
+                    key=f"outline:fusion:{suggestion_id}",
+                    source_kind="outline_fusion",
+                    title="确认 Scene 融合建议",
+                    summary="查看相关 Scene，并决定是否融合。",
+                    author_action="needs_decision",
+                    severity="medium",
+                    target_kind="outline_fusion",
+                    item_id=suggestion_id,
+                    chapter_index=suggestion_chapter,
+                    scene_id=scene_id,
+                    scene_ids=(scene_id,),
+                    suggestion_id=suggestion_id,
+                    updated_at=scene.updated_at,
+                )
+
+            health = [key for key in item.health if key != "needs_organize"]
+            if non_fusion_reasons:
+                health.append("needs_organize")
+            health = list(dict.fromkeys(health))
+            if not health:
+                continue
+            labels = [HEALTH_DEFS[key] for key in health if key in HEALTH_DEFS]
+            scene_label = scene.title or f"Scene {scene.scene_index}"
+            projected.append(
+                OutlineAuthorAttentionItemContract(
+                    key=f"outline:scene-health:{scene_id}",
+                    source_kind="outline_scene_health",
+                    title=f"检查 Scene：{scene_label}",
+                    summary=f"待处理：{'、'.join(labels)}。",
+                    author_action=(
+                        "needs_decision" if "unreviewed" in health else "can_improve"
+                    ),
+                    severity="medium" if "unreviewed" in health else "low",
+                    target_kind="outline_scene",
+                    item_id=scene_id,
+                    chapter_index=chapter_index,
+                    scene_id=scene_id,
+                    updated_at=scene.updated_at,
+                )
+            )
+
+        return tuple([*projected, *fusion_by_id.values()])
 
     @staticmethod
     def _progress_chapters(scene) -> list[int]:

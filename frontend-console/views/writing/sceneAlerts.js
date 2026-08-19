@@ -22,7 +22,6 @@ export function buildSceneAlerts({
 
   const alerts = [
     ...structureAlerts(scene, chapterIndex),
-    ...proseAlerts(scene, chapterIndex, content),
     ...checkAlerts(latestCheck, {
       content,
       draftId,
@@ -50,32 +49,6 @@ export function summarizeSceneAlerts(alerts = []) {
     actionableCount,
     highestSeverity,
     hasStaleCheck: alerts.some((alert) => alert?.stale === true),
-  }
-}
-
-export function sceneTextForChapter(scene, chapterIndex, content = "") {
-  return sceneTextScope(scene, chapterIndex, content).text
-}
-
-function sceneTextScope(scene, chapterIndex, content = "") {
-  const source = String(content || "")
-  const chunks = (scene?.scene_chunks || []).filter((chunk) => (
-    String(chunk?.chapter_index ?? chunk?.chapter_id ?? "") === String(chapterIndex ?? "")
-  ))
-  const ranges = chunks.map((chunk) => {
-    const start = Number(chunk?.start_pos ?? chunk?.start_offset)
-    const end = Number(chunk?.end_pos ?? chunk?.end_offset)
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
-    const safeStart = Math.max(0, start)
-    const safeEnd = Math.min(source.length, end)
-    return safeEnd > safeStart ? [safeStart, safeEnd] : null
-  }).filter(Boolean)
-
-  if (!chunks.length) return { text: source, available: true }
-  if (!ranges.length) return { text: "", available: false }
-  return {
-    text: ranges.map(([start, end]) => source.slice(start, end)).join("\n"),
-    available: true,
   }
 }
 
@@ -122,46 +95,6 @@ function structureAlerts(scene, chapterIndex) {
   }
   if (!sceneMapsToChapter(scene, chapterIndex)) {
     alerts.push(alert("structure-chapter-map", "medium", "结构", "场景尚未对应到当前章节"))
-  }
-  return alerts
-}
-
-function proseAlerts(scene, chapterIndex, content) {
-  const alerts = []
-  const requiredPhrases = semanticFieldStatus(scene, "must_happen") == null
-    ? splitRulePhrases(scene?.must_happen)
-    : []
-  const forbiddenPhrases = semanticFieldStatus(scene, "must_not_happen") == null
-    ? splitRulePhrases(scene?.must_not_happen)
-    : []
-  if (!requiredPhrases.length && !forbiddenPhrases.length) return alerts
-
-  const scope = sceneTextScope(scene, chapterIndex, content)
-  if (!scope.available) {
-    return [alert(
-      "prose-scope-unavailable",
-      "low",
-      "正文",
-      "当前场景的正文范围不可用，已跳过必须出现/不应出现的字面检查",
-    )]
-  }
-  const sceneText = normalizeForLiteralMatch(scope.text)
-
-  for (const [index, phrase] of requiredPhrases.entries()) {
-    if (!sceneText.includes(normalizeForLiteralMatch(phrase))) {
-      alerts.push({
-        ...alert(`prose-required-${index}`, "medium", "正文", `未检测到必须发生项「${phrase}」`),
-        detail: "仅按当前场景的正文字面匹配，不代表剧情语义上一定缺失。",
-      })
-    }
-  }
-  for (const [index, phrase] of forbiddenPhrases.entries()) {
-    if (sceneText.includes(normalizeForLiteralMatch(phrase))) {
-      alerts.push({
-        ...alert(`prose-forbidden-${index}`, "high", "正文", `检测到禁止发生项「${phrase}」`),
-        detail: "仅按当前场景的正文字面匹配，请结合上下文人工确认。",
-      })
-    }
   }
   return alerts
 }
@@ -293,16 +226,6 @@ function sceneMapsToChapter(scene, chapterIndex) {
     String(chunk?.chapter_index ?? chunk?.chapter_id ?? "") === target
   ))
 }
-
-function splitRulePhrases(value) {
-  if (!hasText(value)) return []
-  return String(value).split(/[；;，,\n。]+/).map((part) => part.trim()).filter(Boolean)
-}
-
-function normalizeForLiteralMatch(value) {
-  return String(value || "").replace(/\s+/g, "").toLocaleLowerCase()
-}
-
 
 function alert(id, severity, source, message) {
   return { id, severity, source, message }

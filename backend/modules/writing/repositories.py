@@ -750,6 +750,49 @@ class WritingConflictCheckRepository:
         await db.flush()
         return check, created_items
 
+    async def list_latest_open_items_for_project(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[tuple[WritingConflictCheck, WritingConflictItem]]:
+        """Return open items only from each chapter/Scene scope's latest check."""
+        ranked_checks = (
+            select(
+                WritingConflictCheck.id.label("check_id"),
+                func.row_number()
+                .over(
+                    partition_by=(
+                        WritingConflictCheck.chapter_index,
+                        WritingConflictCheck.scene_id,
+                    ),
+                    order_by=(
+                        WritingConflictCheck.created_at.desc(),
+                        WritingConflictCheck.id.desc(),
+                    ),
+                )
+                .label("scope_rank"),
+            )
+            .where(WritingConflictCheck.novel_id == novel_id)
+            .subquery()
+        )
+        stmt = (
+            select(WritingConflictCheck, WritingConflictItem)
+            .join(
+                ranked_checks,
+                ranked_checks.c.check_id == WritingConflictCheck.id,
+            )
+            .join(
+                WritingConflictItem,
+                WritingConflictItem.check_id == WritingConflictCheck.id,
+            )
+            .where(
+                ranked_checks.c.scope_rank == 1,
+                WritingConflictItem.novel_id == novel_id,
+                WritingConflictItem.status == "open",
+            )
+        )
+        return [(check, item) for check, item in (await db.execute(stmt)).all()]
+
     async def get_check(
         self,
         db: AsyncSession,
