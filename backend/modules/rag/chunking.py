@@ -195,7 +195,8 @@ class ChunkingService:
                         end = last_newline + 1
 
             chunks.append(text[start:end].strip())
-            start = end - overlap if end < text_len else text_len
+            # 句子边界回退可能让 end - overlap 不再前进，必须钳制保证 start 严格递增
+            start = max(start + 1, end - overlap) if end < text_len else text_len
 
         return chunks
 

@@ -369,8 +369,9 @@ class RetrievalOrchestrator:
                     if count_a >= count_b:
                         removed_indices.add(j)
                     else:
+                        # 保留 chunk_b：只移除当前位置的 chunk_a。
+                        # chunk_b 不能立即入列，否则外层到 j 时会再次 append 造成重复
                         keep.pop()
-                        keep.append((chunk_b, _score_b))
                         removed_indices.add(i)
                         break
 
