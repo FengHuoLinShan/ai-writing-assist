@@ -1956,3 +1956,35 @@ describe("同步与事件", () => {
     expect(remounted.find("#bible-activation-profile").element.value).toBe("prof-2")
   })
 })
+
+describe("beforeunload 守卫", () => {
+  it("有未保存修改时 beforeunload 要求确认，卸载后解绑", async () => {
+    const listenerSpy = vi.spyOn(window, "addEventListener")
+    const removeSpy = vi.spyOn(window, "removeEventListener")
+    const wrapper = mountTab()
+
+    const bound = listenerSpy.mock.calls.filter(([event]) => event === "beforeunload")
+    expect(bound.length).toBeGreaterThan(0)
+    const handler = bound[bound.length - 1][1]
+
+    // 无未保存修改：不拦截
+    let event = new Event("beforeunload", { cancelable: true })
+    handler(event)
+    expect(event.defaultPrevented).toBe(false)
+
+    // 制造未保存修改后：必须拦截刷新/关闭
+    await wrapper.find("#bible-free-text").setValue("未保存的修改")
+    event = new Event("beforeunload", { cancelable: true })
+    handler(event)
+    expect(event.defaultPrevented).toBe(true)
+
+    // 组件卸载后解绑，避免泄漏与误拦
+    wrapper.unmount()
+    expect(
+      removeSpy.mock.calls.some(([event, fn]) => event === "beforeunload" && fn === handler),
+    ).toBe(true)
+
+    listenerSpy.mockRestore()
+    removeSpy.mockRestore()
+  })
+})

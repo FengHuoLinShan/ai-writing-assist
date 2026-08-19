@@ -807,6 +807,61 @@ describe("WritingView", () => {
     wrapper.unmount()
   })
 
+  it("今日字数跨章累计并在刷新后保留", async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    localStorage.setItem(`novel_daily_wc_${today}_p1`, "10")
+    const events = []
+    const listener = (event) => events.push(event.detail)
+    window.addEventListener("writing:dashboard-update", listener)
+    const wrapper = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2],
+        chapters: {
+          1: { chapter_index: 1, title: "第一章", status: "draft" },
+          2: { chapter_index: 2, title: "第二章", status: "draft" },
+        },
+        scenes: [],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await wrapper.get("#writing-editor").setValue("第一章四字")
+    expect(events.at(-1)).toMatchObject({ chapterIndex: 1, chapterWords: 5, todayWords: 15 })
+
+    const vm = wrapper.vm.$.setupState.vm
+    await vm.selectChapter(2)
+    await flushPromises()
+    await wrapper.get("#writing-editor").setValue("二章三字")
+    expect(events.at(-1)).toMatchObject({ chapterIndex: 2, chapterWords: 4 })
+
+    // 章 1 的 5 字已折叠进 base：今日 = 10 + 5 + 4
+    expect(events.at(-1).todayWords).toBe(19)
+    wrapper.unmount()
+    window.removeEventListener("writing:dashboard-update", listener)
+
+    // 刷新后重新进入同一章：不重复累计
+    const events2 = []
+    const listener2 = (event) => events2.push(event.detail)
+    window.addEventListener("writing:dashboard-update", listener2)
+    const reloaded = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2],
+        chapters: {
+          1: { chapter_index: 1, title: "第一章", status: "draft" },
+          2: { chapter_index: 2, title: "第二章", status: "draft" },
+        },
+        scenes: [],
+        requestedLocation: { chapter: 2, draftId: "d1" },
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await reloaded.get("#writing-editor").setValue("二章三字")
+    expect(events2.at(-1).todayWords).toBe(19)
+    reloaded.unmount()
+    window.removeEventListener("writing:dashboard-update", listener2)
+  })
+
   it("组件卸载后忽略冲突检查的晚到结果", async () => {
     const late = deferred()
     globalThis.api.writing.createConflictCheck.mockReturnValue(late.promise)
@@ -1067,5 +1122,57 @@ describe("WritingView", () => {
     wrapper.unmount()
     expect(events.at(-1)).toEqual({ chapterIndex: null, chapterWords: 0, todayWords: 0, saveState: "saved" })
     window.removeEventListener("writing:dashboard-update", listener)
+  })
+  it("晚到的旧场景冲突检查不得提前解锁新场景的检查按钮", async () => {
+    const lateA = deferred()
+    const lateB = deferred()
+    const wrapper = mount(WritingView, {
+      props: props({
+        chapterList: [1, 2],
+        chapters: {
+          1: { chapter_index: 1, title: "第一章", status: "draft" },
+          2: { chapter_index: 2, title: "第二章", status: "draft" },
+        },
+        scenes: [],
+      }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+
+    // 章节 1 的检查 A 在途
+    globalThis.api.writing.createConflictCheck.mockReturnValueOnce(lateA.promise)
+    const first = vm.runConflictCheck()
+    await vi.waitFor(() => {
+      expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalledTimes(1)
+      expect(vm.conflictState.loading).toBe(true)
+    })
+
+    // 切到章节 2：loadSceneContext 重置 loading，新章节上发起检查 B
+    await vm.selectChapter(2)
+    await flushPromises()
+    expect(vm.conflictState.loading).toBe(false)
+    globalThis.api.writing.createConflictCheck.mockReturnValueOnce(lateB.promise)
+    const second = vm.runConflictCheck()
+    await vi.waitFor(() => {
+      expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalledTimes(2)
+      expect(vm.conflictState.loading).toBe(true)
+    })
+
+    // 旧章节的检查 A 晚到结束：不得把 B 在途的 loading 提前置 false（双提交窗口）
+    lateA.resolve({ id: "check-a", chapter_index: 1, items: [] })
+    await first
+    await flushPromises()
+    expect(vm.conflictState.loading).toBe(true)
+
+    // loading 未被误解锁时，并发提交会被入口守卫拒绝
+    await vm.runConflictCheck()
+    expect(globalThis.api.writing.createConflictCheck).toHaveBeenCalledTimes(2)
+
+    lateB.resolve({ id: "check-b", chapter_index: 2, items: [] })
+    await second
+    await flushPromises()
+    expect(vm.conflictState.loading).toBe(false)
+    wrapper.unmount()
   })
 })

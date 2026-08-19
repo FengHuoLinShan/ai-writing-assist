@@ -449,3 +449,31 @@ describe("deepImportController", () => {
     controller.dispose()
   })
 })
+
+  it("dispose 后晚到的 startTask/recover 不得复活控制器轮询", async () => {
+    vi.useFakeTimers()
+    const api = {
+      tasks: { get: vi.fn().mockResolvedValue({ status: "running", progress: 0.1, result: {} }) },
+      world: {},
+      imports: {},
+    }
+    const onChange = vi.fn()
+    const controller = createDeepImportController({
+      api,
+      toast: vi.fn(),
+      getProjectId: () => "p1",
+      onChange,
+    })
+
+    controller.dispose()
+    const emitsBefore = onChange.mock.calls.length
+    const getsBefore = api.tasks.get.mock.calls.length
+
+    controller.startTask({ taskId: "task-late", workflowType: "deep_import" })
+    await controller.recover()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(api.tasks.get).toHaveBeenCalledTimes(getsBefore)
+    expect(onChange).toHaveBeenCalledTimes(emitsBefore)
+    expect(localStorage.getItem("novel_active_workflows_v1") || "[]").not.toContain("task-late")
+  })

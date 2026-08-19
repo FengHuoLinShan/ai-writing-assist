@@ -129,7 +129,7 @@ export function createConflictController({ api, toast, getProjectId, getCheck, o
     const token = ++generation
     try { const task = await waitForTask(workflow.taskId, projectId, token, workflow.workflowType); guard(token, projectId); const check = await api.writing.getConflictCheck(workflow.meta?.checkId, projectId); guard(token, projectId); onCheck(check); return task } catch (err) { if (err !== ABORTED && !disposed && token === generation && !err?.workflowProgressVisible) toast(err?.message || "AI 冲突任务恢复失败", "error"); return false }
   }
-  async function cancel() { const workflow = activeWorkflow(); if (!workflow) return false; await api.tasks.cancel(workflow.taskId, getProjectId()); return true }
+  async function cancel() { const workflow = activeWorkflow(); if (!workflow) return false; try { await api.tasks.cancel(workflow.taskId, getProjectId()) } catch (err) { toast(err?.message || "取消任务失败", "error"); return false } return true }
   function dismiss() { const workflow = activeWorkflow(); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); onProgress({ taskId: null, progress: null }) }
   function dispose() { disposed = true; generation += 1; if (timer) clearTimeout(timer); timer = null }
 

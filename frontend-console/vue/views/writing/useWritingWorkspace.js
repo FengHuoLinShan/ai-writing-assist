@@ -349,15 +349,51 @@ export function useWritingWorkspace(props) {
     })
   }
 
+  function dailyWordcountKeys() {
+    const today = new Date().toISOString().slice(0, 10)
+    const suffix = projectId || "global"
+    return {
+      base: `novel_daily_wc_${today}_${suffix}`,
+      open: `novel_daily_wc_open_${today}_${suffix}`,
+    }
+  }
+
   function dailyWordcount() {
     try {
-      const today = new Date().toISOString().slice(0, 10)
-      return Number(localStorage.getItem(`novel_daily_wc_${today}_${projectId || "global"}`) || 0) || 0
+      const { base } = dailyWordcountKeys()
+      return Number(localStorage.getItem(base) || 0) || 0
     } catch { return 0 }
+  }
+
+  function readDailyOpenChapter(keys) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(keys.open) || "null")
+      if (parsed && typeof parsed.chapter === "number" && typeof parsed.words === "number") {
+        return parsed
+      }
+    } catch { /* 损坏的缓存按无记录处理 */ }
+    return null
+  }
+
+  function noteDailyChapter(chapterIndex, words) {
+    // base 只累计“非当前章”的字数；当前章字数存 open 条目，
+    // 章切换/刷新时按 open 折叠进 base，避免同章字数被重复累计
+    try {
+      const keys = dailyWordcountKeys()
+      const open = readDailyOpenChapter(keys)
+      if (open && open.chapter !== chapterIndex) {
+        const base = Number(localStorage.getItem(keys.base) || 0) || 0
+        localStorage.setItem(keys.base, String(base + Math.max(0, open.words)))
+      }
+      localStorage.setItem(keys.open, JSON.stringify({ chapter: Number(chapterIndex), words }))
+    } catch { /* 存储失败不得影响输入 */ }
   }
 
   function dispatchDashboardUpdate(chapterIndex = selectedChapter.value) {
     if (typeof window === "undefined") return
+    if (chapterIndex != null) {
+      noteDailyChapter(Number(chapterIndex), editorState.content.length)
+    }
     window.dispatchEvent(new CustomEvent("writing:dashboard-update", {
       detail: {
         chapterIndex: chapterIndex == null ? null : Number(chapterIndex),
@@ -916,7 +952,8 @@ export function useWritingWorkspace(props) {
       conflictState.error = err?.message || "冲突检查失败"
       toast(conflictState.error, "error")
     } finally {
-      conflictState.loading = false
+      // 晚到的旧检查不得解锁新场景已在途的 loading，否则按钮提前解禁可双提交
+      if (ownsRequest()) conflictState.loading = false
     }
   }
 
