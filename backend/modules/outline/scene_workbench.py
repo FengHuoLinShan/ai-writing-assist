@@ -716,7 +716,10 @@ class SceneWorkbenchService:
     ) -> SceneReviewResponse:
         if len(set(data.scene_ids)) != len(data.scene_ids):
             raise ValueError("scene_ids cannot contain duplicates")
-        scenes = await self._get_scenes_in_novel(db, novel_id, data.scene_ids)
+        # 逐场景 read-modify-write structure_meta，必须持行锁避免并发 PATCH 丢键
+        scenes = await self._get_scenes_in_novel(
+            db, novel_id, data.scene_ids, for_update=True
+        )
         if any(scene.status == "deprecated" for scene in scenes):
             raise ValueError("Deprecated Scene cannot be reviewed")
         structure_reasons: dict[uuid.UUID, list[str]] = {}
@@ -987,7 +990,7 @@ class SceneWorkbenchService:
         nid = parse_uuid(novel_id, "novel_id")
         items: list[SceneFusionSuggestion] = []
         for raw_id in data.suggestion_ids:
-            item = await self._suggestion_repo.get_for_novel(
+            item = await self._suggestion_repo.get_for_novel_for_update(
                 db,
                 nid,
                 parse_uuid(raw_id, "suggestion_id"),
@@ -1047,6 +1050,8 @@ class SceneWorkbenchService:
                 persist_stale=True,
             ) from exc
 
+        # 替换 Scene 的索引分配与其它创建路径共享 scene_order advisory lock
+        await self.repo.lock_scene_order(db, nid)
         active = list(
             (
                 await db.execute(
@@ -1266,9 +1271,7 @@ class SceneWorkbenchService:
         if data.structure_meta is not None:
             meta.update(data.structure_meta)
         resulting_chapter_ids = (
-            data.chapter_ids
-            if data.chapter_ids is not None
-            else scene.chapter_ids or []
+            data.chapter_ids if data.chapter_ids is not None else scene.chapter_ids or []
         )
         resulting_chunks = (
             data.scene_chunks
@@ -1677,9 +1680,7 @@ class SceneWorkbenchService:
                     for field in SCENE_SEMANTIC_FIELDS
                     if field != "narrative_function"
                 },
-                "narrative_function": generated.semantic_meta.get(
-                    "narrative_function"
-                ),
+                "narrative_function": generated.semantic_meta.get("narrative_function"),
             },
         }
         review = self._draft_review_service.build_fusion_review(
@@ -1719,14 +1720,26 @@ class SceneWorkbenchService:
         novel_id: str,
         data: SceneFusionSaveRequest,
     ) -> SceneFusionSaveResponse:
-        sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
-        source_ids = [str(scene.id) for scene in sources]
+        if len(set(data.source_scene_ids)) != len(data.source_scene_ids):
+            raise ValueError("source_scene_ids cannot contain duplicates")
+        normalized_source_ids = [
+            str(parse_uuid(scene_id, "scene_id")) for scene_id in data.source_scene_ids
+        ]
+        # 先锁建议行、再锁 Scene 行：与 apply_replacement_suggestion 保持同一加锁顺序，
+        # 防止 dismiss/save 并发时决策状态与结构数据互相覆盖
         suggestion = await self._load_current_suggestion(
             db,
             novel_id,
             data.suggestion_id,
-            source_ids,
+            normalized_source_ids,
         )
+        sources = await self._load_fusion_scenes(
+            db,
+            novel_id,
+            data.source_scene_ids,
+            for_update=True,
+        )
+        source_ids = [str(scene.id) for scene in sources]
         if data.mode == "discard":
             if suggestion is not None:
                 await self._suggestion_repo.mark_status(
@@ -1826,7 +1839,7 @@ class SceneWorkbenchService:
     ) -> SceneFusionSuggestion | None:
         if suggestion_id is None:
             return None
-        item = await self._suggestion_repo.get_for_novel(
+        item = await self._suggestion_repo.get_for_novel_for_update(
             db,
             parse_uuid(novel_id, "novel_id"),
             parse_uuid(suggestion_id, "suggestion_id"),
@@ -1851,6 +1864,7 @@ class SceneWorkbenchService:
             db,
             novel_id,
             [data.target_scene_id, *data.source_scene_ids],
+            for_update=True,
         )
         target, sources = scenes[0], scenes[1:]
         if any(source.id == target.id for source in sources):
@@ -1931,15 +1945,19 @@ class SceneWorkbenchService:
                     "narrative_function": narrative_function,
                 }
             for field, value in override_values.items():
-                if field in {
-                    "title",
-                    "goal",
-                    "core_conflict",
-                    "emotional_beat",
-                    "must_happen",
-                    "must_not_happen",
-                    "narrative_tag",
-                } or value is not None:
+                if (
+                    field
+                    in {
+                        "title",
+                        "goal",
+                        "core_conflict",
+                        "emotional_beat",
+                        "must_happen",
+                        "must_not_happen",
+                        "narrative_tag",
+                    }
+                    or value is not None
+                ):
                     payload[field] = value
             if override_meta is not None:
                 meta = dict(payload["structure_meta"])
@@ -1988,6 +2006,9 @@ class SceneWorkbenchService:
 
     async def _next_scene_index(self, db: AsyncSession, novel_id: str) -> int:
         nid = parse_uuid(novel_id, "novel_id")
+        # scene_index 分配必须与其它创建路径在 scene_order advisory lock 下串行，
+        # 否则并发保存会分配到相同索引且无唯一约束兜底
+        await self.repo.lock_scene_order(db, nid)
         scenes = await self.repo.get_by_novel_ordered(
             db,
             nid,
@@ -2595,9 +2616,8 @@ class SceneWorkbenchService:
         seen: set[str] = set()
         for chunk in chunks:
             chapter_key = self._chunk_chapter_key(chunk)
-            if (
-                chapter_key in precise_chapters
-                and self._chunk_is_chapter_placeholder(chunk)
+            if chapter_key in precise_chapters and self._chunk_is_chapter_placeholder(
+                chunk
             ):
                 continue
             fingerprint = json.dumps(
@@ -2747,8 +2767,7 @@ class SceneWorkbenchService:
                 final_value = next((value for value in values if value), None)
             else:
                 values = [
-                    str(getattr(scene, field, None) or "").strip()
-                    for scene in scenes
+                    str(getattr(scene, field, None) or "").strip() for scene in scenes
                 ]
                 final_value = resulting_values.get(field)
                 if field == "narrative_tag":
@@ -2766,9 +2785,11 @@ class SceneWorkbenchService:
                 status = "uncertain"
             elif final_value:
                 status = "present"
-            elif source_statuses and all(
-                value == "not_applicable" for value in source_statuses
-            ) and len(source_statuses) == len(scenes):
+            elif (
+                source_statuses
+                and all(value == "not_applicable" for value in source_statuses)
+                and len(source_statuses) == len(scenes)
+            ):
                 status = "not_applicable"
             else:
                 status = "uncertain"

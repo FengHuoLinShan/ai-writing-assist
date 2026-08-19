@@ -631,7 +631,8 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
     ) -> SceneResponse:
         rid = parse_uuid(id, self.id_param)
         nid = parse_uuid(novel_id, "novel_id")
-        existing = await self.repo.get(db, rid)
+        # structure_meta 走 read-modify-write：先持行锁，避免与 review/merge 并发丢键
+        existing = await self.repo.get_for_update(db, rid)
         self._assert_found_in_novel(existing, id, nid)
         assert existing is not None
         payload = _update_payload(data)
@@ -791,6 +792,8 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
 
     async def get_next_scene_index(self, db: AsyncSession, novel_id: str) -> int:
         nid = parse_uuid(novel_id, "novel_id")
+        # 所有 scene_index 分配统一在 scene_order advisory lock 下串行
+        await self.repo.lock_scene_order(db, nid)
         stmt = select(func.coalesce(func.max(Scene.scene_index), -1)).where(
             Scene.novel_id == nid,
         )

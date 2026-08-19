@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -581,6 +582,7 @@ class TestSceneService:
         svc = SceneService()
         svc.repo = MagicMock()
         svc.repo.get = AsyncMock(return_value=scene)
+        svc.repo.get_for_update = AsyncMock(return_value=scene)
         svc.repo.update = AsyncMock(return_value=updated)
         db = MagicMock()
 
@@ -726,3 +728,69 @@ class TestOutlineArcService:
         got = await svc.get(db, str(arc.id), novel_id=sample_novel_id)
         assert got is not None
         assert got.title == "仅A可见"
+
+
+class TestSceneContextWindowFacade:
+    @pytest.mark.asyncio
+    async def test_previous_limit_zero_returns_no_neighbor_briefs(
+        self,
+        monkeypatch,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline import scene_facade
+
+        scene_id = uuid.uuid4()
+        contract = SimpleNamespace(
+            id=str(scene_id),
+            scene_index=5,
+            scene_chunks=[],
+        )
+
+        async def _fake_contract(_db, _novel_id, _scene_id):
+            return contract
+
+        def _scene_item(index):
+            return {
+                "id": str(uuid.uuid4()),
+                "novel_id": sample_novel_id,
+                "scene_index": index,
+                "title": f"Scene {index}",
+                "goal": "",
+                "core_conflict": "",
+                "emotional_beat": "",
+                "status": "draft",
+                "scene_chunks": [],
+            }
+
+        async def _fake_scenes(_db, _novel_id, status_filter=None):
+            return [_scene_item(index) for index in range(5)]
+
+        monkeypatch.setattr(scene_facade, "get_scene_contract", _fake_contract)
+        monkeypatch.setattr(scene_facade, "get_scenes_by_novel", _fake_scenes)
+
+        async def _fake_spans(
+            _db, _novel_id, _scene_id, status_filter=None, content_mode=None
+        ):
+            return []
+
+        monkeypatch.setattr(scene_facade, "get_scene_spans_for_scene", _fake_spans)
+
+        window = await scene_facade.get_scene_context_window(
+            None,  # type: ignore[arg-type]
+            sample_novel_id,
+            str(scene_id),
+            previous_limit=0,
+        )
+
+        assert window is not None
+        assert window.scene.scene_index == 5
+        # previous[-0:] 曾经取整表：limit=0 必须返回空邻居列表
+        assert window.previous_briefs == []
+
+        window_two = await scene_facade.get_scene_context_window(
+            None,  # type: ignore[arg-type]
+            sample_novel_id,
+            str(scene_id),
+            previous_limit=2,
+        )
+        assert [b.scene_index for b in window_two.previous_briefs] == [3, 4]

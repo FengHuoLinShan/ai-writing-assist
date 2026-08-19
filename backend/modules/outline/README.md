@@ -245,7 +245,8 @@ legacy 重排请求必须把当前项目的全部 active Scene 各提交一次�
 前端 Scene 行菜单将该操作显示为“移入历史”并要求二次确认；正文和
 追踪信息保留，用户可通过 `status=deprecated` 历史筛选查看。
 
-工作台 API：
+工作台 API（融合建议的 dismiss/save 与 replacement 采用同一「建议行 → Scene 行」
+加锁顺序，Scene 索引分配统一在 `scene_order` advisory lock 下串行）：
 
 ```http
 GET   /api/outline/scene-workbench
