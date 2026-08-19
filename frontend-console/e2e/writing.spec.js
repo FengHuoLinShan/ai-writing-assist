@@ -569,7 +569,7 @@ test.describe("写作台模块", () => {
       title: "宫门对峙",
       narrative_tag: "draft",
       chapter_ids: ["1"],
-      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 20 }],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 12 }],
       must_happen: "王后签字",
       must_not_happen: "主角死亡",
     })
@@ -587,12 +587,12 @@ test.describe("写作台模块", () => {
     await expect(conflictOptions).toContainText("剧情设定冲突检查", { timeout: 10000 })
     await conflictOptions.getByRole("button", { name: "开始检查" }).click()
     const conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
-    await expect(page.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })).toBeVisible()
-    await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项缺失" })).toBeVisible()
-    const forbiddenPresent = conflictDialog.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })
+    await expect(page.locator(".writing-conflict-item", { hasText: "疑似出现禁止项" })).toBeVisible()
+    await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项未逐字出现" })).toBeVisible()
+    const forbiddenPresent = conflictDialog.locator(".writing-conflict-item", { hasText: "疑似出现禁止项" })
     await expect(forbiddenPresent.getByRole("button", { name: "定位正文" })).toBeEnabled()
     await expect(forbiddenPresent.getByRole("button", { name: "打开来源" })).toBeEnabled()
-    const requiredMissing = conflictDialog.locator(".writing-conflict-item", { hasText: "必须发生项缺失" })
+    const requiredMissing = conflictDialog.locator(".writing-conflict-item", { hasText: "必须发生项未逐字出现" })
     await expect(requiredMissing.getByRole("button", { name: "无正文定位" })).toBeDisabled()
     await expect(requiredMissing.getByRole("button", { name: "打开来源" })).toBeEnabled()
 
@@ -777,18 +777,18 @@ test.describe("写作台模块", () => {
       })
     })
 
-    await page.getByRole("button", { name: "补充 AI 软冲突判断" }).click()
+    await page.getByRole("button", { name: "手动补充 AI 语义复核" }).click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
     const conflictOverlay = conflictDialog.locator("xpath=..")
     await expect(conflictOverlay).toHaveAttribute("inert", "")
     await page.keyboard.press("Escape")
     await expect(page.locator("#modal-overlay")).toBeHidden()
     await expect(conflictOverlay).not.toHaveAttribute("inert")
-    await expect(page.getByRole("button", { name: "补充 AI 软冲突判断" })).toBeEnabled()
+    await expect(page.getByRole("button", { name: "手动补充 AI 语义复核" })).toBeEnabled()
     await expect(conflictDialog.locator(":focus")).toHaveCount(1)
     await expect(page.locator(SEL.toastContainer)).not.toContainText("已取消 AI 参考资料确认")
 
-    await page.getByRole("button", { name: "补充 AI 软冲突判断" }).click()
+    await page.getByRole("button", { name: "手动补充 AI 语义复核" }).click()
     await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
     await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
     await expect(conflictDialog).toContainText("AI 判断", { timeout: 10000 })
@@ -807,7 +807,7 @@ test.describe("写作台模块", () => {
     await expect(conflictDialog).toContainText("补动机过渡", { timeout: 10000 })
 
     await page
-      .locator(".writing-conflict-item", { hasText: "必须发生项缺失" })
+      .locator(".writing-conflict-item", { hasText: "必须发生项未逐字出现" })
       .getByRole("button", { name: "稍后" })
       .click()
     await expect(page.locator(SEL.toastContainer)).toContainText("状态已更新", { timeout: 10000 })
@@ -942,6 +942,8 @@ test.describe("写作台模块", () => {
         await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
         await openWritingToolMenu(page, "#btn-conflict-check")
         await expect(page.locator("#btn-conflict-check")).toBeVisible()
+        const expandReference = page.getByLabel("展开写作副驾驶")
+        if (await expandReference.isVisible()) await expandReference.click()
       }
 
       await expect(page.locator(".scene-lens")).toHaveCount(1)

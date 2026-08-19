@@ -31,16 +31,17 @@ test.describe("写作路径 chaos", () => {
     const backupContent = "本地暂存的离线内容"
     const backupTitle = "离线标题"
 
-    await createDraft(project.id, 1, "第 1 章", "")
-    await page.evaluate((projectId) => {
-      localStorage.setItem(`draft_backup_${projectId}_1`, JSON.stringify({
+    const created = await createDraft(project.id, 1, "第 1 章", "")
+    await page.evaluate(({ projectId, draftId }) => {
+      localStorage.setItem(`draft_backup_${projectId}_1_${encodeURIComponent(draftId)}`, JSON.stringify({
         project_id: projectId,
+        draft_id: draftId,
         content: "本地暂存的离线内容",
         title: "离线标题",
         chapter_index: 1,
         timestamp: Date.now(),
       }))
-    }, project.id)
+    }, { projectId: project.id, draftId: created.draft.id })
 
     page.once("dialog", async (dialog) => {
       expect(dialog.message()).toContain("检测到本地暂存")
@@ -100,16 +101,17 @@ test.describe("写作路径 chaos", () => {
     }
     page.on("request", onRequest)
     try {
-      await createDraft(project.id, 1, "第 1 章", "")
-      await page.evaluate((projectId) => {
-        localStorage.setItem(`draft_backup_${projectId}_1`, JSON.stringify({
+      const created = await createDraft(project.id, 1, "第 1 章", "")
+      await page.evaluate(({ projectId, draftId }) => {
+        localStorage.setItem(`draft_backup_${projectId}_1_${encodeURIComponent(draftId)}`, JSON.stringify({
           project_id: projectId,
+          draft_id: draftId,
           content: " \n\t ",
           title: "恢复的空白正文",
           chapter_index: 1,
           timestamp: Date.now(),
         }))
-      }, project.id)
+      }, { projectId: project.id, draftId: created.draft.id })
 
       page.once("dialog", async (dialog) => {
         expect(dialog.message()).toContain("检测到本地暂存")

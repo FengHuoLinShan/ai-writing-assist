@@ -65,7 +65,7 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
       title: "旧约门交涉",
       narrative_tag: "draft",
       chapter_ids: ["1"],
-      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 1000 }],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: TEST_CONTENT.length }],
       goal: "主角必须不杀守门人，并取得进入禁区的合法通行方式。",
       core_conflict: "守门人怀疑主角背弃旧盟友，拒绝放行。",
       must_happen: "守门人交出银色通行符；主角向旧盟友解释违背誓约的原因",
@@ -103,10 +103,10 @@ test.describe("Writing Conflict Check — 真实 LLM 全流程", () => {
 
     let conflictDialog = page.getByRole("dialog", { name: "剧情设定冲突检查", exact: true })
     await expect(conflictDialog).toBeVisible({ timeout: 15000 })
-    await expect(page.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })).toBeVisible()
-    await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项缺失" }).first()).toBeVisible()
+    await expect(page.locator(".writing-conflict-item", { hasText: "疑似出现禁止项" })).toBeVisible()
+    await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项未逐字出现" }).first()).toBeVisible()
 
-    await page.getByRole("button", { name: "补充 AI 软冲突判断" }).click()
+    await page.getByRole("button", { name: "手动补充 AI 语义复核" }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("AI 参考资料", { timeout: 10000 })
     await page.locator(SEL.modalFooter).getByRole("button", { name: "确认使用" }).click()
 
