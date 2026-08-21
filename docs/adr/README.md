@@ -30,6 +30,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0013](0013-operation-receipts-and-page-local-recovery.md) | Accepted | 作者发起的 AI 长任务以 operation receipt 去重，最多两个 attempt，只在原页恢复。 |
 | [ADR-0014](0014-world-object-images-and-single-node-minio.md) | Accepted | 对象图片只经鉴权 API 读取；单机 MinIO 用私有双桶、受限应用凭据和 32GiB 硬配额。 |
 | [ADR-0015](0015-story-evidence-and-settings-physical-fusion.md) | Accepted / Phased implementation | 先交付 Story Scene 垂直切片，再在不改持久化身份的前提下物理融合 Settings、Evidence 和 Story。 |
+| [ADR-0016](0016-worldbook-import-and-validation-governance.md) | Accepted | world 拥有受限文本目录导入与校验领域状态；外部脚本不执行，政策须作者激活，Ruby/WorldCheck 只作本地验收 oracle。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 
