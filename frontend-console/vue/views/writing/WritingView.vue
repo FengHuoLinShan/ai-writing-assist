@@ -378,10 +378,13 @@ const stored = (rail, fallback) => {
     return value ? value === "open" : fallback
   } catch { return fallback }
 }
-const leftRailOpen = ref(stored(
-  "chapters",
-  vm.chapterList.value.length === 0 || typeof window === "undefined" || window.innerWidth > 760,
-))
+const leftRailOpen = ref(
+  vm.selectedChapter.value == null
+  || stored(
+    "chapters",
+    vm.chapterList.value.length === 0 || typeof window === "undefined" || window.innerWidth > 760,
+  ),
+)
 const rightRailOpen = ref(stored("reference", typeof window === "undefined" || window.innerWidth > 1099))
 
 function closeViewMenu(event) {
