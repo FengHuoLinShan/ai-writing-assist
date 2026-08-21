@@ -1171,7 +1171,7 @@ describe("route guard and normalization", () => {
     expect(window.location.hash).toBe("#workbench/p1/project-settings")
   })
 
-  it("keeps world candidates as a valid guarded subview", async () => {
+  it("redirects legacy world candidates to the unified review workbench", async () => {
     addWorkspace()
     registerBasicView("world")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
@@ -1180,8 +1180,8 @@ describe("route guard and normalization", () => {
     await window.router.initRouter()
 
     expect(state.currentView).toBe("world")
-    expect(state.currentSubView).toBe("candidates")
-    expect(window.location.hash).toBe("#workbench/p1/world/candidates")
+    expect(state.currentSubView).toBe("review")
+    expect(window.location.hash).toBe("#workbench/p1/world/review?kind=objects")
   })
 
   it("normalizes restored project-scoped hashes into the current workbench", async () => {

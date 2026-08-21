@@ -77,6 +77,7 @@ export const REVIEW_RELATION_TYPE_FALLBACK = [
 
 export const WORLD_FILTER_PANEL_DEFAULTS = {
   objects: false,
+  review: false,
   "review-objects": false,
   "review-aliases": false,
   "review-relations": false,
@@ -137,11 +138,17 @@ export const WORLD_RELATION_QUERY_KEYS = [
 
 /** 对应 vanilla _normalizeReviewSubView（worldView.js:748-754）。 */
 export function normalizeReviewSubView(subView = "") {
-  if (subView === "candidates") return "review-objects"
-  if (["review-objects", "review-aliases", "review-relations"].includes(subView)) {
-    return subView
-  }
+  if (["review", "candidates", "review-objects", "review-aliases", "review-relations"].includes(subView)) return "review"
   return ""
+}
+
+export function reviewKindFromRoute(subView = "", query = new URLSearchParams()) {
+  const requested = query.get("kind") || ""
+  if (["objects", "aliases", "relations"].includes(requested)) return requested
+  if (["candidates", "review-objects"].includes(subView)) return "objects"
+  if (subView === "review-aliases") return "aliases"
+  if (subView === "review-relations") return "relations"
+  return "all"
 }
 
 /** 对应 vanilla _queryPageSkip（L423-426）。 */

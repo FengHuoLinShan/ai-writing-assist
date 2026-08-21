@@ -152,6 +152,28 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.getByLabel("待处理关系每页数量", { exact: true })).toBeVisible()
   })
 
+  test("普通别名和单条关系可在决策栏直接采用", async ({ page }) => {
+    const source = await createEntity(testProjectId, { name: "决策栏源对象", entity_type: "character", status: "canonical" })
+    const target = await createEntity(testProjectId, { name: "决策栏目标对象", entity_type: "character", status: "canonical" })
+    await createAlias(testProjectId, { entity_id: source.id, alias: "直接采用别名", alias_type: "name", status: "candidate" })
+    await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: "friend_of", description: "直接采用关系", strength: 0.7, status: "candidate" })
+
+    await reloadWorkbench(page, "world", "review-aliases")
+    await page.locator('[data-action="accept-current-alias"]').click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("别名已采用", { timeout: 10000 })
+
+    await reloadWorkbench(page, "world", "review-relations")
+    const accept = page.locator('[data-action="accept-recommended-relation"]')
+    await expect(accept).toBeEnabled()
+    await accept.click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
+
+    const aliases = await listAliases(testProjectId, { display_state: "active", limit: 100 })
+    expect(aliases.items.some((item) => item.alias === "直接采用别名")).toBe(true)
+    const relations = await listRelations(testProjectId, { status: "canonical", limit: 100 })
+    expect(relations.items.some((item) => item.description === "直接采用关系")).toBe(true)
+  })
+
   test("关系分组可搜索首批之外的端点并一次请求完成归并", async ({ page }) => {
     const entities = []
     for (let index = 0; index < 25; index += 1) {
@@ -216,17 +238,13 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.locator("#relation-target-select").selectOption(searchedTarget.id)
     await page.locator('[data-relation-type-suggestion="friend_of"]').first().click()
     await expect(page.locator("#relation-final-type")).toHaveValue("friend_of")
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "保存决策" }).click()
-
-    const preparedCard = page.locator(".review-group-card").filter({ hasText: source.name })
-    await preparedCard.locator('input[data-action="bulk-toggle-one"]').check()
     let batchRequests = 0
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/api/world/relations/review-batch")) batchRequests += 1
     })
-    await page.locator('[data-bulk-action="apply-relation-decisions"]').click()
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认应用" }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已处理 1 个关系组", { timeout: 10000 })
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "提交决策" }).click()
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认提交" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
     expect(batchRequests).toBe(1)
 
     const canonical = await listRelations(testProjectId, { status: "canonical", limit: 50 })
@@ -263,22 +281,37 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator("#alias-edit-type option:checked")).toContainText("保留原类型：别称")
     const modalBox = await page.locator(SEL.modalContent).boundingBox()
     expect(Math.round(modalBox.width)).toBe(390)
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "保存决策" }).click()
-
-    const preparedRow = page.locator(".review-member-row").filter({ hasText: "自定义别名" })
-    await preparedRow.locator('input[data-action="bulk-toggle-one"]').check()
     let batchRequests = 0
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/api/world/aliases/review-batch")) batchRequests += 1
     })
-    await page.locator('[data-bulk-action="review-aliases-batch"]').click()
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认采用" }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已处理 1 个别名", { timeout: 10000 })
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "采用别名" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("别名已采用", { timeout: 10000 })
     expect(batchRequests).toBe(1)
 
     const aliases = await listAliases(testProjectId, { display_state: "active", limit: 100 })
     const adopted = aliases.items.find((item) => item.alias === "自定义别名")
     expect(adopted.alias_type).toBe("别称")
     expect(adopted.status).toBe("canonical")
+  })
+
+  test("同组候选可分别采用为多条正式关系", async ({ page }) => {
+    const source = await createEntity(testProjectId, { name: "分别采用源", entity_type: "character", status: "canonical" })
+    const target = await createEntity(testProjectId, { name: "分别采用目标", entity_type: "character", status: "canonical" })
+    await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: "friend_of", description: "曾是朋友", strength: 0.6, status: "candidate" })
+    await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: "enemy_of", description: "后来为敌", strength: 0.9, status: "candidate" })
+
+    await reloadWorkbench(page, "world", "review-relations")
+    const card = page.locator(".review-group-card").filter({ hasText: source.name })
+    await card.locator('[data-action="prepare-relation-review"]').click()
+    await page.locator("#relation-review-action").selectOption("accept_separately")
+    for (const checkbox of await page.locator('input[name="relation-review-member"]').all()) await checkbox.check()
+    await page.locator("#relation-unselected-action").selectOption("keep_pending")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "提交决策" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
+
+    const canonical = await listRelations(testProjectId, { status: "canonical", limit: 100 })
+    const adopted = canonical.items.filter((item) => item.source_id === source.id && item.target_id === target.id)
+    expect(adopted.map((item) => item.relation_type).sort()).toEqual(["enemy_of", "friend_of"])
   })
 })

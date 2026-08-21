@@ -24,6 +24,8 @@ export const worldSession = reactive({
   aliasReviewDrafts: {},
   relationReviewErrors: {},
   aliasReviewErrors: {},
+  processingReviewIds: {},
+  reviewReceipt: null,
 
   // 批量选择：scope -> Set<string>
   bulkSelections: {},
@@ -105,6 +107,8 @@ export function reconcileWorldEntry(projectId, subView) {
     worldSession.aliasReviewDrafts = {}
     worldSession.relationReviewErrors = {}
     worldSession.aliasReviewErrors = {}
+    worldSession.processingReviewIds = {}
+    worldSession.reviewReceipt = null
     worldSession.bulkSelections = {}
     worldSession.objectFilterDraft = null
     loadFilterPanelState(normalizedProjectId)
@@ -133,6 +137,8 @@ export function resetWorldSession() {
   worldSession.aliasReviewDrafts = {}
   worldSession.relationReviewErrors = {}
   worldSession.aliasReviewErrors = {}
+  worldSession.processingReviewIds = {}
+  worldSession.reviewReceipt = null
   worldSession.bulkSelections = {}
   worldSession.relationListFilters = { skip: 0, limit: 20 }
   worldSession.aliasListFilters = { skip: 0, limit: 20 }

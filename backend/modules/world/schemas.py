@@ -1471,11 +1471,30 @@ class EntityRelationReviewGroupListResponse(BaseModel):
     limit: int = 20
 
 
+class EntityRelationSeparateReviewItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_relation_id: str
+    source_id: str
+    target_id: str
+    relation_type: str = Field(..., min_length=1, max_length=64)
+    description: str | None = None
+    strength: float | None = Field(None, ge=0.0, le=1.0)
+
+    @field_validator("relation_type")
+    @classmethod
+    def normalize_relation_type(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("relation_type cannot be blank")
+        return normalized
+
+
 class EntityRelationReviewBatchDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     client_decision_id: str = Field(..., min_length=1, max_length=64)
-    action: Literal["accept", "merge", "ignore"]
+    action: Literal["accept", "merge", "ignore", "accept_separately"]
     group_id: str = Field(..., min_length=1, max_length=80)
     member_relation_ids: list[str] = Field(..., min_length=1, max_length=50)
     primary_relation_id: str | None = None
@@ -1485,6 +1504,11 @@ class EntityRelationReviewBatchDecision(BaseModel):
     relation_type: str | None = Field(None, min_length=1, max_length=64)
     description: str | None = None
     strength: float | None = Field(None, ge=0.0, le=1.0)
+    separate_relations: list[EntityRelationSeparateReviewItem] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    unselected_action: Literal["keep_pending", "ignore"] = "keep_pending"
 
     @field_validator("relation_type")
     @classmethod
@@ -1510,6 +1534,24 @@ class EntityRelationReviewBatchDecision(BaseModel):
                 raise ValueError("primary_relation_id must be selected")
             if not self.source_id or not self.target_id or not self.relation_type:
                 raise ValueError("accepted relation fields are required")
+        if self.action == "accept_separately":
+            if len(member_ids) < 2:
+                raise ValueError("accept_separately requires at least two relations")
+            separate_ids = [
+                item.candidate_relation_id for item in self.separate_relations
+            ]
+            if len(separate_ids) != len(set(separate_ids)):
+                raise ValueError("separate relation candidates must be unique")
+            if set(separate_ids) != set(member_ids):
+                raise ValueError("separate_relations must define every selected relation")
+            final_keys = [
+                (item.source_id, item.target_id, item.relation_type)
+                for item in self.separate_relations
+            ]
+            if len(final_keys) != len(set(final_keys)):
+                raise ValueError("separate relation final keys must be unique")
+        elif self.separate_relations:
+            raise ValueError("separate_relations requires accept_separately")
         return self
 
 
@@ -1546,6 +1588,10 @@ class ReviewBatchItemResult(BaseModel):
     action: str
     affected_ids: list[str] = Field(default_factory=list)
     canonical_relation_id: str | None = None
+    canonical_relation_ids: list[str] = Field(default_factory=list)
+    reused_canonical_relation_ids: list[str] = Field(default_factory=list)
+    ignored_relation_ids: list[str] = Field(default_factory=list)
+    remaining_candidate_ids: list[str] = Field(default_factory=list)
     archived_relation_ids: list[str] = Field(default_factory=list)
     error_code: str | None = None
     message: str | None = None

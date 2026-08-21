@@ -84,7 +84,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 工作台当前项保持非交互，避免同路由刷新 |
 | `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；移动速记在 390px 使用原生 details；自动保存、导入和候选采用继续保持原安全语义 |
 | `vue/views/writing/components/WritingWorkflowBars.vue` | 写作台长任务完成卡；深度导入额外显示自动归并数与遗留复核组数，有遗留项时用作者语言引导到现有“人物与世界 → 智能去重”，不自动发起第二次全项目扫描 |
-| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、统一“需要决定”（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；世界书内置关联图模式复用只读 `GET /api/world/knowledge-graph`，可从当前页一跳显式扩展到两跳或全局，列表可操作而 SVG 仅为辅助；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
+| `vue/views/world/WorldView.vue` | `world` 路由（Vue island）；对象库普通/热点双模式、`world/review` 统一“需要决定”工作台、历史筛选；工作台用队列 + 决策区处理对象/别名/关系，窄屏分步显示；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；世界书内置关联图模式复用只读 `GET /api/world/knowledge-graph`；`map` 子标签现在只做兼容跳转 |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 预览使用结构化重复项编辑器，提交时适配回原 wire payload；版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
@@ -116,7 +116,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - 写作页另以项目隔离的本机安全指针保存最后章节、工作稿 ID/版本/更新时间、手选 Scene、光标偏移与指针更新时间，不保存正文。Writing Home 把章节与 Scene 作为 workspace-summary 的可选排序焦点；服务端验证归属后才用于相关性排序。续写仍仅在服务器续写章与本机章节一致时携带 Scene；编辑器仅在工作稿 ID、版本和更新时间全部一致时恢复并 clamp 光标，且不主动聚焦。本机指针指向的工作稿失效时清理其工作稿/光标身份并回退当前有效版；显式 URL 工作稿则保留错误。账户切换与退出会清理该指针。
 - 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
 - Scene 工作台的筛选、详情和复核状态由 `useSceneWorkbench` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史，Writing Home 可额外用 `suggestion_id` 定位并打开仍待处理的融合建议。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。
-- Writing Home 跳转 World 三类审核时携带精确 `entity_id` / `group_id`；对象直接读取目标，别名与关系只在该深链下按现有分页查找目标组，避免目标落在默认第一页之外。
+- Writing Home 跳转 `world/review` 时以 `kind=objects|aliases|relations` 携带精确 `entity_id` / `group_id`；对象直接读取目标，别名与关系按现有分页查找目标组。旧 `review-objects` / `review-aliases` / `review-relations` 深链会保留定位参数并重定向到统一工作台。
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 - `settings` 是无项目也可访问的账户设置页；`project-settings` 依赖当前作者项目，未进入项目
@@ -293,6 +293,7 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 - `shared/assetDisplayState.js` 是前端唯一通用映射：结构资产显示“待处理 / 已采用 / 历史”，正文显示“待处理 / 工作稿 / 正式正文”。页面不得自行再维护 `candidate` / `canonical` 文案表。
 - `attention_reasons`、低置信、冲突和 `needs_review` 显示为注意标签，不替代主状态。
 - “必须修复／需要决定／可以改进”只是当前页面的作者动作投影，不新增统一校验生命周期：世界候选只进入“需要决定”，当前列表加载失败才显示“必须修复＋重试”；写作规则与需人工判断的 AI 项进入“需要决定”，普通 AI 软判断和 RAG 证据降级只显示“可以改进”。已处理、忽略或稍后的历史项不再获得当前动作标签。冲突详情同时显示作者可读的来源版本和定向复检范围，不暴露 Scene ID；检查来源不完整时交还作者选择，不伪装成确定性阻断。
+- Writing Home 把 A→B 与 B→A 关系待办折叠为一条对象对提醒，数量汇总两个方向；领域工作台仍分别处理有向关系。列表下方只保留一个“查看更多”，按当前排序的首个未展示类型进入对应页面。
 - 主列表默认隐藏历史；只有显式选择历史/raw status 筛选时加载或展示。
 - API 保留原始 `status/review_state/fact_status` 兼容字段，前端优先消费领域 `display_state`，必要时才由共享 helper 回退映射。
 - AI 正文建议在编辑器中以只读预览打开；“采用到工作稿”成功后加载服务端新 draft 并恢复编辑/自动保存，“拒绝建议”经确认后软废弃候选并回到当前工作稿/已发布稿。顶部“AI 续写”只对服务端已保存的可写或已发布 base draft 开放，不拿未保存本地文本或跨章 Scene 作为替换范围；异步任务轮询没有前端总截止时间，完成后自动打开候选审核面板。普通生成的 `pov_validation=not_applicable` 不显示角色视角失败提示。
@@ -304,13 +305,14 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
 
 ## 世界对象分组复核
 
-- 待处理导航与对象/别名/关系子标签复用现有三个列表接口的 `total`，不单独维护计数 API。
+- `world/review` 的“全部 / 对象 / 别名 / 关系”复用现有三个列表接口的 `total`，不新增跨类型分页或统一写入 API。“全部”只显示概览与推荐下一项，默认优先对象，再到别名与关系。
 - 关系按有向对象对、别名按所属对象分组。每页 20 / 50 组，全选仅作用于当前可见项；搜索常驻，高级筛选折叠，当前条件同步显示为可删除标签。
 - 待处理别名与关系的高级筛选控件提供明确中文可访问名称；Workflow ID 仍收在“诊断筛选”内并标记为诊断字段，筛选与分页查询语义不变。
-- 关系复核先准备 `accept` / `merge` / `ignore` 决策；仅相同类型或落入同一保守映射的候选默认勾选。卡片显式提示反向关系但不自动归并，抽屉在提交前预览最终端点、类型、强度和证据范围。
+- 普通别名和关系在右侧决策区直接预览并提交；仅相同类型或落入同一保守映射的关系候选默认归并，其余继续待定。“编辑更多处理方式”提供 `accept` / `merge` / `accept_separately` / `ignore`、端点搜索与交换、字段编辑及 `unselected_action`；分别采用为每条候选提交独立端点、类型、描述和强度。
 - 端点搜索覆盖同项目 canonical / draft / candidate 对象，排除历史对象和 suggestion shadow，不依赖对象库当前首页。
 - 未收录的别名/关系类型以“保留原类型”打开；类型建议只有在用户点击后才更改草稿。置信度只用于筛选/预选，不自动采用。
-- 批处理一次确认只发送一个请求，并在客户端先校验关系 20 个决策 / 50 条所选成员、别名 50 条的上限。成功项移出当前选择并自动进入下一组；`stale` / `failed` 项在原卡片显示原因并保留选中与决策草稿，网络异常不丢草稿。筛选、分页和滚动位置在就地刷新后保留。
+- 工作台统一投影“待处理 / 需先处理对象 / 处理中 / 已完成 / 内容已变化 / 处理失败”；成功回执使用名称与数量说明采用、复用、忽略和剩余数，不显示 raw ID。关系端点为待处理对象时先进入对象决策，完成后按 `return_kind` / `return_group_id` 回到原组。
+- 批处理降为当前类型内的次级折叠入口，保留现有上限、单请求和分组原子性。单项草稿以项目 + 待定项保存到 `sessionStorage`；执行指纹改变时标记“内容已变化”并要求重新核对，失败时保留输入。
 - 世界对象的卡片/表格只切换当前组件呈现并就地同步 query；筛选表单的未应用副本
   放在现有 `worldSession` 中并精确绑定 query 签名。同项目分页、热点/全部资料切换或后台
   必要刷新可恢复草稿；外部深链、子页或项目变更仍以新 URL 为准。

@@ -18,7 +18,7 @@ const routes = {
   // Today is now the compatibility name for the writing home.  Keeping the
   // route entry lets old bookmarks resolve without keeping a second page.
   today: { title: "写作首页", subViews: [], requiresProject: true },
-  world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible"], subViewTitles: { objects: "人物与设定", candidates: "需要处理", "review-objects": "需要处理 · 人物与设定", "review-aliases": "需要处理 · 别名", "review-relations": "需要处理 · 关系", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记" } },
+  world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "review", "relations", "aliases", "bible"], subViewTitles: { objects: "人物与设定", review: "需要决定", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记" } },
   rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "索引诊断" } },
   outline: { title: "故事结构", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "故事总览", arcs: "篇章", threads: "剧情线", scenes: "场景" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
@@ -391,6 +391,19 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     targetView = effectiveProjectId ? "project-settings" : "settings"
     targetProjectId = effectiveProjectId
     targetSubView = null
+  }
+
+  // 三个旧待处理深链收敛到统一工作台，保留定位参数。
+  if (targetView === "world" && ["candidates", "review-objects", "review-aliases", "review-relations"].includes(targetSubView)) {
+    const kindByLegacySubView = {
+      candidates: "objects",
+      "review-objects": "objects",
+      "review-aliases": "aliases",
+      "review-relations": "relations",
+    }
+    targetQuery = new URLSearchParams(targetQuery)
+    targetQuery.set("kind", kindByLegacySubView[targetSubView])
+    targetSubView = "review"
   }
 
   let route = routes[targetView]

@@ -41,9 +41,11 @@ describe("reconcileWorldEntry", () => {
   it("项目切换按完整进入重置", () => {
     reconcileWorldEntry("p1", "objects")
     worldSession.relationReviewDrafts = { g1: { action: "merge" } }
+    worldSession.reviewReceipt = { title: "旧项目结果" }
     worldSession.bible = { activePageId: "page-p1", activeDraftId: "draft-p1", editorBaseline: { title: "旧项目" }, editorBaselineKey: "page-p1" }
     expect(reconcileWorldEntry("p2", "objects")).toBe(true)
     expect(worldSession.relationReviewDrafts).toEqual({})
+    expect(worldSession.reviewReceipt).toBeNull()
     expect(worldSession.bible).toEqual({ activePageId: null, activeDraftId: null, editorBaseline: null, editorBaselineKey: null })
   })
 

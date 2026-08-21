@@ -646,17 +646,23 @@ class EntityRelationService(
                     member_ids.append(parse_uuid(relation_id, "relation_id"))
                 except Exception:
                     continue
-            if decision.action not in {"accept", "merge"}:
+            if decision.action not in {"accept", "merge", "accept_separately"}:
                 continue
-            try:
-                source_id = parse_uuid(decision.source_id, "source_id")
-                target_id = parse_uuid(decision.target_id, "target_id")
-            except Exception:
-                continue
-            endpoint_ids.extend([source_id, target_id])
-            canonical_targets.append(
-                (source_id, target_id, str(decision.relation_type or "").strip())
+            targets = (
+                decision.separate_relations
+                if decision.action == "accept_separately"
+                else [decision]
             )
+            for target in targets:
+                try:
+                    source_id = parse_uuid(target.source_id, "source_id")
+                    target_id = parse_uuid(target.target_id, "target_id")
+                except Exception:
+                    continue
+                endpoint_ids.extend([source_id, target_id])
+                canonical_targets.append(
+                    (source_id, target_id, str(target.relation_type or "").strip())
+                )
 
         seeds = []
         for relation_id in sorted(set(member_ids), key=str):
@@ -690,7 +696,10 @@ class EntityRelationService(
         novel_id: str,
         data: EntityRelationReviewBatchRequest,
     ) -> ReviewBatchResponse:
-        if any(item.action in {"accept", "merge"} for item in data.decisions):
+        if any(
+            item.action in {"accept", "merge", "accept_separately"}
+            for item in data.decisions
+        ):
             await self._require_legacy_canon_write_allowed(db, novel_id)
         await self._prelock_review_batch(db, novel_id, data)
         results: list[dict[str, object]] = []
@@ -740,6 +749,150 @@ class EntityRelationService(
             results=results,
         )
 
+    async def _ignore_review_relations(
+        self,
+        db: AsyncSession,
+        relations: list[EntityRelation],
+    ) -> list[str]:
+        ignored: list[str] = []
+        for relation in relations:
+            before = self._relation_execution_snapshot(relation)
+            relation.status = "deprecated"
+            after = self._relation_execution_snapshot(relation)
+            relation.review_meta = {
+                **(relation.review_meta or {}),
+                **self._review_meta(
+                    action="relation_review_ignored",
+                    before=before,
+                    after=after,
+                    reviewed_from="world_relations_review_batch",
+                ),
+            }
+            db.add(relation)
+            ignored.append(str(relation.id))
+        await db.flush()
+        return ignored
+
+    async def _accept_review_relations(
+        self,
+        db: AsyncSession,
+        *,
+        nid,
+        selected: list[EntityRelation],
+        primary: EntityRelation,
+        source_id: str,
+        target_id: str,
+        relation_type: str,
+        description: str | None,
+        strength: float | None,
+        action: str,
+    ) -> dict[str, object]:
+        sid = parse_uuid(source_id, "source_id")
+        tid = parse_uuid(target_id, "target_id")
+        if sid == tid:
+            raise ValidationError("source_id and target_id must be different")
+        endpoints = await self._entity_repo.get_many_for_update(db, nid, [sid, tid])
+        endpoint_by_id = {entity.id: entity for entity in endpoints}
+        source = endpoint_by_id.get(sid)
+        target = endpoint_by_id.get(tid)
+        if source is None or target is None:
+            raise NotFoundError("Source or target entity not found in this novel")
+        self._assert_active_relation_endpoint(source, "source_id")
+        self._assert_active_relation_endpoint(target, "target_id")
+
+        canonical = await self.repo.find_canonical_relation(
+            db, nid, sid, tid, relation_type
+        )
+        target_relation = canonical or primary
+        if canonical is None:
+            duplicate = await self.repo.find_duplicate_relation(
+                db,
+                nid,
+                sid,
+                tid,
+                relation_type,
+                exclude_rel_id=primary.id,
+            )
+            if duplicate is not None and duplicate not in selected:
+                raise ConflictError(f"Relation already exists: {duplicate.id}")
+
+        selected_snapshots = {
+            str(relation.id): self._relation_execution_snapshot(relation)
+            for relation in selected
+        }
+        before = self._relation_execution_snapshot(target_relation)
+        evidence_sources = list(
+            {
+                str(relation.id): relation for relation in [target_relation, *selected]
+            }.values()
+        )
+        merged_quote = self._merge_quotes(evidence_sources)
+        merged_evidence_refs = self._dedupe_evidence_refs(evidence_sources)
+        target_relation.source_id = sid
+        target_relation.target_id = tid
+        target_relation.relation_type = relation_type
+        target_relation.description = description
+        if strength is not None:
+            target_relation.strength = strength
+        target_relation.quote = merged_quote
+        target_relation.status = "canonical"
+        after = self._relation_execution_snapshot(target_relation)
+        current_meta = dict(target_relation.review_meta or {})
+        history = list(current_meta.get("review_history") or [])
+        history.append(
+            {
+                **self._review_meta(
+                    action=f"relation_review_{action}",
+                    before=before,
+                    after=after,
+                    reviewed_from="world_relations_review_batch",
+                ),
+                "merged_relation_ids": [str(item.id) for item in selected],
+                "merged_sources": [
+                    {"relation": selected_snapshots[str(item.id)]}
+                    for item in selected
+                ],
+            }
+        )
+        target_relation.review_meta = {
+            **current_meta,
+            "evidence_refs": merged_evidence_refs,
+            "review_history": history,
+            **self._review_meta(
+                action=f"relation_review_{action}",
+                before=before,
+                after=after,
+                reviewed_from="world_relations_review_batch",
+            ),
+        }
+        db.add(target_relation)
+
+        archived: list[str] = []
+        for relation in selected:
+            if relation.id == target_relation.id:
+                continue
+            member_before = selected_snapshots[str(relation.id)]
+            relation.status = "deprecated"
+            member_after = self._relation_execution_snapshot(relation)
+            relation.review_meta = {
+                **(relation.review_meta or {}),
+                "merged_into_relation_id": str(target_relation.id),
+                **self._review_meta(
+                    action="relation_review_merged",
+                    before=member_before,
+                    after=member_after,
+                    reviewed_from="world_relations_review_batch",
+                ),
+            }
+            db.add(relation)
+            archived.append(str(relation.id))
+        await db.flush()
+        return {
+            "canonical_relation_id": str(target_relation.id),
+            "reused": canonical is not None,
+            "archived_relation_ids": archived,
+        }
+
     async def _apply_review_decision(
         self,
         db: AsyncSession,
@@ -780,154 +933,118 @@ class EntityRelationService(
         if len({(item.source_id, item.target_id) for item in locked}) != 1:
             raise ValidationError("review group must use one directed entity pair")
 
+        unselected = [relation for relation in locked if relation not in selected]
         if decision.action == "ignore":
-            archived: list[str] = []
-            for relation in selected:
-                before = self._relation_execution_snapshot(relation)
-                relation.status = "deprecated"
-                after = self._relation_execution_snapshot(relation)
-                relation.review_meta = {
-                    **(relation.review_meta or {}),
-                    **self._review_meta(
-                        action="relation_review_ignored",
-                        before=before,
-                        after=after,
-                        reviewed_from="world_relations_review_batch",
-                    ),
-                }
-                db.add(relation)
-                archived.append(str(relation.id))
-            await db.flush()
+            to_ignore = [
+                *selected,
+                *(unselected if decision.unselected_action == "ignore" else []),
+            ]
+            ignored = await self._ignore_review_relations(db, to_ignore)
             return {
-                "affected_ids": archived,
-                "archived_relation_ids": archived,
+                "affected_ids": ignored,
+                "canonical_relation_ids": [],
+                "reused_canonical_relation_ids": [],
+                "ignored_relation_ids": ignored,
+                "remaining_candidate_ids": [
+                    str(relation.id)
+                    for relation in locked
+                    if relation.status == "candidate"
+                ],
+                "archived_relation_ids": ignored,
             }
 
-        sid = parse_uuid(decision.source_id, "source_id")
-        tid = parse_uuid(decision.target_id, "target_id")
-        relation_type = str(decision.relation_type or "").strip()
-        if sid == tid:
-            raise ValidationError("source_id and target_id must be different")
-        endpoints = await self._entity_repo.get_many_for_update(db, nid, [sid, tid])
-        endpoint_by_id = {entity.id: entity for entity in endpoints}
-        source = endpoint_by_id.get(sid)
-        target = endpoint_by_id.get(tid)
-        if source is None or target is None:
-            raise NotFoundError("Source or target entity not found in this novel")
-        self._assert_active_relation_endpoint(source, "source_id")
-        self._assert_active_relation_endpoint(target, "target_id")
-        primary = locked_by_id.get(str(decision.primary_relation_id))
-        if primary is None or primary not in selected:
-            raise _StaleReviewDecisionError
-
-        canonical = await self.repo.find_canonical_relation(
-            db, nid, sid, tid, relation_type
-        )
-        target_relation = canonical or primary
-        if canonical is None:
-            duplicate = await self.repo.find_duplicate_relation(
-                db,
-                nid,
-                sid,
-                tid,
-                relation_type,
-                exclude_rel_id=primary.id,
-            )
-            if duplicate is not None and duplicate not in selected:
-                raise ConflictError(f"Relation already exists: {duplicate.id}")
-
-        selected_snapshots = {
-            str(relation.id): self._relation_execution_snapshot(relation)
-            for relation in selected
-        }
         original_endpoint_ids = {
             str(endpoint_id)
             for relation in locked
             for endpoint_id in (relation.source_id, relation.target_id)
         }
-        before = self._relation_execution_snapshot(target_relation)
-        evidence_sources = list(
-            {
-                str(relation.id): relation for relation in [target_relation, *selected]
-            }.values()
-        )
-        merged_quote = self._merge_quotes(evidence_sources)
-        merged_evidence_refs = self._dedupe_evidence_refs(evidence_sources)
-        target_relation.source_id = sid
-        target_relation.target_id = tid
-        target_relation.relation_type = relation_type
-        target_relation.description = decision.description
-        if decision.strength is not None:
-            target_relation.strength = decision.strength
-        target_relation.quote = merged_quote
-        target_relation.status = "canonical"
-        after = self._relation_execution_snapshot(target_relation)
-        current_meta = dict(target_relation.review_meta or {})
-        history = list(current_meta.get("review_history") or [])
-        history.append(
-            {
-                **self._review_meta(
-                    action=f"relation_review_{decision.action}",
-                    before=before,
-                    after=after,
-                    reviewed_from="world_relations_review_batch",
-                ),
-                "merged_relation_ids": [str(item.id) for item in selected],
-                "merged_sources": [
-                    {
-                        "relation": selected_snapshots[str(item.id)],
-                    }
-                    for item in selected
-                ],
-            }
-        )
-        target_relation.review_meta = {
-            **current_meta,
-            "evidence_refs": merged_evidence_refs,
-            "review_history": history,
-            **self._review_meta(
-                action=f"relation_review_{decision.action}",
-                before=before,
-                after=after,
-                reviewed_from="world_relations_review_batch",
-            ),
-        }
-        db.add(target_relation)
-
+        canonical_ids: list[str] = []
+        reused_ids: list[str] = []
         archived: list[str] = []
-        for relation in selected:
-            if relation.id == target_relation.id:
-                continue
-            member_before = selected_snapshots[str(relation.id)]
-            relation.status = "deprecated"
-            member_after = self._relation_execution_snapshot(relation)
-            relation.review_meta = {
-                **(relation.review_meta or {}),
-                "merged_into_relation_id": str(target_relation.id),
-                **self._review_meta(
-                    action="relation_review_merged",
-                    before=member_before,
-                    after=member_after,
-                    reviewed_from="world_relations_review_batch",
-                ),
+        final_endpoint_ids: set[str] = set()
+        if decision.action == "accept_separately":
+            separate_by_id = {
+                item.candidate_relation_id: item for item in decision.separate_relations
             }
-            db.add(relation)
-            archived.append(str(relation.id))
-        await db.flush()
-        await self._mark_synopsis_changed(db, novel_id, target_relation.id)
+            parsed_final_keys = [
+                (
+                    parse_uuid(item.source_id, "source_id"),
+                    parse_uuid(item.target_id, "target_id"),
+                    item.relation_type,
+                )
+                for item in decision.separate_relations
+            ]
+            if len(parsed_final_keys) != len(set(parsed_final_keys)):
+                raise ValidationError("separate relation final keys must be unique")
+            for relation_id in decision.member_relation_ids:
+                item = separate_by_id[relation_id]
+                relation = locked_by_id[relation_id]
+                accepted = await self._accept_review_relations(
+                    db,
+                    nid=nid,
+                    selected=[relation],
+                    primary=relation,
+                    source_id=item.source_id,
+                    target_id=item.target_id,
+                    relation_type=item.relation_type,
+                    description=item.description,
+                    strength=item.strength,
+                    action=decision.action,
+                )
+                canonical_id = str(accepted["canonical_relation_id"])
+                canonical_ids.append(canonical_id)
+                if accepted["reused"]:
+                    reused_ids.append(canonical_id)
+                archived.extend(accepted["archived_relation_ids"])
+                final_endpoint_ids.update([item.source_id, item.target_id])
+        else:
+            primary = locked_by_id.get(str(decision.primary_relation_id))
+            if primary is None or primary not in selected:
+                raise _StaleReviewDecisionError
+            accepted = await self._accept_review_relations(
+                db,
+                nid=nid,
+                selected=selected,
+                primary=primary,
+                source_id=str(decision.source_id),
+                target_id=str(decision.target_id),
+                relation_type=str(decision.relation_type),
+                description=decision.description,
+                strength=decision.strength,
+                action=decision.action,
+            )
+            canonical_id = str(accepted["canonical_relation_id"])
+            canonical_ids.append(canonical_id)
+            if accepted["reused"]:
+                reused_ids.append(canonical_id)
+            archived.extend(accepted["archived_relation_ids"])
+            final_endpoint_ids.update([str(decision.source_id), str(decision.target_id)])
+
+        ignored = (
+            await self._ignore_review_relations(db, unselected)
+            if decision.unselected_action == "ignore"
+            else []
+        )
+        archived.extend(ignored)
+        for canonical_id in canonical_ids:
+            await self._mark_synopsis_changed(db, novel_id, canonical_id)
         await self._mark_endpoint_context_changed(
             db,
             novel_id=novel_id,
-            entity_ids={
-                str(sid),
-                str(tid),
-                *original_endpoint_ids,
-            },
+            entity_ids={*final_endpoint_ids, *original_endpoint_ids},
         )
-        affected = [str(target_relation.id), *archived]
+        affected = [*canonical_ids, *archived]
         return {
             "affected_ids": list(dict.fromkeys(affected)),
-            "canonical_relation_id": str(target_relation.id),
+            "canonical_relation_id": canonical_ids[0],
+            "canonical_relation_ids": canonical_ids,
+            "reused_canonical_relation_ids": reused_ids,
+            "ignored_relation_ids": ignored,
+            "remaining_candidate_ids": [
+                str(relation.id)
+                for relation in locked
+                if relation.status == "candidate"
+            ],
             "archived_relation_ids": archived,
         }
 

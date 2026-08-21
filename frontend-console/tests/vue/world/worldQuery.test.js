@@ -21,12 +21,13 @@ import {
 } from "../../../vue/views/world/logic/worldQuery.js"
 
 describe("normalizeReviewSubView", () => {
-  it("candidates legacy 映射为 review-objects", () => {
-    expect(normalizeReviewSubView("candidates")).toBe("review-objects")
+  it("candidates legacy 映射为统一 review", () => {
+    expect(normalizeReviewSubView("candidates")).toBe("review")
   })
-  it("review 三兄弟原样保留，其他返回空串", () => {
-    expect(normalizeReviewSubView("review-aliases")).toBe("review-aliases")
-    expect(normalizeReviewSubView("review-relations")).toBe("review-relations")
+  it("新旧 review 路由均收敛到统一工作台", () => {
+    expect(normalizeReviewSubView("review")).toBe("review")
+    expect(normalizeReviewSubView("review-aliases")).toBe("review")
+    expect(normalizeReviewSubView("review-relations")).toBe("review")
     expect(normalizeReviewSubView("objects")).toBe("")
     expect(normalizeReviewSubView("bible")).toBe("")
     expect(normalizeReviewSubView("")).toBe("")

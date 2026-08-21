@@ -13,7 +13,7 @@ const expectedClickableCounts = new Map([
   ["vue/views/outline/components/OutlineHeader.vue", 4],
   ["vue/views/scene/SceneWorkbenchView.vue", 3],
   ["vue/views/world/WorldView.vue", 4],
-  ["vue/views/world/components/WorldReviewTab.vue", 3],
+  ["vue/views/world/components/WorldReviewTab.vue", 4],
 ])
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 

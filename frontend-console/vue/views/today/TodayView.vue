@@ -52,9 +52,9 @@ const primaryLabel = computed(() => {
 })
 const resumeLabel = computed(() => primaryWorld.value ? "接着上次创作" : "接着上次写")
 const attentionCategories = computed(() => [
-  { key: "world_objects", label: "人物与设定", value: attention.value.world_objects || 0, view: "world", subView: "review-objects" },
-  { key: "world_aliases", label: "别名", value: attention.value.world_aliases || 0, view: "world", subView: "review-aliases" },
-  { key: "world_relations", label: "关系", value: attention.value.world_relations || 0, view: "world", subView: "review-relations" },
+  { key: "world_objects", label: "人物与设定", value: attention.value.world_objects || 0, view: "world", subView: "review", reviewKind: "objects" },
+  { key: "world_aliases", label: "别名", value: attention.value.world_aliases || 0, view: "world", subView: "review", reviewKind: "aliases" },
+  { key: "world_relations", label: "关系", value: attention.value.world_relations || 0, view: "world", subView: "review", reviewKind: "relations" },
   { key: "outline_scenes", label: "场景", value: attention.value.outline_scenes || 0, view: "outline", subView: "scenes" },
 ])
 const hasProjectedAttention = computed(() => Array.isArray(attention.value.items))
@@ -89,19 +89,6 @@ function relevanceLabel(relevance) {
   if (relevance === "exact_scene") return "当前场景"
   if (relevance === "current_chapter") return "本章"
   return null
-}
-
-function attentionTargetKey(item) {
-  const target = item?.target || {}
-  return [
-    item?.source_kind,
-    target.kind,
-    target.chapter_index,
-    target.scene_id,
-    target.page_id,
-    target.suggestion_id,
-    target.item_id,
-  ].filter((value) => value != null && value !== "").join(":")
 }
 
 const WORKFLOW_COPY = {
@@ -199,15 +186,18 @@ function openAttention(item) {
   } else if (target.kind === "world_review_objects") {
     if (target.item_id) query.set("entity_id", target.item_id)
     if (target.chapter_index != null) query.set("source_chapter_index", String(target.chapter_index))
-    router.navigate("world", "review-objects", true, query)
+    query.set("kind", "objects")
+    router.navigate("world", "review", true, query)
   } else if (target.kind === "world_review_aliases") {
     if (target.item_id) query.set("group_id", target.item_id)
     if (target.chapter_index != null) query.set("source_chapter_index", String(target.chapter_index))
-    router.navigate("world", "review-aliases", true, query)
+    query.set("kind", "aliases")
+    router.navigate("world", "review", true, query)
   } else if (target.kind === "world_review_relations") {
     if (target.item_id) query.set("group_id", target.item_id)
     if (target.chapter_index != null) query.set("source_chapter_index", String(target.chapter_index))
-    router.navigate("world", "review-relations", true, query)
+    query.set("kind", "relations")
+    router.navigate("world", "review", true, query)
   } else if (target.kind === "world_suggestion") {
     if (target.suggestion_id) query.set("suggestion_id", target.suggestion_id)
     query.set("open", "suggestions")
@@ -228,7 +218,16 @@ function openAttention(item) {
 }
 
 function openAttentionCategory(item) {
-  router.navigate(item.view, item.subView)
+  const query = new URLSearchParams()
+  if (item.reviewKind) query.set("kind", item.reviewKind)
+  router.navigate(item.view, item.subView, true, query)
+}
+
+function openMoreAttention() {
+  const target = moreAttentionTargets.value[0]
+  if (target) return openAttention(target)
+  const category = attentionCategories.value.find((item) => item.value)
+  if (category) openAttentionCategory(category)
 }
 
 function workflowLabel(workflow) {
@@ -355,10 +354,7 @@ function retry() {
       </div>
       <div v-if="attention.has_more" class="today-attention-footer">
         <span>还有 {{ Math.max(0, attentionTotal - attentionRows.length) }} 项，可在对应页面继续处理。</span>
-        <button v-for="item in moreAttentionTargets" :key="attentionTargetKey(item)" type="button" class="btn btn-sm btn-ghost" @click="openAttention(item)">查看更多{{ sourceLabel(item) }}</button>
-        <template v-if="!moreAttentionTargets.length">
-          <button v-for="item in attentionCategories.filter((entry) => entry.value)" :key="item.key" type="button" class="btn btn-sm btn-ghost" @click="openAttentionCategory(item)">{{ item.label }} {{ item.value }}</button>
-        </template>
+        <button type="button" class="btn btn-sm btn-ghost" @click="openMoreAttention">查看更多</button>
       </div>
     </section>
 

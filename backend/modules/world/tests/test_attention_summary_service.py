@@ -209,3 +209,54 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
     assert result.items[5].target_kind == "worldbook_import"
     assert result.items[4].target_kind == "world_adoption"
     conflict_service.list.assert_awaited_once_with(db, "novel-1", status="pending")
+
+
+@pytest.mark.asyncio
+async def test_attention_summary_collapses_reverse_relation_groups() -> None:
+    empty_list = SimpleNamespace(total=0, items=[])
+    empty_groups = SimpleNamespace(groups=[], group_total=0, item_total=0)
+    relation_service = SimpleNamespace(
+        list_review_groups=AsyncMock(
+            return_value=SimpleNamespace(
+                groups=[
+                    SimpleNamespace(
+                        group_id="a-to-b",
+                        source_id="a",
+                        source_name="阿尔法",
+                        target_id="b",
+                        target_name="贝塔",
+                        member_count=3,
+                        reverse_candidate_count=4,
+                        members=[],
+                    ),
+                    SimpleNamespace(
+                        group_id="b-to-a",
+                        source_id="b",
+                        source_name="贝塔",
+                        target_id="a",
+                        target_name="阿尔法",
+                        member_count=4,
+                        reverse_candidate_count=3,
+                        members=[],
+                    ),
+                ],
+                group_total=2,
+                item_total=7,
+            )
+        )
+    )
+    service = WorldAttentionSummaryService(
+        entity_service=SimpleNamespace(list=AsyncMock(return_value=empty_list)),
+        alias_service=SimpleNamespace(list_review_groups=AsyncMock(return_value=empty_groups)),
+        relation_service=relation_service,
+        conflict_service=SimpleNamespace(list=AsyncMock(return_value=([], 0))),
+        suggestion_service=SimpleNamespace(list=AsyncMock(return_value=([], 0))),
+    )
+
+    result = await service.get_summary(SimpleNamespace(), "novel-1")
+
+    assert result.world_relations == 7
+    assert len(result.items) == 1
+    assert result.items[0].key == "world:relation-pair:a:b"
+    assert result.items[0].summary == "有 7 条关系待确认。"
+    assert result.items[0].item_id == "a-to-b"

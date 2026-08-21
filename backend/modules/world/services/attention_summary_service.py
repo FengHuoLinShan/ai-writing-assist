@@ -242,17 +242,25 @@ class WorldAttentionSummaryService:
     @staticmethod
     def _relation_item(group: object) -> WorldAuthorAttentionItemContract:
         group_id = str(_value(group, "group_id"))
+        source_id = str(_value(group, "source_id") or "")
+        target_id = str(_value(group, "target_id") or "")
+        pair_key = (
+            ":".join(sorted((source_id, target_id)))
+            if source_id and target_id
+            else group_id
+        )
         members = list(_value(group, "members", []) or [])
         source_name = str(_value(group, "source_name") or "一个对象")
         target_name = str(_value(group, "target_name") or "另一个对象")
         evidence = _value(members[0], "evidence_summary", {}) if members else {}
         chapters = list(_value(group, "source_chapter_indices", []) or [])
         member_count = int(_value(group, "member_count", len(members)) or 0)
+        reverse_count = int(_value(group, "reverse_candidate_count", 0) or 0)
         return WorldAuthorAttentionItemContract(
-            key=f"world:relation:{group_id}",
+            key=f"world:relation-pair:{pair_key}",
             source_kind="world_relation_group",
             title=f"审核{source_name}与{target_name}的关系",
-            summary=f"有 {member_count} 条关系待确认。",
+            summary=f"有 {member_count + reverse_count} 条关系待确认。",
             author_action="needs_decision",
             severity="medium",
             target_kind="world_review_relations",
@@ -359,11 +367,15 @@ class WorldAttentionSummaryService:
             and _value(item, "status") == "pending"
             and not _has_compatibility_shadow(item)
         ]
+        relation_items: dict[str, WorldAuthorAttentionItemContract] = {}
+        for group in relations:
+            item = self._relation_item(group)
+            relation_items.setdefault(item.key, item)
         items = [
             *(self._conflict_item(item) for item in conflicts),
             *(self._entity_item(item) for item in entities),
             *(self._alias_item(group) for group in aliases),
-            *(self._relation_item(group) for group in relations),
+            *relation_items.values(),
             *suggestion_items,
         ]
         return WorldAttentionSummaryContract(

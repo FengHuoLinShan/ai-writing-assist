@@ -487,6 +487,33 @@ describe("showResolveAliasForm", () => {
     expect(modalCalls).toHaveLength(0)
   })
 
+  it("作为关系前置对象处理后返回原关系组", async () => {
+    const navigate = vi.fn()
+    setBridgeOverrides({
+      router: {
+        getCurrentQuery: () => new URLSearchParams("kind=objects&return_kind=relations&return_group_id=g1"),
+        navigate,
+        refresh: vi.fn(async () => true),
+      },
+    })
+    showResolveAliasForm("c1")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("alias-target-id").value = "e1"
+    document.getElementById("alias-edit-text").value = "潮声行会"
+    document.getElementById("alias-edit-type").value = "alias"
+
+    await modalCalls[0].buttons[0].handler()
+
+    expect(navigate).toHaveBeenCalledWith(
+      "world",
+      "review",
+      true,
+      expect.objectContaining({}),
+    )
+    expect(navigate.mock.calls[0][3].toString()).toContain("kind=relations")
+    expect(navigate.mock.calls[0][3].toString()).toContain("group_id=g1")
+  })
+
   it.each([
     ["设为别名", () => showResolveAliasForm("c1"), "alias-target-id", "resolveEntityAsAlias"],
     ["合并对象", () => showMergeForm("c1"), "merge-target-id", "mergeEntity"],

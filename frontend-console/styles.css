@@ -14471,3 +14471,34 @@ button.rp-journey-card__main:hover {
   .settings-shell__header { flex-direction:column }
   .settings-shell__project { white-space:normal }
 }
+
+/* 统一待定资料工作台 */
+.world-review-workbench { display:grid;grid-template-columns:minmax(0,3fr) minmax(280px,2fr);gap:var(--space-4);align-items:start }
+.world-review-queue { min-width:0 }
+.world-review-decision { position:sticky;top:var(--space-3);display:grid;gap:var(--space-3);min-width:0;padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md,8px);background:var(--surface,var(--bg)) }
+.world-review-decision h3,.world-review-decision p { margin:0 }
+.world-review-decision__actions,.world-review-preview { display:grid;gap:var(--space-2) }
+.world-review-preview { padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-subtle,var(--bg-soft)) }
+.world-review-receipt { display:grid;gap:4px;padding:var(--space-3);border:1px solid var(--success);border-radius:var(--radius-sm);color:var(--text) }
+.world-review-overview { display:grid;gap:var(--space-4);max-width:920px }
+.world-review-next { padding:var(--space-5);border:1px solid var(--border);border-radius:var(--radius-md,8px);background:var(--surface,var(--bg)) }
+.world-review-next h3 { margin:var(--space-2) 0 }
+.world-review-overview__cards { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3) }
+.world-review-overview-card { display:grid;gap:4px;min-height:112px;padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md,8px);background:var(--surface,var(--bg));color:var(--text);text-align:left;cursor:pointer }
+.world-review-overview-card strong { font-size:24px }
+.world-review-overview-card small { color:var(--text-dim) }
+.world-review-overview-card:disabled { cursor:default;opacity:.55 }
+.world-review-queue .is-active { outline:2px solid var(--accent);outline-offset:1px }
+.world-review-mobile-back { display:none }
+.review-separate-editors { display:grid;gap:var(--space-2) }
+.review-separate-editor { display:grid;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm) }
+
+@media (max-width: 760px) {
+  .world-review-workbench { display:block }
+  .world-review-decision { position:static }
+  .world-review-workbench:not(.is-detail-open) .world-review-decision { display:none }
+  .world-review-workbench.is-detail-open .world-review-queue { display:none }
+  .world-review-mobile-back { display:inline-flex;justify-self:start;min-height:44px }
+  .world-review-overview__cards { grid-template-columns:1fr }
+  .world-review-overview-card,.world-review-touch-target { min-height:44px }
+}

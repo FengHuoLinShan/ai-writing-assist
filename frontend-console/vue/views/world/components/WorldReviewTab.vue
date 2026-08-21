@@ -5,12 +5,12 @@
   候选乐观更新走本地镜像（props 只读），钩子注册进 worldEntityOps。
 -->
 <template>
-  <div>
-    <!-- 二级 tab 导航（vanilla _renderReviewQueue 822-836） -->
+  <div class="world-review-view">
     <div class="subnav subnav-secondary" style="margin-bottom:12px;">
-      <button type="button" class="subnav-item" :class="{ active: tab === 'review-objects' }" :aria-current="tab === 'review-objects' ? 'page' : undefined" data-action="nav-review-objects" @click="navigateSub('review-objects')">对象 ({{ reviewCounts.objects || 0 }})</button>
-      <button type="button" class="subnav-item" :class="{ active: tab === 'review-aliases' }" :aria-current="tab === 'review-aliases' ? 'page' : undefined" data-action="nav-review-aliases" @click="navigateSub('review-aliases')">别名 ({{ reviewCounts.aliases || 0 }})</button>
-      <button type="button" class="subnav-item" :class="{ active: tab === 'review-relations' }" :aria-current="tab === 'review-relations' ? 'page' : undefined" data-action="nav-review-relations" @click="navigateSub('review-relations')">关系 ({{ reviewCounts.relations || 0 }})</button>
+      <button type="button" class="subnav-item" :class="{ active: tab === 'all' }" :aria-current="tab === 'all' ? 'page' : undefined" data-action="nav-review-all" @click="navigateKind('all')">全部</button>
+      <button type="button" class="subnav-item" :class="{ active: tab === 'objects' }" :aria-current="tab === 'objects' ? 'page' : undefined" data-action="nav-review-objects" @click="navigateKind('objects')">对象 ({{ reviewCounts.objects || 0 }})</button>
+      <button type="button" class="subnav-item" :class="{ active: tab === 'aliases' }" :aria-current="tab === 'aliases' ? 'page' : undefined" data-action="nav-review-aliases" @click="navigateKind('aliases')">别名 ({{ reviewCounts.aliases || 0 }})</button>
+      <button type="button" class="subnav-item" :class="{ active: tab === 'relations' }" :aria-current="tab === 'relations' ? 'page' : undefined" data-action="nav-review-relations" @click="navigateKind('relations')">关系 ({{ reviewCounts.relations || 0 }})</button>
     </div>
 
     <p v-if="currentReviewCount" class="world-list-description" data-author-action="needs_decision">
@@ -18,11 +18,28 @@
       这里只列当前仍有效、尚未采用的候选；已采用、忽略或过期内容不计入当前待办。
     </p>
 
+    <section v-if="tab === 'all'" class="world-review-overview" aria-labelledby="review-overview-title">
+      <div class="world-review-next">
+        <span class="pill pill-warning">推荐下一项</span>
+        <h3 id="review-overview-title">{{ recommendedKind.label }}</h3>
+        <p>{{ recommendedKind.description }}</p>
+        <button v-if="recommendedKind.kind" type="button" class="btn btn-primary world-review-touch-target" data-action="open-recommended-review" @click="navigateKind(recommendedKind.kind)">开始处理</button>
+      </div>
+      <div class="world-review-overview__cards">
+        <button v-for="item in overviewKinds" :key="item.kind" type="button" class="world-review-overview-card" :disabled="!item.count" @click="navigateKind(item.kind)">
+          <span>{{ item.label }}</span><strong>{{ item.count }}</strong><small>{{ item.hint }}</small>
+        </button>
+      </div>
+    </section>
+
+    <div v-else class="world-review-workbench" :class="{ 'is-detail-open': mobileDetailOpen }">
+      <section class="world-review-queue" aria-label="待决定队列">
     <!-- ==================== review-objects ==================== -->
-    <template v-if="tab === 'review-objects'">
+    <template v-if="tab === 'objects'">
       <!-- vanilla _renderCandidatesList 收尾处 `renderBulkToolbar(...) + html`：批量条前置（仅非空时存在） -->
+      <details v-if="localCandidates.length" class="world-review-batch">
+        <summary>批量处理</summary>
       <WorldBulkToolbar
-        v-if="localCandidates.length"
         scope="world-candidates"
         :actions="[
           { action: 'accept-candidates', label: '批量采用', className: 'btn-primary' },
@@ -34,6 +51,7 @@
         select-all-label="全选当前待处理项"
         @run="(action) => runReviewBulkAction('world-candidates', action, localCandidates)"
       />
+      </details>
       <WorldFilterPanel panel-key="review-objects" :has-active-filters="candidateHasActiveFilters" :project-id="projectId">
         <div class="filter-bar world-review-filters" style="margin-bottom:12px;">
           <select id="review-candidate-entity-type" v-model="candidateForm.entity_type" class="form-select" aria-label="对象类型筛选">
@@ -80,7 +98,7 @@
 
         <!-- 建议设为别名分组（vanilla _renderTargetedAliasCandidateGroups） -->
         <div v-if="targetedAliasGroups.length" class="world-candidate-alias-groups" aria-label="建议设为别名的待处理对象">
-          <section v-for="group in targetedAliasGroups" :key="group.targetId || `name:${group.targetName}`" class="world-candidate-alias-group" :data-target-id="group.targetId">
+          <section v-for="group in targetedAliasGroups" :key="group.targetId || `name:${group.targetName}`" class="world-candidate-alias-group" :class="{ 'is-active': activeKey === entityIdOf(group.candidates[0]) }" :data-target-id="group.targetId" @click="selectReviewItem(entityIdOf(group.candidates[0]))">
             <header class="world-candidate-alias-group__header">
               <div>
                 <div class="world-candidate-alias-group__target">
@@ -102,7 +120,7 @@
 
         <!-- 名称相似分组（vanilla _renderSimilarNameCandidateGroups） -->
         <div v-if="similarNameGroups.length" class="world-candidate-alias-groups" aria-label="名称相似的待处理对象">
-          <section v-for="(group, index) in similarNameGroups" :key="index" class="world-candidate-alias-group world-candidate-similar-group">
+          <section v-for="(group, index) in similarNameGroups" :key="index" class="world-candidate-alias-group world-candidate-similar-group" :class="{ 'is-active': activeKey === entityIdOf(group[0]) }" @click="selectReviewItem(entityIdOf(group[0]))">
             <header class="world-candidate-alias-group__header">
               <div>
                 <div class="world-candidate-alias-group__target">
@@ -136,7 +154,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="candidate in regularCandidates" :key="entityIdOf(candidate)" :data-id="entityIdOf(candidate)">
+            <tr v-for="candidate in regularCandidates" :key="entityIdOf(candidate)" :data-id="entityIdOf(candidate)" :class="{ 'is-active': activeKey === entityIdOf(candidate) }" @click="selectReviewItem(entityIdOf(candidate))">
               <td class="selection-cell"><WorldSelectionInput mode="one" scope="world-candidates" :id="entityIdOf(candidate)" :label="`选择 ${candidate.name || '待处理项'}`" /></td>
               <td data-label="名称">{{ candidate.name }}</td>
               <td data-label="类型" class="world-table-cell--type">{{ candidate.entity_type }}</td>
@@ -160,7 +178,7 @@
     </template>
 
     <!-- ==================== review-aliases ==================== -->
-    <template v-else-if="tab === 'review-aliases'">
+    <template v-else-if="tab === 'aliases'">
       <p class="world-list-description">处理尚未采用的别名。别名不独立创建对象。</p>
       <div class="review-search-bar">
         <input id="review-alias-q" v-model="aliasForm.q" class="form-input" placeholder="搜索别名、对象或引用" aria-label="搜索待处理别名" />
@@ -207,8 +225,9 @@
         <p class="world-text-dim">筛选条件会保留；可以清空筛选查看全部队列。</p>
       </div>
       <template v-else>
+        <details v-if="aliasSelectableIds.length" class="world-review-batch">
+          <summary>批量处理</summary>
         <WorldBulkToolbar
-          v-if="aliasSelectableIds.length"
           scope="world-aliases"
           :actions="[
             { action: 'review-aliases-batch', label: '批量采用', className: 'btn-primary' },
@@ -220,8 +239,9 @@
           select-all-label="全选当前页别名"
           @run="(action) => runReviewBulkAction('world-aliases', action, flatAliases)"
         />
+        </details>
         <div class="review-group-list">
-          <section v-for="group in aliasGroups" :key="group.group_id" class="review-group-card" :data-group-id="group.group_id">
+          <section v-for="group in aliasGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': activeKey === group.group_id }" :data-group-id="group.group_id" @click="selectReviewItem(group.group_id)">
             <header class="review-group-card__header">
               <div class="review-group-card__title">
                 <strong>{{ group.entity_name || "未命名对象" }}</strong>
@@ -248,7 +268,7 @@
                   <div v-if="session.aliasReviewErrors[aliasKeyOf(item)]" class="review-item-error" role="alert">{{ session.aliasReviewErrors[aliasKeyOf(item)] }}</div>
                 </div>
                 <span v-if="item.managed_by_suggestion" class="world-text-dim">随对象建议处理</span>
-                <button v-else class="btn btn-sm btn-primary" data-action="prepare-alias-review" :data-entity-id="item.entity_id" :data-alias="item.alias" @click="showAliasReviewDecisionForm(item.entity_id, item.alias)">编辑决策</button>
+                <button v-else class="btn btn-sm btn-primary" data-action="prepare-alias-review" :data-entity-id="item.entity_id" :data-alias="item.alias" @click.stop="showAliasReviewDecisionForm(item.entity_id, item.alias)">预览并处理</button>
               </article>
             </div>
           </section>
@@ -265,7 +285,7 @@
     </template>
 
     <!-- ==================== review-relations ==================== -->
-    <template v-else-if="tab === 'review-relations'">
+    <template v-else-if="tab === 'relations'">
       <p class="world-list-description">处理 AI 抽取或导入提出、尚未采用的关系。</p>
       <div class="review-search-bar">
         <input id="review-relation-q" v-model="relationForm.q" class="form-input" placeholder="搜索对象、关系类型或描述" aria-label="搜索待处理关系" />
@@ -309,6 +329,8 @@
         <p class="world-text-dim">筛选条件会保留；可以清空筛选查看全部队列。</p>
       </div>
       <template v-else>
+        <details class="world-review-batch">
+          <summary>批量处理</summary>
         <WorldBulkToolbar
           scope="world-relation-groups"
           :actions="[
@@ -321,15 +343,16 @@
           select-all-label="全选当前页关系组"
           @run="(action) => runReviewBulkAction('world-relation-groups', action, relationGroups)"
         />
+        </details>
         <div class="review-group-list">
-          <section v-for="group in relationGroups" :key="group.group_id" class="review-group-card" :data-group-id="group.group_id">
+          <section v-for="group in relationGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': activeKey === group.group_id }" :data-group-id="group.group_id" @click="selectReviewItem(group.group_id)">
             <header class="review-group-card__header">
               <div class="review-group-card__select"><WorldSelectionInput mode="one" scope="world-relation-groups" :id="group.group_id" :label="`选择 ${group.source_name || '源对象'} 到 ${group.target_name || '目标对象'}`" /></div>
               <div class="review-group-card__title">
                 <strong>{{ group.source_name || "未命名对象" }} → {{ group.target_name || "未命名对象" }}</strong>
                 <span>{{ group.member_count }} 条候选 · {{ group.evidence_count || 0 }} 条证据</span>
               </div>
-              <span class="badge" :class="session.relationReviewDrafts[group.group_id] ? 'badge-canonical' : 'badge-candidate'">{{ relationDraftLabel(group.group_id) }}</span>
+              <span class="badge" :class="reviewStatusClass(group.group_id)">{{ reviewStatusLabel(group.group_id) }}</span>
             </header>
             <div class="review-group-card__meta">
               <span>类型：<code v-for="value in group.type_variants || []" :key="value">{{ reviewTypeLabel('relation', value) }}</code></span>
@@ -351,7 +374,7 @@
               </article>
             </div>
             <footer class="review-group-card__actions">
-              <button class="btn btn-sm btn-primary" data-action="prepare-relation-review" :data-group-id="group.group_id" @click="showRelationGroupReviewForm(group.group_id)">{{ session.relationReviewDrafts[group.group_id] ? "修改决策" : "处理本组" }}</button>
+              <button class="btn btn-sm btn-primary" data-action="prepare-relation-review" :data-group-id="group.group_id" @click.stop="showRelationGroupReviewForm(group.group_id)">预览并处理</button>
             </footer>
           </section>
         </div>
@@ -365,12 +388,62 @@
         />
       </template>
     </template>
+      </section>
+
+      <aside class="world-review-decision" aria-label="决策区" aria-live="polite">
+        <button type="button" class="btn btn-sm world-review-mobile-back" @click="mobileDetailOpen = false">返回队列</button>
+        <template v-if="activeItem">
+          <div class="world-review-decision__status"><span class="pill pill-warning">{{ activeStatusLabel }}</span></div>
+          <template v-if="tab === 'objects'">
+            <h3>{{ activeItem.name || "未命名对象" }}</h3>
+            <p>{{ entityTypeLabel(activeItem.entity_type) }} · {{ actionLabelOf(activeItem).label }}</p>
+            <WorldInlineEvidence :pairs="inlineEvidencePairs(candidateMeta(activeItem))" />
+            <div class="world-review-decision__actions"><WorldCandidateActions :candidate="activeItem" :action-options="{ allowAlias: true, allowMerge: true }" /></div>
+          </template>
+          <template v-else-if="tab === 'aliases'">
+            <h3>{{ activeItem.entity_name || "未命名对象" }}</h3>
+            <p>{{ activeAlias?.alias || "未命名别名" }} → {{ activeItem.entity_name || "当前对象" }}</p>
+            <WorldEvidenceSummary v-if="activeAlias" :item="activeAlias" kind="alias" :numeric-value="activeAlias.confidence" />
+            <p v-if="activeAlias?.managed_by_suggestion" class="review-warning">需先处理对象建议，完成后会返回此项。</p>
+            <template v-if="activeAlias && !activeAlias.managed_by_suggestion">
+              <button type="button" class="btn btn-primary world-review-touch-target" data-action="accept-current-alias" @click="acceptAliasReviewItem(activeAlias)">按当前内容采用</button>
+              <button type="button" class="btn world-review-touch-target" @click="showAliasReviewDecisionForm(activeAlias.entity_id, activeAlias.alias)">修改目标、文本或类型…</button>
+              <button type="button" class="btn btn-danger world-review-touch-target" @click="applyAliasReviewBatch([activeAlias], 'ignore')">忽略此别名</button>
+            </template>
+            <button v-else-if="activeAlias" type="button" class="btn btn-primary world-review-touch-target" @click="openBlockingObject(activeAlias.entity_id)">先处理对象</button>
+          </template>
+          <template v-else>
+            <h3>{{ activeItem.source_name || "源对象" }} → {{ activeItem.target_name || "目标对象" }}</h3>
+            <p>{{ activeItem.member_count || (activeItem.members || []).length }} 条候选 · {{ activeItem.evidence_count || 0 }} 条证据</p>
+            <p v-if="dependencyState.loading" class="world-text-dim">正在检查对象状态…</p>
+            <div v-else-if="dependencyState.error" class="review-warning" role="alert"><p>无法核对关系端点的对象状态。</p><button type="button" class="btn btn-sm" @click="retryLoad">刷新后重试</button></div>
+            <p v-else-if="dependencyState.blocker" class="review-warning">需先决定“{{ dependencyState.blocker.name }}”，才能安心采用这条关系。</p>
+            <div v-else class="world-review-preview">
+              <strong>预览</strong>
+              <span>{{ activeItem.source_name }} → {{ activeItem.target_name }}</span>
+              <span>{{ reviewTypeLabel('relation', activeRelationDecision?.relation_type) }}</span>
+              <span>{{ activeRelationDecision?.description || "暂无描述" }}</span>
+              <span>将处理 {{ activeRelationDecision?.member_relation_ids?.length || 0 }} 条，其余 {{ activeRelationRemaining }} 条继续待定</span>
+            </div>
+            <button v-if="dependencyState.blocker" type="button" class="btn btn-primary world-review-touch-target" @click="openBlockingObject(dependencyState.blocker.id)">先处理对象</button>
+            <template v-else-if="!dependencyState.error">
+              <button type="button" class="btn btn-primary world-review-touch-target" data-action="accept-recommended-relation" :disabled="dependencyState.loading" @click="acceptRecommendedRelation(activeItem)">按此结果采用</button>
+              <button type="button" class="btn world-review-touch-target" :disabled="dependencyState.loading" @click="showRelationGroupReviewForm(activeItem.group_id)">编辑更多处理方式…</button>
+            </template>
+          </template>
+        </template>
+        <div v-else class="empty-state"><p>从左侧选择一项开始决定。</p></div>
+        <div v-if="session.reviewReceipt" class="world-review-receipt" role="status">
+          <strong>{{ session.reviewReceipt.title }}</strong><p>{{ session.reviewReceipt.detail }}</p>
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch, onBeforeUnmount } from "vue"
-import { getRouter } from "../../../bridge/index.js"
+import { getApi, getAppState, getRouter } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
 import {
   WORLD_SUGGESTED_ACTION_LABELS,
@@ -381,6 +454,9 @@ import { candidateMeta, entityId } from "../logic/worldEntityHelpers.js"
 import { registerCandidateListHooks, syncWorldListRegistry } from "../logic/worldEntityOps.js"
 import {
   aliasKey,
+  acceptAliasReviewItem,
+  applyAliasReviewBatch,
+  acceptRecommendedRelation,
   applyCandidateReviewFilters,
   applyAliasReviewFilters,
   applyRelationReviewFilters,
@@ -392,6 +468,7 @@ import {
   groupTargetedAliasCandidates,
   inlineEvidencePairs,
   reviewTypeLabel,
+  recommendedRelationDecision,
   runReviewBulkAction,
   setReviewQuickFilter,
   showAliasReviewDecisionForm,
@@ -411,7 +488,8 @@ import WorldSelectionInput from "./WorldSelectionInput.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
-  reviewSubView: { type: String, default: "review-objects" },
+  reviewSubView: { type: String, default: "review" },
+  reviewKind: { type: String, default: "all" },
   reviewCounts: { type: Object, default: () => ({ objects: 0, aliases: 0, relations: 0 }) },
   entityTypes: { type: Array, default: () => [] },
   reviewTypeCatalog: { type: Object, default: () => ({}) },
@@ -431,22 +509,124 @@ const props = defineProps({
   relationReviewLoadError: { type: String, default: null },
 })
 
-const tab = computed(() => props.reviewSubView || "review-objects")
+const tab = computed(() => {
+  if (["objects", "aliases", "relations"].includes(props.reviewKind)) return props.reviewKind
+  return {
+    "review-objects": "objects",
+    "review-aliases": "aliases",
+    "review-relations": "relations",
+  }[props.reviewSubView] || "all"
+})
 const currentReviewCount = computed(() => {
-  if (tab.value === "review-aliases") return props.aliasItemTotal
-  if (tab.value === "review-relations") return props.relationItemTotal
+  if (tab.value === "aliases") return props.aliasItemTotal
+  if (tab.value === "relations") return props.relationItemTotal
   return props.candidateTotal
 })
 const suggestedActionLabels = WORLD_SUGGESTED_ACTION_LABELS
 const entityIdOf = entityId
 const aliasKeyOf = aliasKey
+const localCandidates = ref([])
 
-function navigateSub(sub) {
-  getRouter()?.navigate("world", sub)
+const overviewKinds = computed(() => [
+  { kind: "objects", label: "对象", count: Number(props.reviewCounts.objects || 0), hint: "人物、地点与设定" },
+  { kind: "aliases", label: "别名", count: Number(props.reviewCounts.aliases || 0), hint: "名称应归属到哪个对象" },
+  { kind: "relations", label: "关系", count: Number(props.reviewCounts.relations || 0), hint: "对象之间的联系与证据" },
+])
+const recommendedKind = computed(() => {
+  const next = overviewKinds.value.find((item) => item.count > 0)
+  return next
+    ? { ...next, description: next.kind === "objects" ? "先处理对象，可以避免别名和关系因端点未确定而阻塞。" : `当前最适合继续处理${next.label}。` }
+    : { kind: "", label: "已全部处理完成", description: "目前没有需要你决定的世界资料。" }
+})
+
+function navigateKind(kind) {
+  const query = new URLSearchParams()
+  if (kind !== "all") query.set("kind", kind)
+  getRouter()?.navigate("world", "review", true, query)
 }
 
 function retryLoad() {
   getRouter()?.refresh?.()
+}
+
+const activeKey = ref("")
+const mobileDetailOpen = ref(false)
+const activeItem = computed(() => {
+  if (tab.value === "objects") return localCandidates.value.find((item) => entityId(item) === activeKey.value) || localCandidates.value[0] || null
+  if (tab.value === "aliases") return props.aliasGroups.find((item) => item.group_id === activeKey.value) || props.aliasGroups[0] || null
+  return props.relationGroups.find((item) => item.group_id === activeKey.value) || props.relationGroups[0] || null
+})
+const activeAlias = computed(() => activeItem.value?.members?.find((item) => !item.managed_by_suggestion) || activeItem.value?.members?.[0] || null)
+const activeRelationDecision = computed(() => tab.value === "relations" ? recommendedRelationDecision(activeItem.value) : null)
+const activeRelationRemaining = computed(() => Math.max(0, (activeItem.value?.members || []).length - (activeRelationDecision.value?.member_relation_ids?.length || 0)))
+const activeStatusKey = computed(() => tab.value === "aliases" ? aliasKey(activeAlias.value || {}) : (activeKey.value || activeItem.value?.group_id || entityId(activeItem.value)))
+
+function selectReviewItem(key) {
+  activeKey.value = key || ""
+  mobileDetailOpen.value = true
+}
+
+function entityTypeLabel(value) {
+  return props.entityTypes.find((item) => item.value === value)?.label || value || "未分类"
+}
+
+function reviewStatusLabel(key) {
+  if (session.processingReviewIds?.[key]) return "处理中"
+  const error = session.relationReviewErrors[key] || session.aliasReviewErrors[key]
+  if (error) return String(error).includes("过期") || String(error).includes("变化") ? "内容已变化" : "处理失败"
+  if (session.reviewReceipt?.targetKey === key) return "已完成"
+  return "待处理"
+}
+
+function reviewStatusClass(key) {
+  const label = reviewStatusLabel(key)
+  if (label === "已完成") return "badge-canonical"
+  if (label === "处理失败" || label === "内容已变化") return "badge-draft"
+  return "badge-candidate"
+}
+
+const dependencyState = reactive({ loading: false, blocker: null, error: false })
+const activeStatusLabel = computed(() => (
+  dependencyState.error
+    ? "处理失败"
+    : activeAlias.value?.managed_by_suggestion || dependencyState.blocker
+      ? "需先处理对象"
+      : reviewStatusLabel(activeStatusKey.value)
+))
+let dependencyGeneration = 0
+watch([tab, activeItem], async ([kind, item]) => {
+  const generation = ++dependencyGeneration
+  dependencyState.loading = false
+  dependencyState.blocker = null
+  dependencyState.error = false
+  if (kind !== "relations" || !item?.source_id || !item?.target_id) return
+  dependencyState.loading = true
+  try {
+    const api = getApi()
+    const projectId = getAppState()?.currentProjectId
+    const entities = await Promise.all([
+      api.world.getEntity(item.source_id, projectId),
+      api.world.getEntity(item.target_id, projectId),
+    ])
+    if (generation !== dependencyGeneration) return
+    const blocker = entities.find((entity) => entity?.status === "candidate")
+    dependencyState.blocker = blocker ? { id: entityId(blocker), name: blocker.name || "待处理对象" } : null
+  } catch {
+    if (generation === dependencyGeneration) dependencyState.error = true
+  } finally {
+    if (generation === dependencyGeneration) dependencyState.loading = false
+  }
+}, { immediate: true })
+
+function openBlockingObject(entityIdParam) {
+  if (!entityIdParam) return
+  const query = new URLSearchParams({
+    kind: "objects",
+    entity_id: entityIdParam,
+    return_kind: tab.value,
+  })
+  if (activeItem.value?.group_id) query.set("return_group_id", activeItem.value.group_id)
+  getRouter()?.navigate("world", "review", true, query)
 }
 
 // ---- 注册表同步（决策模态/批量按 id 查找） ----
@@ -467,8 +647,6 @@ watch(() => [props.candidates, props.aliasGroups, props.relationGroups, props.en
 }, { immediate: true, deep: true })
 
 // ---- 候选乐观镜像（vanilla _removeCandidateOptimistically/_restoreCandidateSnapshot） ----
-const localCandidates = ref([])
-
 watch(() => props.candidates, (next) => {
   localCandidates.value = [...next]
   reconcileBulkSelection("world-candidates", next.map((item) => entityId(item)).filter(Boolean))
@@ -555,13 +733,6 @@ watch(() => props.relationGroups, (groups) => {
 }, { immediate: true, deep: true })
 
 // ---- 关系组展示 ----
-function relationDraftLabel(groupId) {
-  const draft = session.relationReviewDrafts[groupId]
-  return draft
-    ? { accept: "已准备：独立采用", merge: "已准备：归并", ignore: "已准备：忽略" }[draft.action]
-    : "尚未准备决策"
-}
-
 function canonicalTypeLabels(group) {
   return (group.canonical_relations || []).map((item) => reviewTypeLabel("relation", item.relation_type)).join("、")
 }

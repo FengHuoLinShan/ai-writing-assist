@@ -68,6 +68,7 @@ enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  sessionStorage.clear()
   resetWorldSession()
   navigateMock = vi.fn()
   toastMock = vi.fn()
@@ -87,6 +88,15 @@ afterEach(() => {
 })
 
 describe("二级导航", () => {
+  it("全部概览按对象优先给出推荐下一项", async () => {
+    const wrapper = mountTab({ reviewSubView: "review", reviewKind: "all" })
+    expect(wrapper.findAll(".world-review-overview-card")).toHaveLength(3)
+    expect(wrapper.get(".world-review-next").text()).toContain("对象")
+    await wrapper.get('[data-action="open-recommended-review"]').trigger("click")
+    expect(navigateMock.mock.calls[0].slice(0, 3)).toEqual(["world", "review", true])
+    expect(navigateMock.mock.calls[0][3].get("kind")).toBe("objects")
+  })
+
   it("渲染计数徽标并 navigate", async () => {
     const wrapper = mountTab()
     expect(wrapper.get('[data-author-action="needs_decision"]').text()).toContain("已采用、忽略或过期内容不计入当前待办")
@@ -97,7 +107,8 @@ describe("二级导航", () => {
     expect(wrapper.find('[data-action="nav-review-objects"]').text()).toContain("对象 (2)")
     expect(wrapper.find('[data-action="nav-review-aliases"]').text()).toContain("别名 (2)")
     await wrapper.find('[data-action="nav-review-aliases"]').trigger("click")
-    expect(navigateMock).toHaveBeenCalledWith("world", "review-aliases")
+    expect(navigateMock).toHaveBeenCalledWith("world", "review", true, expect.any(URLSearchParams))
+    expect(navigateMock.mock.calls[0][3].get("kind")).toBe("aliases")
   })
 })
 
@@ -162,7 +173,8 @@ describe("review-objects", () => {
     await wrapper.find("#review-candidate-source").setValue("deep_import")
     await wrapper.find('[data-action="apply-candidate-review-filters"]').trigger("click")
     const [view, subView, , query] = navigateMock.mock.calls[0]
-    expect([view, subView]).toEqual(["world", "review-objects"])
+    expect([view, subView]).toEqual(["world", "review"])
+    expect(query.get("kind")).toBe("objects")
     expect(query.get("source")).toBe("deep_import")
   })
 })
@@ -199,7 +211,8 @@ describe("review-aliases", () => {
     await wrapper.get("#review-alias-page-size").setValue("20")
     await wrapper.findAll('[data-action="apply-alias-review-filters"]')[1].trigger("click")
     const [view, subView, , query] = navigateMock.mock.calls.at(-1)
-    expect([view, subView]).toEqual(["world", "review-aliases"])
+    expect([view, subView]).toEqual(["world", "review"])
+    expect(query.get("kind")).toBe("aliases")
     expect(query.get("source")).toBe("manual")
     expect(query.get("type_kind")).toBe("recommended")
     expect(query.get("limit")).toBeNull()
@@ -229,6 +242,14 @@ describe("review-aliases", () => {
 })
 
 describe("review-relations", () => {
+  it("桌面为队列与决策区，窄屏有返回队列控件", () => {
+    const wrapper = mountTab({ reviewSubView: "review-relations" })
+    expect(wrapper.find(".world-review-workbench").exists()).toBe(true)
+    expect(wrapper.find(".world-review-queue").exists()).toBe(true)
+    expect(wrapper.find(".world-review-decision").exists()).toBe(true)
+    expect(wrapper.get(".world-review-mobile-back").text()).toBe("返回队列")
+  })
+
   it("高级筛选使用可访问名称并保持关系筛选值与选项语义", async () => {
     const wrapper = mountTab({
       reviewSubView: "review-relations",
@@ -259,7 +280,8 @@ describe("review-relations", () => {
     await wrapper.get("#review-relation-page-size").setValue("20")
     await wrapper.findAll('[data-action="apply-relation-review-filters"]')[1].trigger("click")
     const [view, subView, , query] = navigateMock.mock.calls.at(-1)
-    expect([view, subView]).toEqual(["world", "review-relations"])
+    expect([view, subView]).toEqual(["world", "review"])
+    expect(query.get("kind")).toBe("relations")
     expect(query.get("relation_type")).toBe("ally_of")
     expect(query.get("type_kind")).toBe("custom")
     expect(query.get("limit")).toBeNull()
@@ -271,23 +293,25 @@ describe("review-relations", () => {
     expect(card.exists()).toBe(true)
     expect(card.text()).toContain("林澈 → 沉钟港")
     expect(card.text()).toContain("1 条候选 · 2 条证据")
-    expect(card.text()).toContain("尚未准备决策")
-    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("处理本组")
+    expect(card.text()).toContain("待处理")
+    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("预览并处理")
+    expect(wrapper.get('[data-action="accept-recommended-relation"]').text()).toBe("按此结果采用")
   })
 
-  it("有草稿时徽标与按钮文案变化", () => {
+  it("编辑草稿不再伪装成已处理状态", () => {
     worldSession.relationReviewDrafts.g1 = { action: "merge", member_relation_ids: ["r1"] }
     const wrapper = mountTab({ reviewSubView: "review-relations" })
     const card = wrapper.find('.review-group-card[data-group-id="g1"]')
-    expect(card.text()).toContain("已准备：归并")
-    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("修改决策")
+    expect(card.text()).toContain("待处理")
+    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("预览并处理")
   })
 
   it("快捷筛选 navigate 写 query", async () => {
     const wrapper = mountTab({ reviewSubView: "review-relations" })
     await wrapper.find('[data-action="set-relation-quick-filter"][data-filter-key="multi_type_only"]').trigger("click")
     const [view, subView, , query] = navigateMock.mock.calls[0]
-    expect([view, subView]).toEqual(["world", "review-relations"])
+    expect([view, subView]).toEqual(["world", "review"])
+    expect(query.get("kind")).toBe("relations")
     expect(query.get("multi_type_only")).toBe("true")
   })
 })

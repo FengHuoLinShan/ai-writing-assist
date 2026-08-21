@@ -421,9 +421,16 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 
 `POST /api/world/relations/review-batch` 每次最多 20 个决策、累计 50 条本次选中的关系。
 `accept` 独立采用一条；`merge` 以用户选定的主关系和最终字段归并所选证据；
-`ignore` 把所选候选改为 `deprecated`。同端点同类型已有正式关系时复用该关系；
+`accept_separately` 通过 `separate_relations[]` 为每个所选候选提供独立的最终端点、
+类型、描述和强度，且同一决策中的最终关系键不得重复；`ignore` 把所选候选改为
+`deprecated`。`unselected_action` 默认为 `keep_pending`，显式设为 `ignore` 时
+一并忽略该有向组未选成员。同端点同类型已有正式关系时复用该关系；
 归并来源写入 `review_history`，其他候选记录 `merged_into_relation_id` 后进入历史，
-未选候选继续保持 `candidate`。因此大于 50 条的单组可分次处理，不要将整组成员数误作本次限额。
+未选候选默认继续保持 `candidate`。因此大于 50 条的单组可分次处理，不要将整组成员数误作本次限额。
+每个决策仍只使用一个完整组指纹和一个 savepoint；分别采用任一成员失败时整组回滚。
+响应保留 `canonical_relation_id` / `archived_relation_ids` 兼容字段，并增加
+`canonical_relation_ids` / `reused_canonical_relation_ids` / `ignored_relation_ids` /
+`remaining_candidate_ids` 供工作台展示明确处理结果。
 
 ### aliases（内联 JSONB）
 
@@ -572,8 +579,9 @@ workflow/result refs 的唯一跨模块入口；它只组装 pending package，�
 `get_author_attention_summary()` 是 Project“今日工作”消费的只读稳定投影，返回冻结的
 `WorldAttentionSummaryContract`：同一 `novel_id` 下待处理的世界对象、别名和关系数量及
 确定性 `total`，并附加 pending 世界书冲突、审核组和未被兼容 shadow 覆盖的待采用建议。
-checkpoint、stale/resolved 冲突、已处理建议和 task-only 临时结果不进入投影；对象、别名、
-关系按作者实际处理组去重。实现位于 world 自己的 attention service，复用既有查询服务并
+checkpoint、stale/resolved 冲突、已处理建议和 task-only 临时结果不进入投影；对象、别名按实际处理组去重，
+关系在首页按无向对象对合并提醒并汇总两个方向的候选数；关系工作台仍保持有向组处理语义。
+实现位于 world 自己的 attention service，复用既有查询服务并
 保持项目过滤；别名成员的 Scene/章节来源通过稳定响应字段读取，三类审核 target 保留对象或组
 标识供领域页精确定位。root `facade.py` 仅 re-export，响应不包含正文、原始任务、owner 或密钥。
 
@@ -656,7 +664,7 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | GET | `/api/world/entity-types` | 当前项目类型目录；固定顺序系统类型 + 全部状态对象使用过的项目自定义类型 |
 | GET | `/api/world/review-type-catalog` | 关系/别名推荐类型、中文标签和保守同义词；`custom_allowed=true` |
 | GET | `/api/world/relations/review-groups` | 按有向对象对分页返回待处理关系组、完整成员和执行指纹 |
-| POST | `/api/world/relations/review-batch` | 显式确认的关系 accept / merge / ignore 批处理 |
+| POST | `/api/world/relations/review-batch` | 显式确认的关系采用、分别采用、归并或忽略批处理 |
 | GET | `/api/world/aliases/review-groups` | 按所属对象分页返回待处理别名组 |
 | POST | `/api/world/aliases/review-batch` | 显式确认的别名采用、编辑或忽略批处理 |
 | POST | `/api/world/entities` | 手动创建世界对象；未传 `status` 时默认已采用 |

@@ -31,6 +31,7 @@ import {
 } from "./worldEntityHelpers.js"
 import { CUSTOM_ENTITY_TYPE_SENTINEL, REVIEW_ALIAS_TYPE_FALLBACK } from "./worldQuery.js"
 import { clearBulkSelection, getBulkSelection, runBulkAction, bulkResultMessage, selectedItemsFrom } from "./worldBulkSelection.js"
+import { worldSession } from "../worldSession.js"
 
 // ============================================================
 // 列表注册表（tab 在 props 变化时同步当前可见列表）
@@ -240,10 +241,23 @@ function ownsWorldOperationScope(scope) {
 }
 
 /** 对应 vanilla _finishEntityMutation；调用方为受全局 modal/router 管理的模态操作。 */
+async function returnToReviewContextOrRefresh() {
+  const router = getRouter()
+  const currentQuery = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const returnKind = currentQuery.get("return_kind")
+  if (["aliases", "relations"].includes(returnKind)) {
+    const query = new URLSearchParams({ kind: returnKind })
+    const groupId = currentQuery.get("return_group_id")
+    if (groupId) query.set("group_id", groupId)
+    return router?.navigate("world", "review", true, query)
+  }
+  return router?.refresh?.()
+}
+
 async function finishEntityMutation(successMessage) {
   const toast = getToast()
   try {
-    const refreshed = await getRouter()?.refresh?.()
+    const refreshed = await returnToReviewContextOrRefresh()
     if (refreshed === false) throw new Error("当前页面未完成刷新")
   } catch (err) {
     toast(`${successMessage}，但列表刷新失败：${err.message || "未知错误"}`, "warning")
@@ -697,7 +711,8 @@ export async function acceptCandidate(id) {
       try {
         await adoptEntity(candidate)
         toast(`“${candidate.name}”已采用`, "success")
-        await getRouter()?.refresh?.()
+        worldSession.reviewReceipt = { targetKey: id, title: "对象已完成", detail: `“${candidate.name}”已采用为正式世界资料。` }
+        await returnToReviewContextOrRefresh()
       } catch (err) {
         if (snapshot && candidateListHooks.restoreSnapshot) {
           await candidateListHooks.restoreSnapshot(snapshot)
@@ -726,7 +741,8 @@ export async function ignoreCandidate(id) {
       try {
         await ignoreEntity(candidate)
         toast(isTemporary ? "已设为临时" : "已忽略", "success")
-        await getRouter()?.refresh?.()
+        worldSession.reviewReceipt = { targetKey: id, title: "对象已完成", detail: isTemporary ? `“${candidate?.name || id}”已保留为临时资料。` : `“${candidate?.name || id}”已移入历史。` }
+        await returnToReviewContextOrRefresh()
       } catch (err) {
         if (snapshot && candidateListHooks.restoreSnapshot) {
           await candidateListHooks.restoreSnapshot(snapshot)
@@ -792,7 +808,8 @@ export function showResolveAliasForm(candidateId) {
           await getApi().world.resolveEntityAsAlias(candidateId, payload, projectId)
         }
         toast("待处理项已设为别名", "success")
-        getRouter()?.refresh?.()
+        worldSession.reviewReceipt = { targetKey: candidateId, title: "对象已完成", detail: `“${text}”已登记为所选对象的别名。` }
+        await returnToReviewContextOrRefresh()
       } catch (err) {
         toast(err.message || "设为别名失败", "error")
         return false
@@ -875,7 +892,8 @@ async function mergeEntity(candidateId, targetId) {
       await getApi().world.mergeEntity(candidateId, targetId, projectId)
     }
     toast("实体已合并", "success")
-    getRouter()?.refresh?.()
+    worldSession.reviewReceipt = { targetKey: candidateId, title: "对象已完成", detail: `“${candidate?.name || "待处理对象"}”已融合到所选对象，来源记录已保留。` }
+    await returnToReviewContextOrRefresh()
     return true
   } catch (err) {
     toast(err.message || "合并失败", "error")

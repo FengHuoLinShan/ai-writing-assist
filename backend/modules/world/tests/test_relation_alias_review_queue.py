@@ -89,6 +89,73 @@ def test_review_batch_schemas_reject_unconfirmed_duplicate_and_blank_values() ->
                 ],
             }
         )
+    with pytest.raises(ValueError):
+        EntityRelationReviewBatchRequest.model_validate(
+            {
+                "confirmed": True,
+                "decisions": [
+                    {
+                        "client_decision_id": "too-many",
+                        "action": "ignore",
+                        "group_id": "group-one",
+                        "member_relation_ids": [
+                            str(uuid.uuid4()) for _ in range(51)
+                        ],
+                        "expected_execution_fingerprint": "f" * 64,
+                    }
+                ],
+            }
+        )
+
+    second_relation_id = str(uuid.uuid4())
+    separate_base = {
+        "confirmed": True,
+        "decisions": [
+            {
+                "client_decision_id": "separate",
+                "action": "accept_separately",
+                "group_id": "group-one",
+                "member_relation_ids": [relation_id, second_relation_id],
+                "expected_execution_fingerprint": "f" * 64,
+                "separate_relations": [
+                    {
+                        "candidate_relation_id": relation_id,
+                        "source_id": base_relation["source_id"],
+                        "target_id": base_relation["target_id"],
+                        "relation_type": "friend_of",
+                    },
+                    {
+                        "candidate_relation_id": second_relation_id,
+                        "source_id": base_relation["source_id"],
+                        "target_id": base_relation["target_id"],
+                        "relation_type": "enemy_of",
+                    },
+                ],
+            }
+        ],
+    }
+    parsed = EntityRelationReviewBatchRequest.model_validate(separate_base)
+    assert parsed.decisions[0].unselected_action == "keep_pending"
+    with pytest.raises(ValueError, match="final keys must be unique"):
+        EntityRelationReviewBatchRequest.model_validate(
+            {
+                **separate_base,
+                "decisions": [
+                    {
+                        **separate_base["decisions"][0],
+                        "separate_relations": [
+                            separate_base["decisions"][0]["separate_relations"][0],
+                            {
+                                **separate_base["decisions"][0][
+                                    "separate_relations"
+                                ][0],
+                                "candidate_relation_id": second_relation_id,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -361,6 +428,8 @@ async def test_relation_review_group_merges_selected_evidence_and_archives_membe
     assert second.status == "deprecated"
     assert second.review_meta["merged_into_relation_id"] == str(first.id)
     assert unselected.status == "candidate"
+    assert result.results[0].canonical_relation_ids == [str(first.id)]
+    assert result.results[0].remaining_candidate_ids == [str(unselected.id)]
     merged_sources = first.review_meta["review_history"][-1]["merged_sources"]
     assert len(merged_sources) == 2
     assert merged_sources[0]["relation"]["quote"] == "哥哥照顾妹妹。"
@@ -764,6 +833,8 @@ async def test_relation_review_reuses_existing_canonical_relation(
 
     assert result.succeeded_count == 1
     assert result.results[0].canonical_relation_id == str(canonical.id)
+    assert result.results[0].canonical_relation_ids == [str(canonical.id)]
+    assert result.results[0].reused_canonical_relation_ids == [str(canonical.id)]
     await db_session.refresh(canonical)
     await db_session.refresh(candidate)
     assert canonical.quote == "旧证据\n新证据"
@@ -775,6 +846,212 @@ async def test_relation_review_reuses_existing_canonical_relation(
         relation_type="friend_of",
     )
     assert [row.id for row in canonical_rows] == [canonical.id]
+
+
+@pytest.mark.asyncio
+async def test_relation_review_accepts_selected_relations_separately_and_ignores_rest(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    nid = uuid.UUID(hex=novel_id)
+    entities = CoreEntityRepository()
+    relations = EntityRelationRepository()
+    source = await entities.create_raw(
+        db_session, novel_id=nid, entity_type="character", name="甲"
+    )
+    target = await entities.create_raw(
+        db_session, novel_id=nid, entity_type="character", name="乙"
+    )
+    canonical = await relations.create(
+        db_session,
+        nid,
+        EntityRelationCreate(
+            source_id=str(source.id),
+            target_id=str(target.id),
+            relation_type="friend_of",
+            quote="旧证据",
+            status="canonical",
+        ),
+    )
+    first = await relations.create(
+        db_session,
+        nid,
+        EntityRelationCreate(
+            source_id=str(source.id),
+            target_id=str(target.id),
+            relation_type="related_to",
+            quote="朋友证据",
+            status="candidate",
+        ),
+    )
+    second = await relations.create(
+        db_session,
+        nid,
+        EntityRelationCreate(
+            source_id=str(source.id),
+            target_id=str(target.id),
+            relation_type="opposes",
+            quote="对抗证据",
+            status="candidate",
+        ),
+    )
+    unselected = await relations.create(
+        db_session,
+        nid,
+        EntityRelationCreate(
+            source_id=str(source.id),
+            target_id=str(target.id),
+            relation_type="unknown",
+            status="candidate",
+        ),
+    )
+    context_marker = AsyncMock(return_value=0)
+    service = EntityRelationService(context_marker=context_marker)
+    service._mark_synopsis_changed = AsyncMock()
+    group = (await service.list_review_groups(db_session, novel_id)).groups[0]
+
+    result = await service.review_batch(
+        db_session,
+        novel_id,
+        EntityRelationReviewBatchRequest.model_validate(
+            {
+                "confirmed": True,
+                "decisions": [
+                    {
+                        "client_decision_id": "separate-two",
+                        "action": "accept_separately",
+                        "group_id": group.group_id,
+                        "member_relation_ids": [str(first.id), str(second.id)],
+                        "expected_execution_fingerprint": group.execution_fingerprint,
+                        "unselected_action": "ignore",
+                        "separate_relations": [
+                            {
+                                "candidate_relation_id": str(first.id),
+                                "source_id": str(source.id),
+                                "target_id": str(target.id),
+                                "relation_type": "friend_of",
+                                "description": "朋友",
+                                "strength": 0.8,
+                            },
+                            {
+                                "candidate_relation_id": str(second.id),
+                                "source_id": str(target.id),
+                                "target_id": str(source.id),
+                                "relation_type": "enemy_of",
+                                "description": "敌对",
+                                "strength": 0.9,
+                            },
+                        ],
+                    }
+                ],
+            }
+        ),
+    )
+
+    item = result.results[0]
+    assert item.status == "success"
+    assert item.canonical_relation_id == str(canonical.id)
+    assert item.canonical_relation_ids == [str(canonical.id), str(second.id)]
+    assert item.reused_canonical_relation_ids == [str(canonical.id)]
+    assert item.ignored_relation_ids == [str(unselected.id)]
+    assert item.remaining_candidate_ids == []
+    assert set(item.archived_relation_ids) == {str(first.id), str(unselected.id)}
+    await db_session.refresh(canonical)
+    await db_session.refresh(first)
+    await db_session.refresh(second)
+    await db_session.refresh(unselected)
+    assert canonical.quote == "旧证据\n朋友证据"
+    assert first.status == "deprecated"
+    assert second.status == "canonical"
+    assert (second.source_id, second.target_id, second.relation_type) == (
+        target.id,
+        source.id,
+        "enemy_of",
+    )
+    assert unselected.status == "deprecated"
+    assert unselected.review_meta["review_action"] == "relation_review_ignored"
+    assert context_marker.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_relation_review_separate_apply_rolls_back_the_whole_group(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    other_novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    await _create_project(db_session, other_novel_id)
+    nid = uuid.UUID(hex=novel_id)
+    entities = CoreEntityRepository()
+    relations = EntityRelationRepository()
+    source = await entities.create_raw(
+        db_session, novel_id=nid, entity_type="character", name="甲"
+    )
+    target = await entities.create_raw(
+        db_session, novel_id=nid, entity_type="character", name="乙"
+    )
+    foreign = await entities.create_raw(
+        db_session,
+        novel_id=uuid.UUID(hex=other_novel_id),
+        entity_type="character",
+        name="其他项目对象",
+    )
+    candidates = [
+        await relations.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(target.id),
+                relation_type=relation_type,
+                status="candidate",
+            ),
+        )
+        for relation_type in ("friend", "enemy")
+    ]
+    service = EntityRelationService(context_marker=AsyncMock(return_value=0))
+    service._mark_synopsis_changed = AsyncMock()
+    group = (await service.list_review_groups(db_session, novel_id)).groups[0]
+
+    result = await service.review_batch(
+        db_session,
+        novel_id,
+        EntityRelationReviewBatchRequest.model_validate(
+            {
+                "confirmed": True,
+                "decisions": [
+                    {
+                        "client_decision_id": "atomic-separate",
+                        "action": "accept_separately",
+                        "group_id": group.group_id,
+                        "member_relation_ids": [str(item.id) for item in candidates],
+                        "expected_execution_fingerprint": group.execution_fingerprint,
+                        "separate_relations": [
+                            {
+                                "candidate_relation_id": str(candidates[0].id),
+                                "source_id": str(source.id),
+                                "target_id": str(target.id),
+                                "relation_type": "friend_of",
+                            },
+                            {
+                                "candidate_relation_id": str(candidates[1].id),
+                                "source_id": str(source.id),
+                                "target_id": str(foreign.id),
+                                "relation_type": "enemy_of",
+                            },
+                        ],
+                    }
+                ],
+            }
+        ),
+    )
+
+    assert result.failed_count == 1
+    for candidate in candidates:
+        await db_session.refresh(candidate)
+        assert candidate.status == "candidate"
+    service._mark_synopsis_changed.assert_not_awaited()
 
 
 @pytest.mark.asyncio

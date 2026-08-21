@@ -47,7 +47,7 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 待处理关系可在采用前编辑源对象、目标对象、关系类型、描述和强度；来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
 - 待处理关系按有向对象对分组，别名按 owner 对象分组；Scene 不是关系归并边界，反向关系不自动归并
 - 复核类型目录只提供推荐和保守同义词；`relation_type` 和 alias `type` 仍是开放字符串，自定义值必须经用户显式修改才能替换
-- 关系/别名批处理必须提交 `confirmed=true`、唯一 `client_decision_id` 和服务端 SHA-256 执行指纹；关系筛选命中对象对后仍用完整组快照返回/验证指纹，批次写入按 UUID 全局稳定顺序预锁；每个决策使用 savepoint，单组原子、组间允许部分成功
+- 关系/别名批处理必须提交 `confirmed=true`、唯一 `client_decision_id` 和服务端 SHA-256 执行指纹；关系筛选命中对象对后仍用完整组快照返回/验证指纹，批次写入按 UUID 全局稳定顺序预锁；每个决策使用 savepoint，单组原子、组间允许部分成功。关系支持以 `accept_separately` 为每个所选候选提交独立最终字段；最终关系键必须唯一，任一成员失败时整组回滚。`unselected_action` 默认保留未选候选，只在显式为 `ignore` 时一并忽略
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 - 关系原始状态仍兼容 `candidate` / `canonical` / `deprecated`；作者界面统一投影为待处理 / 已采用 / 历史。`canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
@@ -162,7 +162,8 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 并投影 pending 世界书冲突、实际审核组和未被兼容 shadow 覆盖的待采用建议，供 Project 工作台
 摘要使用。checkpoint、stale/resolved 冲突、已处理建议和 task-only 结果不进入事项。它不返回
 正文、原始任务、owner 或密钥；别名成员来源使用稳定字段，审核 target 保留对象/组标识供领域页
-精确定位，也不把聚合编排放进 root facade。
+精确定位。首页关系提醒以无向对象对去重并汇总双向候选数，不改变关系工作台的有向分组；
+聚合编排仍不放进 root facade。
 
 `worldbuilding_facade.py` 承载世界书上下文激活入口：
 `preview_worldbuilding_activation()` 委托确定性 activation preview 服务；
@@ -422,7 +423,10 @@ baseline，在 LLM 后复用 pending CAS，使新版创建、旧版 `rejected` �
 task ID 后，浏览器可立即经独立连接查询任务。
 
 `relations/review-batch` 一次最多 20 个决策、累计 50 条本次选中的关系；
-`aliases/review-batch` 一次最多 50 条别名。关系 `merge` 复用已有同端点同类型正式关系，
+`aliases/review-batch` 一次最多 50 条别名。关系 `merge` 复用已有同端点同类型正式关系；
+`accept_separately` 要求 `separate_relations` 与所选候选一一对应，响应用
+`canonical_relation_ids` / `reused_canonical_relation_ids` / `ignored_relation_ids` /
+`remaining_candidate_ids` 说明处理结果，并保留旧的单数 ID 和归档字段。证据归并会
 去重合并 quote / `evidence_refs`，将被归并候选改为 `deprecated` 并保留归并前快照；
 未选候选保持 `candidate`，大组可以分次处理。别名分组扫描不使用隐式总数截断；内联 JSONB 写入先锁定 owner/目标对象。别名忽略保留 JSONB 条目并写入
 `status="ignored"` / `needs_review=false` 和审计元数据，不改变正式别名管理页的删除语义。

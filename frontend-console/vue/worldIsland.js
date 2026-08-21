@@ -23,6 +23,7 @@ import {
   candidateFiltersFromQuery,
   hasAdvancedObjectFilters,
   normalizeReviewSubView,
+  reviewKindFromRoute,
   objectFiltersFromQuery,
   reviewFiltersFromQuery,
 } from "./views/world/logic/worldQuery.js"
@@ -114,6 +115,7 @@ export async function loadWorld() {
   const subView = appState?.currentSubView || "objects"
   const reviewSubView = normalizeReviewSubView(subView)
   const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const requestedReviewKind = reviewKindFromRoute(subView, query)
 
   reconcileWorldEntry(projectId, subView)
 
@@ -135,6 +137,7 @@ export async function loadWorld() {
     projectId,
     subView,
     reviewSubView,
+    reviewKind: requestedReviewKind,
     entityTypes: [...SYSTEM_ENTITY_TYPE_FALLBACK],
     reviewTypeCatalog: {
       custom_allowed: true,
@@ -260,7 +263,7 @@ export async function loadWorld() {
         }
       })(),
     ])
-  } else if (reviewSubView === "review-objects") {
+  } else if (reviewSubView && requestedReviewKind === "objects") {
     try {
       const targetEntityId = query.get("entity_id") || ""
       const data = targetEntityId
@@ -280,7 +283,7 @@ export async function loadWorld() {
       props.candidateLoadError = err?.message || "待处理对象加载失败"
       toast("待处理对象加载失败，可重试", "warning")
     }
-  } else if (reviewSubView === "review-aliases") {
+  } else if (reviewSubView && requestedReviewKind === "aliases") {
     try {
       const params = reviewGroupParams(
         projectId,
@@ -303,7 +306,7 @@ export async function loadWorld() {
     } catch (err) {
       props.aliasReviewLoadError = err?.message || "请稍后重试"
     }
-  } else if (reviewSubView === "review-relations") {
+  } else if (reviewSubView && requestedReviewKind === "relations") {
     try {
       const params = reviewGroupParams(
         projectId,
