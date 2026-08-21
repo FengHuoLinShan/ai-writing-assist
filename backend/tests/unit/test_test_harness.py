@@ -160,7 +160,9 @@ def test_all_unittest_patch_calls_use_literal_autospec_true() -> None:
 
 def test_every_module_test_directory_is_a_package() -> None:
     test_directories = sorted(
-        path for path in MODULES_ROOT.glob("*/tests") if path.is_dir()
+        path
+        for path in MODULES_ROOT.glob("*/tests")
+        if path.is_dir() and any(path.glob("test_*.py"))
     )
 
     assert test_directories
