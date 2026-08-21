@@ -1184,6 +1184,24 @@ describe("route guard and normalization", () => {
     expect(window.location.hash).toBe("#workbench/p1/world/review?kind=objects")
   })
 
+  it.each([
+    ["review-objects", "objects"],
+    ["review-aliases", "aliases"],
+    ["review-relations", "relations"],
+  ])("preserves legacy %s query while normalizing its review kind", async (legacySubView, kind) => {
+    addWorkspace()
+    registerBasicView("world")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.history.replaceState(null, "", `#workbench/p1/world/${legacySubView}?q=%E6%B8%AF&page=2`)
+
+    await window.router.initRouter()
+
+    expect(state.currentSubView).toBe("review")
+    expect(window.router.getCurrentQuery().get("kind")).toBe(kind)
+    expect(window.router.getCurrentQuery().get("q")).toBe("港")
+    expect(window.router.getCurrentQuery().get("page")).toBe("2")
+  })
+
   it("normalizes restored project-scoped hashes into the current workbench", async () => {
     addWorkspace()
     registerBasicView("writing")

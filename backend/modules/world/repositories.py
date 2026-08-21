@@ -355,18 +355,27 @@ class CoreEntityRepository:
                 == auto_ingested
             )
         if suggested_action:
-            conditions.append(
-                CoreEntity.content_json["_meta"]["suggested_action"].as_string()
-                == suggested_action
-            )
+            suggested_action_expr = CoreEntity.content_json["_meta"][
+                "suggested_action"
+            ].as_string()
+            if suggested_action == "alias":
+                conditions.append(
+                    suggested_action_expr.in_(("link_to_existing", "alias_of_existing"))
+                )
+            else:
+                conditions.append(suggested_action_expr == suggested_action)
         if scene_id:
             conditions.append(
                 CoreEntity.content_json["_meta"]["scene_id"].as_string() == scene_id
             )
         if scene_index is not None:
             conditions.append(
-                CoreEntity.content_json["_meta"]["scene_index"].as_integer()
-                == scene_index
+                or_(
+                    CoreEntity.content_json["_meta"]["scene_index"].as_integer()
+                    == scene_index,
+                    CoreEntity.content_json["_meta"]["source_scene_index"].as_integer()
+                    == scene_index,
+                )
             )
         if source_chapter_index is not None:
             conditions.append(

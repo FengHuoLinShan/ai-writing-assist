@@ -14,7 +14,7 @@
       @click="toggle"
     >
       <span aria-hidden="true">{{ open ? "▾" : "▸" }}</span>
-      <span data-filter-toggle-label>{{ open ? "收起筛选" : "展开筛选" }}</span>
+      <span data-filter-toggle-label>{{ open ? collapseLabel : toggleLabel }}</span>
       <span v-if="hasActiveFilters" class="world-filter-panel__active">已筛选</span>
     </button>
     <div :id="`world-filter-panel-${panelKey}`" class="world-filter-panel__body" :hidden="!open">
@@ -31,6 +31,8 @@ const props = defineProps({
   panelKey: { type: String, required: true },
   hasActiveFilters: { type: Boolean, default: false },
   projectId: { type: String, default: null },
+  toggleLabel: { type: String, default: "展开筛选" },
+  collapseLabel: { type: String, default: "收起筛选" },
 })
 
 const open = computed(() => session.filterPanelsOpen?.[props.panelKey] === true)

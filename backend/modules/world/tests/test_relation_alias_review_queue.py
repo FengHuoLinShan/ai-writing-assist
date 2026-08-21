@@ -98,9 +98,7 @@ def test_review_batch_schemas_reject_unconfirmed_duplicate_and_blank_values() ->
                         "client_decision_id": "too-many",
                         "action": "ignore",
                         "group_id": "group-one",
-                        "member_relation_ids": [
-                            str(uuid.uuid4()) for _ in range(51)
-                        ],
+                        "member_relation_ids": [str(uuid.uuid4()) for _ in range(51)],
                         "expected_execution_fingerprint": "f" * 64,
                     }
                 ],
@@ -146,9 +144,7 @@ def test_review_batch_schemas_reject_unconfirmed_duplicate_and_blank_values() ->
                         "separate_relations": [
                             separate_base["decisions"][0]["separate_relations"][0],
                             {
-                                **separate_base["decisions"][0][
-                                    "separate_relations"
-                                ][0],
+                                **separate_base["decisions"][0]["separate_relations"][0],
                                 "candidate_relation_id": second_relation_id,
                             },
                         ],
@@ -269,6 +265,163 @@ async def test_review_queue_api_routes_and_confirmation_gate(
 
 
 @pytest.mark.asyncio
+async def test_entity_review_filters_alias_actions_scene_keys_and_novel(
+    async_client: AsyncClient,
+) -> None:
+    project_ids = []
+    for title in ("对象筛选主项目", "对象筛选其他项目"):
+        response = await async_client.post(
+            "/api/projects",
+            json={"title": title, "language": "zh"},
+        )
+        assert response.status_code == 201
+        project_ids.append(response.json()["id"])
+
+    primary_id, other_id = project_ids
+    primary_entities = (
+        ("链接建议", "link_to_existing", {"source_scene_index": 8}),
+        ("别名建议", "alias_of_existing", {"scene_index": 8}),
+        ("新建建议", "create_new", {"scene_index": 9}),
+    )
+    for name, action, source_meta in primary_entities:
+        response = await async_client.post(
+            "/api/world/entities",
+            params={"novel_id": primary_id},
+            json={
+                "entity_type": "location",
+                "name": name,
+                "status": "candidate",
+                "force_create": True,
+                "content_json": {"_meta": {"suggested_action": action, **source_meta}},
+            },
+        )
+        assert response.status_code == 201, response.text
+    foreign = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": other_id},
+        json={
+            "entity_type": "location",
+            "name": "其他项目别名",
+            "status": "candidate",
+            "force_create": True,
+            "content_json": {
+                "_meta": {
+                    "suggested_action": "link_to_existing",
+                    "source_scene_index": 8,
+                }
+            },
+        },
+    )
+    assert foreign.status_code == 201, foreign.text
+
+    alias_filter = await async_client.get(
+        "/api/world/entities",
+        params={
+            "novel_id": primary_id,
+            "display_state": "review",
+            "suggested_action": "alias",
+            "limit": 50,
+        },
+    )
+    legacy_filter = await async_client.get(
+        "/api/world/entities",
+        params={
+            "novel_id": primary_id,
+            "display_state": "review",
+            "suggested_action": "link_to_existing",
+        },
+    )
+    scene_filter = await async_client.get(
+        "/api/world/entities",
+        params={
+            "novel_id": primary_id,
+            "display_state": "review",
+            "scene_index": 8,
+            "limit": 50,
+        },
+    )
+
+    assert alias_filter.status_code == 200
+    assert alias_filter.json()["total"] == 2
+    assert {item["name"] for item in alias_filter.json()["items"]} == {
+        "链接建议",
+        "别名建议",
+    }
+    assert [item["name"] for item in legacy_filter.json()["items"]] == ["链接建议"]
+    assert scene_filter.json()["total"] == 2
+    assert {item["name"] for item in scene_filter.json()["items"]} == {
+        "链接建议",
+        "别名建议",
+    }
+
+
+@pytest.mark.asyncio
+async def test_alias_review_batch_wire_keeps_additive_relation_result_fields(
+    async_client: AsyncClient,
+) -> None:
+    project = await async_client.post(
+        "/api/projects",
+        json={"title": "别名回执兼容", "language": "zh"},
+    )
+    assert project.status_code == 201
+    novel_id = project.json()["id"]
+    created = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": novel_id},
+        json={
+            "entity_type": "character",
+            "name": "源对象",
+            "status": "canonical",
+            "force_create": True,
+            "content_json": {
+                "aliases": [
+                    {
+                        "alias": "待采用别名",
+                        "type": "alias",
+                        "status": "candidate",
+                        "needs_review": True,
+                    }
+                ]
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    entity_id = created.json()["id"]
+    groups = await async_client.get(
+        "/api/world/aliases/review-groups",
+        params={"novel_id": novel_id},
+    )
+    assert groups.status_code == 200, groups.text
+    member = groups.json()["groups"][0]["members"][0]
+
+    response = await async_client.post(
+        "/api/world/aliases/review-batch",
+        params={"novel_id": novel_id},
+        json={
+            "confirmed": True,
+            "decisions": [
+                {
+                    "client_decision_id": "accept-alias-wire",
+                    "action": "accept",
+                    "entity_id": entity_id,
+                    "original_alias": member["alias"],
+                    "expected_execution_fingerprint": member["execution_fingerprint"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["canonical_relation_id"] is None
+    assert result["canonical_relation_ids"] == []
+    assert result["reused_canonical_relation_ids"] == []
+    assert result["ignored_relation_ids"] == []
+    assert result["remaining_candidate_ids"] == []
+
+
+@pytest.mark.asyncio
 async def test_alias_mutation_lock_is_scoped_to_requested_novel(
     db_session: AsyncSession,
 ) -> None:
@@ -358,9 +511,7 @@ async def test_relation_review_group_merges_selected_evidence_and_archives_membe
             status="candidate",
             review_meta={
                 "scene_index": 2,
-                "evidence_refs": [
-                    {"scene_index": 2, "quote": "梅丽莎称他为哥哥。"}
-                ],
+                "evidence_refs": [{"scene_index": 2, "quote": "梅丽莎称他为哥哥。"}],
             },
         ),
     )
@@ -575,6 +726,141 @@ async def test_relation_review_group_reports_reverse_relations(
     assert [item.relation_type for item in group.reverse_canonical_relations] == [
         "related_to"
     ]
+
+
+@pytest.mark.asyncio
+async def test_relation_review_group_attention_filters_precede_pagination_and_count(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    other_novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    await _create_project(db_session, other_novel_id)
+    entities = CoreEntityRepository()
+    relations = EntityRelationRepository()
+
+    async def make_pair(
+        target_novel_id: str,
+        name: str,
+        *,
+        reverse: bool = False,
+        canonical: bool = False,
+    ) -> tuple[str, str]:
+        nid = uuid.UUID(hex=target_novel_id)
+        source = await entities.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name=f"{name}甲",
+        )
+        target = await entities.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name=f"{name}乙",
+        )
+        await relations.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(target.id),
+                relation_type="related_to",
+                status="candidate",
+            ),
+        )
+        if reverse:
+            await relations.create(
+                db_session,
+                nid,
+                EntityRelationCreate(
+                    source_id=str(target.id),
+                    target_id=str(source.id),
+                    relation_type="opposes",
+                    status="candidate",
+                ),
+            )
+        if canonical:
+            await relations.create(
+                db_session,
+                nid,
+                EntityRelationCreate(
+                    source_id=str(source.id),
+                    target_id=str(target.id),
+                    relation_type="friend_of",
+                    status="canonical",
+                ),
+            )
+        return str(source.id), str(target.id)
+
+    reverse_pair = await make_pair(novel_id, "反向", reverse=True)
+    canonical_pair = await make_pair(novel_id, "正式", canonical=True)
+    plain_pair = await make_pair(novel_id, "普通")
+    await make_pair(other_novel_id, "其他项目", reverse=True, canonical=True)
+    await db_session.flush()
+
+    reverse_page = await async_client.get(
+        "/api/world/relations/review-groups",
+        params={
+            "novel_id": novel_id,
+            "has_reverse_candidates": True,
+            "skip": 1,
+            "limit": 1,
+        },
+    )
+    assert reverse_page.status_code == 200, reverse_page.text
+    reverse_payload = reverse_page.json()
+    assert reverse_payload["group_total"] == 2
+    assert reverse_payload["item_total"] == 2
+    assert len(reverse_payload["groups"]) == 1
+    assert {
+        reverse_payload["groups"][0]["source_id"],
+        reverse_payload["groups"][0]["target_id"],
+    } == set(reverse_pair)
+
+    service = EntityRelationService()
+    canonical_only = await service.list_review_groups(
+        db_session,
+        novel_id,
+        has_reverse_candidates=False,
+        has_canonical_relation=True,
+    )
+    plain_only = await service.list_review_groups(
+        db_session,
+        novel_id,
+        has_reverse_candidates=False,
+        has_canonical_relation=False,
+    )
+    no_canonical = await service.list_review_groups(
+        db_session,
+        novel_id,
+        has_canonical_relation=False,
+    )
+
+    assert canonical_only.group_total == canonical_only.item_total == 1
+    assert (
+        canonical_only.groups[0].source_id,
+        canonical_only.groups[0].target_id,
+    ) == canonical_pair
+    assert plain_only.group_total == plain_only.item_total == 1
+    assert (plain_only.groups[0].source_id, plain_only.groups[0].target_id) == plain_pair
+    assert no_canonical.group_total == no_canonical.item_total == 3
+    assert {
+        endpoint_id
+        for group in no_canonical.groups
+        for endpoint_id in (group.source_id, group.target_id)
+    }.isdisjoint(
+        {
+            entity_id
+            for group in (
+                await EntityRelationService().list_review_groups(
+                    db_session, other_novel_id
+                )
+            ).groups
+            for entity_id in (group.source_id, group.target_id)
+        }
+    )
 
 
 @pytest.mark.parametrize("retired_status", ["accepted", "rejected", "rolled_back"])
@@ -1206,9 +1492,7 @@ async def test_alias_review_batch_keeps_other_items_when_one_decision_conflicts(
         entity_type="character",
         name="目标对象",
         content_json={
-            "aliases": [
-                {"alias": "重复别名", "type": "alias", "status": "canonical"}
-            ]
+            "aliases": [{"alias": "重复别名", "type": "alias", "status": "canonical"}]
         },
     )
     service = EntityAliasService(context_marker=AsyncMock(return_value=0))

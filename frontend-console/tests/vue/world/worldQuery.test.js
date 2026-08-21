@@ -8,6 +8,8 @@ import {
   WORLD_ALIAS_QUERY_KEYS,
   WORLD_CANDIDATE_FILTER_DEFAULTS,
   WORLD_OBJECT_QUERY_KEYS,
+  WORLD_RELATION_FILTER_DEFAULTS,
+  WORLD_RELATION_QUERY_KEYS,
   candidateFiltersFromQuery,
   candidateQueryFromState,
   filtersEqual,
@@ -101,11 +103,22 @@ describe("query builders（编码与 vanilla 对齐）", () => {
     expect(first.get("view")).toBe("table")
   })
   it("candidateQueryFromState / reviewQueryFromState：page_size=50 回写", () => {
-    const cq = candidateQueryFromState({ ...WORLD_CANDIDATE_FILTER_DEFAULTS, skip: 0 })
+    const cq = candidateQueryFromState({ ...WORLD_CANDIDATE_FILTER_DEFAULTS, q: "港", skip: 0 })
     expect(cq.has("page")).toBe(false)
+    expect(cq.get("q")).toBe("港")
     const rq = reviewQueryFromState({ ...WORLD_ALIAS_FILTER_DEFAULTS, limit: 50, skip: 50 }, WORLD_ALIAS_QUERY_KEYS)
     expect(rq.get("page")).toBe("2")
     expect(rq.get("page_size")).toBe("50")
+  })
+  it("关系任务标签支持反向候选与已有正式关系", () => {
+    const query = reviewQueryFromState({
+      ...WORLD_RELATION_FILTER_DEFAULTS,
+      has_reverse_candidates: "true",
+      has_canonical_relation: "true",
+    }, WORLD_RELATION_QUERY_KEYS)
+    const roundTrip = reviewFiltersFromQuery(WORLD_RELATION_FILTER_DEFAULTS, WORLD_RELATION_QUERY_KEYS, query)
+    expect(roundTrip.has_reverse_candidates).toBe("true")
+    expect(roundTrip.has_canonical_relation).toBe("true")
   })
   it("object 编解码往返一致", () => {
     const filters = { ...WORLD_FILTER_DEFAULTS, entity_type: "location", q: "港", skip: 20 }

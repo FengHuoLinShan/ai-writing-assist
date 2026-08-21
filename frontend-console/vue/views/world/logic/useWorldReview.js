@@ -346,6 +346,7 @@ function navigateReview(subView, query, { replace = false } = {}) {
 
 export function applyCandidateReviewFilters(form) {
   const filters = {
+    q: String(form.q || "").trim(),
     entity_type: form.entity_type || "",
     suggested_action: form.suggested_action || "",
     source: String(form.source || "").trim(),
@@ -372,9 +373,9 @@ export function applyAliasReviewFilters(form, previousFilters) {
     scene_index: String(form.scene_index || "").trim(),
     source_chapter_index: String(form.source_chapter_index || "").trim(),
     confidence_min: String(form.confidence_min || "").trim(),
-    confidence_max: previousFilters.confidence_max || "",
+    confidence_max: String(form.confidence_max || "").trim(),
     type_kind: form.type_kind || "",
-    has_quote: previousFilters.has_quote,
+    has_quote: form.has_quote ?? previousFilters.has_quote,
     multi_alias_only: previousFilters.multi_alias_only,
     skip: 0,
     limit: Number(form.limit || previousFilters.limit || 20),
@@ -394,10 +395,12 @@ export function applyRelationReviewFilters(form, previousFilters) {
     scene_index: String(form.scene_index || "").trim(),
     source_chapter_index: String(form.source_chapter_index || "").trim(),
     strength_min: String(form.strength_min || "").trim(),
-    strength_max: previousFilters.strength_max,
-    has_quote: previousFilters.has_quote,
+    strength_max: String(form.strength_max || "").trim(),
+    has_quote: form.has_quote ?? previousFilters.has_quote,
     type_kind: form.type_kind || "",
     multi_type_only: previousFilters.multi_type_only,
+    has_reverse_candidates: previousFilters.has_reverse_candidates,
+    has_canonical_relation: previousFilters.has_canonical_relation,
     skip: 0,
     limit: Number(form.limit || previousFilters.limit || 20),
   }
@@ -410,7 +413,11 @@ export function resetRelationReviewFilters() {
 
 /** 对应 vanilla _setReviewQuickFilter。 */
 export function setReviewQuickFilter(kind, key, value, currentFilters) {
-  const filters = { ...currentFilters, [key]: value, skip: 0 }
+  const filters = {
+    ...currentFilters,
+    [key]: String(currentFilters[key] ?? "") === String(value) ? "" : value,
+    skip: 0,
+  }
   const keys = kind === "alias" ? WORLD_ALIAS_QUERY_KEYS : WORLD_RELATION_QUERY_KEYS
   return navigateReview(`review-${kind === "alias" ? "aliases" : "relations"}`, reviewQueryFromState(filters, keys))
 }
@@ -419,8 +426,20 @@ export function setReviewQuickFilter(kind, key, value, currentFilters) {
 export function removeReviewFilter(kind, key, currentFilters) {
   if (!(key in currentFilters)) return
   const filters = { ...currentFilters, [key]: "", skip: 0 }
+  if (kind === "candidate") {
+    return navigateReview("review-objects", candidateQueryFromState(filters))
+  }
   const keys = kind === "alias" ? WORLD_ALIAS_QUERY_KEYS : WORLD_RELATION_QUERY_KEYS
   return navigateReview(`review-${kind === "alias" ? "aliases" : "relations"}`, reviewQueryFromState(filters, keys))
+}
+
+export function setCandidateTaskFilter(value, currentFilters) {
+  const filters = {
+    ...currentFilters,
+    suggested_action: currentFilters.suggested_action === value ? "" : value,
+    skip: 0,
+  }
+  return navigateReview("review-objects", candidateQueryFromState(filters))
 }
 
 /** 分页（vanilla _changeListPage 3832-3861；候选走 candidateQueryFromState）。 */

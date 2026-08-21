@@ -2202,6 +2202,8 @@ async def list_relation_review_groups(
     has_quote: bool | None = Query(None),
     type_kind: Literal["recommended", "custom"] | None = Query(None),
     multi_type_only: bool = Query(False),
+    has_reverse_candidates: bool | None = Query(None),
+    has_canonical_relation: bool | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=50),
 ) -> EntityRelationReviewGroupListResponse:
@@ -2219,6 +2221,8 @@ async def list_relation_review_groups(
         has_quote=has_quote,
         type_kind=type_kind,
         multi_type_only=multi_type_only,
+        has_reverse_candidates=has_reverse_candidates,
+        has_canonical_relation=has_canonical_relation,
         skip=skip,
         limit=limit,
     )

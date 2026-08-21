@@ -212,7 +212,7 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
 
 
 @pytest.mark.asyncio
-async def test_attention_summary_collapses_reverse_relation_groups() -> None:
+async def test_attention_summary_keeps_reverse_relation_groups_exact() -> None:
     empty_list = SimpleNamespace(total=0, items=[])
     empty_groups = SimpleNamespace(groups=[], group_total=0, item_total=0)
     relation_service = SimpleNamespace(
@@ -247,7 +247,9 @@ async def test_attention_summary_collapses_reverse_relation_groups() -> None:
     )
     service = WorldAttentionSummaryService(
         entity_service=SimpleNamespace(list=AsyncMock(return_value=empty_list)),
-        alias_service=SimpleNamespace(list_review_groups=AsyncMock(return_value=empty_groups)),
+        alias_service=SimpleNamespace(
+            list_review_groups=AsyncMock(return_value=empty_groups)
+        ),
         relation_service=relation_service,
         conflict_service=SimpleNamespace(list=AsyncMock(return_value=([], 0))),
         suggestion_service=SimpleNamespace(list=AsyncMock(return_value=([], 0))),
@@ -256,7 +258,12 @@ async def test_attention_summary_collapses_reverse_relation_groups() -> None:
     result = await service.get_summary(SimpleNamespace(), "novel-1")
 
     assert result.world_relations == 7
-    assert len(result.items) == 1
-    assert result.items[0].key == "world:relation-pair:a:b"
-    assert result.items[0].summary == "有 7 条关系待确认。"
-    assert result.items[0].item_id == "a-to-b"
+    assert [item.key for item in result.items] == [
+        "world:relation:a-to-b",
+        "world:relation:b-to-a",
+    ]
+    assert [item.summary for item in result.items] == [
+        "有 3 条关系待确认。",
+        "有 4 条关系待确认。",
+    ]
+    assert [item.item_id for item in result.items] == ["a-to-b", "b-to-a"]

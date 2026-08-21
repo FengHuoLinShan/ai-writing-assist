@@ -26,6 +26,7 @@ const WORLD_LIST_DEFAULTS = {
 
 export const WORLD_CANDIDATE_FILTER_DEFAULTS = {
   ...WORLD_LIST_DEFAULTS,
+  q: "",
   entity_type: "",
   suggested_action: "",
   source: "",
@@ -62,6 +63,8 @@ export const WORLD_RELATION_FILTER_DEFAULTS = {
   has_quote: "",
   type_kind: "",
   multi_type_only: "",
+  has_reverse_candidates: "",
+  has_canonical_relation: "",
 }
 
 export const REVIEW_ALIAS_TYPE_FALLBACK = [
@@ -116,6 +119,7 @@ export const SYSTEM_ENTITY_TYPE_FALLBACK = [
 ].map(([value, label]) => ({ value, label, kind: "system" }))
 
 export const WORLD_CANDIDATE_QUERY_KEYS = [
+  "q",
   "entity_type",
   "suggested_action",
   "source",
@@ -134,6 +138,7 @@ export const WORLD_ALIAS_QUERY_KEYS = [
 export const WORLD_RELATION_QUERY_KEYS = [
   "q", "relation_type", "scene_index", "source_chapter_index", "strength_min",
   "strength_max", "has_quote", "type_kind", "multi_type_only",
+  "has_reverse_candidates", "has_canonical_relation",
 ]
 
 /** 对应 vanilla _normalizeReviewSubView（worldView.js:748-754）。 */

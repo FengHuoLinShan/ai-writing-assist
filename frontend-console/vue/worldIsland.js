@@ -68,6 +68,7 @@ function candidateListParams(projectId, filters) {
     skip: filters.skip,
     limit: filters.limit,
   }
+  if (filters.q) params.q = filters.q
   if (filters.entity_type) params.entity_type = filters.entity_type
   if (filters.suggested_action) params.suggested_action = filters.suggested_action
   if (filters.source) params.source = filters.source
@@ -297,12 +298,11 @@ export async function loadWorld() {
         ? null
         : await api.world.listAliasReviewGroups(params)
       const target = targetGroupId
-        ? await findReviewGroup((page) => api.world.listAliasReviewGroups(page), params, targetGroupId)
+        ? await findReviewGroup((page) => api.world.listAliasReviewGroups(page), { novel_id: projectId }, targetGroupId)
         : null
       props.aliasGroups = targetGroupId ? (target ? [target] : []) : (data.groups || [])
       props.aliasItemTotal = targetGroupId ? Number(target?.member_count || 0) : Number(data.item_total || 0)
       props.aliasGroupTotal = targetGroupId ? props.aliasGroups.length : Number(data.group_total || 0)
-      if (!targetGroupId) props.reviewCounts.aliases = props.aliasItemTotal
     } catch (err) {
       props.aliasReviewLoadError = err?.message || "请稍后重试"
     }
@@ -311,21 +311,20 @@ export async function loadWorld() {
       const params = reviewGroupParams(
         projectId,
         props.relationReviewFilters,
-        ["q", "relation_type", "source_chapter_id", "scene_index", "source_chapter_index", "strength_min", "strength_max", "has_quote", "type_kind", "multi_type_only"],
+        ["q", "relation_type", "source_chapter_id", "scene_index", "source_chapter_index", "strength_min", "strength_max", "has_quote", "type_kind", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"],
         ["scene_index", "source_chapter_index", "strength_min", "strength_max"],
-        ["has_quote", "multi_type_only"],
+        ["has_quote", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"],
       )
       const targetGroupId = query.get("group_id") || ""
       const data = targetGroupId
         ? null
         : await api.world.listRelationReviewGroups(params)
       const target = targetGroupId
-        ? await findReviewGroup((page) => api.world.listRelationReviewGroups(page), params, targetGroupId)
+        ? await findReviewGroup((page) => api.world.listRelationReviewGroups(page), { novel_id: projectId }, targetGroupId)
         : null
       props.relationGroups = targetGroupId ? (target ? [target] : []) : (data.groups || [])
       props.relationItemTotal = targetGroupId ? Number(target?.member_count || 0) : Number(data.item_total || 0)
       props.relationGroupTotal = targetGroupId ? props.relationGroups.length : Number(data.group_total || 0)
-      if (!targetGroupId) props.reviewCounts.relations = props.relationItemTotal
     } catch (err) {
       props.relationReviewLoadError = err?.message || "请稍后重试"
     }

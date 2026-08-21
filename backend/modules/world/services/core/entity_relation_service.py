@@ -427,6 +427,8 @@ class EntityRelationService(
         has_quote: bool | None = None,
         type_kind: str | None = None,
         multi_type_only: bool = False,
+        has_reverse_candidates: bool | None = None,
+        has_canonical_relation: bool | None = None,
         skip: int = 0,
         limit: int = 20,
     ) -> EntityRelationReviewGroupListResponse:
@@ -514,6 +516,12 @@ class EntityRelationService(
                 for key, items in grouped.items()
                 if len({item.relation_type for item in items}) > 1
             }
+        if has_reverse_candidates is not None:
+            grouped = {
+                key: items
+                for key, items in grouped.items()
+                if bool(all_grouped.get((key[1], key[0]))) is has_reverse_candidates
+            }
 
         pair_keys = set(grouped)
         canonical_by_pair: dict[tuple[str, str], list[EntityRelation]] = {}
@@ -529,6 +537,12 @@ class EntityRelationService(
             for relation in canonical:
                 key = (str(relation.source_id), str(relation.target_id))
                 canonical_by_pair.setdefault(key, []).append(relation)
+        if has_canonical_relation is not None:
+            grouped = {
+                key: items
+                for key, items in grouped.items()
+                if bool(canonical_by_pair.get(key)) is has_canonical_relation
+            }
 
         ordered_groups = sorted(
             grouped.items(),
@@ -849,8 +863,7 @@ class EntityRelationService(
                 ),
                 "merged_relation_ids": [str(item.id) for item in selected],
                 "merged_sources": [
-                    {"relation": selected_snapshots[str(item.id)]}
-                    for item in selected
+                    {"relation": selected_snapshots[str(item.id)]} for item in selected
                 ],
             }
         )
@@ -1041,9 +1054,7 @@ class EntityRelationService(
             "reused_canonical_relation_ids": reused_ids,
             "ignored_relation_ids": ignored,
             "remaining_candidate_ids": [
-                str(relation.id)
-                for relation in locked
-                if relation.status == "candidate"
+                str(relation.id) for relation in locked if relation.status == "candidate"
             ],
             "archived_relation_ids": archived,
         }

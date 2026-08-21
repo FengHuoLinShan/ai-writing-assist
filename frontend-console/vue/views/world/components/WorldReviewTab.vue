@@ -36,45 +36,44 @@
       <section class="world-review-queue" aria-label="待决定队列">
     <!-- ==================== review-objects ==================== -->
     <template v-if="tab === 'objects'">
-      <!-- vanilla _renderCandidatesList 收尾处 `renderBulkToolbar(...) + html`：批量条前置（仅非空时存在） -->
-      <details v-if="localCandidates.length" class="world-review-batch">
-        <summary>批量处理</summary>
-      <WorldBulkToolbar
-        scope="world-candidates"
-        :actions="[
-          { action: 'accept-candidates', label: '批量采用', className: 'btn-primary' },
-          { action: 'ignore-candidates', label: '批量忽略/设为临时', className: 'btn-danger' },
-        ]"
-        noun="待处理项"
-        hint="合并项仍需逐条选择目标对象"
-        :select-all-ids="localCandidates.map(entityIdOf)"
-        select-all-label="全选当前待处理项"
-        @run="(action) => runReviewBulkAction('world-candidates', action, localCandidates)"
-      />
-      </details>
-      <WorldFilterPanel panel-key="review-objects" :has-active-filters="candidateHasActiveFilters" :project-id="projectId">
+      <p class="world-list-description">以对象为单位确认是否进入长期设定；可先搜索对象、别名或描述。</p>
+      <div class="review-search-bar">
+        <input id="review-candidate-q" v-model="candidateForm.q" class="form-input" placeholder="搜索对象、别名或描述" aria-label="搜索待处理对象" @keyup.enter="applyCandidateFilters" />
+        <button class="btn btn-sm btn-primary" data-action="apply-candidate-review-filters" @click="applyCandidateFilters">搜索</button>
+        <button v-if="candidateForm.q" type="button" class="btn btn-sm" data-action="clear-candidate-review-search" @click="clearReviewKeyword('candidate')">清除搜索</button>
+      </div>
+      <div class="review-quick-filters" role="group" aria-label="对象处理任务">
+        <button v-for="task in candidateTasks" :key="task.value" type="button" class="btn btn-sm" :class="{ 'btn-primary': candidateFilters.suggested_action === task.value }" data-action="set-candidate-task-filter" :data-filter-value="task.value" :aria-pressed="candidateFilters.suggested_action === task.value" @click="setCandidateTaskFilter(task.value, candidateFilters)">{{ task.label }}</button>
+      </div>
+      <div v-if="candidateActiveFilterCount" class="world-review-active-filters"><span>已启用 {{ candidateActiveFilterCount }} 个条件</span><WorldReviewFilterChips kind="candidate" :filters="candidateFilters" /><button type="button" class="btn btn-sm" data-action="reset-candidate-review-filters" @click="resetCandidateReviewFilters">清除全部条件</button></div>
+      <WorldFilterPanel panel-key="review-objects" :has-active-filters="candidateHasActiveFilters" :project-id="projectId" toggle-label="更多筛选" collapse-label="收起更多筛选">
         <div class="filter-bar world-review-filters" style="margin-bottom:12px;">
-          <select id="review-candidate-entity-type" v-model="candidateForm.entity_type" class="form-select" aria-label="对象类型筛选">
-            <option value="">全部类型</option>
-            <option v-for="type in entityTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
-          </select>
-          <select id="review-candidate-action" v-model="candidateForm.suggested_action" class="form-select" aria-label="建议动作筛选">
-            <option value="">全部动作</option>
-            <option v-for="(label, value) in suggestedActionLabels" :key="value" :value="value">{{ label }}</option>
-          </select>
-          <input id="review-candidate-source" v-model="candidateForm.source" class="form-input" placeholder="来源" aria-label="来源筛选" />
-          <details class="world-diagnostic-filter" :open="Boolean(candidateFilters.workflow_id)">
-            <summary>诊断筛选</summary>
-            <input id="review-candidate-workflow" v-model="candidateForm.workflow_id" class="form-input" data-diagnostic-field placeholder="处理批次编号" aria-label="按处理批次编号诊断筛选" />
-          </details>
-          <input id="review-candidate-scene" v-model="candidateForm.scene_index" class="form-input" placeholder="场景序号" aria-label="场景序号筛选" />
-          <input id="review-candidate-chapter" v-model="candidateForm.source_chapter_index" class="form-input" placeholder="章节" aria-label="章节筛选" />
-          <input id="review-candidate-confidence-min" v-model="candidateForm.confidence_min" class="form-input" placeholder="最低置信度" aria-label="最低置信度" />
-          <input id="review-candidate-confidence-max" v-model="candidateForm.confidence_max" class="form-input" placeholder="最高置信度" aria-label="最高置信度" />
+          <label class="form-group"><span>对象类型</span><select id="review-candidate-entity-type" v-model="candidateForm.entity_type" class="form-select" aria-label="对象类型筛选"><option value="">全部类型</option><option v-for="type in entityTypes" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
+          <label class="form-group"><span>建议动作</span><select id="review-candidate-action" v-model="candidateForm.suggested_action" class="form-select" aria-label="建议动作筛选"><option value="">全部建议</option><option v-for="action in candidateActionOptions" :key="action.value" :value="action.value">{{ action.label }}</option></select></label>
+          <label class="form-group"><span>场景序号</span><input id="review-candidate-scene" v-model="candidateForm.scene_index" class="form-input" inputmode="numeric" aria-label="场景序号筛选" /></label>
+          <label class="form-group"><span>章节序号</span><input id="review-candidate-chapter" v-model="candidateForm.source_chapter_index" class="form-input" inputmode="numeric" aria-label="章节筛选" /></label>
+          <label class="form-group"><span>最低置信度</span><input id="review-candidate-confidence-min" v-model="candidateForm.confidence_min" class="form-input" inputmode="decimal" aria-label="最低置信度" /></label>
+          <label class="form-group"><span>最高置信度</span><input id="review-candidate-confidence-max" v-model="candidateForm.confidence_max" class="form-input" inputmode="decimal" aria-label="最高置信度" /></label>
           <button class="btn btn-sm" data-action="apply-candidate-review-filters" @click="applyCandidateFilters">筛选</button>
           <button class="btn btn-sm" data-action="reset-candidate-review-filters" @click="resetCandidateReviewFilters">清空</button>
         </div>
       </WorldFilterPanel>
+      <p class="world-review-result-summary" role="status">当前结果：{{ candidateTotal }} 条对象</p>
+      <details v-if="localCandidates.length" class="world-review-batch">
+        <summary>批量处理</summary>
+        <WorldBulkToolbar
+          scope="world-candidates"
+          :actions="[
+            { action: 'accept-candidates', label: '批量采用', className: 'btn-primary' },
+            { action: 'ignore-candidates', label: '批量忽略/设为临时', className: 'btn-danger' },
+          ]"
+          noun="待处理项"
+          hint="合并项仍需逐条选择目标对象"
+          :select-all-ids="localCandidates.map(entityIdOf)"
+          select-all-label="全选当前待处理项"
+          @run="(action) => runReviewBulkAction('world-candidates', action, localCandidates)"
+        />
+      </details>
 
       <template v-if="candidateLoadError && localCandidates.length === 0">
         <div class="empty-state" role="alert" data-author-action="must_fix">
@@ -92,13 +91,9 @@
         </div>
       </template>
       <template v-else>
-        <p class="world-list-description">
-          以下内容尚未进入当前有效设定。请结合来源和证据决定采用、合并、设为别名或忽略。
-        </p>
-
         <!-- 建议设为别名分组（vanilla _renderTargetedAliasCandidateGroups） -->
         <div v-if="targetedAliasGroups.length" class="world-candidate-alias-groups" aria-label="建议设为别名的待处理对象">
-          <section v-for="group in targetedAliasGroups" :key="group.targetId || `name:${group.targetName}`" class="world-candidate-alias-group" :class="{ 'is-active': activeKey === entityIdOf(group.candidates[0]) }" :data-target-id="group.targetId" @click="selectReviewItem(entityIdOf(group.candidates[0]))">
+          <section v-for="group in targetedAliasGroups" :key="group.targetId || `name:${group.targetName}`" class="world-candidate-alias-group" :data-target-id="group.targetId">
             <header class="world-candidate-alias-group__header">
               <div>
                 <div class="world-candidate-alias-group__target">
@@ -113,14 +108,14 @@
               </span>
             </header>
             <div class="world-candidate-alias-group__items">
-              <WorldCandidateGroupItem v-for="candidate in group.candidates" :key="entityIdOf(candidate)" :candidate="candidate" badge-label="建议别名" :action-options="{}" />
+              <WorldCandidateGroupItem v-for="candidate in group.candidates" :key="entityIdOf(candidate)" :candidate="candidate" badge-label="建议别名" :action-options="{}" :active="activeKey === entityIdOf(candidate)" @select="selectReviewItem" />
             </div>
           </section>
         </div>
 
         <!-- 名称相似分组（vanilla _renderSimilarNameCandidateGroups） -->
         <div v-if="similarNameGroups.length" class="world-candidate-alias-groups" aria-label="名称相似的待处理对象">
-          <section v-for="(group, index) in similarNameGroups" :key="index" class="world-candidate-alias-group world-candidate-similar-group" :class="{ 'is-active': activeKey === entityIdOf(group[0]) }" @click="selectReviewItem(entityIdOf(group[0]))">
+          <section v-for="(group, index) in similarNameGroups" :key="index" class="world-candidate-alias-group world-candidate-similar-group">
             <header class="world-candidate-alias-group__header">
               <div>
                 <div class="world-candidate-alias-group__target">
@@ -135,7 +130,7 @@
               </span>
             </header>
             <div class="world-candidate-alias-group__items">
-              <WorldCandidateGroupItem v-for="candidate in group" :key="entityIdOf(candidate)" :candidate="candidate" badge-label="相似名称" :action-options="{ allowAlias: true, allowMerge: true }" />
+              <WorldCandidateGroupItem v-for="candidate in group" :key="entityIdOf(candidate)" :candidate="candidate" badge-label="相似名称" :action-options="{ allowAlias: true, allowMerge: true }" :active="activeKey === entityIdOf(candidate)" @select="selectReviewItem" />
             </div>
           </section>
         </div>
@@ -154,7 +149,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="candidate in regularCandidates" :key="entityIdOf(candidate)" :data-id="entityIdOf(candidate)" :class="{ 'is-active': activeKey === entityIdOf(candidate) }" @click="selectReviewItem(entityIdOf(candidate))">
+            <tr v-for="candidate in regularCandidates" :key="entityIdOf(candidate)" :data-id="entityIdOf(candidate)" :class="{ 'is-active': activeKey === entityIdOf(candidate) }" tabindex="0" @click="selectReviewItem(entityIdOf(candidate), $event)" @keydown.enter.self="selectReviewItem(entityIdOf(candidate), $event)" @keydown.space.prevent.self="selectReviewItem(entityIdOf(candidate), $event)">
               <td class="selection-cell"><WorldSelectionInput mode="one" scope="world-candidates" :id="entityIdOf(candidate)" :label="`选择 ${candidate.name || '待处理项'}`" /></td>
               <td data-label="名称">{{ candidate.name }}</td>
               <td data-label="类型" class="world-table-cell--type">{{ candidate.entity_type }}</td>
@@ -179,54 +174,31 @@
 
     <!-- ==================== review-aliases ==================== -->
     <template v-else-if="tab === 'aliases'">
-      <p class="world-list-description">处理尚未采用的别名。别名不独立创建对象。</p>
+      <p class="world-list-description">确认名称应归属到哪个对象；别名不会独立创建对象。</p>
       <div class="review-search-bar">
-        <input id="review-alias-q" v-model="aliasForm.q" class="form-input" placeholder="搜索别名、对象或引用" aria-label="搜索待处理别名" />
+        <input id="review-alias-q" v-model="aliasForm.q" class="form-input" placeholder="搜索别名、对象或引用" aria-label="搜索待处理别名" @keyup.enter="applyAliasFilters" />
         <button class="btn btn-sm btn-primary" data-action="apply-alias-review-filters" @click="applyAliasFilters">搜索</button>
+        <button v-if="aliasForm.q" type="button" class="btn btn-sm" data-action="clear-alias-review-search" @click="clearReviewKeyword('alias')">清除搜索</button>
       </div>
-      <div class="review-quick-filters">
-        <button class="btn btn-sm" data-action="set-alias-quick-filter" data-filter-key="multi_alias_only" data-filter-value="true" @click="setReviewQuickFilter('alias', 'multi_alias_only', 'true', aliasReviewFilters)">同对象多别名</button>
-        <button class="btn btn-sm" data-action="set-alias-quick-filter" data-filter-key="type_kind" data-filter-value="custom" @click="setReviewQuickFilter('alias', 'type_kind', 'custom', aliasReviewFilters)">自定义类型</button>
-        <button class="btn btn-sm" data-action="set-alias-quick-filter" data-filter-key="has_quote" data-filter-value="false" @click="setReviewQuickFilter('alias', 'has_quote', 'false', aliasReviewFilters)">缺少引用</button>
-        <button class="btn btn-sm" data-action="set-alias-quick-filter" data-filter-key="confidence_min" data-filter-value="0.95" @click="setReviewQuickFilter('alias', 'confidence_min', '0.95', aliasReviewFilters)">高置信度</button>
+      <div class="review-quick-filters" role="group" aria-label="别名处理任务">
+        <button v-for="task in aliasTasks" :key="task.key" type="button" class="btn btn-sm" :class="{ 'btn-primary': String(aliasReviewFilters[task.key] || '') === task.value }" data-action="set-alias-quick-filter" :data-filter-key="task.key" :data-filter-value="task.value" :aria-pressed="String(aliasReviewFilters[task.key] || '') === task.value" @click="setReviewQuickFilter('alias', task.key, task.value, aliasReviewFilters)">{{ task.label }}</button>
       </div>
-      <WorldReviewFilterChips kind="alias" :filters="aliasReviewFilters" />
-      <WorldFilterPanel panel-key="review-aliases" :has-active-filters="aliasHasActiveFilters" :project-id="projectId">
+      <div v-if="aliasActiveFilterCount" class="world-review-active-filters"><span>已启用 {{ aliasActiveFilterCount }} 个条件</span><WorldReviewFilterChips kind="alias" :filters="aliasReviewFilters" /><button type="button" class="btn btn-sm" data-action="reset-alias-review-filters" @click="resetAliasReviewFilters">清除全部条件</button></div>
+      <WorldFilterPanel panel-key="review-aliases" :has-active-filters="aliasHasActiveFilters" :project-id="projectId" toggle-label="更多筛选" collapse-label="收起更多筛选">
         <div class="filter-bar" style="margin-bottom:12px;">
-          <input id="review-alias-source" v-model="aliasForm.source" class="form-input" placeholder="来源" aria-label="按来源筛选待处理别名" />
-          <details class="world-diagnostic-filter" :open="Boolean(aliasReviewFilters.workflow_id)">
-            <summary>诊断筛选</summary>
-            <input id="review-alias-workflow" v-model="aliasForm.workflow_id" class="form-input" data-diagnostic-field placeholder="处理批次编号" aria-label="按处理批次编号诊断筛选待处理别名" />
-          </details>
-          <input id="review-alias-scene" v-model="aliasForm.scene_index" class="form-input" placeholder="场景序号" aria-label="按场景序号筛选待处理别名" />
-          <input id="review-alias-chapter" v-model="aliasForm.source_chapter_index" class="form-input" placeholder="章节序号" aria-label="按章节序号筛选待处理别名" />
-          <input id="review-alias-confidence-min" v-model="aliasForm.confidence_min" class="form-input" placeholder="最低置信度" aria-label="待处理别名最低置信度" />
-          <select id="review-alias-type-kind" v-model="aliasForm.type_kind" class="form-select" aria-label="待处理别名类型范围">
-            <option value="">全部类型</option>
-            <option value="recommended">推荐类型</option>
-            <option value="custom">自定义类型</option>
-          </select>
-          <select id="review-alias-page-size" v-model.number="aliasForm.limit" class="form-select" aria-label="待处理别名每页数量">
-            <option :value="20">每页 20 组</option>
-            <option :value="50">每页 50 组</option>
-          </select>
+          <label class="form-group"><span>场景序号</span><input id="review-alias-scene" v-model="aliasForm.scene_index" class="form-input" inputmode="numeric" aria-label="按场景序号筛选待处理别名" /></label>
+          <label class="form-group"><span>章节序号</span><input id="review-alias-chapter" v-model="aliasForm.source_chapter_index" class="form-input" inputmode="numeric" aria-label="按章节序号筛选待处理别名" /></label>
+          <label class="form-group"><span>最低置信度</span><input id="review-alias-confidence-min" v-model="aliasForm.confidence_min" class="form-input" inputmode="decimal" aria-label="待处理别名最低置信度" /></label>
+          <label class="form-group"><span>最高置信度</span><input id="review-alias-confidence-max" v-model="aliasForm.confidence_max" class="form-input" inputmode="decimal" aria-label="待处理别名最高置信度" /></label>
+          <label class="form-group"><span>别名类型</span><select id="review-alias-type-kind" v-model="aliasForm.type_kind" class="form-select" aria-label="待处理别名类型范围"><option value="">全部类型</option><option value="recommended">推荐类型</option><option value="custom">自定义类型</option></select></label>
+          <label class="form-group"><span>引用证据</span><select id="review-alias-evidence" v-model="aliasForm.has_quote" class="form-select" aria-label="待处理别名引用证据"><option value="">全部证据</option><option value="true">有引用</option><option value="false">缺少引用</option></select></label>
           <button class="btn btn-sm" data-action="apply-alias-review-filters" @click="applyAliasFilters">筛选</button>
           <button class="btn btn-sm" data-action="reset-alias-review-filters" @click="resetAliasReviewFilters">清空</button>
         </div>
       </WorldFilterPanel>
-
-      <div v-if="aliasReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
-        <strong>必须修复</strong>
-        <p>加载待处理别名失败。</p>
-        <p class="world-text-dim">{{ aliasReviewLoadError }}</p>
-      </div>
-      <div v-else-if="!flatAliases.length" class="empty-state">
-        <p>没有待处理别名。</p>
-        <p class="world-text-dim">筛选条件会保留；可以清空筛选查看全部队列。</p>
-      </div>
-      <template v-else>
-        <details v-if="aliasSelectableIds.length" class="world-review-batch">
-          <summary>批量处理</summary>
+      <div class="world-review-result-row"><p class="world-review-result-summary" role="status">当前结果：{{ aliasGroupTotal }} 组 / {{ aliasItemTotal }} 条别名</p><label><span>每页</span><select id="review-alias-page-size" v-model.number="aliasForm.limit" class="form-select" aria-label="待处理别名每页数量" @change="applyAliasFilters"><option :value="20">20 组</option><option :value="50">50 组</option></select></label></div>
+      <details v-if="aliasSelectableIds.length" class="world-review-batch">
+        <summary>批量处理</summary>
         <WorldBulkToolbar
           scope="world-aliases"
           :actions="[
@@ -239,9 +211,20 @@
           select-all-label="全选当前页别名"
           @run="(action) => runReviewBulkAction('world-aliases', action, flatAliases)"
         />
-        </details>
+      </details>
+
+      <div v-if="aliasReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
+        <strong>必须修复</strong>
+        <p>加载待处理别名失败。</p>
+        <p class="world-text-dim">{{ aliasReviewLoadError }}</p>
+      </div>
+      <div v-else-if="!flatAliases.length" class="empty-state">
+        <p>没有待处理别名。</p>
+        <p class="world-text-dim">筛选条件会保留；可以清空筛选查看全部队列。</p>
+      </div>
+      <template v-else>
         <div class="review-group-list">
-          <section v-for="group in aliasGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': activeKey === group.group_id }" :data-group-id="group.group_id" @click="selectReviewItem(group.group_id)">
+          <section v-for="group in aliasGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': groupHasActiveAlias(group) }" :data-group-id="group.group_id">
             <header class="review-group-card__header">
               <div class="review-group-card__title">
                 <strong>{{ group.entity_name || "未命名对象" }}</strong>
@@ -253,7 +236,7 @@
               </label>
             </header>
             <div class="review-group-card__members">
-              <article v-for="item in group.members || []" :key="aliasKeyOf(item)" class="review-member-row review-member-row--selectable">
+              <article v-for="item in group.members || []" :key="aliasKeyOf(item)" class="review-member-row review-member-row--selectable" :class="{ 'is-active': activeKey === aliasKeyOf(item) }" tabindex="0" @click="selectReviewItem(aliasKeyOf(item), $event)" @keydown.enter.self="selectReviewItem(aliasKeyOf(item), $event)" @keydown.space.prevent.self="selectReviewItem(aliasKeyOf(item), $event)">
                 <div class="selection-cell">
                   <WorldSelectionInput v-if="!item.managed_by_suggestion" mode="one" scope="world-aliases" :id="aliasKeyOf(item)" :label="`选择别名 ${item.alias}`" />
                 </div>
@@ -286,51 +269,31 @@
 
     <!-- ==================== review-relations ==================== -->
     <template v-else-if="tab === 'relations'">
-      <p class="world-list-description">处理 AI 抽取或导入提出、尚未采用的关系。</p>
+      <p class="world-list-description">核对对象之间的联系与证据，再决定采用、归并或保留待定。</p>
       <div class="review-search-bar">
-        <input id="review-relation-q" v-model="relationForm.q" class="form-input" placeholder="搜索对象、关系类型或描述" aria-label="搜索待处理关系" />
+        <input id="review-relation-q" v-model="relationForm.q" class="form-input" placeholder="搜索对象、关系类型或描述" aria-label="搜索待处理关系" @keyup.enter="applyRelationFilters" />
         <button class="btn btn-sm btn-primary" data-action="apply-relation-review-filters" @click="applyRelationFilters">搜索</button>
+        <button v-if="relationForm.q" type="button" class="btn btn-sm" data-action="clear-relation-review-search" @click="clearReviewKeyword('relation')">清除搜索</button>
       </div>
-      <div class="review-quick-filters">
-        <button class="btn btn-sm" data-action="set-relation-quick-filter" data-filter-key="multi_type_only" data-filter-value="true" @click="setReviewQuickFilter('relation', 'multi_type_only', 'true', relationReviewFilters)">同对象对多类型</button>
-        <button class="btn btn-sm" data-action="set-relation-quick-filter" data-filter-key="type_kind" data-filter-value="custom" @click="setReviewQuickFilter('relation', 'type_kind', 'custom', relationReviewFilters)">自定义类型</button>
-        <button class="btn btn-sm" data-action="set-relation-quick-filter" data-filter-key="has_quote" data-filter-value="false" @click="setReviewQuickFilter('relation', 'has_quote', 'false', relationReviewFilters)">缺少引用</button>
-        <button class="btn btn-sm" data-action="set-relation-quick-filter" data-filter-key="strength_max" data-filter-value="0.69" @click="setReviewQuickFilter('relation', 'strength_max', '0.69', relationReviewFilters)">低强度</button>
-        <span class="review-scene-quick-filter"><input id="review-relation-scene-quick" v-model="relationForm.scene_index" class="form-input" placeholder="场景序号" aria-label="快速按场景筛选" /><button class="btn btn-sm" data-action="apply-relation-scene-quick" @click="setReviewQuickFilter('relation', 'scene_index', relationForm.scene_index.trim(), relationReviewFilters)">按场景筛选</button></span>
+      <div class="review-quick-filters" role="group" aria-label="关系处理任务">
+        <button v-for="task in relationTasks" :key="task.key" type="button" class="btn btn-sm" :class="{ 'btn-primary': String(relationReviewFilters[task.key] || '') === task.value }" data-action="set-relation-quick-filter" :data-filter-key="task.key" :data-filter-value="task.value" :aria-pressed="String(relationReviewFilters[task.key] || '') === task.value" @click="setReviewQuickFilter('relation', task.key, task.value, relationReviewFilters)">{{ task.label }}</button>
       </div>
-      <WorldReviewFilterChips kind="relation" :filters="relationReviewFilters" />
-      <WorldFilterPanel panel-key="review-relations" :has-active-filters="relationHasActiveFilters" :project-id="projectId">
+      <div v-if="relationActiveFilterCount" class="world-review-active-filters"><span>已启用 {{ relationActiveFilterCount }} 个条件</span><WorldReviewFilterChips kind="relation" :filters="relationReviewFilters" /><button type="button" class="btn btn-sm" data-action="reset-relation-review-filters" @click="resetRelationReviewFilters">清除全部条件</button></div>
+      <WorldFilterPanel panel-key="review-relations" :has-active-filters="relationHasActiveFilters" :project-id="projectId" toggle-label="更多筛选" collapse-label="收起更多筛选">
         <div class="filter-bar" style="margin-bottom:12px;">
-          <input id="review-relation-type" v-model="relationForm.relation_type" class="form-input" placeholder="关系类型" aria-label="按关系类型筛选待处理关系" />
-          <input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" placeholder="场景序号" aria-label="按场景序号筛选待处理关系" />
-          <input id="review-relation-source-chapter" v-model="relationForm.source_chapter_index" class="form-input" placeholder="章节序号" aria-label="按章节序号筛选待处理关系" />
-          <input id="review-relation-strength-min" v-model="relationForm.strength_min" class="form-input" placeholder="最低强度" aria-label="待处理关系最低强度" />
-          <select id="review-relation-type-kind" v-model="relationForm.type_kind" class="form-select" aria-label="待处理关系类型范围">
-            <option value="">全部类型</option>
-            <option value="recommended">推荐类型</option>
-            <option value="custom">自定义类型</option>
-          </select>
-          <select id="review-relation-page-size" v-model.number="relationForm.limit" class="form-select" aria-label="待处理关系每页数量">
-            <option :value="20">每页 20 组</option>
-            <option :value="50">每页 50 组</option>
-          </select>
+          <label class="form-group"><span>关系类型</span><input id="review-relation-type" v-model="relationForm.relation_type" class="form-input" aria-label="按关系类型筛选待处理关系" /></label>
+          <label class="form-group"><span>场景序号</span><input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" inputmode="numeric" aria-label="按场景序号筛选待处理关系" /></label>
+          <label class="form-group"><span>章节序号</span><input id="review-relation-source-chapter" v-model="relationForm.source_chapter_index" class="form-input" inputmode="numeric" aria-label="按章节序号筛选待处理关系" /></label>
+          <label class="form-group"><span>最低强度</span><input id="review-relation-strength-min" v-model="relationForm.strength_min" class="form-input" inputmode="decimal" aria-label="待处理关系最低强度" /></label>
+          <label class="form-group"><span>最高强度</span><input id="review-relation-strength-max" v-model="relationForm.strength_max" class="form-input" inputmode="decimal" aria-label="待处理关系最高强度" /></label>
+          <label class="form-group"><span>引用证据</span><select id="review-relation-evidence" v-model="relationForm.has_quote" class="form-select" aria-label="待处理关系引用证据"><option value="">全部证据</option><option value="true">有引用</option><option value="false">缺少引用</option></select></label>
           <button class="btn btn-sm" data-action="apply-relation-review-filters" @click="applyRelationFilters">筛选</button>
           <button class="btn btn-sm" data-action="reset-relation-review-filters" @click="resetRelationReviewFilters">清空</button>
         </div>
       </WorldFilterPanel>
-
-      <div v-if="relationReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
-        <strong>必须修复</strong>
-        <p>加载待处理关系失败。</p>
-        <p class="world-text-dim">{{ relationReviewLoadError }}</p>
-      </div>
-      <div v-else-if="!relationGroups.length" class="empty-state">
-        <p>没有待处理关系。</p>
-        <p class="world-text-dim">筛选条件会保留；可以清空筛选查看全部队列。</p>
-      </div>
-      <template v-else>
-        <details class="world-review-batch">
-          <summary>批量处理</summary>
+      <div class="world-review-result-row"><p class="world-review-result-summary" role="status">当前结果：{{ relationGroupTotal }} 组 / {{ relationItemTotal }} 条关系</p><label><span>每页</span><select id="review-relation-page-size" v-model.number="relationForm.limit" class="form-select" aria-label="待处理关系每页数量" @change="applyRelationFilters"><option :value="20">20 组</option><option :value="50">50 组</option></select></label></div>
+      <details v-if="relationGroups.length" class="world-review-batch">
+        <summary>批量处理</summary>
         <WorldBulkToolbar
           scope="world-relation-groups"
           :actions="[
@@ -343,9 +306,20 @@
           select-all-label="全选当前页关系组"
           @run="(action) => runReviewBulkAction('world-relation-groups', action, relationGroups)"
         />
-        </details>
+      </details>
+
+      <div v-if="relationReviewLoadError" class="empty-state" role="alert" data-author-action="must_fix">
+        <strong>必须修复</strong>
+        <p>加载待处理关系失败。</p>
+        <p class="world-text-dim">{{ relationReviewLoadError }}</p>
+      </div>
+      <div v-else-if="!relationGroups.length" class="empty-state">
+        <p>没有待处理关系。</p>
+        <p class="world-text-dim">筛选条件会保留；可以清空筛选查看全部队列。</p>
+      </div>
+      <template v-else>
         <div class="review-group-list">
-          <section v-for="group in relationGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': activeKey === group.group_id }" :data-group-id="group.group_id" @click="selectReviewItem(group.group_id)">
+          <section v-for="group in relationGroups" :key="group.group_id" class="review-group-card" :class="{ 'is-active': activeKey === group.group_id }" :data-group-id="group.group_id" tabindex="0" @click="selectReviewItem(group.group_id, $event)" @keydown.enter.self="selectReviewItem(group.group_id, $event)" @keydown.space.prevent.self="selectReviewItem(group.group_id, $event)">
             <header class="review-group-card__header">
               <div class="review-group-card__select"><WorldSelectionInput mode="one" scope="world-relation-groups" :id="group.group_id" :label="`选择 ${group.source_name || '源对象'} 到 ${group.target_name || '目标对象'}`" /></div>
               <div class="review-group-card__title">
@@ -390,8 +364,8 @@
     </template>
       </section>
 
-      <aside class="world-review-decision" aria-label="决策区" aria-live="polite">
-        <button type="button" class="btn btn-sm world-review-mobile-back" @click="mobileDetailOpen = false">返回队列</button>
+      <aside class="world-review-decision" aria-label="决策区" tabindex="-1">
+        <button ref="mobileBackEl" type="button" class="btn btn-sm world-review-mobile-back" @click="returnToQueue">返回队列</button>
         <template v-if="activeItem">
           <div class="world-review-decision__status"><span class="pill pill-warning">{{ activeStatusLabel }}</span></div>
           <template v-if="tab === 'objects'">
@@ -442,13 +416,10 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch, onBeforeUnmount } from "vue"
+import { computed, reactive, ref, watch, onBeforeUnmount, nextTick } from "vue"
 import { getApi, getAppState, getRouter } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
-import {
-  WORLD_SUGGESTED_ACTION_LABELS,
-  WORLD_CANDIDATE_QUERY_KEYS,
-} from "../logic/worldQuery.js"
+import { WORLD_CANDIDATE_QUERY_KEYS } from "../logic/worldQuery.js"
 import { reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { candidateMeta, entityId } from "../logic/worldEntityHelpers.js"
 import { registerCandidateListHooks, syncWorldListRegistry } from "../logic/worldEntityOps.js"
@@ -471,6 +442,7 @@ import {
   recommendedRelationDecision,
   runReviewBulkAction,
   setReviewQuickFilter,
+  setCandidateTaskFilter,
   showAliasReviewDecisionForm,
   showRelationGroupReviewForm,
   splitCandidateGroups,
@@ -522,7 +494,30 @@ const currentReviewCount = computed(() => {
   if (tab.value === "relations") return props.relationItemTotal
   return props.candidateTotal
 })
-const suggestedActionLabels = WORLD_SUGGESTED_ACTION_LABELS
+const candidateTasks = [
+  { value: "create_new", label: "可作为新对象" },
+  { value: "alias", label: "建议设为别名" },
+  { value: "merge_with_existing", label: "建议合并" },
+  { value: "needs_user_decision", label: "需我判断" },
+]
+const candidateActionOptions = [
+  ...candidateTasks,
+  { value: "temporary_only", label: "建议设为临时" },
+  { value: "ignore", label: "建议忽略" },
+]
+const aliasTasks = [
+  { key: "multi_alias_only", value: "true", label: "同对象多别名" },
+  { key: "type_kind", value: "custom", label: "自定义类型" },
+  { key: "has_quote", value: "false", label: "缺少引用" },
+  { key: "confidence_min", value: "0.95", label: "高置信度" },
+]
+const relationTasks = [
+  { key: "multi_type_only", value: "true", label: "同对象对多类型" },
+  { key: "has_reverse_candidates", value: "true", label: "有反向候选" },
+  { key: "has_canonical_relation", value: "true", label: "已有正式关系" },
+  { key: "has_quote", value: "false", label: "缺少引用" },
+  { key: "strength_max", value: "0.69", label: "低强度" },
+]
 const entityIdOf = entityId
 const aliasKeyOf = aliasKey
 const localCandidates = ref([])
@@ -551,19 +546,37 @@ function retryLoad() {
 
 const activeKey = ref("")
 const mobileDetailOpen = ref(false)
+const mobileBackEl = ref(null)
+let lastSelectionEl = null
 const activeItem = computed(() => {
-  if (tab.value === "objects") return localCandidates.value.find((item) => entityId(item) === activeKey.value) || localCandidates.value[0] || null
-  if (tab.value === "aliases") return props.aliasGroups.find((item) => item.group_id === activeKey.value) || props.aliasGroups[0] || null
-  return props.relationGroups.find((item) => item.group_id === activeKey.value) || props.relationGroups[0] || null
+  if (!activeKey.value) return null
+  if (tab.value === "objects") return localCandidates.value.find((item) => entityId(item) === activeKey.value) || null
+  if (tab.value === "aliases") return props.aliasGroups.find((group) => (group.members || []).some((item) => aliasKey(item) === activeKey.value)) || null
+  return props.relationGroups.find((item) => item.group_id === activeKey.value) || null
 })
-const activeAlias = computed(() => activeItem.value?.members?.find((item) => !item.managed_by_suggestion) || activeItem.value?.members?.[0] || null)
+const activeAlias = computed(() => activeItem.value?.members?.find((item) => aliasKey(item) === activeKey.value) || null)
 const activeRelationDecision = computed(() => tab.value === "relations" ? recommendedRelationDecision(activeItem.value) : null)
 const activeRelationRemaining = computed(() => Math.max(0, (activeItem.value?.members || []).length - (activeRelationDecision.value?.member_relation_ids?.length || 0)))
 const activeStatusKey = computed(() => tab.value === "aliases" ? aliasKey(activeAlias.value || {}) : (activeKey.value || activeItem.value?.group_id || entityId(activeItem.value)))
 
-function selectReviewItem(key) {
+function isNarrowReviewViewport() {
+  return typeof globalThis.matchMedia === "function" && globalThis.matchMedia("(max-width: 760px)").matches
+}
+
+function selectReviewItem(key, event) {
   activeKey.value = key || ""
   mobileDetailOpen.value = true
+  lastSelectionEl = event?.currentTarget || lastSelectionEl
+  if (isNarrowReviewViewport()) void nextTick(() => mobileBackEl.value?.focus())
+}
+
+function returnToQueue() {
+  mobileDetailOpen.value = false
+  void nextTick(() => lastSelectionEl?.focus?.())
+}
+
+function groupHasActiveAlias(group) {
+  return (group.members || []).some((item) => aliasKey(item) === activeKey.value)
 }
 
 function entityTypeLabel(value) {
@@ -702,8 +715,12 @@ const candidateHasActiveFilters = computed(() => (
 ))
 const ALIAS_ACTIVE_KEYS = ["source", "workflow_id", "scene_index", "source_chapter_index", "confidence_min", "confidence_max", "has_quote", "type_kind", "multi_alias_only"]
 const aliasHasActiveFilters = computed(() => ALIAS_ACTIVE_KEYS.some((key) => Boolean(props.aliasReviewFilters[key])))
-const RELATION_ACTIVE_KEYS = ["relation_type", "scene_index", "source_chapter_index", "strength_min", "strength_max", "type_kind", "has_quote", "multi_type_only"]
+const RELATION_ACTIVE_KEYS = ["relation_type", "scene_index", "source_chapter_index", "strength_min", "strength_max", "type_kind", "has_quote", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"]
 const relationHasActiveFilters = computed(() => RELATION_ACTIVE_KEYS.some((key) => Boolean(props.relationReviewFilters[key])))
+const activeFilterCount = (filters) => Object.entries(filters || {}).filter(([key, value]) => !["skip", "limit"].includes(key) && value !== "" && value != null && value !== false).length
+const candidateActiveFilterCount = computed(() => activeFilterCount(props.candidateFilters))
+const aliasActiveFilterCount = computed(() => activeFilterCount(props.aliasReviewFilters))
+const relationActiveFilterCount = computed(() => activeFilterCount(props.relationReviewFilters))
 
 function applyCandidateFilters() {
   void applyCandidateReviewFilters(candidateForm)
@@ -713,6 +730,19 @@ function applyAliasFilters() {
 }
 function applyRelationFilters() {
   void applyRelationReviewFilters(relationForm, props.relationReviewFilters)
+}
+
+function clearReviewKeyword(kind) {
+  if (kind === "candidate") {
+    candidateForm.q = ""
+    applyCandidateFilters()
+  } else if (kind === "alias") {
+    aliasForm.q = ""
+    applyAliasFilters()
+  } else {
+    relationForm.q = ""
+    applyRelationFilters()
+  }
 }
 
 // ---- 别名队列派生 ----
@@ -731,6 +761,19 @@ watch(flatAliases, (aliases) => {
 watch(() => props.relationGroups, (groups) => {
   reconcileBulkSelection("world-relation-groups", groups.map((group) => group.group_id))
 }, { immediate: true, deep: true })
+
+watch([tab, localCandidates, () => props.aliasGroups, () => props.relationGroups], () => {
+  if (!activeKey.value) return
+  const exists = tab.value === "objects"
+    ? localCandidates.value.some((item) => entityId(item) === activeKey.value)
+    : tab.value === "aliases"
+      ? props.aliasGroups.some((group) => (group.members || []).some((item) => aliasKey(item) === activeKey.value))
+      : props.relationGroups.some((group) => group.group_id === activeKey.value)
+  if (!exists) {
+    activeKey.value = ""
+    mobileDetailOpen.value = false
+  }
+}, { deep: true })
 
 // ---- 关系组展示 ----
 function canonicalTypeLabels(group) {

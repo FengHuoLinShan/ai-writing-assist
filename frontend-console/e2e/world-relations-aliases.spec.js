@@ -132,24 +132,28 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("化名")
   })
 
-  test("待处理别名和关系高级筛选可由可访问名称发现并保留筛选语义", async ({ page }) => {
+  test("待处理别名和关系使用统一筛选结构并保留 URL 语义", async ({ page }) => {
     await reloadWorkbench(page, "world", "review-aliases")
-    await page.getByRole("button", { name: "展开筛选", exact: true }).click()
-    const aliasSource = page.getByLabel("按来源筛选待处理别名", { exact: true })
-    await expect(aliasSource).toBeVisible()
-    await aliasSource.fill("manual")
+    await page.getByRole("button", { name: "更多筛选", exact: true }).click()
+    await page.getByLabel("按场景序号筛选待处理别名", { exact: true }).fill("3")
     await page.getByLabel("待处理别名类型范围", { exact: true }).selectOption("custom")
     await page.getByLabel("待处理别名每页数量", { exact: true }).selectOption("50")
     await page.locator('[data-action="apply-alias-review-filters"]').last().click()
-    await expect(page).toHaveURL(/source=manual/)
+    await expect(page).toHaveURL(/scene_index=3/)
     await expect(page).toHaveURL(/type_kind=custom/)
     await expect(page).toHaveURL(/page_size=50/)
 
     await reloadWorkbench(page, "world", "review-relations")
-    await page.getByRole("button", { name: "展开筛选", exact: true }).click()
-    await expect(page.getByLabel("按关系类型筛选待处理关系", { exact: true })).toBeVisible()
-    await expect(page.getByLabel("待处理关系最低强度", { exact: true })).toBeVisible()
-    await expect(page.getByLabel("待处理关系每页数量", { exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "更多筛选", exact: true }).click()
+    await page.getByLabel("按关系类型筛选待处理关系", { exact: true }).fill("friend_of")
+    await page.getByLabel("待处理关系最低强度", { exact: true }).fill("0.7")
+    await page.getByLabel("待处理关系引用证据", { exact: true }).selectOption("true")
+    await page.getByLabel("待处理关系每页数量", { exact: true }).selectOption("50")
+    await page.locator('[data-action="apply-relation-review-filters"]').last().click()
+    await expect(page).toHaveURL(/relation_type=friend_of/)
+    await expect(page).toHaveURL(/strength_min=0.7/)
+    await expect(page).toHaveURL(/has_quote=true/)
+    await expect(page).toHaveURL(/page_size=50/)
   })
 
   test("普通别名和单条关系可在决策栏直接采用", async ({ page }) => {
@@ -159,10 +163,12 @@ test.describe("世界对象 — 关系与别名", () => {
     await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: "friend_of", description: "直接采用关系", strength: 0.7, status: "candidate" })
 
     await reloadWorkbench(page, "world", "review-aliases")
+    await page.locator(".review-member-row", { hasText: "直接采用别名" }).click()
     await page.locator('[data-action="accept-current-alias"]').click()
     await expect(page.locator(SEL.toastContainer)).toContainText("别名已采用", { timeout: 10000 })
 
     await reloadWorkbench(page, "world", "review-relations")
+    await page.locator(".review-group-card", { hasText: "直接采用关系" }).click()
     const accept = page.locator('[data-action="accept-recommended-relation"]')
     await expect(accept).toBeEnabled()
     await accept.click()
@@ -170,7 +176,7 @@ test.describe("世界对象 — 关系与别名", () => {
 
     const aliases = await listAliases(testProjectId, { display_state: "active", limit: 100 })
     expect(aliases.items.some((item) => item.alias === "直接采用别名")).toBe(true)
-    const relations = await listRelations(testProjectId, { status: "canonical", limit: 100 })
+    const relations = await listRelations(testProjectId, { status: "canonical", limit: 50 })
     expect(relations.items.some((item) => item.description === "直接采用关系")).toBe(true)
   })
 
@@ -295,6 +301,34 @@ test.describe("世界对象 — 关系与别名", () => {
     expect(adopted.status).toBe("canonical")
   })
 
+  test("390px 显式选择后聚焦决策区，返回时恢复队列焦点", async ({ page }) => {
+    const entity = await createEntity(testProjectId, {
+      name: "移动端焦点对象",
+      entity_type: "character",
+      status: "canonical",
+    })
+    await createAlias(testProjectId, {
+      entity_id: entity.id,
+      alias: "移动端焦点别名",
+      alias_type: "name",
+      status: "candidate",
+    })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await reloadWorkbench(page, "world", "review-aliases")
+    const row = page.locator(".review-member-row", { hasText: "移动端焦点别名" })
+    await row.click()
+
+    const back = page.getByRole("button", { name: "返回队列", exact: true })
+    await expect(back).toBeFocused()
+    await expect(page.locator(".world-review-decision")).toBeVisible()
+    await expect(page.locator(".world-review-queue")).toBeHidden()
+
+    await back.click()
+    await expect(row).toBeFocused()
+    await expect(page.locator(".world-review-queue")).toBeVisible()
+  })
+
   test("同组候选可分别采用为多条正式关系", async ({ page }) => {
     const source = await createEntity(testProjectId, { name: "分别采用源", entity_type: "character", status: "canonical" })
     const target = await createEntity(testProjectId, { name: "分别采用目标", entity_type: "character", status: "canonical" })
@@ -310,7 +344,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.locator(SEL.modalFooter).getByRole("button", { name: "提交决策" }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
 
-    const canonical = await listRelations(testProjectId, { status: "canonical", limit: 100 })
+    const canonical = await listRelations(testProjectId, { status: "canonical", limit: 50 })
     const adopted = canonical.items.filter((item) => item.source_id === source.id && item.target_id === target.id)
     expect(adopted.map((item) => item.relation_type).sort()).toEqual(["enemy_of", "friend_of"])
   })
