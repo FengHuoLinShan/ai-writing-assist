@@ -441,6 +441,30 @@ describe("todayIsland", () => {
     expect(query.get("open")).toBeNull()
   })
 
+  it("世界书目录导入待决项回到导入向导", async () => {
+    const router = { navigate: vi.fn(), refresh: vi.fn() }
+    setBridgeOverrides({ router })
+    const wrapper = mount(TodayView, { props: {
+      project: { id: "p1" },
+      summary: {
+        project_id: "p1", writing: {},
+        attention: { items: [{
+          key: "world:worldbook-import", source_kind: "world_suggestion",
+          title: "确认待采用建议：世界书目录导入", summary: "查看导入预览。",
+          author_action: "needs_decision", relevance: "project_general", severity: "high",
+          target: { kind: "worldbook_import", suggestion_id: "import-1" },
+        }], actionable_total: 1 },
+      },
+    } })
+
+    await wrapper.get(".today-attention-row .btn").trigger("click")
+
+    const query = router.navigate.mock.calls[0][3]
+    expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["world", "bible", true])
+    expect(query.get("open")).toBe("worldbook-import")
+    expect(query.get("suggestion_id")).toBe("import-1")
+  })
+
   it("keeps a pending suggestion pointer that is beyond the first result page", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     const firstPage = Array.from({ length: 50 }, (_, index) => ({

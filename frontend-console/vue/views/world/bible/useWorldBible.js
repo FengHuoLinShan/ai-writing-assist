@@ -44,6 +44,7 @@ export const BIBLE_PAGE_TYPES = {
   rule: { label: "规则", title: "规则体系", desc: "法则、能力体系和限制", color: "#475569", symbol: "RU" },
   item: { label: "物品", title: "重要物品", desc: "装备、资源和关键道具", color: "#9333ea", symbol: "IT" },
   secret: { label: "秘密", title: "秘密", desc: "伏笔、真相和隐藏信息", color: "#7c3aed", symbol: "SE" },
+  source_material: { label: "导入资料", title: "导入资料", desc: "尚未发布的外部世界书资料", color: "#475569", symbol: "IM" },
   custom: { label: "自定义", title: "自定义", desc: "尚未归入固定类别的设定", color: "#6b7280", symbol: "CU" },
 }
 

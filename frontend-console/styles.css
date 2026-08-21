@@ -10587,6 +10587,48 @@ kbd {
   word-break: keep-all;
 }
 
+.worldbook-import-panel {
+  margin-block: var(--space-3);
+}
+
+.worldbook-import-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+
+.worldbook-import-counts span {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.worldbook-import-items {
+  display: grid;
+  gap: var(--space-2);
+  max-height: min(42vh, 28rem);
+  margin: var(--space-3) 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.worldbook-import-items li {
+  display: grid;
+  gap: 0.2rem;
+  padding: var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.worldbook-import-items span,
+.worldbook-import-items small {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
 /* 自动入库折叠区 */
 .world-batch-group {
   margin-bottom: var(--space-3);

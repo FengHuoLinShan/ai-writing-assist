@@ -21,6 +21,10 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - design checkpoint 以独立 envelope 内嵌 `world-state 0.1.0`，固定保存世界观引擎 19 区、
   6 个再生产循环、F01–F22、C01–C05、四类情境测试、T01–T12 与 fiction-core 六阶段。
   从 World Core 产生的首个 checkpoint 深度为 `seed`，未知区域明确记录为 gap/not-run。
+- 世界书目录导入与文稿 imports 物理分离：浏览器只提交受限相对路径和 UTF-8 文本清单，
+  world 以 `world_worldbook_import.v1` 保存 pending 提案。首次导入创建未发布
+  `source_material` 工作稿；重导入仅在来源变化且本地仍等于 baseline 时安全更新，双变和
+  源缺失进入冲突队列。控制文件、脚本和 `.obsidian` 配置只报告忽略，永不执行或激活。
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象

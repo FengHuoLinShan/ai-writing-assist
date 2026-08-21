@@ -54,8 +54,9 @@ async def test_attention_summary_uses_review_queues_for_one_novel() -> None:
 
 
 @pytest.mark.asyncio
-async def test_attention_summary_projects_actionable_world_items_without_duplicates(
-) -> None:
+async def test_attention_summary_projects_actionable_world_items_without_duplicates() -> (
+    None
+):
     db = SimpleNamespace()
     entity_service = SimpleNamespace(
         list=AsyncMock(
@@ -164,8 +165,17 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
                         risk_level="medium",
                         updated_at=None,
                     ),
+                    SimpleNamespace(
+                        id="worldbook-import",
+                        target_type="worldbook_import",
+                        status="pending",
+                        result_ref_json={},
+                        payload_json={"counts": {"conflict": 1}},
+                        risk_level="high",
+                        updated_at=None,
+                    ),
                 ],
-                5,
+                6,
             )
         )
     )
@@ -186,6 +196,7 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
         "world:alias:alias-group-1",
         "world:suggestion:page-suggestion",
         "world:suggestion:adoption-package",
+        "world:suggestion:worldbook-import",
     ]
     assert result.items[0].page_id == "page-1"
     assert result.items[1].scene_id == "scene-1"
@@ -194,7 +205,7 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
     assert result.items[3].chapter_index == 3
     assert result.items[3].title == "确认待采用建议：北境"
     assert result.items[4].title == "确认待采用建议：世界设定采用包"
+    assert result.items[5].title == "确认待采用建议：世界书目录导入"
+    assert result.items[5].target_kind == "worldbook_import"
     assert result.items[4].target_kind == "world_adoption"
-    conflict_service.list.assert_awaited_once_with(
-        db, "novel-1", status="pending"
-    )
+    conflict_service.list.assert_awaited_once_with(db, "novel-1", status="pending")

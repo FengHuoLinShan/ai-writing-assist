@@ -275,6 +275,11 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 - 确认为别名不是深合并：仅写入目标别名、迁移/去重关系并标记源候选为 `merged`，不得合并 summary/public_info/hidden_truth 或人物扩展字段。
 - `CreationSuggestion` 中的 `core_entity` / `core_entity_draft` 经用户确认后直接写入 `canonical`，并保留建议 ID、来源、证据与 `approved_by` 审计。
 - `entity_relation` / `entity_alias` 建议必须通过各自的 schema 验证和领域服务写入；未支持的 `target_type` 直接拒绝，不得标记为已接受后空操作。
+- 世界书目录导入是 world 自有的受限文本入口，只接受相对路径标识与 UTF-8
+  `.md/.txt/.json/.yaml/.yml`；单文件 2 MiB、正文总量 25 MiB、最多 2,000 文件。
+  服务端不打开客户端路径，不执行脚本、Prompt、工具配置或 YAML 表达式。首次导入只创建
+  `source_material` 工作稿；重导入以 `source_key/source_hash/baseline_content_hash` 做三方比较，
+  双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。
 - `world_core_checkpoint.v1` 是兼容保留的 typed 收束来源 checkpoint；新的生成中心保存动作写入
   `world_design_checkpoint.v1`。两者均不可采用且只在作者显式保存时持久化；design envelope
   内嵌 `world-state 0.1.0` 的 19 区、6 循环、22 切面、5 耦合链与 12 压测分类，seed 阶段
@@ -651,6 +656,9 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/suggestions/{suggestion_id}/reject` | 拒绝建议 |
 | POST | `/api/world/core-checkpoints` | 显式保存不可采用的 `world_core_checkpoint.v1` |
 | POST | `/api/world/design-checkpoints` | 显式保存不可采用的 `world_design_checkpoint.v1`；新生成中心每三轮使用此入口 |
+| POST | `/api/world/bible/imports/preview` | 受限预览目录清单；返回统计、映射与 hash，不回显正文 |
+| GET | `/api/world/bible/imports/{suggestion_id}` | 恢复 pending 导入的紧凑预览 |
+| POST | `/api/world/bible/imports/{suggestion_id}/apply` | 以 preview hash 创建/更新未发布工作稿并写入冲突队列 |
 | POST/GET | `/api/world/adoption-packages` | 保存或读取 typed WorldAdoptionPackage 建议 |
 | GET | `/api/world/adoption-packages/{suggestion_id}/preview` | 零写入预演 package 的覆盖、diff 与 hash |
 | POST | `/api/world/adoption-packages/{suggestion_id}/apply` | 以 preview hash 原子采用 package 的 include 项；重复 apply 返回 receipt |

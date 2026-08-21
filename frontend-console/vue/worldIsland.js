@@ -179,6 +179,8 @@ export async function loadWorld() {
       openSuggestions: query.get("open") === "suggestions",
       suggestionId: query.get("suggestion_id") || "",
       openConflicts: query.get("open") === "conflicts",
+      openWorldbookImport: query.get("open") === "worldbook-import",
+      worldbookImportSuggestionId: query.get("suggestion_id") || "",
       conflictId: query.get("conflict_item_id") || "",
       adoptionPackageId: query.get("adoption_package_id") || "",
       ownerAiOpen: query.get("owner_ai") === "1",

@@ -95,6 +95,14 @@ BUILTIN_WORLD_BIBLE_CATEGORIES: tuple[dict[str, Any], ...] = (
         "sort_order": 60,
     },
     {
+        "category_key": "source_material",
+        "name": "导入资料",
+        "description": "外部世界书原始资料与候选政策；发布前不会进入正式设定",
+        "color": "#475569",
+        "icon": "资料",
+        "sort_order": 80,
+    },
+    {
         "category_key": "custom",
         "name": "自定义",
         "description": "未归入固定类别的作者页面",
@@ -420,6 +428,11 @@ class WorldBibleLifecycleService:
             title = data.title or page.title
             page_type = data.page_type or page.page_type
             free_text = page.free_text if data.free_text is None else data.free_text
+            page_meta = (
+                page.page_meta_json
+                if data.page_meta_json is None
+                else data.page_meta_json
+            )
             sections = (
                 page.sections_json
                 if data.sections_json is None
@@ -441,6 +454,7 @@ class WorldBibleLifecycleService:
             title = data.title
             page_type = data.page_type or "custom"
             free_text = data.free_text
+            page_meta = data.page_meta_json or {}
             sections = self._serialize_sections(data.sections_json or [])
             refs = data.linked_asset_refs_json or []
             sort_order = data.sort_order or 0
@@ -459,6 +473,7 @@ class WorldBibleLifecycleService:
             base_version_number=base_version,
             title=title,
             page_type=page_type,
+            page_meta_json=page_meta,
             free_text=free_text,
             sections_json=sections,
             linked_asset_refs_json=refs,
@@ -567,6 +582,7 @@ class WorldBibleLifecycleService:
             base_version_number=page.version_number if page else None,
             title=data.title or (page.title if page else ""),
             page_type=data.page_type or (page.page_type if page else "custom"),
+            page_meta_json=(data.page_meta_json or (page.page_meta_json if page else {})),
             free_text=data.free_text,
             sections_json=self._serialize_sections(data.sections_json or []),
             linked_asset_refs_json=data.linked_asset_refs_json or [],
@@ -638,6 +654,7 @@ class WorldBibleLifecycleService:
                 page_type=draft.page_type,
                 page_key=self._default_page_key(draft.page_type, draft.title),
                 title=draft.title,
+                page_meta_json=draft.page_meta_json,
                 status="canonical",
                 free_text=draft.free_text,
                 sections_json=draft.sections_json,
@@ -660,6 +677,7 @@ class WorldBibleLifecycleService:
                 )
             page.page_type = draft.page_type
             page.title = draft.title
+            page.page_meta_json = draft.page_meta_json
             page.free_text = draft.free_text
             page.sections_json = draft.sections_json
             page.linked_asset_refs_json = draft.linked_asset_refs_json
@@ -995,6 +1013,9 @@ class WorldBibleLifecycleService:
             base_version_number=page.version_number,
             title=str(snapshot.get("title") or page.title),
             page_type=str(snapshot.get("page_type") or page.page_type),
+            page_meta_json=dict(
+                snapshot.get("page_meta_json") or page.page_meta_json or {}
+            ),
             free_text=snapshot.get("free_text"),
             sections_json=list(snapshot.get("sections_json") or []),
             linked_asset_refs_json=list(snapshot.get("linked_asset_refs_json") or []),

@@ -200,7 +200,7 @@ describe("渲染契约", () => {
     expect(wrapper.find("section.world-bible-workspace").exists()).toBe(true)
   })
 
-  it("工具栏包含新建、管理分类、模板、建议和冲突按钮", () => {
+  it("工具栏包含新建、管理分类、模板、目录导入、建议和冲突按钮", () => {
     const wrapper = mountTab()
     const toolbar = wrapper.find(".world-bible-toolbar")
     expect(toolbar.exists()).toBe(true)
@@ -209,6 +209,7 @@ describe("渲染契约", () => {
     expect(toolbar.find("[data-action='bible-new-page']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-manage-categories']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-manage-page-templates']").exists()).toBe(true)
+    expect(toolbar.find("[data-action='bible-open-worldbook-import']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-suggestions']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-open-conflicts']").exists()).toBe(true)
     expect(toolbar.find("[data-action='bible-inspect-current-page']").exists()).toBe(true)

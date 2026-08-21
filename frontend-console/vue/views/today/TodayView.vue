@@ -212,6 +212,10 @@ function openAttention(item) {
     if (target.suggestion_id) query.set("suggestion_id", target.suggestion_id)
     query.set("open", "suggestions")
     router.navigate("world", "bible", true, query)
+  } else if (target.kind === "worldbook_import") {
+    if (target.suggestion_id) query.set("suggestion_id", target.suggestion_id)
+    query.set("open", "worldbook-import")
+    router.navigate("world", "bible", true, query)
   } else if (target.kind === "world_adoption") {
     if (target.suggestion_id) query.set("adoption_package_id", target.suggestion_id)
     router.navigate("world", "bible", true, query)

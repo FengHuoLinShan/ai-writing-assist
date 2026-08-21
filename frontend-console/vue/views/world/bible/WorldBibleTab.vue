@@ -32,6 +32,7 @@
         <button class="btn btn-sm btn-primary" data-action="bible-new-page" @click="createPage">新建页面</button>
         <button class="btn btn-sm" data-action="bible-manage-categories" @click="openCategoryManager">管理分类</button>
         <button class="btn btn-sm" data-action="bible-manage-page-templates" @click="openPageTemplateManager">页面模板</button>
+        <button class="btn btn-sm" data-action="bible-open-worldbook-import" @click="worldbookImportOpen = true">导入目录</button>
         <button class="btn btn-sm" data-action="bible-open-suggestions" @click="openSuggestions">创设建议</button>
         <button class="btn btn-sm" data-action="bible-open-conflicts" @click="openConflicts">冲突检查</button>
         <button
@@ -42,6 +43,13 @@
         >{{ semanticInspectionPending ? "停止检修" : "检修当前页" }}</button>
       </div>
     </div>
+
+    <WorldbookImportPanel
+      :project-id="projectId"
+      :open="worldbookImportOpen"
+      :suggestion-id="bibleDeepLink.worldbookImportSuggestionId || ''"
+      @close="worldbookImportOpen = false"
+    />
 
     <details class="panel world-bible-open-questions" data-section="bible-open-questions">
       <summary>
@@ -566,6 +574,7 @@ import { getApi, getRouter, getToast, getConfirm, getShowModalHtml, getCloseModa
 import { worldSession } from "../worldSession.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
+import WorldbookImportPanel from "./WorldbookImportPanel.vue"
 import {
   BIBLE_PAGE_TYPES,
   knowledgeGraphLayout,
@@ -580,6 +589,10 @@ const props = defineProps({
 })
 
 const rootEl = ref(null)
+const worldbookImportOpen = ref(Boolean(props.bibleDeepLink?.openWorldbookImport))
+watch(() => props.bibleDeepLink?.openWorldbookImport, (open) => {
+  if (open) worldbookImportOpen.value = true
+})
 
 const modeLabels = { editor: "编辑", gallery: "图鉴", filter: "筛选", graph: "关联图" }
 

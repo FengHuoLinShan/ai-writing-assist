@@ -275,9 +275,7 @@ class WorldAttentionSummaryService:
             key=f"world:conflict:{item_id}",
             source_kind="world_conflict",
             title=(
-                "世界设定需要确认"
-                if action == "needs_decision"
-                else "世界设定可以改进"
+                "世界设定需要确认" if action == "needs_decision" else "世界设定可以改进"
             ),
             summary=str(_value(item, "summary") or "查看世界设定检查结果。"),
             author_action=action,
@@ -297,11 +295,10 @@ class WorldAttentionSummaryService:
         refs = _source_refs(item, payload)
         page = payload.get("page") if isinstance(payload.get("page"), dict) else {}
         target_type = str(_value(item, "target_type") or "")
-        default_title = (
-            "世界设定采用包"
-            if target_type == "world_adoption_package"
-            else "世界设定建议"
-        )
+        default_title = {
+            "world_adoption_package": "世界设定采用包",
+            "worldbook_import": "世界书目录导入",
+        }.get(target_type, "世界设定建议")
         title = str(
             payload.get("title")
             or payload.get("name")
@@ -312,14 +309,17 @@ class WorldAttentionSummaryService:
             key=f"world:suggestion:{item_id}",
             source_kind="world_suggestion",
             title=f"确认待采用建议：{title}",
-            summary="查看建议并决定是否采用。",
+            summary=(
+                "查看导入预览并决定是否创建或更新工作稿。"
+                if target_type == "worldbook_import"
+                else "查看建议并决定是否采用。"
+            ),
             author_action="needs_decision",
             severity=_severity(_value(item, "risk_level"), default="low"),
-            target_kind=(
-                "world_adoption"
-                if target_type == "world_adoption_package"
-                else "world_suggestion"
-            ),
+            target_kind={
+                "world_adoption_package": "world_adoption",
+                "worldbook_import": "worldbook_import",
+            }.get(target_type, "world_suggestion"),
             item_id=item_id,
             chapter_index=_positive_chapter(payload, *refs),
             scene_id=_scene_id(payload, *refs),

@@ -43,6 +43,7 @@ from modules.world.schemas import (
     WorldBiblePageDraftUpdate,
     WorldBiblePageProposalContent,
     WorldBibleSourceRef,
+    WorldbookImportPayload,
     WorldCoreCheckpointPayload,
     WorldDesignCheckpointPayload,
     WorldGenerationApplyPageDraftRequest,
@@ -312,10 +313,29 @@ class SuggestionQueueService:
         result = await db.execute(
             stmt.order_by(CreationSuggestion.created_at.desc()).offset(skip).limit(limit)
         )
-        return [
-            CreationSuggestionResponse.model_validate(item)
-            for item in result.scalars().all()
-        ], total
+        responses = []
+        for item in result.scalars().all():
+            response = CreationSuggestionResponse.model_validate(item)
+            if item.target_type == "worldbook_import":
+                payload = WorldbookImportPayload.model_validate(item.payload_json)
+                response.payload_json = {
+                    "schema_version": payload.schema_version,
+                    "source_format": payload.source_format,
+                    "manifest_hash": payload.manifest_hash,
+                    "preview_hash": payload.preview_hash,
+                    "counts": {
+                        key: sum(item.action == key for item in payload.items)
+                        for key in (
+                            "create",
+                            "update",
+                            "preserve",
+                            "conflict",
+                            "missing",
+                        )
+                    },
+                }
+            responses.append(response)
+        return responses, total
 
     async def require_generation_revision_parent(
         self,
@@ -430,6 +450,10 @@ class SuggestionQueueService:
             "world_design_checkpoint",
         }:
             raise ValidationError("World checkpoints are read-only and cannot be adopted")
+        if suggestion.target_type == "worldbook_import":
+            raise ValidationError(
+                "Worldbook imports must be applied through the import endpoint"
+            )
         suggestion = await self._claim_pending(db, novel_id, suggestion_id)
         suggestion.payload_json = payload_json
         result_ref: dict[str, Any] = {}
@@ -1033,6 +1057,8 @@ class SuggestionQueueService:
             return WorldDesignCheckpointPayload.model_validate(payload).model_dump(
                 mode="json", by_alias=True
             )
+        if target_type == "worldbook_import":
+            return WorldbookImportPayload.model_validate(payload).model_dump(mode="json")
         if target_type == "world_adoption_package":
             return WorldAdoptionPackagePayload.model_validate(payload).model_dump(
                 mode="json"

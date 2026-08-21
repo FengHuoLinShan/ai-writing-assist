@@ -6,10 +6,12 @@ World API 路由 — v3 因果时空网
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
+from pydantic import ValidationError as PydanticValidationError
 
 from core.api_params import NovelIdQuery
 from core.config import get_settings
@@ -126,6 +128,10 @@ from modules.world.schemas import (
     WorldBibleSynopsisRefreshResponse,
     WorldBibleSynopsisResponse,
     WorldBibleSynopsisRevisionListResponse,
+    WorldbookImportApplyRequest,
+    WorldbookImportApplyResponse,
+    WorldbookImportManifest,
+    WorldbookImportPreviewResponse,
     WorldCoreCheckpointSaveRequest,
     WorldDesignCheckpointSaveRequest,
     WorldGenerationApplyPageDraftRequest,
@@ -174,6 +180,9 @@ from modules.world.services.worldbuilding.knowledge_graph_service import (
 from modules.world.services.worldbuilding.world_generation_center_service import (
     WorldGenerationCenterService,
 )
+from modules.world.services.worldbuilding.worldbook_import_service import (
+    WorldbookImportService,
+)
 from modules.world.services.worldbuilding.worldbuilding_service import (
     ConflictQueueService,
     KnowledgeTagService,
@@ -220,6 +229,7 @@ _ask_world_service = AskWorldService()
 _adoption_package_service = WorldAdoptionPackageService()
 _knowledge_graph_service = WorldKnowledgeGraphService()
 _generation_template_service = GenerationPromptTemplateService()
+_worldbook_import_service = WorldbookImportService()
 
 
 async def _require_active_novel_id(
@@ -231,6 +241,24 @@ async def _require_active_novel_id(
 
 
 ActiveNovelIdQuery = Annotated[str, Depends(_require_active_novel_id)]
+
+
+async def _read_worldbook_import_manifest(request: Request) -> WorldbookImportManifest:
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 64 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail="Worldbook import body is too large"
+            )
+    try:
+        value = json.loads(body.decode("utf-8"))
+        return WorldbookImportManifest.model_validate(value)
+    except (UnicodeDecodeError, json.JSONDecodeError, PydanticValidationError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Worldbook import manifest is invalid",
+        ) from exc
 
 
 @router.get("/knowledge-graph", response_model=WorldKnowledgeGraphResponse)
@@ -738,6 +766,53 @@ async def list_bible_drafts(
 ) -> WorldBiblePageDraftListResponse:
     items, total = await _bible_lifecycle_service.list_drafts(db, novel_id)
     return WorldBiblePageDraftListResponse(items=items, total=total)
+
+
+@router.post(
+    "/bible/imports/preview",
+    response_model=WorldbookImportPreviewResponse,
+    status_code=201,
+)
+async def preview_worldbook_import(
+    db: DbSession,
+    request: Request,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldbookImportPreviewResponse:
+    manifest = await _read_worldbook_import_manifest(request)
+    return await _worldbook_import_service.preview(db, novel_id, manifest)
+
+
+@router.get(
+    "/bible/imports/{suggestion_id}",
+    response_model=WorldbookImportPreviewResponse,
+)
+async def get_worldbook_import_preview(
+    db: DbSession,
+    suggestion_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldbookImportPreviewResponse:
+    return await _worldbook_import_service.get_preview(db, novel_id, suggestion_id)
+
+
+@router.post(
+    "/bible/imports/{suggestion_id}/apply",
+    response_model=WorldbookImportApplyResponse,
+)
+async def apply_worldbook_import(
+    db: DbSession,
+    suggestion_id: str,
+    data: WorldbookImportApplyRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldbookImportApplyResponse:
+    return await _worldbook_import_service.apply(
+        db,
+        novel_id,
+        suggestion_id,
+        data,
+    )
 
 
 @router.post(

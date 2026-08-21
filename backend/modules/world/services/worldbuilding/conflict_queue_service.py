@@ -13,6 +13,7 @@ from modules.world.models import (
 )
 from modules.world.schemas import (
     ConflictQueueResponse,
+    WorldbookImportItem,
     WorldGenerationSemanticInspectionFinding,
     WorldGenerationSemanticInspectionReceipt,
 )
@@ -20,6 +21,65 @@ from shared.utils import parse_uuid
 
 
 class ConflictQueueService:
+    async def replace_worldbook_import_conflicts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        suggestion_id: str,
+        manifest_hash: str,
+        items: list[WorldbookImportItem],
+    ) -> list[ConflictQueueResponse]:
+        nid = parse_uuid(novel_id, "novel_id")
+        pending = (
+            (
+                await db.execute(
+                    select(ConflictCheckQueueItem).where(
+                        ConflictCheckQueueItem.novel_id == nid,
+                        ConflictCheckQueueItem.conflict_type
+                        == "worldbook_import_conflict",
+                        ConflictCheckQueueItem.status == "pending",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        source_keys = {item.source_key for item in items}
+        for existing in pending:
+            if str((existing.target or {}).get("source_key") or "") in source_keys:
+                existing.status = "stale"
+        created: list[ConflictCheckQueueItem] = []
+        for finding in items:
+            conflict = ConflictCheckQueueItem(
+                novel_id=nid,
+                conflict_type="worldbook_import_conflict",
+                severity="high" if finding.action == "conflict" else "medium",
+                source_module="world.worldbook_import",
+                target={
+                    "source_key": finding.source_key,
+                    "source_path": finding.path,
+                    "target_id": finding.target_id,
+                    "target_kind": finding.target_kind,
+                    "suggestion_id": suggestion_id,
+                },
+                target_hash=finding.current_content_hash,
+                summary=finding.reason,
+                evidence_refs_json=[],
+                resolution_json={
+                    "author_action": "needs_decision",
+                    "manifest_hash": manifest_hash,
+                    "source_hash": finding.source_hash,
+                    "current_content_hash": finding.current_content_hash,
+                    "next_step": "手动核对导入版本与项目版本；系统不会自动覆盖或删除。",
+                },
+                status="pending",
+            )
+            db.add(conflict)
+            created.append(conflict)
+        await db.flush()
+        return [ConflictQueueResponse.model_validate(item) for item in created]
+
     async def replace_semantic_inspection(
         self,
         db: AsyncSession,

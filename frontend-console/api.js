@@ -1241,6 +1241,23 @@ const api = {
       return post("/world/design-checkpoints", payload)
     },
 
+    async previewWorldbookImport(novelId, files) {
+      return post(withQuery("/world/bible/imports/preview", { novel_id: novelId }), {
+        schema_version: "world_worldbook_import.v1",
+        files,
+      })
+    },
+
+    async getWorldbookImport(suggestionId, novelId) {
+      return request(withQuery(`/world/bible/imports/${suggestionId}`, { novel_id: novelId }))
+    },
+
+    async applyWorldbookImport(suggestionId, novelId, expectedPreviewHash) {
+      return post(withQuery(`/world/bible/imports/${suggestionId}/apply`, { novel_id: novelId }), {
+        expected_preview_hash: expectedPreviewHash,
+      })
+    },
+
     async getAdoptionArtifact(suggestionId, novelId) {
       return request(withQuery(`/world/adoption-packages/${suggestionId}`, { novel_id: novelId }))
     },

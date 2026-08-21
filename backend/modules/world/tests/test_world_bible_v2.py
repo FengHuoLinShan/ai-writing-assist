@@ -210,6 +210,7 @@ async def test_sections_survive_publish_revision_and_restore_draft(
             title="北境贸易",
             page_type="background",
             free_text="概览",
+            page_meta_json={"worldbook_import": {"source_key": "source-1"}},
             sections_json=[_section("currency", "货币")],
             template_key="world_basic",
             template_version=1,
@@ -225,6 +226,10 @@ async def test_sections_survive_publish_revision_and_restore_draft(
     assert revision is not None
     assert revision.snapshot_json["sections_json"][0]["section_id"] == "currency"
     assert revision.snapshot_json["template_key"] == "world_basic"
+    assert (
+        revision.snapshot_json["page_meta_json"]["worldbook_import"]["source_key"]
+        == "source-1"
+    )
 
     restored = await lifecycle.restore_revision_to_draft(
         db_session,
@@ -234,6 +239,7 @@ async def test_sections_survive_publish_revision_and_restore_draft(
     )
     assert restored.sections_json[0].section_id == "currency"
     assert restored.template_key == "world_basic"
+    assert restored.page_meta_json["worldbook_import"]["source_key"] == "source-1"
 
 
 @pytest.mark.asyncio

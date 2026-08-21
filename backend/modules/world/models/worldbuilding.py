@@ -287,6 +287,7 @@ class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin):
     base_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     page_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    page_meta_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     free_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     sections_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     linked_asset_refs_json: Mapped[list] = mapped_column(
