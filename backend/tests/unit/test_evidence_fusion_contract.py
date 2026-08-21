@@ -57,4 +57,3 @@ def test_business_consumers_use_only_evidence_facade_or_contracts() -> None:
                     violations.append(f"{relative}:{node.lineno}:{name}")
 
     assert violations == []
-
