@@ -121,7 +121,7 @@ class TestRagRebuildIndex:
         )
         assert draft_resp.status_code == 201, f"创建草稿失败: {draft_resp.text[:300]}"
 
-        from modules.rag.facade import index_chapter
+        from modules.evidence.facade import index_chapter
 
         # Act
         chunk_count = await index_chapter(db, pid, 1)
@@ -175,7 +175,7 @@ class TestRagRebuildIndex:
         )
         assert first.status_code == 201, first.text
         first_draft_id = first.json()["draft"]["id"]
-        from modules.rag.facade import index_chapter
+        from modules.evidence.facade import index_chapter
 
         # Act — 首次索引
         count_v1 = await index_chapter(db, pid, 2)

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.agent_step_harness import run_managed_generate
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.context import facade as context_facade
+from modules.evidence import facade as context_facade
 from modules.outline.generator import PlotStructureGenerator
 from shared.utils import parse_uuid
 

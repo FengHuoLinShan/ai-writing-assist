@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from evals.metrics import ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank
 from evals.schemas import DatasetCase, EvalResult, EvalSuite, MetricValue
-from modules.rag.contracts import RagResultBundle
+from modules.evidence.contracts import RagResultBundle
 
 RetrieveFn = Callable[..., Awaitable[RagResultBundle]]
 
@@ -26,7 +26,7 @@ async def evaluate_rag_cases(
 ) -> EvalResult:
     started_at = datetime.now(UTC)
     if retrieve_fn is None:
-        from modules.rag.facade import retrieve as retrieve_fn
+        from modules.evidence.facade import retrieve as retrieve_fn
 
     case_results: list[dict[str, Any]] = []
     p5_values: list[float] = []

@@ -393,7 +393,7 @@ class ParallelSceneEntityExtractionMixin:
                 error_message = redact_diagnostic(error, limit=300)
                 failed_scene_indices.append(scene_index)
                 if snapshot_id is not None:
-                    from modules.context.facade import fail_context_snapshot
+                    from modules.evidence.facade import fail_context_snapshot
 
                     await fail_context_snapshot(
                         db,
@@ -481,7 +481,7 @@ class ParallelSceneEntityExtractionMixin:
                     result_refs=result_refs,
                 )
                 if snapshot_id is not None:
-                    from modules.context.facade import succeed_context_snapshot
+                    from modules.evidence.facade import succeed_context_snapshot
 
                     await succeed_context_snapshot(
                         db,
@@ -494,7 +494,7 @@ class ParallelSceneEntityExtractionMixin:
                 error_message = redact_diagnostic(exc, limit=300)
                 failed_scene_indices.append(scene_index)
                 if snapshot_id is not None:
-                    from modules.context.facade import fail_context_snapshot
+                    from modules.evidence.facade import fail_context_snapshot
 
                     await fail_context_snapshot(
                         db,

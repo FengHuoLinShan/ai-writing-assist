@@ -8,7 +8,7 @@ from unittest import mock
 
 import pytest
 
-from modules.context.contracts import StructureContextBundle
+from modules.evidence.contracts import StructureContextBundle
 from modules.outline.generation.context_builder import (
     _CHAPTER_TEXT_LIMIT,
     PlotStructureContextBuilder,

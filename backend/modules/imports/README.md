@@ -55,7 +55,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
   跨已有资产的建议仅写入任务结果
 - Phase 3 结构化请求同样使用冻结的 `deep_import.phase3.structure_max_tokens`（默认 32768），不再按 prompt 长度进行 token 阶梯扩容；该字段会出现在项目设置与任务冻结快照中。格式/transport 故障可保留一次同预算修复/重试，业务质量 replacement rerun 继续是独立门禁，两者都不扩大 `max_tokens`。
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
-- 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
+- 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.evidence.facade` 写入 `context_snapshots` 审计记录
 - Phase 2a/2b 的活跃 LLM adapter 只消费 workflow 持久化的 effective project
   profile snapshot；缺少 snapshot 时 fail closed，不回退环境 Key，并在每次调用后关闭 client
 - Phase 1/2/3 的 snapshot client 统一由 project runtime seam 构造；主 workflow

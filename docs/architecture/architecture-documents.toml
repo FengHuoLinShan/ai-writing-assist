@@ -1,5 +1,9 @@
 schema_version = 1
 
+# One-release import/HTTP aliases. These directories are not independent
+# business modules and must not be counted as architecture owners.
+compatibility_modules = ["rag", "context"]
+
 # This registry is the machine-readable inventory for current architecture
 # documentation. Historical plans, audits, acceptance reports and archived
 # diagrams are intentionally excluded.
@@ -111,20 +115,20 @@ code_docs = ["backend/modules/story/README.md"]
 api_prefixes = ["/api/story"]
 
 [[components]]
-name = "rag"
+name = "evidence"
 kind = "business"
-source_roots = ["backend/modules/rag"]
-design_docs = ["docs/modules/08_rag.md"]
-code_docs = ["backend/modules/rag/README.md"]
-api_prefixes = ["/api/rag"]
-
-[[components]]
-name = "context"
-kind = "business"
-source_roots = ["backend/modules/context"]
-design_docs = ["docs/modules/09_context.md"]
-code_docs = ["backend/modules/context/README.md"]
-api_prefixes = ["/api/context"]
+source_roots = [
+  "backend/modules/evidence",
+  "backend/modules/rag",
+  "backend/modules/context",
+]
+design_docs = ["docs/modules/08_evidence.md"]
+code_docs = [
+  "backend/modules/evidence/README.md",
+  "backend/modules/evidence/indexing/README.md",
+  "backend/modules/evidence/compilation/README.md",
+]
+api_prefixes = ["/api/rag", "/api/context"]
 
 [[components]]
 name = "writing"

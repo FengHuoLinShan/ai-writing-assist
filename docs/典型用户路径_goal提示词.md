@@ -75,7 +75,7 @@ ok
 让作者在写作工作台上传本地小说文件，系统解析章节、写入 writing_drafts，记录 import_records，并在成功后提示是否启动深度导入。
 
 范围：
-- 后端主模块：backend/modules/imports、backend/modules/writing、backend/modules/rag
+- 后端主模块：backend/modules/imports、backend/modules/writing、backend/modules/evidence/indexing
 - 前端主视图：projectView / writingView 的导入入口和结果反馈
 - 相关测试：imports 单测、import E2E、import-errors E2E
 
@@ -162,7 +162,7 @@ ok
 - 不允许用 mock LLM 代替该路径的最终验收。
 
 范围：
-- 后端主模块：backend/modules/writing、backend/modules/imports、backend/modules/outline、backend/modules/rag
+- 后端主模块：backend/modules/writing、backend/modules/imports、backend/modules/outline、backend/modules/evidence/indexing
 - 前端主视图：writingView
 - 相关测试：writing 单测、writing E2E、writing-conflict E2E；AI 提取可增加真实调用验收记录
 
@@ -250,7 +250,7 @@ ok
 - 三类 P20 与其他 Prompt 优化完成后统一执行，不在单个 Prompt 迭代中提前验收。
 
 范围：
-- 后端主模块：backend/modules/outline、backend/modules/context
+- 后端主模块：backend/modules/outline、backend/modules/evidence/compilation
 - 前端主视图：outlineView，writingView 右侧 Scene 卡联动
 - 相关测试：outline scene 单测、foreshadowing/reveal 单测、outline-scenes E2E、outline-threads-arcs E2E
 
@@ -295,7 +295,7 @@ ok
 让作者在 ragView 中查看索引状态、重建索引、搜索正文片段，并让 writing 发布路径自动触发章节索引。
 
 范围：
-- 后端主模块：backend/modules/rag、backend/modules/writing
+- 后端主模块：backend/modules/evidence/indexing、backend/modules/writing
 - 前端主视图：ragView，writingView 发布进度提示
 - 相关测试：rag 单测、rag E2E、writing 发布触发索引测试
 
@@ -331,7 +331,7 @@ ok
 让作者在 contextView 中选择任务、章节/Scene、揭示模式、视角人物和预算后，编译结构化上下文并渲染为 Markdown Prompt。
 
 范围：
-- 后端主模块：backend/modules/context，聚合 project/world/memory/outline/rag
+- 后端主模块：backend/modules/evidence/compilation，聚合 project/world/memory/outline 与 evidence/indexing
 - 前端主视图：contextView
 - 相关测试：context 单测、context E2E、hidden_truth/知识边界集成测试
 

@@ -13,7 +13,7 @@ from typing import Any
 from infrastructure.llm.agent_step_harness import managed_llm_provenance_scope
 from infrastructure.tasks.facade import require_task_checkpoint_session
 from infrastructure.tasks.registry import task_handler
-from modules.context.facade import (
+from modules.evidence.facade import (
     compile_from_confirmation,
     compile_with_tiers,
     create_context_snapshot,

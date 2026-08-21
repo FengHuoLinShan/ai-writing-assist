@@ -39,8 +39,8 @@ async def create_phase2_snapshot(
     workflow_id: str | None = None,
     activation: dict[str, Any] | None = None,
 ):
-    from modules.context.contracts import ContextSnapshotRequest
-    from modules.context.facade import open_context_snapshot
+    from modules.evidence.contracts import ContextSnapshotRequest
+    from modules.evidence.facade import open_context_snapshot
     from modules.imports.entity_extraction.scene_entity_config import (
         phase2_parallel_scene_max_tokens,
     )
@@ -93,7 +93,7 @@ async def phase2_audit_summary(
 ) -> dict[str, Any]:
     if not workflow_id:
         return {}
-    from modules.context.facade import list_context_snapshots
+    from modules.evidence.facade import list_context_snapshots
 
     snapshots = await list_context_snapshots(
         db,
@@ -133,7 +133,7 @@ async def phase2_snapshot_health_summary(
 ) -> dict[str, Any]:
     if not workflow_id:
         return {}
-    from modules.context.facade import build_snapshot_health_summary
+    from modules.evidence.facade import build_snapshot_health_summary
 
     return await build_snapshot_health_summary(
         db,
@@ -154,8 +154,11 @@ async def create_phase2b_snapshot(
     context_bundle: dict[str, Any] | None = None,
 ):
     from core.errors import ValidationError
-    from modules.context.contracts import ContextSnapshotRequest
-    from modules.context.facade import get_import_scene_source_refs, open_context_snapshot
+    from modules.evidence.contracts import ContextSnapshotRequest
+    from modules.evidence.facade import (
+        get_import_scene_source_refs,
+        open_context_snapshot,
+    )
     from modules.imports.entity_extraction.scene_entity_config import (
         PHASE2B_PROMPT_CONTRACT_VERSION,
     )

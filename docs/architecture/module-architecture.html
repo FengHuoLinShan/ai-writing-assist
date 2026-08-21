@@ -93,7 +93,7 @@
         <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
       </div>
     </div>
-    <p class="subtitle">浏览器兼容预览 · 10 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
+    <p class="subtitle">浏览器兼容预览 · 9 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
   </div>
 
   <div class="diagram-container">
@@ -234,13 +234,13 @@
       <text x="550" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">Scene checkpoint / snapshot</text>
       <text x="550" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">确定性历史重放</text>
 
-      <!-- rag box -->
+      <!-- evidence box -->
       <rect x="780" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="780" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="910" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">rag 检索增强</text>
-      <text x="910" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">分块 → 向量化 → 混合检索</text>
-      <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">向量 + 关键词 + 项目词典 + 关系 + 重要性</text>
-      <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">→ world（术语）→ writing（正文）</text>
+      <text x="910" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence 小说证据</text>
+      <text x="910" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">indexing：分块 · 检索 · freshness</text>
+      <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">compilation：回读 · 可见性 · 确认</text>
+      <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">snapshot · trace · hidden guard</text>
 
       <!-- ===== STRUCTURE LAYER ===== -->
       <rect x="100" y="400" width="900" height="75" rx="8" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
@@ -253,7 +253,7 @@
 
       <!-- ===== SUPPORTING WORKFLOWS ===== -->
       <rect x="40" y="500" width="1020" height="165" rx="10" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="55" y="518" fill="#34d399" font-size="10" font-weight="600">辅助层 Supporting Workflows — 导入 / 上下文 / 写作</text>
+      <text x="55" y="518" fill="#34d399" font-size="10" font-weight="600">辅助层 Supporting Workflows — 导入 / 写作</text>
 
       <!-- imports box -->
       <rect x="60" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
@@ -261,14 +261,14 @@
       <text x="190" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">imports 内容导入</text>
       <text x="190" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">文件解析 · 深层导入工作流</text>
       <text x="190" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">→ writing / world / outline</text>
-      <text x="190" y="614" fill="#34d399" font-size="8" text-anchor="middle">入队 RAG 索引任务</text>
+      <text x="190" y="614" fill="#34d399" font-size="8" text-anchor="middle">入队 Evidence 索引任务</text>
 
-      <!-- context box -->
+      <!-- evidence box -->
       <rect x="420" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="420" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-      <text x="550" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">context 上下文编译</text>
-      <text x="550" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">结构化 LLM 上下文</text>
-      <text x="550" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">拉取 project/world/memory/rag/outline；story Scene 卡/剧本 seam</text>
+      <text x="550" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence 索引与上下文</text>
+      <text x="550" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">indexing · compilation · guard</text>
+      <text x="550" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">聚合 project/world/memory/outline/story</text>
       <text x="550" y="614" fill="#34d399" font-size="8" text-anchor="middle">确认 · snapshot · provenance</text>
 
       <!-- writing box -->
@@ -276,7 +276,7 @@
       <rect x="780" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
       <text x="910" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">writing 写作核心</text>
       <text x="910" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">草稿 CRUD</text>
-      <text x="910" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">publish → rag（索引）+ memory（快照）</text>
+      <text x="910" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">publish → evidence（索引）+ memory（快照）</text>
       <text x="910" y="614" fill="#34d399" font-size="8" text-anchor="middle">正文事实源</text>
 
       <!-- ===== LEGEND ===== -->
@@ -324,8 +324,8 @@
         <h3>模块数量</h3>
       </div>
       <ul>
-        <li>• 11 个活动业务模块（settings 已归入 account / project，含 story Scene 派生层）</li>
-        <li>• account 拥有账户连接；project 拥有项目偏好；interaction 不读取作者资产；AI 地图册属于 world</li>
+        <li>• 10 个活动业务模块（RAG + Context 已物理归入 evidence，含 story Scene 派生层）</li>
+        <li>• evidence 内部分 indexing / compilation；account/project 分拆配置所有权；interaction 不读取作者资产</li>
         <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
       </ul>
     </div>

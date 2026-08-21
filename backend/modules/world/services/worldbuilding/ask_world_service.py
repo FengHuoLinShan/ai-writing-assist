@@ -18,7 +18,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.context.contracts import ContextSnapshotRequest, VisibilityContextContract
+from modules.evidence.contracts import ContextSnapshotRequest, VisibilityContextContract
 from modules.world.llm_schemas import GeneratedAskWorldOutput
 from modules.world.schemas import (
     AskWorldCitation,
@@ -74,7 +74,7 @@ class AskWorldService:
         data: AskWorldQuestionRequest,
     ) -> AskWorldResponse:
         candidates, retrieval = await self._retrieve_candidates(db, data)
-        from modules.context.facade import compile_author_question_evidence
+        from modules.evidence.facade import compile_author_question_evidence
 
         packet = compile_author_question_evidence(candidates)
         included = packet["included"]
@@ -169,7 +169,7 @@ class AskWorldService:
                     source_hash=current_hash,
                 )
             if citation.kind == "manuscript" and citation.source_ref:
-                from modules.context.facade import read_novel_evidence
+                from modules.evidence.facade import read_novel_evidence
 
                 try:
                     source_ref = SourceRangeRefContract(**citation.source_ref)
@@ -214,7 +214,7 @@ class AskWorldService:
         db: AsyncSession,
         data: AskWorldQuestionRequest,
     ) -> tuple[list[dict], dict]:
-        from modules.context.facade import retrieve_planned_context_evidence
+        from modules.evidence.facade import retrieve_planned_context_evidence
 
         bundle = await retrieve_planned_context_evidence(
             db,
@@ -563,7 +563,7 @@ class AskWorldService:
         *,
         model: str,
     ) -> str:
-        from modules.context.facade import open_generation_context_snapshot
+        from modules.evidence.facade import open_generation_context_snapshot
 
         snapshot = await open_generation_context_snapshot(
             db,
@@ -607,7 +607,7 @@ class AskWorldService:
         snapshot_id: str,
         response_hash: str,
     ) -> None:
-        from modules.context.facade import succeed_generation_context_snapshot
+        from modules.evidence.facade import succeed_generation_context_snapshot
 
         await succeed_generation_context_snapshot(
             db,
@@ -623,7 +623,7 @@ class AskWorldService:
         snapshot_id: str,
         error: Exception,
     ) -> None:
-        from modules.context.facade import fail_generation_context_snapshot
+        from modules.evidence.facade import fail_generation_context_snapshot
 
         await fail_generation_context_snapshot(
             db,

@@ -1,6 +1,6 @@
 # ADR-0004 — 小说检索沿用现有模块并以原文为证据事实源
 
-- **状态**: Accepted
+- **状态**: Accepted / Amended（2026-08-21 物理归属调整）
 - **日期**: 2026-07-10
 
 ## 背景
@@ -20,12 +20,12 @@
 
 ### 1. 不创建平行的 retrieval/narrative 模块
 
-小说检索继续通过 writing/outline/rag/context/world 的 `contracts.py` / `facade.py`
+小说检索继续通过 writing/outline/evidence/world 的 `contracts.py` / `facade.py`
 协作。不创建 `manuscript_versions`、`chapters`、`source_blocks`、
 `narrative_units` 或 `unit_realizations`；现有 `writing_drafts`、`scenes` 和
 `scene_spans` 已承担这些职责。
 
-context 内的 `NovelEvidenceService` 是集中业务编排的深模块，不是新业务子域。
+evidence compilation 内的 `NovelEvidenceService` 是集中业务编排的深模块，不是新业务子域。
 
 ### 2. writing 是正文证据事实源
 
@@ -101,3 +101,12 @@ context 已编译、已校验的证据包，不自主选择工具或跨模块改
 
 拒绝。上游召回、摘要或对象搜索可以通过排序、摘要和结果数量侧漏未来信息；
 必须在每个数据所有者边界先过滤，再由 context 复核。
+
+## 2026-08-21 物理归属调整
+
+原 rag 与 context 实现合并为唯一 `modules.evidence` 领域：`indexing/` 保留 chunk、检索、
+embedding、freshness 和既有 `rag_*` task type；`compilation/` 保留原文回读、可见性、
+confirmation、snapshot、trace、Activation Profile 与 hidden guard。表名、持久化 task/action、
+`/api/rag/*`、`/api/context/*` 和所有 schema/wire shape 不变，旧 Python 包只保留一发布周期
+的薄 import alias。本调整消除跨 rag/context facade 往返，不改变 writing 原文事实源、
+outline Scene 映射、world 知识边界或各层过滤要求。

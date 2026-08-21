@@ -47,8 +47,8 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
     assert published.status_code == 201, published.text
     published_draft = published.json()["draft"]
 
-    from modules.rag.facade import index_chapter_with_report
-    from modules.rag.index_state import RagIndexStateService
+    from modules.evidence.facade import index_chapter_with_report
+    from modules.evidence.indexing.index_state import RagIndexStateService
 
     state_service = RagIndexStateService()
     await state_service.begin_direct(
@@ -137,7 +137,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
         "target_path": "known_content",
     }
 
-    from modules.context.facade import record_evidence_link
+    from modules.evidence.facade import record_evidence_link
 
     await record_evidence_link(
         db_session,

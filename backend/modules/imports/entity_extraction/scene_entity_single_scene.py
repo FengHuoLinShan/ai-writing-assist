@@ -89,7 +89,7 @@ class SingleSceneEntityExtractionMixin:
             )
         except Exception as exc:
             if snapshot_id is not None:
-                from modules.context.facade import fail_context_snapshot
+                from modules.evidence.facade import fail_context_snapshot
 
                 async with _optional_lock(db_lock):
                     await fail_context_snapshot(
@@ -144,7 +144,7 @@ class SingleSceneEntityExtractionMixin:
                     result_refs=result_refs,
                 )
                 if snapshot_id is not None:
-                    from modules.context.facade import succeed_context_snapshot
+                    from modules.evidence.facade import succeed_context_snapshot
 
                     await succeed_context_snapshot(
                         db,
@@ -154,7 +154,7 @@ class SingleSceneEntityExtractionMixin:
                     )
         except Exception as exc:
             if snapshot_id is not None:
-                from modules.context.facade import fail_context_snapshot
+                from modules.evidence.facade import fail_context_snapshot
 
                 async with _optional_lock(db_lock):
                     await fail_context_snapshot(

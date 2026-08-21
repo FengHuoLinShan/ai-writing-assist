@@ -28,7 +28,7 @@ NovelCraft 是一个 AI 长篇小说创作 Alpha：作者路径把正文版本�
 | 核心问题 | 回答 |
 | --- | --- |
 | 它解决什么问题？ | 长篇内容持续数十万字后，人物设定、时间线、伏笔、章节结构和对话历史很容易失控；普通 Chat 或简单 RAG 只能生成文本，难以管理长期状态、分支选择和写回副作用。 |
-| 它怎么解决？ | 作者路径用版本化正文和 Scene 锚定世界事实与剧情结构，再由 RAG、Context 和受控 LLM 生成可审查候选；RP 路径用不可变消息树、显式选中分支、流式 checkpoint 和回顾维持私人故事连续性。 |
+| 它怎么解决？ | 作者路径用版本化正文和 Scene 锚定世界事实与剧情结构，再由 Evidence 的索引/编译边界和受控 LLM 生成可审查候选；RP 路径用不可变消息树、显式选中分支、流式 checkpoint 和回顾维持私人故事连续性。 |
 | 核心差异是什么？ | 两条路径都不把“模型刚刚输出的内容”当作无条件真相：作者路径区分候选与正式资产；RP 路径只让代码级选中历史进入后续上下文，未选分支不会悄悄影响故事。 |
 | 当前做到哪一步？ | 当前仓库具备双入口、作者导入/写作/世界设定/大纲/检索主链、基于确认资料的一键 AI 地图册，以及模型知识 RP 旅程、分支、流式恢复、自动回顾和看海循环；仍是工程验证系统。 |
 | 个人职责是什么？ | 负责产品构思、用户流程、需求拆解、架构与安全约束、AI Coding 编排、代码 Diff Review、测试验收和持续迭代；大规模实现主要由 AI Coding 工具完成。 |
@@ -99,7 +99,7 @@ World、Outline、RAG、writing 或 memory。原作文件导入、按第 N 章�
 
 因此系统把职责拆开：
 
-> **RAG 负责找；Context 负责选、裁、确认和追踪；领域模块决定能不能写，以及写成什么状态。**
+> **Evidence 内部的 indexing 负责找，compilation 负责选、裁、确认和追踪；领域模块决定能不能写，以及写成什么状态。**
 
 这也是 NovelCraft 与“聊天框外接向量库”的本质区别：检索只是输入链路的一环，产品真正管理的是从证据到决策、再到受控写回的完整生命周期。
 
@@ -172,10 +172,8 @@ flowchart TB
 
         subgraph Support["辅助层"]
             Imports["imports<br/>解析与深度导入"]
-            RAG["rag<br/>分块、向量、召回"]
-            Context["context<br/>选择、裁剪、确认、证据链"]
+            Evidence["evidence<br/>索引、召回、编译、确认与证据链"]
             Writing["writing<br/>正文版本与写作候选"]
-            Settings["settings<br/>账户模型连接与作者偏好"]
         end
     end
 
@@ -190,16 +188,14 @@ flowchart TB
     Project --> Memory
     Project --> Outline
 
-    Writing -->|"当前正文与 Scene 证据"| RAG
-    World -->|"事实候选"| Context
-    Memory -->|"历史状态"| Context
-    Outline -->|"结构与可见性"| Context
-    RAG -->|"召回候选"| Context
-    Context -->|"冻结后的确认输入"| Writing
+    Writing -->|"当前正文与 Scene 证据"| Evidence
+    World -->|"事实候选"| Evidence
+    Memory -->|"历史状态"| Evidence
+    Outline -->|"结构与可见性"| Evidence
+    Evidence -->|"冻结后的确认输入"| Writing
     Imports -->|"经稳定接口生成候选资产"| World
     Imports -->|"经稳定接口生成结构"| Outline
     Imports -->|"导入正文"| Writing
-    Settings -->|"作者偏好 / 非 secret 工作流设置"| Project
 
     subgraph Platform["共享受控基础设施"]
         Tasks["PostgreSQL 异步任务<br/>lease、checkpoint、恢复"]
@@ -210,11 +206,11 @@ flowchart TB
 
     API --> Tasks
     Imports --> Tasks
-    RAG --> Tasks
+    Evidence --> Tasks
     Writing --> Tasks
     Interaction --> Tasks
-    Settings -->|"文本连接"| LLM
-    Settings -->|"独立图片连接"| Images
+    Account -->|"文本 / 图片账户连接"| LLM
+    Account -->|"独立图片连接"| Images
     Project -->|"文本 client snapshot"| LLM
     Project -->|"图片 client snapshot"| Images
     World --> Images
@@ -232,10 +228,8 @@ flowchart TB
 | `world` | 人物、地点、关系、时间线、事件等长期世界事实，以及来源可追溯、采用前不进入正史的 AI 地图册。 |
 | `memory` | 带来源的记忆、状态快照与可追踪上下文资产。 |
 | `outline` | 总纲、剧情线、篇章纲、Scene 和结构覆盖关系。 |
-| `rag` | 正文分块、embedding、向量召回和候选证据。 |
-| `context` | 上下文选择、可见性、token 预算、确认快照和证据链。 |
+| `evidence` | 正文分块、embedding、混合召回、索引新鲜度，以及上下文可见性、预算、确认快照和证据链。 |
 | `writing` | 当前正文、版本、发布状态、写作生成与候选内容。 |
-| `settings` | 相互独立的账户级文本/图片连接、只读余额、全局作者偏好和非 secret 项目级继承。 |
 | `interaction` | 私人 RP 旅程、不可变选中历史、流式正文恢复、回顾和看海循环。 |
 
 可继续深挖：
@@ -369,7 +363,7 @@ sequenceDiagram
 | 账户级模型连接 | API Key 先经最小真实调用验证，再加密并原子激活；项目只保存非 secret 工作流偏好，可恢复任务用 secret-free 快照固定 provider/model，再读取同 provider 的当前轮换 Key。 | 为什么密钥不再属于项目？Key 轮换、provider 移除或配置漂移时如何 fail closed？ |
 | 受控 LLM 工作流 | 业务代码确定步骤，统一解析账户级模型连接，并对输出做 schema、预算、超时和日志约束。 | 为什么不做自由 ReAct Agent？DeepSeek 默认与 Kimi 门禁如何区分“可配置”和“已验证”？ |
 | 证据绑定 | AI 结论携带原文 quote、字符区间、source hash 和 workflow 来源；正文变化后可以识别陈旧资产。 | 如何防止模型引用不存在的原文？offset 和 hash 各解决什么问题？ |
-| RAG / Context 分离 | RAG 只负责候选召回；Context 负责可见性、token 预算、优先级、确认快照和证据追踪。 | 如何避免未来 Scene 泄漏？为什么检索结果不能直接进 prompt？ |
+| Evidence 内部分层 | indexing 只负责候选召回；compilation 负责可见性、token 预算、优先级、确认快照和证据追踪。 | 如何避免未来 Scene 泄漏？为什么检索结果不能直接进 prompt？ |
 | PostgreSQL 可恢复任务 | 任务使用 lease、checkpoint、幂等边界和 secret-free 执行快照，API 重启后仍可恢复。 | 为什么现阶段不用 Redis / Kafka？如何防止重复消费和晚到写回？ |
 | 不可变 RP 分支 | 编辑、重生成和切换都创建或选择节点，不原地重写历史；selection epoch 和选中路径在提交前复验。 | 为什么不能只在 Prompt 里说“忽略旧分支”？晚到流如何避免重新选中已放弃的故事？ |
 | 可恢复流式正文 | 服务端持久化可见缓冲和 offset，SSE 可从断点恢复；技术失败的部分结果不会自动成为故事历史。 | 为什么网络 / provider 错误不自动重放？如何在成本、重复兄弟节点和恢复体验之间取舍？ |
@@ -465,13 +459,13 @@ OpenResty 与应用服务位于受控网络边界内；数据库不直接暴露�
 
 1. **第 0–1 分钟：建立双入口。** 打开首页，说明作者要管理长期创作资产，而 RP 用户只想自然进入故事；两类需求共享账号和 LLM 基础设施，但不共享复杂首屏。
 2. **第 1–2 分钟：展示作者闭环。** 进入世界对象待处理和大纲工作台，演示 AI 结果如何保留证据、等待作者采用。
-3. **第 2–3 分钟：展示 RAG 与 Context。** 用小说检索找到正文片段，说明“召回候选”与“本轮有权使用”为什么必须分开。
+3. **第 2–3 分钟：展示 Evidence。** 用小说检索找到正文片段，说明内部“召回候选”与“本轮有权使用”为什么必须分开。
 4. **第 3–4 分钟：选择一条生成链路。** 线上版本已包含 RP 首版；在账户设置连接 DeepSeek 后，可展示重新生成、分支选择与断流恢复，也可选择作者候选生成。
 5. **第 4–5 分钟：回到工程。** 展示架构图、作者 / RP 时序和 CI，说明账户模型连接、晚到结果防护、用户授权与 AI Coding 验收边界。
 
 建议按以下路径深入了解：
 
-`产品边界` → `RAG 与 Context` → `LLM 输出治理` → `异步一致性` → `多租户隔离` → `部署与恢复`
+`产品边界` → `Evidence 索引与编译` → `LLM 输出治理` → `异步一致性` → `多租户隔离` → `部署与恢复`
 
 ## 当前边界与下一阶段
 

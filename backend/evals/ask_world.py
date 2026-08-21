@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from evals.metrics import precision_at_k
-from modules.context.services.author_question_evidence import (
+from modules.evidence.compilation.services.author_question_evidence import (
     compile_author_question_evidence,
 )
 from modules.world.services.worldbuilding.ask_world_retrieval import (

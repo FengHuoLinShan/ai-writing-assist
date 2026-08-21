@@ -203,7 +203,7 @@ judging the frontend/backend connection.
 |-------|---------|----------------|
 | **事实层** (Fact) | project, world, memory | Maintain project preferences and canonical facts. world unifies CoreEntity + Character + Event + EntityRelation |
 | **结构层** (Structure) | outline | Organize facts into executable plot plans (threads → arcs → chapter cards → scene cards) |
-| **辅助层** (Support) | rag, context, writing, imports | Retrieval, context compilation, draft writing, and file import. Account connections/global preferences belong to account; project overrides/effective composition belong to project. infrastructure (tasks/llm) is shared infra |
+| **辅助层** (Support) | evidence, writing, imports | Evidence owns retrieval/index freshness plus context compilation/confirmation; writing owns drafts and imports owns file workflows. Account connections/global preferences belong to account; project overrides/effective composition belong to project. infrastructure (tasks/llm) is shared infra |
 
 ## Module Structure
 

@@ -384,11 +384,11 @@ def test_active_project_guard_inventory_is_closed() -> None:
 
     required_modules = {
         "infrastructure.tasks.api",
-        "modules.context.api",
+        "modules.evidence.compilation.api",
         "modules.imports.api",
         "modules.memory.api",
         "modules.outline.api",
-        "modules.rag.api",
+        "modules.evidence.indexing.api",
         "modules.project.settings_api",
         "modules.world.api",
         "modules.world.map_atlas_api",

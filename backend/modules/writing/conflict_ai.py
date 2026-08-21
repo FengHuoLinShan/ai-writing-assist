@@ -124,7 +124,7 @@ class ConflictCheckAiReviewService:
         check_id: str,
         context_confirmation_id: str,
     ) -> tuple[object, list[object]]:
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             bind_confirmed_action_result,
             prepare_confirmed_ai_action,
         )
@@ -359,7 +359,7 @@ class ConflictCheckAiReviewService:
         task_id: str,
         allow_unowned_legacy: bool,
     ) -> _ConflictReviewTaskPlan | tuple[object, list[object]]:
-        from modules.context.facade import prepare_confirmed_ai_action
+        from modules.evidence.facade import prepare_confirmed_ai_action
         from modules.project.facade import require_active_project
 
         await require_active_project(db, novel_id)
@@ -468,7 +468,7 @@ class ConflictCheckAiReviewService:
         output: WritingConflictAiReviewRawOutput,
         model: str | None,
     ) -> tuple[object, list[object]]:
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             bind_confirmed_action_result,
             prepare_confirmed_ai_action,
         )
@@ -613,7 +613,7 @@ class ConflictCheckAiReviewService:
         model: str | None,
         error: str,
     ) -> tuple[object, list[object]]:
-        from modules.context.facade import bind_confirmed_action_result
+        from modules.evidence.facade import bind_confirmed_action_result
 
         safe_error = redact_diagnostic(error, limit=500)
         summary = _summary_with_ai_review(
@@ -694,7 +694,7 @@ class ConflictSuggestionService:
         item_id: str,
         context_confirmation_id: str,
     ) -> object:
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             bind_confirmed_action_result,
             prepare_confirmed_ai_action,
         )
@@ -952,7 +952,7 @@ class ConflictSuggestionService:
             llm_rationale=output.suggestion.rationale,
             error=None,
         )
-        from modules.context.facade import bind_confirmed_action_result
+        from modules.evidence.facade import bind_confirmed_action_result
 
         await bind_confirmed_action_result(
             db,
@@ -1002,7 +1002,7 @@ class ConflictSuggestionService:
         context_confirmation_id: str,
         for_update: bool = False,
     ) -> _ConflictSuggestionTaskPlan:
-        from modules.context.facade import prepare_confirmed_ai_action
+        from modules.evidence.facade import prepare_confirmed_ai_action
 
         nid = _parse_uuid(novel_id, "novel_id")
         item_uuid = _parse_uuid(item_id, "item_id")

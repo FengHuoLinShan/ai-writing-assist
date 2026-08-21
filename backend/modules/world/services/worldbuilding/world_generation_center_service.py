@@ -3450,7 +3450,7 @@ class WorldGenerationCenterService:
 
                 provider = get_container_service("context.generation_background")
             except KeyError:
-                from modules.context.facade import compile_generation_background
+                from modules.evidence.facade import compile_generation_background
 
                 provider = compile_generation_background
         if operation == "world.generation.chat":
@@ -3714,7 +3714,7 @@ class WorldGenerationCenterService:
             return
         try:
             if error is not None:
-                from modules.context.facade import fail_generation_context_snapshot
+                from modules.evidence.facade import fail_generation_context_snapshot
 
                 await fail_generation_context_snapshot(
                     db,
@@ -3724,7 +3724,7 @@ class WorldGenerationCenterService:
                     error_message=redact_diagnostic(error, limit=1000),
                 )
             else:
-                from modules.context.facade import succeed_generation_context_snapshot
+                from modules.evidence.facade import succeed_generation_context_snapshot
 
                 await succeed_generation_context_snapshot(
                     db,
@@ -3741,7 +3741,7 @@ class WorldGenerationCenterService:
             if error is not None:
                 return
             try:
-                from modules.context.facade import fail_generation_context_snapshot
+                from modules.evidence.facade import fail_generation_context_snapshot
 
                 await fail_generation_context_snapshot(
                     db,

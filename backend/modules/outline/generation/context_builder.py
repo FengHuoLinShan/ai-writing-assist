@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context import facade as context_facade
+from modules.evidence import facade as context_facade
 from modules.outline.generation.context_renderer import (
     _CHAPTER_TEXT_LIMIT,
     _PromptTextGuard,

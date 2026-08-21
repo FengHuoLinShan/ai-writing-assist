@@ -51,7 +51,7 @@ async def test_entity_fusion_evidence_uses_context_planner_with_entity_anchors(
         )
 
     monkeypatch.setattr(
-        "modules.context.facade.retrieve_planned_context_evidence",
+        "modules.evidence.facade.retrieve_planned_context_evidence",
         retrieve,
     )
 
@@ -80,7 +80,7 @@ async def test_entity_fusion_evidence_propagates_database_failures(
         raise SQLAlchemyError("database unavailable")
 
     monkeypatch.setattr(
-        "modules.context.facade.retrieve_planned_context_evidence",
+        "modules.evidence.facade.retrieve_planned_context_evidence",
         fail_retrieval,
     )
 
@@ -1654,7 +1654,7 @@ async def test_entity_fusion_suggests_same_type_summary_overlap(
         )
 
     monkeypatch.setattr(
-        "modules.context.facade.search_novel_evidence",
+        "modules.evidence.facade.search_novel_evidence",
         fail_evidence_search,
     )
 

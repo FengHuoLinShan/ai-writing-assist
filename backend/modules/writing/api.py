@@ -21,7 +21,7 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
-from modules.context.facade import (
+from modules.evidence.facade import (
     bind_confirmed_action_result,
     prepare_confirmed_ai_action,
 )
@@ -368,7 +368,7 @@ async def create_autosaved_draft(
         title=data.title,
         content=data.content or "",
     )
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     await request_chapter_index(
         db,
@@ -561,7 +561,7 @@ async def create_draft(
                 "writing conflict snapshot archive failed: %s",
                 redact_diagnostic(exc, limit=500),
             )
-    from modules.rag.facade import mark_chapter_index_dirty
+    from modules.evidence.facade import mark_chapter_index_dirty
 
     task_id = None
     if published_new_version:
@@ -609,7 +609,7 @@ async def adopt_candidate_to_working(
 ) -> WritingDraftResponse:
     """将 AI 正文建议显式采用到普通工作稿。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.adopt_candidate_to_working(
         db,
@@ -636,7 +636,7 @@ async def update_draft(
 ) -> WritingDraftResponse:
     """暂存草稿；published 会 copy-on-write，并合并请求 working 索引。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.update_draft(db, draft_id, data, novel_id)
     await request_chapter_index(
@@ -661,7 +661,7 @@ async def checkpoint_draft(
 ) -> WritingDraftResponse:
     """显式保存一个未发布版本。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.checkpoint_draft(db, draft_id, data, novel_id)
     await request_chapter_index(
@@ -687,7 +687,7 @@ async def discard_draft(
 ) -> WritingDraftResponse:
     """放弃当前未发布版本并返回其基线。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.discard_draft(
         db,
@@ -714,7 +714,7 @@ async def delete_draft(
 ) -> None:
     """删除单个版本（至少保留 1 个版本）"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     draft = await _service.get_draft(db, draft_id, novel_id)
     await _service.delete_draft(db, draft_id, novel_id)
@@ -736,7 +736,7 @@ async def delete_chapter(
 ) -> DeleteChapterResponse:
     """软废弃整章所有版本。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     count = await _service.delete_chapter(db, novel_id, chapter_index)
     for content_mode in ("canonical", "working"):

@@ -13,7 +13,7 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
-from modules.context.facade import attach_result_ref, require_fresh_confirmation
+from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
 from modules.outline.p20_schemas import OutlineLayerGenerateRequest
 from modules.outline.p20_service import P20ConflictError, P20GenerationService
 from modules.outline.scene_workbench import (

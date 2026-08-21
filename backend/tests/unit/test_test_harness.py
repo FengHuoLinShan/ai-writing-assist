@@ -312,13 +312,12 @@ def test_root_conftest_registers_all_orm_metadata() -> None:
     }
     required_modules = {
         "infrastructure.tasks.models",
-        "modules.context.models",
+        "modules.evidence.models",
         "modules.imports.models",
         "modules.memory.models",
         "modules.outline.models",
         "modules.project.models",
         "modules.project.settings_models",
-        "modules.rag.models",
         "modules.account.settings_models",
         "modules.world.map_atlas_models",
         "modules.world.models",

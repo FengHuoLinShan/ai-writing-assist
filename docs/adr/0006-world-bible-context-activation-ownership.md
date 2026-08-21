@@ -1,6 +1,6 @@
 # ADR-0006 — 世界书资料与上下文激活规则分属 world / context
 
-- **状态**: Accepted
+- **状态**: Accepted / Amended（2026-08-21 context 能力归 Evidence）
 - **日期**: 2026-07-15
 - **关联设计**: `docs/superpowers/specs/2026-07-14-world-bible-module-v2-design.md`
 
@@ -14,11 +14,13 @@
 
 > 2026-07-15 补充：第 4 节中与世界书 AI 旧接口共存有关的 additive 决定已由
 > [ADR-0007](0007-world-generation-center-consolidation.md) 取代；本 ADR 的所有权与安全边界继续有效。
+> 2026-08-21 补充：下文 `context` 指当前 `evidence/compilation` 子域；表名、API 路径、
+> Activation Profile revision、confirmation/snapshot 与安全语义不变。
 
 ### 1. world 拥有资料，context 拥有激活
 
 - `world` 拥有页面 sections、页面模板、发布/revision、TargetRef 校验和可重建投影。
-- `context` 拥有 Activation Profile、规则 revision、匹配、可见性、预算和 trace。
+- `evidence/compilation` 拥有 Activation Profile、规则 revision、匹配、可见性、预算和 trace。
 - 前端可把二者组合成一个世界书工作区，生产代码仍只能通过 facade/contracts 跨模块调用。
 
 ### 2. 页面不是事实源或 Prompt
@@ -44,7 +46,7 @@ depth、outlet、工具或 system scaffold。
 
 - 新增 world 页面模板与 context Activation Profile 表，但不新增顶级模块或运行时依赖。
 - 页面、模板和 Profile 独立 CAS；既有 confirmation/snapshot 固定实际使用的 revision/hash。
-- `imports`、`writing` 和生成中心只消费 context facade，不读取 world/context 内部表。
+- `imports`、`writing` 和生成中心只消费 evidence facade，不读取 world/evidence 内部表。
 
 ## 拒绝方案
 

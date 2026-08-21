@@ -224,7 +224,7 @@ async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_d
     )
     with (
         patch(
-            "modules.context.facade.retrieve_planned_context_evidence",
+            "modules.evidence.facade.retrieve_planned_context_evidence",
             autospec=True,
             return_value=bundle,
         ),
@@ -254,7 +254,7 @@ async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_d
     await db_session.flush()
     with (
         patch(
-            "modules.context.facade.retrieve_planned_context_evidence",
+            "modules.evidence.facade.retrieve_planned_context_evidence",
             autospec=True,
             return_value=bundle,
         ),
@@ -278,7 +278,7 @@ async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_d
     await db_session.flush()
     with (
         patch(
-            "modules.context.facade.retrieve_planned_context_evidence",
+            "modules.evidence.facade.retrieve_planned_context_evidence",
             autospec=True,
             return_value=bundle,
         ),
@@ -300,7 +300,7 @@ async def test_spatial_evidence_batches_twenty_locations_and_marks_bad_sources_d
     await db_session.flush()
     with (
         patch(
-            "modules.context.facade.retrieve_planned_context_evidence",
+            "modules.evidence.facade.retrieve_planned_context_evidence",
             autospec=True,
             return_value=bundle,
         ),

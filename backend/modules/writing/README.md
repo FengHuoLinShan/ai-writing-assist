@@ -30,7 +30,7 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 自治式长篇生成或跨模块业务编排
 - 代替作者对文学质量、文风和审查结论的最终裁定
 - 多版本自动融合
-- 正文的 RAG 分块（由 RAG 模块负责）
+- 正文的检索分块（由 Evidence indexing 负责）
 
 ## 数据表
 
@@ -108,7 +108,7 @@ async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_o
 通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse`。导入模块等内部调用方不需要直接访问 RAG 模块。
 AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。
 
-`publish_chapter` 通过 RAG 的 task-only DI port 执行索引：先在 worker fence 下结束
+`publish_chapter` 通过 Evidence indexing 的 task-only DI port 执行索引：先在 worker fence 下结束
 source-read checkpoint，再在无 PostgreSQL 事务时等待 embedding，入库前重验
 canonical draft ID/hash。RAG chunk/index state 成功后立即经 worker fence 提交并释放锁，
 memory snapshot 再以 `project FOR SHARE → memory` 的锁序开启新事务。若 RAG 已成功但

@@ -11,7 +11,7 @@ import pytest
 
 from core.errors import NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
-from modules.context.services.compiled_context import (
+from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
     Tier,
@@ -161,7 +161,7 @@ def _patch_facades(
     *confirmations: object,
     project_guard: mock.AsyncMock | None = None,
 ) -> tuple[mock.AsyncMock, mock.AsyncMock, mock.AsyncMock]:
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
     from modules.project import facade as project_facade
 
     prepared = mock.AsyncMock(side_effect=list(confirmations))
@@ -530,7 +530,7 @@ async def test_real_task_session_checkpoints_before_provider_wait(
 ) -> None:
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.worker import _TaskHandlerSession
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
 
     confirmation = await confirm_context(
         db_session,

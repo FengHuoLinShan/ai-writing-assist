@@ -450,7 +450,7 @@ def _stub_resilient_scene_pipeline(monkeypatch):
         _project_settings,
     )
     monkeypatch.setattr(
-        "modules.context.facade.build_snapshot_health_summary",
+        "modules.evidence.facade.build_snapshot_health_summary",
         _snapshot_health_summary,
     )
 

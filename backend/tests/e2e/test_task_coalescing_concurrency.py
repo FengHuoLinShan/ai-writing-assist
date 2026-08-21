@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from infrastructure.tasks.facade import enqueue_coalesced_task, enqueue_operation_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence.indexing.repositories import RagChunkRepository
 from modules.project.models import Project
-from modules.rag.repositories import RagChunkRepository
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]

@@ -184,7 +184,7 @@ loader 完成，默认 loader 在调用时 lazy import `modules.outline.facade`�
 - `structure_meta` 保存结构整理元信息，如 `needs_organize`、可恢复的 `organize_ignored / organize_ignored_at / organize_ignored_by` 人工裁决、`reviewed_at`、`merged_into_scene_id`、`merged_from_scene_ids`、`split_from_scene_id`、`split_at_chapter_index`
 - 深度导入 / 手动融合等自动整理来源通过 `source` 与 `structure_meta` / `provenance_meta` 暴露给管理筛选；手动融合新 Scene 使用 `source="manual_fusion"`
 - `scene_chapter_links` 与 `scene_spans` 表达章节映射；旧章卡 JSON 语境不属于当前 ORM schema
-- 写作页与 RAG `scene_id` 关联依赖 `scenes` 表；RAG 精确正文归因通过
+- 写作页与 Evidence indexing 的 `scene_id` 关联依赖 `scenes` 表；精确正文归因通过
   outline facade 只读获取 `SceneSpanContract`
 
 `scene_spans` 不替代 `scene_chunks`，也不是前端编辑入口。`SceneRepository` 按字段责任同步：

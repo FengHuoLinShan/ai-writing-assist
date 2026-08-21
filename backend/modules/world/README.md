@@ -543,8 +543,8 @@ workflow/result refs 的唯一跨模块入口；它只组装 pending package，�
 `get_world_bible_projection_candidates()` 按项目解析固定页面/CoreEntity TargetRef，并执行
 最大深度 2 的页面链接或关系展开；`get_world_bible_page_source_manifest()` 返回可审计的
 页面版本、section 与 source hash；
-`mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
-避免扩大 context ↔ world 循环 import 风险。
+`mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.evidence.facade`，
+避免扩大 evidence ↔ world 循环 import 风险。
 
 `get_world_background()` 返回只读的 `WorldBackgroundBundleContract`。它从已采用世界对象、
 关系、事件、秘密、已发布 World Bible 页面和人物知识边界派生 token-aware 条目，供 context

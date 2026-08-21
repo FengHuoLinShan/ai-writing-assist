@@ -1216,7 +1216,7 @@ class WritingConflictCheckService:
         data: WritingConflictAiReviewRequest,
         activate: bool = True,
     ) -> WritingConflictCheckResponse:
-        from modules.context.facade import prepare_confirmed_ai_action
+        from modules.evidence.facade import prepare_confirmed_ai_action
 
         nid = _parse_uuid(data.novel_id, "novel_id")
         cid = _parse_uuid(check_id, "check_id")
@@ -2002,7 +2002,7 @@ class WritingGenerationService:
         generation_mode: str = "draft",
         base_draft_id: str | None = None,
     ) -> _WritingGenerationTaskPlan:
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             build_hidden_guard_context,
             prepare_confirmed_ai_action,
         )
@@ -2217,7 +2217,7 @@ class WritingGenerationService:
         plan: _WritingGenerationTaskPlan,
         candidate: WritingDraftCreate,
     ) -> WritingDraftResponse:
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             bind_confirmed_action_result,
             build_hidden_guard_context,
             prepare_confirmed_ai_action,
@@ -2314,7 +2314,7 @@ class WritingGenerationService:
         generation_mode: str = "draft",
         base_draft_id: str | None = None,
     ) -> WritingDraftResponse:
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             build_hidden_guard_context,
             prepare_confirmed_ai_action,
         )

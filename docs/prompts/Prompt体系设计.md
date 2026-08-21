@@ -25,7 +25,7 @@
 | `p20_evidence_audit.md` | P20 候选的项目证据、已物化范围与外部正史污染审计 | `P20GenerationService` |
 | `p20_scope_rule_audit.md` | P20 候选的层级权限、世界规则与人物边界审计 | `P20GenerationService` |
 | `p20_author_instruction_audit.md` | P20 候选逐字段遵守本次作者明确边界的独立审计 | `P20GenerationService` |
-| `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.rag.reranker` |
+| `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.evidence.indexing.reranker` |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象、Delta 与不确定项抽取 | imports |
 | `map_atlas_workflow.py` | 内联 step `world.map_atlas.plan.structured`：把已确认资料规划为最多 20 页的地图册层级；图片 Prompt 交给固定 Image API | world 地图册 |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于完整锁定 Scene 与冻结对象/关系引用提取别名和关系连续性 | imports |

@@ -408,7 +408,7 @@ async def test_execute_uses_phase2b_effective_timeout(
 async def test_finalize_revalidates_then_uses_strict_atomic_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
     from modules.world import facade as world_facade
 
     service = _Service()
@@ -458,7 +458,7 @@ async def test_finalize_revalidates_then_uses_strict_atomic_persistence(
 async def test_finalize_rejects_duplicate_receipt_scenes_before_writes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
     from modules.world import facade as world_facade
 
     service = _Service()
@@ -510,7 +510,7 @@ async def test_finalize_rejects_duplicate_receipt_scenes_before_writes(
 async def test_finalize_keeps_context_snapshot_result_refs_scene_local(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
     from modules.world import facade as world_facade
 
     class _TwoSceneService(_Service):

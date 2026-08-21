@@ -1,5 +1,5 @@
-from modules.context.markdown_renderer import render_compiled_context
-from modules.context.services.compiled_context import (
+from modules.evidence.compilation.markdown_renderer import render_compiled_context
+from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
     Tier,

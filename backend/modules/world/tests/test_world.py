@@ -752,7 +752,7 @@ class TestWorldNovelIsolation:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """测试删除世界对象"""
-        from modules.context import facade as context_facade
+        from modules.evidence import facade as context_facade
 
         context_marker = AsyncMock(return_value=0)
         monkeypatch.setattr(
@@ -798,7 +798,7 @@ class TestWorldNovelIsolation:
         sample_entity_data: WorldEntityCreate,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from modules.context import facade as context_facade
+        from modules.evidence import facade as context_facade
         from modules.world.services.core import entity_revision_service
 
         created = await entity_service.create(db_session, novel_id, sample_entity_data)

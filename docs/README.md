@@ -57,16 +57,15 @@
 2. `modules/02_world.md` — 世界对象模块
 3. `modules/05_memory.md` — 长期记忆模块
 4. `modules/07_outline.md` — 结构化剧情模块
-5. `modules/08_rag.md` — canonical/working 派生索引、候选召回与可选证据重排序
-6. `modules/09_context.md` — 上下文编译模块
-7. `modules/11_writing.md` — 正文草稿承载模块
-8. `modules/13_imports.md` — 小说导入模块
-9. `modules/12_infrastructure.md` — 基础设施模块（LLM + PostgreSQL 任务队列）
-10. `modules/14_frontend.md` — 前端控制台
-11. `modules/15_map.md` — 动态地图子系统（world 模块子系统）
-12. `modules/17_account.md` — 公开浏览器账号、身份、账户模型连接、全局偏好、会话与延期删除
-13. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
-14. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
+5. `modules/08_evidence.md` — canonical/working 索引、检索新鲜度、上下文编译、确认与追踪
+6. `modules/11_writing.md` — 正文草稿承载模块
+7. `modules/13_imports.md` — 小说导入模块
+8. `modules/12_infrastructure.md` — 基础设施模块（LLM + PostgreSQL 任务队列）
+9. `modules/14_frontend.md` — 前端控制台
+10. `modules/15_map.md` — 动态地图子系统（world 模块子系统）
+11. `modules/17_account.md` — 公开浏览器账号、身份、账户模型连接、全局偏好、会话与延期删除
+12. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
+13. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
@@ -154,8 +153,9 @@
 
 ## 当前状态
 
-当前代码注册 11 个业务模块：`account` / `project` / `imports` / `world` /
-`memory` / `outline` / `rag` / `context` / `story` / `writing` / `interaction`。账户连接与全局偏好归
+当前代码注册 10 个业务模块：`account` / `project` / `imports` / `world` /
+`memory` / `outline` / `evidence` / `story` / `writing` / `interaction`。RAG 索引与 Context
+编译/确认归 `evidence`；账户连接与全局偏好归
 `account`，项目偏好与有效配置归 `project`；前端设置页和 `/api/settings` 兼容路由仍保留。
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列

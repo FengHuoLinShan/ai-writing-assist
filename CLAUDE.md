@@ -46,12 +46,13 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 |---|---|---|
 | 事实层 | project, world, memory | 项目、项目偏好与正史事实、记忆 |
 | 结构层 | outline | threads、arcs、Scene 与结构计划 |
-| 辅助层 | imports, rag, context, story, writing | 导入、检索、上下文、Scene 人物卡/剧本、正文 |
+| 辅助层 | imports, evidence, story, writing | 导入、证据索引/编译/确认、Scene 人物卡/剧本、正文 |
 | 独立 RP 领域 | interaction | 隐藏项目、不可变选中历史、流式故事与回顾 |
 
 `infrastructure/llm` 与 `infrastructure/tasks` 是共享基础层；`map` 是 `world` 拥有的 AI 地图册子系统。
-当前业务模块共 11 个：`account`、`project`、`imports`、`world`、`memory`、`outline`、`rag`、
-`context`、`story`、`writing`、`interaction`。账户连接与全局偏好归 `account`，项目偏好与有效配置归
+当前业务模块共 10 个：`account`、`project`、`imports`、`world`、`memory`、`outline`、
+`evidence`、`story`、`writing`、`interaction`。RAG 索引与 Context 编译/确认归 `evidence`；
+账户连接与全局偏好归 `account`，项目偏好与有效配置归
 `project`；`account` 是公开身份与 owner 边界，
 `interaction` 是 RP 私人故事领域，二者都不属于作者小说创作资产三层；
 `geo`、`review`、`character`、`timeline` 已移除或合并，不再作为模块
@@ -61,7 +62,7 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
   `frontend-console/index.html`。
 - 跨模块只用 contracts、facade 或 DI port；API/facade 不承载复杂业务。模块文件按需使用，
   不为形式建立空接口。
-- 领域真相、状态投影、Scene、alias、RAG/context 分工与受控 LLM 语义见 `CONTEXT.md`；
+- 领域真相、状态投影、Scene、alias、Evidence 内部分工与受控 LLM 语义见 `CONTEXT.md`；
   Prompt 清单和契约见 `docs/prompts/Prompt体系设计.md`。
 - 用户画像、双入口产品方向和功能/前端体验判断门禁见
   `docs/product/user-personas.md`。

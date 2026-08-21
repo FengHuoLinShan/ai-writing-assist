@@ -1605,7 +1605,7 @@ class WorldEntityFusionService:
         source: CoreEntity,
         target: CoreEntity,
     ) -> list[dict[str, Any]]:
-        from modules.context.facade import retrieve_planned_context_evidence
+        from modules.evidence.facade import retrieve_planned_context_evidence
 
         query = (
             f"{source.name} {target.name} {source.summary or ''} {target.summary or ''}"

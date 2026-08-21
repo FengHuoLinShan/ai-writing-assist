@@ -330,7 +330,7 @@ class EntityRevisionService:
         novel_id: str,
         entity_id: str,
     ) -> None:
-        from modules.context.facade import mark_asset_context_changed
+        from modules.evidence.facade import mark_asset_context_changed
         from modules.world.services.worldbuilding.synopsis_invalidation import (
             mark_synopsis_source_changed,
         )

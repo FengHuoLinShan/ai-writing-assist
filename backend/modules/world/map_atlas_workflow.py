@@ -475,7 +475,7 @@ async def _spatial_evidence(
         )
     )
     locations = locations[:20]
-    from modules.context.facade import retrieve_planned_context_evidence
+    from modules.evidence.facade import retrieve_planned_context_evidence
     from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
         WorldBibleLifecycleService,
     )

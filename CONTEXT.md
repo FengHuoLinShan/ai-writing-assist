@@ -70,7 +70,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | RAG 分块 | `rag_chunks` | 文字、来源、offset、Scene/Span、可见性、索引版本和 embedding 状态。 |
 | AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择、结果引用与 `compile_options` 摘要。 |
 | 自动上下文快照 | `context_snapshots` | 真实 LLM 调用的审计记录，保存摘要、hash、预算、资产选择与结果引用；完整 rendered context 仅显式保留。 |
-| 编译上下文 | CompiledContext | context 模块按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
+| 编译上下文 | CompiledContext | evidence compilation 按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
 | AI 地图册 | `map_atlas_runs` / `map_atlas_nodes` / `map_atlas_pages` / `map_atlas_annotations` | 基于已确认资料生成的候选图片及作者采用后的画廊；不作为时间化世界事实。 |
 
 地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
@@ -88,8 +88,8 @@ manifest 与 hash；manifest 按真实来源类型和 ID 记录 context/world lo
 `has_image`。单机 MinIO 将地图册和对象图片放在两个私有 bucket；对象软废弃、融合和别名化
 不移动或删除图片，项目永久删除才排入对应项目前缀清理。
 
-RAG 通过 nullable `scene_span_id` 关联 Scene 物理片段，但不建跨模块硬 FK。context
-负责“选、裁、确认、追踪”，RAG 负责“找”；imports、writing 等模块只能通过 facade 或
+Evidence indexing 通过 nullable `scene_span_id` 关联 Scene 物理片段，但不建跨模块硬 FK；
+compilation 负责“选、裁、确认、追踪”。imports、writing 等模块只能通过 evidence facade 或
 contract 消费它们。
 
 ## 5. 状态、采用与隔离
@@ -150,8 +150,9 @@ RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interact
 
 ## 8. 模块边界与文档使用
 
-当前业务模块为 `account`、`project`、`world`、`memory`、`outline`、`rag`、`context`、
-`writing`、`imports`、`interaction`；账户连接与全局偏好归 account，项目偏好及有效配置
+当前业务模块为 `account`、`project`、`world`、`memory`、`outline`、`evidence`、
+`writing`、`imports`、`interaction`；RAG 索引与 Context 编译/确认归 evidence，
+账户连接与全局偏好归 account，项目偏好及有效配置
 归 project；`map` 是 world 子系统，
 `infrastructure/tasks` 是共享基础设施。`interaction` 是 RP 私人故事领域，不属于作者
 创作资产的事实层、结构层或辅助层。

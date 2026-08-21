@@ -764,7 +764,7 @@ async def test_writing_generation_creates_candidate_without_publish_task(
     db_session: AsyncSession,
 ) -> None:
     """AI 正文生成只创建 candidate 草稿，不自动发布/RAG。"""
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a201"
@@ -815,7 +815,7 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a212"
@@ -882,7 +882,7 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
 async def test_continuation_generation_appends_to_frozen_base_deterministically(
     db_session: AsyncSession,
 ) -> None:
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a213"
@@ -936,7 +936,7 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
     import json
 
     from infrastructure.llm.agent_step_harness import MANAGED_LLM_PROVENANCE_KEY
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.writing.services import WritingGenerationService
 
     class ProvenanceLLMClient:
@@ -1010,7 +1010,7 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
 async def test_writing_generation_sanitizes_candidate_html(
     db_session: AsyncSession,
 ) -> None:
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.writing.services import WritingGenerationService
 
     novel_id = "00000000-0000-0000-0000-00000000a209"
@@ -1054,7 +1054,7 @@ async def test_writing_generate_task_records_task_provenance(
     account_llm_connection: dict,
 ) -> None:
     """AI 正文生成任务创建的候选稿可追踪到确认记录与任务。"""
-    from modules.context.facade import bind_confirmed_action_result, confirm_context
+    from modules.evidence.facade import bind_confirmed_action_result, confirm_context
     from modules.project import llm_runtime
     from modules.project.models import Project
     from modules.writing.tasks import handle_writing_generate
@@ -1128,7 +1128,7 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
     db_session: AsyncSession,
 ) -> None:
     """POV character confirmation writes structured view and validation provenance."""
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.world.models import Character, CharacterKnowledge, CoreEntity
     from modules.writing.services import WritingGenerationService
@@ -1275,7 +1275,7 @@ async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
     db_session: AsyncSession,
 ) -> None:
     """Bad POV JSON still creates a raw candidate when LLM returned useful text."""
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.world.models import Character, CoreEntity
     from modules.writing.services import WritingGenerationService
@@ -1356,7 +1356,7 @@ async def test_publish_creates_rag_chunks(
     from unittest.mock import AsyncMock, patch
 
     from infrastructure.tasks.models import AsyncTask
-    from modules.rag.repositories import RagChunkRepository
+    from modules.evidence.indexing.repositories import RagChunkRepository
     from modules.writing.tasks import handle_publish_chapter
 
     rag_repo = RagChunkRepository()

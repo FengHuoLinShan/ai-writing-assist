@@ -96,7 +96,7 @@ async def validate_candidate_upstream(
 
     confirmation_id = provenance.get("context_confirmation_id")
     if confirmation_id:
-        from modules.context.facade import require_fresh_confirmation
+        from modules.evidence.facade import require_fresh_confirmation
 
         try:
             await require_fresh_confirmation(

@@ -428,7 +428,7 @@ async def test_suggestion_context_invalidation_failure_logs_and_keeps_acceptance
         raise RuntimeError("api_key=credential-value")
 
     monkeypatch.setattr(
-        "modules.context.facade.mark_asset_context_changed",
+        "modules.evidence.facade.mark_asset_context_changed",
         _fail_context_invalidation,
     )
     service = SuggestionQueueService()

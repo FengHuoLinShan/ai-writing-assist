@@ -9,7 +9,7 @@
 | `module-architecture.html` | 浏览器兼容交互预览 | 与当前模块清单和关键边界保持一致；不作为可编辑图源或代码 import 图。 |
 | `architecture-documents.toml` | 当前架构文档机器清单 | 登记中央文档、模块/组件文档、API 前缀和代码差异影响规则；新增、移动、归档文档时先改清单。 |
 | `documentation-maintenance.md` | 架构文档维护流程 | 每轮较大开发按变更影响矩阵更新当前文档，并保留验证证据。 |
-| `../rag-architecture.html` | RAG 视觉参考 | 仅说明 RAG 内部关系；具体接口和 schema 以 rag 模块文档/代码为准。 |
+| `../rag-architecture.html` | RAG 视觉参考 | 仅说明历史 RAG 内部关系；具体接口和 schema 以 Evidence indexing 文档/代码为准。 |
 | `../diagrams/architecture.html` | 历史架构快照 | 包含已移除的 geo/review 等模块，不可用于当前设计或实现决策。 |
 | `../diagrams/system-architecture-slim.html` | 历史瘦身分析 | 记录过去的裁剪讨论，不可用于当前模块清单或数据库判断。 |
 
@@ -37,16 +37,17 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
 
 ## 当前读图约定
 
-- 业务模块共 11 个：`account`、`project`、`world`、`memory`、`outline`、`imports`、
-  `rag`、`context`、`story`、`writing`、`interaction`。
+- 业务模块共 10 个：`account`、`project`、`world`、`memory`、`outline`、`imports`、
+  `evidence`、`story`、`writing`、`interaction`。
 - 创作三层为事实层（`project/world/memory`）、结构层（`outline`）和辅助层
-  （`imports/rag/context/story/writing`）。账户连接与全局偏好归 `account`，项目偏好与有效配置
+  （`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
+  账户连接与全局偏好归 `account`，项目偏好与有效配置
   归 `project`；`account` 是三层之外的公开身份与 owner
   边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、
   `infrastructure/llm` 是共享基础设施。
 - `map` 是 `world` 拥有的 AI 地图册子系统；地图册与世界对象图片共用受限 MinIO 连接、但使用
   私有分 bucket，边界见 ADR-0012 / ADR-0014。`geo/review/character/timeline` 已移除或并入现有模块。
-- 世界观恢复、收束、检修、交接、影响预演和“问世界”仍是既有 `world/context/frontend`
+- 世界观恢复、收束、检修、交接、影响预演和“问世界”仍是既有 `world/evidence/frontend`
   seam 上的固定工作流；本轮新增 CoreEntity 图片版本 metadata migration，但没有新增顶级模块、
   Agent 运行时或持久工作流表。
 - 箭头表达主要调用或资料流，标签说明具体语义；完整生产依赖仍以

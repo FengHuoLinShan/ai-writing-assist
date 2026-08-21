@@ -26,7 +26,7 @@ import modules.account.models  # noqa: E402, F401
 import modules.account.settings_models  # noqa: E402, F401
 
 # character 模块已删除，模型在 modules.world.models
-import modules.context.models  # noqa: E402, F401
+import modules.evidence.models  # noqa: E402, F401
 import modules.imports.models  # noqa: E402, F401
 import modules.interaction.models  # noqa: E402, F401
 import modules.memory.models  # noqa: E402, F401
@@ -35,7 +35,6 @@ import modules.outline.models  # noqa: E402, F401
 # 显式导入所有模块的模型，确保 alembic autogenerate 能检测到所有表
 import modules.project.models  # noqa: E402, F401
 import modules.project.settings_models  # noqa: E402, F401
-import modules.rag.models  # noqa: E402, F401
 import modules.world.map_atlas_models  # noqa: E402, F401
 import modules.world.models  # noqa: E402, F401
 import modules.writing.models  # noqa: E402, F401

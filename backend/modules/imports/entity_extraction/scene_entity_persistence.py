@@ -250,7 +250,7 @@ class SceneEntityPersistenceMixin:
         evidence_type: str = "supports",
         visible_until_chapter: int | None = None,
     ) -> None:
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             locate_scene_quote,
             record_evidence_link,
             record_unresolved_evidence_link,

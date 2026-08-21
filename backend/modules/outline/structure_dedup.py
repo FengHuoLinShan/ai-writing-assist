@@ -528,8 +528,8 @@ class OutlineStructureDedupService:
         source: _StructureAsset,
         target: _StructureAsset,
     ) -> list[dict[str, Any]]:
-        from modules.context.contracts import VisibilityContextContract
-        from modules.context.facade import search_novel_evidence
+        from modules.evidence.contracts import VisibilityContextContract
+        from modules.evidence.facade import search_novel_evidence
 
         query = f"{source.title} {target.title} {source.summary} {target.summary}"[:500]
         try:

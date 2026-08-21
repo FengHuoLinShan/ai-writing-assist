@@ -11,8 +11,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context import facade as context_facade
-from modules.context.contracts import ConfirmedAIActionContext
+from modules.evidence import facade as context_facade
+from modules.evidence.contracts import ConfirmedAIActionContext
 from modules.outline.models import (
     ForeshadowingPlan,
     OutlineArc,

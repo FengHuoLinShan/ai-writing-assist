@@ -23,8 +23,8 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.prompt_loader import load_prompt
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.tasks.contracts import CompletedTaskPayloadContract
-from modules.context import facade as context_facade
-from modules.context.contracts import ConfirmedAIActionContext
+from modules.evidence import facade as context_facade
+from modules.evidence.contracts import ConfirmedAIActionContext
 from modules.outline.models import (
     ForeshadowingPlan,
     OutlineArc,

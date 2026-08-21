@@ -1261,7 +1261,7 @@ class WorldBibleLifecycleService:
         reason: str,
     ) -> None:
         """Invalidate confirmations that consumed this published page."""
-        from modules.context.facade import mark_asset_context_changed
+        from modules.evidence.facade import mark_asset_context_changed
 
         try:
             await mark_asset_context_changed(
@@ -1544,7 +1544,7 @@ class WorldBibleLifecycleService:
         reason: str,
     ) -> None:
         """Invalidate confirmations that explicitly selected this working draft."""
-        from modules.context.facade import mark_asset_context_changed
+        from modules.evidence.facade import mark_asset_context_changed
 
         try:
             await mark_asset_context_changed(

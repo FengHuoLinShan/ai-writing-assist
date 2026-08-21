@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from modules.context.contracts import ConfirmedAIActionContext
+    from modules.evidence.contracts import ConfirmedAIActionContext
 
 POV_PROMPT_NAME = "writing_pov_character"
 POV_FIELDS = (

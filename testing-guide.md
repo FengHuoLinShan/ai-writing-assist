@@ -40,6 +40,10 @@ Account connection/global preference coverage and project preference/effective c
 `backend/tests/account_project_preferences/`; the one-release `/api/settings` aliases are tested there without
 reintroducing a settings domain module.
 
+Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
+`backend/tests/unit/test_evidence_fusion_contract.py` 保证旧 RAG/Context import 仅是同一实现的
+薄别名，且业务调用方只经 `modules.evidence.facade/contracts` 访问。
+
 ## Test execution layers
 
 下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`

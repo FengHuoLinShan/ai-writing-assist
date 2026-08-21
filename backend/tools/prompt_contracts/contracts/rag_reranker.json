@@ -2,7 +2,7 @@
   "id": "rag_reranker",
   "version": 2,
   "owner": "rag",
-  "schema_model": "modules.rag.reranker.RerankerOutput",
+  "schema_model": "modules.evidence.indexing.reranker.RerankerOutput",
   "declared_prompt_fields": [
     "support_status",
     "confidence",

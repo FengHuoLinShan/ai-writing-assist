@@ -649,7 +649,7 @@ class TestWritingAPI:
     @pytest.fixture
     def mock_request_chapter_index(self):
         with patch(
-            "modules.rag.facade.request_chapter_index",
+            "modules.evidence.facade.request_chapter_index",
             autospec=True,
         ) as request:
             yield request
@@ -657,7 +657,7 @@ class TestWritingAPI:
     @pytest.fixture
     def mock_mark_chapter_index_dirty(self):
         with patch(
-            "modules.rag.facade.mark_chapter_index_dirty",
+            "modules.evidence.facade.mark_chapter_index_dirty",
             autospec=True,
         ) as mark_dirty:
             yield mark_dirty

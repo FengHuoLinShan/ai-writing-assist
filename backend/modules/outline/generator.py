@@ -340,7 +340,7 @@ class PlotStructureGenerator:
 
         if parsed is None:
             if snapshot_id is not None:
-                from modules.context.facade import fail_context_snapshot
+                from modules.evidence.facade import fail_context_snapshot
 
                 await fail_context_snapshot(
                     db,
@@ -390,7 +390,7 @@ class PlotStructureGenerator:
         if not persist:
             data = self._preview_result(parsed, warnings=context.warnings)
             if snapshot_id is not None:
-                from modules.context.facade import succeed_context_snapshot
+                from modules.evidence.facade import succeed_context_snapshot
 
                 await succeed_context_snapshot(
                     db,
@@ -437,7 +437,7 @@ class PlotStructureGenerator:
             data = result.to_dict()
             if snapshot_id is not None:
                 refs = self._result_refs(data)
-                from modules.context.facade import succeed_context_snapshot
+                from modules.evidence.facade import succeed_context_snapshot
 
                 await succeed_context_snapshot(
                     db,
@@ -727,8 +727,8 @@ class PlotStructureGenerator:
         include_pending_objects: bool,
         max_tokens: int,
     ) -> str:
-        from modules.context.contracts import ContextSnapshotRequest
-        from modules.context.facade import open_context_snapshot
+        from modules.evidence.contracts import ContextSnapshotRequest
+        from modules.evidence.facade import open_context_snapshot
 
         token_estimate = estimate_token_count(markdown, model=model)
         snapshot = await open_context_snapshot(
@@ -814,7 +814,7 @@ class PlotStructureGenerator:
         snapshot_id: str,
         exc: Exception,
     ) -> None:
-        from modules.context.facade import fail_context_snapshot
+        from modules.evidence.facade import fail_context_snapshot
 
         await fail_context_snapshot(
             db,
@@ -869,7 +869,7 @@ class PlotStructureGenerator:
     ) -> dict[str, Any]:
         if not workflow_id:
             return {}
-        from modules.context.facade import build_snapshot_health_summary
+        from modules.evidence.facade import build_snapshot_health_summary
 
         return await build_snapshot_health_summary(
             db,

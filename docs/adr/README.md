@@ -17,9 +17,9 @@ make docs-check BASE_REF=origin/main
 | [ADR-0001](0001-state-assembler-ownership.md) | Accepted | `state_assembler` 归属 memory；world 只经稳定 seam 消费。 |
 | [ADR-0002](0002-base-crud-service-shape.md) | Accepted | world 通用 CRUD 使用受限 BaseCRUDService 形状，不额外建立空 port。 |
 | [ADR-0003](0003-leaflet-for-map-viewport.md) | Superseded | 旧 Leaflet 地图视口已由 ADR-0012 的 AI 地图册取代。 |
-| [ADR-0004](0004-novel-evidence-retrieval-seams.md) | Accepted | 原文、Scene、RAG、Context 沿既有模块分工，不新增平行检索领域。 |
+| [ADR-0004](0004-novel-evidence-retrieval-seams.md) | Accepted / Amended | writing 保持原文事实源；RAG 索引与 Context 编译/确认物理归并为 evidence，不新增平行检索领域。 |
 | [ADR-0005](0005-core-entity-type-transition.md) | Accepted | CoreEntity 支持受控自定义类型和可逆 Profile 迁移。 |
-| [ADR-0006](0006-world-bible-context-activation-ownership.md) | Accepted | world 拥有世界书资料，context 拥有激活规则和编译审计。 |
+| [ADR-0006](0006-world-bible-context-activation-ownership.md) | Accepted / Amended | world 拥有世界书资料，evidence/compilation 拥有激活规则和编译审计。 |
 | [ADR-0007](0007-world-generation-center-consolidation.md) | Accepted | 世界设定 AI 统一进入生成中心；其接口收口部分取代 ADR-0006 的旧共存范围。 |
 | [ADR-0008](0008-plot-thread-information-progression.md) | Accepted | 大纲按当前层创作，PlotThread 聚合信息推进，伏笔/揭示保留投影。 |
 | [ADR-0009](0009-vue-frontend-incremental-migration.md) | Accepted / Implemented | Vue 3 SFC 已接管实际页面，hash router 仅保留 route-host seam。 |

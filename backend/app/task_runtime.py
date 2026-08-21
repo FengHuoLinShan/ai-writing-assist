@@ -13,7 +13,7 @@ _TASK_HANDLER_MODULES = (
     "modules.interaction.tasks",
     "modules.outline.tasks",
     "modules.project.tasks",
-    "modules.rag.tasks",
+    "modules.evidence.indexing.tasks",
     "modules.story.tasks",
     "modules.world.tasks",
     "modules.writing.tasks",

@@ -20,7 +20,7 @@ async def _mark_confirmation_task_terminal(
     """Close manual context tracking without hiding the task's real failure."""
     try:
         await db.rollback()
-        from modules.context.facade import attach_result_ref
+        from modules.evidence.facade import attach_result_ref
 
         await attach_result_ref(
             db,
