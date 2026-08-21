@@ -44,6 +44,7 @@ class CharacterCard(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
                 "story_character_card_revisions.novel_id",
             ],
             name="fk_story_character_card_current_novel",
+            use_alter=True,
         ),
         Index(
             "ix_story_character_card_novel_status",
@@ -148,11 +149,13 @@ class SceneScriptFile(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
             ["current_revision_id", "novel_id"],
             ["story_scene_script_revisions.id", "story_scene_script_revisions.novel_id"],
             name="fk_story_scene_script_file_current_novel",
+            use_alter=True,
         ),
         ForeignKeyConstraint(
             ["adopted_revision_id", "novel_id"],
             ["story_scene_script_revisions.id", "story_scene_script_revisions.novel_id"],
             name="fk_story_scene_script_file_adopted_novel",
+            use_alter=True,
         ),
         Index(
             "ix_story_scene_script_file_novel_scene",
