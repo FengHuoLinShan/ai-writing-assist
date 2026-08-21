@@ -9,7 +9,7 @@ World 仍拥有 canonical Character，Outline 仍拥有 Scene；Story 通过 fac
 API 前缀为 `/api/story`。资源式路径提供人物卡 revision CRUD、恢复/归档，以及脚本文件的
 多文件保存、revision 列表、采用、撤换采用和归档。Scene 工作台同时使用：
 
-- `/scenes/{scene_id}/character-cards` 与 `/character-cards/generate`
+- `/scenes/{scene_id}/character-cards` 与 `/scenes/{scene_id}/character-cards/generate`
 - `/scenes/{scene_id}/reactions/generate`
 - `/scenes/{scene_id}/scripts`、`/scripts/generate`
 - `/scenes/{scene_id}/simulate`
