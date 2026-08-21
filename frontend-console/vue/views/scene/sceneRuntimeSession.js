@@ -159,6 +159,40 @@ function asSerializableSimulation(simulation) {
   }
 }
 
+function serializedDraftWithinLimit(next) {
+  const serialized = JSON.stringify(next)
+  if (serialized.length <= MAX_DRAFT_BYTES) return serialized
+
+  const bounded = {
+    ...next,
+    scriptDrafts: {},
+    simulation: next.simulation
+      ? asSerializableSimulation({ ...next.simulation, reactions: [] })
+      : null,
+  }
+  if (JSON.stringify(bounded).length > MAX_DRAFT_BYTES) {
+    bounded.simulation = null
+    bounded.scriptPreview = null
+  }
+  if (JSON.stringify(bounded).length > MAX_DRAFT_BYTES) bounded.notes = {}
+
+  let output = JSON.stringify(bounded)
+  if (output.length > MAX_DRAFT_BYTES) {
+    const overflow = output.length - MAX_DRAFT_BYTES
+    bounded.scriptDraft = bounded.scriptDraft.slice(0, Math.max(0, bounded.scriptDraft.length - overflow - 1))
+    output = JSON.stringify(bounded)
+  }
+
+  for (const [key, value] of Object.entries(next.scriptDrafts).reverse()) {
+    if (key === next.activeScriptFileId) continue
+    bounded.scriptDrafts[key] = value
+    const candidate = JSON.stringify(bounded)
+    if (candidate.length > MAX_DRAFT_BYTES) delete bounded.scriptDrafts[key]
+    else output = candidate
+  }
+  return output
+}
+
 export function sceneRuntimeSession(projectId, sceneId) {
   const key = sessionKey(projectId, sceneId)
   if (!sessions.has(key)) {
@@ -200,13 +234,7 @@ export function persistSceneRuntimeDraft(projectId, sceneId, patch = {}) {
   }
   Object.assign(session, next)
   try {
-    const serialized = JSON.stringify(next)
-    if (serialized.length > MAX_DRAFT_BYTES) {
-      const bounded = { ...next, simulation: asSerializableSimulation({ ...next.simulation, reactions: [] }) }
-      localStorage.setItem(storageKey(projectId, sceneId), JSON.stringify(bounded))
-    } else {
-      localStorage.setItem(storageKey(projectId, sceneId), serialized)
-    }
+    localStorage.setItem(storageKey(projectId, sceneId), serializedDraftWithinLimit(next))
   } catch {
     // 草稿持久化失败不阻断当前编辑；内存 session 仍保留本轮内容。
   }

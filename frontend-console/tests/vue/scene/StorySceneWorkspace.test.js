@@ -6,6 +6,8 @@ import { sceneRuntimeManager } from "../../../vue/views/scene/sceneRuntimeManage
 import {
   persistSceneRuntimeDraft,
   resetSceneRuntimeSession,
+  sceneRuntimeDraftKey,
+  sceneRuntimeSession,
 } from "../../../vue/views/scene/sceneRuntimeSession.js"
 
 const payload = {
@@ -44,6 +46,7 @@ describe("Story Scene workspace panels", () => {
   let story
   let state
   let router
+  let tasks
 
   beforeEach(() => {
     localStorage.clear()
@@ -87,6 +90,7 @@ describe("Story Scene workspace panels", () => {
       adoptSceneScriptRevision: vi.fn(),
       unadoptSceneScriptFile: vi.fn(),
     }
+    tasks = { get: vi.fn(), cancel: vi.fn() }
     const api = {
       outline: {
         getSceneWorkbench: vi.fn().mockResolvedValue(payload),
@@ -95,7 +99,7 @@ describe("Story Scene workspace panels", () => {
       },
       world: { listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }) },
       story,
-      tasks: { get: vi.fn(), cancel: vi.fn() },
+      tasks,
       imports: { startStage: vi.fn() },
     }
     setBridgeOverrides({ api, state, router, toast: vi.fn(), showModalHtml: vi.fn(), closeModal: vi.fn(), esc: (value) => String(value ?? "") })
@@ -158,6 +162,83 @@ describe("Story Scene workspace panels", () => {
 
     expect(wrapper.get('[data-action="scene-script-draft-input"]').element.value).toBe("本场留下的草稿")
     expect(wrapper.find(".scene-scripts-panel").text()).toContain("正式正文继续在写作页维护")
+  })
+
+  it("loads the saved script revision when no local draft exists", async () => {
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [],
+      script_files: [{ file_id: "file-1", file_key: "main", title: "主稿", revision: { id: "rev-1", content: "服务端已保存的剧本" } }],
+    })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-script"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.get('[data-action="scene-script-draft-input"]').element.value).toBe("服务端已保存的剧本")
+  })
+
+  it("shows narrative character state instead of persistence lifecycle", async () => {
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [{ character_id: "c1", name: "阿遥", status: "active", content: { personality: "谨慎", current_state: "带伤潜伏" } }],
+      script_files: [],
+    })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-characters"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.get(".scene-character-card__facts").text()).toContain("带伤潜伏")
+    expect(wrapper.get(".scene-character-card__facts").text()).not.toContain("active")
+  })
+
+  it("persists generated character-card provenance after the suggestion is applied", async () => {
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
+      script_files: [],
+    })
+    story.saveCharacterCard.mockResolvedValue({
+      id: "card-1", character_id: "c1", current_revision_id: "rev-1",
+      revision: { id: "rev-1", content: { personality: "更谨慎" } },
+    })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-characters"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('[data-action="edit-scene-character-c1"]').trigger("click")
+    tasks.get.mockResolvedValue({
+      task_id: "task-card-1",
+      status: "done",
+      result: {
+        context_snapshot_id: "snapshot-card-1",
+        preview: { content: { personality: "更谨慎" } },
+      },
+    })
+    sceneRuntimeManager.adopt(
+      { task_id: "task-card-1", status: "pending" },
+      { sceneId: "s1", stage: "character-card" },
+      "p1",
+      "s1",
+    )
+    await vi.waitFor(() => expect(wrapper.find('[data-action="apply-generated-scene-character-card"]').exists()).toBe(true))
+    await wrapper.get('[data-action="apply-generated-scene-character-card"]').trigger("click")
+    await wrapper.get('[data-action="save-scene-character-card"]').trigger("click")
+    await flushPromises()
+
+    expect(story.saveCharacterCard).toHaveBeenCalledWith("p1", "s1", "c1", expect.objectContaining({
+      source_task_id: "task-card-1",
+      context_snapshot_id: "snapshot-card-1",
+    }))
+  })
+
+  it("stores a genuinely bounded multi-file draft while keeping the active draft", () => {
+    const activeDraft = "甲".repeat(200000)
+    persistSceneRuntimeDraft("p1", "s1", {
+      activeScriptFileId: "file-2",
+      scriptDraft: activeDraft,
+      scriptDrafts: { "file-1": "乙".repeat(200000), "file-2": activeDraft },
+    })
+
+    const raw = localStorage.getItem(sceneRuntimeDraftKey("p1", "s1"))
+    expect(raw.length).toBeLessThanOrEqual(256 * 1024)
+    resetSceneRuntimeSession("p1", "s1")
+    expect(sceneRuntimeSession("p1", "s1").scriptDraft).toBe(activeDraft)
   })
 
   it("restores preview provenance, sends it when saving, and clears it after manual edits", async () => {

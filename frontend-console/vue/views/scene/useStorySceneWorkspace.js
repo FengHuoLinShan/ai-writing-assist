@@ -44,7 +44,7 @@ function normalizeCharacter(item, index, worldById = new Map()) {
     id: characterId || `character-${index + 1}`,
     cardId,
     name: String(name),
-    status: item?.status || world.status || content.current_state || "当前状态待补充",
+    status: content.current_state || item?.current_state || world.current_state || "当前状态待补充",
     personality: content.personality || item?.personality || world.personality || world.description || "尚未填写人物卡",
     currentGoal: content.current_goal || item?.current_goal || "",
     currentEmotion: content.current_emotion || item?.current_emotion || "",
@@ -352,6 +352,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       currentState: "",
       currentEmotion: "",
       authorNotes: "",
+      sourceTaskId: null,
+      contextSnapshotId: null,
     })
     cardHistory.value = []
     generatedCard.value = null
@@ -377,6 +379,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       currentState: character.status || "",
       currentEmotion: character.currentEmotion || "",
       authorNotes: character.authorNotes || notes[character.id] || "",
+      sourceTaskId: null,
+      contextSnapshotId: null,
     })
     generatedCard.value = null
     return true
@@ -396,6 +400,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       currentState: content.current_state || cardDraft.currentState,
       currentEmotion: content.current_emotion || cardDraft.currentEmotion,
       authorNotes: content.author_notes || cardDraft.authorNotes,
+      sourceTaskId: generatedCard.value.sourceTaskId || null,
+      contextSnapshotId: generatedCard.value.contextSnapshotId || null,
     })
     toast("已将人物卡建议放入编辑器，请确认后保存", "info")
     return true
@@ -437,6 +443,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         card_id: cardDraft.cardId,
         expected_revision_id: cardDraft.expectedRevisionId,
         confirmed: true,
+        ...(cardDraft.sourceTaskId ? { source_task_id: cardDraft.sourceTaskId } : {}),
+        ...(cardDraft.contextSnapshotId ? { context_snapshot_id: cardDraft.contextSnapshotId } : {}),
         content: {
           version: "character_card.v1",
           personality: cardDraft.personality,
@@ -588,15 +596,19 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       }
       if (!owns(token, targetScene.id)) return false
       scripts.value = scriptItems.map(normalizeScriptFile)
+      const restoredScriptFileId = activeScriptFileId.value
       if (!scripts.value.some((item) => item.fileId === activeScriptFileId.value)) {
         activeScriptFileId.value = scripts.value[0]?.fileId || null
       }
       const selectedScript = activeScriptFile()
       if (selectedScript?.fileId) {
-        scriptDraft.value = scriptDrafts[selectedScript.fileId]
-          ?? scriptDraft.value
-          ?? selectedScript.content
-          ?? ""
+        const hasFileDraft = Object.prototype.hasOwnProperty.call(scriptDrafts, selectedScript.fileId)
+        const hasRestoredActiveDraft = restoredScriptFileId === selectedScript.fileId
+        scriptDraft.value = hasFileDraft
+          ? scriptDrafts[selectedScript.fileId]
+          : hasRestoredActiveDraft
+            ? scriptDraft.value
+            : selectedScript.content || ""
         scriptDrafts[selectedScript.fileId] = scriptDraft.value.slice(0, MAX_SCRIPT_LENGTH)
       }
       if (!simulation.value && taskState.value.ownerSceneId === targetScene.id && taskState.value.result) {
@@ -1028,7 +1040,12 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     const stage = meta?.stage || "simulation"
     const provenance = runtimeProvenance(progress, result, meta)
     if (stage === "character-card") {
-      generatedCard.value = result.preview || result.result?.preview || result.result || result
+      const preview = result.preview || result.result?.preview || result.result || result
+      generatedCard.value = {
+        ...(preview && typeof preview === "object" ? preview : {}),
+        sourceTaskId: provenance.sourceTaskId,
+        contextSnapshotId: provenance.contextSnapshotId,
+      }
       return
     }
     if (stage === "script") {
