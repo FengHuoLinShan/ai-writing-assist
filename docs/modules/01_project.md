@@ -78,8 +78,10 @@ GET    /api/projects/recycle-bin               # 回收站列表
 GET    /api/projects/llm/provider-templates     # 兼容的供应商模板清单
 GET    /api/projects/{id}/llm-settings          # 读取项目非 secret 兼容设置
 PUT    /api/projects/{id}/llm-settings          # 更新非 secret 兼容设置；拒绝 Key
-GET    /api/settings/projects/{id}/effective    # 一版兼容的有效配置投影
-GET/PUT/DELETE /api/settings/projects/{id}/author-preferences # 一版兼容的项目偏好覆盖
+GET    /api/projects/{id}/effective-llm-settings # canonical 有效 LLM 配置投影
+GET    /api/projects/{id}/effective-author-preferences # canonical 有效作者偏好投影
+GET/PUT/DELETE /api/projects/{id}/author-preferences # canonical 项目偏好覆盖
+GET/PUT/DELETE /api/settings/projects/{id}/author-preferences # 一版兼容，同一 endpoint
 POST   /api/projects/{id}/smart-dedup/scan      # 提交跨模块去重建议扫描
 POST   /api/projects/{id}/smart-dedup/apply     # 应用已确认的去重建议
 POST   /api/projects/{id}/restore              # 恢复项目

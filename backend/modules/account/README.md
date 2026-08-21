@@ -40,7 +40,8 @@ claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也�
 - `/api/account`：延期删除状态、申请与撤销；
 - `/api/auth/wechat`：Authing 微信登录；
 - `/api/auth/reauth/wechat`：微信重新认证；
-- `/api/settings/llm`、`/api/settings/author-preferences`：账户连接、余额和全局偏好的一版兼容入口；
+- `/api/account/settings/*`：账户连接、图片连接、余额和全局偏好的 canonical 入口；
+- `/api/settings/*`：上述账户设置的一版兼容入口；
 - `/legal/terms`、`/legal/privacy`：公开协议页面。
 
 HTTP 路由只从当前 account principal 解析 owner。跨模块 owner 查询使用

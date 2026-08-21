@@ -45,6 +45,9 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
   归 `project`；`account` 是三层之外的公开身份与 owner
   边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、
   `infrastructure/llm` 是共享基础设施。
+- Canonical HTTP 所有权与模块一致：`/api/evidence/{indexing,compilation}/*`、
+  `/api/account/settings/*`、`/api/projects/{project_id}/author-preferences`；旧 RAG/Context/Settings
+  前缀仅是同一 handler 的一发布周期兼容挂载。
 - `map` 是 `world` 拥有的 AI 地图册子系统；地图册与世界对象图片共用受限 MinIO 连接、但使用
   私有分 bucket，边界见 ADR-0012 / ADR-0014。`geo/review/character/timeline` 已移除或并入现有模块。
 - 世界观恢复、收束、检修、交接、影响预演和“问世界”仍是既有 `world/evidence/frontend`

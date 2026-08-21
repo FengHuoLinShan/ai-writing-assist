@@ -23,7 +23,9 @@
 
 ## 兼容期
 
-`/api/rag/*` 与 `/api/context/*` 保留一发布周期，直接挂载 Evidence 的两个子路由。
+canonical HTTP 路径为 `/api/evidence/indexing/*` 与
+`/api/evidence/compilation/*`。`/api/rag/*` 与 `/api/context/*` 保留一发布周期，四组
+路径直接挂载同一组 Evidence endpoint。
 `modules.rag` 与 `modules.context` 同期仅作薄 import alias，不注册 handler、不声明 ORM、
 不创建 service，也不拥有任何写入路径。
 
@@ -33,4 +35,3 @@
 cd backend
 pytest modules/evidence/indexing/tests modules/evidence/compilation/tests -q
 ```
-

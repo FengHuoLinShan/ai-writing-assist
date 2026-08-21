@@ -33,7 +33,8 @@ from modules.evidence.indexing.schemas import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
-router = APIRouter(prefix="/api/rag", tags=["rag"])
+handler_router = APIRouter(tags=["rag"])
+router = handler_router
 
 
 async def _require_active_project(db: DbSession, novel_id: str) -> None:
@@ -252,3 +253,9 @@ async def split_text(
         "total": len(chunks),
         "method": method,
     }
+
+
+# One-release HTTP compatibility mount. Canonical Evidence routes mount the
+# same endpoint router from ``modules.evidence.api``.
+router = APIRouter(prefix="/api/rag")
+router.include_router(handler_router)

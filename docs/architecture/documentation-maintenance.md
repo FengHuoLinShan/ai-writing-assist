@@ -65,7 +65,7 @@ operation receipt 或任务 attempt 策略变更还应同步 ADR、tasks/LLM REA
 | 稳定接口、领域职责、路由、依赖、测试入口 | 对应 `backend/modules/<name>/README.md`；必要时 `docs/modules/<nn>_<name>.md` | 对外能力或本模块契约改变时 |
 | 领域词汇、状态投影、资产归属、采用/可见性语义 | `CONTEXT.md` | 作者或跨模块消费者对概念的理解改变时 |
 | 表、外键、索引、唯一约束、派生/事实边界 | `docs/01_数据库设计.md`、对应模块 README | ORM 或 Alembic 改变时 |
-| API 请求/响应、前端工作台、用户流程 | `docs/modules/14_frontend.md`、对应模块 README、`docs/核心业务场景与预期行为.md` | wire shape 或用户可见流程改变时 |
+| API 请求/响应、canonical/兼容挂载、前端工作台、用户流程 | `docs/modules/14_frontend.md`、对应模块 README、`docs/核心业务场景与预期行为.md` | wire shape 或用户可见流程改变时；同 handler 多路径应有 OpenAPI 对等测试 |
 | Prompt 清单、调用方、结构化输出约束 | `docs/prompts/Prompt体系设计.md`、`backend/prompts/` | Prompt 文件、调用方或 schema 契约改变时 |
 | 受控 LLM、队列、任务恢复或观测 | `backend/infrastructure/*/README.md`、`docs/modules/12_infrastructure.md` | 基础设施行为或运行方式改变时 |
 | 图片模型、私有对象存储或外部对象清理 | 所属模块 README、`docs/modules/12_infrastructure.md`、部署配置；长期拓扑取舍另写 ADR | 图片运行时、存储边界、bucket/凭据权限、容量配额或删除恢复语义改变时 |

@@ -16,10 +16,14 @@ from modules.project.settings_schemas import (
     ProjectsUsingDefaultsResponse,
 )
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+defaults_handler_router = APIRouter(tags=["settings"])
+handler_router = APIRouter(tags=["settings"])
+router = handler_router
 
 
-@router.get("/projects-using-defaults", response_model=ProjectsUsingDefaultsResponse)
+@defaults_handler_router.get(
+    "/projects-using-defaults", response_model=ProjectsUsingDefaultsResponse
+)
 async def api_list_projects_using_defaults(
     db: DbSession,
     limit: int = Query(default=50, ge=1, le=200),
@@ -29,7 +33,7 @@ async def api_list_projects_using_defaults(
 
 
 @router.get(
-    "/projects/{project_id}/author-preferences",
+    "/{project_id}/author-preferences",
     response_model=ProjectAuthorPrefsResponse,
 )
 async def api_get_project_author_prefs(
@@ -40,7 +44,7 @@ async def api_get_project_author_prefs(
 
 
 @router.put(
-    "/projects/{project_id}/author-preferences",
+    "/{project_id}/author-preferences",
     response_model=ProjectAuthorPrefsResponse,
     dependencies=[Depends(require_xhr_request)],
 )
@@ -53,7 +57,7 @@ async def api_put_project_author_prefs(
 
 
 @router.delete(
-    "/projects/{project_id}/author-preferences/field/{field_name}",
+    "/{project_id}/author-preferences/field/{field_name}",
     dependencies=[Depends(require_xhr_request)],
 )
 async def api_reset_project_author_prefs_field(
@@ -69,3 +73,10 @@ async def api_reset_project_author_prefs_field(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# One-release compatibility mounts. Canonical owner routes mount these same
+# endpoint routers from the account/project composition roots.
+router = APIRouter(prefix="/api/settings")
+router.include_router(defaults_handler_router)
+router.include_router(handler_router, prefix="/projects")

@@ -150,8 +150,8 @@ RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interact
 
 ## 8. 模块边界与文档使用
 
-当前业务模块为 `account`、`project`、`world`、`memory`、`outline`、`evidence`、
-`writing`、`imports`、`interaction`；RAG 索引与 Context 编译/确认归 evidence，
+当前业务模块为 `account`、`project`、`world`、`memory`、`outline`、`story`、
+`evidence`、`writing`、`imports`、`interaction`；RAG 索引与 Context 编译/确认归 evidence，
 账户连接与全局偏好归 account，项目偏好及有效配置
 归 project；`map` 是 world 子系统，
 `infrastructure/tasks` 是共享基础设施。`interaction` 是 RP 私人故事领域，不属于作者

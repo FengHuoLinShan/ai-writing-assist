@@ -205,6 +205,11 @@ judging the frontend/backend connection.
 | **结构层** (Structure) | outline | Organize facts into executable plot plans (threads → arcs → chapter cards → scene cards) |
 | **辅助层** (Support) | evidence, writing, imports | Evidence owns retrieval/index freshness plus context compilation/confirmation; writing owns drafts and imports owns file workflows. Account connections/global preferences belong to account; project overrides/effective composition belong to project. infrastructure (tasks/llm) is shared infra |
 
+Owner-aligned HTTP prefixes are `/api/evidence/indexing/*`, `/api/evidence/compilation/*`,
+`/api/account/settings/*`, and `/api/projects/{project_id}/author-preferences`.
+The former `/api/rag/*`, `/api/context/*`, and `/api/settings/*` prefixes are one-release
+mount aliases of the same handlers, not separate services.
+
 ## Module Structure
 
 ```

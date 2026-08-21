@@ -244,3 +244,10 @@ async def cancel_deletion(db: DbSession) -> DeletionStateResponse:
         raise ValidationError("此操作需要在 10 分钟内重新认证")
     account = await service.restore_account(db, principal)
     return DeletionStateResponse(status=account.status)
+
+
+from modules.account.settings_api import (  # noqa: E402
+    handler_router as settings_handler_router,
+)
+
+account_router.include_router(settings_handler_router, prefix="/settings")

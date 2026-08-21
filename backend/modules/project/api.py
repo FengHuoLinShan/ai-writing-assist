@@ -312,3 +312,10 @@ async def api_permanent_delete_project(
 ) -> None:
     """永久删除项目（级联删除所有关联数据，不可恢复）"""
     await _service.permanent_delete_project(db, project_id, confirmed=confirmed)
+
+
+from modules.project.settings_api import (  # noqa: E402
+    handler_router as settings_handler_router,
+)
+
+router.include_router(settings_handler_router)

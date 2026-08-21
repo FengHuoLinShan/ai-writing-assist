@@ -169,8 +169,10 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | GET | `/api/projects/llm/provider-templates` | LLM 供应商模板 |
 | GET | `/api/projects/{project_id}/llm-settings` | 兼容读取项目非 secret LLM/深度导入设置 |
 | PUT | `/api/projects/{project_id}/llm-settings` | 兼容更新非 secret 项目设置；Key 写入被拒绝 |
-| GET/PUT/DELETE | `/api/settings/projects/{project_id}/author-preferences` | 一版兼容的项目作者偏好覆盖 |
-| GET | `/api/settings/projects/{project_id}/effective` | 一版兼容的有效配置投影 |
+| GET/PUT/DELETE | `/api/projects/{project_id}/author-preferences` | 项目作者偏好覆盖的 canonical 路径 |
+| GET/PUT/DELETE | `/api/settings/projects/{project_id}/author-preferences` | 一版兼容路径，挂载同一 endpoint |
+| GET | `/api/projects/{project_id}/effective-llm-settings` | 账户连接与项目工作流设置的有效投影 |
+| GET | `/api/projects/{project_id}/effective-author-preferences` | 项目、全局与系统作者偏好的有效投影 |
 | POST | `/api/projects/{project_id}/smart-dedup/scan` | 提交项目级智能去重扫描任务 |
 | POST | `/api/projects/{project_id}/smart-dedup/apply` | 应用用户确认的智能去重建议 |
 | POST | `/api/projects/{project_id}/restore` | 恢复项目 |
@@ -246,7 +248,8 @@ execution fingerprint，再逐组使用独立 savepoint 原子执行；因此前
 ## 测试方式
 
 project 的 `settings_service.py` 拥有项目偏好与 effective composition；它只经 account facade
-读取账户默认，不读取 account ORM/repository。`/api/settings` 路径仅是一版 HTTP 兼容别名，
+读取账户默认，不读取 account ORM/repository。项目偏好使用
+`/api/projects/{project_id}/author-preferences`；`/api/settings` 路径仅是一版 HTTP 兼容别名，
 领域所有权仍由 account/project 分开承担。
 
 ```bash

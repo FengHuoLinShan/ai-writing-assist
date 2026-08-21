@@ -19,7 +19,8 @@ from modules.account.settings_schemas import (
 )
 from modules.account.settings_service import SettingsService
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+handler_router = APIRouter(tags=["settings"])
+router = handler_router
 _service = SettingsService()
 
 
@@ -178,3 +179,9 @@ async def api_put_global_author_prefs(
 async def api_refresh_settings() -> dict:
     """调试端点：触发客户端刷新（D16）。"""
     return {"ok": True}
+
+
+# One-release compatibility mount. ``modules.account.api`` mounts the same
+# handlers under the canonical account-owned path.
+router = APIRouter(prefix="/api/settings")
+router.include_router(handler_router)

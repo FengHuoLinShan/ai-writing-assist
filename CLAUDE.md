@@ -57,6 +57,9 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 `interaction` 是 RP 私人故事领域，二者都不属于作者小说创作资产三层；
 `geo`、`review`、`character`、`timeline` 已移除或合并，不再作为模块
 依赖目标。
+所有者 canonical API 为 `/api/evidence/{indexing,compilation}/*`、
+`/api/account/settings/*` 和 `/api/projects/{project_id}/author-preferences`；
+`/api/rag/*`、`/api/context/*`、`/api/settings/*` 仅是同一 handler 的一发布周期兼容挂载。
 
 - Backend API：`backend/app/main.py`；worker：`backend/run_worker.py`；前端：
   `frontend-console/index.html`。

@@ -297,8 +297,11 @@ Lifecycle v1 为快照提供显式维护入口：
 
 ## API
 
-Evidence 是唯一实现，但为了让现有前端与调用方平滑过渡，下列 `/api/rag/*` 和
-`/api/context/*` 路径保留一发布周期，两者都直接挂载 Evidence 子路由，不存在双服务或双写。
+Evidence 是唯一实现。canonical 路径分别使用 `/api/evidence/indexing/*` 与
+`/api/evidence/compilation/*`；为了让现有前端与调用方平滑过渡，下列 `/api/rag/*` 和
+`/api/context/*` 路径保留一发布周期。canonical 与兼容路径挂载同一 endpoint，不存在双
+handler、双服务或双写。下表列出兼容路径；canonical 路径只替换对应前缀，suffix 与 wire
+response 完全一致。
 
 ```http
 POST /api/rag/chunks

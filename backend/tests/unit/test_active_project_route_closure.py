@@ -40,13 +40,22 @@ PROJECT_LIFECYCLE_EXEMPTIONS = {
     "POST /api/projects/recycle-bin/permanent-delete",
 }
 GLOBAL_EXEMPTIONS = {
+    "GET /api/account/settings/author-preferences",
+    "GET /api/account/settings/llm-defaults",
+    "GET /api/account/settings/projects-using-defaults",
+    "GET /api/evidence/indexing/metrics",
     "GET /api/rag/metrics",
     "GET /api/settings/author-preferences",
     "GET /api/settings/llm-defaults",
     "GET /api/settings/projects-using-defaults",
+    "POST /api/account/settings/refresh",
+    "POST /api/evidence/indexing/chunks/split",
+    "POST /api/evidence/indexing/prewarm",
     "POST /api/rag/chunks/split",
     "POST /api/rag/prewarm",
     "POST /api/settings/refresh",
+    "PUT /api/account/settings/author-preferences",
+    "PUT /api/account/settings/llm-defaults",
     "PUT /api/settings/author-preferences",
     "PUT /api/settings/llm-defaults",
 }
@@ -54,6 +63,9 @@ GLOBAL_EXEMPTIONS = {
 # Project owns this aggregate, so these first calls are its active-object boundary.
 # Keeping the route key in this map makes a newly added project route fail closed.
 PROJECT_OWNED_ACTIVE_BOUNDARIES = {
+    "DELETE /api/projects/{project_id}/author-preferences/field/{field_name}": (
+        "reset_project_author_preferences_field"
+    ),
     "DELETE /api/settings/projects/{project_id}/author-preferences/field/{field_name}": (
         "reset_project_author_preferences_field"
     ),
@@ -68,6 +80,9 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
         "get_effective_llm_settings"
     ),
     "GET /api/projects/{project_id}/llm-settings": "get_llm_settings",
+    "GET /api/projects/{project_id}/author-preferences": (
+        "get_project_author_preferences"
+    ),
     "GET /api/settings/projects/{project_id}/author-preferences": (
         "get_project_author_preferences"
     ),
@@ -76,6 +91,9 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "POST /api/projects/{project_id}/smart-dedup/scan": "get_project",
     "PUT /api/projects/{project_id}": "update_project",
     "PUT /api/projects/{project_id}/llm-settings": "update_llm_settings",
+    "PUT /api/projects/{project_id}/author-preferences": (
+        "upsert_project_author_preferences"
+    ),
     "PUT /api/settings/projects/{project_id}/author-preferences": (
         "upsert_project_author_preferences"
     ),
@@ -125,16 +143,19 @@ def _is_declared_project_scoped(route: APIRoute) -> bool:
 
 
 def _all_api_routes() -> dict[str, APIRoute]:
-    def iter_routes(routes: list[Any]):
+    def iter_routes(routes: list[Any], prefix: str = ""):
         for route in routes:
             if isinstance(route, APIRoute):
-                yield route
+                method = next(iter(route.methods or {""}))
+                yield f"{method} {prefix}{route.path}", route
                 continue
             original_router = getattr(route, "original_router", None)
             if original_router is not None:
-                yield from iter_routes(original_router.routes)
+                include_context = getattr(route, "include_context", None)
+                nested_prefix = str(getattr(include_context, "prefix", "") or "")
+                yield from iter_routes(original_router.routes, prefix + nested_prefix)
 
-    return {_route_key(route): route for route in iter_routes(app.routes)}
+    return dict(iter_routes(app.routes))
 
 
 def test_long_ai_compatibility_routes_are_deprecated_in_openapi() -> None:

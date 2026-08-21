@@ -43,6 +43,9 @@ reintroducing a settings domain module.
 Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 `backend/tests/unit/test_evidence_fusion_contract.py` 保证旧 RAG/Context import 仅是同一实现的
 薄别名，且业务调用方只经 `modules.evidence.facade/contracts` 访问。
+`backend/tests/unit/test_canonical_owner_api_aliases.py` 还保证 owner-aligned canonical
+路径与一发布周期旧路径挂载的是同一 endpoint，且 OpenAPI、response model
+与 CSRF dependency 等价。
 
 ## Test execution layers
 

@@ -4,6 +4,7 @@
 
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些
 confirmation 需要在资产变化后标脏。
+Canonical API 前缀为 `/api/evidence/compilation`；`/api/context` 是一发布周期内的同 handler 兼容挂载。
 
 indexing 负责“找”，compilation 负责“选、裁、确认、追踪”。
 

@@ -128,7 +128,7 @@ code_docs = [
   "backend/modules/evidence/indexing/README.md",
   "backend/modules/evidence/compilation/README.md",
 ]
-api_prefixes = ["/api/rag", "/api/context"]
+api_prefixes = ["/api/evidence", "/api/rag", "/api/context"]
 
 [[components]]
 name = "writing"

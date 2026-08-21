@@ -54,7 +54,7 @@
         <mxCell id="15" value="imports&#xa;文件解析 · 深度导入&#xa;授权 / checkpoint / 恢复" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="30" y="50" width="250" height="95" as="geometry" />
         </mxCell>
-        <mxCell id="16" value="evidence&#xa;indexing：分块 / 检索 / freshness&#xa;compilation：回读 / 可见性 / 确认 / snapshot / guard&#xa;story Scene 人物卡 / adopted 剧本只读 seam" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
+        <mxCell id="16" value="evidence&#xa;indexing：分块 / 检索 / freshness&#xa;compilation：回读 / 可见性 / 确认 / snapshot / guard&#xa;HTTP：/api/evidence/*（旧前缀薄别名）&#xa;story Scene 人物卡 / adopted 剧本只读 seam" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="325" y="50" width="545" height="95" as="geometry" />
         </mxCell>
         <mxCell id="18" value="writing&#xa;正文工作稿 / 已发布版本&#xa;发布后触发索引与记忆更新" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">

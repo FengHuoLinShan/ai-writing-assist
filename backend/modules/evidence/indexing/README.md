@@ -3,6 +3,7 @@
 ## 定位
 
 Evidence 的 indexing 子域负责从结构化小说知识库和文本片段中检索与当前创作任务相关的信息。
+Canonical API 前缀为 `/api/evidence/indexing`；`/api/rag` 是一发布周期内的同 handler 兼容挂载。
 
 `get_scene_mapping_coverage()` 是只读稳定 facade，对 chapter-text chunk 批量对账
 `scene_id + scene_span_id + source_id + source_content_hash + offset overlap`，分开返回
