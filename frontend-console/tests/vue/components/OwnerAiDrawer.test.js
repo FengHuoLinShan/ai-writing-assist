@@ -36,6 +36,9 @@ describe("OwnerAiDrawer", () => {
     expect(loadGenerate).toHaveBeenLastCalledWith(expect.objectContaining({ tab: "task" }))
     expect(wrapper.find("[data-embedded-generate]").exists()).toBe(true)
     expect(router.navigate).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-action="collapse-owner-ai-drawer"]').trigger("click")
+    expect(wrapper.emitted("close")).toHaveLength(1)
     wrapper.unmount()
   })
 
