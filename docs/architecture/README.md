@@ -37,10 +37,10 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
 
 ## 当前读图约定
 
-- 业务模块共 11 个：`account`、`project`、`world`、`memory`、`outline`、`imports`、
-  `rag`、`context`、`writing`、`settings`、`interaction`。
+- 业务模块共 12 个：`account`、`project`、`world`、`memory`、`outline`、`imports`、
+  `rag`、`context`、`story`、`writing`、`settings`、`interaction`。
 - 创作三层为事实层（`project/world/memory`）、结构层（`outline`）和辅助层
-  （`imports/rag/context/writing/settings`）。`account` 是三层之外的公开身份与 owner
+  （`imports/rag/context/story/writing/settings`）。`account` 是三层之外的公开身份与 owner
   边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、
   `infrastructure/llm` 是共享基础设施。
 - `map` 是 `world` 拥有的 AI 地图册子系统；地图册与世界对象图片共用受限 MinIO 连接、但使用

@@ -58,6 +58,7 @@ def _register_orm_models() -> None:
     import modules.interaction.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
     import modules.settings.models  # noqa: F401, I001
+    import modules.story.models  # noqa: F401, I001
     import modules.world.map_atlas_models  # noqa: F401, I001
     import modules.world.models  # noqa: F401, I001
 

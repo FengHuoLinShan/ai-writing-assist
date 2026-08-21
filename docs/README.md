@@ -67,6 +67,7 @@
 12. `modules/16_settings.md` — 设置模块（账户模型连接、余额、作者偏好与项目覆盖）
 13. `modules/17_account.md` — 公开浏览器账号、身份、会话与延期删除
 14. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
+15. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
@@ -154,8 +155,8 @@
 
 ## 当前状态
 
-当前代码注册 11 个业务模块：`account` / `project` / `imports` / `world` /
-`memory` / `outline` / `rag` / `context` / `writing` / `settings` / `interaction`。
+当前代码注册 12 个业务模块：`account` / `project` / `imports` / `world` /
+`memory` / `outline` / `rag` / `context` / `story` / `writing` / `settings` / `interaction`。
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
 - AI 地图册是 `world` 的子系统，API 前缀为 `/api/world/map-atlas`

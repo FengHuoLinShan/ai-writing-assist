@@ -102,6 +102,14 @@ code_docs = ["backend/modules/outline/README.md"]
 api_prefixes = ["/api/outline"]
 
 [[components]]
+name = "story"
+kind = "business"
+source_roots = ["backend/modules/story"]
+design_docs = ["docs/modules/19_story.md"]
+code_docs = ["backend/modules/story/README.md"]
+api_prefixes = ["/api/story"]
+
+[[components]]
 name = "rag"
 kind = "business"
 source_roots = ["backend/modules/rag"]

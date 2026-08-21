@@ -61,6 +61,45 @@ async def get_scene_execution_bundle(
         "version": scene.updated_at.isoformat(),
         "hash": _hash(scene_payload),
     }
+    story_assets = None
+    try:
+        from modules.story.facade import get_scene_story_assets
+
+        candidate_assets = await get_scene_story_assets(
+            db,
+            novel_id=novel_id,
+            scene_id=str(scene.id),
+        )
+        if candidate_assets.get("adopted_assets_present"):
+            story_assets = candidate_assets
+    except ImportError:
+        story_assets = None
+    story_assets_hash = (
+        story_assets.get("story_context_hash") if story_assets is not None else None
+    )
+    story_manifest: list[dict[str, str]] = []
+    if story_assets is not None:
+        for card in story_assets.get("character_cards", []):
+            revision = card.get("revision") or {}
+            story_manifest.append(
+                {
+                    "type": "story_character_card",
+                    "id": str(card.get("id") or ""),
+                    "version": str(card.get("current_version_number") or 0),
+                    "hash": str(revision.get("content_hash") or ""),
+                }
+            )
+        for script in story_assets.get("adopted_scripts", []):
+            revision = script.get("adopted_revision") or {}
+            story_manifest.append(
+                {
+                    "type": "story_scene_script_adopted",
+                    "id": str(script.get("id") or ""),
+                    "version": str(script.get("adopted_version_number") or 0),
+                    "hash": str(revision.get("content_hash") or ""),
+                }
+            )
+    enriched_manifest = [scene_manifest, *story_manifest]
     missing_fields = _missing_fields(execution_scene)
     current = await StoryOutlineService().get_current(db, novel_id)
     if current.revision is None:
@@ -69,7 +108,7 @@ async def get_scene_execution_bundle(
             "scene": execution_scene,
             "missing_fields": missing_fields,
             "omissions": ["current_story_outline"],
-            "upstream_manifest": [scene_manifest],
+            "upstream_manifest": enriched_manifest,
         }
         return SceneExecutionBundleContract(
             novel_id=novel_id,
@@ -82,8 +121,10 @@ async def get_scene_execution_bundle(
             scene=execution_scene,
             missing_fields=missing_fields,
             omissions=["current_story_outline"],
-            upstream_manifest=[scene_manifest],
+            upstream_manifest=enriched_manifest,
             contract_hash=_hash(payload),
+            story_assets=story_assets,
+            story_assets_hash=story_assets_hash,
         )
 
     revision = current.revision
@@ -102,6 +143,7 @@ async def get_scene_execution_bundle(
             "hash": revision.content_hash,
         },
     ]
+    manifest.extend(story_manifest)
     if profile_hash is not None:
         manifest.append(
             {
@@ -127,6 +169,8 @@ async def get_scene_execution_bundle(
         **payload,
         scene_id=str(scene.id),
         contract_hash=_hash(payload),
+        story_assets=story_assets,
+        story_assets_hash=story_assets_hash,
     )
 
 

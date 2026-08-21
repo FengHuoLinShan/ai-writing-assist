@@ -315,6 +315,10 @@ class SceneExecutionBundleContract:
     omissions: list[str] = field(default_factory=list)
     upstream_manifest: list[dict[str, str]] = field(default_factory=list)
     contract_hash: str = ""
+    # Optional Story-layer enrichment.  The original outline-only execution
+    # contract remains valid when no adopted Story assets exist.
+    story_assets: dict[str, Any] | None = None
+    story_assets_hash: str | None = None
 
 
 def scene_semantic_field_status(

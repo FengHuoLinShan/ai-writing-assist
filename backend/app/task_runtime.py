@@ -14,6 +14,7 @@ _TASK_HANDLER_MODULES = (
     "modules.outline.tasks",
     "modules.project.tasks",
     "modules.rag.tasks",
+    "modules.story.tasks",
     "modules.world.tasks",
     "modules.writing.tasks",
 )

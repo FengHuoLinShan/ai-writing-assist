@@ -29,6 +29,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0012](0012-ai-map-atlas-image-storage.md) | Accepted / Implemented | 固定图片模型、私有 S3、独立图片凭证与删除竞态边界。 |
 | [ADR-0013](0013-operation-receipts-and-page-local-recovery.md) | Accepted | 作者发起的 AI 长任务以 operation receipt 去重，最多两个 attempt，只在原页恢复。 |
 | [ADR-0014](0014-world-object-images-and-single-node-minio.md) | Accepted | 对象图片只经鉴权 API 读取；单机 MinIO 用私有双桶、受限应用凭据和 32GiB 硬配额。 |
+| [ADR-0015](0015-story-evidence-and-settings-physical-fusion.md) | Accepted / Phased implementation | 先交付 Story Scene 垂直切片，再在不改持久化身份的前提下物理融合 Settings、Evidence 和 Story。 |
 
 `ADR-0009 附录 A` 延续 ADR-0009 的编号，不是第二个独立决策编号。
 

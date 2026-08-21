@@ -57,7 +57,7 @@
         <mxCell id="16" value="rag&#xa;可重建分块 / embedding&#xa;候选召回 · 索引新鲜度" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="325" y="50" width="250" height="95" as="geometry" />
         </mxCell>
-        <mxCell id="17" value="context&#xa;聚合 project / world / memory / outline / rag&#xa;选 · 裁 · 确认 · 追踪；回读 writing 原文" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
+        <mxCell id="17" value="context&#xa;聚合 project / world / memory / outline / rag&#xa;选 · 裁 · 确认 · 追踪；回读 writing 原文&#xa;story Scene 人物卡 / adopted 剧本只读 seam" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="620" y="50" width="250" height="95" as="geometry" />
         </mxCell>
         <mxCell id="18" value="writing&#xa;正文工作稿 / 已发布版本&#xa;发布后触发索引与记忆更新" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
