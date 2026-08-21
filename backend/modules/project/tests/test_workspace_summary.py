@@ -196,8 +196,8 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
                     scene_id="scene-current",
                 ),
                 item("extra-1"),
-                item("extra-2"),
-                item("extra-3"),
+                item("extra-2", chapter_index=5, scene_id="scene-5"),
+                item("extra-3", chapter_index=6, scene_id="scene-6"),
             ]
         ),
         writing_attention_reader=AsyncMock(
@@ -236,7 +236,13 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
     assert len(result.attention.items) == 6
     assert len(result.attention.more_targets) == 1
     assert result.attention.more_targets[0].target.kind == "outline_scene"
-    assert result.attention.more_targets[0].target.item_id is None
+    assert result.attention.more_targets[0].target.model_dump(exclude={"kind"}) == {
+        "item_id": None,
+        "chapter_index": None,
+        "scene_id": None,
+        "page_id": None,
+        "suggestion_id": None,
+    }
     writing = next(entry for entry in result.attention.items if entry.key == "writing")
     assert writing.source_kind == "writing_conflict"
     assert writing.target.kind == "writing_conflict"
