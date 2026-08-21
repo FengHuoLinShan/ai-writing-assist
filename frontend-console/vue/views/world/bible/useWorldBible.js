@@ -1413,8 +1413,8 @@ export function useWorldBible(props) {
     }
     if (!editorHasUnsavedChanges()) return proceed()
     showModalHtml(
-      "保存后进入生成中心",
-      `<p>当前页面有未保存修改。生成中心只从服务器读取页面与工作稿，请先保存。</p>`,
+      "保存后打开 AI 工具",
+      `<p>当前页面有未保存修改。AI 工具只从服务器读取页面与工作稿，请先保存。</p>`,
       [
         { text: "取消", class: "btn-ghost", handler: closeModal },
         {

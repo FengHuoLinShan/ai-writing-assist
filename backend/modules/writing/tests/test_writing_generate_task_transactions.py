@@ -15,7 +15,7 @@ from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.errors import LLMTimeoutError
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
-from modules.context.services.compiled_context import (
+from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
     Tier,
@@ -133,9 +133,9 @@ def _patch_facades(
     guard_terms: list[object] | None = None,
     project_guard: mock.AsyncMock | None = None,
 ) -> tuple[mock.AsyncMock, mock.AsyncMock, mock.AsyncMock, mock.AsyncMock]:
-    from modules.context import facade as context_facade
-    from modules.outline import facade as outline_facade
+    from modules.evidence import facade as context_facade
     from modules.project import facade as project_facade
+    from modules.story import facade as outline_facade
 
     prepared = mock.AsyncMock(side_effect=list(confirmations))
     hidden = mock.AsyncMock(return_value=list(guard_terms or []))
@@ -750,7 +750,7 @@ async def test_real_task_session_checkpoints_before_provider_wait(
 ) -> None:
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.worker import _TaskHandlerSession
-    from modules.context.facade import bind_confirmed_action_result, confirm_context
+    from modules.evidence.facade import bind_confirmed_action_result, confirm_context
 
     task_id = uuid.uuid4()
     confirmation = await confirm_context(
@@ -840,8 +840,8 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
 ) -> None:
     from infrastructure.tasks.registry import TaskRegistry
     from infrastructure.tasks.worker import TaskWorker
-    from modules.context.facade import bind_confirmed_action_result, confirm_context
-    from modules.context.models import ContextConfirmation
+    from modules.evidence.compilation.models import ContextConfirmation
+    from modules.evidence.facade import bind_confirmed_action_result, confirm_context
     from modules.project.models import Project
     from modules.writing.models import WritingDraft
     from modules.writing.tasks import handle_writing_generate
@@ -1004,7 +1004,7 @@ async def test_generation_confirmation_cannot_cross_novels(
     db_session,
     test_project_id: str,
 ) -> None:
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.project.models import Project
 
     confirmation = await confirm_context(

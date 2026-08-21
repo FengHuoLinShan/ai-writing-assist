@@ -130,7 +130,7 @@ AI 能力是显式追加流程，不替代规则层结果：
 ## AI 正文建议与采用
 
 `POST /api/writing/generate` 只创建作者可见的正文建议。兼容期底层仍保存为
-`status="candidate"`，但它不会进入 latest working、项目正文统计、原文 grep 或 RAG
+`status="candidate"`，但它不会进入 latest working、项目正文统计、原文 grep 或 Evidence indexing
 working 来源，也不会自动发布。
 生成任务会把确认记录的 `compile_options.requested_chapter_index` 与请求目标章作失败关闭的
 一致性校验。跨章 Scene 为提高检索相关性可把 `chapter_index` 改为 Scene 末章锚点；它不改变

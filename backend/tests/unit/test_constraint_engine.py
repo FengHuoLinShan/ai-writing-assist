@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.context.services.compiled_context import Tier
-from modules.context.services.constraint_engine import ConstraintEngine
+from modules.evidence.compilation.services.compiled_context import Tier
+from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
 
 
 @pytest.mark.asyncio

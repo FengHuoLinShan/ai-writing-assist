@@ -110,7 +110,7 @@ def _phase2b_test_fingerprint(novel_id: str, scene: dict, text: str) -> str:
 
 
 async def _snapshot_rows(db_session: AsyncSession, novel_id: str):
-    from modules.context.facade import list_context_snapshots
+    from modules.evidence.facade import list_context_snapshots
 
     return await list_context_snapshots(db_session, novel_id=novel_id)
 
@@ -392,11 +392,11 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
             return_value={"aliases": 0, "relations": 0},
         ) as persist_output,
         patch(
-            "modules.context.facade.succeed_context_snapshot",
+            "modules.evidence.facade.succeed_context_snapshot",
             autospec=True,
         ),
         patch(
-            "modules.context.facade.fail_context_snapshot",
+            "modules.evidence.facade.fail_context_snapshot",
             autospec=True,
         ),
     ):
@@ -1785,7 +1785,7 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
             },
         ),
         _patched_phase2_summaries(svc),
-        patch("modules.context.facade.succeed_context_snapshot", autospec=True),
+        patch("modules.evidence.facade.succeed_context_snapshot", autospec=True),
         patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scenes_parallel_llm(
@@ -2436,7 +2436,7 @@ async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> Non
             autospec=True,
             side_effect=list_latest_drafts_for_chapters,
         ),
-        patch("modules.context.facade.succeed_context_snapshot", autospec=True),
+        patch("modules.evidence.facade.succeed_context_snapshot", autospec=True),
         patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await BulkSceneEntityExtractor(service).run(

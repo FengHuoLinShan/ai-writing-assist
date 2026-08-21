@@ -1,6 +1,7 @@
 export const SHELL_NAV_ITEMS = Object.freeze([
-  { view: "today", label: "首页", title: "今日工作", icon: "home" },
-  { view: "writing", label: "写作", title: "写作", icon: "writing" },
+  // Keep `today` as the stable navigation seam for old callers.  The router
+  // canonicalizes it to Writing Home, so there is only one author workspace.
+  { view: "today", label: "写作", title: "写作首页与章节", icon: "writing" },
   { view: "world", label: "人物与世界", title: "人物与世界", icon: "world" },
   { view: "outline", label: "故事结构", title: "故事结构", icon: "outline" },
   { view: "map", label: "地图", title: "地图", icon: "map" },
@@ -9,14 +10,12 @@ export const SHELL_NAV_ITEMS = Object.freeze([
 
 export const SHELL_MOBILE_NAV_ITEMS = Object.freeze([
   SHELL_NAV_ITEMS[0],
-  SHELL_NAV_ITEMS[1],
-  { ...SHELL_NAV_ITEMS[2], label: "世界" },
-  { ...SHELL_NAV_ITEMS[3], label: "结构" },
+  { ...SHELL_NAV_ITEMS[1], label: "世界" },
+  { ...SHELL_NAV_ITEMS[2], label: "结构" },
 ])
 
 export const SHELL_MORE_ITEMS = Object.freeze([
   { view: "project", label: "导入与整理", title: "导入正文并整理作品", icon: "project" },
-  { view: "generate", label: "高级工具", title: "高级生成与上下文工具", icon: "generate" },
   { view: "project-settings", label: "项目偏好", title: "项目偏好", icon: "project-settings" },
 ])
 

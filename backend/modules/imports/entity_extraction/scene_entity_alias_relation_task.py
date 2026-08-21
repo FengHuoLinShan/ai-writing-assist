@@ -646,7 +646,7 @@ class AliasRelationTaskMixin:
         } != set(manifest_by_scene):
             raise ValueError("alias/relation provider receipt scene set mismatch")
 
-        from modules.context.facade import (
+        from modules.evidence.facade import (
             fail_context_snapshot,
             succeed_context_snapshot,
         )

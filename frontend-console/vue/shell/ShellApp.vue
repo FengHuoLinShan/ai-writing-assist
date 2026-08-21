@@ -77,10 +77,10 @@ const submoduleTitle = computed(() => services.router.getSubViewTitle(shellState
 const viewNote = computed(() => ({
   project: "选择一部作品，或从空白和已有正文开始。",
   today: "从上次停下的地方继续，待处理内容可以稍后决定。",
-  world: "管理人物、地点、物品和关系等长期创作资料。",
+  world: "管理人物、地点、物品和关系等长期创作资料；需要 AI 时就在本页打开工具。",
   writing: "按章节写作，工作稿会自动保存。",
   rag: "在正文与作品资料中查找可靠来源。",
-  generate: "面向高级用法的生成与上下文工具。",
+  generate: "旧生成入口正在转向所属工作页；已有会话仍可恢复。",
 })[shellState.currentView] || "")
 const wordcountVisible = computed(() => (
   shellState.currentView === "writing"

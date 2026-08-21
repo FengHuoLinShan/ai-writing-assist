@@ -803,7 +803,7 @@ describe("编辑器行为", () => {
     await nextTick()
     // Should show modal instead of navigating
     expect(showModalHtmlMock).toHaveBeenCalled()
-    expect(showModalHtmlMock.mock.calls[0][0]).toBe("保存后进入生成中心")
+    expect(showModalHtmlMock.mock.calls[0][0]).toBe("保存后打开 AI 工具")
     expect(navigateMock).not.toHaveBeenCalled()
   })
 })

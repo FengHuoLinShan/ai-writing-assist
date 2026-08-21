@@ -12,15 +12,27 @@ from unittest import mock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import CompileOptions, StructureContextBundle
-from modules.context.services.loaders.characters_loader import CharactersLoader
-from modules.context.services.loaders.events_loader import EventsLoader
-from modules.context.services.loaders.memory_records_loader import MemoryRecordsLoader
-from modules.context.services.loaders.outline_arc_loader import OutlineArcLoader
-from modules.context.services.loaders.plot_threads_loader import PlotThreadsLoader
-from modules.context.services.loaders.project_loader import ProjectLoader
-from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
-from modules.context.services.loaders.world_entities_loader import WorldEntitiesLoader
+from modules.evidence.compilation.services.loaders.characters_loader import (
+    CharactersLoader,
+)
+from modules.evidence.compilation.services.loaders.events_loader import EventsLoader
+from modules.evidence.compilation.services.loaders.memory_records_loader import (
+    MemoryRecordsLoader,
+)
+from modules.evidence.compilation.services.loaders.outline_arc_loader import (
+    OutlineArcLoader,
+)
+from modules.evidence.compilation.services.loaders.plot_threads_loader import (
+    PlotThreadsLoader,
+)
+from modules.evidence.compilation.services.loaders.project_loader import ProjectLoader
+from modules.evidence.compilation.services.loaders.rag_chunks_loader import (
+    RagChunksLoader,
+)
+from modules.evidence.compilation.services.loaders.world_entities_loader import (
+    WorldEntitiesLoader,
+)
+from modules.evidence.contracts import CompileOptions, StructureContextBundle
 
 # ============================================================
 # 辅助工厂函数
@@ -736,7 +748,7 @@ async def _create_rag_chunk(
     text: str,
     **kwargs: object,
 ) -> str:
-    from modules.rag.models import RagChunk
+    from modules.evidence.indexing.models import RagChunk
 
     cid = uuid.uuid4()
     chunk = RagChunk(

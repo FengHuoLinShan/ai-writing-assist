@@ -113,7 +113,7 @@ class _FakeNestedDb:
 
 
 async def _snapshot_rows(db_session: AsyncSession, novel_id: str):
-    from modules.context.facade import list_context_snapshots
+    from modules.evidence.facade import list_context_snapshots
 
     return await list_context_snapshots(db_session, novel_id=novel_id)
 
@@ -828,7 +828,7 @@ async def test_phase2b_snapshot_helper_creates_alias_relation_snapshot(
     assert stored.context_summary["entity_index_chars"] == len("entity-index")
     assert stored.rendered_context is None
 
-    from modules.context.models import ContextSnapshot
+    from modules.evidence.compilation.models import ContextSnapshot
 
     raw_result = await db_session.execute(select(ContextSnapshot))
     raw_snapshot = raw_result.scalar_one()
@@ -901,7 +901,7 @@ async def test_phase2b_v2_snapshot_stores_full_prompt_payload_and_audit_sources(
         context_bundle=bundle,
     )
 
-    from modules.context.models import ContextSnapshot
+    from modules.evidence.compilation.models import ContextSnapshot
 
     raw_result = await db_session.execute(select(ContextSnapshot))
     raw_snapshot = raw_result.scalar_one()
@@ -969,7 +969,7 @@ async def test_phase2_snapshot_profile_matches_active_project_client_summary(
             workflow_id="wf-profile-summary",
         )
 
-    from modules.context.models import ContextSnapshot
+    from modules.evidence.compilation.models import ContextSnapshot
 
     raw_result = await db_session.execute(
         select(ContextSnapshot).where(ContextSnapshot.id == snapshot.id)
@@ -1730,7 +1730,7 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
     assert aliases[0]["review_meta"]["identity_scope"] == "durable"
     assert aliases[0]["review_meta"]["identity_basis"] == "正文明确说明身份"
 
-    from modules.context.models import EvidenceLink
+    from modules.evidence.compilation.models import EvidenceLink
 
     evidence = list(
         (

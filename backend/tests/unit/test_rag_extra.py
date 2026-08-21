@@ -24,7 +24,7 @@ class TestContracts:
 
     def test_rag_chunk_contract_defaults(self):
         """GREEN: RagChunkContract 使用最少字段创建"""
-        from modules.rag.contracts import RagChunkContract
+        from modules.evidence.contracts import RagChunkContract
 
         c = RagChunkContract(
             id="c1", novel_id="n1", source_type="chapter_text", text="hello"
@@ -56,7 +56,7 @@ class TestContracts:
         """EDGE: RagChunkContract 是 frozen dataclass，修改属性应报错"""
         from dataclasses import FrozenInstanceError
 
-        from modules.rag.contracts import RagChunkContract
+        from modules.evidence.contracts import RagChunkContract
 
         c = RagChunkContract(id="c1", novel_id="n1", source_type="t", text="t")
         with pytest.raises(FrozenInstanceError):
@@ -64,7 +64,7 @@ class TestContracts:
 
     def test_rag_chunk_contract_with_all_fields(self):
         """GREEN: RagChunkContract 填充全部字段"""
-        from modules.rag.contracts import RagChunkContract
+        from modules.evidence.contracts import RagChunkContract
 
         c = RagChunkContract(
             id="c1",
@@ -111,7 +111,7 @@ class TestContracts:
 
     def test_rag_query_contract_defaults(self):
         """GREEN: RagQueryContract 默认值正确"""
-        from modules.rag.contracts import RagQueryContract
+        from modules.evidence.contracts import RagQueryContract
 
         q = RagQueryContract(query="test query")
         assert q.query == "test query"
@@ -124,7 +124,7 @@ class TestContracts:
 
     def test_rag_query_contract_custom_values(self):
         """GREEN: RagQueryContract 自定义值"""
-        from modules.rag.contracts import RagQueryContract
+        from modules.evidence.contracts import RagQueryContract
 
         q = RagQueryContract(
             query="q",
@@ -144,7 +144,7 @@ class TestContracts:
 
     def test_rag_result_bundle_defaults(self):
         """GREEN: RagResultBundle 默认值为空"""
-        from modules.rag.contracts import RagResultBundle
+        from modules.evidence.contracts import RagResultBundle
 
         r = RagResultBundle()
         assert r.chunks == []
@@ -155,7 +155,7 @@ class TestContracts:
 
     def test_rag_result_bundle_with_data(self):
         """GREEN: RagResultBundle 带数据"""
-        from modules.rag.contracts import RagChunkContract, RagResultBundle
+        from modules.evidence.contracts import RagChunkContract, RagResultBundle
 
         chunk = RagChunkContract(id="c1", novel_id="n1", source_type="t", text="t")
         r = RagResultBundle(
@@ -174,7 +174,7 @@ class TestContracts:
 
     def test_rag_index_report_defaults(self):
         """GREEN: RagIndexReport 默认值"""
-        from modules.rag.contracts import RagIndexReport
+        from modules.evidence.contracts import RagIndexReport
 
         r = RagIndexReport(chapter_index=1)
         assert r.chapter_index == 1
@@ -185,7 +185,7 @@ class TestContracts:
 
     def test_rag_index_report_full(self):
         """GREEN: RagIndexReport 全字段"""
-        from modules.rag.contracts import RagIndexReport
+        from modules.evidence.contracts import RagIndexReport
 
         r = RagIndexReport(
             chapter_index=3,
@@ -210,7 +210,7 @@ class TestSchemas:
 
     def test_rag_chunk_create_requires_source_type_and_text(self):
         """GREEN: RagChunkCreate 必需字段"""
-        from modules.rag.schemas import RagChunkCreate
+        from modules.evidence.indexing.schemas import RagChunkCreate
 
         s = RagChunkCreate(source_type="chapter_text", text="hello")
         assert s.source_type == "chapter_text"
@@ -226,7 +226,7 @@ class TestSchemas:
         """ERROR: RagChunkCreate text 为空报 ValidationError"""
         from pydantic import ValidationError
 
-        from modules.rag.schemas import RagChunkCreate
+        from modules.evidence.indexing.schemas import RagChunkCreate
 
         with pytest.raises(
             ValidationError, match="String should have at least 1 character"
@@ -237,7 +237,7 @@ class TestSchemas:
         """ERROR: RagChunkCreate start_offset < 0 报错"""
         from pydantic import ValidationError
 
-        from modules.rag.schemas import RagChunkCreate
+        from modules.evidence.indexing.schemas import RagChunkCreate
 
         with pytest.raises(ValidationError):
             RagChunkCreate(source_type="t", text="t", start_offset=-1)
@@ -249,7 +249,7 @@ class TestSchemas:
         """ERROR: RagChunkCreate 超长字段报错"""
         from pydantic import ValidationError
 
-        from modules.rag.schemas import RagChunkCreate
+        from modules.evidence.indexing.schemas import RagChunkCreate
 
         kwargs = {"source_type": "t", "text": "t", field: "x" * 65}
         with pytest.raises(ValidationError):
@@ -259,7 +259,7 @@ class TestSchemas:
         """ERROR: RagChunkCreate importance 超出 0-1 范围报错"""
         from pydantic import ValidationError
 
-        from modules.rag.schemas import RagChunkCreate
+        from modules.evidence.indexing.schemas import RagChunkCreate
 
         with pytest.raises(ValidationError):
             RagChunkCreate(source_type="t", text="t", importance=1.5)
@@ -268,7 +268,7 @@ class TestSchemas:
 
     def test_rag_query_requires_query_text(self):
         """GREEN: RagQuery 必需字段"""
-        from modules.rag.schemas import RagQuery
+        from modules.evidence.indexing.schemas import RagQuery
 
         q = RagQuery(query="search this")
         assert q.query == "search this"
@@ -282,7 +282,7 @@ class TestSchemas:
         """ERROR: RagQuery 空查询文本报错"""
         from pydantic import ValidationError
 
-        from modules.rag.schemas import RagQuery
+        from modules.evidence.indexing.schemas import RagQuery
 
         with pytest.raises(
             ValidationError, match="String should have at least 1 character"
@@ -293,7 +293,7 @@ class TestSchemas:
         """ERROR: RagQuery mode 不是 Literal 值报错"""
         from pydantic import ValidationError
 
-        from modules.rag.schemas import RagQuery
+        from modules.evidence.indexing.schemas import RagQuery
 
         with pytest.raises(ValidationError):
             RagQuery(query="q", mode="invalid_mode")
@@ -301,7 +301,7 @@ class TestSchemas:
     @pytest.mark.parametrize("mode", ["search", "context", "extraction"])
     def test_rag_query_accepts_valid_modes(self, mode):
         """GREEN: RagQuery 接受所有合法 mode 值"""
-        from modules.rag.schemas import RagQuery
+        from modules.evidence.indexing.schemas import RagQuery
 
         q = RagQuery(query="q", mode=mode)  # type: ignore[arg-type]
         assert q.mode == mode
@@ -310,7 +310,7 @@ class TestSchemas:
         """ERROR: RagQuery top_k 超出 1-50 范围报错"""
         from pydantic import ValidationError
 
-        from modules.rag.schemas import RagQuery
+        from modules.evidence.indexing.schemas import RagQuery
 
         with pytest.raises(ValidationError):
             RagQuery(query="q", top_k=0)
@@ -319,7 +319,7 @@ class TestSchemas:
 
     def test_rag_chunk_response_coerces_uuid_id(self):
         """GREEN: RagChunkResponse 将 UUID id 转字符串"""
-        from modules.rag.schemas import RagChunkResponse
+        from modules.evidence.indexing.schemas import RagChunkResponse
 
         raw_uuid = uuid.UUID(hex="a" * 32)
         obj = RagChunkResponse(
@@ -333,7 +333,7 @@ class TestSchemas:
 
     def test_rag_chunk_response_keeps_str_id(self):
         """GREEN: RagChunkResponse 保留字符串 id"""
-        from modules.rag.schemas import RagChunkResponse
+        from modules.evidence.indexing.schemas import RagChunkResponse
 
         obj = RagChunkResponse(
             id="already-str",
@@ -345,7 +345,7 @@ class TestSchemas:
 
     def test_rag_chunk_response_coerces_novel_id(self):
         """GREEN: RagChunkResponse 将 UUID novel_id 转字符串"""
-        from modules.rag.schemas import RagChunkResponse
+        from modules.evidence.indexing.schemas import RagChunkResponse
 
         raw = uuid.UUID(hex="b" * 32)
         obj = RagChunkResponse(
@@ -358,7 +358,7 @@ class TestSchemas:
 
     def test_rag_chunk_response_coerces_source_id_uuid(self):
         """GREEN: RagChunkResponse 将 UUID source_id 转字符串"""
-        from modules.rag.schemas import RagChunkResponse
+        from modules.evidence.indexing.schemas import RagChunkResponse
 
         raw = uuid.UUID(hex="c" * 32)
         obj = RagChunkResponse(
@@ -372,7 +372,7 @@ class TestSchemas:
 
     def test_rag_chunk_response_source_id_none(self):
         """EDGE: RagChunkResponse source_id 为 None 不变"""
-        from modules.rag.schemas import RagChunkResponse
+        from modules.evidence.indexing.schemas import RagChunkResponse
 
         obj = RagChunkResponse(
             id="id",
@@ -385,7 +385,7 @@ class TestSchemas:
 
     def test_rag_result_defaults(self):
         """GREEN: RagResult 必需字段"""
-        from modules.rag.schemas import RagResult
+        from modules.evidence.indexing.schemas import RagResult
 
         r = RagResult(chunks=[], total=0, query="q")
         assert r.warnings == []
@@ -393,7 +393,7 @@ class TestSchemas:
 
     def test_similar_entity_defaults(self):
         """GREEN: SimilarEntity 必需字段"""
-        from modules.rag.schemas import SimilarEntity
+        from modules.evidence.indexing.schemas import SimilarEntity
 
         se = SimilarEntity(entity_id="e1", name="entity", similarity_score=0.85)
         assert se.similarity_score == 0.85
@@ -401,7 +401,7 @@ class TestSchemas:
 
     def test_similar_entity_response_defaults(self):
         """GREEN: SimilarEntityResponse"""
-        from modules.rag.schemas import SimilarEntity, SimilarEntityResponse
+        from modules.evidence.indexing.schemas import SimilarEntity, SimilarEntityResponse
 
         resp = SimilarEntityResponse(items=[], total=0)
         assert resp.items == []
@@ -418,7 +418,7 @@ class TestSchemas:
 
 @pytest.fixture
 def _stub_rag_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    from modules.rag import api as rag_api
+    from modules.evidence.indexing import api as rag_api
 
     async def require_active_project(_db, _novel_id):
         return None
@@ -433,12 +433,14 @@ class TestApiRoutes:
     @pytest.mark.asyncio
     async def test_create_rag_chunk_calls_facade(self):
         """GREEN: POST /api/rag/chunks 调用 facade.create_chunk"""
-        from modules.rag.schemas import RagChunkCreate
+        from modules.evidence.indexing.schemas import RagChunkCreate
 
-        with patch("modules.rag.api.create_chunk", autospec=True) as mock_create:
+        with patch(
+            "modules.evidence.indexing.api.create_chunk", autospec=True
+        ) as mock_create:
             mock_create.return_value = MagicMock(id="new-id", novel_id="n", text="t")
 
-            from modules.rag.api import create_rag_chunk
+            from modules.evidence.indexing.api import create_rag_chunk
 
             db = AsyncMock()
             data = RagChunkCreate(source_type="chapter_text", text="test text")
@@ -450,20 +452,24 @@ class TestApiRoutes:
     @pytest.mark.asyncio
     async def test_list_rag_chunks_returns_combined_dict(self):
         """GREEN: GET /api/rag/chunks 组合 items + status"""
-        from modules.rag.schemas import RagChunkResponse
+        from modules.evidence.indexing.schemas import RagChunkResponse
 
         mock_chunks = [
             RagChunkResponse(id="c1", novel_id="n", source_type="t", text="t1"),
         ]
 
         with (
-            patch("modules.rag.api.list_chunks", autospec=True) as mock_list,
-            patch("modules.rag.api.get_index_status", autospec=True) as mock_status,
+            patch(
+                "modules.evidence.indexing.api.list_chunks", autospec=True
+            ) as mock_list,
+            patch(
+                "modules.evidence.indexing.api.get_index_status", autospec=True
+            ) as mock_status,
         ):
             mock_list.return_value = (mock_chunks, 1)
             mock_status.return_value = {"index_version": "v1", "total_chunks": 1}
 
-            from modules.rag.api import list_rag_chunks
+            from modules.evidence.indexing.api import list_rag_chunks
 
             db = AsyncMock()
             result = await list_rag_chunks(db=db, novel_id="n1")
@@ -475,8 +481,8 @@ class TestApiRoutes:
     @pytest.mark.asyncio
     async def test_retrieve_chunks_converts_contracts_to_responses(self):
         """GREEN: POST /api/rag/retrieve 将 RagChunkContract 转为 RagChunkResponse"""
-        from modules.rag.contracts import RagChunkContract, RagResultBundle
-        from modules.rag.schemas import RagQuery
+        from modules.evidence.contracts import RagChunkContract, RagResultBundle
+        from modules.evidence.indexing.schemas import RagQuery
 
         mock_bundle = RagResultBundle(
             chunks=[
@@ -511,11 +517,13 @@ class TestApiRoutes:
             degraded=False,
         )
 
-        with patch("modules.rag.api.retrieve", autospec=True) as mock_retrieve:
+        with patch(
+            "modules.evidence.indexing.api.retrieve", autospec=True
+        ) as mock_retrieve:
             mock_retrieve.return_value = mock_bundle
 
-            from modules.rag.api import retrieve_chunks
-            from modules.rag.schemas import RagResult
+            from modules.evidence.indexing.api import retrieve_chunks
+            from modules.evidence.indexing.schemas import RagResult
 
             db = AsyncMock()
             query = RagQuery(query="test query")
@@ -533,15 +541,17 @@ class TestApiRoutes:
     @pytest.mark.asyncio
     async def test_retrieve_chunks_handles_empty_results(self):
         """EDGE: POST /api/rag/retrieve 空结果也返回合法 RagResult"""
-        from modules.rag.contracts import RagResultBundle
-        from modules.rag.schemas import RagQuery
+        from modules.evidence.contracts import RagResultBundle
+        from modules.evidence.indexing.schemas import RagQuery
 
         mock_bundle = RagResultBundle(chunks=[], total=0, query="empty")
 
-        with patch("modules.rag.api.retrieve", autospec=True) as mock_retrieve:
+        with patch(
+            "modules.evidence.indexing.api.retrieve", autospec=True
+        ) as mock_retrieve:
             mock_retrieve.return_value = mock_bundle
 
-            from modules.rag.api import retrieve_chunks
+            from modules.evidence.indexing.api import retrieve_chunks
 
             db = AsyncMock()
             query = RagQuery(query="empty")
@@ -555,10 +565,11 @@ class TestApiRoutes:
         """GREEN: GET /api/rag/metrics 返回指标 + 熔断器状态"""
         with (
             patch(
-                "modules.rag.metrics.get_metrics", autospec=True
+                "modules.evidence.indexing.metrics.get_metrics", autospec=True
             ) as mock_metrics_getter,
             patch(
-                "modules.rag.circuit_breaker.get_circuit_breaker", autospec=True
+                "modules.evidence.indexing.circuit_breaker.get_circuit_breaker",
+                autospec=True,
             ) as mock_cb_getter,
         ):
             mock_metrics = MagicMock()
@@ -573,7 +584,7 @@ class TestApiRoutes:
             mock_cb.status = {"state": "closed", "failure_count": 0}
             mock_cb_getter.return_value = mock_cb
 
-            from modules.rag.api import get_rag_metrics
+            from modules.evidence.indexing.api import get_rag_metrics
 
             result = await get_rag_metrics()
 
@@ -583,7 +594,7 @@ class TestApiRoutes:
     @pytest.mark.asyncio
     async def test_split_text_paragraph_method_uses_chunking_service(self):
         """GREEN: POST /api/rag/chunks/split 段落分割"""
-        from modules.rag.api import split_text
+        from modules.evidence.indexing.api import split_text
 
         result = await split_text(
             text="段落一\n\n段落二\n\n段落三",
@@ -599,7 +610,7 @@ class TestApiRoutes:
     @pytest.mark.asyncio
     async def test_split_text_length_method(self):
         """GREEN: POST /api/rag/chunks/split 固定长度分割"""
-        from modules.rag.api import split_text
+        from modules.evidence.indexing.api import split_text
 
         result = await split_text(
             text="ABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -613,7 +624,7 @@ class TestApiRoutes:
     @pytest.mark.asyncio
     async def test_split_text_unknown_method_returns_whole_text(self):
         """EDGE: 未知分割方法回退为整段"""
-        from modules.rag.api import split_text
+        from modules.evidence.indexing.api import split_text
 
         result = await split_text(
             text="whole text",
@@ -634,7 +645,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_index_chapter_success(self):
         """GREEN: 章节索引任务正常执行"""
-        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+        from modules.evidence.contracts import RagIndexReport, RagTaskIndexOutcome
 
         report = RagIndexReport(
             chapter_index=3,
@@ -648,7 +659,7 @@ class TestTasks:
         reset()
         register("rag.index_chapter_for_task", mock_index)
         try:
-            from modules.rag.tasks import handle_rag_index_chapter
+            from modules.evidence.indexing.tasks import handle_rag_index_chapter
 
             db = AsyncMock()
             task = SimpleNamespace(
@@ -669,7 +680,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_index_chapter_missing_novel_id_raises(self):
         """ERROR: 缺少 novel_id 报 ValueError"""
-        from modules.rag.tasks import handle_rag_index_chapter
+        from modules.evidence.indexing.tasks import handle_rag_index_chapter
 
         db = AsyncMock()
         task = SimpleNamespace(meta={"chapter_index": "3"})
@@ -680,7 +691,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_index_chapter_invalid_chapter_index_raises(self):
         """ERROR: chapter_index < 1 报 ValueError"""
-        from modules.rag.tasks import handle_rag_index_chapter
+        from modules.evidence.indexing.tasks import handle_rag_index_chapter
 
         db = AsyncMock()
         task = SimpleNamespace(meta={"novel_id": "n1", "chapter_index": "0"})
@@ -691,7 +702,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_index_chapter_empty_meta_raises(self):
         """ERROR: task.meta 为 None 报 ValueError"""
-        from modules.rag.tasks import handle_rag_index_chapter
+        from modules.evidence.indexing.tasks import handle_rag_index_chapter
 
         db = AsyncMock()
         task = SimpleNamespace(meta=None)
@@ -702,7 +713,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_success(self):
         """GREEN: 全量重建任务正常执行"""
-        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+        from modules.evidence.contracts import RagIndexReport, RagTaskIndexOutcome
 
         report = RagIndexReport(
             chapter_index=1, chunks_created=3, warnings=[], embedding_failed_count=0
@@ -714,7 +725,7 @@ class TestTasks:
         register("rag.index_chapter_for_task", mock_index)
 
         try:
-            from modules.rag.tasks import handle_rag_reindex_novel
+            from modules.evidence.indexing.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
             task = SimpleNamespace(
@@ -739,7 +750,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_coalesces_running_chapter(self):
         """A rebuild must not execute beside an indexer that already owns the row."""
-        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+        from modules.evidence.contracts import RagIndexReport, RagTaskIndexOutcome
 
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1]))
@@ -752,7 +763,7 @@ class TestTasks:
         register("rag.index_chapter_for_task", mock_index)
 
         try:
-            from modules.rag.tasks import handle_rag_reindex_novel
+            from modules.evidence.indexing.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
             task = SimpleNamespace(
@@ -781,7 +792,7 @@ class TestTasks:
         self,
         source: str,
     ):
-        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+        from modules.evidence.contracts import RagIndexReport, RagTaskIndexOutcome
 
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1]))
@@ -791,7 +802,7 @@ class TestTasks:
         register("rag.index_chapter_for_task", mock_index)
 
         try:
-            from modules.rag.tasks import handle_rag_reindex_novel
+            from modules.evidence.indexing.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
             task = SimpleNamespace(
@@ -815,7 +826,7 @@ class TestTasks:
         self,
         source: str | None,
     ):
-        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+        from modules.evidence.contracts import RagIndexReport, RagTaskIndexOutcome
 
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1]))
@@ -825,7 +836,7 @@ class TestTasks:
         register("rag.index_chapter_for_task", mock_index)
 
         try:
-            from modules.rag.tasks import handle_rag_reindex_novel
+            from modules.evidence.indexing.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
             task = SimpleNamespace(
@@ -846,7 +857,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_missing_novel_id_raises(self):
         """ERROR: 缺少 novel_id 报 ValueError"""
-        from modules.rag.tasks import handle_rag_reindex_novel
+        from modules.evidence.indexing.tasks import handle_rag_reindex_novel
 
         db = AsyncMock()
         task = SimpleNamespace(meta={})
@@ -857,7 +868,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_with_range(self):
         """GREEN: 指定起止章节范围"""
-        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+        from modules.evidence.contracts import RagIndexReport, RagTaskIndexOutcome
 
         report = RagIndexReport(
             chapter_index=2, chunks_created=4, warnings=[], embedding_failed_count=0
@@ -869,7 +880,7 @@ class TestTasks:
         register("rag.index_chapter_for_task", mock_index)
 
         try:
-            from modules.rag.tasks import handle_rag_reindex_novel
+            from modules.evidence.indexing.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
             task = SimpleNamespace(
@@ -898,7 +909,7 @@ class TestTasks:
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[]))
 
-        from modules.rag.tasks import handle_rag_reindex_novel
+        from modules.evidence.indexing.tasks import handle_rag_reindex_novel
 
         db = AsyncMock()
         task = SimpleNamespace(meta={"novel_id": "n1"})
@@ -923,7 +934,7 @@ class TestTuningExtra:
 
     def test_eval_query_defaults(self):
         """GREEN: EvalQuery 数据类"""
-        from modules.rag.tuning import EvalQuery
+        from modules.evidence.indexing.tuning import EvalQuery
 
         eq = EvalQuery(query="test", relevant_ids={"a", "b"})
         assert eq.query == "test"
@@ -932,7 +943,7 @@ class TestTuningExtra:
 
     def test_eval_result_defaults(self):
         """GREEN: EvalResult 数据类"""
-        from modules.rag.tuning import EvalResult
+        from modules.evidence.indexing.tuning import EvalResult
 
         er = EvalResult(weights=(0.5, 0.2, 0.15, 0.15))
         assert er.mrr == 0.0
@@ -941,7 +952,7 @@ class TestTuningExtra:
 
     def test_tuning_report_defaults(self):
         """GREEN: TuningReport 数据类"""
-        from modules.rag.tuning import TuningReport
+        from modules.evidence.indexing.tuning import TuningReport
 
         tr = TuningReport()
         assert tr.best.weights == (0, 0, 0, 0)
@@ -954,7 +965,7 @@ class TestTuningExtra:
     @pytest.mark.asyncio
     async def test_build_eval_set_empty_db_returns_empty(self):
         """EDGE: DB 中无 chunk 返回空列表"""
-        from modules.rag.tuning import build_eval_set
+        from modules.evidence.indexing.tuning import build_eval_set
 
         db = AsyncMock()
         db_result = MagicMock()
@@ -967,7 +978,7 @@ class TestTuningExtra:
     @pytest.mark.asyncio
     async def test_build_eval_set_skips_short_text(self):
         """EDGE: 文本太短 (< 10 字符) 跳过"""
-        from modules.rag.tuning import build_eval_set
+        from modules.evidence.indexing.tuning import build_eval_set
 
         c = SimpleNamespace()
         c.id = "short"
@@ -986,7 +997,7 @@ class TestTuningExtra:
     @pytest.mark.asyncio
     async def test_build_eval_set_skips_few_relevant(self):
         """EDGE: 相关 chunk 不足 2 个跳过"""
-        from modules.rag.tuning import build_eval_set
+        from modules.evidence.indexing.tuning import build_eval_set
 
         # Two chunks sharing one entity → each sees 1 relevant (< 2) → skipped
         chunks = []
@@ -1009,7 +1020,7 @@ class TestTuningExtra:
     @pytest.mark.asyncio
     async def test_build_eval_set_honors_max_queries(self):
         """EDGE: max_queries 限制"""
-        from modules.rag.tuning import build_eval_set
+        from modules.evidence.indexing.tuning import build_eval_set
 
         # 10 chunks all sharing 1 entity → each sees 9 relevant (>= 2)
         chunks = []
@@ -1032,7 +1043,7 @@ class TestTuningExtra:
     @pytest.mark.asyncio
     async def test_build_eval_set_creates_queries_from_chunks(self):
         """GREEN: 从 chunk 构建 EvalQuery（共享 entity 的 chunk 互相关）"""
-        from modules.rag.tuning import build_eval_set
+        from modules.evidence.indexing.tuning import build_eval_set
 
         chunks = []
         for i in range(4):
@@ -1062,7 +1073,7 @@ class TestTuningExtra:
     @pytest.mark.asyncio
     async def test_evaluate_weights_with_empty_queries(self):
         """EDGE: 无查询时返回零指标"""
-        from modules.rag.tuning import evaluate_weights
+        from modules.evidence.indexing.tuning import evaluate_weights
 
         db = AsyncMock()
         result = await evaluate_weights(
@@ -1084,7 +1095,7 @@ class TestTuningExtra:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        from modules.rag.tuning import EvalQuery, evaluate_weights
+        from modules.evidence.indexing.tuning import EvalQuery, evaluate_weights
 
         class _FailingEmbeddingClient:
             async def generate_embedding(self, *_args, **_kwargs):
@@ -1107,12 +1118,12 @@ class TestTuningExtra:
             _FailingEmbeddingClient,
         )
         monkeypatch.setattr(
-            "modules.rag.retrieval.RetrievalOrchestrator",
+            "modules.evidence.indexing.retrieval.RetrievalOrchestrator",
             _CapturingRetrieval,
         )
         novel_id = uuid.UUID(hex="a" * 32)
 
-        with caplog.at_level("WARNING", logger="modules.rag.tuning"):
+        with caplog.at_level("WARNING", logger="modules.evidence.indexing.tuning"):
             result = await evaluate_weights(
                 AsyncMock(),
                 novel_id,
@@ -1152,7 +1163,7 @@ class TestTuningExtra:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        from modules.rag.tuning import EvalQuery, run_tuning
+        from modules.evidence.indexing.tuning import EvalQuery, run_tuning
 
         class _FailingEmbeddingClient:
             async def generate_embedding(self, *_args, **_kwargs):
@@ -1179,19 +1190,21 @@ class TestTuningExtra:
             _FailingEmbeddingClient,
         )
         monkeypatch.setattr(
-            "modules.rag.retrieval.RetrievalOrchestrator",
+            "modules.evidence.indexing.retrieval.RetrievalOrchestrator",
             _EmptyRetrieval,
         )
-        monkeypatch.setattr("modules.rag.tuning.build_eval_set", _build_eval_set)
         monkeypatch.setattr(
-            "modules.rag.tuning.generate_weight_combinations",
+            "modules.evidence.indexing.tuning.build_eval_set", _build_eval_set
+        )
+        monkeypatch.setattr(
+            "modules.evidence.indexing.tuning.generate_weight_combinations",
             lambda: [
                 (0.5, 0.2, 0.15, 0.15),
                 (0.45, 0.25, 0.15, 0.15),
             ],
         )
 
-        with caplog.at_level("WARNING", logger="modules.rag.tuning"):
+        with caplog.at_level("WARNING", logger="modules.evidence.indexing.tuning"):
             report = await run_tuning(AsyncMock(), novel_id="a" * 32)
 
         assert report.total_combinations == 2
@@ -1208,12 +1221,14 @@ class TestTuningExtra:
     @pytest.mark.asyncio
     async def test_run_tuning_empty_eval_set_returns_empty_report(self):
         """EDGE: 评估集为空返回空报告"""
-        from modules.rag.tuning import TuningReport
+        from modules.evidence.indexing.tuning import TuningReport
 
-        with patch("modules.rag.tuning.build_eval_set", autospec=True) as mock_build:
+        with patch(
+            "modules.evidence.indexing.tuning.build_eval_set", autospec=True
+        ) as mock_build:
             mock_build.return_value = []
 
-            from modules.rag.tuning import run_tuning
+            from modules.evidence.indexing.tuning import run_tuning
 
             db = AsyncMock()
             report = await run_tuning(db, novel_id="a" * 32)
@@ -1225,7 +1240,11 @@ class TestTuningExtra:
 
     def test_print_report_output_contains_keywords(self, capsys):
         """GREEN: print_report 输出包含关键信息"""
-        from modules.rag.tuning import EvalResult, TuningReport, print_report
+        from modules.evidence.indexing.tuning import (
+            EvalResult,
+            TuningReport,
+            print_report,
+        )
 
         best = EvalResult(
             weights=(0.45, 0.25, 0.15, 0.15),
@@ -1266,7 +1285,7 @@ class TestTuningExtra:
 
     def test_print_report_empty_report(self, capsys):
         """EDGE: 空报告输出"""
-        from modules.rag.tuning import TuningReport, print_report
+        from modules.evidence.indexing.tuning import TuningReport, print_report
 
         report = TuningReport()
         print_report(report)
@@ -1279,7 +1298,7 @@ class TestTuningExtra:
 
     def test_main_is_callable(self):
         """GREEN: main 函数可调用（argparse 入口）"""
-        from modules.rag.tuning import main as tuning_main
+        from modules.evidence.indexing.tuning import main as tuning_main
 
         assert callable(tuning_main)
 
@@ -1287,7 +1306,9 @@ class TestTuningExtra:
 
     def test_generate_weight_combinations_full_vs_fast_count(self):
         """GREEN: full mode 比 fast mode 产生更多组合"""
-        from modules.rag.tuning import generate_weight_combinations as gen_full
+        from modules.evidence.indexing.tuning import (
+            generate_weight_combinations as gen_full,
+        )
 
         full = gen_full()
         assert len(full) > 50  # full mode produces hundreds of combos

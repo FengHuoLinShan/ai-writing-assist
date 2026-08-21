@@ -144,8 +144,8 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 `preview_worldbuilding_activation()` 委托确定性 activation preview 服务；
 `get_world_bible_projection_candidates()` 和 `get_world_bible_page_source_manifest()`
 为 context 提供 novel-scoped TargetRef 解析、最大深度 2 的有界展开与来源 hash；
-`mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
-避免扩大 context ↔ world 循环 import 风险。
+`mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.evidence.facade`，
+避免扩大 evidence ↔ world 循环 import 风险。
 
 ```python
 # ---- CoreEntity ----

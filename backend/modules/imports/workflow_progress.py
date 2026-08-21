@@ -340,7 +340,7 @@ class DeepImportProgressTracker:
     ) -> None:
         if db is None or not workflow_id:
             return
-        from modules.context.facade import build_snapshot_health_summary
+        from modules.evidence.facade import build_snapshot_health_summary
 
         try:
             progress.snapshot_health_summary = _redact_checkpoint_strings(

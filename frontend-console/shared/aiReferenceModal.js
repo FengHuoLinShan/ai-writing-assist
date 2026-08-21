@@ -249,6 +249,7 @@ function buildPayload(options, excludedSectionKeys, root) {
   }
   if (chapter) payload.chapter_index = chapter
   if (options.visible_until_chapter) payload.visible_until_chapter = options.visible_until_chapter
+  if (options.visible_until_scene_id) payload.visible_until_scene_id = options.visible_until_scene_id
   if (options.budget_tokens != null) payload.budget_tokens = options.budget_tokens
   if (options.scene_id) payload.scene_id = options.scene_id
   if (options.arc_id) payload.arc_id = options.arc_id

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from infrastructure.llm.token_estimation import estimate_token_count
-from modules.context.services.compiled_context import (
+from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
     Tier,

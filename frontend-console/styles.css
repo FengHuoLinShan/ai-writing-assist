@@ -6280,6 +6280,332 @@ kbd {
   min-height: 0;
 }
 
+/* ===== Scene Story 辅助工作区 ===== */
+.scene-runtime-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scene-runtime-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-alt);
+}
+
+.scene-runtime-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.scene-runtime-tab span {
+  color: var(--text-body);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.scene-runtime-tab small {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-runtime-tab:hover,
+.scene-runtime-tab.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.scene-runtime-tab.active span {
+  color: var(--accent);
+}
+
+.scene-runtime-management {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.scene-runtime-management > .scene-workbench {
+  height: 100%;
+}
+
+.scene-runtime-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+
+.scene-runtime-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.scene-runtime-panel__header h2,
+.scene-runtime-panel__header p {
+  margin: 0;
+}
+
+.scene-runtime-panel__header h2 {
+  font-size: 18px;
+}
+
+.scene-runtime-panel__header p:last-child {
+  max-width: 680px;
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.scene-runtime-panel__eyebrow {
+  margin-bottom: 4px !important;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.scene-runtime-panel__actions,
+.scene-reaction-card__actions,
+.scene-script-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.scene-runtime-empty,
+.scene-runtime-loading,
+.scene-runtime-error,
+.scene-runtime-progress {
+  display: grid;
+  gap: 6px;
+  padding: 28px 20px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.scene-runtime-empty p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.scene-runtime-empty--compact {
+  padding: 12px;
+  text-align: left;
+}
+
+.scene-runtime-error {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+  color: var(--error);
+}
+
+.scene-runtime-progress {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--accent-soft);
+}
+
+.scene-runtime-progress span {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.scene-character-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.scene-character-card {
+  display: flex;
+  min-width: 0;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-alt);
+}
+
+.scene-character-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.scene-character-card__avatar {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.scene-character-card__body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.scene-character-card__heading,
+.scene-character-card__heading > div,
+.scene-runtime-section__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scene-character-card__heading h3,
+.scene-runtime-section__heading h3,
+.scene-runtime-constraints h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.scene-character-card__source,
+.scene-runtime-section__heading span,
+.scene-script-toolbar__hint,
+.scene-runtime-saved {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.scene-character-card__facts,
+.scene-runtime-constraints dl {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+}
+
+.scene-character-card__facts div,
+.scene-runtime-constraints dl div {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.scene-character-card__facts dt,
+.scene-runtime-constraints dt {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.scene-character-card__facts dd,
+.scene-runtime-constraints dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.scene-character-card__notes,
+.scene-script-editor {
+  display: grid;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.scene-character-card__notes .form-textarea,
+.scene-script-editor .form-textarea {
+  min-width: 0;
+  border-color: var(--border);
+  background: var(--bg-panel);
+  resize: vertical;
+}
+
+.scene-simulation-content {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+  min-width: 0;
+}
+
+.scene-runtime-constraints,
+.scene-runtime-section {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-alt);
+}
+
+.scene-runtime-constraints {
+  grid-row: span 2;
+}
+
+.scene-reaction-card {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+.scene-reaction-card.is-kept { border-color: var(--success); }
+.scene-reaction-card.is-rejected { opacity: 0.65; }
+.scene-reaction-card__heading { display: flex; justify-content: space-between; gap: 8px; }
+.scene-reaction-card__heading span { color: var(--text-dim); font-size: 11px; }
+.scene-reaction-card p { margin: 0; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+
+.scene-beat-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.scene-beat-list li { display: grid; gap: 2px; color: var(--text-secondary); font-size: 12px; }
+.scene-beat-list li span { color: var(--text-dim); }
+.scene-runtime-plan { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.scene-script-toolbar { justify-content: space-between; }
+.scene-runtime-note { margin: 0; color: var(--text-dim); font-size: 12px; }
+.scene-script-findings { display: grid; gap: 6px; }
+.scene-script-finding { display: flex; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-alt); color: var(--text-secondary); font-size: 12px; }
+.scene-script-finding strong { flex: 0 0 auto; }
+.scene-script-finding.is-error strong { color: var(--error); }
+.scene-script-finding.is-warning strong { color: var(--warning); }
+.scene-script-finding.is-info strong { color: var(--info); }
+
 .scene-workbench-actions {
   display: flex;
   flex-shrink: 0;
@@ -7116,6 +7442,43 @@ kbd {
 }
 
 @media (max-width: 760px) {
+  .scene-runtime-shell {
+    overflow-y: auto;
+  }
+
+  .scene-runtime-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scene-runtime-panel {
+    overflow: visible;
+    padding: 14px;
+  }
+
+  .scene-runtime-panel__header {
+    flex-direction: column;
+  }
+
+  .scene-runtime-panel__actions {
+    width: 100%;
+  }
+
+  .scene-runtime-panel__actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .scene-simulation-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scene-runtime-constraints {
+    grid-row: auto;
+  }
+
+  .scene-character-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .scene-workbench {
     display: block;
     min-height: 0;
@@ -13914,4 +14277,43 @@ button.rp-journey-card__main:hover {
 @media (max-width: 390px) {
   .generate-visual-brief .btn,.generate-exploration .btn { min-height:44px }
   .generate-convergence-actions .btn { flex:1 1 100%;min-height:44px }
+}
+
+/* Owner-page AI entry: keep the existing generation/session route behind a
+   small, contextual drawer instead of a second top-level destination. */
+.owner-ai-drawer {
+  position: fixed;
+  z-index: 30;
+  inset: 0 0 0 auto;
+  width: min(760px, 100vw);
+  padding: var(--space-5);
+  overflow: auto;
+  background: var(--surface, var(--bg));
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 16%);
+}
+.owner-ai-drawer__header { display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3) }
+.owner-ai-drawer__eyebrow { color:var(--text-dim);font-size:12px }
+.owner-ai-drawer h2 { margin:4px 0 0;font-size:18px }
+.owner-ai-drawer__hint { color:var(--text-dim);font-size:13px;line-height:1.55 }
+.owner-ai-drawer__actions { display:grid;gap:var(--space-2);margin-top:var(--space-4) }
+.owner-ai-drawer__actions .btn { min-height:40px;text-align:left }
+.owner-ai-drawer__tabs { display:flex;gap:var(--space-2);flex-wrap:wrap;margin:var(--space-4) 0 }
+.owner-ai-drawer__generate,.owner-ai-drawer__writing,.owner-ai-drawer__evidence { min-width:0 }
+.owner-ai-drawer__status { padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md, 8px) }
+@media (max-width: 760px) {
+  .owner-ai-drawer { width:100vw;padding:var(--space-4) }
+}
+
+.settings-shell { max-width:1120px;margin:0 auto;padding:var(--space-5) var(--space-6) var(--space-8) }
+.settings-shell__header { display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-3) }
+.settings-shell__eyebrow { color:var(--text-dim);font-size:12px }
+.settings-shell__header h1 { margin:4px 0;font-size:22px }
+.settings-shell__header p { margin:0;color:var(--text-dim);font-size:13px }
+.settings-shell__project { color:var(--text-dim);font-size:12px;white-space:nowrap }
+.settings-shell__tabs { display:flex;gap:var(--space-2);margin-bottom:var(--space-3);border-bottom:1px solid var(--border);padding-bottom:var(--space-2) }
+@media (max-width: 760px) {
+  .settings-shell { padding:var(--space-4) 0 var(--space-6) }
+  .settings-shell__header { flex-direction:column }
+  .settings-shell__project { white-space:normal }
 }

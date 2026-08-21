@@ -57,7 +57,10 @@
         <p>{{ loadError }}</p>
         <button class="btn btn-sm" data-action="retry-scene-workbench" @click="refresh()">重新加载</button>
       </div>
-      <div v-else-if="workbench" class="scene-workbench" :class="{ 'is-narrow': narrow }">
+      <div v-else-if="workbench" class="scene-runtime-shell" :class="{ 'is-narrow': narrow }">
+        <SceneRuntimeTabs :active-tab="storyWorkspace.activeTab" @select="storyWorkspace.selectTab" />
+        <div v-if="storyWorkspace.activeTab === 'management'" id="scene-runtime-panel-management" class="scene-runtime-management" role="tabpanel" aria-labelledby="scene-runtime-tab-management">
+        <div class="scene-workbench" :class="{ 'is-narrow': narrow }">
         <section class="scene-workbench__organize">
           <div class="scene-management-filters" aria-label="场景筛选">
             <label class="scene-filter-field scene-filter-field--wide"><span>搜索</span><input id="scene-filter-q" v-model="filterForm.q" class="form-input" placeholder="标题 / 目标 / 冲突" /></label>
@@ -146,6 +149,75 @@
         </details>
 
         <div v-if="narrow && mobileDetailOpen && selectedItem" class="scene-workbench-drawer"><SceneDetailPanel :item="selectedItem" :draft="detailDraft" :narrow="true" @close="clearSelectedScene" @context="runContextAction(selectedItem)" @save="saveScene(selectedItem.scene.id, detailDraft)" @merge="modalController.startMerge(selectedItem.scene.id)" @split="modalController.startSplit(selectedItem.scene.id)" @replacement="openOverlap" /></div>
+        </div>
+        </div>
+
+        <CharacterCardsPanel
+          v-else-if="storyWorkspace.activeTab === 'characters'"
+          :scene="storyWorkspace.scene"
+          :characters="storyWorkspace.characters"
+          :notes="storyWorkspace.notes"
+          :selected-id="storyWorkspace.selectedCharacterId"
+          :card-draft="storyWorkspace.cardDraft"
+          :card-history="storyWorkspace.cardHistory"
+          :generated-card="storyWorkspace.generatedCard"
+          :card-saving="storyWorkspace.cardSaving"
+          :card-generating="storyWorkspace.characterCardRunning"
+          :card-history-loading="storyWorkspace.cardHistoryLoading"
+          :loading="storyWorkspace.loading"
+          :error="storyWorkspace.loadError"
+          @retry="storyWorkspace.loadWorkspace"
+          @return-management="storyWorkspace.selectTab('management')"
+          @select="storyWorkspace.selectCharacter"
+          @note="storyWorkspace.updateNote"
+          @edit="storyWorkspace.editCharacter"
+          @update-card="storyWorkspace.updateCardDraft"
+          @save-card="storyWorkspace.saveCharacterCard"
+          @generate-card="storyWorkspace.startCharacterCardGeneration"
+          @apply-generated="storyWorkspace.applyGeneratedCard"
+          @history="storyWorkspace.loadCardHistory"
+          @restore-history="storyWorkspace.restoreCardRevision"
+        />
+        <SceneSimulationPanel
+          v-else-if="storyWorkspace.activeTab === 'simulation'"
+          :scene="storyWorkspace.scene"
+          :simulation="storyWorkspace.simulation"
+          :progress="storyWorkspace.simulationProgress"
+          :running="storyWorkspace.simulationRunning"
+          :reaction-running="storyWorkspace.reactionRunning"
+          :error="storyWorkspace.loadError"
+          @run="storyWorkspace.startSimulation"
+          @run-reactions="storyWorkspace.startReactionGeneration"
+          @cancel="storyWorkspace.cancelSimulation"
+          @reaction="storyWorkspace.setReactionStatus"
+        />
+        <SceneScriptsPanel
+          v-else
+          :scene="storyWorkspace.scene"
+          :draft="storyWorkspace.scriptDraft"
+          :scripts="storyWorkspace.scripts"
+          :active-script-file-id="storyWorkspace.activeScriptFileId"
+          :new-script-title="storyWorkspace.newScriptTitle"
+          :script-history="storyWorkspace.scriptHistory"
+          :script-preview="storyWorkspace.scriptPreview"
+          :script-generating="storyWorkspace.scriptGenerating"
+          :history-loading="storyWorkspace.scriptHistoryLoading"
+          :findings="storyWorkspace.validation"
+          :saved-at="storyWorkspace.scriptSavedAt"
+          :saving="storyWorkspace.scriptSaving"
+          @update:draft="storyWorkspace.updateScript"
+          @validate="storyWorkspace.validateScript"
+          @save="storyWorkspace.saveScript"
+          @generate="storyWorkspace.startScriptGeneration"
+          @apply-preview="storyWorkspace.applyScriptPreview"
+          @history="storyWorkspace.loadScriptHistory"
+          @adopt-revision="storyWorkspace.adoptScriptRevision"
+          @unadopt="storyWorkspace.unadoptScriptFile"
+          @select-file="storyWorkspace.selectScriptFile"
+          @update-new-title="storyWorkspace.updateNewScriptTitle"
+          @new-file="storyWorkspace.createScriptFile"
+          @open-writing="openWriting(storyWorkspace.scene)"
+        />
       </div>
     </div>
   </div>
@@ -159,8 +231,13 @@ import ActionMenu from "../../components/ActionMenu.vue"
 import WorkflowProgressCard from "../../components/WorkflowProgressCard.vue"
 import OutlineGenerateProgressCard from "../outline/ai/OutlineGenerateProgressCard.vue"
 import { showOutlineLayerAiForm } from "../outline/ai/outlineAiOps.js"
+import CharacterCardsPanel from "./CharacterCardsPanel.vue"
 import SceneAutoExtractProgressCard from "./SceneAutoExtractProgressCard.vue"
+import SceneRuntimeTabs from "./SceneRuntimeTabs.vue"
+import SceneScriptsPanel from "./SceneScriptsPanel.vue"
+import SceneSimulationPanel from "./SceneSimulationPanel.vue"
 import { useSceneWorkbench } from "./useSceneWorkbench.js"
+import { useStorySceneWorkspace } from "./useStorySceneWorkspace.js"
 import {
   BOUNDARY_STATUS_OPTIONS,
   CONFIDENCE_BAND_OPTIONS,
@@ -194,6 +271,10 @@ const props = defineProps({
 })
 
 const vm = useSceneWorkbench(props)
+const storyWorkspace = reactive(useStorySceneWorkspace({
+  projectId: props.projectId,
+  selectedItem: vm.selectedItem,
+}))
 const {
   activeHealth, advancedFiltersOpen, allVisibleSelected, applyFilters, autoExtractionBusy,
   cancelAutoExtraction, changePage, clearSelectedScene, dismissAutoExtraction,

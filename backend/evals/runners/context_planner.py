@@ -12,13 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from evals.metrics import precision_at_k, recall_at_k
 from evals.schemas import DatasetCase, EvalSuite
-from modules.context.contracts import (
+from modules.evidence.compilation.services.loaders.rag_chunks_loader import (
+    RagChunksLoader,
+)
+from modules.evidence.contracts import (
     CompileOptions,
     RetrievalClause,
     RetrievalQueryPlan,
     StructureContextBundle,
 )
-from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
 
 
 class TaskDirectPlanner:

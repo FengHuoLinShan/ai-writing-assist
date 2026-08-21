@@ -8,15 +8,15 @@ from typing import Any
 
 from core.container import get as _get
 from core.container import register as _register
-from modules.context.facade import compile_structure_context as _ctx_compile
-from modules.context.facade import (
+from modules.evidence.facade import compile_structure_context as _ctx_compile
+from modules.evidence.facade import (
     compile_generation_background as _ctx_generation_background,
 )
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService as _SceneExtractSvc,
 )
-from modules.memory.services import MemoryService
-from modules.outline.services import (
+from modules.story.continuity.services import MemoryService
+from modules.story.outline_state.services import (
     ForeshadowingPlanService,
     OutlineArcService,
     PlotStructureGenerator,
@@ -24,13 +24,13 @@ from modules.outline.services import (
     RevealPlanService,
     SceneService,
 )
-from modules.rag.facade import (
+from modules.evidence.facade import (
     get_entity_activity_stats as _rag_get_entity_activity_stats,
     get_ordered_chapter_chunks as _rag_get_chunks,
     index_chapter_with_report as _rag_index,
     request_entity_activity_reannotation as _rag_request_entity_reannotation,
 )
-from modules.rag.indexing import IndexingService as _RagIndexingService
+from modules.evidence.indexing.indexing import IndexingService as _RagIndexingService
 from modules.project.facade import require_active_project as _project_require_active
 from modules.writing.facade import (
     get_latest_draft_for_chapter as _writing_get_draft,
@@ -53,11 +53,15 @@ from modules.world.map_atlas_facade import (
 def _register_orm_models() -> None:
     """Import ORM models with Base.metadata for FK dependency resolution."""
     import modules.account.models  # noqa: F401, I001
-    import modules.context.models  # noqa: F401, I001
+    import modules.account.settings_models  # noqa: F401, I001
+    import modules.evidence.models  # noqa: F401, I001
     import modules.imports.models  # noqa: F401, I001
     import modules.interaction.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
-    import modules.settings.models  # noqa: F401, I001
+    import modules.story.models  # noqa: F401, I001
+    import modules.story.continuity.models  # noqa: F401, I001
+    import modules.story.outline_state.models  # noqa: F401, I001
+    import modules.project.settings_models  # noqa: F401, I001
     import modules.world.map_atlas_models  # noqa: F401, I001
     import modules.world.models  # noqa: F401, I001
 

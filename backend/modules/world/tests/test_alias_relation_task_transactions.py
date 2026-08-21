@@ -9,7 +9,7 @@ import pytest
 
 from core.errors import NotFoundError
 from infrastructure.tasks.models import AsyncTask
-from modules.context.contracts import ContextConfirmationContract
+from modules.evidence.contracts import ContextConfirmationContract
 from modules.world import tasks as world_tasks
 
 pytestmark = pytest.mark.asyncio
@@ -165,7 +165,7 @@ def _patch_handler_dependencies(
     active_side_effect: object | None = None,
 ) -> tuple[mock.AsyncMock, mock.AsyncMock, mock.AsyncMock]:
     from infrastructure.tasks import facade as task_facade
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
     from modules.project import facade as project_facade
 
     async def _active(*_args, **_kwargs):
@@ -602,7 +602,7 @@ async def test_project_finalizer_seam_compiles_to_exclusive_row_lock() -> None:
 async def test_confirmation_finalizer_seam_compiles_to_row_lock() -> None:
     from sqlalchemy.dialects import postgresql
 
-    from modules.context.repositories import ContextConfirmationRepository
+    from modules.evidence.compilation.repositories import ContextConfirmationRepository
 
     statements: list[object] = []
 
@@ -678,7 +678,7 @@ async def test_real_task_handler_session_fences_each_checkpoint(
 ) -> None:
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.worker import _TaskHandlerSession
-    from modules.context.facade import (
+    from modules.evidence.facade import (
         attach_result_ref,
         confirm_context,
         require_confirmation,
@@ -786,8 +786,8 @@ async def test_real_worker_rejected_final_checkpoint_rolls_back_domain_and_bindi
 
     from infrastructure.tasks.registry import TaskRegistry
     from infrastructure.tasks.worker import TaskWorker
-    from modules.context.facade import attach_result_ref, confirm_context
-    from modules.context.models import ContextConfirmation
+    from modules.evidence.compilation.models import ContextConfirmation
+    from modules.evidence.facade import attach_result_ref, confirm_context
     from modules.project.models import Project
     from modules.world.models import CoreEntity
     from run_worker import (

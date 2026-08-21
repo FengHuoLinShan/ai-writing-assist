@@ -20,6 +20,7 @@ import { loadStoryOutlineProps, storyOutlineTaskManager } from "./views/outline/
 import { loadStructureProps, structureFiltersFromQuery } from "./views/outline/logic/outlineStructure.js"
 import { loadSceneWorkbenchProps } from "./views/scene/sceneModel.js"
 import { sceneAutoExtractManager } from "./views/scene/sceneAutoExtractManager.js"
+import { sceneRuntimeManager } from "./views/scene/sceneRuntimeManager.js"
 import { scopeBulkSelectionsToProject } from "./views/outline/logic/outlineBulkSelection.js"
 import { getAppState, getRouter } from "./bridge/index.js"
 
@@ -47,6 +48,7 @@ async function loadOutline() {
   if (subView === "scenes") {
     outlineGenerateManager.recover(projectId)
     sceneAutoExtractManager.recover(projectId)
+    sceneRuntimeManager.recover(projectId, query.get("scene_id") || null)
     try {
       const sceneProps = await loadSceneWorkbenchProps(projectId)
       return { projectId, subView, ...sceneProps }
@@ -113,6 +115,7 @@ export function registerOutlineIsland() {
     saveSubnavScroll()
     stopAiManagers()
     sceneAutoExtractManager.stop()
+    sceneRuntimeManager.stop()
     storyOutlineTaskManager.stop()
     baseOnLeave()
   }

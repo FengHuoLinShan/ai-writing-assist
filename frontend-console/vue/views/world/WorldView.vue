@@ -37,11 +37,22 @@
           </template>
           <button v-if="subView === 'relations'" class="btn btn-sm btn-primary" data-action="create-relation" @click="showRelationCreateForm()">新建关系</button>
           <button v-if="subView === 'aliases'" class="btn btn-sm btn-primary" data-action="create-alias" @click="showAliasCreateForm()">新建别名</button>
+          <button type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi">AI 工具</button>
           <span data-role="smart-dedup-action"></span>
         </div>
       </div>
     </div>
     <component :is="activeTab" v-bind="$props" :object-view-mode="localObjectViewMode" v-if="activeTab" />
+    <OwnerAiDrawer
+      :open="aiDrawerOpen"
+      owner="world"
+      :project-id="props.projectId"
+      :source-page-id="props.bibleDeepLink?.pageId || props.bibleDeepLink?.ownerAiSourcePageId || null"
+      :target-kind="props.bibleDeepLink?.ownerAiTarget || null"
+      :preset="props.bibleDeepLink?.ownerAiPreset || null"
+      :checkpoint-id="props.bibleDeepLink?.ownerAiCheckpointId || null"
+      @close="aiDrawerOpen = false"
+    />
   </div>
 </template>
 
@@ -58,6 +69,7 @@ import WorldReviewTab from "./components/WorldReviewTab.vue"
 import WorldRelationsTab from "./components/WorldRelationsTab.vue"
 import WorldAliasesTab from "./components/WorldAliasesTab.vue"
 import WorldBibleTab from "./bible/WorldBibleTab.vue"
+import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -101,6 +113,9 @@ const props = defineProps({
 })
 
 const rootEl = ref(null)
+const aiDrawerOpen = ref(Boolean(props.bibleDeepLink?.ownerAiOpen))
+function openOwnerAi() { aiDrawerOpen.value = true }
+watch(() => props.bibleDeepLink?.ownerAiOpen, (open) => { if (open) aiDrawerOpen.value = true })
 const localObjectViewMode = ref(props.objectViewMode === "card" ? "card" : "table")
 watch(() => props.objectViewMode, (mode) => { localObjectViewMode.value = mode === "card" ? "card" : "table" })
 

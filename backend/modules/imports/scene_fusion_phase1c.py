@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from modules.imports.llm_schemas import SceneChunk
 from modules.imports.scene_fusion import FinalSceneCandidate
-from modules.outline.contracts import (
+from modules.story.contracts import (
     SceneBoundaryAssessmentContract,
     SceneBoundaryReviewOutputContract,
     SceneCandidateConcernContract,

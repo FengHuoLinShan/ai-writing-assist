@@ -36,7 +36,7 @@ describe("ShellApp", () => {
     expect(wrapper.get("#topbar-module").text()).toBe("高级生成工具")
     expect(wrapper.get(".sidebar-more > summary").classes()).toContain("active")
     expect(wrapper.get("#workspace-content").attributes("data-workspace-view")).toBe("generate")
-    expect(wrapper.get("#topbar-view-note").text()).toContain("高级用法")
+    expect(wrapper.get("#topbar-view-note").text()).toContain("旧生成入口")
   })
 
   it("navigates through the existing hash router and reports failures visibly", async () => {

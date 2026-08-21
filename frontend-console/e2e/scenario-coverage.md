@@ -18,7 +18,7 @@
 | 场景 5 世界对象管理 | R5 | `world`, `memory` | Vue 世界视图 | world 单测 + world E2E | ✅ 场景闭环 |
 | 场景 6 大纲与结构管理 | R4 | `outline`, `context` | Vue 大纲视图 | outline 单测 + outline E2E | 🟡 部分覆盖 |
 | A1 RAG 混合检索 | R6 | `rag` | Vue RAG 视图 | rag 单测 + rag E2E | 🟡 部分覆盖 |
-| A2 上下文编译 | R6 | `context`, `world`, `outline`, `rag` | Vue 生成中心 | context 单测 + context E2E | 🟡 部分覆盖 |
+| A2 上下文编译 | R6 | `context`, `world`, `outline`, `rag` | World/Writing owner 页 AI 抽屉（复用 GenerateView） | context 单测 + context E2E | 🟡 部分覆盖 |
 | B1 RP 互动旅程 | R7 | `interaction`, `settings`, `project` | RP 首页、列表、故事页 | interaction 单测 + RP 路由/390px E2E | 🟡 部分覆盖 |
 
 ## E2E 文件与场景映射
@@ -44,14 +44,14 @@
 | `outline-threads-arcs.spec.js` | 场景 6 | 创建/编辑/删除剧情线、创建/编辑/删除篇章纲；6/6 通过 |
 | `outline-foreshadowing-reveal.spec.js` | 场景 6 | 旧路由归并、同一 movement 的伏笔/揭示时间线、未归类计划分配 |
 | `rag.spec.js` | A1 | 索引状态页面、搜索子标签、搜索空结果、真实 RAG chunk UI 召回、embedding 降级元数据与 warning、重建索引按钮；“问世界”在 390px 下覆盖引用打开、内部字段隐藏和明确保存后才进入待处理 |
-| `generate.spec.js` | A2 | 生成中心页面、自由聊天/草稿/模板，以及上下文编译、预览与人物视角提交契约 |
+| `generate.spec.js` | A2 | owner 页 AI 抽屉内复用的生成工作台：自由聊天/草稿/模板，以及上下文编译、预览与人物视角提交契约 |
 | `interaction.spec.js` | B1 | 双入口进入 RP、旅程列表到故事页深链、独立壳、390px composer/定位轨/底部操作面板与横向溢出 |
 
 ## 覆盖状态详细说明
 
 ### ✅ 场景闭环
 
-- **项目创建与管理**：`project.spec.js` 与 `project-recycle-bin.spec.js` 覆盖创建、列表选择、编辑、软删除、回收站恢复和永久删除。创建和列表选择均进入写作视图（`#/workbench/:projectId/writing`）。
+- **项目创建与管理**：`project.spec.js` 与 `project-recycle-bin.spec.js` 覆盖创建、列表选择、编辑、软删除、回收站恢复和永久删除。创建和列表选择均进入写作首页（`#/workbench/:projectId/writing?home=1`）。
 - **文件上传与基础导入**：`import.spec.js`（1/1）与 `import-errors.spec.js`（3/3）覆盖基础导入成功流、格式不支持、超大文件前端拦截、空文件导入失败且不创建章节。
 - **手工写作工作台**：`writing.spec.js`、`writing-chaos.spec.js` 与 `writing-conflict.spec.js` 覆盖写作核心流程、localStorage 恢复、Scene 切换隔离、恢复后的发布门禁与 409 冲突检测；以当前运行输出为准。
 - **世界对象管理**：`world.spec.js`（9/9）与 `world-relations-aliases.spec.js`（2/2）全部通过；覆盖对象 CRUD、关系、别名、合并、回滚、知识边界。

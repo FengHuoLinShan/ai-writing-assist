@@ -1461,7 +1461,7 @@ class SceneEntityExtractionService(
         visible_until_chapter: int | None = None,
         visible_until_offset: int | None = None,
     ):
-        from modules.context.facade import prepare_import_context_activation
+        from modules.evidence.facade import prepare_import_context_activation
 
         return await prepare_import_context_activation(
             db,

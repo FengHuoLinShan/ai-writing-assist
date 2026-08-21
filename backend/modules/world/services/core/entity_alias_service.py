@@ -229,7 +229,7 @@ class EntityAliasService:
         try:
             marker = self._context_marker
             if marker is None:
-                from modules.context.facade import mark_asset_context_changed
+                from modules.evidence.facade import mark_asset_context_changed
 
                 marker = mark_asset_context_changed
 

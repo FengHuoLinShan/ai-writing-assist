@@ -68,7 +68,7 @@ async def _scene_bundle(
 ) -> dict[str, Any] | None:
     if not scene_id:
         return None
-    from modules.outline.facade import get_scene_execution_bundle
+    from modules.story.facade import get_scene_execution_bundle
 
     return _contract_dict(
         await get_scene_execution_bundle(db, novel_id, scene_id),
@@ -96,7 +96,7 @@ async def validate_candidate_upstream(
 
     confirmation_id = provenance.get("context_confirmation_id")
     if confirmation_id:
-        from modules.context.facade import require_fresh_confirmation
+        from modules.evidence.facade import require_fresh_confirmation
 
         try:
             await require_fresh_confirmation(

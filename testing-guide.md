@@ -36,6 +36,17 @@ Three layers:
 - **Service**: business logic happy path, exception paths (not found → 404, invalid UUID → 422)
 - **API** (via root `backend/conftest.py` `async_client`): HTTP happy path + error path
 
+Account connection/global preference coverage and project preference/effective composition coverage share
+`backend/tests/account_project_preferences/`; the one-release `/api/settings` aliases are tested there without
+reintroducing a settings domain module.
+
+Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
+`backend/tests/unit/test_evidence_fusion_contract.py` 保证旧 RAG/Context import 仅是同一实现的
+薄别名，且业务调用方只经 `modules.evidence.facade/contracts` 访问。
+`backend/tests/unit/test_canonical_owner_api_aliases.py` 还保证 owner-aligned canonical
+路径与一发布周期旧路径挂载的是同一 endpoint，且 OpenAPI、response model
+与 CSRF dependency 等价。
+
 ## Test execution layers
 
 下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`

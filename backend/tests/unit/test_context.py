@@ -20,16 +20,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from modules.context.contracts import (
-    AUTHOR_ONLY_WARNING,
-    CONTEXT_BUDGET,
-    StructureContextBundle,
-)
-from modules.context.facade import (
-    compile_structure_context,
-    render_context_markdown,
-)
-from modules.context.schemas import (
+from modules.evidence.compilation.schemas import (
     BudgetUsedItem,
     ContextCompileRequest,
     ContextRenderRequest,
@@ -37,15 +28,15 @@ from modules.context.schemas import (
     ContextSectionItem,
     ContextTierCompileResponse,
 )
-from modules.context.services import CompileOptions, ContextCompiler
-from modules.context.services.compiled_context import (
+from modules.evidence.compilation.services import CompileOptions, ContextCompiler
+from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
     Tier,
 )
-from modules.context.services.constraint_engine import ConstraintEngine
-from modules.context.services.context_compiler import SCOPE_LOADERS
-from modules.context.services.loaders import (
+from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
+from modules.evidence.compilation.services.context_compiler import SCOPE_LOADERS
+from modules.evidence.compilation.services.loaders import (
     CharactersLoader,
     EventsLoader,
     MemoryRecordsLoader,
@@ -59,7 +50,16 @@ from modules.context.services.loaders import (
     WorldEntitiesLoader,
     is_loader_available,
 )
-from modules.context.services.protocol import Loader
+from modules.evidence.compilation.services.protocol import Loader
+from modules.evidence.contracts import (
+    AUTHOR_ONLY_WARNING,
+    CONTEXT_BUDGET,
+    StructureContextBundle,
+)
+from modules.evidence.facade import (
+    compile_structure_context,
+    render_context_markdown,
+)
 
 # ============================================================
 # 1. Loader 协议测试
@@ -216,7 +216,7 @@ class TestContextCompilerDispatch:
     async def test_compile_unknown_loader_adds_warning(self) -> None:
         """未知 loader 名称应产生警告"""
         with patch.dict(
-            "modules.context.services.context_compiler.SCOPE_LOADERS",
+            "modules.evidence.compilation.services.context_compiler.SCOPE_LOADERS",
             {"project": ["unknown_loader"]},
         ):
             compiler = ContextCompiler(loaders=[])
@@ -1862,7 +1862,7 @@ class TestFacade:
     @pytest.mark.asyncio
     async def test_compile_structure_context_delegates_to_compiler(self) -> None:
         """compile_structure_context 应构造 CompileOptions 并调用 compiler.compile"""
-        from modules.context import facade as ctx_facade
+        from modules.evidence.compilation import facade as ctx_facade
 
         mock_bundle = StructureContextBundle(
             novel_id="id",
@@ -2072,7 +2072,7 @@ class TestMarkdownRendererEdgeCases:
 
     def test_section_renderer_fallback(self) -> None:
         """未识别的段落 key 应返回 fallback 内容"""
-        from modules.context.markdown_renderer import _get_section_renderer
+        from modules.evidence.compilation.markdown_renderer import _get_section_renderer
 
         bundle = StructureContextBundle(novel_id="id", task="t", scope="project")
         renderer = _get_section_renderer("nonexistent_key")
@@ -2087,7 +2087,7 @@ class TestMarkdownRendererEdgeCases:
 
 @pytest.fixture
 def _stub_context_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    from modules.context import api as context_api
+    from modules.evidence.compilation import api as context_api
 
     async def require_active_project(_db, _novel_id):
         return None
@@ -2128,11 +2128,11 @@ class TestContextApi:
         mock_ctx = self._compiled_context()
 
         with patch(
-            "modules.context.api.compile_with_tiers",
+            "modules.evidence.compilation.api.compile_with_tiers",
             autospec=True,
             return_value=mock_ctx,
         ):
-            from modules.context.api import compile_context
+            from modules.evidence.compilation.api import compile_context
 
             request = ContextCompileRequest(
                 novel_id="nid",
@@ -2155,7 +2155,7 @@ class TestContextApi:
     @pytest.mark.asyncio
     async def test_compile_context_character_reveal_requires_viewpoint(self) -> None:
         """character 揭示模式未提供 viewpoint_character_id 应抛出 400"""
-        from modules.context.api import compile_context
+        from modules.evidence.compilation.api import compile_context
 
         request = ContextCompileRequest(
             novel_id="nid",
@@ -2172,7 +2172,7 @@ class TestContextApi:
     @pytest.mark.asyncio
     async def test_compile_context_reader_reveal_requires_chapter_cutoff(self) -> None:
         """reader reveal must fail closed when no chapter cursor is available."""
-        from modules.context.api import compile_context
+        from modules.evidence.compilation.api import compile_context
 
         request = ContextCompileRequest(
             novel_id="nid",
@@ -2189,7 +2189,7 @@ class TestContextApi:
     @pytest.mark.asyncio
     async def test_compile_context_invalid_scope_raises_400(self) -> None:
         """无效 scope 在 /compile 中应抛出 400"""
-        from modules.context.api import compile_context
+        from modules.evidence.compilation.api import compile_context
 
         request = ContextCompileRequest(
             novel_id="nid",
@@ -2210,17 +2210,17 @@ class TestContextApi:
 
         with (
             patch(
-                "modules.context.api.render_compiled_context",
+                "modules.evidence.compilation.api.render_compiled_context",
                 autospec=True,
                 return_value="# 渲染结果\n",
             ),
             patch(
-                "modules.context.api.compile_with_tiers",
+                "modules.evidence.compilation.api.compile_with_tiers",
                 autospec=True,
                 return_value=mock_ctx,
             ),
         ):
-            from modules.context.api import render_context
+            from modules.evidence.compilation.api import render_context
 
             request = ContextRenderRequest(
                 novel_id="nid",
@@ -2243,7 +2243,7 @@ class TestContextApi:
     @pytest.mark.asyncio
     async def test_render_context_invalid_scope_raises_400(self) -> None:
         """无效 scope 在 /render 中应抛出 400"""
-        from modules.context.api import render_context
+        from modules.evidence.compilation.api import render_context
 
         request = ContextRenderRequest(
             novel_id="nid",
@@ -2260,7 +2260,7 @@ class TestContextApi:
     @pytest.mark.asyncio
     async def test_render_context_character_reveal_requires_viewpoint(self) -> None:
         """character 揭示模式未提供 viewpoint_character_id 应抛出 400"""
-        from modules.context.api import render_context
+        from modules.evidence.compilation.api import render_context
 
         request = ContextRenderRequest(
             novel_id="nid",

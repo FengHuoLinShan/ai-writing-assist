@@ -17,8 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
-from modules.context.models import ContextConfirmation
-from modules.rag.repositories import RagChunkRepository
+from modules.evidence.compilation.models import ContextConfirmation
+from modules.evidence.indexing.repositories import RagChunkRepository
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import WritingDraftCreate
 from modules.writing.tasks import handle_publish_chapter

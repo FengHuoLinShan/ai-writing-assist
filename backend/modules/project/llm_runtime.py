@@ -16,9 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.profiles import LLM_API_KEY_FIELD, resolve_llm_profile
+from modules.account.facade import resolve_account_llm_runtime_profile
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.services import ProjectService
-from modules.settings.facade import resolve_account_llm_runtime_profile
 from shared.deep_import_settings import (
     DEEP_IMPORT_FROZEN_SETTINGS_KEY,
     materialize_effective_deep_import_settings,

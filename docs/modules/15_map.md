@@ -118,7 +118,7 @@ finalization 在短事务中取得项目 share lock 与 task lease，持锁上�
 
 ## 验证
 
-- 后端：`backend/modules/world/tests/test_map_atlas.py`、`backend/modules/settings/tests/test_image_connection.py`
+- 后端：`backend/modules/world/tests/test_map_atlas.py`、`backend/tests/account_project_preferences/test_image_connection.py`
 - 删除竞态：`backend/tests/e2e/test_project_task_gate_concurrency.py`
 - 前端：`frontend-console/tests/vue/map/MapAtlasView.test.js`
 - 图片 adapter：自动测试使用固定 PNG、mock AsyncOpenAI 和 mock boto3；付费 live smoke 默认跳过。

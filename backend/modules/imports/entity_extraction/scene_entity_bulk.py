@@ -166,7 +166,7 @@ class BulkSceneEntityExtractionMixin:
             )
         except Exception as exc:
             if snapshot_id is not None:
-                from modules.context.facade import fail_context_snapshot
+                from modules.evidence.facade import fail_context_snapshot
 
                 await fail_context_snapshot(
                     db,
@@ -227,7 +227,7 @@ class BulkSceneEntityExtractionMixin:
                 result_refs=result_refs,
             )
         if snapshot_id is not None:
-            from modules.context.facade import succeed_context_snapshot
+            from modules.evidence.facade import succeed_context_snapshot
 
             await succeed_context_snapshot(
                 db,
@@ -236,7 +236,7 @@ class BulkSceneEntityExtractionMixin:
                 result_refs=result_refs,
             )
         try:
-            from modules.memory.facade import ensure_scene_checkpoints
+            from modules.story.facade import ensure_scene_checkpoints
 
             for scene in text_scenes:
                 await ensure_scene_checkpoints(db, str(nid), service._scene_id(scene))

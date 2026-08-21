@@ -119,7 +119,7 @@ onMounted(async () => {
 <template>
   <div v-if="subView === 'search' && statusFields.statusDegraded" class="rag-search-repair-notice" role="status">
     <span><strong>查找资料尚未准备好</strong>部分内容可能找不到，手写和其他功能不受影响。</span>
-    <button class="btn btn-sm btn-primary" type="button" data-action="nav-status" @click="navigateSub('status')">修复查找功能</button>
+    <button class="btn btn-sm btn-primary" type="button" data-action="nav-status" @click="navigateSub('status')">打开索引诊断</button>
   </div>
 
   <RagSearchView

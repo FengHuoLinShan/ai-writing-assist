@@ -807,7 +807,7 @@ class TestPlotStructureGenerateDuplicateRange:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),
@@ -842,13 +842,13 @@ class TestPlotStructureGenerateDuplicateRange:
         bundle.warnings = ["RAG 检索降级"]
         from sqlalchemy import select
 
-        from modules.context.models import ContextSnapshot
+        from modules.evidence.compilation.models import ContextSnapshot
         from modules.outline.generator import PlotStructureGenerator
         from shared.utils import parse_uuid
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),
@@ -898,13 +898,13 @@ class TestPlotStructureGenerateDuplicateRange:
         bundle = _make_bundle(test_project_id)
         from sqlalchemy import select
 
-        from modules.context.models import ContextSnapshot
+        from modules.evidence.compilation.models import ContextSnapshot
         from modules.outline.generator import PlotStructureGenerator
         from shared.utils import parse_uuid
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),
@@ -954,7 +954,7 @@ class TestPlotStructureGenerateDuplicateRange:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),

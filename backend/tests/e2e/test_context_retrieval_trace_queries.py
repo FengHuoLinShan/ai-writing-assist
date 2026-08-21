@@ -6,8 +6,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.models import ContextRetrievalTrace
-from modules.context.services.retrieval_trace_service import RetrievalTraceService
+from modules.evidence.compilation.models import ContextRetrievalTrace
+from modules.evidence.compilation.services.retrieval_trace_service import (
+    RetrievalTraceService,
+)
 from modules.project.models import Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]

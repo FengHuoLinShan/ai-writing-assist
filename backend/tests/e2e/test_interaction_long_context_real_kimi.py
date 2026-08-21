@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import current_account_id
+from modules.account.settings_service import SettingsService
 from modules.interaction.framing import META_END, META_START
 from modules.interaction.models import (
     InteractionGenerationAttempt,
@@ -38,7 +39,6 @@ from modules.project.facade import (
     create_interaction_project,
     open_project_llm_client,
 )
-from modules.settings.services import SettingsService
 
 _CALIBRATION_TARGETS = (
     16_000,

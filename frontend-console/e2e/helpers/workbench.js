@@ -30,14 +30,14 @@ export async function openWorkbench(page, project, view = "writing", subview = n
   }, { projectData: project, viewName: view, subViewName: subview })
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   const expectedTitle = {
-    today: "今日工作",
+    today: "写作",
     writing: "写作",
     world: "人物与世界",
     outline: "故事结构",
     scene: "故事结构",
     rag: "查找",
-    context: "上下文",
-    generate: "高级生成工具",
+    context: "写作",
+    generate: "人物与世界",
     project: "作品档案",
     map: "地图",
   }[view]

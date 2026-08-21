@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
 from infrastructure.llm.redaction import redact_diagnostic
-from modules.outline import facade as outline_facade
 from modules.project.repositories import SmartDedupWorkbenchDecisionRepository
+from modules.story import facade as outline_facade
 from modules.world import facade as world_facade
 from shared.utils import parse_uuid
 

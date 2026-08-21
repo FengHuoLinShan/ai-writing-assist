@@ -160,7 +160,9 @@ def test_all_unittest_patch_calls_use_literal_autospec_true() -> None:
 
 def test_every_module_test_directory_is_a_package() -> None:
     test_directories = sorted(
-        path for path in MODULES_ROOT.glob("*/tests") if path.is_dir()
+        path
+        for path in MODULES_ROOT.glob("*/tests")
+        if path.is_dir() and any(path.glob("test_*.py"))
     )
 
     assert test_directories
@@ -312,13 +314,13 @@ def test_root_conftest_registers_all_orm_metadata() -> None:
     }
     required_modules = {
         "infrastructure.tasks.models",
-        "modules.context.models",
+        "modules.evidence.models",
         "modules.imports.models",
-        "modules.memory.models",
-        "modules.outline.models",
+        "modules.story.continuity.models",
+        "modules.story.outline_state.models",
         "modules.project.models",
-        "modules.rag.models",
-        "modules.settings.models",
+        "modules.project.settings_models",
+        "modules.account.settings_models",
         "modules.world.map_atlas_models",
         "modules.world.models",
         "modules.writing.models",

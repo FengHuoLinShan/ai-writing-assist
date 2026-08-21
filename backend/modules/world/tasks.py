@@ -13,7 +13,7 @@ from typing import Any, cast
 
 from core.container import get as _container_get
 from infrastructure.tasks.registry import task_handler
-from modules.context import facade as context_facade
+from modules.evidence import facade as context_facade
 
 logger = logging.getLogger(__name__)
 

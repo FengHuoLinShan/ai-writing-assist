@@ -76,7 +76,7 @@ async def test_context_invalidation_failure_blocks_world_bible_write(
     method_name: str,
     asset_type: str,
 ) -> None:
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
 
     async def fail_invalidation(*_args, **kwargs):
         assert kwargs["asset_type"] == asset_type
@@ -104,7 +104,7 @@ async def test_draft_update_rolls_back_when_context_invalidation_fails(
     project_novel_id: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
 
     lifecycle = WorldBibleLifecycleService()
     draft = await lifecycle.create_draft(

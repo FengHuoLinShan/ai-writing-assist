@@ -20,7 +20,7 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
-from modules.context.facade import attach_result_ref, require_fresh_confirmation
+from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,

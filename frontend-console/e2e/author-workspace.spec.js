@@ -32,12 +32,12 @@ test.describe("作者任务工作台", () => {
     await page.reload()
 
     await page.getByRole("button", { name: /我是作家/ }).click()
-    await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/today$`))
-    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作")
+    await expect(page).toHaveURL(new RegExp(`#workbench/${project.id}/writing\\?home=1$`))
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
     await expect(page.getByRole("heading", { name: "雾港来信" })).toBeVisible()
 
     await page.setViewportSize({ width: 390, height: 844 })
-    for (const label of ["首页", "写作", "世界", "结构", "全部"]) {
+    for (const label of ["写作", "世界", "结构", "全部"]) {
       await expect(page.locator(".sidebar-mobile-nav").getByRole("button", { name: label })).toBeVisible()
     }
     await expectNoPageOverflow(page)

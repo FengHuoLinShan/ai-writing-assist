@@ -688,8 +688,8 @@ async def _prepare_rag_index(
     if chapter_from < 1 or chapter_to < chapter_from:
         raise ValueError("chapter range must satisfy 1 <= from <= to")
     from core.database import get_manager
-    from modules.rag.facade import get_index_freshness, index_chapter_with_report
-    from modules.rag.index_state import RagIndexStateService
+    from modules.evidence.facade import get_index_freshness, index_chapter_with_report
+    from modules.evidence.indexing.index_state import RagIndexStateService
     from modules.writing.facade import list_manuscript_sources
 
     manager = get_manager()
@@ -833,9 +833,9 @@ async def _rag_preflight(
     if list_sources_fn is None:
         from modules.writing.facade import list_manuscript_sources as list_sources_fn
     if freshness_fn is None:
-        from modules.rag.facade import get_index_freshness as freshness_fn
+        from modules.evidence.facade import get_index_freshness as freshness_fn
     if index_status_fn is None:
-        from modules.rag.facade import get_index_status as index_status_fn
+        from modules.evidence.facade import get_index_status as index_status_fn
 
     chapters_by_mode: dict[str, set[int]] = {}
     for case in cases:

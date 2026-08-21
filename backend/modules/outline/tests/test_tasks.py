@@ -199,7 +199,7 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),
@@ -271,7 +271,7 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),
@@ -362,7 +362,7 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),
@@ -398,7 +398,7 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),
@@ -466,7 +466,7 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context",
+                "modules.evidence.facade.compile_structure_context",
                 return_value=bundle,
                 autospec=True,
             ),

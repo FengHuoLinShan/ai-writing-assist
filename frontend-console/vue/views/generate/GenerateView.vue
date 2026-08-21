@@ -275,7 +275,10 @@ function onTabKeydown(event, tab) {
       : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null
   if (target === null) return
   event.preventDefault()
-  document.getElementById(tabId(tabs[target].key))?.focus()
+  event.currentTarget
+    ?.closest('[role="tablist"]')
+    ?.querySelector(`[data-subtab="${tabs[target].key}"]`)
+    ?.focus()
 }
 function currentWorldPayload() {
   const payload = buildWorldPayload({ ...session, projectId: props.projectId, sourcePageId: props.sourcePageId, targetKind: props.targetKind, sourcePage: world.sourcePage, sourceDraft: world.sourceDraft, templates: templates.value, activationProfiles: activationProfiles.value, worldPageTemplates: world.pageTemplates, worldPages: world.pages, workflowPreset: isWorldCore.value ? "world_core" : "default" })

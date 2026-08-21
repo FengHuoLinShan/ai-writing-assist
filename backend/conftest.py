@@ -34,17 +34,18 @@ from sqlalchemy.pool import StaticPool
 
 import infrastructure.tasks.models  # noqa: F401
 import modules.account.models  # noqa: F401
-import modules.context.models  # noqa: F401
+import modules.account.settings_models  # noqa: F401
+import modules.evidence.models  # noqa: F401
 import modules.imports.models  # noqa: F401
-
-# character/geo/review/timeline 已从 minimal-core 移除
-import modules.memory.models  # noqa: F401
-import modules.outline.models  # noqa: F401
 
 # 导入所有 ORM 模型注册到 Base.metadata
 import modules.project.models  # noqa: F401
-import modules.rag.models  # noqa: F401
-import modules.settings.models  # noqa: F401
+import modules.project.settings_models  # noqa: F401
+
+# character/geo/review/timeline 已从 minimal-core 移除
+import modules.story.continuity.models  # noqa: F401
+import modules.story.models  # noqa: F401
+import modules.story.outline_state.models  # noqa: F401
 import modules.world.map_atlas_models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
@@ -173,11 +174,11 @@ async def account_llm_connection(db_session: AsyncSession):  # noqa: ANN201
     "not connected" boundary remains covered.
     """
     from infrastructure.llm.secret_store import encrypt_secret
-    from modules.settings.constants import (
+    from modules.account.settings_constants import (
         ACCOUNT_LLM_PROVIDER_TEMPLATES,
         LOCAL_OWNER_ID,
     )
-    from modules.settings.repositories import (
+    from modules.account.settings_repositories import (
         AccountLLMCredentialRepository,
         GlobalLLMDefaultsRepository,
     )

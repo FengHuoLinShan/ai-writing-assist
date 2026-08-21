@@ -376,7 +376,7 @@ class AliasRelationExtractionMixin:
                     )
                 )
                 if snapshot_id is not None:
-                    from modules.context.facade import succeed_context_snapshot
+                    from modules.evidence.facade import succeed_context_snapshot
 
                     await succeed_context_snapshot(
                         db,
@@ -774,7 +774,7 @@ async def _mark_phase2b_snapshot_failed(
 ) -> None:
     if snapshot_id is None:
         return
-    from modules.context.facade import fail_context_snapshot
+    from modules.evidence.facade import fail_context_snapshot
 
     await fail_context_snapshot(
         db,

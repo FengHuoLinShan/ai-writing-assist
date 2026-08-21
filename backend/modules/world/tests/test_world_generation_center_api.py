@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
-from modules.context.contracts import StructureContextBundle
-from modules.context.models import ContextSnapshot
+from modules.evidence.compilation.models import ContextSnapshot
+from modules.evidence.contracts import StructureContextBundle
 from modules.outline.models import Scene
 from modules.project.models import Project
 from modules.world.llm_schemas import (
@@ -1404,11 +1404,11 @@ async def test_generation_center_chat_and_suggestion_follow_kimi_account_snapsho
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
-    from modules.settings.constants import (
+    from modules.account.settings_constants import (
         ACCOUNT_LLM_PROVIDER_TEMPLATES,
         LOCAL_OWNER_ID,
     )
-    from modules.settings.repositories import (
+    from modules.account.settings_repositories import (
         AccountLLMCredentialRepository,
         GlobalLLMDefaultsRepository,
     )
@@ -1616,7 +1616,7 @@ async def test_generation_center_snapshot_success_failure_falls_back_to_failed(
         raise RuntimeError("snapshot succeed unavailable")
 
     monkeypatch.setattr(
-        "modules.context.facade.succeed_generation_context_snapshot",
+        "modules.evidence.facade.succeed_generation_context_snapshot",
         fail_succeed,
     )
     response = await async_client.post(
@@ -3147,7 +3147,7 @@ async def test_ask_world_api_is_read_only_cited_and_saves_only_a_suggestion(
     fake.ask_world_answer = "无引用断言：皇帝亲自主持了航路重建。"
     fake.ask_world_uncertainty = "无引用断言：北方还有三条秘密航线。"
     monkeypatch.setattr(
-        "modules.context.facade.retrieve_planned_context_evidence",
+        "modules.evidence.facade.retrieve_planned_context_evidence",
         _empty_ask_world_rag,
     )
     novel_id = await _create_llm_project(async_client, "有引用的问世界")
@@ -3257,7 +3257,7 @@ async def test_ask_world_api_refuses_without_evidence_before_llm(
 ) -> None:
     fake = _install_fake_llm(monkeypatch)
     monkeypatch.setattr(
-        "modules.context.facade.retrieve_planned_context_evidence",
+        "modules.evidence.facade.retrieve_planned_context_evidence",
         _empty_ask_world_rag,
     )
     novel_id = await _create_llm_project(async_client, "无证据问世界")
@@ -3286,7 +3286,7 @@ async def test_ask_world_api_retrieves_and_reopens_canonical_world_object(
 ) -> None:
     _install_fake_llm(monkeypatch)
     monkeypatch.setattr(
-        "modules.context.facade.retrieve_planned_context_evidence",
+        "modules.evidence.facade.retrieve_planned_context_evidence",
         _empty_ask_world_rag,
     )
     novel_id = await _create_llm_project(async_client, "对象来源问世界")
@@ -3354,7 +3354,7 @@ async def test_ask_world_object_recall_marks_the_bounded_scan(
     service = AskWorldService(bible_service=_EmptyBible())
     service._entity_context = _EntityContext()
     monkeypatch.setattr(
-        "modules.context.facade.retrieve_planned_context_evidence",
+        "modules.evidence.facade.retrieve_planned_context_evidence",
         empty_rag,
     )
 

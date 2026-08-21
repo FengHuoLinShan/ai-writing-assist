@@ -1277,7 +1277,7 @@ class WorldAdoptionPackageService:
         if self._context_marker is not None:
             await self._context_marker(db, novel_id, entity_ids)
             return
-        from modules.context.facade import mark_asset_context_changed
+        from modules.evidence.facade import mark_asset_context_changed
 
         for entity_id in sorted(entity_ids):
             await mark_asset_context_changed(

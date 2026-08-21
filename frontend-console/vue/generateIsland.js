@@ -84,20 +84,24 @@ async function restoreSuggestion(api, projectId, suggestionId, sourcePageId, tar
   }
 }
 
-export async function loadGenerate() {
+export async function loadGenerate(options = {}) {
   const api = getApi()
   const appState = getAppState()
   const router = getRouter()
   const toast = getToast()
-  const projectId = appState?.currentProjectId || null
-  const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
-  const tab = VALID_TABS.has(query.get("tab")) ? query.get("tab") : "world"
-  const preset = query.get("preset") === "world_core" ? "world_core" : query.get("preset") || "custom"
-  const sourcePageId = preset === "world_core" ? null : query.get("source_page_id") || null
+  const projectId = options.projectId ?? appState?.currentProjectId ?? null
+  const query = options.query
+    ? new URLSearchParams(options.query)
+    : new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const tab = VALID_TABS.has(options.tab) ? options.tab : VALID_TABS.has(query.get("tab")) ? query.get("tab") : "world"
+  const preset = options.preset === "world_core"
+    ? "world_core"
+    : options.preset || (query.get("preset") === "world_core" ? "world_core" : query.get("preset") || "custom")
+  const sourcePageId = preset === "world_core" ? null : (options.sourcePageId ?? (query.get("source_page_id") || null))
   const targetKind = preset === "world_core"
     ? "core_entity"
-    : VALID_TARGETS.has(query.get("target")) ? query.get("target") : "core_entity"
-  const checkpointId = preset === "world_core" ? query.get("checkpoint_id") || null : null
+    : VALID_TARGETS.has(options.targetKind) ? options.targetKind : VALID_TARGETS.has(query.get("target")) ? query.get("target") : "core_entity"
+  const checkpointId = preset === "world_core" ? (options.checkpointId ?? (query.get("checkpoint_id") || null)) : null
   const sessionKey = generateSessionKey(projectId, sourcePageId, targetKind, preset)
   const notices = new Set()
   const readSession = (key) => readGenerateSession(key, {

@@ -480,7 +480,10 @@ export function useSceneWorkbench(props) {
       state.viewStates = state.viewStates || {}
       state.viewStates.writing = { ...(state.viewStates.writing || {}), projectId, currentChapter: Number(first) }
     }
-    router.navigate("writing", null)
+    const query = new URLSearchParams()
+    if (first) query.set("chapter_index", String(first))
+    if (scene?.id) query.set("scene_id", String(scene.id))
+    router.navigate("writing", null, true, query)
   }
 
   async function openOverlap(sceneId) {

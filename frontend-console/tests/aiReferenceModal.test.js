@@ -272,11 +272,35 @@ describe("aiReferenceModal", () => {
     const select = document.getElementById("ai-ref-activation-profile")
     expect(Array.from(select.options).map((item) => item.value)).toEqual(["", "profile-1"])
     select.value = "profile-1"
-    document.querySelector("#modal-footer button")?.click()
+    document.querySelector("#modal-footer button.btn-primary")?.click()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
       activation_profile_id: "profile-1",
+    }))
+  })
+
+  it("保留 Scene 的未来可见截止点并使用作者安全揭示模式", async () => {
+    api.context.confirm.mockResolvedValue({ id: "scene-confirmation", selected_asset_ids: {}, warnings: [] })
+    confirmAiReference({
+      novel_id: "p1",
+      action: "story.script.generate",
+      task: "剧本建议",
+      scope: "project",
+      scene_id: "scene-7",
+      visible_until_scene_id: "scene-7",
+      reveal_mode: "author_safe",
+    }).catch(() => {})
+    await Promise.resolve()
+    await Promise.resolve()
+
+    document.querySelector("#modal-footer button")?.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
+      scene_id: "scene-7",
+      visible_until_scene_id: "scene-7",
+      reveal_mode: "author_safe",
     }))
   })
 

@@ -108,7 +108,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 - 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；
   高置信重复实体只记录建议目标并进入待处理，不自动融合到
   已有对象；重复关系走 create-or-merge。
-- Phase 2 的真实 LLM 调用通过 context facade 写入 `context_snapshots`，并在任务结果中记录 snapshot health、dedup、boundary supplement 和 degraded 统计。
+- Phase 2 的真实 LLM 调用通过 evidence facade 写入 `context_snapshots`，并在任务结果中记录 snapshot health、dedup、boundary supplement 和 degraded 统计。
 
 ### Phase 3: 结构分析（单次，20%）
 - 输入：全量 Scene 摘要 + 坍缩后 Delta 变更流 + 实体索引

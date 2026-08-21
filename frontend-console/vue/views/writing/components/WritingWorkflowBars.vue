@@ -16,6 +16,14 @@
     <button v-if="!generation.progress.terminal" class="btn btn-sm" @click="$emit('cancel-generation')">取消任务</button>
     <button v-else class="btn btn-sm" @click="$emit('dismiss-generation')">关闭</button>
   </section>
+  <section v-if="generation?.staleStoryScript" id="writing-stale-story-script-bar" key="stale-story-script" class="writing-workflow-notice writing-stale-story-script" role="alert">
+    <strong>场景剧本已变化</strong>
+    <p>{{ generation.staleStoryScript.message }}</p>
+    <div class="writing-workflow-notice__actions">
+      <button class="btn btn-sm btn-primary" @click="$emit('retry-stale-story-script')">仍使用这个旧剧本</button>
+      <button class="btn btn-sm" @click="$emit('dismiss-generation')">关闭</button>
+    </div>
+  </section>
   <section v-if="conflictTask?.progress" id="writing-conflict-task-bar-container" key="conflict-task" class="writing-workflow-notice" aria-live="polite">
     <WorkflowProgressCard :progress="conflictTask.progress" :title="conflictTask.progress.label || 'AI 冲突检查'" :message="conflictTask.progress.message || ''" :collapsible="true" :show-task-id="false" />
     <button v-if="!conflictTask.progress.terminal" class="btn btn-sm" @click="$emit('cancel-conflict-task')">取消任务</button>
@@ -96,7 +104,7 @@ const props = defineProps({
   conflictTask: { type: Object, default: null },
   showConflict: { type: Boolean, default: true },
 })
-const emit = defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "cancel-conflict-task", "dismiss-conflict-task"])
+const emit = defineEmits(["cancel", "resume", "abandon", "dismiss", "open-audit", "open-scenes", "open-conflict", "retry-publish", "dismiss-publish", "open-generation", "cancel-generation", "dismiss-generation", "retry-stale-story-script", "cancel-conflict-task", "dismiss-conflict-task"])
 
 const terminal = computed(() => ["done", "failed", "cancelled"].includes(props.deepImport.progress?.status || props.deepImport.progress?.phase))
 const dedupReviewCount = computed(() => Number(props.deepImport.progress?.phase2Dedup?.review_required || 0))
@@ -246,6 +254,7 @@ const hasNotices = computed(() => Boolean(
   props.publish.active
   || props.publish.phase
   || props.generation?.progress
+  || props.generation?.staleStoryScript
   || props.conflictTask?.progress
   || normalizedDeepImportProgress.value
   || (props.showConflict && (props.conflict.latest || props.conflict.error)),

@@ -513,7 +513,7 @@ class WorldEntityService(
 
         for reason in stale_reasons:
             try:
-                from modules.context.facade import mark_asset_context_changed
+                from modules.evidence.facade import mark_asset_context_changed
 
                 await mark_asset_context_changed(
                     db,
@@ -529,7 +529,7 @@ class WorldEntityService(
                     exception_summary_for_log(exc),
                 )
         if type_changed:
-            from modules.context.facade import mark_asset_context_changed
+            from modules.evidence.facade import mark_asset_context_changed
 
             await mark_asset_context_changed(
                 db,
@@ -633,7 +633,7 @@ class WorldEntityService(
 
         try:
             async with db.begin_nested():
-                from modules.context.facade import mark_asset_context_changed
+                from modules.evidence.facade import mark_asset_context_changed
 
                 await mark_asset_context_changed(
                     db,
@@ -763,7 +763,7 @@ class WorldEntityService(
 
             await CharacterService().ensure_for_core_entity(db, updated)
         try:
-            from modules.context.facade import mark_asset_context_changed
+            from modules.evidence.facade import mark_asset_context_changed
 
             await mark_asset_context_changed(
                 db,
@@ -779,7 +779,7 @@ class WorldEntityService(
                 exception_summary_for_log(exc),
             )
         if type_changed:
-            from modules.context.facade import mark_asset_context_changed
+            from modules.evidence.facade import mark_asset_context_changed
 
             await mark_asset_context_changed(
                 db,

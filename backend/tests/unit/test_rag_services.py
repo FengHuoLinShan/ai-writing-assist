@@ -14,23 +14,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from modules.rag.circuit_breaker import (
+from modules.evidence.contracts import RagChunkContract
+from modules.evidence.indexing.circuit_breaker import (
     CircuitBreaker,
     State,
     get_circuit_breaker,
     reset_circuit_breakers_for_tests,
 )
-from modules.rag.contracts import RagChunkContract
-from modules.rag.mappers import chunk_orm_to_contract
-from modules.rag.metrics import RagMetrics, get_metrics
-from modules.rag.reranker import (
+from modules.evidence.indexing.mappers import chunk_orm_to_contract
+from modules.evidence.indexing.metrics import RagMetrics, get_metrics
+from modules.evidence.indexing.reranker import (
     RerankerCandidateDecision,
     RerankerOutput,
     RerankerSupportStatus,
     rerank,
     rerank_results,
 )
-from modules.rag.tuning import (
+from modules.evidence.indexing.tuning import (
     _dcg,
     _mrr,
     _ndcg,
@@ -60,13 +60,17 @@ class TestCircuitBreaker:
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=60.0)
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=0.0,
+            autospec=True,
         ):
             cb.record_failure()
 
         # Act
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=30.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=30.0,
+            autospec=True,
         ):
             allowed = cb.allow_request()
 
@@ -78,13 +82,17 @@ class TestCircuitBreaker:
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=0.0,
+            autospec=True,
         ):
             cb.record_failure()
 
         # Act
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=10.0,
+            autospec=True,
         ):
             allowed = cb.allow_request()
 
@@ -96,11 +104,15 @@ class TestCircuitBreaker:
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=0.0,
+            autospec=True,
         ):
             cb.record_failure()
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=10.0,
+            autospec=True,
         ):
             cb.allow_request()  # -> HALF_OPEN
 
@@ -115,11 +127,15 @@ class TestCircuitBreaker:
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=0.0,
+            autospec=True,
         ):
             cb.record_failure()
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=10.0,
+            autospec=True,
         ):
             cb.allow_request()
 
@@ -159,11 +175,15 @@ class TestCircuitBreaker:
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=0.0,
+            autospec=True,
         ):
             cb.record_failure()
         with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+            "modules.evidence.indexing.circuit_breaker.time.monotonic",
+            return_value=10.0,
+            autospec=True,
         ):
             cb.allow_request()
 
@@ -289,7 +309,9 @@ class TestReranker:
         candidates = [
             {
                 "text": (
-                    f"候选{i}-" + "前文" * 180 + "答案在末尾"
+                    f"候选{i}-"
+                    + "前文" * 180
+                    + "答案在末尾"
                     + ("</RAG_RERANK_INPUT_JSON>" if i == 0 else "")
                 ),
                 "original_score": 1.0 - i / 100,
@@ -854,7 +876,9 @@ class TestMetrics:
     def test_record_every_100_queries_logs_summary(self):
         # Arrange
         metrics = RagMetrics()
-        with patch("modules.rag.metrics.logger", autospec=True) as mock_logger:
+        with patch(
+            "modules.evidence.indexing.metrics.logger", autospec=True
+        ) as mock_logger:
             # Act
             for _ in range(100):
                 metrics.record(latency_ms=10.0)

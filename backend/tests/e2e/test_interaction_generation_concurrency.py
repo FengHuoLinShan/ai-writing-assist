@@ -14,6 +14,8 @@ from infrastructure.tasks.models import AsyncTask
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
+from modules.account.settings_models import AccountLLMCredential, GlobalLLMDefaults
+from modules.account.settings_service import SettingsService
 from modules.interaction.models import (
     InteractionAccountPreference,
     InteractionBranchSelection,
@@ -25,8 +27,6 @@ from modules.interaction.repositories import InteractionRepository
 from modules.interaction.services import InteractionService
 from modules.project.facade import require_interaction_project
 from modules.project.models import Project
-from modules.settings.models import AccountLLMCredential, GlobalLLMDefaults
-from modules.settings.services import SettingsService
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -222,7 +222,7 @@ async def test_same_provider_connect_validates_once_under_concurrency() -> None:
                 validator_calls += 1
 
             monkeypatch.setattr(
-                "modules.settings.services._validate_account_llm_connection",
+                "modules.account.settings_service._validate_account_llm_connection",
                 validate,
             )
             await asyncio.gather(connect(), connect())
@@ -281,7 +281,7 @@ async def test_cross_provider_connect_keeps_one_account_head(
             return None
 
         monkeypatch.setattr(
-            "modules.settings.services._validate_account_llm_connection",
+            "modules.account.settings_service._validate_account_llm_connection",
             validate,
         )
         await asyncio.gather(connect("deepseek"), connect("kimi"))

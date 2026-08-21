@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.rag.contracts import RagIndexReport
-from modules.rag.facade import index_chapter_with_report
+from modules.evidence.contracts import RagIndexReport
+from modules.evidence.facade import index_chapter_with_report
 
 
 class TestIndexChapterWithReport:
@@ -28,7 +28,9 @@ class TestIndexChapterWithReport:
         db = AsyncMock(spec=AsyncSession)
         novel_id = "a" * 32
 
-        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
+        with patch(
+            "modules.evidence.indexing.facade._indexing", autospec=True
+        ) as mock_indexing:
             mock_indexing.index_chapter_with_report = AsyncMock(return_value=expected)
 
             # Act
@@ -46,7 +48,9 @@ class TestIndexChapterWithReport:
         db = AsyncMock(spec=AsyncSession)
         novel_id = "b" * 32
 
-        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
+        with patch(
+            "modules.evidence.indexing.facade._indexing", autospec=True
+        ) as mock_indexing:
             mock_indexing.index_chapter_with_report = AsyncMock(
                 side_effect=RuntimeError("indexing failed")
             )
@@ -63,7 +67,9 @@ class TestIndexChapterWithReport:
         expected_uuid = uuid.UUID(hex=novel_id)
         report = RagIndexReport(chapter_index=1)
 
-        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
+        with patch(
+            "modules.evidence.indexing.facade._indexing", autospec=True
+        ) as mock_indexing:
             mock_indexing.index_chapter_with_report = AsyncMock(return_value=report)
 
             # Act

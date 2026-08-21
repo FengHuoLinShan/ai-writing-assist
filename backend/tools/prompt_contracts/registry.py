@@ -14,7 +14,7 @@ ALLOWED_SCHEMA_PREFIXES = (
     "modules.outline.",
     "modules.world.",
     "modules.memory.",
-    "modules.rag.",
+    "modules.evidence.",
 )
 
 

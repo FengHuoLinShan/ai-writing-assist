@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError
 from infrastructure.llm.errors import LLMTimeoutError
 from infrastructure.tasks.models import AsyncTask
-from modules.context.models import ContextConfirmation
+from modules.evidence.compilation.models import ContextConfirmation
 from modules.project.models import Project
 from modules.writing import facade as writing_facade
 from modules.writing.conflict_ai import (
@@ -856,11 +856,11 @@ async def test_ai_review_reuses_loaded_items_after_append(
         return None
 
     monkeypatch.setattr(
-        "modules.context.facade.prepare_confirmed_ai_action",
+        "modules.evidence.facade.prepare_confirmed_ai_action",
         fake_prepare_confirmed_ai_action,
     )
     monkeypatch.setattr(
-        "modules.context.facade.bind_confirmed_action_result",
+        "modules.evidence.facade.bind_confirmed_action_result",
         fake_bind_confirmed_action_result,
     )
 
@@ -983,11 +983,11 @@ async def test_ai_suggestion_reuses_loaded_item_for_status_updates(
         return None
 
     monkeypatch.setattr(
-        "modules.context.facade.prepare_confirmed_ai_action",
+        "modules.evidence.facade.prepare_confirmed_ai_action",
         fake_prepare_confirmed_ai_action,
     )
     monkeypatch.setattr(
-        "modules.context.facade.bind_confirmed_action_result",
+        "modules.evidence.facade.bind_confirmed_action_result",
         fake_bind_confirmed_action_result,
     )
 

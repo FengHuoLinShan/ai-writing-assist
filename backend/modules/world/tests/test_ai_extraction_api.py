@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
-from modules.context.facade import attach_result_ref, require_confirmation
+from modules.evidence.facade import attach_result_ref, require_confirmation
 
 
 @pytest.mark.asyncio

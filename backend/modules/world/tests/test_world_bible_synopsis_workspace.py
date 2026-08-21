@@ -9,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
-from modules.context.contracts import CompileOptions
-from modules.context.models import ContextConfirmation
-from modules.context.services.confirmation_service import ContextConfirmationService
-from modules.context.services.context_compiler import ContextCompiler
+from modules.evidence.compilation.models import ContextConfirmation
+from modules.evidence.compilation.services.confirmation_service import (
+    ContextConfirmationService,
+)
+from modules.evidence.compilation.services.context_compiler import ContextCompiler
+from modules.evidence.contracts import CompileOptions
 from modules.world.models import (
     ConflictCheckQueueItem,
     CoreEntity,

@@ -11,7 +11,7 @@ attempt 与分支有效回顾；不复用作者 World、Outline、RAG 或 memory
 
 ## 稳定边界
 
-- 跨模块只调用 `modules.project.facade`、`modules.settings.facade` 和
+- 跨模块只调用 `modules.project.facade`（其内部解析 account 拥有的连接与全局偏好）和
   `infrastructure.tasks.facade`。
 - 浏览器 API 只接受旅程 ID；服务端由当前 account principal 解析 `owner_id` 与 `novel_id`。
 - 消息节点不可变。用户修改、重新生成和切换发展只创建 sibling 或更新 branch selection。

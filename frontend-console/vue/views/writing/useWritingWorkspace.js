@@ -74,6 +74,7 @@ export async function loadWritingProps() {
   const router = getRouter()
   const projectId = state?.currentProjectId || null
   const query = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const homeMode = query.get("home") === "1"
   const result = {
     projectId,
     chapterList: [],
@@ -82,6 +83,9 @@ export async function loadWritingProps() {
     chapterLoadError: null,
     authorPreferences: { dailyGoal: null, editorFont: "system", defaultFocusMode: false },
     requestedLocation: null,
+    homeMode,
+    ownerAiOpen: query.get("owner_ai") === "1",
+    ownerAiMode: query.get("owner_ai_mode") || "writing",
   }
   if (!projectId || !api) return result
 
@@ -90,7 +94,7 @@ export async function loadWritingProps() {
   const querySceneId = query.get("scene_id") || null
   const openConflict = query.get("open") === "conflicts"
   const conflictItemId = query.get("conflict_item_id") || null
-  result.requestedLocation = queryChapter > 0
+  result.requestedLocation = !homeMode && queryChapter > 0
     ? {
         chapter: queryChapter,
         draftId: query.get("draft_id") || null,
@@ -99,14 +103,14 @@ export async function loadWritingProps() {
         conflictItemId,
         source: "url",
       }
-    : session?.currentChapter
+    : !homeMode && session?.currentChapter
       ? {
           chapter: session.currentChapter,
           draftId: session.currentDraftId,
           sceneId: session.currentSceneId,
           source: "pointer",
         }
-      : state?.viewStates?.writing?.projectId === projectId
+      : !homeMode && state?.viewStates?.writing?.projectId === projectId
         ? {
             chapter: state.viewStates.writing.currentChapter,
             draftId: state.viewStates.writing.currentDraftId,
@@ -147,6 +151,7 @@ export function useWritingWorkspace(props) {
   const confirmAction = getConfirmAction()
   const confirmDialog = (message, confirmText) => confirmAsync(message, confirmText, { confirmAction })
   const projectId = props.projectId
+  const homeMode = ref(Boolean(props.homeMode))
   const chapterList = ref([...(props.chapterList || [])])
   const chapters = reactive({ ...(props.chapters || {}) })
   const scenes = ref([...(props.scenes || [])])
@@ -1294,9 +1299,6 @@ export function useWritingWorkspace(props) {
 
   function resize() {
     isNarrow.value = window.innerWidth <= 760
-    if (isNarrow.value && !selectedChapter.value && chapterList.value[0]) {
-      void selectChapter(chapterList.value[0])
-    }
   }
 
   watch(focusMode, (active) => {
@@ -1330,8 +1332,6 @@ export function useWritingWorkspace(props) {
           toast("当前场景暂无可查看的检查记录", "info")
         }
       }
-    } else if (isNarrow.value && chapterList.value[0]) {
-      await selectChapter(chapterList.value[0])
     }
     void commands.recover()
     void conflictActions.recover()
@@ -1369,6 +1369,7 @@ export function useWritingWorkspace(props) {
 
   return {
     projectId,
+    homeMode,
     chapterList,
     chapters,
     scenes,
@@ -1425,6 +1426,7 @@ export function useWritingWorkspace(props) {
     generateDraft: commands.generateDraft,
     generateContinuation: commands.generateContinuation,
     generatePovDraft: commands.generatePovDraft,
+    retryUsingStaleStoryScript: commands.retryUsingStaleStoryScript,
     reviewCandidate: commands.reviewCandidate,
     reviseCandidate: commands.reviseCandidate,
     openGenerationResult: commands.openResult,

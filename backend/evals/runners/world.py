@@ -54,7 +54,7 @@ async def run_world_workflow_cases(
     if not chapter_indices:
         raise ValueError("World eval cases require reference chapter indices")
     if load_scene_spans_fn is None:
-        from modules.outline.facade import get_scene_spans_by_chapter
+        from modules.story.facade import get_scene_spans_by_chapter
 
         load_scene_spans_fn = get_scene_spans_by_chapter
     span_preflight = await _scene_span_coverage_preflight(

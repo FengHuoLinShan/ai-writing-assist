@@ -109,9 +109,9 @@ def _build_task_worker():
     """Compose the generic worker with process-specific task services."""
     from infrastructure.tasks.liveness import write_control_loop_liveness
     from infrastructure.tasks.worker import TaskWorker
+    from modules.evidence.facade import reconcile_index_task_owners
     from modules.imports.facade import reconcile_workflow_task_owners
     from modules.interaction.facade import reconcile_interaction_task_owners
-    from modules.rag.facade import reconcile_index_task_owners
     from modules.world.map_atlas_facade import reconcile_map_atlas_task_owners
 
     return TaskWorker(

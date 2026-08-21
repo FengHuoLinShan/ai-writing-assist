@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
+from modules.evidence.contracts import StructureContextBundle
 from modules.project.models import Project
 from modules.world.models import CoreEntity
 

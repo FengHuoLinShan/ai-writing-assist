@@ -30,12 +30,12 @@ from modules.project.schemas import (
     SmartDedupScanResponse,
 )
 from modules.project.services import ProjectService
-from modules.project.smart_dedup import SmartDedupService
-from modules.project.workspace_service import ProjectWorkspaceSummaryService
-from modules.settings.contracts import (
+from modules.project.settings_schemas import (
     EffectiveAuthorPrefsResponse,
     EffectiveLLMSettingsResponse,
 )
+from modules.project.smart_dedup import SmartDedupService
+from modules.project.workspace_service import ProjectWorkspaceSummaryService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -134,7 +134,7 @@ async def api_get_effective_llm_settings(
     project_id: str,
 ) -> EffectiveLLMSettingsResponse:
     """读取账户连接与项目工作流设置合成的 effective 视图。"""
-    from modules.settings.facade import get_effective_llm_settings
+    from modules.project.facade import get_effective_llm_settings
 
     return await get_effective_llm_settings(db, project_id)
 
@@ -148,7 +148,7 @@ async def api_get_effective_author_prefs(
     project_id: str,
 ) -> EffectiveAuthorPrefsResponse:
     """获取项目级作者偏好的 effective 视图（项目 > 全局 > 系统）"""
-    from modules.settings.facade import get_effective_author_prefs
+    from modules.project.facade import get_effective_author_prefs
 
     return await get_effective_author_prefs(db, project_id)
 
@@ -312,3 +312,10 @@ async def api_permanent_delete_project(
 ) -> None:
     """永久删除项目（级联删除所有关联数据，不可恢复）"""
     await _service.permanent_delete_project(db, project_id, confirmed=confirmed)
+
+
+from modules.project.settings_api import (  # noqa: E402
+    handler_router as settings_handler_router,
+)
+
+router.include_router(settings_handler_router)

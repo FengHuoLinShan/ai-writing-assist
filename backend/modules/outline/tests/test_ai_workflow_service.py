@@ -206,7 +206,7 @@ async def test_apply_structure_preview_api_persists_explicit_adoption_once(
 ) -> None:
     from sqlalchemy import select
 
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.outline.models import PlotThread
 
     confirmation = await confirm_context(
@@ -317,7 +317,7 @@ async def test_apply_structure_preview_rolls_back_partial_failure_and_can_retry(
 ) -> None:
     from sqlalchemy import func, select
 
-    from modules.context.facade import confirm_context
+    from modules.evidence.facade import confirm_context
     from modules.outline.generation.persister import PlotStructurePersister
     from modules.outline.models import PlotThread
 

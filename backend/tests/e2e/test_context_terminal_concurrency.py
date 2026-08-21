@@ -7,19 +7,19 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from modules.context.contracts import ContextSnapshotRequest
-from modules.context.facade import (
+from modules.evidence.compilation.models import (
+    ContextConfirmation,
+    ContextConfirmationAssetRef,
+    ContextSnapshot,
+)
+from modules.evidence.compilation.repositories import ContextConfirmationRepository
+from modules.evidence.contracts import ContextSnapshotRequest
+from modules.evidence.facade import (
     attach_result_ref,
     fail_context_snapshot,
     open_context_snapshot,
     succeed_context_snapshot,
 )
-from modules.context.models import (
-    ContextConfirmation,
-    ContextConfirmationAssetRef,
-    ContextSnapshot,
-)
-from modules.context.repositories import ContextConfirmationRepository
 from modules.project.models import Project
 from tests.e2e.config import DATABASE_URL
 

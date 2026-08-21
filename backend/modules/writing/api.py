@@ -10,7 +10,7 @@ import logging
 from dataclasses import asdict
 from datetime import datetime
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from core.api_params import NovelIdQuery
@@ -21,7 +21,7 @@ from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
-from modules.context.facade import (
+from modules.evidence.facade import (
     bind_confirmed_action_result,
     prepare_confirmed_ai_action,
 )
@@ -29,6 +29,7 @@ from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
 )
+from modules.story.facade import get_scene_story_assets
 from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
@@ -186,8 +187,6 @@ async def enqueue_conflict_check_ai_review(
             request_payload=payload,
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if existing is not None:
         check = await _conflict_service.get_check(
@@ -220,8 +219,6 @@ async def enqueue_conflict_check_ai_review(
             meta={**payload, "llm_execution_snapshot": llm_execution_snapshot},
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not receipt.reused:
         await _conflict_service.bind_ai_review_task_owner(
@@ -368,7 +365,7 @@ async def create_autosaved_draft(
         title=data.title,
         content=data.content or "",
     )
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     await request_chapter_index(
         db,
@@ -400,8 +397,6 @@ async def generate_writing_candidate(
             request_payload=payload,
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if existing is not None:
         return WritingGenerateResponse(
@@ -409,16 +404,48 @@ async def generate_writing_candidate(
             status=existing.status,
         )
     try:
-        await prepare_confirmed_ai_action(
+        confirmed_context = await prepare_confirmed_ai_action(
             db,
             novel_id=data.novel_id,
             action="writing.generate",
             confirmation_id=data.context_confirmation_id,
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
+    scene_id = str(compile_options.get("scene_id") or "") or None
+    story_asset_basis: list[dict[str, str | None]] = []
+    if scene_id:
+        story_assets = await get_scene_story_assets(
+            db,
+            novel_id=data.novel_id,
+            scene_id=scene_id,
+        )
+        story_asset_basis = [
+            {
+                "file_id": str(item.get("id") or ""),
+                "adopted_revision_id": str(item.get("adopted_revision_id") or ""),
+                "basis_hash": item.get("basis_hash"),
+                "expected_basis_hash": item.get("expected_basis_hash"),
+            }
+            for item in story_assets.get("adopted_scripts", [])
+            if isinstance(item, dict)
+        ]
+        stale_assets = [
+            item
+            for item in story_asset_basis
+            if item.get("basis_hash") != item.get("expected_basis_hash")
+        ]
+        if stale_assets and not data.confirm_stale_story_assets:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "stale_story_assets",
+                    "message": "已采用的 Scene 剧本依据已变化；请明确确认后继续写作",
+                    "assets": stale_assets,
+                },
+            )
 
     llm_execution_snapshot = await build_project_llm_execution_snapshot(
         db,
@@ -439,12 +466,12 @@ async def generate_writing_candidate(
                 "context_confirmation_id": data.context_confirmation_id,
                 "generation_mode": data.generation_mode,
                 "base_draft_id": data.base_draft_id,
+                "confirm_stale_story_assets": data.confirm_stale_story_assets,
+                "story_asset_basis": story_asset_basis,
                 "llm_execution_snapshot": llm_execution_snapshot,
             },
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not receipt.reused:
         await bind_confirmed_action_result(
@@ -561,7 +588,7 @@ async def create_draft(
                 "writing conflict snapshot archive failed: %s",
                 redact_diagnostic(exc, limit=500),
             )
-    from modules.rag.facade import mark_chapter_index_dirty
+    from modules.evidence.facade import mark_chapter_index_dirty
 
     task_id = None
     if published_new_version:
@@ -609,7 +636,7 @@ async def adopt_candidate_to_working(
 ) -> WritingDraftResponse:
     """将 AI 正文建议显式采用到普通工作稿。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.adopt_candidate_to_working(
         db,
@@ -636,7 +663,7 @@ async def update_draft(
 ) -> WritingDraftResponse:
     """暂存草稿；published 会 copy-on-write，并合并请求 working 索引。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.update_draft(db, draft_id, data, novel_id)
     await request_chapter_index(
@@ -661,7 +688,7 @@ async def checkpoint_draft(
 ) -> WritingDraftResponse:
     """显式保存一个未发布版本。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.checkpoint_draft(db, draft_id, data, novel_id)
     await request_chapter_index(
@@ -687,7 +714,7 @@ async def discard_draft(
 ) -> WritingDraftResponse:
     """放弃当前未发布版本并返回其基线。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     result = await _service.discard_draft(
         db,
@@ -714,7 +741,7 @@ async def delete_draft(
 ) -> None:
     """删除单个版本（至少保留 1 个版本）"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     draft = await _service.get_draft(db, draft_id, novel_id)
     await _service.delete_draft(db, draft_id, novel_id)
@@ -736,7 +763,7 @@ async def delete_chapter(
 ) -> DeleteChapterResponse:
     """软废弃整章所有版本。"""
     await require_active_project(db, novel_id)
-    from modules.rag.facade import request_chapter_index
+    from modules.evidence.facade import request_chapter_index
 
     count = await _service.delete_chapter(db, novel_id, chapter_index)
     for content_mode in ("canonical", "working"):

@@ -976,6 +976,7 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
+    await selectWritingChapter(page, 1)
 
     const editor = page.getByLabel("移动端速记正文")
     await expect(editor).toBeVisible()
@@ -1012,6 +1013,7 @@ test.describe("写作台模块", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await reloadWorkbench(page, "writing")
     await waitWritingReady(page)
+    await selectWritingChapter(page, 1)
     const editor = page.getByLabel("移动端速记正文")
     await expect(editor).toHaveValue("切换前正文")
     await editor.fill("尚未保存但必须保留的正文")

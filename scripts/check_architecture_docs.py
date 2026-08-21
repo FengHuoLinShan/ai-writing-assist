@@ -152,7 +152,7 @@ def _extract_router_names(router_text: str) -> set[str]:
 
 def _extract_task_handlers(root: Path) -> set[str]:
     handlers: set[str] = set()
-    for path in sorted((root / "backend/modules").glob("*/tasks.py")):
+    for path in sorted((root / "backend/modules").glob("**/tasks.py")):
         handlers.update(TASK_HANDLER_RE.findall(path.read_text(encoding="utf-8")))
     return handlers
 
@@ -244,11 +244,12 @@ def check_inventory(root: Path = ROOT) -> CheckResult:
         for component in components
         if component.get("kind") == "business"
     }
+    compatibility_modules = set(registry.get("compatibility_modules", []))
     actual_business_modules = {
         path.name
         for path in (root / "backend/modules").iterdir()
         if path.is_dir() and (path / "__init__.py").exists()
-    }
+    } - compatibility_modules
     registered_business_modules = set(business_components)
     if actual_business_modules != registered_business_modules:
         missing = sorted(actual_business_modules - registered_business_modules)

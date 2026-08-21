@@ -171,7 +171,7 @@ async def mark_worldbuilding_context_stale(
     asset_id: str = "worldbuilding",
 ) -> int:
     """Compatibility hook for context invalidation after worldbuilding changes."""
-    from modules.context import facade as context_facade
+    from modules.evidence import facade as context_facade
 
     return await context_facade.mark_asset_context_changed(
         db,

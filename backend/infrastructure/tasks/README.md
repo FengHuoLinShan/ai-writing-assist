@@ -41,7 +41,7 @@ infrastructure/tasks/
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
   `outline_generate`、`scene_fusion_preview`
-- rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
+- evidence（持久化 type 保留 `rag_*`）：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
 - writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
   `writing_targeted_revision`、`writing_conflict_ai_review`、

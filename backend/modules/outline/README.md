@@ -1,8 +1,16 @@
-# Module: outline / 大纲与结构管理模块
+# Compatibility alias: outline / 大纲与结构管理
+
+> `outline` is no longer an independent production module. Its implementation
+> lives under `modules.story.outline_state`; this package is retained for one
+> release as a thin import/API/model/schema compatibility layer. New backend
+> consumers must use `modules.story.facade` / `modules.story.contracts`, while
+> `/api/outline` and existing task names remain unchanged.
+
+# Historical module notes
 
 ## 定位
 
-outline 模块把事实层资产组织成剧情结构资产，服务写作、地图、RAG 和 AI 结构生成。
+outline 模块把事实层资产组织成剧情结构资产，服务写作、地图、Evidence 索引和 AI 结构生成。
 
 ## 负责
 
@@ -407,7 +415,7 @@ Scene、软废弃来源、稳定重排、同步 span 和 suggestion 生命周期
   span 可自动归因证据；`chapter_only` / `unresolved` 会进入 Scene
   工作台“待整理”人工复核入口。人工可确认“仅按章节关联”，
   但该确认只隐藏当前 fingerprint 的注意项，不改写 `mapping_status`，
-  也不放开 RAG/context 的精确证据归因。
+  也不放开 Evidence indexing/compilation 的精确证据归因。
 - `chapter_ids` 变化只同步章节关联；`scene_chunks` 变化才重建 span；
   Scene `status/source` 变化只原地镜像到现有 span，不得丢失版本绑定和 anchor。
 - 跨模块调用只能通过 `modules.outline.facade.get_scene_spans_by_chapter()` /

@@ -30,7 +30,7 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 自治式长篇生成或跨模块业务编排
 - 代替作者对文学质量、文风和审查结论的最终裁定
 - 多版本自动融合
-- 正文的 RAG 分块（由 RAG 模块负责）
+- 正文的检索分块（由 Evidence indexing 负责）
 
 ## 数据表
 
@@ -108,7 +108,7 @@ async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_o
 通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse`。导入模块等内部调用方不需要直接访问 RAG 模块。
 AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。
 
-`publish_chapter` 通过 RAG 的 task-only DI port 执行索引：先在 worker fence 下结束
+`publish_chapter` 通过 Evidence indexing 的 task-only DI port 执行索引：先在 worker fence 下结束
 source-read checkpoint，再在无 PostgreSQL 事务时等待 embedding，入库前重验
 canonical draft ID/hash。RAG chunk/index state 成功后立即经 worker fence 提交并释放锁，
 memory snapshot 再以 `project FOR SHARE → memory` 的锁序开启新事务。若 RAG 已成功但
@@ -133,7 +133,7 @@ snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补�
 
 Writing 对外继续通过 `contracts.py` / `facade.py` 暴露草稿和章节索引。outline 可以只读消费这些契约，用于结构生成上下文、Scene 工作台和跨章检测，不直接访问 writing 的 model / repository / service。
 
-Writing 服务需要读取 outline Scene contract 时通过可注入 loader 调用。默认 loader 在函数内部 lazy import `modules.outline.facade`；测试可注入 fake callable，不需要 monkeypatch outline facade。
+Writing 服务需要读取 outline Scene contract 时通过可注入 loader 调用。默认 loader 在函数内部 lazy import `modules.story.facade`；旧 `modules.outline.facade` 仅作为兼容路径，测试可注入 fake callable，不需要 monkeypatch outline facade。
 
 Project 的 Today 投影只通过 `facade.get_author_attention_items()` 读取每个章节/Scene 最新检查中的开放问题。检查 scope 保存正文 `content_hash`；若 draft ID、版本或 hash 已落后于最新服务端工作稿，Writing 折叠为一条“重新检查”提示，不向 Project 暴露 ORM 或历史检查。
 
@@ -257,8 +257,8 @@ deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candid
 
 `POST /api/writing/conflict-checks` 默认只做规则层检查。请求体的 `include_candidates` 默认为 `false`；写作页会在检查前弹出确认，只有用户勾选“包含待确认对象”时才传 `true`。
 
-- 通过注入的 Scene contract loader 读取当前 Scene 的必须发生、禁止发生和 `scene_chunks`；默认 loader 仍 lazy 调用 `outline.facade.get_scene_contract`。字面预警只扫描当前章中有效且仍绑定本次正文 hash 的 Scene 精确范围；范围缺失、越界或 `source_content_hash` 已失效时记录 `degraded_sources` / `omissions`，绝不回退整章。没有 hash 的旧范围继续使用边界校验兼容。
-- 通过 `memory.facade.get_continuity_evidence_for_writing` 获取上一章位置连续性证据；来源不可用时写入 `summary_json.degraded_sources`。
+- 通过注入的 Scene contract loader 读取当前 Scene 的必须发生、禁止发生和 `scene_chunks`；默认 loader lazy 调用 `modules.story.facade.get_scene_contract`。字面预警只扫描当前章中有效且仍绑定本次正文 hash 的 Scene 精确范围；范围缺失、越界或 `source_content_hash` 已失效时记录 `degraded_sources` / `omissions`，绝不回退整章。没有 hash 的旧范围继续使用边界校验兼容。
+- 通过 `modules.story.facade.get_continuity_evidence_for_writing` 获取上一章位置连续性证据；来源不可用时写入 `summary_json.degraded_sources`。旧 `modules.memory.facade` 仅为兼容路径。
 - 每条问题的 `location_json` 保存轻量证据：`source` 描述来源模块/类型/标签/字段/摘录，`open_target` 描述前端可打开目标（`text_range` / `outline_scene` / `memory_chapter`），`needs_review_reason` 描述候选证据复核原因。
 - 问题状态为 `open / resolved / ignored / later`；发布章节时会把最近一次检查快照写入 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，不保留正文 `text_range`，之后问题状态变化不会改写该发布快照。
 - `forbidden_present / required_missing` 保留兼容 kind，但仅表示待人工确认的字面预警；响应派生 `author_action=can_improve`，不作为确定性语义冲突。AI 结果只有依赖作者决定时派生 `needs_decision`，不增加数据库状态。

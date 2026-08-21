@@ -968,7 +968,7 @@ class SuggestionQueueService:
             suggestion.result_ref_json,
         )
         try:
-            from modules.context import facade as context_facade
+            from modules.evidence import facade as context_facade
 
             await context_facade.mark_asset_context_changed(
                 db,

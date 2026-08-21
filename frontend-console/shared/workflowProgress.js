@@ -43,6 +43,7 @@ const WORKFLOW_LABELS = {
   plot_analysis: "剧情分析",
   world_generation_suggestion: "生成世界设定建议",
   scene_fusion_preview: "生成场景融合预览",
+  scene_simulation_runtime: "场景推演",
   writing_conflict_ai_review: "AI 软冲突判断",
   writing_conflict_item_ai_suggestion: "AI 修复建议",
 }
@@ -191,6 +192,7 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (workflowType === "writing_targeted_revision") return "正在按审查问题定向返修"
   if (workflowType === "plot_analysis") return "正在分析剧情"
   if (workflowType === "scene_fusion_preview") return "正在生成场景融合预览"
+  if (workflowType === "scene_simulation_runtime") return "正在整理人物反应与剧情走向"
   if (workflowType === "writing_conflict_ai_review") return "正在补充 AI 软冲突判断"
   if (workflowType === "writing_conflict_item_ai_suggestion") return "正在生成 AI 修复建议"
   return RUNNING_STATUSES.has(status) ? "任务运行中" : STATUS_LABELS[status] || "任务状态未知"

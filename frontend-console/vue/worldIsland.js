@@ -175,11 +175,17 @@ export async function loadWorld() {
     bibleDeepLink: {
       draftId: query.get("draft_id") || "",
       pageId: query.get("page_id") || "",
+      ownerAiSourcePageId: query.get("source_page_id") || "",
       openSuggestions: query.get("open") === "suggestions",
       suggestionId: query.get("suggestion_id") || "",
       openConflicts: query.get("open") === "conflicts",
       conflictId: query.get("conflict_item_id") || "",
       adoptionPackageId: query.get("adoption_package_id") || "",
+      ownerAiOpen: query.get("owner_ai") === "1",
+      ownerAiMode: query.get("owner_ai_mode") || "world",
+      ownerAiTarget: query.get("target") || "",
+      ownerAiPreset: query.get("preset") || "",
+      ownerAiCheckpointId: query.get("checkpoint_id") || "",
     },
     knowledgeCharacterId: query.get("knowledge_character_id") || "",
   }

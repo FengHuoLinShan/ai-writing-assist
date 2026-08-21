@@ -38,7 +38,7 @@ _CONTAINER_GET_PATCHES = [
         autospec=True,
     ),
     mock.patch(
-        "modules.rag.query_expansion._container_get",
+        "modules.evidence.indexing.query_expansion._container_get",
         side_effect=_mock_container_get,
         autospec=True,
     ),
@@ -47,7 +47,7 @@ _CONTAINER_GET_PATCHES = [
 
 def test_plot_structure_context_markdown_includes_rag_evidence_and_warnings() -> None:
     """结构分析 prompt 应包含 RAG 检索证据和降级提示。"""
-    from modules.context.contracts import StructureContextBundle
+    from modules.evidence.contracts import StructureContextBundle
     from modules.outline.generation.context_builder import PlotStructureContextBuilder
 
     bundle = StructureContextBundle(
@@ -78,7 +78,7 @@ async def test_plot_structure_context_uses_range_end_as_visible_until(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.context.contracts import StructureContextBundle
+    from modules.evidence.contracts import StructureContextBundle
     from modules.outline.generation import context_builder
     from modules.outline.generation.context_builder import PlotStructureContextBuilder
 
@@ -235,7 +235,7 @@ async def test_plot_threads_loaded_in_arc_scope(
         ),
     )
 
-    from modules.context.facade import compile_structure_context
+    from modules.evidence.facade import compile_structure_context
 
     for p in _CONTAINER_GET_PATCHES:
         p.start()
@@ -274,7 +274,7 @@ async def test_outline_arc_loaded_in_chapter_scope(
         ),
     )
 
-    from modules.context.facade import compile_structure_context
+    from modules.evidence.facade import compile_structure_context
 
     for p in _CONTAINER_GET_PATCHES:
         p.start()
@@ -301,7 +301,7 @@ async def test_outline_not_loaded_in_world_scope(
     sample_novel_id: str,
 ) -> None:
     """scope='world' 不应加载大纲数据"""
-    from modules.context.facade import compile_structure_context
+    from modules.evidence.facade import compile_structure_context
 
     bundle = await compile_structure_context(
         db=db_session,

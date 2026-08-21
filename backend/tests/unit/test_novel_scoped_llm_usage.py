@@ -25,13 +25,13 @@ ALLOWED_DIRECT_CLIENT_CALLS: dict[tuple[str, str], str] = {
     ("modules/project/llm_runtime.py", "resolved_profile"): (
         "the project-owned runtime seam constructs the already-resolved profile"
     ),
-    ("modules/rag/embedding_writer.py", "constructor"): (
+    ("modules/evidence/indexing/embedding_writer.py", "constructor"): (
         "embedding-only adapter governed by EMBEDDING_* settings"
     ),
-    ("modules/rag/retrieval.py", "constructor"): (
+    ("modules/evidence/indexing/retrieval.py", "constructor"): (
         "embedding-only adapter governed by EMBEDDING_* settings"
     ),
-    ("modules/rag/tuning.py", "constructor"): (
+    ("modules/evidence/indexing/tuning.py", "constructor"): (
         "offline embedding tuning governed by EMBEDDING_* settings"
     ),
 }
@@ -136,14 +136,18 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
     managed_modules = {
         "modules/writing/services.py": "open_project_llm_client",
         "modules/writing/conflict_ai.py": "open_project_llm_client",
-        "modules/outline/ai_workflow_service.py": "open_project_llm_client",
-        "modules/outline/generator.py": "open_project_llm_client",
-        "modules/outline/structure_dedup.py": "open_project_llm_client",
+        "modules/story/outline_state/ai_workflow_service.py": (
+            "open_project_llm_client"
+        ),
+        "modules/story/outline_state/generator.py": "open_project_llm_client",
+        "modules/story/outline_state/structure_dedup.py": (
+            "open_project_llm_client"
+        ),
         "modules/world/entity_fusion.py": "open_project_llm_client",
         "modules/world/services/worldbuilding/world_generation_center_service.py": (
             "create_project_snapshot_llm_client"
         ),
-        "modules/rag/retrieval.py": "open_project_llm_client",
+        "modules/evidence/indexing/retrieval.py": "open_project_llm_client",
     }
 
     for relative_path, seam in managed_modules.items():
@@ -155,11 +159,11 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
     expected_call_counts = {
         "modules/writing/services.py": 1,
         "modules/writing/conflict_ai.py": 2,
-        "modules/outline/ai_workflow_service.py": 1,
-        "modules/outline/generator.py": 1,
-        "modules/outline/structure_dedup.py": 1,
+        "modules/story/outline_state/ai_workflow_service.py": 1,
+        "modules/story/outline_state/generator.py": 1,
+        "modules/story/outline_state/structure_dedup.py": 1,
         "modules/world/entity_fusion.py": 1,
-        "modules/rag/retrieval.py": 1,
+        "modules/evidence/indexing/retrieval.py": 1,
     }
     actual_counts: dict[str, int] = {}
     violations: list[str] = []
@@ -199,7 +203,7 @@ def test_frozen_workflows_use_project_owned_snapshot_runtime_seam() -> None:
     expected = {
         "modules/imports/workflow_llm_adapters.py": 1,
         "modules/imports/entity_extraction/scene_entity_llm_adapters.py": 2,
-        "modules/outline/scene_fusion_draft.py": 1,
+        "modules/story/outline_state/scene_fusion_draft.py": 1,
         "modules/world/services/worldbuilding/world_generation_center_service.py": 1,
     }
     actual: dict[str, int] = {}

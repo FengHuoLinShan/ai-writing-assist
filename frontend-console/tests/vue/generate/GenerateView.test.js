@@ -803,6 +803,13 @@ describe("GenerateView Vue behavior matrix", () => {
     await previewTab.trigger("keydown", { key: "Home" })
     expect(document.activeElement).toBe(worldTab.element)
 
+    const sibling = mount(GenerateView, { props: baseProps(), attachTo: document.body })
+    const siblingWorldTab = sibling.get("#generate-mode-tab-world")
+    const siblingPovTab = sibling.get("#generate-mode-tab-pov_prose")
+    await siblingWorldTab.trigger("keydown", { key: "ArrowRight" })
+    expect(document.activeElement).toBe(siblingPovTab.element)
+    sibling.unmount()
+
     await taskTab.trigger("click")
     expect(taskTab.attributes()).toMatchObject({ "aria-selected": "true", tabindex: "0" })
     expect(wrapper.get("#generate-mode-panel-task").attributes()).toMatchObject({ role: "tabpanel", "aria-labelledby": "generate-mode-tab-task" })

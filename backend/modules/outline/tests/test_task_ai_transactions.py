@@ -7,7 +7,7 @@ from unittest import mock
 import pytest
 
 from infrastructure.llm.schemas import LLMCallResponse
-from modules.context.services.compiled_context import (
+from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextSection,
     Tier,
@@ -272,7 +272,7 @@ async def test_real_task_handler_session_checkpoints_before_provider_wait(
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.models import AsyncTask
     from infrastructure.tasks.worker import _TaskHandlerSession
-    from modules.context.facade import confirm_context, require_confirmation
+    from modules.evidence.facade import confirm_context, require_confirmation
 
     confirmation = await confirm_context(
         db_session,
@@ -640,7 +640,7 @@ async def test_task_confirmation_prepare_matches_legacy_compile_render(
     db_session,
     sample_novel_id: str,
 ) -> None:
-    from modules.context.facade import (
+    from modules.evidence.facade import (
         compile_from_confirmation,
         confirm_context,
         render_compiled_context,
@@ -809,7 +809,7 @@ async def test_outline_generate_handler_closes_confirmation_on_terminal_failure(
             autospec=True,
         ) as service_cls,
         mock.patch(
-            "modules.context.facade.attach_result_ref",
+            "modules.evidence.facade.attach_result_ref",
             autospec=True,
         ) as attach_result_ref,
     ):

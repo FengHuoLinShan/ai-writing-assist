@@ -13,6 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
+from modules.account.settings_models import AccountLLMCredential
+from modules.account.settings_service import SettingsService
 from modules.interaction.framing import META_END, META_START
 from modules.interaction.models import (
     InteractionGenerationAttempt,
@@ -31,8 +33,6 @@ from modules.interaction.tasks import (
     handle_interaction_summary_refresh,
 )
 from modules.project.contracts import ProjectLLMConfigurationError
-from modules.settings.models import AccountLLMCredential
-from modules.settings.services import SettingsService
 
 _REQUIRED_ENV = (
     os.getenv("RUN_INTERACTION_REAL_KIMI") == "1"

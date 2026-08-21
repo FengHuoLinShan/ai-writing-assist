@@ -31,6 +31,48 @@ export function createWritingCommandController({
   let disposed = false
   let waitTimer = null
   let readyResult = null
+  let pendingStaleStoryScript = null
+
+  function staleStoryScriptError(error) {
+    const values = [
+      error?.code,
+      error?.error,
+      error?.error_code,
+      error?.detail?.code,
+      error?.detail?.error,
+      error?.detail?.error_code,
+      error?.response?.data?.code,
+      error?.response?.data?.error,
+      error?.response?.data?.error_code,
+      error?.body?.code,
+      error?.body?.error,
+      error?.body?.error_code,
+      error?.body?.detail?.code,
+      error?.body?.detail?.error,
+      error?.body?.detail?.error_code,
+    ].map((value) => String(value || "").toLowerCase())
+    const text = [error?.message, error?.detail, error?.detail?.message, error?.response?.data?.message, error?.response?.data?.detail, error?.body?.message, error?.body?.detail]
+      .map((value) => String(value || "").toLowerCase())
+      .join(" ")
+    const stableCode = values.some((value) => ["stale_story_assets", "stale_story_script"].includes(value))
+    const workerMessage = (text.includes("stale") && (text.includes("script") || text.includes("asset")))
+      || (text.includes("剧本") && (text.includes("过期") || text.includes("变化")))
+    const status = Number(error?.status ?? error?.response?.status ?? error?.detail?.status)
+    return stableCode || (status === 409 && workerMessage)
+  }
+
+  function reportStaleStoryScript(mode, error) {
+    pendingStaleStoryScript = { mode }
+    onProgress({
+      taskId: null,
+      progress: null,
+      result: null,
+      staleStoryScript: {
+        message: "采用的场景剧本已经过期。请确认是否仍要使用这个旧剧本继续生成。",
+        detail: error?.message || "场景剧本已变化",
+      },
+    })
+  }
 
   function context() {
     const chapter = getChapter()
@@ -179,7 +221,7 @@ export function createWritingCommandController({
     }
   }
 
-  async function generate(mode = "draft") {
+  async function generate(mode = "draft", { confirmStaleStoryAssets = false } = {}) {
     const { projectId, chapter, scene } = context()
     if (!projectId || !chapter) {
       toast("请先选择章节", "warning")
@@ -209,6 +251,8 @@ export function createWritingCommandController({
     }
     generating = true
     readyResult = null
+    pendingStaleStoryScript = null
+    onProgress({ staleStoryScript: null })
     onLoadingChange(true)
     const token = ++generation
     try {
@@ -230,12 +274,22 @@ export function createWritingCommandController({
         ? `${confirmation.user_note ? `${confirmation.user_note}\n\n` : ""}请严格使用视角人物在当前场景可见的信息生成正文建议。`
         : (confirmation.user_note || "")
       const operationId = createOperationId()
-      const workflowMeta = { chapter, mode, sceneId: scene?.id || null }
+      const workflowMeta = {
+        chapter,
+        mode,
+        sceneId: scene?.id || null,
+        ...(confirmStaleStoryAssets ? { confirm_stale_story_assets: true } : {}),
+      }
       const editorBaseline = { chapter, sceneId: scene?.id || null, draftId: editor.getDraftId(), content: editor.getContent() }
       persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议", projectId, view: "writing", meta: workflowMeta }, receiptStorage)
       onProgress({ taskId: operationId, progress: normalizeTaskProgress({ id: operationId, task_type: "writing_generate", status: "pending" }, "writing_generate") })
       let submitted
-      try { submitted = await api.writing.generate({ novel_id: projectId, chapter_index: chapter, title: editor.getTitle() || `第 ${chapter} 章`, instruction, context_confirmation_id: confirmation.id, generation_mode: mode === "continue" ? "continue" : undefined, base_draft_id: mode === "continue" ? editor.getDraftId() : undefined, operation_id: operationId }) } catch (err) {
+      try { submitted = await api.writing.generate({ novel_id: projectId, chapter_index: chapter, title: editor.getTitle() || `第 ${chapter} 章`, instruction, context_confirmation_id: confirmation.id, generation_mode: mode === "continue" ? "continue" : undefined, base_draft_id: mode === "continue" ? editor.getDraftId() : undefined, operation_id: operationId, ...(confirmStaleStoryAssets ? { confirm_stale_story_assets: true } : {}) }) } catch (err) {
+        if (staleStoryScriptError(err)) {
+          clearActiveWorkflow(operationId, receiptStorage)
+          reportStaleStoryScript(mode, err)
+          return null
+        }
         if (Number(err?.status) >= 400 && Number(err?.status) < 500) { clearActiveWorkflow(operationId, receiptStorage); onProgress({ taskId: null, progress: null, result: null }); throw err }
         submitted = { task_id: operationId, status: "pending" }
       }
@@ -264,6 +318,13 @@ export function createWritingCommandController({
       return completed
     } catch (err) {
       if (err === ABORTED || disposed || token !== generation) return null
+      if (staleStoryScriptError(err)) {
+        const active = recoverActiveWorkflows(projectId, receiptStorage)
+          .find((item) => item.workflowType === "writing_generate" && item.view === "writing")
+        if (active) clearActiveWorkflow(active.taskId, receiptStorage)
+        reportStaleStoryScript(mode, err)
+        return null
+      }
       if (String(err?.message || "").includes("取消")) return null
       if (!err?.workflowProgressVisible) toast(err?.message || "正文建议生成失败", "error")
       return null
@@ -273,6 +334,13 @@ export function createWritingCommandController({
         onLoadingChange(false)
       }
     }
+  }
+
+  function retryUsingStaleStoryScript() {
+    if (!pendingStaleStoryScript || generating) return null
+    const { mode } = pendingStaleStoryScript
+    pendingStaleStoryScript = null
+    return generate(mode, { confirmStaleStoryAssets: true })
   }
 
   async function recover() {
@@ -301,7 +369,7 @@ export function createWritingCommandController({
     }
   }
   async function cancel() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (!workflow) return false; try { await api.tasks.cancel(workflow.taskId, getProjectId()) } catch (err) { toast(err?.message || "取消任务失败", "error"); return false } return true }
-  function dismiss() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).find((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing"); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); readyResult = null; onProgress({ taskId: null, progress: null, result: null }) }
+  function dismiss() { const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).find((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing"); if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); readyResult = null; pendingStaleStoryScript = null; onProgress({ taskId: null, progress: null, result: null, staleStoryScript: null }) }
   async function openResult() { if (!readyResult || disposed || !getProjectId()) return false; await onResult(readyResult); const workflow = recoverActiveWorkflows(getProjectId(), receiptStorage).filter((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]; if (workflow) clearActiveWorkflow(workflow.taskId, receiptStorage); return true }
 
   function dispose() {
@@ -321,6 +389,7 @@ export function createWritingCommandController({
     reviseCandidate: () => runCandidateWorkflow("writing_targeted_revision"),
     recover,
     openResult,
+    retryUsingStaleStoryScript,
     cancel,
     dismiss,
     dispose,

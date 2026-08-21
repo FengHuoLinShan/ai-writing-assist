@@ -731,17 +731,21 @@ from modules.account.oidc import (  # noqa: E402
     reauth_router as account_oidc_reauth_router,
 )
 from modules.account.oidc import router as account_oidc_router  # noqa: E402
-from modules.context import api as context_api  # noqa: E402
+from modules.account.settings_api import router as account_settings_router  # noqa: E402
+from modules.evidence import api as evidence_api  # noqa: E402
 
 # geo/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api；模块已删除
 from modules.imports import api as imports_api  # noqa: E402
 from modules.interaction import api as interaction_api  # noqa: E402
-from modules.memory import api as memory_api  # noqa: E402
-from modules.outline import api as outline_api  # noqa: E402
 from modules.project.api import router as project_router  # noqa: E402
-from modules.rag import api as rag_api  # noqa: E402
-from modules.settings.api import router as settings_router  # noqa: E402
+from modules.project.settings_api import (  # noqa: E402
+    defaults_handler_router as project_defaults_handler_router,
+)
+from modules.project.settings_api import router as project_settings_router  # noqa: E402
+from modules.story import api as story_api  # noqa: E402
+from modules.story.continuity import api as memory_api  # noqa: E402
+from modules.story.outline_state import api as outline_api  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
 from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
@@ -758,13 +762,19 @@ app.include_router(world_api.router)
 app.include_router(world_map_atlas_api.router)
 app.include_router(memory_api.router)
 app.include_router(outline_api.router)
-app.include_router(rag_api.router)
-app.include_router(context_api.router)
+app.include_router(evidence_api.router)
+app.include_router(evidence_api.alias_router)
 app.include_router(writing_api.router)
+app.include_router(story_api.router)
 app.include_router(tasks_api.router)
 if not _public_mode:
     app.include_router(debug_api.router)
-app.include_router(settings_router)
+app.include_router(account_settings_router)
+app.include_router(project_settings_router)
+app.include_router(
+    project_defaults_handler_router,
+    prefix="/api/account/settings",
+)
 
 
 # ---------------------------------------------------------------------------

@@ -7,8 +7,7 @@
  *
  */
 import { mountIsland } from "./mountIsland.js"
-import GlobalSettingsView from "./views/settings/GlobalSettingsView.vue"
-import ProjectSettingsView from "./views/settings/ProjectSettingsView.vue"
+import SettingsShellView from "./views/settings/SettingsShellView.vue"
 import {
   getApi,
   getAppState,
@@ -18,6 +17,7 @@ import {
 } from "./bridge/index.js"
 
 async function loadGlobalSettings() {
+  const state = getAppState()
   const api = getApi()
   const [connections, balances, prefs] = await Promise.allSettled([
     api.settings.listLLMConnections(),
@@ -29,6 +29,9 @@ async function loadGlobalSettings() {
     getToast()("加载全局设置失败", "error")
   }
   return {
+    scope: "account",
+    currentProjectId: state?.currentProjectId || null,
+    currentProjectTitle: state?.currentProject?.title || state?.currentProject?.name || "",
     llmConnections: connections.status === "fulfilled"
       ? connections.value
       : null,
@@ -42,7 +45,7 @@ async function loadGlobalSettings() {
 async function loadProjectSettings() {
   const state = getAppState()
   const projectId = state?.currentProjectId || null
-  if (!projectId) return { projectId: null }
+  if (!projectId) return { scope: "project", currentProjectId: null, currentProjectTitle: "", projectId: null }
   await tryMigrateLocalAuthorPreferences(projectId)
   const api = getApi()
   const projectTitle = state?.currentProject?.title || projectId
@@ -52,6 +55,9 @@ async function loadProjectSettings() {
       api.settings.getEffectiveAuthorPrefs(projectId),
     ])
     return {
+      scope: "project",
+      currentProjectId: projectId,
+      currentProjectTitle: projectTitle,
       projectId,
       projectTitle,
       effectiveLLM: llm,
@@ -61,6 +67,9 @@ async function loadProjectSettings() {
     console.error("加载项目设置失败:", err)
     getToast()("加载项目设置失败", "error")
     return {
+      scope: "project",
+      currentProjectId: projectId,
+      currentProjectTitle: projectTitle,
       projectId,
       projectTitle,
       effectiveLLM: null,
@@ -78,13 +87,13 @@ export function registerSettingsIslands() {
 
   router.registerView("settings", mountIsland({
     viewName: "settings",
-    component: GlobalSettingsView,
+    component: SettingsShellView,
     load: loadGlobalSettings,
   }))
 
   router.registerView("project-settings", mountIsland({
     viewName: "project-settings",
-    component: ProjectSettingsView,
+    component: SettingsShellView,
     load: loadProjectSettings,
   }))
 }

@@ -450,7 +450,7 @@ def _stub_resilient_scene_pipeline(monkeypatch):
         _project_settings,
     )
     monkeypatch.setattr(
-        "modules.context.facade.build_snapshot_health_summary",
+        "modules.evidence.facade.build_snapshot_health_summary",
         _snapshot_health_summary,
     )
 
@@ -1249,7 +1249,7 @@ class TestDeepImportOrchestrator:
         from datetime import UTC, datetime
 
         from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
-        from modules.settings.repositories import AccountLLMCredentialRepository
+        from modules.account.settings_repositories import AccountLLMCredentialRepository
 
         rotated_key = "unit-test-rotated-account-key"
         await AccountLLMCredentialRepository().upsert(

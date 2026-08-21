@@ -108,8 +108,8 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
 ) -> None:
     """Imported canon can continue through generated prose into searchable canon."""
     from core.config import get_settings
+    from modules.evidence.facade import retrieve
     from modules.project import llm_runtime
-    from modules.rag.facade import retrieve
     from modules.writing.tasks import (
         handle_publish_chapter,
         handle_writing_generate,

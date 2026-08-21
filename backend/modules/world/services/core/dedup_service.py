@@ -553,7 +553,7 @@ class EntityDedupService:
             (str(tid), "entity_merged"),
         ):
             try:
-                from modules.context.facade import mark_asset_context_changed
+                from modules.evidence.facade import mark_asset_context_changed
 
                 await mark_asset_context_changed(
                     db,

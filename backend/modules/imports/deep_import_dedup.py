@@ -19,7 +19,7 @@ class StructureReviewAgent:
         *,
         workflow_id: str | None,
     ) -> dict[str, Any]:
-        from modules.outline import facade as outline_facade
+        from modules.story import facade as outline_facade
 
         try:
             suggestion_result = await outline_facade.suggest_structure_dedup(

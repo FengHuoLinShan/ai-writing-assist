@@ -65,7 +65,7 @@ from evals.schemas import (
     QCDecision,
     RiskLevel,
 )
-from modules.rag.contracts import RagChunkContract, RagResultBundle
+from modules.evidence.contracts import RagChunkContract, RagResultBundle
 
 
 def _hash(value: str) -> str:

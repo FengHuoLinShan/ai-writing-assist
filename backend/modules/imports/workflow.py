@@ -758,7 +758,7 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ) -> dict[str, Any]:
-        from modules.outline.facade import get_scenes_by_novel
+        from modules.story.facade import get_scenes_by_novel
 
         scenes = await get_scenes_by_novel(
             db,

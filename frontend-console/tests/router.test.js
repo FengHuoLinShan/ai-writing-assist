@@ -1043,6 +1043,19 @@ describe("route guard and normalization", () => {
     expect(toast).not.toHaveBeenCalled()
   })
 
+  it("redirects the legacy Today entry to Writing Home and marks home mode", async () => {
+    addWorkspace()
+    registerBasicView("writing")
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+
+    await window.router.navigate("today", null, true, new URLSearchParams("chapter_index=3"))
+
+    expect(state.currentView).toBe("writing")
+    expect(window.location.hash).toBe("#workbench/p1/writing?chapter_index=3&home=1")
+    expect(window.router.getCurrentQuery().get("home")).toBe("1")
+  })
+
   it("normalizes illegal fixed subviews to the route default on init", async () => {
     addWorkspace()
     registerBasicView("world")
@@ -1111,7 +1124,7 @@ describe("route guard and normalization", () => {
   it("redirects legacy context routes without a project to projects", async () => {
     addWorkspace()
     registerBasicView("project")
-    registerBasicView("generate")
+    registerBasicView("writing")
     window.history.replaceState(null, "", "#context")
 
     await window.router.initRouter()
@@ -1123,16 +1136,16 @@ describe("route guard and normalization", () => {
     expect(toast).not.toHaveBeenCalled()
   })
 
-  it("redirects legacy workbench context routes to the generate task tab", async () => {
+  it("redirects legacy workbench context routes to the writing AI task drawer", async () => {
     addWorkspace()
-    registerBasicView("generate")
+    registerBasicView("writing")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
     window.history.replaceState(null, "", "#workbench/p1/context")
     await window.router.initRouter()
 
-    expect(state.currentView).toBe("generate")
+    expect(state.currentView).toBe("writing")
     expect(state.currentSubView).toBeNull()
-    expect(window.location.hash).toBe("#workbench/p1/generate?tab=task")
+    expect(window.location.hash).toBe("#workbench/p1/writing?tab=task&owner_ai=1&owner_ai_mode=task")
     expect(window.router.getCurrentQuery().get("tab")).toBe("task")
   })
 
