@@ -39,6 +39,7 @@ from .worldbuilding import (
     WorldBiblePageTemplateRevision,
     WorldBibleSynopsisHead,
     WorldBibleSynopsisRevision,
+    WorldValidationRun,
 )
 
 WorldEntity = CoreEntity
@@ -85,6 +86,7 @@ __all__ = [
     "WorldBiblePageTemplateRevision",
     "WorldBibleSynopsisHead",
     "WorldBibleSynopsisRevision",
+    "WorldValidationRun",
     "WorldEntity",
     "WorldEntityAlias",
     "_ProfileMixin",

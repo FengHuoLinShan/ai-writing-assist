@@ -402,6 +402,11 @@ ReviewPacket = 一次语义审计的分片载荷：
 | P4 API/UI | 校验与导入端点收口、世界健康入口（生长/校验/待裁定/失效下游/receipt）、导入向导、用户语言映射、receipt 原页恢复、空态/窄屏/晚到响应保护。 | 前端测试 + E2E；画像 A 场景验收；无 raw ID/JSON 泄漏。 |
 | P5 验收与文档 | 冻结快照 + 双 oracle 差分 + 预植缺陷 + 语义覆盖账本验收；README、CONTEXT、`docs/modules/02_world.md`、`docs/01_数据库设计.md`、Prompt 体系、用户行为文档同步；新增设计文档登记进 `docs/architecture/architecture-documents.toml` 机器清单；`make docs-check BASE_REF=origin/main`。 | 验收记录（hash/统计/receipts，无正文）；docs-check 全绿；完整 regression。 |
 
+> 实施进度（2026-08-21）：P0–P3 已落地。P3 已接入 operation receipt、
+> `world_validation` 任务（自动重试最多 2 次）、full 部分唯一索引、冻结
+> manifest/policy/dependency/target hash、确定性与可选语义 ReviewPacket、回执失效、
+> warning 签收及 draft/adoption/旧 canon writer 门禁。P4–P5 待执行。
+
 ## 6. 风险、开放问题与需用户确认项（原计划缺失）
 
 **需用户确认（P0 前裁决）**

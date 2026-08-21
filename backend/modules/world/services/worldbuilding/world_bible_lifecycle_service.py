@@ -158,6 +158,8 @@ class WorldBibleLifecycleService:
         """Create through the legacy direct-page API while owning its lifecycle."""
         nid = parse_uuid(data.novel_id, "novel_id")
         await self._lock_page_universe(db, nid)
+        if data.status in self._ADOPTED_STATUSES:
+            await self._require_legacy_canon_write_allowed(db, data.novel_id)
         await self._validate_page_content(
             db,
             novel_id=nid,
@@ -235,8 +237,7 @@ class WorldBibleLifecycleService:
             "free_text" in payload and payload["free_text"] != page.free_text
         )
         before_status = page.status
-        for key, value in payload.items():
-            setattr(page, key, value)
+        next_status = payload.get("status", before_status)
         projection_input_changed = free_text_changed or any(
             key in payload
             for key in {
@@ -246,9 +247,13 @@ class WorldBibleLifecycleService:
             }
         )
         adopted_change = meaningful_change and (
-            page.status in self._ADOPTED_STATUSES
+            next_status in self._ADOPTED_STATUSES
             or before_status in self._ADOPTED_STATUSES
         )
+        if adopted_change:
+            await self._require_legacy_canon_write_allowed(db, novel_id)
+        for key, value in payload.items():
+            setattr(page, key, value)
         if projection_input_changed or adopted_change:
             await self._mark_page_projections_stale(db, page)
         if adopted_change:
@@ -261,6 +266,21 @@ class WorldBibleLifecycleService:
             )
         await db.flush()
         return WorldBiblePageResponse.model_validate(page)
+
+    @staticmethod
+    async def _require_legacy_canon_write_allowed(
+        db: AsyncSession, novel_id: str
+    ) -> None:
+        from modules.world.services.worldbuilding.world_validation_service import (
+            WorldValidationService,
+        )
+
+        if await WorldValidationService().active_policy(db, novel_id) is not None:
+            raise ConflictError(
+                "Published World Bible changes must use a validated draft",
+                code="required_validation",
+                context={"next_action": "create_and_validate_world_bible_draft"},
+            )
 
     async def list_categories(
         self,
@@ -611,6 +631,8 @@ class WorldBibleLifecycleService:
         *,
         published_by: str | None = None,
         expected_impact_scope_hash: str | None = None,
+        validation_run_id: str | None = None,
+        _validation_prechecked: bool = False,
     ) -> WorldBiblePageResponse:
         await self._lock_page_universe(db, parse_uuid(novel_id, "novel_id"))
         observed_draft = await self._get_draft_model(db, novel_id, draft_id)
@@ -648,6 +670,19 @@ class WorldBibleLifecycleService:
                     "World Bible explicit references changed after impact preview",
                     code="world_bible_impact_scope_changed",
                 )
+        if not _validation_prechecked:
+            from modules.world.services.worldbuilding.world_validation_service import (
+                WorldValidationService,
+            )
+
+            await WorldValidationService().require_gate(
+                db,
+                novel_id=novel_id,
+                validation_run_id=validation_run_id,
+                target_type="world_bible_draft",
+                target_id=draft_id,
+                target_hash=current_impact.impact_scope_hash,
+            )
         if draft.page_id is None:
             page = WorldBiblePage(
                 novel_id=draft.novel_id,

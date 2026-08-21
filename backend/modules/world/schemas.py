@@ -2794,6 +2794,182 @@ class WorldbookImportApplyResponse(BaseModel):
     conflict_ids: list[str] = Field(default_factory=list)
 
 
+class WorldValidationPolicyRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", max_length=128)
+    operator: Literal["contains", "not_contains", "max_chars", "page_type_exists"]
+    value: str | int
+    page_type: str | None = Field(default=None, max_length=64)
+    severity: Literal["error", "warning"] = "error"
+    message: str = Field(..., min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_value(self) -> WorldValidationPolicyRule:
+        if self.operator == "max_chars":
+            if not isinstance(self.value, int) or not 1 <= self.value <= 10_000_000:
+                raise ValueError("max_chars requires an integer from 1 to 10000000")
+        elif not isinstance(self.value, str) or not self.value:
+            raise ValueError(f"{self.operator} requires a non-empty string")
+        return self
+
+
+class WorldValidationQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str = Field(
+        ..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", max_length=128
+    )
+    gate: Literal[
+        "structure",
+        "ontology",
+        "knowledge",
+        "society",
+        "experience",
+        "history",
+        "counterfactual",
+        "narrative",
+        "saturation",
+    ]
+    question: str = Field(..., min_length=1, max_length=1000)
+
+
+class WorldValidationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["world_validation_policy.v1"]
+    enabled: bool = True
+    policy_version: str = Field(..., min_length=1, max_length=64)
+    semantic_enabled: bool = False
+    rules: list[WorldValidationPolicyRule] = Field(default_factory=list, max_length=256)
+    required_questions: list[WorldValidationQuestion] = Field(
+        default_factory=list, max_length=256
+    )
+    packet_character_limit: int = Field(default=32_000, ge=4_000, le=80_000)
+    max_packets: int = Field(default=24, ge=1, le=256)
+    max_input_characters: int = Field(default=800_000, ge=4_000, le=8_000_000)
+    per_packet_timeout_seconds: int = Field(default=180, ge=30, le=1800)
+
+    @model_validator(mode="after")
+    def validate_semantic_questions(self) -> WorldValidationPolicy:
+        ids = [item.question_id for item in self.required_questions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("validation question ids must be unique")
+        rule_ids = [item.rule_id for item in self.rules]
+        if len(rule_ids) != len(set(rule_ids)):
+            raise ValueError("validation rule ids must be unique")
+        if self.required_questions and not self.semantic_enabled:
+            raise ValueError("required_questions require semantic_enabled=true")
+        return self
+
+
+class WorldValidationFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str = Field(..., min_length=1, max_length=128)
+    layer: Literal["structure", "engine", "semantic"]
+    severity: Literal["error", "warning"]
+    category: str = Field(..., min_length=1, max_length=64)
+    action: Literal["CLOSE", "SPLIT", "KEEP-GATE", "CANDIDATE", "AUTHOR-REQUIRED"]
+    message: str = Field(..., min_length=1, max_length=1000)
+    source_key: str | None = Field(default=None, max_length=256)
+    location: str | None = Field(default=None, max_length=500)
+    excerpt: str | None = Field(default=None, max_length=1000)
+    question_id: str | None = Field(default=None, max_length=128)
+
+
+class WorldValidationSemanticAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str = Field(..., min_length=1, max_length=128)
+    verdict: Literal["pass", "mixed", "fail", "author-required"]
+    category: str = Field(..., min_length=1, max_length=64)
+    action: Literal["CLOSE", "SPLIT", "KEEP-GATE", "CANDIDATE", "AUTHOR-REQUIRED"]
+    explanation: str = Field(..., min_length=1, max_length=1000)
+    source_key: str | None = Field(default=None, max_length=256)
+    location: str | None = Field(default=None, max_length=500)
+    excerpt: str | None = Field(default=None, max_length=1000)
+
+
+class WorldValidationSemanticOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answers: list[WorldValidationSemanticAnswer] = Field(
+        ..., min_length=1, max_length=256
+    )
+
+
+class WorldValidationRunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    operation_id: uuid.UUID
+    scope: Literal["targeted", "full"]
+    trigger: str = Field(default="manual", min_length=1, max_length=64)
+    target_type: Literal["world_bible_draft", "world_adoption_package"] | None = None
+    target_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self) -> WorldValidationRunCreate:
+        if self.scope == "targeted" and not (self.target_type and self.target_id):
+            raise ValueError("targeted validation requires target_type and target_id")
+        if self.scope == "full" and (self.target_type or self.target_id):
+            raise ValueError("full validation forbids target_type and target_id")
+        return self
+
+
+class WorldValidationRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    task_id: str | None = None
+    trigger: str
+    scope: Literal["targeted", "full"]
+    target_type: str | None = None
+    target_id: str | None = None
+    status: Literal["queued", "running", "completed", "failed", "stale"]
+    verdict: (
+        Literal["pass", "mixed", "fail", "author-required", "insufficient-evidence"]
+        | None
+    ) = None
+    gate: Literal["pass", "warn", "block"] | None = None
+    policy_version: str
+    manifest_hash: str
+    dependency_hash: str
+    receipt_hash: str | None = None
+    findings: list[WorldValidationFinding] = Field(default_factory=list)
+    omissions: list[str] = Field(default_factory=list)
+    coverage_ledger: list[dict[str, Any]] = Field(default_factory=list)
+    budget_ledger: dict[str, Any] = Field(default_factory=dict)
+    warning_receipt: dict[str, Any] = Field(default_factory=dict)
+    attempt_count: int = 0
+    error_code: str | None = None
+    error_summary: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "task_id", mode="before")
+    @classmethod
+    def coerce_ids(cls, value: object) -> str | None:
+        return None if value is None else _uuid_validator(value)
+
+
+class WorldValidationWarningAcceptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_receipt_hash: str = Field(..., min_length=64, max_length=64)
+    finding_ids: list[str] = Field(..., min_length=1, max_length=256)
+    reason: str = Field(..., min_length=1, max_length=1000)
+
+    @field_validator("expected_receipt_hash")
+    @classmethod
+    def validate_receipt_hash(cls, value: str) -> str:
+        return _validate_lower_sha256(value, "expected_receipt_hash")
+
+
 class WorldBibleImpactPathNode(BaseModel):
     page_id: str
     title: str
@@ -3877,6 +4053,7 @@ class WorldAdoptionPackagePreviewResponse(BaseModel):
 
 class WorldAdoptionPackageApplyRequest(BaseModel):
     expected_preview_hash: str = Field(..., min_length=64, max_length=64)
+    validation_run_id: uuid.UUID | None = None
 
 
 def _suggestion_decision_state(

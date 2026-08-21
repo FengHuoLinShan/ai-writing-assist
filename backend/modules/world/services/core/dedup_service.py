@@ -441,6 +441,14 @@ class EntityDedupService:
         if target is None:
             raise NotFoundError(f"Target entity {target_entity_id} not found")
 
+        from modules.world.services.worldbuilding.world_validation_service import (
+            WorldValidationService,
+        )
+
+        await WorldValidationService().require_legacy_canon_write_allowed(
+            db, novel_id, next_action="create_world_adoption_package"
+        )
+
         # 1. 加载 Candidate（FOR UPDATE 防并发重复合并）
         if cid == tid:
             raise DomainValidationError("Cannot merge an entity into itself")
@@ -616,6 +624,13 @@ class EntityDedupService:
 
         # 无匹配 → 直接提升为 canonical
         if not suggestions:
+            from modules.world.services.worldbuilding.world_validation_service import (
+                WorldValidationService,
+            )
+
+            await WorldValidationService().require_legacy_canon_write_allowed(
+                db, novel_id, next_action="create_world_adoption_package"
+            )
             await self._entity_repo.update(
                 db,
                 candidate,

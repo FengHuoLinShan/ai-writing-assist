@@ -7,6 +7,7 @@ World API 路由 — v3 因果时空网
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -26,6 +27,7 @@ from modules.evidence.facade import attach_result_ref, require_fresh_confirmatio
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
+    require_active_project_exclusive,
 )
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
@@ -153,6 +155,9 @@ from modules.world.schemas import (
     WorldProfileMigrateResponse,
     WorldProfileResponse,
     WorldProfileUpsertRequest,
+    WorldValidationRunCreate,
+    WorldValidationRunResponse,
+    WorldValidationWarningAcceptRequest,
 )
 from modules.world.services import (
     CharacterKnowledgeService,
@@ -179,6 +184,9 @@ from modules.world.services.worldbuilding.knowledge_graph_service import (
 )
 from modules.world.services.worldbuilding.world_generation_center_service import (
     WorldGenerationCenterService,
+)
+from modules.world.services.worldbuilding.world_validation_service import (
+    WorldValidationService,
 )
 from modules.world.services.worldbuilding.worldbook_import_service import (
     WorldbookImportService,
@@ -230,6 +238,7 @@ _adoption_package_service = WorldAdoptionPackageService()
 _knowledge_graph_service = WorldKnowledgeGraphService()
 _generation_template_service = GenerationPromptTemplateService()
 _worldbook_import_service = WorldbookImportService()
+_world_validation_service = WorldValidationService()
 
 
 async def _require_active_novel_id(
@@ -816,6 +825,77 @@ async def apply_worldbook_import(
 
 
 @router.post(
+    "/bible/validation-runs",
+    response_model=WorldValidationRunResponse,
+    status_code=202,
+)
+async def create_world_validation_run(
+    db: DbSession,
+    data: WorldValidationRunCreate,
+) -> WorldValidationRunResponse:
+    await require_active_project_exclusive(db, data.novel_id)
+    try:
+        return await _world_validation_service.create_run(db, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get(
+    "/bible/validation-runs/latest",
+    response_model=WorldValidationRunResponse | None,
+)
+async def get_latest_world_validation_run(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    scope: Literal["targeted", "full"] | None = Query(default=None),
+    target_type: Literal["world_bible_draft", "world_adoption_package"] | None = Query(
+        default=None
+    ),
+    target_id: str | None = Query(default=None),
+) -> WorldValidationRunResponse | None:
+    return await _world_validation_service.latest(
+        db,
+        novel_id,
+        scope=scope,
+        target_type=target_type,
+        target_id=target_id,
+    )
+
+
+@router.get(
+    "/bible/validation-runs/{run_id}",
+    response_model=WorldValidationRunResponse,
+)
+async def get_world_validation_run(
+    db: DbSession,
+    run_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldValidationRunResponse:
+    return await _world_validation_service.get(db, novel_id, run_id)
+
+
+@router.post(
+    "/bible/validation-runs/{run_id}/accept-warnings",
+    response_model=WorldValidationRunResponse,
+)
+async def accept_world_validation_warnings(
+    db: DbSession,
+    run_id: str,
+    data: WorldValidationWarningAcceptRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldValidationRunResponse:
+    return await _world_validation_service.accept_warnings(
+        db,
+        novel_id,
+        run_id,
+        data,
+    )
+
+
+@router.post(
     "/bible/drafts",
     response_model=WorldBiblePageDraftResponse,
     status_code=201,
@@ -884,6 +964,7 @@ async def publish_bible_draft(
         max_length=64,
         pattern=r"^[0-9a-f]{64}$",
     ),
+    validation_run_id: uuid.UUID | None = Query(default=None),
 ) -> WorldBiblePageResponse:
     return await _bible_lifecycle_service.publish_draft(
         db,
@@ -891,6 +972,7 @@ async def publish_bible_draft(
         draft_id,
         published_by=published_by,
         expected_impact_scope_hash=expected_impact_scope_hash,
+        validation_run_id=str(validation_run_id) if validation_run_id else None,
     )
 
 
@@ -1280,6 +1362,8 @@ async def apply_world_adoption_package(
                 db, novel_id, suggestion_id, data
             )
     except ConflictError as exc:
+        if exc.code == "required_validation":
+            raise
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 

@@ -280,6 +280,17 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
   服务端不打开客户端路径，不执行脚本、Prompt、工具配置或 YAML 表达式。首次导入只创建
   `source_material` 工作稿；重导入以 `source_key/source_hash/baseline_content_hash` 做三方比较，
   双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。
+- 已发布且 `page_key=validation-policy` 的页面可在
+  `page_meta_json.validation_policy` 激活 `world_validation_policy.v1`。策略只接受
+  命名 operator，不执行 regex、表达式、Prompt 或导入的配置文件。首次激活前保持
+  旧项目行为；激活后，页面发布、采用包以及旧的对象/关系/别名/建议正典直写
+  均必须经验证路径，避免旁路绕过。
+- `world_validation_runs` 冻结 policy、manifest、依赖、target 与 ReviewPacket 哈希。
+  结构层先运行，出错不消耗 LLM 预算；语义层仅使用项目级 secret-free snapshot，
+  引文必须来自冻结分片。full run 以数据库部分唯一索引单飞，targeted run 不受影响。
+  任一 policy/manifest/dependency/target hash 漂移都使回执变为 `stale/block`；
+  `warn` 只能用当前 receipt hash 与完整 warning finding 集显式签收，
+  `fail/author-required/insufficient-evidence` 不可绕过。
 - `world_core_checkpoint.v1` 是兼容保留的 typed 收束来源 checkpoint；新的生成中心保存动作写入
   `world_design_checkpoint.v1`。两者均不可采用且只在作者显式保存时持久化；design envelope
   内嵌 `world-state 0.1.0` 的 19 区、6 循环、22 切面、5 耦合链与 12 压测分类，seed 阶段
@@ -318,6 +329,7 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 | `world_bible_page_templates` | 项目自定义页面布局模板；与代码内置模板 key 隔离 |
 | `world_bible_page_template_revisions` | 页面模板每次修改/恢复产生的不可变快照 |
 | `world_bible_synopsis_heads` | 每项目简介指针、stale/pin/task 与自动维护授权 |
+| `world_validation_runs` | 冻结校验输入、分片/结果哈希、coverage/budget 账本、verdict/gate 与 warning 签收回执 |
 | `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
@@ -659,6 +671,10 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/bible/imports/preview` | 受限预览目录清单；返回统计、映射与 hash，不回显正文 |
 | GET | `/api/world/bible/imports/{suggestion_id}` | 恢复 pending 导入的紧凑预览 |
 | POST | `/api/world/bible/imports/{suggestion_id}/apply` | 以 preview hash 创建/更新未发布工作稿并写入冲突队列 |
+| POST | `/api/world/bible/validation-runs` | 用 operation id 提交 targeted/full 校验任务 |
+| GET | `/api/world/bible/validation-runs/latest` | 按 scope/target 读取最新回执并惰性重算 freshness |
+| GET | `/api/world/bible/validation-runs/{run_id}` | 读取不含 Prompt、token、原始 model snapshot 的校验回执 |
+| POST | `/api/world/bible/validation-runs/{run_id}/accept-warnings` | 作者对当前 receipt 的全部 warning 做显式签收 |
 | POST/GET | `/api/world/adoption-packages` | 保存或读取 typed WorldAdoptionPackage 建议 |
 | GET | `/api/world/adoption-packages/{suggestion_id}/preview` | 零写入预演 package 的覆盖、diff 与 hash |
 | POST | `/api/world/adoption-packages/{suggestion_id}/apply` | 以 preview hash 原子采用 package 的 include 项；重复 apply 返回 receipt |

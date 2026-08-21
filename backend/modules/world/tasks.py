@@ -27,6 +27,47 @@ _ALIAS_RELATION_SOURCE_WRITER_TASK_TYPES = {
 }
 
 
+@task_handler(
+    "world_validation",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+)
+async def handle_world_validation(db, task):
+    """Run a frozen World Bible validation under the exact worker attempt."""
+    from infrastructure.tasks.facade import require_task_checkpoint_session
+    from modules.project.facade import require_active_project
+    from modules.world.services.worldbuilding.world_validation_service import (
+        WorldValidationService,
+    )
+
+    require_task_checkpoint_session(db)
+    meta = dict(task.meta or {})
+    novel_id = str(meta.get("novel_id") or "")
+    run_id = str(meta.get("run_id") or "")
+    if (
+        task.task_type != "world_validation"
+        or task.status != "running"
+        or not task.lease_id
+        or int(task.attempt or 0) < 1
+        or not novel_id
+        or not run_id
+    ):
+        raise ValueError("invalid world validation task identity")
+    await require_active_project(db, novel_id)
+    task.update_progress(0.05)
+    result = await WorldValidationService().execute_run(
+        db,
+        novel_id=novel_id,
+        run_id=run_id,
+        attempt=int(task.attempt),
+        task_id=str(task.id),
+        lease_id=str(task.lease_id),
+    )
+    task.update_progress(1.0)
+    return result
+
+
 def _alias_relation_confirmation_payload(confirmation: Any) -> dict[str, Any]:
     if not hasattr(confirmation, "__dataclass_fields__"):
         raise ValueError("context confirmation contract is invalid")

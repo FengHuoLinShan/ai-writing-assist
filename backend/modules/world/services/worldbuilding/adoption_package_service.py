@@ -508,13 +508,27 @@ class WorldAdoptionPackageService:
         omissions = self._omissions(package)
         if omissions:
             raise ValidationError("World adoption package has incomplete source coverage")
-        suggestion = await self._suggestions._claim_pending(db, novel_id, suggestion_id)
         locked_baseline = await self._authoritative_baseline(
             db, novel_id, package, for_update=True
         )
         locked_baseline["pages"] = await self._page_diffs(db, novel_id, package)
         if request.expected_preview_hash != self._preview_hash(package, locked_baseline):
             raise ConflictError("World adoption package changed; preview again")
+        from modules.world.services.worldbuilding.world_validation_service import (
+            WorldValidationService,
+        )
+
+        await WorldValidationService().require_gate(
+            db,
+            novel_id=novel_id,
+            validation_run_id=(
+                str(request.validation_run_id) if request.validation_run_id else None
+            ),
+            target_type="world_adoption_package",
+            target_id=suggestion_id,
+            target_hash=request.expected_preview_hash,
+        )
+        suggestion = await self._suggestions._claim_pending(db, novel_id, suggestion_id)
         frozen_canon_diff = await self._canon_diff(db, novel_id, package)
         local_refs: dict[str, str] = {}
         results: list[dict[str, str]] = []
@@ -554,6 +568,7 @@ class WorldAdoptionPackageService:
                     EntityPromoteRequest(approved_by=authorization_actor),
                     novel_id=novel_id,
                     _from_suggestion_queue=True,
+                    _validation_prechecked=True,
                 )
                 entity_id = promoted.entity_id
                 await self._attach_entity_provenance(
@@ -590,6 +605,7 @@ class WorldAdoptionPackageService:
                         reveal_level=draft.reveal_level,
                         force_create=False,
                     ),
+                    _validation_prechecked=True,
                 )
                 entity_id = entity.id
             await self._mark_context_changed(db, novel_id, {entity_id})
@@ -677,6 +693,7 @@ class WorldAdoptionPackageService:
                         suggestion.id, item, package.source_manifest_hash
                     ),
                 ),
+                _validation_prechecked=True,
             )
             await self._mark_context_changed(db, novel_id, {source_id, target_id})
             local_refs[item.item_key] = relation.id
@@ -710,6 +727,7 @@ class WorldAdoptionPackageService:
                 draft.id,
                 published_by=authorization_actor,
                 expected_impact_scope_hash=actual_impact.impact_scope_hash,
+                _validation_prechecked=True,
             )
             results.append(
                 {

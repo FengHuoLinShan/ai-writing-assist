@@ -454,6 +454,13 @@ class SuggestionQueueService:
             raise ValidationError(
                 "Worldbook imports must be applied through the import endpoint"
             )
+        from modules.world.services.worldbuilding.world_validation_service import (
+            WorldValidationService,
+        )
+
+        await WorldValidationService().require_legacy_canon_write_allowed(
+            db, novel_id, next_action="create_world_adoption_package"
+        )
         suggestion = await self._claim_pending(db, novel_id, suggestion_id)
         suggestion.payload_json = payload_json
         result_ref: dict[str, Any] = {}

@@ -70,8 +70,19 @@ class WorldEntityService(
         db: AsyncSession,
         novel_id: str,
         data: CoreEntityCreate,
+        *,
+        _validation_prechecked: bool = False,
     ) -> CoreEntityResponse:
         nid = parse_uuid(novel_id, "novel_id")
+
+        if data.status == "canonical" and not _validation_prechecked:
+            from modules.world.services.worldbuilding.world_validation_service import (
+                WorldValidationService,
+            )
+
+            await WorldValidationService().require_legacy_canon_write_allowed(
+                db, novel_id, next_action="create_world_adoption_package"
+            )
 
         # 人工创建本身已经表达采用意图。显式传入 draft/candidate 的旧调用方
         # 仍保持原状态，只有默认创建收敛为 canonical。
@@ -260,10 +271,10 @@ class WorldEntityService(
             chapters = list(getattr(stat, "appearance_chapters", None) or [])
             heat = self._recent_heat(chapters, as_of_chapter)
             combined = 0.65 * semantic + 0.35 * heat
-            important = (
-                semantic >= 0.75
-                or candidate.get("importance_level") in {"core", "important"}
-            )
+            important = semantic >= 0.75 or candidate.get("importance_level") in {
+                "core",
+                "important",
+            }
             hot = heat >= 0.55
             labels = [
                 label
@@ -313,9 +324,7 @@ class WorldEntityService(
             ranked = [item for item in ranked if item["is_hot"]]
         elif focus == "other":
             ranked = [
-                item
-                for item in ranked
-                if not item["is_important"] and not item["is_hot"]
+                item for item in ranked if not item["is_important"] and not item["is_hot"]
             ]
 
         has_query = bool(str(filter_kwargs.get("q") or "").strip())
@@ -416,6 +425,7 @@ class WorldEntityService(
         *,
         novel_id: str,
         _from_suggestion_queue: bool = False,
+        _validation_prechecked: bool = False,
     ) -> CoreEntityResponse:
         """更新实体前打快照；类型转换时 snapshot 属于原子迁移契约。"""
         from modules.world.services.core.entity_revision_service import (
@@ -427,6 +437,15 @@ class WorldEntityService(
         existing = await self.repo.get_for_update(db, rid)
         self._assert_found_in_novel(existing, id, nid)
         assert existing is not None
+
+        if existing.status == "canonical" and not _validation_prechecked:
+            from modules.world.services.worldbuilding.world_validation_service import (
+                WorldValidationService,
+            )
+
+            await WorldValidationService().require_legacy_canon_write_allowed(
+                db, novel_id, next_action="create_world_adoption_package"
+            )
 
         if self._is_suggestion_compatibility_shadow(existing) and not (
             _from_suggestion_queue
@@ -661,6 +680,7 @@ class WorldEntityService(
         *,
         novel_id: str,
         _from_suggestion_queue: bool = False,
+        _validation_prechecked: bool = False,
     ) -> EntityPromoteResponse:
         """将 draft/candidate 状态实体提升为 canonical。
 
@@ -673,6 +693,15 @@ class WorldEntityService(
         entity = await self.repo.get_for_update(db, rid)
         self._assert_found_in_novel(entity, entity_id, nid)
         assert entity is not None
+
+        if not _validation_prechecked:
+            from modules.world.services.worldbuilding.world_validation_service import (
+                WorldValidationService,
+            )
+
+            await WorldValidationService().require_legacy_canon_write_allowed(
+                db, novel_id, next_action="create_world_adoption_package"
+            )
 
         if entity.status not in {"draft", "candidate"}:
             raise ValidationError(
@@ -734,9 +763,7 @@ class WorldEntityService(
             meta["edited_at"] = datetime.now(UTC).isoformat()
         meta["reviewed_at"] = datetime.now(UTC).isoformat()
         meta["reviewed_by"] = approved_by
-        meta["reviewed_from"] = (
-            "entity_edit_promote" if changes else "entity_promote"
-        )
+        meta["reviewed_from"] = "entity_edit_promote" if changes else "entity_promote"
         content_json["_meta"] = meta
         update_data = CoreEntityUpdate(
             **changes,

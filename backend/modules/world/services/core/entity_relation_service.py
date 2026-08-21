@@ -289,7 +289,11 @@ class EntityRelationService(
         db: AsyncSession,
         novel_id: str,
         data: EntityRelationCreate,
+        *,
+        _validation_prechecked: bool = False,
     ) -> EntityRelationResponse:
+        if data.status == "canonical" and not _validation_prechecked:
+            await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(data.source_id, "source_id")
         tid = parse_uuid(data.target_id, "target_id")
@@ -329,8 +333,13 @@ class EntityRelationService(
         db: AsyncSession,
         novel_id: str,
         data: EntityRelationCreate,
+        *,
+        _validation_prechecked: bool = False,
     ) -> dict[str, object]:
         """Create a relation or merge evidence into an existing same edge."""
+
+        if data.status == "canonical" and not _validation_prechecked:
+            await self._require_legacy_canon_write_allowed(db, novel_id)
 
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(data.source_id, "source_id")
@@ -441,17 +450,13 @@ class EntityRelationService(
                 return False
             if (
                 strength_min is not None
-                and float(
-                    relation.strength if relation.strength is not None else 0.0
-                )
+                and float(relation.strength if relation.strength is not None else 0.0)
                 < strength_min
             ):
                 return False
             if (
                 strength_max is not None
-                and float(
-                    relation.strength if relation.strength is not None else 0.0
-                )
+                and float(relation.strength if relation.strength is not None else 0.0)
                 > strength_max
             ):
                 return False
@@ -540,11 +545,7 @@ class EntityRelationService(
             members = sorted(
                 members,
                 key=lambda relation: (
-                    -(
-                        relation.strength
-                        if relation.strength is not None
-                        else 0.0
-                    ),
+                    -(relation.strength if relation.strength is not None else 0.0),
                     relation.relation_type,
                     str(relation.id),
                 ),
@@ -689,6 +690,8 @@ class EntityRelationService(
         novel_id: str,
         data: EntityRelationReviewBatchRequest,
     ) -> ReviewBatchResponse:
+        if any(item.action in {"accept", "merge"} for item in data.decisions):
+            await self._require_legacy_canon_write_allowed(db, novel_id)
         await self._prelock_review_batch(db, novel_id, data)
         results: list[dict[str, object]] = []
         for decision in data.decisions:
@@ -991,6 +994,8 @@ class EntityRelationService(
         rel = await self.repo.get(db, rid)
         if rel is None or rel.novel_id != nid:
             raise NotFoundError(f"EntityRelation {id} not found")
+        if rel.status == "canonical" or data.status == "canonical":
+            await self._require_legacy_canon_write_allowed(db, novel_id)
         before = self._relation_snapshot(rel)
         if data.status is not None and data.status not in _RELATION_STATUSES:
             raise ValidationError("Invalid relation status")
@@ -1028,6 +1033,8 @@ class EntityRelationService(
             raise NotFoundError(f"EntityRelation {rel_id} not found")
         if rel.status == "deprecated":
             raise ValidationError("Deprecated relation cannot be reviewed")
+        if rel.status == "canonical" or data.confirm_review:
+            await self._require_legacy_canon_write_allowed(db, novel_id)
 
         before = self._relation_snapshot(rel)
         sid = parse_uuid(data.source_id, "source_id") if data.source_id else rel.source_id
@@ -1237,6 +1244,7 @@ class EntityRelationService(
         description: str | None = None,
     ) -> EntityRelationResponse:
         """按 source + target + relation_type 去重创建/更新。"""
+        await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(source_id, "source_id")
         tid = parse_uuid(target_id, "target_id")
@@ -1261,4 +1269,16 @@ class EntityRelationService(
                 "source_name": getattr(source, "name", ""),
                 "target_name": getattr(target, "name", ""),
             }
+        )
+
+    @staticmethod
+    async def _require_legacy_canon_write_allowed(
+        db: AsyncSession, novel_id: str
+    ) -> None:
+        from modules.world.services.worldbuilding.world_validation_service import (
+            WorldValidationService,
+        )
+
+        await WorldValidationService().require_legacy_canon_write_allowed(
+            db, novel_id, next_action="create_world_adoption_package"
         )

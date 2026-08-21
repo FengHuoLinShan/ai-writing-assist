@@ -57,6 +57,18 @@ class EntityAliasService:
         self._context_marker = context_marker
         self._activity_requester = activity_requester
 
+    @staticmethod
+    async def _require_legacy_canon_write_allowed(
+        db: AsyncSession, novel_id: str
+    ) -> None:
+        from modules.world.services.worldbuilding.world_validation_service import (
+            WorldValidationService,
+        )
+
+        await WorldValidationService().require_legacy_canon_write_allowed(
+            db, novel_id, next_action="create_world_adoption_package"
+        )
+
     async def _request_activity_refresh(
         self,
         db: AsyncSession,
@@ -365,9 +377,7 @@ class EntityAliasService:
 
     async def _collect_aliases(self, db: AsyncSession, novel_id: str) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        entities = await self._list_all_entities(
-            db, nid, include_archived=True
-        )
+        entities = await self._list_all_entities(db, nid, include_archived=True)
         result: list[dict] = []
         for entity in entities:
             aliases = (entity.content_json or {}).get("aliases", [])
@@ -558,6 +568,8 @@ class EntityAliasService:
         novel_id: str,
         data: EntityAliasReviewBatchRequest,
     ) -> ReviewBatchResponse:
+        if any(item.action == "accept" for item in data.decisions):
+            await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
         entity_ids = []
         for decision in data.decisions:
@@ -727,6 +739,8 @@ class EntityAliasService:
         reviewed_by: str = "manual",
     ) -> dict:
         """为实体添加别名；重复时抛 409。"""
+        if status in {"canonical", "confirmed"}:
+            await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self.repo.get_for_update(db, eid, novel_id=nid)
@@ -791,6 +805,15 @@ class EntityAliasService:
             if existing != normalized_alias:
                 continue
 
+            current_status = (
+                alias_item.get("status") if isinstance(alias_item, dict) else None
+            )
+            if current_status in {"canonical", "confirmed"} or changes.get("status") in {
+                "canonical",
+                "confirmed",
+            }:
+                await self._require_legacy_canon_write_allowed(db, novel_id)
+
             updated = (
                 dict(alias_item)
                 if isinstance(alias_item, dict)
@@ -843,6 +866,8 @@ class EntityAliasService:
         confirm_review: bool = True,
     ) -> dict:
         """Edit alias text/type and optionally move it to another target entity."""
+        if confirm_review:
+            await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
         source_eid = parse_uuid(entity_id, "entity_id")
         target_eid = (
@@ -1185,9 +1210,7 @@ class EntityAliasService:
     ) -> int:
         """Archive untouched inline alias candidates owned by one workflow."""
         nid = parse_uuid(novel_id, "novel_id")
-        entity_snapshots = await self._list_all_entities(
-            db, nid, include_archived=False
-        )
+        entity_snapshots = await self._list_all_entities(db, nid, include_archived=False)
         entities = await self.repo.get_many_for_update(
             db, nid, [entity.id for entity in entity_snapshots]
         )

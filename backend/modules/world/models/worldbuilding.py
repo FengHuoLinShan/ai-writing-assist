@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqlalchemy import CheckConstraint, text
+
 from .common import (
     JSON,
     PG_UUID,
@@ -674,3 +676,72 @@ class ConflictCheckQueueItem(Base, UUIDMixin, TimestampMixin, StatusMixin):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     evidence_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     resolution_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class WorldValidationRun(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "world_validation_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "scope IN ('targeted', 'full')",
+            name="ck_world_validation_runs_scope",
+        ),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'stale')",
+            name="ck_world_validation_runs_status",
+        ),
+        CheckConstraint(
+            "verdict IS NULL OR verdict IN "
+            "('pass', 'mixed', 'fail', 'author-required', 'insufficient-evidence')",
+            name="ck_world_validation_runs_verdict",
+        ),
+        CheckConstraint(
+            "gate IS NULL OR gate IN ('pass', 'warn', 'block')",
+            name="ck_world_validation_runs_gate",
+        ),
+        Index(
+            "uq_world_validation_runs_active_full",
+            "novel_id",
+            unique=True,
+            postgresql_where=text("scope = 'full' AND status IN ('queued', 'running')"),
+            sqlite_where=text("scope = 'full' AND status IN ('queued', 'running')"),
+        ),
+        Index("ix_world_validation_runs_novel_created", "novel_id", "created_at"),
+        Index("ix_world_validation_runs_novel_status", "novel_id", "status"),
+        {"comment": "World Bible deterministic and semantic validation receipts"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("async_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
+    trigger: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    verdict: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    gate: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    manifest_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    manifest_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    dependency_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    packet_hashes_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    findings_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    omissions_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    coverage_ledger_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    budget_ledger_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    model_snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    warning_receipt_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
