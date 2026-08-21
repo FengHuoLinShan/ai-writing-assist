@@ -1,6 +1,6 @@
 # ADR-0010 — 公开浏览器账号：本地会话、邮箱 OTP 与 Authing 微信
 
-- **状态**: Accepted（LLM Key 所有权与出站配置由 2026-07-29 补充决策修订）
+- **状态**: Accepted（LLM Key 所有权与出站配置由 2026-07-29 补充决策修订；2026-08-21 物理归属说明）
 - **日期**: 2026-07-23
 - **决策来源**: 用户明确批准公开注册一期方案
 
@@ -49,3 +49,10 @@
 owner 门禁、会话与删除策略不变。账户连接当前提供 DeepSeek 与受开关控制的 Kimi 模板；
 作者入口和 RP 入口共用同一账户连接。可恢复业务任务只持久化不含 secret 的执行快照，
 执行时按项目 owner 读取所选 provider 的当前 Key，以支持 Key 轮换和既有任务增量恢复。
+
+## 2026-08-21 物理归属说明
+
+原独立 settings 模块不再作为领域边界：账号连接、加密凭据、账户级默认和全局作者偏好由
+account 拥有；项目作者偏好、项目覆盖与 effective composition 由 project 拥有。表名、
+加密格式、secret-free snapshot 语义和一版 `/api/settings` HTTP 兼容路径不变。本说明只收紧
+代码所有权，不改变 owner + `novel_id` 隔离、图片运行时或 interaction 的隐藏项目边界。

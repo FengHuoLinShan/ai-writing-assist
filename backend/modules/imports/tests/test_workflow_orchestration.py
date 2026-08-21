@@ -1249,7 +1249,7 @@ class TestDeepImportOrchestrator:
         from datetime import UTC, datetime
 
         from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
-        from modules.settings.repositories import AccountLLMCredentialRepository
+        from modules.account.settings_repositories import AccountLLMCredentialRepository
 
         rotated_key = "unit-test-rotated-account-key"
         await AccountLLMCredentialRepository().upsert(

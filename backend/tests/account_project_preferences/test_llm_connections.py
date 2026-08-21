@@ -18,10 +18,13 @@ from infrastructure.llm.secret_store import (
     encrypt_secret,
     fingerprint_secret,
 )
-from modules.settings.constants import ACCOUNT_LLM_PROVIDER_TEMPLATES, LOCAL_OWNER_ID
-from modules.settings.models import AccountLLMCredential
-from modules.settings.repositories import AccountLLMCredentialRepository
-from modules.settings.services import SettingsService
+from modules.account.settings_constants import (
+    ACCOUNT_LLM_PROVIDER_TEMPLATES,
+    LOCAL_OWNER_ID,
+)
+from modules.account.settings_models import AccountLLMCredential
+from modules.account.settings_repositories import AccountLLMCredentialRepository
+from modules.account.settings_service import SettingsService
 
 XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
 
@@ -49,7 +52,7 @@ async def test_connect_validates_encrypts_and_activates_atomically(
 ):
     validate = AsyncMock()
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         validate,
     )
 
@@ -86,7 +89,7 @@ async def test_unchanged_verified_key_reactivates_without_validation(
 ):
     validate = AsyncMock()
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         validate,
     )
     service = SettingsService()
@@ -111,7 +114,7 @@ async def test_stale_unkeyed_fingerprint_revalidates_and_upgrades(
 ):
     validate = AsyncMock()
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         validate,
     )
     service = SettingsService()
@@ -139,7 +142,7 @@ async def test_failed_validation_does_not_store_or_activate(
 ):
     validate = AsyncMock(side_effect=ValueError("API Key 无效"))
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         validate,
     )
 
@@ -165,7 +168,7 @@ async def test_clear_active_key_keeps_provider_selected_but_disconnected(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         AsyncMock(),
     )
     service = SettingsService()
@@ -244,11 +247,11 @@ async def test_balance_failure_is_auxiliary_and_does_not_disconnect(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         AsyncMock(),
     )
     query = AsyncMock(side_effect=ProviderBalanceError("temporarily_unavailable"))
-    monkeypatch.setattr("modules.settings.services.query_provider_balance", query)
+    monkeypatch.setattr("modules.account.settings_service.query_provider_balance", query)
     service = SettingsService()
     await service.connect_account_llm_provider(
         db_session,
@@ -272,7 +275,7 @@ async def test_balance_success_preserves_original_amount_and_currency(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         AsyncMock(),
     )
     query = AsyncMock(
@@ -281,7 +284,7 @@ async def test_balance_success_preserves_original_amount_and_currency(
             currency="CNY",
         )
     )
-    monkeypatch.setattr("modules.settings.services.query_provider_balance", query)
+    monkeypatch.setattr("modules.account.settings_service.query_provider_balance", query)
     service = SettingsService()
     await service.connect_account_llm_provider(
         db_session,
@@ -302,7 +305,7 @@ async def test_connection_api_never_returns_key(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         AsyncMock(),
     )
 
@@ -337,7 +340,7 @@ async def test_unsupported_provider_is_rejected(
 ):
     validate = AsyncMock()
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         validate,
     )
 

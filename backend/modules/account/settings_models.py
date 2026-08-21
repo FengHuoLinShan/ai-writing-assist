@@ -95,26 +95,3 @@ class GlobalAuthorPreferences(Base, UUIDMixin, TimestampMixin):
         Boolean,
         nullable=True,
     )
-
-
-class ProjectAuthorPreferences(Base, UUIDMixin, TimestampMixin):
-    """项目级作者偏好覆盖。
-
-    所有字段允许 NULL：NULL = 继承全局（D2）。
-    UNIQUE(project_id) 保证每个项目最多一行。
-    """
-
-    __tablename__ = "project_author_preferences"
-
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    daily_goal: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    editor_font: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    default_focus_mode: Mapped[bool | None] = mapped_column(
-        Boolean,
-        nullable=True,
-    )

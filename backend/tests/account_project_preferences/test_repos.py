@@ -7,13 +7,13 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from modules.settings.constants import LOCAL_OWNER_ID
-from modules.settings.models import ProjectAuthorPreferences
-from modules.settings.repositories import (
+from modules.account.settings_constants import LOCAL_OWNER_ID
+from modules.account.settings_repositories import (
     GlobalAuthorPrefsRepository,
     GlobalLLMDefaultsRepository,
-    ProjectAuthorPrefsRepository,
 )
+from modules.project.settings_models import ProjectAuthorPreferences
+from modules.project.settings_repository import ProjectAuthorPrefsRepository
 
 
 @pytest.mark.asyncio

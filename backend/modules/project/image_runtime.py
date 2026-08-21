@@ -17,9 +17,9 @@ from infrastructure.llm.image_client import (
     OPENAI_IMAGE_MODEL,
     OpenAIImageClient,
 )
+from modules.account.facade import resolve_account_image_runtime_profile
 from modules.project.contracts import ProjectImageConfigurationError
 from modules.project.services import ProjectService
-from modules.settings.facade import resolve_account_image_runtime_profile
 
 PROJECT_IMAGE_EXECUTION_SNAPSHOT_VERSION = "1"
 _service = ProjectService()

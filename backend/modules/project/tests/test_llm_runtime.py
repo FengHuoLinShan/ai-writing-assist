@@ -12,6 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
+from modules.account.settings_constants import (
+    ACCOUNT_LLM_PROVIDER_TEMPLATES,
+    LOCAL_OWNER_ID,
+)
+from modules.account.settings_repositories import (
+    AccountLLMCredentialRepository,
+    GlobalLLMDefaultsRepository,
+)
 from modules.project import llm_runtime
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
@@ -22,11 +30,6 @@ from modules.project.facade import (
     restore_project_llm_execution_settings,
 )
 from modules.project.models import Project
-from modules.settings.constants import ACCOUNT_LLM_PROVIDER_TEMPLATES, LOCAL_OWNER_ID
-from modules.settings.repositories import (
-    AccountLLMCredentialRepository,
-    GlobalLLMDefaultsRepository,
-)
 from shared.deep_import_settings import (
     DEEP_IMPORT_FROZEN_SETTINGS_KEY,
     deep_import_int_setting,

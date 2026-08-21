@@ -93,7 +93,7 @@
         <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
       </div>
     </div>
-    <p class="subtitle">浏览器兼容预览 · 11 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
+    <p class="subtitle">浏览器兼容预览 · 10 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
   </div>
 
   <div class="diagram-container">
@@ -194,19 +194,13 @@
       <rect x="55" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="55" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
       <text x="142" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">account 账号</text>
-      <text x="142" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">身份 · 会话 · owner</text>
+      <text x="142" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">身份 · 连接 · 全局偏好</text>
 
       <!-- project box -->
       <rect x="250" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="250" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
       <text x="337" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">project 隔离根</text>
-      <text x="337" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">owner · novel · kind</text>
-
-      <!-- settings box -->
-      <rect x="445" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="445" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="532" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">settings 设置</text>
-      <text x="532" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">文本/图片连接 · 余额</text>
+      <text x="337" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">novel · 项目偏好 · effective</text>
 
       <!-- interaction box -->
       <rect x="640" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
@@ -330,8 +324,8 @@
         <h3>模块数量</h3>
       </div>
       <ul>
-        <li>• 12 个活动业务模块（含 interaction 私人 RP 与 story Scene 派生层）</li>
-        <li>• account 是 owner 边界；interaction 不读取作者资产；AI 地图册属于 world；tasks / llm 是共享基础设施</li>
+        <li>• 11 个活动业务模块（settings 已归入 account / project，含 story Scene 派生层）</li>
+        <li>• account 拥有账户连接；project 拥有项目偏好；interaction 不读取作者资产；AI 地图册属于 world</li>
         <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
       </ul>
     </div>

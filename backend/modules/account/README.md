@@ -1,7 +1,7 @@
 # Account 模块
 
 公开浏览器账号的领域边界。稳定跨模块入口仅为 `contracts.py` 与 `facade.py`；
-项目和设置模块不得直接依赖账号 ORM 或 service。
+项目模块不得直接依赖账号 ORM 或 service。
 
 ## 一期约束
 
@@ -30,6 +30,9 @@ claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也�
 - `email_login_challenges`：邮箱验证码摘要、尝试次数和过期状态；
 - `account_security_events`：脱敏安全审计；
 - `account_consents`：版本化协议同意。
+- `account_llm_credentials`：按 owner/provider 保存加密凭据与验证状态；
+- `global_llm_defaults`：账户当前 provider 与非 secret 默认；
+- `global_author_preferences`：账户级作者偏好。
 
 ## HTTP 入口
 
@@ -37,9 +40,14 @@ claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也�
 - `/api/account`：延期删除状态、申请与撤销；
 - `/api/auth/wechat`：Authing 微信登录；
 - `/api/auth/reauth/wechat`：微信重新认证；
+- `/api/settings/llm`、`/api/settings/author-preferences`：账户连接、余额和全局偏好的一版兼容入口；
 - `/legal/terms`、`/legal/privacy`：公开协议页面。
 
 HTTP 路由只从当前 account principal 解析 owner。跨模块 owner 查询使用
 `current_account_id()`、`current_account_principal()`、
 `current_owner_id_or_system_none()` 与 `require_account_active()`；不得绕过 facade 读取
 账号 ORM。
+
+账户连接由 `settings_service.py` 统一执行 provider 模板校验、凭据加解密、连接验证和余额查询。
+跨模块只能通过 facade 的 secret-free contract 获取运行时配置；API、日志、项目 settings 与任务
+snapshot 均不得包含 Key。图片连接同样归 account，但仍只通过 project 的图片运行时 seam 使用。

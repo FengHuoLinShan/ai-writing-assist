@@ -59,6 +59,7 @@ api_prefixes = [
   "/api/account",
   "/api/auth/wechat",
   "/api/auth/reauth/wechat",
+  "/api/settings",
 ]
 
 [[components]]
@@ -67,7 +68,7 @@ kind = "business"
 source_roots = ["backend/modules/project"]
 design_docs = ["docs/modules/01_project.md"]
 code_docs = ["backend/modules/project/README.md"]
-api_prefixes = ["/api/projects"]
+api_prefixes = ["/api/projects", "/api/settings"]
 
 [[components]]
 name = "imports"
@@ -132,14 +133,6 @@ source_roots = ["backend/modules/writing"]
 design_docs = ["docs/modules/11_writing.md"]
 code_docs = ["backend/modules/writing/README.md"]
 api_prefixes = ["/api/writing"]
-
-[[components]]
-name = "settings"
-kind = "business"
-source_roots = ["backend/modules/settings"]
-design_docs = ["docs/modules/16_settings.md"]
-code_docs = ["backend/modules/settings/README.md"]
-api_prefixes = ["/api/settings"]
 
 [[components]]
 name = "interaction"

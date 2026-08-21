@@ -1404,11 +1404,11 @@ async def test_generation_center_chat_and_suggestion_follow_kimi_account_snapsho
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
-    from modules.settings.constants import (
+    from modules.account.settings_constants import (
         ACCOUNT_LLM_PROVIDER_TEMPLATES,
         LOCAL_OWNER_ID,
     )
-    from modules.settings.repositories import (
+    from modules.account.settings_repositories import (
         AccountLLMCredentialRepository,
         GlobalLLMDefaultsRepository,
     )

@@ -36,6 +36,10 @@ Three layers:
 - **Service**: business logic happy path, exception paths (not found → 404, invalid UUID → 422)
 - **API** (via root `backend/conftest.py` `async_client`): HTTP happy path + error path
 
+Account connection/global preference coverage and project preference/effective composition coverage share
+`backend/tests/account_project_preferences/`; the one-release `/api/settings` aliases are tested there without
+reintroducing a settings domain module.
+
 ## Test execution layers
 
 下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`

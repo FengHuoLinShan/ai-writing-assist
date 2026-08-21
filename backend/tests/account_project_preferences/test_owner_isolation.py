@@ -12,8 +12,8 @@ import uuid
 import pytest
 from sqlalchemy import func, select
 
-from modules.settings.models import GlobalLLMDefaults
-from modules.settings.repositories import (
+from modules.account.settings_models import GlobalLLMDefaults
+from modules.account.settings_repositories import (
     GlobalAuthorPrefsRepository,
     GlobalLLMDefaultsRepository,
 )

@@ -10,8 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import get_settings
 from core.errors import NotFoundError
 from modules.account.context import current_principal as _current_principal
-from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID, AccountPrincipal
+from modules.account.contracts import (
+    BOOTSTRAP_ACCOUNT_ID,
+    AccountAuthorPreferencesContract,
+    AccountLLMSettingsContract,
+    AccountPrincipal,
+)
 from modules.account.models import Account
+from modules.account.settings_schemas import (
+    AccountImageRuntimeProfile,
+    AccountLLMRuntimeProfile,
+)
+from modules.account.settings_service import SettingsService
+
+_settings_service = SettingsService()
 
 
 def current_account_id() -> uuid.UUID:
@@ -64,3 +76,46 @@ async def require_account_active(
     ).scalar_one_or_none()
     if account is None or account.status != "active":
         raise NotFoundError("Account not found")
+
+
+async def resolve_account_image_runtime_profile(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID | None = None,
+) -> AccountImageRuntimeProfile:
+    return await _settings_service.resolve_account_image_runtime_profile(
+        db,
+        owner_id=owner_id,
+    )
+
+
+async def resolve_account_llm_runtime_profile(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID | None = None,
+    provider_id: str | None = None,
+) -> AccountLLMRuntimeProfile:
+    return await _settings_service.resolve_account_llm_runtime_profile(
+        db,
+        owner_id=owner_id,
+        provider_id=provider_id,
+    )
+
+
+async def get_account_llm_settings_contract(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID | None = None,
+) -> AccountLLMSettingsContract:
+    return await _settings_service.get_llm_settings_contract(db, owner_id=owner_id)
+
+
+async def get_account_author_preferences_contract(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID | None = None,
+) -> AccountAuthorPreferencesContract:
+    return await _settings_service.get_author_preferences_contract(
+        db,
+        owner_id=owner_id,
+    )

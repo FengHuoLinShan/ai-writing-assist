@@ -201,9 +201,9 @@ judging the frontend/backend connection.
 
 | Layer | Modules | Responsibility |
 |-------|---------|----------------|
-| **事实层** (Fact) | project, world, memory | Maintain canonical facts. world unifies CoreEntity + Character + Event + EntityRelation |
+| **事实层** (Fact) | project, world, memory | Maintain project preferences and canonical facts. world unifies CoreEntity + Character + Event + EntityRelation |
 | **结构层** (Structure) | outline | Organize facts into executable plot plans (threads → arcs → chapter cards → scene cards) |
-| **辅助层** (Support) | rag, context, writing, imports, settings | Retrieval, context compilation, draft writing, file import, and LLM/author preference overrides. infrastructure (tasks/llm) is shared infra |
+| **辅助层** (Support) | rag, context, writing, imports | Retrieval, context compilation, draft writing, and file import. Account connections/global preferences belong to account; project overrides/effective composition belong to project. infrastructure (tasks/llm) is shared infra |
 
 ## Module Structure
 
@@ -298,7 +298,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 
 ## Data Security Rules
 
-- API Keys come from environment defaults or project-level write-only LLM settings; never log keys and never return raw keys to frontend
+- Business API Keys come from the project owner's encrypted account connection through the project runtime seam; never log keys or return them to the frontend
 - .env not committed to repo; .env.example provided
 - LLM transport must not implicitly depend on system proxy state; use `LLM_TRUST_ENV` / `LLM_PROXY_URL` and verify with `python scripts/check_llm.py`
 - All API requests validated via Pydantic schema

@@ -13,15 +13,25 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
+from core.errors import NotFoundError
 from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext
 from modules.project.services import ProjectService
+from modules.project.settings_schemas import (
+    EffectiveAuthorPrefsResponse,
+    EffectiveLLMSettingsResponse,
+    FieldResetResponse,
+    ProjectAuthorPrefsResponse,
+    ProjectsUsingDefaultsResponse,
+)
+from modules.project.settings_service import ProjectSettingsService
 
 _service = ProjectService()
 _repo = ProjectRepository()
+_settings_service = ProjectSettingsService()
 
 
 # Imported after service/repository setup so callers get one stable project seam
@@ -64,6 +74,96 @@ async def get_any_project_context(
     if context is not None:
         bind_validated_novel_id(novel_id)
     return context
+
+
+async def get_effective_llm_settings(
+    db: AsyncSession,
+    project_id: uuid.UUID | str,
+) -> EffectiveLLMSettingsResponse:
+    await require_active_project(db, str(project_id))
+    context = await get_project_context(db, str(project_id))
+    if context is None:
+        raise NotFoundError(f"Project {project_id} not found")
+    owner_id = uuid.UUID(context.owner_id) if context.owner_id else None
+    return await _settings_service.get_effective_llm_settings(
+        db,
+        context.settings,
+        owner_id=owner_id,
+    )
+
+
+async def get_effective_author_prefs(
+    db: AsyncSession,
+    project_id: uuid.UUID | str,
+) -> EffectiveAuthorPrefsResponse:
+    await require_active_project(db, str(project_id))
+    context = await get_project_context(db, str(project_id))
+    owner_id = uuid.UUID(context.owner_id) if context and context.owner_id else None
+    return await _settings_service.get_effective_author_prefs(
+        db,
+        project_id,
+        owner_id=owner_id,
+    )
+
+
+async def resolve_effective_llm_settings_for_project_settings(
+    db: AsyncSession,
+    project_settings: dict | None,
+    owner_id: uuid.UUID | None = None,
+) -> EffectiveLLMSettingsResponse:
+    return await _settings_service.get_effective_llm_settings(
+        db,
+        project_settings,
+        owner_id=owner_id,
+    )
+
+
+async def get_project_author_preferences(
+    db: AsyncSession,
+    project_id: uuid.UUID | str,
+) -> ProjectAuthorPrefsResponse:
+    await require_active_project(db, str(project_id))
+    return await _settings_service.get_project_author_prefs(db, project_id)
+
+
+async def upsert_project_author_preferences(
+    db: AsyncSession,
+    project_id: uuid.UUID | str,
+    payload: dict,
+) -> ProjectAuthorPrefsResponse:
+    await require_active_project(db, str(project_id))
+    return await _settings_service.upsert_project_author_prefs(
+        db,
+        project_id,
+        payload,
+    )
+
+
+async def reset_project_author_preferences_field(
+    db: AsyncSession,
+    project_id: uuid.UUID | str,
+    field_name: str,
+) -> FieldResetResponse:
+    await require_active_project(db, str(project_id))
+    return await _settings_service.reset_project_author_prefs_field(
+        db,
+        project_id,
+        field_name,
+    )
+
+
+async def list_projects_using_defaults(
+    db: AsyncSession,
+    limit: int = 50,
+    offset: int = 0,
+) -> ProjectsUsingDefaultsResponse:
+    projects, total = await list_active_project_summaries(
+        db,
+        limit=limit,
+        offset=offset,
+        exclude_project_ids=_settings_service.fully_overridden_project_ids_subquery(),
+    )
+    return _settings_service.build_projects_using_defaults_response(projects, total)
 
 
 async def require_active_project(

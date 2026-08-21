@@ -8,42 +8,6 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 
-class FieldValueSource(BaseModel):
-    """effective 视图单字段响应：{ value, source }。"""
-
-    model_config = {"extra": "forbid"}
-    value: Any = None
-    source: str = Field(description="project | global | system | unset")
-
-
-class EffectiveLLMSettingsResponse(BaseModel):
-    """effective-llm-settings 响应：每字段 { value, source }。"""
-
-    model_config = {"extra": "forbid"}
-    provider_id: FieldValueSource
-    label: FieldValueSource
-    base_url: FieldValueSource
-    model: FieldValueSource
-    timeout: FieldValueSource
-    max_tokens: FieldValueSource
-    temperature: FieldValueSource
-    top_p: FieldValueSource
-    extra: FieldValueSource
-    creative_mode: FieldValueSource
-    api_key_configured: FieldValueSource
-    api_key_configured_providers: FieldValueSource
-    deep_import: FieldValueSource
-
-
-class EffectiveAuthorPrefsResponse(BaseModel):
-    """effective-author-preferences 响应。"""
-
-    model_config = {"extra": "forbid"}
-    daily_goal: FieldValueSource
-    editor_font: FieldValueSource
-    default_focus_mode: FieldValueSource
-
-
 class GlobalLLMDefaultsUpdate(BaseModel):
     """全局 LLM 默认 update（拒绝 api_key）。"""
 
@@ -92,46 +56,6 @@ class GlobalAuthorPrefsResponse(BaseModel):
     daily_goal: int | None = None
     editor_font: str | None = None
     default_focus_mode: bool | None = None
-
-
-class ProjectAuthorPrefsUpdate(BaseModel):
-    """项目覆盖 PUT 全量替换；缺失字段置 NULL = 恢复继承（D4）。"""
-
-    model_config = {"extra": "forbid"}
-    daily_goal: int | None = Field(default=None, ge=0, le=100000)
-    editor_font: str | None = Field(default=None, max_length=32)
-    default_focus_mode: bool | None = None
-
-
-class ProjectAuthorPrefsResponse(BaseModel):
-    """项目覆盖，行不存在时全字段 None（不抛 404，D13）。"""
-
-    model_config = {"extra": "forbid"}
-    daily_goal: int | None = None
-    editor_font: str | None = None
-    default_focus_mode: bool | None = None
-
-
-class FieldResetResponse(BaseModel):
-    """字段级 DELETE 响应。"""
-
-    model_config = {"extra": "forbid"}
-    field: str
-    reset: bool = True
-
-
-class ProjectsUsingDefaultsItem(BaseModel):
-    model_config = {"extra": "forbid"}
-    project_id: str
-    title: str
-    inherited_fields: list[str]
-
-
-class ProjectsUsingDefaultsResponse(BaseModel):
-    model_config = {"extra": "forbid"}
-    items: list[ProjectsUsingDefaultsItem]
-    total: int
-    truncated: bool = False
 
 
 class AccountLLMConnectionUpdate(BaseModel):

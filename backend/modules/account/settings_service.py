@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import Select
 
 from core.config import get_settings
 from infrastructure.llm.balance import (
@@ -23,28 +20,27 @@ from infrastructure.llm.secret_store import (
     encrypt_secret,
     fingerprint_secret,
 )
-from modules.project.contracts import ProjectSummary
-from modules.settings.constants import (
+from modules.account.contracts import (
+    AccountAuthorPreferencesContract,
+    AccountLLMSettingsContract,
+)
+from modules.account.settings_constants import (
     ACCOUNT_LLM_PROVIDER_TEMPLATES,
     AUTHOR_PREFS_DEFAULTS,
     AUTHOR_PREFS_FIELDS,
     LLM_INHERITABLE_FIELDS,
     LLM_RUNTIME_TUNING_FIELDS,
     SOURCE_GLOBAL,
-    SOURCE_PROJECT,
     SOURCE_SYSTEM,
-    SOURCE_UNSET,
     account_llm_provider_enabled,
     enabled_account_llm_provider_order,
 )
-from modules.settings.models import ProjectAuthorPreferences
-from modules.settings.repositories import (
+from modules.account.settings_repositories import (
     AccountLLMCredentialRepository,
     GlobalAuthorPrefsRepository,
     GlobalLLMDefaultsRepository,
-    ProjectAuthorPrefsRepository,
 )
-from modules.settings.schemas import (
+from modules.account.settings_schemas import (
     AccountImageConnectionResponse,
     AccountImageRuntimeProfile,
     AccountLLMBalanceItem,
@@ -52,17 +48,9 @@ from modules.settings.schemas import (
     AccountLLMConnectionsResponse,
     AccountLLMProviderState,
     AccountLLMRuntimeProfile,
-    EffectiveAuthorPrefsResponse,
-    EffectiveLLMSettingsResponse,
-    FieldResetResponse,
-    FieldValueSource,
     GlobalAuthorPrefsResponse,
     GlobalLLMDefaultsResponse,
-    ProjectAuthorPrefsResponse,
-    ProjectsUsingDefaultsItem,
-    ProjectsUsingDefaultsResponse,
 )
-from shared.deep_import_settings import DEEP_IMPORT_SETTINGS_KEY
 
 _IMAGE_PROVIDER_ID = "openai-image"
 
@@ -109,7 +97,6 @@ class SettingsService:
         self._llm_repo = GlobalLLMDefaultsRepository()
         self._credential_repo = AccountLLMCredentialRepository()
         self._g_prefs_repo = GlobalAuthorPrefsRepository()
-        self._p_prefs_repo = ProjectAuthorPrefsRepository()
 
     # ----- account image connection -----
     async def get_account_image_connection(
@@ -519,159 +506,66 @@ class SettingsService:
             default_focus_mode=row.default_focus_mode,
         )
 
-    # ----- project author prefs -----
-    async def get_project_author_prefs(
-        self, db: AsyncSession, project_id: uuid.UUID | str
-    ) -> ProjectAuthorPrefsResponse:
-        pid = project_id if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
-        row = await self._p_prefs_repo.get(db, pid)
-        if row is None:
-            # D13 不抛 404，返回全 NULL 空对象
-            return ProjectAuthorPrefsResponse()
-        return ProjectAuthorPrefsResponse(
-            daily_goal=row.daily_goal,
-            editor_font=row.editor_font,
-            default_focus_mode=row.default_focus_mode,
-        )
-
-    async def upsert_project_author_prefs(
-        self, db: AsyncSession, project_id: uuid.UUID | str, payload: dict
-    ) -> ProjectAuthorPrefsResponse:
-        pid = project_id if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
-        data = {k: v for k, v in payload.items() if k in AUTHOR_PREFS_FIELDS}
-        data["project_id"] = pid
-        row = await self._p_prefs_repo.upsert(db, data)
-        return ProjectAuthorPrefsResponse(
-            daily_goal=row.daily_goal,
-            editor_font=row.editor_font,
-            default_focus_mode=row.default_focus_mode,
-        )
-
-    async def reset_project_author_prefs_field(
+    async def get_llm_settings_contract(
         self,
         db: AsyncSession,
-        project_id: uuid.UUID | str,
-        field_name: str,
-    ) -> FieldResetResponse:
-        if field_name not in AUTHOR_PREFS_FIELDS:
-            raise ValueError(f"unknown author prefs field: {field_name}")
-        pid = project_id if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
-        await self._p_prefs_repo.reset_field(db, pid, field_name)
-        return FieldResetResponse(field=field_name, reset=True)
-
-    # ----- effective views -----
-    async def get_effective_author_prefs(
-        self, db: AsyncSession, project_id: uuid.UUID | str
-    ) -> EffectiveAuthorPrefsResponse:
-        pid = project_id if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
-        proj_row = await self._p_prefs_repo.get(db, pid)
-        glob_row = await self._g_prefs_repo.get(db, _current_owner_id())
-
-        def pack(field_name: str) -> FieldValueSource:
-            if proj_row is not None and getattr(proj_row, field_name) is not None:
-                return FieldValueSource(
-                    value=getattr(proj_row, field_name), source=SOURCE_PROJECT
-                )
-            if glob_row is not None and getattr(glob_row, field_name) is not None:
-                return FieldValueSource(
-                    value=getattr(glob_row, field_name), source=SOURCE_GLOBAL
-                )
-            return FieldValueSource(
-                value=AUTHOR_PREFS_DEFAULTS[field_name], source=SOURCE_SYSTEM
-            )
-
-        return EffectiveAuthorPrefsResponse(
-            daily_goal=pack("daily_goal"),
-            editor_font=pack("editor_font"),
-            default_focus_mode=pack("default_focus_mode"),
-        )
-
-    async def get_effective_llm_settings_for_project_settings(
-        self,
-        db: AsyncSession,
-        project_settings: dict | None,
+        *,
         owner_id: uuid.UUID | None = None,
-    ) -> EffectiveLLMSettingsResponse:
+    ) -> AccountLLMSettingsContract:
+        """Return secret-free account defaults for project composition."""
         resolved_owner = _current_owner_id(owner_id)
-        proj_deep_import = (project_settings or {}).get(DEEP_IMPORT_SETTINGS_KEY)
-        glob_row = await self._llm_repo.get(db, resolved_owner)
+        row = await self._llm_repo.get(db, resolved_owner)
         provider_id = (
-            glob_row.provider_id
-            if glob_row is not None and account_llm_provider_enabled(glob_row.provider_id)
+            row.provider_id
+            if row is not None and account_llm_provider_enabled(row.provider_id)
             else enabled_account_llm_provider_order()[0]
         )
         template = ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id]
+        values = {
+            field_name: (
+                getattr(row, field_name, None)
+                if row is not None and getattr(row, field_name, None) is not None
+                else template.get(field_name)
+            )
+            for field_name in (
+                "label",
+                "base_url",
+                "model",
+                "timeout",
+                "max_tokens",
+                "temperature",
+                "top_p",
+                "extra",
+            )
+        }
         credentials = await self._credential_repo.list_for_owner(db, resolved_owner)
-        configured_providers = sorted(
-            row.provider_id
-            for row in credentials
-            if account_llm_provider_enabled(row.provider_id)
-        )
-
-        def account_value(field_name: str) -> FieldValueSource:
-            # 优先返回用户在全局 LLM 默认里显式保存的值；否则回退账户模板。
-            # source 表达账户级（global）作用域，与项目级覆盖相对
-            row_value = (
-                getattr(glob_row, field_name, None) if glob_row is not None else None
+        configured = tuple(
+            sorted(
+                item.provider_id
+                for item in credentials
+                if account_llm_provider_enabled(item.provider_id)
             )
-            return FieldValueSource(
-                value=row_value if row_value is not None else template.get(field_name),
-                source=SOURCE_GLOBAL,
-            )
-
-        return EffectiveLLMSettingsResponse(
-            provider_id=FieldValueSource(value=provider_id, source=SOURCE_GLOBAL),
-            label=account_value("label"),
-            base_url=account_value("base_url"),
-            model=account_value("model"),
-            timeout=account_value("timeout"),
-            max_tokens=account_value("max_tokens"),
-            temperature=account_value("temperature"),
-            top_p=account_value("top_p"),
-            extra=account_value("extra"),
-            creative_mode=FieldValueSource(
-                value=None,
-                source=SOURCE_UNSET,
-            ),
-            api_key_configured=FieldValueSource(
-                value=provider_id in configured_providers,
-                source=SOURCE_GLOBAL
-                if provider_id in configured_providers
-                else SOURCE_UNSET,
-            ),
-            api_key_configured_providers=FieldValueSource(
-                value=configured_providers,
-                source=SOURCE_GLOBAL,
-            ),
-            deep_import=FieldValueSource(
-                value=proj_deep_import,
-                source=SOURCE_PROJECT if proj_deep_import else SOURCE_SYSTEM,
-            ),
+        )
+        return AccountLLMSettingsContract(
+            provider_id=provider_id,
+            values=values,
+            configured_provider_ids=configured,
         )
 
-    # ----- aggregation -----
-    def fully_overridden_project_ids_subquery(self) -> Select[tuple[uuid.UUID]]:
-        """D18: projects with every preference overridden, for DB-side exclusion."""
-        return select(ProjectAuthorPreferences.project_id).where(
-            ProjectAuthorPreferences.daily_goal.is_not(None),
-            ProjectAuthorPreferences.editor_font.is_not(None),
-            ProjectAuthorPreferences.default_focus_mode.is_not(None),
-        )
-
-    def build_projects_using_defaults_response(
+    async def get_author_preferences_contract(
         self,
-        projects: Sequence[ProjectSummary],
-        total: int,
-    ) -> ProjectsUsingDefaultsResponse:
-        truncated = total > 100
-        items = [
-            ProjectsUsingDefaultsItem(
-                project_id=str(project.project_id),
-                title=project.title,
-                inherited_fields=[],
+        db: AsyncSession,
+        *,
+        owner_id: uuid.UUID | None = None,
+    ) -> AccountAuthorPreferencesContract:
+        """Return global preferences with explicit global/system sources."""
+        row = await self._g_prefs_repo.get(db, _current_owner_id(owner_id))
+        values: dict[str, object] = {}
+        sources: dict[str, str] = {}
+        for field_name, system_default in AUTHOR_PREFS_DEFAULTS.items():
+            row_value = getattr(row, field_name, None) if row is not None else None
+            values[field_name] = row_value if row_value is not None else system_default
+            sources[field_name] = (
+                SOURCE_GLOBAL if row_value is not None else SOURCE_SYSTEM
             )
-            for project in projects
-        ]
-        return ProjectsUsingDefaultsResponse(
-            items=items, total=total, truncated=truncated
-        )
+        return AccountAuthorPreferencesContract(values=values, sources=sources)

@@ -545,7 +545,7 @@ async def test_project_context_keeps_only_project_owned_nonsecret_settings(
     assert "api_key" not in context.settings["llm"]
 
     monkeypatch.setattr(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         AsyncMock(),
     )
     connected = await async_client.put(

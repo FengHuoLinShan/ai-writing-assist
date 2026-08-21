@@ -8,14 +8,15 @@ from unittest.mock import patch
 import pytest
 
 from core.config import get_settings
-from modules.settings.constants import (
+from modules.account.settings_constants import (
     ACCOUNT_LLM_PROVIDER_TEMPLATES,
     SOURCE_GLOBAL,
     SOURCE_PROJECT,
     SOURCE_SYSTEM,
 )
-from modules.settings.facade import list_projects_using_defaults
-from modules.settings.services import SettingsService
+from modules.account.settings_service import SettingsService
+from modules.project.facade import list_projects_using_defaults
+from modules.project.settings_service import ProjectSettingsService
 
 
 @pytest.mark.asyncio
@@ -63,7 +64,8 @@ async def test_global_author_prefs_system_fallback_when_missing(db_session):
 
 @pytest.mark.asyncio
 async def test_get_effective_author_prefs_layering(db_session, factory):
-    svc = SettingsService()
+    account = SettingsService()
+    svc = ProjectSettingsService()
     pid = await factory.create_project()
     # 无任何配置 → 全 system
     resp = await svc.get_effective_author_prefs(db_session, pid)
@@ -72,7 +74,7 @@ async def test_get_effective_author_prefs_layering(db_session, factory):
     assert resp.default_focus_mode.source == SOURCE_SYSTEM
     assert resp.editor_font.value == "system"
     # 设全局 → 全 global
-    await svc.upsert_global_author_prefs(
+    await account.upsert_global_author_prefs(
         db_session,
         {
             "daily_goal": 8000,
@@ -105,18 +107,19 @@ async def test_effective_llm_settings_ignore_legacy_project_connection_fields(
     monkeypatch,
 ):
     monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
-    svc = SettingsService()
+    account = SettingsService()
+    svc = ProjectSettingsService()
     with patch(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         autospec=True,
     ):
-        await svc.connect_account_llm_provider(
+        await account.connect_account_llm_provider(
             db_session,
             "kimi",
             "test-account-key",
         )
 
-    resp = await svc.get_effective_llm_settings_for_project_settings(
+    resp = await svc.get_effective_llm_settings(
         db_session,
         {
             "llm": {
@@ -143,7 +146,7 @@ async def test_effective_llm_settings_ignore_legacy_project_connection_fields(
 
 @pytest.mark.asyncio
 async def test_reset_field_rejects_unknown_field(db_session, factory):
-    svc = SettingsService()
+    svc = ProjectSettingsService()
     pid = await factory.create_project()
     with pytest.raises(ValueError):
         await svc.reset_project_author_prefs_field(db_session, pid, "malicious_field")
@@ -151,7 +154,7 @@ async def test_reset_field_rejects_unknown_field(db_session, factory):
 
 @pytest.mark.asyncio
 async def test_projects_using_defaults_aggregation(db_session, factory):
-    svc = SettingsService()
+    svc = ProjectSettingsService()
     p_partial = await factory.create_project(title="partial-override")
     await factory.create_project(title="missing-prefs")
     await svc.upsert_project_author_prefs(db_session, p_partial, {"daily_goal": 1000})
@@ -168,7 +171,7 @@ async def test_projects_using_defaults_aggregation(db_session, factory):
 @pytest.mark.asyncio
 async def test_projects_using_defaults_excludes_fully_overridden(db_session, factory):
     """完全覆盖三个字段的项目不应在继承列表中。"""
-    svc = SettingsService()
+    svc = ProjectSettingsService()
     pid = await factory.create_project(title="fully-own")
     await svc.upsert_project_author_prefs(
         db_session,
@@ -189,7 +192,7 @@ async def test_fully_overridden_project_ids_are_database_subquery(
     db_session,
     factory,
 ):
-    svc = SettingsService()
+    svc = ProjectSettingsService()
     project_id = await factory.create_project(title="fully-own-contract")
     other_project_id = await factory.create_project(title="outside-contract-scope")
     await svc.upsert_project_author_prefs(
@@ -270,7 +273,7 @@ async def test_global_llm_tuning_defaults_apply_to_runtime_profile(
     monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
     svc = SettingsService()
     with patch(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         autospec=True,
     ):
         await svc.connect_account_llm_provider(
@@ -303,19 +306,20 @@ async def test_effective_llm_settings_return_user_saved_global_values(
     monkeypatch,
 ):
     monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
-    svc = SettingsService()
+    account = SettingsService()
+    svc = ProjectSettingsService()
     with patch(
-        "modules.settings.services._validate_account_llm_connection",
+        "modules.account.settings_service._validate_account_llm_connection",
         autospec=True,
     ):
-        await svc.connect_account_llm_provider(
+        await account.connect_account_llm_provider(
             db_session,
             "kimi",
             "test-account-key",
         )
-    await svc.upsert_global_llm_defaults(db_session, {"timeout": 456})
+    await account.upsert_global_llm_defaults(db_session, {"timeout": 456})
 
-    resp = await svc.get_effective_llm_settings_for_project_settings(db_session, None)
+    resp = await svc.get_effective_llm_settings(db_session, None)
 
     assert resp.timeout.source == SOURCE_GLOBAL
     assert resp.timeout.value == 456

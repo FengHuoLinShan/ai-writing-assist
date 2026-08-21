@@ -345,7 +345,7 @@ class ProjectService:
         project_id: str,
         field_name: str,
     ) -> LLMFieldResetResponse:
-        from modules.settings.contracts import LLM_INHERITABLE_FIELDS
+        from modules.project.settings_service import LLM_INHERITABLE_FIELDS
 
         if field_name not in LLM_INHERITABLE_FIELDS:
             raise ValueError(f"unknown llm field: {field_name}")

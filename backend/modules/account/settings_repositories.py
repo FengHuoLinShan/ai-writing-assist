@@ -7,11 +7,10 @@ import uuid
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.settings.models import (
+from modules.account.settings_models import (
     AccountLLMCredential,
     GlobalAuthorPreferences,
     GlobalLLMDefaults,
-    ProjectAuthorPreferences,
 )
 
 _GLOBAL_LLM_FIELDS: tuple[str, ...] = (
@@ -32,7 +31,6 @@ _GLOBAL_PREFS_FIELDS: tuple[str, ...] = (
     "editor_font",
     "default_focus_mode",
 )
-_PROJECT_PREFS_FIELDS: tuple[str, ...] = _GLOBAL_PREFS_FIELDS
 
 
 class GlobalLLMDefaultsRepository:
@@ -71,7 +69,6 @@ class GlobalLLMDefaultsRepository:
         db.add(existing)
         await db.flush()
         return existing
-
 
 class AccountLLMCredentialRepository:
     async def lock_owner_provider(
@@ -173,51 +170,6 @@ class GlobalAuthorPrefsRepository:
         for f in _GLOBAL_PREFS_FIELDS:
             if f in payload:
                 setattr(existing, f, payload[f])
-        db.add(existing)
-        await db.flush()
-        return existing
-
-
-class ProjectAuthorPrefsRepository:
-    async def get(
-        self, db: AsyncSession, project_id: uuid.UUID
-    ) -> ProjectAuthorPreferences | None:
-        stmt = select(ProjectAuthorPreferences).where(
-            ProjectAuthorPreferences.project_id == project_id,
-        )
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def upsert(self, db: AsyncSession, payload: dict) -> ProjectAuthorPreferences:
-        project_id = payload["project_id"]
-        existing = await self.get(db, project_id)
-        if existing is None:
-            row = ProjectAuthorPreferences(**payload)
-            db.add(row)
-            await db.flush()
-            return row
-        for f in _PROJECT_PREFS_FIELDS:
-            if f in payload:
-                setattr(existing, f, payload[f])
-        db.add(existing)
-        await db.flush()
-        return existing
-
-    async def reset_field(
-        self,
-        db: AsyncSession,
-        project_id: uuid.UUID,
-        field_name: str,
-    ) -> ProjectAuthorPreferences | None:
-        if field_name not in _PROJECT_PREFS_FIELDS:
-            return None
-        existing = await self.get(db, project_id)
-        if existing is None:
-            row = ProjectAuthorPreferences(project_id=project_id)
-            db.add(row)
-            await db.flush()
-            return row
-        setattr(existing, field_name, None)
         db.add(existing)
         await db.flush()
         return existing

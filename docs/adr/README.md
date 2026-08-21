@@ -24,7 +24,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0008](0008-plot-thread-information-progression.md) | Accepted | 大纲按当前层创作，PlotThread 聚合信息推进，伏笔/揭示保留投影。 |
 | [ADR-0009](0009-vue-frontend-incremental-migration.md) | Accepted / Implemented | Vue 3 SFC 已接管实际页面，hash router 仅保留 route-host seam。 |
 | [ADR-0009 附录 A](0009-appendix-a-keep-alive-policy.md) | Accepted / Implemented | 所有视图离开时卸载；草稿和恢复状态使用显式 session，不缓存活 DOM。 |
-| [ADR-0010](0010-public-browser-account-system.md) | Accepted / Amended | 公开账号、浏览器会话和 owner 门禁；LLM Key 所有权已按账户连接补充修订。 |
+| [ADR-0010](0010-public-browser-account-system.md) | Accepted / Amended | 公开账号、浏览器会话和 owner 门禁；账户连接/全局偏好归 account，项目偏好/effective composition 归 project。 |
 | [ADR-0011](0011-keyed-task-coalescing-and-domain-owners.md) | Accepted | 任务合并只管 transport，领域 owner/generation/checkpoint 由所属模块保存。 |
 | [ADR-0012](0012-ai-map-atlas-image-storage.md) | Accepted / Implemented | 固定图片模型、私有 S3、独立图片凭证与删除竞态边界。 |
 | [ADR-0013](0013-operation-receipts-and-page-local-recovery.md) | Accepted | 作者发起的 AI 长任务以 operation receipt 去重，最多两个 attempt，只在原页恢复。 |

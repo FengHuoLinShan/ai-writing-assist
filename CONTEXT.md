@@ -136,7 +136,7 @@ RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interact
 - orchestrator 负责阶段顺序、并发、恢复、降级和写入；step 不自主选择工具或跨模块编排。
 - 运行时 Prompt、调用方和输出契约以 `docs/prompts/Prompt体系设计.md` 为准，不在本文件
   固定 Prompt 数量或旧文件清单。
-- 账号级模型连接由 settings 的 `account_llm_credentials` 承载每个 provider 的加密 Key，
+- 账号级模型连接由 account 的 `account_llm_credentials` 承载每个 provider 的加密 Key，
   并复用 owner 唯一的 `global_llm_defaults.provider_id` 选择当前 provider。新业务调用的
   provider、model 与 Key 只来自项目 owner 的已验证账号连接及固定 provider 模板；
   DeepSeek `deepseek-v4-flash` 是默认模板，Kimi `kimi-k3` 在真实兼容门禁通过并显式启用前
@@ -151,7 +151,8 @@ RAG、writing 或 memory；每个旅程以一个隐藏的 `project_kind=interact
 ## 8. 模块边界与文档使用
 
 当前业务模块为 `account`、`project`、`world`、`memory`、`outline`、`rag`、`context`、
-`writing`、`imports`、`settings`、`interaction`；`map` 是 world 子系统，
+`writing`、`imports`、`interaction`；账户连接与全局偏好归 account，项目偏好及有效配置
+归 project；`map` 是 world 子系统，
 `infrastructure/tasks` 是共享基础设施。`interaction` 是 RP 私人故事领域，不属于作者
 创作资产的事实层、结构层或辅助层。
 

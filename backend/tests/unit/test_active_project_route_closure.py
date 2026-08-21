@@ -54,6 +54,9 @@ GLOBAL_EXEMPTIONS = {
 # Project owns this aggregate, so these first calls are its active-object boundary.
 # Keeping the route key in this map makes a newly added project route fail closed.
 PROJECT_OWNED_ACTIVE_BOUNDARIES = {
+    "DELETE /api/settings/projects/{project_id}/author-preferences/field/{field_name}": (
+        "reset_project_author_preferences_field"
+    ),
     "DELETE /api/projects/{project_id}/llm-settings/field/{field_name}": (
         "reset_llm_settings_field"
     ),
@@ -65,11 +68,17 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
         "get_effective_llm_settings"
     ),
     "GET /api/projects/{project_id}/llm-settings": "get_llm_settings",
+    "GET /api/settings/projects/{project_id}/author-preferences": (
+        "get_project_author_preferences"
+    ),
     "GET /api/projects/{project_id}/workspace-summary": "get_summary",
     "POST /api/projects/{project_id}/smart-dedup/apply": "get_project",
     "POST /api/projects/{project_id}/smart-dedup/scan": "get_project",
     "PUT /api/projects/{project_id}": "update_project",
     "PUT /api/projects/{project_id}/llm-settings": "update_llm_settings",
+    "PUT /api/settings/projects/{project_id}/author-preferences": (
+        "upsert_project_author_preferences"
+    ),
 }
 
 
@@ -380,7 +389,7 @@ def test_active_project_guard_inventory_is_closed() -> None:
         "modules.memory.api",
         "modules.outline.api",
         "modules.rag.api",
-        "modules.settings.api",
+        "modules.project.settings_api",
         "modules.world.api",
         "modules.world.map_atlas_api",
         "modules.writing.api",

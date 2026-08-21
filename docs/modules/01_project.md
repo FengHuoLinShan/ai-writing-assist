@@ -8,6 +8,7 @@ project 模块是每部小说的根聚合。所有小说业务模块通过 `nove
 ## 数据表
 
 - `projects` — id / owner_id / title / genre / tone / language / target_length / current_stage / default_reveal_policy / settings / deleted_at
+- `project_author_preferences` — 每个项目最多一行的作者偏好覆盖
 
 `owner_id → accounts.id` 非空。项目 API、回收站、项目上下文和 worker 提交门禁均按当前
 owner 过滤；跨账号访问返回 404，业务响应不返回 `owner_id`。owner 门禁不替代任何
@@ -17,7 +18,8 @@ owner 过滤；跨账号访问返回 404，业务响应不返回 `owner_id`。ow
 
 JSONB 配置字段，存储项目级可调参数，如 `temporary_entity_expiry_chapters` 等。
 业务 LLM 的 provider/model/API Key 不再由项目拥有：Key 按 owner 加密保存在
-`account_llm_credentials`，当前 DeepSeek/Kimi 模板由 settings 模块统一解析。
+`account_llm_credentials`，当前 DeepSeek/Kimi 模板由 account 解析；project 只经 account facade
+读取 secret-free contract 并负责 effective composition。
 `settings.llm` 只保留旧项目的非 secret 兼容字段，`settings.deep_import` 继续承载项目级
 深度导入参数；任何项目创建、通用更新或兼容 LLM 设置接口中的 Key 写入都会被拒绝。
 
@@ -76,6 +78,8 @@ GET    /api/projects/recycle-bin               # 回收站列表
 GET    /api/projects/llm/provider-templates     # 兼容的供应商模板清单
 GET    /api/projects/{id}/llm-settings          # 读取项目非 secret 兼容设置
 PUT    /api/projects/{id}/llm-settings          # 更新非 secret 兼容设置；拒绝 Key
+GET    /api/settings/projects/{id}/effective    # 一版兼容的有效配置投影
+GET/PUT/DELETE /api/settings/projects/{id}/author-preferences # 一版兼容的项目偏好覆盖
 POST   /api/projects/{id}/smart-dedup/scan      # 提交跨模块去重建议扫描
 POST   /api/projects/{id}/smart-dedup/apply     # 应用已确认的去重建议
 POST   /api/projects/{id}/restore              # 恢复项目

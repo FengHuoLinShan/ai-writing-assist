@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from modules.settings.services import SettingsService
+from modules.account.settings_service import SettingsService
 
 
 @pytest.mark.asyncio
 async def test_image_connection_is_separate_from_active_text_provider(db_session) -> None:
     client = AsyncMock()
     with patch(
-        "modules.settings.services.OpenAIImageClient",
+        "modules.account.settings_service.OpenAIImageClient",
         autospec=True,
         return_value=client,
     ):

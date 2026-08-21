@@ -53,12 +53,13 @@ from modules.world.map_atlas_facade import (
 def _register_orm_models() -> None:
     """Import ORM models with Base.metadata for FK dependency resolution."""
     import modules.account.models  # noqa: F401, I001
+    import modules.account.settings_models  # noqa: F401, I001
     import modules.context.models  # noqa: F401, I001
     import modules.imports.models  # noqa: F401, I001
     import modules.interaction.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
-    import modules.settings.models  # noqa: F401, I001
     import modules.story.models  # noqa: F401, I001
+    import modules.project.settings_models  # noqa: F401, I001
     import modules.world.map_atlas_models  # noqa: F401, I001
     import modules.world.models  # noqa: F401, I001
 

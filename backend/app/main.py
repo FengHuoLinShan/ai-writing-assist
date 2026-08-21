@@ -731,6 +731,7 @@ from modules.account.oidc import (  # noqa: E402
     reauth_router as account_oidc_reauth_router,
 )
 from modules.account.oidc import router as account_oidc_router  # noqa: E402
+from modules.account.settings_api import router as account_settings_router  # noqa: E402
 from modules.context import api as context_api  # noqa: E402
 
 # geo/review — 已从 minimal-core 移除
@@ -740,8 +741,8 @@ from modules.interaction import api as interaction_api  # noqa: E402
 from modules.memory import api as memory_api  # noqa: E402
 from modules.outline import api as outline_api  # noqa: E402
 from modules.project.api import router as project_router  # noqa: E402
+from modules.project.settings_api import router as project_settings_router  # noqa: E402
 from modules.rag import api as rag_api  # noqa: E402
-from modules.settings.api import router as settings_router  # noqa: E402
 from modules.story import api as story_api  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
 from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
@@ -766,7 +767,8 @@ app.include_router(story_api.router)
 app.include_router(tasks_api.router)
 if not _public_mode:
     app.include_router(debug_api.router)
-app.include_router(settings_router)
+app.include_router(account_settings_router)
+app.include_router(project_settings_router)
 
 
 # ---------------------------------------------------------------------------

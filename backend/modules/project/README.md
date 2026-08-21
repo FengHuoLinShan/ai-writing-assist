@@ -13,6 +13,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 管理目标规模（字数/章节数）和当前创作阶段
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
+- 管理项目作者偏好覆盖，并组合 account 默认与项目覆盖形成 effective 配置
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
@@ -32,6 +33,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 | 表名 | 用途 |
 |------|------|
 | `projects` | 小说项目基础元信息 |
+| `project_author_preferences` | 每个项目最多一行的作者偏好覆盖 |
 | `smart_dedup_workbench_decisions` | 项目级去重工作台的 `keep_separate` 指纹裁决 |
 
 ### projects 表字段
@@ -167,6 +169,8 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | GET | `/api/projects/llm/provider-templates` | LLM 供应商模板 |
 | GET | `/api/projects/{project_id}/llm-settings` | 兼容读取项目非 secret LLM/深度导入设置 |
 | PUT | `/api/projects/{project_id}/llm-settings` | 兼容更新非 secret 项目设置；Key 写入被拒绝 |
+| GET/PUT/DELETE | `/api/settings/projects/{project_id}/author-preferences` | 一版兼容的项目作者偏好覆盖 |
+| GET | `/api/settings/projects/{project_id}/effective` | 一版兼容的有效配置投影 |
 | POST | `/api/projects/{project_id}/smart-dedup/scan` | 提交项目级智能去重扫描任务 |
 | POST | `/api/projects/{project_id}/smart-dedup/apply` | 应用用户确认的智能去重建议 |
 | POST | `/api/projects/{project_id}/restore` | 恢复项目 |
@@ -240,6 +244,10 @@ execution fingerprint，再逐组使用独立 savepoint 原子执行；因此前
   不等价于该显式代理。`local / closed_test` 继续允许本机 Ollama 等 HTTP loopback。
 
 ## 测试方式
+
+project 的 `settings_service.py` 拥有项目偏好与 effective composition；它只经 account facade
+读取账户默认，不读取 account ORM/repository。`/api/settings` 路径仅是一版 HTTP 兼容别名，
+领域所有权仍由 account/project 分开承担。
 
 ```bash
 cd backend
