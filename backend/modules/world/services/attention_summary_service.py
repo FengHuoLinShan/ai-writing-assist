@@ -354,7 +354,8 @@ class WorldAttentionSummaryService:
         suggestion_items = [
             self._suggestion_item(item)
             for item in suggestions
-            if _value(item, "target_type") != "world_core_checkpoint"
+            if _value(item, "target_type")
+            not in {"world_core_checkpoint", "world_design_checkpoint"}
             and _value(item, "status") == "pending"
             and not _has_compatibility_shadow(item)
         ]

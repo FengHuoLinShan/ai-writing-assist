@@ -37,7 +37,7 @@
       :warning="world.warning" :templates="templates" :activation-profiles="activationProfiles" :categories="world.categories" :page-templates="world.pageTemplates" :pages="world.pages"
       :scenes="world.scenes" :threads="world.threads" :characters="world.characters" :entities="world.entities" :result="worldResult" :previous-result="previousWorldResult" :proposal-draft="session.pageProposalDraft" :proposal-reset-token="pageProposalEditorResetToken" :recovered-page-proposal="recoveredPageProposal"
       :chat-context-usage="chatContextUsage" :entity-context-usage="entityContextUsage" :convergence-draft="session.convergenceDraft" :convergence-pending="convergencePending" :visual-brief="session.visualBrief" :external-packets="session.externalPackets" :exploration-draft="explorationDraft" :exploration-pending="explorationPending" :exploration-selection="explorationSelection" :source-revision-result="sourceRevisionResult" :busy="worldBusy" :chat-pending="chatPending" :loading-result="suggestionPending" :result-error="worldError"
-      :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)"
+      :world-core="isWorldCore" :successful-rounds="session.successfulRounds" :checkpoint-round="session.checkpointRound" :checkpoint-pending="checkpointPending" :checkpoint-saved="Boolean(session.checkpointId)"
       v-model:selected-template-id="session.selectedTemplateId" v-model:messages="session.messages" v-model:composer="composer"
       v-model:external-packet-draft="session.externalPacketDraft"
       v-model:quality-mode="session.qualityMode" v-model:include-world-synopsis="session.includeWorldSynopsis" v-model:activation-profile-id="session.activationProfileId"
@@ -94,7 +94,7 @@ import {
 import { pageProposalDraftMatches } from "./pageProposalSession.js"
 import {
   AI_MESSAGE_LIMIT, AI_SELECTED_CHAPTER_LIMIT, EXTERNAL_HANDOFF_PACKET_CHAR_LIMIT, OBJECT_TEMPLATES, PAGE_SIZE, TASK_PRESETS, VISUAL_BRIEF_FIELD_LIMIT, VISUAL_BRIEF_PURPOSE_OPTIONS, applyTaskPreset,
-  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldCoreCheckpointContext, buildWorldCoreCheckpointRequest, buildWorldHandoffMarkdown, buildWorldPayload, characterId, compileConvergenceMessage,
+  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldCoreCheckpointContext, buildWorldDesignCheckpointRequest, buildWorldHandoffMarkdown, buildWorldPayload, characterId, compileConvergenceMessage,
   convergenceDraftFromResponse, convergenceSourceMatchesPayload, createDefaultTaskForm, externalDispositionCounts, externalPacketCharacterCount,
   hashExternalPacket, listItems, normalizeTemplate, parseExternalPacketPosition, validateTaskPayload, visualBriefFromConvergence, visualBriefMatchesConvergence,
 } from "./logic/generateLogic.js"
@@ -493,9 +493,10 @@ function prefillWorldCore(action) {
   return true
 }
 async function saveWorldCoreCheckpoint() {
-  if (!isWorldCore.value || checkpointPending.value || Number(session.successfulRounds || 0) < 3) return false
-  const request = buildWorldCoreCheckpointRequest({
+  if (!isWorldCore.value || checkpointPending.value || Number(session.successfulRounds || 0) - Number(session.checkpointRound || 0) < 3) return false
+  const request = buildWorldDesignCheckpointRequest({
     novelId: props.projectId,
+    projectTitle: projectTitle.value,
     draft: session.convergenceDraft,
     roundNo: session.successfulRounds,
     action: session.worldCoreAction,
@@ -505,9 +506,11 @@ async function saveWorldCoreCheckpoint() {
   checkpointPending.value = true
   const scope = owner.begin()
   try {
-    const saved = await api.world.saveCoreCheckpoint(request)
+    const saved = await api.world.saveDesignCheckpoint(request)
     if (!owner.isActive(scope)) return false
     session.checkpointId = saved.id
+    session.checkpointRound = Number(session.successfulRounds || 0)
+    session.checkpointDepth = "seed"
     if (persist()) rememberGenerateContinuation()
     toast("阶段成果已保存；可以从决定摘要继续，它仍不是正式设定", "success")
     return true

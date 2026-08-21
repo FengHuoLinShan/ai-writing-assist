@@ -151,6 +151,8 @@ export async function loadGenerate(options = {}) {
       if (!restored) throw new Error("阶段成果类型不匹配")
       session.checkpointId = checkpointId
       session.successfulRounds = Math.max(session.successfulRounds || 0, Number(artifact.payload_json?.round_no || 0))
+      session.checkpointRound = Math.max(session.checkpointRound || 0, Number(artifact.payload_json?.round_no || 0))
+      session.checkpointDepth = artifact.payload_json?.depth || null
       if (!session.convergenceDraft) session.convergenceDraft = restored
     } catch (err) {
       checkpointWarning = `已保存的阶段成果无法恢复：${err?.message || "未知错误"}`

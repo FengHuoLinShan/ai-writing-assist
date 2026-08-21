@@ -123,7 +123,7 @@ function resolveCreativeContinuation(pointer, projectId, draftsResult, suggestio
     if (!pointer.route.checkpoint_id) return hasGenerateSession(key, { notify: warn }) ? generateContinuation(pointer) : null
     if (adoptionResult.status === "rejected") return generateContinuation(pointer)
     const checkpoint = listItems(adoptionResult.value).find((item) => item.id === pointer.route.checkpoint_id)
-    return checkpoint?.target_type === "world_core_checkpoint" ? generateContinuation(pointer) : null
+    return ["world_core_checkpoint", "world_design_checkpoint"].includes(checkpoint?.target_type) ? generateContinuation(pointer) : null
   }
   if (pointer.destination === "world_bible_draft") {
     if (draftsResult.status === "rejected") {
@@ -220,7 +220,7 @@ export async function loadTodayProps() {
     .filter((item) => item.target_type === "world_bible_page_draft")
     .map((item) => suggestionContinuation(item)).find(Boolean)
   const firstCheckpoint = listItems(adoptionResult.status === "fulfilled" ? adoptionResult.value : null)
-    .find((item) => item.target_type === "world_core_checkpoint")
+    .find((item) => ["world_design_checkpoint", "world_core_checkpoint"].includes(item.target_type))
   const firstPackage = listItems(adoptionResult.status === "fulfilled" ? adoptionResult.value : null)
     .find((item) => item.target_type === "world_adoption_package")
   const checkpointContinuation = firstCheckpoint ? generateContinuation({ route: {

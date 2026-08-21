@@ -519,9 +519,123 @@ export function buildWorldCoreCheckpointRequest({ novelId, draft, roundNo, actio
   }
 }
 
+const WORLD_FACETS = [
+  "物理与宇宙", "地理与环境", "生态", "资源与材料", "能源", "人口与生命历程",
+  "亲属与照护", "经济", "劳动", "制度", "法律", "权力", "战争与安全",
+  "知识与教育", "科技或魔法", "宗教与意义", "语言与传播", "阶层与身份",
+  "日常生活", "基础设施", "历史与变迁", "审美与物质文化",
+]
+const WORLD_COUPLING_CHAINS = ["资源到权力", "规则到日常", "知识到制度", "故障到后果", "历史到当下"]
+const WORLD_PRESSURE_TESTS = [
+  "边界与例外", "资源短缺", "维护中断", "权力滥用", "知识不对称", "规模扩张",
+  "代际传递", "跨地域差异", "黑市与规避", "灾难恢复", "技术或规则失效", "长期反馈",
+]
+
+function gap(reason = "当前 World Core 没有足够证据") {
+  return { status: "gap", chain: [], evidence: [], gaps: [reason], reason }
+}
+
+function pipeline(status, artifacts = []) {
+  return { status, artifacts, invalidated_by: [], notes: [] }
+}
+
+export function buildWorldDesignCheckpointRequest({ novelId, projectTitle = "当前世界", draft, roundNo, action, parentCheckpointId = null }) {
+  const core = buildWorldCoreCheckpointRequest({ novelId, draft, roundNo, action, parentCheckpointId })
+  if (!core) return null
+  const checkpoint = core.checkpoint
+  const evidence = [...new Set(checkpoint.seeds.map((item) => item.source_ref.source_id))]
+  const rules = checkpoint.world_core.rule_atoms.map((rule, index) => ({
+    id: `rule:${String(index + 1).padStart(2, "0")}`,
+    name: rule.title,
+    status: "proposed",
+    capability: rule.can,
+    impossibility: rule.cannot,
+    inputs: [],
+    outputs: [],
+    costs: [rule.cost],
+    losses: [],
+    access: [],
+    visibility: [],
+    scale_limits: [],
+    failure_modes: [rule.failure],
+    maintenance: [rule.maintenance],
+    countermeasures: [],
+    knowledge_layer: "author_truth",
+    dependencies: [],
+    evidence: rule.source_keys,
+  }))
+  const locked = checkpoint.decisions.filter((item) => item.disposition === "locked")
+  const open = checkpoint.decisions.filter((item) => item.disposition === "open")
+  const verticalSlice = checkpoint.world_core.vertical_slice
+  const ordinaryTuesday = verticalSlice
+    ? { status: "partial", scenario: verticalSlice.daily_consequence, actors: [], evidence, contradictions: [], reason: "仅有一条日常纵切，尚未覆盖完整生活系统" }
+    : { status: "gap", scenario: "", actors: [], evidence: [], contradictions: [], reason: "尚无日常纵切证据" }
+  const state = {
+    schema_version: "0.1.0",
+    engine_version: "worldbuilding-engine/0.7.0",
+    project: {
+      id: novelId,
+      title: String(projectTitle || "当前世界").slice(0, 500),
+      language: "zh-CN",
+      seed: locked.map((item) => item.text).join("；").slice(0, 5000),
+      mode: checkpoint.action === "expand" ? "expand" : "create",
+      status: "developing",
+      created_at: null,
+      updated_at: null,
+    },
+    authority: {
+      source_of_truth: evidence,
+      read_only: [],
+      constraints: checkpoint.decisions.filter((item) => item.disposition === "rejected").map((item) => item.text),
+      locked_decisions: locked.map((item, index) => ({ id: `decision:locked:${index + 1}`, question: item.text, status: "proposed", evidence: item.source_keys })),
+      author_required: [],
+      open_questions: open.map((item, index) => ({ id: `decision:open:${index + 1}`, question: item.text, status: "author-required", evidence: item.source_keys })),
+    },
+    premise: {
+      status: "proposed",
+      core_difference: locked.map((item) => item.text).join("；").slice(0, 5000),
+      human_experience: verticalSlice?.daily_consequence || "",
+      scale: "尚待确认",
+      aesthetic_surface: [],
+      themes: [],
+      evidence,
+    },
+    knowledge_layers: { author_truth: [], expert_models: [], public_beliefs: [], reader_unknowns: [] },
+    rules,
+    reproduction_loops: Object.fromEntries(["material", "population_care", "economic", "institutional", "knowledge", "meaning_identity"].map((key) => [key, gap()])),
+    facets: WORLD_FACETS.map((name, index) => ({ id: `F${String(index + 1).padStart(2, "0")}`, name, status: "gap", maturity: { framework: 0, instance: 0 }, evidence: [], gaps: ["尚未审计"], dependencies: [], reason: "种子 checkpoint 不推断未提供的世界细节" })),
+    coupling_chains: WORLD_COUPLING_CHAINS.map((name, index) => ({ id: `C${String(index + 1).padStart(2, "0")}`, name, status: "gap", nodes: [], breaks: [], evidence: [], reason: "尚未建立跨系统因果链" })),
+    situated_tests: {
+      ordinary_tuesday: ordinaryTuesday,
+      seven_day_failure: { status: "gap", scenario: verticalSlice?.failure_consequence || "", actors: [], evidence: [], contradictions: [], reason: "尚未完成七日故障推演" },
+      life_course: { status: "gap", scenario: "", actors: [], evidence: [], contradictions: [], reason: "尚未完成人生历程推演" },
+      ten_year_feedback: { status: "gap", scenario: "", actors: [], evidence: [], contradictions: [], reason: "尚未完成十年反馈推演" },
+    },
+    pressure_tests: WORLD_PRESSURE_TESTS.map((name, index) => ({ id: `T${String(index + 1).padStart(2, "0")}`, name, status: "not-run", result: "", evidence: [], failures: [] })),
+    actors: [], places: [], institutions: [], history: [],
+    fiction_core: {
+      world: pipeline("in-progress", rules.map((item) => item.id)),
+      character: pipeline("not-started"), story: pipeline("not-started"), outline: pipeline("not-started"),
+      prose: pipeline("not-started"), editor: pipeline("not-started"),
+    },
+    dependencies: [],
+    change_log: [{ id: `checkpoint:${Math.max(0, Number(roundNo) || 0)}`, at: null, summary: "作者保存世界设计种子 checkpoint", source: checkpoint.source_manifest_hash, authority: "proposed", changed_ids: rules.map((item) => item.id), invalidated_layers: [] }],
+    audit: { last_run_at: null, engine_version: "worldbuilding-engine/0.7.0", valid: null, blocking_gaps: [], warnings: [] },
+    extensions: { iteration: { depth: "seed", round_no: checkpoint.round_no, checkpoint_every: 3, action: checkpoint.action } },
+  }
+  return {
+    novel_id: novelId,
+    checkpoint: { ...checkpoint, schema_version: "world_design_checkpoint.v1", depth: "seed", world_state: state },
+  }
+}
+
 export function convergenceDraftFromCheckpoint(artifact, { now = () => Date.now() } = {}) {
   const payload = artifact?.payload_json
-  if (artifact?.target_type !== "world_core_checkpoint" || payload?.schema_version !== "world_core_checkpoint.v1" || !payload.world_core) return null
+  const checkpointSchemas = {
+    world_core_checkpoint: "world_core_checkpoint.v1",
+    world_design_checkpoint: "world_design_checkpoint.v1",
+  }
+  if (payload?.schema_version !== checkpointSchemas[artifact?.target_type] || !payload.world_core) return null
   const manifests = (payload.seeds || []).map((seed) => ({
     key: seed.source_ref.source_id,
     kind: seed.source_ref.source_type === "conversation" ? "conversation" : "pasted_context",

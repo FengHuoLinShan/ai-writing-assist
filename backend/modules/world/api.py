@@ -127,6 +127,7 @@ from modules.world.schemas import (
     WorldBibleSynopsisResponse,
     WorldBibleSynopsisRevisionListResponse,
     WorldCoreCheckpointSaveRequest,
+    WorldDesignCheckpointSaveRequest,
     WorldGenerationApplyPageDraftRequest,
     WorldGenerationApplyPageDraftResponse,
     WorldGenerationChatRequest,
@@ -1134,6 +1135,19 @@ async def save_world_core_checkpoint(
 ) -> CreationSuggestionResponse:
     await require_active_project(db, data.novel_id)
     return await _adoption_package_service.save_checkpoint(db, data)
+
+
+@router.post(
+    "/design-checkpoints",
+    response_model=CreationSuggestionResponse,
+    status_code=201,
+)
+async def save_world_design_checkpoint(
+    db: DbSession,
+    data: WorldDesignCheckpointSaveRequest,
+) -> CreationSuggestionResponse:
+    await require_active_project(db, data.novel_id)
+    return await _adoption_package_service.save_design_checkpoint(db, data)
 
 
 @router.get(

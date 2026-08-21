@@ -8,6 +8,7 @@ World Pydantic Schema 定义 — v3 因果时空网
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -3122,6 +3123,431 @@ class WorldCoreCheckpointPayload(BaseModel):
     @classmethod
     def validate_source_manifest_hash(cls, value: str) -> str:
         return _validate_lower_sha256(value, "source_manifest_hash")
+
+
+WorldStateAuthorityStatus = Literal[
+    "draft", "proposed", "canon", "author-required", "deprecated"
+]
+WorldStateCoverageStatus = Literal["gap", "partial", "covered", "not-applicable"]
+
+
+class WorldStateDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
+    question: str = Field(..., max_length=5000)
+    status: WorldStateAuthorityStatus
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_authority(self) -> WorldStateDecision:
+        if self.status == "canon" and not self.evidence:
+            raise ValueError("canon decision requires evidence")
+        return self
+
+
+class WorldStateKnowledge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
+    claim: str = Field(..., max_length=5000)
+    status: WorldStateAuthorityStatus
+    known_by: list[str] = Field(default_factory=list, max_length=64)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_authority(self) -> WorldStateKnowledge:
+        if self.status == "canon" and not self.evidence:
+            raise ValueError("canon knowledge requires evidence")
+        return self
+
+
+class WorldStateRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
+    name: str = Field(..., max_length=500)
+    status: WorldStateAuthorityStatus
+    capability: str = Field(..., max_length=5000)
+    impossibility: str = Field(..., max_length=5000)
+    inputs: list[str] = Field(default_factory=list, max_length=64)
+    outputs: list[str] = Field(default_factory=list, max_length=64)
+    costs: list[str] = Field(default_factory=list, max_length=64)
+    losses: list[str] = Field(default_factory=list, max_length=64)
+    access: list[str] = Field(default_factory=list, max_length=64)
+    visibility: list[str] = Field(default_factory=list, max_length=64)
+    scale_limits: list[str] = Field(default_factory=list, max_length=64)
+    failure_modes: list[str] = Field(default_factory=list, max_length=64)
+    maintenance: list[str] = Field(default_factory=list, max_length=64)
+    countermeasures: list[str] = Field(default_factory=list, max_length=64)
+    knowledge_layer: Literal[
+        "author_truth", "expert_model", "public_belief", "mixed", "unknown"
+    ]
+    dependencies: list[str] = Field(default_factory=list, max_length=64)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_authority(self) -> WorldStateRule:
+        if self.status == "canon" and not self.evidence:
+            raise ValueError("canon rule requires evidence")
+        return self
+
+
+class WorldStateCoverageEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: WorldStateCoverageStatus
+    chain: list[str] = Field(default_factory=list, max_length=64)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+    gaps: list[str] = Field(default_factory=list, max_length=64)
+    reason: str = Field(default="", max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> WorldStateCoverageEntry:
+        if self.status in {"partial", "covered"} and not self.evidence:
+            raise ValueError(f"{self.status} coverage requires evidence")
+        if self.status == "not-applicable" and not self.reason.strip():
+            raise ValueError("not-applicable coverage requires reason")
+        return self
+
+
+class WorldStateMaturity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    framework: int = Field(..., ge=0, le=6)
+    instance: int = Field(..., ge=0, le=6)
+
+
+class WorldStateFacet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^F(?:0[1-9]|1[0-9]|2[0-2])$")
+    name: str = Field(..., max_length=500)
+    status: WorldStateCoverageStatus
+    maturity: WorldStateMaturity
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+    gaps: list[str] = Field(default_factory=list, max_length=64)
+    dependencies: list[str] = Field(default_factory=list, max_length=64)
+    reason: str = Field(default="", max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_maturity(self) -> WorldStateFacet:
+        if (self.maturity.framework or self.maturity.instance) and not self.evidence:
+            raise ValueError("non-zero maturity requires evidence")
+        if self.status in {"partial", "covered"} and not self.evidence:
+            raise ValueError(f"{self.status} facet requires evidence")
+        if self.status == "not-applicable" and not self.reason.strip():
+            raise ValueError("not-applicable facet requires reason")
+        return self
+
+
+class WorldStateCouplingChain(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^C0[1-5]$")
+    name: str = Field(..., max_length=500)
+    status: WorldStateCoverageStatus
+    nodes: list[str] = Field(default_factory=list, max_length=64)
+    breaks: list[str] = Field(default_factory=list, max_length=64)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+    reason: str = Field(default="", max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> WorldStateCouplingChain:
+        if self.status in {"partial", "covered"} and not self.evidence:
+            raise ValueError(f"{self.status} coupling chain requires evidence")
+        if self.status == "not-applicable" and not self.reason.strip():
+            raise ValueError("not-applicable coupling chain requires reason")
+        return self
+
+
+class WorldStateSituatedTest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: WorldStateCoverageStatus
+    scenario: str = Field(default="", max_length=5000)
+    actors: list[str] = Field(default_factory=list, max_length=64)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+    contradictions: list[str] = Field(default_factory=list, max_length=64)
+    reason: str = Field(default="", max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> WorldStateSituatedTest:
+        if self.status in {"partial", "covered"} and not self.evidence:
+            raise ValueError(f"{self.status} situated test requires evidence")
+        if self.status == "not-applicable" and not self.reason.strip():
+            raise ValueError("not-applicable situated test requires reason")
+        return self
+
+
+class WorldStatePressureTest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^T(?:0[1-9]|1[0-2])$")
+    name: str = Field(..., max_length=500)
+    status: Literal["not-run", "pass", "mixed", "fail"]
+    result: str = Field(default="", max_length=5000)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+    failures: list[str] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_run(self) -> WorldStatePressureTest:
+        if self.status != "not-run" and not self.evidence:
+            raise ValueError("completed pressure test requires evidence")
+        return self
+
+
+class WorldStateEntity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
+    name: str = Field(..., max_length=500)
+    status: WorldStateAuthorityStatus
+    summary: str = Field(default="", max_length=5000)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_authority(self) -> WorldStateEntity:
+        if self.status == "canon" and not self.evidence:
+            raise ValueError("canon entity requires evidence")
+        return self
+
+
+class WorldStatePipelineEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal[
+        "not-started",
+        "ready",
+        "in-progress",
+        "valid",
+        "needs-review",
+        "invalidated",
+        "blocked",
+    ]
+    artifacts: list[str] = Field(default_factory=list, max_length=64)
+    invalidated_by: list[str] = Field(default_factory=list, max_length=64)
+    notes: list[str] = Field(default_factory=list, max_length=64)
+
+
+class WorldStateDependency(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    source: str = Field(
+        ..., alias="from", pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128
+    )
+    to: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
+    kind: Literal["requires", "informs", "derives", "contradicts"]
+    status: Literal["active", "proposed", "deprecated"]
+
+
+class WorldStateChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
+    at: datetime | None = None
+    summary: str = Field(default="", max_length=5000)
+    source: str = Field(default="", max_length=500)
+    authority: WorldStateAuthorityStatus
+    changed_ids: list[str] = Field(default_factory=list, max_length=128)
+    invalidated_layers: list[str] = Field(default_factory=list, max_length=64)
+
+
+class WorldStateProject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
+    title: str = Field(default="", max_length=500)
+    language: str = Field(..., min_length=2, max_length=32)
+    seed: str = Field(default="", max_length=5000)
+    mode: Literal["create", "expand", "audit", "repair", "promote", "export"]
+    status: Literal["developing", "review", "stable", "archived"]
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorldStateAuthority(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_of_truth: list[str] = Field(default_factory=list, max_length=128)
+    read_only: list[str] = Field(default_factory=list, max_length=128)
+    constraints: list[str] = Field(default_factory=list, max_length=128)
+    locked_decisions: list[WorldStateDecision] = Field(
+        default_factory=list, max_length=128
+    )
+    author_required: list[WorldStateDecision] = Field(
+        default_factory=list, max_length=128
+    )
+    open_questions: list[WorldStateDecision] = Field(default_factory=list, max_length=128)
+
+
+class WorldStatePremise(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: WorldStateAuthorityStatus
+    core_difference: str = Field(default="", max_length=5000)
+    human_experience: str = Field(default="", max_length=5000)
+    scale: str = Field(default="", max_length=500)
+    aesthetic_surface: list[str] = Field(default_factory=list, max_length=64)
+    themes: list[str] = Field(default_factory=list, max_length=64)
+    evidence: list[str] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_authority(self) -> WorldStatePremise:
+        if self.status == "canon" and not self.evidence:
+            raise ValueError("canon premise requires evidence")
+        return self
+
+
+class WorldStateKnowledgeLayers(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    author_truth: list[WorldStateKnowledge] = Field(default_factory=list, max_length=128)
+    expert_models: list[WorldStateKnowledge] = Field(default_factory=list, max_length=128)
+    public_beliefs: list[WorldStateKnowledge] = Field(
+        default_factory=list, max_length=128
+    )
+    reader_unknowns: list[WorldStateKnowledge] = Field(
+        default_factory=list, max_length=128
+    )
+
+
+class WorldStateReproductionLoops(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    material: WorldStateCoverageEntry
+    population_care: WorldStateCoverageEntry
+    economic: WorldStateCoverageEntry
+    institutional: WorldStateCoverageEntry
+    knowledge: WorldStateCoverageEntry
+    meaning_identity: WorldStateCoverageEntry
+
+
+class WorldStateSituatedTests(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ordinary_tuesday: WorldStateSituatedTest
+    seven_day_failure: WorldStateSituatedTest
+    life_course: WorldStateSituatedTest
+    ten_year_feedback: WorldStateSituatedTest
+
+
+class WorldStateFictionCore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    world: WorldStatePipelineEntry
+    character: WorldStatePipelineEntry
+    story: WorldStatePipelineEntry
+    outline: WorldStatePipelineEntry
+    prose: WorldStatePipelineEntry
+    editor: WorldStatePipelineEntry
+
+
+class WorldStateAudit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_run_at: datetime | None = None
+    engine_version: str = Field(default="", max_length=64)
+    valid: bool | None = None
+    blocking_gaps: list[str] = Field(default_factory=list, max_length=128)
+    warnings: list[str] = Field(default_factory=list, max_length=128)
+
+
+class WorldDesignWorldState(BaseModel):
+    """The 19-section worldbuilding-engine state carried inside a checkpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1.0"]
+    engine_version: str = Field(..., min_length=1, max_length=64)
+    project: WorldStateProject
+    authority: WorldStateAuthority
+    premise: WorldStatePremise
+    knowledge_layers: WorldStateKnowledgeLayers
+    rules: list[WorldStateRule] = Field(default_factory=list, max_length=128)
+    reproduction_loops: WorldStateReproductionLoops
+    facets: list[WorldStateFacet] = Field(..., min_length=22, max_length=22)
+    coupling_chains: list[WorldStateCouplingChain] = Field(
+        ..., min_length=5, max_length=5
+    )
+    situated_tests: WorldStateSituatedTests
+    pressure_tests: list[WorldStatePressureTest] = Field(
+        ..., min_length=12, max_length=12
+    )
+    actors: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    places: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    institutions: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    history: list[WorldStateEntity] = Field(default_factory=list, max_length=256)
+    fiction_core: WorldStateFictionCore
+    dependencies: list[WorldStateDependency] = Field(default_factory=list, max_length=512)
+    change_log: list[WorldStateChange] = Field(default_factory=list, max_length=256)
+    audit: WorldStateAudit
+    extensions: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_taxonomy(self) -> WorldDesignWorldState:
+        for prefix, values, count in (
+            ("F", self.facets, 22),
+            ("C", self.coupling_chains, 5),
+            ("T", self.pressure_tests, 12),
+        ):
+            expected_ids = {f"{prefix}{index:02d}" for index in range(1, count + 1)}
+            if {item.id for item in values} != expected_ids:
+                raise ValueError(
+                    f"{prefix} taxonomy must contain each required id exactly once"
+                )
+        all_ids = [item.id for item in self.rules]
+        all_ids.extend(
+            item.id
+            for group in (self.actors, self.places, self.institutions, self.history)
+            for item in group
+        )
+        if len(all_ids) != len(set(all_ids)):
+            raise ValueError("world state ids must be unique")
+        return self
+
+
+class WorldDesignCheckpointPayload(BaseModel):
+    """Read-only full-world state checkpoint; it can never be adopted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["world_design_checkpoint.v1"]
+    depth: Literal["seed", "candidate", "instance"]
+    round_no: int = Field(..., ge=0)
+    action: Literal["expand", "connect", "pressure", "consolidate"]
+    parent_checkpoint_id: str | None = None
+    source_manifest_hash: str = Field(..., min_length=64, max_length=64)
+    seeds: list[WorldAdoptionSeed] = Field(default_factory=list, max_length=64)
+    decision_state: GeneratedWorldGenerationDecisionState | None = None
+    world_core: GeneratedWorldCoreConvergence | None = None
+    decisions: list[WorldCoreCheckpointDecision] = Field(
+        default_factory=list, max_length=64
+    )
+    world_state: WorldDesignWorldState
+
+    @field_validator("source_manifest_hash")
+    @classmethod
+    def validate_source_manifest_hash(cls, value: str) -> str:
+        return _validate_lower_sha256(value, "source_manifest_hash")
+
+    @model_validator(mode="after")
+    def validate_serialized_size(self) -> WorldDesignCheckpointPayload:
+        size = len(
+            json.dumps(
+                self.model_dump(mode="json", by_alias=True),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        if size > 1024 * 1024:
+            raise ValueError("world design checkpoint exceeds 1 MiB")
+        return self
+
+
+class WorldDesignCheckpointSaveRequest(BaseModel):
+    novel_id: str
+    checkpoint: WorldDesignCheckpointPayload
 
 
 class WorldAdoptionSourceRef(BaseModel):

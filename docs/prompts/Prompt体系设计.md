@@ -402,7 +402,9 @@ JSON mode；偶发空文本只在同一阶段时限内重试一次，也不把�
 阻断矛盾与纵切引用；任一不符时只返回 `ready_for_handoff=false`，不写入资产。
 
 收束结果如需成为采用依据，作者须另行显式保存为不可采用的
-`world_core_checkpoint.v1`，再保存 `world_adoption_package.v1`。这两个操作不调用模型；
+`world_design_checkpoint.v1`（旧 `world_core_checkpoint.v1` 继续可读），再保存
+`world_adoption_package.v1`。checkpoint 把现有收束确定性投影为 seed 深度的完整世界状态分类，
+未知区只记 gap/not-run；这两个保存操作不调用模型；
 preview 与 apply 都由 world 的确定性 schema、source refs、lineage 与 CAS 校验完成，模型不能
 创建或采用 package。
 若 package 含完整 World Bible page proposal，eligible 文本的每条 claim 必须由同包 include

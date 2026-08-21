@@ -80,6 +80,8 @@ export function emptyGenerateSession() {
     successfulRounds: 0,
     worldCoreAction: "expand",
     checkpointId: null,
+    checkpointRound: 0,
+    checkpointDepth: null,
   }
 }
 
@@ -188,6 +190,8 @@ function persistedShape(value) {
     successfulRounds: Math.max(0, Math.min(999, Number(value.successfulRounds) || 0)),
     worldCoreAction: ["expand", "connect", "pressure", "consolidate"].includes(value.worldCoreAction) ? value.worldCoreAction : "expand",
     checkpointId: typeof value.checkpointId === "string" && value.checkpointId ? value.checkpointId : null,
+    checkpointRound: Math.max(0, Math.min(999, Number(value.checkpointRound) || 0)),
+    checkpointDepth: ["seed", "candidate", "instance"].includes(value.checkpointDepth) ? value.checkpointDepth : null,
   }
 }
 
@@ -258,6 +262,8 @@ export function readGenerateSession(key, { storage = globalThis.localStorage, no
       successfulRounds: Math.max(0, Math.min(999, Number(parsed.successfulRounds) || 0)),
       worldCoreAction: ["expand", "connect", "pressure", "consolidate"].includes(parsed.worldCoreAction) ? parsed.worldCoreAction : "expand",
       checkpointId: typeof parsed.checkpointId === "string" && parsed.checkpointId ? parsed.checkpointId : null,
+      checkpointRound: Math.max(0, Math.min(999, Number(parsed.checkpointRound) || 0)),
+      checkpointDepth: ["seed", "candidate", "instance"].includes(parsed.checkpointDepth) ? parsed.checkpointDepth : null,
     }
   } catch {
     try { storage?.removeItem(key) } catch {}

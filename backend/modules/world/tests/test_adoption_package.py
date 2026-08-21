@@ -34,6 +34,8 @@ from modules.world.schemas import (
     WorldBiblePageUpdate,
     WorldCoreCheckpointPayload,
     WorldCoreCheckpointSaveRequest,
+    WorldDesignCheckpointPayload,
+    WorldDesignCheckpointSaveRequest,
 )
 from modules.world.services.core.entity_relation_service import EntityRelationService
 from modules.world.services.core.entity_service import WorldEntityService
@@ -44,6 +46,177 @@ from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
 from shared.target_ref import TargetRef
+
+
+def _world_design_state() -> dict:
+    gap = {
+        "status": "gap",
+        "chain": [],
+        "evidence": [],
+        "gaps": ["尚未审计"],
+        "reason": "尚未审计",
+    }
+    pipeline = {
+        "status": "not-started",
+        "artifacts": [],
+        "invalidated_by": [],
+        "notes": [],
+    }
+    situated = {
+        "status": "gap",
+        "scenario": "",
+        "actors": [],
+        "evidence": [],
+        "contradictions": [],
+        "reason": "尚未审计",
+    }
+    return {
+        "schema_version": "0.1.0",
+        "engine_version": "worldbuilding-engine/0.7.0",
+        "project": {
+            "id": "project:1",
+            "title": "潮汐城",
+            "language": "zh-CN",
+            "seed": "",
+            "mode": "create",
+            "status": "developing",
+            "created_at": None,
+            "updated_at": None,
+        },
+        "authority": {
+            "source_of_truth": [],
+            "read_only": [],
+            "constraints": [],
+            "locked_decisions": [],
+            "author_required": [],
+            "open_questions": [],
+        },
+        "premise": {
+            "status": "draft",
+            "core_difference": "",
+            "human_experience": "",
+            "scale": "",
+            "aesthetic_surface": [],
+            "themes": [],
+            "evidence": [],
+        },
+        "knowledge_layers": {
+            "author_truth": [],
+            "expert_models": [],
+            "public_beliefs": [],
+            "reader_unknowns": [],
+        },
+        "rules": [],
+        "reproduction_loops": {
+            key: dict(gap)
+            for key in (
+                "material",
+                "population_care",
+                "economic",
+                "institutional",
+                "knowledge",
+                "meaning_identity",
+            )
+        },
+        "facets": [
+            {
+                "id": f"F{index:02d}",
+                "name": f"切面 {index}",
+                "status": "gap",
+                "maturity": {"framework": 0, "instance": 0},
+                "evidence": [],
+                "gaps": ["尚未审计"],
+                "dependencies": [],
+                "reason": "尚未审计",
+            }
+            for index in range(1, 23)
+        ],
+        "coupling_chains": [
+            {
+                "id": f"C{index:02d}",
+                "name": f"链 {index}",
+                "status": "gap",
+                "nodes": [],
+                "breaks": [],
+                "evidence": [],
+                "reason": "尚未审计",
+            }
+            for index in range(1, 6)
+        ],
+        "situated_tests": {
+            key: dict(situated)
+            for key in (
+                "ordinary_tuesday",
+                "seven_day_failure",
+                "life_course",
+                "ten_year_feedback",
+            )
+        },
+        "pressure_tests": [
+            {
+                "id": f"T{index:02d}",
+                "name": f"测试 {index}",
+                "status": "not-run",
+                "result": "",
+                "evidence": [],
+                "failures": [],
+            }
+            for index in range(1, 13)
+        ],
+        "actors": [],
+        "places": [],
+        "institutions": [],
+        "history": [],
+        "fiction_core": {
+            key: dict(pipeline)
+            for key in ("world", "character", "story", "outline", "prose", "editor")
+        },
+        "dependencies": [],
+        "change_log": [],
+        "audit": {
+            "last_run_at": None,
+            "engine_version": "worldbuilding-engine/0.7.0",
+            "valid": None,
+            "blocking_gaps": [],
+            "warnings": [],
+        },
+        "extensions": {},
+    }
+
+
+@pytest.mark.asyncio
+async def test_world_design_checkpoint_reuses_queue_and_stays_read_only(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    service = WorldAdoptionPackageService()
+    manifest = hashlib.sha256(b"design").hexdigest()
+    request = WorldDesignCheckpointSaveRequest(
+        novel_id=project_novel_id,
+        checkpoint=WorldDesignCheckpointPayload(
+            schema_version="world_design_checkpoint.v1",
+            depth="seed",
+            round_no=3,
+            action="consolidate",
+            source_manifest_hash=manifest,
+            world_state=_world_design_state(),
+        ),
+    )
+
+    saved = await service.save_design_checkpoint(db_session, request)
+    child = request.model_copy(deep=True)
+    child.checkpoint.parent_checkpoint_id = saved.id
+    child.checkpoint.round_no = 6
+    saved_child = await service.save_design_checkpoint(db_session, child)
+
+    assert (
+        await service.get(db_session, project_novel_id, saved_child.id)
+    ).target_type == "world_design_checkpoint"
+    with pytest.raises(ValidationError, match="read-only"):
+        await service._suggestions.confirm(db_session, project_novel_id, saved_child.id)
+    assert (
+        await service.get(db_session, project_novel_id, saved_child.id)
+    ).status == "pending"
 
 
 @pytest.mark.asyncio

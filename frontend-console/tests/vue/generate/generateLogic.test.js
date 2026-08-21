@@ -1,9 +1,31 @@
 import { describe, expect, it } from "vitest"
 import {
-  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldCoreCheckpointContext, buildWorldCoreCheckpointRequest, buildWorldHandoffMarkdown, buildWorldPayload, compileConvergenceMessage,
+  buildPovInstruction, buildTaskPayload, buildVisualBriefMarkdown, buildWorldCoreCheckpointContext, buildWorldCoreCheckpointRequest, buildWorldDesignCheckpointRequest, buildWorldHandoffMarkdown, buildWorldPayload, compileConvergenceMessage,
   convergenceDraftFromCheckpoint, convergenceDraftFromResponse, convergenceSourceMatchesPayload, externalPacketBatchSummary, externalPacketCharacterCount, hashExternalPacket,
   parseExternalPacketPosition, sectionDiff, validateTaskPayload, visualBriefFromConvergence,
 } from "../../../vue/views/generate/logic/generateLogic.js"
+
+function worldCoreFixture() {
+  return {
+    coverage: { complete: true, scope_label: "一个灵感", source_count: 1, covered_source_keys: ["m1"], manifest_hash: "a".repeat(64) },
+    manifest: [{ key: "m1", kind: "conversation", label: "作者灵感", content_hash: "1".repeat(64), source_ref: { source_type: "author_message", source_hash: "2".repeat(64) } }],
+    detail_summary: { before_grouping: 3, after_deduplication: 3, retained_in_sources: 0 },
+    decision_cards: [{
+      card_id: "C1", title: "规则", common_ground: [], dependencies: [], affected_targets: ["current_world_target"], source_keys: ["m1"], why_now: "收拢",
+      items: ["one", "two", "three"].map((key, index) => ({ item_id: `I${index + 1}`, text: `规则 ${index + 1}`, suggested_disposition: "include", world_core_rule_key: key })),
+    }],
+    source_snapshot: { kind: "project" },
+    world_core: {
+      ready_for_handoff: true, issues: [], author_seed_source_keys: ["m1"], rule_count: 3,
+      snapshot: {
+        author_seeds: [{ source_key: "m1", disposition: "included" }],
+        rule_atoms: ["one", "two", "three"].map((key) => ({ rule_key: key, title: key, source_keys: ["m1"], can: "可以", cannot: "不能", cost: "代价", failure: "故障", maintenance: "维护" })),
+        blocking_contradictions: [],
+        vertical_slice: { rule_key: "one", daily_consequence: "日常", failure_consequence: "故障后果" },
+      },
+    },
+  }
+}
 
 describe("generate Vue pure contracts", () => {
   it("preserves world source baseline, explicit references, and service limits", () => {
@@ -92,6 +114,21 @@ describe("generate Vue pure contracts", () => {
 
     draft.cards[0].items[3].disposition = "open"
     expect(buildWorldCoreCheckpointRequest({ novelId: "p1", draft, roundNo: 4, action: "consolidate" })).toBeNull()
+  })
+
+  it("builds an honest full-taxonomy design seed without inventing coverage", () => {
+    const draft = convergenceDraftFromResponse(worldCoreFixture())
+    const request = buildWorldDesignCheckpointRequest({ novelId: "p1", projectTitle: "潮汐城", draft, roundNo: 3, action: "consolidate" })
+    const state = request.checkpoint.world_state
+
+    expect(request.checkpoint).toMatchObject({ schema_version: "world_design_checkpoint.v1", depth: "seed" })
+    expect(state).toMatchObject({ schema_version: "0.1.0", project: { title: "潮汐城" }, fiction_core: { editor: { status: "not-started" } } })
+    expect(state.facets).toHaveLength(22)
+    expect(state.coupling_chains).toHaveLength(5)
+    expect(state.pressure_tests).toHaveLength(12)
+    expect(Object.values(state.reproduction_loops).every((item) => item.status === "gap" && !item.evidence.length)).toBe(true)
+    expect(state.pressure_tests.every((item) => item.status === "not-run")).toBe(true)
+    expect(convergenceDraftFromCheckpoint({ target_type: "world_design_checkpoint", payload_json: request.checkpoint })?.worldCore.restored).toBe(true)
   })
 
   it("compiles selective convergence choices without turning open details into facts", () => {

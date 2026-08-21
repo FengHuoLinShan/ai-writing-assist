@@ -132,6 +132,12 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
                         result_ref_json={},
                     ),
                     SimpleNamespace(
+                        id="design-checkpoint",
+                        target_type="world_design_checkpoint",
+                        status="pending",
+                        result_ref_json={},
+                    ),
+                    SimpleNamespace(
                         id="shadowed",
                         target_type="core_entity_draft",
                         status="pending",
@@ -159,7 +165,7 @@ async def test_attention_summary_projects_actionable_world_items_without_duplica
                         updated_at=None,
                     ),
                 ],
-                4,
+                5,
             )
         )
     )

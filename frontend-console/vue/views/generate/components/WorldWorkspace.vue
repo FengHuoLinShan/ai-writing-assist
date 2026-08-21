@@ -142,10 +142,10 @@
           </div>
           <p class="generate-empty-copy">全书或分部的核心前提、叙事读法、基调与读者承诺请放在故事总览；前往只切换工作区，不会改写世界事实。放入输入框仍不会创建建议；只有发送消息并再次点击生成建议，才会进入待处理。</p>
         </section>
-        <section v-if="worldCore && successfulRounds >= 3" class="card generate-world-core-checkpoint" aria-labelledby="world-core-checkpoint-title">
+        <section v-if="worldCore && successfulRounds - checkpointRound >= 3" class="card generate-world-core-checkpoint" aria-labelledby="world-core-checkpoint-title">
           <div>
             <strong id="world-core-checkpoint-title">{{ checkpointSaved ? "阶段成果已保存" : "可以保存阶段成果了" }}</strong>
-            <p>{{ checkpointSaved ? "下次可从作者决定摘要继续；这仍不是正式设定。" : worldCoreReady ? "保存的是种子去向、规则、开放项和否定项，不保存过时的 AI 聊天正文。" : "请先点击“收束本轮”，补齐来源覆盖、3–7 条规则和日常＋故障纵切。" }}</p>
+            <p>{{ checkpointSaved ? "下次可从作者决定摘要和世界设计种子继续；这仍不是正式设定。" : worldCoreReady ? "保存的是种子去向、规则和完整世界检查骨架；未知区域会明确保留为空缺。" : "请先点击“收束本轮”，补齐来源覆盖、3–7 条规则和日常＋故障纵切。" }}</p>
           </div>
           <button class="btn btn-sm btn-primary" data-action="save-world-core-checkpoint" type="button" :disabled="busy || !worldCoreReady" @click="$emit('save-world-core-checkpoint')">{{ checkpointPending ? "保存中…" : checkpointSaved ? "保存新版阶段成果" : "保存阶段成果" }}</button>
         </section>
@@ -301,7 +301,7 @@ const props = defineProps({
   chatContextUsage: Object, entityContextUsage: Object, proposalDraft: Object, proposalResetToken: Number, recoveredPageProposal: Boolean, busy: Boolean, chatPending: Boolean, loadingResult: Boolean, resultError: String,
   convergenceDraft: Object, convergencePending: Boolean, visualBrief: Object, externalPackets: { type: Array, default: () => [] },
   explorationDraft: Object, explorationPending: Boolean, explorationSelection: Object, sourceRevisionResult: Object,
-  worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
+  worldCore: Boolean, successfulRounds: { type: Number, default: 0 }, checkpointRound: { type: Number, default: 0 }, checkpointPending: Boolean, checkpointSaved: Boolean,
 })
 const emit = defineEmits(["send-chat", "select-target", "edit-templates", "return-world-bible", "select-chapters", "apply-page", "proposal-dirty", "proposal-edit", "clear-result", "open-review", "view-context", "converge", "set-convergence-disposition", "edit-convergence-message", "apply-convergence-message", "dismiss-convergence", "open-convergence-source", "copy-handoff", "download-handoff", "open-story-outline", "create-visual-brief", "edit-visual-brief", "confirm-visual-brief", "copy-visual-brief", "download-visual-brief", "preview-visual-map", "preview-external-packet", "clear-external-packet", "explore", "select-exploration", "dismiss-exploration", "open-source-revision", "prefill-world-core", "save-world-core-checkpoint"])
 const selectedTemplateId = defineModel("selectedTemplateId", { type: String, required: true })

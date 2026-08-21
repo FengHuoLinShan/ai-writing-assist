@@ -13,10 +13,14 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 普通 AI 创设统一先写 `creation_suggestion_queue`。生成中心返回判别式 suggestion result，
   不物化兼容 CoreEntity 影子；队列拥有采用决策。仍依赖旧批次/结果引用的抽取路径可在其
   自身契约内保留 `compatibility_shadow`，不得扩散回生成中心 HTTP wire
-- 作者可显式保存 typed `world_core_checkpoint.v1`（不可采用）和
+- 作者可显式保存 typed `world_design_checkpoint.v1`（不可采用；旧的
+  `world_core_checkpoint.v1` 继续可读）和
   `world_adoption_package.v1`（pending）；package preview 零写入，apply 仅原子采用
   `include + proposed` 的 CoreEntity / EntityRelation。`open/rejected`、RuleProfile、别名和
   World Bible 页面不属于 v1 package 操作。
+- design checkpoint 以独立 envelope 内嵌 `world-state 0.1.0`，固定保存世界观引擎 19 区、
+  6 个再生产循环、F01–F22、C01–C05、四类情境测试、T01–T12 与 fiction-core 六阶段。
+  从 World Core 产生的首个 checkpoint 深度为 `seed`，未知区域明确记录为 gap/not-run。
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象

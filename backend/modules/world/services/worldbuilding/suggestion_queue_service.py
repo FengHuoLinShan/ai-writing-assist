@@ -44,6 +44,7 @@ from modules.world.schemas import (
     WorldBiblePageProposalContent,
     WorldBibleSourceRef,
     WorldCoreCheckpointPayload,
+    WorldDesignCheckpointPayload,
     WorldGenerationApplyPageDraftRequest,
     WorldGenerationApplyPageDraftResponse,
     WorldProfileUpsertRequest,
@@ -424,6 +425,11 @@ class SuggestionQueueService:
                 "World Bible page draft suggestions must be applied through "
                 "the generation-center draft endpoint"
             )
+        if suggestion.target_type in {
+            "world_core_checkpoint",
+            "world_design_checkpoint",
+        }:
+            raise ValidationError("World checkpoints are read-only and cannot be adopted")
         suggestion = await self._claim_pending(db, novel_id, suggestion_id)
         suggestion.payload_json = payload_json
         result_ref: dict[str, Any] = {}
@@ -1022,6 +1028,10 @@ class SuggestionQueueService:
         if target_type == "world_core_checkpoint":
             return WorldCoreCheckpointPayload.model_validate(payload).model_dump(
                 mode="json"
+            )
+        if target_type == "world_design_checkpoint":
+            return WorldDesignCheckpointPayload.model_validate(payload).model_dump(
+                mode="json", by_alias=True
             )
         if target_type == "world_adoption_package":
             return WorldAdoptionPackagePayload.model_validate(payload).model_dump(

@@ -31,6 +31,8 @@ from modules.world.schemas import (
     WorldBiblePageDraftCreate,
     WorldCoreCheckpointPayload,
     WorldCoreCheckpointSaveRequest,
+    WorldDesignCheckpointPayload,
+    WorldDesignCheckpointSaveRequest,
 )
 from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionQueueService,
@@ -72,6 +74,32 @@ class WorldAdoptionPackageService:
                 target_type="world_core_checkpoint",
                 action_schema="world_core_checkpoint.v1",
                 payload_json=request.checkpoint.model_dump(mode="json"),
+                evidence_refs_json=[],
+                risk_level="low",
+            ),
+        )
+
+    async def save_design_checkpoint(
+        self, db: AsyncSession, request: WorldDesignCheckpointSaveRequest
+    ) -> CreationSuggestionResponse:
+        if request.checkpoint.parent_checkpoint_id:
+            parent = await self._suggestions._get_suggestion(
+                db, request.novel_id, request.checkpoint.parent_checkpoint_id
+            )
+            if parent.target_type not in {
+                "world_core_checkpoint",
+                "world_design_checkpoint",
+            }:
+                raise ValidationError("Checkpoint parent lineage is invalid")
+        return await self._suggestions.create(
+            db,
+            CreationSuggestionCreate(
+                novel_id=request.novel_id,
+                source_module="world",
+                review_group="world_adoption",
+                target_type="world_design_checkpoint",
+                action_schema="world_design_checkpoint.v1",
+                payload_json=request.checkpoint.model_dump(mode="json", by_alias=True),
                 evidence_refs_json=[],
                 risk_level="low",
             ),
@@ -731,6 +759,7 @@ class WorldAdoptionPackageService:
         if suggestion.target_type not in {
             "world_adoption_package",
             "world_core_checkpoint",
+            "world_design_checkpoint",
         }:
             raise ValidationError("Suggestion is not a world adoption artifact")
         return CreationSuggestionResponse.model_validate(suggestion)
@@ -743,9 +772,16 @@ class WorldAdoptionPackageService:
         checkpoint = await self._suggestions._get_suggestion(
             db, novel_id, package.checkpoint_suggestion_id
         )
-        if checkpoint.target_type != "world_core_checkpoint":
+        if checkpoint.target_type not in {
+            "world_core_checkpoint",
+            "world_design_checkpoint",
+        }:
             raise ValidationError("Package checkpoint lineage is invalid")
-        payload = WorldCoreCheckpointPayload.model_validate(checkpoint.payload_json)
+        payload = (
+            WorldCoreCheckpointPayload.model_validate(checkpoint.payload_json)
+            if checkpoint.target_type == "world_core_checkpoint"
+            else WorldDesignCheckpointPayload.model_validate(checkpoint.payload_json)
+        )
         if payload.source_manifest_hash != package.checkpoint_manifest_hash:
             raise ConflictError("World core checkpoint changed; preview again")
 

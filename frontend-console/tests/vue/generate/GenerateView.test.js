@@ -156,7 +156,7 @@ beforeEach(() => {
     context: { compile: vi.fn(), render: vi.fn() },
     world: {
       listBiblePages: vi.fn(), listBibleDrafts: vi.fn(), listBibleCategories: vi.fn(), listBiblePageTemplates: vi.fn(), listCharacters: vi.fn(), listEntities: vi.fn(), getEntity: vi.fn(),
-      saveCoreCheckpoint: vi.fn(),
+      saveCoreCheckpoint: vi.fn(), saveDesignCheckpoint: vi.fn(),
     },
     outline: { listScenesOrdered: vi.fn(), listThreads: vi.fn(), listScenesByChapter: vi.fn(), getSceneWorkbench: vi.fn(), getScene: vi.fn() },
     writing: { listChapters: vi.fn(), get: vi.fn(), getDraft: vi.fn(), generate: vi.fn() },
@@ -259,7 +259,7 @@ describe("GenerateView Vue behavior matrix", () => {
 
   it("saves a ready World Core checkpoint only after explicit confirmation", async () => {
     api.generate.convergeWorld.mockResolvedValue(worldCoreResponse())
-    api.world.saveCoreCheckpoint.mockResolvedValue({ id: "checkpoint-1" })
+    api.world.saveDesignCheckpoint.mockResolvedValue({ id: "checkpoint-1" })
     const key = generateSessionKey("p1", null, "core_entity", "world_core")
     const initialSession = { ...emptyGenerateSession(), successfulRounds: 3, messages: [{ role: "user", content: "潮汐改变城市通行" }] }
     const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
@@ -268,15 +268,16 @@ describe("GenerateView Vue behavior matrix", () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain("世界核心已通过交接门"))
     expect(api.generate.convergeWorld.mock.calls[0][0]).toMatchObject({ workflow_preset: "world_core" })
     expect(wrapper.findAll(".generate-convergence-items select")[2].element.value).toBe("rejected")
-    expect(api.world.saveCoreCheckpoint).not.toHaveBeenCalled()
+    expect(api.world.saveDesignCheckpoint).not.toHaveBeenCalled()
 
     await wrapper.get('[data-action="save-world-core-checkpoint"]').trigger("click")
-    await vi.waitFor(() => expect(api.world.saveCoreCheckpoint).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(api.world.saveDesignCheckpoint).toHaveBeenCalledTimes(1))
 
-    expect(api.world.saveCoreCheckpoint.mock.calls[0][0]).toMatchObject({
+    expect(api.world.saveDesignCheckpoint.mock.calls[0][0]).toMatchObject({
       novel_id: "p1",
       checkpoint: {
-        schema_version: "world_core_checkpoint.v1",
+        schema_version: "world_design_checkpoint.v1",
+        depth: "seed",
         round_no: 3,
         action: "consolidate",
         source_manifest_hash: "a".repeat(64),
@@ -284,6 +285,8 @@ describe("GenerateView Vue behavior matrix", () => {
       },
     })
     expect(readGenerateSession(key).checkpointId).toBe("checkpoint-1")
+    expect(readGenerateSession(key).checkpointRound).toBe(3)
+    expect(wrapper.find('[data-action="save-world-core-checkpoint"]').exists()).toBe(false)
     expect(readCreativeContinuation("p1")).toMatchObject({ route: { preset: "world_core", checkpoint_id: "checkpoint-1" } })
   })
 

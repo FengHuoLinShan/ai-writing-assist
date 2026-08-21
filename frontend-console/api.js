@@ -1237,6 +1237,10 @@ const api = {
       return post("/world/core-checkpoints", payload)
     },
 
+    async saveDesignCheckpoint(payload) {
+      return post("/world/design-checkpoints", payload)
+    },
+
     async getAdoptionArtifact(suggestionId, novelId) {
       return request(withQuery(`/world/adoption-packages/${suggestionId}`, { novel_id: novelId }))
     },
