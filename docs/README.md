@@ -55,8 +55,8 @@
 
 1. `modules/01_project.md` — 小说项目模块
 2. `modules/02_world.md` — 世界对象模块
-3. `modules/05_memory.md` — 长期记忆模块
-4. `modules/07_outline.md` — 结构化剧情模块
+3. `modules/05_memory.md` — Story continuity 长期记忆兼容面
+4. `modules/07_outline.md` — Story outline_state 结构化剧情兼容面
 5. `modules/08_evidence.md` — canonical/working 索引、检索新鲜度、上下文编译、确认与追踪
 6. `modules/11_writing.md` — 正文草稿承载模块
 7. `modules/13_imports.md` — 小说导入模块
@@ -153,8 +153,9 @@
 
 ## 当前状态
 
-当前代码注册 10 个业务模块：`account` / `project` / `imports` / `world` /
-`memory` / `outline` / `evidence` / `story` / `writing` / `interaction`。RAG 索引与 Context
+当前代码注册 8 个业务模块：`account` / `project` / `imports` / `world` /
+`evidence` / `story` / `writing` / `interaction`。Story 内部的 outline_state / continuity
+吸收原 memory / outline 唯一生产实现，旧包只保留一发布周期兼容别名。RAG 索引与 Context
 编译/确认归 `evidence`；账户连接与全局偏好归
 `account`，项目偏好与有效配置归 `project`；前端设置页和 `/api/settings` 兼容路由仍保留。
 

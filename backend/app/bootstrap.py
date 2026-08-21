@@ -15,8 +15,8 @@ from modules.evidence.facade import (
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService as _SceneExtractSvc,
 )
-from modules.memory.services import MemoryService
-from modules.outline.services import (
+from modules.story.continuity.services import MemoryService
+from modules.story.outline_state.services import (
     ForeshadowingPlanService,
     OutlineArcService,
     PlotStructureGenerator,
@@ -59,6 +59,8 @@ def _register_orm_models() -> None:
     import modules.interaction.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
     import modules.story.models  # noqa: F401, I001
+    import modules.story.continuity.models  # noqa: F401, I001
+    import modules.story.outline_state.models  # noqa: F401, I001
     import modules.project.settings_models  # noqa: F401, I001
     import modules.world.map_atlas_models  # noqa: F401, I001
     import modules.world.models  # noqa: F401, I001

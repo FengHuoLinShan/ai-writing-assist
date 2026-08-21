@@ -1111,7 +1111,7 @@ class _Phase1cSceneFusionLLM:
 
     async def __call__(self, payload: dict[str, Any]) -> Any:
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-        from modules.outline.contracts import (
+        from modules.story.contracts import (
             SceneBoundaryReviewOutputContract,
             SceneFusionSynthesisOutputContract,
         )

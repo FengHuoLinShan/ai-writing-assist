@@ -120,6 +120,8 @@ class _WritingGenerationTaskPlan:
     scene_id: str | None
     scene_execution_bundle: dict[str, Any] | None
     scene_execution_bundle_hash: str | None
+    confirm_stale_story_assets: bool
+    story_asset_basis: tuple[dict[str, Any], ...]
 
 
 _DEFAULT_WRITING_SYSTEM_PROMPT = (
@@ -164,7 +166,7 @@ async def _default_scene_contract_loader(
     novel_id: str,
     scene_id: str,
 ) -> object | None:
-    from modules.outline.facade import get_scene_contract
+    from modules.story.facade import get_scene_contract
 
     return await get_scene_contract(db, novel_id, scene_id)
 
@@ -1438,7 +1440,7 @@ class WritingConflictCheckService:
         chapter_index: int,
         content: str,
     ) -> tuple[list[dict], str | None]:
-        from modules.outline.contracts import scene_semantic_field_status
+        from modules.story.contracts import scene_semantic_field_status
 
         chapter_chunks: list[dict] = []
         for chunk in getattr(scene, "scene_chunks", None) or []:
@@ -1981,7 +1983,7 @@ class WritingGenerationService:
     ) -> dict[str, Any] | None:
         if not scene_id:
             return None
-        from modules.outline.facade import get_scene_execution_bundle
+        from modules.story.facade import get_scene_execution_bundle
 
         bundle = await get_scene_execution_bundle(db, novel_id, scene_id)
         if bundle is None:
@@ -2001,6 +2003,8 @@ class WritingGenerationService:
         llm_execution_snapshot: dict[str, Any],
         generation_mode: str = "draft",
         base_draft_id: str | None = None,
+        confirm_stale_story_assets: bool = False,
+        story_asset_basis: list[dict[str, Any]] | None = None,
     ) -> _WritingGenerationTaskPlan:
         from modules.evidence.facade import (
             build_hidden_guard_context,
@@ -2031,6 +2035,12 @@ class WritingGenerationService:
         execution_bundle_hash = (
             str(execution_bundle.get("contract_hash") or "") if execution_bundle else None
         )
+        if _story_assets_are_stale(execution_bundle) and not confirm_stale_story_assets:
+            raise ValidationError(
+                "已采用的 Scene 剧本依据已变化；请明确确认后继续写作",
+                code="stale_story_assets",
+                status_code=409,
+            )
         base_draft = await self._load_generation_base(
             db,
             novel_id=novel_id,
@@ -2099,6 +2109,8 @@ class WritingGenerationService:
                 generation_mode=generation_mode,
                 base_draft=base_draft,
                 scene_execution_bundle_hash=execution_bundle_hash,
+                confirm_stale_story_assets=confirm_stale_story_assets,
+                story_asset_basis=story_asset_basis or [],
             ),
             llm_execution_snapshot=deepcopy(llm_execution_snapshot),
             generation_mode=generation_mode,
@@ -2112,6 +2124,8 @@ class WritingGenerationService:
             scene_id=scene_id,
             scene_execution_bundle=execution_bundle,
             scene_execution_bundle_hash=execution_bundle_hash,
+            confirm_stale_story_assets=confirm_stale_story_assets,
+            story_asset_basis=tuple(deepcopy(story_asset_basis or [])),
         )
 
     async def generate_candidate_for_task(
@@ -2127,6 +2141,8 @@ class WritingGenerationService:
         llm_execution_snapshot: dict[str, Any],
         generation_mode: str = "draft",
         base_draft_id: str | None = None,
+        confirm_stale_story_assets: bool = False,
+        story_asset_basis: list[dict[str, Any]] | None = None,
     ) -> WritingDraftResponse:
         """Generate a candidate with no transaction during provider/parse work."""
         from infrastructure.tasks.facade import require_task_checkpoint_session
@@ -2143,6 +2159,8 @@ class WritingGenerationService:
             llm_execution_snapshot=llm_execution_snapshot,
             generation_mode=generation_mode,
             base_draft_id=base_draft_id,
+            confirm_stale_story_assets=confirm_stale_story_assets,
+            story_asset_basis=story_asset_basis,
         )
 
         try:
@@ -2260,6 +2278,15 @@ class WritingGenerationService:
             if current_execution_bundle
             else None
         )
+        if (
+            _story_assets_are_stale(current_execution_bundle)
+            and not plan.confirm_stale_story_assets
+        ):
+            raise ValidationError(
+                "已采用的 Scene 剧本依据已变化；已丢弃未确认的正文结果",
+                code="stale_story_assets",
+                status_code=409,
+            )
         base_draft = await self._load_generation_base(
             db,
             novel_id=plan.novel_id,
@@ -2283,6 +2310,8 @@ class WritingGenerationService:
             generation_mode=plan.generation_mode,
             base_draft=base_draft,
             scene_execution_bundle_hash=current_execution_bundle_hash,
+            confirm_stale_story_assets=plan.confirm_stale_story_assets,
+            story_asset_basis=list(plan.story_asset_basis),
         )
         if current_fingerprint != plan.source_fingerprint:
             raise ValidationError(
@@ -2492,6 +2521,20 @@ def _generation_compiled_context_fingerprint(compiled: object) -> dict[str, Any]
     }
 
 
+def _story_assets_are_stale(execution_bundle: dict[str, Any] | None) -> bool:
+    """Return whether an adopted Story script is not based on current inputs."""
+    if not isinstance(execution_bundle, dict):
+        return False
+    assets = execution_bundle.get("story_assets")
+    if not isinstance(assets, dict):
+        return False
+    return any(
+        bool(item.get("stale"))
+        for item in assets.get("adopted_scripts", [])
+        if isinstance(item, dict)
+    )
+
+
 def _generation_source_fingerprint(
     confirmed_context: object,
     *,
@@ -2566,6 +2609,8 @@ def _generation_task_source_fingerprint(
     generation_mode: str,
     base_draft: object | None,
     scene_execution_bundle_hash: str | None,
+    confirm_stale_story_assets: bool,
+    story_asset_basis: list[dict[str, Any]],
 ) -> str:
     return _generation_stable_fingerprint(
         {
@@ -2576,6 +2621,8 @@ def _generation_task_source_fingerprint(
             ),
             "generation_mode": generation_mode,
             "scene_execution_bundle_hash": scene_execution_bundle_hash,
+            "confirm_stale_story_assets": confirm_stale_story_assets,
+            "story_asset_basis": story_asset_basis,
             "base_draft": (
                 {
                     "id": str(getattr(base_draft, "id", "")),

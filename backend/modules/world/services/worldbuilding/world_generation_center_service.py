@@ -1628,14 +1628,14 @@ class WorldGenerationCenterService:
     ) -> None:
         """Fail closed when an author-selected context asset cannot be loaded."""
         if data.scene_id:
-            from modules.outline.facade import get_scene_contract
+            from modules.story.facade import get_scene_contract
 
             scene = await get_scene_contract(db, data.novel_id, data.scene_id)
             if scene is None or scene.status not in {"candidate", "draft", "canonical"}:
                 raise ValidationError("Selected Scene is not available in this project")
 
         if data.thread_ids:
-            from modules.outline.facade import get_plot_threads_for_context
+            from modules.story.facade import get_plot_threads_for_context
 
             requested = list(dict.fromkeys(data.thread_ids))
             threads = await get_plot_threads_for_context(

@@ -104,7 +104,7 @@ async def collect_annotation_sources(
     list[dict[str, str]],
     dict[str, dict[str, object]],
 ]:
-    from modules.outline.facade import (
+    from modules.story.facade import (
         bind_scene_spans_to_source,
         get_scene_spans_by_chapter,
         get_scenes_by_chapter,

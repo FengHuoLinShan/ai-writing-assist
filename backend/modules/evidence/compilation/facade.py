@@ -164,6 +164,7 @@ async def compile_structure_context(
             - world_character: 项目 + 世界对象 + 人物 + 人物知识
             - arc: 加载篇章所有相关上下文
             - chapter: 加载单章所有相关上下文
+            - scene: 以当前 Scene 为锚点加载本场及其连续性上下文
             - full: 加载所有上下文（有限预算）
         chapter_index: 当前章节索引（scope=chapter 时推荐提供）
         visible_until_chapter: RAG 读者进度上界；默认由 loader 使用当前章

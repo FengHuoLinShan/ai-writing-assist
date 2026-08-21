@@ -66,7 +66,7 @@ async def run_scene_workflow_cases(
         submit_stage_fn = submit_stage_fn or start_deep_import_stage
         run_stage_fn = run_stage_fn or run_submitted_deep_import_stage
     if load_spans_fn is None:
-        from modules.outline.facade import get_scene_spans_by_chapter
+        from modules.story.facade import get_scene_spans_by_chapter
 
         load_spans_fn = get_scene_spans_by_chapter
     if list_sources_fn is None:

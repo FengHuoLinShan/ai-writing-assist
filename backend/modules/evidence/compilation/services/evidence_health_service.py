@@ -25,7 +25,7 @@ class EvidenceHealthService:
         window_hours: int,
     ) -> EvidenceHealthContract:
         from modules.evidence.indexing.facade import get_scene_mapping_coverage
-        from modules.outline.facade import get_scene_span_coverage
+        from modules.story.facade import get_scene_span_coverage
 
         scene = await get_scene_span_coverage(
             db,

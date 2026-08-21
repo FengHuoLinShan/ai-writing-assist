@@ -2,7 +2,7 @@ schema_version = 1
 
 # One-release import/HTTP aliases. These directories are not independent
 # business modules and must not be counted as architecture owners.
-compatibility_modules = ["rag", "context"]
+compatibility_modules = ["rag", "context", "memory", "outline"]
 
 # This registry is the machine-readable inventory for current architecture
 # documentation. Historical plans, audits, acceptance reports and archived
@@ -91,28 +91,24 @@ code_docs = ["backend/modules/world/README.md"]
 api_prefixes = ["/api/world", "/api/world/map-atlas"]
 
 [[components]]
-name = "memory"
-kind = "business"
-source_roots = ["backend/modules/memory"]
-design_docs = ["docs/modules/05_memory.md"]
-code_docs = ["backend/modules/memory/README.md"]
-api_prefixes = ["/api/novels/{novel_id}/memories"]
-
-[[components]]
-name = "outline"
-kind = "business"
-source_roots = ["backend/modules/outline"]
-design_docs = ["docs/modules/07_outline.md"]
-code_docs = ["backend/modules/outline/README.md"]
-api_prefixes = ["/api/outline"]
-
-[[components]]
 name = "story"
 kind = "business"
-source_roots = ["backend/modules/story"]
-design_docs = ["docs/modules/19_story.md"]
+source_roots = [
+  "backend/modules/story",
+  "backend/modules/outline",
+  "backend/modules/memory",
+]
+design_docs = [
+  "docs/modules/05_memory.md",
+  "docs/modules/07_outline.md",
+  "docs/modules/19_story.md",
+]
 code_docs = ["backend/modules/story/README.md"]
-api_prefixes = ["/api/story"]
+api_prefixes = [
+  "/api/novels/{novel_id}/memories",
+  "/api/outline",
+  "/api/story",
+]
 
 [[components]]
 name = "evidence"

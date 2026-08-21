@@ -18,7 +18,7 @@ from modules.evidence.compilation.contracts import (
 from modules.evidence.compilation.repositories import ContextConfirmationRepository
 from modules.evidence.compilation.services.compiled_context import CompiledContext
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
-from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.contracts import SCENE_MEMORY_DIMENSIONS
 from shared.utils import parse_uuid
 
 _ASSET_TYPE_ALIASES = {

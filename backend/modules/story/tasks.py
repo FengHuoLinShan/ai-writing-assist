@@ -14,9 +14,9 @@ from infrastructure.llm.agent_step_harness import managed_llm_provenance_scope
 from infrastructure.tasks.facade import require_task_checkpoint_session
 from infrastructure.tasks.registry import task_handler
 from modules.evidence.facade import (
-    compile_from_confirmation,
     compile_with_tiers,
     create_context_snapshot,
+    prepare_confirmed_ai_action,
     render_compiled_context,
 )
 from modules.project.facade import (
@@ -39,7 +39,9 @@ from modules.story.facade import (
 )
 from modules.story.generation import StoryGenerationService
 from modules.story.schemas import (
+    OneClickOutput,
     OneClickTaskResult,
+    ReactionPreview,
     StoryCardTaskRequest,
     StoryOneClickTaskRequest,
     StoryTaskRequest,
@@ -61,6 +63,26 @@ def _stable_hash(value: Any) -> str:
 
 def _text_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _parse_task_request(meta: dict[str, Any], request_model: type[Any]) -> Any:
+    """Validate only request fields from a task meta envelope.
+
+    Story request schemas intentionally use ``extra='forbid'``.  Worker
+    metadata also contains action, the frozen project LLM snapshot, and
+    authorization/provenance fields, so validating the complete flat metadata
+    mapping would make every recovered task fail before its handler starts.
+    New tasks may use a nested ``request`` payload; older queued flat metadata
+    is projected by the request model's declared fields.
+    """
+    request_payload = meta.get("request")
+    if not isinstance(request_payload, dict):
+        request_payload = {
+            name: meta[name]
+            for name in request_model.model_fields
+            if name in meta
+        }
+    return request_model.model_validate(request_payload)
 
 
 def _outline_source_payload(scene_payload: dict[str, Any]) -> dict[str, Any]:
@@ -93,6 +115,7 @@ def _character_card_source_hashes(
     compiled: Any,
     context_markdown: str,
     character_ids: list[str],
+    character_reveals: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Fingerprint only external Scene/context inputs for one-click cards."""
     sections = []
@@ -117,9 +140,104 @@ def _character_card_source_hashes(
         "compiled_text_hash": _text_hash(context_markdown),
     }
     return {
-        str(character_id): _stable_hash({**shared, "character_id": str(character_id)})
+        str(character_id): _stable_hash(
+            {
+                **shared,
+                "character_id": str(character_id),
+                "character_reveal_hash": (
+                    (character_reveals or {})
+                    .get(str(character_id), {})
+                    .get("hash")
+                ),
+            }
+        )
         for character_id in character_ids
     }
+
+
+async def _compile_character_reveals(
+    db,
+    *,
+    novel_id: str,
+    scene_id: str,
+    character_ids: list[str],
+    action: str,
+    additional_notes: str | None,
+) -> dict[str, dict[str, Any]]:
+    """Compile an independently filtered context for each target character."""
+    purpose = (
+        "story_character_card"
+        if action == STORY_CHARACTER_CARD_ACTION
+        else "story_character_reaction"
+    )
+    reveals: dict[str, dict[str, Any]] = {}
+    for character_id in dict.fromkeys(character_ids):
+        compiled = await compile_with_tiers(
+            db,
+            novel_id,
+            task=action,
+            scope="scene",
+            scene_id=scene_id,
+            budget_tokens=6000,
+            character_ids=[character_id],
+            reveal_mode="character",
+            viewpoint_character_id=character_id,
+            visible_until_scene_id=scene_id,
+            consumer_action=action,
+            retrieval_purpose=purpose,
+            user_note=additional_notes,
+        )
+        rendered = render_compiled_context(compiled)
+        stable_sections = [
+            {
+                "key": section.key,
+                "tier": int(section.tier),
+                "content": section.content,
+                "status": section.status,
+                "sources": section.sources,
+            }
+            for section in getattr(compiled, "sections", []) or []
+        ]
+        reveals[str(character_id)] = {
+            "markdown": rendered,
+            "hash": _stable_hash(
+                {
+                    "sections": stable_sections,
+                    "budget_tokens": int(getattr(compiled, "budget_tokens", 0)),
+                    "warnings": list(getattr(compiled, "warnings", []) or []),
+                }
+            ),
+            "compile_options": {
+                "reveal_mode": "character",
+                "viewpoint_character_id": str(character_id),
+                "visible_until_scene_id": scene_id,
+                "retrieval_purpose": purpose,
+            },
+        }
+    return reveals
+
+
+def _character_scene_context(
+    scene_payload: dict[str, Any],
+    character_id: str,
+) -> dict[str, Any]:
+    """Remove other Story cards/assets from a per-character prompt target."""
+    payload = dict(scene_payload)
+    cards = payload.get("character_cards")
+    if isinstance(cards, list):
+        payload["character_cards"] = [
+            card
+            for card in cards
+            if str(card.get("character_id") or "") == str(character_id)
+        ]
+    payload["script_files"] = []
+    outline = payload.get("outline_bundle")
+    if isinstance(outline, dict):
+        outline = dict(outline)
+        outline.pop("story_assets", None)
+        outline.pop("story_assets_hash", None)
+        payload["outline_bundle"] = outline
+    return payload
 
 
 async def _require_snapshot(
@@ -149,11 +267,18 @@ async def _prepare_task_input(
     *,
     action: str,
     request_model: type[Any],
-) -> tuple[Any, str, dict[str, Any], dict[str, Any], str | None]:
+) -> tuple[
+    Any,
+    str,
+    dict[str, Any],
+    dict[str, Any],
+    str | None,
+    dict[str, dict[str, Any]],
+]:
     meta = dict(task.meta or {})
     if meta.get("action") != action:
         raise ValueError(f"invalid action for {task.task_type}")
-    data = request_model.model_validate(meta)
+    data = _parse_task_request(meta, request_model)
     snapshot = await _require_snapshot(db, task, meta, data.novel_id)
     if action == STORY_ONE_CLICK_ACTION:
         character_ids = _require_character_ids(data.character_ids)
@@ -165,18 +290,33 @@ async def _prepare_task_input(
             scene_id=data.scene_id,
             budget_tokens=8000,
             character_ids=character_ids,
-            reveal_mode="author_full",
+            reveal_mode="author_safe",
+            visible_until_scene_id=data.scene_id,
             consumer_action=action,
             retrieval_purpose="story_scene_one_click",
             user_note=data.additional_notes,
         )
+        confirmed_compile_options = {
+            "novel_id": data.novel_id,
+            "task": action,
+            "scope": "scene",
+            "scene_id": data.scene_id,
+            "character_ids": character_ids,
+            "reveal_mode": "author_safe",
+            "visible_until_scene_id": data.scene_id,
+            "consumer_action": action,
+            "retrieval_purpose": "story_scene_one_click",
+            "user_note": data.additional_notes,
+        }
     else:
-        compiled = await compile_from_confirmation(
+        confirmed = await prepare_confirmed_ai_action(
             db,
             novel_id=data.novel_id,
             action=action,
             confirmation_id=data.context_confirmation_id,
         )
+        compiled = confirmed.compiled
+        confirmed_compile_options = dict(confirmed.compile_options or {})
     context_markdown = render_compiled_context(compiled)
     selected_ids = (
         list(data.character_ids)
@@ -192,74 +332,113 @@ async def _prepare_task_input(
     if story_context is None:
         raise ValueError("scene does not belong to this novel")
     scene_payload = story_context.model_dump(mode="json")
-    context_snapshot_id: str | None = None
-    if action == STORY_ONE_CLICK_ACTION:
-        section_metadata = {
-            section.key: {
-                "tier": int(section.tier),
-                "status": section.status,
-                "token_count": section.token_count,
-                "source_count": len(section.sources),
-            }
-            for section in compiled.sections
-        }
-        context_snapshot = await create_context_snapshot(
+    character_reveals: dict[str, dict[str, Any]] = {}
+    if action in {
+        STORY_CHARACTER_CARD_ACTION,
+        STORY_REACTION_ACTION,
+        STORY_ONE_CLICK_ACTION,
+    }:
+        character_reveals = await _compile_character_reveals(
             db,
             novel_id=data.novel_id,
-            task_id=str(task.id),
-            phase="story",
-            operation=action,
             scene_id=data.scene_id,
-            context_mode="working",
-            include_pending_objects=False,
-            prompt_name="story.one_click.simulate",
-            model=str((snapshot.get("profile") or {}).get("model") or "project-default"),
-            compile_options={
-                "novel_id": data.novel_id,
-                "task": action,
-                "scope": "scene",
-                "scene_id": data.scene_id,
-                "character_ids": selected_ids,
-                "additional_notes": getattr(data, "additional_notes", None),
-                "accepted_reactions": [
-                    item.model_dump(mode="json")
-                    for item in getattr(data, "accepted_reactions", [])
-                ],
-                "accepted_beats": [
-                    item.model_dump(mode="json")
-                    for item in getattr(data, "accepted_beats", [])
-                ],
-                "budget_tokens": compiled.budget_tokens,
-                "reveal_mode": "author_full",
-            },
-            included_asset_ids={
-                "scenes": [data.scene_id],
-                "characters": selected_ids,
-            },
-            context_summary={
-                "context_hash": story_context.context_hash,
-                "total_tokens": compiled.total_tokens,
-                "warnings": list(compiled.warnings),
-            },
-            section_metadata=section_metadata,
-            token_metadata={
-                "total_tokens": compiled.total_tokens,
-                "budget_tokens": compiled.budget_tokens,
-            },
-            rendered_context=context_markdown,
-            retain_rendered_context=False,
+            character_ids=selected_ids,
+            action=action,
+            additional_notes=getattr(data, "additional_notes", None),
         )
-        context_snapshot_id = str(context_snapshot.id)
-        task.meta = {
-            **(task.meta or {}),
-            "context_snapshot_id": context_snapshot_id,
-            "character_card_source_hashes": _character_card_source_hashes(
-                scene_payload,
-                compiled,
-                context_markdown,
-                selected_ids,
-            ),
+    section_metadata = {
+        section.key: {
+            "tier": int(section.tier),
+            "status": section.status,
+            "token_count": section.token_count,
+            "source_count": len(section.sources),
         }
+        for section in compiled.sections
+    }
+    snapshot_options = {
+        **confirmed_compile_options,
+        "novel_id": data.novel_id,
+        "task": action,
+        "scope": "scene",
+        "scene_id": data.scene_id,
+        "character_ids": selected_ids,
+        "additional_notes": getattr(data, "additional_notes", None),
+        "accepted_reactions": [
+            item.model_dump(mode="json")
+            for item in getattr(data, "accepted_reactions", [])
+        ],
+        "accepted_beats": [
+            item.model_dump(mode="json")
+            for item in getattr(data, "accepted_beats", [])
+        ],
+        "budget_tokens": compiled.budget_tokens,
+        "reveal_mode": (
+            "author_safe"
+            if action == STORY_ONE_CLICK_ACTION
+            else confirmed_compile_options.get("reveal_mode")
+        ),
+        "visible_until_scene_id": (
+            data.scene_id
+            if action == STORY_ONE_CLICK_ACTION
+            else confirmed_compile_options.get("visible_until_scene_id")
+        ),
+        "character_reveal_contexts": {
+            character_id: {
+                "hash": value.get("hash"),
+                "compile_options": value.get("compile_options", {}),
+            }
+            for character_id, value in character_reveals.items()
+        },
+    }
+    context_snapshot = await create_context_snapshot(
+        db,
+        novel_id=data.novel_id,
+        task_id=str(task.id),
+        phase="story",
+        operation=action,
+        scene_id=data.scene_id,
+        context_mode=str(snapshot_options.get("context_mode") or "working"),
+        include_pending_objects=bool(
+            snapshot_options.get("include_pending_objects", False)
+        ),
+        prompt_name=action,
+        model=str((snapshot.get("profile") or {}).get("model") or "project-default"),
+        compile_options=snapshot_options,
+        included_asset_ids={
+            "scenes": [data.scene_id],
+            "characters": selected_ids,
+        },
+        context_summary={
+            "context_hash": story_context.context_hash,
+            "total_tokens": compiled.total_tokens,
+            "warnings": list(compiled.warnings),
+        },
+        section_metadata=section_metadata,
+        token_metadata={
+            "total_tokens": compiled.total_tokens,
+            "budget_tokens": compiled.budget_tokens,
+        },
+        rendered_context=context_markdown,
+        retain_rendered_context=False,
+    )
+    context_snapshot_id = str(context_snapshot.id)
+    task.meta = {
+        **(task.meta or {}),
+        "context_snapshot_id": context_snapshot_id,
+        **(
+            {
+                "character_card_source_hashes": _character_card_source_hashes(
+                    scene_payload,
+                    compiled,
+                    context_markdown,
+                    selected_ids,
+                    character_reveals,
+                )
+            }
+            if action == STORY_ONE_CLICK_ACTION
+            else {}
+        ),
+    }
     runtime_settings = await restore_project_llm_execution_settings(
         db,
         data.novel_id,
@@ -272,6 +451,7 @@ async def _prepare_task_input(
         scene_payload,
         runtime_settings,
         context_snapshot_id,
+        character_reveals,
     )
 
 
@@ -307,6 +487,7 @@ async def handle_story_character_card_generate(db, task):
         story_context,
         settings,
         _context_snapshot_id,
+        character_reveals,
     ) = await _prepare_task_input(
         db,
         task,
@@ -315,12 +496,16 @@ async def handle_story_character_card_generate(db, task):
     )
     generation = StoryGenerationService()
     task.update_progress(0.1)
+    reveal = character_reveals.get(str(data.character_id)) or {}
     async with _open_client(settings, data.novel_id) as client:
         with managed_llm_provenance_scope() as records:
             preview = await generation.card_preview(
                 client,
-                context_markdown=context_markdown,
-                scene_context=story_context,
+                context_markdown=str(reveal.get("markdown") or context_markdown),
+                scene_context=_character_scene_context(
+                    story_context,
+                    str(data.character_id),
+                ),
                 character_id=data.character_id,
                 additional_notes=data.additional_notes,
             )
@@ -329,6 +514,7 @@ async def handle_story_character_card_generate(db, task):
     await db.flush()
     return {
         "preview": preview.model_dump(mode="json"),
+        "context_snapshot_id": _context_snapshot_id,
         "preview_only": True,
         "writes": [],
     }
@@ -347,6 +533,7 @@ async def handle_story_reaction_propose(db, task):
         story_context,
         settings,
         _context_snapshot_id,
+        character_reveals,
     ) = await _prepare_task_input(
         db,
         task,
@@ -358,12 +545,26 @@ async def handle_story_reaction_propose(db, task):
     task.update_progress(0.1)
     async with _open_client(settings, data.novel_id) as client:
         with managed_llm_provenance_scope() as records:
-            preview = await generation.reaction_preview(
-                client,
-                context_markdown=context_markdown,
-                scene_context=story_context,
-                character_ids=character_ids,
-                additional_notes=data.additional_notes,
+            proposals = []
+            warnings: list[str] = []
+            for character_id in character_ids:
+                reveal = character_reveals.get(character_id) or {}
+                character_preview = await generation.reaction_preview(
+                    client,
+                    context_markdown=str(reveal.get("markdown") or context_markdown),
+                    scene_context=_character_scene_context(
+                        story_context,
+                        character_id,
+                    ),
+                    character_ids=[character_id],
+                    additional_notes=data.additional_notes,
+                )
+                proposals.extend(character_preview.proposals)
+                warnings.extend(character_preview.warnings)
+            preview = ReactionPreview(
+                scene_id=data.scene_id,
+                proposals=proposals,
+                warnings=list(dict.fromkeys(warnings)),
             )
         _record_provenance(task, records)
     if str(preview.scene_id) != str(data.scene_id):
@@ -372,6 +573,7 @@ async def handle_story_reaction_propose(db, task):
     await db.flush()
     return {
         "preview": preview.model_dump(mode="json"),
+        "context_snapshot_id": _context_snapshot_id,
         "preview_only": True,
         "writes": [],
     }
@@ -390,6 +592,7 @@ async def handle_story_scene_script_generate(db, task):
         story_context,
         settings,
         _context_snapshot_id,
+        character_reveals,
     ) = await _prepare_task_input(
         db,
         task,
@@ -421,6 +624,7 @@ async def handle_story_scene_script_generate(db, task):
     await db.flush()
     return {
         "preview": preview.model_dump(mode="json"),
+        "context_snapshot_id": _context_snapshot_id,
         "preview_only": True,
         "writes": [],
     }
@@ -439,6 +643,7 @@ async def handle_story_one_click(db, task):
         story_context,
         settings,
         context_snapshot_id,
+        character_reveals,
     ) = await _prepare_task_input(
         db,
         task,
@@ -450,7 +655,34 @@ async def handle_story_one_click(db, task):
     task.update_progress(0.1)
     async with _open_client(settings, data.novel_id) as client:
         with managed_llm_provenance_scope() as records:
-            preview = await generation.one_click_preview(
+            cards = []
+            reactions = []
+            warnings: list[str] = []
+            for character_id in character_ids:
+                reveal = character_reveals.get(character_id) or {}
+                character_scene_context = _character_scene_context(
+                    story_context,
+                    character_id,
+                )
+                card = await generation.card_preview(
+                    client,
+                    context_markdown=str(reveal.get("markdown") or context_markdown),
+                    scene_context=character_scene_context,
+                    character_id=character_id,
+                    additional_notes=data.additional_notes,
+                )
+                reaction = await generation.reaction_preview(
+                    client,
+                    context_markdown=str(reveal.get("markdown") or context_markdown),
+                    scene_context=character_scene_context,
+                    character_ids=[character_id],
+                    additional_notes=data.additional_notes,
+                )
+                cards.append(card)
+                reactions.extend(reaction.proposals)
+                warnings.extend(card.warnings)
+                warnings.extend(reaction.warnings)
+            script = await generation.script_preview(
                 client,
                 context_markdown=context_markdown,
                 scene_context=story_context,
@@ -463,10 +695,15 @@ async def handle_story_one_click(db, task):
                     item.model_dump(mode="json") for item in data.accepted_beats
                 ],
             )
+            preview = OneClickOutput(
+                scene_id=data.scene_id,
+                cards=cards,
+                reactions=reactions,
+                script=script,
+            )
         _record_provenance(task, records)
     if str(preview.scene_id) != str(data.scene_id):
         raise ValueError("one-click preview scene_id mismatch")
-    await require_active_project_exclusive(db, data.novel_id)
     latest_context = await get_scene_story_context(
         db,
         novel_id=data.novel_id,
@@ -489,16 +726,26 @@ async def handle_story_one_click(db, task):
         scene_id=data.scene_id,
         budget_tokens=8000,
         character_ids=character_ids,
-        reveal_mode="author_full",
+        reveal_mode="author_safe",
+        visible_until_scene_id=data.scene_id,
         consumer_action=STORY_ONE_CLICK_ACTION,
         retrieval_purpose="story_scene_one_click",
         user_note=data.additional_notes,
+    )
+    latest_character_reveals = await _compile_character_reveals(
+        db,
+        novel_id=data.novel_id,
+        scene_id=data.scene_id,
+        character_ids=character_ids,
+        action=STORY_ONE_CLICK_ACTION,
+        additional_notes=data.additional_notes,
     )
     latest_source_hashes = _character_card_source_hashes(
         latest_context.model_dump(mode="json"),
         latest_compiled,
         render_compiled_context(latest_compiled),
         character_ids,
+        latest_character_reveals,
     )
     expected_source_hashes = (task.meta or {}).get("character_card_source_hashes")
     if (
@@ -508,6 +755,10 @@ async def handle_story_one_click(db, task):
         raise StoryConflictError(
             "Scene or compiled context changed while one-click was running"
         )
+    # The final write is fenced by a short project-exclusive DB section.  All
+    # provider and context work above is complete before acquiring this fence,
+    # so project deletion cannot race the card revalidation/persistence.
+    await require_active_project_exclusive(db, data.novel_id)
     persisted, skipped_fresh = await persist_one_click_character_cards(
         db,
         novel_id=data.novel_id,

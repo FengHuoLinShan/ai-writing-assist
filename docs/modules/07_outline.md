@@ -1,4 +1,8 @@
-# Module: outline / 大纲与结构管理模块
+# Module: Story outline_state / 大纲与结构兼容面
+
+> 当前生产 owner 是 `modules.story.outline_state`，原 `/api/outline` 与
+> `modules.outline` 仅保留兼容入口。表名、任务、CAS、SceneSpan、Workbench、揭示和回滚
+> 行为不变；新生产消费者通过 `modules.story.facade` / `modules.story.contracts`。
 
 ## 定位
 

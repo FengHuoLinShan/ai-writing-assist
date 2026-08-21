@@ -37,7 +37,7 @@ from modules.evidence.compilation.services.loaders import (
     WorldEntitiesLoader,
 )
 from modules.evidence.compilation.services.protocol import Loader
-from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.contracts import SCENE_MEMORY_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,22 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "world_bible",
     ],
     "chapter": [
+        "scene",
+        "outline_analysis",
+        "project",
+        "world_entities",
+        "characters",
+        "memory_records",
+        "events",
+        "rag_chunks",
+        "plot_threads",
+        "outline_arc",
+        "world_bible",
+    ],
+    # Scene is a chapter-equivalent compile with the Scene loader as the
+    # anchor.  SceneLoader derives the owning chapter from scene chunks so a
+    # caller cannot widen the visibility window by omitting chapter_index.
+    "scene": [
         "scene",
         "outline_analysis",
         "project",
@@ -1944,7 +1960,7 @@ class ContextCompiler:
 
     @staticmethod
     def _format_scene_director_constraints(scene: dict) -> str:
-        from modules.outline.contracts import scene_semantic_field_status
+        from modules.story.contracts import scene_semantic_field_status
 
         lines = [
             "DIRECTOR_ONLY: 以下是作者创作约束，不是角色知识；"

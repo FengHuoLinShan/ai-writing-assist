@@ -1,9 +1,9 @@
 # Story Scene vertical slice
 
 Story owns the author-editable, Scene-scoped projections used by the writing
-workbench. Canonical characters and Scenes remain owned by `world` and
-`outline`; Story validates those IDs through their facades and never writes
-World, Memory, or Writing records.
+workbench. Canonical characters remain owned by `world`; outline structure and
+Scenes are Story's `outline_state` subdomain. Story validates those IDs
+through its stable facade and never writes World, Memory, or Writing records.
 
 ## Stable seams
 
@@ -25,6 +25,19 @@ The migration creates exactly four Story tables:
 2. `story_character_card_revisions` — immutable card payloads and provenance.
 3. `story_scene_script_files` — named multi-file current and adopted heads.
 4. `story_scene_script_revisions` — immutable editable script revisions.
+
+Story also physically owns the former Outline and Memory persistence subdomains
+without changing their table names or public APIs. The complete owner inventory
+is: `story_outline_heads`, `story_outline_revisions`, `plot_threads`,
+`outline_arcs`, `scenes`, `scene_spans`, `scene_fusion_suggestions`,
+`scene_summary_checkpoints`, `scene_chapter_links`, `foreshadowing_plans`,
+`reveal_plans`, `memory_events`, `memory_snapshots`, `memory_scene_checkpoints`,
+`memory_scene_snapshots`, and `delta_log`. The old `modules.outline` and
+`modules.memory` packages are one-release import/API/model compatibility aliases;
+they contain no second service, repository, task, or ORM implementation.
+
+The existing public prefixes remain `/api/outline` and
+`/api/novels/{novel_id}/memories`, alongside `/api/story`.
 
 Every repository query is novel-scoped. Heads and revisions also have
 composite `(id, novel_id)` constraints so a cross-project pointer cannot be

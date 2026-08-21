@@ -21,7 +21,7 @@ async def _default_get_threads_for_context(
     thread_ids: list[str] | None = None,
     chapter_index: int | None = None,
 ) -> Any:
-    from modules.outline.facade import get_plot_threads_for_context
+    from modules.story.facade import get_plot_threads_for_context
 
     return await get_plot_threads_for_context(
         db,

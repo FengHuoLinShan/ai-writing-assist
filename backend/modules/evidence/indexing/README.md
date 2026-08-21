@@ -107,7 +107,7 @@ project facade 的 `ProjectSummary` 窄投影读取，不再跨模块消费 `Pro
 nullable `scene_span_id` 指向 outline 派生的 `SceneSpan`。`scene_span_id` 不加
 跨模块硬 FK，避免 RAG ORM 依赖 outline 内部模型。索引章节时：
 
-1. 通过 `modules.outline.facade.get_scene_spans_by_chapter` 读取当前章节 span。
+1. 通过 `modules.story.facade.get_scene_spans_by_chapter` 读取当前章节 span；旧 `modules.outline.facade` 仅为兼容路径。
 2. 优先用 chunk 的字符偏移与 span 的 `start_offset/end_offset` 做重叠匹配。
 3. 命中 span 时同时写入 `scene_id` 与 `scene_span_id`。
 4. 只有 source draft/hash 一致且 mapping 精确的 span 可写入自动 Scene 归因。

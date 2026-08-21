@@ -782,7 +782,7 @@ class NovelEvidenceService:
         quote = str(quote or "").strip()
         if not quote:
             return None, "missing_quote"
-        from modules.outline.facade import (
+        from modules.story.facade import (
             bind_scene_spans_to_source,
             get_scene_contract,
             get_scene_spans_for_scene,
@@ -1225,7 +1225,7 @@ class NovelEvidenceService:
     async def _search_outline(
         self, db, *, novel_id, query, content_mode, visibility, limit
     ):
-        from modules.outline.facade import (
+        from modules.story.facade import (
             get_scene_summary_checkpoint,
             get_scenes_by_novel,
             rebuild_scene_summary_checkpoint,
@@ -1333,7 +1333,7 @@ class NovelEvidenceService:
                 warnings.append("未采用对象不对读者/角色视角开放")
                 return None, warnings
             if visibility.mode != "author" and item is not None:
-                from modules.outline.facade import get_reader_reveal_decision
+                from modules.story.facade import get_reader_reveal_decision
 
                 reveal = await get_reader_reveal_decision(
                     db,
@@ -1406,7 +1406,7 @@ class NovelEvidenceService:
                 return None, warnings
             return item, warnings
         if target.target_type == "outline_scene":
-            from modules.outline.facade import (
+            from modules.story.facade import (
                 get_scene_contract,
                 get_scene_summary_checkpoint,
                 rebuild_scene_summary_checkpoint,
@@ -1470,7 +1470,7 @@ class NovelEvidenceService:
     ) -> tuple[VisibilityContextContract, list[str]]:
         if visibility.mode == "author" or not visibility.cutoff_scene_id:
             return visibility, []
-        from modules.outline.facade import get_scene_spans_for_scene
+        from modules.story.facade import get_scene_spans_for_scene
         from modules.writing.facade import list_manuscript_sources
 
         chapter = visibility.cutoff_chapter or 0
@@ -1532,7 +1532,7 @@ class NovelEvidenceService:
     ):
         if visibility.mode != "author" or not context_scene_id:
             return None
-        from modules.outline.facade import get_scene_contract
+        from modules.story.facade import get_scene_contract
 
         try:
             return await get_scene_contract(db, novel_id, context_scene_id)
@@ -1549,7 +1549,7 @@ class NovelEvidenceService:
         scene_span_cache: dict[tuple[int, str], list] | None = None,
         scene_contract_cache: dict[str, object | None] | None = None,
     ):
-        from modules.outline.facade import (
+        from modules.story.facade import (
             get_scene_contract,
             get_scene_spans_by_chapter,
         )

@@ -1,4 +1,8 @@
-# Module: memory / 长期记忆模块
+# Module: Story continuity / 长期记忆兼容面
+
+> 当前生产 owner 是 `modules.story.continuity`，原 `/api/novels/{novel_id}/memories`
+> 与 `modules.memory` 仅保留兼容入口。表名、任务、snapshot/checkpoint/rollback 行为不变；
+> 新生产消费者通过 `modules.story.facade` / `modules.story.contracts`。
 
 ## 定位
 

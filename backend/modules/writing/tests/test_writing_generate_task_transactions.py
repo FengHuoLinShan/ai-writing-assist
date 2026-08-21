@@ -134,8 +134,8 @@ def _patch_facades(
     project_guard: mock.AsyncMock | None = None,
 ) -> tuple[mock.AsyncMock, mock.AsyncMock, mock.AsyncMock, mock.AsyncMock]:
     from modules.evidence import facade as context_facade
-    from modules.outline import facade as outline_facade
     from modules.project import facade as project_facade
+    from modules.story import facade as outline_facade
 
     prepared = mock.AsyncMock(side_effect=list(confirmations))
     hidden = mock.AsyncMock(return_value=list(guard_terms or []))

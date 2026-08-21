@@ -553,7 +553,7 @@ class ParallelSceneEntityExtractionMixin:
                 )
             )
             try:
-                from modules.memory.facade import ensure_scene_checkpoints
+                from modules.story.facade import ensure_scene_checkpoints
 
                 await ensure_scene_checkpoints(
                     db,

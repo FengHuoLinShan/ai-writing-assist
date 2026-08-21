@@ -11,7 +11,7 @@ _TASK_HANDLER_MODULES = (
     "modules.imports.tasks",
     "modules.world.map_atlas_tasks",
     "modules.interaction.tasks",
-    "modules.outline.tasks",
+    "modules.story.outline_state.tasks",
     "modules.project.tasks",
     "modules.evidence.indexing.tasks",
     "modules.story.tasks",

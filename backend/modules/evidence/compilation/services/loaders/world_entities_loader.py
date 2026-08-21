@@ -247,7 +247,7 @@ class WorldEntitiesLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        from modules.outline.facade import get_reader_reveal_decision
+        from modules.story.facade import get_reader_reveal_decision
 
         cutoff = options.visible_until_chapter or options.chapter_index
         if cutoff is None:

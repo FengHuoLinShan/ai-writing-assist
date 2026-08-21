@@ -18,7 +18,7 @@ async def _default_get_outline_analysis_context(
     *args: Any,
     **kwargs: Any,
 ) -> Any:
-    from modules.outline.facade import get_outline_analysis_context
+    from modules.story.facade import get_outline_analysis_context
 
     return await get_outline_analysis_context(*args, **kwargs)
 

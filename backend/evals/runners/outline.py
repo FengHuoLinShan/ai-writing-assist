@@ -30,7 +30,7 @@ async def run_outline_preview_cases(
         raise ValueError("Outline eval runner requires isolated_db=True")
     outline_cases = [case for case in cases if case.suite == EvalSuite.outline]
     if preview_fn is None:
-        from modules.outline.facade import suggest_structure_dedup
+        from modules.story.facade import suggest_structure_dedup
 
         preview_fn = suggest_structure_dedup
     preview = await preview_fn(

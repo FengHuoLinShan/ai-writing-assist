@@ -44,14 +44,15 @@ Spec 的显式需求优先于实现细节；Spec 内部矛盾应停止并请求 
 
 | 层 | 模块 | 职责 |
 |---|---|---|
-| 事实层 | project, world, memory | 项目、项目偏好与正史事实、记忆 |
-| 结构层 | outline | threads、arcs、Scene 与结构计划 |
+| 事实层 | project, world | 项目、项目偏好与正史事实 |
+| 结构层 | story（outline_state / continuity） | StoryOutline、threads、arcs、Scene、SceneSpan、记忆状态与回滚 |
 | 辅助层 | imports, evidence, story, writing | 导入、证据索引/编译/确认、Scene 人物卡/剧本、正文 |
 | 独立 RP 领域 | interaction | 隐藏项目、不可变选中历史、流式故事与回顾 |
 
 `infrastructure/llm` 与 `infrastructure/tasks` 是共享基础层；`map` 是 `world` 拥有的 AI 地图册子系统。
-当前业务模块共 10 个：`account`、`project`、`imports`、`world`、`memory`、`outline`、
-`evidence`、`story`、`writing`、`interaction`。RAG 索引与 Context 编译/确认归 `evidence`；
+当前业务模块共 8 个：`account`、`project`、`imports`、`world`、`evidence`、`story`、
+`writing`、`interaction`。Story 内部的 `outline_state` 与 `continuity` 吸收原 outline/memory
+唯一生产实现；旧包只保留一发布周期兼容别名。RAG 索引与 Context 编译/确认归 `evidence`；
 账户连接与全局偏好归 `account`，项目偏好与有效配置归
 `project`；`account` 是公开身份与 owner 边界，
 `interaction` 是 RP 私人故事领域，二者都不属于作者小说创作资产三层；

@@ -738,14 +738,14 @@ from modules.evidence import api as evidence_api  # noqa: E402
 # character API 已迁入 modules.world.api；模块已删除
 from modules.imports import api as imports_api  # noqa: E402
 from modules.interaction import api as interaction_api  # noqa: E402
-from modules.memory import api as memory_api  # noqa: E402
-from modules.outline import api as outline_api  # noqa: E402
 from modules.project.api import router as project_router  # noqa: E402
 from modules.project.settings_api import (  # noqa: E402
     defaults_handler_router as project_defaults_handler_router,
 )
 from modules.project.settings_api import router as project_settings_router  # noqa: E402
 from modules.story import api as story_api  # noqa: E402
+from modules.story.continuity import api as memory_api  # noqa: E402
+from modules.story.outline_state import api as outline_api  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
 from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402

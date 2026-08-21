@@ -2,6 +2,12 @@
 
 ## 定位
 
+Outline 与 Memory 的后端生产 owner 已融合到 Story 的
+`outline_state` / `continuity` 子域；前端继续使用原 `/api/outline`、
+`/api/novels/{novel_id}/memories` wire，并通过 `/api/story` 访问 Scene 人物卡与剧本。
+Writing 生成若采用 stale Story script，公开确认字段为
+`confirm_stale_story_assets`，409 detail code 为 `stale_story_assets`。
+
 前端为 Vue 3 SPA 控制台，通过 REST API 驱动整个创作工作台。Vue shell 拥有静态外壳，
 所有一级业务页主 DOM 由 SFC 拥有；既有 hash router、Proxy 状态、命令服务和 API wrapper
 保留为集中式基础设施 seam。业务视图经 `vue/mountIsland.js` 接入 `#workspace-content`

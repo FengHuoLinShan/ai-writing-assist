@@ -37,10 +37,10 @@ ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和�
 
 ## 当前读图约定
 
-- 业务模块共 10 个：`account`、`project`、`world`、`memory`、`outline`、`imports`、
-  `evidence`、`story`、`writing`、`interaction`。
-- 创作三层为事实层（`project/world/memory`）、结构层（`outline`）和辅助层
-  （`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
+- 业务模块共 8 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
+  `writing`、`interaction`。原 `memory` 与 `outline` 目录只是 Story 的一发布周期兼容别名。
+- 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
+  `story/continuity`）和辅助层（`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
   账户连接与全局偏好归 `account`，项目偏好与有效配置
   归 `project`；`account` 是三层之外的公开身份与 owner
   边界；`interaction` 是三层之外的私人 RP 故事领域；`infrastructure/tasks`、

@@ -334,6 +334,10 @@ class WritingGenerateRequest(BaseModel):
         None,
         description="续写模式使用的锁定正文版本 ID",
     )
+    confirm_stale_story_assets: bool = Field(
+        False,
+        description="确认继续使用已采用但上游依据已变化的 Scene 剧本",
+    )
     operation_id: uuid.UUID | None = None
 
     @model_validator(mode="after")

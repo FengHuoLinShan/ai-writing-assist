@@ -474,7 +474,8 @@ async def _enqueue_confirmed_task(
             confirmation_id=data.context_confirmation_id,
         )
         meta = {
-            **request_payload,
+            "meta_version": 1,
+            "request": request_payload,
             "action": action,
             "llm_execution_snapshot": await build_project_llm_execution_snapshot(
                 db,
@@ -524,7 +525,8 @@ async def _enqueue_one_click_task(
         if existing is not None:
             return StoryTaskResponse(task_id=existing.task_id, status=existing.status)
         meta = {
-            **request_payload,
+            "meta_version": 1,
+            "request": request_payload,
             "action": STORY_ONE_CLICK_ACTION,
             "submit_authorized": bool(data.submit_authorized),
             "authorization_scope": (

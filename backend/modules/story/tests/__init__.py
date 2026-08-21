@@ -1,1 +1,1 @@
-"""Story module tests."""
+"""Story owner tests."""

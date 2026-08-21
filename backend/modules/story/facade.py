@@ -27,6 +27,26 @@ from modules.story.service import (
 
 _service = StoryService()
 
+# Story is the physical owner of the authoring workflow.  The two internal
+# subdomains keep their own locality, while this root facade is the stable
+# cross-module seam during and after the compatibility release.
+from modules.story.continuity.facade import (  # noqa: E402,F401
+    capture_snapshot,
+    count_deep_import_delta_logs_by_workflow,
+    create_delta_log,
+    ensure_scene_checkpoints,
+    get_continuity_evidence_for_writing,
+    get_memory_panorama,
+    get_scene_checkpoints,
+    ingest_delta_events,
+    replace_scene_memory_events,
+    rollback_deep_import_delta_logs_by_workflow,
+)
+from modules.story.outline_state.facade import *  # noqa: E402,F401,F403
+from modules.story.outline_state.facade import (  # noqa: E402,F401
+    __all__ as _outline_state_facade_exports,
+)
+
 
 async def get_character_card(
     db: AsyncSession,
@@ -265,6 +285,21 @@ async def get_scene_story_assets(
     )
 
 
+async def get_scene_story_basis_hash(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    exclude_file_id: str | None = None,
+) -> str:
+    return await _service.get_scene_story_basis_hash(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        exclude_file_id=exclude_file_id,
+    )
+
+
 async def persist_one_click_character_cards(
     db: AsyncSession,
     *,
@@ -311,6 +346,7 @@ __all__ = [
     "get_character_card",
     "get_scene_script_file",
     "get_scene_story_assets",
+    "get_scene_story_basis_hash",
     "get_scene_story_context",
     "list_character_card_revisions",
     "list_character_cards",
@@ -318,4 +354,15 @@ __all__ = [
     "list_scene_script_revisions",
     "persist_one_click_character_cards",
     "restore_character_card_revision",
+    *_outline_state_facade_exports,
+    "capture_snapshot",
+    "count_deep_import_delta_logs_by_workflow",
+    "create_delta_log",
+    "ensure_scene_checkpoints",
+    "get_continuity_evidence_for_writing",
+    "get_memory_panorama",
+    "get_scene_checkpoints",
+    "ingest_delta_events",
+    "replace_scene_memory_events",
+    "rollback_deep_import_delta_logs_by_workflow",
 ]

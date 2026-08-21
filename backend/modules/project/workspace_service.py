@@ -9,13 +9,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
-from modules.outline.facade import (
-    count_scenes_by_novel,
-    get_scene_contract,
-)
-from modules.outline.facade import (
-    get_author_attention_items as get_outline_author_attention_items,
-)
 from modules.project.schemas import (
     ProjectResponse,
     ProjectWorkspaceSummaryResponse,
@@ -25,6 +18,13 @@ from modules.project.schemas import (
     WorkspaceAttentionTargetResponse,
     WorkspaceContinuationResponse,
     WorkspaceWritingSummaryResponse,
+)
+from modules.story.facade import (
+    count_scenes_by_novel,
+    get_scene_contract,
+)
+from modules.story.facade import (
+    get_author_attention_items as get_outline_author_attention_items,
 )
 from modules.world.contracts import WorldAttentionSummaryContract
 from modules.world.facade import get_author_attention_summary

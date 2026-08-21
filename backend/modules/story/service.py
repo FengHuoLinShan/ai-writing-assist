@@ -12,7 +12,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.facade import get_completed_task_payload
-from modules.outline.facade import get_scene_contract, get_scene_execution_bundle
 from modules.story.generation import (
     STORY_CARD_TASK,
     STORY_CHARACTER_CARD_ACTION,
@@ -27,6 +26,11 @@ from modules.story.models import (
     SceneScriptFile,
     SceneScriptRevision,
 )
+from modules.story.outline_state.facade import (
+    get_scene_contract,
+    get_scene_execution_bundle,
+)
+from modules.story.outline_state.story_outline_service import StoryOutlineService
 from modules.story.repositories import (
     CharacterCardRepository,
     CharacterCardRevisionRepository,
@@ -770,6 +774,20 @@ class StoryService:
                 latest=latest.model_dump(mode="json"),
             ) from exc
         version = await self.script_revisions.get_latest_version(db, nid, file.id) + 1
+        basis_hash = await self.get_scene_story_basis_hash(
+            db,
+            novel_id=str(nid),
+            scene_id=str(sid),
+            exclude_file_id=str(file.id),
+        )
+        revision_provenance = {
+            **(provenance or {}),
+            "basis_hash": basis_hash,
+            "basis_manifest": {
+                "scene_id": str(sid),
+                "excluded_script_file_id": str(file.id),
+            },
+        }
         revision = await self.script_revisions.create(
             db,
             SceneScriptRevision(
@@ -785,7 +803,7 @@ class StoryService:
                 ),
                 source="manual",
                 status="candidate",
-                provenance_json=provenance or {},
+                provenance_json=revision_provenance,
                 source_task_id=source_task_id,
                 context_snapshot_id=context_snapshot_id,
                 base_revision_id=file.current_revision_id,
@@ -983,22 +1001,7 @@ class StoryService:
             elif isinstance(raw, list):
                 beats.extend(raw)
         adopted_script_payloads = [
-            {
-                "id": str(item.id),
-                "novel_id": str(item.novel_id),
-                "scene_id": str(item.scene_id),
-                "file_key": item.file_key,
-                "title": item.title,
-                "adopted_revision_id": (
-                    str(item.adopted_revision_id) if item.adopted_revision_id else None
-                ),
-                "adopted_version_number": item.adopted_version_number,
-                "adopted_revision": (
-                    item.adopted_revision.model_dump(mode="json")
-                    if item.adopted_revision
-                    else None
-                ),
-            }
+            await self._adopted_script_asset_payload(db, item)
             for item in adopted_files
         ]
         payload = {
@@ -1016,6 +1019,116 @@ class StoryService:
             "beats": beats,
             "story_context_hash": _hash_payload(payload),
         }
+
+    async def _adopted_script_asset_payload(
+        self,
+        db: AsyncSession,
+        item: SceneScriptFileResponse,
+    ) -> dict[str, Any]:
+        revision = item.adopted_revision
+        stored_basis_hash = (
+            str((revision.provenance or {}).get("basis_hash") or "")
+            if revision is not None
+            else ""
+        )
+        expected_basis_hash = await self.get_scene_story_basis_hash(
+            db,
+            novel_id=str(item.novel_id),
+            scene_id=str(item.scene_id),
+            exclude_file_id=str(item.id),
+        )
+        stale = not stored_basis_hash or stored_basis_hash != expected_basis_hash
+        return {
+            "id": str(item.id),
+            "novel_id": str(item.novel_id),
+            "scene_id": str(item.scene_id),
+            "file_key": item.file_key,
+            "title": item.title,
+            "adopted_revision_id": (
+                str(item.adopted_revision_id) if item.adopted_revision_id else None
+            ),
+            "adopted_version_number": item.adopted_version_number,
+            "adopted_revision": (
+                revision.model_dump(mode="json") if revision else None
+            ),
+            "basis_hash": stored_basis_hash or None,
+            "expected_basis_hash": expected_basis_hash,
+            "stale": stale,
+            "stale_reason": "upstream_story_assets_changed" if stale else None,
+        }
+
+    async def get_scene_story_basis_hash(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        exclude_file_id: str | None = None,
+    ) -> str:
+        """Hash upstream Scene/outline/cards/adopted scripts, excluding one file."""
+        nid = _uuid(novel_id, "novel_id")
+        sid = _uuid(scene_id, "scene_id")
+        scene = await self._require_scene(db, nid, sid)
+        current_outline = await StoryOutlineService().get_current(db, str(nid))
+        outline_revision = current_outline.revision
+        cards = await self.cards.list(db, nid, scene_id=sid)
+        card_basis: list[dict[str, Any]] = []
+        for card in cards:
+            revision = None
+            if card.current_revision_id is not None:
+                revision = await self.card_revisions.get(
+                    db,
+                    nid,
+                    card.current_revision_id,
+                )
+            card_basis.append(
+                {
+                    "id": str(card.id),
+                    "character_id": str(card.character_id),
+                    "revision_id": str(revision.id) if revision else None,
+                    "version": card.current_version_number,
+                    "hash": revision.content_hash if revision else None,
+                }
+            )
+        files = await self.script_files.list_for_scene(db, nid, sid)
+        script_basis: list[dict[str, Any]] = []
+        for file in files:
+            if exclude_file_id and str(file.id) == str(exclude_file_id):
+                continue
+            revision = None
+            if file.adopted_revision_id is not None:
+                revision = await self.script_revisions.get(
+                    db,
+                    nid,
+                    file.adopted_revision_id,
+                )
+            if revision is None:
+                continue
+            script_basis.append(
+                {
+                    "id": str(file.id),
+                    "file_key": file.file_key,
+                    "revision_id": str(revision.id),
+                    "version": revision.version_number,
+                    "hash": revision.content_hash,
+                }
+            )
+        return _hash_payload(
+            {
+                "scene": _as_dict(scene),
+                "story_outline": (
+                    {
+                        "id": str(outline_revision.id),
+                        "version": outline_revision.version_number,
+                        "hash": outline_revision.content_hash,
+                    }
+                    if outline_revision is not None
+                    else None
+                ),
+                "cards": card_basis,
+                "adopted_scripts": script_basis,
+            }
+        )
 
     async def get_scene_story_context(
         self,

@@ -236,7 +236,7 @@ class BulkSceneEntityExtractionMixin:
                 result_refs=result_refs,
             )
         try:
-            from modules.memory.facade import ensure_scene_checkpoints
+            from modules.story.facade import ensure_scene_checkpoints
 
             for scene in text_scenes:
                 await ensure_scene_checkpoints(db, str(nid), service._scene_id(scene))

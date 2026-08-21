@@ -9,7 +9,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MODULES_ROOT = BACKEND_ROOT / "modules"
 
 _DEEP_IMPORT_BUDGET_ALLOWLIST = {
-    "modules/outline/generation/parser.py",
+    "modules/story/outline_state/generation/parser.py",
 }
 _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
     *_DEEP_IMPORT_BUDGET_ALLOWLIST,

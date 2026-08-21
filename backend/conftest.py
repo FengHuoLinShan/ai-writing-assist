@@ -38,14 +38,14 @@ import modules.account.settings_models  # noqa: F401
 import modules.evidence.models  # noqa: F401
 import modules.imports.models  # noqa: F401
 
-# character/geo/review/timeline 已从 minimal-core 移除
-import modules.memory.models  # noqa: F401
-import modules.outline.models  # noqa: F401
-
 # 导入所有 ORM 模型注册到 Base.metadata
 import modules.project.models  # noqa: F401
 import modules.project.settings_models  # noqa: F401
+
+# character/geo/review/timeline 已从 minimal-core 移除
+import modules.story.continuity.models  # noqa: F401
 import modules.story.models  # noqa: F401
+import modules.story.outline_state.models  # noqa: F401
 import modules.world.map_atlas_models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401

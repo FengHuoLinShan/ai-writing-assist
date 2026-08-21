@@ -4,6 +4,21 @@ Story 是作者工作台的 Scene 级派生层，保存人物卡的时点状态�
 World 仍拥有 canonical Character，Outline 仍拥有 Scene；Story 通过 facade 校验二者，不把
 人物卡或剧本写回 World、Memory、Writing。
 
+## 物理 owner 融合
+
+Story 同时拥有原 Outline 与 Memory 的唯一生产实现，内部子域位于
+`backend/modules/story/outline_state` 与 `backend/modules/story/continuity`。保留原表名、任务
+类型、CAS、snapshot/checkpoint/rollback、SceneSpan、Workbench、揭示状态和 TextArchive/World
+回滚边界；`backend/modules/outline` 与 `backend/modules/memory` 仅在一个发布周期内作为薄
+import/API/model/schema 兼容层存在，不包含第二套 service/repository/task/ORM 逻辑。
+
+融合后的完整 Story-owned 表清单为：`story_outline_heads`、`story_outline_revisions`、
+`plot_threads`、`outline_arcs`、`scenes`、`scene_spans`、`scene_fusion_suggestions`、
+`scene_summary_checkpoints`、`scene_chapter_links`、`foreshadowing_plans`、`reveal_plans`、
+`memory_events`、`memory_snapshots`、`memory_scene_checkpoints`、`memory_scene_snapshots`、
+`delta_log`，以及下方四张 Scene Story asset 表。公开 API 前缀不变：`/api/outline`、
+`/api/novels/{novel_id}/memories`、`/api/story`。
+
 ## 对外能力
 
 API 前缀为 `/api/story`。资源式路径提供人物卡 revision CRUD、恢复/归档，以及脚本文件的

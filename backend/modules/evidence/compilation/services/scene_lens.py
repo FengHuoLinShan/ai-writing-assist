@@ -26,13 +26,13 @@ _STATE_LABELS = {
 
 
 async def _get_scene(db: AsyncSession, novel_id: str, scene_id: str) -> Any:
-    from modules.outline.facade import get_scene_contract
+    from modules.story.facade import get_scene_contract
 
     return await get_scene_contract(db, novel_id, scene_id)
 
 
 async def _get_checkpoints(db: AsyncSession, novel_id: str, scene_id: str) -> Any:
-    from modules.memory.facade import get_scene_checkpoints
+    from modules.story.facade import get_scene_checkpoints
 
     return await get_scene_checkpoints(db, novel_id, scene_id)
 

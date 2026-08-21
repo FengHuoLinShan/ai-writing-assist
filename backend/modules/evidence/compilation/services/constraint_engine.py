@@ -89,8 +89,8 @@ class ConstraintEngine:
         if not scene_id:
             return []
 
-        from modules.outline.contracts import scene_semantic_field_status
-        from modules.outline.facade import get_scene_contract
+        from modules.story.contracts import scene_semantic_field_status
+        from modules.story.facade import get_scene_contract
 
         scene_contract = await get_scene_contract(db, novel_id, scene_id)
         scene = (
@@ -209,7 +209,7 @@ class ConstraintEngine:
         状态为 "seeded" 且 planned_payoff_scene > 当前场景索引（或
         planned_payoff_chapter > 当前章节）的伏笔 → LLM 不得在当前上下文提前揭示
         """
-        from modules.outline.facade import get_active_foreshadowing
+        from modules.story.facade import get_active_foreshadowing
 
         plans = await get_active_foreshadowing(db, novel_id, status="seeded")
 

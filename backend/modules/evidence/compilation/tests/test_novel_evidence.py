@@ -145,10 +145,10 @@ async def test_smart_search_keeps_primary_range_aligned_and_aggregates_parent_sc
     test_project_id,
     monkeypatch,
 ) -> None:
-    import modules.outline.facade as outline_facade
-    from modules.outline.facade import bind_scene_spans_to_source
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    import modules.story.facade as outline_facade
+    from modules.story.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
 
     first_text = "旧塔入口留下脚印。"
     second_text = "铜铃在密道深处响起。"

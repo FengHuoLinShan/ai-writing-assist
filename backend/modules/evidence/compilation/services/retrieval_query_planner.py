@@ -26,6 +26,10 @@ _KNOWN_PURPOSES = frozenset(
         "import_scene_activation",
         "reader_context",
         "character_context",
+        "story_scene_one_click",
+        "story_character_reaction",
+        "story_character_card",
+        "story_scene_script",
         "manual_search",
         "generic_context",
     }

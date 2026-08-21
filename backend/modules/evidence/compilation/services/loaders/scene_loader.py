@@ -15,7 +15,7 @@ _GetSceneContractFn = Callable[..., Awaitable[Any]]
 
 
 async def _default_get_scene_contract(*args: Any, **kwargs: Any) -> Any:
-    from modules.outline.facade import get_scene_contract
+    from modules.story.facade import get_scene_contract
 
     return await get_scene_contract(*args, **kwargs)
 

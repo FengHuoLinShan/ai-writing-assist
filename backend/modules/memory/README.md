@@ -1,4 +1,12 @@
-# Module: memory / 长期记忆模块
+# Compatibility alias: memory / 长期记忆模块
+
+> `memory` is no longer an independent production module. Its implementation
+> lives under `modules.story.continuity`; this package is retained for one
+> release as a thin import/API/model/schema compatibility layer. New backend
+> consumers must use `modules.story.facade` / `modules.story.contracts`, while
+> `/api/novels/{novel_id}/memories` and existing task names remain unchanged.
+
+# Historical module notes
 
 ## 定位
 

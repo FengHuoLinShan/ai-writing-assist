@@ -10,7 +10,7 @@ import logging
 from dataclasses import asdict
 from datetime import datetime
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from core.api_params import NovelIdQuery
@@ -29,6 +29,7 @@ from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
 )
+from modules.story.facade import get_scene_story_assets
 from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
@@ -186,8 +187,6 @@ async def enqueue_conflict_check_ai_review(
             request_payload=payload,
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if existing is not None:
         check = await _conflict_service.get_check(
@@ -220,8 +219,6 @@ async def enqueue_conflict_check_ai_review(
             meta={**payload, "llm_execution_snapshot": llm_execution_snapshot},
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not receipt.reused:
         await _conflict_service.bind_ai_review_task_owner(
@@ -400,8 +397,6 @@ async def generate_writing_candidate(
             request_payload=payload,
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if existing is not None:
         return WritingGenerateResponse(
@@ -409,16 +404,48 @@ async def generate_writing_candidate(
             status=existing.status,
         )
     try:
-        await prepare_confirmed_ai_action(
+        confirmed_context = await prepare_confirmed_ai_action(
             db,
             novel_id=data.novel_id,
             action="writing.generate",
             confirmation_id=data.context_confirmation_id,
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    compile_options = dict(getattr(confirmed_context, "compile_options", None) or {})
+    scene_id = str(compile_options.get("scene_id") or "") or None
+    story_asset_basis: list[dict[str, str | None]] = []
+    if scene_id:
+        story_assets = await get_scene_story_assets(
+            db,
+            novel_id=data.novel_id,
+            scene_id=scene_id,
+        )
+        story_asset_basis = [
+            {
+                "file_id": str(item.get("id") or ""),
+                "adopted_revision_id": str(item.get("adopted_revision_id") or ""),
+                "basis_hash": item.get("basis_hash"),
+                "expected_basis_hash": item.get("expected_basis_hash"),
+            }
+            for item in story_assets.get("adopted_scripts", [])
+            if isinstance(item, dict)
+        ]
+        stale_assets = [
+            item
+            for item in story_asset_basis
+            if item.get("basis_hash") != item.get("expected_basis_hash")
+        ]
+        if stale_assets and not data.confirm_stale_story_assets:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "stale_story_assets",
+                    "message": "已采用的 Scene 剧本依据已变化；请明确确认后继续写作",
+                    "assets": stale_assets,
+                },
+            )
 
     llm_execution_snapshot = await build_project_llm_execution_snapshot(
         db,
@@ -439,12 +466,12 @@ async def generate_writing_candidate(
                 "context_confirmation_id": data.context_confirmation_id,
                 "generation_mode": data.generation_mode,
                 "base_draft_id": data.base_draft_id,
+                "confirm_stale_story_assets": data.confirm_stale_story_assets,
+                "story_asset_basis": story_asset_basis,
                 "llm_execution_snapshot": llm_execution_snapshot,
             },
         )
     except ValueError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not receipt.reused:
         await bind_confirmed_action_result(

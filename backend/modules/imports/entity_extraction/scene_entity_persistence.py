@@ -1013,8 +1013,8 @@ class SceneEntityPersistenceMixin:
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
     ) -> int:
-        from modules.memory.contracts import MemoryDeltaEventIngest
-        from modules.memory.facade import (
+        from modules.story.contracts import MemoryDeltaEventIngest
+        from modules.story.facade import (
             ingest_delta_events,
             replace_scene_memory_events,
         )

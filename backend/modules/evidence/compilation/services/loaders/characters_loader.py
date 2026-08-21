@@ -41,7 +41,7 @@ async def _default_filter_context_by_character_knowledge(
 
 
 async def _default_get_scene_contract(*args: Any, **kwargs: Any) -> Any:
-    from modules.outline.facade import get_scene_contract
+    from modules.story.facade import get_scene_contract
 
     return await get_scene_contract(*args, **kwargs)
 

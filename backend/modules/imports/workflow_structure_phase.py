@@ -34,7 +34,7 @@ def _small_sample_structure_target_count() -> int:
 
 
 def minimum_structure_category_targets(chapter_count: int) -> dict[str, int]:
-    from modules.outline.facade import get_deep_import_structure_category_targets
+    from modules.story.facade import get_deep_import_structure_category_targets
 
     return get_deep_import_structure_category_targets(
         chapter_count,
@@ -112,7 +112,7 @@ async def rerun_structure_once_if_needed(
     gate = structure_quality_gate(result)
     if gate["ok"] or not workflow_id:
         return result, {"attempted": False, **gate}
-    from modules.outline.facade import deprecate_deep_import_structure_assets_by_workflow
+    from modules.story.facade import deprecate_deep_import_structure_assets_by_workflow
 
     await deprecate_deep_import_structure_assets_by_workflow(
         db,
@@ -641,7 +641,7 @@ async def ensure_minimum_structure_outputs(
     *,
     workflow_id: str | None,
 ) -> dict[str, Any]:
-    from modules.outline.facade import ensure_deep_import_structure_outputs
+    from modules.story.facade import ensure_deep_import_structure_outputs
 
     return await ensure_deep_import_structure_outputs(
         db,
@@ -656,19 +656,19 @@ async def ensure_minimum_structure_outputs(
 
 
 def structure_category_counts(result: dict[str, Any]) -> dict[str, int]:
-    from modules.outline.facade import get_deep_import_structure_category_counts
+    from modules.story.facade import get_deep_import_structure_category_counts
 
     return get_deep_import_structure_category_counts(result)
 
 
 def structure_output_count(result: dict[str, Any]) -> int:
-    from modules.outline.facade import get_deep_import_structure_output_count
+    from modules.story.facade import get_deep_import_structure_output_count
 
     return get_deep_import_structure_output_count(result)
 
 
 def fallback_thread_type(index: int) -> str:
-    from modules.outline.facade import get_deep_import_fallback_thread_type
+    from modules.story.facade import get_deep_import_fallback_thread_type
 
     return get_deep_import_fallback_thread_type(index)
 
@@ -677,7 +677,7 @@ async def select_fallback_reveal_target(
     db: AsyncSession,
     novel_id: str,
 ) -> dict[str, Any] | None:
-    from modules.outline.facade import select_deep_import_fallback_reveal_target
+    from modules.story.facade import select_deep_import_fallback_reveal_target
 
     return await select_deep_import_fallback_reveal_target(
         db,

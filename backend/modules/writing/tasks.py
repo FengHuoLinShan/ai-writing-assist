@@ -201,6 +201,8 @@ async def handle_writing_generate(db, task):
         llm_execution_snapshot=llm_execution_snapshot,
         generation_mode=str(meta.get("generation_mode") or "draft"),
         base_draft_id=meta.get("base_draft_id"),
+        confirm_stale_story_assets=bool(meta.get("confirm_stale_story_assets", False)),
+        story_asset_basis=meta.get("story_asset_basis") or [],
     )
     task.update_progress(1.0)
     await db.flush()

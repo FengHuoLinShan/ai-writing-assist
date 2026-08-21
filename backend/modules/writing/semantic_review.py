@@ -68,7 +68,7 @@ async def _scene_bundle(
 ) -> dict[str, Any] | None:
     if not scene_id:
         return None
-    from modules.outline.facade import get_scene_execution_bundle
+    from modules.story.facade import get_scene_execution_bundle
 
     return _contract_dict(
         await get_scene_execution_bundle(db, novel_id, scene_id),

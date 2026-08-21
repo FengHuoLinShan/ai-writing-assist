@@ -21,7 +21,7 @@ class RagSceneMappingCoverageService:
         *,
         content_mode: str,
     ) -> RagSceneMappingCoverageContract:
-        from modules.outline.facade import get_scene_span_coverage
+        from modules.story.facade import get_scene_span_coverage
 
         nid = uuid.UUID(str(novel_id))
         chunks = await self._repo.list_scene_mapping_rows(

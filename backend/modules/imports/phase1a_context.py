@@ -222,7 +222,7 @@ class Phase1aContextBuilder:
     ) -> Any:
         loader = self._outline_loader
         if loader is None:
-            from modules.outline.facade import get_outline_analysis_context
+            from modules.story.facade import get_outline_analysis_context
 
             loader = get_outline_analysis_context
         return await loader(

@@ -6,6 +6,7 @@ from time import perf_counter
 import pytest
 
 from modules.evidence.compilation.contracts import CompileOptions
+from modules.evidence.compilation.services.context_compiler import SCOPE_LOADERS
 from modules.evidence.compilation.services.retrieval_query_planner import (
     RetrievalQueryPlanner,
 )
@@ -81,6 +82,26 @@ def test_planner_is_deterministic_and_bounded() -> None:
         "structured_relation_focus",
     }
     assert all(clause.chapter_index == 3 for clause in first.clauses)
+
+
+def test_scene_scope_is_a_real_scene_anchored_compile() -> None:
+    assert SCOPE_LOADERS["scene"] == SCOPE_LOADERS["chapter"]
+    assert "scene" in SCOPE_LOADERS["scene"]
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="生成本场人物反应",
+        scope="scene",
+        scene_id=str(uuid.uuid4()),
+        character_ids=[str(uuid.uuid4())],
+        reveal_mode="character",
+        viewpoint_character_id=str(uuid.uuid4()),
+        visible_until_scene_id=str(uuid.uuid4()),
+        retrieval_purpose="story_character_reaction",
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    assert plan.purpose == "story_character_reaction"
+    assert plan.visible_until_scene_id == options.visible_until_scene_id
 
 
 def test_character_plan_never_adds_chapter_wide_task_fallback() -> None:

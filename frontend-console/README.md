@@ -3,6 +3,10 @@
 同时提供作者结构化创作工作台和 RP 私人互动故事。作者路径采用三主题换肤视觉系统
 （sticky 晨光便签 / night 暗夜书房 / ink 水墨写意）；RP 路径使用独立、纯白、低干扰的故事壳。
 
+后端 Outline/Memory 的唯一生产实现现归 Story 内部子域，原 API 前缀继续兼容。Scene 写作
+若明确继续使用 stale adopted script，Writing wire 使用 `confirm_stale_story_assets=true`；
+服务端 409 使用 `stale_story_assets` code，前端应保留编辑内容并要求作者确认或刷新。
+
 ## 快速启动
 
 开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。AI 地图册是普通 Vue SFC，图片通过同源鉴权 API 读取。

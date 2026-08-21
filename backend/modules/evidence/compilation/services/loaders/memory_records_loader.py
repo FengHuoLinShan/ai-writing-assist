@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
 from modules.evidence.compilation.services.protocol import Loader
-from modules.memory.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.contracts import SCENE_MEMORY_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ async def _default_get_memory_panorama(
     novel_id: str,
     chapter_index: int,
 ) -> Any:
-    from modules.memory.facade import get_memory_panorama
+    from modules.story.facade import get_memory_panorama
 
     return await get_memory_panorama(db, novel_id, chapter_index)
 
@@ -34,7 +34,7 @@ async def _default_ensure_scene_checkpoints(
     novel_id: str,
     scene_id: str,
 ) -> Any:
-    from modules.memory.facade import ensure_scene_checkpoints
+    from modules.story.facade import ensure_scene_checkpoints
 
     return await ensure_scene_checkpoints(db, novel_id, scene_id)
 

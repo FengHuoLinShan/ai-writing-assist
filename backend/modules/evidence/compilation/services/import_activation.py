@@ -32,7 +32,7 @@ class ImportContextActivationService:
         visible_until_chapter: int | None = None,
         visible_until_offset: int | None = None,
     ) -> ImportContextActivationContract:
-        from modules.outline.facade import (
+        from modules.story.facade import (
             get_outline_analysis_context,
             get_scene_context_window,
         )
@@ -258,7 +258,7 @@ class ImportContextActivationService:
         visible_until_offset: int | None = None,
     ) -> list[dict]:
         """Return only hash-validated current-Scene source ranges for audit metadata."""
-        from modules.outline.facade import get_scene_context_window
+        from modules.story.facade import get_scene_context_window
 
         window = await get_scene_context_window(
             db,
@@ -546,7 +546,7 @@ class ImportContextActivationService:
         content_mode: str,
         scene_chunks: list[dict],
     ) -> list:
-        from modules.outline.facade import (
+        from modules.story.facade import (
             bind_scene_spans_to_source,
             get_scene_spans_for_scene,
         )

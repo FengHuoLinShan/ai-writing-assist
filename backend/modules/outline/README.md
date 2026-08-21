@@ -1,4 +1,12 @@
-# Module: outline / 大纲与结构管理模块
+# Compatibility alias: outline / 大纲与结构管理
+
+> `outline` is no longer an independent production module. Its implementation
+> lives under `modules.story.outline_state`; this package is retained for one
+> release as a thin import/API/model/schema compatibility layer. New backend
+> consumers must use `modules.story.facade` / `modules.story.contracts`, while
+> `/api/outline` and existing task names remain unchanged.
+
+# Historical module notes
 
 ## 定位
 

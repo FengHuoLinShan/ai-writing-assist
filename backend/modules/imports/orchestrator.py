@@ -1325,12 +1325,10 @@ class DeepImportOrchestrator:
         workflow_id: str,
     ) -> dict[str, Any]:
         """Soft-deprecate business assets written by an abandoned workflow."""
-        from modules.memory.facade import (
-            rollback_deep_import_delta_logs_by_workflow,
-        )
-        from modules.outline.facade import (
+        from modules.story.facade import (
             deprecate_deep_import_scenes_by_workflow,
             deprecate_deep_import_structure_assets_by_workflow,
+            rollback_deep_import_delta_logs_by_workflow,
         )
         from modules.world.facade import (
             deprecate_deep_import_entities_by_workflow,
@@ -1434,7 +1432,7 @@ class DeepImportOrchestrator:
         end_chapter: int,
     ) -> str | None:
         """检查指定章节范围内是否已有派生 Scene 或实体数据。"""
-        from modules.outline.facade import get_scenes_by_novel
+        from modules.story.facade import get_scenes_by_novel
         from modules.world.facade import list_auto_ingested_entities
 
         scenes = await get_scenes_by_novel(

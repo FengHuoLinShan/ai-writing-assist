@@ -186,7 +186,7 @@ class SingleSceneEntityExtractionMixin:
 
         # 每个 Scene 完成后更新 Scene 时间投影；失败会在 checkpoint 中显式呈现。
         try:
-            from modules.memory.facade import ensure_scene_checkpoints
+            from modules.story.facade import ensure_scene_checkpoints
 
             async with _optional_lock(db_lock):
                 await ensure_scene_checkpoints(

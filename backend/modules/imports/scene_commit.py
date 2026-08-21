@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.scene_fusion import FinalSceneCandidate
-from modules.outline import facade as outline_facade
+from modules.story import facade as outline_facade
 from modules.writing import facade as writing_facade
 
 MAX_NARRATIVE_TAG_LENGTH = 32
