@@ -336,7 +336,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | 模块 | 当前注册处理器 |
 |------|------|
 | project | `smart_dedup_scan` |
-| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`map_atlas_generate`、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
+| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_validation`、`map_atlas_generate`、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
 | outline | `story_outline_generate`、`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview` |
 | evidence | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities`（持久化 task type 不改名） |
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |

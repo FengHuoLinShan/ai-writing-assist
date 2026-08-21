@@ -671,7 +671,10 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST | `/api/world/bible/imports/preview` | 受限预览目录清单；返回统计、映射与 hash，不回显正文 |
 | GET | `/api/world/bible/imports/{suggestion_id}` | 恢复 pending 导入的紧凑预览 |
 | POST | `/api/world/bible/imports/{suggestion_id}/apply` | 以 preview hash 创建/更新未发布工作稿并写入冲突队列 |
+| GET | `/api/world/bible/validation-policy` | 读取项目是否启用发布前校验 |
+| POST | `/api/world/bible/validation-policy/activate` | 首次显式启用内置结构/引擎校验策略；重放幂等 |
 | POST | `/api/world/bible/validation-runs` | 用 operation id 提交 targeted/full 校验任务 |
+| GET | `/api/world/bible/validation-runs` | 按时间倒序读取项目近期校验回执 |
 | GET | `/api/world/bible/validation-runs/latest` | 按 scope/target 读取最新回执并惰性重算 freshness |
 | GET | `/api/world/bible/validation-runs/{run_id}` | 读取不含 Prompt、token、原始 model snapshot 的校验回执 |
 | POST | `/api/world/bible/validation-runs/{run_id}/accept-warnings` | 作者对当前 receipt 的全部 warning 做显式签收 |

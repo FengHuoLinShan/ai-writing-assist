@@ -14,6 +14,8 @@
 - `world_adoption_package.v1` 不纳入地图册操作；地图候选和页面仍走本模块既有作者采用流，不作为
   Scene memory 或 package 的对象/关系原子写入项。
 - 深度导入新增的 workflow-scoped 实体去重 facade 不进入地图册生成、采用或图片恢复状态机；地图仍只消费已确认资料。
+- 世界书的 `world_validation` 回执不取代地图册自有的候选审核、来源 hash 和图片采用门禁；
+  地图册不读取或写入 `world_validation_runs`。
 
 ## 用户状态
 

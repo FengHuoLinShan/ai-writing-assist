@@ -3413,6 +3413,51 @@ WorldStateAuthorityStatus = Literal[
     "draft", "proposed", "canon", "author-required", "deprecated"
 ]
 WorldStateCoverageStatus = Literal["gap", "partial", "covered", "not-applicable"]
+WORLD_STATE_FACETS = (
+    "本体法则与不可行域",
+    "地理、生态与气候",
+    "资源、承载力与城市代谢",
+    "技术、魔法与基础设施",
+    "故障、维修与韧性",
+    "人口结构与生命历程",
+    "家庭、亲属与照护",
+    "身体、医疗、残障与死亡",
+    "劳动、职业与技能传承",
+    "住房、消费与日常时间",
+    "财产、货币、信用、债务与供应链",
+    "正式制度、非正式制度与组织政治",
+    "行政能力、裁量与合法性",
+    "法律、证据、申诉与多法域",
+    "阶层、地位、身份与社会边界",
+    "战争、边境、迁徙与外部关系",
+    "知识、教育、档案与谣言",
+    "语言、语域、命名与翻译",
+    "宗教、仪式、禁忌与道德经济",
+    "情绪规则、身体经验与物质文化",
+    "历史沉积与路径依赖",
+    "网络、集体行动、涌现与反馈",
+)
+WORLD_STATE_COUPLING_CHAINS = (
+    "权利链",
+    "技术链",
+    "身份链",
+    "证据链",
+    "分配链",
+)
+WORLD_STATE_PRESSURE_TESTS = (
+    "主角移除",
+    "普通星期二",
+    "一生",
+    "最贫者",
+    "上层例外",
+    "一项权利",
+    "一件商品",
+    "故障与维修",
+    "跨境",
+    "历史来源",
+    "集体行动",
+    "十年后",
+)
 
 
 class WorldStateDecision(BaseModel):
@@ -3770,15 +3815,20 @@ class WorldDesignWorldState(BaseModel):
 
     @model_validator(mode="after")
     def validate_taxonomy(self) -> WorldDesignWorldState:
-        for prefix, values, count in (
-            ("F", self.facets, 22),
-            ("C", self.coupling_chains, 5),
-            ("T", self.pressure_tests, 12),
+        for prefix, values, names in (
+            ("F", self.facets, WORLD_STATE_FACETS),
+            ("C", self.coupling_chains, WORLD_STATE_COUPLING_CHAINS),
+            ("T", self.pressure_tests, WORLD_STATE_PRESSURE_TESTS),
         ):
-            expected_ids = {f"{prefix}{index:02d}" for index in range(1, count + 1)}
-            if {item.id for item in values} != expected_ids:
+            expected = {
+                f"{prefix}{index:02d}": name
+                for index, name in enumerate(names, start=1)
+            }
+            actual = {item.id: item.name for item in values}
+            if actual != expected:
                 raise ValueError(
-                    f"{prefix} taxonomy must contain each required id exactly once"
+                    f"{prefix} taxonomy must contain each required id "
+                    "and name exactly once"
                 )
         all_ids = [item.id for item in self.rules]
         all_ids.extend(

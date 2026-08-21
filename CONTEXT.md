@@ -41,6 +41,8 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 知识可见性 | `knowledge_visibility_policies` | 事实的 public/tag/private 可见性策略。 |
 | 创设建议 | `creation_suggestion_queue` | 会改动结构化资产的普通 AI 建议先进入此队列，作者采用后才调用 world 领域命令写入当前有效资产。 |
 | 冲突队列 | `conflict_check_queue` | 世界设定冲突与叙事风险的待处理项；它是当前表，不是未来预留。 |
+| 世界设计 checkpoint | `creation_suggestion_queue` 中的 `world_design_checkpoint.v1` | 作者显式保存、不可采用的分阶段世界状态；内嵌 `world-state 0.1.0` 完整 taxonomy，未有证据的区域保持 gap/not-run。 |
+| 世界书校验回执 | `world_validation_runs` | 对冻结 policy/manifest/dependency/target 的 targeted/full 校验证据；只证明结构与已登记证据，不等于文学质量或作者采纳。激活项目策略后，新鲜回执是工作稿发布和采用包应用的硬门禁。 |
 
 ## 3. 结构、正文与导入
 

@@ -25,6 +25,10 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
   world 以 `world_worldbook_import.v1` 保存 pending 提案。首次导入创建未发布
   `source_material` 工作稿；重导入仅在来源变化且本地仍等于 baseline 时安全更新，双变和
   源缺失进入冲突队列。控制文件、脚本和 `.obsidian` 配置只报告忽略，永不执行或激活。
+- 项目可显式启用 `world_validation_policy.v1`；未启用时旧项目行为不变。启用后，
+  targeted/full 校验冻结页面、采用包、依赖与策略，发布工作稿和采用设定必须携带
+  当前新鲜回执。结构错误、`fail/author-required/insufficient-evidence`、过期或预算
+  不足必定阻断；warning 只能由作者对当前 receipt 的全部提示显式签收。
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
@@ -63,6 +67,7 @@ RAG 或 LLM 上下文。
 - `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `generic_entity_profiles` — 世界对象的类型化 Profile 与模板
 - `generation_prompt_templates` / `generation_prompt_template_revisions` — 项目生成模板及不可变版本
 - `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页和派生投影
+- `world_validation_runs` — 持久化 targeted/full 校验输入、分片 hash、结果、预算、新鲜度与作者签收
 - `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列

@@ -268,6 +268,10 @@ route host，只通过 `vue/bridge/index.js` 访问既有基建，动态内容�
   [Gerrit ported unresolved comments](https://gerrit-review.googlesource.com/Documentation/user-porting-comments.html)
   的跨版本可达性，但不复制内容、不生成第二套状态，也不阻断发布。汇总与跳转全是确定性前端
   投影，因此不引入 Pi 或 Agent runtime。
+- 世界书内的“世界健康”折叠面板显示待作者决定、待补证据和失效数，支持当前
+  工作稿/采用包的定向校验、全面校验、后台恢复、来源回到与最近回执。主界面不展示
+  raw ID、JSON、Prompt、token 或 hash。旧项目默认只自愿校验；作者二次确认“启用发布前校验”
+  后才强制发布/采用门禁。warning 需写明理由并整体签收；stale/block 明确要求重跑或修正。
 
 ## 写作流补充
 

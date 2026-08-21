@@ -58,6 +58,15 @@ from shared.enums import CandidateAction
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
+
+@pytest.fixture(autouse=True)
+def _allow_legacy_canon_writes_in_unit_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "modules.world.services.worldbuilding.world_validation_service."
+        "WorldValidationService.require_legacy_canon_write_allowed",
+        AsyncMock(),
+    )
+
 # ============================================================
 # entity_types.py — pure function mapping
 # ============================================================

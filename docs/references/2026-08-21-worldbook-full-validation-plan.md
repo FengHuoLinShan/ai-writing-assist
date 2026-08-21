@@ -400,12 +400,11 @@ ReviewPacket = 一次语义审计的分片载荷：
 | P2 目录导入 | 预检（0.2 约束）、preview/apply、`world_worldbook_import.v1`、三方比较、Conflict Queue 接入、`source_material` 禁激活、`page_meta_json`。 | 导入回归全绿；路径攻击/CAS/竞态测试。 |
 | P3 校验引擎 | 确定性规则引擎（结构层 + 引擎层）、`validation_policy` 页面、`world_validation_runs` 表 + 迁移、ReviewPacket 语义审计、预算与单飞、门禁接线（draft publish / adoption apply 的 409）。 | 单元/集成含预植缺陷；receipt 失效/签收/硬阻断/预算测试。 |
 | P4 API/UI | 校验与导入端点收口、世界健康入口（生长/校验/待裁定/失效下游/receipt）、导入向导、用户语言映射、receipt 原页恢复、空态/窄屏/晚到响应保护。 | 前端测试 + E2E；画像 A 场景验收；无 raw ID/JSON 泄漏。 |
-| P5 验收与文档 | 冻结快照 + 双 oracle 差分 + 预植缺陷 + 语义覆盖账本验收；README、CONTEXT、`docs/modules/02_world.md`、`docs/01_数据库设计.md`、Prompt 体系、用户行为文档同步；新增设计文档登记进 `docs/architecture/architecture-documents.toml` 机器清单；`make docs-check BASE_REF=origin/main`。 | 验收记录（hash/统计/receipts，无正文）；docs-check 全绿；完整 regression。 |
+| P5 验收与文档 | 冻结快照 + 双 oracle 差分 + 预植缺陷 + 语义覆盖账本验收；README、CONTEXT、`docs/modules/02_world.md`、`docs/01_数据库设计.md`、Prompt 体系、用户行为文档同步；ADR 进索引，本计划/验收作为历史参考不冒充当前架构清单；`make docs-check BASE_REF=origin/main`。 | 验收记录（hash/统计/receipts，无正文）；docs-check 全绿；完整 regression。 |
 
-> 实施进度（2026-08-21）：P0–P3 已落地。P3 已接入 operation receipt、
-> `world_validation` 任务（自动重试最多 2 次）、full 部分唯一索引、冻结
-> manifest/policy/dependency/target hash、确定性与可选语义 ReviewPacket、回执失效、
-> warning 签收及 draft/adoption/旧 canon writer 门禁。P4–P5 待执行。
+> 实施进度（2026-08-21）：P0–P5 已全部落地。产品运行时为原生 Python/Vue，
+> Ruby 仅用于私有冻结快照验收。回执统计与 hash 见
+> `docs/references/2026-08-21-worldbook-validation-acceptance.md`。
 
 ## 6. 风险、开放问题与需用户确认项（原计划缺失）
 

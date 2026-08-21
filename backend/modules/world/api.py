@@ -27,7 +27,9 @@ from modules.evidence.facade import attach_result_ref, require_fresh_confirmatio
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
-    require_active_project_exclusive,
+)
+from modules.project.facade import (
+    require_active_project_exclusive as _require_active_project_exclusive,
 )
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
@@ -860,7 +862,7 @@ async def create_world_validation_run(
     db: DbSession,
     data: WorldValidationRunCreate,
 ) -> WorldValidationRunResponse:
-    await require_active_project_exclusive(db, data.novel_id)
+    await _require_active_project_exclusive(db, data.novel_id)
     try:
         return await _world_validation_service.create_run(db, data)
     except ValueError as exc:

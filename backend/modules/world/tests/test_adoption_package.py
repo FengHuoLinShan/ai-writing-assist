@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import uuid
 
@@ -25,6 +26,9 @@ from modules.world.models import (
 )
 from modules.world.models.core import CoreEntity, EntityRelation
 from modules.world.schemas import (
+    WORLD_STATE_COUPLING_CHAINS,
+    WORLD_STATE_FACETS,
+    WORLD_STATE_PRESSURE_TESTS,
     CoreEntityCreate,
     EntityRelationCreate,
     WorldAdoptionPackageApplyRequest,
@@ -36,6 +40,7 @@ from modules.world.schemas import (
     WorldCoreCheckpointSaveRequest,
     WorldDesignCheckpointPayload,
     WorldDesignCheckpointSaveRequest,
+    WorldDesignWorldState,
 )
 from modules.world.services.core.entity_relation_service import EntityRelationService
 from modules.world.services.core.entity_service import WorldEntityService
@@ -121,7 +126,7 @@ def _world_design_state() -> dict:
         "facets": [
             {
                 "id": f"F{index:02d}",
-                "name": f"切面 {index}",
+                "name": name,
                 "status": "gap",
                 "maturity": {"framework": 0, "instance": 0},
                 "evidence": [],
@@ -129,19 +134,19 @@ def _world_design_state() -> dict:
                 "dependencies": [],
                 "reason": "尚未审计",
             }
-            for index in range(1, 23)
+            for index, name in enumerate(WORLD_STATE_FACETS, start=1)
         ],
         "coupling_chains": [
             {
                 "id": f"C{index:02d}",
-                "name": f"链 {index}",
+                "name": name,
                 "status": "gap",
                 "nodes": [],
                 "breaks": [],
                 "evidence": [],
                 "reason": "尚未审计",
             }
-            for index in range(1, 6)
+            for index, name in enumerate(WORLD_STATE_COUPLING_CHAINS, start=1)
         ],
         "situated_tests": {
             key: dict(situated)
@@ -155,13 +160,13 @@ def _world_design_state() -> dict:
         "pressure_tests": [
             {
                 "id": f"T{index:02d}",
-                "name": f"测试 {index}",
+                "name": name,
                 "status": "not-run",
                 "result": "",
                 "evidence": [],
                 "failures": [],
             }
-            for index in range(1, 13)
+            for index, name in enumerate(WORLD_STATE_PRESSURE_TESTS, start=1)
         ],
         "actors": [],
         "places": [],
@@ -182,6 +187,44 @@ def _world_design_state() -> dict:
         },
         "extensions": {},
     }
+
+
+def test_world_design_state_rejects_taxonomy_name_drift() -> None:
+    state = _world_design_state()
+    state["facets"][0]["name"] = "自定义切面"
+
+    with pytest.raises(ValueError, match="required id and name"):
+        WorldDesignWorldState.model_validate(state)
+
+
+def test_world_design_state_rejects_preseeded_authority_and_coverage_defects() -> None:
+    missing_section = copy.deepcopy(_world_design_state())
+    missing_section.pop("knowledge_layers")
+    extra_section = copy.deepcopy(_world_design_state())
+    extra_section["unknown_section"] = {}
+    duplicate_id = copy.deepcopy(_world_design_state())
+    duplicate_id["facets"][1]["id"] = "F01"
+    unsupported_coverage = copy.deepcopy(_world_design_state())
+    unsupported_coverage["reproduction_loops"]["material"].update(
+        {"status": "covered", "evidence": []}
+    )
+    unsupported_maturity = copy.deepcopy(_world_design_state())
+    unsupported_maturity["facets"][0]["maturity"]["framework"] = 1
+    unexplained_exemption = copy.deepcopy(_world_design_state())
+    unexplained_exemption["facets"][0].update(
+        {"status": "not-applicable", "reason": ""}
+    )
+
+    for state in (
+        missing_section,
+        extra_section,
+        duplicate_id,
+        unsupported_coverage,
+        unsupported_maturity,
+        unexplained_exemption,
+    ):
+        with pytest.raises(ValueError):
+            WorldDesignWorldState.model_validate(state)
 
 
 @pytest.mark.asyncio

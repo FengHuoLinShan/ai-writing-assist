@@ -552,7 +552,6 @@ class WorldValidationService:
                 request = LLMCallRequest(
                     model=model,
                     temperature=0,
-                    max_tokens=4000,
                     messages=[
                         LLMMessage(
                             role="system",

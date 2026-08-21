@@ -34,6 +34,7 @@
 | `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、只读收束、一跳探索、当前页检修与结构化建议；加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
 | `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
+| `world_validation_service.py` | 内联 steps `world.validation.packet_N`：只读审查冻结 ReviewPacket 的闭合问题；每个 question 恰好一次，引文必须在本分片，无证据时保守返回 `mixed/KEEP-GATE` | world 世界书校验任务（仅策略开启 semantic 时） |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文/合同的独立近读与 finding-bound 返修 | writing 审查返修 |
