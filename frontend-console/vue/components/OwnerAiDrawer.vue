@@ -149,9 +149,9 @@ watch(modeKey, () => {
     </section>
 
     <section v-else class="owner-ai-drawer__generate" aria-label="生成工作台">
-      <p v-if="generateLoading" class="owner-ai-drawer__status" role="status">正在恢复生成工作台…</p>
+      <GenerateView v-if="generateProps" v-bind="generateProps" />
+      <p v-else-if="generateLoading" class="owner-ai-drawer__status" role="status">正在恢复生成工作台…</p>
       <p v-else-if="generateError" class="owner-ai-drawer__status" role="alert">{{ generateError }}</p>
-      <GenerateView v-else-if="generateProps" v-bind="generateProps" />
       <p v-else class="owner-ai-drawer__status">请选择一个工具。</p>
     </section>
   </aside>
