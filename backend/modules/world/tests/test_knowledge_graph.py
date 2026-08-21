@@ -54,8 +54,16 @@ async def test_knowledge_graph_links_page_entity_and_relation(
             title="甲页",
             status="canonical",
             linked_asset_refs_json=[
-                {"target_type": "core_entity", "target_id": first.id},
-                {"target_type": "entity_relation", "target_id": relation.id},
+                {
+                    "target_type": "core_entity",
+                    "target_id": first.id,
+                    "relation": "requires",
+                },
+                {
+                    "target_type": "entity_relation",
+                    "target_id": relation.id,
+                    "relation": "derives",
+                },
             ],
         ),
     )
@@ -74,6 +82,15 @@ async def test_knowledge_graph_links_page_entity_and_relation(
     assert str(relation.id) in {edge.id for edge in graph.edges}
     expanded = [edge for edge in graph.edges if edge.via_relation_id == relation.id]
     assert {edge.target_id for edge in expanded} == {first.id, second.id}
+    assert {edge.dependency_relation for edge in expanded} == {"derives"}
+    direct = next(
+        edge
+        for edge in graph.edges
+        if edge.via_relation_id is None
+        and edge.kind == "page_entity_reference"
+        and edge.source_id == page.id
+    )
+    assert direct.dependency_relation == "requires"
     assert all(
         edge.authority == "canonical"
         and edge.source_ref["target_id"] == page.id

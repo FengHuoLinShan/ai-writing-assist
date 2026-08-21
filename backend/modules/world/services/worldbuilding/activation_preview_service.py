@@ -312,6 +312,7 @@ class ActivationPreviewService:
             target_type=aliases.get(target_type, target_type),
             target_id=target_id,
             target_path=str(raw_target.get("target_path") or ""),
+            relation=str(raw_target.get("relation") or "informs"),
         )
 
     @staticmethod

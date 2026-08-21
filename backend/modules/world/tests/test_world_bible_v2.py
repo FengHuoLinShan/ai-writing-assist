@@ -210,6 +210,7 @@ async def test_section_refs_must_point_to_page_level_adopted_asset(
     target_hash = TargetRef(
         target_type="core_entity",
         target_id=str(entity.id),
+        relation="requires",
     ).target_hash()
 
     with pytest.raises(ValidationError, match="page asset refs"):
@@ -230,7 +231,13 @@ async def test_section_refs_must_point_to_page_level_adopted_asset(
             title="有效局部引用",
             page_type="location",
             sections_json=[_section("trade", "贸易", ref_hashes=[target_hash])],
-            linked_asset_refs_json=[{"type": "core_entity", "id": str(entity.id)}],
+            linked_asset_refs_json=[
+                {
+                    "type": "core_entity",
+                    "id": str(entity.id),
+                    "relation": "requires",
+                }
+            ],
         ),
     )
     assert draft.sections_json[0].linked_asset_ref_hashes == [target_hash]

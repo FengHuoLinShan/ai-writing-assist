@@ -48,8 +48,11 @@ describe("WorldbookImportPanel", () => {
     const file = new File(["正文"], "潮汐城.md", { type: "text/markdown" })
     Object.defineProperty(file, "webkitRelativePath", { value: "Vault/潮汐城.md" })
     Object.defineProperty(file, "text", { value: vi.fn(async () => "正文") })
+    const image = new File(["binary"], "map.png", { type: "image/png" })
+    Object.defineProperty(image, "webkitRelativePath", { value: "Vault/map.png" })
+    Object.defineProperty(image, "text", { value: vi.fn(async () => "must not read") })
     const input = wrapper.get("input[type='file']")
-    Object.defineProperty(input.element, "files", { value: [file], configurable: true })
+    Object.defineProperty(input.element, "files", { value: [file, image], configurable: true })
     await input.trigger("change")
 
     expect(api.world.previewWorldbookImport).not.toHaveBeenCalled()
@@ -57,9 +60,12 @@ describe("WorldbookImportPanel", () => {
     await flushPromises()
     expect(api.world.previewWorldbookImport).toHaveBeenCalledWith("p1", [
       { path: "Vault/潮汐城.md", content: "正文" },
+      { path: "Vault/map.png", content: "" },
     ])
+    expect(image.text).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain("新建 1")
     expect(wrapper.text()).toContain("Obsidian Vault")
+    expect(wrapper.text()).toContain("Vault/.obsidian/app.json")
 
     await wrapper.get('[data-action="worldbook-import-apply"]').trigger("click")
     await flushPromises()

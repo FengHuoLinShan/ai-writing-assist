@@ -246,7 +246,9 @@ ReviewPacket = 一次语义审计的分片载荷：
   问题的子集），每题要求 verdict + 证据定位 + finding category + 是否 author-required；
 - outputs：每分片经 Pydantic schema 校验（不通过即该分片 failed）；
 - coverage_ledger：每题"已答/证据可定位/跳过理由"；
-- packet_hash = SHA-256(以上结构化内容)。
+- `input_hash = SHA-256(不含 outputs 的冻结 ReviewPacket)`；
+  `result_hash = SHA-256(input_hash + 已校验 outputs)`；最终 receipt 再覆盖 manifest、policy、
+  dependency、全部 input/result hash 与 verdict/gate，避免调用前引用尚不存在的输出。
 ```
 
 - 按确定性分页生成受限 ReviewPacket；每个分片经过 Pydantic schema 校验，最终汇总必须
@@ -270,7 +272,8 @@ ReviewPacket = 一次语义审计的分片载荷：
   `world/entity_fusion.py`、`world/tasks.py`、`writing`、`imports`）保证可恢复；超时、
   取消、stale 判定明确；同一 novel 同一时间只允许一个 full run（PostgreSQL partial
   unique index `WHERE status IN ('queued','running')`，先例：`import_workflow_runs`
-  部分唯一索引 `imports/models.py:138-149`；SQLite 测试用应用层守卫）；作者发起的 AI
+  部分唯一索引 `imports/models.py:138-149`；SQLite 测试同样编译 partial index，并保留
+  应用层快速失败）；作者发起的 AI
   长任务按 ADR-0013：receipt 去重、最多两个 attempt、只在原页恢复。
 - **LLM 预算治理（原计划缺失）**：预算由确定性公式给出（按 manifest 页数 × 单价 +
   full 乘数），项目偏好可设置上限（默认保守值）；每分片超时与重试上限；超预算 →
@@ -359,12 +362,15 @@ ReviewPacket = 一次语义审计的分片载荷：
   frontmatter/WikiLink/别名、规则与数值检查、依赖环、receipt 失效、warning 签收、硬阻断、
   CAS、owner 与跨 `novel_id` 隔离、单飞守卫、预算超限 → insufficient-evidence。
 - 导入回归覆盖首次导入、重复 no-op、源单边修改、项目单边修改、双边冲突、删除、二进制
-  忽略和中断恢复（task checkpoint 恢复）。
+  忽略和中断恢复。实施后的 apply 严格受 25 MiB/2,000 文件上限约束，使用
+  单事务原子回滚 + pending preview 重试；未另造 import task/checkpoint，只在实测
+  p95 超出 HTTP 预算时升级。
 - 使用通用匿名 fixtures 覆盖完整流程；仓库和 CI 不包含真名回响正文、政策文件、路径或
   快照。
 - **双 oracle 差分验收（原计划把两个工具混为一个，此处拆分）**：
-  - 结构层：原生校验与 `validate.rb --all` 对同一冻结 manifest 得到一致的 errors/warnings
-    计数与 finding 定位；
+  - 结构层：原生校验与 `validate.rb --all` 对同一冻结 manifest 的共享语义得到
+    一致 errors/warnings；产品有意增强而 Ruby 未覆盖的检查单独进差异账本，
+    不为对齐数字而关闭。本轮实测的 heading-anchor 检查就属于此类；
   - 语义层：原生门禁 verdict/finding category 与 `worldcheck check` 对同一冻结 manifest
     一致（verdict 枚举与 2.2.5 的五值 `pass/mixed/fail/author-required/
     insufficient-evidence` 一致；`validate.rb` 无 verdict，只比计数）。

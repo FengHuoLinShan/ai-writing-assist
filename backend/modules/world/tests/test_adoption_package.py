@@ -211,9 +211,7 @@ def test_world_design_state_rejects_preseeded_authority_and_coverage_defects() -
     unsupported_maturity = copy.deepcopy(_world_design_state())
     unsupported_maturity["facets"][0]["maturity"]["framework"] = 1
     unexplained_exemption = copy.deepcopy(_world_design_state())
-    unexplained_exemption["facets"][0].update(
-        {"status": "not-applicable", "reason": ""}
-    )
+    unexplained_exemption["facets"][0].update({"status": "not-applicable", "reason": ""})
 
     for state in (
         missing_section,
@@ -223,6 +221,32 @@ def test_world_design_state_rejects_preseeded_authority_and_coverage_defects() -
         unsupported_maturity,
         unexplained_exemption,
     ):
+        with pytest.raises(ValueError):
+            WorldDesignWorldState.model_validate(state)
+
+
+def test_world_design_state_rejects_empty_rules_and_dangling_dependencies() -> None:
+    empty_rule = copy.deepcopy(_world_design_state())
+    empty_rule["rules"] = [
+        {
+            "id": "rule:1",
+            "name": "潮汐术",
+            "status": "draft",
+            "capability": "",
+            "impossibility": "不能逆转时间",
+            "knowledge_layer": "author_truth",
+        }
+    ]
+    dangling = copy.deepcopy(_world_design_state())
+    dangling["dependencies"] = [
+        {
+            "from": "project:1",
+            "to": "missing:1",
+            "kind": "requires",
+            "status": "active",
+        }
+    ]
+    for state in (empty_rule, dangling):
         with pytest.raises(ValueError):
             WorldDesignWorldState.model_validate(state)
 

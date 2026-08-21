@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -80,38 +81,87 @@ class WorldValidationService:
         db: AsyncSession,
         novel_id: str,
     ) -> tuple[WorldValidationPolicy, str] | None:
-        page = await db.scalar(
-            select(WorldBiblePage).where(
-                WorldBiblePage.novel_id == parse_uuid(novel_id, "novel_id"),
-                WorldBiblePage.page_key == _POLICY_PAGE_KEY,
-                WorldBiblePage.status.in_(_ADOPTED_STATUSES),
-            )
-        )
-        if page is None:
+        candidates = await self._active_policy_candidates(db, novel_id)
+        if not candidates:
             return None
-        raw = dict(page.page_meta_json or {}).get("validation_policy")
-        if not isinstance(raw, dict):
-            raise ValidationError(
-                "The active validation policy page has no validation_policy metadata"
-            )
-        policy = WorldValidationPolicy.model_validate(raw)
-        if not policy.enabled:
-            return None
+        _, policy = candidates[0]
         return policy, stable_hash(policy.model_dump(mode="json"))
+
+    async def _active_policy_candidates(
+        self, db: AsyncSession, novel_id: str
+    ) -> list[tuple[WorldBiblePage, WorldValidationPolicy]]:
+        pages = list(
+            (
+                await db.execute(
+                    select(WorldBiblePage)
+                    .where(
+                        WorldBiblePage.novel_id == parse_uuid(novel_id, "novel_id"),
+                        WorldBiblePage.status.in_(_ADOPTED_STATUSES),
+                        WorldBiblePage.page_type == "rule",
+                    )
+                    .order_by(WorldBiblePage.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        candidates: list[tuple[WorldBiblePage, WorldValidationPolicy]] = []
+        for page in pages:
+            raw = dict(page.page_meta_json or {}).get("validation_policy")
+            if not isinstance(raw, dict):
+                continue
+            policy = WorldValidationPolicy.model_validate(raw)
+            if policy.enabled:
+                candidates.append((page, policy))
+        if len(candidates) > 1:
+            raise ConflictError("Multiple active World validation policies exist")
+        return candidates
 
     async def policy_status(
         self, db: AsyncSession, novel_id: str
     ) -> WorldValidationPolicyStatus:
         active = await self.active_policy(db, novel_id)
+        policy = active[0] if active else self.builtin_policy()
+        estimate: dict[str, int] = {
+            "planned_input_characters": 0,
+            "planned_packets": 0,
+        }
+        if policy.semantic_enabled:
+            manifest, _, _ = await self._freeze_manifest(
+                db,
+                novel_id=novel_id,
+                scope="full",
+                target_type=None,
+                target_id=None,
+            )
+            _, estimate = build_review_packets(
+                run_id="estimate",
+                scope="full",
+                policy=policy,
+                manifest=manifest,
+            )
+        estimated_characters = estimate["planned_input_characters"]
+        estimated_packets = estimate["planned_packets"]
         return WorldValidationPolicyStatus(
             active=active is not None,
             policy_version=active[0].policy_version if active else None,
-            semantic_enabled=active[0].semantic_enabled if active else False,
+            semantic_enabled=policy.semantic_enabled,
+            estimated_input_characters=estimated_characters,
+            estimated_packets=estimated_packets,
+            max_input_characters=policy.max_input_characters,
+            max_packets=policy.max_packets,
+            will_exceed_budget=(
+                estimated_characters > policy.max_input_characters
+                or estimated_packets > policy.max_packets
+            ),
         )
 
     async def activate_builtin_policy(
         self, db: AsyncSession, novel_id: str
     ) -> WorldBiblePageResponse:
+        candidates = await self._active_policy_candidates(db, novel_id)
+        if candidates:
+            return WorldBiblePageResponse.model_validate(candidates[0][0])
         existing = await db.scalar(
             select(WorldBiblePage).where(
                 WorldBiblePage.novel_id == parse_uuid(novel_id, "novel_id"),
@@ -135,9 +185,7 @@ class WorldValidationService:
                 page_type="rule",
                 title="世界书校验策略",
                 status="canonical",
-                page_meta_json={
-                    "validation_policy": policy.model_dump(mode="json")
-                },
+                page_meta_json={"validation_policy": policy.model_dump(mode="json")},
                 free_text=(
                     "已启用世界书结构、证据、依赖和作者裁定门禁。"
                     "语义审计需在高级策略中明确启用。"
@@ -289,9 +337,9 @@ class WorldValidationService:
         nid = parse_uuid(novel_id, "novel_id")
         total = int(
             await db.scalar(
-                select(func.count()).select_from(WorldValidationRun).where(
-                    WorldValidationRun.novel_id == nid
-                )
+                select(func.count())
+                .select_from(WorldValidationRun)
+                .where(WorldValidationRun.novel_id == nid)
             )
             or 0
         )
@@ -299,9 +347,7 @@ class WorldValidationService:
             (
                 await db.execute(
                     select(WorldValidationRun)
-                    .where(
-                        WorldValidationRun.novel_id == nid
-                    )
+                    .where(WorldValidationRun.novel_id == nid)
                     .order_by(WorldValidationRun.created_at.desc())
                     .limit(limit)
                 )
@@ -367,19 +413,65 @@ class WorldValidationService:
             self._required_validation(None, "run_required")
         run = await self._get_model(db, novel_id, validation_run_id or "")
         await self._refresh_freshness(db, run)
-        expected = {
-            "target_type": target_type,
-            "target_id": target_id,
-            "target_hash": target_hash,
-        }
-        if any(run.scope_json.get(key) != value for key, value in expected.items()):
-            self._required_validation(run, "target_changed")
+        requires_full = await self._target_requires_full_scope(
+            db, novel_id, target_type=target_type, target_id=target_id
+        )
+        if requires_full and run.scope != "full":
+            self._required_validation(run, "full_scope_required")
+        if run.scope == "full":
+            source_key = (
+                f"draft:{target_id}"
+                if target_type == "world_bible_draft"
+                else f"adoption:{target_id}"
+            )
+            if not any(
+                item.get("source_key") == source_key
+                for item in run.manifest_json.get("items") or []
+            ):
+                self._required_validation(run, "target_not_in_full_manifest")
+        else:
+            expected = {
+                "target_type": target_type,
+                "target_id": target_id,
+                "target_hash": target_hash,
+            }
+            if any(run.scope_json.get(key) != value for key, value in expected.items()):
+                self._required_validation(run, "target_changed")
         if run.status != "completed" or run.gate == "block":
             self._required_validation(run, run.status)
         if run.gate == "warn":
             receipt = dict(run.warning_receipt_json or {})
             if receipt.get("receipt_hash") != self._receipt_hash(run):
                 self._required_validation(run, "warnings_not_accepted")
+
+    async def _target_requires_full_scope(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        target_type: str,
+        target_id: str,
+    ) -> bool:
+        if target_type == "world_adoption_package":
+            return True
+        if target_type != "world_bible_draft":
+            return False
+        draft = await db.scalar(
+            select(WorldBiblePageDraft).where(
+                WorldBiblePageDraft.id == parse_uuid(target_id, "target_id"),
+                WorldBiblePageDraft.novel_id == parse_uuid(novel_id, "novel_id"),
+            )
+        )
+        return draft is not None and self._is_full_scope_draft(draft)
+
+    @staticmethod
+    def _is_full_scope_draft(draft: WorldBiblePageDraft) -> bool:
+        metadata = dict(draft.page_meta_json or {})
+        return (
+            draft.page_type in {"rule", "schema", "terminology", "world_core"}
+            or isinstance(metadata.get("validation_policy"), dict)
+            or bool(draft.linked_asset_refs_json)
+        )
 
     async def require_legacy_canon_write_allowed(
         self, db: AsyncSession, novel_id: str, *, next_action: str
@@ -425,10 +517,27 @@ class WorldValidationService:
 
         try:
             policy = await self._policy_for_run(db, run)
-            checkpoint = await self._latest_design_checkpoint(db, novel_id)
+            checkpoint_raw = dict(
+                (run.manifest_json.get("world_state_checkpoint") or {}).get("payload")
+                or {}
+            )
+            checkpoint = (
+                WorldDesignCheckpointPayload.model_validate(checkpoint_raw)
+                if checkpoint_raw
+                else None
+            )
             findings = deterministic_findings(policy, run.manifest_json, checkpoint)
-            packet_hashes: list[dict[str, str]] = []
-            coverage: list[dict[str, Any]] = []
+            findings.extend(
+                WorldValidationFinding.model_validate(item)
+                for item in run.findings_json
+                if item.get("layer") == "semantic"
+            )
+            packet_hashes = [
+                dict(item)
+                for item in run.packet_hashes_json
+                if item.get("input_hash") and item.get("result_hash")
+            ]
+            coverage = list(run.coverage_ledger_json or [])
             packets, budget = build_review_packets(
                 run_id=run_id,
                 scope=run.scope,
@@ -436,7 +545,16 @@ class WorldValidationService:
                 manifest=run.manifest_json,
             )
             insufficient = policy.semantic_enabled and not packets
-            if (
+            if insufficient:
+                coverage = [
+                    {
+                        "question_id": item.question_id,
+                        "answered": False,
+                        "skip_reason": "semantic_budget_exceeded",
+                    }
+                    for item in policy.required_questions
+                ]
+            elif (
                 policy.semantic_enabled
                 and not any(item.severity == "error" for item in findings)
                 and packets
@@ -448,15 +566,27 @@ class WorldValidationService:
                 ) = await self._semantic_review(
                     db,
                     novel_id=novel_id,
+                    run_id=run_id,
+                    task_id=task_id,
+                    lease_id=lease_id,
+                    attempt=attempt,
                     policy=policy,
                     snapshot=run.model_snapshot_json,
                     packets=packets,
                 )
-                findings.extend(semantic_findings)
-                coverage.extend(semantic_coverage)
-                packet_hashes.extend(hashes)
-                budget["used_packets"] = len(packets)
-                budget["used_input_characters"] = budget["planned_input_characters"]
+                findings = [
+                    *deterministic_findings(policy, run.manifest_json, checkpoint),
+                    *semantic_findings,
+                ]
+                coverage = semantic_coverage
+                packet_hashes = hashes
+                completed_hashes = {item["input_hash"] for item in hashes}
+                budget["used_packets"] = len(completed_hashes)
+                budget["used_input_characters"] = sum(
+                    len(packet["content"]["text"])
+                    for packet in packets
+                    if packet["input_hash"] in completed_hashes
+                )
             elif policy.semantic_enabled and not insufficient:
                 coverage = [
                     {
@@ -495,6 +625,7 @@ class WorldValidationService:
                 run.verdict = verdict
                 run.gate = gate
                 run.findings_json = finding_payloads
+                run.omissions_json = ["semantic_budget_exceeded"] if insufficient else []
                 run.coverage_ledger_json = coverage
                 run.budget_ledger_json = budget
                 run.packet_hashes_json = [
@@ -530,6 +661,10 @@ class WorldValidationService:
         db: AsyncSession,
         *,
         novel_id: str,
+        run_id: str,
+        task_id: str,
+        lease_id: str,
+        attempt: int,
         policy: WorldValidationPolicy,
         snapshot: dict[str, Any],
         packets: list[dict[str, Any]],
@@ -543,15 +678,28 @@ class WorldValidationService:
             timeout_override=policy.per_packet_timeout_seconds,
             novel_id=novel_id,
         )
-        findings: list[WorldValidationFinding] = []
-        coverage: list[dict[str, Any]] = []
-        hashes: list[dict[str, str]] = []
+        run = await self._get_model(db, novel_id, run_id)
+        findings = [
+            WorldValidationFinding.model_validate(item)
+            for item in run.findings_json
+            if item.get("layer") == "semantic"
+        ]
+        coverage = list(run.coverage_ledger_json or [])
+        hashes = [
+            dict(item)
+            for item in run.packet_hashes_json
+            if item.get("input_hash") and item.get("result_hash")
+        ]
+        completed = {item["input_hash"] for item in hashes}
         await db.commit()
         try:
             for packet in packets:
+                if packet["input_hash"] in completed:
+                    continue
                 request = LLMCallRequest(
                     model=model,
                     temperature=0,
+                    max_tokens=policy.max_output_tokens_per_packet,
                     messages=[
                         LLMMessage(
                             role="system",
@@ -580,16 +728,40 @@ class WorldValidationService:
                 packet_findings, packet_coverage = validate_semantic_output(
                     packet, output
                 )
+                result_hash = stable_hash(
+                    [packet["input_hash"], output.model_dump(mode="json")]
+                )
+                await require_running_task_attempt(
+                    db,
+                    task_id=task_id,
+                    task_type="world_validation",
+                    novel_id=novel_id,
+                    lease_id=lease_id,
+                    attempt=attempt,
+                )
+                current = await self._get_model(db, novel_id, run_id, for_update=True)
+                if str(current.task_id) != task_id:
+                    raise ConflictError("World validation task ownership changed")
                 findings.extend(packet_findings)
                 coverage.extend(packet_coverage)
                 hashes.append(
-                    {
-                        "input_hash": str(packet["input_hash"]),
-                        "result_hash": stable_hash(
-                            [packet["input_hash"], output.model_dump(mode="json")]
-                        ),
-                    }
+                    {"input_hash": str(packet["input_hash"]), "result_hash": result_hash}
                 )
+                completed.add(str(packet["input_hash"]))
+                current.findings_json = [
+                    item.model_dump(mode="json") for item in findings
+                ]
+                current.coverage_ledger_json = coverage
+                current.packet_hashes_json = hashes
+                current.budget_ledger_json = {
+                    "used_packets": len(completed),
+                    "used_input_characters": sum(
+                        len(item["content"]["text"])
+                        for item in packets
+                        if item["input_hash"] in completed
+                    ),
+                }
+                await db.commit()
         finally:
             await client.close()
         return findings, coverage, hashes
@@ -633,6 +805,40 @@ class WorldValidationService:
                 .all()
             )
             items = [self._page_manifest_item(page) for page in pages]
+            critical_drafts = list(
+                (
+                    await db.execute(
+                        select(WorldBiblePageDraft)
+                        .where(WorldBiblePageDraft.novel_id == nid)
+                        .order_by(WorldBiblePageDraft.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            items.extend(
+                self._draft_manifest_item(draft)
+                for draft in critical_drafts
+                if self._is_full_scope_draft(draft)
+            )
+            pending_packages = list(
+                (
+                    await db.execute(
+                        select(CreationSuggestion)
+                        .where(
+                            CreationSuggestion.novel_id == nid,
+                            CreationSuggestion.target_type == "world_adoption_package",
+                            CreationSuggestion.status == "pending",
+                        )
+                        .order_by(CreationSuggestion.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            items.extend(
+                self._adoption_manifest_item(package) for package in pending_packages
+            )
         elif target_type == "world_bible_draft" and target_id:
             draft = await db.scalar(
                 select(WorldBiblePageDraft).where(
@@ -656,24 +862,64 @@ class WorldValidationService:
             )
             if suggestion is None:
                 raise NotFoundError("World adoption package not found")
-            payload = dict(suggestion.payload_json or {})
-            items = [
-                {
-                    "source_key": f"adoption:{suggestion.id}",
-                    "target_type": "world_adoption_package",
-                    "target_id": str(suggestion.id),
-                    "title": "世界设定采用包",
-                    "page_type": "adoption_package",
-                    "status": suggestion.status,
-                    "version": 1,
-                    "content_hash": stable_hash(payload),
-                    "content": json.dumps(payload, ensure_ascii=False, sort_keys=True),
-                    "linked_asset_refs": [],
-                }
-            ]
+            items = [self._adoption_manifest_item(suggestion)]
         else:
             raise ValidationError("Unsupported World validation target")
-        manifest = {"scope": scope, "items": items}
+        lookup_pages = list(
+            (
+                await db.execute(
+                    select(WorldBiblePage)
+                    .where(WorldBiblePage.novel_id == nid)
+                    .order_by(WorldBiblePage.page_key, WorldBiblePage.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        lookup_drafts = list(
+            (
+                await db.execute(
+                    select(WorldBiblePageDraft)
+                    .where(WorldBiblePageDraft.novel_id == nid)
+                    .order_by(WorldBiblePageDraft.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        lookup = [
+            self._lookup_manifest_item(page, target_type="world_bible_page")
+            for page in lookup_pages
+        ]
+        lookup.extend(
+            self._lookup_manifest_item(draft, target_type="world_bible_draft")
+            for draft in lookup_drafts
+        )
+        checkpoint_suggestion = await db.scalar(
+            select(CreationSuggestion)
+            .where(
+                CreationSuggestion.novel_id == nid,
+                CreationSuggestion.target_type == "world_design_checkpoint",
+            )
+            .order_by(CreationSuggestion.created_at.desc(), CreationSuggestion.id.desc())
+            .limit(1)
+        )
+        world_state_checkpoint: dict[str, Any] | None = None
+        if checkpoint_suggestion is not None:
+            checkpoint_payload = WorldDesignCheckpointPayload.model_validate(
+                checkpoint_suggestion.payload_json
+            ).model_dump(mode="json", by_alias=True)
+            world_state_checkpoint = {
+                "suggestion_id": str(checkpoint_suggestion.id),
+                "content_hash": stable_hash(checkpoint_payload),
+                "payload": checkpoint_payload,
+            }
+        manifest = {
+            "scope": scope,
+            "items": items,
+            "lookup": lookup,
+            "world_state_checkpoint": world_state_checkpoint,
+        }
         dependencies = sorted(
             (
                 {
@@ -701,11 +947,13 @@ class WorldValidationService:
 
     @staticmethod
     def _page_manifest_item(page: WorldBiblePage) -> dict[str, Any]:
+        body = WorldValidationService._content(page.free_text, page.sections_json, {})
         content = WorldValidationService._content(
             page.free_text, page.sections_json, page.page_meta_json
         )
         return {
             "source_key": f"page:{page.id}",
+            "identity_key": f"page:{page.id}",
             "target_type": "world_bible_page",
             "target_id": str(page.id),
             "title": page.title,
@@ -714,16 +962,25 @@ class WorldValidationService:
             "version": page.version_number,
             "content_hash": stable_hash(content),
             "content": content,
+            "body": body,
+            "metadata": dict(page.page_meta_json or {}),
+            "anchors": WorldValidationService._markdown_anchors(
+                page.free_text or "", page.sections_json or []
+            ),
             "linked_asset_refs": list(page.linked_asset_refs_json or []),
         }
 
     @staticmethod
     def _draft_manifest_item(draft: WorldBiblePageDraft) -> dict[str, Any]:
+        body = WorldValidationService._content(draft.free_text, draft.sections_json, {})
         content = WorldValidationService._content(
             draft.free_text, draft.sections_json, draft.page_meta_json
         )
         return {
             "source_key": f"draft:{draft.id}",
+            "identity_key": (
+                f"page:{draft.page_id}" if draft.page_id else f"draft:{draft.id}"
+            ),
             "target_type": "world_bible_draft",
             "target_id": str(draft.id),
             "title": draft.title,
@@ -732,8 +989,86 @@ class WorldValidationService:
             "version": draft.base_version_number or 0,
             "content_hash": stable_hash(content),
             "content": content,
+            "body": body,
+            "metadata": dict(draft.page_meta_json or {}),
+            "anchors": WorldValidationService._markdown_anchors(
+                draft.free_text or "", draft.sections_json or []
+            ),
             "linked_asset_refs": list(draft.linked_asset_refs_json or []),
         }
+
+    @staticmethod
+    def _adoption_manifest_item(suggestion: CreationSuggestion) -> dict[str, Any]:
+        payload = dict(suggestion.payload_json or {})
+        return {
+            "source_key": f"adoption:{suggestion.id}",
+            "identity_key": f"adoption:{suggestion.id}",
+            "target_type": "world_adoption_package",
+            "target_id": str(suggestion.id),
+            "title": "世界设定采用包",
+            "page_type": "adoption_package",
+            "status": suggestion.status,
+            "version": 1,
+            "content_hash": stable_hash(payload),
+            "content": json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            "body": "",
+            "metadata": {},
+            "anchors": [],
+            "linked_asset_refs": [],
+        }
+
+    @staticmethod
+    def _lookup_manifest_item(
+        item: WorldBiblePage | WorldBiblePageDraft,
+        *,
+        target_type: str,
+    ) -> dict[str, Any]:
+        metadata = dict(item.page_meta_json or {})
+        imported = dict((metadata.get("worldbook_import") or {}).get("frontmatter") or {})
+        aliases = imported.get("aliases", metadata.get("aliases", []))
+        if not isinstance(aliases, list):
+            aliases = []
+        source_path = str(
+            (metadata.get("worldbook_import") or {}).get("source_path") or ""
+        )
+        return {
+            "source_key": (
+                f"draft:{item.id}"
+                if isinstance(item, WorldBiblePageDraft)
+                else f"page:{item.id}"
+            ),
+            "identity_key": (
+                f"page:{item.page_id}"
+                if isinstance(item, WorldBiblePageDraft) and item.page_id
+                else (
+                    f"draft:{item.id}"
+                    if isinstance(item, WorldBiblePageDraft)
+                    else f"page:{item.id}"
+                )
+            ),
+            "target_type": target_type,
+            "target_id": str(item.id),
+            "title": item.title,
+            "aliases": [str(value) for value in aliases if str(value).strip()][:100],
+            "source_path": source_path,
+            "anchors": WorldValidationService._markdown_anchors(
+                item.free_text or "", item.sections_json or []
+            ),
+        }
+
+    @staticmethod
+    def _markdown_anchors(body: str, sections: list[Any]) -> list[str]:
+        anchors = [
+            match.group(1).strip()
+            for line in body.splitlines()
+            if (match := re.match(r"^#{1,6}\s+(.+?)\s*$", line))
+        ]
+        anchors.extend(
+            str(section.get("title") or "").strip()
+            for section in sections
+            if isinstance(section, dict) and str(section.get("title") or "").strip()
+        )
+        return sorted(set(anchors), key=str.casefold)[:256]
 
     @staticmethod
     def _content(free_text: str | None, sections: list, meta: dict) -> str:
@@ -745,24 +1080,6 @@ class WorldValidationService:
                 json.dumps(meta or {}, ensure_ascii=False, sort_keys=True),
             )
             if part and part not in {"[]", "{}"}
-        )
-
-    async def _latest_design_checkpoint(
-        self, db: AsyncSession, novel_id: str
-    ) -> WorldDesignCheckpointPayload | None:
-        suggestion = await db.scalar(
-            select(CreationSuggestion)
-            .where(
-                CreationSuggestion.novel_id == parse_uuid(novel_id, "novel_id"),
-                CreationSuggestion.target_type == "world_design_checkpoint",
-            )
-            .order_by(CreationSuggestion.created_at.desc())
-            .limit(1)
-        )
-        return (
-            WorldDesignCheckpointPayload.model_validate(suggestion.payload_json)
-            if suggestion is not None
-            else None
         )
 
     async def _matches_frozen_inputs(

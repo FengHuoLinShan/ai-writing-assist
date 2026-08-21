@@ -78,6 +78,21 @@ describe("WorldHealthPanel", () => {
     expect(wrapper.text()).not.toContain("receipt_hash")
   })
 
+  it("提交前告知语义预算和超限后果", () => {
+    const wrapper = mountPanel({
+      policyStatus: {
+        active: true,
+        semantic_enabled: true,
+        estimated_packets: 30,
+        estimated_input_characters: 900000,
+        will_exceed_budget: true,
+      },
+    })
+    expect(wrapper.text()).toContain("30 个分片")
+    expect(wrapper.text()).toContain("900,000 字符")
+    expect(wrapper.text()).toContain("证据不足")
+  })
+
   it("二次确认后启用发布前校验", async () => {
     api.world.activateWorldValidationPolicy.mockResolvedValue({ id: "policy-page" })
     const wrapper = mountPanel()
@@ -111,6 +126,30 @@ describe("WorldHealthPanel", () => {
     }))
   })
 
+  it("正典采用只提供包含采用包的全面校验", async () => {
+    api.world.createWorldValidationRun.mockResolvedValue({
+      ...completedRun({ scope: "full" }), status: "queued", gate: null,
+    })
+    const wrapper = mountPanel({
+      targetType: "world_adoption_package",
+      targetId: "package-1",
+    })
+
+    expect(wrapper.find('[data-action="world-health-run-targeted"]').exists()).toBe(false)
+    expect(wrapper.get('[data-action="world-health-run-full"]').text()).toContain("准备采用")
+    await wrapper.get('[data-action="world-health-run-full"]').trigger("click")
+    expect(api.world.createWorldValidationRun).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "full", novel_id: "p1" }),
+    )
+    expect(api.world.createWorldValidationRun.mock.calls[0][0]).not.toHaveProperty("target_id")
+  })
+
+  it("规则和策略工作稿只提供全面发布校验", () => {
+    const wrapper = mountPanel({ requiresFullScope: true })
+    expect(wrapper.find('[data-action="world-health-run-targeted"]').exists()).toBe(false)
+    expect(wrapper.get('[data-action="world-health-run-full"]').text()).toContain("准备发布")
+  })
+
   it("全量签收 warning 并可恢复问题来源", async () => {
     const run = completedRun({
       findings: [
@@ -138,6 +177,24 @@ describe("WorldHealthPanel", () => {
       reason: "这是作者有意保留的未决风险",
     })
     expect(wrapper.text()).toContain("已记录作者")
+  })
+
+  it("汇总世界循环、耦合链和下游失效", () => {
+    const wrapper = mountPanel({
+      initialRun: completedRun({
+        findings: [
+          { finding_id: "f1", severity: "error", action: "CANDIDATE", category: "reproduction-loop-gap", message: "循环缺口", location: "reproduction_loops:L1" },
+          { finding_id: "f2", severity: "error", action: "CANDIDATE", category: "coupling-chain-gap", message: "耦合缺口", location: "coupling_chains:C1" },
+          { finding_id: "f3", severity: "error", action: "CLOSE", category: "downstream-invalidation-missing", message: "下游未失效" },
+        ],
+        omissions: [{ source_key: "page:missing" }],
+      }),
+    })
+
+    expect(wrapper.text()).toContain("2项待补证据")
+    expect(wrapper.text()).toContain("2项失效或不完整")
+    expect(wrapper.text()).toContain("世界循环")
+    expect(wrapper.text()).toContain("耦合链")
   })
 
   it("恢复进行中回执，且失效回执明确阻断", () => {

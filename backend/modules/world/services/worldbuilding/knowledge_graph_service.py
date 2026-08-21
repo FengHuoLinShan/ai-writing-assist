@@ -110,6 +110,7 @@ class WorldKnowledgeGraphService:
                             "target_type": ref.get("target_type") or ref.get("type"),
                             "target_id": ref.get("target_id") or ref.get("id"),
                             "target_path": ref.get("target_path") or "",
+                            "relation": ref.get("relation") or "informs",
                         }
                     )
                 except Exception:
@@ -153,6 +154,7 @@ class WorldKnowledgeGraphService:
                                 revision=page.version_number,
                                 source_hash=page_hash,
                                 via_relation_id=str(relation.id),
+                                dependency_relation=target.relation,
                             )
                         )
                     continue
@@ -170,6 +172,7 @@ class WorldKnowledgeGraphService:
                         source_ref=page_ref.canonical_dict(),
                         revision=page.version_number,
                         source_hash=page_hash,
+                        dependency_relation=target.relation,
                     )
                 )
         for relation in relations:

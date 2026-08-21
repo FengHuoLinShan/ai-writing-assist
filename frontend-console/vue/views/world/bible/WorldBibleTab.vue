@@ -55,6 +55,7 @@
       :project-id="projectId"
       :target-type="bibleDeepLink.adoptionPackageId ? 'world_adoption_package' : 'world_bible_draft'"
       :target-id="bibleDeepLink.adoptionPackageId || activeDraft?.id || ''"
+      :requires-full-scope="validationRequiresFullScope"
       :initial-run="validationRun"
       :policy-status="validationPolicy"
       @updated="validationRun = $event"
@@ -720,6 +721,10 @@ function openValidationSource(target) {
 // ---- computed locals ----
 const freeDrafts = computed(() => drafts.value.filter((d) => !d.page_id))
 const canPublish = computed(() => activePage.value?.status !== "archived")
+const validationRequiresFullScope = computed(() => Boolean(props.bibleDeepLink?.adoptionPackageId)
+  || ["rule", "schema", "terminology", "world_core"].includes(activeDraft.value?.page_type)
+  || Boolean(activeDraft.value?.page_meta_json?.validation_policy)
+  || Boolean(activeDraft.value?.linked_asset_refs_json?.length))
 const authorOpenQuestions = computed(() => {
   const sources = [
     ...pages.value

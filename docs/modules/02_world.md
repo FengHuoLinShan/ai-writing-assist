@@ -22,13 +22,24 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
   6 个再生产循环、F01–F22、C01–C05、四类情境测试、T01–T12 与 fiction-core 六阶段。
   从 World Core 产生的首个 checkpoint 深度为 `seed`，未知区域明确记录为 gap/not-run。
 - 世界书目录导入与文稿 imports 物理分离：浏览器只提交受限相对路径和 UTF-8 文本清单，
-  world 以 `world_worldbook_import.v1` 保存 pending 提案。首次导入创建未发布
-  `source_material` 工作稿；重导入仅在来源变化且本地仍等于 baseline 时安全更新，双变和
-  源缺失进入冲突队列。控制文件、脚本和 `.obsidian` 配置只报告忽略，永不执行或激活。
+  world 以 `world_worldbook_import.v1` 保存 pending 提案。raw/非 Markdown 资料创建
+  `source_material` 工作稿；Obsidian/LLM Wiki 正文保留受限的 page type 和有界
+  嵌套 Frontmatter，但权威仍为 candidate，不会因导入元数据自动激活。重导入仅在
+  来源变化且本地仍等于 baseline 时安全更新，双变和源缺失进入冲突队列；
+  源恢复时只清除缺失标记，不覆盖作者改动。控制文件、脚本、二进制与 `.obsidian`
+  配置只列名忽略，浏览器不读其内容，服务端也不执行或激活。应用是单事务：
+  中断不留部分工作稿，保留 pending 预览后可重试。带有严格
+  `validation_policy` Frontmatter 的策略页可作为 `rule` 工作稿导入；导入本身不激活，
+  只有作者显式发布后才成为项目唯一的活动策略。
 - 项目可显式启用 `world_validation_policy.v1`；未启用时旧项目行为不变。启用后，
   targeted/full 校验冻结页面、采用包、依赖与策略，发布工作稿和采用设定必须携带
   当前新鲜回执。结构错误、`fail/author-required/insufficient-evidence`、过期或预算
-  不足必定阻断；warning 只能由作者对当前 receipt 的全部提示显式签收。
+  不足必定阻断；warning 只能由作者对当前 receipt 的全部提示显式签收。普通工作稿可用
+  targeted；规则/schema/术语/世界核心/校验策略/带依赖的工作稿及采用包必须出现在 full
+  manifest 并使用 full 回执，旧的 targeted 回执不能晋升这些正典资产。
+  策略可声明有界 Frontmatter schema（必填/可选字段、类型、枚举、正则、数组约束、
+  来源目录与标题文件名一致性）以及 required/forbidden regex、字段相等和数值容差等固定
+  操作符；全部经 Pydantic 校验，不执行上传表达式或脚本。
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
@@ -230,7 +241,10 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 
 World Bible 页面是资料组织层，不是结构化事实源。`free_text` 是兼容概览，`sections_json`
 保存最多 64 个稳定、有序的 markdown/checklist/asset_collection 资料段；section 引用只能
-指向页面级已校验 TargetRef。项目页面模板只描述布局和默认段落，不能保存 Prompt、provider、
+指向页面级已校验 TargetRef。`TargetRef.relation` 默认 `informs`，允许
+`requires/informs/derives/conflicts`，关系类型参与 target hash；为兼容旧 wire，
+`canonical_dict()` 仍只投影 target type/id/path，知识图谱边以可选
+`dependency_relation` 暴露依赖语义。项目页面模板只描述布局和默认段落，不能保存 Prompt、provider、
 API key、工具或可执行表达式；应用模板只修改工作稿，发布仍走既有 CAS 与不可变 revision。
 
 ## API

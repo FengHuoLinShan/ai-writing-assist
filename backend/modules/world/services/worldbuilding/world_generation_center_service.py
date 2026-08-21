@@ -2005,6 +2005,7 @@ class WorldGenerationCenterService:
             target_type=source_type,
             target_id=source_id,
             target_path=str(ref.get("target_path") or ""),
+            relation=str(ref.get("relation") or "informs"),
         ).target_hash()
 
     def _convergence_sources(

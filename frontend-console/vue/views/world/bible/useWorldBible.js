@@ -1490,10 +1490,8 @@ export function useWorldBible(props) {
             handler: async () => {
               try {
                 const validation = api.world.getLatestWorldValidationRun
-                  ? await api.world.getLatestWorldValidationRun(novelId, {
-                      scope: "targeted",
-                      target_type: "world_adoption_package",
-                      target_id: packageId,
+                    ? await api.world.getLatestWorldValidationRun(novelId, {
+                      scope: "full",
                     })
                   : null
                 const applyArgs = [packageId, novelId, preview.expected_preview_hash]
@@ -1505,7 +1503,7 @@ export function useWorldBible(props) {
                 return true
               } catch (err) {
                 if (!ownsProject(novelId)) return true
-                toast(err?.status === 409 ? "请先在“世界健康”完成定向校验，或关闭后重新预览已变化的来源" : err.message || "吸取失败", err?.status === 409 ? "warning" : "error")
+                toast(err?.status === 409 ? "请先在“世界健康”完成全面校验，或关闭后重新预览已变化的来源" : err.message || "吸取失败", err?.status === 409 ? "warning" : "error")
                 return false
               }
             },

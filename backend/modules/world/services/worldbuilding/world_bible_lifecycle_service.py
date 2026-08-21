@@ -1724,6 +1724,7 @@ class WorldBibleLifecycleService:
             target_type=aliases.get(target_type, target_type),
             target_id=target_id,
             target_path=str(ref.get("target_path") or ""),
+            relation=str(ref.get("relation") or "informs"),
         )
 
     @classmethod

@@ -27,6 +27,7 @@ from modules.world.schemas import (
     WorldbookImportManifest,
     WorldbookImportPayload,
     WorldbookImportPreviewResponse,
+    WorldValidationPolicy,
 )
 from modules.world.services.worldbuilding.conflict_queue_service import (
     ConflictQueueService,
@@ -131,15 +132,88 @@ class WorldbookImportService:
         ):
             raise ConflictError("Worldbook target changed; preview again")
 
+        # ponytail: bounded 25 MiB apply stays atomic; add task checkpoints only if
+        # measured request latency exceeds the HTTP budget.
         suggestion = await self._suggestions._claim_pending(db, novel_id, suggestion_id)
         mapped_files = {item["source_key"]: item for item in analysis["mapped_files"]}
         draft_ids: list[str] = []
         conflict_items: list[WorldbookImportItem] = []
         for item in analysis["items"]:
-            if item.action in {"conflict", "missing"}:
+            if item.action == "missing":
+                current = analysis["existing_sources"].get(item.source_key)
+                if current is not None:
+                    missing_meta = dict(current.page_meta_json or {})
+                    source_meta = dict(missing_meta.get("worldbook_import") or {})
+                    source_meta.update(
+                        {
+                            "source_missing": True,
+                            "missing_manifest_hash": analysis["manifest_hash"],
+                        }
+                    )
+                    missing_meta["worldbook_import"] = source_meta
+                    if isinstance(current, WorldBiblePageDraft):
+                        marked = await self._lifecycle.update_draft(
+                            db,
+                            novel_id,
+                            str(current.id),
+                            WorldBiblePageDraftUpdate(
+                                page_meta_json=missing_meta,
+                                updated_by="worldbook_import",
+                            ),
+                        )
+                    else:
+                        marked = await self._lifecycle.create_draft(
+                            db,
+                            WorldBiblePageDraftCreate(
+                                novel_id=novel_id,
+                                page_id=str(current.id),
+                                title=current.title,
+                                page_type=current.page_type,
+                                page_meta_json=missing_meta,
+                                free_text=current.free_text,
+                                sections_json=list(current.sections_json or []),
+                                linked_asset_refs_json=list(
+                                    current.linked_asset_refs_json or []
+                                ),
+                                sort_order=current.sort_order,
+                                template_key=current.template_key,
+                                template_version=current.template_version,
+                                created_by="worldbook_import",
+                            ),
+                        )
+                    draft_ids.append(marked.id)
+                conflict_items.append(item)
+                continue
+            if item.action == "conflict":
                 conflict_items.append(item)
                 continue
             if item.action == "preserve":
+                current = analysis["existing_sources"].get(item.source_key)
+                source_meta = dict(
+                    ((current.page_meta_json or {}).get("worldbook_import") or {})
+                    if current is not None
+                    else {}
+                )
+                if isinstance(current, WorldBiblePageDraft) and source_meta.get(
+                    "source_missing"
+                ):
+                    mapped = mapped_files[item.source_key]
+                    restored_meta = dict(current.page_meta_json or {})
+                    restored_meta["worldbook_import"] = self._source_meta(
+                        mapped,
+                        analysis["source_format"],
+                        analysis["manifest_hash"],
+                    )
+                    restored = await self._lifecycle.update_draft(
+                        db,
+                        novel_id,
+                        str(current.id),
+                        WorldBiblePageDraftUpdate(
+                            page_meta_json=restored_meta,
+                            updated_by="worldbook_import",
+                        ),
+                    )
+                    draft_ids.append(restored.id)
                 continue
             mapped = mapped_files[item.source_key]
             meta = self._source_meta(
@@ -153,8 +227,8 @@ class WorldbookImportService:
                     WorldBiblePageDraftCreate(
                         novel_id=novel_id,
                         title=mapped["title"],
-                        page_type="source_material",
-                        page_meta_json={"worldbook_import": meta},
+                        page_type=mapped["page_type"],
+                        page_meta_json=self._page_meta(mapped, meta),
                         free_text=mapped["content"],
                         created_by="worldbook_import",
                     ),
@@ -166,8 +240,8 @@ class WorldbookImportService:
                     item.target_id or "",
                     WorldBiblePageDraftUpdate(
                         title=mapped["title"],
-                        page_type="source_material",
-                        page_meta_json={"worldbook_import": meta},
+                        page_type=mapped["page_type"],
+                        page_meta_json=self._page_meta(mapped, meta),
                         free_text=mapped["content"],
                         updated_by="worldbook_import",
                     ),
@@ -179,8 +253,8 @@ class WorldbookImportService:
                         novel_id=novel_id,
                         page_id=item.target_id,
                         title=mapped["title"],
-                        page_type="source_material",
-                        page_meta_json={"worldbook_import": meta},
+                        page_type=mapped["page_type"],
+                        page_meta_json=self._page_meta(mapped, meta),
                         free_text=mapped["content"],
                         created_by="worldbook_import",
                     ),
@@ -243,6 +317,10 @@ class WorldbookImportService:
                 ignored_paths.append(path)
                 continue
             size = len(file.content.encode("utf-8"))
+            if "\x00" in file.content or "\ufffd" in file.content:
+                raise ValidationError(
+                    f"Worldbook file is not valid clean UTF-8 text: {path}"
+                )
             if size > _MAX_FILE_BYTES:
                 raise ValidationError(f"Worldbook file exceeds 2 MiB: {path}")
             total_bytes += size
@@ -290,6 +368,7 @@ class WorldbookImportService:
                     source_key=source_key,
                     path=mapped["path"],
                     title=mapped["title"],
+                    page_type=mapped["page_type"],
                     source_hash=mapped["source_hash"],
                     action=action,
                     target_id=target_id,
@@ -307,6 +386,7 @@ class WorldbookImportService:
                     source_key=source_key,
                     path=str(meta.get("source_path") or "missing"),
                     title=current.title,
+                    page_type=current.page_type,
                     source_hash=str(meta.get("source_hash") or "0" * 64),
                     action="missing",
                     target_id=str(current.id),
@@ -333,6 +413,7 @@ class WorldbookImportService:
             "mapped_files": mapped_files,
             "items": items,
             "ignored_paths": sorted(ignored_paths, key=str.casefold),
+            "existing_sources": existing,
         }
 
     async def _existing_sources(
@@ -370,9 +451,10 @@ class WorldbookImportService:
         return found
 
     @classmethod
-    def _map_file(cls, file: WorldbookImportFile, source_format: str) -> dict[str, str]:
+    def _map_file(cls, file: WorldbookImportFile, source_format: str) -> dict[str, Any]:
         content = file.content
         title = PurePosixPath(file.path).stem
+        metadata: dict[str, Any] = {}
         if PurePosixPath(file.path).suffix.lower() == ".md" and content.startswith(
             "---\n"
         ):
@@ -382,18 +464,38 @@ class WorldbookImportService:
                 title = str(metadata.get("title") or metadata.get("name") or title)
                 content = content[end + 4 :].lstrip("\r\n")
         title = title.strip()[:255] or "未命名资料"
+        page_type = cls._page_type(file.path, source_format, metadata)
+        validation_policy = None
+        declared_type = (
+            str(metadata.get("page_type") or metadata.get("type") or "")
+            .strip()
+            .casefold()
+            .replace("-", "_")
+        )
+        if declared_type == "validation_policy":
+            raw_policy = metadata.get("validation_policy")
+            if not isinstance(raw_policy, dict):
+                raise ValidationError(
+                    "A validation_policy page requires validation_policy metadata"
+                )
+            validation_policy = WorldValidationPolicy.model_validate(
+                raw_policy
+            ).model_dump(mode="json")
         source_hash = hashlib.sha256(file.content.encode("utf-8")).hexdigest()
         source_key = hashlib.sha256(f"{source_format}\0{file.path}".encode()).hexdigest()
         return {
             "path": file.path,
             "title": title,
+            "page_type": page_type,
             "content": content,
+            "frontmatter": metadata,
+            "validation_policy": validation_policy,
             "source_hash": source_hash,
             "source_key": source_key,
         }
 
-    @staticmethod
-    def _safe_yaml(value: str) -> dict[str, Any]:
+    @classmethod
+    def _safe_yaml(cls, value: str) -> dict[str, Any]:
         try:
             tokens = yaml.scan(value)
             if any(
@@ -409,11 +511,38 @@ class WorldbookImportService:
             raise ValidationError("Worldbook YAML metadata is invalid") from exc
         if not isinstance(parsed, dict):
             raise ValidationError("Worldbook YAML metadata must be an object")
-        if len(parsed) > 100 or any(
-            isinstance(value, (dict, list)) for value in parsed.values()
-        ):
+        budget = [0]
+        return cls._bounded_yaml(parsed, depth=0, budget=budget)
+
+    @classmethod
+    def _bounded_yaml(cls, value: Any, *, depth: int, budget: list[int]) -> Any:
+        budget[0] += 1
+        if depth > 6 or budget[0] > 2_000:
             raise ValidationError("Worldbook YAML metadata is too complex")
-        return parsed
+        if isinstance(value, dict):
+            if len(value) > 200:
+                raise ValidationError("Worldbook YAML metadata is too complex")
+            normalized: dict[str, Any] = {}
+            for key, item in value.items():
+                if not isinstance(key, str) or len(key) > 128:
+                    raise ValidationError(
+                        "Worldbook YAML metadata keys must be bounded strings"
+                    )
+                normalized[key] = cls._bounded_yaml(item, depth=depth + 1, budget=budget)
+            return normalized
+        if isinstance(value, list):
+            if len(value) > 200:
+                raise ValidationError("Worldbook YAML metadata is too complex")
+            return [
+                cls._bounded_yaml(item, depth=depth + 1, budget=budget) for item in value
+            ]
+        if isinstance(value, str) and len(value) > 10_000:
+            raise ValidationError("Worldbook YAML metadata value is too long")
+        if value is None or isinstance(value, str | int | float | bool):
+            return value
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        raise ValidationError("Worldbook YAML metadata contains an unsupported value")
 
     @staticmethod
     def _normalize_path(value: str) -> str:
@@ -442,11 +571,43 @@ class WorldbookImportService:
         if any("/.obsidian/" in f"/{path}/" for path in folded):
             return "obsidian"
         if any(
+            "/.wiki/raw/" in f"/{path}/" or "/.wiki/wiki/" in f"/{path}/"
+            for path in folded
+        ):
+            return "llmwiki"
+        if any(
             PurePosixPath(path).name.casefold() in {"_sidebar.md", "home.md"}
             for path in folded
         ):
             return "llmwiki"
         return "generic"
+
+    @staticmethod
+    def _page_type(
+        path: str,
+        source_format: str,
+        metadata: dict[str, Any],
+    ) -> str:
+        folded_parts = [part.casefold() for part in PurePosixPath(path).parts]
+        is_raw = "_raw" in folded_parts or (
+            ".wiki" in folded_parts
+            and "raw" in folded_parts[folded_parts.index(".wiki") + 1 :]
+        )
+        if is_raw or PurePosixPath(path).suffix.lower() != ".md":
+            return "source_material"
+        if source_format not in {"obsidian", "llmwiki"}:
+            return "source_material"
+        candidate = str(metadata.get("page_type") or metadata.get("type") or "custom")
+        normalized = candidate.strip().casefold().replace("-", "_")
+        if (
+            not normalized
+            or len(normalized) > 64
+            or not all(char.isalnum() or char == "_" for char in normalized)
+        ):
+            return "custom"
+        if normalized == "validation_policy":
+            return "rule"
+        return "source_material" if normalized in {"source", "raw"} else normalized
 
     @staticmethod
     def _editable_content_hash(item: WorldBiblePageDraft | WorldBiblePage) -> str:
@@ -485,11 +646,11 @@ class WorldbookImportService:
 
     @classmethod
     def _source_meta(
-        cls, mapped: dict[str, str], source_format: str, manifest_hash: str
+        cls, mapped: dict[str, Any], source_format: str, manifest_hash: str
     ) -> dict[str, Any]:
         baseline_content_hash = cls._editable_fields_hash(
             title=mapped["title"],
-            page_type="source_material",
+            page_type=mapped["page_type"],
             free_text=mapped["content"],
             sections_json=[],
             linked_asset_refs_json=[],
@@ -505,7 +666,18 @@ class WorldbookImportService:
             "manifest_hash": manifest_hash,
             "source_authority_hint": "candidate",
             "source_missing": False,
+            "activation_eligible": mapped["page_type"] != "source_material",
+            "frontmatter": mapped["frontmatter"],
         }
+
+    @staticmethod
+    def _page_meta(mapped: dict[str, Any], source_meta: dict[str, Any]) -> dict[str, Any]:
+        metadata = {"worldbook_import": source_meta}
+        if isinstance(mapped.get("validation_policy"), dict):
+            # A directory import can stage policy as a draft, but only explicit publish
+            # makes this top-level policy active.
+            metadata["validation_policy"] = mapped["validation_policy"]
+        return metadata
 
     @staticmethod
     def _hash(value: Any) -> str:

@@ -17,6 +17,10 @@ class TargetRef(BaseModel):
     target_type: str = Field(..., min_length=1, max_length=64)
     target_id: str = Field(..., min_length=1, max_length=255)
     target_path: str = Field(default="", max_length=512)
+    relation: str = Field(
+        default="informs",
+        pattern=r"^(requires|informs|derives|conflicts)$",
+    )
 
     @field_validator("target_path", mode="before")
     @classmethod
@@ -54,7 +58,15 @@ class TargetRef(BaseModel):
         )
 
     def target_hash(self) -> str:
-        return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+        payload = {**self.canonical_dict(), "relation": self.relation}
+        return hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
 
 
 def normalize_target_ref(value: TargetRef | dict | None) -> TargetRef:

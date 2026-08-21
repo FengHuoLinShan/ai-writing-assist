@@ -32,6 +32,12 @@
         <span>源缺失 {{ count("missing") }}</span>
       </div>
       <p>识别为 {{ formatLabel }}；{{ preview.ignored_paths?.length || 0 }} 个控制或不支持文件已忽略。</p>
+      <details v-if="preview.ignored_paths?.length" class="worldbook-import-ignored">
+        <summary>查看已忽略文件</summary>
+        <ul>
+          <li v-for="path in preview.ignored_paths" :key="path">{{ path }}</li>
+        </ul>
+      </details>
       <ul class="worldbook-import-items">
         <li v-for="item in preview.items" :key="`${item.source_key}:${item.action}`">
           <strong>{{ item.title }}</strong>
@@ -68,8 +74,9 @@ const pending = ref("")
 let requestGeneration = 0
 
 const busy = computed(() => Boolean(pending.value))
+const isSupportedText = (file) => /\.(md|txt|json|ya?ml)$/i.test(file.name)
 const selectionSummary = computed(() => files.value.length
-  ? `已选择 ${files.value.length} 个文本文件，共 ${files.value.reduce((sum, item) => sum + item.size, 0).toLocaleString("zh-CN")} 字节。`
+  ? `已选择 ${files.value.length} 个文件，其中 ${files.value.filter(isSupportedText).length} 个可读文本，共 ${files.value.filter(isSupportedText).reduce((sum, item) => sum + item.size, 0).toLocaleString("zh-CN")} 字节。`
   : "")
 const formatLabel = computed(() => ({ obsidian: "Obsidian Vault", llmwiki: "LLM Wiki", generic: "通用目录" })[preview.value?.source_format] || "通用目录")
 const count = (key) => Number(preview.value?.counts?.[key] || 0)
@@ -85,11 +92,11 @@ function selectFiles(event) {
   error.value = ""
   preview.value = null
   const selected = [...(event.target.files || [])]
-    .filter((file) => /\.(md|txt|json|ya?ml)$/i.test(file.name))
-  if (!selected.length) return error.value = "目录中没有可导入的文本文件。"
+  const supported = selected.filter(isSupportedText)
+  if (!supported.length) return error.value = "目录中没有可导入的文本文件。"
   if (selected.length > 2000) return error.value = "一次最多导入 2,000 个文本文件。"
-  if (selected.some((file) => file.size > 2 * 1024 * 1024)) return error.value = "单个文件不能超过 2 MiB。"
-  if (selected.reduce((sum, file) => sum + file.size, 0) > 25 * 1024 * 1024) return error.value = "文本总量不能超过 25 MiB。"
+  if (supported.some((file) => file.size > 2 * 1024 * 1024)) return error.value = "单个文本文件不能超过 2 MiB。"
+  if (supported.reduce((sum, file) => sum + file.size, 0) > 25 * 1024 * 1024) return error.value = "文本总量不能超过 25 MiB。"
   files.value = selected
 }
 
@@ -101,7 +108,10 @@ async function previewFiles() {
   try {
     const payload = []
     for (const file of files.value) {
-      payload.push({ path: file.webkitRelativePath || file.name, content: await file.text() })
+      payload.push({
+        path: file.webkitRelativePath || file.name,
+        content: isSupportedText(file) ? await file.text() : "",
+      })
     }
     const result = await api.world.previewWorldbookImport(props.projectId, payload)
     if (generation !== requestGeneration) return false

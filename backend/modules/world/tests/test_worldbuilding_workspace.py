@@ -43,6 +43,14 @@ def test_target_ref_hash_normalizes_empty_path() -> None:
     assert left.target_hash() == right.target_hash()
 
 
+def test_target_ref_hash_tracks_dependency_relation() -> None:
+    base = {"target_type": "profile", "target_id": "species:1"}
+    informs = TargetRef(**base, relation="informs")
+    requires = TargetRef(**base, relation="requires")
+    assert informs.target_hash() != requires.target_hash()
+    assert TargetRef(**base).relation == "informs"
+
+
 def test_target_ref_rejects_wildcards() -> None:
     with pytest.raises(ValueError):
         TargetRef(target_type="profile", target_id="species:1", target_path="items[*]")
@@ -277,14 +285,16 @@ async def test_projection_force_refresh_queues_only_one_follower(
         projection_type="context_brief",
         force=True,
     )
-    duplicate_id, duplicate_status, duplicate_existing = (
-        await service.refresh_projection_task(
-            db_session,
-            project_novel_id,
-            page.id,
-            projection_type="context_brief",
-            force=True,
-        )
+    (
+        duplicate_id,
+        duplicate_status,
+        duplicate_existing,
+    ) = await service.refresh_projection_task(
+        db_session,
+        project_novel_id,
+        page.id,
+        projection_type="context_brief",
+        force=True,
     )
 
     assert follower_id != owner_id
@@ -449,9 +459,7 @@ async def test_suggestion_context_invalidation_failure_logs_and_keeps_acceptance
 
     with caplog.at_level(
         "WARNING",
-        logger=(
-            "modules.world.services.worldbuilding.suggestion_queue_service"
-        ),
+        logger=("modules.world.services.worldbuilding.suggestion_queue_service"),
     ):
         accepted = await service.confirm(
             db_session,

@@ -271,9 +271,7 @@ class WorldBibleActivationTargetService:
             target_hash=target.target_hash(),
             label=entity.name,
             status=entity.status,
-            importance=float(
-                entity.importance if entity.importance is not None else 0.0
-            ),
+            importance=float(entity.importance if entity.importance is not None else 0.0),
             content=content,
             token_count=estimate_token_count(content),
             source_kind=source_kind,
@@ -434,6 +432,7 @@ class WorldBibleActivationTargetService:
             target_type=aliases.get(target_type, target_type),
             target_id=str(raw.get("id") or raw.get("source_id") or ""),
             target_path=str(raw.get("target_path") or ""),
+            relation=str(raw.get("relation") or "informs"),
         )
 
     @staticmethod

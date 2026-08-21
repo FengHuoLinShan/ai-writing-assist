@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -2256,6 +2258,7 @@ class TargetRefSchema(BaseModel):
     target_type: str = Field(..., min_length=1, max_length=64)
     target_id: str = Field(..., min_length=1, max_length=255)
     target_path: str = Field(default="", max_length=512)
+    relation: Literal["requires", "informs", "derives", "conflicts"] = "informs"
 
 
 class WorldProfileUpsertRequest(BaseModel):
@@ -2531,6 +2534,9 @@ class WorldKnowledgeGraphEdge(BaseModel):
     source_hash: str | None = None
     provenance: dict[str, Any] | None = None
     via_relation_id: str | None = None
+    dependency_relation: Literal["requires", "informs", "derives", "conflicts"] | None = (
+        None
+    )
 
 
 class WorldKnowledgeGraphResponse(BaseModel):
@@ -2721,7 +2727,7 @@ class WorldbookImportItem(BaseModel):
     source_key: str = Field(..., min_length=64, max_length=64)
     path: str = Field(..., min_length=1, max_length=1024)
     title: str = Field(..., min_length=1, max_length=255)
-    page_type: Literal["source_material"] = "source_material"
+    page_type: str = Field(default="source_material", min_length=1, max_length=64)
     source_hash: str = Field(..., min_length=64, max_length=64)
     action: Literal["create", "update", "preserve", "conflict", "missing"]
     target_id: str | None = None
@@ -2794,12 +2800,123 @@ class WorldbookImportApplyResponse(BaseModel):
     conflict_ids: list[str] = Field(default_factory=list)
 
 
+def _validate_world_policy_regex(pattern: str) -> str:
+    if (
+        len(pattern) > 500
+        or any(char in pattern for char in "()|")
+        or re.search(
+            r"\\[1-9]|(?:[+*?]|\{\d+(?:,\d*)?\})\s*(?:[+*?]|\{)",
+            pattern,
+        )
+    ):
+        raise ValueError("regex uses an unsafe construct")
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise ValueError("regex is invalid") from exc
+    return pattern
+
+
+class WorldValidationFrontmatterSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required: list[str] = Field(default_factory=list, max_length=128)
+    optional: list[str] = Field(default_factory=list, max_length=128)
+    field_types: dict[
+        str,
+        Literal[
+            "string",
+            "date",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "array:string",
+            "array:wikilink",
+        ],
+    ] = Field(default_factory=dict)
+    enums: dict[str, list[str | int | float | bool]] = Field(default_factory=dict)
+    patterns: dict[str, str] = Field(default_factory=dict)
+    min_items: dict[str, int] = Field(default_factory=dict)
+    required_items: dict[str, list[str]] = Field(default_factory=dict)
+    unique_arrays: list[str] = Field(default_factory=list, max_length=128)
+    source_prefixes: list[str] = Field(default_factory=list, max_length=32)
+    title_matches_source_stem: bool = False
+    unknown_fields: Literal["ignore", "warning", "error"] = "warning"
+
+    @model_validator(mode="after")
+    def validate_schema(self) -> WorldValidationFrontmatterSchema:
+        collections = [
+            self.required,
+            self.optional,
+            list(self.field_types),
+            list(self.enums),
+            list(self.patterns),
+            list(self.min_items),
+            list(self.required_items),
+            self.unique_arrays,
+        ]
+        fields = [field for values in collections for field in values]
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", field) for field in fields):
+            raise ValueError("frontmatter schema field names are invalid")
+        if len(self.required) != len(set(self.required)) or len(self.optional) != len(
+            set(self.optional)
+        ):
+            raise ValueError("frontmatter schema fields must be unique")
+        if set(self.required) & set(self.optional):
+            raise ValueError("frontmatter fields cannot be required and optional")
+        for mapping in (
+            self.field_types,
+            self.enums,
+            self.patterns,
+            self.min_items,
+            self.required_items,
+        ):
+            if len(mapping) > 128:
+                raise ValueError("frontmatter schema is too large")
+        for field, values in self.enums.items():
+            if (
+                not values
+                or len(values) > 128
+                or any(
+                    isinstance(value, float) and not math.isfinite(value)
+                    for value in values
+                )
+            ):
+                raise ValueError(f"frontmatter enum {field} is invalid")
+        for field, pattern in self.patterns.items():
+            self.patterns[field] = _validate_world_policy_regex(pattern)
+        if any(not 0 <= value <= 10_000 for value in self.min_items.values()):
+            raise ValueError("frontmatter min_items is invalid")
+        if any(len(values) > 128 for values in self.required_items.values()):
+            raise ValueError("frontmatter required_items is too large")
+        if any(
+            not value
+            or len(value) > 256
+            or value.startswith(("/", "~"))
+            or ".." in value.split("/")
+            for value in self.source_prefixes
+        ):
+            raise ValueError("frontmatter source_prefixes are invalid")
+        return self
+
+
 class WorldValidationPolicyRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rule_id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", max_length=128)
-    operator: Literal["contains", "not_contains", "max_chars", "page_type_exists"]
-    value: str | int
+    operator: Literal[
+        "contains",
+        "not_contains",
+        "max_chars",
+        "page_type_exists",
+        "regex",
+        "forbid_regex",
+        "frontmatter_required",
+        "field_equals",
+        "numeric_tolerance",
+    ]
+    value: str | int | dict[str, Any]
     page_type: str | None = Field(default=None, max_length=64)
     severity: Literal["error", "warning"] = "error"
     message: str = Field(..., min_length=1, max_length=500)
@@ -2809,8 +2926,32 @@ class WorldValidationPolicyRule(BaseModel):
         if self.operator == "max_chars":
             if not isinstance(self.value, int) or not 1 <= self.value <= 10_000_000:
                 raise ValueError("max_chars requires an integer from 1 to 10000000")
+        elif self.operator in {"field_equals", "numeric_tolerance"}:
+            if not isinstance(self.value, dict):
+                raise ValueError(f"{self.operator} requires an object")
+            required = (
+                {"field", "equals"}
+                if self.operator == "field_equals"
+                else {"field", "expected", "tolerance"}
+            )
+            if set(self.value) != required or not isinstance(
+                self.value.get("field"), str
+            ):
+                raise ValueError(f"{self.operator} has invalid fields")
+            if self.operator == "numeric_tolerance" and (
+                isinstance(self.value.get("expected"), bool)
+                or isinstance(self.value.get("tolerance"), bool)
+                or not isinstance(self.value.get("expected"), int | float)
+                or not isinstance(self.value.get("tolerance"), int | float)
+                or self.value["tolerance"] < 0
+                or not math.isfinite(float(self.value["expected"]))
+                or not math.isfinite(float(self.value["tolerance"]))
+            ):
+                raise ValueError("numeric_tolerance requires bounded numeric values")
         elif not isinstance(self.value, str) or not self.value:
             raise ValueError(f"{self.operator} requires a non-empty string")
+        if self.operator in {"regex", "forbid_regex"}:
+            self.value = _validate_world_policy_regex(str(self.value))
         return self
 
 
@@ -2841,6 +2982,9 @@ class WorldValidationPolicy(BaseModel):
     enabled: bool = True
     policy_version: str = Field(..., min_length=1, max_length=64)
     semantic_enabled: bool = False
+    frontmatter_schemas: dict[str, WorldValidationFrontmatterSchema] = Field(
+        default_factory=dict
+    )
     rules: list[WorldValidationPolicyRule] = Field(default_factory=list, max_length=256)
     required_questions: list[WorldValidationQuestion] = Field(
         default_factory=list, max_length=256
@@ -2848,10 +2992,16 @@ class WorldValidationPolicy(BaseModel):
     packet_character_limit: int = Field(default=32_000, ge=4_000, le=80_000)
     max_packets: int = Field(default=24, ge=1, le=256)
     max_input_characters: int = Field(default=800_000, ge=4_000, le=8_000_000)
+    max_output_tokens_per_packet: int = Field(default=1_500, ge=256, le=8_000)
     per_packet_timeout_seconds: int = Field(default=180, ge=30, le=1800)
 
     @model_validator(mode="after")
     def validate_semantic_questions(self) -> WorldValidationPolicy:
+        if len(self.frontmatter_schemas) > 64 or any(
+            not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", page_type)
+            for page_type in self.frontmatter_schemas
+        ):
+            raise ValueError("frontmatter_schemas page types are invalid")
         ids = [item.question_id for item in self.required_questions]
         if len(ids) != len(set(ids)):
             raise ValueError("validation question ids must be unique")
@@ -2860,6 +3010,8 @@ class WorldValidationPolicy(BaseModel):
             raise ValueError("validation rule ids must be unique")
         if self.required_questions and not self.semantic_enabled:
             raise ValueError("required_questions require semantic_enabled=true")
+        if self.semantic_enabled and not self.required_questions:
+            raise ValueError("semantic_enabled=true requires required_questions")
         return self
 
 
@@ -2867,6 +3019,11 @@ class WorldValidationPolicyStatus(BaseModel):
     active: bool
     policy_version: str | None = None
     semantic_enabled: bool = False
+    estimated_input_characters: int = 0
+    estimated_packets: int = 0
+    max_input_characters: int = 0
+    max_packets: int = 0
+    will_exceed_budget: bool = False
 
 
 class WorldValidationFinding(BaseModel):
@@ -3497,8 +3654,8 @@ class WorldStateRule(BaseModel):
     id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$", max_length=128)
     name: str = Field(..., max_length=500)
     status: WorldStateAuthorityStatus
-    capability: str = Field(..., max_length=5000)
-    impossibility: str = Field(..., max_length=5000)
+    capability: str = Field(..., min_length=1, max_length=5000)
+    impossibility: str = Field(..., min_length=1, max_length=5000)
     inputs: list[str] = Field(default_factory=list, max_length=64)
     outputs: list[str] = Field(default_factory=list, max_length=64)
     costs: list[str] = Field(default_factory=list, max_length=64)
@@ -3517,8 +3674,26 @@ class WorldStateRule(BaseModel):
 
     @model_validator(mode="after")
     def validate_authority(self) -> WorldStateRule:
+        if not self.capability.strip() or not self.impossibility.strip():
+            raise ValueError("rule capability and impossibility must be non-empty")
         if self.status == "canon" and not self.evidence:
             raise ValueError("canon rule requires evidence")
+        for name in (
+            "inputs",
+            "outputs",
+            "costs",
+            "losses",
+            "access",
+            "visibility",
+            "scale_limits",
+            "failure_modes",
+            "maintenance",
+            "countermeasures",
+            "dependencies",
+            "evidence",
+        ):
+            if any(not value.strip() for value in getattr(self, name)):
+                raise ValueError(f"{name} entries must be non-empty")
         return self
 
 
@@ -3821,8 +3996,7 @@ class WorldDesignWorldState(BaseModel):
             ("T", self.pressure_tests, WORLD_STATE_PRESSURE_TESTS),
         ):
             expected = {
-                f"{prefix}{index:02d}": name
-                for index, name in enumerate(names, start=1)
+                f"{prefix}{index:02d}": name for index, name in enumerate(names, start=1)
             }
             actual = {item.id: item.name for item in values}
             if actual != expected:
@@ -3836,8 +4010,34 @@ class WorldDesignWorldState(BaseModel):
             for group in (self.actors, self.places, self.institutions, self.history)
             for item in group
         )
+        all_ids.extend(
+            item.id
+            for group in (
+                self.authority.locked_decisions,
+                self.authority.author_required,
+                self.authority.open_questions,
+                self.knowledge_layers.author_truth,
+                self.knowledge_layers.expert_models,
+                self.knowledge_layers.public_beliefs,
+                self.knowledge_layers.reader_unknowns,
+            )
+            for item in group
+        )
         if len(all_ids) != len(set(all_ids)):
             raise ValueError("world state ids must be unique")
+        known_ids = {
+            self.project.id,
+            *all_ids,
+            *(item.id for item in self.facets),
+            *(item.id for item in self.coupling_chains),
+            *(item.id for item in self.pressure_tests),
+        }
+        for edge in self.dependencies:
+            if edge.source not in known_ids or edge.to not in known_ids:
+                raise ValueError("world state dependency endpoints must resolve")
+        for rule in self.rules:
+            if any(target not in known_ids for target in rule.dependencies):
+                raise ValueError("world state rule dependencies must resolve")
         return self
 
 

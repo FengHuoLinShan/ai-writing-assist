@@ -15,6 +15,7 @@ _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
     *_DEEP_IMPORT_BUDGET_ALLOWLIST,
     "modules/interaction/generation.py",
     "modules/world/map_atlas_workflow.py",
+    "modules/world/services/worldbuilding/world_validation_service.py",
 }
 
 

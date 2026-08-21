@@ -20,6 +20,10 @@
       <p v-else class="world-health-callout is-pass">
         发布前校验已启用·{{ policy.semantic_enabled ? "含语义审计" : "结构与世界引擎校验" }}
       </p>
+      <p v-if="policy.semantic_enabled" class="world-bible-empty-hint" :class="{ 'form-error': policy.will_exceed_budget }">
+        全面语义审计预计 {{ Number(policy.estimated_packets || 0).toLocaleString("zh-CN") }} 个分片、{{ Number(policy.estimated_input_characters || 0).toLocaleString("zh-CN") }} 字符。
+        <template v-if="policy.will_exceed_budget">已超出当前上限，提交后将阻断为“证据不足”。</template>
+      </p>
 
       <div class="world-health-metrics" aria-label="世界健康摘要">
         <span><strong>{{ decisionCount }}</strong>项待我决定</span>
@@ -29,7 +33,7 @@
 
       <div class="world-bible-panel__actions">
         <button
-          v-if="targetId"
+          v-if="targetId && targetType !== 'world_adoption_package' && !requiresFullScope"
           type="button"
           class="btn btn-sm btn-primary"
           data-action="world-health-run-targeted"
@@ -42,7 +46,7 @@
           data-action="world-health-run-full"
           :disabled="busy"
           @click="startRun('full')"
-        >{{ busy && pendingScope === "full" ? "正在全面校验…" : "全面校验" }}</button>
+        >{{ busy && pendingScope === "full" ? `正在${fullRunLabel}…` : fullRunLabel }}</button>
         <button type="button" class="btn btn-sm btn-ghost" data-action="world-health-history" :disabled="historyLoading" @click="loadHistory">
           {{ historyLoading ? "正在加载…" : "最近回执" }}
         </button>
@@ -100,6 +104,7 @@ const props = defineProps({
   projectId: { type: String, required: true },
   targetType: { type: String, default: "world_bible_draft" },
   targetId: { type: String, default: "" },
+  requiresFullScope: { type: Boolean, default: false },
   initialRun: { type: Object, default: null },
   policyStatus: { type: Object, default: () => ({ active: false }) },
 })
@@ -123,8 +128,11 @@ const busy = computed(() => ["queued", "running"].includes(run.value?.status) ||
 const findings = computed(() => Array.isArray(run.value?.findings) ? run.value.findings : [])
 const visibleFindings = computed(() => [...findings.value].sort((a, b) => (a.severity === "error" ? -1 : 1) - (b.severity === "error" ? -1 : 1)).slice(0, 50))
 const decisionCount = computed(() => findings.value.filter((item) => item.action === "AUTHOR-REQUIRED").length)
-const gapCount = computed(() => findings.value.filter((item) => ["facet-gap", "pressure-not-run", "missing-world-state"].includes(item.category)).length)
-const invalidatedCount = computed(() => Number(run.value?.omissions?.length || 0) + (run.value?.status === "stale" ? 1 : 0))
+const gapCategories = new Set(["facet-gap", "pressure-not-run", "missing-world-state", "reproduction-loop-gap", "coupling-chain-gap", "situated-test-gap", "rule-economics-gap", "candidate-mountain"])
+const gapCount = computed(() => findings.value.filter((item) => gapCategories.has(item.category)).length)
+const invalidatedCount = computed(() => Number(run.value?.omissions?.length || 0)
+  + findings.value.filter((item) => item.category === "downstream-invalidation-missing").length
+  + (run.value?.status === "stale" ? 1 : 0))
 const warningsAccepted = computed(() => Boolean(run.value?.warning_receipt?.receipt_hash))
 const statusLabel = computed(() => runStatusLabel(run.value))
 const statusHint = computed(() => run.value
@@ -132,6 +140,9 @@ const statusHint = computed(() => run.value
   : "尚无回执")
 const gateClass = computed(() => ({ pass: "badge-canonical", warn: "badge-draft", block: "badge-failed" })[run.value?.gate] || "")
 const targetLabel = computed(() => props.targetType === "world_adoption_package" ? "校验这份采用包" : "校验当前工作稿")
+const fullRunLabel = computed(() => props.targetType === "world_adoption_package"
+  ? "全面校验并准备采用"
+  : props.requiresFullScope ? "全面校验并准备发布" : "全面校验")
 
 watch(() => props.initialRun, (value) => {
   run.value = value
@@ -167,7 +178,16 @@ function runStatusLabel(value) {
   return ({ pass: "已通过", warn: "有提示", block: "需修正" })[value.gate] || "已完成"
 }
 const actionLabel = (action) => ({ CLOSE: "必须修正", SPLIT: "需拆分理清", "KEEP-GATE": "请核对", CANDIDATE: "待补证据", "AUTHOR-REQUIRED": "需作者决定" })[action] || "请核对"
-const locationLabel = (location) => String(location || "").startsWith("facets:") ? "世界切面覆盖" : String(location || "").startsWith("pressure_tests:") ? "压力测试" : "来源中的具体位置"
+const locationLabel = (location) => {
+  const key = String(location || "").split(":", 1)[0]
+  return ({
+    facets: "世界切面覆盖",
+    pressure_tests: "压力测试",
+    reproduction_loops: "世界循环",
+    coupling_chains: "耦合链",
+    situated_tests: "情境测试",
+  })[key] || "来源中的具体位置"
+}
 function sourceTarget(finding) {
   const match = String(finding?.source_key || "").match(/^(page|draft):(.+)$/)
   return match ? { kind: match[1], id: match[2] } : null
