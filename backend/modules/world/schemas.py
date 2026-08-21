@@ -2863,6 +2863,12 @@ class WorldValidationPolicy(BaseModel):
         return self
 
 
+class WorldValidationPolicyStatus(BaseModel):
+    active: bool
+    policy_version: str | None = None
+    semantic_enabled: bool = False
+
+
 class WorldValidationFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2955,6 +2961,11 @@ class WorldValidationRunResponse(BaseModel):
     @classmethod
     def coerce_ids(cls, value: object) -> str | None:
         return None if value is None else _uuid_validator(value)
+
+
+class WorldValidationRunListResponse(BaseModel):
+    items: list[WorldValidationRunResponse] = Field(default_factory=list)
+    total: int = 0
 
 
 class WorldValidationWarningAcceptRequest(BaseModel):

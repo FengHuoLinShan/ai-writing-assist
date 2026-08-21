@@ -1496,7 +1496,12 @@ class WorldBibleLifecycleService:
         *,
         allow_local_refs: bool = False,
     ) -> None:
+        if len(refs) > 100:
+            raise ValidationError("World Bible pages support at most 100 asset refs")
+        seen: set[tuple[str, str]] = set()
         for ref in refs:
+            if not isinstance(ref, dict):
+                raise ValidationError("World Bible asset refs must be objects")
             ref_type = str(
                 ref.get("type") or ref.get("source_type") or ref.get("target_type") or ""
             )
@@ -1505,6 +1510,23 @@ class WorldBibleLifecycleService:
             )
             if not ref_type or not ref_id:
                 raise ValidationError("World Bible asset refs require type and id")
+            relation = str(ref.get("relation") or "informs")
+            if relation not in {"requires", "informs", "derives", "conflicts"}:
+                raise ValidationError("Unsupported World Bible asset ref relation")
+            try:
+                normalized_ref = self._normalize_asset_ref(ref)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("Invalid World Bible asset ref") from exc
+            declared_hash = ref.get("target_hash")
+            if (
+                declared_hash is not None
+                and declared_hash != normalized_ref.target_hash()
+            ):
+                raise ValidationError("World Bible asset ref target_hash mismatch")
+            duplicate_key = (relation, normalized_ref.canonical_json())
+            if duplicate_key in seen:
+                raise ValidationError("World Bible asset refs must be unique")
+            seen.add(duplicate_key)
             if allow_local_refs and ref_id.startswith("local:"):
                 continue
             rid = parse_uuid(ref_id, "asset_ref_id")
@@ -1656,7 +1678,21 @@ class WorldBibleLifecycleService:
         normalized: set[str] = set()
         for ref in refs:
             try:
-                normalized.add(cls._normalize_asset_ref(ref).canonical_json())
+                target = cls._normalize_asset_ref(ref)
+                normalized.add(
+                    json.dumps(
+                        {
+                            "relation": str(ref.get("relation") or "informs"),
+                            "target": target.canonical_dict(),
+                            "target_hash": str(
+                                ref.get("target_hash") or target.target_hash()
+                            ),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                )
             except (TypeError, ValueError):
                 normalized.add(
                     json.dumps(

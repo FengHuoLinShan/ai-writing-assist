@@ -851,11 +851,16 @@ export function useWorldBible(props) {
     const modalOwner = captureModalOwner()
     editorMutationPending.value = true
     try {
-      const page = await api.world.publishBibleDraft(
-        draft.id,
-        owner.novelId,
-        expectedImpactScopeHash,
-      )
+      const validation = api.world.getLatestWorldValidationRun
+        ? await api.world.getLatestWorldValidationRun(owner.novelId, {
+            scope: "targeted",
+            target_type: "world_bible_draft",
+            target_id: draft.id,
+          })
+        : null
+      const publishArgs = [draft.id, owner.novelId, expectedImpactScopeHash]
+      if (validation?.id) publishArgs.push(validation.id)
+      const page = await api.world.publishBibleDraft(...publishArgs)
       if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
       closeModal()
       clearDraftContinuation(draft.id)
@@ -875,7 +880,7 @@ export function useWorldBible(props) {
     } catch (err) {
       if (!ownsEditor(owner) || !ownsModalOwner(modalOwner)) return true
       const message = err.status === 409
-        ? "发布冲突：正式页或显式引用关系已变化。工作稿已保留，请重新核对后发布。"
+        ? "暂时无法发布。工作稿已保留；请在“世界健康”重新校验，并核对正式页或显式引用关系已变化。"
         : err.message || "发布失败"
       closeModal()
       toast(message, err.status === 409 ? "warning" : "error")
@@ -1484,14 +1489,23 @@ export function useWorldBible(props) {
             class: "btn-primary",
             handler: async () => {
               try {
-                await api.world.applyAdoptionPackage(packageId, novelId, preview.expected_preview_hash)
+                const validation = api.world.getLatestWorldValidationRun
+                  ? await api.world.getLatestWorldValidationRun(novelId, {
+                      scope: "targeted",
+                      target_type: "world_adoption_package",
+                      target_id: packageId,
+                    })
+                  : null
+                const applyArgs = [packageId, novelId, preview.expected_preview_hash]
+                if (validation?.id) applyArgs.push(validation.id)
+                await api.world.applyAdoptionPackage(...applyArgs)
                 closeModal()
                 toast("设定已吸取到世界对象、关系和世界书", "success")
                 router.refresh()
                 return true
               } catch (err) {
                 if (!ownsProject(novelId)) return true
-                toast(err?.status === 409 ? "来源或设定已变化，请关闭后重新预览" : err.message || "吸取失败", err?.status === 409 ? "warning" : "error")
+                toast(err?.status === 409 ? "请先在“世界健康”完成定向校验，或关闭后重新预览已变化的来源" : err.message || "吸取失败", err?.status === 409 ? "warning" : "error")
                 return false
               }
             },

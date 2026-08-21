@@ -355,7 +355,7 @@ export async function loadWorld() {
       props.aliasesLoadError = "加载别名失败。"
     }
   } else if (subView === "bible") {
-    const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles] = await Promise.all([
+    const [pages, categories, drafts, synopsis, pageTemplates, activationProfiles, validationRun, validationPolicy] = await Promise.all([
       api.world.listBiblePages({ novel_id: projectId }),
       api.world.listBibleCategories(projectId, true),
       api.world.listBibleDrafts(projectId),
@@ -366,6 +366,12 @@ export async function loadWorld() {
       api.context?.listActivationProfiles
         ? api.context.listActivationProfiles(projectId, true)
         : Promise.resolve({ items: [] }),
+      api.world.getLatestWorldValidationRun
+        ? api.world.getLatestWorldValidationRun(projectId).catch(() => null)
+        : Promise.resolve(null),
+      api.world.getWorldValidationPolicyStatus
+        ? api.world.getWorldValidationPolicyStatus(projectId).catch(() => ({ active: false }))
+        : Promise.resolve({ active: false }),
     ])
     props.bible = {
       pages: pages?.items || [],
@@ -374,6 +380,8 @@ export async function loadWorld() {
       synopsis: synopsis || null,
       pageTemplates: pageTemplates?.items || [],
       activationProfiles: activationProfiles?.items || [],
+      validationRun,
+      validationPolicy,
     }
   }
   return props

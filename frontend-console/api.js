@@ -1136,10 +1136,11 @@ const api = {
       return request(withQuery(`/world/bible/drafts/${draftId}/publish-impact`, { novel_id: novelId }))
     },
 
-    async publishBibleDraft(draftId, novelId, expectedImpactScopeHash = null) {
+    async publishBibleDraft(draftId, novelId, expectedImpactScopeHash = null, validationRunId = null) {
       return post(withQuery(`/world/bible/drafts/${draftId}/publish`, {
         novel_id: novelId,
         expected_impact_scope_hash: expectedImpactScopeHash || undefined,
+        validation_run_id: validationRunId || undefined,
       }))
     },
 
@@ -1258,6 +1259,39 @@ const api = {
       })
     },
 
+    async createWorldValidationRun(payload) {
+      return post("/world/bible/validation-runs", payload)
+    },
+
+    async getWorldValidationPolicyStatus(novelId) {
+      return request(withQuery("/world/bible/validation-policy", { novel_id: novelId }))
+    },
+
+    async activateWorldValidationPolicy(novelId) {
+      return post(withQuery("/world/bible/validation-policy/activate", { novel_id: novelId }))
+    },
+
+    async listWorldValidationRuns(novelId, limit = 10) {
+      return request(withQuery("/world/bible/validation-runs", { novel_id: novelId, limit }))
+    },
+
+    async getLatestWorldValidationRun(novelId, params = {}) {
+      return request(withQuery("/world/bible/validation-runs/latest", {
+        novel_id: novelId,
+        ...params,
+      }))
+    },
+
+    async getWorldValidationRun(runId, novelId) {
+      return request(withQuery(`/world/bible/validation-runs/${runId}`, { novel_id: novelId }))
+    },
+
+    async acceptWorldValidationWarnings(runId, novelId, payload) {
+      return post(withQuery(`/world/bible/validation-runs/${runId}/accept-warnings`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
     async getAdoptionArtifact(suggestionId, novelId) {
       return request(withQuery(`/world/adoption-packages/${suggestionId}`, { novel_id: novelId }))
     },
@@ -1266,9 +1300,10 @@ const api = {
       return request(withQuery(`/world/adoption-packages/${suggestionId}/preview`, { novel_id: novelId }))
     },
 
-    async applyAdoptionPackage(suggestionId, novelId, expectedPreviewHash) {
+    async applyAdoptionPackage(suggestionId, novelId, expectedPreviewHash, validationRunId = null) {
       return post(withQuery(`/world/adoption-packages/${suggestionId}/apply`, { novel_id: novelId }), {
         expected_preview_hash: expectedPreviewHash,
+        validation_run_id: validationRunId || undefined,
       })
     },
 

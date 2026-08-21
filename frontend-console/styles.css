@@ -10629,6 +10629,105 @@ kbd {
   color: var(--text-secondary);
 }
 
+.world-health-panel {
+  margin-block: var(--space-3);
+}
+
+.world-health-panel > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.world-health-body {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+}
+
+.world-health-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.world-health-metrics span,
+.world-health-callout {
+  padding: var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.world-health-metrics strong {
+  display: block;
+  font-size: var(--text-lg);
+}
+
+.world-health-callout {
+  margin: 0;
+}
+
+.world-health-callout.is-blocked {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border-color));
+}
+
+.world-health-callout.is-pass {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border-color));
+}
+
+.world-health-findings,
+.world-health-history {
+  display: grid;
+  gap: var(--space-2);
+  max-height: min(46vh, 32rem);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.world-health-findings li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-left: 3px solid var(--warning);
+  background: var(--bg-secondary);
+}
+
+.world-health-findings li.is-error {
+  border-left-color: var(--danger);
+}
+
+.world-health-findings p {
+  margin: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+
+.world-health-warning-form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.world-health-warning-form textarea {
+  width: 100%;
+  margin-top: var(--space-1);
+  resize: vertical;
+}
+
+.world-health-history .btn {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: var(--space-2);
+  text-align: left;
+}
+
 /* 自动入库折叠区 */
 .world-batch-group {
   margin-bottom: var(--space-3);
@@ -10814,6 +10913,16 @@ kbd {
   .world-bible-panel__actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .world-health-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .world-health-findings li,
+  .world-health-history .btn {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .scene-progress-panel__heading {

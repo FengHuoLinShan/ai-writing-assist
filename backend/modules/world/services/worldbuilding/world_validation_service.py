@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -32,10 +32,14 @@ from modules.world.models import (
     WorldValidationRun,
 )
 from modules.world.schemas import (
+    WorldBiblePageCreate,
+    WorldBiblePageResponse,
     WorldDesignCheckpointPayload,
     WorldValidationFinding,
     WorldValidationPolicy,
+    WorldValidationPolicyStatus,
     WorldValidationRunCreate,
+    WorldValidationRunListResponse,
     WorldValidationRunResponse,
     WorldValidationSemanticOutput,
     WorldValidationWarningAcceptRequest,
@@ -94,6 +98,53 @@ class WorldValidationService:
         if not policy.enabled:
             return None
         return policy, stable_hash(policy.model_dump(mode="json"))
+
+    async def policy_status(
+        self, db: AsyncSession, novel_id: str
+    ) -> WorldValidationPolicyStatus:
+        active = await self.active_policy(db, novel_id)
+        return WorldValidationPolicyStatus(
+            active=active is not None,
+            policy_version=active[0].policy_version if active else None,
+            semantic_enabled=active[0].semantic_enabled if active else False,
+        )
+
+    async def activate_builtin_policy(
+        self, db: AsyncSession, novel_id: str
+    ) -> WorldBiblePageResponse:
+        existing = await db.scalar(
+            select(WorldBiblePage).where(
+                WorldBiblePage.novel_id == parse_uuid(novel_id, "novel_id"),
+                WorldBiblePage.page_key == _POLICY_PAGE_KEY,
+            )
+        )
+        if existing is not None:
+            if await self.active_policy(db, novel_id) is None:
+                raise ConflictError(
+                    "A validation policy page already exists but is not active"
+                )
+            return WorldBiblePageResponse.model_validate(existing)
+        policy = self.builtin_policy().model_copy(
+            update={"policy_version": "project-default-v1"}
+        )
+        return await self._lifecycle.create_page(
+            db,
+            WorldBiblePageCreate(
+                novel_id=novel_id,
+                page_key=_POLICY_PAGE_KEY,
+                page_type="rule",
+                title="世界书校验策略",
+                status="canonical",
+                page_meta_json={
+                    "validation_policy": policy.model_dump(mode="json")
+                },
+                free_text=(
+                    "已启用世界书结构、证据、依赖和作者裁定门禁。"
+                    "语义审计需在高级策略中明确启用。"
+                ),
+                created_by="world_health",
+            ),
+        )
 
     async def create_run(
         self,
@@ -227,6 +278,43 @@ class WorldValidationService:
             return None
         await self._refresh_freshness(db, run)
         return self.response(run)
+
+    async def list_runs(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        limit: int = 10,
+    ) -> WorldValidationRunListResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        total = int(
+            await db.scalar(
+                select(func.count()).select_from(WorldValidationRun).where(
+                    WorldValidationRun.novel_id == nid
+                )
+            )
+            or 0
+        )
+        runs = list(
+            (
+                await db.execute(
+                    select(WorldValidationRun)
+                    .where(
+                        WorldValidationRun.novel_id == nid
+                    )
+                    .order_by(WorldValidationRun.created_at.desc())
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for run in runs:
+            await self._refresh_freshness(db, run)
+        return WorldValidationRunListResponse(
+            items=[self.response(run) for run in runs],
+            total=total,
+        )
 
     async def accept_warnings(
         self,
@@ -595,6 +683,7 @@ class WorldValidationService:
                     "target_type": str(ref.get("target_type") or ref.get("type") or ""),
                     "target_id": str(ref.get("target_id") or ref.get("id") or ""),
                     "target_path": str(ref.get("target_path") or ""),
+                    "target_hash": str(ref.get("target_hash") or ""),
                 }
                 for item in items
                 for ref in item.get("linked_asset_refs") or []
@@ -606,6 +695,7 @@ class WorldValidationService:
                 item["target_type"],
                 item["target_id"],
                 item["target_path"],
+                item["target_hash"],
             ),
         )
         return manifest, stable_hash(dependencies), target_hash

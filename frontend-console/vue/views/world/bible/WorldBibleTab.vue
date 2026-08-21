@@ -51,6 +51,17 @@
       @close="worldbookImportOpen = false"
     />
 
+    <WorldHealthPanel
+      :project-id="projectId"
+      :target-type="bibleDeepLink.adoptionPackageId ? 'world_adoption_package' : 'world_bible_draft'"
+      :target-id="bibleDeepLink.adoptionPackageId || activeDraft?.id || ''"
+      :initial-run="validationRun"
+      :policy-status="validationPolicy"
+      @updated="validationRun = $event"
+      @policy-updated="validationPolicy = $event"
+      @open-source="openValidationSource"
+    />
+
     <details class="panel world-bible-open-questions" data-section="bible-open-questions">
       <summary>
         <strong>待我决定</strong>
@@ -575,6 +586,7 @@ import { worldSession } from "../worldSession.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
 import WorldbookImportPanel from "./WorldbookImportPanel.vue"
+import WorldHealthPanel from "./WorldHealthPanel.vue"
 import {
   BIBLE_PAGE_TYPES,
   knowledgeGraphLayout,
@@ -590,6 +602,8 @@ const props = defineProps({
 
 const rootEl = ref(null)
 const worldbookImportOpen = ref(Boolean(props.bibleDeepLink?.openWorldbookImport))
+const validationRun = ref(props.bible?.validationRun || null)
+const validationPolicy = ref(props.bible?.validationPolicy || { active: false })
 watch(() => props.bibleDeepLink?.openWorldbookImport, (open) => {
   if (open) worldbookImportOpen.value = true
 })
@@ -696,6 +710,11 @@ const graphEdges = computed(() => {
 function openGraphNode(node) {
   if (node.kind === "world_bible_page") return openPageCard(node.id)
   getRouter()?.navigate("world", "objects", true, new URLSearchParams({ entity_id: node.id }))
+}
+
+function openValidationSource(target) {
+  if (target?.kind === "draft") openDraft(target.id)
+  else if (target?.kind === "page") openPageCard(target.id)
 }
 
 // ---- computed locals ----

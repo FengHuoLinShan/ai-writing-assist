@@ -16,6 +16,7 @@ from modules.world.models import (
 )
 from modules.world.schemas import (
     WorldBibleApplyTemplateRequest,
+    WorldBiblePageCreate,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftUpdate,
     WorldBiblePageTemplateCreate,
@@ -136,6 +137,44 @@ async def test_draft_update_rolls_back_when_context_invalidation_fails(
 
     stored = await lifecycle.get_draft(db_session, project_novel_id, draft.id)
     assert stored.title == "原始标题"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ref_patch",
+    [
+        {"relation": "executes"},
+        {"relation": "requires", "target_hash": "0" * 64},
+    ],
+)
+async def test_asset_refs_require_named_relations_and_matching_target_hash(
+    db_session,
+    project_novel_id: str,
+    ref_patch: dict,
+) -> None:
+    lifecycle = WorldBibleLifecycleService()
+    target = await lifecycle.create_page(
+        db_session,
+        WorldBiblePageCreate(
+            novel_id=project_novel_id,
+            page_type="rule",
+            title="潮汐基准",
+            status="canonical",
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="relation|target_hash"):
+        await lifecycle.create_draft(
+            db_session,
+            WorldBiblePageDraftCreate(
+                novel_id=project_novel_id,
+                page_type="location",
+                title="港区",
+                linked_asset_refs_json=[
+                    {"type": "world_bible_page", "id": target.id, **ref_patch}
+                ],
+            ),
+        )
 
 
 def test_sections_reject_duplicate_ids_and_executable_template_fields() -> None:

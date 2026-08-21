@@ -155,7 +155,9 @@ from modules.world.schemas import (
     WorldProfileMigrateResponse,
     WorldProfileResponse,
     WorldProfileUpsertRequest,
+    WorldValidationPolicyStatus,
     WorldValidationRunCreate,
+    WorldValidationRunListResponse,
     WorldValidationRunResponse,
     WorldValidationWarningAcceptRequest,
 )
@@ -824,6 +826,31 @@ async def apply_worldbook_import(
     )
 
 
+@router.get(
+    "/bible/validation-policy",
+    response_model=WorldValidationPolicyStatus,
+)
+async def get_world_validation_policy_status(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldValidationPolicyStatus:
+    return await _world_validation_service.policy_status(db, novel_id)
+
+
+@router.post(
+    "/bible/validation-policy/activate",
+    response_model=WorldBiblePageResponse,
+    status_code=201,
+)
+async def activate_world_validation_policy(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBiblePageResponse:
+    return await _world_validation_service.activate_builtin_policy(db, novel_id)
+
+
 @router.post(
     "/bible/validation-runs",
     response_model=WorldValidationRunResponse,
@@ -838,6 +865,19 @@ async def create_world_validation_run(
         return await _world_validation_service.create_run(db, data)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get(
+    "/bible/validation-runs",
+    response_model=WorldValidationRunListResponse,
+)
+async def list_world_validation_runs(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    limit: int = Query(default=10, ge=1, le=20),
+) -> WorldValidationRunListResponse:
+    return await _world_validation_service.list_runs(db, novel_id, limit=limit)
 
 
 @router.get(

@@ -188,6 +188,23 @@ async def _activate_policy(
 
 
 @pytest.mark.asyncio
+async def test_builtin_policy_activation_is_explicit_and_idempotent(
+    db_session, project_novel_id: str
+) -> None:
+    service = WorldValidationService()
+
+    assert not (await service.policy_status(db_session, project_novel_id)).active
+    created = await service.activate_builtin_policy(db_session, project_novel_id)
+    replay = await service.activate_builtin_policy(db_session, project_novel_id)
+
+    status = await service.policy_status(db_session, project_novel_id)
+    assert created.id == replay.id
+    assert status.active
+    assert status.policy_version == "project-default-v1"
+    assert not status.semantic_enabled
+
+
+@pytest.mark.asyncio
 async def test_active_policy_blocks_legacy_canon_page_writes(
     db_session, project_novel_id: str
 ) -> None:
@@ -405,3 +422,6 @@ async def test_deterministic_run_uses_operation_receipt_and_finishes(
     assert result["status"] == "completed"
     assert result["gate"] == "warn"
     assert result["receipt_hash"]
+    history = await service.list_runs(db_session, project_novel_id)
+    assert history.total == 1
+    assert history.items[0].id == created.id
