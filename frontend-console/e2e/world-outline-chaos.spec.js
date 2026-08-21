@@ -130,7 +130,7 @@ test.describe("世界对象与大纲 chaos", () => {
       window.__phase53NavigationMarker = `marker-${Date.now()}`
       return window.__phase53NavigationMarker
     })
-    await page.locator(SEL.navItem("writing")).click()
+    await page.locator(SEL.navItem("today")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("写作")
     expect(await page.evaluate(() => window.__phase53NavigationMarker)).toBe(navigationMarker)
     await expect(page.locator("#writing-panel-container")).not.toContainText(scene.title)

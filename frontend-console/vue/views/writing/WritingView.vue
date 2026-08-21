@@ -1,5 +1,24 @@
 <!-- Writing Vue island：Vue owns every workspace node; no legacy HTML injection. -->
 <template>
+  <template v-if="vm.homeMode.value">
+    <WritingHomeView v-bind="homeProps" :on-open-ai="openOwnerAi" />
+    <OwnerAiDrawer
+      :open="aiDrawerOpen"
+      :owner="aiDrawerOwner"
+      :initial-mode="['task', 'preview', 'pov_prose'].includes(props.ownerAiMode) ? props.ownerAiMode : null"
+      :project-id="props.projectId"
+      :source-page-id="aiDrawerSourcePageId"
+      :target-kind="aiDrawerTargetKind"
+      :preset="aiDrawerPreset"
+      :checkpoint-id="aiDrawerCheckpointId"
+      :chapter="vm.selectedChapter.value"
+      :scene-id="vm.currentScene.value?.id || null"
+      :writing-actions="{ generateDraft: vm.generateDraft, generateContinuation: vm.generateContinuation, generatePovDraft: vm.generatePovDraft }"
+      :writing-busy="vm.generationLoading.value"
+      @close="aiDrawerOpen = false"
+    />
+  </template>
+  <template v-else>
   <div class="view-header writing-toolbar">
     <div class="view-header__title">
       写作
@@ -14,6 +33,7 @@
           <button class="btn btn-sm" @click="vm.navigateOutline">打开故事结构</button>
         </div>
       </details>
+      <button type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi({ owner: 'writing' })">AI 工具</button>
     </div>
   </div>
 
@@ -53,6 +73,7 @@
     @open-generation="vm.openGenerationResult"
     @cancel-generation="vm.cancelGeneration"
     @dismiss-generation="vm.dismissGeneration"
+    @retry-stale-story-script="vm.retryUsingStaleStoryScript"
     @cancel-conflict-task="vm.cancelConflictTask"
     @dismiss-conflict-task="vm.dismissConflictTask"
   />
@@ -238,6 +259,22 @@
     @delete="vm.deleteVersion"
     @compare="vm.compareVersions"
   />
+  <OwnerAiDrawer
+    :open="aiDrawerOpen"
+    :owner="aiDrawerOwner"
+    :initial-mode="['task', 'preview', 'pov_prose'].includes(props.ownerAiMode) ? props.ownerAiMode : null"
+    :project-id="props.projectId"
+    :source-page-id="aiDrawerSourcePageId"
+    :target-kind="aiDrawerTargetKind"
+    :preset="aiDrawerPreset"
+    :checkpoint-id="aiDrawerCheckpointId"
+    :chapter="vm.selectedChapter.value"
+    :scene-id="vm.currentScene.value?.id || null"
+    :writing-actions="{ generateDraft: vm.generateDraft, generateContinuation: vm.generateContinuation, generatePovDraft: vm.generatePovDraft }"
+    :writing-busy="vm.generationLoading.value"
+    @close="aiDrawerOpen = false"
+  />
+  </template>
 </template>
 
 <script setup>
@@ -253,6 +290,8 @@ import SceneCockpit from "./components/SceneCockpit.vue"
 import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
 import WritingEditor from "./components/WritingEditor.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
+import WritingHomeView from "./WritingHomeView.vue"
+import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import "./writing-desk.css"
 import "./writing-decorations.css"
@@ -265,9 +304,28 @@ const props = defineProps({
   chapterLoadError: { type: String, default: null },
   authorPreferences: { type: Object, default: () => ({ dailyGoal: null, editorFont: "system", defaultFocusMode: false }) },
   requestedLocation: { type: Object, default: null },
+  homeMode: { type: Boolean, default: false },
+  homeProps: { type: Object, default: () => ({}) },
+  ownerAiOpen: { type: Boolean, default: false },
+  ownerAiMode: { type: String, default: "writing" },
 })
 
 const vm = useWritingWorkspace(props)
+const aiDrawerOpen = ref(Boolean(props.ownerAiOpen))
+const aiDrawerOwner = ref(props.ownerAiMode === "world" ? "world" : "writing")
+const aiDrawerSourcePageId = ref(null)
+const aiDrawerTargetKind = ref(null)
+const aiDrawerPreset = ref(null)
+const aiDrawerCheckpointId = ref(null)
+function openOwnerAi(context = {}) {
+  aiDrawerOwner.value = context.owner || "writing"
+  aiDrawerSourcePageId.value = context.sourcePageId || null
+  aiDrawerTargetKind.value = context.targetKind || null
+  aiDrawerPreset.value = context.preset || null
+  aiDrawerCheckpointId.value = context.checkpointId || null
+  aiDrawerOpen.value = true
+  return true
+}
 const conflictSummary = computed(() => (
   vm.conflictState.error
   || vm.conflictState.latest?.summary_json?.message

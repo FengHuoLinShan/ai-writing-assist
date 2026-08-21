@@ -4,12 +4,12 @@
       <div>
         <p class="scene-runtime-panel__eyebrow">人物反应与剧情推演</p>
         <h2>{{ scene?.title || "先选择一个场景" }}</h2>
-        <p>推演结果只进入待确认草稿；保留、拒绝和修改都不会直接写入人物卡或正文。</p>
+        <p>一键推演会补齐本场缺失或过期的人物卡；人物反应与剧本仍只作为待确认预览，不会自动保存。</p>
       </div>
       <div class="scene-runtime-panel__actions">
         <button v-if="running" type="button" class="btn btn-sm" data-action="cancel-scene-simulation" @click="$emit('cancel')">停止推演</button>
         <button v-else type="button" class="btn btn-sm" :disabled="!scene || reactionRunning" data-action="run-scene-reactions" @click="$emit('run-reactions')">{{ reactionRunning ? "生成人物反应中..." : "只生成人物反应" }}</button>
-        <button v-if="!running" type="button" class="btn btn-sm btn-primary" :disabled="!scene || reactionRunning" data-action="run-scene-simulation" @click="$emit('run')">{{ simulation ? "一键重新推演" : "一键推演" }}</button>
+        <button v-if="!running" type="button" class="btn btn-sm btn-primary" :disabled="!scene || reactionRunning" data-action="run-scene-simulation" @click="$emit('run')">{{ simulation ? "重新推演并检查人物卡" : "推演并补齐人物卡" }}</button>
       </div>
     </header>
 

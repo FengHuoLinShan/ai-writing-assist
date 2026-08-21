@@ -14,6 +14,7 @@ const props = defineProps({
   continuationWarning: { type: String, default: null },
   worldLoadError: { type: String, default: null },
   loadError: { type: String, default: null },
+  onOpenAi: { type: Function, default: null },
 })
 
 const router = getRouter()
@@ -139,6 +140,7 @@ function runPrimaryAction() {
     return
   }
   if (startWorldCore.value) {
+    if (props.onOpenAi?.({ owner: "world", preset: "world_core", targetKind: "core_entity" })) return
     router.navigate("generate", null, true, new URLSearchParams({ tab: "world", target: "core_entity", preset: "world_core" }))
     return
   }
@@ -153,6 +155,13 @@ function openCreativeContinuation(item) {
   }
   writeCreativeContinuation(projectId.value, { destination: item.destination, route: item.route })
   if (item.destination === "generate") {
+    if (props.onOpenAi?.({
+      owner: "world",
+      sourcePageId: item.route.source_page_id || null,
+      targetKind: item.route.target || "core_entity",
+      preset: item.route.preset || "custom",
+      checkpointId: item.route.checkpoint_id || null,
+    })) return
     const query = new URLSearchParams({ tab: "world", target: item.route.target })
     if (item.route.source_page_id) query.set("source_page_id", item.route.source_page_id)
     if (item.route.preset) query.set("preset", item.route.preset)
@@ -241,6 +250,7 @@ function workflowDestination(workflow) {
 
 function openWorkflow(workflow) {
   const [view, subView] = workflowDestination(workflow)
+  if (view === "generate" && props.onOpenAi?.({ owner: "world" })) return
   router.navigate(view, subView)
 }
 
@@ -258,7 +268,7 @@ function retry() {
   <main class="today-workspace" aria-labelledby="today-title">
     <header class="today-heading">
       <div>
-        <span class="today-heading__eyebrow">今日工作</span>
+        <span class="today-heading__eyebrow">写作首页</span>
         <h1 id="today-title">欢迎回到《{{ projectTitle }}》</h1>
         <p>从上次停下的地方继续，其他整理工作可以稍后处理。</p>
       </div>

@@ -85,7 +85,7 @@ function normalizeScriptRevision(item) {
   }
 }
 
-function normalizeSimulation(result, scene, characters = []) {
+function normalizeSimulation(result, scene, characters = [], provenance = {}) {
   const source = result?.preview || result?.result?.preview || result?.result || result || {}
   const scriptSource = source?.script || source
   const proposals = Array.isArray(source?.reactions)
@@ -94,25 +94,26 @@ function normalizeSimulation(result, scene, characters = []) {
       ? source.proposals
       : []
   const reactions = proposals.map((item, index) => {
-    const id = String(item?.id || item?.character_id || `reaction-${index + 1}`)
-    const character = characters.find((candidate) => candidate.id === String(item?.character_id))
+    const characterId = item?.character_id || item?.characterId || null
+    const id = String(item?.id || characterId || `reaction-${index + 1}`)
+    const character = characters.find((candidate) => candidate.id === String(characterId))
     return {
       id,
-      characterId: item?.character_id || character?.id || null,
+      characterId: characterId || character?.id || null,
       name: item?.name || character?.name || `本场人物 ${index + 1}`,
-      stance: item?.stance || item?.internal_pressure || item?.intended_action || "先观察局势，再决定行动",
+      stance: item?.stance || item?.internal_pressure || item?.internalPressure || item?.intended_action || item?.intendedAction || "先观察局势，再决定行动",
       trigger: item?.trigger || (scene?.core_conflict ? `面对${scene.core_conflict}` : "面对当前场景压力"),
-      action: item?.action || item?.intended_action || "做出符合当前目标的选择",
-      knownInformation: Array.isArray(item?.known_information) ? item.known_information : [],
-      subjectiveJudgment: item?.subjective_judgment || "",
+      action: item?.action || item?.intended_action || item?.intendedAction || "做出符合当前目标的选择",
+      knownInformation: Array.isArray(item?.known_information) ? item.known_information : Array.isArray(item?.knownInformation) ? item.knownInformation : [],
+      subjectiveJudgment: item?.subjective_judgment || item?.subjectiveJudgment || "",
       goal: item?.goal || "",
-      immediateReaction: item?.immediate_reaction || "",
-      actionChoices: Array.isArray(item?.action_choices) ? item.action_choices : [],
-      dialogueTendency: item?.dialogue_tendency || "",
-      conflict: item?.conflict || "",
+      immediateReaction: item?.immediate_reaction || item?.immediateReaction || "",
+      actionChoices: Array.isArray(item?.action_choices) ? item.action_choices : Array.isArray(item?.actionChoices) ? item.actionChoices : [],
+      dialogueTendency: item?.dialogue_tendency || item?.dialogueTendency || "",
+      conflict: item?.conflict || item?.conflictSummary || "",
       confidence: Number(item?.confidence || 0),
-      knowledgeBasis: Array.isArray(item?.knowledge_basis) ? item.knowledge_basis : [],
-      alternatives: Array.isArray(item?.alternatives) ? item.alternatives : [],
+      knowledgeBasis: Array.isArray(item?.knowledge_basis) ? item.knowledge_basis : Array.isArray(item?.knowledgeBasis) ? item.knowledgeBasis : [],
+      alternatives: Array.isArray(item?.alternatives) ? item.alternatives : Array.isArray(item?.alternative_actions) ? item.alternative_actions : [],
       status: ["kept", "rejected"].includes(item?.status) ? item.status : "candidate",
     }
   })
@@ -120,19 +121,21 @@ function normalizeSimulation(result, scene, characters = []) {
     ? source.beats
     : Array.isArray(scriptSource?.beats) ? scriptSource.beats : []
   const beats = beatsSource.map((item, index) => ({
-    id: String(item?.beat_id || item?.id || `beat-${index + 1}`),
-    beatId: String(item?.beat_id || item?.id || `beat-${index + 1}`),
+    id: String(item?.beat_id || item?.beatId || item?.id || `beat-${index + 1}`),
+    beatId: String(item?.beat_id || item?.beatId || item?.id || `beat-${index + 1}`),
     title: item?.title || item?.purpose || `推进 ${index + 1}`,
-    detail: item?.detail || [item?.action, item?.consequence].filter(Boolean).join(" → ") || "等待作者补充",
+    detail: item?.detail || item?.description || [item?.action, item?.consequence].filter(Boolean).join(" → ") || "等待作者补充",
     action: item?.action || "",
     consequence: item?.consequence || "",
     actors: Array.isArray(item?.actors) ? item.actors : [],
-    hardAnchor: Boolean(item?.hard_anchor),
+    hardAnchor: Boolean(item?.hard_anchor ?? item?.hardAnchor),
   }))
   return {
     status: reactions.length || beats.length || source?.narrative_plan ? "ready" : "draft",
     plan: String(source?.narrative_plan || scriptSource?.narrative_plan || source?.plan || ""),
     scriptText: String(source?.script_text || scriptSource?.script_text || ""),
+    sourceTaskId: provenance.sourceTaskId || null,
+    contextSnapshotId: provenance.contextSnapshotId || null,
     reactions,
     beats,
     warnings: Array.isArray(source?.warnings) ? source.warnings : [],
@@ -141,7 +144,47 @@ function normalizeSimulation(result, scene, characters = []) {
 }
 
 function runtimeResult(progress) {
-  return progress?.result || progress?.output || progress?.data || progress?.preview || null
+  return progress?.result
+    || progress?.output
+    || progress?.data
+    || progress?.preview
+    || progress?.raw?.result
+    || progress?.raw?.output
+    || progress?.raw?.data
+    || progress?.raw?.preview
+    || null
+}
+
+function runtimeProvenance(progress, result, meta = {}) {
+  const source = result?.preview || result?.result?.preview || result?.result || result || {}
+  const sourceTaskId = progress?.taskId
+    || progress?.raw?.task_id
+    || progress?.raw?.id
+    || result?.task_id
+    || result?.taskId
+    || source?.task_id
+    || source?.taskId
+    || progress?.raw?.result?.task_id
+    || progress?.raw?.result?.taskId
+    || meta?.taskId
+    || null
+  const contextSnapshotId = result?.context_snapshot_id
+    || result?.contextSnapshotId
+    || result?.meta?.context_snapshot_id
+    || result?.meta?.contextSnapshotId
+    || source?.context_snapshot_id
+    || source?.contextSnapshotId
+    || source?.meta?.context_snapshot_id
+    || source?.meta?.contextSnapshotId
+    || progress?.raw?.context_snapshot_id
+    || progress?.raw?.result?.context_snapshot_id
+    || progress?.raw?.meta?.context_snapshot_id
+    || meta?.contextSnapshotId
+    || null
+  return {
+    sourceTaskId: sourceTaskId ? String(sourceTaskId).slice(0, 120) : null,
+    contextSnapshotId: contextSnapshotId ? String(contextSnapshotId).slice(0, 160) : null,
+  }
 }
 
 function acceptedReactionPayload(simulation) {
@@ -198,6 +241,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
   const cardHistoryLoading = ref(false)
   const scriptHistory = ref([])
   const scriptPreview = ref(null)
+  const scriptDraftSource = ref(null)
   const activeScriptFileId = ref(null)
   const newScriptTitle = ref("")
   const scriptHistoryLoading = ref(false)
@@ -264,6 +308,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     Object.keys(scriptDrafts).forEach((key) => delete scriptDrafts[key])
     if (current.scriptDrafts && typeof current.scriptDrafts === "object") Object.assign(scriptDrafts, current.scriptDrafts)
     simulation.value = current.simulation ? { ...current.simulation } : null
+    scriptPreview.value = current.scriptPreview ? { ...current.scriptPreview } : null
+    scriptDraftSource.value = current.scriptDraftSource ? { ...current.scriptDraftSource } : null
     selectedCharacterId.value = current.selectedCharacterId || null
     Object.keys(notes).forEach((key) => delete notes[key])
     if (current.notes && typeof current.notes === "object") Object.assign(notes, current.notes)
@@ -280,6 +326,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         ...(activeScriptFileId.value ? { [activeScriptFileId.value]: scriptDraft.value } : {}),
       },
       simulation: simulation.value,
+      scriptPreview: scriptPreview.value,
+      scriptDraftSource: scriptDraftSource.value,
       selectedCharacterId: selectedCharacterId.value,
       notes: { ...notes },
     })
@@ -579,8 +627,14 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     persistDraft()
   }
 
-  function updateScript(value) {
+  function updateScript(value, source = null) {
     scriptDraft.value = String(value || "").slice(0, MAX_SCRIPT_LENGTH)
+    scriptDraftSource.value = source?.sourceTaskId || source?.contextSnapshotId
+      ? {
+        sourceTaskId: source.sourceTaskId ? String(source.sourceTaskId).slice(0, 120) : null,
+        contextSnapshotId: source.contextSnapshotId ? String(source.contextSnapshotId).slice(0, 160) : null,
+      }
+      : null
     if (activeScriptFileId.value) scriptDrafts[activeScriptFileId.value] = scriptDraft.value
     persistDraft()
   }
@@ -607,6 +661,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     if (!next) return false
     activeScriptFileId.value = next.fileId
     scriptDraft.value = scriptDrafts[next.fileId] ?? next.content ?? ""
+    scriptDraftSource.value = null
     scriptDrafts[next.fileId] = scriptDraft.value
     scriptHistory.value = []
     scriptSavedAt.value = null
@@ -642,6 +697,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       scripts.value = [...scripts.value.filter((item) => item.fileId !== next.fileId), next]
       activeScriptFileId.value = next.fileId
       scriptDraft.value = next.content || ""
+      scriptDraftSource.value = null
       scriptDrafts[next.fileId] = scriptDraft.value
       scriptHistory.value = []
       newScriptTitle.value = ""
@@ -698,7 +754,14 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         confirmed: true,
         expected_revision_id: activeScriptFile()?.currentRevisionId || null,
         adopt: false,
-        provenance: { workflow: "scene_runtime", author_confirmed: true },
+        ...(scriptDraftSource.value?.sourceTaskId ? { source_task_id: scriptDraftSource.value.sourceTaskId } : {}),
+        ...(scriptDraftSource.value?.contextSnapshotId ? { context_snapshot_id: scriptDraftSource.value.contextSnapshotId } : {}),
+        provenance: {
+          workflow: "scene_runtime",
+          author_confirmed: true,
+          ...(scriptDraftSource.value?.sourceTaskId ? { source_task_id: scriptDraftSource.value.sourceTaskId } : {}),
+          ...(scriptDraftSource.value?.contextSnapshotId ? { context_snapshot_id: scriptDraftSource.value.contextSnapshotId } : {}),
+        },
       })
       if (!owns(token)) return false
       let nextFile = normalizeScriptFile(result)
@@ -786,7 +849,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
 
   function applyScriptPreview() {
     if (!scriptPreview.value?.content) return false
-    updateScript(scriptPreview.value.content)
+    updateScript(scriptPreview.value.content, scriptPreview.value)
     toast("已将剧本建议放入可编辑草稿，请先检查再保存", "info")
     return true
   }
@@ -806,6 +869,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         task: taskLabel,
         scope: "project",
         scene_id: targetScene.id,
+        visible_until_scene_id: targetScene.id,
         character_ids: payload.character_ids || (payload.character_id ? [payload.character_id] : []),
         include_pending_objects: false,
       })
@@ -927,8 +991,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         return true
       }
       if (response?.preview || response?.result) {
-        simulation.value = normalizeSimulation(response, targetScene, characters.value)
-        persistDraft()
+        applyRuntimeResult({ result: response, taskId: response?.task_id || null }, { sceneId: targetScene.id, stage: "simulation" })
         return true
       }
       throw new Error("一键推演未返回可审阅结果")
@@ -963,6 +1026,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     const result = runtimeResult(progress)
     if (!result || meta?.sceneId !== sceneId.value) return
     const stage = meta?.stage || "simulation"
+    const provenance = runtimeProvenance(progress, result, meta)
     if (stage === "character-card") {
       generatedCard.value = result.preview || result.result?.preview || result.result || result
       return
@@ -974,16 +1038,21 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         plan: String(preview?.narrative_plan || preview?.plan || ""),
         beats: Array.isArray(preview?.beats) ? preview.beats : [],
         warnings: Array.isArray(preview?.warnings) ? preview.warnings : [],
+        sourceTaskId: provenance.sourceTaskId,
+        contextSnapshotId: provenance.contextSnapshotId,
       }
+      persistDraft()
       return
     }
-    const next = normalizeSimulation(result, scene.value, characters.value)
+    const next = normalizeSimulation(result, scene.value, characters.value, provenance)
     if (next.scriptText) {
       scriptPreview.value = {
         content: next.scriptText,
         plan: next.plan,
         beats: next.beats,
         warnings: next.warnings,
+        sourceTaskId: next.sourceTaskId,
+        contextSnapshotId: next.contextSnapshotId,
       }
     }
     if (stage === "reaction" && simulation.value) {
@@ -1007,6 +1076,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     clearCardEditor()
     scriptHistory.value = []
     scriptPreview.value = null
+    scriptDraftSource.value = null
     validation.value = []
     loadError.value = null
     restoreDraft(next)
@@ -1021,7 +1091,10 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     sceneRuntimeManager.recover(projectId, sceneId.value)
     restoreDraft(sceneId.value)
     if (taskState.value.ownerSceneId === sceneId.value && taskState.value.result) {
-      applyRuntimeResult({ result: taskState.value.result }, taskState.value.meta)
+      applyRuntimeResult({
+        result: taskState.value.result,
+        taskId: taskState.value.taskId || taskState.value.progress?.taskId || taskState.value.result?.task_id || null,
+      }, taskState.value.meta)
     }
     if (activeTab.value !== "management") void loadWorkspace()
   })
@@ -1058,6 +1131,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     notes,
     persistDraft,
     scriptDraft,
+    scriptDraftSource,
     scriptGenerating,
     scriptHistory,
     scriptHistoryLoading,

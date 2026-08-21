@@ -6,7 +6,7 @@
       <span aria-hidden="true">⌄</span>
     </button>
     <ul id="nav-list" class="sidebar-desktop-nav">
-      <li v-for="item in SHELL_NAV_ITEMS" :key="item.view" class="nav-item" :class="{ active: currentView === item.view }"
+      <li v-for="item in SHELL_NAV_ITEMS" :key="item.view" class="nav-item" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }"
         :data-view="item.view" :title="item.title" role="button" tabindex="0"
         @click="$emit('navigate', item.view)" @keydown.enter.prevent="$emit('navigate', item.view)" @keydown.space.prevent="$emit('navigate', item.view)">
         <NavIcon :name="item.icon" /><span class="nav-label">{{ item.label }}</span>
@@ -25,7 +25,7 @@
       </details>
     </div>
     <div class="sidebar-mobile-nav" aria-label="移动端主导航">
-      <button v-for="item in SHELL_MOBILE_NAV_ITEMS" :key="item.view" type="button" :class="{ active: currentView === item.view }" @click="navigateMobile(item.view)">
+      <button v-for="item in SHELL_MOBILE_NAV_ITEMS" :key="item.view" type="button" :class="{ active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }" @click="navigateMobile(item.view)">
         <NavIcon :name="item.icon" /><span>{{ item.label }}</span>
       </button>
       <button ref="mobileMoreTrigger" type="button" :class="{ active: mobileMoreOpen || moreActive }" aria-controls="sidebar-mobile-sheet" :aria-expanded="mobileMoreOpen" @click="toggleMobileMore">

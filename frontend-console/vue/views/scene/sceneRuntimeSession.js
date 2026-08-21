@@ -28,6 +28,8 @@ function blankSession() {
     scriptDraft: "",
     scriptDrafts: {},
     simulation: null,
+    scriptPreview: null,
+    scriptDraftSource: null,
     updatedAt: null,
   }
 }
@@ -44,7 +46,33 @@ function readStoredDraft(projectId, sceneId) {
       scriptDrafts: parsed.scriptDrafts && typeof parsed.scriptDrafts === "object"
         ? Object.fromEntries(Object.entries(parsed.scriptDrafts).slice(0, 24).map(([key, value]) => [String(key), String(value || "").slice(0, MAX_DRAFT_BYTES)]))
         : {},
-      simulation: parsed.simulation && typeof parsed.simulation === "object" ? parsed.simulation : null,
+      simulation: asSerializableSimulation(parsed.simulation),
+      scriptPreview: parsed.scriptPreview && typeof parsed.scriptPreview === "object"
+        ? {
+          content: typeof parsed.scriptPreview.content === "string" ? parsed.scriptPreview.content.slice(0, 200000) : "",
+          plan: typeof parsed.scriptPreview.plan === "string" ? parsed.scriptPreview.plan.slice(0, 16000) : "",
+          beats: Array.isArray(parsed.scriptPreview.beats) ? parsed.scriptPreview.beats.slice(0, 16).map((item) => ({
+            id: String(item?.id || item?.beat_id || "").slice(0, 120),
+            beat_id: String(item?.beat_id || item?.id || "").slice(0, 120),
+            title: String(item?.title || item?.purpose || "Beat").slice(0, 160),
+            purpose: String(item?.purpose || item?.title || "推进场景").slice(0, 160),
+            detail: String(item?.detail || "").slice(0, 500),
+            action: String(item?.action || "").slice(0, 500),
+            consequence: String(item?.consequence || "").slice(0, 500),
+            actors: Array.isArray(item?.actors) ? item.actors.slice(0, 24).map((value) => String(value).slice(0, 120)) : [],
+            hard_anchor: Boolean(item?.hard_anchor || item?.hardAnchor),
+          })) : [],
+          warnings: Array.isArray(parsed.scriptPreview.warnings) ? parsed.scriptPreview.warnings.slice(0, 16).map((value) => String(value).slice(0, 500)) : [],
+          sourceTaskId: typeof parsed.scriptPreview.sourceTaskId === "string" ? parsed.scriptPreview.sourceTaskId.slice(0, 120) : null,
+          contextSnapshotId: typeof parsed.scriptPreview.contextSnapshotId === "string" ? parsed.scriptPreview.contextSnapshotId.slice(0, 160) : null,
+        }
+        : null,
+      scriptDraftSource: parsed.scriptDraftSource && typeof parsed.scriptDraftSource === "object"
+        ? {
+          sourceTaskId: typeof parsed.scriptDraftSource.sourceTaskId === "string" ? parsed.scriptDraftSource.sourceTaskId.slice(0, 120) : null,
+          contextSnapshotId: typeof parsed.scriptDraftSource.contextSnapshotId === "string" ? parsed.scriptDraftSource.contextSnapshotId.slice(0, 160) : null,
+        }
+        : null,
       selectedCharacterId: typeof parsed.selectedCharacterId === "string" ? parsed.selectedCharacterId : null,
       notes: parsed.notes && typeof parsed.notes === "object" ? Object.fromEntries(
         Object.entries(parsed.notes).slice(0, 24).map(([key, value]) => [String(key), String(value || "").slice(0, 4000)]),
@@ -56,12 +84,44 @@ function readStoredDraft(projectId, sceneId) {
   }
 }
 
+function asSerializableScriptPreview(preview) {
+  if (!preview || typeof preview !== "object") return null
+  return {
+    content: typeof preview.content === "string" ? preview.content.slice(0, 200000) : "",
+    plan: typeof preview.plan === "string" ? preview.plan.slice(0, 16000) : "",
+    beats: Array.isArray(preview.beats) ? preview.beats.slice(0, 16).map((item) => ({
+      id: String(item?.id || item?.beat_id || "").slice(0, 120),
+      beat_id: String(item?.beat_id || item?.id || "").slice(0, 120),
+      title: String(item?.title || item?.purpose || "Beat").slice(0, 160),
+      purpose: String(item?.purpose || item?.title || "推进场景").slice(0, 160),
+      detail: String(item?.detail || "").slice(0, 500),
+      action: String(item?.action || "").slice(0, 500),
+      consequence: String(item?.consequence || "").slice(0, 500),
+      actors: Array.isArray(item?.actors) ? item.actors.slice(0, 24).map((value) => String(value).slice(0, 120)) : [],
+      hard_anchor: Boolean(item?.hard_anchor || item?.hardAnchor),
+    })) : [],
+    warnings: Array.isArray(preview.warnings) ? preview.warnings.slice(0, 16).map((value) => String(value).slice(0, 500)) : [],
+    sourceTaskId: typeof preview.sourceTaskId === "string" ? preview.sourceTaskId.slice(0, 120) : null,
+    contextSnapshotId: typeof preview.contextSnapshotId === "string" ? preview.contextSnapshotId.slice(0, 160) : null,
+  }
+}
+
+function asSerializableScriptDraftSource(source) {
+  if (!source || typeof source !== "object") return null
+  return {
+    sourceTaskId: typeof source.sourceTaskId === "string" ? source.sourceTaskId.slice(0, 120) : null,
+    contextSnapshotId: typeof source.contextSnapshotId === "string" ? source.contextSnapshotId.slice(0, 160) : null,
+  }
+}
+
 function asSerializableSimulation(simulation) {
   if (!simulation || typeof simulation !== "object") return null
   return {
     status: simulation.status || "draft",
     plan: typeof simulation.plan === "string" ? simulation.plan.slice(0, 16000) : "",
     scriptText: typeof simulation.scriptText === "string" ? simulation.scriptText.slice(0, 200000) : "",
+    sourceTaskId: typeof simulation.sourceTaskId === "string" ? simulation.sourceTaskId.slice(0, 120) : null,
+    contextSnapshotId: typeof simulation.contextSnapshotId === "string" ? simulation.contextSnapshotId.slice(0, 160) : null,
     reactions: Array.isArray(simulation.reactions)
       ? simulation.reactions.slice(0, 24).map((item) => ({
         id: String(item?.id || "").slice(0, 120),
@@ -128,6 +188,8 @@ export function persistSceneRuntimeDraft(projectId, sceneId, patch = {}) {
       ? Object.fromEntries(Object.entries(patch.scriptDrafts).slice(0, 24).map(([key, value]) => [String(key), String(value || "").slice(0, MAX_DRAFT_BYTES)]))
       : { ...(session.scriptDrafts || {}) },
     simulation: asSerializableSimulation(patch.simulation ?? session.simulation),
+    scriptPreview: asSerializableScriptPreview(patch.scriptPreview ?? session.scriptPreview),
+    scriptDraftSource: asSerializableScriptDraftSource(patch.scriptDraftSource ?? session.scriptDraftSource),
     selectedCharacterId: typeof patch.selectedCharacterId === "string"
       ? patch.selectedCharacterId
       : session.selectedCharacterId || null,

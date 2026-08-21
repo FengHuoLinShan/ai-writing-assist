@@ -70,6 +70,35 @@ describe("writingCommandController", () => {
     }))
   })
 
+  it("采用剧本过期时停在确认条，重试只对本次任务确认旧资产", async () => {
+    const onProgress = vi.fn()
+    const { api, onResult, controller } = setup({ onProgress })
+    api.writing.generate
+      .mockRejectedValueOnce(Object.assign(new Error("场景剧本已变化"), {
+        status: 409,
+        error_code: "stale_story_assets",
+      }))
+      .mockImplementationOnce(async (payload) => {
+        expect(payload).toEqual(expect.objectContaining({ confirm_stale_story_assets: true }))
+        expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toEqual([
+          expect.objectContaining({ meta: expect.objectContaining({ confirm_stale_story_assets: true }) }),
+        ])
+        return { draft_id: "candidate-after-confirm" }
+      })
+
+    await controller.generateDraft()
+    expect(api.writing.generate).toHaveBeenNthCalledWith(1, expect.not.objectContaining({ confirm_stale_story_assets: true }))
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      staleStoryScript: expect.objectContaining({ message: expect.stringContaining("过期") }),
+    }))
+    expect(onResult).not.toHaveBeenCalled()
+
+    await controller.retryUsingStaleStoryScript()
+    expect(api.writing.generate).toHaveBeenCalledTimes(2)
+    expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-after-confirm" })
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1") || "[]")).toEqual([])
+  })
+
   it("续写只允许基于已保存工作稿", async () => {
     const { api, editor, toast, controller } = setup()
     editor.getContent.mockReturnValue("尚未保存")

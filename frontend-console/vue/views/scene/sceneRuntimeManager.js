@@ -106,7 +106,15 @@ function startPolling(taskId, projectId, sceneId, meta) {
       if (!owned(projectId, sceneId, token) || state.taskId !== taskId) return
       clearActiveWorkflow(progress.taskId || taskId)
       state.progress = progress
-      state.result = progress.result || progress.output || progress.data || null
+      state.result = progress.result
+        || progress.output
+        || progress.data
+        || progress.preview
+        || progress.raw?.result
+        || progress.raw?.output
+        || progress.raw?.data
+        || progress.raw?.preview
+        || null
       state.taskId = null
       state.submitting = false
       getToast()(`${stageLabel}已完成，结果仍是待确认草稿`, "success")

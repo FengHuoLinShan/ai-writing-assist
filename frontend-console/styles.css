@@ -14278,3 +14278,42 @@ button.rp-journey-card__main:hover {
   .generate-visual-brief .btn,.generate-exploration .btn { min-height:44px }
   .generate-convergence-actions .btn { flex:1 1 100%;min-height:44px }
 }
+
+/* Owner-page AI entry: keep the existing generation/session route behind a
+   small, contextual drawer instead of a second top-level destination. */
+.owner-ai-drawer {
+  position: fixed;
+  z-index: 30;
+  inset: 0 0 0 auto;
+  width: min(760px, 100vw);
+  padding: var(--space-5);
+  overflow: auto;
+  background: var(--surface, var(--bg));
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 16%);
+}
+.owner-ai-drawer__header { display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3) }
+.owner-ai-drawer__eyebrow { color:var(--text-dim);font-size:12px }
+.owner-ai-drawer h2 { margin:4px 0 0;font-size:18px }
+.owner-ai-drawer__hint { color:var(--text-dim);font-size:13px;line-height:1.55 }
+.owner-ai-drawer__actions { display:grid;gap:var(--space-2);margin-top:var(--space-4) }
+.owner-ai-drawer__actions .btn { min-height:40px;text-align:left }
+.owner-ai-drawer__tabs { display:flex;gap:var(--space-2);flex-wrap:wrap;margin:var(--space-4) 0 }
+.owner-ai-drawer__generate,.owner-ai-drawer__writing,.owner-ai-drawer__evidence { min-width:0 }
+.owner-ai-drawer__status { padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md, 8px) }
+@media (max-width: 760px) {
+  .owner-ai-drawer { width:100vw;padding:var(--space-4) }
+}
+
+.settings-shell { max-width:1120px;margin:0 auto;padding:var(--space-5) var(--space-6) var(--space-8) }
+.settings-shell__header { display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-3) }
+.settings-shell__eyebrow { color:var(--text-dim);font-size:12px }
+.settings-shell__header h1 { margin:4px 0;font-size:22px }
+.settings-shell__header p { margin:0;color:var(--text-dim);font-size:13px }
+.settings-shell__project { color:var(--text-dim);font-size:12px;white-space:nowrap }
+.settings-shell__tabs { display:flex;gap:var(--space-2);margin-bottom:var(--space-3);border-bottom:1px solid var(--border);padding-bottom:var(--space-2) }
+@media (max-width: 760px) {
+  .settings-shell { padding:var(--space-4) 0 var(--space-6) }
+  .settings-shell__header { flex-direction:column }
+  .settings-shell__project { white-space:normal }
+}

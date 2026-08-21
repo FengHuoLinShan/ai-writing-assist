@@ -28,7 +28,7 @@ test.describe("首页与导航", () => {
     await page.goto("/")
     await enterAuthor(page)
 
-    const navItems = ["today", "writing", "world", "outline", "map", "rag"]
+    const navItems = ["today", "world", "outline", "map", "rag"]
     for (const item of navItems) {
       await expect(page.locator(SEL.navItem(item))).toBeVisible()
     }
@@ -47,9 +47,9 @@ test.describe("首页与导航", () => {
     await expect(page.locator(SEL.navItem("world"))).not.toHaveClass(/active/)
     await expect(page.locator(SEL.toastContainer)).toContainText("请先选择作品后再进入该页面")
 
-    await page.locator(SEL.navItem("writing")).click()
+    await page.locator(SEL.navItem("today")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")
-    await expect(page.locator(SEL.navItem("writing"))).not.toHaveClass(/active/)
+    await expect(page.locator(SEL.navItem("today"))).not.toHaveClass(/active/)
 
     await page.locator(SEL.navItem("rag")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案")

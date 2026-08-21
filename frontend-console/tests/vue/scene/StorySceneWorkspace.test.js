@@ -160,6 +160,46 @@ describe("Story Scene workspace panels", () => {
     expect(wrapper.find(".scene-scripts-panel").text()).toContain("正式正文继续在写作页维护")
   })
 
+  it("restores preview provenance, sends it when saving, and clears it after manual edits", async () => {
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
+      script_files: [{ file_id: "file-1", file_key: "main", title: "主稿", revision: { id: "rev-1", content: "已有剧本" } }],
+    })
+    story.saveSceneScript.mockResolvedValue({
+      file_id: "file-1",
+      file_key: "main",
+      title: "主稿",
+      current_revision_id: "rev-2",
+      revision: { id: "rev-2", content: "预览内容" },
+    })
+    persistSceneRuntimeDraft("p1", "s1", {
+      scriptDraft: "预览内容",
+      scriptPreview: { content: "预览内容", sourceTaskId: "task-script-1", contextSnapshotId: "snapshot-1" },
+      scriptDraftSource: { sourceTaskId: "task-script-1", contextSnapshotId: "snapshot-1" },
+    })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-script"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find(".scene-script-preview").exists()).toBe(true)
+    await wrapper.get('[data-action="save-scene-script-draft"]').trigger("click")
+    await flushPromises()
+    expect(story.saveSceneScript).toHaveBeenLastCalledWith("p1", "s1", expect.objectContaining({
+      source_task_id: "task-script-1",
+      context_snapshot_id: "snapshot-1",
+      provenance: expect.objectContaining({ source_task_id: "task-script-1", context_snapshot_id: "snapshot-1" }),
+    }))
+
+    await wrapper.get('[data-action="scene-script-draft-input"]').setValue("作者手改后的剧本")
+    await wrapper.get('[data-action="save-scene-script-draft"]').trigger("click")
+    await flushPromises()
+    const manualPayload = story.saveSceneScript.mock.calls.at(-1)[2]
+    expect(manualPayload).not.toHaveProperty("source_task_id")
+    expect(manualPayload).not.toHaveProperty("context_snapshot_id")
+    expect(manualPayload.provenance).not.toHaveProperty("source_task_id")
+    expect(manualPayload.provenance).not.toHaveProperty("context_snapshot_id")
+  })
+
   it("keeps a readable error state when Story and World sources are unavailable", async () => {
     story.getSceneContext.mockRejectedValue(new Error("资料服务暂不可用"))
     story.listCharacterCards.mockRejectedValue(new Error("人物卡读取失败"))
@@ -224,6 +264,8 @@ describe("Story Scene workspace panels", () => {
     await wrapper.get('[data-action="select-workbench-scene"]').trigger("click")
     await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
     await flushPromises()
+    expect(wrapper.get('[data-action="run-scene-simulation"]').text()).toContain("推演并补齐人物卡")
+    expect(wrapper.get(".scene-simulation-panel").text()).toContain("人物反应与剧本仍只作为待确认预览，不会自动保存")
     await wrapper.get('[data-action="run-scene-simulation"]').trigger("click")
     await flushPromises()
 

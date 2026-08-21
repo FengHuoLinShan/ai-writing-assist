@@ -15,9 +15,11 @@ const routes = {
   project: { title: "作品档案", subViews: [], requiresProject: false },
   journeys: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
   interaction: { title: "互动故事", subViews: [], requiresProject: false, dynamicSubView: true },
-  today: { title: "今日工作", subViews: [], requiresProject: true },
+  // Today is now the compatibility name for the writing home.  Keeping the
+  // route entry lets old bookmarks resolve without keeping a second page.
+  today: { title: "写作首页", subViews: [], requiresProject: true },
   world: { title: "人物与世界", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible"], subViewTitles: { objects: "人物与设定", candidates: "需要处理", "review-objects": "需要处理 · 人物与设定", "review-aliases": "需要处理 · 别名", "review-relations": "需要处理 · 关系", relations: "关系", aliases: "人物与设定 · 别名", bible: "世界笔记" } },
-  rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "修复查找功能" } },
+  rag: { title: "查找", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "查找", status: "索引诊断" } },
   outline: { title: "故事结构", requiresProject: true, defaultSubView: "story-outline", subViews: ["story-outline", "arcs", "threads", "scenes"], subViewTitles: { "story-outline": "故事总览", arcs: "篇章", threads: "剧情线", scenes: "场景" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
   writing: { title: "写作", subViews: [], requiresProject: true },
@@ -339,6 +341,15 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
   let targetSubView = subView || null
   let targetQuery = query || new URLSearchParams()
 
+  // The old Today entry is a thin alias.  The writing island owns the home
+  // state so a chapter is never implicitly selected by a mobile redirect.
+  if (targetView === "today") {
+    targetView = "writing"
+    targetSubView = null
+    targetQuery = new URLSearchParams(targetQuery)
+    targetQuery.set("home", "1")
+  }
+
   // Scene 工作台已并入大纲页。保留旧 scene 路由兼容外部链接和现有调用方。
   if (targetView === "scene") {
     targetQuery = new URLSearchParams(targetQuery)
@@ -359,6 +370,20 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     targetSubView = null
     targetQuery = new URLSearchParams(targetQuery)
     targetQuery.set("tab", "task")
+  }
+
+  // Generate remains a compatibility alias.  The owner page opens its
+  // contextual drawer and reuses the old GenerateView session/controller.
+  if (targetView === "generate") {
+    const generateQuery = new URLSearchParams(targetQuery)
+    const generateTab = generateQuery.get("tab") || "world"
+    targetView = generateTab === "world" ? "world" : "writing"
+    targetSubView = generateTab === "world"
+      ? (generateQuery.get("source_page_id") ? "bible" : "objects")
+      : null
+    generateQuery.set("owner_ai", "1")
+    generateQuery.set("owner_ai_mode", generateTab)
+    targetQuery = generateQuery
   }
 
   if (targetView === "llm") {

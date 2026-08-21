@@ -268,8 +268,8 @@ test.describe("生成中心模块", () => {
   })
 
   test("生成中心页面加载", async ({ page }) => {
-    await expect(page.locator("#topbar-module")).toContainText("高级生成工具")
-    await expect(page.locator("#topbar-view-note")).toContainText("面向高级用法")
+    await expect(page.locator("#topbar-module")).toContainText("人物与世界")
+    await expect(page.locator("#topbar-view-note")).toContainText("需要 AI 时就在本页打开工具")
     await expect(page.locator("#workspace-content")).toContainText("人物")
     await expect(page.locator("#workspace-content")).toContainText("加强复核")
     await expect(page.locator("#workspace-content")).toContainText("生成世界对象建议")

@@ -118,7 +118,7 @@ const statusItems = computed(() => fields.statusItems || [])
   <template v-else>
     <section class="card rag-repair-card">
       <div>
-        <h2>{{ fields.statusDegraded || fields.totalChunks === 0 ? '查找资料尚未准备好' : '修复与检查查找功能' }}</h2>
+        <h2>{{ fields.statusDegraded || fields.totalChunks === 0 ? '查找资料尚未准备好' : '索引诊断' }}</h2>
         <p>{{ fields.statusDegraded ? '部分资料可能暂时找不到。修复期间仍可继续手写正文。' : '如果查找结果不全，可以重新整理当前作品的可查找资料。' }}</p>
       </div>
       <div class="rag-repair-card__actions">

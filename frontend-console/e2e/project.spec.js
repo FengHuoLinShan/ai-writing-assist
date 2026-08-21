@@ -178,7 +178,7 @@ test.describe("项目模块", () => {
 
     // 进入工作台验证面包屑同步刷新
     await card.click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("编辑后标题", { timeout: 10000 })
   })
 
@@ -272,9 +272,9 @@ test.describe("项目模块", () => {
     // 点击项目卡片
     await card.click()
 
-    // 应切换到今日工作
-    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
-    await expect(page).toHaveURL(/#workbench\/[^/]+\/today/)
+    // 应切换到写作首页
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
+    await expect(page).toHaveURL(/#workbench\/[^/]+\/writing\?home=1/)
     await expect(page.locator(SEL.topbarProject)).toContainText("点击切换项目")
   })
 
@@ -298,14 +298,14 @@ test.describe("项目模块", () => {
     await enterAuthorProjects(page)
 
     await page.locator(SEL.projectCard(projectA.id)).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("项目A-面包屑")
 
     await page.locator(".sidebar-project-switcher").click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("作品档案", { timeout: 10000 })
 
     await page.locator(SEL.projectCard(projectB.id)).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("今日工作", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作", { timeout: 10000 })
     await expect(page.locator(SEL.topbarProject)).toHaveText("项目B-面包屑", { timeout: 10000 })
   })
 
