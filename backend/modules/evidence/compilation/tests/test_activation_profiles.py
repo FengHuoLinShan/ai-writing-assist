@@ -454,6 +454,7 @@ async def test_relation_expansion_is_depth_bounded_and_cycle_safe(
                 source_id=entities[index].id,
                 target_id=entities[(index + 1) % len(entities)].id,
                 relation_type="route",
+                relation_kind="spatial",
                 status="canonical",
             )
             for index in range(len(entities))

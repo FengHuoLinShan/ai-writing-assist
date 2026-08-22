@@ -98,11 +98,14 @@ function mountEntityReferencePicker({
   selectedId = "",
   selectedName = "",
   canonicalOnly = false,
+  replaceExisting = true,
+  placeholder = "按名称或别名搜索目标对象",
+  ariaLabel = "搜索目标对象",
 }) {
   const root = document.getElementById(rootId)
   const input = document.getElementById(inputId)
   if (!root || !input) return null
-  destroyWorldEntityPickers()
+  if (replaceExisting) destroyWorldEntityPickers()
   const api = getApi()
   const projectId = getAppState()?.currentProjectId
   const eligible = canonicalOnly ? isMergeTargetEntity : isAliasTargetEntity
@@ -145,7 +148,8 @@ function mountEntityReferencePicker({
     projectId,
     sources: [source],
     initialItems,
-    placeholder: "按名称或别名搜索目标对象",
+    placeholder,
+    ariaLabel,
     onChange: (_items, refs) => {
       input.value = refs[0]?.id || ""
       input.dataset.referenceLabel = _items[0]?.label || ""
@@ -769,7 +773,7 @@ export function showResolveAliasForm(candidateId) {
     <div class="form-group">
       <label>目标对象 *</label>
       <div id="alias-target-picker"></div>
-      <input type="hidden" id="alias-target-id" value="${esc(targetId)}" />
+      <input type="hidden" id="alias-target-id" data-modal-dirty-track value="${esc(targetId)}" />
     </div>
     <div class="form-group">
       <label>别名文本 *</label>
@@ -783,7 +787,7 @@ export function showResolveAliasForm(candidateId) {
     <div class="form-group">
       <label for="alias-edit-type">详细类型</label>
       <select class="form-select" id="alias-edit-type">${detailTypeOptionsHtml(worldListRegistry.reviewTypeCatalog, "alias", selectedType, esc)}</select>
-      <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" /></div>
+      <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" maxlength="20" /></div>
     </div>
     ${aliasEvidenceHtml(candidateMeta(candidate))}
   `
@@ -860,7 +864,7 @@ export function showMergeForm(candidateId) {
     <div class="form-group">
       <label>选择目标对象 *</label>
       <div id="merge-target-picker"></div>
-      <input type="hidden" id="merge-target-id" value="${esc(targetId)}" />
+      <input type="hidden" id="merge-target-id" data-modal-dirty-track value="${esc(targetId)}" />
       <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">显示名称、类型、状态和摘要；没有明确目标时请先搜索再选择。</p>
     </div>
   `

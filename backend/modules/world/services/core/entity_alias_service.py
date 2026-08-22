@@ -103,6 +103,73 @@ class EntityAliasService:
             )
         return normalized
 
+    @classmethod
+    def normalize_content_aliases(
+        cls,
+        content_json: dict,
+        *,
+        default_status: str | None = None,
+    ) -> dict:
+        """Validate and normalize aliases entering through CoreEntity content JSON."""
+        content = dict(content_json)
+        aliases = content.get("aliases")
+        if aliases is None:
+            return content
+        if not isinstance(aliases, list):
+            raise DomainValidationError("aliases must be a list", status_code=422)
+
+        normalized_aliases: list[dict] = []
+        for alias_item in aliases:
+            if isinstance(alias_item, str):
+                normalized = {"alias": alias_item.strip(), "type": "name"}
+                status = default_status
+                if status is not None:
+                    normalized["status"] = status
+                alias_kind = "name"
+            elif isinstance(alias_item, dict):
+                normalized = dict(alias_item)
+                raw_alias = normalized.get("alias", normalized.get("name", ""))
+                normalized["alias"] = str(raw_alias or "").strip()
+                raw_type = (
+                    normalized["type"]
+                    if "type" in normalized
+                    else normalized.get("alias_type", "name")
+                )
+                normalized["type"] = cls._normalize_alias_type(raw_type)
+                status = normalized.get(
+                    "status",
+                    (
+                        "candidate"
+                        if normalized.get("needs_review") is True
+                        else default_status
+                    ),
+                )
+                if "status" not in normalized and status is not None:
+                    normalized["status"] = status
+                if status is not None and not isinstance(status, str):
+                    raise DomainValidationError(
+                        "alias status must be a string", status_code=422
+                    )
+                alias_kind = (
+                    normalized.get("kind")
+                    if "kind" in normalized
+                    else normalized.get("alias_kind")
+                )
+            else:
+                raise DomainValidationError(
+                    "alias items must be strings or objects", status_code=422
+                )
+
+            if not normalized["alias"]:
+                raise DomainValidationError("Alias text cannot be empty", status_code=422)
+            normalized["kind"] = cls._resolve_alias_kind(
+                normalized["type"], alias_kind, status
+            )
+            normalized_aliases.append(normalized)
+
+        content["aliases"] = normalized_aliases
+        return content
+
     @staticmethod
     def _resolve_alias_kind(
         alias_type: str,
@@ -111,7 +178,9 @@ class EntityAliasService:
         *,
         legacy_default: bool = False,
     ) -> str | None:
-        if alias_kind is not None and alias_kind not in ALIAS_KINDS:
+        if alias_kind is not None and (
+            not isinstance(alias_kind, str) or alias_kind not in ALIAS_KINDS
+        ):
             raise DomainValidationError("Invalid alias_kind", status_code=422)
         resolved = alias_kind or default_alias_kind(alias_type)
         if resolved is None and legacy_default:

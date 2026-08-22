@@ -662,6 +662,7 @@ async def test_persist_entities_writes_auto_ingested_meta(
         {
             "alias": "周明瑞",
             "type": "name",
+            "kind": "name",
             "status": "candidate",
             "source": "deep_import",
             "workflow_id": "wf-test-1",

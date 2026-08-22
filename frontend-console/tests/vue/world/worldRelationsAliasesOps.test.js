@@ -10,6 +10,7 @@ import {
   deleteAlias,
   markRelationReviewed,
   markAliasReviewed,
+  showAliasEditForm,
   showRelationReviewEditForm,
   syncRelationsAliasesRegistry,
 } from "../../../vue/views/world/logic/worldRelationsAliasesOps.js"
@@ -59,6 +60,7 @@ beforeEach(() => {
       deleteAlias: vi.fn(async () => ({})),
       reviewEditRelationship: vi.fn(async () => ({})),
       updateAlias: vi.fn(async () => ({})),
+      editAlias: vi.fn(async () => ({})),
       listEntities: vi.fn(async () => ({
         items: [
           { id: "e1", name: "林澈", entity_type: "character", status: "canonical" },
@@ -80,11 +82,12 @@ beforeEach(() => {
     confirm: vi.fn(() => true),
     router: routerMock,
   })
-  syncRelationsAliasesRegistry({ relations: RELATIONS, aliases: ALIASES })
+  syncRelationsAliasesRegistry({ relations: RELATIONS, aliases: ALIASES, reviewTypeCatalog: {} })
 })
 
 afterEach(() => {
   resetBridgeOverrides()
+  vi.unstubAllGlobals()
 })
 
 it.each([
@@ -271,6 +274,52 @@ describe("showAliasCreateForm", () => {
 })
 
 describe("showRelationReviewEditForm", () => {
+  it("端点选择器可区分且挂载后刷新未保存基线", () => {
+    const refreshBaseline = vi.fn()
+    vi.stubGlobal("refreshModalFormBaseline", refreshBaseline)
+    setBridgeOverrides({
+      showModalHtml: (title, html, buttons, options) => {
+        captureModal(title, html, buttons, options)
+        installModalHost(html)
+      },
+    })
+
+    showRelationReviewEditForm("r1")
+
+    const queries = Array.from(document.querySelectorAll("[data-reference-query]"))
+    expect(queries.map((input) => input.placeholder)).toEqual([
+      "按名称或别名搜索源对象",
+      "按名称或别名搜索目标对象",
+    ])
+    expect(queries.map((input) => input.getAttribute("aria-label"))).toEqual([
+      "搜索源对象",
+      "搜索目标对象",
+    ])
+    expect(document.getElementById("rel-review-source").hasAttribute("data-modal-dirty-track")).toBe(true)
+    expect(document.getElementById("rel-review-target").hasAttribute("data-modal-dirty-track")).toBe(true)
+    expect(refreshBaseline).toHaveBeenCalledOnce()
+  })
+
+  it("正式关系可编辑端点与两层类型", async () => {
+    showRelationReviewEditForm("r1")
+    expect(modalCalls[0].title).toBe("编辑关系")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("rel-review-source").value = "e2"
+    document.getElementById("rel-review-target").value = "e1"
+    document.getElementById("rel-review-kind").value = "social"
+    document.getElementById("rel-review-type").value = "friend_of"
+
+    await modalCalls[0].buttons[0].handler()
+
+    expect(apiMock.world.reviewEditRelationship).toHaveBeenCalledWith("r1", expect.objectContaining({
+      source_id: "e2",
+      target_id: "e1",
+      relation_kind: "social",
+      relation_type: "friend_of",
+      confirm_review: true,
+    }), "p-ra")
+  })
+
   it("写入成功后离开子视图时返回成功且不关闭或刷新新页", async () => {
     const state = { currentProjectId: "p-ra", currentView: "world", currentSubView: "relations" }
     const request = deferred()
@@ -298,6 +347,46 @@ describe("showRelationReviewEditForm", () => {
     await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
     expect(routerMock.refresh).not.toHaveBeenCalled()
     expect(toastCalls).toContainEqual(["采用失败", "error"])
+  })
+})
+
+describe("showAliasEditForm", () => {
+  it("目标选择器挂载后刷新未保存基线", () => {
+    const refreshBaseline = vi.fn()
+    vi.stubGlobal("refreshModalFormBaseline", refreshBaseline)
+    setBridgeOverrides({
+      showModalHtml: (title, html, buttons, options) => {
+        captureModal(title, html, buttons, options)
+        installModalHost(html)
+      },
+    })
+
+    showAliasEditForm("e1", "小名")
+
+    const query = document.querySelector("[data-reference-query]")
+    expect(query.getAttribute("aria-label")).toBe("搜索目标对象")
+    expect(document.getElementById("alias-edit-target").hasAttribute("data-modal-dirty-track")).toBe(true)
+    expect(refreshBaseline).toHaveBeenCalledOnce()
+  })
+
+  it("正式别名可改名、分类并移动对象", async () => {
+    showAliasEditForm("e1", "小名")
+    expect(modalCalls[0].title).toBe("编辑别名")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("alias-edit-target").value = "e2"
+    document.getElementById("alias-edit-text").value = "新小名"
+    document.getElementById("alias-edit-kind").value = "name"
+    document.getElementById("alias-edit-type").value = "nickname"
+
+    await modalCalls[0].buttons[0].handler()
+
+    expect(apiMock.world.editAlias).toHaveBeenCalledWith("e1", "小名", {
+      target_entity_id: "e2",
+      alias: "新小名",
+      alias_kind: "name",
+      alias_type: "nickname",
+      confirm_review: true,
+    }, { novel_id: "p-ra" })
   })
 })
 

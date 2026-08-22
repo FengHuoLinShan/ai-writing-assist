@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from modules.world.entity_facade import _normalize_deep_import_alias
 from modules.world.facade import (
     expand_related_entities,
     find_entity_id_by_name,
@@ -44,6 +45,22 @@ from modules.world.services import (
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.entity_relation_service import EntityRelationService
 from modules.world.world_background import WorldBackgroundAggregation
+
+
+def test_deep_import_alias_repair_preserves_existing_kind() -> None:
+    normalized = _normalize_deep_import_alias(
+        {
+            "alias": "愚者",
+            "type": "塔罗会称号",
+            "kind": "identity",
+            "confidence": 0.9,
+        },
+        {"workflow_id": "wf-1"},
+    )
+
+    assert normalized is not None
+    assert normalized["kind"] == "identity"
+    assert normalized["type"] == "塔罗会称号"
 
 
 @pytest.fixture

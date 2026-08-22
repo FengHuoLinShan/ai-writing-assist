@@ -90,6 +90,97 @@ def _make_entity(
     return entity
 
 
+def test_normalize_content_aliases_preserves_order_metadata_and_two_layers() -> None:
+    normalized = EntityAliasService.normalize_content_aliases(
+        {
+            "other": {"kept": True},
+            "aliases": [
+                " 旧名 ",
+                {"alias": "小名", "type": "nickname", "source": "manual"},
+                {
+                    "alias": "特殊身份",
+                    "type": "自定义身份",
+                    "kind": "identity",
+                    "evidence_refs": [{"id": "e1"}],
+                },
+                {"alias": "待定称呼", "type": "自定义称呼", "status": "candidate"},
+            ],
+        }
+    )
+
+    assert normalized["other"] == {"kept": True}
+    assert [item["alias"] for item in normalized["aliases"]] == [
+        "旧名",
+        "小名",
+        "特殊身份",
+        "待定称呼",
+    ]
+    assert [item["kind"] for item in normalized["aliases"]] == [
+        "name",
+        "name",
+        "identity",
+        None,
+    ]
+    assert normalized["aliases"][1]["source"] == "manual"
+    assert normalized["aliases"][2]["evidence_refs"] == [{"id": "e1"}]
+
+
+@pytest.mark.parametrize(
+    "alias_item",
+    [
+        {"alias": "无分类", "type": "自定义类型"},
+        {"alias": "过长", "type": "x" * 21, "kind": "name"},
+    ],
+)
+def test_normalize_content_aliases_rejects_invalid_active_aliases(
+    alias_item: dict,
+) -> None:
+    with pytest.raises(DomainValidationError) as exc:
+        EntityAliasService.normalize_content_aliases({"aliases": [alias_item]})
+
+    assert exc.value.status_code == 422
+
+
+def test_normalize_content_aliases_keeps_parent_candidate_alias_pending() -> None:
+    normalized = EntityAliasService.normalize_content_aliases(
+        {"aliases": [{"alias": "前世名字", "type": "自定义身份"}]},
+        default_status="candidate",
+    )
+
+    assert normalized["aliases"] == [
+        {
+            "alias": "前世名字",
+            "type": "自定义身份",
+            "kind": None,
+            "status": "candidate",
+        }
+    ]
+
+
+def test_normalize_content_aliases_treats_needs_review_as_candidate() -> None:
+    normalized = EntityAliasService.normalize_content_aliases(
+        {
+            "aliases": [
+                {
+                    "alias": "待审身份",
+                    "type": "自定义身份",
+                    "needs_review": True,
+                }
+            ]
+        }
+    )
+
+    assert normalized["aliases"] == [
+        {
+            "alias": "待审身份",
+            "type": "自定义身份",
+            "kind": None,
+            "needs_review": True,
+            "status": "candidate",
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_list_aliases_returns_alias_for_entity(
     novel_id: str,

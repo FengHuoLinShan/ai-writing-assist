@@ -281,6 +281,7 @@ def _make_relation(**kwargs) -> EntityRelation:
         "source_id": uuid.uuid4(),
         "target_id": uuid.uuid4(),
         "relation_type": "friend",
+        "relation_kind": "social",
         "description": None,
         "strength": 0.5,
         "source_chapter_id": None,
@@ -1556,6 +1557,7 @@ class TestEntityRelationServiceUpsert:
             uuid.UUID(tid),
             "friend",
             description="Best buds",
+            relation_kind="social",
         )
 
 

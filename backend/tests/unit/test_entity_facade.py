@@ -270,7 +270,13 @@ async def test_upsert_relation_happy_path_returns_response(mock_relation_service
     # Assert
     assert result == expected
     mock_relation_service.upsert.assert_awaited_once_with(
-        db, TEST_NOVEL_ID, source_id, target_id, "rival", description="old rivals"
+        db,
+        TEST_NOVEL_ID,
+        source_id,
+        target_id,
+        "rival",
+        description="old rivals",
+        relation_kind=None,
     )
 
 
@@ -292,7 +298,13 @@ async def test_upsert_relation_with_none_description_forwards_none(
     # Assert
     assert result == expected
     mock_relation_service.upsert.assert_awaited_once_with(
-        db, TEST_NOVEL_ID, source_id, target_id, "ally", description=None
+        db,
+        TEST_NOVEL_ID,
+        source_id,
+        target_id,
+        "ally",
+        description=None,
+        relation_kind=None,
     )
 
 

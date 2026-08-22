@@ -75,6 +75,24 @@ class WorldEntityService(
     ) -> CoreEntityResponse:
         nid = parse_uuid(novel_id, "novel_id")
 
+        if data.content_json is not None:
+            from modules.world.services.core.entity_alias_service import (
+                EntityAliasService,
+            )
+
+            data = data.model_copy(
+                update={
+                    "content_json": EntityAliasService.normalize_content_aliases(
+                        data.content_json,
+                        default_status=(
+                            "candidate"
+                            if data.status in {"candidate", "draft"}
+                            else None
+                        ),
+                    )
+                }
+            )
+
         if data.status == "canonical" and not _validation_prechecked:
             from modules.world.services.worldbuilding.world_validation_service import (
                 WorldValidationService,
@@ -452,6 +470,24 @@ class WorldEntityService(
         ):
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行编辑或裁决")
 
+        if data.content_json is not None:
+            from modules.world.services.core.entity_alias_service import (
+                EntityAliasService,
+            )
+
+            data = data.model_copy(
+                update={
+                    "content_json": EntityAliasService.normalize_content_aliases(
+                        data.content_json,
+                        default_status=(
+                            "candidate"
+                            if (data.status or existing.status) in {"candidate", "draft"}
+                            else None
+                        ),
+                    )
+                }
+            )
+
         changed = data.model_dump(exclude_unset=True)
         new_type = changed.get("entity_type")
         type_changed = new_type is not None and new_type != existing.entity_type
@@ -709,7 +745,11 @@ class WorldEntityService(
                 "只有待处理的 draft/candidate 实体可以采用"
             )
 
-        content_json = dict(entity.content_json or {})
+        from modules.world.services.core.entity_alias_service import EntityAliasService
+
+        content_json = EntityAliasService.normalize_content_aliases(
+            dict(entity.content_json or {})
+        )
         meta = dict(content_json.get("_meta") or {})
         if meta.get("compatibility_shadow") is True and not _from_suggestion_queue:
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行采用")

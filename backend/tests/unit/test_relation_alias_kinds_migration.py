@@ -73,3 +73,35 @@ def test_relation_alias_kind_migration_preserves_alias_order_and_metadata() -> N
     assert migrated["aliases"][1]["source"] == "manual"
     assert migrated["aliases"][2]["status"] == "candidate"
     assert migrated["aliases"][3]["evidence_refs"] == [{"id": 1}]
+
+
+def test_relation_alias_kind_downgrade_removes_null_kind_keys() -> None:
+    migration = _load_migration()
+    engine = sa.create_engine("sqlite://")
+    metadata = sa.MetaData()
+    entities = sa.Table(
+        "core_entities",
+        metadata,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("content_json", sa.JSON),
+    )
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            entities.insert().values(
+                id=1,
+                content_json={
+                    "aliases": [
+                        {"alias": "待分类", "type": "自定义", "kind": None},
+                        {"alias": "已分类", "type": "name", "kind": "name"},
+                    ]
+                },
+            )
+        )
+        migration.op = SimpleNamespace(get_bind=lambda: connection)
+        migration._migrate_aliases(remove_kind=True)
+        downgraded = connection.execute(
+            sa.select(entities.c.content_json).where(entities.c.id == 1)
+        ).scalar_one()
+
+    assert all("kind" not in item for item in downgraded["aliases"])

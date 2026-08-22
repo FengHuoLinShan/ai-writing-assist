@@ -140,11 +140,12 @@ class EntityRelationService(
         status: str,
     ) -> str | None:
         if relation_kind is not None and relation_kind not in RELATION_KINDS:
-            raise ValidationError("Invalid relation_kind")
+            raise ValidationError("Invalid relation_kind", status_code=422)
         resolved = relation_kind or default_relation_kind(relation_type)
         if status == "canonical" and resolved is None:
             raise ValidationError(
-                "relation_kind is required for a canonical custom relation_type"
+                "relation_kind is required for a canonical custom relation_type",
+                status_code=422,
             )
         return resolved
 

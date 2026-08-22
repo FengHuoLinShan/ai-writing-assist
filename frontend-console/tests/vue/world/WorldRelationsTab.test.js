@@ -70,6 +70,7 @@ describe("渲染", () => {
     expect(rows[0].text()).not.toContain("friend_of")
     expect(rows[0].text()).toContain("沉钟港")
     expect(rows[0].text()).toContain("驻守旧港")
+    expect(rows[0].find('[data-action="edit-relation"]').exists()).toBe(true)
     expect(rows[0].find('[data-action="delete-relation"]').exists()).toBe(true)
   })
 
@@ -79,11 +80,10 @@ describe("渲染", () => {
     expect(deleteBtn.attributes("data-id")).toBe("r1")
   })
 
-  it("历史数据缺少分类时显示待分类，不暴露英文详细枚举", () => {
+  it("历史数据缺少分类时显示待分类和精确详细类型", () => {
     const wrapper = mountTab({ relations: [{ ...RELATIONS[0], relation_kind: "", relation_type: "legacy_link" }] })
     expect(wrapper.text()).toContain("待分类")
-    expect(wrapper.text()).toContain("自定义详细类型")
-    expect(wrapper.text()).not.toContain("legacy_link")
+    expect(wrapper.text()).toContain("legacy_link（自定义）")
   })
 })
 

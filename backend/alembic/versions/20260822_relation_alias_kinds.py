@@ -219,7 +219,9 @@ def _migrate_aliases(*, remove_kind: bool) -> None:
                 continue
             normalized = dict(item)
             if remove_kind:
-                changed = normalized.pop("kind", None) is not None or changed
+                if "kind" in normalized:
+                    normalized.pop("kind")
+                    changed = True
             else:
                 alias_type = normalized.get("type") or normalized.get("alias_type")
                 if not normalized.get("type"):

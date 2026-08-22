@@ -82,6 +82,7 @@ describe("渲染", () => {
     expect(rows[1].text()).toContain("名称")
     expect(rows[2].text()).toContain("旧港")
     expect(rows[2].text()).toContain("名称")
+    expect(rows[0].find('[data-action="edit-alias"]').exists()).toBe(true)
   })
 
   it("删除按钮携带 data-entity-id 和 data-alias", () => {
@@ -101,6 +102,7 @@ describe("渲染", () => {
     const managedRow = rows.find((r) => r.attributes("data-id") === "e1::受管的")
     expect(managedRow).toBeTruthy()
     expect(managedRow.text()).toContain("随对象建议处理")
+    expect(managedRow.find('[data-action="edit-alias"]').exists()).toBe(false)
     expect(managedRow.find('[data-action="delete-alias"]').exists()).toBe(false)
   })
 

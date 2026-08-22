@@ -67,6 +67,7 @@ def _allow_legacy_canon_writes_in_unit_tests(monkeypatch: pytest.MonkeyPatch) ->
         AsyncMock(),
     )
 
+
 # ============================================================
 # entity_types.py — pure function mapping
 # ============================================================
@@ -945,7 +946,7 @@ class TestDedupGetAliasesRaw:
     def test_string_entries_wrapped(self) -> None:
         entity = _mock_entity(content_json={"aliases": ["Nick"]})
         result = EntityDedupService()._get_aliases_raw(entity)
-        assert result == [{"alias": "Nick", "type": "unknown"}]
+        assert result == [{"alias": "Nick", "type": "name", "kind": "name"}]
 
     def test_empty_returns_empty(self) -> None:
         entity = _mock_entity(content_json={})
@@ -959,7 +960,7 @@ class TestDedupGetAliasesRaw:
         )
         result = EntityDedupService()._get_aliases_raw(entity)
         assert len(result) == 2
-        assert {"alias": "Str", "type": "unknown"} in result
+        assert {"alias": "Str", "type": "name", "kind": "name"} in result
         assert {"alias": "Dict"} in result
 
 

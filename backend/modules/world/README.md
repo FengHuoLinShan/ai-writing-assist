@@ -440,11 +440,12 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 存储于 `core_entities.content_json.aliases`，格式为列表：
 ```json
 [
-  {"alias": "别名文本", "type": "name|title|nickname|alias|translation|abbreviation|自定义字符串"}
+  {"alias": "别名文本", "kind": "name|title|identity", "type": "name|title|nickname|alias|translation|abbreviation|自定义字符串"}
 ]
 ```
 
 - 别名不创建新实体行
+- `CoreEntity` 的通用创建、更新和采用入口会统一规范化该列表；已生效的自定义 `type` 必须有 `kind`，candidate 可暂缺
 - 去重检查：别名不与已有别名重复（大小写不敏感）
 - `PATCH /api/world/entities/{entity_id}/aliases` 只更新复核元数据；编辑文本或移动目标必须走 `/aliases/edit`
 - `POST /api/world/entities/{candidate_id}/resolve-as-alias` 将候选对象登记为目标对象别名，并把源候选移出待确认对象队列

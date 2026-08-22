@@ -90,7 +90,7 @@ DELETE /api/projects/{id}/permanent            # 永久删除（级联）
 
 工作台摘要固定返回 `project_id`、可空 `continuation`、`writing` 与 `attention`。`attention`
 保留原计数和 `total`，增加最多 6 条 `items`、`actionable_total`、`has_more`，以及按领域类型
-去重且不绑定单条 item 的隐藏领域入口 `more_targets`；必须逐项打开的采用包保留精确 target。API 先通过
+去重且不绑定单条 item 的隐藏领域入口 `more_targets`；除必须逐项打开的 `world_adoption` 采用包外，该入口清空 item/chapter/Scene/page/suggestion 定位字段。API 先通过
 当前账户项目读取门禁，再以同一 ID 调用 writing/world/outline 稳定 facade；调用方不能指定 owner
 或额外 `novel_id`。可选 `focus_chapter_index` / `focus_scene_id` 只影响固定排序，Scene 必须经
 Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 验证指定章节。该投影不返回正文、内部任务、密钥或 owner 信息，

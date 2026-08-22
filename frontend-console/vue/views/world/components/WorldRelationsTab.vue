@@ -68,6 +68,7 @@
             </td>
             <td>
               <div class="row-actions">
+                <button class="btn btn-sm" data-action="edit-relation" :data-id="r.id || r.relationship_id" @click="onEditRelation(r.id || r.relationship_id)">编辑</button>
                 <button class="btn btn-sm btn-danger" data-action="delete-relation" :data-id="r.id || r.relationship_id" @click="onDeleteRelation(r.id || r.relationship_id)">删除</button>
               </div>
             </td>
@@ -91,7 +92,7 @@
 import { computed, watch } from "vue"
 import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
-import { deleteRelation, inlineRelationEvidencePairs as relationEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction } from "../logic/worldRelationsAliasesOps.js"
+import { deleteRelation, inlineRelationEvidencePairs as relationEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, showRelationReviewEditForm } from "../logic/worldRelationsAliasesOps.js"
 import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { detailTypeLabel, kindLabel } from "../logic/worldTypeCatalog.js"
@@ -138,6 +139,10 @@ function statusBadgeClass(r) {
 
 function onDeleteRelation(id) {
   deleteRelation(id)
+}
+
+function onEditRelation(id) {
+  showRelationReviewEditForm(id)
 }
 
 function onPageChange(delta) {

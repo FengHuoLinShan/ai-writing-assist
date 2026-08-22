@@ -31,7 +31,7 @@ export function detailTypeLabel(catalog, domain, value) {
   if (!value) return "未填写"
   const known = catalogTypeItems(catalog, domain).find((item) => item.value === value)
   if (known?.label) return known.label
-  return /[\u3400-\u9fff]/u.test(String(value)) ? String(value) : "自定义详细类型"
+  return `${String(value)}（自定义）`
 }
 
 export function defaultKindForType(catalog, domain, value) {
@@ -64,22 +64,30 @@ export function detailTypeOptionsHtml(catalog, domain, selected, escapeHtml) {
   return options.join("")
 }
 
-export function bindTypeKindControls({ typeSelect, customInput, customContainer, kindSelect, kindHelp, catalog, domain, onChange }) {
+export function bindTypeKindControls({ typeSelect, customInput, customContainer, kindSelect, kindHelp, catalog, domain, kindExplicit = false, onChange }) {
   if (!typeSelect || !kindSelect) return
-  const sync = () => {
+  let preserveKind = Boolean(kindExplicit)
+  kindSelect.dataset.kindExplicit = String(preserveKind)
+  const updateHelp = () => {
+    if (kindHelp) kindHelp.textContent = kindItem(catalog, domain, kindSelect.value)?.description || "先选择用于 AI 检索的通用分类。"
+  }
+  const syncType = () => {
     const custom = typeSelect.value === CUSTOM_DETAIL_TYPE_VALUE
     if (customContainer) customContainer.hidden = !custom
     if (customInput) customInput.required = custom
-    if (!kindSelect.value && !custom) {
-      kindSelect.value = defaultKindForType(catalog, domain, typeSelect.value)
-    }
-    if (kindHelp) kindHelp.textContent = kindItem(catalog, domain, kindSelect.value)?.description || "先选择用于 AI 检索的通用分类。"
+    if (!preserveKind) kindSelect.value = custom ? "" : defaultKindForType(catalog, domain, typeSelect.value)
+    updateHelp()
     onChange?.()
   }
-  typeSelect.addEventListener("change", sync)
-  kindSelect.addEventListener("change", sync)
+  typeSelect.addEventListener("change", syncType)
+  kindSelect.addEventListener("change", () => {
+    preserveKind = true
+    kindSelect.dataset.kindExplicit = "true"
+    updateHelp()
+    onChange?.()
+  })
   customInput?.addEventListener("input", () => onChange?.())
-  sync()
+  syncType()
 }
 
 export function readDetailType(typeSelect, customInput) {

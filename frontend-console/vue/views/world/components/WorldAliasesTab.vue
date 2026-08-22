@@ -76,7 +76,10 @@
               <td>
                 <div class="row-actions">
                   <span v-if="a.managed_by_suggestion" class="world-text-dim">随对象建议处理</span>
-                  <button v-else class="btn btn-sm btn-danger" data-action="delete-alias" :data-entity-id="a.entity_id" :data-alias="a.alias" @click="onDeleteAlias(a.entity_id, a.alias)">删除</button>
+                  <template v-else>
+                    <button class="btn btn-sm" data-action="edit-alias" :data-entity-id="a.entity_id" :data-alias="a.alias" @click="onEditAlias(a.entity_id, a.alias)">编辑</button>
+                    <button class="btn btn-sm btn-danger" data-action="delete-alias" :data-entity-id="a.entity_id" :data-alias="a.alias" @click="onDeleteAlias(a.entity_id, a.alias)">删除</button>
+                  </template>
                 </div>
               </td>
             </tr>
@@ -100,7 +103,7 @@
 import { computed, watch } from "vue"
 import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
-import { deleteAlias, inlineEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, aliasKey } from "../logic/worldRelationsAliasesOps.js"
+import { deleteAlias, inlineEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, aliasKey, showAliasEditForm } from "../logic/worldRelationsAliasesOps.js"
 import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { detailTypeLabel, kindLabel } from "../logic/worldTypeCatalog.js"
@@ -172,6 +175,10 @@ function statusBadgeClassOf(a) {
 
 function onDeleteAlias(entityId, alias) {
   deleteAlias(entityId, alias)
+}
+
+function onEditAlias(entityId, alias) {
+  showAliasEditForm(entityId, alias)
 }
 
 function onPageChange(delta) {

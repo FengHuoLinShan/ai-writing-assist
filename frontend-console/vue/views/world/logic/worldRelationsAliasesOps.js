@@ -11,6 +11,7 @@
  */
 import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection } from "./worldBulkSelection.js"
+import { mountEntityReferencePickerForReview } from "./worldEntityOps.js"
 import {
   bindTypeKindControls,
   catalogTypeItems,
@@ -243,7 +244,7 @@ export async function showAliasCreateForm(reviewTypeCatalog = {}) {
     <div class="form-group">
       <label for="alias-type">详细类型</label>
       <select class="form-select" id="alias-type">${detailTypeOptionsHtml(reviewTypeCatalog, "alias", initialType, esc)}</select>
-      <div id="alias-type-custom-wrap" hidden><label for="alias-type-custom">自定义详细类型</label><input class="form-input" id="alias-type-custom" /></div>
+      <div id="alias-type-custom-wrap" hidden><label for="alias-type-custom">自定义详细类型</label><input class="form-input" id="alias-type-custom" maxlength="20" /></div>
     </div>
   `
   showModalHtml("新建别名", formHtml, [{
@@ -561,6 +562,92 @@ export async function markAliasUnreviewed(entityId, alias) {
   }
 }
 
+/** 编辑或移动已采用别名。 */
+export function showAliasEditForm(entityId, aliasText) {
+  const esc = getEsc()
+  const toast = getToast()
+  const showModalHtml = getShowModalHtml()
+  const scope = captureWorldOperationScope()
+  const projectId = scope.projectId
+  const alias = listRegistry.aliases.find((item) => item.entity_id === entityId && item.alias === aliasText)
+  if (!alias) {
+    toast("未找到目标别名", "error")
+    return
+  }
+  const catalog = listRegistry.reviewTypeCatalog || {}
+  const selectedType = alias.alias_type || "name"
+  const selectedKind = kindOrTypeDefault(catalog, "alias", alias.alias_kind, selectedType)
+  const formHtml = `
+    <div class="form-group">
+      <label>所属对象 *</label>
+      <div id="alias-edit-target-picker"></div>
+      <input type="hidden" id="alias-edit-target" data-modal-dirty-track value="${esc(entityId)}" />
+    </div>
+    <div class="form-group"><label for="alias-edit-text">别名文本 *</label><input class="form-input" id="alias-edit-text" value="${esc(alias.alias || "")}" /></div>
+    <div class="form-group">
+      <label for="alias-edit-kind">别名分类</label>
+      <select class="form-select" id="alias-edit-kind" aria-describedby="alias-edit-kind-help">${kindOptionsHtml(catalog, "alias", selectedKind, esc)}</select>
+      <div class="form-help" id="alias-edit-kind-help">用于 AI 检索的通用分类。</div>
+    </div>
+    <div class="form-group">
+      <label for="alias-edit-type">详细类型</label>
+      <select class="form-select" id="alias-edit-type">${detailTypeOptionsHtml(catalog, "alias", selectedType, esc)}</select>
+      <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" maxlength="20" value="${esc(selectedType)}" /></div>
+      <p class="form-help">修改所属对象时，原来的来源和证据会一起保留。</p>
+    </div>
+  `
+  showModalHtml("编辑别名", formHtml, [{
+    text: "保存",
+    class: "btn-primary",
+    handler: async () => {
+      const targetId = document.getElementById("alias-edit-target")?.value || ""
+      const text = document.getElementById("alias-edit-text")?.value?.trim() || ""
+      const aliasKind = document.getElementById("alias-edit-kind")?.value || ""
+      const aliasType = readDetailType(document.getElementById("alias-edit-type"), document.getElementById("alias-edit-type-custom"))
+      if (!targetId || !text || !aliasKind || !aliasType) {
+        toast("请选择所属对象、别名分类并填写别名和详细类型", "warning")
+        return false
+      }
+      const modalOwner = captureModalOwner(document.getElementById("alias-edit-text"))
+      try {
+        await getApi().world.editAlias(entityId, aliasText, {
+          target_entity_id: targetId,
+          alias: text,
+          alias_kind: aliasKind,
+          alias_type: aliasType,
+          confirm_review: true,
+        }, { novel_id: projectId })
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
+        toast("别名已保存", "success")
+        getRouter()?.refresh?.()
+        return true
+      } catch (err) {
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
+        toast(err?.message || "保存失败", "error")
+        return false
+      }
+    },
+  }])
+  bindTypeKindControls({
+    typeSelect: document.getElementById("alias-edit-type"),
+    customInput: document.getElementById("alias-edit-type-custom"),
+    customContainer: document.getElementById("alias-edit-type-custom-wrap"),
+    kindSelect: document.getElementById("alias-edit-kind"),
+    kindHelp: document.getElementById("alias-edit-kind-help"),
+    catalog,
+    domain: "alias",
+    kindExplicit: Boolean(alias.alias_kind),
+  })
+  mountEntityReferencePickerForReview({
+    rootId: "alias-edit-target-picker",
+    inputId: "alias-edit-target",
+    selectedId: entityId,
+    selectedName: alias.entity_name || "当前对象",
+    canonicalOnly: true,
+  })
+  globalThis.refreshModalFormBaseline?.()
+}
+
 /** 对应 vanilla showRelationReviewEditForm（worldView.js:2587-2647）。 */
 export function showRelationReviewEditForm(relationId) {
   const esc = getEsc()
@@ -575,12 +662,14 @@ export function showRelationReviewEditForm(relationId) {
     toast("未找到目标关系", "error")
     return
   }
+  const isCanonical = !relation.status || relation.status === "canonical"
   const catalog = listRegistry.reviewTypeCatalog || {}
   const selectedKind = kindOrTypeDefault(catalog, "relation", relation.relation_kind, relation.relation_type)
   const formHtml = `
     <div class="form-group">
       <label>源对象</label>
-      <select class="form-select" id="rel-review-source"><option value="${esc(relation.source_id || relation.source_entity_id || "")}">${esc(relation.source_name || relation.source_entity_name || "当前源对象")}</option></select>
+      <div id="rel-review-source-picker"></div>
+      <input type="hidden" id="rel-review-source" data-modal-dirty-track value="${esc(relation.source_id || relation.source_entity_id || "")}" />
     </div>
     <div class="form-group">
       <label for="rel-review-kind">关系分类</label>
@@ -594,7 +683,8 @@ export function showRelationReviewEditForm(relationId) {
     </div>
     <div class="form-group">
       <label>目标对象</label>
-      <select class="form-select" id="rel-review-target"><option value="${esc(relation.target_id || relation.target_entity_id || "")}">${esc(relation.target_name || relation.target_entity_name || "当前目标对象")}</option></select>
+      <div id="rel-review-target-picker"></div>
+      <input type="hidden" id="rel-review-target" data-modal-dirty-track value="${esc(relation.target_id || relation.target_entity_id || "")}" />
     </div>
     <div class="form-group">
       <label>描述</label>
@@ -605,8 +695,8 @@ export function showRelationReviewEditForm(relationId) {
       <input class="form-input" id="rel-review-strength" type="number" min="0" max="1" step="0.01" value="${esc(relation.strength ?? 0.5)}" />
     </div>
   `
-  showModalHtml("编辑后采用关系", formHtml, [{
-    text: "采用",
+  showModalHtml(isCanonical ? "编辑关系" : "编辑后采用关系", formHtml, [{
+    text: isCanonical ? "保存" : "采用",
     class: "btn-primary",
     handler: async () => {
       const sourceId = document.getElementById("rel-review-source")?.value || ""
@@ -629,7 +719,7 @@ export function showRelationReviewEditForm(relationId) {
           confirm_review: true,
         }, projectId)
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
-        toast("关系已采用", "success")
+        toast(isCanonical ? "关系已保存" : "关系已采用", "success")
         getRouter()?.refresh?.()
         return true
       } catch (err) {
@@ -647,5 +737,30 @@ export function showRelationReviewEditForm(relationId) {
     kindHelp: document.getElementById("rel-review-kind-help"),
     catalog,
     domain: "relation",
+    kindExplicit: Boolean(relation.relation_kind),
   })
+  const sourceId = relation.source_id || relation.source_entity_id || ""
+  const targetId = relation.target_id || relation.target_entity_id || ""
+  mountEntityReferencePickerForReview({
+    rootId: "rel-review-source-picker",
+    inputId: "rel-review-source",
+    sourceId: targetId,
+    selectedId: sourceId,
+    selectedName: relation.source_name || relation.source_entity_name || "当前源对象",
+    canonicalOnly: true,
+    placeholder: "按名称或别名搜索源对象",
+    ariaLabel: "搜索源对象",
+  })
+  mountEntityReferencePickerForReview({
+    rootId: "rel-review-target-picker",
+    inputId: "rel-review-target",
+    sourceId,
+    selectedId: targetId,
+    selectedName: relation.target_name || relation.target_entity_name || "当前目标对象",
+    canonicalOnly: true,
+    replaceExisting: false,
+    placeholder: "按名称或别名搜索目标对象",
+    ariaLabel: "搜索目标对象",
+  })
+  globalThis.refreshModalFormBaseline?.()
 }

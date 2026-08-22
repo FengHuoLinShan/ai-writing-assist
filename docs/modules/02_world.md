@@ -40,10 +40,10 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
   策略可声明有界 Frontmatter schema（必填/可选字段、类型、枚举、正则、数组约束、
   来源目录与标题文件名一致性）以及 required/forbidden regex、字段相等和数值容差等固定
   操作符；全部经 Pydantic 校验，不执行上传表达式或脚本。
-- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSON 字段；`kind=name/title/identity` 是稳定最小分类，开放短文本 `type` 保留精确类型
+- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSON 字段；`kind=name/title/identity` 是稳定最小分类，开放短文本 `type` 保留精确类型。通用 CoreEntity create/update/promote 也经同一别名规范化；active 自定义类型缺 kind 以 422 拒绝，candidate 可暂缺
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
-- 世界对象 UI 的“待处理”入口按对象 / 别名 / 关系三个子 tab 聚合；对象库、别名、关系页继续作为全量管理入口，历史默认隐藏
+- 世界对象 UI 的“待处理”入口按对象 / 别名 / 关系三个子 tab 聚合；对象库、别名、关系页继续作为全量管理入口，历史默认隐藏。正式关系和别名可在全量列表修改两层类型并移动端点/所属对象
 - 待处理关系可在采用前编辑源对象、目标对象、关系分类、精确类型、描述和强度；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，`relation_type` 原样保留，来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
 - 待处理关系按有向对象对分组，别名按 owner 对象分组；Scene 不是关系归并边界，反向关系不自动归并
 - 复核类型目录 v2 同时返回最小分类定义，以及每个推荐详细类型的 `default_kind`；显式合法 kind 优先，只在 kind 缺失时按已知详细类型推导。自定义候选可暂缺 kind，忽略不要求补值，但采用为 canonical/active 前必须由作者选择

@@ -112,10 +112,14 @@ def test_explicit_kind_wins_and_custom_canonical_requires_kind() -> None:
         EntityRelationService._resolve_relation_kind("自定义", None, "candidate") is None
     )
     assert EntityAliasService._resolve_alias_kind("自定义", None, "candidate") is None
-    with pytest.raises(ValidationError, match="relation_kind is required"):
+    with pytest.raises(
+        ValidationError, match="relation_kind is required"
+    ) as relation_exc:
         EntityRelationService._resolve_relation_kind("自定义", None, "canonical")
-    with pytest.raises(ValidationError, match="alias_kind is required"):
+    with pytest.raises(ValidationError, match="alias_kind is required") as alias_exc:
         EntityAliasService._resolve_alias_kind("自定义", None, "canonical")
+    assert relation_exc.value.status_code == 422
+    assert alias_exc.value.status_code == 422
 
 
 def test_review_batch_schemas_reject_unconfirmed_duplicate_and_blank_values() -> None:
