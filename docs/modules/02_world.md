@@ -40,17 +40,17 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
   策略可声明有界 Frontmatter schema（必填/可选字段、类型、枚举、正则、数组约束、
   来源目录与标题文件名一致性）以及 required/forbidden regex、字段相等和数值容差等固定
   操作符；全部经 Pydantic 校验，不执行上传表达式或脚本。
-- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
+- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSON 字段；`kind=name/title/identity` 是稳定最小分类，开放短文本 `type` 保留精确类型
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
 - 世界对象 UI 的“待处理”入口按对象 / 别名 / 关系三个子 tab 聚合；对象库、别名、关系页继续作为全量管理入口，历史默认隐藏
-- 待处理关系可在采用前编辑源对象、目标对象、关系类型、描述和强度；来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
+- 待处理关系可在采用前编辑源对象、目标对象、关系分类、精确类型、描述和强度；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，`relation_type` 原样保留，来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
 - 待处理关系按有向对象对分组，别名按 owner 对象分组；Scene 不是关系归并边界，反向关系不自动归并
-- 复核类型目录只提供推荐和保守同义词；`relation_type` 和 alias `type` 仍是开放字符串，自定义值必须经用户显式修改才能替换
+- 复核类型目录 v2 同时返回最小分类定义，以及每个推荐详细类型的 `default_kind`；显式合法 kind 优先，只在 kind 缺失时按已知详细类型推导。自定义候选可暂缺 kind，忽略不要求补值，但采用为 canonical/active 前必须由作者选择
 - 关系/别名批处理必须提交 `confirmed=true`、唯一 `client_decision_id` 和服务端 SHA-256 执行指纹；关系筛选命中对象对后仍用完整组快照返回/验证指纹，批次写入按 UUID 全局稳定顺序预锁；每个决策使用 savepoint，单组原子、组间允许部分成功。关系支持以 `accept_separately` 为每个所选候选提交独立最终字段；最终关系键必须唯一，任一成员失败时整组回滚。`unselected_action` 默认保留未选候选，只在显式为 `ignore` 时一并忽略
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
-- 关系原始状态仍兼容 `candidate` / `canonical` / `deprecated`；作者界面统一投影为待处理 / 已采用 / 历史。`canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
+- 关系原始状态仍兼容 `candidate` / `canonical` / `deprecated`；作者界面统一投影为待处理 / 已采用 / 历史。canonical 的 `relation_kind` 必须非空，但不参与唯一性；关系边仍使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
 - 待处理对象合并响应可带 `affected_ids` / `merged_ids`，前端只按精确 ID 更新；缺少 affected ids 时刷新当前待处理 tab。
 - CoreEntity、关系、别名、创设建议和 Map Observation/Fact 响应按需提供 `display_state / source / attention_reasons / suggested_action`；原始状态字段保持兼容
 - 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
@@ -69,9 +69,9 @@ RAG 或 LLM 上下文。
 
 ## 数据表
 
-- `core_entities` — 共享核心实体表，公共字段（name / aliases JSONB / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string / image_version / image_updated_at）统一存储；图片字节位于私有对象存储
+- `core_entities` — 共享核心实体表，公共字段（name / `content_json.aliases` / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string / image_version / image_updated_at）统一存储；别名项保存 `kind + type`，图片字节位于私有对象存储
 - `events` — 事件扩展表（entity_id PK+FK → core_entities.id）
-- `entity_relations` — 实体关系边（UUID FK → core_entities + 章节追溯字段 + `review_meta` 复核审计）
+- `entity_relations` — 实体关系边（UUID FK → core_entities + `relation_kind` 最小分类 + `relation_type` 精确类型 + 章节追溯字段 + `review_meta` 复核审计）
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
@@ -204,7 +204,7 @@ async def upsert_relationship(db, novel_id, source_id, target_id, ...) -> None
 # ---- EntityRelation ----
 async def get_entity_relations(db, novel_id, skip=0, limit=100) -> tuple
 async def create_relation(db, novel_id, data: dict) -> EntityRelationResponse
-async def upsert_relation(db, novel_id, source_id, target_id, relation_type, ...) -> EntityRelationResponse
+async def upsert_relation(db, novel_id, source_id, target_id, relation_type, *, relation_kind=None, ...) -> EntityRelationResponse
 
 # ---- Events ----
 async def create_event(db, novel_id, data: dict) -> dict
@@ -340,6 +340,10 @@ POST   /api/world/ask-world
 POST   /api/world/ask-world/citations/open
 POST   /api/world/ask-world/suggestions
 ```
+
+`review-type-catalog` v2 返回 `alias_kinds`、`relation_kinds` 及详细类型的
+`default_kind`。别名/关系读写响应分别增加 `alias_kind` / `relation_kind`，列表可按对应 kind
+筛选；原 `alias_type` / `relation_type`、`type_kind=recommended|custom` 和关系唯一键保持兼容。
 
 生成中心 target 是 `core_entity`、`world_bible_page` 或 `world_bible_new_page`。页面 suggestion
 保存完整页面提案而非 append/patch；专用 apply 在重验 pending、来源 baseline、类别、section

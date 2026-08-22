@@ -147,9 +147,10 @@ async def test_phase2a_prompt_keeps_full_scene_and_fences_untrusted_context(
     assert "private-draft-id" not in user_text
     assert "_current_scene_sources" not in user_text
     assert long_scene not in system_text
-    assert "relations" not in request.messages[1].content.split(
-        "<untrusted_scene_context_json>", 1
-    )[0]
+    assert (
+        "relations"
+        not in request.messages[1].content.split("<untrusted_scene_context_json>", 1)[0]
+    )
     for field in (
         "identity_disposition",
         "matched_existing_ref",
@@ -318,6 +319,7 @@ def test_phase2a_schema_rejects_relations_and_entity_aliases() -> None:
                 "relations": [],
             }
         )
+
 
 @pytest.mark.asyncio
 async def test_manual_alias_relation_entry_establishes_and_resets_project_context(

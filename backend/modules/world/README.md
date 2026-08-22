@@ -14,15 +14,16 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
   `POST /api/imports/deep`，已有 Scene 的补抽使用
   `POST /api/imports/stages/world-objects`（Phase 2a/2b）
 - AI 抽取对象以 `status="candidate"` 入库，等待用户确认、合并或忽略；不自动提升为正史
-- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
+- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSON 字段；每项以
+  `kind=name|title|identity` 保存稳定最小分类，以开放短文本 `type` 保存精确类型
 - 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
 - 待复核别名可在确认前修改目标对象、别名文本和别名类型；来源、workflow、Scene、引用和置信度作为只读证据保留
 - `world/review` 统一待处理工作台按全部 / 对象 / 别名 / 关系切换；“全部”只做概览和推荐，三个类型队列各自搜索、筛选、分页与写入，对象库、别名、关系页仍保留全量管理能力
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
-- 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
+- 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，精确关系仍保存在 `relation_type`
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
 - 待处理关系按有向 `(source_id, target_id)` 分组，别名按 owner 对象分组；Scene 只用于筛选和展示，反向关系不自动归并
-- 类型目录只是推荐与保守同义词建议；关系和别名的数据库/Pydantic 契约仍接受自由字符串，自定义值未经用户点击不得替换
+- 类型目录只为详细类型提供推荐与保守同义词建议；显式合法 kind 优先，kind 缺失时只对已知详细类型推导。自定义候选可暂缺 kind，但关系采用为 canonical、别名采用为 active 前必须由作者选择；详细类型原值不被改写
 - 关系筛选用来命中对象对，返回时仍包含该有向对的完整待处理成员；指纹也基于完整快照，避免筛选后提交必然过期
 - 关系列表的可选布尔参数 `has_reverse_candidates` 表示该有向组存在反向方向的待处理候选，`has_canonical_relation` 表示同一有向端点对已有正式关系；两个条件均在计算 `group_total`、`item_total` 和分页前应用
 - 别名与关系列表的 `group_total` 是筛选后分组数，`item_total` 是这些组内仍有效、未采用的候选条目数；分页始终按组。工作台和 Project“今日工作”的待处理计数使用条目数，不以分组数或当前页行数替代
