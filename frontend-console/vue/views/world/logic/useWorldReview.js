@@ -2,8 +2,8 @@
  * useWorldReview — world review（待处理）三队列的逻辑层。
  *
  * 对应 vanilla worldView 的候选分组/动作可见性（1710-1886）、证据摘要
- * （2032-2043, 2232-2258）、别名/关系决策模态与批量复核（4165-4270 +
- * 决策表单）。列表数据是 island props（只读），模态需要按 id 查找，
+ * （2032-2043, 2232-2258）、别名/关系就地决策与批量复核（4165-4270 +
+ * 决策表单）。列表数据是 island props（只读），批量动作需要按 id 查找，
  * 因此维护 reviewRegistry（WorldReviewTab 在 props 变化时同步）。
  * 草稿/错误/批量选择落 worldSession（见 worldSession.js 进入协调语义）。
  */
@@ -486,7 +486,7 @@ export function changeReviewPage(kind, delta, currentFilters, total) {
 }
 
 // ============================================================
-// 决策模态（草稿落 worldSession）
+// 审阅决策（草稿落 worldSession）
 // ============================================================
 
 function aliasEvidenceHtml(item = {}) {
@@ -507,17 +507,8 @@ function findAlias(entityIdParam, aliasText) {
   return reviewRegistry.aliases.find((item) => item.entity_id === entityIdParam && item.alias === aliasText) || null
 }
 
-/** 对应 vanilla showAliasReviewDecisionForm。 */
-export function showAliasReviewDecisionForm(entityIdParam, aliasText) {
-  const esc = getEsc()
-  const toast = getToast()
-  const showModalHtml = getShowModalHtml()
-  const closeModal = getCloseModal()
-  const alias = findAlias(entityIdParam, aliasText)
-  if (!alias) {
-    toast("未找到目标别名", "error")
-    return
-  }
+/** 加载可恢复的单条别名决策草稿。 */
+export function prepareAliasReviewDecision(alias) {
   const key = aliasKey(alias)
   const draftState = loadReviewDraft("alias", key, alias.execution_fingerprint, worldSession.aliasReviewDrafts[key])
   if (draftState.stale) {
@@ -526,141 +517,93 @@ export function showAliasReviewDecisionForm(entityIdParam, aliasText) {
     worldSession.aliasReviewErrors[key] = "内容已变化，请重新核对"
   }
   const draft = draftState.draft
-  const selectedTargetId = draft?.target_entity_id || entityIdParam
-  const selectedAliasType = draft?.alias_type || alias.alias_type || "name"
+  const selectedAliasType = draft && Object.hasOwn(draft, "alias_type")
+    ? draft.alias_type
+    : (alias.alias_type || "name")
   const aliasKindExplicit = draft ? Boolean(draft._kind_explicit) : Boolean(alias.alias_kind)
-  const selectedAliasKind = kindOrTypeDefault(
-    reviewRegistry.reviewTypeCatalog,
-    "alias",
-    aliasKindExplicit ? (draft?.alias_kind || alias.alias_kind) : "",
-    selectedAliasType,
-  )
-  const suggested = alias.suggested_alias_type && alias.suggested_alias_type !== alias.alias_type
-    ? `<button class="btn btn-sm" type="button" id="alias-use-type-suggestion">使用建议：${esc(reviewTypeLabel("alias", alias.suggested_alias_type))}</button>`
-    : ""
-  const evidence = reviewEvidenceSummary(alias, "alias", alias.confidence)
-  const body = `
-    <div class="review-decision-layout">
-    ${draftState.stale ? '<div class="review-warning">旧草稿对应的内容已变化，已按当前内容重新载入，请重新确认。</div>' : ""}
-    <div class="form-group"><label>目标对象</label><div id="alias-target-picker"></div><input type="hidden" id="alias-target-id" data-modal-dirty-track value="${esc(selectedTargetId)}" /></div>
-    <div class="form-group"><label for="alias-edit-text">别名文本</label><input class="form-input" id="alias-edit-text" value="${esc(draft?.alias || alias.alias)}" /></div>
-    <div class="form-group"><label for="alias-edit-kind">别名分类</label><select class="form-select" id="alias-edit-kind" aria-describedby="alias-edit-kind-help">${kindOptionsHtml(reviewRegistry.reviewTypeCatalog, "alias", selectedAliasKind, esc)}</select><div class="form-help" id="alias-edit-kind-help">用于 AI 检索的通用分类。</div></div>
-    <div class="form-group"><label for="alias-edit-type">详细类型</label><select class="form-select" id="alias-edit-type">${detailTypeOptionsHtml(reviewRegistry.reviewTypeCatalog, "alias", selectedAliasType, esc)}</select><div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" maxlength="20" value="${esc(selectedAliasType)}" /></div>${suggested}</div>
-    <div class="review-evidence-summary">
-      <span>${esc(evidence.summary)}</span>
-      ${evidence.quote ? `<blockquote>${esc(evidence.quote)}</blockquote>` : '<span class="world-text-dim">无原文引用</span>'}
-      <details>
-        <summary>诊断信息</summary>
-        <pre>${esc(evidence.diagnostic)}</pre>
-        <button class="btn btn-sm" data-action="copy-review-diagnostic" data-diagnostic="${esc(evidence.diagnostic)}">复制诊断信息</button>
-      </details>
-    </div>
-    <section class="review-result-preview" aria-live="polite"><h4>采用后结果</h4><p>${esc(draft?.alias || alias.alias)} → ${esc(alias.entity_name || "当前对象")}</p><p>来源与证据将保留在审计信息中。</p></section>
-    <p class="form-help">来源、场景、引用和置信度只读；本次提交会直接完成这一条决定。</p>
-    </div>
-  `
-  showModalHtml("处理别名", body, [{
-    text: "采用别名",
-    class: "btn-primary",
-    handler: async () => {
-      const targetId = document.getElementById("alias-target-id")?.value || ""
-      const text = document.getElementById("alias-edit-text")?.value?.trim() || ""
-      const aliasKind = document.getElementById("alias-edit-kind")?.value || ""
-      const aliasType = readDetailType(document.getElementById("alias-edit-type"), document.getElementById("alias-edit-type-custom"))
-      if (!targetId || !text || !aliasType || !aliasKind) {
-        toast("请选择目标对象、别名分类并填写详细类型", "warning")
-        return false
-      }
-      const decision = {
-        client_decision_id: `alias-${String(entityIdParam).slice(0, 16)}-${Date.now().toString(36)}`.slice(0, 64),
-        action: "accept",
-        entity_id: entityIdParam,
-        original_alias: alias.alias,
-        expected_execution_fingerprint: alias.execution_fingerprint,
-        target_entity_id: targetId,
-        alias: text,
-        alias_kind: aliasKind,
-        alias_type: aliasType,
-        _kind_explicit: document.getElementById("alias-edit-kind")?.dataset.kindExplicit === "true",
-      }
-      worldSession.aliasReviewDrafts[key] = decision
-      storeReviewDraft("alias", key, decision)
-      worldSession.processingReviewIds[key] = true
-      try {
-        const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions: [reviewDecisionPayload(decision)] }, getAppState()?.currentProjectId)
-        const item = result?.results?.[0]
-        if (item && item.status !== "success") {
-          worldSession.aliasReviewErrors[key] = reviewBatchItemError(item)
-          toast(worldSession.aliasReviewErrors[key], "warning")
-          return false
-        }
-        delete worldSession.aliasReviewDrafts[key]
-        delete worldSession.aliasReviewErrors[key]
-        clearStoredReviewDraft("alias", key)
-        worldSession.reviewReceipt = {
-          targetKey: key,
-          title: "别名已完成",
-          detail: `“${text}”已归属到选定对象，来源证据已保留。`,
-        }
-        closeModal()
-        toast("别名已采用", "success")
-        await getRouter()?.refresh?.()
-      } catch (err) {
-        worldSession.aliasReviewErrors[key] = err.message || "处理失败，请重试"
-        toast(worldSession.aliasReviewErrors[key], "error")
-        return false
-      } finally {
-        delete worldSession.processingReviewIds[key]
-      }
+  const selectedAliasKind = draft && Object.hasOwn(draft, "alias_kind")
+    ? draft.alias_kind
+    : kindOrTypeDefault(reviewRegistry.reviewTypeCatalog, "alias", alias.alias_kind, selectedAliasType)
+  return {
+    stale: draftState.stale,
+    draft: {
+      target_entity_id: draft?.target_entity_id || alias.entity_id,
+      alias: draft && Object.hasOwn(draft, "alias") ? draft.alias : alias.alias,
+      alias_kind: selectedAliasKind,
+      alias_type: selectedAliasType,
+      _kind_explicit: aliasKindExplicit,
     },
-  }], { size: "large" })
-  bindTypeKindControls({
-    typeSelect: document.getElementById("alias-edit-type"),
-    customInput: document.getElementById("alias-edit-type-custom"),
-    customContainer: document.getElementById("alias-edit-type-custom-wrap"),
-    kindSelect: document.getElementById("alias-edit-kind"),
-    kindHelp: document.getElementById("alias-edit-kind-help"),
-    catalog: reviewRegistry.reviewTypeCatalog,
-    domain: "alias",
-    kindExplicit: aliasKindExplicit,
-  })
-  bindDiagnosticCopyButtons()
-  mountEntityReferencePickerForReview({
-    rootId: "alias-target-picker",
-    inputId: "alias-target-id",
-    selectedId: selectedTargetId,
-    selectedName: alias.entity_name || "当前对象",
-  })
-  globalThis.refreshModalFormBaseline?.()
-  const suggestionButton = document.getElementById("alias-use-type-suggestion")
-  if (suggestionButton) {
-    suggestionButton.onclick = () => {
-      const select = document.getElementById("alias-edit-type")
-      if (select) {
-        const option = Array.from(select.options).find((item) => item.value === alias.suggested_alias_type)
-        select.value = option ? alias.suggested_alias_type : "__custom_detail_type__"
-        const custom = document.getElementById("alias-edit-type-custom")
-        if (!option && custom) custom.value = alias.suggested_alias_type
-        select.dispatchEvent(new Event("change", { bubbles: true }))
-      }
-    }
   }
-  const persist = () => {
-    const next = {
-      expected_execution_fingerprint: alias.execution_fingerprint,
-      target_entity_id: document.getElementById("alias-target-id")?.value || selectedTargetId,
-      alias: document.getElementById("alias-edit-text")?.value || alias.alias,
-      alias_kind: document.getElementById("alias-edit-kind")?.value || "",
-      alias_type: readDetailType(document.getElementById("alias-edit-type"), document.getElementById("alias-edit-type-custom")) || alias.alias_type,
-      _kind_explicit: document.getElementById("alias-edit-kind")?.dataset.kindExplicit === "true",
-    }
-    worldSession.aliasReviewDrafts[key] = next
-    storeReviewDraft("alias", key, next)
+}
+
+/** 持久化右侧决策区的当前别名草稿。 */
+export function persistAliasReviewDecision(alias, draft) {
+  const key = aliasKey(alias)
+  const next = {
+    expected_execution_fingerprint: alias.execution_fingerprint,
+    target_entity_id: draft.target_entity_id || "",
+    alias: draft.alias ?? "",
+    alias_kind: draft.alias_kind || "",
+    alias_type: draft.alias_type || "",
+    _kind_explicit: Boolean(draft._kind_explicit),
   }
-  document.querySelectorAll("#alias-edit-text, #alias-edit-kind, #alias-edit-type, #alias-edit-type-custom, #alias-target-id").forEach((control) => {
-    control.addEventListener("input", persist)
-    control.addEventListener("change", persist)
-  })
+  worldSession.aliasReviewDrafts[key] = next
+  storeReviewDraft("alias", key, next)
+  return next
+}
+
+/** 加载可恢复的单组关系决策；首次进入只预填关系内容，端点由作者配对。 */
+export function prepareRelationReviewDecision(group) {
+  const key = group?.group_id || ""
+  const fallback = recommendedRelationDecision(group)
+  if (!key || !fallback) return { stale: false, draft: null }
+  const draftState = loadReviewDraft("relation", key, group.execution_fingerprint, worldSession.relationReviewDrafts[key])
+  if (draftState.stale) {
+    delete worldSession.relationReviewDrafts[key]
+    clearStoredReviewDraft("relation", key)
+    worldSession.relationReviewErrors[key] = "内容已变化，请重新核对"
+  }
+  const draft = draftState.draft
+  const relationType = draft && Object.hasOwn(draft, "relation_type")
+    ? draft.relation_type
+    : fallback.relation_type
+  const kindExplicit = draft ? Boolean(draft._kind_explicit) : Boolean(fallback.relation_kind)
+  const relationKind = draft && Object.hasOwn(draft, "relation_kind")
+    ? draft.relation_kind
+    : kindOrTypeDefault(reviewRegistry.reviewTypeCatalog, "relation", fallback.relation_kind, relationType)
+  return {
+    stale: draftState.stale,
+    draft: {
+      ...fallback,
+      source_id: draft && Object.hasOwn(draft, "source_id") ? draft.source_id : "",
+      target_id: draft && Object.hasOwn(draft, "target_id") ? draft.target_id : "",
+      relation_kind: relationKind,
+      relation_type: relationType,
+      description: draft && Object.hasOwn(draft, "description") ? draft.description : fallback.description,
+      strength: Number(draft?.strength ?? fallback.strength),
+      _kind_explicit: kindExplicit,
+    },
+  }
+}
+
+/** 持久化右侧决策区的当前关系草稿，处理范围沿用本组推荐结果。 */
+export function persistRelationReviewDecision(group, draft) {
+  const fallback = recommendedRelationDecision(group)
+  if (!fallback) return null
+  const next = {
+    ...fallback,
+    expected_execution_fingerprint: group.execution_fingerprint,
+    source_id: draft?.source_id || "",
+    target_id: draft?.target_id || "",
+    relation_kind: draft?.relation_kind || "",
+    relation_type: draft?.relation_type || "",
+    description: draft?.description ?? "",
+    strength: Number(draft?.strength ?? 0.5),
+    _kind_explicit: Boolean(draft?._kind_explicit),
+  }
+  worldSession.relationReviewDrafts[group.group_id] = next
+  storeReviewDraft("relation", group.group_id, next)
+  return next
 }
 
 /** 对应 vanilla showAliasReviewEditForm。 */
@@ -756,440 +699,6 @@ function bindDiagnosticCopyButtons(root = document) {
   })
 }
 
-/** 对应 vanilla _reviewEntityOptionsHtml。 */
-function reviewEntityOptions(items = [], selectedId = "") {
-  const byId = new Map()
-  for (const item of items) {
-    const id = entityId(item)
-    if (id) byId.set(id, item)
-  }
-  if (selectedId && !byId.has(selectedId)) {
-    byId.set(selectedId, { id: selectedId, name: "当前对象", entity_type: "-", status: "canonical" })
-  }
-  return Array.from(byId.values()).map((item) => {
-    const id = entityId(item)
-    return { id, label: `${item.name || "未命名对象"} · ${item.entity_type || "-"} · ${item.status || "-"}`, selected: id === selectedId }
-  })
-}
-
-function reviewEntityOptionsHtml(items = [], selectedId = "") {
-  const esc = getEsc()
-  return reviewEntityOptions(items, selectedId).map((item) => (
-    `<option value="${esc(item.id)}" ${item.selected ? "selected" : ""}>${esc(item.label)}</option>`
-  )).join("")
-}
-
-function replaceReviewEntityOptions(select, items, selectedId) {
-  select.replaceChildren(...reviewEntityOptions(items, selectedId).map((item) => {
-    const option = document.createElement("option")
-    option.value = item.id
-    option.textContent = item.label
-    option.selected = item.selected
-    return option
-  }))
-}
-
-/** 对应 vanilla _bindReviewEntitySearch。 */
-function bindReviewEntitySearch(prefix, selectedId = "") {
-  const toast = getToast()
-  const button = document.getElementById(`${prefix}-search`)
-  const input = document.getElementById(`${prefix}-query`)
-  const select = document.getElementById(`${prefix}-select`)
-  if (!button || !input || !select) return
-  let searchGeneration = 0
-  button.onclick = async () => {
-    const generation = ++searchGeneration
-    const projectId = getAppState()?.currentProjectId
-    try {
-      const data = await getApi().world.listEntities({
-        novel_id: projectId,
-        q: input.value || "",
-        skip: 0,
-        limit: 20,
-      })
-      if (
-        generation !== searchGeneration
-        || getAppState()?.currentProjectId !== projectId
-        || !select.isConnected
-      ) return
-      const items = (data.items || data || []).filter((item) => (
-        ["canonical", "draft", "candidate"].includes(item.status)
-        && !item.content_json?._meta?.compatibility_shadow
-      ))
-      replaceReviewEntityOptions(select, items, select.value || selectedId)
-    } catch (err) {
-      if (
-        generation !== searchGeneration
-        || getAppState()?.currentProjectId !== projectId
-        || !select.isConnected
-      ) return
-      toast(err.message || "搜索对象失败", "error")
-    }
-  }
-}
-
-/** 对应 vanilla showRelationGroupReviewForm（含预览联动）。 */
-export function showRelationGroupReviewForm(groupId) {
-  const esc = getEsc()
-  const toast = getToast()
-  const showModalHtml = getShowModalHtml()
-  const closeModal = getCloseModal()
-  const group = reviewRegistry.relationGroups.find((item) => item.group_id === groupId)
-  if (!group) {
-    toast("未找到目标关系组", "error")
-    return
-  }
-  const members = group.members || []
-  const draftState = loadReviewDraft("relation", groupId, group.execution_fingerprint, worldSession.relationReviewDrafts[groupId])
-  if (draftState.stale) {
-    delete worldSession.relationReviewDrafts[groupId]
-    clearStoredReviewDraft("relation", groupId)
-    worldSession.relationReviewErrors[groupId] = "内容已变化，请重新核对"
-  }
-  const existingDraft = draftState.draft
-  const primary = members.find((item) => item.id === existingDraft?.primary_relation_id) || members[0]
-  const suggested = primary?.suggested_relation_type
-  const defaultSelected = members.filter((item) => (
-    (suggested && item.suggested_relation_type === suggested)
-    || (!suggested && item.relation_type === primary?.relation_type)
-  ))
-  const selectedIds = new Set(existingDraft?.member_relation_ids || defaultSelected.map((item) => item.id))
-  const defaultAction = existingDraft?.action || (selectedIds.size > 1 ? "merge" : "accept")
-  const entitySeed = [
-    { id: group.source_id, name: group.source_name, entity_type: "-", status: "canonical" },
-    { id: group.target_id, name: group.target_name, entity_type: "-", status: "canonical" },
-  ]
-  const suggestions = Array.from(new Set(members.map((item) => item.suggested_relation_type).filter(Boolean)))
-  const finalType = existingDraft?.relation_type || primary?.relation_type || ""
-  const finalKindExplicit = existingDraft ? Boolean(existingDraft._kind_explicit) : Boolean(primary?.relation_kind)
-  const finalKind = kindOrTypeDefault(
-    reviewRegistry.reviewTypeCatalog,
-    "relation",
-    finalKindExplicit ? (existingDraft?.relation_kind || primary?.relation_kind) : "",
-    finalType,
-  )
-  const body = `
-    <div class="review-decision-layout">
-      ${draftState.stale ? '<div class="review-warning">旧草稿对应的内容已变化，已按当前内容重新载入，请重新确认。</div>' : ""}
-      <div class="form-group">
-        <label for="relation-review-action">处理方式</label>
-        <select class="form-select" id="relation-review-action">
-          <option value="accept" ${defaultAction === "accept" ? "selected" : ""}>独立采用一条</option>
-          <option value="merge" ${defaultAction === "merge" ? "selected" : ""}>归并所选证据</option>
-          <option value="accept_separately" ${defaultAction === "accept_separately" ? "selected" : ""}>分别采用为多条关系</option>
-          <option value="ignore" ${defaultAction === "ignore" ? "selected" : ""}>忽略所选</option>
-        </select>
-      </div>
-      <fieldset class="review-candidate-fieldset">
-        <legend>选择参与本次决策的候选</legend>
-        ${members.map((item) => `
-          <label class="review-candidate-option">
-            <input type="checkbox" name="relation-review-member" value="${esc(item.id)}" ${selectedIds.has(item.id) ? "checked" : ""} />
-            <input type="radio" name="relation-review-primary" value="${esc(item.id)}" ${item.id === (existingDraft?.primary_relation_id || primary?.id) ? "checked" : ""} aria-label="设为主关系" />
-            <span><strong>${esc(reviewTypeLabel("relation", item.relation_type))}</strong><small>${esc(item.description || item.evidence_summary?.quote || "无描述")}</small></span>
-          </label>
-        `).join("")}
-        <p class="form-help">复选框决定处理范围；单选圆点决定归并后保留的主关系。</p>
-      </fieldset>
-      <div class="form-group">
-        <label>源对象</label>
-        <div class="review-search-control"><input class="form-input" id="relation-source-query" value="${esc(group.source_name || "")}" /><button class="btn btn-sm" id="relation-source-search" type="button">搜索</button></div>
-        <select class="form-select" id="relation-source-select">${reviewEntityOptionsHtml(entitySeed, existingDraft?.source_id || group.source_id)}</select>
-      </div>
-      <div class="form-group">
-        <label>目标对象</label>
-        <div class="review-search-control"><input class="form-input" id="relation-target-query" value="${esc(group.target_name || "")}" /><button class="btn btn-sm" id="relation-target-search" type="button">搜索</button></div>
-        <select class="form-select" id="relation-target-select">${reviewEntityOptionsHtml(entitySeed, existingDraft?.target_id || group.target_id)}</select>
-      </div>
-      <button class="btn btn-sm" type="button" id="relation-swap-endpoints">交换方向</button>
-      <div class="form-group">
-        <label for="relation-final-kind">关系分类</label>
-        <select class="form-select" id="relation-final-kind" aria-describedby="relation-final-kind-help">${kindOptionsHtml(reviewRegistry.reviewTypeCatalog, "relation", finalKind, esc)}</select>
-        <div class="form-help" id="relation-final-kind-help">用于 AI 检索的通用分类。</div>
-      </div>
-      <div class="form-group">
-        <label for="relation-final-type">详细类型</label>
-        <select class="form-select" id="relation-final-type">${detailTypeOptionsHtml(reviewRegistry.reviewTypeCatalog, "relation", finalType, esc)}</select>
-        <div id="relation-final-type-custom-wrap" hidden><label for="relation-final-type-custom">自定义详细类型</label><input class="form-input" id="relation-final-type-custom" value="${esc(finalType)}" /></div>
-        ${suggestions.length ? `<div class="review-suggestion-actions">${suggestions.map((value) => `<button class="btn btn-sm" type="button" data-relation-type-suggestion="${esc(value)}">使用建议：${esc(reviewTypeLabel("relation", value))}</button>`).join("")}</div>` : ""}
-      </div>
-      <div class="form-group"><label for="relation-final-description">描述</label><textarea class="form-textarea" id="relation-final-description" rows="3">${esc(existingDraft?.description ?? primary?.description ?? "")}</textarea></div>
-      <div class="form-group"><label for="relation-final-strength">强度</label><input class="form-input" id="relation-final-strength" type="number" min="0" max="1" step="0.01" value="${esc(existingDraft?.strength ?? primary?.strength ?? 0.5)}" /></div>
-      <div class="form-group">
-        <label for="relation-unselected-action">未选候选</label>
-        <select class="form-select" id="relation-unselected-action">
-          <option value="keep_pending" ${existingDraft?.unselected_action !== "ignore" ? "selected" : ""}>继续待定</option>
-          <option value="ignore" ${existingDraft?.unselected_action === "ignore" ? "selected" : ""}>一并忽略</option>
-        </select>
-      </div>
-      <section id="relation-separate-editors" class="review-separate-editors">
-        <h4>分别采用后的关系</h4>
-        ${members.map((item) => {
-          const separateDraft = existingDraft?.separate_relations?.find((entry) => entry.candidate_relation_id === item.id)
-          const separateType = separateDraft?.relation_type || item.relation_type || ""
-          const separateKindExplicit = separateDraft ? Boolean(separateDraft._kind_explicit) : Boolean(item.relation_kind)
-          const separateKind = kindOrTypeDefault(
-            reviewRegistry.reviewTypeCatalog,
-            "relation",
-            separateKindExplicit ? (separateDraft?.relation_kind || item.relation_kind) : "",
-            separateType,
-          )
-          return `
-          <fieldset class="review-separate-editor" data-separate-relation-id="${esc(item.id)}" data-kind-explicit="${String(separateKindExplicit)}">
-            <legend>${esc(reviewTypeLabel("relation", item.relation_type))}</legend>
-            <select class="form-select" data-separate-field="source_id" aria-label="该候选的源对象">${reviewEntityOptionsHtml(entitySeed, separateDraft?.source_id || item.source_id || group.source_id)}</select>
-            <select class="form-select" data-separate-field="target_id" aria-label="该候选的目标对象">${reviewEntityOptionsHtml(entitySeed, separateDraft?.target_id || item.target_id || group.target_id)}</select>
-            <select class="form-select" data-separate-field="relation_kind" aria-label="该候选的关系分类">${kindOptionsHtml(reviewRegistry.reviewTypeCatalog, "relation", separateKind, esc)}</select>
-            <select class="form-select" data-separate-field="relation_type" aria-label="该候选的详细类型">${detailTypeOptionsHtml(reviewRegistry.reviewTypeCatalog, "relation", separateType, esc)}</select>
-            <div data-separate-custom-wrap hidden><label>自定义详细类型<input class="form-input" data-separate-field="relation_type_custom" value="${esc(separateType)}" /></label></div>
-            <p class="form-help" data-separate-kind-help>用于 AI 检索的通用分类。</p>
-            <textarea class="form-textarea" data-separate-field="description" rows="2" aria-label="该候选的最终描述">${esc(separateDraft?.description ?? item.description ?? "")}</textarea>
-            <input class="form-input" data-separate-field="strength" type="number" min="0" max="1" step="0.01" value="${esc(separateDraft?.strength ?? item.strength ?? 0.5)}" aria-label="该候选的最终强度" />
-          </fieldset>
-        `}).join("")}
-      </section>
-      ${(group.canonical_relations || []).length ? `<div class="review-warning">采用相同端点和类型时会复用已有正式关系，不创建重复记录。</div>` : ""}
-      <section class="review-result-preview" id="relation-review-preview" aria-live="polite"></section>
-    </div>
-  `
-  const readDecision = () => {
-    const action = document.getElementById("relation-review-action")?.value || "accept"
-    const selected = Array.from(document.querySelectorAll('input[name="relation-review-member"]:checked')).map((input) => input.value)
-    const sourceId = document.getElementById("relation-source-select")?.value || group.source_id
-    const targetId = document.getElementById("relation-target-select")?.value || group.target_id
-    const separateRelations = action === "accept_separately"
-      ? Array.from(document.querySelectorAll("[data-separate-relation-id]"))
-        .filter((editor) => selected.includes(editor.dataset.separateRelationId))
-        .map((editor) => ({
-          candidate_relation_id: editor.dataset.separateRelationId,
-          source_id: editor.querySelector('[data-separate-field="source_id"]')?.value || sourceId,
-          target_id: editor.querySelector('[data-separate-field="target_id"]')?.value || targetId,
-          relation_kind: editor.querySelector('[data-separate-field="relation_kind"]')?.value || "",
-          relation_type: readDetailType(editor.querySelector('[data-separate-field="relation_type"]'), editor.querySelector('[data-separate-field="relation_type_custom"]')),
-          _kind_explicit: editor.querySelector('[data-separate-field="relation_kind"]')?.dataset.kindExplicit === "true",
-          description: editor.querySelector('[data-separate-field="description"]')?.value?.trim() || "",
-          strength: Number(editor.querySelector('[data-separate-field="strength"]')?.value || 0.5),
-        }))
-      : []
-    return {
-      client_decision_id: groupId,
-      action,
-      group_id: groupId,
-      member_relation_ids: selected,
-      expected_execution_fingerprint: group.execution_fingerprint,
-      unselected_action: document.getElementById("relation-unselected-action")?.value || "keep_pending",
-      ...(["accept", "merge"].includes(action) ? {
-        primary_relation_id: document.querySelector('input[name="relation-review-primary"]:checked')?.value || "",
-        source_id: sourceId,
-        target_id: targetId,
-        relation_kind: document.getElementById("relation-final-kind")?.value || "",
-        relation_type: readDetailType(document.getElementById("relation-final-type"), document.getElementById("relation-final-type-custom")),
-        description: document.getElementById("relation-final-description")?.value?.trim() || "",
-        strength: Number(document.getElementById("relation-final-strength")?.value || 0.5),
-        _kind_explicit: document.getElementById("relation-final-kind")?.dataset.kindExplicit === "true",
-      } : {}),
-      ...(action === "accept_separately" ? { separate_relations: separateRelations } : {}),
-    }
-  }
-  const submitDecision = async (decision) => {
-    worldSession.processingReviewIds[groupId] = true
-    worldSession.relationReviewDrafts[groupId] = decision
-    storeReviewDraft("relation", groupId, decision)
-    try {
-      const result = await getApi().world.reviewRelationsBatch({ confirmed: true, decisions: [reviewDecisionPayload(decision)] }, getAppState()?.currentProjectId)
-      const item = result?.results?.[0]
-      if (item && item.status !== "success") {
-        worldSession.relationReviewErrors[groupId] = reviewBatchItemError(item)
-        toast(worldSession.relationReviewErrors[groupId], "warning")
-        return false
-      }
-      delete worldSession.relationReviewDrafts[groupId]
-      delete worldSession.relationReviewErrors[groupId]
-      clearStoredReviewDraft("relation", groupId)
-      const adopted = item?.canonical_relation_ids?.length || (item?.canonical_relation_id ? 1 : 0)
-      const reused = item?.reused_canonical_relation_ids?.length || 0
-      const ignored = item?.ignored_relation_ids?.length || 0
-      const archived = item?.archived_relation_ids?.length || 0
-      const remaining = item?.remaining_candidate_ids?.length || 0
-      worldSession.reviewReceipt = {
-        targetKey: groupId,
-        title: "关系已完成",
-        detail: `采用 ${adopted} 条${reused ? `，复用已有 ${reused} 条` : ""}${archived ? `，归档 ${archived} 条` : ""}${ignored ? `（其中忽略 ${ignored} 条）` : ""}，仍待处理 ${remaining} 条。`,
-      }
-      closeModal()
-      toast("关系决策已保存", "success")
-      await getRouter()?.refresh?.()
-      return true
-    } catch (err) {
-      worldSession.relationReviewErrors[groupId] = err.message || "处理失败，请重试"
-      toast(worldSession.relationReviewErrors[groupId], "error")
-      return false
-    } finally {
-      delete worldSession.processingReviewIds[groupId]
-    }
-  }
-  showModalHtml("处理关系", body, [{
-    text: "提交决策",
-    class: "btn-primary",
-    handler: async () => {
-      const decision = readDecision()
-      if (!decision.member_relation_ids.length || (decision.action === "accept" && decision.member_relation_ids.length !== 1) || (["merge", "accept_separately"].includes(decision.action) && decision.member_relation_ids.length < 2)) {
-        toast(decision.action === "accept" ? "独立采用只能选择一条关系" : "此处理方式至少需要选择两条关系", "warning")
-        return false
-      }
-      if (["accept", "merge"].includes(decision.action) && !decision.member_relation_ids.includes(decision.primary_relation_id)) {
-        toast("主关系必须在本次选择范围内", "warning")
-        return false
-      }
-      if (["accept", "merge"].includes(decision.action) && (!decision.relation_kind || !decision.relation_type)) {
-        toast("请选择关系分类并填写详细类型", "warning")
-        return false
-      }
-      if (decision.action === "accept_separately" && decision.separate_relations.some((item) => !item.relation_kind || !item.relation_type)) {
-        toast("请为每条关系选择分类并填写详细类型", "warning")
-        return false
-      }
-      const needsConfirmation = ["merge", "ignore"].includes(decision.action)
-        || decision.unselected_action === "ignore"
-        || relationDecisionReusesCanonical(group, decision)
-      if (needsConfirmation) {
-        getConfirmAction()("这项决定会归并或忽略候选记录，确定继续吗？", async () => submitDecision(decision), "确认提交")
-        return false
-      }
-      return submitDecision(decision)
-    },
-  }], { size: "large" })
-  bindTypeKindControls({
-    typeSelect: document.getElementById("relation-final-type"),
-    customInput: document.getElementById("relation-final-type-custom"),
-    customContainer: document.getElementById("relation-final-type-custom-wrap"),
-    kindSelect: document.getElementById("relation-final-kind"),
-    kindHelp: document.getElementById("relation-final-kind-help"),
-    catalog: reviewRegistry.reviewTypeCatalog,
-    domain: "relation",
-    kindExplicit: finalKindExplicit,
-  })
-  document.querySelectorAll("[data-separate-relation-id]").forEach((editor) => {
-    bindTypeKindControls({
-      typeSelect: editor.querySelector('[data-separate-field="relation_type"]'),
-      customInput: editor.querySelector('[data-separate-field="relation_type_custom"]'),
-      customContainer: editor.querySelector("[data-separate-custom-wrap]"),
-      kindSelect: editor.querySelector('[data-separate-field="relation_kind"]'),
-      kindHelp: editor.querySelector("[data-separate-kind-help]"),
-      catalog: reviewRegistry.reviewTypeCatalog,
-      domain: "relation",
-      kindExplicit: editor.dataset.kindExplicit === "true",
-    })
-  })
-  bindReviewEntitySearch("relation-source", existingDraft?.source_id || group.source_id)
-  bindReviewEntitySearch("relation-target", existingDraft?.target_id || group.target_id)
-  const updatePreview = () => {
-    const action = document.getElementById("relation-review-action")?.value || "accept"
-    const separateEditors = document.getElementById("relation-separate-editors")
-    if (separateEditors) separateEditors.hidden = action !== "accept_separately"
-    updateRelationReviewPreview(group)
-    const draft = readDecision()
-    worldSession.relationReviewDrafts[groupId] = draft
-    storeReviewDraft("relation", groupId, draft)
-  }
-  document.querySelectorAll("#relation-review-action, #relation-unselected-action, input[name='relation-review-member'], input[name='relation-review-primary'], #relation-source-select, #relation-target-select, #relation-final-kind, #relation-final-type, #relation-final-type-custom, #relation-final-description, #relation-final-strength, [data-separate-field]").forEach((control) => {
-    const handleChange = () => {
-      const side = control.id === "relation-source-select" ? "source_id" : control.id === "relation-target-select" ? "target_id" : ""
-      if (side && control.selectedOptions?.[0]) {
-        document.querySelectorAll(`[data-separate-field="${side}"]`).forEach((select) => {
-          if (!Array.from(select.options).some((option) => option.value === control.value)) {
-            select.append(control.selectedOptions[0].cloneNode(true))
-          }
-          select.value = control.value
-        })
-      }
-      updatePreview()
-    }
-    control.addEventListener("input", handleChange)
-    control.addEventListener("change", handleChange)
-  })
-  const swapButton = document.getElementById("relation-swap-endpoints")
-  if (swapButton) swapButton.onclick = () => {
-    const source = document.getElementById("relation-source-select")
-    const target = document.getElementById("relation-target-select")
-    if (!source || !target) return
-    const sourceValue = source.value
-    source.value = target.value
-    target.value = sourceValue
-    updatePreview()
-  }
-  document.querySelectorAll("[data-relation-type-suggestion]").forEach((button) => {
-    button.onclick = () => {
-      const input = document.getElementById("relation-final-type")
-      const value = button.getAttribute("data-relation-type-suggestion") || ""
-      if (input) {
-        const option = Array.from(input.options).find((item) => item.value === value)
-        input.value = option ? value : "__custom_detail_type__"
-        const custom = document.getElementById("relation-final-type-custom")
-        if (!option && custom) custom.value = value
-        input.dispatchEvent(new Event("change", { bubbles: true }))
-      }
-      updatePreview()
-    }
-  })
-  updatePreview()
-}
-
-/** 对应 vanilla _updateRelationReviewPreview。 */
-function updateRelationReviewPreview(group) {
-  const preview = document.getElementById("relation-review-preview")
-  if (!preview) return
-  preview.replaceChildren()
-  const heading = document.createElement("h4")
-  const action = document.getElementById("relation-review-action")?.value || "accept"
-  const selectedIds = Array.from(document.querySelectorAll('input[name="relation-review-member"]:checked')).map((input) => input.value)
-  if (action === "ignore") {
-    heading.textContent = "处理结果预览"
-    const paragraph = document.createElement("p")
-    const unselected = document.getElementById("relation-unselected-action")?.value === "ignore" ? "未选候选也会一并忽略" : "未选候选继续待定"
-    paragraph.textContent = `将把 ${selectedIds.length} 条所选候选移入历史；${unselected}。`
-    preview.append(heading, paragraph)
-    return
-  }
-  if (action === "accept_separately") {
-    heading.textContent = "分别采用后结果预览"
-    const paragraph = document.createElement("p")
-    paragraph.textContent = `将把 ${selectedIds.length} 条候选分别采用为正式关系，保留各自的类型、描述与强度。`
-    preview.append(heading, paragraph)
-    return
-  }
-  const sourceSelect = document.getElementById("relation-source-select")
-  const targetSelect = document.getElementById("relation-target-select")
-  const sourceId = sourceSelect?.value || ""
-  const targetId = targetSelect?.value || ""
-  const relationKind = document.getElementById("relation-final-kind")?.value || ""
-  const relationType = readDetailType(document.getElementById("relation-final-type"), document.getElementById("relation-final-type-custom"))
-  const strength = document.getElementById("relation-final-strength")?.value || ""
-  const description = document.getElementById("relation-final-description")?.value?.trim() || "无描述"
-  const sourceLabel = sourceSelect?.selectedOptions?.[0]?.textContent || "未选择源对象"
-  const targetLabel = targetSelect?.selectedOptions?.[0]?.textContent || "未选择目标对象"
-  const canonical = (group.canonical_relations || []).find((item) => (
-    item.source_id === sourceId && item.target_id === targetId && item.relation_type === relationType
-  ))
-  heading.textContent = "采用后结果预览"
-  const endpoints = document.createElement("p")
-  const source = document.createElement("strong")
-  source.textContent = sourceLabel
-  const target = document.createElement("strong")
-  target.textContent = targetLabel
-  endpoints.append(source, document.createTextNode(" → "), target)
-
-  const summary = document.createElement("p")
-  summary.textContent = `分类：${reviewKindLabel("relation", relationKind)} · 详细类型：${reviewTypeLabel("relation", relationType)} · 强度：${strength} · 所选证据：${selectedIds.length} 条`
-  const descriptionNode = document.createElement("p")
-  descriptionNode.textContent = description
-  const disposition = document.createElement("p")
-  disposition.className = canonical ? "review-warning" : "world-text-dim"
-  disposition.textContent = canonical
-    ? "将复用已有正式关系，关系 ID 只会记录在诊断与审计信息中。"
-    : "将采用主关系作为正式关系；服务端提交前会再检查是否存在可复用关系。"
-  preview.append(heading, endpoints, summary, descriptionNode, disposition)
-}
 
 /** 对应 vanilla showRelationReviewEditForm。 */
 export function showRelationReviewEditForm(relationId) {
@@ -1329,10 +838,14 @@ function reviewBatchItemError(item) {
   return `${prefix}：${item?.message || item?.error_code || "请刷新后重试"}`
 }
 
-export async function acceptAliasReviewItem(item) {
+export async function acceptAliasReviewDecision(item, draft) {
   const key = aliasKey(item)
-  if (!item.alias_kind) {
-    getToast()("请先选择别名分类", "warning")
+  const targetId = String(draft?.target_entity_id || "").trim()
+  const text = String(draft?.alias || "").trim()
+  const aliasKind = String(draft?.alias_kind || "").trim()
+  const aliasType = String(draft?.alias_type || "").trim()
+  if (!targetId || !text || !aliasKind || !aliasType) {
+    getToast()("请选择目标对象、别名分类并填写别名和详细类型", "warning")
     return false
   }
   const decision = {
@@ -1341,11 +854,12 @@ export async function acceptAliasReviewItem(item) {
     entity_id: item.entity_id,
     original_alias: item.alias,
     expected_execution_fingerprint: item.execution_fingerprint,
-    target_entity_id: item.entity_id,
-    alias: item.alias,
-    alias_kind: item.alias_kind,
-    alias_type: item.alias_type,
+    target_entity_id: targetId,
+    alias: text,
+    alias_kind: aliasKind,
+    alias_type: aliasType,
   }
+  persistAliasReviewDecision(item, { ...draft, ...decision })
   worldSession.processingReviewIds[key] = true
   try {
     const result = await getApi().world.reviewAliasesBatch({ confirmed: true, decisions: [decision] }, getAppState()?.currentProjectId)
@@ -1358,7 +872,7 @@ export async function acceptAliasReviewItem(item) {
     delete worldSession.aliasReviewErrors[key]
     delete worldSession.aliasReviewDrafts[key]
     clearStoredReviewDraft("alias", key)
-    worldSession.reviewReceipt = { targetKey: key, title: "别名已完成", detail: `“${item.alias}”已归属到${item.entity_name || "当前对象"}。` }
+    worldSession.reviewReceipt = { targetKey: key, title: "别名已完成", detail: `“${text}”已归属到${draft?.target_entity_name || item.entity_name || "选定对象"}。` }
     getToast()("别名已采用", "success")
     await getRouter()?.refresh?.()
     return true
@@ -1371,17 +885,35 @@ export async function acceptAliasReviewItem(item) {
   }
 }
 
-export function acceptRecommendedRelation(group) {
-  const decision = recommendedRelationDecision(group)
+export async function acceptAliasReviewItem(item) {
+  if (!item.alias_kind) {
+    getToast()("请先选择别名分类", "warning")
+    return false
+  }
+  return acceptAliasReviewDecision(item, {
+    target_entity_id: item.entity_id,
+    target_entity_name: item.entity_name,
+    alias: item.alias,
+    alias_kind: item.alias_kind,
+    alias_type: item.alias_type,
+  })
+}
+
+export function acceptRelationReviewDecision(group, draft) {
+  const decision = persistRelationReviewDecision(group, draft)
   if (!decision) return false
-  if (!decision.relation_kind) {
-    getToast()("请先选择关系分类", "warning")
+  if (!decision.source_id || !decision.target_id || !decision.relation_kind || !decision.relation_type) {
+    getToast()("请完成两个人物的配对，并选择关系分类和详细类型", "warning")
+    return false
+  }
+  if (decision.source_id === decision.target_id) {
+    getToast()("关系两端不能是同一个对象", "warning")
     return false
   }
   const run = async () => {
     worldSession.processingReviewIds[group.group_id] = true
     try {
-      const result = await getApi().world.reviewRelationsBatch({ confirmed: true, decisions: [decision] }, getAppState()?.currentProjectId)
+      const result = await getApi().world.reviewRelationsBatch({ confirmed: true, decisions: [reviewDecisionPayload(decision)] }, getAppState()?.currentProjectId)
       const response = result?.results?.[0]
       if (response && response.status !== "success") {
         worldSession.relationReviewErrors[group.group_id] = reviewBatchItemError(response)
@@ -1420,8 +952,12 @@ export function acceptRecommendedRelation(group) {
   return run()
 }
 
-/** 对应 vanilla _advanceRelationReview（组清空后回退页码 + 打开下一组）。 */
-async function advanceRelationReview(anchorIndex = 0, openNext = true) {
+export function acceptRecommendedRelation(group) {
+  return acceptRelationReviewDecision(group, recommendedRelationDecision(group))
+}
+
+/** 组清空后回退到最后一个有效页；下一组仍由作者在队列中选择。 */
+async function advanceRelationReview() {
   const groups = reviewRegistry.relationGroups
   if (!groups.length && reviewRegistry.relationGroupTotal > 0 && reviewRegistry.relationFilters.skip > 0) {
     const content = document.getElementById("workspace-content")
@@ -1431,12 +967,10 @@ async function advanceRelationReview(anchorIndex = 0, openNext = true) {
     const liveContent = document.getElementById("workspace-content")
     if (liveContent) liveContent.scrollTop = scrollTop
   }
-  const next = reviewRegistry.relationGroups[Math.min(anchorIndex, Math.max(0, reviewRegistry.relationGroups.length - 1))]
-  if (openNext && next) showRelationGroupReviewForm(next.group_id)
 }
 
-/** 对应 vanilla _advanceAliasReview。 */
-async function advanceAliasReview(anchorIndex = 0, openNext = true) {
+/** 当前页别名处理完后回退到最后一个有效页。 */
+async function advanceAliasReview() {
   const aliases = reviewRegistry.aliases
   if (!aliases.length && reviewRegistry.aliasGroupTotal > 0 && reviewRegistry.aliasFilters.skip > 0) {
     const content = document.getElementById("workspace-content")
@@ -1446,14 +980,11 @@ async function advanceAliasReview(anchorIndex = 0, openNext = true) {
     const liveContent = document.getElementById("workspace-content")
     if (liveContent) liveContent.scrollTop = scrollTop
   }
-  const next = reviewRegistry.aliases[Math.min(anchorIndex, Math.max(0, reviewRegistry.aliases.length - 1))]
-  if (openNext && next) showAliasReviewDecisionForm(next.entity_id, next.alias)
 }
 
 /** 对应 vanilla _applyRelationReviewBatch。 */
 export function applyRelationReviewBatch(groups, ignoreAll = false) {
   const toast = getToast()
-  const anchorIndex = Math.max(0, Math.min(...groups.map((group) => reviewRegistry.relationGroups.findIndex((item) => item.group_id === group.group_id)).filter((index) => index >= 0)))
   const decisions = []
   let hasStaleDraft = false
   for (const group of groups) {
@@ -1508,6 +1039,7 @@ export function applyRelationReviewBatch(groups, ignoreAll = false) {
           if (item.status === "success") {
             delete worldSession.relationReviewDrafts[item.client_decision_id]
             delete worldSession.relationReviewErrors[item.client_decision_id]
+            clearStoredReviewDraft("relation", item.client_decision_id)
             selection.delete(item.client_decision_id)
           } else {
             worldSession.relationReviewErrors[item.client_decision_id] = reviewBatchItemError(item)
@@ -1515,7 +1047,7 @@ export function applyRelationReviewBatch(groups, ignoreAll = false) {
         }
         reviewBatchToast(result, "关系组")
         getRouter()?.refresh?.()
-        await advanceRelationReview(anchorIndex, groups.length === 1)
+        await advanceRelationReview()
       } catch (err) {
         for (const group of groups) worldSession.relationReviewErrors[group.group_id] = err.message || "网络异常，请重试"
         toast2(err.message || "关系批量复核失败，已保留当前决策草稿", "error")
@@ -1549,7 +1081,6 @@ export function applyAliasReviewBatch(items, action) {
     toast("所选别名中有待分类项，请先选择别名分类", "warning")
     return
   }
-  const anchorIndex = Math.max(0, Math.min(...items.map((item) => reviewRegistry.aliases.findIndex((current) => aliasKey(current) === aliasKey(item))).filter((index) => index >= 0)))
   const decisionKeys = new Map()
   const decisions = items.map((item, index) => {
     const key = aliasKey(item)
@@ -1602,7 +1133,7 @@ export function applyAliasReviewBatch(items, action) {
         }
         reviewBatchToast(result, "别名")
         getRouter()?.refresh?.()
-        await advanceAliasReview(anchorIndex, items.length === 1)
+        await advanceAliasReview()
       } catch (err) {
         for (const item of items) worldSession.aliasReviewErrors[aliasKey(item)] = err.message || "网络异常，请重试"
         getToast()(err.message || "别名批量复核失败，已保留当前编辑草稿", "error")

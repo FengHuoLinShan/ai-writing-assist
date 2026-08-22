@@ -2,7 +2,7 @@
  * WorldReviewTab 测试 — 三队列渲染契约、乐观更新、筛选导航、草稿徽标。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 
 vi.mock("../../../../shared/referencePicker.js", () => ({
   createReferencePicker: vi.fn(() => ({ destroy: vi.fn(), resolve: vi.fn() })),
@@ -15,6 +15,8 @@ import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/in
 let navigateMock
 let toastMock
 let confirmCalls
+let apiMock
+let showModalMock
 
 const CANDIDATES = [
   { id: "c1", name: "潮声会", entity_type: "organization", status: "candidate", suggested_action: "create_new", content_json: { _meta: { source: "deep_import" } } },
@@ -37,7 +39,7 @@ const ALIAS_GROUPS = [
 
 const RELATION_GROUPS = [
   {
-    group_id: "g1", source_name: "林澈", target_name: "沉钟港", member_count: 1, evidence_count: 2,
+    group_id: "g1", source_id: "e-source", source_name: "林澈", target_id: "e-target", target_name: "沉钟港", member_count: 1, evidence_count: 2,
     type_variants: ["friend_of"], scene_indices: [3], execution_fingerprint: "fpg",
     members: [{ id: "r1", relation_kind: "social", relation_type: "friend_of", description: "驻守旧港", strength: 0.7 }],
   },
@@ -79,12 +81,21 @@ beforeEach(() => {
   navigateMock = vi.fn()
   toastMock = vi.fn()
   confirmCalls = []
+  apiMock = {
+    world: {
+      promoteEntity: vi.fn(async () => ({})),
+      getEntity: vi.fn(async (id) => ({ id, name: id === "e-source" ? "林澈" : "沉钟港", status: "canonical" })),
+      reviewAliasesBatch: vi.fn(async () => ({ results: [] })),
+      reviewRelationsBatch: vi.fn(async () => ({ results: [] })),
+    },
+  }
+  showModalMock = vi.fn()
   setBridgeOverrides({
-    api: { world: { promoteEntity: vi.fn(async () => ({})) } },
+    api: apiMock,
     state: { currentProjectId: "p-rev", currentView: "world" },
     router: { navigate: navigateMock, refresh: vi.fn(async () => true), replace: vi.fn(async () => true) },
     toast: toastMock,
-    showModalHtml: vi.fn(),
+    showModalHtml: showModalMock,
     confirmAction: (message, onConfirm, confirmText) => confirmCalls.push({ message, onConfirm, confirmText }),
   })
 })
@@ -269,9 +280,67 @@ describe("review-aliases", () => {
     expect(card.text()).toContain("2 个待处理别名")
     const rows = card.findAll(".review-member-row")
     expect(rows).toHaveLength(2)
-    expect(rows[0].find('[data-action="prepare-alias-review"]').exists()).toBe(true)
+    expect(rows[0].find('[data-action="prepare-alias-review"]').text()).toBe("处理")
     expect(rows[1].text()).toContain("随对象建议处理")
     expect(rows[1].find('input[data-action="bulk-toggle-one"]').exists()).toBe(false)
+  })
+
+  it("单条别名在右侧决策区编辑并确认并入，不再打开弹窗", async () => {
+    const wrapper = mountTab({ reviewSubView: "review-aliases" })
+    await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
+
+    const panel = wrapper.get(".world-alias-decision")
+    expect(showModalMock).not.toHaveBeenCalled()
+    expect(panel.text()).toContain("目标对象（保留）")
+    expect(panel.text()).toContain("↑")
+    expect(panel.text()).toContain("并入")
+    expect(panel.get("#alias-inline-text").element.value).toBe("旧港")
+    expect(panel.get("#alias-inline-kind").element.value).toBe("name")
+    expect(panel.get("#alias-inline-type").element.value).toBe("name")
+
+    await panel.get("#alias-inline-text").setValue("旧港湾")
+    await panel.get('[data-action="confirm-alias-merge"]').trigger("click")
+    expect(apiMock.world.reviewAliasesBatch).toHaveBeenCalledWith(expect.objectContaining({
+      confirmed: true,
+      decisions: [expect.objectContaining({
+        action: "accept",
+        entity_id: "e1",
+        target_entity_id: "e1",
+        alias: "旧港湾",
+        alias_kind: "name",
+        alias_type: "name",
+      })],
+    }), "p-rev")
+  })
+
+  it("取消返回队列但保留别名草稿", async () => {
+    const wrapper = mountTab({ reviewSubView: "review-aliases" })
+    await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
+    await wrapper.get("#alias-inline-text").setValue("草稿别名")
+    await wrapper.get('[data-action="cancel-alias-decision"]').trigger("click")
+
+    expect(wrapper.find(".world-alias-decision").exists()).toBe(false)
+    expect(worldSession.aliasReviewDrafts["e1::旧港"].alias).toBe("草稿别名")
+  })
+
+  it("自定义详细类型可显示原值并显式采用类型建议", async () => {
+    const groups = [{
+      ...ALIAS_GROUPS[0],
+      member_count: 1,
+      members: [{
+        ...ALIAS_GROUPS[0].members[0],
+        alias_type: "别称",
+        type_kind: "custom",
+        suggested_alias_type: "nickname",
+      }],
+    }]
+    const wrapper = mountTab({ reviewSubView: "review-aliases", aliasGroups: groups, aliasItemTotal: 1 })
+    await wrapper.get('[data-action="prepare-alias-review"]').trigger("click")
+
+    expect(wrapper.get("#alias-inline-type-custom").element.value).toBe("别称")
+    await wrapper.get('[data-action="use-alias-type-suggestion"]').trigger("click")
+    expect(wrapper.get("#alias-inline-type").element.value).toBe("nickname")
+    expect(wrapper.find("#alias-inline-type-custom").exists()).toBe(false)
   })
 
   it("草稿徽标与错误行", () => {
@@ -341,18 +410,62 @@ describe("review-relations", () => {
     expect(card.text()).toContain("林澈 → 沉钟港")
     expect(card.text()).toContain("1 条候选 · 2 条证据")
     expect(card.text()).toContain("待处理")
-    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("预览并处理")
-    expect(wrapper.find('[data-action="accept-recommended-relation"]').exists()).toBe(false)
+    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("处理")
     await card.trigger("click")
-    expect(wrapper.get('[data-action="accept-recommended-relation"]').text()).toBe("按此结果采用")
+    await flushPromises()
+    expect(showModalMock).not.toHaveBeenCalled()
+    expect(wrapper.findAll('[data-action="relation-person-card"]')).toHaveLength(2)
+    expect(wrapper.get('[data-relation-slot="source"]').text()).toContain("拖入人物")
+    expect(wrapper.get('[data-relation-slot="target"]').text()).toContain("拖入人物")
   })
 
-  it("编辑草稿不再伪装成已处理状态", () => {
-    worldSession.relationReviewDrafts.g1 = { action: "merge", member_relation_ids: ["r1"] }
+  it("拖动一张卡会自动完成两端配对并提交现有关系决策", async () => {
     const wrapper = mountTab({ reviewSubView: "review-relations" })
     const card = wrapper.find('.review-group-card[data-group-id="g1"]')
-    expect(card.text()).toContain("待处理")
-    expect(card.find('[data-action="prepare-relation-review"]').text()).toBe("预览并处理")
+    await card.trigger("click")
+    await flushPromises()
+
+    let dragged = ""
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: vi.fn((_, value) => { dragged = value }),
+      getData: vi.fn(() => dragged),
+    }
+    await wrapper.get('[data-person-id="e-target"]').trigger("dragstart", { dataTransfer })
+    await wrapper.get('[data-relation-slot="source"]').trigger("drop", { dataTransfer })
+
+    expect(wrapper.get('[data-relation-slot="source"]').text()).toContain("沉钟港")
+    expect(wrapper.get('[data-relation-slot="target"]').text()).toContain("林澈")
+    expect(worldSession.relationReviewDrafts.g1).toMatchObject({ source_id: "e-target", target_id: "e-source" })
+
+    await wrapper.get('[data-action="confirm-relation-decision"]').trigger("click")
+    expect(apiMock.world.reviewRelationsBatch).toHaveBeenCalledWith(expect.objectContaining({
+      confirmed: true,
+      decisions: [expect.objectContaining({
+        action: "accept",
+        source_id: "e-target",
+        target_id: "e-source",
+        relation_kind: "social",
+        relation_type: "friend_of",
+      })],
+    }), "p-rev")
+  })
+
+  it("点击配对可替代拖放，取消后保留关系草稿", async () => {
+    const wrapper = mountTab({ reviewSubView: "review-relations" })
+    await wrapper.get('.review-group-card[data-group-id="g1"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('[data-person-id="e-source"]').trigger("click")
+    await wrapper.get('[data-relation-slot="target"]').trigger("click")
+    await wrapper.get("#relation-inline-description").setValue("反向关系草稿")
+    await wrapper.get('[data-action="cancel-relation-decision"]').trigger("click")
+
+    expect(wrapper.find(".world-relation-decision").exists()).toBe(false)
+    expect(worldSession.relationReviewDrafts.g1).toMatchObject({
+      source_id: "e-target",
+      target_id: "e-source",
+      description: "反向关系草稿",
+    })
   })
 
   it("快捷筛选 navigate 写 query", async () => {

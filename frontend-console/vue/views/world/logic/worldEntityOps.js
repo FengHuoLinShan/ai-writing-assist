@@ -80,7 +80,7 @@ export function registerCandidateListHooks(hooks = {}) {
 }
 
 // ============================================================
-// referencePicker（模态内，Vue 树外，保持 vanilla 原样）
+// referencePicker（命令式 DOM seam，供模态和 Vue 决策区复用）
 // ============================================================
 
 let referencePickers = []
@@ -101,6 +101,7 @@ function mountEntityReferencePicker({
   replaceExisting = true,
   placeholder = "按名称或别名搜索目标对象",
   ariaLabel = "搜索目标对象",
+  onChange = null,
 }) {
   const root = document.getElementById(rootId)
   const input = document.getElementById(inputId)
@@ -153,6 +154,7 @@ function mountEntityReferencePicker({
     onChange: (_items, refs) => {
       input.value = refs[0]?.id || ""
       input.dataset.referenceLabel = _items[0]?.label || ""
+      onChange?.(_items, refs)
     },
   })
   if (selectedId && !initialItems.length) picker.resolve([{ kind: "entity", id: selectedId }])
@@ -160,7 +162,7 @@ function mountEntityReferencePicker({
   return picker
 }
 
-/** review 决策模态复用同一 picker 挂载（useWorldReview 的别名入口）。 */
+/** review 决策区复用同一 picker 挂载。 */
 export function mountEntityReferencePickerForReview(options) {
   return mountEntityReferencePicker(options)
 }

@@ -272,15 +272,16 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
   `#filter-source` `#filter-workflow-id` `#filter-needs-review` `#filter-auto-ingested`
 - ReviewTab：`#review-candidate-entity-type/action/source/workflow/scene/chapter/confidence-min/confidence-max`；
   `#review-alias-q/source/workflow/scene/chapter/confidence-min/type-kind/page-size`；
-  `#review-relation-q/scene-quick/type/scene/source-chapter/strength-min/type-kind/page-size`
+  `#review-relation-q/scene-quick/type/scene/source-chapter/strength-min/type-kind/page-size`；
+  就地决策 `#alias-inline-target-id/text/kind/type/type-custom`、
+  `#relation-inline-kind/type/type-custom/description/strength`
 - Bible：`#bible-title` `#bible-page-type` `#bible-sort-order` `#bible-page-template`
   `#bible-free-text` `#bible-asset-ref-picker` `#bible-asset-refs` `#bible-activation-profile`
   `#bible-activation-task`；规则模态 `#bible-profile-key/name/action` `#bible-rule-name/positive/negative/target-picker/target/priority/top-k/token-cap`
 - 模态（logic）：`#create-entity-name/type/summary`、`#edit-entity-name/type/summary/error`、
   `#merge-target-picker`、`#merge-target-id`、`#rollback-scene-index`、
   `#knowledge-target-id/level/content/chapter/misconception`（worldEntityOps.js）；
-  `#rel-source/target/type/desc`、`#alias-entity/text/type`（worldRelationsAliasesOps.js）；
-  `#relation-review-action`、`#relation-final-type/final-strength/final-description`、`#relation-preview`（useWorldReview.js）
+  `#rel-source/target/type/desc`、`#alias-entity/text/type`（worldRelationsAliasesOps.js）
 
 ### 7.2 data-action（按区域，全量保留）
 
@@ -295,6 +296,8 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
   `apply/reset-alias-review-filters` `apply/reset-relation-review-filters`
   `set-alias-quick-filter` `set-relation-quick-filter` `apply-relation-scene-quick`
   `remove-review-filter` `prepare-alias-review` `prepare-relation-review`
+  `confirm-alias-merge` `ignore-current-alias` `cancel-alias-decision`
+  `relation-person-card` `confirm-relation-decision` `ignore-current-relation` `cancel-relation-decision`
   `review-aliases-batch` `ignore-aliases-batch` `apply-relation-decisions`
   `ignore-relation-groups` `copy-review-diagnostic`
 - 关系/别名：`create-relation` `delete-relation` `review-relations` `delete-relations`

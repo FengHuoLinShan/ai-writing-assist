@@ -22,6 +22,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
 - 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，精确关系仍保存在 `relation_type`
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
+- 作者端待处理关系在现有分组内就地配对：拖动任一端点卡到“关系发起方”或“关系承接方”槽会自动补齐另一端，一次配对后沿用现有 `review-batch` 决策；取消保留指纹草稿，归并、复用和忽略仍需确认
 - 待处理关系按有向 `(source_id, target_id)` 分组，别名按 owner 对象分组；Scene 只用于筛选和展示，反向关系不自动归并
 - 类型目录只为详细类型提供推荐与保守同义词建议；显式合法 kind 优先，kind 缺失时只对已知详细类型推导。自定义候选可暂缺 kind，但关系采用为 canonical、别名采用为 active 前必须由作者选择；详细类型原值不被改写
 - 关系筛选用来命中对象对，返回时仍包含该有向对的完整待处理成员；指纹也基于完整快照，避免筛选后提交必然过期

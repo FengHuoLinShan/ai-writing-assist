@@ -73,15 +73,15 @@ test.describe("世界对象 — 关系与别名", () => {
     await reloadWorkbench(page, "world", "objects")
     await page.locator(SEL.subnavItem("relations")).click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
-    await expect(page.locator(SEL.dataTable)).toContainText("ally_of")
+    await expect(page.locator(SEL.dataTable)).toContainText("盟友")
 
-    const relationRow = page.locator("tr", { hasText: "ally_of" })
+    const relationRow = page.locator("tr", { hasText: "盟友" })
     await expect(relationRow).toHaveCount(1)
     await relationRow.locator('[data-action="delete-relation"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
     await page.locator(SEL.modalFooter).getByRole("button", { name: "确认删除" }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
-    await expect(page.locator(SEL.workspaceContent)).not.toContainText("ally_of")
+    await expect(page.locator(SEL.workspaceContent)).not.toContainText("测试关系描述")
   })
 
   /*
@@ -129,14 +129,14 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("小名")
     await expect(page.locator(SEL.dataTable)).toContainText("昵称")
     await expect(page.locator(SEL.dataTable)).toContainText("代号")
-    await expect(page.locator(SEL.dataTable)).toContainText("化名")
+    await expect(page.locator(SEL.dataTable)).toContainText("别名")
   })
 
   test("待处理别名和关系使用统一筛选结构并保留 URL 语义", async ({ page }) => {
     await reloadWorkbench(page, "world", "review-aliases")
     await page.getByRole("button", { name: "更多筛选", exact: true }).click()
     await page.getByLabel("按场景序号筛选待处理别名", { exact: true }).fill("3")
-    await page.getByLabel("待处理别名类型范围", { exact: true }).selectOption("custom")
+    await page.getByLabel("待处理别名详细类型范围", { exact: true }).selectOption("custom")
     await page.getByLabel("待处理别名每页数量", { exact: true }).selectOption("50")
     await page.locator('[data-action="apply-alias-review-filters"]').last().click()
     await expect(page).toHaveURL(/scene_index=3/)
@@ -145,7 +145,7 @@ test.describe("世界对象 — 关系与别名", () => {
 
     await reloadWorkbench(page, "world", "review-relations")
     await page.getByRole("button", { name: "更多筛选", exact: true }).click()
-    await page.getByLabel("按关系类型筛选待处理关系", { exact: true }).fill("friend_of")
+    await page.getByLabel("按详细类型筛选待处理关系", { exact: true }).selectOption("friend_of")
     await page.getByLabel("待处理关系最低强度", { exact: true }).fill("0.7")
     await page.getByLabel("待处理关系引用证据", { exact: true }).selectOption("true")
     await page.getByLabel("待处理关系每页数量", { exact: true }).selectOption("50")
@@ -164,14 +164,22 @@ test.describe("世界对象 — 关系与别名", () => {
 
     await reloadWorkbench(page, "world", "review-aliases")
     await page.locator(".review-member-row", { hasText: "直接采用别名" }).click()
-    await page.locator('[data-action="accept-current-alias"]').click()
+    const aliasDecision = page.locator(".world-alias-decision")
+    await expect(aliasDecision).toContainText("目标对象（保留）")
+    await expect(aliasDecision).toContainText("待并入别名")
+    await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+    await aliasDecision.locator('[data-action="confirm-alias-merge"]').click()
     await expect(page.locator(SEL.toastContainer)).toContainText("别名已采用", { timeout: 10000 })
 
     await reloadWorkbench(page, "world", "review-relations")
     await page.locator(".review-group-card", { hasText: "直接采用关系" }).click()
-    const accept = page.locator('[data-action="accept-recommended-relation"]')
-    await expect(accept).toBeEnabled()
-    await accept.click()
+    const relationDecision = page.locator(".world-relation-decision")
+    await expect(relationDecision).toContainText("每组只需拖一次")
+    await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+    await relationDecision.locator(`[data-person-id="${source.id}"]`).dragTo(relationDecision.locator('[data-relation-slot="source"]'))
+    await expect(relationDecision.locator('[data-relation-slot="source"]')).toContainText(source.name)
+    await expect(relationDecision.locator('[data-relation-slot="target"]')).toContainText(target.name)
+    await relationDecision.locator('[data-action="confirm-relation-decision"]').click()
     await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
 
     const aliases = await listAliases(testProjectId, { display_state: "active", limit: 100 })
@@ -180,21 +188,12 @@ test.describe("世界对象 — 关系与别名", () => {
     expect(relations.items.some((item) => item.description === "直接采用关系")).toBe(true)
   })
 
-  test("关系分组可搜索首批之外的端点并一次请求完成归并", async ({ page }) => {
-    const entities = []
-    for (let index = 0; index < 25; index += 1) {
-      entities.push(await createEntity(testProjectId, {
-        name: `关系端点 ${String(index + 1).padStart(2, "0")}`,
-        entity_type: "character",
-        status: "canonical",
-      }))
-    }
-    const searchedTarget = entities[0]
-    const source = entities[23]
-    const originalTarget = entities[24]
+  test("同类关系证据只拖一次人物卡并一次请求完成归并", async ({ page }) => {
+    const source = await createEntity(testProjectId, { name: "关系归并源", entity_type: "character", status: "canonical" })
+    const target = await createEntity(testProjectId, { name: "关系归并目标", entity_type: "character", status: "canonical" })
     await createRelation(testProjectId, {
       source_id: source.id,
-      target_id: originalTarget.id,
+      target_id: target.id,
       relation_type: "friend",
       description: "朋友证据一",
       strength: 0.8,
@@ -209,7 +208,7 @@ test.describe("世界对象 — 关系与别名", () => {
     })
     await createRelation(testProjectId, {
       source_id: source.id,
-      target_id: originalTarget.id,
+      target_id: target.id,
       relation_type: "朋友",
       description: "朋友证据二",
       strength: 0.7,
@@ -225,31 +224,21 @@ test.describe("世界对象 — 关系与别名", () => {
 
     await reloadWorkbench(page, "world", "review-relations")
     const card = page.locator(".review-group-card").filter({ hasText: source.name })
-    await expect(card).toContainText(originalTarget.name)
+    await expect(card).toContainText(target.name)
     await expect(card).toContainText("2 条候选")
     await expect(card).not.toContainText(source.id)
     await card.locator('[data-action="prepare-relation-review"]').click()
-    await expect(page.locator('input[name="relation-review-member"]:checked')).toHaveCount(2)
-    await expect(page.locator("#relation-review-action")).toHaveValue("merge")
-
-    const endpointResponse = page.waitForResponse((response) => {
-      const url = new URL(response.url())
-      return url.pathname.endsWith("/api/world/entities")
-        && url.searchParams.get("q") === searchedTarget.name
-    })
-    await page.locator("#relation-target-query").fill(searchedTarget.name)
-    await page.locator("#relation-target-search").click()
-    await endpointResponse
-    await expect(page.locator("#relation-target-select")).toContainText(searchedTarget.name)
-    await page.locator("#relation-target-select").selectOption(searchedTarget.id)
-    await page.locator('[data-relation-type-suggestion="friend_of"]').first().click()
-    await expect(page.locator("#relation-final-type")).toHaveValue("friend_of")
+    const decision = page.locator(".world-relation-decision")
+    await expect(decision.locator('[data-relation-slot="source"]')).toContainText("拖入人物")
+    await decision.locator(`[data-person-id="${source.id}"]`).dragTo(decision.locator('[data-relation-slot="source"]'))
+    await expect(decision.locator('[data-relation-slot="target"]')).toContainText(target.name)
+    await expect(decision).toContainText("本次处理 2 条候选")
     let batchRequests = 0
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/api/world/relations/review-batch")) batchRequests += 1
     })
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "提交决策" }).click()
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认提交" }).click()
+    await decision.locator('[data-action="confirm-relation-decision"]').click()
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认采用" }).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
     expect(batchRequests).toBe(1)
 
@@ -257,7 +246,7 @@ test.describe("世界对象 — 关系与别名", () => {
     const deprecated = await listRelations(testProjectId, { status: "deprecated", limit: 50 })
     const merged = canonical.items.filter((item) => item.relation_type === "friend_of")
     expect(merged).toHaveLength(1)
-    expect(merged[0].target_id).toBe(searchedTarget.id)
+    expect(merged[0].target_id).toBe(target.id)
     expect(merged[0].quote).toContain("他们以朋友相称。")
     expect(merged[0].quote).toContain("两人互相帮助。")
     expect(deprecated.items).toHaveLength(1)
@@ -283,15 +272,17 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(row).toContainText("自定义")
     await expect(row).not.toContainText(entity.id)
     await row.locator('[data-action="prepare-alias-review"]').click()
-    await expect(page.locator("#alias-edit-type")).toHaveValue("别称")
-    await expect(page.locator("#alias-edit-type option:checked")).toContainText("保留原类型：别称")
-    const modalBox = await page.locator(SEL.modalContent).boundingBox()
-    expect(Math.round(modalBox.width)).toBe(390)
+    await expect(page.locator("#alias-inline-type")).toHaveValue("__custom_detail_type__")
+    await expect(page.locator("#alias-inline-type-custom")).toHaveValue("别称")
+    await expect(page.locator(".world-review-queue")).toBeHidden()
+    const decisionBox = await page.locator(".world-review-decision").boundingBox()
+    expect(decisionBox.x).toBeGreaterThanOrEqual(0)
+    expect(Math.ceil(decisionBox.x + decisionBox.width)).toBeLessThanOrEqual(390)
     let batchRequests = 0
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/api/world/aliases/review-batch")) batchRequests += 1
     })
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "采用别名" }).click()
+    await page.locator('[data-action="confirm-alias-merge"]').click()
     await expect(page.locator(SEL.toastContainer)).toContainText("别名已采用", { timeout: 10000 })
     expect(batchRequests).toBe(1)
 
@@ -329,20 +320,46 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(".world-review-queue")).toBeVisible()
   })
 
-  test("同组候选可分别采用为多条正式关系", async ({ page }) => {
+  test("390px 关系决策可点选配对且没有横向溢出", async ({ page }) => {
+    const source = await createEntity(testProjectId, { name: "窄屏关系源", entity_type: "character", status: "canonical" })
+    const target = await createEntity(testProjectId, { name: "窄屏关系目标", entity_type: "character", status: "canonical" })
+    await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: "friend_of", description: "窄屏关系", strength: 0.7, status: "candidate" })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await reloadWorkbench(page, "world", "review-relations")
+    const card = page.locator(".review-group-card").filter({ hasText: "窄屏关系" })
+    await card.locator('[data-action="prepare-relation-review"]').click()
+    await expect(page.getByRole("button", { name: "返回队列", exact: true })).toBeFocused()
+
+    const decision = page.locator(".world-relation-decision")
+    await decision.locator(`[data-person-id="${target.id}"]`).click()
+    await decision.locator('[data-relation-slot="target"]').click()
+    await expect(decision.locator('[data-relation-slot="source"]')).toContainText(source.name)
+    await expect(decision.locator('[data-relation-slot="target"]')).toContainText(target.name)
+    const actionBox = await decision.locator('[data-action="confirm-relation-decision"]').boundingBox()
+    expect(actionBox.height).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+
+  test("同一对象对的不同关系事实各拖一次后依次采用", async ({ page }) => {
     const source = await createEntity(testProjectId, { name: "分别采用源", entity_type: "character", status: "canonical" })
     const target = await createEntity(testProjectId, { name: "分别采用目标", entity_type: "character", status: "canonical" })
     await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: "friend_of", description: "曾是朋友", strength: 0.6, status: "candidate" })
     await createRelation(testProjectId, { source_id: source.id, target_id: target.id, relation_type: "enemy_of", description: "后来为敌", strength: 0.9, status: "candidate" })
 
     await reloadWorkbench(page, "world", "review-relations")
-    const card = page.locator(".review-group-card").filter({ hasText: source.name })
-    await card.locator('[data-action="prepare-relation-review"]').click()
-    await page.locator("#relation-review-action").selectOption("accept_separately")
-    for (const checkbox of await page.locator('input[name="relation-review-member"]').all()) await checkbox.check()
-    await page.locator("#relation-unselected-action").selectOption("keep_pending")
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "提交决策" }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
+    const adoptedTypes = []
+    for (let index = 0; index < 2; index += 1) {
+      const card = page.locator(".review-group-card").filter({ hasText: source.name })
+      await card.locator('[data-action="prepare-relation-review"]').click()
+      const decision = page.locator(".world-relation-decision")
+      adoptedTypes.push(await decision.locator("#relation-inline-type").inputValue())
+      await decision.locator(`[data-person-id="${source.id}"]`).dragTo(decision.locator('[data-relation-slot="source"]'))
+      await decision.locator('[data-action="confirm-relation-decision"]').click()
+      await expect(page.locator(SEL.toastContainer)).toContainText("关系决策已保存", { timeout: 10000 })
+      if (index === 0) await reloadWorkbench(page, "world", "review-relations")
+    }
+    expect(adoptedTypes.sort()).toEqual(["enemy_of", "friend_of"])
 
     const canonical = await listRelations(testProjectId, { status: "canonical", limit: 50 })
     const adopted = canonical.items.filter((item) => item.source_id === source.id && item.target_id === target.id)

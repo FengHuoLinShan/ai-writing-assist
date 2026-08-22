@@ -254,7 +254,7 @@
                   <div v-if="session.aliasReviewErrors[aliasKeyOf(item)]" class="review-item-error" role="alert">{{ session.aliasReviewErrors[aliasKeyOf(item)] }}</div>
                 </div>
                 <span v-if="item.managed_by_suggestion" class="world-text-dim">随对象建议处理</span>
-                <button v-else class="btn btn-sm btn-primary" data-action="prepare-alias-review" :data-entity-id="item.entity_id" :data-alias="item.alias" @click.stop="showAliasReviewDecisionForm(item.entity_id, item.alias)">预览并处理</button>
+                <button v-else class="btn btn-sm btn-primary" data-action="prepare-alias-review" :data-entity-id="item.entity_id" :data-alias="item.alias" @click.stop="selectReviewItem(aliasKeyOf(item), $event)">处理</button>
               </article>
             </div>
           </section>
@@ -285,7 +285,7 @@
       <WorldFilterPanel panel-key="review-relations" :has-active-filters="relationHasActiveFilters" :project-id="projectId" toggle-label="更多筛选" collapse-label="收起更多筛选">
         <div class="filter-bar" style="margin-bottom:12px;">
           <label class="form-group"><span>关系分类</span><select id="review-relation-kind" v-model="relationForm.relation_kind" class="form-select" aria-label="按关系分类筛选待处理关系"><option value="">全部分类</option><option v-for="item in relationKindOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-          <label class="form-group"><span>详细类型</span><select id="review-relation-type" v-model="relationForm.relation_type" class="form-select" aria-label="按详细类型筛选待处理关系"><option value="">全部详细类型</option><option v-for="item in relationTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+          <label class="form-group"><span>详细类型</span><select id="review-relation-type" v-model="relationForm.relation_type" class="form-select" aria-label="按详细类型筛选待处理关系"><option value="">全部详细类型</option><option v-for="item in relationFilterTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
           <label class="form-group"><span>场景序号</span><input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" inputmode="numeric" aria-label="按场景序号筛选待处理关系" /></label>
           <label class="form-group"><span>章节序号</span><input id="review-relation-source-chapter" v-model="relationForm.source_chapter_index" class="form-input" inputmode="numeric" aria-label="按章节序号筛选待处理关系" /></label>
           <label class="form-group"><span>最低强度</span><input id="review-relation-strength-min" v-model="relationForm.strength_min" class="form-input" inputmode="decimal" aria-label="待处理关系最低强度" /></label>
@@ -352,7 +352,7 @@
               </article>
             </div>
             <footer class="review-group-card__actions">
-              <button class="btn btn-sm btn-primary" data-action="prepare-relation-review" :data-group-id="group.group_id" @click.stop="showRelationGroupReviewForm(group.group_id)">预览并处理</button>
+              <button class="btn btn-sm btn-primary" data-action="prepare-relation-review" :data-group-id="group.group_id" @click.stop="selectReviewItem(group.group_id, $event)">处理</button>
             </footer>
           </section>
         </div>
@@ -379,36 +379,155 @@
             <div class="world-review-decision__actions"><WorldCandidateActions :candidate="activeItem" :action-options="{ allowAlias: true, allowMerge: true }" /></div>
           </template>
           <template v-else-if="tab === 'aliases'">
-            <h3>{{ activeItem.entity_name || "未命名对象" }}</h3>
-            <p>{{ activeAlias?.alias || "未命名别名" }} → {{ activeItem.entity_name || "当前对象" }}</p>
-            <p v-if="activeAlias"><span class="badge" :class="activeAlias.alias_kind ? 'badge-canonical' : 'badge-candidate'">{{ reviewKindLabel('alias', activeAlias.alias_kind) }}</span> · {{ reviewTypeLabel('alias', activeAlias.alias_type) }}</p>
-            <WorldEvidenceSummary v-if="activeAlias" :item="activeAlias" kind="alias" :numeric-value="activeAlias.confidence" />
-            <p v-if="activeAlias?.managed_by_suggestion" class="review-warning">需先处理对象建议，完成后会返回此项。</p>
-            <template v-if="activeAlias && !activeAlias.managed_by_suggestion">
-              <button type="button" class="btn btn-primary world-review-touch-target" data-action="accept-current-alias" @click="acceptAliasReviewItem(activeAlias)">按当前内容采用</button>
-              <button type="button" class="btn world-review-touch-target" @click="showAliasReviewDecisionForm(activeAlias.entity_id, activeAlias.alias)">修改目标、文本或类型…</button>
-              <button type="button" class="btn btn-danger world-review-touch-target" @click="applyAliasReviewBatch([activeAlias], 'ignore')">忽略此别名</button>
+            <template v-if="activeAlias?.managed_by_suggestion">
+              <p class="review-warning">需先处理对象建议，完成后会返回此项。</p>
+              <button type="button" class="btn btn-primary world-review-touch-target" @click="openBlockingObject(activeAlias.entity_id)">先处理对象</button>
             </template>
-            <button v-else-if="activeAlias" type="button" class="btn btn-primary world-review-touch-target" @click="openBlockingObject(activeAlias.entity_id)">先处理对象</button>
+            <template v-else-if="activeAlias">
+              <div class="world-alias-decision">
+                <div class="form-group world-alias-decision__target">
+                  <span class="form-label">目标对象（保留）</span>
+                  <div id="alias-inline-target-picker"></div>
+                  <input id="alias-inline-target-id" type="hidden" :value="aliasDecisionForm.target_entity_id" />
+                </div>
+
+                <div class="world-alias-decision__direction" aria-label="待处理别名并入目标对象">
+                  <span aria-hidden="true">↑</span>
+                  <strong>并入</strong>
+                </div>
+
+                <div class="world-alias-decision__merge-row">
+                  <label class="form-group">
+                    <span>待并入别名</span>
+                    <input id="alias-inline-text" v-model="aliasDecisionForm.alias" class="form-input" maxlength="200" @input="persistActiveAliasDecision" />
+                  </label>
+                  <div class="world-alias-decision__types">
+                    <label class="form-group">
+                      <span>别名分类</span>
+                      <select id="alias-inline-kind" v-model="aliasDecisionForm.alias_kind" class="form-select" aria-describedby="alias-inline-kind-help" @change="markAliasKindExplicit">
+                        <option value="">请选择分类</option>
+                        <option v-for="item in aliasKindOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                      </select>
+                      <small id="alias-inline-kind-help" class="form-help">{{ activeAliasKindHelp }}</small>
+                    </label>
+                    <label class="form-group">
+                      <span>详细类型</span>
+                      <select id="alias-inline-type" v-model="aliasTypeChoice" class="form-select" @change="changeAliasType">
+                        <option v-for="item in aliasTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                        <option :value="CUSTOM_DETAIL_TYPE_VALUE">自定义详细类型…</option>
+                      </select>
+                    </label>
+                    <label v-if="aliasTypeChoice === CUSTOM_DETAIL_TYPE_VALUE" class="form-group">
+                      <span>自定义详细类型</span>
+                      <input id="alias-inline-type-custom" v-model="aliasCustomType" class="form-input" maxlength="20" @input="changeAliasCustomType" />
+                    </label>
+                    <button v-if="activeAlias.suggested_alias_type && activeAlias.suggested_alias_type !== aliasDecisionForm.alias_type" type="button" class="btn btn-sm" data-action="use-alias-type-suggestion" @click="useAliasTypeSuggestion">使用建议：{{ reviewTypeLabel('alias', activeAlias.suggested_alias_type) }}</button>
+                  </div>
+                </div>
+
+                <section class="world-alias-decision__evidence" aria-label="证据">
+                  <strong>证据</strong>
+                  <WorldEvidenceSummary :item="activeAlias" kind="alias" :numeric-value="activeAlias.confidence" />
+                </section>
+                <p v-if="aliasDecisionStale" class="review-warning">旧草稿对应的内容已变化，已按当前内容重新载入，请重新确认。</p>
+                <p v-if="session.aliasReviewErrors[aliasKeyOf(activeAlias)]" class="review-item-error" role="alert">{{ session.aliasReviewErrors[aliasKeyOf(activeAlias)] }}</p>
+                <div class="world-alias-decision__actions">
+                  <button type="button" class="btn btn-primary world-review-touch-target" data-action="confirm-alias-merge" :disabled="aliasDecisionProcessing" @click="confirmActiveAliasDecision">确认并入</button>
+                  <button type="button" class="btn btn-danger world-review-touch-target" data-action="ignore-current-alias" :disabled="aliasDecisionProcessing" @click="applyAliasReviewBatch([activeAlias], 'ignore')">忽略此别名</button>
+                  <button type="button" class="btn world-review-touch-target" data-action="cancel-alias-decision" :disabled="aliasDecisionProcessing" @click="cancelAliasDecision">取消</button>
+                </div>
+              </div>
+            </template>
           </template>
           <template v-else>
-            <h3>{{ activeItem.source_name || "源对象" }} → {{ activeItem.target_name || "目标对象" }}</h3>
+            <h3>确定关系方向</h3>
             <p>{{ activeItem.member_count || (activeItem.members || []).length }} 条候选 · {{ activeItem.evidence_count || 0 }} 条证据</p>
             <p v-if="dependencyState.loading" class="world-text-dim">正在检查对象状态…</p>
             <div v-else-if="dependencyState.error" class="review-warning" role="alert"><p>无法核对关系端点的对象状态。</p><button type="button" class="btn btn-sm" @click="retryLoad">刷新后重试</button></div>
             <p v-else-if="dependencyState.blocker" class="review-warning">需先决定“{{ dependencyState.blocker.name }}”，才能安心采用这条关系。</p>
-            <div v-else class="world-review-preview">
-              <strong>预览</strong>
-              <span>{{ activeItem.source_name }} → {{ activeItem.target_name }}</span>
-              <span>{{ reviewKindLabel('relation', activeRelationDecision?.relation_kind) }} · {{ reviewTypeLabel('relation', activeRelationDecision?.relation_type) }}</span>
-              <span>{{ activeRelationDecision?.description || "暂无描述" }}</span>
-              <span>将处理 {{ activeRelationDecision?.member_relation_ids?.length || 0 }} 条，其余 {{ activeRelationRemaining }} 条继续待定</span>
-            </div>
             <button v-if="dependencyState.blocker" type="button" class="btn btn-primary world-review-touch-target" @click="openBlockingObject(dependencyState.blocker.id)">先处理对象</button>
-            <template v-else-if="!dependencyState.error">
-              <button type="button" class="btn btn-primary world-review-touch-target" data-action="accept-recommended-relation" :disabled="dependencyState.loading" @click="acceptRecommendedRelation(activeItem)">按此结果采用</button>
-              <button type="button" class="btn world-review-touch-target" :disabled="dependencyState.loading" @click="showRelationGroupReviewForm(activeItem.group_id)">编辑更多处理方式…</button>
-            </template>
+            <div v-else-if="!dependencyState.error" class="world-relation-decision">
+              <p class="world-text-dim">拖动任意一张人物卡到空槽；另一张会自动补入另一侧，每组只需拖一次。</p>
+              <div class="world-relation-decision__people" role="group" aria-label="待配对人物">
+                <button
+                  v-for="person in relationPeople"
+                  :key="person.id"
+                  type="button"
+                  class="world-relation-person-card"
+                  :class="{ 'is-selected': selectedRelationPersonId === person.id }"
+                  draggable="true"
+                  data-action="relation-person-card"
+                  :data-person-id="person.id"
+                  :aria-pressed="selectedRelationPersonId === person.id"
+                  @dragstart="startRelationDrag(person.id, $event)"
+                  @click="selectRelationPerson(person.id)"
+                >
+                  <span class="world-relation-person-card__avatar" aria-hidden="true">{{ person.name.slice(0, 1) }}</span>
+                  <strong>{{ person.name }}</strong>
+                  <small>拖到下方空槽</small>
+                </button>
+              </div>
+
+              <div class="world-relation-decision__pairing" :class="{ 'is-complete': relationPairingComplete }">
+                <button type="button" class="world-relation-slot" data-relation-slot="source" :class="{ 'is-filled': relationDecisionForm.source_id }" @dragover.prevent @drop.prevent="dropRelationPerson('source', $event)" @click="placeSelectedRelationPerson('source')">
+                  <span>关系发起方</span>
+                  <strong>{{ relationEndpointName(relationDecisionForm.source_id) || "拖入人物" }}</strong>
+                </button>
+                <div class="world-relation-decision__direction" aria-label="关系方向">
+                  <strong>{{ reviewTypeLabel('relation', relationDecisionForm.relation_type) }}</strong>
+                  <span aria-hidden="true">→</span>
+                </div>
+                <button type="button" class="world-relation-slot" data-relation-slot="target" :class="{ 'is-filled': relationDecisionForm.target_id }" @dragover.prevent @drop.prevent="dropRelationPerson('target', $event)" @click="placeSelectedRelationPerson('target')">
+                  <span>关系承接方</span>
+                  <strong>{{ relationEndpointName(relationDecisionForm.target_id) || "拖入人物" }}</strong>
+                </button>
+              </div>
+              <p v-if="selectedRelationPersonId && !relationPairingComplete" class="world-text-dim" role="status">已选择“{{ relationEndpointName(selectedRelationPersonId) }}”，再点一个空槽即可。</p>
+
+              <div class="world-relation-decision__fields">
+                <label class="form-group">
+                  <span>关系分类</span>
+                  <select id="relation-inline-kind" v-model="relationDecisionForm.relation_kind" class="form-select" aria-describedby="relation-inline-kind-help" @change="markRelationKindExplicit">
+                    <option value="">请选择分类</option>
+                    <option v-for="item in relationKindOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                  <small id="relation-inline-kind-help" class="form-help">{{ activeRelationKindHelp }}</small>
+                </label>
+                <label class="form-group">
+                  <span>详细类型</span>
+                  <select id="relation-inline-type" v-model="relationTypeChoice" class="form-select" @change="changeRelationType">
+                    <option v-for="item in relationDecisionTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                    <option :value="CUSTOM_DETAIL_TYPE_VALUE">自定义详细类型…</option>
+                  </select>
+                </label>
+                <label v-if="relationTypeChoice === CUSTOM_DETAIL_TYPE_VALUE" class="form-group">
+                  <span>自定义详细类型</span>
+                  <input id="relation-inline-type-custom" v-model="relationCustomType" class="form-input" maxlength="50" @input="changeRelationCustomType" />
+                </label>
+                <button v-if="activeRelationSuggestedType && activeRelationSuggestedType !== relationDecisionForm.relation_type" type="button" class="btn btn-sm" data-action="use-relation-type-suggestion" @click="useRelationTypeSuggestion">使用建议：{{ reviewTypeLabel('relation', activeRelationSuggestedType) }}</button>
+                <label class="form-group world-relation-decision__description">
+                  <span>关系说明</span>
+                  <textarea id="relation-inline-description" v-model="relationDecisionForm.description" class="form-textarea" rows="3" maxlength="1000" @input="persistActiveRelationDecision"></textarea>
+                </label>
+                <label class="form-group">
+                  <span>关系强度</span>
+                  <input id="relation-inline-strength" v-model.number="relationDecisionForm.strength" class="form-input" type="number" min="0" max="1" step="0.01" @input="persistActiveRelationDecision" />
+                </label>
+              </div>
+
+              <section class="world-relation-decision__evidence" aria-label="证据">
+                <strong>证据</strong>
+                <WorldEvidenceSummary v-for="member in activeRelationEvidenceMembers" :key="member.id" :item="member.evidence_summary || member" kind="relation" :numeric-value="member.strength" />
+                <span class="world-text-dim">本次处理 {{ activeRelationEvidenceMembers.length }} 条候选，其余 {{ activeRelationRemaining }} 条继续待定。</span>
+              </section>
+              <p v-if="relationDecisionStale" class="review-warning">旧草稿对应的内容已变化，已按当前内容重新载入，请重新确认。</p>
+              <p v-if="session.relationReviewErrors[activeItem.group_id]" class="review-item-error" role="alert">{{ session.relationReviewErrors[activeItem.group_id] }}</p>
+              <div class="world-relation-decision__actions">
+                <button type="button" class="btn btn-primary world-review-touch-target" data-action="confirm-relation-decision" :disabled="relationDecisionProcessing" @click="confirmActiveRelationDecision">确认关系</button>
+                <button type="button" class="btn btn-danger world-review-touch-target" data-action="ignore-current-relation" :disabled="relationDecisionProcessing" @click="applyRelationReviewBatch([activeItem], true)">忽略本组</button>
+                <button type="button" class="btn world-review-touch-target" data-action="cancel-relation-decision" :disabled="relationDecisionProcessing" @click="cancelRelationDecision">取消</button>
+              </div>
+            </div>
           </template>
         </template>
         <div v-else class="empty-state"><p>从左侧选择一项开始决定。</p></div>
@@ -427,12 +546,13 @@ import { worldSession as session } from "../worldSession.js"
 import { WORLD_CANDIDATE_QUERY_KEYS } from "../logic/worldQuery.js"
 import { reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { candidateMeta, entityId } from "../logic/worldEntityHelpers.js"
-import { registerCandidateListHooks, syncWorldListRegistry } from "../logic/worldEntityOps.js"
+import { destroyWorldEntityPickers, mountEntityReferencePickerForReview, registerCandidateListHooks, syncWorldListRegistry } from "../logic/worldEntityOps.js"
 import {
   aliasKey,
-  acceptAliasReviewItem,
+  acceptAliasReviewDecision,
+  acceptRelationReviewDecision,
   applyAliasReviewBatch,
-  acceptRecommendedRelation,
+  applyRelationReviewBatch,
   applyCandidateReviewFilters,
   applyAliasReviewFilters,
   applyRelationReviewFilters,
@@ -443,18 +563,20 @@ import {
   changeReviewPage,
   groupTargetedAliasCandidates,
   inlineEvidencePairs,
+  persistAliasReviewDecision,
+  persistRelationReviewDecision,
+  prepareAliasReviewDecision,
+  prepareRelationReviewDecision,
   reviewTypeLabel,
   reviewKindLabel,
   recommendedRelationDecision,
   runReviewBulkAction,
   setReviewQuickFilter,
   setCandidateTaskFilter,
-  showAliasReviewDecisionForm,
-  showRelationGroupReviewForm,
   splitCandidateGroups,
   syncReviewRegistry,
 } from "../logic/useWorldReview.js"
-import { catalogKindItems, catalogTypeItems, detailTypeLabel } from "../logic/worldTypeCatalog.js"
+import { CUSTOM_DETAIL_TYPE_VALUE, catalogKindItems, catalogTypeItems, defaultKindForType, detailTypeLabel } from "../logic/worldTypeCatalog.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldCandidateActions from "./WorldCandidateActions.vue"
 import WorldCandidateGroupItem from "./WorldCandidateGroupItem.vue"
@@ -529,8 +651,9 @@ const entityIdOf = entityId
 const aliasKeyOf = aliasKey
 const localCandidates = ref([])
 const aliasKindOptions = computed(() => catalogKindItems(props.reviewTypeCatalog, "alias"))
+const aliasTypeOptions = computed(() => catalogTypeItems(props.reviewTypeCatalog, "alias"))
 const relationKindOptions = computed(() => catalogKindItems(props.reviewTypeCatalog, "relation"))
-const relationTypeOptions = computed(() => {
+const relationFilterTypeOptions = computed(() => {
   const items = [...catalogTypeItems(props.reviewTypeCatalog, "relation")]
   const selected = relationForm.relation_type
   if (selected && !items.some((item) => item.value === selected)) {
@@ -572,8 +695,45 @@ const activeItem = computed(() => {
   return props.relationGroups.find((item) => item.group_id === activeKey.value) || null
 })
 const activeAlias = computed(() => activeItem.value?.members?.find((item) => aliasKey(item) === activeKey.value) || null)
+const activeRelationGroup = computed(() => tab.value === "relations" ? activeItem.value : null)
+const aliasDecisionForm = reactive({ target_entity_id: "", target_entity_name: "", alias: "", alias_kind: "", alias_type: "", _kind_explicit: false })
+const aliasTypeChoice = ref("")
+const aliasCustomType = ref("")
+const aliasDecisionStale = ref(false)
+const aliasDecisionProcessing = computed(() => Boolean(session.processingReviewIds?.[aliasKey(activeAlias.value)]))
+const activeAliasKindHelp = computed(() => (
+  aliasKindOptions.value.find((item) => item.value === aliasDecisionForm.alias_kind)?.description
+  || "先选择用于 AI 检索的通用分类。"
+))
+const relationDecisionForm = reactive({ source_id: "", target_id: "", relation_kind: "", relation_type: "", description: "", strength: 0.5, _kind_explicit: false })
+const relationTypeChoice = ref("")
+const relationCustomType = ref("")
+const relationDecisionStale = ref(false)
+const selectedRelationPersonId = ref("")
+let draggedRelationPersonId = ""
 const activeRelationDecision = computed(() => tab.value === "relations" ? recommendedRelationDecision(activeItem.value) : null)
+const relationPeople = computed(() => {
+  if (!activeItem.value) return []
+  return [
+    { id: activeItem.value.source_id, name: activeItem.value.source_name || "未命名对象" },
+    { id: activeItem.value.target_id, name: activeItem.value.target_name || "未命名对象" },
+  ].filter((person, index, items) => person.id && items.findIndex((item) => item.id === person.id) === index)
+})
+const relationDecisionTypeOptions = computed(() => catalogTypeItems(props.reviewTypeCatalog, "relation"))
+const activeRelationEvidenceMembers = computed(() => {
+  const selected = new Set(activeRelationDecision.value?.member_relation_ids || [])
+  return (activeItem.value?.members || []).filter((item) => selected.has(item.id))
+})
+const activeRelationSuggestedType = computed(() => (
+  activeRelationEvidenceMembers.value.find((item) => item.suggested_relation_type)?.suggested_relation_type || ""
+))
 const activeRelationRemaining = computed(() => Math.max(0, (activeItem.value?.members || []).length - (activeRelationDecision.value?.member_relation_ids?.length || 0)))
+const relationPairingComplete = computed(() => Boolean(relationDecisionForm.source_id && relationDecisionForm.target_id))
+const relationDecisionProcessing = computed(() => Boolean(session.processingReviewIds?.[activeItem.value?.group_id]))
+const activeRelationKindHelp = computed(() => (
+  relationKindOptions.value.find((item) => item.value === relationDecisionForm.relation_kind)?.description
+  || "先选择用于 AI 检索的通用分类。"
+))
 const activeStatusKey = computed(() => tab.value === "aliases" ? aliasKey(activeAlias.value || {}) : (activeKey.value || activeItem.value?.group_id || entityId(activeItem.value)))
 
 function isNarrowReviewViewport() {
@@ -659,7 +819,7 @@ function openBlockingObject(entityIdParam) {
   getRouter()?.navigate("world", "review", true, query)
 }
 
-// ---- 注册表同步（决策模态/批量按 id 查找） ----
+// ---- 注册表同步（决策区/批量按 id 查找） ----
 watch(() => [props.candidates, props.aliasGroups, props.relationGroups, props.entityTypes, props.reviewTypeCatalog, props.aliasReviewFilters, props.relationReviewFilters, props.aliasGroupTotal, props.relationGroupTotal], () => {
   syncReviewRegistry({
     candidates: props.candidates,
@@ -675,6 +835,199 @@ watch(() => [props.candidates, props.aliasGroups, props.relationGroups, props.en
   })
   syncWorldListRegistry({ candidates: props.candidates, entityTypes: props.entityTypes, reviewTypeCatalog: props.reviewTypeCatalog })
 }, { immediate: true, deep: true })
+
+function setAliasTypeControl(value) {
+  const known = aliasTypeOptions.value.some((item) => item.value === value)
+  aliasTypeChoice.value = known ? value : CUSTOM_DETAIL_TYPE_VALUE
+  aliasCustomType.value = known ? "" : value
+}
+
+function persistActiveAliasDecision() {
+  if (!activeAlias.value) return
+  persistAliasReviewDecision(activeAlias.value, aliasDecisionForm)
+}
+
+function syncDefaultAliasKind() {
+  if (aliasDecisionForm._kind_explicit) return
+  aliasDecisionForm.alias_kind = aliasTypeChoice.value === CUSTOM_DETAIL_TYPE_VALUE
+    ? ""
+    : defaultKindForType(props.reviewTypeCatalog, "alias", aliasDecisionForm.alias_type)
+}
+
+function markAliasKindExplicit() {
+  aliasDecisionForm._kind_explicit = true
+  persistActiveAliasDecision()
+}
+
+function changeAliasType() {
+  aliasDecisionForm.alias_type = aliasTypeChoice.value === CUSTOM_DETAIL_TYPE_VALUE
+    ? aliasCustomType.value
+    : aliasTypeChoice.value
+  syncDefaultAliasKind()
+  persistActiveAliasDecision()
+}
+
+function changeAliasCustomType() {
+  aliasDecisionForm.alias_type = aliasCustomType.value
+  persistActiveAliasDecision()
+}
+
+function useAliasTypeSuggestion() {
+  const value = activeAlias.value?.suggested_alias_type || ""
+  setAliasTypeControl(value)
+  aliasDecisionForm.alias_type = value
+  syncDefaultAliasKind()
+  persistActiveAliasDecision()
+}
+
+async function confirmActiveAliasDecision() {
+  const item = activeAlias.value
+  if (!item) return
+  const accepted = await acceptAliasReviewDecision(item, aliasDecisionForm)
+  if (accepted) {
+    activeKey.value = ""
+    mobileDetailOpen.value = false
+  }
+}
+
+function cancelAliasDecision() {
+  activeKey.value = ""
+  mobileDetailOpen.value = false
+  void nextTick(() => lastSelectionEl?.focus?.())
+}
+
+watch(activeAlias, async (item) => {
+  destroyWorldEntityPickers()
+  aliasDecisionStale.value = false
+  if (!item || item.managed_by_suggestion) return
+  const prepared = prepareAliasReviewDecision(item)
+  Object.assign(aliasDecisionForm, prepared.draft, {
+    target_entity_name: prepared.draft.target_entity_id === item.entity_id
+      ? (item.entity_name || activeItem.value?.entity_name || "当前对象")
+      : "选定对象",
+  })
+  aliasDecisionStale.value = prepared.stale
+  setAliasTypeControl(aliasDecisionForm.alias_type)
+  await nextTick()
+  if (activeAlias.value !== item) return
+  mountEntityReferencePickerForReview({
+    rootId: "alias-inline-target-picker",
+    inputId: "alias-inline-target-id",
+    selectedId: aliasDecisionForm.target_entity_id,
+    selectedName: aliasDecisionForm.target_entity_id === item.entity_id ? aliasDecisionForm.target_entity_name : "",
+    onChange: (items, refs) => {
+      aliasDecisionForm.target_entity_id = refs[0]?.id || ""
+      aliasDecisionForm.target_entity_name = items[0]?.label || "选定对象"
+      persistActiveAliasDecision()
+    },
+  })
+}, { immediate: true })
+
+function setRelationTypeControl(value) {
+  const known = relationDecisionTypeOptions.value.some((item) => item.value === value)
+  relationTypeChoice.value = known ? value : CUSTOM_DETAIL_TYPE_VALUE
+  relationCustomType.value = known ? "" : value
+}
+
+function persistActiveRelationDecision() {
+  if (!activeRelationGroup.value) return
+  persistRelationReviewDecision(activeRelationGroup.value, relationDecisionForm)
+}
+
+function syncDefaultRelationKind() {
+  if (relationDecisionForm._kind_explicit) return
+  relationDecisionForm.relation_kind = relationTypeChoice.value === CUSTOM_DETAIL_TYPE_VALUE
+    ? ""
+    : defaultKindForType(props.reviewTypeCatalog, "relation", relationDecisionForm.relation_type)
+}
+
+function markRelationKindExplicit() {
+  relationDecisionForm._kind_explicit = true
+  persistActiveRelationDecision()
+}
+
+function changeRelationType() {
+  relationDecisionForm.relation_type = relationTypeChoice.value === CUSTOM_DETAIL_TYPE_VALUE
+    ? relationCustomType.value
+    : relationTypeChoice.value
+  syncDefaultRelationKind()
+  persistActiveRelationDecision()
+}
+
+function changeRelationCustomType() {
+  relationDecisionForm.relation_type = relationCustomType.value
+  persistActiveRelationDecision()
+}
+
+function useRelationTypeSuggestion() {
+  const value = activeRelationSuggestedType.value
+  setRelationTypeControl(value)
+  relationDecisionForm.relation_type = value
+  syncDefaultRelationKind()
+  persistActiveRelationDecision()
+}
+
+function relationEndpointName(id) {
+  return relationPeople.value.find((person) => person.id === id)?.name || ""
+}
+
+function selectRelationPerson(id) {
+  selectedRelationPersonId.value = id
+}
+
+function startRelationDrag(id, event) {
+  draggedRelationPersonId = id
+  event.dataTransfer?.setData("text/plain", id)
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
+}
+
+function assignRelationPerson(id, side) {
+  const selected = relationPeople.value.find((person) => person.id === id)
+  const other = relationPeople.value.find((person) => person.id !== id)
+  if (!selected || !other) return
+  relationDecisionForm.source_id = side === "source" ? selected.id : other.id
+  relationDecisionForm.target_id = side === "target" ? selected.id : other.id
+  selectedRelationPersonId.value = ""
+  persistActiveRelationDecision()
+}
+
+function dropRelationPerson(side, event) {
+  const id = event.dataTransfer?.getData("text/plain") || draggedRelationPersonId
+  draggedRelationPersonId = ""
+  assignRelationPerson(id, side)
+}
+
+function placeSelectedRelationPerson(side) {
+  if (selectedRelationPersonId.value) assignRelationPerson(selectedRelationPersonId.value, side)
+}
+
+async function confirmActiveRelationDecision() {
+  const group = activeRelationGroup.value
+  if (!group) return
+  const accepted = await acceptRelationReviewDecision(group, relationDecisionForm)
+  if (accepted) {
+    activeKey.value = ""
+    mobileDetailOpen.value = false
+  }
+}
+
+function cancelRelationDecision() {
+  activeKey.value = ""
+  mobileDetailOpen.value = false
+  void nextTick(() => lastSelectionEl?.focus?.())
+}
+
+watch(activeRelationGroup, (group) => {
+  selectedRelationPersonId.value = ""
+  draggedRelationPersonId = ""
+  relationDecisionStale.value = false
+  if (!group) return
+  const prepared = prepareRelationReviewDecision(group)
+  if (!prepared.draft) return
+  Object.assign(relationDecisionForm, prepared.draft)
+  relationDecisionStale.value = prepared.stale
+  setRelationTypeControl(relationDecisionForm.relation_type)
+}, { immediate: true })
 
 // ---- 候选乐观镜像（vanilla _removeCandidateOptimistically/_restoreCandidateSnapshot） ----
 watch(() => props.candidates, (next) => {
@@ -696,7 +1049,10 @@ async function restoreSnapshot(snapshot) {
 }
 
 registerCandidateListHooks({ removeOptimistically, restoreSnapshot })
-onBeforeUnmount(() => registerCandidateListHooks({}))
+onBeforeUnmount(() => {
+  registerCandidateListHooks({})
+  destroyWorldEntityPickers()
+})
 
 // ---- 候选分组 ----
 const candidateSplit = computed(() => splitCandidateGroups(localCandidates.value))
