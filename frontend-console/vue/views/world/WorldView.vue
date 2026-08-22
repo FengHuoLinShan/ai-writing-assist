@@ -35,8 +35,8 @@
               </div>
             </details>
           </template>
-          <button v-if="subView === 'relations'" class="btn btn-sm btn-primary" data-action="create-relation" @click="showRelationCreateForm()">新建关系</button>
-          <button v-if="subView === 'aliases'" class="btn btn-sm btn-primary" data-action="create-alias" @click="showAliasCreateForm()">新建别名</button>
+          <button v-if="subView === 'relations'" class="btn btn-sm btn-primary" data-action="create-relation" @click="showRelationCreateForm(reviewTypeCatalog)">新建关系</button>
+          <button v-if="subView === 'aliases'" class="btn btn-sm btn-primary" data-action="create-alias" @click="showAliasCreateForm(reviewTypeCatalog)">新建别名</button>
           <button type="button" class="btn btn-sm" data-action="open-owner-ai-drawer" @click="openOwnerAi">AI 工具</button>
           <span data-role="smart-dedup-action"></span>
         </div>

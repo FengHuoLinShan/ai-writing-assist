@@ -32,6 +32,13 @@ import {
 import { CUSTOM_ENTITY_TYPE_SENTINEL, REVIEW_ALIAS_TYPE_FALLBACK } from "./worldQuery.js"
 import { clearBulkSelection, getBulkSelection, runBulkAction, bulkResultMessage, selectedItemsFrom } from "./worldBulkSelection.js"
 import { worldSession } from "../worldSession.js"
+import {
+  bindTypeKindControls,
+  detailTypeOptionsHtml,
+  kindOptionsHtml,
+  kindOrTypeDefault,
+  readDetailType,
+} from "./worldTypeCatalog.js"
 
 // ============================================================
 // 列表注册表（tab 在 props 变化时同步当前可见列表）
@@ -369,18 +376,6 @@ async function ignoreOrDeleteEntity(entity) {
   const sid = suggestionId(entity)
   if (sid) return api.world.rejectSuggestion(sid, projectId)
   return api.world.deleteEntity(entityId(entity), projectId)
-}
-
-/** 对应 vanilla _aliasTypeOptionsHtml。 */
-function aliasTypeOptionsHtml(selected = "alias") {
-  const esc = getEsc()
-  const types = [...(worldListRegistry.reviewTypeCatalog.alias_types || REVIEW_ALIAS_TYPE_FALLBACK)]
-  if (selected && !types.some((item) => item.value === selected)) {
-    types.unshift({ value: selected, label: `保留原类型：${selected}`, category: "自定义" })
-  }
-  return types
-    .map((item) => `<option value="${esc(item.value)}" ${selected === item.value ? "selected" : ""}>${esc(item.label)}${item.category === "自定义" ? "" : ` (${esc(item.value)})`}</option>`)
-    .join("")
 }
 
 /** 对应 vanilla _aliasEvidenceHtml。 */
@@ -767,6 +762,8 @@ export function showResolveAliasForm(candidateId) {
   const sid = suggestionId(candidate)
   const targetId = candidateTargetId(candidate)
   const targetName = candidateTargetName(candidate)
+  const selectedType = "alias"
+  const selectedKind = kindOrTypeDefault(worldListRegistry.reviewTypeCatalog, "alias", "", selectedType)
   const formHtml = `
     <p style="margin-bottom:10px;">将 <strong>${esc(candidate.name || "")}</strong> 登记为已有对象的别名。</p>
     <div class="form-group">
@@ -779,8 +776,14 @@ export function showResolveAliasForm(candidateId) {
       <input class="form-input" id="alias-edit-text" value="${esc(candidate.name || "")}" />
     </div>
     <div class="form-group">
-      <label>别名类型</label>
-      <select class="form-select" id="alias-edit-type">${aliasTypeOptionsHtml("alias")}</select>
+      <label for="alias-edit-kind">别名分类</label>
+      <select class="form-select" id="alias-edit-kind" aria-describedby="alias-edit-kind-help">${kindOptionsHtml(worldListRegistry.reviewTypeCatalog, "alias", selectedKind, esc)}</select>
+      <div class="form-help" id="alias-edit-kind-help">用于 AI 检索的通用分类。</div>
+    </div>
+    <div class="form-group">
+      <label for="alias-edit-type">详细类型</label>
+      <select class="form-select" id="alias-edit-type">${detailTypeOptionsHtml(worldListRegistry.reviewTypeCatalog, "alias", selectedType, esc)}</select>
+      <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" /></div>
     </div>
     ${aliasEvidenceHtml(candidateMeta(candidate))}
   `
@@ -790,9 +793,10 @@ export function showResolveAliasForm(candidateId) {
     handler: async () => {
       const selectedTargetId = document.getElementById("alias-target-id")?.value
       const text = document.getElementById("alias-edit-text")?.value?.trim()
-      const type = document.getElementById("alias-edit-type")?.value || "alias"
-      if (!selectedTargetId || !text) {
-        toast("请选择目标对象并输入别名", "warning")
+      const aliasKind = document.getElementById("alias-edit-kind")?.value || ""
+      const type = readDetailType(document.getElementById("alias-edit-type"), document.getElementById("alias-edit-type-custom"))
+      if (!selectedTargetId || !text || !aliasKind || !type) {
+        toast("请选择目标对象、别名分类并输入别名和详细类型", "warning")
         return false
       }
       try {
@@ -800,6 +804,7 @@ export function showResolveAliasForm(candidateId) {
         const payload = {
           target_entity_id: selectedTargetId,
           alias: text,
+          alias_kind: aliasKind,
           alias_type: type,
         }
         if (sid) {
@@ -816,6 +821,15 @@ export function showResolveAliasForm(candidateId) {
       }
     },
   }])
+  bindTypeKindControls({
+    typeSelect: document.getElementById("alias-edit-type"),
+    customInput: document.getElementById("alias-edit-type-custom"),
+    customContainer: document.getElementById("alias-edit-type-custom-wrap"),
+    kindSelect: document.getElementById("alias-edit-kind"),
+    kindHelp: document.getElementById("alias-edit-kind-help"),
+    catalog: worldListRegistry.reviewTypeCatalog,
+    domain: "alias",
+  })
   mountEntityReferencePicker({
     rootId: "alias-target-picker",
     inputId: "alias-target-id",

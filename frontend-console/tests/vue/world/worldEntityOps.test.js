@@ -476,7 +476,7 @@ describe("showResolveAliasForm", () => {
     await modalCalls[0].buttons[0].handler()
     expect(apiMock.world.resolveEntityAsAlias).toHaveBeenCalledWith(
       "c1",
-      { target_entity_id: "e1", alias: "潮声行会", alias_type: "alias" },
+      { target_entity_id: "e1", alias: "潮声行会", alias_kind: "name", alias_type: "alias" },
       "p-ops",
     )
   })

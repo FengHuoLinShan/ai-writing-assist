@@ -13,7 +13,9 @@ import { getApi, getAppState, getRouter, getToast } from "./bridge/index.js"
 import { markWorldLeft, reconcileWorldEntry, worldSession } from "./views/world/worldSession.js"
 import { autoExtractManager, fusionManager } from "./views/world/workflowManagers.js"
 import {
+  REVIEW_ALIAS_KIND_FALLBACK,
   REVIEW_ALIAS_TYPE_FALLBACK,
+  REVIEW_RELATION_KIND_FALLBACK,
   REVIEW_RELATION_TYPE_FALLBACK,
   SYSTEM_ENTITY_TYPE_FALLBACK,
   WORLD_ALIAS_FILTER_DEFAULTS,
@@ -142,7 +144,9 @@ export async function loadWorld() {
     entityTypes: [...SYSTEM_ENTITY_TYPE_FALLBACK],
     reviewTypeCatalog: {
       custom_allowed: true,
+      alias_kinds: REVIEW_ALIAS_KIND_FALLBACK,
       alias_types: REVIEW_ALIAS_TYPE_FALLBACK,
+      relation_kinds: REVIEW_RELATION_KIND_FALLBACK,
       relation_types: REVIEW_RELATION_TYPE_FALLBACK,
     },
     reviewCounts: { objects: 0, aliases: 0, relations: 0 },
@@ -214,7 +218,12 @@ export async function loadWorld() {
       try {
         const catalog = await api.world.getReviewTypeCatalog()
         if (catalog?.alias_types?.length && catalog?.relation_types?.length) {
-          props.reviewTypeCatalog = catalog
+          props.reviewTypeCatalog = {
+            ...props.reviewTypeCatalog,
+            ...catalog,
+            alias_kinds: catalog.alias_kinds?.length ? catalog.alias_kinds : props.reviewTypeCatalog.alias_kinds,
+            relation_kinds: catalog.relation_kinds?.length ? catalog.relation_kinds : props.reviewTypeCatalog.relation_kinds,
+          }
         }
       } catch {
         // 推荐目录不可用时保留开放字符串和本地常用项，不阻断复核。
@@ -289,7 +298,7 @@ export async function loadWorld() {
       const params = reviewGroupParams(
         projectId,
         props.aliasReviewFilters,
-        ["q", "source", "workflow_id", "scene_index", "source_chapter_index", "confidence_min", "confidence_max", "has_quote", "type_kind", "multi_alias_only"],
+        ["q", "source", "workflow_id", "scene_index", "source_chapter_index", "confidence_min", "confidence_max", "has_quote", "type_kind", "alias_kind", "multi_alias_only"],
         ["scene_index", "source_chapter_index", "confidence_min", "confidence_max"],
         ["has_quote", "multi_alias_only"],
       )
@@ -311,7 +320,7 @@ export async function loadWorld() {
       const params = reviewGroupParams(
         projectId,
         props.relationReviewFilters,
-        ["q", "relation_type", "source_chapter_id", "scene_index", "source_chapter_index", "strength_min", "strength_max", "has_quote", "type_kind", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"],
+        ["q", "relation_type", "relation_kind", "source_chapter_id", "scene_index", "source_chapter_index", "strength_min", "strength_max", "has_quote", "type_kind", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"],
         ["scene_index", "source_chapter_index", "strength_min", "strength_max"],
         ["has_quote", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"],
       )

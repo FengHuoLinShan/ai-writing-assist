@@ -120,6 +120,27 @@ describe("query builders（编码与 vanilla 对齐）", () => {
     expect(roundTrip.has_reverse_candidates).toBe("true")
     expect(roundTrip.has_canonical_relation).toBe("true")
   })
+  it("别名与关系分类随 URL 往返，切换页面不丢失", () => {
+    const aliasQuery = reviewQueryFromState({
+      ...WORLD_ALIAS_FILTER_DEFAULTS,
+      alias_kind: "identity",
+      type_kind: "custom",
+      skip: 20,
+    }, WORLD_ALIAS_QUERY_KEYS)
+    const aliasRoundTrip = reviewFiltersFromQuery(WORLD_ALIAS_FILTER_DEFAULTS, WORLD_ALIAS_QUERY_KEYS, aliasQuery)
+    expect(aliasRoundTrip.alias_kind).toBe("identity")
+    expect(aliasRoundTrip.type_kind).toBe("custom")
+    expect(aliasRoundTrip.skip).toBe(20)
+
+    const relationQuery = reviewQueryFromState({
+      ...WORLD_RELATION_FILTER_DEFAULTS,
+      relation_kind: "epistemic",
+      relation_type: "knows_about",
+    }, WORLD_RELATION_QUERY_KEYS)
+    const relationRoundTrip = reviewFiltersFromQuery(WORLD_RELATION_FILTER_DEFAULTS, WORLD_RELATION_QUERY_KEYS, relationQuery)
+    expect(relationRoundTrip.relation_kind).toBe("epistemic")
+    expect(relationRoundTrip.relation_type).toBe("knows_about")
+  })
   it("object 编解码往返一致", () => {
     const filters = { ...WORLD_FILTER_DEFAULTS, entity_type: "location", q: "港", skip: 20 }
     const roundTrip = objectFiltersFromQuery(objectQueryFromState(filters, "table", "hot"))

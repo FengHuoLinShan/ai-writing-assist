@@ -11,6 +11,15 @@
  */
 import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
 import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection } from "./worldBulkSelection.js"
+import {
+  bindTypeKindControls,
+  catalogTypeItems,
+  detailTypeLabel,
+  detailTypeOptionsHtml,
+  kindOptionsHtml,
+  kindOrTypeDefault,
+  readDetailType,
+} from "./worldTypeCatalog.js"
 
 // ============================================================
 // 列表注册表（tab 在 props 变化时同步当前可见列表）
@@ -19,11 +28,13 @@ import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, 
 const listRegistry = {
   relations: [],
   aliases: [],
+  reviewTypeCatalog: {},
 }
 
 export function syncRelationsAliasesRegistry(partial = {}) {
   if (Array.isArray(partial.relations)) listRegistry.relations = partial.relations
   if (Array.isArray(partial.aliases)) listRegistry.aliases = partial.aliases
+  if (partial.reviewTypeCatalog) listRegistry.reviewTypeCatalog = partial.reviewTypeCatalog
 }
 
 function captureWorldOperationScope() {
@@ -110,7 +121,8 @@ async function entitySelectHtml(selectId) {
 // ============================================================
 
 /** 对应 vanilla showRelationCreateForm（worldView.js:2351-2397）。 */
-export async function showRelationCreateForm() {
+export async function showRelationCreateForm(reviewTypeCatalog = {}) {
+  const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const scope = captureWorldOperationScope()
@@ -122,23 +134,22 @@ export async function showRelationCreateForm() {
     entitySelectHtml("rel-target"),
   ])
   if (!ownsWorldOperationScope(scope)) return
+  const initialType = catalogTypeItems(reviewTypeCatalog, "relation")[0]?.value || "related_to"
+  const initialKind = kindOrTypeDefault(reviewTypeCatalog, "relation", "", initialType)
   const formHtml = `
     <div class="form-group">
       <label>源对象</label>
       ${sourceSelectHtml}
     </div>
     <div class="form-group">
-      <label>关系类型</label>
-      <select class="form-select" id="rel-type">
-        <option value="friend_of">朋友</option>
-        <option value="enemy_of">敌人</option>
-        <option value="ally_of">盟友</option>
-        <option value="member_of">成员</option>
-        <option value="leader_of">领导者</option>
-        <option value="located_at">位于</option>
-        <option value="contains">包含</option>
-        <option value="related_to">相关</option>
-      </select>
+      <label for="rel-kind">关系分类</label>
+      <select class="form-select" id="rel-kind" aria-describedby="rel-kind-help">${kindOptionsHtml(reviewTypeCatalog, "relation", initialKind, esc)}</select>
+      <div class="form-help" id="rel-kind-help">用于 AI 检索的通用分类。</div>
+    </div>
+    <div class="form-group">
+      <label for="rel-type">详细类型</label>
+      <select class="form-select" id="rel-type">${detailTypeOptionsHtml(reviewTypeCatalog, "relation", initialType, esc)}</select>
+      <div id="rel-type-custom-wrap" hidden><label for="rel-type-custom">自定义详细类型</label><input class="form-input" id="rel-type-custom" /></div>
     </div>
     <div class="form-group">
       <label>目标对象</label>
@@ -160,6 +171,12 @@ export async function showRelationCreateForm() {
         toast("请选择源对象和目标对象", "warning")
         return false
       }
+      const relationKind = document.getElementById("rel-kind")?.value || ""
+      const relationType = readDetailType(document.getElementById("rel-type"), document.getElementById("rel-type-custom"))
+      if (!relationKind || !relationType) {
+        toast("请选择关系分类并填写详细类型", "warning")
+        return false
+      }
       const modalOwner = captureModalOwner(document.getElementById("rel-source"))
       pending = true
       try {
@@ -169,7 +186,8 @@ export async function showRelationCreateForm() {
           source_type: "entity",
           target_id: tgt,
           target_type: "entity",
-          relation_type: document.getElementById("rel-type")?.value || "related_to",
+          relation_kind: relationKind,
+          relation_type: relationType,
           description: document.getElementById("rel-desc")?.value || "",
         }, projectId)
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
@@ -184,10 +202,20 @@ export async function showRelationCreateForm() {
       }
     },
   }])
+  bindTypeKindControls({
+    typeSelect: document.getElementById("rel-type"),
+    customInput: document.getElementById("rel-type-custom"),
+    customContainer: document.getElementById("rel-type-custom-wrap"),
+    kindSelect: document.getElementById("rel-kind"),
+    kindHelp: document.getElementById("rel-kind-help"),
+    catalog: reviewTypeCatalog,
+    domain: "relation",
+  })
 }
 
 /** 对应 vanilla showAliasCreateForm（worldView.js:3086-3124）。 */
-export async function showAliasCreateForm() {
+export async function showAliasCreateForm(reviewTypeCatalog = {}) {
+  const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const scope = captureWorldOperationScope()
@@ -196,6 +224,8 @@ export async function showAliasCreateForm() {
   // 先 fetch 实体选项
   const aliasSelectHtml = await entitySelectHtml("alias-entity")
   if (!ownsWorldOperationScope(scope)) return
+  const initialType = catalogTypeItems(reviewTypeCatalog, "alias")[0]?.value || "name"
+  const initialKind = kindOrTypeDefault(reviewTypeCatalog, "alias", "", initialType)
   const formHtml = `
     <div class="form-group">
       <label>所属对象</label>
@@ -206,14 +236,14 @@ export async function showAliasCreateForm() {
       <input class="form-input" id="alias-text" placeholder="别名" />
     </div>
     <div class="form-group">
-      <label>别名类型</label>
-      <select class="form-select" id="alias-type">
-        <option value="name">名称</option>
-        <option value="title">称号</option>
-        <option value="nickname">昵称</option>
-        <option value="alias">化名</option>
-        <option value="translation">译名</option>
-      </select>
+      <label for="alias-kind">别名分类</label>
+      <select class="form-select" id="alias-kind" aria-describedby="alias-kind-help">${kindOptionsHtml(reviewTypeCatalog, "alias", initialKind, esc)}</select>
+      <div class="form-help" id="alias-kind-help">用于 AI 检索的通用分类。</div>
+    </div>
+    <div class="form-group">
+      <label for="alias-type">详细类型</label>
+      <select class="form-select" id="alias-type">${detailTypeOptionsHtml(reviewTypeCatalog, "alias", initialType, esc)}</select>
+      <div id="alias-type-custom-wrap" hidden><label for="alias-type-custom">自定义详细类型</label><input class="form-input" id="alias-type-custom" /></div>
     </div>
   `
   showModalHtml("新建别名", formHtml, [{
@@ -227,6 +257,12 @@ export async function showAliasCreateForm() {
         toast("请选择对象并输入别名", "warning")
         return false
       }
+      const aliasKind = document.getElementById("alias-kind")?.value || ""
+      const aliasType = readDetailType(document.getElementById("alias-type"), document.getElementById("alias-type-custom"))
+      if (!aliasKind || !aliasType) {
+        toast("请选择别名分类并填写详细类型", "warning")
+        return false
+      }
       const modalOwner = captureModalOwner(document.getElementById("alias-text"))
       pending = true
       try {
@@ -234,7 +270,8 @@ export async function showAliasCreateForm() {
         await api.world.createAlias({
           entity_id: eid,
           alias: text,
-          alias_type: document.getElementById("alias-type")?.value || "name",
+          alias_kind: aliasKind,
+          alias_type: aliasType,
         }, projectId)
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast("别名已创建", "success")
@@ -248,6 +285,15 @@ export async function showAliasCreateForm() {
       }
     },
   }])
+  bindTypeKindControls({
+    typeSelect: document.getElementById("alias-type"),
+    customInput: document.getElementById("alias-type-custom"),
+    customContainer: document.getElementById("alias-type-custom-wrap"),
+    kindSelect: document.getElementById("alias-kind"),
+    kindHelp: document.getElementById("alias-kind-help"),
+    catalog: reviewTypeCatalog,
+    domain: "alias",
+  })
 }
 
 // ============================================================
@@ -325,6 +371,15 @@ export async function runCanonicalBulkAction(scope, action, items) {
     "delete-aliases": "批量删除别名",
   }[action] || "批量操作"
 
+  if (action === "review-relations" && items.some((item) => !item.relation_kind)) {
+    toast("所选关系中有待分类项，请先选择关系分类", "warning")
+    return
+  }
+  if (action === "review-aliases" && items.some((item) => !item.alias_kind)) {
+    toast("所选别名中有待分类项，请先选择别名分类", "warning")
+    return
+  }
+
   const result = await runBulkAction(items, async (item) => {
     if (action === "delete-relations") {
       await api.world.deleteRelationship(item.id || item.relationship_id, { novel_id: projectId })
@@ -345,7 +400,7 @@ export async function runCanonicalBulkAction(scope, action, items) {
 
   if (!ownsWorldOperationScope(operationScope)) return
   toast(
-    bulkResultMessage(result, label, (item) => item.alias || item.relation_type || item.id || ""),
+    bulkResultMessage(result, label, (item) => item.alias || detailTypeLabel(listRegistry.reviewTypeCatalog, "relation", item.relation_type) || item.id || ""),
     result.failed.length ? "warning" : "success",
   )
   clearBulkSelection(scope)
@@ -409,6 +464,11 @@ export async function markRelationReviewed(id) {
   const toast = getToast()
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId
+  const relation = listRegistry.relations.find((item) => (item.id || item.relationship_id) === id)
+  if (relation && !relation.relation_kind) {
+    toast("请先选择关系分类", "warning")
+    return false
+  }
   try {
     await api.world.reviewEditRelationship(id, { confirm_review: true }, projectId)
     if (ownsWorldOperationScope(scope)) {
@@ -449,6 +509,11 @@ export async function markAliasReviewed(entityId, alias) {
   const projectId = scope.projectId
   if (!entityId || !alias) {
     toast("参数错误", "error")
+    return false
+  }
+  const item = listRegistry.aliases.find((candidate) => candidate.entity_id === entityId && candidate.alias === alias)
+  if (item && !item.alias_kind) {
+    toast("请先选择别名分类", "warning")
     return false
   }
   try {
@@ -510,14 +575,22 @@ export function showRelationReviewEditForm(relationId) {
     toast("未找到目标关系", "error")
     return
   }
+  const catalog = listRegistry.reviewTypeCatalog || {}
+  const selectedKind = kindOrTypeDefault(catalog, "relation", relation.relation_kind, relation.relation_type)
   const formHtml = `
     <div class="form-group">
       <label>源对象</label>
       <select class="form-select" id="rel-review-source"><option value="${esc(relation.source_id || relation.source_entity_id || "")}">${esc(relation.source_name || relation.source_entity_name || "当前源对象")}</option></select>
     </div>
     <div class="form-group">
-      <label>关系类型</label>
-      <input class="form-input" id="rel-review-type" value="${esc(relation.relation_type || "")}" />
+      <label for="rel-review-kind">关系分类</label>
+      <select class="form-select" id="rel-review-kind" aria-describedby="rel-review-kind-help">${kindOptionsHtml(catalog, "relation", selectedKind, esc)}</select>
+      <div class="form-help" id="rel-review-kind-help">用于 AI 检索的通用分类。</div>
+    </div>
+    <div class="form-group">
+      <label for="rel-review-type">详细类型</label>
+      <select class="form-select" id="rel-review-type">${detailTypeOptionsHtml(catalog, "relation", relation.relation_type, esc)}</select>
+      <div id="rel-review-type-custom-wrap" hidden><label for="rel-review-type-custom">自定义详细类型</label><input class="form-input" id="rel-review-type-custom" value="${esc(relation.relation_type || "")}" /></div>
     </div>
     <div class="form-group">
       <label>目标对象</label>
@@ -538,9 +611,10 @@ export function showRelationReviewEditForm(relationId) {
     handler: async () => {
       const sourceId = document.getElementById("rel-review-source")?.value || ""
       const targetId = document.getElementById("rel-review-target")?.value || ""
-      const relationType = document.getElementById("rel-review-type")?.value?.trim() || ""
-      if (!sourceId || !targetId || !relationType) {
-        toast("请填写源对象、目标对象和关系类型", "warning")
+      const relationKind = document.getElementById("rel-review-kind")?.value || ""
+      const relationType = readDetailType(document.getElementById("rel-review-type"), document.getElementById("rel-review-type-custom"))
+      if (!sourceId || !targetId || !relationType || !relationKind) {
+        toast("请填写源对象、目标对象、关系分类和详细类型", "warning")
         return false
       }
       const modalOwner = captureModalOwner(document.getElementById("rel-review-type"))
@@ -548,6 +622,7 @@ export function showRelationReviewEditForm(relationId) {
         await api.world.reviewEditRelationship(relationId, {
           source_id: sourceId,
           target_id: targetId,
+          relation_kind: relationKind,
           relation_type: relationType,
           description: document.getElementById("rel-review-description")?.value?.trim() || "",
           strength: Number(document.getElementById("rel-review-strength")?.value || 0.5),
@@ -564,4 +639,13 @@ export function showRelationReviewEditForm(relationId) {
       }
     },
   }])
+  bindTypeKindControls({
+    typeSelect: document.getElementById("rel-review-type"),
+    customInput: document.getElementById("rel-review-type-custom"),
+    customContainer: document.getElementById("rel-review-type-custom-wrap"),
+    kindSelect: document.getElementById("rel-review-kind"),
+    kindHelp: document.getElementById("rel-review-kind-help"),
+    catalog,
+    domain: "relation",
+  })
 }

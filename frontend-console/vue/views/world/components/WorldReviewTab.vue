@@ -183,14 +183,15 @@
       <div class="review-quick-filters" role="group" aria-label="别名处理任务">
         <button v-for="task in aliasTasks" :key="task.key" type="button" class="btn btn-sm" :class="{ 'btn-primary': String(aliasReviewFilters[task.key] || '') === task.value }" data-action="set-alias-quick-filter" :data-filter-key="task.key" :data-filter-value="task.value" :aria-pressed="String(aliasReviewFilters[task.key] || '') === task.value" @click="setReviewQuickFilter('alias', task.key, task.value, aliasReviewFilters)">{{ task.label }}</button>
       </div>
-      <div v-if="aliasActiveFilterCount" class="world-review-active-filters"><span>已启用 {{ aliasActiveFilterCount }} 个条件</span><WorldReviewFilterChips kind="alias" :filters="aliasReviewFilters" /><button type="button" class="btn btn-sm" data-action="reset-alias-review-filters" @click="resetAliasReviewFilters">清除全部条件</button></div>
+      <div v-if="aliasActiveFilterCount" class="world-review-active-filters"><span>已启用 {{ aliasActiveFilterCount }} 个条件</span><WorldReviewFilterChips kind="alias" :filters="aliasReviewFilters" :review-type-catalog="reviewTypeCatalog" /><button type="button" class="btn btn-sm" data-action="reset-alias-review-filters" @click="resetAliasReviewFilters">清除全部条件</button></div>
       <WorldFilterPanel panel-key="review-aliases" :has-active-filters="aliasHasActiveFilters" :project-id="projectId" toggle-label="更多筛选" collapse-label="收起更多筛选">
         <div class="filter-bar" style="margin-bottom:12px;">
           <label class="form-group"><span>场景序号</span><input id="review-alias-scene" v-model="aliasForm.scene_index" class="form-input" inputmode="numeric" aria-label="按场景序号筛选待处理别名" /></label>
           <label class="form-group"><span>章节序号</span><input id="review-alias-chapter" v-model="aliasForm.source_chapter_index" class="form-input" inputmode="numeric" aria-label="按章节序号筛选待处理别名" /></label>
           <label class="form-group"><span>最低置信度</span><input id="review-alias-confidence-min" v-model="aliasForm.confidence_min" class="form-input" inputmode="decimal" aria-label="待处理别名最低置信度" /></label>
           <label class="form-group"><span>最高置信度</span><input id="review-alias-confidence-max" v-model="aliasForm.confidence_max" class="form-input" inputmode="decimal" aria-label="待处理别名最高置信度" /></label>
-          <label class="form-group"><span>别名类型</span><select id="review-alias-type-kind" v-model="aliasForm.type_kind" class="form-select" aria-label="待处理别名类型范围"><option value="">全部类型</option><option value="recommended">推荐类型</option><option value="custom">自定义类型</option></select></label>
+          <label class="form-group"><span>别名分类</span><select id="review-alias-kind" v-model="aliasForm.alias_kind" class="form-select" aria-label="待处理别名分类"><option value="">全部分类</option><option v-for="item in aliasKindOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+          <label class="form-group"><span>详细类型范围</span><select id="review-alias-type-kind" v-model="aliasForm.type_kind" class="form-select" aria-label="待处理别名详细类型范围"><option value="">全部类型</option><option value="recommended">推荐类型</option><option value="custom">自定义类型</option></select></label>
           <label class="form-group"><span>引用证据</span><select id="review-alias-evidence" v-model="aliasForm.has_quote" class="form-select" aria-label="待处理别名引用证据"><option value="">全部证据</option><option value="true">有引用</option><option value="false">缺少引用</option></select></label>
           <button class="btn btn-sm" data-action="apply-alias-review-filters" @click="applyAliasFilters">筛选</button>
           <button class="btn btn-sm" data-action="reset-alias-review-filters" @click="resetAliasReviewFilters">清空</button>
@@ -242,7 +243,9 @@
                 </div>
                 <div class="review-member-row__main">
                   <div>
-                    <strong>{{ item.alias }}</strong> <span>{{ reviewTypeLabel('alias', item.alias_type) }}</span>
+                    <strong>{{ item.alias }}</strong>
+                    <span class="badge" :class="item.alias_kind ? 'badge-canonical' : 'badge-candidate'">{{ reviewKindLabel('alias', item.alias_kind) }}</span>
+                    <span>{{ reviewTypeLabel('alias', item.alias_type) }}</span>
                     <span v-if="item.type_kind === 'custom'" class="badge badge-draft">自定义</span>
                     <span v-if="session.aliasReviewDrafts[aliasKeyOf(item)]" class="badge badge-canonical">已编辑</span>
                   </div>
@@ -278,10 +281,11 @@
       <div class="review-quick-filters" role="group" aria-label="关系处理任务">
         <button v-for="task in relationTasks" :key="task.key" type="button" class="btn btn-sm" :class="{ 'btn-primary': String(relationReviewFilters[task.key] || '') === task.value }" data-action="set-relation-quick-filter" :data-filter-key="task.key" :data-filter-value="task.value" :aria-pressed="String(relationReviewFilters[task.key] || '') === task.value" @click="setReviewQuickFilter('relation', task.key, task.value, relationReviewFilters)">{{ task.label }}</button>
       </div>
-      <div v-if="relationActiveFilterCount" class="world-review-active-filters"><span>已启用 {{ relationActiveFilterCount }} 个条件</span><WorldReviewFilterChips kind="relation" :filters="relationReviewFilters" /><button type="button" class="btn btn-sm" data-action="reset-relation-review-filters" @click="resetRelationReviewFilters">清除全部条件</button></div>
+      <div v-if="relationActiveFilterCount" class="world-review-active-filters"><span>已启用 {{ relationActiveFilterCount }} 个条件</span><WorldReviewFilterChips kind="relation" :filters="relationReviewFilters" :review-type-catalog="reviewTypeCatalog" /><button type="button" class="btn btn-sm" data-action="reset-relation-review-filters" @click="resetRelationReviewFilters">清除全部条件</button></div>
       <WorldFilterPanel panel-key="review-relations" :has-active-filters="relationHasActiveFilters" :project-id="projectId" toggle-label="更多筛选" collapse-label="收起更多筛选">
         <div class="filter-bar" style="margin-bottom:12px;">
-          <label class="form-group"><span>关系类型</span><input id="review-relation-type" v-model="relationForm.relation_type" class="form-input" aria-label="按关系类型筛选待处理关系" /></label>
+          <label class="form-group"><span>关系分类</span><select id="review-relation-kind" v-model="relationForm.relation_kind" class="form-select" aria-label="按关系分类筛选待处理关系"><option value="">全部分类</option><option v-for="item in relationKindOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+          <label class="form-group"><span>详细类型</span><select id="review-relation-type" v-model="relationForm.relation_type" class="form-select" aria-label="按详细类型筛选待处理关系"><option value="">全部详细类型</option><option v-for="item in relationTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
           <label class="form-group"><span>场景序号</span><input id="review-relation-scene" v-model="relationForm.scene_index" class="form-input" inputmode="numeric" aria-label="按场景序号筛选待处理关系" /></label>
           <label class="form-group"><span>章节序号</span><input id="review-relation-source-chapter" v-model="relationForm.source_chapter_index" class="form-input" inputmode="numeric" aria-label="按章节序号筛选待处理关系" /></label>
           <label class="form-group"><span>最低强度</span><input id="review-relation-strength-min" v-model="relationForm.strength_min" class="form-input" inputmode="decimal" aria-label="待处理关系最低强度" /></label>
@@ -342,7 +346,7 @@
             <div v-if="session.relationReviewErrors[group.group_id]" class="review-item-error" role="alert">{{ session.relationReviewErrors[group.group_id] }}</div>
             <div class="review-group-card__members">
               <article v-for="member in group.members || []" :key="member.id" class="review-member-row">
-                <div><strong>{{ reviewTypeLabel('relation', member.relation_type) }}</strong><span v-if="member.type_kind === 'custom'" class="badge badge-draft">自定义</span></div>
+                <div><span class="badge" :class="member.relation_kind ? 'badge-canonical' : 'badge-candidate'">{{ reviewKindLabel('relation', member.relation_kind) }}</span> <strong>{{ reviewTypeLabel('relation', member.relation_type) }}</strong><span v-if="member.type_kind === 'custom'" class="badge badge-draft">自定义</span></div>
                 <div class="review-member-row__description">{{ member.description || "暂无描述" }}</div>
                 <WorldEvidenceSummary :item="member.evidence_summary || member" kind="relation" :numeric-value="member.strength" />
               </article>
@@ -377,6 +381,7 @@
           <template v-else-if="tab === 'aliases'">
             <h3>{{ activeItem.entity_name || "未命名对象" }}</h3>
             <p>{{ activeAlias?.alias || "未命名别名" }} → {{ activeItem.entity_name || "当前对象" }}</p>
+            <p v-if="activeAlias"><span class="badge" :class="activeAlias.alias_kind ? 'badge-canonical' : 'badge-candidate'">{{ reviewKindLabel('alias', activeAlias.alias_kind) }}</span> · {{ reviewTypeLabel('alias', activeAlias.alias_type) }}</p>
             <WorldEvidenceSummary v-if="activeAlias" :item="activeAlias" kind="alias" :numeric-value="activeAlias.confidence" />
             <p v-if="activeAlias?.managed_by_suggestion" class="review-warning">需先处理对象建议，完成后会返回此项。</p>
             <template v-if="activeAlias && !activeAlias.managed_by_suggestion">
@@ -395,7 +400,7 @@
             <div v-else class="world-review-preview">
               <strong>预览</strong>
               <span>{{ activeItem.source_name }} → {{ activeItem.target_name }}</span>
-              <span>{{ reviewTypeLabel('relation', activeRelationDecision?.relation_type) }}</span>
+              <span>{{ reviewKindLabel('relation', activeRelationDecision?.relation_kind) }} · {{ reviewTypeLabel('relation', activeRelationDecision?.relation_type) }}</span>
               <span>{{ activeRelationDecision?.description || "暂无描述" }}</span>
               <span>将处理 {{ activeRelationDecision?.member_relation_ids?.length || 0 }} 条，其余 {{ activeRelationRemaining }} 条继续待定</span>
             </div>
@@ -439,6 +444,7 @@ import {
   groupTargetedAliasCandidates,
   inlineEvidencePairs,
   reviewTypeLabel,
+  reviewKindLabel,
   recommendedRelationDecision,
   runReviewBulkAction,
   setReviewQuickFilter,
@@ -448,6 +454,7 @@ import {
   splitCandidateGroups,
   syncReviewRegistry,
 } from "../logic/useWorldReview.js"
+import { catalogKindItems, catalogTypeItems, detailTypeLabel } from "../logic/worldTypeCatalog.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldCandidateActions from "./WorldCandidateActions.vue"
 import WorldCandidateGroupItem from "./WorldCandidateGroupItem.vue"
@@ -521,6 +528,16 @@ const relationTasks = [
 const entityIdOf = entityId
 const aliasKeyOf = aliasKey
 const localCandidates = ref([])
+const aliasKindOptions = computed(() => catalogKindItems(props.reviewTypeCatalog, "alias"))
+const relationKindOptions = computed(() => catalogKindItems(props.reviewTypeCatalog, "relation"))
+const relationTypeOptions = computed(() => {
+  const items = [...catalogTypeItems(props.reviewTypeCatalog, "relation")]
+  const selected = relationForm.relation_type
+  if (selected && !items.some((item) => item.value === selected)) {
+    items.unshift({ value: selected, label: detailTypeLabel(props.reviewTypeCatalog, "relation", selected) })
+  }
+  return items
+})
 
 const overviewKinds = computed(() => [
   { kind: "objects", label: "对象", count: Number(props.reviewCounts.objects || 0), hint: "人物、地点与设定" },
@@ -713,9 +730,9 @@ watch(() => props.relationReviewFilters, (filters) => Object.assign(relationForm
 const candidateHasActiveFilters = computed(() => (
   WORLD_CANDIDATE_QUERY_KEYS.some((key) => Boolean(props.candidateFilters[key]))
 ))
-const ALIAS_ACTIVE_KEYS = ["source", "workflow_id", "scene_index", "source_chapter_index", "confidence_min", "confidence_max", "has_quote", "type_kind", "multi_alias_only"]
+const ALIAS_ACTIVE_KEYS = ["source", "workflow_id", "scene_index", "source_chapter_index", "confidence_min", "confidence_max", "has_quote", "type_kind", "alias_kind", "multi_alias_only"]
 const aliasHasActiveFilters = computed(() => ALIAS_ACTIVE_KEYS.some((key) => Boolean(props.aliasReviewFilters[key])))
-const RELATION_ACTIVE_KEYS = ["relation_type", "scene_index", "source_chapter_index", "strength_min", "strength_max", "type_kind", "has_quote", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"]
+const RELATION_ACTIVE_KEYS = ["relation_type", "relation_kind", "scene_index", "source_chapter_index", "strength_min", "strength_max", "type_kind", "has_quote", "multi_type_only", "has_reverse_candidates", "has_canonical_relation"]
 const relationHasActiveFilters = computed(() => RELATION_ACTIVE_KEYS.some((key) => Boolean(props.relationReviewFilters[key])))
 const activeFilterCount = (filters) => Object.entries(filters || {}).filter(([key, value]) => !["skip", "limit"].includes(key) && value !== "" && value != null && value !== false).length
 const candidateActiveFilterCount = computed(() => activeFilterCount(props.candidateFilters))

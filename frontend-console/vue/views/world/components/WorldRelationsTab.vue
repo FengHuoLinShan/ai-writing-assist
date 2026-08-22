@@ -39,7 +39,7 @@
               <WorldSelectionInput mode="all" scope="world-relations" :ids="relationIds" label="全选当前关系" />
             </th>
             <th>源对象</th>
-            <th>关系类型</th>
+            <th>关系分类与类型</th>
             <th>目标对象</th>
             <th>状态</th>
             <th>描述</th>
@@ -50,10 +50,13 @@
         <tbody>
           <tr v-for="r in relations" :key="r.id || r.relationship_id" :data-id="r.id || r.relationship_id">
             <td class="selection-cell">
-              <WorldSelectionInput mode="one" scope="world-relations" :id="r.id || r.relationship_id" :label="`选择关系 ${r.relation_type || ''}`" />
+                <WorldSelectionInput mode="one" scope="world-relations" :id="r.id || r.relationship_id" :label="`选择关系 ${detailTypeLabel(reviewTypeCatalog, 'relation', r.relation_type)}`" />
             </td>
             <td class="world-table-cell--type">{{ sourceNameOf(r) }}</td>
-            <td><span class="badge badge-canonical">{{ r.relation_type || "-" }}</span></td>
+            <td>
+              <span class="badge" :class="r.relation_kind ? 'badge-canonical' : 'badge-candidate'">{{ kindLabel(reviewTypeCatalog, "relation", r.relation_kind) }}</span>
+              <div class="world-text-dim">{{ detailTypeLabel(reviewTypeCatalog, "relation", r.relation_type) }}</div>
+            </td>
             <td class="world-table-cell--type">{{ targetNameOf(r) }}</td>
             <td><span class="badge" :class="statusBadgeClass(r)">{{ statusLabelOf(r) }}</span></td>
             <td class="world-table-cell--dim world-table-cell--ellipsis">{{ r.description || "" }}</td>
@@ -91,6 +94,7 @@ import { worldSession as session } from "../worldSession.js"
 import { deleteRelation, inlineRelationEvidencePairs as relationEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction } from "../logic/worldRelationsAliasesOps.js"
 import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
+import { detailTypeLabel, kindLabel } from "../logic/worldTypeCatalog.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldPager from "./WorldPager.vue"
 import WorldSelectionInput from "./WorldSelectionInput.vue"
@@ -105,8 +109,8 @@ const props = defineProps({
 })
 
 // 注册表同步（供 ops 操作查找）
-watch(() => props.relations, (items) => {
-  syncRelationsAliasesRegistry({ relations: items })
+watch(() => [props.relations, props.reviewTypeCatalog], ([items, reviewTypeCatalog]) => {
+  syncRelationsAliasesRegistry({ relations: items, reviewTypeCatalog })
 }, { immediate: true, deep: true })
 
 const relationIds = computed(() => (
@@ -151,6 +155,10 @@ function onBulkAction(action) {
   const items = selectedItemsFrom(props.relations, selection, (r) => r.id || r.relationship_id)
   if (!items.length) {
     getToast()("请先选择要处理的项目", "warning")
+    return
+  }
+  if (action === "review-relations" && items.some((item) => !item.relation_kind)) {
+    getToast()("所选关系中有待分类项，请先选择关系分类", "warning")
     return
   }
   const labelByAction = { "review-relations": "批量采用", "delete-relations": "批量删除" }

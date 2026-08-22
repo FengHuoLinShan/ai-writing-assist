@@ -9,8 +9,8 @@ import { resetWorldSession, worldSession } from "../../../vue/views/world/worldS
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 const RELATIONS = [
-  { id: "r1", source_name: "林澈", source_id: "e1", target_name: "沉钟港", target_id: "e2", relation_type: "friend_of", description: "驻守旧港", status: "canonical", strength: 0.7 },
-  { id: "r2", source_name: "萧岚", source_id: "e3", target_name: "雾隐城", target_id: "e4", relation_type: "leader_of", description: "城主", status: "canonical", strength: 0.9 },
+  { id: "r1", source_name: "林澈", source_id: "e1", target_name: "沉钟港", target_id: "e2", relation_kind: "social", relation_type: "friend_of", description: "驻守旧港", status: "canonical", strength: 0.7 },
+  { id: "r2", source_name: "萧岚", source_id: "e3", target_name: "雾隐城", target_id: "e4", relation_kind: "social", relation_type: "leader_of", description: "城主", status: "canonical", strength: 0.9 },
 ]
 
 function mountTab(propOverrides = {}) {
@@ -65,7 +65,9 @@ describe("渲染", () => {
     expect(rows).toHaveLength(2)
     expect(rows[0].attributes("data-id")).toBe("r1")
     expect(rows[0].text()).toContain("林澈")
-    expect(rows[0].text()).toContain("friend_of")
+    expect(rows[0].text()).toContain("社会/组织")
+    expect(rows[0].text()).toContain("朋友")
+    expect(rows[0].text()).not.toContain("friend_of")
     expect(rows[0].text()).toContain("沉钟港")
     expect(rows[0].text()).toContain("驻守旧港")
     expect(rows[0].find('[data-action="delete-relation"]').exists()).toBe(true)
@@ -75,6 +77,13 @@ describe("渲染", () => {
     const wrapper = mountTab()
     const deleteBtn = wrapper.find('tr[data-id="r1"] [data-action="delete-relation"]')
     expect(deleteBtn.attributes("data-id")).toBe("r1")
+  })
+
+  it("历史数据缺少分类时显示待分类，不暴露英文详细枚举", () => {
+    const wrapper = mountTab({ relations: [{ ...RELATIONS[0], relation_kind: "", relation_type: "legacy_link" }] })
+    expect(wrapper.text()).toContain("待分类")
+    expect(wrapper.text()).toContain("自定义详细类型")
+    expect(wrapper.text()).not.toContain("legacy_link")
   })
 })
 

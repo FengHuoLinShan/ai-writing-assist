@@ -29,8 +29,8 @@ const ALIAS_GROUPS = [
   {
     group_id: "ga1", entity_name: "沉钟港", member_count: 2,
     members: [
-      { entity_id: "e1", alias: "旧港", alias_type: "name", confidence: 0.9, execution_fingerprint: "fp1" },
-      { entity_id: "e1", alias: "老港", alias_type: "nickname", managed_by_suggestion: true },
+      { entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", confidence: 0.9, execution_fingerprint: "fp1" },
+      { entity_id: "e1", alias: "老港", alias_kind: "name", alias_type: "nickname", managed_by_suggestion: true },
     ],
   },
 ]
@@ -39,7 +39,7 @@ const RELATION_GROUPS = [
   {
     group_id: "g1", source_name: "林澈", target_name: "沉钟港", member_count: 1, evidence_count: 2,
     type_variants: ["friend_of"], scene_indices: [3], execution_fingerprint: "fpg",
-    members: [{ id: "r1", relation_type: "friend_of", description: "驻守旧港", strength: 0.7 }],
+    members: [{ id: "r1", relation_kind: "social", relation_type: "friend_of", description: "驻守旧港", strength: 0.7 }],
   },
 ]
 
@@ -50,6 +50,12 @@ function mountTab(propOverrides = {}) {
       reviewSubView: "review-objects",
       reviewCounts: { objects: 2, aliases: 2, relations: 1 },
       entityTypes: [{ value: "location", label: "地点" }, { value: "organization", label: "组织" }],
+      reviewTypeCatalog: {
+        alias_kinds: [{ value: "name", label: "名称", description: "名称变化" }],
+        alias_types: [{ value: "name", label: "名称", default_kind: "name" }, { value: "nickname", label: "昵称", default_kind: "name" }],
+        relation_kinds: [{ value: "social", label: "社会/组织", description: "社会联系" }],
+        relation_types: [{ value: "friend_of", label: "朋友", default_kind: "social" }, { value: "ally_of", label: "盟友", default_kind: "social" }],
+      },
       candidates: CANDIDATES,
       candidateTotal: 2,
       aliasGroups: ALIAS_GROUPS,
@@ -217,7 +223,7 @@ describe("review-aliases", () => {
       aliasReviewFilters: {
         source: "deep_import", workflow_id: "workflow-7", scene_index: "3", source_chapter_index: "2",
         confidence_min: "0.85", confidence_max: "0.99", has_quote: "true",
-        type_kind: "custom", skip: 0, limit: 50,
+        type_kind: "custom", alias_kind: "name", skip: 0, limit: 50,
       },
     })
     const controls = [
@@ -225,7 +231,8 @@ describe("review-aliases", () => {
       ["#review-alias-chapter", "按章节序号筛选待处理别名", "2"],
       ["#review-alias-confidence-min", "待处理别名最低置信度", "0.85"],
       ["#review-alias-confidence-max", "待处理别名最高置信度", "0.99"],
-      ["#review-alias-type-kind", "待处理别名类型范围", "custom"],
+      ["#review-alias-kind", "待处理别名分类", "name"],
+      ["#review-alias-type-kind", "待处理别名详细类型范围", "custom"],
       ["#review-alias-evidence", "待处理别名引用证据", "true"],
       ["#review-alias-page-size", "待处理别名每页数量", "50"],
     ]
@@ -248,6 +255,7 @@ describe("review-aliases", () => {
     expect(query.get("kind")).toBe("aliases")
     expect(query.get("source")).toBe("deep_import")
     expect(query.get("type_kind")).toBe("custom")
+    expect(query.get("alias_kind")).toBe("name")
     expect(query.get("scene_index")).toBe("8")
     expect(query.get("has_quote")).toBe("false")
     expect(query.get("limit")).toBeNull()
@@ -271,7 +279,7 @@ describe("review-aliases", () => {
     worldSession.aliasReviewErrors["e1::旧港"] = "指纹过期"
     const wrapper = mountTab({ reviewSubView: "review-aliases" })
     const card = wrapper.find('.review-group-card[data-group-id="ga1"]')
-    expect(card.find(".badge-canonical").text()).toBe("已编辑")
+    expect(card.findAll(".badge-canonical").map((badge) => badge.text())).toContain("已编辑")
     expect(card.find(".review-item-error").text()).toBe("指纹过期")
   })
 })
@@ -291,11 +299,12 @@ describe("review-relations", () => {
       relationReviewFilters: {
         relation_type: "friend_of", scene_index: "5", source_chapter_index: "4",
         strength_min: "0.7", strength_max: "0.9", has_quote: "false",
-        type_kind: "recommended", skip: 0, limit: 50,
+        type_kind: "recommended", relation_kind: "social", skip: 0, limit: 50,
       },
     })
     const controls = [
-      ["#review-relation-type", "按关系类型筛选待处理关系", "friend_of"],
+      ["#review-relation-kind", "按关系分类筛选待处理关系", "social"],
+      ["#review-relation-type", "按详细类型筛选待处理关系", "friend_of"],
       ["#review-relation-scene", "按场景序号筛选待处理关系", "5"],
       ["#review-relation-source-chapter", "按章节序号筛选待处理关系", "4"],
       ["#review-relation-strength-min", "待处理关系最低强度", "0.7"],
@@ -319,6 +328,7 @@ describe("review-relations", () => {
     expect([view, subView]).toEqual(["world", "review"])
     expect(query.get("kind")).toBe("relations")
     expect(query.get("relation_type")).toBe("ally_of")
+    expect(query.get("relation_kind")).toBe("social")
     expect(query.get("has_quote")).toBe("true")
     expect(query.get("type_kind")).toBe("recommended")
     expect(query.get("limit")).toBeNull()

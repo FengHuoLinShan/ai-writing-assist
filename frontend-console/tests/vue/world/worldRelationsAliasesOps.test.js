@@ -16,10 +16,10 @@ import {
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 const RELATIONS = [
-  { id: "r1", source_name: "林澈", source_id: "e1", target_name: "沉钟港", target_id: "e2", relation_type: "friend_of", description: "驻守旧港", status: "canonical", strength: 0.7 },
+  { id: "r1", source_name: "林澈", source_id: "e1", target_name: "沉钟港", target_id: "e2", relation_kind: "social", relation_type: "friend_of", description: "驻守旧港", status: "canonical", strength: 0.7 },
 ]
 const ALIASES = [
-  { entity_id: "e1", alias: "小名", alias_type: "nickname", entity_name: "主角", status: "canonical", source: "manual", confidence: 1.0 },
+  { entity_id: "e1", alias: "小名", alias_kind: "name", alias_type: "nickname", entity_name: "主角", status: "canonical", source: "manual", confidence: 1.0 },
 ]
 
 let modalCalls
@@ -143,7 +143,7 @@ describe("showRelationCreateForm", () => {
     const handler = modalCalls[0].buttons[0].handler
     await handler()
     expect(apiMock.world.createRelationship).toHaveBeenCalledWith(
-      { source_id: "e1", source_type: "entity", target_id: "e2", target_type: "entity", relation_type: "ally_of", description: "测试描述" },
+      { source_id: "e1", source_type: "entity", target_id: "e2", target_type: "entity", relation_kind: expect.any(String), relation_type: "ally_of", description: "测试描述" },
       "p-ra",
     )
   })
@@ -235,7 +235,7 @@ describe("showAliasCreateForm", () => {
     const handler = modalCalls[0].buttons[0].handler
     await handler()
     expect(apiMock.world.createAlias).toHaveBeenCalledWith(
-      { entity_id: "e1", alias: "小名", alias_type: "nickname" },
+      { entity_id: "e1", alias: "小名", alias_kind: "name", alias_type: "nickname" },
       "p-ra",
     )
   })

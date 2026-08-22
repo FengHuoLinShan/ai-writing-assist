@@ -9,9 +9,9 @@ import { resetWorldSession, worldSession } from "../../../vue/views/world/worldS
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 const ALIASES = [
-  { entity_id: "e1", alias: "小名", alias_type: "nickname", entity_name: "主角", status: "canonical", source: "manual", confidence: 1.0 },
-  { entity_id: "e1", alias: "代号", alias_type: "alias", entity_name: "主角", status: "canonical", source: "import", confidence: 0.9 },
-  { entity_id: "e2", alias: "旧港", alias_type: "name", entity_name: "沉钟港", status: "canonical", source: "manual", confidence: 0.85 },
+  { entity_id: "e1", alias: "小名", alias_kind: "name", alias_type: "nickname", entity_name: "主角", status: "canonical", source: "manual", confidence: 1.0 },
+  { entity_id: "e1", alias: "代号", alias_kind: "name", alias_type: "alias", entity_name: "主角", status: "canonical", source: "import", confidence: 0.9 },
+  { entity_id: "e2", alias: "旧港", alias_kind: "name", alias_type: "name", entity_name: "沉钟港", status: "canonical", source: "manual", confidence: 0.85 },
 ]
 
 function mountTab(propOverrides = {}) {
@@ -78,7 +78,8 @@ describe("渲染", () => {
     expect(rows[0].text()).toContain("小名")
     expect(rows[0].text()).toContain("昵称")
     expect(rows[1].text()).toContain("代号")
-    expect(rows[1].text()).toContain("化名")
+    expect(rows[1].text()).toContain("别名")
+    expect(rows[1].text()).toContain("名称")
     expect(rows[2].text()).toContain("旧港")
     expect(rows[2].text()).toContain("名称")
   })
@@ -101,6 +102,12 @@ describe("渲染", () => {
     expect(managedRow).toBeTruthy()
     expect(managedRow.text()).toContain("随对象建议处理")
     expect(managedRow.find('[data-action="delete-alias"]').exists()).toBe(false)
+  })
+
+  it("历史别名缺少分类时显示待分类", () => {
+    const wrapper = mountTab({ aliases: [{ ...ALIASES[0], alias_kind: "" }], aliasesTotal: 1 })
+    expect(wrapper.text()).toContain("待分类")
+    expect(wrapper.text()).toContain("昵称")
   })
 })
 

@@ -150,7 +150,7 @@ describe("world island deep links", () => {
     setBridgeOverrides({
       api,
       state: { currentProjectId: "novel-1", currentSubView: "review" },
-      router: { getCurrentQuery: () => new URLSearchParams("kind=relations&has_reverse_candidates=true&has_canonical_relation=true"), registerView: vi.fn() },
+      router: { getCurrentQuery: () => new URLSearchParams("kind=relations&relation_kind=epistemic&has_reverse_candidates=true&has_canonical_relation=true"), registerView: vi.fn() },
       toast: vi.fn(),
     })
     const { loadWorld } = await import("../../../vue/worldIsland.js")
@@ -160,7 +160,30 @@ describe("world island deep links", () => {
     expect(listRelationReviewGroups).toHaveBeenCalledWith(expect.objectContaining({
       has_reverse_candidates: true,
       has_canonical_relation: true,
+      relation_kind: "epistemic",
     }))
+  })
+
+  it("alias kind is passed to the grouped review request", async () => {
+    const listAliasReviewGroups = vi.fn().mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
+    setBridgeOverrides({
+      api: { world: {
+        listEntities: vi.fn().mockResolvedValue({ total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+        listAliasReviewGroups,
+      } },
+      state: { currentProjectId: "novel-1", currentSubView: "review" },
+      router: { getCurrentQuery: () => new URLSearchParams("kind=aliases&alias_kind=identity&type_kind=custom"), registerView: vi.fn() },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    await loadWorld()
+
+    expect(listAliasReviewGroups).toHaveBeenCalledWith(expect.objectContaining({ alias_kind: "identity", type_kind: "custom" }))
   })
 
   it("passes the adoption package deep link only to the World Bible workspace", async () => {
