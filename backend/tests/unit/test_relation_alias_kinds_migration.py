@@ -75,6 +75,59 @@ def test_relation_alias_kind_migration_preserves_alias_order_and_metadata() -> N
     assert migrated["aliases"][3]["evidence_refs"] == [{"id": 1}]
 
 
+def test_relation_kind_migration_queues_unknown_canonical_types() -> None:
+    migration = _load_migration()
+    engine = sa.create_engine("sqlite://")
+    metadata = sa.MetaData()
+    sa.Table(
+        "core_entities",
+        metadata,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("content_json", sa.JSON),
+    )
+    relations = sa.Table(
+        "entity_relations",
+        metadata,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("relation_type", sa.String(64)),
+        sa.Column("relation_kind", sa.String(16)),
+        sa.Column("status", sa.String(16)),
+    )
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            relations.insert(),
+            [
+                {"id": 1, "relation_type": " FRIEND_OF ", "status": "canonical"},
+                {"id": 2, "relation_type": "自定义关系", "status": "canonical"},
+                {"id": 3, "relation_type": "另一个自定义", "status": "candidate"},
+                {"id": 4, "relation_type": "causes", "status": "candidate"},
+            ],
+        )
+        migration.op = SimpleNamespace(
+            add_column=lambda *_args, **_kwargs: None,
+            create_check_constraint=lambda *_args, **_kwargs: None,
+            get_bind=lambda: connection,
+        )
+        migration.upgrade()
+        rows = list(
+            connection.execute(
+                sa.select(
+                    relations.c.id,
+                    relations.c.relation_kind,
+                    relations.c.status,
+                ).order_by(relations.c.id)
+            ).mappings()
+        )
+
+    assert [(row["relation_kind"], row["status"]) for row in rows] == [
+        ("social", "canonical"),
+        (None, "candidate"),
+        (None, "candidate"),
+        ("causal", "candidate"),
+    ]
+
+
 def test_relation_alias_kind_downgrade_removes_null_kind_keys() -> None:
     migration = _load_migration()
     engine = sa.create_engine("sqlite://")

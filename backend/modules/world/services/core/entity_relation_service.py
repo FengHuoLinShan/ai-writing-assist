@@ -892,7 +892,8 @@ class EntityRelationService(
         target_relation.target_id = tid
         target_relation.relation_type = relation_type
         target_relation.relation_kind = relation_kind
-        target_relation.description = description
+        if description is not None:
+            target_relation.description = description
         if strength is not None:
             target_relation.strength = strength
         target_relation.quote = merged_quote

@@ -250,6 +250,7 @@ def upgrade() -> None:
         "entity_relations",
         sa.column("relation_type", sa.String(64)),
         sa.column("relation_kind", sa.String(16)),
+        sa.column("status", sa.String(16)),
     )
     normalized_type = sa.func.lower(sa.func.trim(relations.c.relation_type))
     kind_case = sa.case(
@@ -257,12 +258,20 @@ def upgrade() -> None:
             (normalized_type == relation_type.casefold(), kind)
             for relation_type, kind in _RELATION_KIND_BY_TYPE.items()
         ],
-        else_="state",
+        else_=None,
     )
     op.get_bind().execute(
         relations.update()
         .where(relations.c.relation_kind.is_(None))
         .values(relation_kind=kind_case)
+    )
+    op.get_bind().execute(
+        relations.update()
+        .where(
+            relations.c.status == "canonical",
+            relations.c.relation_kind.is_(None),
+        )
+        .values(status="candidate")
     )
     _migrate_aliases(remove_kind=False)
     op.create_check_constraint(

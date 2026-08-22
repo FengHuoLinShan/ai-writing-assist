@@ -1244,6 +1244,7 @@ async def test_relation_review_accepts_selected_relations_separately_and_ignores
             target_id=str(target.id),
             relation_type="friend_of",
             relation_kind="social",
+            description="原朋友描述",
             quote="旧证据",
             status="canonical",
         ),
@@ -1266,6 +1267,7 @@ async def test_relation_review_accepts_selected_relations_separately_and_ignores
             source_id=str(source.id),
             target_id=str(target.id),
             relation_type="opposes",
+            description="原敌对描述",
             quote="对抗证据",
             status="candidate",
         ),
@@ -1305,7 +1307,6 @@ async def test_relation_review_accepts_selected_relations_separately_and_ignores
                                 "source_id": str(source.id),
                                 "target_id": str(target.id),
                                 "relation_type": "friend_of",
-                                "description": "朋友",
                                 "strength": 0.8,
                             },
                             {
@@ -1313,7 +1314,6 @@ async def test_relation_review_accepts_selected_relations_separately_and_ignores
                                 "source_id": str(target.id),
                                 "target_id": str(source.id),
                                 "relation_type": "enemy_of",
-                                "description": "敌对",
                                 "strength": 0.9,
                             },
                         ],
@@ -1336,8 +1336,10 @@ async def test_relation_review_accepts_selected_relations_separately_and_ignores
     await db_session.refresh(second)
     await db_session.refresh(unselected)
     assert canonical.quote == "旧证据\n朋友证据"
+    assert canonical.description == "原朋友描述"
     assert first.status == "deprecated"
     assert second.status == "canonical"
+    assert second.description == "原敌对描述"
     assert (second.source_id, second.target_id, second.relation_type) == (
         target.id,
         source.id,
