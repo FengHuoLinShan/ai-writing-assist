@@ -159,6 +159,7 @@ async def append_candidate_alias(
     *,
     alias: str,
     alias_type: str = "alias",
+    alias_kind: str | None = None,
     workflow_id: str | None = None,
     scene_id: str | None = None,
     scene_index: int | None = None,
@@ -173,6 +174,7 @@ async def append_candidate_alias(
         entity_id,
         alias=alias,
         alias_type=alias_type,
+        alias_kind=alias_kind,
         workflow_id=workflow_id,
         scene_id=scene_id,
         scene_index=scene_index,
@@ -353,6 +355,7 @@ async def upsert_relation(
     target_id: str,
     relation_type: str,
     description: str | None = None,
+    relation_kind: str | None = None,
 ) -> EntityRelationResponse:
     return await _relation_service.upsert(
         db,
@@ -361,6 +364,7 @@ async def upsert_relation(
         target_id,
         relation_type,
         description=description,
+        relation_kind=relation_kind,
     )
 
 

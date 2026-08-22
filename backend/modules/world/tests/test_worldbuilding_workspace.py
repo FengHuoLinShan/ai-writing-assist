@@ -917,6 +917,7 @@ async def test_derived_tag_sync_reads_character_meta_and_member_relation(
             source_id=character_entity.id,
             target_id=faction.id,
             relation_type="member_of",
+            relation_kind="social",
             status="canonical",
         )
     )

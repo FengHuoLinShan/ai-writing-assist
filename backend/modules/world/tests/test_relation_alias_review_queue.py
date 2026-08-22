@@ -714,6 +714,7 @@ async def test_relation_review_group_reports_reverse_relations(
             source_id=str(target.id),
             target_id=str(source.id),
             relation_type="related_to",
+            relation_kind="state",
             status="canonical",
         ),
     )
@@ -789,6 +790,7 @@ async def test_relation_review_group_attention_filters_precede_pagination_and_co
                     source_id=str(source.id),
                     target_id=str(target.id),
                     relation_type="friend_of",
+                    relation_kind="social",
                     status="canonical",
                 ),
             )
@@ -979,6 +981,7 @@ async def test_relation_group_over_fifty_can_process_selected_subset(
                         "source_id": str(source.id),
                         "target_id": str(target.id),
                         "relation_type": "custom_0",
+                        "relation_kind": "state",
                     }
                 ],
             }
@@ -1073,6 +1076,7 @@ async def test_relation_review_reuses_existing_canonical_relation(
             source_id=str(source.id),
             target_id=str(target.id),
             relation_type="friend_of",
+            relation_kind="social",
             quote="旧证据",
             status="canonical",
         ),
@@ -1156,6 +1160,7 @@ async def test_relation_review_accepts_selected_relations_separately_and_ignores
             source_id=str(source.id),
             target_id=str(target.id),
             relation_type="friend_of",
+            relation_kind="social",
             quote="旧证据",
             status="canonical",
         ),

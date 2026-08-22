@@ -486,6 +486,7 @@ async def test_update_alias_updates_metadata_and_removes_none_fields(
         {
             "alias": "Art",
             "type": "nickname",
+            "kind": "name",
             "status": "canonical",
             "needs_review": False,
             "reviewed_by": "manual",

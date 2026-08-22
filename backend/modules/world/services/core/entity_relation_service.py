@@ -36,6 +36,8 @@ from modules.world.schemas import (
 )
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.review_queue import (
+    RELATION_KINDS,
+    default_relation_kind,
     stable_fingerprint,
     suggest_relation_type,
 )
@@ -125,10 +127,39 @@ class EntityRelationService(
             "source_id": str(rel.source_id),
             "target_id": str(rel.target_id),
             "relation_type": rel.relation_type,
+            "relation_kind": rel.relation_kind,
             "description": rel.description,
             "strength": rel.strength,
             "status": rel.status,
         }
+
+    @staticmethod
+    def _resolve_relation_kind(
+        relation_type: str,
+        relation_kind: str | None,
+        status: str,
+    ) -> str | None:
+        if relation_kind is not None and relation_kind not in RELATION_KINDS:
+            raise ValidationError("Invalid relation_kind")
+        resolved = relation_kind or default_relation_kind(relation_type)
+        if status == "canonical" and resolved is None:
+            raise ValidationError(
+                "relation_kind is required for a canonical custom relation_type"
+            )
+        return resolved
+
+    def _with_resolved_kind(
+        self,
+        data: EntityRelationCreate,
+    ) -> EntityRelationCreate:
+        resolved = self._resolve_relation_kind(
+            data.relation_type,
+            data.relation_kind,
+            data.status,
+        )
+        if resolved == data.relation_kind:
+            return data
+        return data.model_copy(update={"relation_kind": resolved})
 
     def _relation_execution_snapshot(self, rel: EntityRelation) -> dict[str, object]:
         updated_at = rel.updated_at
@@ -292,6 +323,7 @@ class EntityRelationService(
         *,
         _validation_prechecked: bool = False,
     ) -> EntityRelationResponse:
+        data = self._with_resolved_kind(data)
         if data.status == "canonical" and not _validation_prechecked:
             await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
@@ -337,6 +369,8 @@ class EntityRelationService(
         _validation_prechecked: bool = False,
     ) -> dict[str, object]:
         """Create a relation or merge evidence into an existing same edge."""
+
+        data = self._with_resolved_kind(data)
 
         if data.status == "canonical" and not _validation_prechecked:
             await self._require_legacy_canon_write_allowed(db, novel_id)
@@ -395,6 +429,8 @@ class EntityRelationService(
             }
         if existing.status != "canonical" and data.status:
             existing.status = data.status
+        if existing.relation_kind is None and data.relation_kind is not None:
+            existing.relation_kind = data.relation_kind
         if existing.source_chapter_id is None and data.source_chapter_id:
             existing.source_chapter_id = parse_uuid(data.source_chapter_id)
         if existing.caused_by_event_id is None and data.caused_by_event_id:
@@ -418,6 +454,7 @@ class EntityRelationService(
         *,
         q: str | None = None,
         relation_type: str | None = None,
+        relation_kind: str | None = None,
         source_chapter_id: str | None = None,
         scene_id: str | None = None,
         scene_index: int | None = None,
@@ -447,6 +484,8 @@ class EntityRelationService(
         def matches(relation: EntityRelation) -> bool:
             meta = dict(relation.review_meta or {})
             if relation_type and relation.relation_type != relation_type:
+                return False
+            if relation_kind and relation.relation_kind != relation_kind:
                 return False
             if chapter_id and relation.source_chapter_id != chapter_id:
                 return False
@@ -797,10 +836,16 @@ class EntityRelationService(
         source_id: str,
         target_id: str,
         relation_type: str,
+        relation_kind: str | None,
         description: str | None,
         strength: float | None,
         action: str,
     ) -> dict[str, object]:
+        relation_kind = self._resolve_relation_kind(
+            relation_type,
+            relation_kind,
+            "canonical",
+        )
         sid = parse_uuid(source_id, "source_id")
         tid = parse_uuid(target_id, "target_id")
         if sid == tid:
@@ -845,6 +890,7 @@ class EntityRelationService(
         target_relation.source_id = sid
         target_relation.target_id = tid
         target_relation.relation_type = relation_type
+        target_relation.relation_kind = relation_kind
         target_relation.description = description
         if strength is not None:
             target_relation.strength = strength
@@ -1000,6 +1046,7 @@ class EntityRelationService(
                     source_id=item.source_id,
                     target_id=item.target_id,
                     relation_type=item.relation_type,
+                    relation_kind=item.relation_kind,
                     description=item.description,
                     strength=item.strength,
                     action=decision.action,
@@ -1022,6 +1069,7 @@ class EntityRelationService(
                 source_id=str(decision.source_id),
                 target_id=str(decision.target_id),
                 relation_type=str(decision.relation_type),
+                relation_kind=decision.relation_kind,
                 description=decision.description,
                 strength=decision.strength,
                 action=decision.action,
@@ -1066,6 +1114,7 @@ class EntityRelationService(
         *,
         status: str | None = None,
         relation_type: str | None = None,
+        relation_kind: str | None = None,
         q: str | None = None,
         source_chapter_id: str | None = None,
         strength_min: float | None = None,
@@ -1085,6 +1134,7 @@ class EntityRelationService(
             nid,
             status=status,
             relation_type=relation_type,
+            relation_kind=relation_kind,
             q=q,
             source_chapter_id=chapter_id,
             strength_min=strength_min,
@@ -1127,6 +1177,15 @@ class EntityRelationService(
         before = self._relation_snapshot(rel)
         if data.status is not None and data.status not in _RELATION_STATUSES:
             raise ValidationError("Invalid relation status")
+        next_type = data.relation_type or rel.relation_type
+        next_status = data.status or rel.status
+        next_kind = self._resolve_relation_kind(
+            next_type,
+            data.relation_kind or rel.relation_kind,
+            next_status,
+        )
+        if data.relation_kind is not None or rel.relation_kind is None:
+            data = data.model_copy(update={"relation_kind": next_kind})
         updated = await self.repo.update(db, rel, data)
         if updated is None:
             raise NotFoundError(f"EntityRelation {id} not found")
@@ -1170,6 +1229,11 @@ class EntityRelationService(
         relation_type = (data.relation_type or rel.relation_type or "").strip()
         if not relation_type:
             raise ValidationError("relation_type cannot be blank")
+        relation_kind = self._resolve_relation_kind(
+            relation_type,
+            data.relation_kind or rel.relation_kind,
+            "canonical" if data.confirm_review else rel.status,
+        )
         source, target = await self._require_distinct_entities_in_novel(
             db,
             nid,
@@ -1193,6 +1257,7 @@ class EntityRelationService(
         rel.source_id = sid
         rel.target_id = tid
         rel.relation_type = relation_type
+        rel.relation_kind = relation_kind
         if data.description is not None:
             rel.description = data.description
         if data.strength is not None:
@@ -1370,9 +1435,15 @@ class EntityRelationService(
         target_id: str,
         relation_type: str,
         description: str | None = None,
+        relation_kind: str | None = None,
     ) -> EntityRelationResponse:
         """按 source + target + relation_type 去重创建/更新。"""
         await self._require_legacy_canon_write_allowed(db, novel_id)
+        relation_kind = self._resolve_relation_kind(
+            relation_type,
+            relation_kind,
+            "canonical",
+        )
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(source_id, "source_id")
         tid = parse_uuid(target_id, "target_id")
@@ -1391,6 +1462,7 @@ class EntityRelationService(
             tid,
             relation_type,
             description=description,
+            relation_kind=relation_kind,
         )
         return EntityRelationResponse.model_validate(rel).model_copy(
             update={

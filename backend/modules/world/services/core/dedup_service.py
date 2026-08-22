@@ -702,7 +702,7 @@ class EntityDedupService:
             target_aliases.append(
                 alias_entry
                 if isinstance(alias_entry, dict)
-                else {"alias": alias_text, "type": "inherited"}
+                else {"alias": alias_text, "type": "name", "kind": "name"}
             )
             existing_texts.add(alias_text.lower())
             added += 1
@@ -976,5 +976,5 @@ class EntityDedupService:
             if isinstance(a, dict):
                 result.append(a)
             elif isinstance(a, str):
-                result.append({"alias": a, "type": "unknown"})
+                result.append({"alias": a, "type": "name", "kind": "name"})
         return result

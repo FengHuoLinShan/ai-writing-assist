@@ -358,6 +358,7 @@ async def test_package_preview_apply_is_idempotent_and_ignores_open_items(
                     "source_ref": "local:city",
                     "target_ref": "local:guild",
                     "relation_type": "governed_by",
+                    "relation_kind": "state",
                 },
             },
         ],

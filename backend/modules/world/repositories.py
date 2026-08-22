@@ -1221,6 +1221,7 @@ class EntityRelationRepository:
             source_id=parse_uuid(data.source_id),
             target_id=parse_uuid(data.target_id),
             relation_type=data.relation_type,
+            relation_kind=data.relation_kind,
             description=data.description,
             strength=data.strength if data.strength is not None else 0.5,
             source_chapter_id=parse_uuid(data.source_chapter_id)
@@ -1421,6 +1422,7 @@ class EntityRelationRepository:
         *,
         status: str | None = None,
         relation_type: str | None = None,
+        relation_kind: str | None = None,
         q: str | None = None,
         source_chapter_id: uuid.UUID | None = None,
         strength_min: float | None = None,
@@ -1436,6 +1438,8 @@ class EntityRelationRepository:
             conditions[-1] = EntityRelation.status == status
         if relation_type:
             conditions.append(EntityRelation.relation_type == relation_type)
+        if relation_kind:
+            conditions.append(EntityRelation.relation_kind == relation_kind)
         if q:
             query = q.strip()
             if query:
@@ -1480,6 +1484,7 @@ class EntityRelationRepository:
         *,
         status: str | None = None,
         relation_type: str | None = None,
+        relation_kind: str | None = None,
         q: str | None = None,
         source_chapter_id: uuid.UUID | None = None,
         strength_min: float | None = None,
@@ -1495,6 +1500,8 @@ class EntityRelationRepository:
             conditions[-1] = EntityRelation.status == status
         if relation_type:
             conditions.append(EntityRelation.relation_type == relation_type)
+        if relation_kind:
+            conditions.append(EntityRelation.relation_kind == relation_kind)
         if q:
             query = q.strip()
             if query:
@@ -1534,6 +1541,7 @@ class EntityRelationRepository:
             novel_id,
             status=status,
             relation_type=relation_type,
+            relation_kind=relation_kind,
             q=q,
             source_chapter_id=source_chapter_id,
             strength_min=strength_min,
@@ -1721,7 +1729,13 @@ class EntityRelationRepository:
             return None
 
         update_values: dict[str, Any] = {}
-        for field in ("relation_type", "description", "strength", "status"):
+        for field in (
+            "relation_type",
+            "relation_kind",
+            "description",
+            "strength",
+            "status",
+        ):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
@@ -1770,6 +1784,8 @@ class EntityRelationRepository:
         target_id: uuid.UUID,
         relation_type: str,
         description: str | None = None,
+        *,
+        relation_kind: str,
     ) -> EntityRelation:
         bind = db.get_bind()
         if bind is not None and bind.dialect.name == "postgresql":
@@ -1778,6 +1794,7 @@ class EntityRelationRepository:
                 source_id=source_id,
                 target_id=target_id,
                 relation_type=relation_type,
+                relation_kind=relation_kind,
                 description=description,
                 status="canonical",
             )
@@ -1793,6 +1810,10 @@ class EntityRelationRepository:
                     "description": func.coalesce(
                         insert_stmt.excluded.description,
                         EntityRelation.description,
+                    ),
+                    "relation_kind": func.coalesce(
+                        EntityRelation.relation_kind,
+                        insert_stmt.excluded.relation_kind,
                     ),
                     "updated_at": func.timezone("utc", func.now()),
                 },
@@ -1819,6 +1840,7 @@ class EntityRelationRepository:
                 target_id,
                 relation_type,
                 description,
+                relation_kind,
             )
 
     async def _manual_upsert(
@@ -1829,6 +1851,7 @@ class EntityRelationRepository:
         target_id: uuid.UUID,
         relation_type: str,
         description: str | None,
+        relation_kind: str,
     ) -> EntityRelation:
 
         stmt = (
@@ -1848,6 +1871,8 @@ class EntityRelationRepository:
         if existing is not None:
             if description:
                 existing.description = description
+            if existing.relation_kind is None:
+                existing.relation_kind = relation_kind
             await db.flush()
             return existing
 
@@ -1856,6 +1881,7 @@ class EntityRelationRepository:
             source_id=source_id,
             target_id=target_id,
             relation_type=relation_type,
+            relation_kind=relation_kind,
             description=description,
             status="canonical",
         )

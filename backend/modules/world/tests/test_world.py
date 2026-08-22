@@ -1098,6 +1098,7 @@ class TestEntityDedupService:
             entity_b.id,
             "knows",
             "A 认识 B",
+            relation_kind="epistemic",
         )
         # Given: A' → C（A' 认识 C）
         await rel_repo.upsert(
@@ -1107,6 +1108,7 @@ class TestEntityDedupService:
             entity_c.id,
             "knows",
             "A' 认识 C",
+            relation_kind="epistemic",
         )
         # Given: A' → A（A' 怀疑 A — 合并后会变自环）
         await rel_repo.upsert(
@@ -1116,6 +1118,7 @@ class TestEntityDedupService:
             entity_a.id,
             "suspects",
             "A' 怀疑 A",
+            relation_kind="epistemic",
         )
 
         # When: 合并 A' → A
@@ -1572,6 +1575,7 @@ async def test_resolve_candidate_as_alias_marks_candidate_merged_and_migrates_re
         related.id,
         "located_at",
         "黑荆棘安保公司位于廷根",
+        relation_kind="spatial",
     )
     await rel_repo.upsert(
         db_session,
@@ -1580,6 +1584,7 @@ async def test_resolve_candidate_as_alias_marks_candidate_merged_and_migrates_re
         target.id,
         "alias_hint",
         "错误提示关系，迁移后会成为自环",
+        relation_kind="state",
     )
 
     result = await EntityAliasService().resolve_candidate_as_alias(

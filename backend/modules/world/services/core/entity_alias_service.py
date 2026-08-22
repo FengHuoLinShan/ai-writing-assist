@@ -30,6 +30,8 @@ from modules.world.schemas import (
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import (
+    ALIAS_KINDS,
+    default_alias_kind,
     stable_fingerprint,
     suggest_alias_type,
 )
@@ -38,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 ALIAS_ENTITY_SCAN_BATCH = 1000
 ALIAS_TARGET_STATUSES = {"draft", "canonical", "candidate"}
+ACTIVE_ALIAS_STATUSES = {None, "active", "canonical", "confirmed", "published"}
 
 
 class _StaleAliasReviewDecisionError(Exception):
@@ -89,6 +92,48 @@ class EntityAliasService:
             return alias_item.strip(), "name"
         return alias_item.get("alias", "").strip(), alias_item.get("type", "name")
 
+    @staticmethod
+    def _normalize_alias_type(alias_type: str) -> str:
+        normalized = str(alias_type or "").strip()
+        if not normalized:
+            raise DomainValidationError("alias_type cannot be blank", status_code=422)
+        if len(normalized) > 20:
+            raise DomainValidationError(
+                "alias_type must be at most 20 characters", status_code=422
+            )
+        return normalized
+
+    @staticmethod
+    def _resolve_alias_kind(
+        alias_type: str,
+        alias_kind: str | None,
+        status: str | None,
+        *,
+        legacy_default: bool = False,
+    ) -> str | None:
+        if alias_kind is not None and alias_kind not in ALIAS_KINDS:
+            raise DomainValidationError("Invalid alias_kind", status_code=422)
+        resolved = alias_kind or default_alias_kind(alias_type)
+        if resolved is None and legacy_default:
+            resolved = "name"
+        if status in ACTIVE_ALIAS_STATUSES and resolved is None:
+            raise DomainValidationError(
+                "alias_kind is required for an active custom alias_type",
+                status_code=422,
+            )
+        return resolved
+
+    def _stored_alias_kind(self, alias_item: str | dict) -> str | None:
+        if isinstance(alias_item, str):
+            return "name"
+        status = alias_item.get("status")
+        return self._resolve_alias_kind(
+            str(alias_item.get("type") or "name"),
+            alias_item.get("kind"),
+            status,
+            legacy_default=status in ACTIVE_ALIAS_STATUSES,
+        )
+
     def _alias_execution_fingerprint(
         self,
         entity_id: object,
@@ -106,6 +151,7 @@ class EntityAliasService:
         *,
         alias: str,
         alias_type: str,
+        alias_kind: str | None,
         workflow_id: str | None,
         scene_id: str | None,
         scene_index: int | None,
@@ -113,9 +159,15 @@ class EntityAliasService:
         quote: str | None,
         review_meta: dict | None = None,
     ) -> dict:
+        alias_type = self._normalize_alias_type(alias_type or "alias")
         payload = {
             "alias": alias,
-            "type": alias_type or "alias",
+            "type": alias_type,
+            "kind": self._resolve_alias_kind(
+                alias_type,
+                alias_kind,
+                "candidate",
+            ),
             "status": "candidate",
             "source": "deep_import",
             "workflow_id": workflow_id,
@@ -147,6 +199,7 @@ class EntityAliasService:
             "entity_name": entity.name,
             "alias": alias_item.get("alias", ""),
             "alias_type": alias_item.get("type", "name"),
+            "alias_kind": self._stored_alias_kind(alias_item),
             "status": alias_item.get("status"),
             "source": alias_item.get("source"),
             "workflow_id": alias_item.get("workflow_id"),
@@ -282,6 +335,7 @@ class EntityAliasService:
         q: str | None = None,
         display_state: str | None = None,
         status: str | None = None,
+        alias_kind: str | None = None,
         needs_review: bool | None = None,
         source: str | None = None,
         workflow_id: str | None = None,
@@ -300,6 +354,7 @@ class EntityAliasService:
             q=q,
             display_state=display_state,
             status=status,
+            alias_kind=alias_kind,
             needs_review=needs_review,
             source=source,
             workflow_id=workflow_id,
@@ -321,6 +376,7 @@ class EntityAliasService:
         q: str | None = None,
         display_state: str | None = None,
         status: str | None = None,
+        alias_kind: str | None = None,
         needs_review: bool | None = None,
         source: str | None = None,
         workflow_id: str | None = None,
@@ -346,6 +402,8 @@ class EntityAliasService:
             if display_state and item.get("display_state") != display_state:
                 return False
             if status and item.get("status") != status:
+                return False
+            if alias_kind and item.get("alias_kind") != alias_kind:
                 return False
             if needs_review is not None and item.get("needs_review") is not needs_review:
                 return False
@@ -389,6 +447,7 @@ class EntityAliasService:
                     "entity_name": entity.name,
                     "alias": alias_text,
                     "alias_type": alias_type,
+                    "alias_kind": self._stored_alias_kind(alias_item),
                     "status": alias_item.get("status")
                     if isinstance(alias_item, dict)
                     else None,
@@ -499,6 +558,7 @@ class EntityAliasService:
         confidence_max: float | None = None,
         has_quote: bool | None = None,
         type_kind: str | None = None,
+        alias_kind: str | None = None,
         multi_alias_only: bool = False,
         skip: int = 0,
         limit: int = 20,
@@ -508,6 +568,7 @@ class EntityAliasService:
             aliases,
             q=q,
             display_state="review",
+            alias_kind=alias_kind,
             source=source,
             workflow_id=workflow_id,
             scene_id=scene_id,
@@ -675,6 +736,7 @@ class EntityAliasService:
                 target_entity_id=decision.target_entity_id,
                 alias=decision.alias,
                 alias_type=decision.alias_type,
+                alias_kind=decision.alias_kind,
                 confirm_review=True,
             )
             return {"affected_ids": result.get("affected_ids") or []}
@@ -731,6 +793,7 @@ class EntityAliasService:
         alias: str,
         alias_type: str = "name",
         *,
+        alias_kind: str | None = None,
         status: str = "confirmed",
         source: str = "manual",
         source_chapter_index: int | None = None,
@@ -751,6 +814,10 @@ class EntityAliasService:
         content = dict(entity.content_json or {})
         aliases = list(content.get("aliases", []))
         normalized_alias = alias.strip()
+        if not normalized_alias:
+            raise DomainValidationError("Alias text cannot be empty", status_code=422)
+        alias_type = self._normalize_alias_type(alias_type)
+        resolved_kind = self._resolve_alias_kind(alias_type, alias_kind, status)
         for alias_item in aliases:
             existing, _ = self._normalize_alias_item(alias_item)
             if existing == normalized_alias:
@@ -759,6 +826,7 @@ class EntityAliasService:
         alias_payload = {
             "alias": alias,
             "type": alias_type,
+            "kind": resolved_kind,
             "status": status,
             "source": source,
             "source_chapter_index": source_chapter_index,
@@ -824,11 +892,19 @@ class EntityAliasService:
             )
             updated["alias"] = existing
             updated["type"] = updated.get("type") or alias_type or "name"
+            changes = dict(changes)
+            explicit_kind = changes.pop("alias_kind", None)
             for key, value in changes.items():
                 if value is None:
                     updated.pop(key, None)
                 else:
                     updated[key] = value
+
+            updated["kind"] = self._resolve_alias_kind(
+                str(updated.get("type") or "name"),
+                explicit_kind or updated.get("kind"),
+                updated.get("status"),
+            )
 
             aliases[index] = updated
             content["aliases"] = aliases
@@ -840,6 +916,7 @@ class EntityAliasService:
                 "entity_name": entity.name,
                 "alias": existing,
                 "alias_type": updated.get("type", "name"),
+                "alias_kind": updated.get("kind"),
                 "status": updated.get("status"),
                 "source": updated.get("source"),
                 "workflow_id": updated.get("workflow_id"),
@@ -863,6 +940,7 @@ class EntityAliasService:
         target_entity_id: str | None = None,
         alias: str | None = None,
         alias_type: str | None = None,
+        alias_kind: str | None = None,
         confirm_review: bool = True,
     ) -> dict:
         """Edit alias text/type and optionally move it to another target entity."""
@@ -899,7 +977,19 @@ class EntityAliasService:
         )
         if not next_alias:
             raise DomainValidationError("Alias text cannot be empty")
-        next_type = alias_type or existing_type or "name"
+        next_type = self._normalize_alias_type(alias_type or existing_type or "name")
+        next_status = (
+            "canonical"
+            if confirm_review
+            else old_item.get("status")
+            if isinstance(old_item, dict)
+            else None
+        )
+        next_kind = self._resolve_alias_kind(
+            next_type,
+            alias_kind or self._stored_alias_kind(old_item),
+            next_status,
+        )
 
         updated = (
             dict(old_item)
@@ -911,6 +1001,7 @@ class EntityAliasService:
         )
         updated["alias"] = next_alias
         updated["type"] = next_type
+        updated["kind"] = next_kind
         updated["user_edited"] = True
         updated["edited_at"] = datetime.now(UTC).isoformat()
         updated["edited_by"] = "manual"
@@ -968,6 +1059,7 @@ class EntityAliasService:
         target_entity_id: str,
         alias: str,
         alias_type: str = "alias",
+        alias_kind: str | None = None,
         allow_canonical_source: bool = False,
     ) -> dict:
         """Resolve an entity as an alias, with an explicit canonical-source gate."""
@@ -1008,6 +1100,12 @@ class EntityAliasService:
         normalized_alias = " ".join(str(alias or "").strip().split())
         if not normalized_alias:
             raise DomainValidationError("Alias text cannot be empty")
+        alias_type = self._normalize_alias_type(alias_type or "alias")
+        resolved_kind = self._resolve_alias_kind(
+            alias_type,
+            alias_kind,
+            "canonical",
+        )
 
         target_content = dict(target.content_json or {})
         target_aliases = list(target_content.get("aliases", []))
@@ -1015,7 +1113,8 @@ class EntityAliasService:
         candidate_meta = dict((candidate.content_json or {}).get("_meta") or {})
         alias_payload = {
             "alias": normalized_alias,
-            "type": alias_type or "alias",
+            "type": alias_type,
+            "kind": resolved_kind,
             "status": "canonical",
             "needs_review": False,
             "reviewed_at": datetime.now(UTC).isoformat(),
@@ -1079,7 +1178,8 @@ class EntityAliasService:
         candidate_content["merged_at"] = datetime.now(UTC).isoformat()
         candidate_content["resolved_as"] = "alias"
         candidate_content["resolved_alias"] = normalized_alias
-        candidate_content["resolved_alias_type"] = alias_type or "alias"
+        candidate_content["resolved_alias_type"] = alias_type
+        candidate_content["resolved_alias_kind"] = resolved_kind
         await self.repo.update(
             db,
             candidate,
@@ -1124,6 +1224,7 @@ class EntityAliasService:
         *,
         alias: str,
         alias_type: str = "alias",
+        alias_kind: str | None = None,
         workflow_id: str | None = None,
         scene_id: str | None = None,
         scene_index: int | None = None,
@@ -1167,6 +1268,7 @@ class EntityAliasService:
                 enriched = self._candidate_alias_payload(
                     alias=normalized_alias,
                     alias_type=existing_type or alias_type or "alias",
+                    alias_kind=alias_kind or alias_item.get("kind"),
                     workflow_id=workflow_id,
                     scene_id=scene_id,
                     scene_index=scene_index,
@@ -1188,6 +1290,7 @@ class EntityAliasService:
             self._candidate_alias_payload(
                 alias=normalized_alias,
                 alias_type=alias_type,
+                alias_kind=alias_kind,
                 workflow_id=workflow_id,
                 scene_id=scene_id,
                 scene_index=scene_index,
