@@ -399,7 +399,7 @@ def test_production_database_image_is_explicitly_tagged_and_digest_pinned() -> N
     example = (DEPLOY_ROOT / ".env.production.example").read_text(encoding="utf-8")
     expected = (
         "docker.m.daocloud.io/pgvector/pgvector:0.8.6-pg17-bookworm@sha256:"
-        "7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+        "cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f"
     )
 
     assert f"image: ${{POSTGRES_IMAGE:-{expected}}}" in compose
