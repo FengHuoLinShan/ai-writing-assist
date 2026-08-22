@@ -3,7 +3,8 @@
     {
       "entity_ref": "entity-001",
       "alias": "周明瑞",
-      "alias_type": "name",
+      "alias_kind": "name",
+      "alias_type": "本名",
       "identity_scope": "durable",
       "identity_basis": "叙述将两个姓名明确归于同一人的记忆",
       "evidence_quotes": ["他记得自己叫周明瑞"],
@@ -14,6 +15,7 @@
     {
       "source_ref": "entity-001",
       "target_ref": "entity-002",
+      "relation_kind": "social",
       "relation_type": "sibling_of",
       "persistence_scope": "enduring",
       "directionality": "symmetric",

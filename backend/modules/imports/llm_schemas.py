@@ -17,6 +17,17 @@ from pydantic import (
     model_validator,
 )
 
+AliasKind = Literal["name", "title", "identity"]
+RelationKind = Literal[
+    "state",
+    "social",
+    "spatial",
+    "causal",
+    "temporal",
+    "epistemic",
+    "intentional",
+]
+
 _AI_WORLD_ENTITY_TYPES = {
     "character",
     "location",
@@ -633,14 +644,8 @@ class ExtractedAlias(BaseModel):
 
     entity_ref: str = Field(..., min_length=1)
     alias: str = Field(..., min_length=1)
-    alias_type: Literal[
-        "name",
-        "title",
-        "nickname",
-        "alias",
-        "translation",
-        "abbreviation",
-    ] = "alias"
+    alias_kind: AliasKind | None = None
+    alias_type: str = Field(default="alias", min_length=1, max_length=20)
     identity_scope: Literal["durable", "context_bound", "uncertain"]
     identity_basis: str = Field(..., min_length=1)
     evidence_quotes: list[str] = Field(..., min_length=1)
@@ -651,7 +656,7 @@ class ExtractedAlias(BaseModel):
     def _normalize_confidence(cls, value: Any) -> float:
         return _coerce_score(value)
 
-    @field_validator("alias", "identity_basis", mode="before")
+    @field_validator("alias", "alias_type", "identity_basis", mode="before")
     @classmethod
     def _normalize_text(cls, value: Any) -> str:
         return _coerce_short_text(value).strip()
@@ -669,6 +674,7 @@ class Phase2bRelationObservation(BaseModel):
 
     source_ref: str = Field(..., min_length=1)
     target_ref: str = Field(..., min_length=1)
+    relation_kind: RelationKind | None = None
     relation_type: str = Field(..., min_length=1)
     persistence_scope: Literal["enduring", "stateful", "episodic", "uncertain"]
     directionality: Literal["directed", "symmetric"]

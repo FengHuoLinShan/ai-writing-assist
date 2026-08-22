@@ -203,6 +203,13 @@ async def test_phase2b_prompt_keeps_full_scene_and_only_exposes_prompt_refs(
     assert "legacy-db-entity-index" not in user_text
     assert long_scene not in system_text
     assert "最多输出" not in user_text
+    assert "`alias_kind / relation_kind`" in system_text
+    assert "`alias_kind`: `name | title | identity`" in system_text
+    assert (
+        "`relation_kind`: `state | social | spatial | causal | temporal | "
+        "epistemic | intentional`"
+    ) in system_text
+    assert "正常输出的每个别名都必须同时包含非 null" in system_text
     assert "evidence_quotes` 必须是 JSON 字符串数组" in system_text
     assert "related_refs` 与 `evidence_quotes` 必须是 JSON 字符串数组" in system_text
 

@@ -610,6 +610,7 @@ class SceneEntityPersistenceMixin:
                         "candidate_payload": {
                             "source_ref": source_ref,
                             "target_ref": target_ref,
+                            "relation_kind": rel.relation_kind,
                             "relation_type": rel.relation_type,
                             "description": rel.description,
                             "strength": rel.strength,
@@ -621,6 +622,7 @@ class SceneEntityPersistenceMixin:
                     relation_payload: dict[str, Any] = {
                         "source_id": source_id,
                         "target_id": target_id,
+                        "relation_kind": rel.relation_kind,
                         "relation_type": rel.relation_type,
                         "description": rel.description,
                         "quote": evidence_quotes[0],

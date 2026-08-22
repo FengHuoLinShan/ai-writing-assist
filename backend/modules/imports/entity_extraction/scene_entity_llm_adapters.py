@@ -361,9 +361,10 @@ async def call_alias_relation_extraction(
             fix_prompt=(
                 "上一轮别名/关系抽取输出不是合法 JSON 或不符合 schema。"
                 "请从头重新输出一个完整 JSON 对象，顶层只包含 aliases、relations "
-                "和 uncertain_items。aliases 项只能使用 entity_ref、alias、alias_type、"
+                "和 uncertain_items。aliases 项只能使用 entity_ref、alias、alias_kind、"
+                "alias_type、"
                 "identity_scope、identity_basis、evidence_quotes、confidence；relations "
-                "项只能使用 source_ref、target_ref、relation_type、"
+                "项只能使用 source_ref、target_ref、relation_kind、relation_type、"
                 "persistence_scope、directionality、"
                 "claim_status、previous_relation_ref、description、strength、basis、"
                 "evidence_quotes、confidence；uncertain_items 项只能使用 kind、"

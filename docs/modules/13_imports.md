@@ -99,7 +99,7 @@ Phase 1c 仅在 `high_quality=true` 时运行：先按窗口批量审阅完整�
 - Phase 2a 及失败 Scene 修复完成后，`phase2_dedup` 只对本 workflow 新建、未编辑且仍为 candidate 的两端做语义融合。它复用 world 实体融合、语义/执行指纹、软合并和项目 LLM snapshot；`merge` / `alias_only` 在 `>= 0.80`、连通组无矛盾且输入/任务 owner 未漂移时才按组自动应用。provider/格式失败、低置信、冲突或并发变化只降级保留原候选，不阻断 Phase 2b。
 - Phase 2 Scene 实体抽取实现位于 `entity_extraction/` 子包；`modules.imports.entity_extraction` 是稳定公共导出入口，旧顶层 `scene_entity_extraction.py` 兼容 hub 已删除。
 - Phase 2a 路由选择集中在 `entity_extraction/scene_entity_strategy.py`，只决定 empty、small-sample parallel、bulk、batched 或 checkpoint resume；LLM 调用、persistence、checkpoint、prompt、timeout 和返回契约仍由子包内执行模块负责。
-- Phase 2b 复用 Phase 2a 的完整精确 Scene activation，并加入冻结的既有对象与关系引用，补抽别名和关系连续性；这是关系/新别名的唯一 LLM 阶段。它不裁剪输入，失败只降级，不丢弃已抽取对象。
+- Phase 2b 复用 Phase 2a 的完整精确 Scene activation，并加入冻结的既有对象与关系引用，补抽别名和关系连续性；这是关系/新别名的唯一 LLM 阶段。P14 v4 为每个别名输出 `name / title / identity` 最小主类与自定义精确 `alias_type`，为每个关系输出 `state / social / spatial / causal / temporal / epistemic / intentional` 最小主类与精确 `relation_type`。新 kind 对 v3 历史输出保持可空，v4 正常输出必须同时提供两层。该阶段不裁剪输入，失败只降级，不丢弃已抽取对象。
 - 大量 Scene 在 Phase 2a 以 Scene 为并发单元调用 LLM，再按 `scene_index`
   串行持久化；每个请求包含当前 Scene 完整精确正文、锁定 Scene 卡、相关 active
   working 大纲、服务端身份候选和前序证据，不带后续 Scene。直接提及候选全部保留，
@@ -243,7 +243,7 @@ persistence` 单一路径。默认 LLM 并发 25，provider/LLM 超时为 240/27
 结构化输出上限 32768；单波出现 429，或至少两个连接/超时失败时逐波减半降载，
 schema、partial-list 等格式诊断不参与降载。工作流的 `end_chapter` 作为可见硬截止，
 跨章 Scene 只装载截止章/offset 以前的精确 span。checkpoint 记录 activation
-version、Prompt contract version、来源数量和包含完整上下文的输入指纹。`import-context-v2` 不把输入预算用于裁剪
+version、Prompt contract version、来源数量和包含完整上下文的输入指纹。P14 v4 版本变化会使缺少新 kind 或指纹不匹配的旧 checkpoint 按 fail-safe 重新执行。`import-context-v2` 不把输入预算用于裁剪
 Scene 正文；身份只能引用 `entity-xxx`，逐字证据、引用存在性与类型一致性由确定性
 materializer 校验；可见 SceneSpan 不精确或覆盖不完整时不发送部分正文。模型输出不包含持久化动作或审核状态，provider 调用期间不持有数据库事务。Phase 2b
 在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。DeepSeek 下 Phase 2a/2b 普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。

@@ -240,7 +240,7 @@ async def test_prepare_snapshots_exact_sources_and_consumes_confirmation(
     assert scene_manifest["semantic_fingerprint"]
     assert scene_manifest["source_text_hash"]
     assert scene_manifest["context_fingerprint"]
-    assert scene_manifest["prompt_contract_version"].endswith("v3")
+    assert scene_manifest["prompt_contract_version"].endswith("v4")
     assert manifest["confirmation_fingerprint"]
     assert manifest["llm_profile_hash"] == "profile-1"
     assert service.text not in repr(manifest)

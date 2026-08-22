@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import pytest_asyncio
+from pydantic import ValidationError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -386,7 +387,8 @@ def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
                 {
                     "entity_ref": "entity-001",
                     "alias": "周明瑞",
-                    "alias_type": "name",
+                    "alias_kind": "name",
+                    "alias_type": "本名",
                     "identity_scope": "durable",
                     "identity_basis": "明确自称",
                     "evidence_quotes": ["我叫周明瑞"],
@@ -395,7 +397,8 @@ def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
                 {
                     "entity_ref": "entity-002",
                     "alias": "妹妹",
-                    "alias_type": "nickname",
+                    "alias_kind": "title",
+                    "alias_type": "亲属称谓",
                     "identity_scope": "context_bound",
                     "identity_basis": "亲属称呼",
                     "evidence_quotes": ["妹妹梅丽莎"],
@@ -406,6 +409,7 @@ def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
                 {
                     "source_ref": "entity-001",
                     "target_ref": "entity-002",
+                    "relation_kind": "social",
                     "relation_type": "sibling",
                     "persistence_scope": "enduring",
                     "directionality": "symmetric",
@@ -420,10 +424,13 @@ def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
         }
     )
 
-    assert output.aliases[0].alias_type == "name"
+    assert output.aliases[0].alias_kind == "name"
+    assert output.aliases[0].alias_type == "本名"
     assert output.aliases[0].confidence == 0.85
-    assert output.aliases[1].alias_type == "nickname"
+    assert output.aliases[1].alias_kind == "title"
+    assert output.aliases[1].alias_type == "亲属称谓"
     assert output.aliases[1].confidence == 0.9
+    assert output.relations[0].relation_kind == "social"
     assert output.relations[0].strength == 0.8
 
     tolerant_output = AliasRelationExtractionOutput.model_validate(
@@ -432,6 +439,78 @@ def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
     assert tolerant_output.aliases == []
     assert tolerant_output.relations == []
     assert tolerant_output.uncertain_items == []
+
+
+def test_alias_relation_schema_keeps_kinds_nullable_for_legacy_outputs() -> None:
+    alias = ExtractedAlias(
+        entity_ref="entity-001",
+        alias="青姐",
+        alias_type="昵称",
+        identity_scope="durable",
+        identity_basis="正文明确指向",
+        evidence_quotes=["人们都叫她青姐"],
+        confidence=0.9,
+    )
+    relation = Phase2bRelationObservation(
+        source_ref="entity-001",
+        target_ref="entity-002",
+        relation_type="ally_of",
+        persistence_scope="enduring",
+        directionality="symmetric",
+        claim_status="established",
+        description="双方结盟",
+        basis="正文明确结盟",
+        evidence_quotes=["两人结为盟友"],
+        confidence=0.9,
+    )
+
+    assert alias.alias_kind is None
+    assert relation.relation_kind is None
+
+
+@pytest.mark.parametrize("alias_type", ["", "超" * 21])
+def test_alias_relation_schema_rejects_invalid_custom_alias_type(
+    alias_type: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        ExtractedAlias(
+            entity_ref="entity-001",
+            alias="青姐",
+            alias_kind="name",
+            alias_type=alias_type,
+            identity_scope="durable",
+            identity_basis="正文明确指向",
+            evidence_quotes=["人们都叫她青姐"],
+            confidence=0.9,
+        )
+
+
+def test_alias_relation_schema_rejects_unknown_minimal_kinds() -> None:
+    with pytest.raises(ValidationError):
+        ExtractedAlias(
+            entity_ref="entity-001",
+            alias="青姐",
+            alias_kind="semantic_variant",  # type: ignore[arg-type]
+            alias_type="昵称",
+            identity_scope="durable",
+            identity_basis="正文明确指向",
+            evidence_quotes=["人们都叫她青姐"],
+            confidence=0.9,
+        )
+    with pytest.raises(ValidationError):
+        Phase2bRelationObservation(
+            source_ref="entity-001",
+            target_ref="entity-002",
+            relation_kind="neutral",  # type: ignore[arg-type]
+            relation_type="ally_of",
+            persistence_scope="enduring",
+            directionality="symmetric",
+            claim_status="established",
+            description="双方结盟",
+            basis="正文明确结盟",
+            evidence_quotes=["两人结为盟友"],
+            confidence=0.9,
+        )
 
 
 def test_alias_relation_total_timeout_scales_for_large_scene_sets(
@@ -876,7 +955,7 @@ async def test_phase2b_v2_snapshot_stores_full_prompt_payload_and_audit_sources(
     }
     full_text = "全文起点" + ("正文" * 3_000) + "全文终点"
     bundle = {
-        "prompt_contract_version": "alias-relation-extraction-v3",
+        "prompt_contract_version": "alias-relation-extraction-v4",
         "context_fingerprint": "context-fingerprint",
         "identity_candidates": [
             {"prompt_ref": "entity-001", "name": "克莱恩", "aliases": []}
