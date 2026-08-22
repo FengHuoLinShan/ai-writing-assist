@@ -197,7 +197,9 @@ def _migrate_aliases(*, remove_kind: bool) -> None:
         sa.column("id"),
         sa.column("content_json", sa.JSON()),
     )
-    rows = bind.execute(sa.select(entities.c.id, entities.c.content_json)).mappings()
+    rows = list(
+        bind.execute(sa.select(entities.c.id, entities.c.content_json)).mappings()
+    )
     for row in rows:
         content = _content_dict(row["content_json"])
         if content is None or not isinstance(content.get("aliases"), list):

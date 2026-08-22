@@ -34,6 +34,7 @@ _EXTRACTION_ALIAS_PLACEHOLDERS = frozenset(
     }
 )
 
+
 def entity_key(entity_type: str, name: str) -> tuple[str, str]:
     return (entity_type.strip().lower(), " ".join(name.strip().lower().split()))
 
@@ -429,6 +430,7 @@ class SceneEntityPersistenceMixin:
                     entity_id,
                     alias=normalized_alias,
                     alias_type=alias.alias_type,
+                    alias_kind=alias.alias_kind,
                     workflow_id=workflow_id,
                     scene_id=scene_id,
                     scene_index=scene_index,
@@ -1020,6 +1022,7 @@ class SceneEntityPersistenceMixin:
             ingest_delta_events,
             replace_scene_memory_events,
         )
+
         ingest_events: list[MemoryDeltaEventIngest] = []
         for event in delta_events or []:
             event_meta = event.meta or {}

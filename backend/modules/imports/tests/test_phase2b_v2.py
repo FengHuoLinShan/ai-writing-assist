@@ -276,6 +276,7 @@ async def test_materializer_exact_quotes_symmetric_sort_and_review_meta() -> Non
         "snapshot-1"
     )
     assert "alias_kind" not in append_alias.await_args.kwargs["review_meta"]
+    assert append_alias.await_args.kwargs["alias_kind"] == "title"
     payload = create_relation.await_args.args[2]
     assert [payload["source_id"], payload["target_id"]] == ["entity-a", "entity-z"]
     assert "strength" not in payload

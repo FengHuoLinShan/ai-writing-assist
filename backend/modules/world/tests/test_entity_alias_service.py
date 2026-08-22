@@ -346,9 +346,11 @@ async def test_create_alias_adds_to_content_json(
     assert result["entity_id"] == str(entity.id)
     assert result["alias"] == "Art"
     assert result["alias_type"] == "nickname"
+    assert result["alias_kind"] == "name"
     stored = entity.content_json["aliases"][0]
     assert stored["alias"] == "Art"
     assert stored["type"] == "nickname"
+    assert stored["kind"] == "name"
     assert stored["status"] == "confirmed"
     assert stored["source"] == "manual"
     assert stored["needs_review"] is False
@@ -380,6 +382,7 @@ async def test_create_alias_appends_to_existing_content_json(
     stored = entity.content_json["aliases"][1]
     assert stored["alias"] == "King Arthur"
     assert stored["type"] == "title"
+    assert stored["kind"] == "title"
     assert stored["status"] == "confirmed"
     db.flush.assert_awaited_once()
 
@@ -533,6 +536,7 @@ async def test_edit_alias_renames_type_and_confirms_review_preserving_provenance
     updated = entity.content_json["aliases"][0]
     assert updated["alias"] == "King Arthur"
     assert updated["type"] == "title"
+    assert updated["kind"] == "title"
     assert updated["status"] == "canonical"
     assert updated["needs_review"] is False
     assert updated["source"] == "deep_import"

@@ -8,7 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError
+from core.errors import NotFoundError, ValidationError
 from modules.world.repositories import CoreEntityRepository, EntityRelationRepository
 from modules.world.schemas import (
     EntityAliasReviewBatchRequest,
@@ -17,14 +17,33 @@ from modules.world.schemas import (
 )
 from modules.world.services.core.entity_alias_service import EntityAliasService
 from modules.world.services.core.entity_relation_service import EntityRelationService
-from modules.world.services.core.review_queue import review_type_catalog
+from modules.world.services.core.review_queue import (
+    default_alias_kind,
+    default_relation_kind,
+    review_type_catalog,
+)
 from modules.world.tests.helpers import _create_project
 
 
 def test_review_type_catalog_keeps_custom_values_open() -> None:
     catalog = review_type_catalog()
 
+    assert catalog["version"] == 2
     assert catalog["custom_allowed"] is True
+    assert {item["value"] for item in catalog["relation_kinds"]} == {
+        "state",
+        "social",
+        "spatial",
+        "causal",
+        "temporal",
+        "epistemic",
+        "intentional",
+    }
+    assert {item["value"] for item in catalog["alias_kinds"]} == {
+        "name",
+        "title",
+        "identity",
+    }
     assert {item["value"] for item in catalog["alias_types"]} == {
         "name",
         "title",
@@ -37,6 +56,66 @@ def test_review_type_catalog_keeps_custom_values_open() -> None:
         item for item in catalog["relation_types"] if item["value"] == "sibling_of"
     )
     assert "兄妹" in sibling["synonyms"]
+    assert sibling["default_kind"] == "social"
+    assert (
+        next(item for item in catalog["alias_types"] if item["value"] == "title")[
+            "default_kind"
+        ]
+        == "title"
+    )
+
+
+@pytest.mark.parametrize(
+    ("detail_type", "expected"),
+    [
+        ("member_of", "social"),
+        ("located_at", "spatial"),
+        ("causes", "causal"),
+        ("sequence_progression", "temporal"),
+        ("knows_about", "epistemic"),
+        ("seeks", "intentional"),
+        ("related_to", "state"),
+        ("未收录关系", None),
+    ],
+)
+def test_relation_kind_defaults_are_deterministic(
+    detail_type: str, expected: str | None
+) -> None:
+    assert default_relation_kind(detail_type) == expected
+
+
+@pytest.mark.parametrize(
+    ("detail_type", "expected"),
+    [
+        ("nickname", "name"),
+        ("尊称", "title"),
+        ("穿越前身份", "identity"),
+        ("未收录别名类型", None),
+    ],
+)
+def test_alias_kind_defaults_are_deterministic(
+    detail_type: str, expected: str | None
+) -> None:
+    assert default_alias_kind(detail_type) == expected
+
+
+def test_explicit_kind_wins_and_custom_canonical_requires_kind() -> None:
+    assert (
+        EntityRelationService._resolve_relation_kind("member_of", "causal", "canonical")
+        == "causal"
+    )
+    assert (
+        EntityAliasService._resolve_alias_kind("nickname", "identity", "canonical")
+        == "identity"
+    )
+    assert (
+        EntityRelationService._resolve_relation_kind("自定义", None, "candidate") is None
+    )
+    assert EntityAliasService._resolve_alias_kind("自定义", None, "candidate") is None
+    with pytest.raises(ValidationError, match="relation_kind is required"):
+        EntityRelationService._resolve_relation_kind("自定义", None, "canonical")
+    with pytest.raises(ValidationError, match="alias_kind is required"):
+        EntityAliasService._resolve_alias_kind("自定义", None, "canonical")
 
 
 def test_review_batch_schemas_reject_unconfirmed_duplicate_and_blank_values() -> None:
@@ -1422,6 +1501,57 @@ async def test_alias_review_preserves_custom_type_and_ignore_keeps_history(
     assert historical["status"] == "ignored"
     assert historical["needs_review"] is False
     assert historical["review_history"][0]["review_action"] == "alias_review_ignored"
+
+
+@pytest.mark.asyncio
+async def test_alias_review_requires_kind_only_when_accepting_unknown_detail(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    entity = await CoreEntityRepository().create_raw(
+        db_session,
+        novel_id=uuid.UUID(hex=novel_id),
+        entity_type="character",
+        name="源对象",
+        content_json={
+            "aliases": [
+                {
+                    "alias": "镜中人",
+                    "type": "镜中身份",
+                    "status": "candidate",
+                    "needs_review": True,
+                }
+            ]
+        },
+    )
+    service = EntityAliasService(context_marker=AsyncMock(return_value=0))
+    member = (await service.list_review_groups(db_session, novel_id)).groups[0].members[0]
+
+    def request(alias_kind: str | None = None) -> EntityAliasReviewBatchRequest:
+        decision = {
+            "client_decision_id": f"accept-{alias_kind or 'missing'}",
+            "action": "accept",
+            "entity_id": str(entity.id),
+            "original_alias": member.alias,
+            "expected_execution_fingerprint": member.execution_fingerprint,
+        }
+        if alias_kind:
+            decision["alias_kind"] = alias_kind
+        return EntityAliasReviewBatchRequest.model_validate(
+            {"confirmed": True, "decisions": [decision]}
+        )
+
+    failed = await service.review_batch(db_session, novel_id, request())
+    assert failed.failed_count == 1
+    await db_session.refresh(entity)
+    assert entity.content_json["aliases"][0]["status"] == "candidate"
+
+    accepted = await service.review_batch(db_session, novel_id, request("identity"))
+    assert accepted.succeeded_count == 1
+    await db_session.refresh(entity)
+    assert entity.content_json["aliases"][0]["kind"] == "identity"
+    assert entity.content_json["aliases"][0]["type"] == "镜中身份"
 
 
 @pytest.mark.asyncio

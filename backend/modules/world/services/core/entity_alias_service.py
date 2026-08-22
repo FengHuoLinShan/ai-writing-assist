@@ -987,7 +987,7 @@ class EntityAliasService:
         )
         next_kind = self._resolve_alias_kind(
             next_type,
-            alias_kind or self._stored_alias_kind(old_item),
+            alias_kind or (old_item.get("kind") if isinstance(old_item, dict) else None),
             next_status,
         )
 

@@ -296,7 +296,7 @@ class TestFacade:
             novel_id,
             WorldEntityCreate(entity_type="location", name="B"),
         )
-        await rel_service.create(
+        relation = await rel_service.create(
             db_session,
             novel_id,
             EntityRelationCreate(
@@ -305,6 +305,7 @@ class TestFacade:
                 relation_type="ally_of",
             ),
         )
+        assert relation.relation_kind == "social"
 
         related = await expand_related_entities(
             db_session,
