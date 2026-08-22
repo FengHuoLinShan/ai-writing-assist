@@ -1557,6 +1557,7 @@ async def test_entity_fusion_fingerprint_inputs_are_batch_loaded(
                 source_id=parsed_ids[index],
                 target_id=parsed_ids[index + 1],
                 relation_type="knows",
+                relation_kind="epistemic",
                 status="canonical",
             )
             for index in range(len(parsed_ids) - 1)

@@ -1,5 +1,5 @@
 /**
- * useWorldReview 测试 — 候选分组/动作可见性/证据模型/批量复核/决策模态。
+ * useWorldReview 测试 — 候选分组/动作可见性/证据模型/批量复核/审阅决策。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 
@@ -8,6 +8,10 @@ vi.mock("../../../../shared/referencePicker.js", () => ({
 }))
 
 import {
+  acceptAliasReviewDecision,
+  acceptAliasReviewItem,
+  acceptRelationReviewDecision,
+  acceptRecommendedRelation,
   applyAliasReviewBatch,
   applyRelationReviewBatch,
   candidateActionLabel,
@@ -15,12 +19,15 @@ import {
   changeReviewPage,
   groupSimilarNameCandidates,
   inlineEvidencePairs,
+  persistAliasReviewDecision,
+  persistRelationReviewDecision,
+  prepareAliasReviewDecision,
+  prepareRelationReviewDecision,
   reviewEvidenceSummary,
+  recommendedRelationDecision,
   reviewTypeLabel,
   runReviewBulkAction,
   showAliasReviewEditForm,
-  showAliasReviewDecisionForm,
-  showRelationGroupReviewForm,
   showRelationReviewEditForm,
   splitCandidateGroups,
   syncReviewRegistry,
@@ -39,6 +46,7 @@ let routerMock
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  sessionStorage.clear()
   resetWorldSession()
   navigateMock = vi.fn()
   toastMock = vi.fn()
@@ -67,8 +75,10 @@ beforeEach(() => {
     relationGroups: [],
     relations: [],
     reviewTypeCatalog: {
-      alias_types: [{ value: "name", label: "名称" }],
-      relation_types: [{ value: "friend_of", label: "朋友" }],
+      alias_kinds: [{ value: "name", label: "名称", description: "名称变化" }],
+      alias_types: [{ value: "name", label: "名称", default_kind: "name" }],
+      relation_kinds: [{ value: "social", label: "社会/组织", description: "社会联系" }],
+      relation_types: [{ value: "friend_of", label: "朋友", default_kind: "social" }],
     },
   })
 })
@@ -150,19 +160,20 @@ describe("证据模型", () => {
   })
 
   it("reviewTypeLabel 命中目录", () => {
-    expect(reviewTypeLabel("relation", "friend_of")).toBe("朋友 (friend_of)")
-    expect(reviewTypeLabel("alias", "unknown_type")).toBe("unknown_type")
+    expect(reviewTypeLabel("relation", "friend_of")).toBe("朋友")
+    expect(reviewTypeLabel("alias", "unknown_type")).toBe("unknown_type（自定义）")
   })
 })
 
 describe("changeReviewPage", () => {
   it("候选分页 navigate candidateQuery；越界不动", () => {
     changeReviewPage("candidates", 1, { skip: 0, limit: 20 }, 50)
-    expect(navigateMock).toHaveBeenCalledWith("world", "review-objects", true, expect.objectContaining({
+    expect(navigateMock).toHaveBeenCalledWith("world", "review", true, expect.objectContaining({
       get: expect.any(Function),
     }))
     const query = navigateMock.mock.calls[0][3]
     expect(query.get("page")).toBe("2")
+    expect(query.get("kind")).toBe("objects")
 
     navigateMock.mockClear()
     changeReviewPage("candidates", -1, { skip: 0, limit: 20 }, 50)
@@ -170,7 +181,7 @@ describe("changeReviewPage", () => {
   })
 })
 
-describe("决策模态", () => {
+describe("审阅决策", () => {
   it.each([
     [
       "别名",
@@ -188,7 +199,7 @@ describe("决策模态", () => {
           id: "r1",
           source_id: "e1",
           target_id: "e2",
-          relation_type: "friend_of",
+          relation_kind: "social", relation_type: "friend_of",
         }] })
         showRelationReviewEditForm("r1")
       },
@@ -214,7 +225,7 @@ describe("决策模态", () => {
         id: "r1",
         source_id: "e1",
         target_id: "e2",
-        relation_type: "friend_of",
+        relation_kind: "social", relation_type: "friend_of",
       }] })
       showRelationReviewEditForm("r1")
     }],
@@ -228,137 +239,193 @@ describe("决策模态", () => {
     expect(toastMock).toHaveBeenCalledWith("请求失败", "error")
   })
 
-  it("showAliasReviewDecisionForm 保存草稿到 session 并清错误", async () => {
-    syncReviewRegistry({
-      aliases: [{ entity_id: "e1", alias: "旧港", alias_type: "name", confidence: 0.8 }],
-      reviewTypeCatalog: { alias_types: [{ value: "name", label: "名称" }] },
-    })
+  it("就地别名决策提交单条内容并清草稿", async () => {
+    const alias = { entity_id: "e1", entity_name: "沉钟港", alias: "旧港", alias_kind: "name", alias_type: "name", confidence: 0.8, execution_fingerprint: "fp" }
     worldSession.aliasReviewErrors["e1::旧港"] = "旧错误"
-    showAliasReviewDecisionForm("e1", "旧港")
-    expect(modalCalls).toHaveLength(1)
-    expect(modalCalls[0].title).toBe("准备别名复核决策")
-    document.body.innerHTML = modalCalls[0].html
-    document.getElementById("alias-target-id").value = "e1"
-    document.getElementById("alias-edit-text").value = "旧港"
-    document.getElementById("alias-edit-type").value = "name"
-    await modalCalls[0].buttons[0].handler()
-    expect(worldSession.aliasReviewDrafts["e1::旧港"]).toEqual({
-      target_entity_id: "e1",
-      alias: "旧港",
-      alias_type: "name",
-    })
+    persistAliasReviewDecision(alias, { target_entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", _kind_explicit: true })
+    await acceptAliasReviewDecision(alias, { target_entity_id: "e1", target_entity_name: "沉钟港", alias: "旧港", alias_kind: "name", alias_type: "name" })
+    expect(apiMock.world.reviewAliasesBatch).toHaveBeenCalledWith(expect.objectContaining({
+      decisions: [expect.objectContaining({ action: "accept", target_entity_id: "e1", alias: "旧港" })],
+    }), "p-rev")
+    expect(worldSession.aliasReviewDrafts["e1::旧港"]).toBeUndefined()
     expect(worldSession.aliasReviewErrors["e1::旧港"]).toBeUndefined()
-    expect(routerMock.refresh).not.toHaveBeenCalled()
+    expect(routerMock.refresh).toHaveBeenCalled()
   })
 
-  it("关系预览把对象名和描述作为纯文本", () => {
-    const payload = '<img data-review-payload src="x" onerror="alert(1)">'
-    setBridgeOverrides({
-      showModalHtml: (title, html, buttons, options) => {
-        modalCalls.push({ title, html, buttons, options })
-        document.body.innerHTML = html
-      },
-    })
-    syncReviewRegistry({
-      relationGroups: [{
-        group_id: "group-xss",
-        source_id: "source-1",
-        source_name: payload,
-        target_id: "target-1",
-        target_name: "目标对象",
-        execution_fingerprint: "fp-xss",
-        members: [{
-          id: "relation-1",
-          source_id: "source-1",
-          target_id: "target-1",
-          relation_type: "friend_of",
-          description: payload,
-          strength: 0.5,
-        }],
-        canonical_relations: [],
-      }],
-      reviewTypeCatalog: {
-        relation_types: [{ value: "friend_of", label: "朋友" }],
-      },
-    })
+  it("指纹变化时废弃旧别名草稿并要求重新核对", () => {
+    sessionStorage.setItem("novel_world_review_draft:p-rev:alias:e1::旧港", JSON.stringify({
+      expected_execution_fingerprint: "old",
+      target_entity_id: "e1",
+      alias: "旧港湾",
+      alias_type: "name",
+    }))
+    const alias = { entity_id: "e1", alias: "旧港", alias_type: "name", execution_fingerprint: "new" }
+    const prepared = prepareAliasReviewDecision(alias)
 
-    showRelationGroupReviewForm("group-xss")
-
-    const preview = document.getElementById("relation-review-preview")
-    expect(preview?.querySelector("[data-review-payload]")).toBeNull()
-    expect(preview?.textContent).toContain(payload)
+    expect(prepared.stale).toBe(true)
+    expect(prepared.draft.alias).toBe("旧港")
+    expect(worldSession.aliasReviewErrors["e1::旧港"]).toContain("内容已变化")
+    expect(worldSession.aliasReviewDrafts["e1::旧港"]).toBeUndefined()
+    expect(sessionStorage.getItem("novel_world_review_draft:p-rev:alias:e1::旧港")).toBeNull()
   })
 
-  it("关系对象搜索只允许最新响应更新选择", async () => {
-    const untrustedName = '<img data-review-search-payload src="x" onerror="alert(1)">'
-    let resolveOlder
-    let resolveLatest
-    const olderResponse = new Promise((resolve) => { resolveOlder = resolve })
-    const latestResponse = new Promise((resolve) => { resolveLatest = resolve })
-    apiMock.world.listEntities = vi.fn()
-      .mockReturnValueOnce(olderResponse)
-      .mockReturnValueOnce(latestResponse)
-    setBridgeOverrides({
-      showModalHtml: (title, html, buttons, options) => {
-        modalCalls.push({ title, html, buttons, options })
-        document.body.innerHTML = html
-      },
+  it("关系首次进入保留字段建议但把两端留给作者一次配对", () => {
+    const group = {
+      group_id: "g-pair", source_id: "e1", target_id: "e2", execution_fingerprint: "fp-pair",
+      members: [{ id: "r1", relation_kind: "social", relation_type: "friend_of", description: "相识", strength: 0.7 }],
+    }
+
+    const prepared = prepareRelationReviewDecision(group)
+
+    expect(prepared).toMatchObject({
+      stale: false,
+      draft: { source_id: "", target_id: "", relation_kind: "social", relation_type: "friend_of", description: "相识", strength: 0.7 },
     })
-    syncReviewRegistry({
-      relationGroups: [{
-        group_id: "group-search",
-        source_id: "e-source",
-        source_name: "原始源对象",
-        target_id: "e-target",
-        target_name: "原始目标对象",
-        execution_fingerprint: "fp-search",
-        members: [{
-          id: "relation-search",
-          source_id: "e-source",
-          target_id: "e-target",
-          relation_type: "friend_of",
-          strength: 0.5,
-        }],
-        canonical_relations: [],
-      }],
-    })
-
-    showRelationGroupReviewForm("group-search")
-    const input = document.getElementById("relation-source-query")
-    const button = document.getElementById("relation-source-search")
-    const select = document.getElementById("relation-source-select")
-    Object.defineProperty(select, "innerHTML", { set: () => { throw new Error("HTML sink used") } })
-
-    input.value = "旧查询"
-    const olderSearch = button.onclick()
-    input.value = "新查询"
-    const latestSearch = button.onclick()
-    resolveLatest({ items: [{ id: "e-new", name: untrustedName, entity_type: "character", status: "canonical" }] })
-    await latestSearch
-    select.value = "e-new"
-
-    resolveOlder({ items: [{ id: "e-old", name: "旧源对象", entity_type: "character", status: "canonical" }] })
-    await olderSearch
-
-    expect(Array.from(select.options, (option) => option.value)).toContain("e-new")
-    expect(Array.from(select.options, (option) => option.value)).not.toContain("e-old")
-    expect(select.value).toBe("e-new")
-    expect(select.querySelector("[data-review-search-payload]")).toBeNull()
-    expect(select.selectedOptions[0].textContent).toContain(untrustedName)
-    await modalCalls[0].buttons[0].handler()
-    expect(worldSession.relationReviewDrafts["group-search"].source_id).toBe("e-new")
-    expect(routerMock.refresh).not.toHaveBeenCalled()
   })
+
+  it("关系配对草稿按指纹恢复，过期草稿会被清理", () => {
+    const group = {
+      group_id: "g-pair", source_id: "e1", target_id: "e2", execution_fingerprint: "fp-pair",
+      members: [{ id: "r1", relation_kind: "social", relation_type: "friend_of", strength: 0.7 }],
+    }
+    persistRelationReviewDecision(group, {
+      source_id: "e2", target_id: "e1", relation_kind: "social", relation_type: "friend_of", strength: 0.8,
+    })
+    expect(prepareRelationReviewDecision(group).draft).toMatchObject({ source_id: "e2", target_id: "e1", strength: 0.8 })
+
+    const changed = { ...group, execution_fingerprint: "fp-new" }
+    const prepared = prepareRelationReviewDecision(changed)
+    expect(prepared.stale).toBe(true)
+    expect(prepared.draft).toMatchObject({ source_id: "", target_id: "" })
+    expect(worldSession.relationReviewDrafts[changed.group_id]).toBeUndefined()
+  })
+
 })
 
 describe("批量复核", () => {
+  it("缺少别名分类时阻断直接采用并提示先分类", async () => {
+    const item = { entity_id: "e1", alias: "旧港", alias_type: "name", execution_fingerprint: "fp" }
+    await expect(acceptAliasReviewItem(item)).resolves.toBe(false)
+    expect(apiMock.world.reviewAliasesBatch).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith("请先选择别名分类", "warning")
+  })
+
+  it("别名草稿显式清空分类时不回退到原值", () => {
+    const item = { entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "fp" }
+    worldSession.aliasReviewDrafts["e1::旧港"] = {
+      alias_kind: "",
+      alias_type: "name",
+      expected_execution_fingerprint: "fp",
+    }
+
+    applyAliasReviewBatch([item], "accept")
+
+    expect(confirmCalls).toHaveLength(0)
+    expect(apiMock.world.reviewAliasesBatch).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith("所选别名中有待分类项，请先选择别名分类", "warning")
+  })
+
+  it("缺少关系分类时阻断推荐采用", () => {
+    const group = {
+      group_id: "g-missing-kind", source_id: "e1", target_id: "e2", execution_fingerprint: "fp",
+      members: [{ id: "r1", relation_type: "friend_of", strength: 0.5 }],
+    }
+    expect(acceptRecommendedRelation(group)).toBe(false)
+    expect(apiMock.world.reviewRelationsBatch).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith("请完成两个人物的配对，并选择关系分类和详细类型", "warning")
+  })
+
+  it.each(["merge", "accept_separately"])("缺少关系分类时阻断已准备的 %s 决策", (action) => {
+    const group = { group_id: `g-${action}`, execution_fingerprint: "fp", members: [{ id: "r1" }, { id: "r2" }] }
+    worldSession.relationReviewDrafts[group.group_id] = action === "merge"
+      ? { action, member_relation_ids: ["r1", "r2"], relation_type: "friend_of", expected_execution_fingerprint: "fp" }
+      : { action, member_relation_ids: ["r1", "r2"], separate_relations: [{ candidate_relation_id: "r1", relation_type: "friend_of" }], expected_execution_fingerprint: "fp" }
+    applyRelationReviewBatch([group])
+    expect(confirmCalls).toHaveLength(0)
+    expect(toastMock).toHaveBeenCalledWith("所选关系决策中有待分类项，请先选择关系分类", "warning")
+  })
+
+  it("关系批量不会用当前指纹重放过期草稿", () => {
+    const group = { group_id: "g-stale", execution_fingerprint: "new", members: [{ id: "r1" }] }
+    worldSession.relationReviewDrafts[group.group_id] = {
+      action: "accept",
+      member_relation_ids: ["r1"],
+      relation_kind: "social",
+      relation_type: "friend_of",
+      expected_execution_fingerprint: "old",
+    }
+
+    applyRelationReviewBatch([group])
+
+    expect(confirmCalls).toHaveLength(0)
+    expect(apiMock.world.reviewRelationsBatch).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith("所选关系的内容已变化，请重新打开并确认决策", "warning")
+  })
+
+  it("决策栏可直接采用当前别名", async () => {
+    const item = { entity_id: "e1", entity_name: "沉钟港", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "f".repeat(64) }
+    await acceptAliasReviewItem(item)
+    expect(apiMock.world.reviewAliasesBatch.mock.calls[0][0].decisions[0]).toMatchObject({
+      action: "accept", entity_id: "e1", target_entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name",
+    })
+    expect(routerMock.refresh).toHaveBeenCalled()
+  })
+
+  it("单条忽略别名后留下结果回执", async () => {
+    const item = { entity_id: "e1", entity_name: "沉钟港", alias: "旧港", execution_fingerprint: "f".repeat(64) }
+    apiMock.world.reviewAliasesBatch.mockResolvedValueOnce({
+      results: [{ client_decision_id: "alias-0-e1", status: "success" }],
+      succeeded_count: 1,
+    })
+    applyAliasReviewBatch([item], "ignore")
+    await confirmCalls[0].onConfirm()
+    expect(apiMock.world.reviewAliasesBatch.mock.calls[0][0].decisions[0]).toMatchObject({ action: "ignore", original_alias: "旧港" })
+    expect(worldSession.reviewReceipt).toMatchObject({ targetKey: "e1::旧港", title: "别名已完成" })
+  })
+
+  it("决策栏按建议合并同类证据并保留未选项", async () => {
+    const group = {
+      group_id: "g1", source_id: "e1", target_id: "e2", execution_fingerprint: "f".repeat(64),
+      members: [
+        { id: "r1", relation_kind: "social", relation_type: "friend_of", suggested_relation_type: "friend_of", description: "证据一", strength: 0.7 },
+        { id: "r2", relation_kind: "social", relation_type: "朋友", suggested_relation_type: "friend_of", description: "证据二", strength: 0.6 },
+        { id: "r3", relation_kind: "social", relation_type: "enemy_of", description: "其他候选", strength: 0.8 },
+      ],
+    }
+    expect(recommendedRelationDecision(group)).toMatchObject({
+      action: "merge", member_relation_ids: ["r1", "r2"], unselected_action: "keep_pending", relation_type: "friend_of",
+    })
+    acceptRecommendedRelation(group)
+    expect(confirmCalls[0].message).toContain("归并")
+    await confirmCalls[0].onConfirm()
+    expect(apiMock.world.reviewRelationsBatch.mock.calls[0][0].decisions[0]).toMatchObject({
+      action: "merge", member_relation_ids: ["r1", "r2"], unselected_action: "keep_pending",
+    })
+  })
+
+  it("决策栏并入已有正式关系前保留二次确认", async () => {
+    const group = {
+      group_id: "g-reuse", source_id: "e1", target_id: "e2", execution_fingerprint: "f".repeat(64),
+      canonical_relations: [{ id: "canonical-1", source_id: "e1", target_id: "e2", relation_type: "friend_of" }],
+      members: [{ id: "r1", relation_kind: "social", relation_type: "friend_of", description: "新证据", strength: 0.7 }],
+    }
+
+    acceptRecommendedRelation(group)
+
+    expect(confirmCalls).toHaveLength(1)
+    expect(confirmCalls[0].message).toContain("已有正式关系")
+    expect(apiMock.world.reviewRelationsBatch).not.toHaveBeenCalled()
+    await confirmCalls[0].onConfirm()
+    expect(apiMock.world.reviewRelationsBatch).toHaveBeenCalledTimes(1)
+  })
+
   it("别名批量：决策合成 + 成功清草稿与选择", async () => {
     const members = [
-      { entity_id: "e1", alias: "旧港", alias_type: "name", execution_fingerprint: "fp1" },
-      { entity_id: "e1", alias: "老港", alias_type: "nickname", execution_fingerprint: "fp2" },
+      { entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "fp1" },
+      { entity_id: "e1", alias: "老港", alias_kind: "name", alias_type: "nickname", execution_fingerprint: "fp2" },
     ]
     syncReviewRegistry({ aliases: members })
-    worldSession.aliasReviewDrafts["e1::旧港"] = { target_entity_id: "e1", alias: "旧港", alias_type: "name" }
+    worldSession.aliasReviewDrafts["e1::旧港"] = { target_entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", expected_execution_fingerprint: "fp1", _kind_explicit: true }
     toggleBulkSelection("world-aliases", "e1::旧港", true)
     apiMock.world.reviewAliasesBatch = vi.fn(async () => ({
       results: [
@@ -382,6 +449,7 @@ describe("批量复核", () => {
       expected_execution_fingerprint: "fp1",
       target_entity_id: "e1",
     })
+    expect(payload.decisions[0]).not.toHaveProperty("_kind_explicit")
     expect(worldSession.aliasReviewDrafts["e1::旧港"]).toBeUndefined()
     expect(getBulkSelection("world-aliases").has("e1::旧港")).toBe(false)
     expect(worldSession.aliasReviewErrors["e1::老港"]).toContain("已过期")
@@ -421,7 +489,7 @@ describe("runReviewBulkAction 分派", () => {
   })
 
   it("world-aliases 选中后走 applyAliasReviewBatch", () => {
-    const members = [{ entity_id: "e1", alias: "旧港", execution_fingerprint: "fp" }]
+    const members = [{ entity_id: "e1", alias: "旧港", alias_kind: "name", alias_type: "name", execution_fingerprint: "fp" }]
     syncReviewRegistry({ aliases: members })
     toggleBulkSelection("world-aliases", "e1::旧港", true)
     runReviewBulkAction("world-aliases", "review-aliases-batch", members)

@@ -316,6 +316,24 @@ describe("shared modal accessibility", () => {
     expect(confirmSpy).toHaveBeenCalledOnce()
   })
 
+  it("tracks opt-in hidden wire values after refreshing a dynamic form", () => {
+    const confirmSpy = stubConfirm(false)
+    const body = document.createElement("div")
+    body.innerHTML = '<input id="target-id" type="hidden" data-modal-dirty-track value="e1">'
+    showModal("移动对象", body)
+    refreshModalFormBaseline()
+
+    expect(closeModal()).toBe(true)
+    expect(confirmSpy).not.toHaveBeenCalled()
+
+    showModal("移动对象", body)
+    refreshModalFormBaseline()
+    document.getElementById("target-id").value = "e2"
+
+    expect(closeModal()).toBe(false)
+    expect(confirmSpy).toHaveBeenCalledOnce()
+  })
+
   it("discards changed checkbox and select values only after confirmation", () => {
     const confirmSpy = stubConfirm(true)
     const body = document.createElement("div")

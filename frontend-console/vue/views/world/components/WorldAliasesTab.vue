@@ -41,7 +41,7 @@
             </th>
             <th>对象</th>
             <th>别名</th>
-            <th>类型</th>
+            <th>分类与类型</th>
             <th>状态</th>
             <th>来源</th>
             <th>置信度</th>
@@ -60,7 +60,10 @@
                 <div v-if="group.aliases.length > 1" class="world-text-dim" style="margin-top:4px;">{{ group.aliases.length }} 个别名</div>
               </td>
               <td>{{ a.alias }}</td>
-              <td>{{ typeLabelOf(a) }}</td>
+              <td>
+                <span class="badge" :class="a.alias_kind ? 'badge-canonical' : 'badge-candidate'">{{ kindLabel(reviewTypeCatalog, "alias", a.alias_kind) }}</span>
+                <div class="world-text-dim">{{ detailTypeLabel(reviewTypeCatalog, "alias", a.alias_type) }}</div>
+              </td>
               <td><span class="badge" :class="statusBadgeClassOf(a)">{{ statusLabelOf(a) }}</span></td>
               <td class="world-table-cell--muted">{{ sourceLabelOf(a) }}</td>
               <td>{{ a.confidence ? `${(a.confidence * 100).toFixed(0)}%` : "-" }}</td>
@@ -73,7 +76,10 @@
               <td>
                 <div class="row-actions">
                   <span v-if="a.managed_by_suggestion" class="world-text-dim">随对象建议处理</span>
-                  <button v-else class="btn btn-sm btn-danger" data-action="delete-alias" :data-entity-id="a.entity_id" :data-alias="a.alias" @click="onDeleteAlias(a.entity_id, a.alias)">删除</button>
+                  <template v-else>
+                    <button class="btn btn-sm" data-action="edit-alias" :data-entity-id="a.entity_id" :data-alias="a.alias" @click="onEditAlias(a.entity_id, a.alias)">编辑</button>
+                    <button class="btn btn-sm btn-danger" data-action="delete-alias" :data-entity-id="a.entity_id" :data-alias="a.alias" @click="onDeleteAlias(a.entity_id, a.alias)">删除</button>
+                  </template>
                 </div>
               </td>
             </tr>
@@ -97,9 +103,10 @@
 import { computed, watch } from "vue"
 import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
 import { worldSession as session } from "../worldSession.js"
-import { deleteAlias, inlineEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, aliasKey } from "../logic/worldRelationsAliasesOps.js"
+import { deleteAlias, inlineEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, aliasKey, showAliasEditForm } from "../logic/worldRelationsAliasesOps.js"
 import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
+import { detailTypeLabel, kindLabel } from "../logic/worldTypeCatalog.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldPager from "./WorldPager.vue"
 import WorldSelectionInput from "./WorldSelectionInput.vue"
@@ -109,11 +116,12 @@ const props = defineProps({
   aliases: { type: Array, default: () => [] },
   aliasesTotal: { type: Number, default: 0 },
   aliasesLoadError: { type: String, default: null },
+  reviewTypeCatalog: { type: Object, default: () => ({}) },
 })
 
 // 注册表同步
-watch(() => props.aliases, (items) => {
-  syncRelationsAliasesRegistry({ aliases: items })
+watch(() => [props.aliases, props.reviewTypeCatalog], ([items, reviewTypeCatalog]) => {
+  syncRelationsAliasesRegistry({ aliases: items, reviewTypeCatalog })
 }, { immediate: true, deep: true })
 
 // ---- 别名分组（对应 vanilla _groupAliasesByEntity） ----
@@ -143,14 +151,8 @@ const aliasIds = computed(() => (
 ))
 watch(aliasIds, (ids) => reconcileBulkSelection("world-aliases", ids), { immediate: true })
 
-const typeLabelMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
-
 function aliasKeyOf(a) {
   return aliasKey(a)
-}
-
-function typeLabelOf(a) {
-  return typeLabelMap[a.alias_type] || a.alias_type || "-"
 }
 
 function sourceLabelOf(a) {
@@ -175,6 +177,10 @@ function onDeleteAlias(entityId, alias) {
   deleteAlias(entityId, alias)
 }
 
+function onEditAlias(entityId, alias) {
+  showAliasEditForm(entityId, alias)
+}
+
 function onPageChange(delta) {
   const filters = session.aliasListFilters
   const newSkip = filters.skip + delta * filters.limit
@@ -190,6 +196,10 @@ function onBulkAction(action) {
   const items = selectedItemsFrom(props.aliases, selection, (a) => aliasKey(a))
   if (!items.length) {
     getToast()("请先选择要处理的项目", "warning")
+    return
+  }
+  if (action === "review-aliases" && items.some((item) => !item.alias_kind)) {
+    getToast()("所选别名中有待分类项，请先选择别名分类", "warning")
     return
   }
   const labelByAction = { "review-aliases": "批量采用", "delete-aliases": "批量删除" }

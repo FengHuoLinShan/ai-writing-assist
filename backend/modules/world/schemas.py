@@ -23,6 +23,17 @@ from modules.world.llm_schemas import (
     GeneratedWorldGenerationDecisionState,
 )
 
+RelationKind = Literal[
+    "state",
+    "social",
+    "spatial",
+    "causal",
+    "temporal",
+    "epistemic",
+    "intentional",
+]
+AliasKind = Literal["name", "title", "identity"]
+
 # ============================================================
 # 内部工具
 # ============================================================
@@ -117,6 +128,7 @@ class ExtractedRelationship(BaseModel):
         ...,
         description="关系类型（自由字符串）",
     )
+    relation_kind: RelationKind | None = None
     description: str | None = Field(
         None,
         description="关系描述",
@@ -892,6 +904,7 @@ class EntityRelationSuggestionPayload(BaseModel):
     source_id: str
     target_id: str
     relation_type: str = Field(..., min_length=1, max_length=64)
+    relation_kind: RelationKind | None = None
     description: str | None = None
     strength: float = Field(default=0.5, ge=0.0, le=1.0)
     source_chapter_id: str | None = None
@@ -911,7 +924,8 @@ class EntityAliasSuggestionPayload(BaseModel):
 
     entity_id: str
     alias: str = Field(..., min_length=1, max_length=255)
-    alias_type: str = Field(default="name", max_length=20)
+    alias_type: str = Field(default="name", min_length=1, max_length=20)
+    alias_kind: AliasKind | None = None
     source_chapter_index: int | None = Field(default=None, ge=0)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
@@ -1291,6 +1305,10 @@ class EntityRelationCreate(BaseModel):
         max_length=64,
         description="关系类型（自由字符串）",
     )
+    relation_kind: RelationKind | None = Field(
+        default=None,
+        description="最小语义关系类型",
+    )
     description: str | None = Field(
         None,
         description="关系描述",
@@ -1328,6 +1346,7 @@ class EntityRelationUpdate(BaseModel):
     """更新关系请求（所有字段可选）"""
 
     relation_type: Annotated[str | None, Field(None, max_length=64)]
+    relation_kind: RelationKind | None = None
     description: Annotated[str | None, Field(None)]
     strength: Annotated[float | None, Field(None, ge=0.0, le=1.0)]
     status: Annotated[str | None, Field(None, max_length=16)]
@@ -1339,6 +1358,7 @@ class EntityRelationReviewEditRequest(BaseModel):
     source_id: Annotated[str | None, Field(None)] = None
     target_id: Annotated[str | None, Field(None)] = None
     relation_type: Annotated[str | None, Field(None, min_length=1, max_length=64)] = None
+    relation_kind: RelationKind | None = None
     description: str | None = None
     strength: Annotated[float | None, Field(None, ge=0.0, le=1.0)] = None
     confirm_review: bool = True
@@ -1369,6 +1389,7 @@ class EntityRelationResponse(BaseModel):
     target_id: str
     target_name: str | None = None
     relation_type: str
+    relation_kind: RelationKind | None = None
     description: str | None = None
     strength: float = 0.5
     source_chapter_id: str | None = None
@@ -1427,11 +1448,20 @@ class ReviewTypeCatalogItem(BaseModel):
     label: str
     category: str
     synonyms: list[str] = Field(default_factory=list)
+    default_kind: str | None = None
+
+
+class ReviewKindCatalogItem(BaseModel):
+    value: str
+    label: str
+    description: str
 
 
 class ReviewTypeCatalogResponse(BaseModel):
-    version: int = 1
+    version: int = 2
     custom_allowed: bool = True
+    relation_kinds: list[ReviewKindCatalogItem] = Field(default_factory=list)
+    alias_kinds: list[ReviewKindCatalogItem] = Field(default_factory=list)
     relation_types: list[ReviewTypeCatalogItem] = Field(default_factory=list)
     alias_types: list[ReviewTypeCatalogItem] = Field(default_factory=list)
 
@@ -1471,11 +1501,31 @@ class EntityRelationReviewGroupListResponse(BaseModel):
     limit: int = 20
 
 
+class EntityRelationSeparateReviewItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_relation_id: str
+    source_id: str
+    target_id: str
+    relation_type: str = Field(..., min_length=1, max_length=64)
+    relation_kind: RelationKind | None = None
+    description: str | None = None
+    strength: float | None = Field(None, ge=0.0, le=1.0)
+
+    @field_validator("relation_type")
+    @classmethod
+    def normalize_relation_type(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("relation_type cannot be blank")
+        return normalized
+
+
 class EntityRelationReviewBatchDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     client_decision_id: str = Field(..., min_length=1, max_length=64)
-    action: Literal["accept", "merge", "ignore"]
+    action: Literal["accept", "merge", "ignore", "accept_separately"]
     group_id: str = Field(..., min_length=1, max_length=80)
     member_relation_ids: list[str] = Field(..., min_length=1, max_length=50)
     primary_relation_id: str | None = None
@@ -1483,8 +1533,14 @@ class EntityRelationReviewBatchDecision(BaseModel):
     source_id: str | None = None
     target_id: str | None = None
     relation_type: str | None = Field(None, min_length=1, max_length=64)
+    relation_kind: RelationKind | None = None
     description: str | None = None
     strength: float | None = Field(None, ge=0.0, le=1.0)
+    separate_relations: list[EntityRelationSeparateReviewItem] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    unselected_action: Literal["keep_pending", "ignore"] = "keep_pending"
 
     @field_validator("relation_type")
     @classmethod
@@ -1510,6 +1566,24 @@ class EntityRelationReviewBatchDecision(BaseModel):
                 raise ValueError("primary_relation_id must be selected")
             if not self.source_id or not self.target_id or not self.relation_type:
                 raise ValueError("accepted relation fields are required")
+        if self.action == "accept_separately":
+            if len(member_ids) < 2:
+                raise ValueError("accept_separately requires at least two relations")
+            separate_ids = [
+                item.candidate_relation_id for item in self.separate_relations
+            ]
+            if len(separate_ids) != len(set(separate_ids)):
+                raise ValueError("separate relation candidates must be unique")
+            if set(separate_ids) != set(member_ids):
+                raise ValueError("separate_relations must define every selected relation")
+            final_keys = [
+                (item.source_id, item.target_id, item.relation_type)
+                for item in self.separate_relations
+            ]
+            if len(final_keys) != len(set(final_keys)):
+                raise ValueError("separate relation final keys must be unique")
+        elif self.separate_relations:
+            raise ValueError("separate_relations requires accept_separately")
         return self
 
 
@@ -1546,6 +1620,10 @@ class ReviewBatchItemResult(BaseModel):
     action: str
     affected_ids: list[str] = Field(default_factory=list)
     canonical_relation_id: str | None = None
+    canonical_relation_ids: list[str] = Field(default_factory=list)
+    reused_canonical_relation_ids: list[str] = Field(default_factory=list)
+    ignored_relation_ids: list[str] = Field(default_factory=list)
+    remaining_candidate_ids: list[str] = Field(default_factory=list)
     archived_relation_ids: list[str] = Field(default_factory=list)
     error_code: str | None = None
     message: str | None = None
@@ -2129,7 +2207,10 @@ class EntityAliasCreate(BaseModel):
 
     entity_id: str = Field(..., description="所属核心实体 ID")
     alias: str = Field(..., min_length=1, max_length=255, description="别名文本")
-    alias_type: str = Field(default="name", max_length=20, description="别名类型")
+    alias_type: str = Field(
+        default="name", min_length=1, max_length=20, description="别名类型"
+    )
+    alias_kind: AliasKind | None = Field(default=None, description="最小语义别名类型")
     source_chapter_index: int | None = Field(None, ge=0, description="首次出现的章节索引")
     confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="确认置信度")
     status: str = Field(default="confirmed", max_length=32, description="状态")
@@ -2139,6 +2220,7 @@ class EntityAliasUpdate(BaseModel):
     """更新 core_entities.content_json.aliases 中单个别名的复核元数据。"""
 
     status: Annotated[str | None, Field(None, max_length=32)]
+    alias_kind: AliasKind | None = None
     needs_review: bool | None = None
     reviewed_at: Annotated[str | None, Field(None, max_length=64)]
     reviewed_by: Annotated[str | None, Field(None, max_length=64)]
@@ -2150,7 +2232,8 @@ class EntityAliasEditRequest(BaseModel):
 
     target_entity_id: Annotated[str | None, Field(None)] = None
     alias: Annotated[str | None, Field(None, min_length=1, max_length=255)] = None
-    alias_type: Annotated[str | None, Field(None, max_length=20)] = None
+    alias_type: Annotated[str | None, Field(None, min_length=1, max_length=20)] = None
+    alias_kind: AliasKind | None = None
     confirm_review: bool = True
 
 
@@ -2159,6 +2242,7 @@ class EntityAliasReviewItem(BaseModel):
     entity_name: str | None = None
     alias: str
     alias_type: str
+    alias_kind: AliasKind | None = None
     status: str | None = None
     source: str | None = None
     workflow_id: str | None = None
@@ -2204,6 +2288,7 @@ class EntityAliasReviewBatchDecision(BaseModel):
     target_entity_id: str | None = None
     alias: str | None = Field(None, min_length=1, max_length=255)
     alias_type: str | None = Field(None, min_length=1, max_length=20)
+    alias_kind: AliasKind | None = None
 
     @field_validator("alias_type")
     @classmethod
@@ -2244,7 +2329,10 @@ class EntityResolveAsAliasRequest(BaseModel):
 
     target_entity_id: str = Field(..., description="目标核心实体 ID")
     alias: str = Field(..., min_length=1, max_length=255, description="别名文本")
-    alias_type: str = Field(default="alias", max_length=20, description="别名类型")
+    alias_type: str = Field(
+        default="alias", min_length=1, max_length=20, description="别名类型"
+    )
+    alias_kind: AliasKind | None = None
 
 
 # ============================================================
@@ -4134,6 +4222,7 @@ class WorldAdoptionRelationPayload(BaseModel):
     source_ref: str = Field(..., min_length=1, max_length=128)
     target_ref: str = Field(..., min_length=1, max_length=128)
     relation_type: str = Field(..., min_length=1, max_length=64)
+    relation_kind: RelationKind | None = None
     description: str | None = Field(default=None, max_length=5000)
     operation: Literal["create", "promote", "existing_ref"] = "create"
     relation_id: str | None = None

@@ -44,6 +44,7 @@ export function createReferencePicker({
   maxItems = mode === "single" ? 1 : Infinity,
   initialItems = [],
   placeholder = "按名称搜索",
+  ariaLabel = placeholder,
   emptyText = "没有匹配的对象",
   debounceMs = DEFAULT_DEBOUNCE_MS,
   onChange = () => {},
@@ -95,6 +96,7 @@ export function createReferencePicker({
         <input class="form-input" data-reference-query type="search" autocomplete="off"
           role="combobox" aria-autocomplete="list" aria-expanded="false"
           aria-controls="${pickerId}-results"
+          aria-label="${escapeHtml(ariaLabel)}"
           placeholder="${escapeHtml(placeholder)}" />
         <div class="reference-picker__results" data-reference-results
           id="${pickerId}-results" role="listbox" hidden></div>

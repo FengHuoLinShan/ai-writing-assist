@@ -41,6 +41,14 @@ describe("referencePicker", () => {
     }))
   })
 
+  it("gives the search field an explicit accessible name", () => {
+    mount({ placeholder: "按名称搜索源对象", ariaLabel: "搜索源对象" })
+
+    const input = document.querySelector("[data-reference-query]")
+    expect(input.placeholder).toBe("按名称搜索源对象")
+    expect(input.getAttribute("aria-label")).toBe("搜索源对象")
+  })
+
   it("searches by name, disambiguates duplicate labels and keeps ids as values", async () => {
     const onChange = vi.fn()
     const picker = mount({ onChange })

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sqlalchemy import CheckConstraint
+
 from .common import (
     JSON,
     PG_UUID,
@@ -227,6 +229,16 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "entity_relations"
     __table_args__ = (
+        CheckConstraint(
+            "relation_kind IS NULL OR relation_kind IN "
+            "('state', 'social', 'spatial', 'causal', 'temporal', "
+            "'epistemic', 'intentional')",
+            name="ck_entity_relations_relation_kind",
+        ),
+        CheckConstraint(
+            "status <> 'canonical' OR relation_kind IS NOT NULL",
+            name="ck_entity_relations_canonical_kind",
+        ),
         Index(
             "ix_entity_relations_novel_status_source",
             "novel_id",
@@ -264,6 +276,11 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
         String(64),
         nullable=False,
         comment="关系类型（自由字符串）",
+    )
+    relation_kind: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="最小语义关系类型",
     )
     description: Mapped[str | None] = mapped_column(
         Text,

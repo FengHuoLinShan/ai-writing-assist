@@ -21,6 +21,7 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.core.review_queue import default_alias_kind
 
 _entity_service = WorldEntityService()
 _context_service = EntityContextService()
@@ -159,6 +160,7 @@ async def append_candidate_alias(
     *,
     alias: str,
     alias_type: str = "alias",
+    alias_kind: str | None = None,
     workflow_id: str | None = None,
     scene_id: str | None = None,
     scene_index: int | None = None,
@@ -173,6 +175,7 @@ async def append_candidate_alias(
         entity_id,
         alias=alias,
         alias_type=alias_type,
+        alias_kind=alias_kind,
         workflow_id=workflow_id,
         scene_id=scene_id,
         scene_index=scene_index,
@@ -283,11 +286,17 @@ def _normalize_deep_import_alias(
     if isinstance(alias_item, dict):
         raw_alias = alias_item.get("alias") or alias_item.get("name") or ""
         alias_type = alias_item.get("type") or alias_item.get("alias_type") or "alias"
+        alias_kind = (
+            alias_item.get("kind")
+            if "kind" in alias_item
+            else default_alias_kind(alias_type)
+        )
         quote = alias_item.get("quote")
         confidence = alias_item.get("confidence")
     else:
         raw_alias = alias_item
         alias_type = "alias"
+        alias_kind = default_alias_kind(alias_type)
         quote = None
         confidence = None
     alias_text = " ".join(str(raw_alias).strip().split())
@@ -296,6 +305,7 @@ def _normalize_deep_import_alias(
     return {
         "alias": alias_text,
         "type": alias_type,
+        "kind": alias_kind,
         "status": "candidate",
         "source": "deep_import",
         "workflow_id": meta.get("workflow_id"),
@@ -353,6 +363,7 @@ async def upsert_relation(
     target_id: str,
     relation_type: str,
     description: str | None = None,
+    relation_kind: str | None = None,
 ) -> EntityRelationResponse:
     return await _relation_service.upsert(
         db,
@@ -361,6 +372,7 @@ async def upsert_relation(
         target_id,
         relation_type,
         description=description,
+        relation_kind=relation_kind,
     )
 
 

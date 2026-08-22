@@ -687,6 +687,7 @@ class WorldAdoptionPackageService:
                     source_id=source_id,
                     target_id=target_id,
                     relation_type=payload.relation_type,
+                    relation_kind=payload.relation_kind,
                     description=payload.description,
                     status="canonical",
                     review_meta=self._provenance(
@@ -1157,6 +1158,7 @@ class WorldAdoptionPackageService:
         return {
             "id": str(relation.id),
             "status": relation.status,
+            "relation_kind": relation.relation_kind,
             "description": relation.description,
             "review_meta": relation.review_meta,
             "updated_at": relation.updated_at.isoformat()
@@ -1320,6 +1322,11 @@ class WorldAdoptionPackageService:
             raise ConflictError("Candidate relation changed; preview again")
         relation.review_meta = self._merge_provenance(
             relation.review_meta, package_id, item, manifest
+        )
+        relation.relation_kind = self._suggestions._relations._resolve_relation_kind(
+            payload.relation_type,
+            payload.relation_kind or relation.relation_kind,
+            "canonical",
         )
         relation.status = "canonical"
         await self._mark_context_changed(db, novel_id, {source_id, target_id})

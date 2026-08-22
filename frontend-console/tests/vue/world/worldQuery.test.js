@@ -8,6 +8,8 @@ import {
   WORLD_ALIAS_QUERY_KEYS,
   WORLD_CANDIDATE_FILTER_DEFAULTS,
   WORLD_OBJECT_QUERY_KEYS,
+  WORLD_RELATION_FILTER_DEFAULTS,
+  WORLD_RELATION_QUERY_KEYS,
   candidateFiltersFromQuery,
   candidateQueryFromState,
   filtersEqual,
@@ -21,12 +23,13 @@ import {
 } from "../../../vue/views/world/logic/worldQuery.js"
 
 describe("normalizeReviewSubView", () => {
-  it("candidates legacy 映射为 review-objects", () => {
-    expect(normalizeReviewSubView("candidates")).toBe("review-objects")
+  it("candidates legacy 映射为统一 review", () => {
+    expect(normalizeReviewSubView("candidates")).toBe("review")
   })
-  it("review 三兄弟原样保留，其他返回空串", () => {
-    expect(normalizeReviewSubView("review-aliases")).toBe("review-aliases")
-    expect(normalizeReviewSubView("review-relations")).toBe("review-relations")
+  it("新旧 review 路由均收敛到统一工作台", () => {
+    expect(normalizeReviewSubView("review")).toBe("review")
+    expect(normalizeReviewSubView("review-aliases")).toBe("review")
+    expect(normalizeReviewSubView("review-relations")).toBe("review")
     expect(normalizeReviewSubView("objects")).toBe("")
     expect(normalizeReviewSubView("bible")).toBe("")
     expect(normalizeReviewSubView("")).toBe("")
@@ -100,11 +103,43 @@ describe("query builders（编码与 vanilla 对齐）", () => {
     expect(first.get("view")).toBe("table")
   })
   it("candidateQueryFromState / reviewQueryFromState：page_size=50 回写", () => {
-    const cq = candidateQueryFromState({ ...WORLD_CANDIDATE_FILTER_DEFAULTS, skip: 0 })
+    const cq = candidateQueryFromState({ ...WORLD_CANDIDATE_FILTER_DEFAULTS, q: "港", skip: 0 })
     expect(cq.has("page")).toBe(false)
+    expect(cq.get("q")).toBe("港")
     const rq = reviewQueryFromState({ ...WORLD_ALIAS_FILTER_DEFAULTS, limit: 50, skip: 50 }, WORLD_ALIAS_QUERY_KEYS)
     expect(rq.get("page")).toBe("2")
     expect(rq.get("page_size")).toBe("50")
+  })
+  it("关系任务标签支持反向候选与已有正式关系", () => {
+    const query = reviewQueryFromState({
+      ...WORLD_RELATION_FILTER_DEFAULTS,
+      has_reverse_candidates: "true",
+      has_canonical_relation: "true",
+    }, WORLD_RELATION_QUERY_KEYS)
+    const roundTrip = reviewFiltersFromQuery(WORLD_RELATION_FILTER_DEFAULTS, WORLD_RELATION_QUERY_KEYS, query)
+    expect(roundTrip.has_reverse_candidates).toBe("true")
+    expect(roundTrip.has_canonical_relation).toBe("true")
+  })
+  it("别名与关系分类随 URL 往返，切换页面不丢失", () => {
+    const aliasQuery = reviewQueryFromState({
+      ...WORLD_ALIAS_FILTER_DEFAULTS,
+      alias_kind: "identity",
+      type_kind: "custom",
+      skip: 20,
+    }, WORLD_ALIAS_QUERY_KEYS)
+    const aliasRoundTrip = reviewFiltersFromQuery(WORLD_ALIAS_FILTER_DEFAULTS, WORLD_ALIAS_QUERY_KEYS, aliasQuery)
+    expect(aliasRoundTrip.alias_kind).toBe("identity")
+    expect(aliasRoundTrip.type_kind).toBe("custom")
+    expect(aliasRoundTrip.skip).toBe(20)
+
+    const relationQuery = reviewQueryFromState({
+      ...WORLD_RELATION_FILTER_DEFAULTS,
+      relation_kind: "epistemic",
+      relation_type: "knows_about",
+    }, WORLD_RELATION_QUERY_KEYS)
+    const relationRoundTrip = reviewFiltersFromQuery(WORLD_RELATION_FILTER_DEFAULTS, WORLD_RELATION_QUERY_KEYS, relationQuery)
+    expect(relationRoundTrip.relation_kind).toBe("epistemic")
+    expect(relationRoundTrip.relation_type).toBe("knows_about")
   })
   it("object 编解码往返一致", () => {
     const filters = { ...WORLD_FILTER_DEFAULTS, entity_type: "location", q: "港", skip: 20 }

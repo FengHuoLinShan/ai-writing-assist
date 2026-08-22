@@ -370,7 +370,7 @@ describe("页内视图控件", () => {
     expect(wrapper.find(".world-attention-menu").exists()).toBe(false)
 
     await review.trigger("click")
-    expect(navigateMock).toHaveBeenCalledWith("world", "review-objects")
+    expect(navigateMock).toHaveBeenCalledWith("world", "review", true, expect.any(URLSearchParams))
   })
 
   it("卡片/表格只切本地呈现并同步 query，不重挂载", async () => {

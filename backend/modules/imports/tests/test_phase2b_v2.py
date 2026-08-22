@@ -207,6 +207,8 @@ async def test_materializer_exact_quotes_symmetric_sort_and_review_meta() -> Non
             ExtractedAlias(
                 entity_ref="entity-001",
                 alias="青姐",
+                alias_kind="title",
+                alias_type="尊称",
                 identity_scope="context_bound",
                 identity_basis="本 Scene 中多人这样称呼",
                 evidence_quotes=["阿青被人称为青姐"],
@@ -217,6 +219,7 @@ async def test_materializer_exact_quotes_symmetric_sort_and_review_meta() -> Non
             Phase2bRelationObservation(
                 source_ref="entity-001",
                 target_ref="entity-002",
+                relation_kind="social",
                 relation_type="alliance",
                 persistence_scope="enduring",
                 directionality="symmetric",
@@ -272,11 +275,15 @@ async def test_materializer_exact_quotes_symmetric_sort_and_review_meta() -> Non
     assert append_alias.await_args.kwargs["review_meta"]["context_snapshot_id"] == (
         "snapshot-1"
     )
+    assert "alias_kind" not in append_alias.await_args.kwargs["review_meta"]
+    assert append_alias.await_args.kwargs["alias_kind"] == "title"
     payload = create_relation.await_args.args[2]
     assert [payload["source_id"], payload["target_id"]] == ["entity-a", "entity-z"]
     assert "strength" not in payload
     assert payload["status"] == "candidate"
+    assert payload["relation_kind"] == "social"
     assert payload["review_meta"]["confidence"] == 0.83
+    assert "relation_kind" not in payload["review_meta"]
     assert payload["review_meta"]["persistence_scope"] == "enduring"
     assert payload["review_meta"]["context_snapshot_id"] == "snapshot-1"
 

@@ -31,6 +31,14 @@ import {
 } from "./worldEntityHelpers.js"
 import { CUSTOM_ENTITY_TYPE_SENTINEL, REVIEW_ALIAS_TYPE_FALLBACK } from "./worldQuery.js"
 import { clearBulkSelection, getBulkSelection, runBulkAction, bulkResultMessage, selectedItemsFrom } from "./worldBulkSelection.js"
+import { worldSession } from "../worldSession.js"
+import {
+  bindTypeKindControls,
+  detailTypeOptionsHtml,
+  kindOptionsHtml,
+  kindOrTypeDefault,
+  readDetailType,
+} from "./worldTypeCatalog.js"
 
 // ============================================================
 // 列表注册表（tab 在 props 变化时同步当前可见列表）
@@ -72,7 +80,7 @@ export function registerCandidateListHooks(hooks = {}) {
 }
 
 // ============================================================
-// referencePicker（模态内，Vue 树外，保持 vanilla 原样）
+// referencePicker（命令式 DOM seam，供模态和 Vue 决策区复用）
 // ============================================================
 
 let referencePickers = []
@@ -90,11 +98,15 @@ function mountEntityReferencePicker({
   selectedId = "",
   selectedName = "",
   canonicalOnly = false,
+  replaceExisting = true,
+  placeholder = "按名称或别名搜索目标对象",
+  ariaLabel = "搜索目标对象",
+  onChange = null,
 }) {
   const root = document.getElementById(rootId)
   const input = document.getElementById(inputId)
   if (!root || !input) return null
-  destroyWorldEntityPickers()
+  if (replaceExisting) destroyWorldEntityPickers()
   const api = getApi()
   const projectId = getAppState()?.currentProjectId
   const eligible = canonicalOnly ? isMergeTargetEntity : isAliasTargetEntity
@@ -137,10 +149,12 @@ function mountEntityReferencePicker({
     projectId,
     sources: [source],
     initialItems,
-    placeholder: "按名称或别名搜索目标对象",
+    placeholder,
+    ariaLabel,
     onChange: (_items, refs) => {
       input.value = refs[0]?.id || ""
       input.dataset.referenceLabel = _items[0]?.label || ""
+      onChange?.(_items, refs)
     },
   })
   if (selectedId && !initialItems.length) picker.resolve([{ kind: "entity", id: selectedId }])
@@ -148,7 +162,7 @@ function mountEntityReferencePicker({
   return picker
 }
 
-/** review 决策模态复用同一 picker 挂载（useWorldReview 的别名入口）。 */
+/** review 决策区复用同一 picker 挂载。 */
 export function mountEntityReferencePickerForReview(options) {
   return mountEntityReferencePicker(options)
 }
@@ -240,10 +254,23 @@ function ownsWorldOperationScope(scope) {
 }
 
 /** 对应 vanilla _finishEntityMutation；调用方为受全局 modal/router 管理的模态操作。 */
+async function returnToReviewContextOrRefresh() {
+  const router = getRouter()
+  const currentQuery = new URLSearchParams(router?.getCurrentQuery?.()?.toString() || "")
+  const returnKind = currentQuery.get("return_kind")
+  if (["aliases", "relations"].includes(returnKind)) {
+    const query = new URLSearchParams({ kind: returnKind })
+    const groupId = currentQuery.get("return_group_id")
+    if (groupId) query.set("group_id", groupId)
+    return router?.navigate("world", "review", true, query)
+  }
+  return router?.refresh?.()
+}
+
 async function finishEntityMutation(successMessage) {
   const toast = getToast()
   try {
-    const refreshed = await getRouter()?.refresh?.()
+    const refreshed = await returnToReviewContextOrRefresh()
     if (refreshed === false) throw new Error("当前页面未完成刷新")
   } catch (err) {
     toast(`${successMessage}，但列表刷新失败：${err.message || "未知错误"}`, "warning")
@@ -355,18 +382,6 @@ async function ignoreOrDeleteEntity(entity) {
   const sid = suggestionId(entity)
   if (sid) return api.world.rejectSuggestion(sid, projectId)
   return api.world.deleteEntity(entityId(entity), projectId)
-}
-
-/** 对应 vanilla _aliasTypeOptionsHtml。 */
-function aliasTypeOptionsHtml(selected = "alias") {
-  const esc = getEsc()
-  const types = [...(worldListRegistry.reviewTypeCatalog.alias_types || REVIEW_ALIAS_TYPE_FALLBACK)]
-  if (selected && !types.some((item) => item.value === selected)) {
-    types.unshift({ value: selected, label: `保留原类型：${selected}`, category: "自定义" })
-  }
-  return types
-    .map((item) => `<option value="${esc(item.value)}" ${selected === item.value ? "selected" : ""}>${esc(item.label)}${item.category === "自定义" ? "" : ` (${esc(item.value)})`}</option>`)
-    .join("")
 }
 
 /** 对应 vanilla _aliasEvidenceHtml。 */
@@ -697,7 +712,8 @@ export async function acceptCandidate(id) {
       try {
         await adoptEntity(candidate)
         toast(`“${candidate.name}”已采用`, "success")
-        await getRouter()?.refresh?.()
+        worldSession.reviewReceipt = { targetKey: id, title: "对象已完成", detail: `“${candidate.name}”已采用为正式世界资料。` }
+        await returnToReviewContextOrRefresh()
       } catch (err) {
         if (snapshot && candidateListHooks.restoreSnapshot) {
           await candidateListHooks.restoreSnapshot(snapshot)
@@ -726,7 +742,8 @@ export async function ignoreCandidate(id) {
       try {
         await ignoreEntity(candidate)
         toast(isTemporary ? "已设为临时" : "已忽略", "success")
-        await getRouter()?.refresh?.()
+        worldSession.reviewReceipt = { targetKey: id, title: "对象已完成", detail: isTemporary ? `“${candidate?.name || id}”已保留为临时资料。` : `“${candidate?.name || id}”已移入历史。` }
+        await returnToReviewContextOrRefresh()
       } catch (err) {
         if (snapshot && candidateListHooks.restoreSnapshot) {
           await candidateListHooks.restoreSnapshot(snapshot)
@@ -751,20 +768,28 @@ export function showResolveAliasForm(candidateId) {
   const sid = suggestionId(candidate)
   const targetId = candidateTargetId(candidate)
   const targetName = candidateTargetName(candidate)
+  const selectedType = "alias"
+  const selectedKind = kindOrTypeDefault(worldListRegistry.reviewTypeCatalog, "alias", "", selectedType)
   const formHtml = `
     <p style="margin-bottom:10px;">将 <strong>${esc(candidate.name || "")}</strong> 登记为已有对象的别名。</p>
     <div class="form-group">
       <label>目标对象 *</label>
       <div id="alias-target-picker"></div>
-      <input type="hidden" id="alias-target-id" value="${esc(targetId)}" />
+      <input type="hidden" id="alias-target-id" data-modal-dirty-track value="${esc(targetId)}" />
     </div>
     <div class="form-group">
       <label>别名文本 *</label>
       <input class="form-input" id="alias-edit-text" value="${esc(candidate.name || "")}" />
     </div>
     <div class="form-group">
-      <label>别名类型</label>
-      <select class="form-select" id="alias-edit-type">${aliasTypeOptionsHtml("alias")}</select>
+      <label for="alias-edit-kind">别名分类</label>
+      <select class="form-select" id="alias-edit-kind" aria-describedby="alias-edit-kind-help">${kindOptionsHtml(worldListRegistry.reviewTypeCatalog, "alias", selectedKind, esc)}</select>
+      <div class="form-help" id="alias-edit-kind-help">用于 AI 检索的通用分类。</div>
+    </div>
+    <div class="form-group">
+      <label for="alias-edit-type">详细类型</label>
+      <select class="form-select" id="alias-edit-type">${detailTypeOptionsHtml(worldListRegistry.reviewTypeCatalog, "alias", selectedType, esc)}</select>
+      <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" maxlength="20" /></div>
     </div>
     ${aliasEvidenceHtml(candidateMeta(candidate))}
   `
@@ -774,9 +799,10 @@ export function showResolveAliasForm(candidateId) {
     handler: async () => {
       const selectedTargetId = document.getElementById("alias-target-id")?.value
       const text = document.getElementById("alias-edit-text")?.value?.trim()
-      const type = document.getElementById("alias-edit-type")?.value || "alias"
-      if (!selectedTargetId || !text) {
-        toast("请选择目标对象并输入别名", "warning")
+      const aliasKind = document.getElementById("alias-edit-kind")?.value || ""
+      const type = readDetailType(document.getElementById("alias-edit-type"), document.getElementById("alias-edit-type-custom"))
+      if (!selectedTargetId || !text || !aliasKind || !type) {
+        toast("请选择目标对象、别名分类并输入别名和详细类型", "warning")
         return false
       }
       try {
@@ -784,6 +810,7 @@ export function showResolveAliasForm(candidateId) {
         const payload = {
           target_entity_id: selectedTargetId,
           alias: text,
+          alias_kind: aliasKind,
           alias_type: type,
         }
         if (sid) {
@@ -792,13 +819,23 @@ export function showResolveAliasForm(candidateId) {
           await getApi().world.resolveEntityAsAlias(candidateId, payload, projectId)
         }
         toast("待处理项已设为别名", "success")
-        getRouter()?.refresh?.()
+        worldSession.reviewReceipt = { targetKey: candidateId, title: "对象已完成", detail: `“${text}”已登记为所选对象的别名。` }
+        await returnToReviewContextOrRefresh()
       } catch (err) {
         toast(err.message || "设为别名失败", "error")
         return false
       }
     },
   }])
+  bindTypeKindControls({
+    typeSelect: document.getElementById("alias-edit-type"),
+    customInput: document.getElementById("alias-edit-type-custom"),
+    customContainer: document.getElementById("alias-edit-type-custom-wrap"),
+    kindSelect: document.getElementById("alias-edit-kind"),
+    kindHelp: document.getElementById("alias-edit-kind-help"),
+    catalog: worldListRegistry.reviewTypeCatalog,
+    domain: "alias",
+  })
   mountEntityReferencePicker({
     rootId: "alias-target-picker",
     inputId: "alias-target-id",
@@ -829,7 +866,7 @@ export function showMergeForm(candidateId) {
     <div class="form-group">
       <label>选择目标对象 *</label>
       <div id="merge-target-picker"></div>
-      <input type="hidden" id="merge-target-id" value="${esc(targetId)}" />
+      <input type="hidden" id="merge-target-id" data-modal-dirty-track value="${esc(targetId)}" />
       <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">显示名称、类型、状态和摘要；没有明确目标时请先搜索再选择。</p>
     </div>
   `
@@ -875,7 +912,8 @@ async function mergeEntity(candidateId, targetId) {
       await getApi().world.mergeEntity(candidateId, targetId, projectId)
     }
     toast("实体已合并", "success")
-    getRouter()?.refresh?.()
+    worldSession.reviewReceipt = { targetKey: candidateId, title: "对象已完成", detail: `“${candidate?.name || "待处理对象"}”已融合到所选对象，来源记录已保留。` }
+    await returnToReviewContextOrRefresh()
     return true
   } catch (err) {
     toast(err.message || "合并失败", "error")

@@ -76,6 +76,9 @@ describe("todayIsland", () => {
           more_targets: [{
             source_kind: "writing_conflict",
             target: { kind: "writing_conflict", chapter_index: 3, scene_id: "s3" },
+          }, {
+            source_kind: "world_relation_group",
+            target: { kind: "world_review_relations" },
           }],
           world_objects: 2,
         },
@@ -85,7 +88,8 @@ describe("todayIsland", () => {
     expect(wrapper.get(".today-attention-row").text()).toContain("当前场景")
     expect(wrapper.get(".today-attention-row").text()).toContain("可以改进")
     expect(wrapper.get(".today-attention-footer").text()).toContain("还有 6 项")
-    expect(wrapper.get(".today-attention-footer .btn").text()).toBe("查看更多正文")
+    expect(wrapper.findAll(".today-attention-footer .btn")).toHaveLength(1)
+    expect(wrapper.get(".today-attention-footer .btn").text()).toBe("查看更多")
     await wrapper.get(".today-attention-row .btn").trigger("click")
 
     const query = router.navigate.mock.calls[0][3]
@@ -111,10 +115,10 @@ describe("todayIsland", () => {
   })
 
   it.each([
-    ["world_review_objects", "review-objects", "entity_id"],
-    ["world_review_aliases", "review-aliases", "group_id"],
-    ["world_review_relations", "review-relations", "group_id"],
-  ])("World 审核深链精确携带 %s 目标", async (kind, subView, targetKey) => {
+    ["world_review_objects", "objects", "entity_id"],
+    ["world_review_aliases", "aliases", "group_id"],
+    ["world_review_relations", "relations", "group_id"],
+  ])("World 审核深链精确携带 %s 目标", async (kind, reviewKind, targetKey) => {
     const router = { navigate: vi.fn(), refresh: vi.fn() }
     setBridgeOverrides({ router })
     const wrapper = mount(TodayView, { props: {
@@ -141,7 +145,8 @@ describe("todayIsland", () => {
     await wrapper.get(".today-attention-row .btn").trigger("click")
 
     const query = router.navigate.mock.calls[0][3]
-    expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["world", subView, true])
+    expect(router.navigate.mock.calls[0].slice(0, 3)).toEqual(["world", "review", true])
+    expect(query.get("kind")).toBe(reviewKind)
     expect(query.get(targetKey)).toBe("target-1")
     expect(query.get("source_chapter_index")).toBe("3")
   })

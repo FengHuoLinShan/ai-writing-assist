@@ -14,16 +14,20 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
   `POST /api/imports/deep`，已有 Scene 的补抽使用
   `POST /api/imports/stages/world-objects`（Phase 2a/2b）
 - AI 抽取对象以 `status="candidate"` 入库，等待用户确认、合并或忽略；不自动提升为正史
-- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
+- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSON 字段；每项以
+  `kind=name|title|identity` 保存稳定最小分类，以开放短文本 `type` 保存精确类型
 - 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
 - 待复核别名可在确认前修改目标对象、别名文本和别名类型；来源、workflow、Scene、引用和置信度作为只读证据保留
-- “待处理”入口按对象 / 别名 / 关系三个子 tab 处理复核队列；对象库、别名、关系页仍保留全量管理能力
+- `world/review` 统一待处理工作台按全部 / 对象 / 别名 / 关系切换；“全部”只做概览和推荐，三个类型队列各自搜索、筛选、分页与写入，对象库、别名、关系页仍保留全量管理能力
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
-- 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
+- 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象；`relation_kind` 只取 `state/social/spatial/causal/temporal/epistemic/intentional`，精确关系仍保存在 `relation_type`
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
+- 作者端待处理关系在现有分组内就地配对：拖动任一端点卡到“关系发起方”或“关系承接方”槽会自动补齐另一端，一次配对后沿用现有 `review-batch` 决策；取消保留指纹草稿，归并、复用和忽略仍需确认
 - 待处理关系按有向 `(source_id, target_id)` 分组，别名按 owner 对象分组；Scene 只用于筛选和展示，反向关系不自动归并
-- 类型目录只是推荐与保守同义词建议；关系和别名的数据库/Pydantic 契约仍接受自由字符串，自定义值未经用户点击不得替换
+- 类型目录只为详细类型提供推荐与保守同义词建议；显式合法 kind 优先，kind 缺失时只对已知详细类型推导。自定义候选可暂缺 kind，但关系采用为 canonical、别名采用为 active 前必须由作者选择；详细类型原值不被改写
 - 关系筛选用来命中对象对，返回时仍包含该有向对的完整待处理成员；指纹也基于完整快照，避免筛选后提交必然过期
+- 关系列表的可选布尔参数 `has_reverse_candidates` 表示该有向组存在反向方向的待处理候选，`has_canonical_relation` 表示同一有向端点对已有正式关系；两个条件均在计算 `group_total`、`item_total` 和分页前应用
+- 别名与关系列表的 `group_total` 是筛选后分组数，`item_total` 是这些组内仍有效、未采用的候选条目数；分页始终按组。工作台和 Project“今日工作”的待处理计数使用条目数，不以分组数或当前页行数替代
 - 分组列表为每组/每条别名返回 SHA-256 `execution_fingerprint`；批处理必须 `confirmed=true`，批次内先按 UUID 全局稳定顺序锁定端点和关系行，再为每个决策使用 savepoint；单组原子、组间可部分成功
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
 - `characters` / `events` / `character_knowledge` 活跃扩展只能挂在同项目、类型匹配且已采用的 `CoreEntity` 下；人物 CoreEntity 被创建或提升为 canonical 时会确定性补齐最小 `characters` 档案，使导入人物立即可用于 POV、生成中心和人物上下文。作者显式保存人物档案时原位升级该 scaffold；自动 scaffold 不阻断后续类型纠正。列表与写作上下文默认排除父对象或 CoreEntity 目标已转为待处理/已归档的历史扩展行
@@ -421,20 +425,28 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 
 `POST /api/world/relations/review-batch` 每次最多 20 个决策、累计 50 条本次选中的关系。
 `accept` 独立采用一条；`merge` 以用户选定的主关系和最终字段归并所选证据；
-`ignore` 把所选候选改为 `deprecated`。同端点同类型已有正式关系时复用该关系；
+`accept_separately` 通过 `separate_relations[]` 为每个所选候选提供独立的最终端点、
+类型、描述和强度，且同一决策中的最终关系键不得重复；`ignore` 把所选候选改为
+`deprecated`。`unselected_action` 默认为 `keep_pending`，显式设为 `ignore` 时
+一并忽略该有向组未选成员。同端点同类型已有正式关系时复用该关系；
 归并来源写入 `review_history`，其他候选记录 `merged_into_relation_id` 后进入历史，
-未选候选继续保持 `candidate`。因此大于 50 条的单组可分次处理，不要将整组成员数误作本次限额。
+未选候选默认继续保持 `candidate`。因此大于 50 条的单组可分次处理，不要将整组成员数误作本次限额。
+每个决策仍只使用一个完整组指纹和一个 savepoint；分别采用任一成员失败时整组回滚。
+响应保留 `canonical_relation_id` / `archived_relation_ids` 兼容字段，并增加
+`canonical_relation_ids` / `reused_canonical_relation_ids` / `ignored_relation_ids` /
+`remaining_candidate_ids` 供工作台展示明确处理结果。
 
 ### aliases（内联 JSONB）
 
 存储于 `core_entities.content_json.aliases`，格式为列表：
 ```json
 [
-  {"alias": "别名文本", "type": "name|title|nickname|alias|translation|abbreviation|自定义字符串"}
+  {"alias": "别名文本", "kind": "name|title|identity", "type": "name|title|nickname|alias|translation|abbreviation|自定义字符串"}
 ]
 ```
 
 - 别名不创建新实体行
+- `CoreEntity` 的通用创建、更新和采用入口会统一规范化该列表；已生效的自定义 `type` 必须有 `kind`，candidate 可暂缺
 - 去重检查：别名不与已有别名重复（大小写不敏感）
 - `PATCH /api/world/entities/{entity_id}/aliases` 只更新复核元数据；编辑文本或移动目标必须走 `/aliases/edit`
 - `POST /api/world/entities/{candidate_id}/resolve-as-alias` 将候选对象登记为目标对象别名，并把源候选移出待确认对象队列
@@ -572,8 +584,10 @@ workflow/result refs 的唯一跨模块入口；它只组装 pending package，�
 `get_author_attention_summary()` 是 Project“今日工作”消费的只读稳定投影，返回冻结的
 `WorldAttentionSummaryContract`：同一 `novel_id` 下待处理的世界对象、别名和关系数量及
 确定性 `total`，并附加 pending 世界书冲突、审核组和未被兼容 shadow 覆盖的待采用建议。
-checkpoint、stale/resolved 冲突、已处理建议和 task-only 临时结果不进入投影；对象、别名、
-关系按作者实际处理组去重。实现位于 world 自己的 attention service，复用既有查询服务并
+checkpoint、stale/resolved 冲突、已处理建议和 task-only 临时结果不进入投影；对象、别名按实际处理组去重，
+关系在首页保留 A→B 与 B→A 两条有向提醒并分别携带对应 `group_id`；关系工作台可显示反向候选提示，
+但不自动归并两个方向。三类计数均使用当前仍有效且未采用的候选条目数，已采用、忽略、过期和历史项不计入。
+实现位于 world 自己的 attention service，复用既有查询服务并
 保持项目过滤；别名成员的 Scene/章节来源通过稳定响应字段读取，三类审核 target 保留对象或组
 标识供领域页精确定位。root `facade.py` 仅 re-export，响应不包含正文、原始任务、owner 或密钥。
 
@@ -655,8 +669,8 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | GET | `/api/world/entities` | 世界对象列表；可按原始 `status` 或 `display_state` 筛选，`q` 支持名称、别名和描述的模糊搜索（名称/别名优先） |
 | GET | `/api/world/entity-types` | 当前项目类型目录；固定顺序系统类型 + 全部状态对象使用过的项目自定义类型 |
 | GET | `/api/world/review-type-catalog` | 关系/别名推荐类型、中文标签和保守同义词；`custom_allowed=true` |
-| GET | `/api/world/relations/review-groups` | 按有向对象对分页返回待处理关系组、完整成员和执行指纹 |
-| POST | `/api/world/relations/review-batch` | 显式确认的关系 accept / merge / ignore 批处理 |
+| GET | `/api/world/relations/review-groups` | 按有向对象对分页返回待处理关系组、完整成员和执行指纹；可选 `has_reverse_candidates` / `has_canonical_relation` 在分组计数与分页前过滤 |
+| POST | `/api/world/relations/review-batch` | 显式确认的关系采用、分别采用、归并或忽略批处理 |
 | GET | `/api/world/aliases/review-groups` | 按所属对象分页返回待处理别名组 |
 | POST | `/api/world/aliases/review-batch` | 显式确认的别名采用、编辑或忽略批处理 |
 | POST | `/api/world/entities` | 手动创建世界对象；未传 `status` 时默认已采用 |

@@ -5,7 +5,6 @@ World 模块测试
 使用 pytest-asyncio 测试异步数据库操作。
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from modules.world.entity_facade import _normalize_deep_import_alias
 from modules.world.facade import (
     expand_related_entities,
     find_entity_id_by_name,
@@ -45,6 +45,22 @@ from modules.world.services import (
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.entity_relation_service import EntityRelationService
 from modules.world.world_background import WorldBackgroundAggregation
+
+
+def test_deep_import_alias_repair_preserves_existing_kind() -> None:
+    normalized = _normalize_deep_import_alias(
+        {
+            "alias": "愚者",
+            "type": "塔罗会称号",
+            "kind": "identity",
+            "confidence": 0.9,
+        },
+        {"workflow_id": "wf-1"},
+    )
+
+    assert normalized is not None
+    assert normalized["kind"] == "identity"
+    assert normalized["type"] == "塔罗会称号"
 
 
 @pytest.fixture
@@ -93,7 +109,6 @@ def sample_entity_data() -> WorldEntityCreate:
     )
 
 
-
 @pytest.mark.asyncio
 async def test_world_background_preserves_explicit_zero_float_signals(
     db_session: AsyncSession,
@@ -123,6 +138,7 @@ async def test_world_background_preserves_explicit_zero_float_signals(
         source_id=source.id,
         target_id=target.id,
         relation_type="observes",
+        relation_kind="epistemic",
         strength=0.0,
         status="canonical",
     )
@@ -297,7 +313,7 @@ class TestFacade:
             novel_id,
             WorldEntityCreate(entity_type="location", name="B"),
         )
-        await rel_service.create(
+        relation = await rel_service.create(
             db_session,
             novel_id,
             EntityRelationCreate(
@@ -306,6 +322,7 @@ class TestFacade:
                 relation_type="ally_of",
             ),
         )
+        assert relation.relation_kind == "social"
 
         related = await expand_related_entities(
             db_session,
@@ -363,6 +380,7 @@ class TestUpsertRelationship:
             target_id,
             "controls",
             "控制关系",
+            relation_kind="state",
         )
 
         rels, total = await rel_repo.get_by_novel(db_session, nid)
@@ -390,6 +408,7 @@ class TestUpsertRelationship:
             target_id,
             "controls",
             "初始描述",
+            relation_kind="state",
         )
         await rel_repo.upsert(
             db_session,
@@ -398,6 +417,7 @@ class TestUpsertRelationship:
             target_id,
             "controls",
             "更新描述",
+            relation_kind="state",
         )
 
         rels, total = await rel_repo.get_by_novel(db_session, nid)
@@ -422,6 +442,7 @@ class TestUpsertRelationship:
                 source_id=str(source_id),
                 target_id=str(target_id),
                 relation_type="controls",
+                relation_kind="state",
                 status="canonical",
             ),
         )
@@ -467,6 +488,7 @@ class TestUpsertRelationship:
                 source_id=str(source.id),
                 target_id=str(target.id),
                 relation_type="ally_of",
+                relation_kind="social",
                 status="canonical",
             ),
         )
@@ -622,6 +644,7 @@ class TestUpsertRelationship:
                 source_id=str(source.id),
                 target_id=str(other.id),
                 relation_type="ally_of",
+                relation_kind="social",
                 status="canonical",
             ),
         )
@@ -833,6 +856,7 @@ class TestUpsertRelationship:
                     target_id,
                     "knows",
                     description,
+                    relation_kind="epistemic",
                 )
                 await session.commit()
 
@@ -866,6 +890,7 @@ class TestUpsertRelationship:
                 source_id=str(uuid.uuid4()),
                 target_id=str(uuid.uuid4()),
                 relation_type="controls",
+                relation_kind="state",
                 status="canonical",
             ),
         )
@@ -876,6 +901,7 @@ class TestUpsertRelationship:
                 source_id=str(uuid.uuid4()),
                 target_id=str(uuid.uuid4()),
                 relation_type="knows",
+                relation_kind="epistemic",
                 status="canonical",
             ),
         )
@@ -993,6 +1019,7 @@ class TestUpsertRelationship:
             middle_id,
             "knows",
             "A-B",
+            relation_kind="epistemic",
         )
         await rel_repo.upsert(
             db_session,
@@ -1001,6 +1028,7 @@ class TestUpsertRelationship:
             target_id,
             "knows",
             "B-C",
+            relation_kind="epistemic",
         )
 
         async def fail_single_hop(*_args, **_kwargs):

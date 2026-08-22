@@ -93,7 +93,7 @@ describe("world island deep links", () => {
     setBridgeOverrides({
       api,
       state: { currentProjectId: "novel-1", currentSubView: subView },
-      router: { getCurrentQuery: () => new URLSearchParams("group_id=group-50"), registerView: vi.fn() },
+      router: { getCurrentQuery: () => new URLSearchParams("group_id=group-50&q=%E4%B8%8D%E5%8C%B9%E9%85%8D&scene_index=999"), registerView: vi.fn() },
       toast: vi.fn(),
     })
     const { loadWorld } = await import("../../../vue/worldIsland.js")
@@ -102,7 +102,88 @@ describe("world island deep links", () => {
 
     expect(fetchGroups).toHaveBeenNthCalledWith(1, expect.objectContaining({ novel_id: "novel-1", skip: 0, limit: 50 }))
     expect(fetchGroups).toHaveBeenNthCalledWith(2, expect.objectContaining({ novel_id: "novel-1", skip: 50, limit: 50 }))
+    expect(fetchGroups.mock.calls[0][0]).not.toHaveProperty("q")
+    expect(fetchGroups.mock.calls[0][0]).not.toHaveProperty("scene_index")
     expect(props[propName]).toEqual([{ group_id: "group-50", member_count: 2 }])
+  })
+
+  it("review filters pass object search and relation task flags without replacing global counts", async () => {
+    const listEntities = vi.fn()
+      .mockResolvedValueOnce({ total: 9 })
+      .mockResolvedValueOnce({ items: [{ id: "entity-1" }], total: 1 })
+    const api = {
+      world: {
+        listEntities,
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 8 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 7 }),
+      },
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "review" },
+      router: { getCurrentQuery: () => new URLSearchParams("kind=objects&q=%E6%B8%AF"), registerView: vi.fn() },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(listEntities).toHaveBeenLastCalledWith(expect.objectContaining({ display_state: "review", q: "港" }))
+    expect(props.reviewCounts).toEqual({ objects: 9, aliases: 8, relations: 7 })
+    expect(props.candidateTotal).toBe(1)
+  })
+
+  it("relation task flags are passed as booleans to the grouped review request", async () => {
+    const listRelationReviewGroups = vi.fn().mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
+    const api = {
+      world: {
+        listEntities: vi.fn().mockResolvedValue({ total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationReviewGroups,
+      },
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "review" },
+      router: { getCurrentQuery: () => new URLSearchParams("kind=relations&relation_kind=epistemic&has_reverse_candidates=true&has_canonical_relation=true"), registerView: vi.fn() },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    await loadWorld()
+
+    expect(listRelationReviewGroups).toHaveBeenCalledWith(expect.objectContaining({
+      has_reverse_candidates: true,
+      has_canonical_relation: true,
+      relation_kind: "epistemic",
+    }))
+  })
+
+  it("alias kind is passed to the grouped review request", async () => {
+    const listAliasReviewGroups = vi.fn().mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
+    setBridgeOverrides({
+      api: { world: {
+        listEntities: vi.fn().mockResolvedValue({ total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+        listAliasReviewGroups,
+      } },
+      state: { currentProjectId: "novel-1", currentSubView: "review" },
+      router: { getCurrentQuery: () => new URLSearchParams("kind=aliases&alias_kind=identity&type_kind=custom"), registerView: vi.fn() },
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    await loadWorld()
+
+    expect(listAliasReviewGroups).toHaveBeenCalledWith(expect.objectContaining({ alias_kind: "identity", type_kind: "custom" }))
   })
 
   it("passes the adoption package deep link only to the World Bible workspace", async () => {

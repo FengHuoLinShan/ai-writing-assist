@@ -33,6 +33,7 @@ from modules.project.facade import (
 )
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
+    AliasKind,
     AskWorldCitationOpenRequest,
     AskWorldCitationOpenResponse,
     AskWorldQuestionRequest,
@@ -98,6 +99,7 @@ from modules.world.schemas import (
     PromptTemplatePreviewResponse,
     PromptTemplateValidateRequest,
     PromptTemplateValidateResponse,
+    RelationKind,
     ReviewBatchResponse,
     ReviewTypeCatalogResponse,
     SuggestionDecisionResponse,
@@ -1986,6 +1988,7 @@ async def resolve_entity_as_alias(
         target_entity_id=data.target_entity_id,
         alias=data.alias,
         alias_type=data.alias_type,
+        alias_kind=data.alias_kind,
     )
 
 
@@ -2157,6 +2160,7 @@ async def list_relations(
     novel_id: ActiveNovelIdQuery,
     status: str | None = Query(None, description="状态过滤"),
     relation_type: str | None = Query(None, description="关系类型过滤"),
+    relation_kind: RelationKind | None = Query(None, description="最小语义类型过滤"),
     q: str | None = Query(None, description="关系/端点名称搜索"),
     source_chapter_id: str | None = Query(None, description="来源章节 ID"),
     strength_min: float | None = Query(None, ge=0.0, le=1.0, description="最低强度"),
@@ -2174,6 +2178,7 @@ async def list_relations(
         novel_id,
         status=status,
         relation_type=relation_type,
+        relation_kind=relation_kind,
         q=q,
         source_chapter_id=source_chapter_id,
         strength_min=strength_min,
@@ -2193,6 +2198,7 @@ async def list_relation_review_groups(
     novel_id: ActiveNovelIdQuery,
     q: str | None = Query(None),
     relation_type: str | None = Query(None),
+    relation_kind: RelationKind | None = Query(None),
     source_chapter_id: str | None = Query(None),
     scene_id: str | None = Query(None),
     scene_index: int | None = Query(None),
@@ -2202,6 +2208,8 @@ async def list_relation_review_groups(
     has_quote: bool | None = Query(None),
     type_kind: Literal["recommended", "custom"] | None = Query(None),
     multi_type_only: bool = Query(False),
+    has_reverse_candidates: bool | None = Query(None),
+    has_canonical_relation: bool | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=50),
 ) -> EntityRelationReviewGroupListResponse:
@@ -2210,6 +2218,7 @@ async def list_relation_review_groups(
         novel_id,
         q=q,
         relation_type=relation_type,
+        relation_kind=relation_kind,
         source_chapter_id=source_chapter_id,
         scene_id=scene_id,
         scene_index=scene_index,
@@ -2219,6 +2228,8 @@ async def list_relation_review_groups(
         has_quote=has_quote,
         type_kind=type_kind,
         multi_type_only=multi_type_only,
+        has_reverse_candidates=has_reverse_candidates,
+        has_canonical_relation=has_canonical_relation,
         skip=skip,
         limit=limit,
     )
@@ -2576,6 +2587,7 @@ async def list_aliases(
         description="作者展示态过滤",
     ),
     status: str | None = Query(None, description="状态过滤"),
+    alias_kind: AliasKind | None = Query(None, description="最小语义类型过滤"),
     needs_review: bool | None = Query(None, description="是否需要复核"),
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
@@ -2594,6 +2606,7 @@ async def list_aliases(
         q=q,
         display_state=display_state,
         status=status,
+        alias_kind=alias_kind,
         needs_review=needs_review,
         source=source,
         workflow_id=workflow_id,
@@ -2625,6 +2638,7 @@ async def list_alias_review_groups(
     confidence_max: float | None = Query(None, ge=0.0, le=1.0),
     has_quote: bool | None = Query(None),
     type_kind: Literal["recommended", "custom"] | None = Query(None),
+    alias_kind: AliasKind | None = Query(None),
     multi_alias_only: bool = Query(False),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=50),
@@ -2642,6 +2656,7 @@ async def list_alias_review_groups(
         confidence_max=confidence_max,
         has_quote=has_quote,
         type_kind=type_kind,
+        alias_kind=alias_kind,
         multi_alias_only=multi_alias_only,
         skip=skip,
         limit=limit,
@@ -2675,6 +2690,7 @@ async def create_alias(
         data.entity_id,
         data.alias,
         data.alias_type,
+        alias_kind=data.alias_kind,
         status=data.status,
         source="manual",
         source_chapter_index=data.source_chapter_index,
@@ -2718,6 +2734,7 @@ async def edit_alias(
         target_entity_id=data.target_entity_id,
         alias=data.alias,
         alias_type=data.alias_type,
+        alias_kind=data.alias_kind,
         confirm_review=data.confirm_review,
     )
 

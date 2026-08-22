@@ -1171,7 +1171,7 @@ describe("route guard and normalization", () => {
     expect(window.location.hash).toBe("#workbench/p1/project-settings")
   })
 
-  it("keeps world candidates as a valid guarded subview", async () => {
+  it("redirects legacy world candidates to the unified review workbench", async () => {
     addWorkspace()
     registerBasicView("world")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
@@ -1180,8 +1180,26 @@ describe("route guard and normalization", () => {
     await window.router.initRouter()
 
     expect(state.currentView).toBe("world")
-    expect(state.currentSubView).toBe("candidates")
-    expect(window.location.hash).toBe("#workbench/p1/world/candidates")
+    expect(state.currentSubView).toBe("review")
+    expect(window.location.hash).toBe("#workbench/p1/world/review?kind=objects")
+  })
+
+  it.each([
+    ["review-objects", "objects"],
+    ["review-aliases", "aliases"],
+    ["review-relations", "relations"],
+  ])("preserves legacy %s query while normalizing its review kind", async (legacySubView, kind) => {
+    addWorkspace()
+    registerBasicView("world")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.history.replaceState(null, "", `#workbench/p1/world/${legacySubView}?q=%E6%B8%AF&page=2`)
+
+    await window.router.initRouter()
+
+    expect(state.currentSubView).toBe("review")
+    expect(window.router.getCurrentQuery().get("kind")).toBe(kind)
+    expect(window.router.getCurrentQuery().get("q")).toBe("港")
+    expect(window.router.getCurrentQuery().get("page")).toBe("2")
   })
 
   it("normalizes restored project-scoped hashes into the current workbench", async () => {

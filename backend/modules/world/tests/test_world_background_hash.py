@@ -80,6 +80,7 @@ async def test_background_keeps_events_with_missing_locations_and_relation_fallb
                 source_id=source.id,
                 target_id=missing_location,
                 relation_type="near",
+                relation_kind="spatial",
                 status="canonical",
             ),
         ]

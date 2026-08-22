@@ -377,13 +377,38 @@ async def create_writing_drafts(
 # ---- 关系 ---------------------------------------------------------------
 
 RELATIONSHIP_DATA = [
-    {"source": "克莱恩·莫雷蒂", "target": "值夜者", "type": "member_of"},
-    {"source": "克莱恩·莫雷蒂", "target": "邓恩·史密斯", "type": "subordinate_of"},
-    {"source": "克莱恩·莫雷蒂", "target": "罗塞尔日记", "type": "related_to"},
-    {"source": "罗塞尔·古斯塔夫", "target": "罗塞尔日记", "type": "created_by"},
-    {"source": "秘修会", "target": "值夜者", "type": "opposes"},
-    {"source": "源堡", "target": "克莱恩·莫雷蒂", "type": "related_to"},
-    {"source": "占卜家序列", "target": "克莱恩·莫雷蒂", "type": "related_to"},
+    {
+        "source": "克莱恩·莫雷蒂",
+        "target": "值夜者",
+        "type": "member_of",
+        "kind": "social",
+    },
+    {
+        "source": "克莱恩·莫雷蒂",
+        "target": "邓恩·史密斯",
+        "type": "subordinate_of",
+        "kind": "social",
+    },
+    {
+        "source": "克莱恩·莫雷蒂",
+        "target": "罗塞尔日记",
+        "type": "related_to",
+        "kind": "state",
+    },
+    {
+        "source": "罗塞尔·古斯塔夫",
+        "target": "罗塞尔日记",
+        "type": "created_by",
+        "kind": "causal",
+    },
+    {"source": "秘修会", "target": "值夜者", "type": "opposes", "kind": "intentional"},
+    {"source": "源堡", "target": "克莱恩·莫雷蒂", "type": "related_to", "kind": "state"},
+    {
+        "source": "占卜家序列",
+        "target": "克莱恩·莫雷蒂",
+        "type": "related_to",
+        "kind": "state",
+    },
 ]
 
 
@@ -402,6 +427,7 @@ async def create_relationships(
             source_id=entity_ids[data["source"]],
             target_id=entity_ids[data["target"]],
             relation_type=data["type"],
+            relation_kind=data["kind"],
             status="canonical",
         )
         session.add(rel)

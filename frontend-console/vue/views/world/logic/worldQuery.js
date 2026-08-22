@@ -26,6 +26,7 @@ const WORLD_LIST_DEFAULTS = {
 
 export const WORLD_CANDIDATE_FILTER_DEFAULTS = {
   ...WORLD_LIST_DEFAULTS,
+  q: "",
   entity_type: "",
   suggested_action: "",
   source: "",
@@ -47,12 +48,14 @@ export const WORLD_ALIAS_FILTER_DEFAULTS = {
   confidence_max: "",
   has_quote: "",
   type_kind: "",
+  alias_kind: "",
   multi_alias_only: "",
 }
 
 export const WORLD_RELATION_FILTER_DEFAULTS = {
   ...WORLD_LIST_DEFAULTS,
   relation_type: "",
+  relation_kind: "",
   q: "",
   source_chapter_id: "",
   scene_index: "",
@@ -62,21 +65,46 @@ export const WORLD_RELATION_FILTER_DEFAULTS = {
   has_quote: "",
   type_kind: "",
   multi_type_only: "",
+  has_reverse_candidates: "",
+  has_canonical_relation: "",
 }
+
+export const REVIEW_ALIAS_KIND_FALLBACK = [
+  ["name", "名称", "同一对象的名称、昵称、简称、译名、古称等语言标签变化。"],
+  ["title", "称谓", "地位、职位、等级、荣誉或社会角色产生的称号或称呼。"],
+  ["identity", "身份", "化身、伪装、前世、秘密或公开身份，以及形态等身份名称。"],
+].map(([value, label, description]) => ({ value, label, description }))
+
+export const REVIEW_RELATION_KIND_FALLBACK = [
+  ["state", "状态/结构", "所有、组成、隶属、控制、依赖、承载或其它持续结构事实。"],
+  ["social", "社会/组织", "亲属、角色、成员身份、合作、冲突或服务。"],
+  ["spatial", "空间", "位于、包含、相邻、连接、经过或携带。"],
+  ["causal", "因果", "创造、导致、促成、阻止、改变或修复。"],
+  ["temporal", "时序", "先于、后于、同时、继承、延续或阶段顺序。"],
+  ["epistemic", "认知", "知道、相信、怀疑、观察、提及、揭示、隐藏或误认。"],
+  ["intentional", "意图", "寻找、计划、选择、追求、支持、反对、保护、使用或回避。"],
+].map(([value, label, description]) => ({ value, label, description }))
+
+const ALIAS_DEFAULT_KIND = { name: "name", title: "title", nickname: "name", alias: "name", translation: "name", abbreviation: "name" }
 
 export const REVIEW_ALIAS_TYPE_FALLBACK = [
   ["name", "名称"], ["title", "称号"], ["nickname", "昵称"],
   ["alias", "别名"], ["translation", "译名"], ["abbreviation", "缩写"],
-].map(([value, label]) => ({ value, label, category: "别名", synonyms: [] }))
+].map(([value, label]) => ({ value, label, category: "别名", synonyms: [], default_kind: ALIAS_DEFAULT_KIND[value] }))
 
+const RELATION_DEFAULT_KIND = {
+  friend_of: "social", enemy_of: "social", ally_of: "social", member_of: "social",
+  leader_of: "social", located_at: "spatial", contains: "spatial", related_to: "state",
+}
 export const REVIEW_RELATION_TYPE_FALLBACK = [
   ["friend_of", "朋友"], ["enemy_of", "敌人"], ["ally_of", "盟友"],
   ["member_of", "成员"], ["leader_of", "领导者"], ["located_at", "位于"],
   ["contains", "包含"], ["related_to", "相关"],
-].map(([value, label]) => ({ value, label, category: "常用", synonyms: [] }))
+].map(([value, label]) => ({ value, label, category: "常用", synonyms: [], default_kind: RELATION_DEFAULT_KIND[value] }))
 
 export const WORLD_FILTER_PANEL_DEFAULTS = {
   objects: false,
+  review: false,
   "review-objects": false,
   "review-aliases": false,
   "review-relations": false,
@@ -115,6 +143,7 @@ export const SYSTEM_ENTITY_TYPE_FALLBACK = [
 ].map(([value, label]) => ({ value, label, kind: "system" }))
 
 export const WORLD_CANDIDATE_QUERY_KEYS = [
+  "q",
   "entity_type",
   "suggested_action",
   "source",
@@ -127,21 +156,28 @@ export const WORLD_CANDIDATE_QUERY_KEYS = [
 
 export const WORLD_ALIAS_QUERY_KEYS = [
   "q", "source", "workflow_id", "scene_index", "source_chapter_index",
-  "confidence_min", "confidence_max", "has_quote", "type_kind", "multi_alias_only",
+  "confidence_min", "confidence_max", "has_quote", "type_kind", "alias_kind", "multi_alias_only",
 ]
 
 export const WORLD_RELATION_QUERY_KEYS = [
-  "q", "relation_type", "scene_index", "source_chapter_index", "strength_min",
+  "q", "relation_type", "relation_kind", "scene_index", "source_chapter_index", "strength_min",
   "strength_max", "has_quote", "type_kind", "multi_type_only",
+  "has_reverse_candidates", "has_canonical_relation",
 ]
 
 /** 对应 vanilla _normalizeReviewSubView（worldView.js:748-754）。 */
 export function normalizeReviewSubView(subView = "") {
-  if (subView === "candidates") return "review-objects"
-  if (["review-objects", "review-aliases", "review-relations"].includes(subView)) {
-    return subView
-  }
+  if (["review", "candidates", "review-objects", "review-aliases", "review-relations"].includes(subView)) return "review"
   return ""
+}
+
+export function reviewKindFromRoute(subView = "", query = new URLSearchParams()) {
+  const requested = query.get("kind") || ""
+  if (["objects", "aliases", "relations"].includes(requested)) return requested
+  if (["candidates", "review-objects"].includes(subView)) return "objects"
+  if (subView === "review-aliases") return "aliases"
+  if (subView === "review-relations") return "relations"
+  return "all"
 }
 
 /** 对应 vanilla _queryPageSkip（L423-426）。 */

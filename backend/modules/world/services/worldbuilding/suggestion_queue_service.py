@@ -562,6 +562,7 @@ class SuggestionQueueService:
                     source_id=payload.source_id,
                     target_id=payload.target_id,
                     relation_type=payload.relation_type,
+                    relation_kind=payload.relation_kind,
                     description=payload.description,
                     strength=payload.strength,
                     source_chapter_id=payload.source_chapter_id,
@@ -580,6 +581,7 @@ class SuggestionQueueService:
                 payload.entity_id,
                 payload.alias,
                 payload.alias_type,
+                alias_kind=payload.alias_kind,
                 status="canonical",
                 source=suggestion.source_module,
                 source_chapter_index=payload.source_chapter_index,
@@ -809,6 +811,7 @@ class SuggestionQueueService:
             target_entity_id=data.target_entity_id,
             alias=data.alias,
             alias_type=data.alias_type,
+            alias_kind=data.alias_kind,
         )
         result_ref = {
             "type": "core_entity_alias",

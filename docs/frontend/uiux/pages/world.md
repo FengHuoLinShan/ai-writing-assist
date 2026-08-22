@@ -1,7 +1,7 @@
 # 人物与世界 UI/UX 执行规范
 
 > 上级标准：`docs/frontend/uiux/design-standard.md`（唯一权威，下称「主规范 §N」）。
-> 适用范围：`frontend-console/vue/views/world/`（WorldView + 9 子视图组件 + logic）、
+> 适用范围：`frontend-console/vue/views/world/`（WorldView + 统一待决定工作台 + 资产子视图组件 + logic）、
 > `frontend-console/vue/worldIsland.js`、world 相关样式与 e2e。
 > 事实来源：`frontend-console/vue/views/world/` 源码逐文件调研（2026-08），行号以当时源码为准；
 > 执行前对引用行号做一次复核。
@@ -99,28 +99,29 @@
 
 ## 3. 目标布局与信息层级
 
-### 3.1 subnav 9 子视图的分组逻辑
+### 3.1 已采纳资产与统一待决定工作台
 
-9 个子视图按「资产状态」分两组，一级 subnav 只放 4 个入口：
+一级 subnav 只放 4 个入口：
 
 - **已采纳资产组**（3 个一级项）：`人物与设定`（objects；aliases 作为其深链子视图，
   无独立一级项，高亮归并到本项）、`关系`（relations）、`世界笔记`（bible）。
-- **待处理组**（1 个一级项）：`需要处理` 下拉聚合三个审核队列（review-objects /
-  review-aliases / review-relations），进入队列后由二级 subnav
-  （`.subnav.subnav-secondary`）在三个队列间切换，一级「需要处理」保持高亮。
+- **待处理组**（1 个一级项）：`需要处理` 直接进入 `world/review`，工作台内以
+  `全部 / 对象 / 别名 / 关系` 切换队列。「全部」只承担概览与推荐下一项，不混排三种
+  候选、不提供跨类型分页、多选或写入。
 
-分组的认知依据：作者的心智问题是「我的世界现在有什么」（资产组）与「AI 又提出了什么
-要我决定」（待处理组），而不是按数据表分。9 个平铺 tab 会把两种心智混在一行。
+旧 `review-objects` / `review-aliases` / `review-relations` 路由仅作兼容重定向，保留 query
+与精确 `entity_id` / `group_id` 定位。分组的认知依据仍是作者的两个问题：「我的世界现在
+有什么」与「AI 又提出了什么要我决定」，而不是底层数据表或内部路由。
 
 ### 3.2 审核队列作为第一优先级区域的论证
 
 - 对应产品核心循环「AI 产出 → 待处理 → 人工采纳」（共同承诺第 5 条「AI 不越权」）：
   未处理的建议会持续累积并阻塞后续提取质量，作者需要一眼知道「还有多少要我决定」。
-- 因此「需要处理」summary 上的总计数角标**必须常显**（为 0 时整个角标隐藏，见 §4.1），
+- 因此「需要处理」入口上的总计数角标**必须常显**（为 0 时整个角标隐藏，见 §4.1），
   使用主规范 §2 朱红白名单第 2 条「待处理计数角标」——这是 world 页唯一允许使用
   朱红计数的位置，与 today attention、sidebar badge 同一语义。
-- 队列内部信息层级：二级 subnav（带计数）→ 一句人话描述 → 筛选（默认收起为摘要行）
-  → 批量操作条 → 候选列表 → 分页。候选条目是页面上唯一的 Card/表格主体，
+- 队列内部信息层级：队列说明 → 常驻搜索 → 任务标签 → 已启用条件 → 更多筛选 → 当前结果
+  → 批量处理 → 列表 / 分页。候选条目是页面上唯一的 Card/表格主体，
   不再叠加其他同级焦点区块。
 
 ## 4. 逐区域标准
@@ -128,12 +129,9 @@
 ### 4.1 subnav（映射主规范 §5.5）
 
 - 形态：文字 tab + 激活 2px `--line-accent` 墨线；激活项 `aria-current="page"`（现状已具备，保留）。
-- 「需要处理」为 `<details>` 下拉：summary 是 subnav 项样式，总计数用 §5.8 待处理角标
-  （朱红小圆点 + mono 数字）；**计数为 0 时角标整体隐藏**；计数 >99 显示「99+」。
-  下拉面板内三个队列项的计数改用同款角标，不用裸 `<strong>`。
-- 下拉交互补齐：绑定 `aria-expanded`、ESC 关闭、点击面板外关闭（复用全站 details
-  下拉的既有模式，执行时在 shell/navigation 或 interaction 模块找现成实现对齐，
-  不新造指令）。
+- 「需要处理」是直达统一工作台的 subnav 项，总计数用 §5.8 待处理角标（朱红小圆点 +
+  mono 数字）；**计数为 0 时角标整体隐藏**；计数 >99 显示「99+」。工作台内四个类型
+  tab 使用同一计数语义，不再通过 `<details>` 下拉承载队列导航。
 - 「视图与整理」details 拆分：AI 资料整理开关提升为独立二级按钮（它是动作不是视图设置）；
   卡片/表格、最近相关/全部两组切换改用 `role="group"` + `aria-pressed`（与 bible
   模式切换一致），不再用 `btn-primary` 表达选中。
@@ -156,33 +154,53 @@
 - 空态保留现有引导型结构（一句说明 + 「手动新建对象」CTA），图标统一进 `.empty-icon`
   体系（去 emoji，见 §5）。
 
-### 4.3 三个审核队列（映射 §5.3 / §5.4 / §5.8 / §5.10）
+### 4.3 统一待决定工作台（映射 §5.3 / §5.4 / §5.8 / §5.10）
 
 > **复用声明（全产品统一心智）**：本节定义的「待处理队列」视觉与交互标准——
-> 朱红计数角标、队列描述行、筛选摘要行、附着列表顶部的批量操作条、候选条目
+> 朱红计数角标、队列说明、常驻搜索、任务标签、已启用条件、更多筛选、当前结果、
+> 附着列表顶部的批量操作条、候选条目
 > （卡片/表格行）+ 行内采纳/拒绝、条目级 `role="alert"` 错误、「全部处理完」空态——
 > 是全产品「AI 产出 → 待处理 → 人工采纳」模式的**基准实现**。outline 的大纲建议、
 > scene 的场景候选项、map 的动态事件待处理等同类队列必须复用同一套 class 语义与
 > 布局顺序，不得各自发明；world 三队列自身先收敛为完全同构，再向其他模块推广。
 
-- **布局顺序统一**（三队列一致）：二级 subnav → 描述行 → 筛选摘要行 → 批量操作条
-  → 候选列表 → 分页器。批量操作条恒渲染于筛选之后、列表正上方（消除 §2-5 的位置
-  分裂；保留恒置结构以维持 e2e 契约，未选中时操作按钮 disabled，计数显示「未选中」）。
+- **布局顺序统一**（三个类型队列一致）：队列说明 → 常驻搜索 → 任务标签 → 已启用条件
+  → 更多筛选 → 当前结果 → 批量处理 → 列表 / 分页。批量操作条恒渲染于结果摘要之后、
+  列表正上方（消除 §2-5 的位置分裂；未选中时操作按钮 disabled，计数显示「未选中」）。
 - **候选条目**：review-objects 候选表格沿用 `.data-table.table-card-list`；候选动作
   徽标 `.candidate-action-badge--*` 改为「文字 + 色点」（§5.8），不用彩色 pill。
   「建议设为别名」「名称相似」分组卡保留（分组是本队列的真实决策单元），组头
   「全选本组」与组级操作用 `.btn-text`。
 - **采纳 / 拒绝**：行内主动作「采用」= 行内唯一 `.btn-primary`（行级，不违反每屏
   一个 primary——屏幕级 primary 是头部「新建」）；「忽略·设为临时」用 `.btn-danger`
-  的文字/边框形态（非实心）。alias / relation 队列的决策在模态内完成（现状正确，
-  保留）：模态遵循 §5.6，主按钮文案写动作本身（「采用别名」「采用关系」）。
+  的文字/边框形态（非实心）。普通别名和关系在桌面右侧决策区预览并提交，390px 改为
+  全屏复核页；主按钮文案写动作本身（「采用别名」「采用关系」）。
 - **批量操作**：三队列 scope 独立的 `.bulk-toolbar` 保留；批量按钮继续走 confirmAction
   二次确认（AGENTS.md 危险操作约束）；批量结果用 toast 反馈（§5.7），乐观更新失败
   回滚时 toast 说明「未生效，请重试」。
-- **筛选收敛**（消除 §2-6）：搜索框（240-320px、带清空、结果计数紧随）+ 一行
-  筛选摘要（「N 个筛选生效」，点击展开面板）两层为止；快捷筛选按钮并入面板常用
-  分组；场景序号输入移出按钮行，作为面板内带 label 的普通控件。面板控件分组并
-  全部使用可见 label（§5.2 结构），不靠 placeholder。诊断折叠三处统一为一个组件。
+- **筛选收敛**（消除 §2-6）：搜索框常驻，搜索候选名称、关系/别名类型、描述与证据摘录；
+  任务标签只表达作者当前要解决的问题，已启用条件紧随其后并可逐项删除；其余条件进入
+  「更多筛选」。全部输入使用可见 label（§5.2 结构），不靠 placeholder。三个队列的
+  精确筛选如下：
+
+  | 队列 | 任务标签 | 更多筛选 |
+  |---|---|---|
+  | 对象 | 可作为新对象 / 建议设为别名 / 建议合并 / 需我判断 | 对象类型、建议动作、章节、场景、置信度 |
+  | 别名 | 同对象多别名 / 自定义类型 / 缺少引用 / 高置信度 | 别名类型、章节、场景、置信度、证据状态 |
+  | 关系 | 同对象对多类型 / 有反向候选 / 已有正式关系 / 缺少引用 / 低强度 | 关系类型、章节、场景、强度、证据状态 |
+
+- **搜索边界**：上述常驻搜索是审核任务内的候选定位，不合并到一级「查找」。一级「查找」
+  继续面向正文、世界对象与故事结构的跨资产检索；本轮不改变其范围、结果卡、权限或 URL
+  契约，也不要求从跨资产结果精确深链到待处理关系组。
+- **关系筛选契约**：列表查询新增可选布尔参数 `has_reverse_candidates`（该有向组存在
+  反向方向的待处理候选）与 `has_canonical_relation`（同一有向端点对已有正式关系）；
+  两个任务标签仅传 `true`。服务端必须在计算关系组总数与分页之前过滤，保证「当前结果」
+  与实际页内容一致。
+- **计数语义**：一级「需要处理」、工作台类型 tab 与 Writing Home / Today 类型提醒均统计
+  当前仍有效且未采用的候选条目数，不以分组数或当前页行数冒充待办总量；已采用、已忽略、
+  过期和历史项不计入。别名与关系的「当前结果」同时展示 `group_total` 与 `item_total`，
+  分页仍按组。Today 中 A→B 与 B→A 恢复为两条有向提醒，各自携带 `group_id`；工作台可提示
+  反向候选，但不得自动归并两个方向。
 
 ### 4.4 世界书（映射 §5.5 / §5.6 / §5.10）
 
@@ -196,14 +214,15 @@
 - editor 三栏布局 `18fr 57fr 25fr` 保留（符合内容优先契约主栏 64-68% 的意图）；
   gallery/filter 模式的分类卡保留交错入场动效，`prefers-reduced-motion` 下降级（§7）。
 
-### 4.5 筛选面板（objects 与三队列共用模式；映射 §5.10）
+### 4.5 更多筛选面板（objects 与三个类型队列共用模式；映射 §5.10）
 
-- 默认收起为一行摘要（「N 个筛选生效」+ 展开按钮），展开为面板；开合状态持久化
-  保留（worldSession.js 现状），`aria-expanded` / `aria-controls` 契约不动。
+- 默认收起为「更多筛选」入口，已启用条件在入口之前始终可见并可逐项删除；展开为面板。
+  开合状态持久化保留（worldSession.js 现状），`aria-expanded` / `aria-controls` 契约不动。
 - 面板内控件按「类型与状态 / 来源与批次 / 数值范围」分组，组间距 `--space-4`；
   所有输入带可见中文 label；「应用 / 清空」按钮组右对齐，应用 = `.btn-primary`
   （面板局部）、清空 = `.btn-text`。
-- 「已筛选」小标 `.world-filter-panel__active` 改为摘要行内计数文案，不另造徽章。
+- 对象、别名、关系仅展示 §4.3 为各自列出的更多筛选字段；任务标签不在面板内重复。
+- 「已筛选」小标 `.world-filter-panel__active` 改为已启用条件区的计数文案，不另造徽章。
 
 ## 5. 状态覆盖清单
 
@@ -253,15 +272,16 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
   `#filter-source` `#filter-workflow-id` `#filter-needs-review` `#filter-auto-ingested`
 - ReviewTab：`#review-candidate-entity-type/action/source/workflow/scene/chapter/confidence-min/confidence-max`；
   `#review-alias-q/source/workflow/scene/chapter/confidence-min/type-kind/page-size`；
-  `#review-relation-q/scene-quick/type/scene/source-chapter/strength-min/type-kind/page-size`
+  `#review-relation-q/scene-quick/type/scene/source-chapter/strength-min/type-kind/page-size`；
+  就地决策 `#alias-inline-target-id/text/kind/type/type-custom`、
+  `#relation-inline-kind/type/type-custom/description/strength`
 - Bible：`#bible-title` `#bible-page-type` `#bible-sort-order` `#bible-page-template`
   `#bible-free-text` `#bible-asset-ref-picker` `#bible-asset-refs` `#bible-activation-profile`
   `#bible-activation-task`；规则模态 `#bible-profile-key/name/action` `#bible-rule-name/positive/negative/target-picker/target/priority/top-k/token-cap`
 - 模态（logic）：`#create-entity-name/type/summary`、`#edit-entity-name/type/summary/error`、
   `#merge-target-picker`、`#merge-target-id`、`#rollback-scene-index`、
   `#knowledge-target-id/level/content/chapter/misconception`（worldEntityOps.js）；
-  `#rel-source/target/type/desc`、`#alias-entity/text/type`（worldRelationsAliasesOps.js）；
-  `#relation-review-action`、`#relation-final-type/final-strength/final-description`、`#relation-preview`（useWorldReview.js）
+  `#rel-source/target/type/desc`、`#alias-entity/text/type`（worldRelationsAliasesOps.js）
 
 ### 7.2 data-action（按区域，全量保留）
 
@@ -276,6 +296,8 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
   `apply/reset-alias-review-filters` `apply/reset-relation-review-filters`
   `set-alias-quick-filter` `set-relation-quick-filter` `apply-relation-scene-quick`
   `remove-review-filter` `prepare-alias-review` `prepare-relation-review`
+  `confirm-alias-merge` `ignore-current-alias` `cancel-alias-decision`
+  `relation-person-card` `confirm-relation-decision` `ignore-current-relation` `cancel-relation-decision`
   `review-aliases-batch` `ignore-aliases-batch` `apply-relation-decisions`
   `ignore-relation-groups` `copy-review-diagnostic`
 - 关系/别名：`create-relation` `delete-relation` `review-relations` `delete-relations`
@@ -314,8 +336,9 @@ world 全部组件头部注释声明「DOM class/id/data-action 逐节点保留�
 ### 8.1 验收标准（逐项可判）
 
 1. §2 的 P0/P1 全部关闭：六个区域有骨架加载态；四处裸错误态补齐 `role="alert"` +
-   重试；角标 0 隐藏、>99 显示 99+；审核下拉可 ESC/外点关闭且有 `aria-expanded`；
-   三队列布局顺序一致；筛选收敛为「搜索 + 摘要行 + 面板」两层；视图切换默认值单一来源。
+   重试；角标 0 隐藏、>99 显示 99+；「需要处理」直达统一工作台；三个类型队列统一为
+   「队列说明 → 常驻搜索 → 任务标签 → 已启用条件 → 更多筛选 → 当前结果 → 批量处理
+   → 列表 / 分页」；视图切换默认值单一来源。
 2. 审核队列视觉与 outline/scene/map 待处理模式共用同一套 class 语义（§4.3 复用声明落地）。
 3. bible 不再暴露英文内部枚举；枚举映射文案经产品确认。
 4. 主规范 §1.4：本页新增/触碰样式零直写像素、零行内 style（§2-10 清除）。

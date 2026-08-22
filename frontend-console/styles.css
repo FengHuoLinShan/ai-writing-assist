@@ -14436,13 +14436,14 @@ button.rp-journey-card__main:hover {
   position: fixed;
   z-index: 30;
   inset: 0 0 0 auto;
-  width: min(760px, 100vw);
-  padding: var(--space-5);
-  overflow: auto;
+  width: min(1100px, calc(100vw - var(--space-5)));
+  overflow: visible;
   background: var(--surface, var(--bg));
   border-left: 1px solid var(--border);
   box-shadow: -12px 0 32px rgb(0 0 0 / 16%);
 }
+.owner-ai-drawer__scroll { height:100%;padding:var(--space-5);overflow:auto }
+.owner-ai-drawer__collapse { position:absolute;z-index:1;top:50%;left:0;width:36px;height:48px;padding:0;transform:translate(-50%,-50%);border-radius:999px;background:var(--surface,var(--bg));font-size:24px;line-height:1 }
 .owner-ai-drawer__header { display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3) }
 .owner-ai-drawer__eyebrow { color:var(--text-dim);font-size:12px }
 .owner-ai-drawer h2 { margin:4px 0 0;font-size:18px }
@@ -14453,7 +14454,9 @@ button.rp-journey-card__main:hover {
 .owner-ai-drawer__generate,.owner-ai-drawer__writing,.owner-ai-drawer__evidence { min-width:0 }
 .owner-ai-drawer__status { padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md, 8px) }
 @media (max-width: 760px) {
-  .owner-ai-drawer { width:100vw;padding:var(--space-4) }
+  .owner-ai-drawer { width:100vw }
+  .owner-ai-drawer__scroll { padding:var(--space-4);padding-left:calc(var(--space-4) + 32px) }
+  .owner-ai-drawer__collapse { left:var(--space-2);transform:translateY(-50%) }
 }
 
 .settings-shell { max-width:1120px;margin:0 auto;padding:var(--space-5) var(--space-6) var(--space-8) }
@@ -14467,4 +14470,73 @@ button.rp-journey-card__main:hover {
   .settings-shell { padding:var(--space-4) 0 var(--space-6) }
   .settings-shell__header { flex-direction:column }
   .settings-shell__project { white-space:normal }
+}
+
+/* 统一待定资料工作台 */
+.world-review-workbench { display:grid;grid-template-columns:minmax(0,3fr) minmax(280px,2fr);gap:var(--space-4);align-items:start }
+.world-review-queue { min-width:0 }
+.world-review-decision { position:sticky;top:var(--space-3);display:grid;gap:var(--space-3);min-width:0;max-height:calc(100vh - (2 * var(--space-3)));overflow:auto;padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md,8px);background:var(--surface,var(--bg)) }
+.world-review-decision h3,.world-review-decision p { margin:0 }
+.world-review-decision__actions,.world-review-preview { display:grid;gap:var(--space-2) }
+.world-review-preview { padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-subtle,var(--bg-soft)) }
+.world-alias-decision { display:grid;gap:var(--space-3) }
+.world-alias-decision__target { margin:0;padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-subtle,var(--bg-soft)) }
+.world-alias-decision__direction { display:grid;justify-items:center;gap:2px;color:var(--text-dim) }
+.world-alias-decision__direction span { font-size:24px;line-height:1 }
+.world-alias-decision__merge-row { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:var(--space-3);align-items:start }
+.world-alias-decision__merge-row > .form-group,.world-alias-decision__types > .form-group { margin:0 }
+.world-alias-decision__types { display:grid;gap:var(--space-2) }
+.world-alias-decision__evidence { display:grid;gap:var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--border) }
+.world-alias-decision__actions { display:flex;flex-wrap:wrap;gap:var(--space-2) }
+.world-alias-decision > .review-item-error { margin:0 }
+.world-relation-decision { display:grid;gap:var(--space-3);min-width:0 }
+.world-relation-decision__people { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-2) }
+.world-relation-person-card { display:grid;grid-template-columns:40px minmax(0,1fr);grid-template-rows:auto auto;align-items:center;gap:2px var(--space-2);min-width:0;min-height:72px;padding:var(--space-2);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-subtle,var(--bg-soft));color:var(--text);text-align:left;cursor:grab }
+.world-relation-person-card.is-selected { outline:2px solid var(--accent);outline-offset:1px }
+.world-relation-person-card__avatar { grid-row:1 / 3;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--accent-soft,var(--surface));font-weight:700 }
+.world-relation-person-card strong,.world-relation-person-card small { min-width:0;overflow-wrap:anywhere }
+.world-relation-person-card small { color:var(--text-dim) }
+.world-relation-decision__pairing { display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm) }
+.world-relation-slot { display:grid;place-items:center;gap:4px;min-width:0;min-height:96px;padding:var(--space-2);border:2px dashed var(--border);border-radius:var(--radius-sm);background:transparent;color:var(--text);text-align:center }
+.world-relation-slot span { color:var(--text-dim);font-size:12px }
+.world-relation-slot strong { max-width:100%;overflow-wrap:anywhere }
+.world-relation-slot.is-filled { border-style:solid;border-color:var(--accent);background:var(--accent-soft,var(--surface-subtle,var(--bg-soft))) }
+.world-relation-decision__direction { display:grid;justify-items:center;gap:2px;max-width:84px;color:var(--text-dim);text-align:center }
+.world-relation-decision__direction strong { overflow-wrap:anywhere }
+.world-relation-decision__direction span { font-size:24px;line-height:1 }
+.world-relation-decision__fields { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-2) var(--space-3);align-items:start }
+.world-relation-decision__fields > .form-group { margin:0 }
+.world-relation-decision__description { grid-column:1 / -1 }
+.world-relation-decision__evidence { display:grid;gap:var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--border) }
+.world-relation-decision__actions { display:flex;flex-wrap:wrap;gap:var(--space-2) }
+.world-relation-decision__actions .btn { min-height:44px }
+.world-review-receipt { display:grid;gap:4px;padding:var(--space-3);border:1px solid var(--success);border-radius:var(--radius-sm);color:var(--text) }
+.world-review-overview { display:grid;gap:var(--space-4);max-width:920px }
+.world-review-next { padding:var(--space-5);border:1px solid var(--border);border-radius:var(--radius-md,8px);background:var(--surface,var(--bg)) }
+.world-review-next h3 { margin:var(--space-2) 0 }
+.world-review-overview__cards { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3) }
+.world-review-overview-card { display:grid;gap:4px;min-height:112px;padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md,8px);background:var(--surface,var(--bg));color:var(--text);text-align:left;cursor:pointer }
+.world-review-overview-card strong { font-size:24px }
+.world-review-overview-card small { color:var(--text-dim) }
+.world-review-overview-card:disabled { cursor:default;opacity:.55 }
+.world-review-queue .is-active { outline:2px solid var(--accent);outline-offset:1px }
+.world-review-mobile-back { display:none }
+.world-review-active-filters { display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);color:var(--text-dim) }
+.world-review-active-filters .review-filter-chips { margin:0 }
+.world-review-result-summary { margin:var(--space-2) 0;color:var(--text-dim) }
+.world-review-result-row { display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2) }
+.world-review-result-row label { display:flex;align-items:center;gap:var(--space-2);color:var(--text-dim) }
+.world-review-result-row .form-select { width:auto }
+
+@media (max-width: 760px) {
+  .world-review-workbench { display:block }
+  .world-review-decision { position:static;max-height:none;overflow:visible }
+  .world-review-workbench:not(.is-detail-open) .world-review-decision { display:none }
+  .world-review-workbench.is-detail-open .world-review-queue { display:none }
+  .world-review-mobile-back { display:inline-flex;justify-self:start;min-height:44px }
+  .world-review-overview__cards { grid-template-columns:1fr }
+  .world-review-overview-card,.world-review-touch-target { min-height:44px }
+  .world-relation-person-card,.world-relation-slot { min-height:72px }
+  .world-relation-decision__fields { grid-template-columns:1fr }
+  .world-relation-decision__description { grid-column:auto }
 }

@@ -79,9 +79,7 @@ def test_identity_candidates_keep_all_direct_mentions_then_apply_type_top_k() ->
         outline_related_ids=set(),
     )
 
-    direct = [
-        item for item in selected if item["selection_reason"] == "direct_mention"
-    ]
+    direct = [item for item in selected if item["selection_reason"] == "direct_mention"]
     remaining_characters = [
         item
         for item in selected
@@ -310,6 +308,7 @@ async def test_import_activation_pages_through_all_relevant_relations(
             "source_id": str(source["id"]),
             "target_id": str(target["id"]),
             "relation_type": "ancient-alliance",
+            "relation_kind": "social",
         },
     )
     for index in range(50):
@@ -317,10 +316,11 @@ async def test_import_activation_pages_through_all_relevant_relations(
             db_session,
             test_project_id,
             {
-                "source_id": str(source["id"]),
-                "target_id": str(target["id"]),
-                "relation_type": f"noise-{index:02d}",
-            },
+                    "source_id": str(source["id"]),
+                    "target_id": str(target["id"]),
+                    "relation_type": f"noise-{index:02d}",
+                    "relation_kind": "state",
+                },
         )
 
     activation = await prepare_import_context_activation(

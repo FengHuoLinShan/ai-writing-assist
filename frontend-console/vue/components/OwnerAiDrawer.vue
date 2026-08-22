@@ -117,10 +117,11 @@ watch(modeKey, () => {
 
 <template>
   <aside v-if="open" class="owner-ai-drawer" data-owner-ai-drawer role="dialog" aria-label="AI 工具">
+    <button type="button" class="btn owner-ai-drawer__collapse" data-action="collapse-owner-ai-drawer" aria-label="收回 AI 工具" title="收回 AI 工具" @click="emit('close')">›</button>
+    <div class="owner-ai-drawer__scroll">
     <header class="owner-ai-drawer__header">
       <div>
         <span class="owner-ai-drawer__eyebrow">{{ ownerLabel }} · AI 工具</span>
-        <h2>在当前工作页继续</h2>
       </div>
       <button type="button" class="btn btn-sm" data-action="close-owner-ai-drawer" @click="emit('close')">关闭</button>
     </header>
@@ -154,5 +155,6 @@ watch(modeKey, () => {
       <p v-else-if="generateError" class="owner-ai-drawer__status" role="alert">{{ generateError }}</p>
       <p v-else class="owner-ai-drawer__status">请选择一个工具。</p>
     </section>
+    </div>
   </aside>
 </template>

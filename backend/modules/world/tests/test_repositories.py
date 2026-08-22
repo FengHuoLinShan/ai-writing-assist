@@ -88,6 +88,7 @@ async def test_relation_repository_preserves_explicit_zero_strength(
             source_id=str(source_id),
             target_id=str(target_id),
             relation_type="neutral",
+            relation_kind="state",
             strength=0.0,
         ),
     )

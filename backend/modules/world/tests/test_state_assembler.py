@@ -393,6 +393,7 @@ async def test_in_memory_source_drives_assemble_without_db(
         source_id=uuid.uuid4(),
         target_id=uuid.uuid4(),
         relation_type="ally",
+        relation_kind="social",
         status="canonical",
     )
     ch = Character(

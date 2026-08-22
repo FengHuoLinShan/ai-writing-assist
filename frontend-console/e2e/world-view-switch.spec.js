@@ -66,17 +66,21 @@ test.describe("worldView 子视图切换", () => {
     const reviewEntry = page.locator('[data-action="nav-review"]')
     await expect(reviewEntry).toBeVisible()
     await reviewEntry.click()
-    await expect(page).toHaveURL(new RegExp(`world/review-objects`))
+    await expect(page).toHaveURL(new RegExp(`world/review(?:$|\\?)`))
     await expect(reviewEntry).toHaveAttribute("aria-current", "page")
     await expect(page.locator('[data-action="nav-objects"]')).not.toHaveClass(/active/)
+    await expect(page.locator('[data-action="nav-review-all"]')).toHaveClass(/active/)
+
+    await page.locator('[data-action="nav-review-objects"]').click()
+    await expect(page).toHaveURL(new RegExp(`world/review\\?kind=objects`))
     await expect(page.locator('[data-action="nav-review-objects"]')).toHaveClass(/active/)
 
     await page.locator('[data-action="nav-review-relations"]').click()
-    await expect(page).toHaveURL(new RegExp(`world/review-relations`))
+    await expect(page).toHaveURL(new RegExp(`world/review\\?kind=relations`))
     await expect(page.locator('[data-action="nav-review-relations"]')).toHaveClass(/active/)
 
     await page.locator('[data-action="nav-review-aliases"]').click()
-    await expect(page).toHaveURL(new RegExp(`world/review-aliases`))
+    await expect(page).toHaveURL(new RegExp(`world/review\\?kind=aliases`))
     await expect(page.locator('[data-action="nav-review-aliases"]')).toHaveClass(/active/)
 
     await page.locator('[data-subview="bible"]').click()

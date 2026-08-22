@@ -156,31 +156,17 @@ def _more_target(
     item: WorkspaceAttentionItemResponse,
 ) -> WorkspaceAttentionTargetResponse:
     target = item.target
-    updates: dict[str, object | None] = {}
-    if target.kind in {
-        "writing_conflict",
-        "world_bible_conflict",
-        "world_review_objects",
-        "world_review_aliases",
-        "world_review_relations",
-        "world_suggestion",
-        "outline_scene",
-        "outline_fusion",
-    }:
-        updates["item_id"] = None
-    if target.kind in {
-        "world_bible_conflict",
-        "world_review_objects",
-        "world_review_aliases",
-        "world_review_relations",
-        "world_suggestion",
-    }:
-        updates["scene_id"] = None
-    if target.kind in {"world_bible_conflict", "world_suggestion"}:
-        updates["page_id"] = None
-    if target.kind in {"world_suggestion", "outline_fusion"}:
-        updates["suggestion_id"] = None
-    return target.model_copy(update=updates)
+    if target.kind == "world_adoption":
+        return target
+    return target.model_copy(
+        update={
+            "item_id": None,
+            "chapter_index": None,
+            "scene_id": None,
+            "page_id": None,
+            "suggestion_id": None,
+        }
+    )
 
 
 class ProjectWorkspaceSummaryService:

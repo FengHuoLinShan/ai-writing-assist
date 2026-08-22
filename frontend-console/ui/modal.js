@@ -114,6 +114,7 @@ function _editableControls() {
   if (!bodyEl) return []
   return Array.from(bodyEl.querySelectorAll([
     "input:not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden'])",
+    "input[type='hidden'][data-modal-dirty-track]",
     "textarea",
     "select",
     "[contenteditable]:not([contenteditable='false'])",
@@ -122,6 +123,7 @@ function _editableControls() {
 
 function _isUserEditable(element) {
   if (element.matches(":disabled")) return false
+  if (element.matches("input[type='hidden'][data-modal-dirty-track]")) return true
   if (element.matches("input[readonly], textarea[readonly]")) return false
   if (element.closest("[hidden], [aria-hidden='true'], [inert]")) return false
 

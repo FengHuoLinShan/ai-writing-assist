@@ -43,7 +43,10 @@ async def test_knowledge_graph_links_page_entity_and_relation(
         db_session,
         project_novel_id,
         EntityRelationCreate(
-            source_id=first.id, target_id=second.id, relation_type="road"
+            source_id=first.id,
+            target_id=second.id,
+            relation_type="road",
+            relation_kind="spatial",
         ),
     )
     page = await WorldBibleLifecycleService().create_page(
@@ -194,6 +197,7 @@ async def test_graph_excludes_candidates_and_reports_bad_refs(
             source_id=entity.id,
             target_id=other.id,
             relation_type="road",
+            relation_kind="spatial",
         ),
     )
     candidate_relation = await relations.create(

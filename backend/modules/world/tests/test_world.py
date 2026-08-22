@@ -737,10 +737,113 @@ class TestWorldNovelIsolation:
             novel_id=novel_id,
         )
 
-        assert result.content_json["aliases"] == ["旧名", "新名"]
+        assert [item["alias"] for item in result.content_json["aliases"]] == [
+            "旧名",
+            "新名",
+        ]
+        assert [item["type"] for item in result.content_json["aliases"]] == [
+            "name",
+            "name",
+        ]
+        assert [item["kind"] for item in result.content_json["aliases"]] == [
+            "name",
+            "name",
+        ]
         assert result.content_json["_meta"]["needs_review"] is False
         assert result.content_json["_meta"]["reviewed_by"] == "manual"
         assert result.content_json["_meta"]["user_edited"] is True
+
+    @pytest.mark.asyncio
+    async def test_generic_entity_writes_cannot_bypass_active_alias_kind_rules(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        entity_repo: CoreEntityRepository,
+        novel_id: str,
+    ) -> None:
+        invalid_content = {"aliases": [{"alias": "无分类身份", "type": "自定义身份"}]}
+        with pytest.raises(DomainValidationError) as create_exc:
+            await entity_service.create(
+                db_session,
+                novel_id,
+                WorldEntityCreate(
+                    entity_type="character",
+                    name="无效创建别名",
+                    content_json=invalid_content,
+                    force_create=True,
+                ),
+                _validation_prechecked=True,
+            )
+        assert create_exc.value.status_code == 422
+
+        existing = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="待更新别名",
+                force_create=True,
+            ),
+            _validation_prechecked=True,
+        )
+        with pytest.raises(DomainValidationError) as update_exc:
+            await entity_service.update(
+                db_session,
+                existing.id,
+                WorldEntityUpdate(content_json=invalid_content),
+                novel_id=novel_id,
+                _validation_prechecked=True,
+            )
+        assert update_exc.value.status_code == 422
+
+        candidate = await entity_repo.create_raw(
+            db_session,
+            novel_id=uuid.UUID(novel_id),
+            entity_type="character",
+            name="待采用别名",
+            content_json=invalid_content,
+            status="candidate",
+        )
+        with pytest.raises(DomainValidationError) as promote_exc:
+            await entity_service.promote(
+                db_session,
+                str(candidate.id),
+                EntityPromoteRequest(),
+                novel_id=novel_id,
+                _validation_prechecked=True,
+            )
+        assert promote_exc.value.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_generic_candidate_entity_keeps_custom_alias_pending(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+    ) -> None:
+        created = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="候选身份",
+                status="candidate",
+                content_json={
+                    "aliases": [{"alias": "前世名字", "type": "自定义身份"}]
+                },
+                force_create=True,
+            ),
+            _validation_prechecked=True,
+        )
+
+        assert created.content_json["aliases"] == [
+            {
+                "alias": "前世名字",
+                "type": "自定义身份",
+                "kind": None,
+                "status": "candidate",
+            }
+        ]
 
     @pytest.mark.asyncio
     async def test_delete_entity(
@@ -1098,6 +1201,7 @@ class TestEntityDedupService:
             entity_b.id,
             "knows",
             "A 认识 B",
+            relation_kind="epistemic",
         )
         # Given: A' → C（A' 认识 C）
         await rel_repo.upsert(
@@ -1107,6 +1211,7 @@ class TestEntityDedupService:
             entity_c.id,
             "knows",
             "A' 认识 C",
+            relation_kind="epistemic",
         )
         # Given: A' → A（A' 怀疑 A — 合并后会变自环）
         await rel_repo.upsert(
@@ -1116,6 +1221,7 @@ class TestEntityDedupService:
             entity_a.id,
             "suspects",
             "A' 怀疑 A",
+            relation_kind="epistemic",
         )
 
         # When: 合并 A' → A
@@ -1572,6 +1678,7 @@ async def test_resolve_candidate_as_alias_marks_candidate_merged_and_migrates_re
         related.id,
         "located_at",
         "黑荆棘安保公司位于廷根",
+        relation_kind="spatial",
     )
     await rel_repo.upsert(
         db_session,
@@ -1580,6 +1687,7 @@ async def test_resolve_candidate_as_alias_marks_candidate_merged_and_migrates_re
         target.id,
         "alias_hint",
         "错误提示关系，迁移后会成为自环",
+        relation_kind="state",
     )
 
     result = await EntityAliasService().resolve_candidate_as_alias(
