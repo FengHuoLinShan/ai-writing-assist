@@ -5,13 +5,12 @@
  * DOM 事件用 Vue 绑定替代手动委托；模态框操作仍走 showModalHtml。
  * 投影轮询 / 简介轮询等后台任务使用 useWorkflowPolling。
  */
-import { computed, reactive, readonly, ref, shallowRef, watch } from "vue"
+import { computed, reactive, ref, watch } from "vue"
 import { getApi, getAppState, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
 import { worldSession } from "../../world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
-import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
-import { createReferencePicker } from "../../../../shared/referencePicker.js"
+import { worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import {
   clearCreativeContinuation,
   readCreativeContinuation,
@@ -639,21 +638,6 @@ export function useWorldBible(props) {
     return JSON.stringify(Array.isArray(refs) ? refs : [])
   }
 
-  function assetRefType(ref) {
-    return ref?.type || ref?.source_type || ref?.target_type || ""
-  }
-
-  function assetRefId(ref) {
-    return ref?.id || ref?.source_id || ref?.target_id || ""
-  }
-
-  function canonicalAssetRefType(type) {
-    if (["core_entity", "entity", "profile", "event"].includes(type)) return "core_entity"
-    if (["relation", "entity_relation"].includes(type)) return "entity_relation"
-    if (["world_bible_page", "page"].includes(type)) return "world_bible_page"
-    return type
-  }
-
   // ---- CRUD: Save / Publish / Discard ----
   async function savePage(refreshView = false, modalOwner = null) {
     if (editorMutationPending.value) return false
@@ -745,11 +729,6 @@ export function useWorldBible(props) {
     return source.sections_json || []
   }
 
-  function updateEditSource(newSource) {
-    // Sync reactive state from mutated source object
-    // This is called after DOM-side mutations like section add/remove/move
-  }
-
   function addSection() {
     const source = editSource.value
     if (!source) return
@@ -770,14 +749,14 @@ export function useWorldBible(props) {
     })
     source.sections_json = sections
     // Trigger re-render of section editor via reactive
-    rerenderSectionEditor(source)
+    rerenderSectionEditor()
   }
 
   function removeSection(sectionId) {
     const source = editSource.value
     if (!source) return
     source.sections_json = captureSectionsFromDom().filter((s) => s.section_id !== sectionId)
-    rerenderSectionEditor(source)
+    rerenderSectionEditor()
   }
 
   function moveSection(sectionId, direction) {
@@ -791,10 +770,10 @@ export function useWorldBible(props) {
     sections[index] = sections[next]
     sections[next] = tmp
     source.sections_json = sections.map((s, i) => ({ ...s, sort_order: (i + 1) * 10 }))
-    rerenderSectionEditor(source)
+    rerenderSectionEditor()
   }
 
-  function rerenderSectionEditor(source) {
+  function rerenderSectionEditor() {
     // We use a reactive sections signal to trigger re-render in the component
     sectionsSignal.value = Date.now()
   }

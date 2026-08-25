@@ -21,6 +21,7 @@ npm run dev
 常用验证脚本：
 
 ```bash
+npm run lint
 npm run test
 npm run test:watch
 npm run test:e2e:functional
@@ -35,7 +36,8 @@ npm run test:e2e:worker
 `npm run build`（vite build）可作 Vue 构建链冒烟验证；它会生成根级
 `asset-manifest.json`，并在校验所有入口、动态一级路由和生成资源后写出
 `asset-inventory.txt`。inventory 是发布时完整静态资源的受限合同，必须随构建产物一同交付。
-无独立 lint/format 依赖，前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
+`npm run lint` 使用 ESLint flat config 检查生产 JS、Vue SFC、Vitest、Playwright 与构建配置；
+只启用 JS correctness 和 Vue essential 约束，不承担格式化。
 构建会把仍由 `index.html` 直接加载的兼容运行时脚本复制为 `0644`；生产镜像还会统一保证
 静态目录可遍历、文件可读，避免发布机的私有 `umask` 被继承为 Nginx 403。
 

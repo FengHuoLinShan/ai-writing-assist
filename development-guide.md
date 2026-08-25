@@ -31,6 +31,7 @@ python scripts/manage_accounts.py claim-legacy --email test@example.com  # 认�
 cd frontend-console
 npm install
 npm run dev                      # Vite dev server with hot reload (port 8080)
+npm run lint                     # ESLint correctness + Vue essential
 npm run test                     # Vitest unit/component tests
 npm run test:watch               # Vitest watch mode
 npm run test:e2e:functional      # Complete functional Playwright E2E
@@ -89,7 +90,7 @@ namespace 并只连其 loopback，因此可从并行 worktree 重用既有开发
 激活虚拟环境。首次运行仍需要可用的 `uv` 以及本地缓存或网络来取得锁定环境；这不移除 E2E
 目标的专用 PostgreSQL 等外部前提。
 
-Frontend has no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证；`make test-production-images` 才会实际构建两份生产镜像并检查运行时合同。
+Frontend uses `npm run lint` for ESLint correctness and Vue essential checks; it does not enforce formatting or subjective style rules. Frontend validation also retains the Vitest/Playwright scripts above plus `git diff --check`. `npm run build`（vite build）仅作 Vue 构建链冒烟验证；`make test-production-images` 才会实际构建两份生产镜像并检查运行时合同。
 
 开发中只跑受影响项；提交前按 `testing-guide.md` 选择一次对应门禁。跨栈、安全或 CI 改动运行
 一次 `make test-ci TEST_WORKERS=2` 即可，不再先跑它已包含的 `make test` 或前端 Vitest。

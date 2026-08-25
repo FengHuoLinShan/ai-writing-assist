@@ -618,17 +618,12 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { getApi, getRouter, getToast, getConfirm, getShowModalHtml, getCloseModal, getEsc, getErrorLog, getConfirmAction } from "../../../bridge/index.js"
-import { worldSession } from "../worldSession.js"
+import { getApi, getRouter, getToast, getShowModalHtml, getCloseModal, getConfirmAction } from "../../../bridge/index.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
 import WorldbookImportPanel from "./WorldbookImportPanel.vue"
 import WorldHealthPanel from "./WorldHealthPanel.vue"
-import {
-  BIBLE_PAGE_TYPES,
-  knowledgeGraphLayout,
-  useWorldBible,
-} from "./useWorldBible.js"
+import { knowledgeGraphLayout, useWorldBible } from "./useWorldBible.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -672,12 +667,10 @@ const {
   graphDepth,
 
   pages,
-  categories,
   drafts,
   pageTemplates,
   activationProfiles,
 
-  initialize,
   onBeforeUnmount: cleanup,
   setDisplayMode,
   loadKnowledgeGraph,
@@ -724,10 +717,6 @@ const {
   ownsProject,
   captureModalOwner,
   ownsModalOwner,
-  captureSectionsFromDom,
-  readSectionsFromDom,
-  rerenderSectionEditor,
-  editorHasUnsavedChanges,
   esc,
 } = useWorldBible(props)
 
@@ -1124,7 +1113,6 @@ function mountAssetRefPicker() {
     placeholder: "按名称搜索关联资产",
     onOpen: (item) => openAssetRef(item.kind, item.id),
     onChange: (_items, refs) => {
-      const wireRefs2 = []
       try {
         const existing = parseAssetRefs(input.value || "")
         const originals = existing.filter((ref) => refs.some((r) => canonicalAssetRefType(assetRefType(ref)) === r.kind && assetRefId(ref) === r.id))
@@ -1155,14 +1143,6 @@ function assetRefType(ref) {
 function assetRefId(ref) {
   return ref?.id || ref?.source_id || ref?.target_id || ""
 }
-
-
-function getModalHelpers() {
-  const showModalHtml = getShowModalHtml()
-  const closeModal = getCloseModal()
-  return { showModalHtml, closeModal }
-}
-
 
 
 </script>

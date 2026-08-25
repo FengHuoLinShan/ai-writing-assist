@@ -354,7 +354,7 @@ export function showOutlineAnalysisForm() {
  * 对应 vanilla _analyzeOutline (L2236-2322)。
  */
 export async function analyzeOutline({ instruction, startChapter, endChapter }) {
-  const { api, state, toast, router } = getBridge()
+  const { api, state, toast } = getBridge()
   const s = outlineAnalysisManager.state
 
   if (s.submitting) throw new Error("大纲分析正在提交，请稍候")

@@ -10,7 +10,6 @@ vi.mock("../../../../shared/referencePicker.js", () => ({
 import {
   acceptAliasReviewDecision,
   acceptAliasReviewItem,
-  acceptRelationReviewDecision,
   acceptRecommendedRelation,
   applyAliasReviewBatch,
   applyRelationReviewBatch,

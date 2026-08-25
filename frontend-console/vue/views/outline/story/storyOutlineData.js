@@ -7,7 +7,7 @@
  *   不挂组件生命周期，island load() → recover()，onLeave → stop()。
  */
 import { reactive } from "vue"
-import { getApi, getAppState, getRouter, getToast } from "../../../bridge/index.js"
+import { getApi, getAppState, getToast } from "../../../bridge/index.js"
 import {
   clearActiveWorkflow,
   normalizeTaskProgress,
@@ -464,7 +464,6 @@ export const storyOutlineTaskManager = (() => {
  */
 export async function loadStoryOutlineProps(projectId, { recoverTask = true } = {}) {
   const api = getApi()
-  const router = getRouter()
 
   const props = {
     projectId: projectId || null,

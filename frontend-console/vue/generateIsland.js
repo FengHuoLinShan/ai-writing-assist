@@ -10,7 +10,7 @@ import {
   readCreativeContinuation,
   readGenerateSession,
 } from "./views/generate/generateSession.js"
-import { OBJECT_TEMPLATES, PAGE_SIZE, characterId, convergenceDraftFromCheckpoint, listItems, normalizeTemplate } from "./views/generate/logic/generateLogic.js"
+import { OBJECT_TEMPLATES, PAGE_SIZE, convergenceDraftFromCheckpoint, listItems, normalizeTemplate } from "./views/generate/logic/generateLogic.js"
 
 const VALID_TABS = new Set(["world", "task", "preview", "pov_prose"])
 const VALID_TARGETS = new Set(["core_entity", "world_bible_page", "world_bible_new_page"])

@@ -17,11 +17,8 @@ import {
   recoverActiveWorkflows,
 } from "../../../shared/workflowProgress.js"
 import {
-  SOURCE_OPTIONS,
-  STATUS_OPTIONS,
   TAG_OPTIONS,
   sceneChapterLabel,
-  sceneSourceLabel,
   sceneStatusLabel,
 } from "./sceneModel.js"
 

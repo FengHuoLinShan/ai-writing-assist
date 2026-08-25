@@ -66,6 +66,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.14/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
+| `npm --prefix frontend-console run lint` | Production JS, Vue SFC, Vitest, Playwright, and build-config correctness / Vue essential rules | Locked frontend dependencies; no formatting gate |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS and advisory-lock races | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
@@ -88,7 +89,7 @@ green. Do not run overlapping aggregate targets back-to-back.
 1. **While editing**: run only the affected pytest or Vitest file. For a changed browser flow,
    use the existing `test:e2e:smoke` or `test:e2e:map` subset with a dedicated database.
 2. **Before review**: backend-only changes run `make test` plus `make lint`; frontend-only
-   changes run complete Vitest, with `npm run build` only when the bundle, entry points, or build
+   changes run `npm run lint` and complete Vitest, with `npm run build` only when the bundle, entry points, or build
    configuration changed. Cross-stack, security, or CI changes run
    `make test-ci TEST_WORKERS=2` once; it already subsumes the fast backend and frontend Vitest
    layers, so do not precede it with `make test` or frontend Vitest.
@@ -182,7 +183,7 @@ and the extra remains trusted/offline-only even though this project's adapter us
 text collection metrics with an isolated local Codex evaluator. Frontend job first uses
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.19.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
-`npm audit --package-lock-only --audit-level=high`, complete Vitest and a production
+`npm audit --package-lock-only --audit-level=high`, ESLint, complete Vitest and a production
 build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, the Compose-managed private
 MinIO buckets, and Chromium, then runs the
 complete functional suite with workers=1 and retries=0, and retains

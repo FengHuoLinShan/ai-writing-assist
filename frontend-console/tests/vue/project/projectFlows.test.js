@@ -350,7 +350,7 @@ describe("回收站", () => {
   })
 
   it("skip 超出范围时回退到最后一页", async () => {
-    globalThis.api.projects.listDeleted = vi.fn(async (skip) => ({
+    globalThis.api.projects.listDeleted = vi.fn(async (_skip) => ({
       items: [deletedItem("d9")],
       total: 3,
     }))

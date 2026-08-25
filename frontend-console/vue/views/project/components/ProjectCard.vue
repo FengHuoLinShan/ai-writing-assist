@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from "vue"
 import {
-  formatNumber,
   genreLabel,
   projectActivityTime,
   projectMonogram,

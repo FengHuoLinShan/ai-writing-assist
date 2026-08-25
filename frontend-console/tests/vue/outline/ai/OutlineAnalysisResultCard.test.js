@@ -1,7 +1,7 @@
 /**
  * OutlineAnalysisResultCard 组件测试 — DOM 对齐 vanilla _renderOutlineAnalysisResult。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mount } from "@vue/test-utils"
 import OutlineAnalysisResultCard from "../../../../vue/views/outline/ai/OutlineAnalysisResultCard.vue"
 import { outlineAnalysisManager } from "../../../../vue/views/outline/ai/outlineWorkflowManagers.js"

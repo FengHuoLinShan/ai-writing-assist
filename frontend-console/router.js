@@ -625,7 +625,7 @@ function _disposeRenderingRoute({ invalidateRender = true } = {}) {
   return true
 }
 
-function _showProjectTransition(routeState) {
+function _showProjectTransition(_routeState) {
   const content = document.getElementById("workspace-content")
   if (!content) return
   state.loading = true

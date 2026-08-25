@@ -805,7 +805,6 @@ test.describe("Scene 工作台", () => {
     const footerLayout = await page.evaluate(() => {
       const footer = document.querySelector("#modal-footer")
       const content = document.querySelector("#modal-content")
-      const footerRect = footer?.getBoundingClientRect()
       const contentRect = content?.getBoundingClientRect()
       const buttons = Array.from(document.querySelectorAll("#modal-footer button"))
         .map((button) => {

@@ -40,6 +40,9 @@ jobs:
       - name: Audit frontend dependency lockfile
         run: npm audit --package-lock-only --audit-level=high
 
+      - name: Lint frontend sources
+        run: npm run lint
+
       - name: Run frontend unit tests
         run: npm test
 

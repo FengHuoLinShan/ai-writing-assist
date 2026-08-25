@@ -107,7 +107,7 @@ import {
   plotAutoExtractManager,
 } from "./ai/outlineWorkflowManagers.js"
 
-const props = defineProps({
+defineProps({
   projectId: { type: String, default: null },
   subView: { type: String, default: "story-outline" },
   editorMode: { type: Boolean, default: false },

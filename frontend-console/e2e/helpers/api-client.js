@@ -4,8 +4,6 @@
  * 绕过前端，直接调用后端 REST API 创建/清理测试数据。
  */
 
-import "../../apiContracts.js"
-
 const backendPort = process.env.BACKEND_PORT || "8000"
 const rawApiHost = process.env.API_HOST || `http://localhost:${backendPort}`
 export const API_HOST = rawApiHost.endsWith("/api") ? rawApiHost.slice(0, -4) : rawApiHost
@@ -69,16 +67,6 @@ async function request(path, options = {}) {
       externalSignal.removeEventListener("abort", externalAbortHandler)
     }
   }
-}
-
-async function requestContract(name, params = {}, query = {}, options = {}) {
-  const requestSpec = globalThis.apiContracts.contractRequest(
-    name,
-    params,
-    query,
-    options,
-  )
-  return request(requestSpec.path, requestSpec.options)
 }
 
 export async function createProject(payload) {

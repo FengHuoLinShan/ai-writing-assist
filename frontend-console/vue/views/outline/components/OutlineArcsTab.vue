@@ -139,7 +139,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from "vue"
-import { getRouter, getToast } from "../../../bridge/index.js"
+import { getRouter } from "../../../bridge/index.js"
 import { structureAssetDisplay, displayStateBadgeClass, assetAttentionReasons } from "../../../../shared/assetDisplayState.js"
 import {
   STRUCTURE_FILTER_DEFAULTS,

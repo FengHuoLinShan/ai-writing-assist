@@ -10,7 +10,7 @@
  * 拉取实体列表填充下拉菜单。
  */
 import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
-import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection } from "./worldBulkSelection.js"
+import { runBulkAction, bulkResultMessage, clearBulkSelection } from "./worldBulkSelection.js"
 import { mountEntityReferencePickerForReview } from "./worldEntityOps.js"
 import {
   bindTypeKindControls,
@@ -417,7 +417,6 @@ export async function runCanonicalBulkAction(scope, action, items) {
  * 适用于别名等扁平对象。
  */
 export function inlineEvidencePairs(item = {}) {
-  const esc = (v) => String(v ?? "")
   return [
     ["来源", item.source === "deep_import" ? "深度导入" : item.source],
     ["处理批次", item.workflow_id],
@@ -653,7 +652,6 @@ export function showRelationReviewEditForm(relationId) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
-  const confirmAction = getConfirmAction()
   const api = getApi()
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId

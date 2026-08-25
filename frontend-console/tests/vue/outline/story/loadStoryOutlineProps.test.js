@@ -108,21 +108,6 @@ describe("loadStoryOutlineProps", () => {
     globalThis.api.world.listCharacters.mockResolvedValue({ items: [] })
     globalThis.api.world.listEntities.mockResolvedValue({ items: [] })
 
-    // 设置持久化工作流
-    const { storyOutlineTaskManager } = await import("../../../../vue/views/outline/story/storyOutlineData.js")
-    const { persistActiveWorkflow } = await import("../../../../shared/workflowProgress.js")
-
-    // Mock recoverActiveWorkflows to return our workflow
-    const workflowData = {
-      taskId: "task-recover",
-      workflowType: "story_outline_generate",
-      label: "AI 故事总览",
-      projectId: "p1",
-      view: "outline",
-      meta: { action: "outline.story_outline.generate", novel_id: "p1" },
-      updatedAt: new Date().toISOString(),
-    }
-
     // 直接调用 loadStoryOutlineProps，recover 会在其中被调用
     // 但 recover 读的是 localStorage，需要通过 recoverActiveWorkflows mock
     // 我们不能在这里 mock recoverActiveWorkflows，因为 storyOutlineData 已经在

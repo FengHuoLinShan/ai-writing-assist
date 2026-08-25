@@ -283,7 +283,7 @@ test.describe("世界对象模块", () => {
       entity_type: "location",
       status: "canonical",
     })
-    const candidate = await createEntity(testProjectId, {
+    await createEntity(testProjectId, {
       name: "候选实体",
       entity_type: "location",
       status: "candidate",

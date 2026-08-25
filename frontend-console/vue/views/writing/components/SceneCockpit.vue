@@ -107,7 +107,7 @@
           <button type="button" class="btn-icon" aria-label="关闭" @click="requestClose">×</button>
         </div>
         <div class="modal-body">
-          <form v-if="creating" class="scene-associate-create" @submit.prevent="createScene">
+          <form v-if="creating" class="scene-associate-create" @submit.prevent="submitNewScene">
             <label for="scene-associate-title-input">Scene 名称</label>
             <input id="scene-associate-title-input" v-model="newTitle" class="form-input" maxlength="255" required autofocus>
             <p v-if="createError" class="writing-form-error" role="alert">{{ createError }}</p>
@@ -221,7 +221,7 @@ async function associate(item) {
     rowBusy.value = null
   }
 }
-async function createScene() {
+async function submitNewScene() {
   const title = newTitle.value.trim()
   if (!title || title.length > 255 || createBusy.value) {
     createError.value = "名称需为 1–255 个字符"

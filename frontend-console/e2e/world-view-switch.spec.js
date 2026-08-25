@@ -15,7 +15,7 @@ test.describe("worldView 子视图切换", () => {
     await waitForBackend(60000)
   })
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async () => {
     const project = await createProject({
       title: "视图切换测试项目",
       genre: "fantasy",

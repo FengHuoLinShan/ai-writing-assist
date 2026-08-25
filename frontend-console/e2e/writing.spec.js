@@ -530,7 +530,7 @@ test.describe("写作台模块", () => {
       }
     })
     // 创建 v1 和 v2
-    const v1 = await createDraft(testProjectId, 1, "第一版", "版本一的正文内容")
+    await createDraft(testProjectId, 1, "第一版", "版本一的正文内容")
     const v2 = await createDraft(testProjectId, 1, "第二版", "版本二的正文内容")
 
     await reloadWorkbench(page, "writing")

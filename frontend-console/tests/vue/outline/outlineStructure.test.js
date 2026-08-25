@@ -139,7 +139,7 @@ describe("loadAllOutlineItems", () => {
   })
   it("多页翻页", async () => {
     let callCount = 0
-    const fetchPage = async (params) => {
+    const fetchPage = async (_params) => {
       callCount++
       if (callCount === 1) return { items: Array.from({ length: 50 }, (_, i) => ({ id: `p1-${i}` })), total: 120 }
       if (callCount === 2) return { items: Array.from({ length: 50 }, (_, i) => ({ id: `p2-${i}` })), total: 120 }

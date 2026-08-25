@@ -64,8 +64,9 @@ async function loadImportHistory() {
     if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
     historyLoadFailed.value = true
   } finally {
-    if (generation !== historyLoadGeneration || currentProjectId.value !== projectId) return
-    historyLoading.value = false
+    if (generation === historyLoadGeneration && currentProjectId.value === projectId) {
+      historyLoading.value = false
+    }
   }
 }
 

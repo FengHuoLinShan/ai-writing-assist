@@ -530,7 +530,7 @@ async function followAttempt(attempt) {
         }
       }
       break
-    } catch (error) {
+    } catch {
       if (controller.signal.aborted || disposed) return
       if (Date.now() - retryStartedAt >= 60_000) {
         streamError.value = "连接暂时中断；已保存的故事内容仍会保留。"
