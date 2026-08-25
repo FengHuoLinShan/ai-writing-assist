@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.registry import get_registry
@@ -273,6 +274,67 @@ async def test_one_click_only_persists_authorized_freshness_checked_cards(
     assert len(persisted) == 1
     assert skipped == []
     assert persisted[0] != current.current_revision_id
+
+
+@pytest.mark.asyncio
+async def test_scene_story_assets_batch_load_revisions(
+    db_session: AsyncSession,
+    test_project_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene = await _scene(db_session, test_project_id)
+    service = StoryService()
+    for index in range(3):
+        character_id = await _character(db_session, test_project_id)
+        await service.create_manual_card(
+            db_session,
+            novel_id=test_project_id,
+            scene_id=str(scene.id),
+            character_id=str(character_id),
+            content=_content(f"性格-{index}"),
+        )
+        await service.create_script_revision(
+            db_session,
+            novel_id=test_project_id,
+            scene_id=str(scene.id),
+            file_key=f"script-{index}",
+            content=f"剧本-{index}",
+            content_json={"beats": [f"beat-{index}"]},
+            expected_revision_id=None,
+            adopt=True,
+        )
+
+    async def fail_single_get(*_args, **_kwargs):
+        raise AssertionError("list reads must use the batch revision query")
+
+    monkeypatch.setattr(service.card_revisions, "get", fail_single_get)
+    monkeypatch.setattr(service.script_revisions, "get", fail_single_get)
+    statements: list[str] = []
+
+    def capture_statement(_conn, _cursor, statement, *_args) -> None:
+        statements.append(statement)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        assets = await service.get_scene_story_assets(
+            db_session,
+            novel_id=test_project_id,
+            scene_id=str(scene.id),
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert len(assets["character_cards"]) == 3
+    assert len(assets["adopted_scripts"]) == 3
+    assert assets["beats"] == ["beat-0", "beat-1", "beat-2"]
+    assert [item["stale"] for item in assets["adopted_scripts"]] == [
+        True,
+        True,
+        False,
+    ]
+    assert sum("FROM story_character_card_revisions" in sql for sql in statements) == 1
+    assert sum("FROM story_scene_script_revisions" in sql for sql in statements) == 1
 
 
 def test_story_task_manifest_and_public_actions_are_registered() -> None:

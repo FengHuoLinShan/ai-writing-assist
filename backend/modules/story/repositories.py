@@ -78,6 +78,21 @@ class CharacterCardRepository:
 
 
 class CharacterCardRevisionRepository:
+    async def get_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        revision_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, CharacterCardRevision]:
+        if not revision_ids:
+            return {}
+        stmt = select(CharacterCardRevision).where(
+            CharacterCardRevision.novel_id == novel_id,
+            CharacterCardRevision.id.in_(revision_ids),
+        )
+        revisions = (await db.execute(stmt)).scalars().all()
+        return {revision.id: revision for revision in revisions}
+
     async def get(
         self,
         db: AsyncSession,
@@ -197,6 +212,21 @@ class SceneScriptFileRepository:
 
 
 class SceneScriptRevisionRepository:
+    async def get_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        revision_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, SceneScriptRevision]:
+        if not revision_ids:
+            return {}
+        stmt = select(SceneScriptRevision).where(
+            SceneScriptRevision.novel_id == novel_id,
+            SceneScriptRevision.id.in_(revision_ids),
+        )
+        revisions = (await db.execute(stmt)).scalars().all()
+        return {revision.id: revision for revision in revisions}
+
     async def get(
         self,
         db: AsyncSession,
