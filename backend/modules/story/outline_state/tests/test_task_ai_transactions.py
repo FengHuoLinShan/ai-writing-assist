@@ -12,9 +12,9 @@ from modules.evidence.compilation.services.compiled_context import (
     ContextSection,
     Tier,
 )
-from modules.outline.ai_workflow_service import OutlineAIWorkflowService
-from modules.outline.generation.context_builder import PlotStructureContext
-from modules.outline.generator import PlotStructureGenerator
+from modules.story.outline_state.ai_workflow_service import OutlineAIWorkflowService
+from modules.story.outline_state.generation.context_builder import PlotStructureContext
+from modules.story.outline_state.generator import PlotStructureGenerator
 
 pytestmark = [pytest.mark.asyncio]
 
@@ -88,11 +88,11 @@ def _patch_confirmation_dependencies(
     attached = mock.AsyncMock()
     project_guard = mock.AsyncMock()
     monkeypatch.setattr(
-        "modules.outline.ai_workflow_service.context_facade.prepare_confirmed_ai_action",
+        "modules.story.outline_state.ai_workflow_service.context_facade.prepare_confirmed_ai_action",
         prepared,
     )
     monkeypatch.setattr(
-        "modules.outline.ai_workflow_service.context_facade.attach_result_ref",
+        "modules.story.outline_state.ai_workflow_service.context_facade.attach_result_ref",
         attached,
     )
     monkeypatch.setattr(
@@ -384,7 +384,7 @@ async def test_generate_tasks_wait_without_transaction_and_revalidate_sources(
 
     generator.execute_task_preview = mock.AsyncMock(side_effect=_execute)
     monkeypatch.setattr(
-        "modules.outline.ai_workflow_service.PlotStructureGenerator",
+        "modules.story.outline_state.ai_workflow_service.PlotStructureGenerator",
         lambda: generator,
     )
     client = SimpleNamespace(model_name="test-model")
@@ -606,7 +606,7 @@ async def test_generator_task_plan_rejects_source_drift() -> None:
 
 
 async def test_legacy_task_freezes_missing_profile_before_workflow_checkpoint() -> None:
-    from modules.outline.tasks import _require_llm_execution_snapshot
+    from modules.story.outline_state.tasks import _require_llm_execution_snapshot
 
     db = _CheckpointSession()
     task = SimpleNamespace(meta={"novel_id": "novel-1"})
@@ -697,7 +697,7 @@ async def test_outline_handlers_delegate_only_to_task_workflow_seams(
     expected_kwargs: dict,
     result: dict,
 ) -> None:
-    from modules.outline import tasks as outline_tasks
+    from modules.story.outline_state import tasks as outline_tasks
 
     snapshot = {"profile_hash": "frozen"}
     task = SimpleNamespace(
@@ -707,7 +707,7 @@ async def test_outline_handlers_delegate_only_to_task_workflow_seams(
     )
     db = SimpleNamespace(task_checkpoint_enabled=True)
     with mock.patch(
-        "modules.outline.ai_workflow_service.OutlineAIWorkflowService",
+        "modules.story.outline_state.ai_workflow_service.OutlineAIWorkflowService",
         autospec=True,
     ) as service_cls:
         service = service_cls.return_value
@@ -729,7 +729,7 @@ async def test_outline_handlers_delegate_only_to_task_workflow_seams(
 
 
 async def test_outline_generate_handler_delegates_p20_v2_contract() -> None:
-    from modules.outline import tasks as outline_tasks
+    from modules.story.outline_state import tasks as outline_tasks
 
     snapshot = {"profile_hash": "frozen"}
     task = SimpleNamespace(
@@ -752,7 +752,7 @@ async def test_outline_generate_handler_delegates_p20_v2_contract() -> None:
     db = SimpleNamespace(task_checkpoint_enabled=True)
     result = {"contract_version": "outline_layer_v2", "target": "plot_thread"}
     with mock.patch(
-        "modules.outline.ai_workflow_service.OutlineAIWorkflowService",
+        "modules.story.outline_state.ai_workflow_service.OutlineAIWorkflowService",
         autospec=True,
     ) as service_cls:
         service_cls.return_value.generate_layer_for_task.return_value = result
@@ -778,7 +778,7 @@ async def test_outline_generate_handler_closes_confirmation_on_terminal_failure(
     failure: BaseException,
     expected_status: str,
 ) -> None:
-    from modules.outline import tasks as outline_tasks
+    from modules.story.outline_state import tasks as outline_tasks
 
     snapshot = {"profile_hash": "frozen"}
     task = SimpleNamespace(
@@ -805,7 +805,7 @@ async def test_outline_generate_handler_closes_confirmation_on_terminal_failure(
     )
     with (
         mock.patch(
-            "modules.outline.ai_workflow_service.OutlineAIWorkflowService",
+            "modules.story.outline_state.ai_workflow_service.OutlineAIWorkflowService",
             autospec=True,
         ) as service_cls,
         mock.patch(
@@ -853,7 +853,7 @@ async def test_p20_compiles_fresh_context_before_exclusive_finalization_lock(
         task_result=mock.MagicMock(return_value={"requires_apply": True}),
     )
     monkeypatch.setattr(
-        "modules.outline.p20_service.P20GenerationService",
+        "modules.story.outline_state.p20_service.P20GenerationService",
         lambda: generation,
     )
 
@@ -877,11 +877,11 @@ async def test_p20_compiles_fresh_context_before_exclusive_finalization_lock(
     require_fresh = mock.AsyncMock(side_effect=mark_fresh)
     attach = mock.AsyncMock()
     monkeypatch.setattr(
-        "modules.outline.ai_workflow_service.context_facade.require_fresh_confirmation",
+        "modules.story.outline_state.ai_workflow_service.context_facade.require_fresh_confirmation",
         require_fresh,
     )
     monkeypatch.setattr(
-        "modules.outline.ai_workflow_service.context_facade.attach_result_ref",
+        "modules.story.outline_state.ai_workflow_service.context_facade.attach_result_ref",
         attach,
     )
 
@@ -917,7 +917,7 @@ async def test_p20_compiles_fresh_context_before_exclusive_finalization_lock(
 
 
 async def test_task_only_methods_are_not_cross_module_facade_exports() -> None:
-    from modules.outline import facade
+    from modules.story.outline_state import facade
 
     assert not {
         "analyze_for_task",

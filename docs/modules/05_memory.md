@@ -1,7 +1,8 @@
 # Module: Story continuity / 长期记忆兼容面
 
-> 当前生产 owner 是 `modules.story.continuity`，原 `/api/novels/{novel_id}/memories`
-> 与 `modules.memory` 仅保留兼容入口。表名、任务、snapshot/checkpoint/rollback 行为不变；
+> 当前生产 owner 是 `modules.story.continuity`。`modules.memory` 仅保留待固定 SHA
+> 发布核验后删除的 Python import 兼容入口；`/api/novels/{novel_id}/memories`
+> 继续保持稳定。表名、任务、snapshot/checkpoint/rollback 行为不变；
 > 新生产消费者通过 `modules.story.facade` / `modules.story.contracts`。
 
 ## 定位

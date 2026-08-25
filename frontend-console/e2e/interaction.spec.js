@@ -64,7 +64,7 @@ async function mockRpApis(page, { seeSeaNoticeAcknowledged = true } = {}) {
     has_older_messages: false,
     active_attempt: null,
   }
-  await page.route("**/api/settings/llm-connections", (route) => route.fulfill({
+  await page.route("**/api/account/settings/llm-connections", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
       active_provider_id: "deepseek",

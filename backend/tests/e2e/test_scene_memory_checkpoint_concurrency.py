@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from modules.memory.models import MemorySceneCheckpoint
-from modules.memory.repositories import SceneCheckpointRepository
 from modules.project.models import Project
+from modules.story.continuity.models import MemorySceneCheckpoint
+from modules.story.continuity.repositories import SceneCheckpointRepository
 from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]

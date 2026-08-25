@@ -1526,7 +1526,7 @@ const api = {
     async rebuild(payload, options = {}) {
       const { novel_id, content_mode, start_chapter, end_chapter } = payload || {}
       if (!novel_id) throw new Error("重建索引需要先选择项目")
-      return post("/rag/rebuild", { novel_id, content_mode, start_chapter, end_chapter }, options)
+      return post("/evidence/indexing/rebuild", { novel_id, content_mode, start_chapter, end_chapter }, options)
     },
 
     async prewarm(options = {}) {
@@ -1536,15 +1536,15 @@ const api = {
     async retryEmbeddings(payload, options = {}) {
       const { novel_id, start_chapter, end_chapter, statuses } = payload || {}
       if (!novel_id) throw new Error("重试失败向量需要先选择项目")
-      return post("/rag/retry-embeddings", { novel_id, start_chapter, end_chapter, statuses }, options)
+      return post("/evidence/indexing/retry-embeddings", { novel_id, start_chapter, end_chapter, statuses }, options)
     },
 
     async status(projectId) {
-      return request(withQuery("/rag/chunks", { novel_id: projectId }))
+      return request(withQuery("/evidence/indexing/chunks", { novel_id: projectId }))
     },
 
     async metrics() {
-      return request("/rag/metrics")
+      return request("/evidence/indexing/metrics")
     },
   },
 
@@ -1565,11 +1565,11 @@ const api = {
     },
 
     async inspectEvidence(payload, options = {}) {
-      return post("/context/evidence/inspect", payload, options)
+      return post("/evidence/compilation/evidence/inspect", payload, options)
     },
 
     async traceEvidence(payload, options = {}) {
-      return post("/context/evidence/trace", payload, options)
+      return post("/evidence/compilation/evidence/trace", payload, options)
     },
 
     async compile(payload, options = {}) {
@@ -1601,41 +1601,41 @@ const api = {
     },
 
     async previewActivationProfile(payload) {
-      return post("/context/activation-preview", payload)
+      return post("/evidence/compilation/activation-preview", payload)
     },
 
     async listActivationProfiles(novelId, includeArchived = false) {
-      return request(withQuery("/context/activation-profiles", {
+      return request(withQuery("/evidence/compilation/activation-profiles", {
         novel_id: novelId,
         include_archived: includeArchived,
       }))
     },
 
     async createActivationProfile(payload) {
-      return post("/context/activation-profiles", payload)
+      return post("/evidence/compilation/activation-profiles", payload)
     },
 
     async updateActivationProfile(profileId, payload, novelId) {
-      return patch(withQuery(`/context/activation-profiles/${profileId}`, {
+      return patch(withQuery(`/evidence/compilation/activation-profiles/${profileId}`, {
         novel_id: novelId,
       }), payload)
     },
 
     async publishActivationProfile(profileId, payload, novelId) {
-      return post(withQuery(`/context/activation-profiles/${profileId}/publish`, {
+      return post(withQuery(`/evidence/compilation/activation-profiles/${profileId}/publish`, {
         novel_id: novelId,
       }), payload)
     },
 
     async listActivationProfileRevisions(profileId, novelId) {
-      return request(withQuery(`/context/activation-profiles/${profileId}/revisions`, {
+      return request(withQuery(`/evidence/compilation/activation-profiles/${profileId}/revisions`, {
         novel_id: novelId,
       }))
     },
 
     async restoreActivationProfileRevision(profileId, version, payload, novelId) {
       return post(withQuery(
-        `/context/activation-profiles/${profileId}/revisions/${version}/restore-draft`,
+        `/evidence/compilation/activation-profiles/${profileId}/revisions/${version}/restore-draft`,
         { novel_id: novelId },
       ), payload)
     },
@@ -2262,19 +2262,19 @@ const settingsApi = {
   activateLLMProvider: (providerId) =>
     contractFetch("settings.activateLLMProvider", { providerId }),
   clearLLMProvider: (providerId) =>
-    deleteRequest(`/settings/llm-connections/${providerId}`),
+    deleteRequest(`/account/settings/llm-connections/${providerId}`),
   listLLMBalances: () => contractFetch("settings.listLLMBalances"),
 
   // 全局作者偏好
-  listGlobalAuthorPrefs: () => request("/settings/author-preferences"),
-  updateGlobalAuthorPrefs: (payload) => put("/settings/author-preferences", payload),
+  listGlobalAuthorPrefs: () => request("/account/settings/author-preferences"),
+  updateGlobalAuthorPrefs: (payload) => put("/account/settings/author-preferences", payload),
 
   // 引用此默认的项目聚合（D18/D19）
   listProjectsUsingDefaults: (params = {}) =>
-    request(withQuery("/settings/projects-using-defaults", params)),
+    request(withQuery("/account/settings/projects-using-defaults", params)),
 
   // 调试端点：通知客户端刷新（D16）
-  refreshSettings: () => post("/settings/refresh"),
+  refreshSettings: () => post("/account/settings/refresh"),
 
   // 项目级作者偏好覆盖
   getProjectAuthorPrefs: (projectId) =>
@@ -2282,7 +2282,7 @@ const settingsApi = {
   updateProjectAuthorPrefs: (projectId, payload) =>
     contractJson("settings.updateProjectAuthorPrefs", { projectId }, {}, payload),
   resetProjectAuthorPrefsField: (projectId, field) =>
-    deleteRequest(`/settings/projects/${projectId}/author-preferences/field/${field}`),
+    deleteRequest(`/projects/${projectId}/author-preferences/field/${field}`),
 
   // 项目 effective 视图（含 source 标签）
   getEffectiveLLMSettings: (projectId) =>

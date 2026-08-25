@@ -8,11 +8,14 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.generation.context_builder import PlotStructureContext
-from modules.outline.generation.models import GeneratedThread
-from modules.outline.generation.parser import PlotStructureParser
-from modules.outline.generation.persister import PersistResult, PlotStructurePersister
-from modules.outline.generator import PlotStructureGenerator
+from modules.story.outline_state.generation.context_builder import PlotStructureContext
+from modules.story.outline_state.generation.models import GeneratedThread
+from modules.story.outline_state.generation.parser import PlotStructureParser
+from modules.story.outline_state.generation.persister import (
+    PersistResult,
+    PlotStructurePersister,
+)
+from modules.story.outline_state.generator import PlotStructureGenerator
 
 
 @pytest.mark.asyncio

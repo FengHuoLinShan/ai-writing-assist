@@ -77,14 +77,14 @@ export async function createProject(payload) {
 }
 
 export async function connectAccountLLMProvider(providerId, apiKey) {
-  return request(`/settings/llm-connections/${providerId}`, {
+  return request(`/account/settings/llm-connections/${providerId}`, {
     method: "PUT",
     body: JSON.stringify({ api_key: apiKey }),
   })
 }
 
 export async function clearAccountLLMProvider(providerId) {
-  return request(`/settings/llm-connections/${providerId}`, {
+  return request(`/account/settings/llm-connections/${providerId}`, {
     method: "DELETE",
   })
 }

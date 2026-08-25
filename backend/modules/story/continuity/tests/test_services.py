@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from core.errors import ValidationError
-from modules.memory.schemas import EventType
-from modules.memory.services import (
+from modules.story.continuity.schemas import EventType
+from modules.story.continuity.services import (
     MAX_MEMORY_EVENT_PAYLOAD_CHARS,
     MAX_MEMORY_EVENTS_PER_CHAPTER,
     MemoryService,
@@ -92,8 +92,8 @@ async def test_ingest_delta_events_owns_provenance_and_result_refs(
 ) -> None:
     from sqlalchemy import select
 
-    from modules.memory.contracts import MemoryDeltaEventIngest
-    from modules.memory.models import DeltaLog
+    from modules.story.continuity.contracts import MemoryDeltaEventIngest
+    from modules.story.continuity.models import DeltaLog
 
     novel_id = str(uuid.uuid4())
     result_refs: list[dict[str, str]] = []
@@ -142,7 +142,7 @@ async def test_rollback_deep_import_delta_logs_is_scoped_and_idempotent(
     db_session: AsyncSession,
     memory_service: MemoryService,
 ) -> None:
-    from modules.memory.models import DeltaLog
+    from modules.story.continuity.models import DeltaLog
 
     novel_id = str(uuid.uuid4())
     other_novel_id = str(uuid.uuid4())
@@ -206,7 +206,7 @@ async def test_rollback_deep_import_delta_logs_is_scoped_and_idempotent(
 async def test_delta_count_and_rollback_use_repository_filters_and_keyset_batches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.memory.models import DeltaLog
+    from modules.story.continuity.models import DeltaLog
 
     novel_id = str(uuid.uuid4())
     rows = [
@@ -224,7 +224,7 @@ async def test_delta_count_and_rollback_use_repository_filters_and_keyset_batche
     delta_repo.get_active_by_workflow_page_after = AsyncMock(
         side_effect=[[rows[0]], [rows[1]], []]
     )
-    monkeypatch.setattr("modules.memory.services.DELTA_ROLLBACK_BATCH_SIZE", 1)
+    monkeypatch.setattr("modules.story.continuity.services.DELTA_ROLLBACK_BATCH_SIZE", 1)
     service = MemoryService(delta_log_repo=delta_repo)
     db = MagicMock()
     db.flush = AsyncMock()
@@ -248,7 +248,7 @@ async def test_delta_rollback_uuid_keyset_covers_multiple_real_pages_once(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.memory.models import DeltaLog
+    from modules.story.continuity.models import DeltaLog
 
     novel_id = uuid.uuid4()
     matching = [
@@ -270,7 +270,7 @@ async def test_delta_rollback_uuid_keyset_covers_multiple_real_pages_once(
     )
     db_session.add_all([*matching, unrelated])
     await db_session.flush()
-    monkeypatch.setattr("modules.memory.services.DELTA_ROLLBACK_BATCH_SIZE", 2)
+    monkeypatch.setattr("modules.story.continuity.services.DELTA_ROLLBACK_BATCH_SIZE", 2)
     service = MemoryService()
 
     assert (
@@ -291,18 +291,12 @@ async def test_delta_rollback_uuid_keyset_covers_multiple_real_pages_once(
     )
 
     refreshed = list(
-        (
-            await db_session.execute(
-                select(DeltaLog).where(DeltaLog.novel_id == novel_id)
-            )
-        )
+        (await db_session.execute(select(DeltaLog).where(DeltaLog.novel_id == novel_id)))
         .scalars()
         .all()
     )
     refreshed_by_id = {item.id: item for item in refreshed}
-    assert all(
-        refreshed_by_id[item.id].meta["rolled_back"] is True for item in matching
-    )
+    assert all(refreshed_by_id[item.id].meta["rolled_back"] is True for item in matching)
     assert refreshed_by_id[unrelated.id].meta.get("rolled_back") is None
 
 
@@ -313,9 +307,9 @@ async def test_full_rebuild_stales_replaced_snapshots_without_deleting_history(
     memory_service: MemoryService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.memory.models import MemoryEvent, MemorySnapshot
-    from modules.memory.repositories import SnapshotRepository
     from modules.project.models import Project
+    from modules.story.continuity.models import MemoryEvent, MemorySnapshot
+    from modules.story.continuity.repositories import SnapshotRepository
 
     empty_state = {
         "entities": [],
@@ -338,9 +332,7 @@ async def test_full_rebuild_stales_replaced_snapshots_without_deleting_history(
         full_state=empty_state,
     )
     other_novel_id = uuid.uuid4()
-    db_with_project.add(
-        Project(id=other_novel_id, title="另一项目", genre="奇幻")
-    )
+    db_with_project.add(Project(id=other_novel_id, title="另一项目", genre="奇幻"))
     await db_with_project.flush()
     other_snapshot = await snapshot_repo.create(
         db_with_project,
@@ -421,7 +413,7 @@ async def test_record_events_replaces_chapter_events_without_stale_tail(
         [{"event_type": "entity_moved", "snapshot_after": {"name": "C"}}],
     )
 
-    from modules.memory.models import MemoryEvent
+    from modules.story.continuity.models import MemoryEvent
 
     rows = (
         (
@@ -444,8 +436,8 @@ async def test_record_events_replaces_chapter_events_without_stale_tail(
 @pytest.mark.asyncio
 async def test_record_events_concurrent_calls_keep_unique_sequences() -> None:
     from core.base import Base
-    from modules.memory.models import MemoryEvent
     from modules.project.models import Project
+    from modules.story.continuity.models import MemoryEvent
 
     engine = create_async_engine(
         "sqlite+aiosqlite://",
@@ -974,7 +966,9 @@ async def test_list_events_uses_keyset_batches_and_sql_total(
     event_repo.get_by_chapter_range_page_after = AsyncMock(
         side_effect=[[first], [second]]
     )
-    monkeypatch.setattr("modules.memory.services.MEMORY_EVENT_LIST_BATCH_SIZE", 1)
+    monkeypatch.setattr(
+        "modules.story.continuity.services.MEMORY_EVENT_LIST_BATCH_SIZE", 1
+    )
     service = MemoryService(event_repo=event_repo)
 
     result = await service.list_events(MagicMock(), novel_id, 2, 3)
@@ -994,7 +988,7 @@ async def test_list_events_real_keyset_keeps_order_total_shape_and_last_limit(
     sample_novel_id: uuid.UUID,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.memory.repositories import EventRepository
+    from modules.story.continuity.repositories import EventRepository
 
     event_repo = EventRepository()
     rows = [
@@ -1010,7 +1004,9 @@ async def test_list_events_real_keyset_keeps_order_total_shape_and_last_limit(
     await event_repo.create_many(db_with_project, rows)
     original_page = event_repo.get_by_chapter_range_page_after
     event_repo.get_by_chapter_range_page_after = AsyncMock(wraps=original_page)  # type: ignore[method-assign]
-    monkeypatch.setattr("modules.memory.services.MEMORY_EVENT_LIST_BATCH_SIZE", 2)
+    monkeypatch.setattr(
+        "modules.story.continuity.services.MEMORY_EVENT_LIST_BATCH_SIZE", 2
+    )
     service = MemoryService(event_repo=event_repo)
 
     result = await service.list_events(
@@ -1139,7 +1135,7 @@ class TestReplayState:
             side_effect=[[create_event], [update_event], []]
         )
         monkeypatch.setattr(
-            "modules.memory.services.MEMORY_REPLAY_EVENT_BATCH_SIZE",
+            "modules.story.continuity.services.MEMORY_REPLAY_EVENT_BATCH_SIZE",
             1,
         )
         service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
@@ -1416,8 +1412,8 @@ async def test_continuity_evidence_for_writing_returns_memory_chapter_target(
     db_session: AsyncSession,
     sample_novel_id: uuid.UUID,
 ) -> None:
-    from modules.memory.facade import get_continuity_evidence_for_writing
-    from modules.memory.models import MemoryEvent
+    from modules.story.continuity.facade import get_continuity_evidence_for_writing
+    from modules.story.continuity.models import MemoryEvent
 
     character_id = uuid.uuid4()
     character_id_text = str(character_id)
@@ -1468,8 +1464,8 @@ async def test_continuity_evidence_for_writing_returns_none_for_same_location(
     db_session: AsyncSession,
     sample_novel_id: uuid.UUID,
 ) -> None:
-    from modules.memory.facade import get_continuity_evidence_for_writing
-    from modules.memory.models import MemoryEvent
+    from modules.story.continuity.facade import get_continuity_evidence_for_writing
+    from modules.story.continuity.models import MemoryEvent
 
     character_id = uuid.uuid4()
     character_id_text = str(character_id)
@@ -1509,7 +1505,7 @@ async def test_continuity_evidence_for_writing_ignores_world_fallback_without_hi
     sample_novel_id: uuid.UUID,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.memory.facade import get_continuity_evidence_for_writing
+    from modules.story.continuity.facade import get_continuity_evidence_for_writing
 
     character_id_text = str(uuid.uuid4())
 

@@ -13,10 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
-from modules.outline.models import Scene, SceneChapterLink
-from modules.outline.scene_fusion_draft import SceneFusionGenerationResult
-from modules.outline.scene_workbench import SceneWorkbenchService
-from modules.outline.schemas import (
+from modules.story.outline_state.models import Scene, SceneChapterLink
+from modules.story.outline_state.scene_fusion_draft import SceneFusionGenerationResult
+from modules.story.outline_state.scene_workbench import SceneWorkbenchService
+from modules.story.outline_state.schemas import (
     SceneChapterQuickCreate,
     SceneFusionPreviewRequest,
     SceneFusionSuggestionDismissRequest,
@@ -169,7 +169,7 @@ class TestSceneWorkbenchApi:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        from modules.outline import api as outline_api
+        from modules.story.outline_state import api as outline_api
 
         internal_detail = "SELECT secret FROM private_table at /srv/app/db.py:42"
 
@@ -182,7 +182,7 @@ class TestSceneWorkbenchApi:
             fail_get_workbench,
         )
 
-        with caplog.at_level(logging.ERROR, logger="modules.outline.api"):
+        with caplog.at_level(logging.ERROR, logger="modules.story.outline_state.api"):
             response = await async_client.get(
                 "/api/outline/scene-workbench",
                 params={"novel_id": test_project_id},
@@ -216,7 +216,7 @@ class TestSceneWorkbenchApi:
         status_code: int,
         detail: str,
     ) -> None:
-        from modules.outline.api import _workbench_error
+        from modules.story.outline_state.api import _workbench_error
 
         mapped = _workbench_error(exc)
 
@@ -224,8 +224,10 @@ class TestSceneWorkbenchApi:
         assert mapped.detail == detail
 
     async def test_workbench_conflict_keeps_409_and_detail(self) -> None:
-        from modules.outline.api import _workbench_error
-        from modules.outline.scene_workbench import SceneSuggestionConflictError
+        from modules.story.outline_state.api import _workbench_error
+        from modules.story.outline_state.scene_workbench import (
+            SceneSuggestionConflictError,
+        )
 
         mapped = _workbench_error(SceneSuggestionConflictError("stale suggestion"))
 
@@ -323,7 +325,7 @@ class TestSceneWorkbenchApi:
         test_project_id: str,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from modules.outline import api as outline_api
+        from modules.story.outline_state import api as outline_api
 
         called = {}
 
@@ -442,7 +444,7 @@ class TestSceneWorkbenchApi:
         test_project_id: str,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from modules.outline import api as outline_api
+        from modules.story.outline_state import api as outline_api
 
         selected_scene: dict | None = None
         suggestion_sources: list[dict] = []
@@ -588,7 +590,7 @@ class TestSceneWorkbenchApi:
         db_session: AsyncSession,
         test_project_id: str,
     ) -> None:
-        from modules.outline.models import Scene
+        from modules.story.outline_state.models import Scene
 
         legacy_scene = Scene(
             novel_id=uuid.UUID(test_project_id),
@@ -1162,7 +1164,7 @@ class TestSceneWorkbenchApi:
     ) -> None:
         from sqlalchemy import select
 
-        from modules.outline.models import SceneSpan
+        from modules.story.outline_state.models import SceneSpan
 
         scene = await _create_scene(
             async_client,
@@ -1237,7 +1239,7 @@ class TestSceneWorkbenchApi:
         db_session: AsyncSession,
         test_project_id: str,
     ) -> None:
-        from modules.outline.models import SceneSpan
+        from modules.story.outline_state.models import SceneSpan
 
         scene = await _create_scene(
             async_client,
@@ -1398,7 +1400,7 @@ class TestSceneWorkbenchApi:
         test_project_id: str,
         project_factory,
     ) -> None:
-        from modules.outline.models import Scene
+        from modules.story.outline_state.models import Scene
 
         scene = await _create_scene(
             async_client,
@@ -1504,7 +1506,7 @@ class TestSceneWorkbenchApi:
     ) -> None:
         from sqlalchemy import select
 
-        from modules.outline.models import SceneSpan
+        from modules.story.outline_state.models import SceneSpan
 
         scene = await _create_scene(
             async_client,
@@ -1774,7 +1776,7 @@ class TestSceneWorkbenchApi:
     ) -> None:
         from sqlalchemy import select
 
-        from modules.outline.models import SceneFusionSuggestion
+        from modules.story.outline_state.models import SceneFusionSuggestion
 
         first = await _create_scene(
             async_client,
@@ -1831,7 +1833,7 @@ class TestSceneWorkbenchApi:
     ) -> None:
         from sqlalchemy import select
 
-        from modules.outline.models import SceneFusionSuggestion
+        from modules.story.outline_state.models import SceneFusionSuggestion
 
         first = await _create_scene(
             async_client,
@@ -3186,7 +3188,7 @@ class TestSceneWorkbenchApi:
     async def test_span_overlap_detection_ignores_shared_chapter_without_offset_overlap(
         self,
     ) -> None:
-        from modules.outline.models import SceneSpan
+        from modules.story.outline_state.models import SceneSpan
 
         novel_id = uuid.uuid4()
         first_scene_id = uuid.uuid4()
@@ -3656,7 +3658,7 @@ class TestFusionDecisionLocking:
     async def test_save_llm_fusion_locks_suggestion_before_scenes(self) -> None:
         from unittest.mock import AsyncMock, MagicMock
 
-        from modules.outline.schemas import SceneFusionSaveRequest
+        from modules.story.outline_state.schemas import SceneFusionSaveRequest
 
         service = SceneWorkbenchService()
         nid = uuid.uuid4()

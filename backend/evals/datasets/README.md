@@ -178,7 +178,7 @@ it. LLM-derived metrics remain non-blocking unless judge-vs-human binary kappa,
 ordinal Spearman, and inter-reviewer kappa all pass their gates. Edited cases
 retain the original generated reference and modification reason.
 
-The production-shape runners use stable seams: RAG calls `modules.rag.facade`,
+The production-shape runners use stable seams: retrieval calls `modules.evidence.facade`,
 Scene submits and executes the authorized imports Scene stage then reads committed
 SceneSpan contracts, World reuses the authorized imports `world_objects` stage and
 reads results through `modules.world.facade`, and Outline calls the suggestion-only

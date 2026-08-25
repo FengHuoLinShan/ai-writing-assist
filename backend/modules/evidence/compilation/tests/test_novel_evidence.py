@@ -55,9 +55,9 @@ async def test_author_search_returns_parent_scene_context_and_writing_relation(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.facade import bind_scene_spans_to_source
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
 
     content = "林晚在旧塔找到铜铃，确认密道曾被人打开。"
     draft = await create_published_draft_only(
@@ -564,9 +564,9 @@ async def test_scene_cursor_rebinds_to_candidate_batch_source_version(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.facade import bind_scene_spans_to_source
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
     from modules.writing.facade import create_draft_only
 
     old_text = "截止 Scene 只包含铜铃。"
@@ -767,7 +767,7 @@ async def test_reader_reveal_policy_redacts_until_prior_stage(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.reveal_repository import RevealPlanRepository
+    from modules.story.outline_state.reveal_repository import RevealPlanRepository
     from modules.world.facade import create_entity
 
     entity = await create_entity(
@@ -932,9 +932,9 @@ async def test_scene_quote_requires_unique_exact_span_before_active_link(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.facade import bind_scene_spans_to_source
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
 
     content = "雨夜里，周明瑞醒来时发现自己成了克莱恩。"
     draft = await create_published_draft_only(
@@ -992,9 +992,9 @@ async def test_scene_quote_cannot_resolve_beyond_phase2_visible_chapter(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.facade import bind_scene_spans_to_source
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
     from modules.writing.facade import create_draft_only
 
     visible = "可见章节只有铜铃。"
@@ -1203,9 +1203,9 @@ async def test_reader_outline_search_marks_extract_only_checkpoint_degraded(
     db_session,
     test_project_id,
 ) -> None:
-    from modules.outline.facade import bind_scene_spans_to_source
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
 
     content = "铜铃在雨夜响起。"
     draft = await create_published_draft_only(

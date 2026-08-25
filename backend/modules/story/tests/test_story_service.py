@@ -6,8 +6,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.registry import get_registry
-from modules.outline.repositories import SceneRepository
-from modules.outline.schemas import SceneCreate
 from modules.story.generation import (
     STORY_CARD_TASK,
     STORY_CHARACTER_CARD_ACTION,
@@ -16,6 +14,8 @@ from modules.story.generation import (
     STORY_REACTION_TASK,
     STORY_SCRIPT_TASK,
 )
+from modules.story.outline_state.repositories import SceneRepository
+from modules.story.outline_state.schemas import SceneCreate
 from modules.story.schemas import (
     CardPreview,
     CharacterCardContent,

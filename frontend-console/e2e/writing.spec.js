@@ -131,7 +131,7 @@ test.describe("写作台模块", () => {
 
     let finishGeneration
     let generationPayload = null
-    await page.route("**/api/context/confirm", async (route) => {
+    await page.route("**/api/evidence/compilation/confirm", async (route) => {
       const body = route.request().postDataJSON()
       await route.fulfill({
         status: 201,
@@ -1136,7 +1136,7 @@ test.describe("写作台模块", () => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-    await page.route("**/api/context/confirm", async (route) => {
+    await page.route("**/api/evidence/compilation/confirm", async (route) => {
       await route.fulfill({
         status: 201,
         contentType: "application/json",

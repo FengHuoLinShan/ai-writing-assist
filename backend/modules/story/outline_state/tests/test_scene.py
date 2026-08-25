@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError as DomainNotFoundError
 from core.errors import ValidationError as DomainValidationError
-from modules.outline.models import Scene, SceneChapterLink, SceneSpan
-from modules.outline.schemas import SceneCreate, SceneUpdate
+from modules.story.outline_state.models import Scene, SceneChapterLink, SceneSpan
+from modules.story.outline_state.schemas import SceneCreate, SceneUpdate
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ async def sample_scene(
     sample_novel_id: str,
     scene_data: SceneCreate,
 ) -> tuple[str, SceneCreate]:
-    from modules.outline.repositories import SceneRepository
+    from modules.story.outline_state.repositories import SceneRepository
 
     nid = uuid.UUID(hex=sample_novel_id)
     repo = SceneRepository()
@@ -86,7 +86,7 @@ class TestSceneRepository:
         sample_novel_id: str,
         scene_data: SceneCreate,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -109,7 +109,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -129,7 +129,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -151,7 +151,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -206,7 +206,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -246,7 +246,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -316,7 +316,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -376,7 +376,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -407,7 +407,7 @@ class TestSceneRepository:
         sample_novel_id: str,
         other_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -456,7 +456,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -502,7 +502,7 @@ class TestSceneRepository:
         sample_novel_id: str,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -555,7 +555,7 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_sync_chapter_links_bulk_adds_link_rows(self) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         class FakeSession:
             def __init__(self) -> None:
@@ -597,7 +597,7 @@ class TestSceneRepository:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         class FakeSession:
             def __init__(self) -> None:
@@ -660,7 +660,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -742,7 +742,7 @@ class TestSceneRepository:
         sample_novel_id: str,
         other_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -788,7 +788,7 @@ class TestSceneRepository:
         sample_novel_id: str,
         other_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -838,7 +838,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -857,7 +857,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -880,7 +880,7 @@ class TestSceneRepository:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -906,7 +906,7 @@ class TestSceneRepository:
         sample_novel_id: str,
         other_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid1 = uuid.UUID(hex=sample_novel_id)
@@ -933,7 +933,7 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         data = SceneCreate(scene_index=0, title="Service Scene")
@@ -951,7 +951,7 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         await svc.create(
@@ -970,7 +970,7 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         await svc.create(
@@ -1014,7 +1014,7 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         scene = Scene(
@@ -1045,7 +1045,7 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         created = await svc.create(
@@ -1076,7 +1076,7 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         created = await svc.create(
@@ -1090,7 +1090,7 @@ class TestSceneService:
         )
         await svc.delete(db_session, created.id, novel_id=sample_novel_id)
 
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.repositories import SceneRepository
 
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
@@ -1112,7 +1112,7 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         scene1 = await svc.create(
@@ -1156,7 +1156,7 @@ class TestSceneService:
         sample_novel_id: str,
         other_novel_id: str,
     ) -> None:
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         first = await svc.create(
@@ -1229,9 +1229,9 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.scene_workbench import SceneWorkbenchService
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.scene_workbench import SceneWorkbenchService
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         repo = SceneRepository()
@@ -1379,8 +1379,8 @@ class TestSceneService:
         sample_novel_id: str,
         other_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         repo = SceneRepository()
@@ -1469,8 +1469,8 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         repo = SceneRepository()
@@ -1569,8 +1569,8 @@ class TestSceneService:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.services import SceneService
 
         svc = SceneService()
         repo = SceneRepository()
@@ -1611,9 +1611,10 @@ class TestSceneService:
         assert unchanged_source is not None
         assert unchanged_later is not None
         assert unchanged_source.chapter_ids == ["1", "2"]
-        assert [
-            chunk["chapter_index"] for chunk in unchanged_source.scene_chunks
-        ] == [1, 2]
+        assert [chunk["chapter_index"] for chunk in unchanged_source.scene_chunks] == [
+            1,
+            2,
+        ]
         assert unchanged_later.scene_index == 1
         ordered = await repo.get_by_novel_ordered(
             db_session,
@@ -1633,8 +1634,8 @@ class TestSceneSplitChunk:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.services import SceneService
 
         nid = uuid.UUID(hex=sample_novel_id)
         repo = SceneRepository()
@@ -1700,8 +1701,8 @@ class TestSceneSplitChunk:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.services import SceneService
 
         nid = uuid.UUID(hex=sample_novel_id)
         repo = SceneRepository()
@@ -1761,9 +1762,7 @@ class TestSceneSplitChunk:
         assert [(span.start_offset, span.end_offset) for span in source_spans] == [
             (0, 40)
         ]
-        assert [(span.start_offset, span.end_offset) for span in new_spans] == [
-            (0, 60)
-        ]
+        assert [(span.start_offset, span.end_offset) for span in new_spans] == [(0, 60)]
 
     @pytest.mark.parametrize(
         "source_chapter_id,source_chapter_index,split_pos,match",
@@ -1783,8 +1782,8 @@ class TestSceneSplitChunk:
         split_pos: int,
         match: str,
     ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.services import SceneService
+        from modules.story.outline_state.repositories import SceneRepository
+        from modules.story.outline_state.services import SceneService
 
         nid = uuid.UUID(hex=sample_novel_id)
         repo = SceneRepository()
@@ -1828,8 +1827,8 @@ class TestSceneSplitChunk:
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
-        from modules.outline.facade import split_scene_chunk_to_new_chapter
-        from modules.outline.repositories import SceneRepository
+        from modules.story.outline_state.facade import split_scene_chunk_to_new_chapter
+        from modules.story.outline_state.repositories import SceneRepository
 
         nid = uuid.UUID(hex=sample_novel_id)
         repo = SceneRepository()

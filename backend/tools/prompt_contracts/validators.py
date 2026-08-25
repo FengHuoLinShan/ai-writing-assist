@@ -18,12 +18,12 @@ TARGET_MODELS = {
     "world_bible_page_drafts": "modules.world.models.WorldBiblePageDraft",
     "world_bible_synopsis_revisions": "modules.world.models.WorldBibleSynopsisRevision",
     "entity_relations": "modules.world.models.EntityRelation",
-    "delta_log": "modules.memory.models.DeltaLog",
-    "scenes": "modules.outline.models.Scene",
-    "plot_threads": "modules.outline.models.PlotThread",
-    "outline_arcs": "modules.outline.models.OutlineArc",
-    "foreshadowing_plans": "modules.outline.models.ForeshadowingPlan",
-    "reveal_plans": "modules.outline.models.RevealPlan",
+    "delta_log": "modules.story.continuity.models.DeltaLog",
+    "scenes": "modules.story.outline_state.models.Scene",
+    "plot_threads": "modules.story.outline_state.models.PlotThread",
+    "outline_arcs": "modules.story.outline_state.models.OutlineArc",
+    "foreshadowing_plans": "modules.story.outline_state.models.ForeshadowingPlan",
+    "reveal_plans": "modules.story.outline_state.models.RevealPlan",
 }
 CRITICAL_MAPPINGS = {
     "world_generation_core_entity": {

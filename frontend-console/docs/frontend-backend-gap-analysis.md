@@ -38,7 +38,7 @@
 
 | 项目 | 实际状态 |
 |------|---------|
-| 后端端点 | `GET /api/context/retrieval-traces` |
+| 后端端点 | `GET /api/evidence/compilation/retrieval-traces` |
 | 前端 wrapper | `context.listRetrievalTraces()` |
 | 作者入口 | `小说检索 → 索引维护 → 技术诊断详情` |
 
@@ -58,7 +58,7 @@
 
 ### 2.2 Context snapshot maintenance
 
-`POST /api/context/snapshots/maintenance` 是上下文快照和 retrieval trace 的生命周期治理入口，默认 `dry_run=true`。它属于内部维护能力，不进入作者控制台。
+`POST /api/evidence/compilation/snapshots/maintenance` 是上下文快照和 retrieval trace 的生命周期治理入口，默认 `dry_run=true`。它属于内部维护能力，不进入作者控制台。
 
 ### 2.3 Debug frontend errors
 

@@ -2,7 +2,7 @@
   "id": "p20_plot_thread",
   "version": 2,
   "owner": "outline",
-  "schema_model": "modules.outline.p20_schemas.P20PlotThreadOutput",
+  "schema_model": "modules.story.outline_state.p20_schemas.P20PlotThreadOutput",
   "declared_prompt_fields": [
     "result",
     "reuse_judgments", "reuse_judgments.existing_thread_ref", "reuse_judgments.judgment", "reuse_judgments.basis",

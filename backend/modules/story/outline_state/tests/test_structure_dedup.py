@@ -7,18 +7,18 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.repositories import (
+from modules.story.outline_state.repositories import (
     PlotThreadRepository,
     SceneFusionSuggestionRepository,
     SceneRepository,
 )
-from modules.outline.scene_workbench import SceneWorkbenchService
-from modules.outline.schemas import (
+from modules.story.outline_state.scene_workbench import SceneWorkbenchService
+from modules.story.outline_state.schemas import (
     PlotThreadCreate,
     SceneCreate,
     SceneFusionSaveRequest,
 )
-from modules.outline.structure_dedup import (
+from modules.story.outline_state.structure_dedup import (
     OutlineStructureDedupService,
     _asset_fingerprints,
 )

@@ -125,7 +125,7 @@ class TestSecurity:
 
         # Act
         resp = await async_client.post(
-            "/api/rag/retrieve",
+            "/api/evidence/indexing/retrieve",
             params={"novel_id": test_project_id},
             json={"query": "'; SELECT pg_sleep(5); --", "top_k": 5},
         )
@@ -336,7 +336,7 @@ class TestSecurity:
 
         # Act
         resp = await async_client.post(
-            "/api/rag/retrieve",
+            "/api/evidence/indexing/retrieve",
             params={"novel_id": test_project_id},
             json={"query": "测试", "top_k": 999999},
         )
@@ -355,7 +355,7 @@ class TestSecurity:
 
         # Act
         resp = await async_client.post(
-            "/api/rag/retrieve",
+            "/api/evidence/indexing/retrieve",
             params={"novel_id": test_project_id},
             json={"query": "测试", "top_k": 0},
         )

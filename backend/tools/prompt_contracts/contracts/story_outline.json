@@ -2,7 +2,7 @@
   "id": "story_outline",
   "version": 1,
   "owner": "outline",
-  "schema_model": "modules.outline.story_outline_schemas.StoryOutlineContent",
+  "schema_model": "modules.story.outline_state.story_outline_schemas.StoryOutlineContent",
   "declared_prompt_fields": [
     "title",
     "creative_core",

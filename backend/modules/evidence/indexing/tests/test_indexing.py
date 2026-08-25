@@ -2269,22 +2269,22 @@ async def test_collect_annotation_sources_uses_chapter_scene_lookup(
     async def _importance_map(*args, **kwargs):
         return {}
 
-    import modules.outline.facade as outline_facade
+    import modules.story.facade as story_facade
     import modules.world.facade as world_facade
 
     monkeypatch.setattr(
-        outline_facade,
+        story_facade,
         "get_scenes_by_novel",
         _fail_get_scenes_by_novel,
     )
     monkeypatch.setattr(
-        outline_facade,
+        story_facade,
         "get_scenes_by_chapter",
         _get_scenes_by_chapter,
         raising=False,
     )
     monkeypatch.setattr(
-        outline_facade,
+        story_facade,
         "get_scene_spans_by_chapter",
         _get_scene_spans_by_chapter,
         raising=False,
@@ -2312,12 +2312,12 @@ async def test_collect_annotation_sources_does_not_hide_importance_failures() ->
 
     with (
         patch(
-            "modules.outline.facade.get_scenes_by_chapter",
+            "modules.story.facade.get_scenes_by_chapter",
             autospec=True,
             return_value=[],
         ),
         patch(
-            "modules.outline.facade.get_scene_spans_by_chapter",
+            "modules.story.facade.get_scene_spans_by_chapter",
             autospec=True,
             return_value=[],
         ),
@@ -2379,9 +2379,7 @@ def test_build_chunk_create_applies_character_entity_importance() -> None:
         ),
         chapter_index=1,
         chunking=ChunkingService(),
-        project_terms=[
-            {"term": "主角", "id": "character-entity-1", "type": "character"}
-        ],
+        project_terms=[{"term": "主角", "id": "character-entity-1", "type": "character"}],
         entity_importance_map={
             "character-entity-1": {"importance": 0.75, "importance_level": "core"}
         },
@@ -3291,8 +3289,8 @@ async def test_index_chapter_annotates_scene_id(
     from unittest.mock import AsyncMock, patch
 
     from modules.evidence.indexing.facade import index_chapter_with_report
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
     from modules.writing.models import WritingDraft
 
     nid_uuid = uuid.UUID(hex=test_project_id)
@@ -3365,8 +3363,8 @@ async def test_index_chapter_does_not_attribute_chapter_only_scene_span(
     from unittest.mock import AsyncMock, patch
 
     from modules.evidence.indexing.facade import index_chapter_with_report
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
     from modules.writing.models import WritingDraft
 
     nid_uuid = uuid.UUID(hex=test_project_id)

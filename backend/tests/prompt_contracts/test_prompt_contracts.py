@@ -93,17 +93,14 @@ def test_strict_schema_coverage_rejects_undeclared_schema_root() -> None:
     contract = replace(
         contract,
         declared_prompt_fields=[
-            field
-            for field in contract.declared_prompt_fields
-            if field != "delta_events"
+            field for field in contract.declared_prompt_fields if field != "delta_events"
         ],
     )
 
     issues = validate_contract(contract)
 
     assert any(
-        issue.code == "schema.strict_root_undeclared"
-        and issue.path == "delta_events"
+        issue.code == "schema.strict_root_undeclared" and issue.path == "delta_events"
         for issue in issues
     )
 
@@ -124,7 +121,7 @@ def test_forbidden_field_validator_reports_status_as_p1() -> None:
         id="forbidden_status",
         version=1,
         owner="tests",
-        schema_model="modules.outline.generation.models.SimpleStructureOutput",
+        schema_model="modules.story.outline_state.generation.models.SimpleStructureOutput",
         declared_prompt_fields=["plot_threads.status"],
         forbidden_fields=["status"],
     )

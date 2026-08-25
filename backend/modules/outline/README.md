@@ -1,8 +1,9 @@
 # Compatibility alias: outline / 大纲与结构管理
 
 > `outline` is no longer an independent production module. Its implementation
-> lives under `modules.story.outline_state`; this package is retained for one
-> release as a thin import/API/model/schema compatibility layer. New backend
+> lives under `modules.story.outline_state`; this package is retained only until
+> the canonical-preparation SHA has been released and verified as a thin
+> import/model/schema compatibility layer. New backend
 > consumers must use `modules.story.facade` / `modules.story.contracts`, while
 > `/api/outline` and existing task names remain unchanged.
 
@@ -418,7 +419,7 @@ Scene、软废弃来源、稳定重排、同步 span 和 suggestion 生命周期
   也不放开 Evidence indexing/compilation 的精确证据归因。
 - `chapter_ids` 变化只同步章节关联；`scene_chunks` 变化才重建 span；
   Scene `status/source` 变化只原地镜像到现有 span，不得丢失版本绑定和 anchor。
-- 跨模块调用只能通过 `modules.outline.facade.get_scene_spans_by_chapter()` /
+- 跨模块调用只能通过 `modules.story.facade.get_scene_spans_by_chapter()` /
   `get_scene_spans_for_scene()` 获取 `SceneSpanContract`。
 
 `scene_summary_checkpoints` 是可重建的派生摘要，保存可见截止位置、source refs
@@ -483,7 +484,7 @@ P20 v2 task 还冻结实际确认内容和 reference map；worker 重新准备�
 
 ## Facade
 
-跨模块调用优先走 `modules.outline.facade`。`facade.py` 是兼容 re-export hub，
+跨模块调用走 `modules.story.facade`。兼容包的 `facade.py` 是 re-export hub，
 内部按 seam 拆到子 facade：
 
 - `scene_facade.py`：Scene 读取、创建、更新、章节拆分、深度导入 Scene 原子提交、
@@ -496,8 +497,8 @@ P20 v2 task 还冻结实际确认内容和 reference map；worker 重新准备�
 - `thread_facade.py`：按显式 ID 与真实章节锚点读取剧情线的只读 context contract；
   不在缺少章节锚点时默认注入第一章剧情线
 
-`modules.outline.facade.*` 路径仍是唯一跨模块公共 seam，供外部模块 import 和
-测试 monkeypatch；子 facade 只是 outline 内部的 locality 拆分。root facade 的
+`modules.outline.facade.*` 路径只供专用兼容契约测试；子 facade 只是 outline
+内部的 locality 拆分。root facade 的
 显式 `__all__` 与 public API snapshot 已冻结当前公共面。新增入口前必须证明现有
 Scene/repair/dedup/reveal seam 无法表达，并同步 contract、README 和调用方测试；不得
 为单一调用方增加 pass-through。当前常用入口包括：

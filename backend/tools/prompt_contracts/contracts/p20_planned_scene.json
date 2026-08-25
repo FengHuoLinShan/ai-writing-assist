@@ -2,7 +2,7 @@
   "id": "p20_planned_scene",
   "version": 2,
   "owner": "outline",
-  "schema_model": "modules.outline.p20_schemas.P20PlannedSceneOutput",
+  "schema_model": "modules.story.outline_state.p20_schemas.P20PlannedSceneOutput",
   "declared_prompt_fields": [
     "result",
     "scenes", "scenes.proposal_ref", "scenes.target_scene_ref", "scenes.parent_arc_ref", "scenes.title", "scenes.planned_start_chapter", "scenes.planned_end_chapter", "scenes.goal", "scenes.core_conflict", "scenes.core_conflict_status", "scenes.emotional_beat", "scenes.must_happen", "scenes.must_not_happen", "scenes.narrative_tag", "scenes.narrative_function", "scenes.pov_character_ref", "scenes.related_thread_refs", "scenes.related_character_refs", "scenes.related_entity_refs", "scenes.basis", "scenes.uncertain_fields", "scenes.confidence",

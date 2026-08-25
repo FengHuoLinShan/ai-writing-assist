@@ -6,11 +6,11 @@ from dataclasses import asdict
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.facade import get_scene_execution_bundle
-from modules.outline.repositories import SceneRepository
-from modules.outline.schemas import SceneCreate
-from modules.outline.story_outline_schemas import StoryOutlineRevisionCreate
-from modules.outline.story_outline_service import StoryOutlineService
+from modules.story.outline_state.facade import get_scene_execution_bundle
+from modules.story.outline_state.repositories import SceneRepository
+from modules.story.outline_state.schemas import SceneCreate
+from modules.story.outline_state.story_outline_schemas import StoryOutlineRevisionCreate
+from modules.story.outline_state.story_outline_service import StoryOutlineService
 
 
 def _outline() -> StoryOutlineRevisionCreate:

@@ -155,9 +155,10 @@
 
 当前代码注册 8 个业务模块：`account` / `project` / `imports` / `world` /
 `evidence` / `story` / `writing` / `interaction`。Story 内部的 outline_state / continuity
-吸收原 memory / outline 唯一生产实现，旧包只保留一发布周期兼容别名。RAG 索引与 Context
+吸收原 memory / outline 唯一生产实现，旧包只保留待固定 SHA 发布核验后删除的兼容别名。RAG 索引与 Context
 编译/确认归 `evidence`；账户连接与全局偏好归
-`account`，项目偏好与有效配置归 `project`；前端设置页和 `/api/settings` 兼容路由仍保留。
+`account`，项目偏好与有效配置归 `project`；前端已使用 canonical 路径，`/api/settings`
+兼容路由只等待固定 SHA 发布核验后删除。
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
 - AI 地图册是 `world` 的子系统，API 前缀为 `/api/world/map-atlas`

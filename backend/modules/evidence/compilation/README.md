@@ -4,7 +4,7 @@
 
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些
 confirmation 需要在资产变化后标脏。
-Canonical API 前缀为 `/api/evidence/compilation`；`/api/context` 是一发布周期内的同 handler 兼容挂载。
+Canonical API 前缀为 `/api/evidence/compilation`；`/api/context` 是待准备版本固定 SHA 发布核验后删除的同 handler 兼容挂载。
 
 indexing 负责“找”，compilation 负责“选、裁、确认、追踪”。
 
@@ -81,7 +81,7 @@ async def preview_activation_profile(...) -> dict
 async def load_scene_lens(db, *, novel_id, scene_id, chapter_index) -> dict
 ```
 
-`POST /api/context/scene-lens` 是写作台的显式按需读取入口。请求只提供
+`POST /api/evidence/compilation/scene-lens` 是写作台的显式按需读取入口。请求只提供
 `novel_id + scene_id + chapter_index`；服务端先校验 Scene 属于同项目且关联请求章节，
 再从 Scene 推导 POV，并把请求章节作为可见性截止点。通过
 `require_active_project()` 同时执行 owner 与活跃项目门禁。返回仅包含
@@ -212,8 +212,8 @@ revision/source/block hash、section/token metadata 和后续产物引用。
 entity/character/thread 和 visibility 组装为最多 3 条 clause；RAG 仍只执行单条受控检索。
 loader 按稳定 RRF 合并，然后统一回读 writing 正文并复核 source hash/可见截止。
 
-`GET /api/context/evidence-health` 组合 Outline SceneSpan 覆盖、RAG 映射覆盖和近期 trace；
-`GET /api/context/retrieval-traces` 只返回隐私安全的运行摘要。无运行样本时 health 是
+`GET /api/evidence/compilation/evidence-health` 组合 Outline SceneSpan 覆盖、RAG 映射覆盖和近期 trace；
+`GET /api/evidence/compilation/retrieval-traces` 只返回隐私安全的运行摘要。无运行样本时 health 是
 `insufficient_data`，不伪装成绿色通过。trace 默认保留 30 天且每项目最多保留
 10,000 条，通过现有 snapshot maintenance 入口 dry-run/执行。近期统计和清理都由
 数据库聚合/子查询执行，不用固定大 limit 加载 trace ORM，因此高于历史
@@ -382,17 +382,17 @@ savepoint 记录 active evidence link。无法定位时只记 `needs_review` 与
 不伪造 offset/source ref。
 
 ```http
-POST /api/context/evidence/grep
-POST /api/context/evidence/search
-POST /api/context/evidence/read
-POST /api/context/evidence/inspect
-POST /api/context/evidence/trace
-GET/POST /api/context/activation-profiles
-PATCH /api/context/activation-profiles/{profile_id}
-POST /api/context/activation-profiles/{profile_id}/publish
-GET /api/context/activation-profiles/{profile_id}/revisions
-POST /api/context/activation-profiles/{profile_id}/revisions/{version}/restore-draft
-GET/POST /api/context/activation-preview
+POST /api/evidence/compilation/evidence/grep
+POST /api/evidence/compilation/evidence/search
+POST /api/evidence/compilation/evidence/read
+POST /api/evidence/compilation/evidence/inspect
+POST /api/evidence/compilation/evidence/trace
+GET/POST /api/evidence/compilation/activation-profiles
+PATCH /api/evidence/compilation/activation-profiles/{profile_id}
+POST /api/evidence/compilation/activation-profiles/{profile_id}/publish
+GET /api/evidence/compilation/activation-profiles/{profile_id}/revisions
+POST /api/evidence/compilation/activation-profiles/{profile_id}/revisions/{version}/restore-draft
+GET/POST /api/evidence/compilation/activation-preview
 ```
 
 ## Deep Import Activation
@@ -425,9 +425,9 @@ Phase 2b 复用完整正文与同一相关性边界，以 `entity-xxx / relation
 记录失败。普通 snapshot 入口继续参与调用方事务，不改变既有自动流水线的原子性。
 
 ```http
-GET  /api/context/snapshots?novel_id=...&workflow_id=...
-GET  /api/context/snapshots/{snapshot_id}?novel_id=...
-POST /api/context/snapshots/maintenance
+GET  /api/evidence/compilation/snapshots?novel_id=...&workflow_id=...
+GET  /api/evidence/compilation/snapshots/{snapshot_id}?novel_id=...
+POST /api/evidence/compilation/snapshots/maintenance
 ```
 
 维护 API 默认 `dry_run=true`，只返回会变更的数量；调用方必须显式传 `dry_run=false` 才会修改数据库。请求字段包括：

@@ -587,7 +587,7 @@ class TestApiRag:
 
         # Act
         resp = await async_client.post(
-            "/api/rag/chunks",
+            "/api/evidence/indexing/chunks",
             params={"novel_id": test_project_id},
             json=payload,
         )
@@ -606,7 +606,7 @@ class TestApiRag:
 
         # Act
         resp = await async_client.get(
-            "/api/rag/chunks",
+            "/api/evidence/indexing/chunks",
             params={"novel_id": test_project_id},
         )
 
@@ -624,7 +624,7 @@ class TestApiRag:
 
         # Act
         resp = await async_client.post(
-            "/api/rag/retrieve",
+            "/api/evidence/indexing/retrieve",
             params={"novel_id": test_project_id},
             json=payload,
         )
@@ -645,7 +645,7 @@ class TestApiRag:
 
         # Act
         resp = await async_client.post(
-            "/api/rag/retrieve",
+            "/api/evidence/indexing/retrieve",
             params={"novel_id": test_project_id},
             json=payload,
         )
@@ -663,7 +663,7 @@ class TestApiRag:
 
         # Act
         resp = await async_client.post(
-            "/api/rag/chunks/split",
+            "/api/evidence/indexing/chunks/split",
             params={"text": "测试" + "a" * 100, "method": "paragraph"},
         )
 
@@ -694,7 +694,7 @@ class TestApiContext:
 
         # Act
         resp = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json=payload,
         )
 
@@ -718,7 +718,7 @@ class TestApiContext:
 
         # Act
         resp = await async_client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json=payload,
         )
 
@@ -740,7 +740,7 @@ class TestApiContext:
 
         # Act
         resp = await async_client.post(
-            "/api/context/render",
+            "/api/evidence/compilation/render",
             json=payload,
         )
 

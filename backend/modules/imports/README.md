@@ -141,7 +141,7 @@ world entities。任务在 commit 前失败时旧资产保持不变。
 
 `audit_summary` 暂时保留为兼容 alias，旧前端或旧测试仍可读取；新代码应优先读取 `snapshot_health_summary`，再回退到 `audit_summary`。前端只展示“快照健康摘要 / 快照状态”的轻量信息，不新增审计工作台。
 
-快照维护入口由 context 模块提供：`POST /api/context/snapshots/maintenance`，默认 `dry_run=true`，imports 不直接访问 `context_snapshots` 表。
+快照维护入口由 Evidence 提供：`POST /api/evidence/compilation/snapshots/maintenance`，默认 `dry_run=true`，imports 不直接访问 `context_snapshots` 表。
 
 ## 深度导入恢复语义
 

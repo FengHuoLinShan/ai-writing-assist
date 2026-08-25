@@ -51,7 +51,7 @@ test.describe("settings 视觉基线", () => {
     await waitForBackend(60000)
     // 固定后端全局设置为"未配置"（继承系统默认），屏蔽其他 E2E 的持久化修改
     const ctx = await request.newContext()
-    const llmResp = await ctx.put(`${API_BASE}/settings/llm-defaults`, {
+    const llmResp = await ctx.put(`${API_BASE}/account/settings/llm-defaults`, {
       headers: xhrHeaders,
       data: {
         timeout: null,
@@ -61,7 +61,7 @@ test.describe("settings 视觉基线", () => {
         extra: {},
       },
     })
-    const prefsResp = await ctx.put(`${API_BASE}/settings/author-preferences`, {
+    const prefsResp = await ctx.put(`${API_BASE}/account/settings/author-preferences`, {
       headers: xhrHeaders,
       data: { daily_goal: null, editor_font: null, default_focus_mode: null },
     })

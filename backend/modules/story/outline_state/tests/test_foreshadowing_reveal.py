@@ -11,8 +11,10 @@ from httpx import AsyncClient
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
-from modules.outline.reveal_repository import RevealPlanRepository
+from modules.story.outline_state.foreshadowing_repository import (
+    ForeshadowingPlanRepository,
+)
+from modules.story.outline_state.reveal_repository import RevealPlanRepository
 from tests.utils import _make_bundle
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
@@ -100,8 +102,8 @@ async def test_get_active_foreshadowing_facade_filters_and_returns_shape(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    from modules.outline.facade import get_active_foreshadowing
     from modules.project.models import Project
+    from modules.story.outline_state.facade import get_active_foreshadowing
 
     other_project_id = uuid.uuid4()
     db_session.add(
@@ -209,9 +211,7 @@ async def test_information_plan_filters_and_cross_novel_thread_guard(
         "/api/outline/foreshadowing",
         params={"novel_id": sample_novel_id, "unassigned": True},
     )
-    assert [item["name"] for item in unassigned_list.json()["items"]] == [
-        "旧资产未归类"
-    ]
+    assert [item["name"] for item in unassigned_list.json()["items"]] == ["旧资产未归类"]
 
     cross_novel = await async_client.post(
         "/api/outline/reveals",
@@ -803,7 +803,7 @@ class TestPlotStructureGenerateDuplicateRange:
         test_project_id: str,
     ) -> None:
         bundle = _make_bundle(test_project_id)
-        from modules.outline.generator import PlotStructureGenerator
+        from modules.story.outline_state.generator import PlotStructureGenerator
 
         with (
             mock.patch(
@@ -843,7 +843,7 @@ class TestPlotStructureGenerateDuplicateRange:
         from sqlalchemy import select
 
         from modules.evidence.compilation.models import ContextSnapshot
-        from modules.outline.generator import PlotStructureGenerator
+        from modules.story.outline_state.generator import PlotStructureGenerator
         from shared.utils import parse_uuid
 
         with (
@@ -899,7 +899,7 @@ class TestPlotStructureGenerateDuplicateRange:
         from sqlalchemy import select
 
         from modules.evidence.compilation.models import ContextSnapshot
-        from modules.outline.generator import PlotStructureGenerator
+        from modules.story.outline_state.generator import PlotStructureGenerator
         from shared.utils import parse_uuid
 
         with (
@@ -913,7 +913,7 @@ class TestPlotStructureGenerateDuplicateRange:
                 autospec=True,
             ) as mock_llm,
             mock.patch(
-                "modules.outline.generation.persister.PlotStructurePersister.persist",
+                "modules.story.outline_state.generation.persister.PlotStructurePersister.persist",
                 side_effect=RuntimeError("persist failed"),
                 autospec=True,
             ),
@@ -950,7 +950,7 @@ class TestPlotStructureGenerateDuplicateRange:
         test_project_id: str,
     ) -> None:
         bundle = _make_bundle(test_project_id)
-        from modules.outline.generator import PlotStructureGenerator
+        from modules.story.outline_state.generator import PlotStructureGenerator
 
         with (
             mock.patch(
@@ -1095,11 +1095,13 @@ class TestPlotStructureGenerateDuplicateRange:
 
 
 async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> None:
-    from modules.outline.generation.models import (
+    from modules.story.outline_state.generation.models import (
         ForeshadowingPlan as GeneratedForeshadowingPlan,
     )
-    from modules.outline.generation.models import RevealPlan as GeneratedRevealPlan
-    from modules.outline.generation.persister import PlotStructurePersister
+    from modules.story.outline_state.generation.models import (
+        RevealPlan as GeneratedRevealPlan,
+    )
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
 
     novel_id = uuid.uuid4()
     target_id = uuid.uuid4()
@@ -1173,8 +1175,10 @@ async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> N
 
 
 async def test_plot_structure_persister_keeps_unresolved_reveal_as_review() -> None:
-    from modules.outline.generation.models import RevealPlan as GeneratedRevealPlan
-    from modules.outline.generation.persister import PlotStructurePersister
+    from modules.story.outline_state.generation.models import (
+        RevealPlan as GeneratedRevealPlan,
+    )
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
 
     reveal_service = SimpleNamespace(create_batch=mock.AsyncMock())
     persister = PlotStructurePersister(
@@ -1214,8 +1218,11 @@ async def test_plot_structure_persister_keeps_unresolved_reveal_as_review() -> N
 
 
 async def test_plot_structure_persister_batches_threads_and_arcs() -> None:
-    from modules.outline.generation.models import GeneratedArc, GeneratedThread
-    from modules.outline.generation.persister import PlotStructurePersister
+    from modules.story.outline_state.generation.models import (
+        GeneratedArc,
+        GeneratedThread,
+    )
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
 
     novel_id = uuid.uuid4()
     character_id = uuid.uuid4()
@@ -1304,8 +1311,11 @@ async def test_plot_structure_persister_batches_threads_and_arcs() -> None:
 
 
 async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> None:
-    from modules.outline.generation.models import GeneratedArc, GeneratedThread
-    from modules.outline.generation.persister import PlotStructurePersister
+    from modules.story.outline_state.generation.models import (
+        GeneratedArc,
+        GeneratedThread,
+    )
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
 
     novel_id = uuid.uuid4()
     created_thread = SimpleNamespace(id=uuid.uuid4(), name="主线", thread_type="main")
@@ -1378,8 +1388,8 @@ async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> N
 
 
 async def test_plot_structure_persister_batches_scenes() -> None:
-    from modules.outline.generation.models import GeneratedScene
-    from modules.outline.generation.persister import PlotStructurePersister
+    from modules.story.outline_state.generation.models import GeneratedScene
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
 
     novel_id = uuid.uuid4()
     scene_service = SimpleNamespace(
@@ -1435,8 +1445,8 @@ async def test_plot_structure_persister_batches_scenes() -> None:
 
 
 async def test_plot_structure_persister_falls_back_when_scene_batch_fails() -> None:
-    from modules.outline.generation.models import GeneratedScene
-    from modules.outline.generation.persister import PlotStructurePersister
+    from modules.story.outline_state.generation.models import GeneratedScene
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
 
     novel_id = uuid.uuid4()
     created_scene = SimpleNamespace(id=uuid.uuid4(), title="伏击", scene_index=0)
@@ -1488,8 +1498,8 @@ async def test_plot_structure_persister_falls_back_when_scene_batch_fails() -> N
 
 
 async def test_foreshadowing_service_create_batch_delegates_to_repository_batch() -> None:
-    from modules.outline.schemas import ForeshadowingPlanCreate
-    from modules.outline.services import ForeshadowingPlanService
+    from modules.story.outline_state.schemas import ForeshadowingPlanCreate
+    from modules.story.outline_state.services import ForeshadowingPlanService
 
     novel_id = uuid.uuid4()
     persisted = [
@@ -1536,8 +1546,8 @@ async def test_foreshadowing_service_create_batch_delegates_to_repository_batch(
 
 
 async def test_reveal_service_create_batch_delegates_to_repository_batch() -> None:
-    from modules.outline.schemas import RevealPlanCreate
-    from modules.outline.services import RevealPlanService
+    from modules.story.outline_state.schemas import RevealPlanCreate
+    from modules.story.outline_state.services import RevealPlanService
 
     novel_id = uuid.uuid4()
     target_id = uuid.uuid4()

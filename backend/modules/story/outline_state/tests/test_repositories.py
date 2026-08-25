@@ -5,13 +5,13 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.models import OutlineArc, PlotThread
-from modules.outline.repositories import (
+from modules.story.outline_state.models import OutlineArc, PlotThread
+from modules.story.outline_state.repositories import (
     OutlineArcRepository,
     PlotThreadRepository,
     SceneRepository,
 )
-from modules.outline.schemas import (
+from modules.story.outline_state.schemas import (
     OutlineArcCreate,
     OutlineArcUpdate,
     PlotThreadCreate,

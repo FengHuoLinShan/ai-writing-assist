@@ -6,11 +6,11 @@ from unittest import mock
 
 import pytest
 
-from modules.outline.generation.context_builder import PlotStructureContext
-from modules.outline.generation.models import GeneratedThread
-from modules.outline.generation.parser import ParsedPlotStructure
-from modules.outline.generation.persister import PersistResult
-from modules.outline.generator import PlotStructureGenerator
+from modules.story.outline_state.generation.context_builder import PlotStructureContext
+from modules.story.outline_state.generation.models import GeneratedThread
+from modules.story.outline_state.generation.parser import ParsedPlotStructure
+from modules.story.outline_state.generation.persister import PersistResult
+from modules.story.outline_state.generator import PlotStructureGenerator
 
 
 @pytest.mark.asyncio
@@ -51,7 +51,7 @@ async def test_generate_returns_persist_result() -> None:
     )
 
     with mock.patch(
-        "modules.outline.generator.PlotStructureParser",
+        "modules.story.outline_state.generator.PlotStructureParser",
         return_value=parser,
         autospec=True,
     ):
@@ -103,7 +103,7 @@ async def test_generate_preview_does_not_persist() -> None:
     )
 
     with mock.patch(
-        "modules.outline.generator.PlotStructureParser",
+        "modules.story.outline_state.generator.PlotStructureParser",
         return_value=parser,
         autospec=True,
     ):
@@ -147,7 +147,7 @@ async def test_generate_returns_empty_on_parse_failure() -> None:
     )
 
     with mock.patch(
-        "modules.outline.generator.PlotStructureParser",
+        "modules.story.outline_state.generator.PlotStructureParser",
         return_value=parser,
         autospec=True,
     ):

@@ -5,6 +5,9 @@
 Outline 与 Memory 的后端生产 owner 已融合到 Story 的
 `outline_state` / `continuity` 子域；前端继续使用原 `/api/outline`、
 `/api/novels/{novel_id}/memories` wire，并通过 `/api/story` 访问 Scene 人物卡与剧本。
+前端 Evidence、账户设置与项目偏好 wrapper 已分别迁入
+`/api/evidence/{indexing,compilation}/*`、`/api/account/settings/*` 与
+`/api/projects/{project_id}/author-preferences`；不再主动调用待退场别名。
 Writing 生成若采用 stale Story script，公开确认字段为
 `confirm_stale_story_assets`，409 detail code 为 `stale_story_assets`。
 

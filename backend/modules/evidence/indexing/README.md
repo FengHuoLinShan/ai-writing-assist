@@ -3,7 +3,7 @@
 ## 定位
 
 Evidence 的 indexing 子域负责从结构化小说知识库和文本片段中检索与当前创作任务相关的信息。
-Canonical API 前缀为 `/api/evidence/indexing`；`/api/rag` 是一发布周期内的同 handler 兼容挂载。
+Canonical API 前缀为 `/api/evidence/indexing`；`/api/rag` 是待准备版本固定 SHA 发布核验后删除的同 handler 兼容挂载。
 
 `get_scene_mapping_coverage()` 是只读稳定 facade，对 chapter-text chunk 批量对账
 `scene_id + scene_span_id + source_id + source_content_hash + offset overlap`，分开返回
@@ -159,7 +159,7 @@ from modules.evidence.contracts import RagChunkContract, RagQueryContract, RagRe
 from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordered_chapter_chunks
 ```
 
-`modules.rag` 只是一发布周期的兼容 import alias，新生产调用不应继续使用。
+`modules.rag` 只是待准备版本固定 SHA 发布核验后删除的兼容 import alias，新生产调用不应继续使用。
 
 ### Facade 方法
 
@@ -187,7 +187,7 @@ from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordere
 
 本地 BGE worker 的单次编码/队列等待仍使用独立短时限；冷启动需要加载、校验或首次下载
 模型，使用 `INFERENCE_WORKER_STARTUP_TIMEOUT`，默认 300 秒。冷启动时限不能复用单次编码
-的 30 秒预算，也不能在固定 60 秒后杀死即将就绪的模型；部署可用 `/api/rag/prewarm` 把这段
+的 30 秒预算，也不能在固定 60 秒后杀死即将就绪的模型；部署可用 `/api/evidence/indexing/prewarm` 把这段
 成本移到用户检索或生成请求之前。
 
 ### Task-only seams
@@ -217,24 +217,24 @@ coalescing 的 `one_pending_follower`：复用同项目 pending；若已有任�
 ## API 路由
 
 ```
-POST /api/rag/chunks?novel_id=xxx       — 创建片段
-GET  /api/rag/chunks?novel_id=xxx        — 片段列表
-POST /api/rag/retrieve?novel_id=xxx      — 混合检索
-GET  /api/rag/metrics                    — 检索/索引/重试指标与 worker 状态
-POST /api/rag/prewarm                   — 预热 embedding worker
-POST /api/rag/rebuild                   — 按章节范围重建索引
-POST /api/rag/retry-embeddings          — 重试失败/待重向量化 chunk 的 embedding
-POST /api/rag/chunks/split               — 文本分割工具
+POST /api/evidence/indexing/chunks?novel_id=xxx       — 创建片段
+GET  /api/evidence/indexing/chunks?novel_id=xxx        — 片段列表
+POST /api/evidence/indexing/retrieve?novel_id=xxx      — 混合检索
+GET  /api/evidence/indexing/metrics                    — 检索/索引/重试指标与 worker 状态
+POST /api/evidence/indexing/prewarm                    — 预热 embedding worker
+POST /api/evidence/indexing/rebuild                    — 按章节范围重建索引
+POST /api/evidence/indexing/retry-embeddings           — 重试失败/待重向量化 chunk 的 embedding
+POST /api/evidence/indexing/chunks/split               — 文本分割工具
 ```
 
 chunks CRUD/list、retrieve、rebuild 和 retry-embeddings 都在读写或入队前校验
 active project；不存在与回收站项目统一返回 404。`metrics`、`prewarm`
 与不入库的纯文本 `chunks/split` 是全局工具，明确豁免项目门禁。
 
-`/api/rag/rebuild` 接收 `novel_id`、`start_chapter`、`end_chapter`（后两者可选），
+`/api/evidence/indexing/rebuild` 接收 `novel_id`、`start_chapter`、`end_chapter`（后两者可选），
 以及 `content_mode`，入队 `rag_reindex_novel` 异步任务，返回 `{task_id, status}`。
 
-`/api/rag/retry-embeddings` 接收 `novel_id`、`start_chapter`、`end_chapter`、`statuses`（默认 `failed` 与 `pending_vectorization`），入队 `rag_retry_embeddings` 异步任务，返回 `{task_id, status}`。
+`/api/evidence/indexing/retry-embeddings` 接收 `novel_id`、`start_chapter`、`end_chapter`、`statuses`（默认 `failed` 与 `pending_vectorization`），入队 `rag_retry_embeddings` 异步任务，返回 `{task_id, status}`。
 
 `retrieve` 响应包含 `warnings` 与 `degraded`；`chunks` 列表响应额外包含 `embedding_failed_count`、`retryable_embedding_count`、`configured_embedding_dim`、`indexed_embedding_dim`、`embedding_dimension_mismatch` 与 `embedding_runtime`。
 
@@ -250,7 +250,7 @@ RAG 检索排序、chunk schema 或跨模块稳定接口。
 位置与短摘要，并可结合写作台当前 Scene 说明前后文关系。聚合卡片以
 `parent_scene_contexts` 保留全部子命中的父 Scene，`scene_refs` 则继续与卡片当前
 `source_ref` 严格对齐。这些字段属于
-context 的作者可见 evidence wire；`/api/rag/retrieve` 仍只返回候选块及原始
+context 的作者可见 evidence wire；`/api/evidence/indexing/retrieve` 仍只返回候选块及原始
 `scene_id/scene_span_id`，不绕过正文版本和可见性校验。
 
 ## 模块职责

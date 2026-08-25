@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
-from modules.outline.models import (
+from modules.project.schemas import ProjectContext
+from modules.story.outline_state.models import (
     ForeshadowingPlan,
     OutlineArc,
     PlotThread,
@@ -22,20 +23,19 @@ from modules.outline.models import (
     Scene,
     StoryOutlineRevision,
 )
-from modules.outline.story_outline_generation import (
+from modules.story.outline_state.story_outline_generation import (
     STORY_OUTLINE_GENERATE_ACTION,
     STORY_OUTLINE_STEP_NAME,
     StoryOutlineGenerationPlan,
     StoryOutlineGenerationService,
 )
-from modules.outline.story_outline_schemas import (
+from modules.story.outline_state.story_outline_schemas import (
     StoryOutlineContent,
     StoryOutlineEvidenceAudit,
     StoryOutlineGenerateRequest,
     StoryOutlineRevisionResponse,
 )
-from modules.outline.tasks import handle_story_outline_generate
-from modules.project.schemas import ProjectContext
+from modules.story.outline_state.tasks import handle_story_outline_generate
 from modules.world.contracts import (
     WorldBackgroundBundleContract,
     WorldBackgroundEntryContract,
@@ -168,7 +168,7 @@ async def test_task_handler_passes_submission_context_fence_to_generation() -> N
     db = _CheckpointSession()
 
     with mock.patch(
-        "modules.outline.story_outline_generation.StoryOutlineGenerationService"
+        "modules.story.outline_state.story_outline_generation.StoryOutlineGenerationService"
         ".generate_for_task",
         autospec=True,
         return_value=_preview().model_dump(mode="json"),
@@ -242,27 +242,27 @@ async def test_context_uses_only_prewrite_sources_explicit_priority_and_top_k() 
 
     with (
         mock.patch(
-            "modules.outline.story_outline_generation.get_project_context",
+            "modules.story.outline_state.story_outline_generation.get_project_context",
             autospec=True,
             return_value=project,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_characters_context",
+            "modules.story.outline_state.story_outline_generation.get_characters_context",
             autospec=True,
             return_value=characters,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_world_context",
+            "modules.story.outline_state.story_outline_generation.get_world_context",
             autospec=True,
             return_value=entities,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_world_bible_synopsis_context",
+            "modules.story.outline_state.story_outline_generation.get_world_bible_synopsis_context",
             autospec=True,
             return_value=synopsis,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_world_background",
+            "modules.story.outline_state.story_outline_generation.get_world_background",
             autospec=True,
             return_value=WorldBackgroundBundleContract(
                 novel_id=data.novel_id,
@@ -328,7 +328,7 @@ async def test_context_rejects_cross_project_selected_ids() -> None:
     entity_id = str(uuid.uuid4())
     data = _request(selected_entity_ids=[entity_id])
     with mock.patch(
-        "modules.outline.story_outline_generation.get_world_context",
+        "modules.story.outline_state.story_outline_generation.get_world_context",
         autospec=True,
         return_value=WorldContextBundle(
             novel_id=data.novel_id,
@@ -416,27 +416,27 @@ async def test_context_uses_automatic_top_k_characters_and_entities_when_unselec
 
     with (
         mock.patch(
-            "modules.outline.story_outline_generation.get_project_context",
+            "modules.story.outline_state.story_outline_generation.get_project_context",
             autospec=True,
             return_value=project,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_characters_context",
+            "modules.story.outline_state.story_outline_generation.get_characters_context",
             autospec=True,
             return_value=characters,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_world_context",
+            "modules.story.outline_state.story_outline_generation.get_world_context",
             autospec=True,
             return_value=entities,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_world_bible_synopsis_context",
+            "modules.story.outline_state.story_outline_generation.get_world_bible_synopsis_context",
             autospec=True,
             return_value=synopsis,
         ),
         mock.patch(
-            "modules.outline.story_outline_generation.get_world_background",
+            "modules.story.outline_state.story_outline_generation.get_world_background",
             autospec=True,
             return_value=WorldBackgroundBundleContract(
                 novel_id=data.novel_id,
@@ -833,7 +833,7 @@ async def test_generate_api_only_enqueues_task_and_writes_no_outline_assets(
     }
     with (
         mock.patch(
-            "modules.outline.story_outline_generation.StoryOutlineGenerationService.prepare",
+            "modules.story.outline_state.story_outline_generation.StoryOutlineGenerationService.prepare",
             autospec=True,
             return_value=_plan(data),
         ),

@@ -7,10 +7,10 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from modules.outline.models import Scene
-from modules.outline.scene_workbench import SceneWorkbenchService
-from modules.outline.schemas import SceneChapterQuickCreate
 from modules.project.models import Project
+from modules.story.outline_state.models import Scene
+from modules.story.outline_state.scene_workbench import SceneWorkbenchService
+from modules.story.outline_state.schemas import SceneChapterQuickCreate
 from modules.writing.models import WritingDraft
 from tests.e2e.config import DATABASE_URL
 

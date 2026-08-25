@@ -16,7 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.models import MemoryEvent, MemorySnapshot
+from modules.story.continuity.models import MemoryEvent, MemorySnapshot
 from modules.world.models import CoreEntity
 
 real_llm_required = pytest.mark.skipif(
@@ -134,7 +134,7 @@ async def _create_context_confirmation(
     chapter_index: int = CHAPTER_INDEX,
 ) -> str:
     resp = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json={
             "novel_id": novel_id,
             "action": action,

@@ -448,7 +448,7 @@ async def test_memory_records_loader_loads_panorama(
     test_project_id: str,
 ):
     # Arrange
-    from modules.memory.services import MemoryService
+    from modules.story.continuity.services import MemoryService
 
     _memory = MemoryService()
     eid = str(uuid.uuid4())
@@ -512,7 +512,7 @@ async def test_memory_records_loader_exception_returns_empty(
     bundle = _bundle(test_project_id)
 
     with mock.patch(
-        "modules.memory.services.MemoryService.get_panorama",
+        "modules.story.continuity.services.MemoryService.get_panorama",
         side_effect=RuntimeError("DB error"),
         autospec=True,
     ):
@@ -537,7 +537,7 @@ async def _create_outline_arc(
     end_chapter: int,
     **kwargs: object,
 ) -> str:
-    from modules.outline.models import OutlineArc
+    from modules.story.outline_state.models import OutlineArc
 
     aid = uuid.uuid4()
     arc = OutlineArc(
@@ -630,7 +630,7 @@ async def _create_plot_thread(
     planned_payoff_chapter: int | None = 10,
     **kwargs: object,
 ) -> str:
-    from modules.outline.models import PlotThread
+    from modules.story.outline_state.models import PlotThread
 
     tid = uuid.uuid4()
     thread = PlotThread(
@@ -822,9 +822,9 @@ async def test_rag_loader_resolves_scene_cutoff_before_compiling_same_chapter(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    from modules.outline.facade import bind_scene_spans_to_source
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
+    from modules.story.outline_state.facade import bind_scene_spans_to_source
+    from modules.story.outline_state.repositories import SceneRepository
+    from modules.story.outline_state.schemas import SceneCreate
     from modules.writing.facade import create_draft_only
 
     content = "可见线索。未来线索。"

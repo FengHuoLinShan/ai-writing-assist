@@ -933,7 +933,7 @@ async def test_real_task_handler_rejected_final_checkpoint_rolls_back_scenes(
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.models import AsyncTask
     from infrastructure.tasks.worker import _TaskHandlerSession
-    from modules.outline.models import Scene
+    from modules.story.outline_state.models import Scene
 
     task, lease_id = await _create_real_scene_task(db_session, test_project_id)
     bind = db_session.bind
@@ -993,7 +993,7 @@ async def test_real_terminal_finalize_rejection_replays_done_without_provider(
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.models import AsyncTask
     from infrastructure.tasks.worker import TaskWorker, _TaskHandlerSession
-    from modules.outline.models import Scene
+    from modules.story.outline_state.models import Scene
 
     task, lease_id = await _create_real_scene_task(db_session, test_project_id)
     bind = db_session.bind

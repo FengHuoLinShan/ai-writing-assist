@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from modules.outline import p20_context
-from modules.outline.p20_context import P20ContextBuilder
-from modules.outline.p20_schemas import OutlineLayerGenerateRequest
+from modules.story.outline_state import p20_context
+from modules.story.outline_state.p20_context import P20ContextBuilder
+from modules.story.outline_state.p20_schemas import OutlineLayerGenerateRequest
 
 
 class _CharacterContextItem:
@@ -41,8 +41,7 @@ async def test_world_context_uses_stable_top_k_as_asset_scope(
 ) -> None:
     novel_id = str(uuid.uuid4())
     character_rows = [
-        SimpleNamespace(entity_id=uuid.uuid4(), name=f"人物{i:02d}")
-        for i in range(8)
+        SimpleNamespace(entity_id=uuid.uuid4(), name=f"人物{i:02d}") for i in range(8)
     ]
     entity_rows = [
         {
@@ -153,22 +152,31 @@ def test_relevance_helpers_match_short_names_and_stable_scene_mentions() -> None
         ),
     ]
 
-    assert P20ContextBuilder._name_mention_score(
-        "克莱恩·莫雷蒂",
-        "创作克莱恩身份与责任主线",
-    ) == 3
-    assert P20ContextBuilder._name_mention_score(
-        "安提哥努斯家族笔记",
-        "安提哥努斯笔记保持未决",
-    ) >= 3
+    assert (
+        P20ContextBuilder._name_mention_score(
+            "克莱恩·莫雷蒂",
+            "创作克莱恩身份与责任主线",
+        )
+        == 3
+    )
+    assert (
+        P20ContextBuilder._name_mention_score(
+            "安提哥努斯家族笔记",
+            "安提哥努斯笔记保持未决",
+        )
+        >= 3
+    )
     assert P20ContextBuilder._scene_mention_stats("梅丽莎·莫雷蒂", scenes) == (
         2,
         10,
     )
-    assert P20ContextBuilder._shared_ngram_score(
-        "塔罗会与灰雾空间",
-        "倒吊人是塔罗会成员",
-    ) > 0
+    assert (
+        P20ContextBuilder._shared_ngram_score(
+            "塔罗会与灰雾空间",
+            "倒吊人是塔罗会成员",
+        )
+        > 0
+    )
 
 
 @pytest.mark.asyncio

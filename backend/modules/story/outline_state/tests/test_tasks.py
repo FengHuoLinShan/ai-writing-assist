@@ -8,21 +8,21 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.generation.context_builder import PlotStructureContext
-from modules.outline.generation.models import GeneratedThread
-from modules.outline.generation.parser import PlotStructureParser
-from modules.outline.models import (
+from modules.story.outline_state.generation.context_builder import PlotStructureContext
+from modules.story.outline_state.generation.models import GeneratedThread
+from modules.story.outline_state.generation.parser import PlotStructureParser
+from modules.story.outline_state.models import (
     ForeshadowingPlan,
     OutlineArc,
     PlotThread,
     RevealPlan,
 )
-from modules.outline.repositories import (
+from modules.story.outline_state.repositories import (
     OutlineArcRepository,
     PlotThreadRepository,
     SceneRepository,
 )
-from modules.outline.services import PlotStructureGenerator
+from modules.story.outline_state.services import PlotStructureGenerator
 from tests.utils import _make_bundle
 
 

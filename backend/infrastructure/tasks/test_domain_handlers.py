@@ -35,7 +35,7 @@ def test_world_bible_synopsis_refresh_handler_is_registered() -> None:
 
 
 def test_removed_outline_chapter_scene_extract_handler_is_not_registered() -> None:
-    import modules.outline.tasks  # noqa: F401
+    import modules.story.outline_state.tasks  # noqa: F401
     from infrastructure.tasks.registry import get_registry
 
     handler = get_registry().get_handler("outline_chapter_scenes_extract")
@@ -54,7 +54,7 @@ def test_removed_world_entity_extraction_handler_is_not_registered() -> None:
 
 @pytest.mark.asyncio
 async def test_plot_structure_generate_fails_closed_as_retired() -> None:
-    from modules.outline.tasks import handle_plot_structure_generate
+    from modules.story.outline_state.tasks import handle_plot_structure_generate
 
     task = _TaskStub(
         {
@@ -77,7 +77,7 @@ async def test_plot_structure_generate_fails_closed_as_retired() -> None:
 
 @pytest.mark.asyncio
 async def test_chapter_card_extraction_returns_unsupported_result() -> None:
-    import modules.outline.tasks  # noqa: F401
+    import modules.story.outline_state.tasks  # noqa: F401
     from infrastructure.tasks.registry import get_registry
 
     handler = get_registry().get_handler("chapter_card_extraction")
@@ -104,7 +104,7 @@ async def test_chapter_card_extraction_returns_unsupported_result() -> None:
 
 @pytest.mark.asyncio
 async def test_chapter_scene_generate_returns_unsupported_result() -> None:
-    import modules.outline.tasks  # noqa: F401
+    import modules.story.outline_state.tasks  # noqa: F401
     from infrastructure.tasks.registry import get_registry
 
     handler = get_registry().get_handler("chapter_scene_generate")
@@ -130,7 +130,7 @@ async def test_chapter_scene_generate_returns_unsupported_result() -> None:
 
 @pytest.mark.asyncio
 async def test_chapter_card_extraction_requires_novel_id() -> None:
-    from modules.outline.tasks import handle_chapter_card_extraction
+    from modules.story.outline_state.tasks import handle_chapter_card_extraction
 
     with pytest.raises(ValueError, match="novel_id is required"):
         await handle_chapter_card_extraction(AsyncMock(), _TaskStub())

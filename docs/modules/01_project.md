@@ -81,7 +81,7 @@ PUT    /api/projects/{id}/llm-settings          # 更新非 secret 兼容设置�
 GET    /api/projects/{id}/effective-llm-settings # canonical 有效 LLM 配置投影
 GET    /api/projects/{id}/effective-author-preferences # canonical 有效作者偏好投影
 GET/PUT/DELETE /api/projects/{id}/author-preferences # canonical 项目偏好覆盖
-GET/PUT/DELETE /api/settings/projects/{id}/author-preferences # 一版兼容，同一 endpoint
+GET/PUT/DELETE /api/settings/projects/{id}/author-preferences # 待固定 SHA 发布核验后删除，同一 endpoint
 POST   /api/projects/{id}/smart-dedup/scan      # 提交跨模块去重建议扫描
 POST   /api/projects/{id}/smart-dedup/apply     # 应用已确认的去重建议
 POST   /api/projects/{id}/restore              # 恢复项目

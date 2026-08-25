@@ -19,7 +19,7 @@ class TestContextCompile:
 
         # Act
         resp = await client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": pid,
                 "task": "world",
@@ -41,7 +41,7 @@ class TestContextCompile:
 
         # Act
         resp = await client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": pid,
                 "task": "plot",
@@ -60,7 +60,7 @@ class TestContextCompile:
 
         # Act
         resp = await client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": pid,
                 "task": "world",
@@ -82,7 +82,7 @@ class TestContextCompile:
 
         # Act
         resp = await client.post(
-            "/api/context/render",
+            "/api/evidence/compilation/render",
             json={
                 "novel_id": pid,
                 "task": "world",
@@ -105,7 +105,7 @@ class TestContextCompile:
 
         # Act
         resp = await client.post(
-            "/api/context/compile",
+            "/api/evidence/compilation/compile",
             json={
                 "novel_id": pid,
                 "task": "world",

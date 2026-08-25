@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
-from modules.outline.repositories import SceneRepository
-from modules.outline.schemas import SceneCreate
+from modules.story.outline_state.repositories import SceneRepository
+from modules.story.outline_state.schemas import SceneCreate
 from modules.writing.facade import (
     create_draft,
 )

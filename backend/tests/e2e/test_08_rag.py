@@ -28,7 +28,7 @@ class TestRagCRUD:
 
         # Act
         resp = await client.post(
-            f"/api/rag/retrieve?novel_id={pid}", json={"query": "克莱恩"}
+            f"/api/evidence/indexing/retrieve?novel_id={pid}", json={"query": "克莱恩"}
         )
 
         # Assert
@@ -45,7 +45,9 @@ class TestRagCRUD:
         payload = {"query": "值夜者", "entity_ids": [eids["值夜者"]]}
 
         # Act
-        resp = await client.post(f"/api/rag/retrieve?novel_id={pid}", json=payload)
+        resp = await client.post(
+            f"/api/evidence/indexing/retrieve?novel_id={pid}", json=payload
+        )
 
         # Assert
         assert resp.status_code == 200
@@ -64,7 +66,7 @@ class TestRagCRUD:
         }
 
         # Act
-        resp = await client.post("/api/rag/chunks/split", params=params)
+        resp = await client.post("/api/evidence/indexing/chunks/split", params=params)
 
         # Assert
         assert resp.status_code in (200, 422), (
@@ -132,7 +134,7 @@ class TestRagRebuildIndex:
 
         # Act — 检索验证
         retrieve_resp = await client.post(
-            f"/api/rag/retrieve?novel_id={pid}",
+            f"/api/evidence/indexing/retrieve?novel_id={pid}",
             json={
                 "query": "克莱恩 日记",
             },
@@ -144,7 +146,9 @@ class TestRagRebuildIndex:
         assert data["total"] >= 1, f"索引后应能检索到相关 chunk，实际: {data['total']}"
 
         # Act — 验证 chunks 标记
-        chunks_resp = await client.get(f"/api/rag/chunks?novel_id={pid}&limit=20")
+        chunks_resp = await client.get(
+            f"/api/evidence/indexing/chunks?novel_id={pid}&limit=20"
+        )
 
         # Assert
         assert chunks_resp.status_code == 200
@@ -202,7 +206,9 @@ class TestRagRebuildIndex:
         assert count_v2 >= 1
 
         # Act — 验证数据库中 chapter 2 的 chunk 数量
-        chunks_resp = await client.get(f"/api/rag/chunks?novel_id={pid}&limit=20")
+        chunks_resp = await client.get(
+            f"/api/evidence/indexing/chunks?novel_id={pid}&limit=20"
+        )
 
         # Assert
         assert chunks_resp.status_code == 200

@@ -68,7 +68,7 @@ test.describe("生成工具视觉基线", () => {
 
   test("AI 参考资料审阅 × 桌面与手机", async ({ page, projectFactory, browserErrors }) => {
     const project = await projectFactory({ title: "视觉基线参考资料", genre: "fantasy", language: "zh" })
-    await page.route("**/api/context/compile", async (route) => {
+    await page.route("**/api/evidence/compilation/compile", async (route) => {
       const body = route.request().postDataJSON()
       await route.fulfill({
         status: 200,

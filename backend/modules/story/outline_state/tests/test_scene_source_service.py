@@ -4,13 +4,13 @@ import uuid
 
 import pytest
 
-from modules.outline.facade import (
+from modules.story.outline_state.facade import (
     bind_scene_spans_to_source,
     get_scene_summary_checkpoint,
     rebuild_scene_summary_checkpoint,
 )
-from modules.outline.repositories import SceneRepository
-from modules.outline.schemas import SceneCreate
+from modules.story.outline_state.repositories import SceneRepository
+from modules.story.outline_state.schemas import SceneCreate
 from modules.writing.facade import create_draft_only, create_published_draft_only
 
 

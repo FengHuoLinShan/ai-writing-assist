@@ -162,7 +162,7 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     novel_id = project_resp.json()["id"]
 
     confirmation_resp = await async_client.post(
-        "/api/context/confirm",
+        "/api/evidence/compilation/confirm",
         json={
             "novel_id": novel_id,
             "action": "writing.generate",

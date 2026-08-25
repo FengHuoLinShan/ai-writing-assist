@@ -5,7 +5,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from modules.memory.schemas import (
+from modules.story.continuity.schemas import (
     ChapterPanorama,
     CharacterLocationInPanorama,
     EntityInPanorama,

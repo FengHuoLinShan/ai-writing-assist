@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.api import (
+from modules.story.continuity.api import (
     get_entity_timeline,
     get_panorama,
     get_status,
@@ -24,8 +24,11 @@ from modules.memory.api import (
     trigger_capture,
     trigger_rebuild,
 )
-from modules.memory.contracts import ChapterPanoramaContract, MemoryEventContract
-from modules.memory.schemas import (
+from modules.story.continuity.contracts import (
+    ChapterPanoramaContract,
+    MemoryEventContract,
+)
+from modules.story.continuity.schemas import (
     ChapterPanorama,
     EventListResponse,
     MemoryStatusResponse,
@@ -73,7 +76,7 @@ def _make_snapshot(novel_id: str, **overrides: object) -> SimpleNamespace:
 
 @pytest.fixture
 def _stub_memory_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    from modules.memory import api as memory_api
+    from modules.story.continuity import api as memory_api
 
     async def require_active_project(_db, _novel_id):
         return None
@@ -199,7 +202,7 @@ class TestGetPanorama:
         )
 
         with patch(
-            "modules.memory.api._service.get_panorama",
+            "modules.story.continuity.api._service.get_panorama",
             autospec=True,
             return_value=expected,
         ):
@@ -214,7 +217,7 @@ class TestGetPanorama:
         novel_id = "b" * 32
 
         with patch(
-            "modules.memory.api._service.get_panorama",
+            "modules.story.continuity.api._service.get_panorama",
             autospec=True,
             side_effect=RuntimeError("service error"),
         ):
@@ -238,12 +241,12 @@ class TestListEvents:
 
         with (
             patch(
-                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                "modules.story.continuity.repositories.EventRepository.count_by_chapter_range",
                 autospec=True,
                 return_value=1,
             ) as mock_count,
             patch(
-                "modules.memory.repositories.EventRepository."
+                "modules.story.continuity.repositories.EventRepository."
                 "get_by_chapter_range_page_after",
                 autospec=True,
                 return_value=[event],
@@ -282,12 +285,12 @@ class TestListEvents:
 
         with (
             patch(
-                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                "modules.story.continuity.repositories.EventRepository.count_by_chapter_range",
                 autospec=True,
                 return_value=expected_total,
             ),
             patch(
-                "modules.memory.repositories.EventRepository."
+                "modules.story.continuity.repositories.EventRepository."
                 "get_by_chapter_range_page_after",
                 autospec=True,
                 return_value=events,
@@ -310,12 +313,12 @@ class TestListEvents:
 
         with (
             patch(
-                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                "modules.story.continuity.repositories.EventRepository.count_by_chapter_range",
                 autospec=True,
                 return_value=0,
             ) as mock_count,
             patch(
-                "modules.memory.repositories.EventRepository."
+                "modules.story.continuity.repositories.EventRepository."
                 "get_by_chapter_range_page_after",
                 autospec=True,
             ) as mock_page,
@@ -333,7 +336,7 @@ class TestListEvents:
         novel_id = "e" * 32
 
         with patch(
-            "modules.memory.repositories.EventRepository.count_by_chapter_range",
+            "modules.story.continuity.repositories.EventRepository.count_by_chapter_range",
             autospec=True,
             return_value=0,
         ) as mock_count:
@@ -368,17 +371,17 @@ class TestListEvents:
         )
 
         monkeypatch.setattr(
-            "modules.memory.services.MEMORY_EVENT_LIST_BATCH_SIZE",
+            "modules.story.continuity.services.MEMORY_EVENT_LIST_BATCH_SIZE",
             2,
         )
         with (
             patch(
-                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                "modules.story.continuity.repositories.EventRepository.count_by_chapter_range",
                 autospec=True,
                 return_value=3,
             ),
             patch(
-                "modules.memory.repositories.EventRepository."
+                "modules.story.continuity.repositories.EventRepository."
                 "get_by_chapter_range_page_after",
                 autospec=True,
                 side_effect=[[first, second], [tail]],
@@ -423,7 +426,7 @@ class TestGetEntityTimeline:
         event = _make_event(novel_id)
 
         with patch(
-            "modules.memory.repositories.EventRepository.get_by_entity",
+            "modules.story.continuity.repositories.EventRepository.get_by_entity",
             autospec=True,
             return_value=([event], 1),
         ):
@@ -439,7 +442,7 @@ class TestGetEntityTimeline:
         entity_id = "1" * 32
 
         with patch(
-            "modules.memory.repositories.EventRepository.get_by_entity",
+            "modules.story.continuity.repositories.EventRepository.get_by_entity",
             autospec=True,
             return_value=([], 0),
         ):
@@ -454,7 +457,7 @@ class TestGetEntityTimeline:
         entity_id = "2" * 32
 
         with patch(
-            "modules.memory.repositories.EventRepository.get_by_entity",
+            "modules.story.continuity.repositories.EventRepository.get_by_entity",
             autospec=True,
             return_value=([], 0),
         ) as mock_get:
@@ -471,7 +474,7 @@ class TestGetEntityTimeline:
         entity_id = "3" * 32
 
         with patch(
-            "modules.memory.repositories.EventRepository.get_by_entity",
+            "modules.story.continuity.repositories.EventRepository.get_by_entity",
             autospec=True,
             return_value=([], 0),
         ) as mock_get:
@@ -503,7 +506,7 @@ class TestTriggerCapture:
         )
 
         with patch(
-            "modules.memory.api._service.capture_snapshot",
+            "modules.story.continuity.api._service.capture_snapshot",
             autospec=True,
             return_value=expected,
         ):
@@ -519,7 +522,7 @@ class TestTriggerCapture:
         novel_id = "m" * 32
 
         with patch(
-            "modules.memory.api._service.capture_snapshot",
+            "modules.story.continuity.api._service.capture_snapshot",
             autospec=True,
             side_effect=ValueError("capture failed"),
         ):
@@ -542,7 +545,7 @@ class TestListSnapshots:
         snapshot = _make_snapshot(novel_id, chapter_index=3)
 
         with patch(
-            "modules.memory.repositories.SnapshotRepository.list_for_novel",
+            "modules.story.continuity.repositories.SnapshotRepository.list_for_novel",
             autospec=True,
             return_value=[snapshot],
         ):
@@ -573,7 +576,7 @@ class TestListSnapshots:
         novel_id = "a" * 32
 
         with patch(
-            "modules.memory.repositories.SnapshotRepository.list_for_novel",
+            "modules.story.continuity.repositories.SnapshotRepository.list_for_novel",
             autospec=True,
             return_value=snapshots,
         ):
@@ -602,7 +605,7 @@ class TestTriggerRebuild:
         }
 
         with patch(
-            "modules.memory.api._service.full_rebuild",
+            "modules.story.continuity.api._service.full_rebuild",
             autospec=True,
             return_value=expected,
         ):
@@ -617,7 +620,7 @@ class TestTriggerRebuild:
         novel_id = "q" * 32
 
         with patch(
-            "modules.memory.api._service.full_rebuild",
+            "modules.story.continuity.api._service.full_rebuild",
             autospec=True,
             side_effect=RuntimeError("rebuild failed"),
         ):
@@ -645,7 +648,7 @@ class TestGetStatus:
         )
 
         with patch(
-            "modules.memory.api._service.get_status",
+            "modules.story.continuity.api._service.get_status",
             autospec=True,
             return_value=expected,
         ):
@@ -668,7 +671,7 @@ class TestGetStatus:
         )
 
         with patch(
-            "modules.memory.api._service.get_status",
+            "modules.story.continuity.api._service.get_status",
             autospec=True,
             return_value=expected,
         ):
@@ -684,7 +687,7 @@ class TestGetStatus:
         novel_id = "t" * 32
 
         with patch(
-            "modules.memory.api._service.get_status",
+            "modules.story.continuity.api._service.get_status",
             autospec=True,
             side_effect=RuntimeError("status error"),
         ):

@@ -10,16 +10,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.prompt_loader import load_prompt
-from modules.outline.models import ForeshadowingPlan, PlotThread, RevealPlan, Scene
-from modules.outline.p20_context import P20GenerationPlan
-from modules.outline.p20_schemas import (
+from modules.story.outline_state.models import (
+    ForeshadowingPlan,
+    PlotThread,
+    RevealPlan,
+    Scene,
+)
+from modules.story.outline_state.p20_context import P20GenerationPlan
+from modules.story.outline_state.p20_schemas import (
     OutlineLayerGenerateRequest,
     P20InformationMovement,
     P20PlannedSceneOutput,
     P20PlotThreadOutput,
     P20SemanticAudit,
 )
-from modules.outline.p20_service import (
+from modules.story.outline_state.p20_service import (
     P20ApplyService,
     P20GenerationService,
     P20SemanticAuditError,
@@ -44,9 +49,10 @@ def _request(novel_id: str, *, target: str, mode: str = "create", **extra):
 async def test_p20_initial_request_contains_exact_output_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.outline import p20_service
+    from modules.story.outline_state import p20_service
 
     output = P20PlotThreadOutput(result="no_change")
+
     async def managed_call(_client, _request, schema, **_kwargs):
         if schema is P20SemanticAudit:
             return P20SemanticAudit(verdict="pass")
@@ -79,8 +85,7 @@ async def test_p20_initial_request_contains_exact_output_schema(
     assert '"information_movements"' in system_prompt
     assert '"additionalProperties":false' in system_prompt
     audit_prompts = [
-        call.args[1].messages[0].content
-        for call in managed.await_args_list[1:]
+        call.args[1].messages[0].content for call in managed.await_args_list[1:]
     ]
     assert len(audit_prompts) == 3
     assert all('"verdict"' in prompt for prompt in audit_prompts)
@@ -184,11 +189,11 @@ async def test_p20_apply_compiles_before_exclusive_lock(
         exclusive,
     )
     monkeypatch.setattr(
-        "modules.outline.p20_service.context_facade.require_fresh_confirmation",
+        "modules.story.outline_state.p20_service.context_facade.require_fresh_confirmation",
         require_fresh,
     )
     monkeypatch.setattr(
-        "modules.outline.p20_service.context_facade.attach_result_refs",
+        "modules.story.outline_state.p20_service.context_facade.attach_result_refs",
         mock.AsyncMock(),
     )
     monkeypatch.setattr(
@@ -237,7 +242,7 @@ async def test_p20_apply_compiles_before_exclusive_lock(
 async def test_p20_semantic_audit_revises_once_then_rechecks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.outline import p20_service
+    from modules.story.outline_state import p20_service
 
     first = P20PlotThreadOutput(result="no_change")
     revised = P20PlotThreadOutput(result="needs_author_decision")
@@ -248,10 +253,7 @@ async def test_p20_semantic_audit_revises_once_then_rechecks(
         if schema is P20PlotThreadOutput:
             candidate_count += 1
             return first if candidate_count == 1 else revised
-        if (
-            candidate_count == 1
-            and "evidence_canon_audit" in kwargs["step_name"]
-        ):
+        if candidate_count == 1 and "evidence_canon_audit" in kwargs["step_name"]:
             return P20SemanticAudit(
                 verdict="revise",
                 violations=["hidden_truth 使用了项目外部正史"],
@@ -290,7 +292,7 @@ async def test_p20_semantic_audit_revises_once_then_rechecks(
 async def test_p20_semantic_audit_allows_second_revision_within_same_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.outline import p20_service
+    from modules.story.outline_state import p20_service
 
     first = P20PlotThreadOutput(result="no_change")
     revised_once = P20PlotThreadOutput(result="needs_author_decision")
@@ -350,7 +352,7 @@ async def test_p20_semantic_audit_allows_second_revision_within_same_budget(
 async def test_p20_deterministic_guard_revises_embedded_scene_citation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.outline import p20_service
+    from modules.story.outline_state import p20_service
 
     first = P20PlannedSceneOutput.model_validate(
         {
@@ -455,7 +457,7 @@ def test_p20_apply_rejects_short_reference_embedded_in_basis() -> None:
 async def test_p20_final_audit_failure_exposes_bounded_actionable_violations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.outline import p20_service
+    from modules.story.outline_state import p20_service
 
     output = P20PlotThreadOutput(result="no_change")
 
@@ -567,7 +569,7 @@ def test_information_movement_routes_chronology_to_semantic_revision() -> None:
 async def test_p20_chronology_guard_uses_semantic_revision_not_format_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.outline import p20_service
+    from modules.story.outline_state import p20_service
 
     def output_with_chapters(chapters: list[int]) -> P20PlotThreadOutput:
         return P20PlotThreadOutput.model_validate(
@@ -679,9 +681,7 @@ def test_planned_scene_rejects_conflict_status_contradictions(patch: dict) -> No
         **patch,
     }
     with pytest.raises(ValidationError):
-        P20PlannedSceneOutput.model_validate(
-            {"result": "proposed", "scenes": [item]}
-        )
+        P20PlannedSceneOutput.model_validate({"result": "proposed", "scenes": [item]})
 
 
 @pytest.mark.parametrize("uncertain_fields", [[], ["target_ref"]])
@@ -995,9 +995,7 @@ async def test_unresolved_reveal_target_keeps_movement_without_fake_projection(
     assert [item["type"] for item in refs] == ["plot_thread"]
     thread = await db_session.get(PlotThread, uuid.UUID(refs[0]["id"]))
     reveal = await db_session.scalar(
-        select(RevealPlan).where(
-            RevealPlan.novel_id == uuid.UUID(sample_novel_id)
-        )
+        select(RevealPlan).where(RevealPlan.novel_id == uuid.UUID(sample_novel_id))
     )
     assert thread is not None
     assert reveal is None

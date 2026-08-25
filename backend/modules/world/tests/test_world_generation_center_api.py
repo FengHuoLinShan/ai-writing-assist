@@ -17,8 +17,8 @@ from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
 from modules.evidence.compilation.models import ContextSnapshot
 from modules.evidence.contracts import StructureContextBundle
-from modules.outline.models import Scene
 from modules.project.models import Project
+from modules.story.outline_state.models import Scene
 from modules.world.llm_schemas import (
     GeneratedAskWorldOutput,
     GeneratedObjectDraftOutput,

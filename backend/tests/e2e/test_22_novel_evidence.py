@@ -72,7 +72,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
 
     visibility = {"mode": "reader", "cutoff_chapter": 50}
     grep = await async_client.post(
-        "/api/context/evidence/grep",
+        "/api/evidence/compilation/evidence/grep",
         json={
             "novel_id": novel_id,
             "pattern": "密钥藏在钟后",
@@ -85,7 +85,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
     assert source_ref["draft_id"] == published_draft["id"]
 
     search = await async_client.post(
-        "/api/context/evidence/search",
+        "/api/evidence/compilation/evidence/search",
         json={
             "novel_id": novel_id,
             "query": "旧塔密钥",
@@ -100,7 +100,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
     assert all(item["index_fresh"] for item in search.json()["hits"])
 
     read = await async_client.post(
-        "/api/context/evidence/read",
+        "/api/evidence/compilation/evidence/read",
         json={
             "novel_id": novel_id,
             "content_mode": "canonical",
@@ -154,7 +154,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
         "character_id": character_id,
     }
     inspect = await async_client.post(
-        "/api/context/evidence/inspect",
+        "/api/evidence/compilation/evidence/inspect",
         json={
             "novel_id": novel_id,
             "content_mode": "canonical",
@@ -167,7 +167,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
     assert inspect.json()["evidence_count"] == 1
 
     trace = await async_client.post(
-        "/api/context/evidence/trace",
+        "/api/evidence/compilation/evidence/trace",
         json={
             "novel_id": novel_id,
             "content_mode": "canonical",
@@ -188,7 +188,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
     assert working.json()["id"] != published_draft["id"]
 
     working_grep = await async_client.post(
-        "/api/context/evidence/grep",
+        "/api/evidence/compilation/evidence/grep",
         json={
             "novel_id": novel_id,
             "pattern": "工作稿新增铜铃",
@@ -200,7 +200,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
     assert working_grep.json()["hits"]
 
     stale_search = await async_client.post(
-        "/api/context/evidence/search",
+        "/api/evidence/compilation/evidence/search",
         json={
             "novel_id": novel_id,
             "query": "工作稿新增铜铃",
@@ -230,7 +230,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
     await state_service.finish(db_session, novel_id=novel_id, report=working_report)
 
     rebuilt_search = await async_client.post(
-        "/api/context/evidence/search",
+        "/api/evidence/compilation/evidence/search",
         json={
             "novel_id": novel_id,
             "query": "工作稿新增铜铃",
@@ -246,7 +246,7 @@ async def test_publish_index_search_read_inspect_trace_and_working_rebuild(
 
     other = await create_base_scene(db_session)
     cross_read = await async_client.post(
-        "/api/context/evidence/read",
+        "/api/evidence/compilation/evidence/read",
         json={
             "novel_id": other["project_id"],
             "content_mode": "canonical",

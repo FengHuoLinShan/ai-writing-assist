@@ -357,7 +357,7 @@ def test_s7_empty_retrieve_safe(f: Fixture) -> None:
     assert f.novel_id
     resp = f._req(
         "POST",
-        f"/api/rag/retrieve?novel_id={f.novel_id}",
+        f"/api/evidence/indexing/retrieve?novel_id={f.novel_id}",
         json={"query": "不存在的线索", "top_k": 5},
     )
     data = resp.json() if resp.ok else {}
@@ -372,7 +372,7 @@ def test_s7_empty_retrieve_safe(f: Fixture) -> None:
             detail=f"status={resp.status_code} body={resp.text[:200]}",
             bug=report_bug(
                 "S7-VAL-001",
-                "POST /api/rag/retrieve",
+                "POST /api/evidence/indexing/retrieve",
                 "200 with total=0 and empty chunks",
                 resp.text[:200],
                 resp.status_code,
@@ -386,7 +386,7 @@ def test_s8_character_mode_requires_pov(f: Fixture) -> None:
     assert f.novel_id
     resp = f._req(
         "POST",
-        "/api/context/compile",
+        "/api/evidence/compilation/compile",
         json={
             "novel_id": f.novel_id,
             "task": "测试角色视角",
@@ -403,7 +403,7 @@ def test_s8_character_mode_requires_pov(f: Fixture) -> None:
             detail=f"status={resp.status_code} body={resp.text[:200]}",
             bug=report_bug(
                 "S8-VAL-001",
-                "POST /api/context/compile",
+                "POST /api/evidence/compilation/compile",
                 "400 with viewpoint_character_id error",
                 resp.text[:200],
                 resp.status_code,
@@ -417,7 +417,7 @@ def test_s8_invalid_scope_rejected(f: Fixture) -> None:
     assert f.novel_id
     resp = f._req(
         "POST",
-        "/api/context/compile",
+        "/api/evidence/compilation/compile",
         json={
             "novel_id": f.novel_id,
             "task": "非法 scope",
@@ -434,7 +434,7 @@ def test_s8_invalid_scope_rejected(f: Fixture) -> None:
             detail=f"status={resp.status_code} body={resp.text[:200]}",
             bug=report_bug(
                 "S8-VAL-002",
-                "POST /api/context/compile",
+                "POST /api/evidence/compilation/compile",
                 "400 invalid scope",
                 resp.text[:200],
                 resp.status_code,

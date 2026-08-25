@@ -96,7 +96,7 @@ class TestNovelIdIsolation:
 
         # Act
         resp = await client.post(
-            f"/api/rag/retrieve?novel_id={pid_b}",
+            f"/api/evidence/indexing/retrieve?novel_id={pid_b}",
             json={
                 "query": "test",
             },
